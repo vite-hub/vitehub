@@ -2586,10 +2586,11 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   delivery?: "automatic" | "manual"
   durable?: boolean
   /**
-   * Add the Console URL of the failed Invocation to each error reply.
+   * Link the Invocation in the Console, for internal users. Error replies get `Details: <Console URL>`,
+   * and an inline loading message gets a `[Details](<Console URL>)` link that stays through commentary updates.
    * Off by default, because the link shows internal details to the people in the conversation.
    */
-  errorConsoleLink?: boolean
+  consoleLink?: boolean
   errorFallbackText?: string | null | ((context: AgentChatErrorHookArgs<TRuntimeConfig> & {
     /** The text ViteHub sends when `errorFallbackText` is not set. */
     defaultText: string

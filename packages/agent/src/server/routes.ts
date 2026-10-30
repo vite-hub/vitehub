@@ -2469,7 +2469,7 @@ function createManualDeliveryProgressUpdater(
   manualDelivery: { placeholder?: unknown },
   waitUntil: AgentWaitUntil,
   abortSignal?: AbortSignal,
-  options?: { intervalMs?: number, updates?: "commentary" },
+  options?: { footer?: string, intervalMs?: number, updates?: "commentary" },
 ): {
   finish: () => Promise<void>
   update: (event: unknown) => void
@@ -2501,7 +2501,7 @@ function createManualDeliveryProgressUpdater(
     const summary = latest
     latest = undefined
     await replaceManualDeliveryPlaceholder(manualDelivery.placeholder, {
-      markdown: summary,
+      markdown: `${summary}${options?.footer ?? ""}`,
     }).catch(() => false)
     lastUpdateAt = Date.now()
   }
@@ -5248,7 +5248,7 @@ function chatErrorHookArgs(
   abortSignal?: AbortSignal,
   onPost?: () => void,
   invocation?: AgentInvocationReference,
-  errorConsoleLink = false,
+  consoleLink = false,
 ): AgentChatErrorHookArgs<ViteAgentRouteRuntimeConfig> {
   const inputMessage = input?.messages.at(-1)
   // SAFETY: The surrounding route guards establish this record shape before the value crosses the internal boundary.
@@ -5267,7 +5267,7 @@ function chatErrorHookArgs(
     toolResults: [...toolResults],
     thread: {
       post: async (postedMessage) => {
-        const consoleUrl = errorConsoleLink ? invocation?.consoleUrl : undefined
+        const consoleUrl = consoleLink ? invocation?.consoleUrl : undefined
         // SAFETY: The error hook accepts the same chat message payloads as postChatMessage.
         const posted = postedMessage as AgentChatMessage
         const message = consoleUrl && isRuntimeString(postedMessage) && !postedMessage.includes(consoleUrl)
@@ -5451,7 +5451,7 @@ export async function postChatErrorFallback(
     chatErrorHookArgs(thread, message, input, run, error, toolResults, fallbackResolutionAbort?.signal, () => {
       callbackDelivered = true
       resolveCallbackDelivery?.()
-    }, invocation, options?.errorConsoleLink),
+    }, invocation, options?.consoleLink),
     () => callbackDelivered,
     (resolution) => enforceChatInvocationTimeout(resolution, fallbackResolutionTimeout, fallbackResolutionAbort),
   )
@@ -7224,8 +7224,11 @@ async function handleChatSdkMessage(
     const inlineRunContext = run?.runId ? withAgentInvocationResponseOwner(runContext, run.runId) : runContext
     const configuredThinkingFallback = invocation.metadata?.thinkingFallback
     const thinkingFallback = isRuntimeString(configuredThinkingFallback) ? formatChannelCitationText(configuredThinkingFallback) : configuredThinkingFallback
+    // The footer stays on the loading message through every commentary update.
+    const consoleUrl = bufferedDelivery && options?.consoleLink ? (await invocationReference)?.consoleUrl : undefined
+    const loadingFooter = consoleUrl ? `\n\n[Details](<${consoleUrl}>)` : undefined
     if (bufferedDelivery && isRuntimeString(thinkingFallback)) {
-      const placeholderDelivery = thread.post(thinkingFallback).then(async (placeholder) => {
+      const placeholderDelivery = thread.post(loadingFooter ? { markdown: `${thinkingFallback}${loadingFooter}` } : thinkingFallback).then(async (placeholder) => {
         if (invocationDeadlineAbort?.signal.aborted) {
           await deleteManualDeliveryPlaceholder(placeholder)
           invocationDeadlineAbort.signal.throwIfAborted()
@@ -7242,6 +7245,7 @@ async function handleChatSdkMessage(
     chatFinish = createChatFinishExtension(input, registration)
     progress = bufferedDelivery
       ? createManualDeliveryProgressUpdater(manualDeliveryState, context.waitUntil, invocationDeadlineAbort?.signal, {
+          footer: loadingFooter,
           intervalMs: options?.loading?.intervalMs,
           updates: options?.loading?.updates,
         })
