@@ -7239,7 +7239,7 @@ async function handleChatSdkMessage(
     const thinkingFallback = isRuntimeString(configuredThinkingFallback) ? formatChannelCitationText(configuredThinkingFallback) : configuredThinkingFallback
     // The footer stays on the loading message through every commentary update.
     const consoleUrl = bufferedDelivery && options?.consoleLink ? (await invocationReference)?.consoleUrl : undefined
-    const loadingFooter = consoleUrl ? `\n\n[Details](${consoleUrl})` : undefined
+    const loadingFooter = consoleUrl ? `\n\n[Details](<${consoleUrl}>)` : undefined
     if (bufferedDelivery && isRuntimeString(thinkingFallback)) {
       const placeholderDelivery = thread.post(loadingFooter ? { markdown: `${thinkingFallback}${loadingFooter}` } : thinkingFallback).then(async (placeholder) => {
         if (invocationDeadlineAbort?.signal.aborted) {

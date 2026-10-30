@@ -9,7 +9,7 @@ import { clearTimeout as clearNodeTimeout, setTimeout as setNodeTimeout } from "
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
-import { Chat, Message } from "chat"
+import { Chat, Message, parseMarkdown } from "chat"
 import { transform } from "esbuild"
 import { removeProviderOutputArtifactDir } from "@vite-hub/internal/build/provider-output-sources"
 import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -20494,8 +20494,14 @@ describe("server helpers", () => {
     expect(adapter.postMessage.mock.invocationCallOrder[1]).toBeLessThan(adapter.deleteMessage.mock.invocationCallOrder[0]!)
   })
 
-  it.each([true, false])("links the running Invocation from the loading message (consoleLink: %s)", async (consoleLink) => {
+  it.each([
+    { base: "/", consoleLink: true, messageId: 91_901 },
+    { base: "/", consoleLink: false, messageId: 91_902 },
+    { base: "/team_(east)/", consoleLink: true, messageId: 91_903 },
+    { base: "/team_east)/", consoleLink: true, messageId: 91_904 },
+  ])("links the running Invocation from the loading message (consoleLink: $consoleLink, base: $base)", async ({ base, consoleLink, messageId }) => {
     vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { support: "https://agents.example.test" } })
+    vi.stubGlobal("__VITEHUB_APP_BASE_URL__", base)
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -20535,12 +20541,23 @@ describe("server helpers", () => {
     const handler = createChannelWebhookRouteHandler(agent as never)
 
     try {
-      const response = await handler(chatWebhookRequest(consoleLink ? 91_901 : 91_902), "telegram")
+      const response = await handler(chatWebhookRequest(messageId), "telegram")
 
       expect(response.status).toBe(200)
       expect(runId).toBeDefined()
       const id = await agentInvocationId(runId!, "support")
-      const footer = `\n\n[Details](https://agents.example.test/_vitehub/agents/support/invocations/${encodeURIComponent(id)})`
+      const consoleUrl = `https://agents.example.test${base}_vitehub/agents/support/invocations/${encodeURIComponent(id)}`
+      for (const message of [adapter.postMessage.mock.calls[0]?.[1], adapter.editMessage.mock.calls.at(-1)?.[2]]) {
+        if (!consoleLink) continue
+        const markdown = isRuntimeObject(message) && message && "markdown" in message && isRuntimeString(message.markdown) ? message.markdown : ""
+        expect(parseMarkdown(markdown)).toMatchObject({
+          children: [
+            { type: "paragraph" },
+            { children: [{ type: "link", url: consoleUrl }], type: "paragraph" },
+          ],
+        })
+      }
+      const footer = `\n\n[Details](<${consoleUrl}>)`
       expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", consoleLink ? { markdown: `Loading…${footer}` } : "Loading…")
       expect(adapter.editMessage).toHaveBeenLastCalledWith("telegram:456", "sent-1", {
         markdown: consoleLink ? `Checking the request.${footer}` : "Checking the request.",
