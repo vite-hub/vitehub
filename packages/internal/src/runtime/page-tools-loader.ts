@@ -126,6 +126,9 @@ export interface LoadViteHubPageToolsOptions {
  * while a tool is mounted or available to launch or retry. Returns those available tools.
  */
 export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions = {}): Promise<ViteHubPageToolInfo[]> {
+  // Vite pages load this external module under CSP; visitors without a hint make no session request.
+  const query = new URLSearchParams(location.search)
+  if (!query.has(viteHubPageToolsQuery) && !document.cookie.split(";").some(part => part.trim() === `${viteHubPageToolsCookie}=1`)) return []
   const load = options.load ?? ((script: string) => import(/* @vite-ignore */ script))
   let session: ViteHubPageSession
   try {
@@ -139,7 +142,7 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
   // One pill per page: a second loader on the same page does nothing.
   if (session.tools.length === 0 || document.querySelector("vitehub-pill")) return []
 
-  const open = new URLSearchParams(location.search).get(viteHubPageToolsQuery)
+  const open = query.get(viteHubPageToolsQuery)
   const querySelected = session.tools.some(tool => tool.id === open)
   const pillController = new AbortController()
   const controllers = session.tools.map(() => new AbortController())
@@ -210,6 +213,7 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
             createWindow: options => {
               const window = createViteHubPageWindow({ ...options, signal: attempt.signal, onHide: () => { remember(tool.id, false); options.onHide?.() } })
               const retained = { ...window, show() {
+                if (attempt.signal.aborted) return
                 for (const [id, other] of windows) if (id !== tool.id) other.hide()
                 remember(tool.id, true)
                 window.show()

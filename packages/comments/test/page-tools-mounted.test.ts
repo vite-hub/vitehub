@@ -32,7 +32,7 @@ describe("mounted page tools", () => {
       if (!hook) throw new Error("Expected a config hook")
       await Reflect.apply(typeof hook === "function" ? hook : hook.handler, {}, [config, { command: "build", mode: "production" }])
       const sessionRoute = config.nitro!.handlers.find(handler => handler.route.endsWith("/_vitehub/page/session"))!.route
-      const asset = config.nitro!.publicAssets.find(asset => asset.baseURL.endsWith("/_vitehub/page/assets"))!
+      const asset = config.nitro!.publicAssets.find(asset => asset.baseURL?.endsWith("/_vitehub/page/assets"))!
       expect(sessionRoute).toBe(`${mount}/_vitehub/page/session`)
       expect(asset.baseURL).toBe(`${mount}/_vitehub/page/assets`)
       // Deny access so the real browser loader stops after the visitor check, without needing an overlay DOM.
@@ -45,14 +45,14 @@ describe("mounted page tools", () => {
       const pageURL = `https://site.test${mount}/guide?vitehub`
       const html = await (await app.fetch(new Request(pageURL))).text()
       const src = /src="([^"]+)"/.exec(html)?.[1]
-      expect(src).toBe(`${mount}/_vitehub/page/assets/loader.js?v=7`)
+      expect(src).toBe(`${mount}/_vitehub/page/assets/loader.js?v=8`)
       const fetch = vi.fn(async (path: string, init?: RequestInit) => app.fetch(new Request(new URL(path, pageURL), init)))
       const executeLoader = async (url: string) => {
         const response = await app.fetch(new Request(new URL(url, pageURL)))
         expect(response.status).toBe(200)
         const script = await response.text()
-        // Give the built module its browser URL while executing it in Node.
-        compileFunction(script.replaceAll("import.meta.url", JSON.stringify(new URL(url, pageURL).href)), ["fetch"])(fetch)
+        // Give the built module its browser URL and page hint while executing it in Node.
+        compileFunction(script.replaceAll("import.meta.url", JSON.stringify(new URL(url, pageURL).href)), ["fetch", "location", "document"])(fetch, new URL(pageURL), { cookie: "" })
       }
       await executeLoader(src!)
       await vi.waitFor(() => expect(authorize).toHaveBeenCalledOnce())

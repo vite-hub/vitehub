@@ -13,6 +13,29 @@ type Column<Table extends string, Data, NotNull extends boolean, PrimaryKey exte
 type ThreadColumn<Data, NotNull extends boolean, PrimaryKey extends boolean = false, HasDefault extends boolean = false> = Column<"vitehub_comment_threads", Data, NotNull, PrimaryKey, HasDefault>
 type CommentColumn<Data, NotNull extends boolean, PrimaryKey extends boolean = false> = Column<"vitehub_comments", Data, NotNull, PrimaryKey>
 
+type ForgeColumn<Data, NotNull extends boolean, PrimaryKey extends boolean = false, HasDefault extends boolean = false> = Column<"vitehub_comment_forge", Data, NotNull, PrimaryKey, HasDefault>
+
+/** The `vitehub_comment_forge` table, typed explicitly so its declaration can be emitted. */
+export type CommentForgeTable = SQLiteTableWithColumns<{
+  columns: {
+    id: ForgeColumn<string, true, true>
+    threadId: ForgeColumn<string, false>
+    repository: ForgeColumn<string, true>
+    pullRequest: ForgeColumn<number, true>
+    remoteId: ForgeColumn<string, false>
+    nodeId: ForgeColumn<string, false>
+    url: ForgeColumn<string, false>
+    digest: ForgeColumn<string, false>
+    postedAs: ForgeColumn<"author" | "app", false>
+    minimized: ForgeColumn<boolean, true, false, true>
+    error: ForgeColumn<string, false>
+    updatedAt: ForgeColumn<number, true>
+  }
+  dialect: "sqlite"
+  name: "vitehub_comment_forge"
+  schema: undefined
+}>
+
 /** The `vitehub_comment_threads` table, typed explicitly so its declaration can be emitted. */
 export type CommentThreadsTable = SQLiteTableWithColumns<{
   columns: {
@@ -109,6 +132,32 @@ const comments = sqliteTable("vitehub_comments", {
   index("vitehub_comments_thread").on(table.threadId, table.createdAt),
 ]) as unknown as CommentsTable
 
+// SAFETY: CommentForgeTable mirrors the columns constructed here.
+// doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Drizzle's inferred table type cannot be emitted under isolatedDeclarations, so keep the public schema explicit here.
+const commentForge = sqliteTable("vitehub_comment_forge", {
+  /** A comment id, `summary:<repository>#<pull request>`, or `cleanup:<repository>#<remote id>` for a pending delete. */
+  id: text("id").primaryKey(),
+  /** Null for summaries and cleanup rows, which survive deletion of the original thread. */
+  threadId: text("thread_id"),
+  repository: text("repository").notNull(),
+  pullRequest: integer("pull_request").notNull(),
+  /** The forge's id of the comment. Null until it posts. */
+  remoteId: text("remote_id"),
+  /** The GraphQL id, to hide the comment of a resolved thread. */
+  nodeId: text("node_id"),
+  url: text("url"),
+  /** Hash of the body the forge has, so an unchanged comment is not sent again. */
+  digest: text("digest"),
+  postedAs: text("posted_as", { enum: ["author", "app"] }),
+  /** Whether the forge hides the comment, because its thread is resolved. */
+  minimized: integer("minimized", { mode: "boolean" }).notNull().default(false),
+  error: text("error"),
+  updatedAt: integer("updated_at").notNull(),
+}, table => [
+  index("vitehub_comment_forge_thread").on(table.threadId),
+  index("vitehub_comment_forge_pull_request").on(table.repository, table.pullRequest),
+]) as unknown as CommentForgeTable
+
 // SAFETY: CommentScopeCountersTable mirrors the columns constructed here.
 // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Drizzle's inferred table type cannot be emitted under isolatedDeclarations.
 const scopeCounters = sqliteTable("vitehub_comment_scope_counters", {
@@ -117,11 +166,13 @@ const scopeCounters = sqliteTable("vitehub_comment_scope_counters", {
 }) as unknown as CommentScopeCountersTable
 
 /**
- * The tables behind Comments. ViteHub adds them to the Database of `defineComments({ database })` for you; add them
- * yourself only to a Database that you configure without ViteHub. For existing tables, follow the scope upgrade
- * at https://vitehub.dev/docs/comments/configure#upgrade-existing-comments before applying generated migrations.
+ * The tables behind Comments, including forge links and scope numbering. ViteHub adds them to the Database of
+ * `defineComments({ database })` for you; add them yourself only to a Database configured without ViteHub.
+ * For existing tables, follow https://vitehub.dev/docs/comments/configure#upgrade-existing-comments before
+ * applying the migration that `vitehub db generate` writes.
  */
 // The keys carry the prefix too: ViteHub merges them into the app's Database schema, which may have its own `comments`.
-export const commentsSchema: { vitehubCommentThreads: CommentThreadsTable, vitehubComments: CommentsTable, vitehubCommentScopeCounters: CommentScopeCountersTable } = { vitehubCommentThreads: commentThreads, vitehubComments: comments, vitehubCommentScopeCounters: scopeCounters }
+export const commentsSchema: { vitehubCommentThreads: CommentThreadsTable, vitehubComments: CommentsTable, vitehubCommentForge: CommentForgeTable, vitehubCommentScopeCounters: CommentScopeCountersTable } = { vitehubCommentThreads: commentThreads, vitehubComments: comments, vitehubCommentForge: commentForge, vitehubCommentScopeCounters: scopeCounters }
+export { commentsTables } from "./tables.ts"
 
 export { commentThreads, commentMessages, commentCounters, commentsSchema as commentsOperationsSchema } from "./operations-core/database.ts"

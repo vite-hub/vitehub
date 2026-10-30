@@ -105,11 +105,15 @@ export function createViteHubPageWindow(options: ViteHubPageWindowOptions): Vite
     }
   })
   const destroy = () => { resize.disconnect(); host.remove() }
-  options.signal.addEventListener("abort", destroy, { once: true })
-  document.body.append(host)
+  if (options.signal.aborted) destroy()
+  else {
+    options.signal.addEventListener("abort", destroy, { once: true })
+    document.body.append(host)
+  }
   return {
     body,
     show() {
+      if (options.signal.aborted) return
       host.style.colorScheme = getComputedStyle(options.trigger).colorScheme
       host.hidden = false
       options.trigger.setAttribute("aria-expanded", "true")

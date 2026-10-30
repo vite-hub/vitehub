@@ -37,9 +37,10 @@ import type { AnyContentCollection, ContentDocument, ContentDocumentStatus, Cont
 import type { ContentDocumentSchedule, ContentSchedule } from "../schedules.ts"
 import type { ContentDocumentSessions, ContentSession } from "../sessions.ts"
 import { contentLive } from "../live.ts"
+import { contentPreviewFrameParameter } from "../preview.ts"
 
 type ContentRuntime = Pick<ContentDocumentsRuntime, "can" | "collection" | "collections" | "publish" | "revisions" | "supportsScheduling" | "schedule" | "schedules" | "unschedule">
-  & Partial<Pick<ContentDocumentsRuntime, "hasPolicy" | "live" | "sessions">>
+  & Partial<Pick<ContentDocumentsRuntime, "hasPolicy" | "live" | "preview" | "sessions">>
 
 const sessionActions: readonly ViteHubConsoleDocumentSessionAction[] = ["report", "acquire", "takeover", "release"]
 
@@ -136,8 +137,13 @@ function translate(error: unknown): never {
   if (code === "WORKSPACE_CONFLICT") {
     const conflict = isRecord(details) ? details : {}
     const documents = publishMismatches(conflict)
+    const count = documents?.length === 1 ? "1 document" : `${documents?.length} documents`
+    // `published`: the site changed after the draft started from it, so publishing would erase that change.
+    if (documents && conflict.ref === "published") {
+      throw failure(409, "WORKSPACE_CONFLICT", `${count} also changed on the site after the draft started from ${documents.length === 1 ? "it" : "them"}. Nothing was published.`, { documents, ref: "published" })
+    }
     if (documents) {
-      throw failure(409, "WORKSPACE_CONFLICT", `${documents.length === 1 ? "1 document" : `${documents.length} documents`} changed since you reviewed them. Nothing was published.`, { documents, ref: "draft" })
+      throw failure(409, "WORKSPACE_CONFLICT", `${count} changed since you reviewed them. Nothing was published.`, { documents, ref: "draft" })
     }
     throw failure(409, "WORKSPACE_CONFLICT", "This document changed since you opened it.", {
       actual: conflict.actual ?? null,
@@ -158,6 +164,9 @@ function translate(error: unknown): never {
   if (String(code) === code && /^(?:CONTENT|SOURCE)_R\d+$/.test(code)) throw failure(400, code, message)
   throw error
 }
+
+/** Seconds a Console preview frame token stays valid. */
+const previewMaxAge = 15 * 60
 
 async function attempt<T>(run: () => Promise<T>): Promise<T> {
   try {
@@ -440,6 +449,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
     const status = await collection.status(document.id)
     if (status) result.state = status.state
     if (status?.schedule) result.schedule = scheduleView(status.schedule)
+    if (status?.conflict) result.conflict = { published: status.published }
     return result
   }
 
@@ -575,6 +585,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
             }
             if (status?.schedule) summary.schedule = scheduleView(status.schedule)
             if (status?.issues) summary.issues = status.issues
+            if (status?.conflict) summary.conflict = { published: status.published }
             return summary
           }),
           nextCursor: page.nextCursor,
@@ -592,10 +603,26 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       if (!isRecord(input)) throw invalidInput("get() requires { collection, id }.")
       const collection = open(input.collection)
       const id = text(input.id, "id")
+      const ref = input.ref ?? "draft"
+      if (ref !== "draft" && ref !== "published") throw invalidInput("ref must be draft or published.")
       await allow(context, collection, "read", id)
       return await attempt(async () => {
-        const document = await collection.get(id, { ref: "draft" })
+        const document = await collection.get(id, { ref })
         return document ? await view(collection, document) : null
+      })
+    },
+
+    async preview(input, context) {
+      if (!isRecord(input)) throw invalidInput("preview() requires { collection, id }.")
+      const collection = open(input.collection)
+      const id = text(input.id, "id")
+      await allow(context, collection, "read", id)
+      if (!content.preview) throw failure(404, "CONTENT_PREVIEW_UNAVAILABLE", "This Content runtime has no draft preview.")
+      const preview = content.preview
+      return await attempt(async () => {
+        // A short token for this document only: the editor asks again before it expires. The rest of the page reads published.
+        const { token, expiresAt } = await preview.sign({ collection: collection.name, id, maxAge: previewMaxAge })
+        return { parameter: contentPreviewFrameParameter, token, expiresAt: expiresAt.toISOString() }
       })
     },
 
@@ -619,7 +646,8 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       if (String(input.body) !== input.body) throw invalidInput("body must be a Markdown string.")
       const data = fieldValues(input.data)
       const ifDigest = digest(input.ifDigest)
-      return await attempt(async () => await view(collection, await collection.save(id, { data, body: input.body }, { ifDigest, metadata: writeMetadata(context), ...writeSession(input) })))
+      const published = input.ifPublishedDigest === undefined ? {} : { ifPublishedDigest: digest(input.ifPublishedDigest, "ifPublishedDigest") }
+      return await attempt(async () => await view(collection, await collection.save(id, { data, body: input.body }, { ifDigest, ...published, metadata: writeMetadata(context), ...writeSession(input), ...await liveWrite(input, collection, id) })))
     },
 
     async remove(input, context) {

@@ -1,6 +1,7 @@
 ---
 title: Chat
 description: Add the chat.message Agent Trigger, Chat History state, and chat finish behavior to an Agent without Channels.
+seo.title: Chat capability for Agents
 navigation.title: Chat
 navigation.order: 120
 navigation.group: Capabilities

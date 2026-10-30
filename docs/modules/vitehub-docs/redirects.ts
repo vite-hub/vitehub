@@ -96,6 +96,8 @@ const movedLearningPages = new Map(Object.entries({
 
 export const docsPageRedirects = {
   "/blog/agents": "/docs/getting-started/first-agent",
+  "/blog/build-ai-chatbot": "/docs/agents/build-a-chat-app",
+  "/blog/introducing-vitehub": "/docs/getting-started",
   "/blog/server-primitives": "/docs/getting-started/server-primitives",
   "/docs/agents/capabilities/code-host": "/docs/agents/capabilities/forge",
   "/docs/agents/code-host-channels": "/docs/agents/forge-channels",

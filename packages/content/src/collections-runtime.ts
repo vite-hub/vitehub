@@ -25,6 +25,7 @@ import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { ContentScheduleCancelled, contentScheduleKey, createContentSchedules } from "./schedules.ts"
 import { isContentSeoField } from "./seo.ts"
 import { contentLive, contentLiveRoom, contentLiveSession } from "./live.ts"
+import { mergeContentDocument } from "./merge.ts"
 import { contentLeaseHeld, createContentSessions } from "./sessions.ts"
 
 import type { ViteHubErrorDetails } from "@vite-hub/runtime"
@@ -226,6 +227,16 @@ export interface ContentDocumentStatus {
   schedule?: ContentDocumentSchedule
   /** The open pull request that publishes this document. The document reaches `published` when it merges. */
   pullRequest?: ContentPullRequest
+  /**
+   * Set when the draft and the published version both changed this document since the draft took it from published,
+   * as when a Git commit edits a page that a CMS draft also edits. `publish()` refuses the document until a save with
+   * `ifPublishedDigest` set to `published` records which version the draft builds on. Only Stores whose draft is a
+   * branch of its own, such as the GitHub store, report it.
+   */
+  conflict?: {
+    /** Digest of the version that the draft started from, or null when the draft added the document. */
+    base: string | null
+  }
 }
 
 /** One document `publish({ expect })` must find on the draft before it publishes it. */
@@ -536,6 +547,12 @@ export interface ContentCollectionsOptions {
   collections: Record<string, ContentCollectionDefinition>
   /** The ref that `get()` and `list()` read without `ref`: `draft` inside a preview request, otherwise `published`. */
   defaultRef?: () => ContentRef
+  /**
+   * The one document that the current preview frame request reads as a draft, and the version on screen that the
+   * frame posted for it. `get()` and `list()` of its collection without `ref` or `revision` read it; the rest of the
+   * request reads `defaultRef()`.
+   */
+  previewFrame?: () => { collection: string, id: string, document?: { data: Record<string, unknown>, body?: string } } | undefined
   /** `false` keeps one editor at a time even where live editing is installed. */
   live?: "auto" | false
   /** `pr` publishes through a pull request on a Store that has them. Defaults to `commit`. */
@@ -697,6 +714,7 @@ const contentPublishes = new AsyncLocalStorage<true>()
 export function createContentCollections(options: ContentCollectionsOptions): ContentCollectionsRuntime {
   const workspaceName = options.workspace
   const defaultRef = options.defaultRef ?? (() => "published" as const)
+  const previewFrame = options.previewFrame ?? (() => undefined)
   const texts = new BoundedCache<string>(32 * 1024 * 1024, text => text.length * 2)
   const revisions = new BoundedCache<Promise<OpenedRevision>>(16)
   const publishListeners: Array<(collections: string[]) => Promise<void> | void> = []
@@ -790,10 +808,14 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   }
 
   function isDocumentPath(path: string): boolean {
+    return documentFormat(path) !== undefined
+  }
+
+  /** The format of the collection that holds `path`, or undefined for a file of no collection. */
+  function documentFormat(path: string): ContentFormat | undefined {
     for (const collection of collections.values()) {
-      if (collection.compiled.match(path)) return true
+      if (collection.compiled.match(path)) return collection.compiled.format
     }
-    return false
   }
 
   /** Paths a Content commit changed, from its `metadata.content.documents`. Undefined for other commits and seeds. */
@@ -1026,17 +1048,37 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           into: "draft",
           message: "Bring published content into the draft",
           metadata: { content: { ...content, bases } },
-          onConflict: async (conflicts) => {
+          onConflict: async (conflicts, { read }) => {
             const left: string[] = []
-            for (const { path, theirs } of conflicts) {
-              if (!isDocumentPath(path) || !Object.hasOwn(carried, path)) continue
-              if (await draftHeld(path, theirs, draftHead)) bases[path] = theirs
-              else {
-                bases[path] = carried[path] ?? null
-                left.push(path)
+            const merged: Record<string, string> = {}
+            for (const { path, ours, theirs } of conflicts) {
+              const format = documentFormat(path)
+              if (format === undefined || !Object.hasOwn(carried, path)) continue
+              if (await draftHeld(path, theirs, draftHead)) {
+                bases[path] = theirs
+                continue
               }
+              // Edits to different fields or words merge. The result stays in the draft, so a person sees it before
+              // it is published; it now builds on the published version.
+              // Git's base advances even when an earlier sync kept a conflict. Use the unresolved Content base.
+              const base = carried[path] ?? null
+              if (base !== null && ours !== null && theirs !== null) {
+                const [baseText, oursText, theirsText] = await Promise.all([base, ours, theirs].map(async digest => new TextDecoder().decode(await read(digest))))
+                const result = mergeContentDocument(baseText!, oursText!, theirsText!, format)
+                if ("text" in result) {
+                  merged[path] = result.text
+                  bases[path] = theirs
+                  continue
+                }
+              }
+              bases[path] = carried[path] ?? null
+              left.push(path)
             }
-            return { content: { ...content, bases, ...(left.length ? { conflicts: left } : {}) } }
+            const paths = Object.keys(merged)
+            return {
+              metadata: { content: { ...content, bases, ...(paths.length ? { merged: paths } : {}), ...(left.length ? { conflicts: left } : {}) } },
+              ...(paths.length ? { files: merged } : {}),
+            }
           },
         })
       }
@@ -1282,10 +1324,54 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       return query
     }
 
+    /** The document of this collection that the current preview frame reads as a draft, for a read without `ref` or `revision`. */
+    function framed(options: ContentReadOptions): { id: string, path: string, document?: { data: Record<string, unknown>, body?: string } } | undefined {
+      if (options.ref !== undefined || options.revision !== undefined) return
+      const frame = previewFrame()
+      if (frame?.collection !== name) return
+      try {
+        return { id: frame.id, path: pathFor(frame.id), document: frame.document }
+      }
+      catch {
+        // A signed id outside the collection previews nothing.
+        return undefined
+      }
+    }
+
+    /**
+     * The draft of the framed document: the version the frame posted, read like a stored file, else the stored draft.
+     * A posted version that cannot be read as a file falls back to the stored draft.
+     */
+    async function frameDraft(target: { id: string, path: string, document?: { data: Record<string, unknown>, body?: string } }): Promise<IndexedDocument | null> {
+      const opened = (await refState("draft")).opened
+      if (!opened) return null
+      const updatedAt = (await updatedAtMap(opened)).get(target.path) ?? null
+      if (target.document) {
+        try {
+          const text = renderDocumentFile(inFieldOrder(normalizeFrontmatter(target.document.data)), format === "markdown" ? target.document.body ?? "" : "", format)
+          const parsed = await parseText(text)
+          if (!parsed.malformed) return documentOf(target.id, { path: target.path, digest: await sha256(text) }, parsed, opened.revision, updatedAt)
+        }
+        catch {
+          // Fields that are not data render the stored draft.
+        }
+      }
+      const digest = opened.files.get(target.path)
+      if (digest === undefined) return null
+      const entry = { path: target.path, digest }
+      const parsed = await parseEntry(opened, entry)
+      return listable(opened, parsed) ? documentOf(target.id, entry, parsed, opened.revision, updatedAt) : null
+    }
+
     async function list(options: ContentListOptions = {}): Promise<ContentPage> {
       const state = await refState(assertRef(options.ref, defaultRef()))
-      const items = state.opened ? await index(state.opened) : []
-      const digest = `${name}:${state.revision?.id ?? "empty"}`
+      const stored = state.opened ? await index(state.opened) : []
+      const target = framed(options)
+      const draftItem = target && await frameDraft(target)
+      const items = target
+        ? [...stored.filter(item => item.id !== target.id), ...draftItem ? [draftItem] : []].sort((left, right) => left.id.localeCompare(right.id))
+        : stored
+      const digest = `${name}:${state.revision?.id ?? "empty"}${target ? `:${target.id}@${draftItem?.digest ?? "none"}` : ""}`
       const listed = defineCollection({
         source: array(() => ({ digest, items }), {
           defaultLimit: listDefaultLimit,
@@ -1314,6 +1400,8 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
 
     async function get(id: string, options: ContentReadOptions = {}): Promise<IndexedDocument | null> {
       const path = pathFor(id)
+      const target = framed(options)
+      if (target?.path === path) return await frameDraft(target)
       const opened = await openFor("get", options)
       const digest = opened?.files.get(path)
       if (!opened || digest === undefined) return null
@@ -1509,6 +1597,19 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         const parsed = await parseEntry(draft.opened!, entry)
         if (parsed.issues?.length) issueCounts.set(documentId, parsed.issues.length)
       })
+      // Documents that publish() refuses because both sides changed them, by the rule that publish() applies.
+      const conflicts = new Map<string, string | null>()
+      if (bases && draft.revision) {
+        const ids = id === undefined ? new Set([...draftEntries.keys(), ...publishedEntries.keys()]) : new Set([id])
+        await mapLimit([...ids], 8, async (documentId) => {
+          const path = pathFor(documentId)
+          const publishedDigest = publishedEntries.get(documentId)?.digest
+          if (!Object.hasOwn(bases, path) || (draftEntries.get(documentId)?.digest ?? null) === (publishedDigest ?? null)) return
+          if ((publishedDigest ?? null) === bases[path]) return
+          if (await draftHeld(path, publishedDigest, draft.revision!)) return
+          conflicts.set(documentId, bases[path] ?? null)
+        })
+      }
       const statusOf = (documentId: string): ContentDocumentStatus | null => {
         const draftDigest = draftEntries.get(documentId)?.digest ?? null
         const publishedDigest = publishedEntries.get(documentId)?.digest ?? null
@@ -1527,6 +1628,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         if (schedule) status.schedule = schedule
         const pullRequest = pending.get(pathFor(documentId))
         if (pullRequest) status.pullRequest = pullRequest
+        if (conflicts.has(documentId)) status.conflict = { base: conflicts.get(documentId) ?? null }
         return status
       }
       if (id !== undefined) return statusOf(id)

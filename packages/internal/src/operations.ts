@@ -79,8 +79,8 @@ export interface OperationContext {
   /** Operations set a success status here, such as 202 for an accepted call. */
   response?: { status?: number }
   /**
-   * An agent may pass `lease: "override"` to `content.save` only when the developer allowed it. Defaults to false, so a
-   * model cannot take over a document that a person is editing.
+   * An agent or an MCP client may pass `lease: "override"` to `content.save`, `content.remove`, and `content.restore`
+   * only when the developer allowed it. Defaults to false, so a model cannot take over a document that a person is editing.
    */
   overrideLeases?: boolean
   /**
@@ -129,6 +129,8 @@ export interface OperationDefinition<Input, Output> {
    * confirmation, and agents run it without approval. Without it, every call of a `destructive` operation asks.
    */
   readOnlyWhen?: (input: Input) => boolean
+  /** `false`: MCP does not offer the operation as a tool, such as an editor transport that only the Console uses. */
+  mcp?: false
   /** `false`: the operation never reads `context.user`, so the Console skips the session lookup for it. */
   user?: false
   /**
@@ -316,7 +318,15 @@ export function operationCliPath(operation: Pick<AnyOperation, "cli" | "name" | 
   }
 }
 
-/** Build the registry by name. A duplicate name or CLI command fails with `INTERNAL_B0048` or `INTERNAL_B0049`. */
+/**
+ * The MCP tool name of an operation: every character outside `[a-zA-Z0-9_-]` becomes `_`, since clients such as
+ * Claude reject a dot in a tool name. `content.publish` is `content_publish`.
+ */
+export function operationToolName(name: string): string {
+  return name.replace(/[^\w-]/g, "_")
+}
+
+/** Build the registry by name. A duplicate name or CLI command fails with `INTERNAL_B0048` or `INTERNAL_B0049`, two MCP tool names that match with `INTERNAL_B0050`. */
 export function createOperationRegistry(sources: Iterable<{ operations: readonly AnyOperation[], plugin?: string }>): OperationRegistry {
   const byName = new Map<string, { operation: AnyOperation, plugin?: string }>()
   for (const source of sources) {
@@ -342,6 +352,16 @@ export function createOperationRegistry(sources: Iterable<{ operations: readonly
       throw internalErrorDiagnostics.INTERNAL_B0049({ message: `[vitehub] The operations ${JSON.stringify(other.name)} and ${JSON.stringify(operation.name)} are both the CLI command \`vitehub ${key}\`.` })
     }
     commands.set(key, operation)
+  }
+  const tools = new Map<string, AnyOperation>()
+  for (const operation of operations) {
+    if (operation.mcp === false) continue
+    const tool = operationToolName(operation.name)
+    const other = tools.get(tool)
+    if (other) {
+      throw internalErrorDiagnostics.INTERNAL_B0050({ message: `[vitehub] The operations ${JSON.stringify(other.name)} and ${JSON.stringify(operation.name)} are both the MCP tool ${JSON.stringify(tool)}.` })
+    }
+    tools.set(tool, operation)
   }
   return { get: name => byName.get(name)?.operation, list: () => [...operations] }
 }
