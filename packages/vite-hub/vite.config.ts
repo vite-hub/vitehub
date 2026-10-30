@@ -278,6 +278,7 @@ export default defineConfig({
       { from: "src/console/runtime/components/console-setup-hint.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-document-list.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-document-editor.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-document-preview.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-document-diff.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-document-history.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-schema-form.vue", to: "dist/console/runtime/components" },
@@ -352,6 +353,7 @@ export default defineConfig({
       "src/console/runtime/client/media-library.ts",
       "src/console/runtime/client/media-uploads.ts",
       "src/console/runtime/client/presence.ts",
+      "src/console/runtime/client/preview.ts",
       "src/console/runtime/client/publish.ts",
       "src/console/runtime/client/mcp.ts",
       "src/console/runtime/client/operation-view.ts",
@@ -420,6 +422,7 @@ export default defineConfig({
         delete exports["./console/runtime/client/media-library"];
         delete exports["./console/runtime/client/media-uploads"];
         delete exports["./console/runtime/client/presence"];
+        delete exports["./console/runtime/client/preview"];
         delete exports["./console/runtime/client/publish"];
         delete exports["./console/runtime/client/problem"];
         delete exports["./console/runtime/client/rate-limit"];
