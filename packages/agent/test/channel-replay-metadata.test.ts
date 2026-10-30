@@ -1,16 +1,20 @@
 import { createClient } from "@libsql/client"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 
 import { defineCollection } from "../../source/src/index.ts"
 import { defineChannel, defineChannelTrigger } from "../src/channels.ts"
 import { agentInvocationId, defineAgent } from "../src/index.ts"
+import { markDiscoveredAgentName } from "../src/internal/discovered-agent-name.ts"
+import { setWorkflowJournalName } from "../src/internal/workflow-journal-name.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations, pendingAgentInvocationAnnotation, workflowDispatchAttemptedAnnotation } from "../src/invocations.ts"
 import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
 import { channelMessageRunId, dispatchChannelItems, replayChannel } from "../src/channel-replay.ts"
 import type { AgentTriggerAcceptedInvocation } from "../src/types.ts"
 
 const metadata = { annotations: { trigger: "history" }, channelId: "mailbox", origin: "history-trigger", threadId: "message-thread" }
+
+afterEach(() => vi.unstubAllGlobals())
 
 function channel() {
   return defineChannel("mailbox", {
@@ -28,12 +32,20 @@ function channel() {
 }
 
 describe.each(["replay", "forced replay", "dispatch"])("%s Invocation references", (mode) => {
-  it.each([false, true])("uses the item run ID before callbacks (task: %s)", async (task) => {
+  it.each([
+    { source: "explicit", task: false },
+    { source: "explicit", task: true },
+    { source: "discovery", task: false },
+    { source: "discovery", task: true },
+    { source: "workflow journal", task: false },
+    { source: "workflow journal", task: true },
+  ])("uses the item run ID and $source name before callbacks (task: $task)", async ({ source, task }) => {
+    vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { support: "https://agents.example.test" } })
     const prepare = vi.fn((_invocation: AgentTriggerAcceptedInvocation) => undefined)
     const taskRun = vi.fn((_invocation: AgentTriggerAcceptedInvocation) => undefined)
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const agent = defineAgent({
-      name: "support", runtime: false, invocations, driver: { run: () => "done" },
+      ...(source === "explicit" ? { name: "support" } : {}), runtime: false, invocations, driver: { run: () => "done" },
       channels: { mailbox: defineChannel("mailbox", {
         messages: false,
         history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
@@ -45,13 +57,17 @@ describe.each(["replay", "forced replay", "dispatch"])("%s Invocation references
       }) },
     })
     const runtime = { runtime: "unknown" as const, memo: <T>(_key: string, create: () => T) => create(), waitUntil: () => {} }
-    const result = mode === "dispatch"
-      ? await dispatchChannelItems(agent, runtime, "mailbox", [{ key: "m1", input: { id: "m1" } }], { trigger: "received" })
-      : await replayChannel(agent, "mailbox", { force: mode === "forced replay", runtime })
+    if (source === "discovery") markDiscoveredAgentName(agent, "support")
+    else if (source === "workflow journal") setWorkflowJournalName(runtime, agent, "support")
+    const execute = () => mode === "dispatch"
+      ? dispatchChannelItems(agent, runtime, "mailbox", [{ key: "m1", input: { id: "m1" } }], { trigger: "received" })
+      : replayChannel(agent, "mailbox", { force: mode === "forced replay", runtime })
+    const result = await execute()
     expect(result).toMatchObject({ failed: 0, ...(task ? { skipped: 1 } : { processed: 1 }) })
     const runId = result.items[0]!.id
     expect(runId).not.toBe("trigger-run")
-    const invocation = { id: await agentInvocationId(runId, "support") }
+    const id = await agentInvocationId(runId, "support")
+    const invocation = { consoleUrl: `https://agents.example.test/_vitehub/agents/support/invocations/${encodeURIComponent(id)}`, id }
     const accepted = { invocation, run: { ...metadata, runId } }
     expect(prepare).toHaveBeenCalledOnce()
     expect(prepare.mock.calls[0]?.[0]).toMatchObject(accepted)
@@ -60,6 +76,10 @@ describe.each(["replay", "forced replay", "dispatch"])("%s Invocation references
       expect(taskRun.mock.calls[0]?.[0]).toMatchObject(accepted)
     }
     else expect(await invocations.getByRunId(runId, "support")).toMatchObject({ id: invocation.id, status: "completed" })
+    if (mode !== "forced replay") {
+      expect(await execute()).toMatchObject({ failed: 0, processed: 0, skipped: 1, items: [{ id: runId, reason: "existing" }] })
+      expect(prepare).toHaveBeenCalledOnce()
+    }
   })
 })
 

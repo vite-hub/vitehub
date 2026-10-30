@@ -4,8 +4,10 @@ import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { agentErrorMessage } from "./agent-error.ts"
 import { isResolvedAgentTriggerHandledInvocation, reserveAgentChannelItem, runAgent } from "./index.ts"
 import { AgentInvocationClaimConflict, exclusiveAgentInvocation, inheritedAgentInvocationClaim, type AgentInvocationJournal, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations } from "./invocations.ts"
+import { agentInvocationName } from "./internal/agent-invocation-name.ts"
 import { channelMessageRunId } from "./internal/channel-run-id.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
+import { readWorkflowJournalName, setWorkflowJournalName } from "./internal/workflow-journal-name.ts"
 import { agentToolJsonSchema } from "./tool-schema.ts"
 import { agentChannelOptions, prepareAgentTriggerInvocation, resolveAgentTriggerInvocation } from "./trigger-runtime.ts"
 
@@ -271,7 +273,6 @@ export async function replayChannel<TRuntimeConfig extends AgentRuntimeConfig = 
 ): Promise<ReplayChannelResult> {
   assertReplayOptions(options)
   const { history, triggerId } = resolveChannelHistory(agent, channel)
-  const agentName = agent.name || options.runtime?.agentIdentity?.name
   const invocations = agent.invocations
   if (!invocations && !options.force && !options.dryRun) {
     throw agentDiagnostics.AGENT_R0932({ message: `[vitehub] Replaying Channel "${channel}" needs Agent Invocations to skip handled items. Configure invocations or the Console, or pass force.` })
@@ -292,6 +293,7 @@ export async function replayChannel<TRuntimeConfig extends AgentRuntimeConfig = 
     runtime = { memo: created.memo, runtime: created.runtime, waitUntil: created.waitUntil }
     flushWaitUntil = () => created.flushWaitUntil()
   }
+  const agentName = agentInvocationName(agent, runtime)
   const result: ReplayChannelResult = { failed: 0, items: [], nextCursor: options.cursor ?? null, processed: 0, skipped: 0 }
   let cursor = options.cursor
   let remaining = options.limit ?? Number.POSITIVE_INFINITY
@@ -368,9 +370,11 @@ export async function dispatchChannelItems<TRuntimeConfig extends AgentRuntimeCo
     runtime: runtime.runtime,
     waitUntil: runtime.waitUntil,
   }
+  const journalName = readWorkflowJournalName(runtime, agent)
+  if (journalName) setWorkflowJournalName(base, agent, journalName)
   const run = {
     agent,
-    agentName: agent.name || runtime.agentIdentity?.name,
+    agentName: agentInvocationName(agent, base),
     channel,
     dryRun: options.dryRun,
     invocations: agent.invocations,
