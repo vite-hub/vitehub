@@ -123,7 +123,12 @@ describe("Comments overlay", () => {
     const { default: start } = await import("../src/overlay/index.ts")
     mountBar()
     const controller = new AbortController()
-    const cleanup = start({ tool: { id: "comments", label: "Comments", icon: "", script: "/overlay.js" }, bar, signal: controller.signal, open: false, exit: vi.fn() })
+    const cleanup = start({
+      tool: { id: "comments", label: "Comments", icon: "", script: "/overlay.js" },
+      bar, signal: controller.signal, open: false, exit: vi.fn(),
+      createWindow: () => { throw new Error("Unexpected retained window") },
+      openTool: vi.fn(async () => false), onOpen: vi.fn(), beforeExit: vi.fn(),
+    })
     overlay = document.querySelector<HTMLElement>("vitehub-comments")!
     controller.abort()
     if (typeof cleanup === "function") cleanup()
