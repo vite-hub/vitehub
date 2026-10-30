@@ -42,8 +42,8 @@ async function compose(user: CommentsSession["user"], realtime = false) {
     }
     return Response.json({ data: [] })
   }))
-  await import("../src/overlay/index.ts")
-  if (!document.querySelector("vitehub-comments")) document.body.append(document.createElement("vitehub-comments"))
+  const { default: start } = await import("../src/overlay/index.ts")
+  start({ tool: { id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "/overlay.js" }, signal: new AbortController().signal, open: false, exit: vi.fn() })
   const shadow = document.querySelector("vitehub-comments")!.shadowRoot!
   await vi.waitFor(() => expect(shadow.querySelector(".toolbar button")).not.toBeNull())
   if (realtime) await vi.waitFor(() => expect(connectRealtimeRoom).toHaveBeenCalledTimes(1))

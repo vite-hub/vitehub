@@ -29,6 +29,8 @@ function resolveConsoleRuntimeRoot(): string {
 }
 export const consoleRuntimeRoot: string = resolveConsoleRuntimeRoot()
 export const consolePublicRoot: string = join(consoleRuntimeRoot, "public/console")
+/** The ViteHub skill and its well-known index, which the Console serves at `/_vitehub/.well-known/skills`. */
+export const consoleSkillsRoot: string = join(consoleRuntimeRoot, "public/skills")
 function readConsoleOutput(root: string): string {
   if (!existsSync(root)) return ""
   const files: string[] = []
@@ -89,6 +91,8 @@ export interface ConsoleAccessBuild {
   mode: "open" | "auth" | "cloudflare-access" | "local"
   authorize?: string
   check?: { module: string } | { appRoutes: readonly { authorize: boolean, index: number, method?: string, route: string }[] }
+  /** How MCP clients sign in with OAuth. Only `auth` mode accepts access tokens. `path` is the mounted MCP endpoint. */
+  oauth?: { issuer?: string, path: string, resource?: string }
   /** `console.impersonation`. App Auth access then rejects impersonation sessions from the Console. */
   impersonation?: true
   /** Path of the sign-in page under the application mount, such as `/sign-in`. */
@@ -129,12 +133,18 @@ function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports:
   if (!access) return { imports: [], install: [] }
   const imports: string[] = []
   const setup: string[] = []
+  const afterInstall: string[] = []
   const fields = [`mode: ${JSON.stringify(access.mode)}`]
+  // The Better Auth instance that MCP access tokens are checked against, read in-process.
+  let oauthAuth: string | undefined
+  let oauthAuthorize: string | undefined
   if (access.check && "module" in access.check) {
     const module = JSON.stringify(pathToFileURL(access.check.module).href)
     if (access.mode === "auth") {
-      imports.push(`import { checkConsoleAccess as vitehubConsoleAccessCheck, readConsoleUser as vitehubConsoleUser } from ${module}`)
+      imports.push(`import { authorizeConsoleBearer as vitehubAuthorizeConsoleBearer, checkConsoleAccess as vitehubConsoleAccessCheck, createConsoleAuth as vitehubCreateConsoleAuth, readConsoleUser as vitehubConsoleUser } from ${module}`)
       fields.push("check: vitehubConsoleAccessCheck", "user: vitehubConsoleUser")
+      oauthAuth = "(request, event) => vitehubCreateConsoleAuth(request, event)"
+      oauthAuthorize = "vitehubAuthorizeConsoleBearer"
     }
     else {
       imports.push(`import { checkConsoleAccess as vitehubConsoleAccessCheck } from ${module}`)
@@ -142,16 +152,25 @@ function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports:
     }
   }
   else if (access.check) {
-    // App Auth: require a session, and the authorize callbacks of the Auth access routes that match the request.
+    // App Auth keeps its session guard and matching route policies; the MCP identity resolver also accepts tokens.
     const routes = JSON.stringify(access.check.appRoutes)
     imports.push(
       'import { getAuthForRequest as vitehubGetAuthForRequest, requireAuthAccessRoutes as vitehubRequireAuthAccessRoutes, withAuthorization as vitehubWithAuthorization } from "#vitehub/auth/server"',
       'import { createConsoleAppAuthAccess as vitehubCreateConsoleAppAuthAccess, createConsoleAppAuthPages as vitehubCreateConsoleAppAuthPages } from "vite-hub/console/auth"',
     )
+    oauthAuth = "(request, event) => vitehubGetAuthForRequest(request, undefined, event)"
     fields.push("check: vitehubConsoleAppAccess.check", "user: vitehubConsoleAppAccess.user", "signIn: vitehubConsoleAppPages.signIn", "authBasePath: vitehubConsoleAppPages.authBasePath")
     setup.push("const vitehubConsoleAppPages = vitehubCreateConsoleAppAuthPages(vitehubGetAuthForRequest)")
     setup.push(`const vitehubConsoleAppAccess = vitehubCreateConsoleAppAuthAccess({ routes: ${routes}, getAuthForRequest: vitehubGetAuthForRequest, requireAuthAccessRoutes: vitehubRequireAuthAccessRoutes, requireSession: vitehubWithAuthorization(true, () => undefined)${access.impersonation ? ", impersonation: true" : ""} })`)
+    if (access.oauth) {
+      imports.push(
+        'import { setAuthAccessIdentityResolver as vitehubSetAuthAccessIdentityResolver } from "#vitehub/auth/server"',
+        'import { resolveConsoleAppAuthIdentity as vitehubResolveConsoleAppAuthIdentity } from "vite-hub/console/sections"',
+      )
+      afterInstall.push(`vitehubSetAuthAccessIdentityResolver(${JSON.stringify(access.oauth.path)}, vitehubResolveConsoleAppAuthIdentity)`)
+    }
   }
+  if (access.oauth && access.mode === "auth" && oauthAuth) fields.push(`oauth: { ...${JSON.stringify(access.oauth)}, auth: ${oauthAuth}${oauthAuthorize ? `, authorize: ${oauthAuthorize}` : ""} }`)
   if (access.authorize) {
     imports.push(`import vitehubConsoleAuthorize from ${JSON.stringify(pathToFileURL(access.authorize).href)}`)
     fields.push("authorize: vitehubConsoleAuthorize")
@@ -163,6 +182,7 @@ function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports:
     install: [
       ...setup,
       `installConsoleAccess({ ${fields.join(", ")} })`,
+      ...afterInstall,
     ],
   }
 }
@@ -184,7 +204,7 @@ function renderConsoleNitroPlugin(
   access?: ConsoleAccessBuild,
   runtimeCapabilityImports?: Record<string, false | string>,
   development = false,
-  applicationBase = "/",
+  _applicationBase = "/",
 ): string {
   assertConsoleRetention(retention, journal)
   const accessCode = renderConsoleAccess(access)
@@ -208,7 +228,7 @@ function renderConsoleNitroPlugin(
     .map(schedule => ` [${JSON.stringify(schedule.name)}]: () => import(${JSON.stringify(pathToFileURL(schedule.handler).href)}),`)
     .join("")
     .replace(/,$/, " ")
-  const contributedSections = describeConsoleContributedSections(sections, applicationBase).map(section => catalog.sectionOverrides?.[section.id] ?? section)
+  const contributedSections = describeConsoleContributedSections(sections).map(section => catalog.sectionOverrides?.[section.id] ?? section)
   const runtimeReaders = describeConsoleRuntimeReaders(sections).filter(reader => catalog.sectionOverrides?.[reader.section]?.view.kind !== "operation-view")
   const definitionsEnabled = databaseEnabled || contributedSections.length > 0
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined

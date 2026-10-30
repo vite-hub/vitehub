@@ -21,6 +21,7 @@ import { isConsoleSignInRequired, requestConsole } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections";
 import { consoleSignInURL } from "../client/sign-in";
 import { recentTimestamp } from "../client/time";
+import ConsoleConnectAgent from "./console-connect-agent.vue";
 import ConsoleFrame from "./console-frame.vue";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleSearch from "./console-search.vue";
@@ -418,6 +419,8 @@ onBeforeUnmount(() => {
                   </li>
                 </ul>
               </section>
+
+              <ConsoleConnectAgent v-if="installedNavigation" :auth="installedNavigation.auth" />
 
               <section class="vitehub-console__overview-block" aria-labelledby="console-home-learn">
                 <h2 id="console-home-learn" class="vitehub-console__overview-label">Learn</h2>

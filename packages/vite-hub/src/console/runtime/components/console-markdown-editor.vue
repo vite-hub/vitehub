@@ -52,6 +52,8 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
+  /** The body changed, in a live room too, where `v-model` does not follow it. Read it with `markdown()`. */
+  change: [];
   /** Headings of the body, for an outline. `pos` scrolls to one with `scrollTo()`. */
   outline: [headings: Array<{ id: string, level: number, pos: number, text: string }>];
 }>();
@@ -173,6 +175,7 @@ const editor = useEditor({
   ],
   onUpdate: () => {
     if (!loading && !live) schedule();
+    if (!loading) emit("change");
     scheduleOutline();
   },
 });
@@ -331,7 +334,12 @@ onBeforeUnmount(() => {
   clearTimeout(outlineTimer);
 });
 
-defineExpose({ commit, focus, scrollTo });
+/** The body as Markdown now, such as the live room body for a preview. Null while it cannot serialize. */
+async function markdown(): Promise<string | null> {
+  return hydrating.value || lossy.value ? null : await getMarkdown();
+}
+
+defineExpose({ commit, focus, markdown, scrollTo });
 
 // Editor handlers: Nuxt UI's, plus tables, images through the media picker, and collection components.
 function replaceEmptyBlock(instance: Editor, content: JSONContent) {

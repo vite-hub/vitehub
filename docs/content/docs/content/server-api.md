@@ -207,7 +207,9 @@ When another save moved the draft head, Content commits again on the new head. A
 | `changed` | Published, with unpublished draft changes. |
 | `deleted` | Removed from the draft, still published until the next `publish()`. |
 
-`status(id)` returns `{ collection, id, state, draft, published, issues?, schedule? }`, where `issues` counts the field issues of the draft, where `draft` and `published` are the document digests on each ref or `null`, and `schedule` is the document's [scheduled publish](/docs/content/scheduling#statuses), if any. It returns `null` when the document exists on neither ref. An empty draft mirrors `published`, so before the first save `draft` equals `published`.
+`status(id)` returns `{ collection, id, state, draft, published, issues?, schedule?, conflict? }`, where `issues` counts the field issues of the draft, where `draft` and `published` are the document digests on each ref or `null`, and `schedule` is the document's [scheduled publish](/docs/content/scheduling#statuses), if any. It returns `null` when the document exists on neither ref. An empty draft mirrors `published`, so before the first save `draft` equals `published`.
+
+On the [GitHub store](/docs/content/cms-preset#github-store), `conflict: { base }` marks a document that the draft and the published branch both changed since the draft took it from published, for example with a Git commit. `base` is the digest that the draft started from. `publish()` refuses the document until a save with `ifPublishedDigest` records the published version that the person reviewed. `status()` reports it before anyone tries to publish.
 
 ### Publish
 
@@ -284,10 +286,12 @@ An unknown collection, a `user` that is not an object or `null`, or an `actor` w
 await content.preview.enable(event, { maxAge: 900 }) // sets the cookie: { setCookie, expiresAt }
 content.preview.disable(event)                       // clears it
 await content.preview.run(event, () => posts.get('hello')) // draft when the event has a valid cookie
-content.preview.active()                             // true inside a preview request
+content.preview.active()                             // true with a valid preview cookie
+await content.preview.sign({ collection: 'posts', id: 'hello', maxAge: 900 }) // a preview frame token for one document
+content.preview.frame()                              // { collection, id, document? } in a preview frame
 ```
 
-A request with a valid preview cookie reads `draft` through every Content read above. See [Draft preview](/docs/content/preview) for the signing key, the cookie, and caching.
+A request with a valid preview cookie reads `draft` through every Content read above. A preview frame reads the draft of its one document through collection `get()` and `list()`, and `published` everywhere else. A request with `?vitehub-content-published` reads `published` even with the cookie. See [Draft preview](/docs/content/preview) for the signing key, the cookie, and caching.
 
 ## Field addresses
 

@@ -1,11 +1,12 @@
 import { connectRealtimeRoom } from "@vite-hub/realtime/client"
 
 import { createAnchor, fieldAttribute, fieldElementOf, placeAnchor, selectorOf } from "../anchor.ts"
-import { commentRoom, commentsApiRoute, commentsHintCookie, commentsHintQuery, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
+import { commentRoom, commentsApiRoute, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
 import { api, readGuest, saveGuest } from "./api.ts"
 import { captureContext } from "./context.ts"
 import { documentStyles, overlayStyles } from "./styles.ts"
 
+import type { ViteHubPageToolContext, ViteHubPageToolModule } from "@vite-hub/internal/runtime/page-tools-loader"
 import type { RealtimeRoom } from "@vite-hub/realtime/client"
 import type { CommentAnchor, CommentAuthor, CommentContext, CommentMention } from "../types.ts"
 import type { CommentsApiError, CommentsSession, PageThread } from "./api.ts"
@@ -118,6 +119,8 @@ function renderBody(body: string, mentions: CommentMention[]): Node {
 }
 
 class CommentsOverlay extends HTMLElement {
+  /** The page tools context that started the overlay. */
+  context?: ViteHubPageToolContext
   private readonly shadow = this.attachShadow({ mode: "open" })
   private readonly root = h("div", { className: "root" })
   private readonly layer = h("div", { className: "layer" })
@@ -160,14 +163,12 @@ class CommentsOverlay extends HTMLElement {
 
     const [error, session] = await api.session()
     if (!this.isConnected) return
-    if (error || !session.can.read) {
-      // Only the cookie asked for comment mode, such as after the person left the Console: go quietly. The session
-      // route already cleared the cookie.
-      if (!error && !new URLSearchParams(location.search).has(commentsHintQuery)) {
-        this.exit()
-        return
-      }
-      this.showToast(error ? error.why : "Comments are only for the site's team. Sign in with an account that may comment.", "error", { keep: true, action: ["Close", () => this.exit()] })
+    if (error) {
+      this.showToast(error.why, "error", { keep: true, action: ["Close", () => this.exit()] })
+      return
+    }
+    if (!session.can.read) {
+      this.showDenied(session)
       return
     }
     this.session = session
@@ -554,6 +555,7 @@ class CommentsOverlay extends HTMLElement {
     const session = this.session
     if (!session) return
     const open = this.threads.filter(thread => thread.status === "open").length
+    const signOut = session.signOut
     const people = this.room?.people() ?? []
     const seen = new Set<string>()
     const avatars = people.filter(person => !seen.has(person.id) && seen.add(person.id)).slice(0, 5).map(person =>
@@ -569,6 +571,7 @@ class CommentsOverlay extends HTMLElement {
         this.render()
       } }, icons.list(), String(open)),
       avatars.length > 0 && h("span", { className: "people", "aria-label": `${people.length} on this page` }, ...avatars),
+      signOut && session.github && h("button", { className: "tool", title: `Signed in as @${session.github.login}. Sign out`, "aria-label": `Sign out @${session.github.login}`, onClick: () => void this.signOut(signOut) }, session.user?.image ? h("img", { className: "me", src: session.user.image, alt: "" }) : initials(session.user?.name ?? session.github.login)),
       h("span", { className: "sep" }),
       h("button", { className: "tool square", title: "Leave comment mode", "aria-label": "Leave comment mode", onClick: () => this.exit() }, icons.close()),
     ))
@@ -889,21 +892,50 @@ class CommentsOverlay extends HTMLElement {
     }
   }
 
-  /** Leaves comment mode on every page: clears the hint cookie and the query, then removes the overlay. */
+  /** Why this person cannot comment, with **Sign in with GitHub** when the site offers it. */
+  private showDenied(session: CommentsSession) {
+    const signIn = session.signIn && `${session.signIn.url}?return=${encodeURIComponent(location.pathname + location.search + location.hash)}`
+    const github = session.github
+    if (github && session.signOut) {
+      const text = github.repository
+        ? `@${github.login} cannot push to ${github.repository}, so cannot comment here.`
+        : `Signed in as @${github.login}, but this site does not say which GitHub repository it is built from.`
+      const signOut = session.signOut
+      this.showToast(text, "error", { keep: true, action: ["Use another account", () => void this.signOut(signOut)] })
+      return
+    }
+    if (signIn) {
+      this.showToast("Sign in to comment on this page.", "info", { keep: true, link: ["Sign in with GitHub", signIn], action: ["Close", () => this.exit()] })
+      return
+    }
+    this.showToast("Comments are only for the site's team. Sign in with an account that may comment.", "error", { keep: true, action: ["Close", () => this.exit()] })
+  }
+
+  /** Ends the GitHub sign-in of Comments in this browser, then loads the page again. */
+  private async signOut(url: string) {
+    await fetch(url, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: "{}" }).catch(() => undefined)
+    location.reload()
+  }
+
+  /** Turns the page tools off on every page, through the loader, then removes the overlay. */
   private exit() {
     void this.finishEdit(false)
-    document.cookie = `${commentsHintCookie}=; Path=/; Max-Age=0; SameSite=Lax`
-    const url = new URL(location.href)
-    if (url.searchParams.has(commentsHintQuery)) {
-      url.searchParams.delete(commentsHintQuery)
-      history.replaceState(history.state, "", url)
-    }
     this.setMode("view")
+    this.context?.exit()
     this.remove()
   }
 }
 
-if (!customElements.get("vitehub-comments")) {
-  customElements.define("vitehub-comments", CommentsOverlay)
-  document.body.append(document.createElement("vitehub-comments"))
+/**
+ * The `comments` page tool: the page tools loader calls it for people that may read comments. It mounts the
+ * `<vitehub-comments>` element and returns its cleanup. The toolbar always shows, so `context.open` changes nothing.
+ */
+const start: ViteHubPageToolModule["default"] = (context) => {
+  if (!customElements.get("vitehub-comments")) customElements.define("vitehub-comments", CommentsOverlay)
+  const overlay = document.createElement("vitehub-comments")
+  if (overlay instanceof CommentsOverlay) overlay.context = context
+  document.body.append(overlay)
+  return () => overlay.remove()
 }
+
+export default start

@@ -129,7 +129,7 @@ describe("Comments API", () => {
       const { call } = await setup({ consoleSession: session, options: { identify: customIdentity ? identify : undefined, authorize } })
       const current = await call("/session")
       expect(current.body.data).toMatchObject({ user: null, can: { read: false, comment: false, resolve: false } })
-      expect(current.response.headers.get("set-cookie")).toContain("Max-Age=0")
+      expect(current.response.headers.get("set-cookie")).toBeNull()
       expect((await call("/threads?page=/")).response.status).toBe(403)
       expect((await call("/threads", {
         method: "POST",
@@ -173,7 +173,7 @@ describe("Comments API", () => {
     const [, thread] = await comments.create({ page: "/", anchor, body: "Private", author: { id: "ada", name: "Ada" } })
     const current = await call("/session")
     expect(current.body.data.can).toEqual({ read: false, comment: false, resolve: false })
-    expect(current.response.headers.get("set-cookie")).toContain("Max-Age=0")
+    expect(current.response.headers.get("set-cookie")).toBeNull()
     for (const [path, init] of [
       ["/threads?page=/", {}],
       ["/threads", { method: "POST", json: { page: "/", anchor, body: "Denied" } }],
@@ -184,18 +184,19 @@ describe("Comments API", () => {
     }
   })
 
-  it("answers the session with access, and sets the comment mode hint", async () => {
+  it("answers the session with the user and access, without a cookie", async () => {
     const { call } = await setup()
     const { response, body } = await call("/session")
     expect(body.data).toEqual({ user: { id: "ada", name: "Ada" }, can: { read: true, comment: true, resolve: true }, realtime: true, content: false })
-    expect(response.headers.get("set-cookie")).toContain("vitehub-comments=1")
+    expect(response.headers.get("set-cookie")).toBeNull()
+    expect(response.headers.get("cache-control")).toBe("private, no-store")
   })
 
-  it("clears the hint and denies threads to an anonymous user by default", async () => {
+  it("denies threads to an anonymous user by default", async () => {
     const { call } = await setup({ user: null })
     const session = await call("/session")
     expect(session.body.data.can.read).toBe(false)
-    expect(session.response.headers.get("set-cookie")).toContain("Max-Age=0")
+    expect(session.response.headers.get("set-cookie")).toBeNull()
     const threads = await call("/threads?page=/")
     expect(threads.response.status).toBe(403)
     expect(threads.body.error?.code).toBe("COMMENTS_FORBIDDEN")
@@ -276,8 +277,10 @@ describe("Comments API", () => {
     expect(invalid.body.error?.code).toBe("COMMENTS_INVALID_INPUT")
   })
 
-  it("answers the H3 1 events of Nuxt 4, which carry Node's request", async () => {
-    const comments = await createComments({ identify: () => ({ id: "ada", name: "Ada" }) })
+  it.each([false, true])("answers Nuxt 4 H3 1 events and retains forge work: %s", async (forge) => {
+    const comments = await createComments({ identify: () => ({ id: "ada", name: "Ada" }), forge: forge ? { provider: "github" } : undefined })
+    const work: Promise<unknown>[] = []
+    const waitUntil = vi.fn((promise: Promise<unknown>) => { work.push(promise) })
     const handler = createCommentsHandler({ comments, realtime: false })
     const send = async (method: string, path: string, json?: unknown) => {
       const req = Object.assign(Readable.from(json === undefined ? [] : [JSON.stringify(json)]), {
@@ -285,13 +288,15 @@ describe("Comments API", () => {
         url: `/api/_vitehub/comments${path}`,
         headers: { host: "site.test", origin, "content-type": "application/json" },
       })
-      const response: unknown = await Reflect.apply(handler, undefined, [{ node: { req }, context: {} }])
+      const response: unknown = await Reflect.apply(handler, undefined, [{ node: { req }, context: { waitUntil } }])
       if (!(response instanceof Response)) throw new TypeError("Expected a Response")
       return await response.json() as { data?: unknown }
     }
     const created = await send("POST", "/threads", { page: "/", anchor, body: "From Nuxt 4" })
     expect(created.data).toMatchObject({ page: "/", createdBy: { id: "ada" } })
     expect((await send("GET", "/threads?page=/")).data).toHaveLength(1)
+    expect(waitUntil).toHaveBeenCalledTimes(forge ? 1 : 0)
+    await Promise.all(work)
   })
 
   it("treats inherited component-map keys as unknown names", async () => {

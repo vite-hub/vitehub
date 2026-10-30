@@ -1386,6 +1386,7 @@
     "test": "vp run -t vite-hub#build && vp test"
   },
   "dependencies": {
+    "@better-auth/oauth-provider": "catalog:auth",
     "@cfworker/json-schema": "4.1.1",
     "@cloudflare/sandbox": "catalog:sandbox",
     "@cloudflare/workers-types": "^5.20261016.1",
@@ -1434,6 +1435,7 @@
     "@vite-hub/workspace": "workspace:*",
     "@vueuse/core": "catalog:ui",
     "@workflow/builders": "catalog:workflow",
+    "better-auth": "catalog:auth",
     "comark": "catalog:markdown",
     "confbox": "^0.2.4",
     "drizzle-kit": "catalog:database",

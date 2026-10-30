@@ -58,8 +58,8 @@ beforeEach(async () => {
   vi.mocked(api.field).mockResolvedValue([undefined, { field: "settings#title", value: "Unpublished", editable: true, digest: "draft-digest", collection: "settings", id: "settings" }])
   vi.mocked(api.saveField).mockResolvedValue([undefined, { field: "settings#title", value: "Published", digest: "saved-digest" }])
   room.states.mockReturnValue(new Map())
-  if (!customElements.get("vitehub-comments")) await import("../src/overlay/index.ts")
-  else document.body.append(document.createElement("vitehub-comments"))
+  const { default: start } = await import("../src/overlay/index.ts")
+  start({ tool: { id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "/overlay.js" }, signal: new AbortController().signal, open: false, exit: vi.fn() })
   overlay = document.querySelector<HTMLElement>("vitehub-comments")!
   shadow = overlay.shadowRoot!
   await vi.waitFor(() => expect(shadow.querySelector(".pin-button")).not.toBeNull())

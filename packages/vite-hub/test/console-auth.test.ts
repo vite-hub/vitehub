@@ -37,6 +37,13 @@ describe("independent Console Auth", () => {
       const html = await response.text()
       expect(html).toContain(`href="/portal/_vitehub?auth_start=1"${development ? ' target="_top"' : ""}>Sign in with GitHub`)
 
+      const oauth = consoleAuthSignInPage("github", new Request("http://localhost/portal/_vitehub/sign-in?sig=signed&client_id=agent"), "/portal/")
+      expect(oauth.headers.get("content-security-policy")).toContain("frame-ancestors 'none'")
+      expect(oauth.headers.get("x-frame-options")).toBe("DENY")
+      const oauthHTML = await oauth.text()
+      expect(oauthHTML).toContain('const authBase = "/portal/api/_vitehub/console/auth"')
+      expect(oauthHTML).toContain('const consolePath = "/portal/_vitehub"')
+
       const denied = consoleAuthPageResponse(request, new Response("Forbidden", { status: 403 }), "/portal/")
       expect(denied?.status).toBe(403)
       expect(denied?.headers.get("content-security-policy")).toContain(`frame-ancestors '${development ? "self" : "none"}'`)
@@ -321,13 +328,15 @@ describe("independent Console Auth", () => {
         configFile: false,
         base: "/early/",
         plugins: [
-          consoleVitePlugin({ console: { auth: { server } }, preset: "node" }),
+          consoleVitePlugin({ console: { auth: { server }, mcp: { resource: "https://app.example.com/portal/_vitehub/mcp/" } }, preset: "node" }),
           { name: "change-console-base", config: () => ({ base: "/portal/" }) },
         ],
       }, "build", "production")
       const middleware = await readFile(resolve(root, ".vitehub/nitro/console/auth-middleware.mjs"), "utf8")
       expect(middleware).toContain('const mountBase = "/portal"')
       expect(middleware).not.toContain("/early/")
+      const definition = await readFile(resolve(root, ".vitehub/nitro/console/auth-definition.mjs"), "utf8")
+      expect(definition).toContain('createConsoleAuthDefinition(input, "/portal/", "https://app.example.com/portal/_vitehub/mcp/")')
     }
     finally {
       await rm(root, { recursive: true, force: true })
@@ -455,12 +464,12 @@ describe("independent Console Auth", () => {
     }
   })
 
-  it("runs the generated guard only for Console requests", async () => {
+  it.each(["/", "/portal/"])("runs the generated guard only for Console requests under %s", async (mountBaseURL) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-guard-"))
     try {
       const server = resolve(root, "server.ts")
       await writeFile(server, 'export default { authorize: () => true, signIn: { provider: "github" } }')
-      const handlers = await writeConsoleAuthHandlers(root, { server })
+      const handlers = await writeConsoleAuthHandlers(root, { server }, mountBaseURL)
       const bundled = await build({
         bundle: true,
         entryPoints: [handlers.middleware],
@@ -494,6 +503,9 @@ describe("independent Console Auth", () => {
         expect(await guard.default({ url: new URL("https://example.com/api/app") })).toBeUndefined()
         expect(await guard.default({ url: new URL("https://example.com/api/_vitehub/console/auth/callback/github") })).toBeUndefined()
         expect(await guard.default({ url: new URL("https://example.com/_vitehub/sign-in") })).toBeUndefined()
+        for (const path of ["_vitehub/page/session", "_vitehub/page/assets/loader.js?v=1"]) {
+          expect(await guard.default({ url: new URL(`https://example.com${mountBaseURL}${path}`) })).toBeUndefined()
+        }
         expect((await guard.default({ url: new URL("https://example.com/_vitehub") }))?.status).toBe(401)
         const apiURL = "https://example.com/api/_vitehub/console/status"
         expect((await guard.default({ url: new URL(apiURL), req: new Request(apiURL, { headers: { accept: "text/html" } }) }))?.status).toBe(401)
@@ -511,6 +523,9 @@ describe("independent Console Auth", () => {
           ["/_vitehub/rpc/__call", 0, false],
           ["/api/app", "withAuthorization", undefined],
         ])
+        for (const path of ["_vitehub/page/session-extra", "_vitehub/page/assets-extra/loader.js"]) {
+          expect((await guard.default({ url: new URL(`https://example.com${mountBaseURL}${path}`) }))?.status).toBe(401)
+        }
       }
       finally {
         Reflect.deleteProperty(globalThis, Symbol.for("test.console.auth.calls"))
@@ -543,8 +558,15 @@ describe("independent Console Auth", () => {
         expect.objectContaining({ route: "/api/_vitehub/console/auth/**" }),
         expect.objectContaining({ route: "/_vitehub/sign-in" }),
         expect.objectContaining({ route: "/**", middleware: true }),
+        expect.objectContaining({ route: "/.well-known/oauth-protected-resource" }),
+        expect.objectContaining({ route: "/.well-known/oauth-protected-resource/**" }),
+        expect.objectContaining({ route: "/.well-known/oauth-authorization-server" }),
+        expect.objectContaining({ route: "/.well-known/oauth-authorization-server/**" }),
       ]))
-      expect(await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"], true)`)
+      const installed = await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      expect(installed).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"], true)`)
+      expect(installed).toContain("authorizeConsoleBearer as vitehubAuthorizeConsoleBearer")
+      expect(installed).toContain("authorize: vitehubAuthorizeConsoleBearer")
     }
     finally {
       await rm(root, { recursive: true, force: true })
