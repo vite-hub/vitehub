@@ -72,11 +72,11 @@ export async function followFrameRedirects(
   for (let hop = 0; ; hop++) {
     const result = await render(url, cookie)
     const location = isFrameResponse(result) && isRedirect(result.status) ? result.headers.get("location") : null
-    if (!isFrameResponse(result) || location === null) return hop ? await landed(result, setCookies, url, hash) : result
+    if (!isFrameResponse(result) || location === null) return hop ? await landed(result, setCookies, url, hash, start.url) : result
     const cookies = setCookiesOf(result.headers)
     result.body?.cancel().catch(() => undefined)
     if (!cookies) return frameError(502, "The page redirects and sets cookies that this server cannot read one by one, so the preview cannot follow it. Open the page in a new tab.", setCookies)
-    setCookies.push(...cookies)
+    setCookies.push(...cookies.map(cookie => withCookiePath(cookie, url, start.url)))
     const target = URL.canParse(location, url.href) ? new URL(location, url) : undefined
     if (!target) return frameError(502, "The page redirects to an address that is not valid, so the preview cannot show it.", setCookies)
     if (!start.origins.includes(target.origin)) {
@@ -99,11 +99,14 @@ export async function followFrameRedirects(
  * address it has in the browser: the frame shows it at the URL it posted to, and a client router would otherwise read
  * the route of that URL instead of the one the server rendered.
  */
-async function landed(result: unknown, setCookies: readonly string[], url: URL, hash: string | undefined): Promise<unknown> {
+async function landed(result: unknown, setCookies: readonly string[], url: URL, hash: string | undefined, posted: URL): Promise<unknown> {
   if (!isFrameResponse(result)) return result
   const headers = new Headers()
   for (const cookie of setCookies) headers.append("set-cookie", cookie)
-  for (const [name, value] of result.headers) headers.append(name, value)
+  for (const cookie of setCookiesOf(result.headers) ?? []) headers.append("set-cookie", withCookiePath(cookie, url, posted))
+  for (const [name, value] of result.headers) {
+    if (name.toLowerCase() !== "set-cookie" || !(result.headers.getSetCookie instanceof Function)) headers.append(name, value)
+  }
   let body: ReadableStream<Uint8Array> | string | null = result.body
   if (body && /^text\/html\b/i.test(headers.get("content-type") ?? "") && !headers.has("content-encoding")) {
     body = withAddress(await result.text(), url, hash)
@@ -125,6 +128,23 @@ function withAddress(html: string, url: URL, hash: string | undefined): string {
 
 function localHost(hostname: string): boolean {
   return hostname === "localhost" || hostname.endsWith(".localhost") || hostname === "127.0.0.1" || hostname === "[::1]"
+}
+
+/** The path a browser gives a cookie without `Path`: the directory of the URL that set it. */
+function defaultCookiePath(url: URL): string {
+  return url.pathname.slice(0, Math.max(1, url.pathname.lastIndexOf("/")))
+}
+
+/**
+ * A `Set-Cookie` of a page the server reached by a redirect, for the browser. The browser sets it from the URL the frame
+ * posted to, so a cookie without `Path` gets the default path of the page that set it.
+ */
+function withCookiePath(cookie: string, from: URL, posted: URL): string {
+  const [pair = "", ...parts] = cookie.split(";")
+  const path = parts.find(part => part.trim().toLowerCase().startsWith("path="))?.split("=", 2)[1]?.trim()
+  if (path?.startsWith("/") || defaultCookiePath(from) === defaultCookiePath(posted)) return cookie
+  const kept = path === undefined ? parts : parts.filter(part => !part.trim().toLowerCase().startsWith("path="))
+  return [pair, ...kept, ` Path=${defaultCookiePath(from)}`].join(";")
 }
 
 function pathMatches(path: string, cookiePath: string): boolean {
@@ -152,7 +172,7 @@ export function nextCookieHeader(header: string | undefined, setCookies: readonl
     if (domain && from.hostname !== domain && !from.hostname.endsWith(`.${domain}`)) continue
     if (attributes.has("secure") && from.protocol !== "https:" && !localHost(from.hostname)) continue
     const attributePath = attributes.get("path")
-    const path = attributePath?.startsWith("/") ? attributePath : from.pathname.slice(0, Math.max(1, from.pathname.lastIndexOf("/")))
+    const path = attributePath?.startsWith("/") ? attributePath : defaultCookiePath(from)
     if (!pathMatches(to.pathname, path)) continue
     const maxAge = attributes.get("max-age")
     const expires = attributes.get("expires")

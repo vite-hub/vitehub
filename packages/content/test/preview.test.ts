@@ -441,6 +441,34 @@ describe("content preview", { timeout: 30_000 }, () => {
     expect(await loop.text()).toContain("redirects more than 5 times")
   })
 
+  it("gives a cookie without Path from a followed redirect the default path of the page that set it", async () => {
+    const { content } = await setup()
+    const seen: Array<string | null> = []
+    const app = new H3()
+      .get("/blog/hello", () => new Response(null, { status: 302, headers: { location: "/auth/login" } }))
+      .get("/auth/login", () => new Response(null, { status: 302, headers: { location: "/auth/account", "set-cookie": "session=abc; HttpOnly" } }))
+      .get("/auth/account", (event) => {
+        seen.push(event.req.headers.get("cookie"))
+        const headers = new Headers({ "content-type": "application/json" })
+        headers.append("set-cookie", "seen=1; Path=/blog/../auth")
+        headers.append("set-cookie", "last=1")
+        headers.append("set-cookie", "root=1; Path=/")
+        return new Response("{}", { headers })
+      })
+    const nitroApp = { fetch: (request: Request) => app.fetch(request), h3: app }
+    defineContentPreviewPlugin(content)(nitroApp)
+    const { token } = await content.preview.sign({ collection: "posts", id: "hello" })
+    const response = await nitroApp.fetch(new Request(`https://site.test/blog/hello?${contentPreviewFrameParameter}`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin" },
+      body: frameForm(token),
+    }))
+    expect(response.status).toBe(200)
+    expect(seen).toEqual(["session=abc"])
+    // The browser sets them from /blog/hello, so each gets the path of /auth, where the server set it.
+    expect(response.headers.getSetCookie()).toEqual(["session=abc; HttpOnly; Path=/auth", "seen=1; Path=/blog/../auth", "last=1; Path=/auth", "root=1; Path=/"])
+  })
+
   it("keeps the cookies of redirects for the next page and the browser, on Nitro 3", async () => {
     const { content, posts } = await setup()
     const seen: Array<string | null> = []
