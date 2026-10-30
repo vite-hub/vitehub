@@ -225,7 +225,11 @@ async function runChannelItem<TRuntimeConfig extends AgentRuntimeConfig>(
     if (!isResolvedAgentTriggerHandledInvocation(resolved) && resolved.agent && resolved.agent !== run.agent) {
       throw new Error(`Task "${resolved.task}" runs another Agent. Replay and dispatch() run tasks with run, or tasks of the replaying Agent; send this item through the Channel's webhook queue.`)
     }
-    const invocation = await prepareAgentTriggerInvocation(resolved, run.agentName)
+    // Preparation and task callbacks must use the same run ID as execution.
+    const replayInvocation = isResolvedAgentTriggerHandledInvocation(resolved)
+      ? resolved
+      : { ...resolved, run: { ...resolved.run, runId: id } }
+    const invocation = await prepareAgentTriggerInvocation(replayInvocation, run.agentName)
     if (isResolvedAgentTriggerHandledInvocation(invocation)) { await reservation?.finish("completed"); return { id, key, reason: "handled", status: "skipped" } }
     const runMetadata = { ...itemRuntime.run, ...invocation.run, runId: id, annotations: {
       ...(invocation.run ?? itemRuntime.run)?.annotations,
