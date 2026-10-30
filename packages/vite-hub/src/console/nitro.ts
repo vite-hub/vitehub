@@ -1,4 +1,5 @@
 import { join } from "node:path"
+import { addViteHubPageToolRoutes } from "@vite-hub/internal/build/page-tools"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -57,6 +58,24 @@ export function addConsolePageHandlers(
     { baseURL: mountPath(base, "/_vitehub/.well-known/skills"), dir: skills, fallthrough: false },
     ...(nitro.publicAssets ?? []).filter(asset => asset.dir !== assets && asset.dir !== skills),
   ]
+  addConsolePageToolRoutes(nitro, consoleRuntimeRoot, base)
+}
+
+/**
+ * Serves the page tools session `GET /_vitehub/page/session` and the loader at `/_vitehub/page/assets`, so the `console`
+ * page tool works in an app without Comments. When Comments added them first, they stay as they are.
+ */
+export function addConsolePageToolRoutes(
+  nitro: { handlers?: Array<{ handler: string; route: string }>, publicAssets?: NitroPublicAsset[] },
+  consoleRuntimeRoot: string,
+  base?: string,
+): void {
+  const kit = createNitroServerKit(nitro)
+  addViteHubPageToolRoutes(kit, { handler: join(consoleRuntimeRoot, "server/page-session.js"), loader: join(consoleRuntimeRoot, "page"), base: mountBase(base) })
+  // SAFETY: The kit keeps the caller's Nitro handler and public asset entries, and the page tools add entries of the same shape.
+  nitro.handlers = kit.config.handlers as Array<{ handler: string; route: string }>
+  // SAFETY: As above.
+  nitro.publicAssets = kit.config.publicAssets as NitroPublicAsset[]
 }
 
 export function addConsoleRpcHandler(

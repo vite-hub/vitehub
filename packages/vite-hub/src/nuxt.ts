@@ -556,6 +556,7 @@ async function installConsole(
       access,
       runtimeCapabilityImports,
       nuxt.options.dev === true,
+      nuxt.options.app?.baseURL,
     )
     if (invocationRootState) {
       updateConsoleInvocationRootState(invocationRootState, projectRoot, identity)
@@ -1467,6 +1468,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         consoleAccess,
         runtimeCapabilityImports,
         nuxt.options.dev === true,
+        nuxt.options.app?.baseURL,
       )
     }
     Object.assign(config, mergeGeneratedSourceNitroConfig(config, generatedSourceHandlers))

@@ -33,7 +33,7 @@ const policyKey = Symbol.for("vitehub.console.access")
 const serverRoot = fileURLToPath(new URL("../src/console/runtime/server/", import.meta.url))
 // Page shells, static assets, and OAuth discovery carry no protected project data.
 // The Schedule run route runs a signed dispatch and nothing else; it does not read Console data.
-const shellRoutes = new Set(["client.get.ts", "mcp-authorization-server.ts", "mcp-discovery.ts", "mcp-metadata.ts", "page.get.ts", "schedule-run.ts", "sign-in.ts"])
+const shellRoutes = new Set(["client.get.ts", "mcp-authorization-server.ts", "mcp-discovery.ts", "mcp-metadata.ts", "page.get.ts", "schedule-run.ts", "sign-in.ts", "page-session.ts"])
 
 function event(headers: Record<string, string> = {}): ConsoleRequestEvent {
   return { method: "GET", req: new Request("http://vitehub.local/api/_vitehub/console/data", { headers }) }
@@ -62,7 +62,7 @@ afterEach(() => {
 })
 
 describe("Console data route contract", () => {
-  it("guards every Console server route with withConsoleAccess()", async () => {
+  it("guards every Console data route with withConsoleAccess()", async () => {
     const files = (await readdir(serverRoot)).filter(file => file.endsWith(".ts")).sort()
     const routes: string[] = []
     for (const file of files) {

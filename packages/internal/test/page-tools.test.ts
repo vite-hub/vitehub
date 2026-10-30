@@ -398,3 +398,51 @@ describe("per-app page tools", () => {
     ])
   })
 })
+
+
+describe("mounted page tool exclusions", () => {
+  it("applies a late base to Nitro 3 without changing another app", async () => {
+    const app = nitro3App()
+    const other = nitro3App()
+    for (const candidate of [app, other]) {
+      registerViteHubPageTool(candidate, comments)
+      installViteHubPageTools(candidate)
+    }
+    const otherOwner = await import("../src/runtime/page-tools.ts")
+    otherOwner.installViteHubPageTools(app, "/portal/")
+    installViteHubPageTools(app)
+    for (const path of ["/portal/_vitehub", "/portal/_vitehub/comments", "/portal/api", "/portal/api/data"]) {
+      expect(await (await app.fetch(new Request(`http://site.test${path}?vitehub`))).text()).not.toContain("data-vitehub-page-tools")
+      expect(await (await other.fetch(new Request(`http://site.test${path}?vitehub`))).text()).toContain("data-vitehub-page-tools")
+    }
+    expect(await (await app.fetch(new Request("http://site.test/portals/_vitehub?vitehub"))).text()).not.toContain("data-vitehub-page-tools")
+    for (const path of ["/portal/pricing"]) {
+      expect(await (await app.fetch(new Request(`http://site.test${path}?vitehub`))).text()).toContain("data-vitehub-page-tools")
+    }
+  })
+
+  it("excludes mounted Console and API pages on both Nitro 2 response paths", async () => {
+    const app = nitro2App()
+    registerViteHubPageTool(app, comments)
+    installViteHubPageTools(app)
+    installViteHubPageTools(app, "/portal/")
+    const render = app.handlers.get("render:html")![0] as (html: { bodyAppend: string[] }, context: unknown) => void
+    const respond = app.handlers.get("beforeResponse")![0] as (event: unknown, response: { body: Response }) => void
+    for (const path of ["/portal/_vitehub", "/portal/_vitehub/comments", "/portal/api", "/portal/api/data", "/portal/pricing"]) {
+      const event = { node: { req: { url: path, headers: { cookie: "vitehub-tools=1" } } } }
+      const html = { bodyAppend: [] as string[] }
+      const original = new Response("<body>Page</body>", { headers: { "content-type": "text/html" } })
+      const response = { body: original }
+      render(html, { event })
+      respond(event, response)
+      if (path.endsWith("pricing")) {
+        expect(html.bodyAppend).toEqual([loaderTag.replace('src="/', 'src="/portal/')])
+        expect(await response.body.text()).toContain('src="/portal/_vitehub/page/assets/loader.js?v=2"')
+      }
+      else {
+        expect(html.bodyAppend).toEqual([])
+        expect(response.body).toBe(original)
+      }
+    }
+  })
+})
