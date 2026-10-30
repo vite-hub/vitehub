@@ -2,7 +2,7 @@ import { formatChannelCitationMessage, formatChannelCitationStream, formatChanne
 import { isDurableAgentState, requireAtomicAgentStateLock, type AgentStateCacheMutation, type AtomicAgentStateLockAdapter } from "../internal/state-lock.ts"
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { consoleInvocationUrl, createExecutionContext, createRuntimeContext as createHostRuntimeContext, getViteHubErrorShape, resolvePublicUrl, ViteHubError } from "@vite-hub/runtime"
+import { createExecutionContext, createRuntimeContext as createHostRuntimeContext, getViteHubErrorShape, ViteHubError } from "@vite-hub/runtime"
 import { Chat, Message, StreamingPlan, ThreadImpl, convertEmojiPlaceholders } from "chat"
 
 import {
@@ -38,7 +38,7 @@ import { createAgentInvocationContextStore } from "../invocation-context.ts"
 import { withAgentInvocationResponseOwner } from "../internal/agent-invocation-response-owner.ts"
 import { sameInlineInvoker } from "../internal/inline-invoker.ts"
 import { isResponse } from "../internal/response.ts"
-import { agentInvocationId, bindAgentInvocations, recoverInterruptedAgentInvocations } from "../invocations.ts"
+import { agentInvocationId, bindAgentInvocations, recoverInterruptedAgentInvocations, runInvocationReference } from "../invocations.ts"
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 import { isAgentInvocationCancellationError } from "../internal/invocation-cancellation.ts"
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
@@ -1633,19 +1633,6 @@ function routeAgentInvocationName(agent: AgentInput<ViteAgentRouteRuntimeContext
   return (isRuntimeRecord(agent) && hasRuntimeType(agent.name, "string") && agent.name) || identity?.name
 }
 
-/** The Invocation ID and Console URL of a run. */
-async function runInvocationReference(agentName: string | undefined, run: AgentRunMetadata | undefined): Promise<AgentInvocationReference | undefined> {
-  if (!run?.runId) return
-  try {
-    const id = await agentInvocationId(run.runId, agentName)
-    const origin = agentName ? resolvePublicUrl({ agentName }) : undefined
-    return { id, ...(origin && agentName ? { consoleUrl: consoleInvocationUrl(origin, agentName, id) } : {}) }
-  }
-  catch {
-    return undefined
-  }
-}
-
 async function notifyQueuedWebhookFailure(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   handlerOptions: AgentChannelWebhookRouteOptions,
@@ -2107,7 +2094,7 @@ async function executeQueuedWebhookDelivery(
       armExecutionTimeout(webhookQueueExecutionTimeout(executionAgent, invocation.input))
       // `prepare` and a task's `run` see the queue's abort signal, as an Agent Invocation does.
       const abortSignal = accepted.input.abortSignal ? AbortSignal.any([accepted.input.abortSignal, ownershipAbort.signal]) : ownershipAbort.signal
-      const prepared = await Promise.race([prepareAgentTriggerInvocation({ ...accepted, input: { ...accepted.input, abortSignal } }), executionTimeout])
+      const prepared = await Promise.race([prepareAgentTriggerInvocation({ ...accepted, input: { ...accepted.input, abortSignal } }, routeAgentInvocationName(agent, routeAgentIdentity(handlerOptions))), executionTimeout])
       if (isResolvedAgentTriggerHandledInvocation(prepared)) {
         invocation = undefined
         handledResponse = prepared.response
@@ -2489,7 +2476,7 @@ function createManualDeliveryProgressUpdater(
   manualDelivery: { placeholder?: unknown },
   waitUntil: AgentWaitUntil,
   abortSignal?: AbortSignal,
-  options?: { intervalMs?: number, updates?: "commentary" },
+  options?: { footer?: string, intervalMs?: number, updates?: "commentary" },
 ): {
   finish: () => Promise<void>
   update: (event: unknown) => void
@@ -2521,7 +2508,7 @@ function createManualDeliveryProgressUpdater(
     const summary = latest
     latest = undefined
     await replaceManualDeliveryPlaceholder(manualDelivery.placeholder, {
-      markdown: summary,
+      markdown: `${summary}${options?.footer ?? ""}`,
     }).catch(() => false)
     lastUpdateAt = Date.now()
   }
@@ -5269,7 +5256,7 @@ function chatErrorHookArgs(
   abortSignal?: AbortSignal,
   onPost?: () => void,
   invocation?: AgentInvocationReference,
-  errorConsoleLink = false,
+  consoleLink = false,
 ): AgentChatErrorHookArgs<ViteAgentRouteRuntimeConfig> {
   const inputMessage = input?.messages.at(-1)
   // SAFETY: The surrounding route guards establish this record shape before the value crosses the internal boundary.
@@ -5288,7 +5275,7 @@ function chatErrorHookArgs(
     toolResults: [...toolResults],
     thread: {
       post: async (postedMessage) => {
-        const consoleUrl = errorConsoleLink ? invocation?.consoleUrl : undefined
+        const consoleUrl = consoleLink ? invocation?.consoleUrl : undefined
         // SAFETY: The error hook accepts the same chat message payloads as postChatMessage.
         const posted = postedMessage as AgentChatMessage
         const message = consoleUrl && isRuntimeString(postedMessage) && !postedMessage.includes(consoleUrl)
@@ -5472,7 +5459,7 @@ export async function postChatErrorFallback(
     chatErrorHookArgs(thread, message, input, run, error, toolResults, fallbackResolutionAbort?.signal, () => {
       callbackDelivered = true
       resolveCallbackDelivery?.()
-    }, invocation, options?.errorConsoleLink),
+    }, invocation, options?.consoleLink),
     () => callbackDelivered,
     (resolution) => enforceChatInvocationTimeout(resolution, fallbackResolutionTimeout, fallbackResolutionAbort),
   )
@@ -7245,8 +7232,11 @@ async function handleChatSdkMessage(
     const inlineRunContext = run?.runId ? withAgentInvocationResponseOwner(runContext, run.runId) : runContext
     const configuredThinkingFallback = invocation.metadata?.thinkingFallback
     const thinkingFallback = isRuntimeString(configuredThinkingFallback) ? formatChannelCitationText(configuredThinkingFallback) : configuredThinkingFallback
+    // The footer stays on the loading message through every commentary update.
+    const consoleUrl = bufferedDelivery && options?.consoleLink ? (await invocationReference)?.consoleUrl : undefined
+    const loadingFooter = consoleUrl ? `\n\n[Details](<${consoleUrl}>)` : undefined
     if (bufferedDelivery && isRuntimeString(thinkingFallback)) {
-      const placeholderDelivery = thread.post(thinkingFallback).then(async (placeholder) => {
+      const placeholderDelivery = thread.post(loadingFooter ? { markdown: `${thinkingFallback}${loadingFooter}` } : thinkingFallback).then(async (placeholder) => {
         if (invocationDeadlineAbort?.signal.aborted) {
           await deleteManualDeliveryPlaceholder(placeholder)
           invocationDeadlineAbort.signal.throwIfAborted()
@@ -7263,6 +7253,7 @@ async function handleChatSdkMessage(
     chatFinish = createChatFinishExtension(input, registration)
     progress = bufferedDelivery
       ? createManualDeliveryProgressUpdater(manualDeliveryState, context.waitUntil, invocationDeadlineAbort?.signal, {
+          footer: loadingFooter,
           intervalMs: options?.loading?.intervalMs,
           updates: options?.loading?.updates,
         })
@@ -9836,7 +9827,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
           // A handled answer, such as `ignored()`, is the webhook response.
           let prepared: Awaited<ReturnType<typeof prepareAgentTriggerInvocation<ViteAgentRouteRuntimeConfig>>>
           try {
-            prepared = await prepareAgentTriggerInvocation(invocation)
+            prepared = await prepareAgentTriggerInvocation(invocation, routeAgentInvocationName(agent, routeAgentIdentity(handlerOptions)))
           } catch (error) {
             if (webhookLock && webhookState) await webhookState.state.releaseLock(webhookLock)
             if (deliveryClaimKey && webhookState) await webhookState.state.delete(deliveryClaimKey)

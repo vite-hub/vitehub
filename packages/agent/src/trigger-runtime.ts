@@ -7,6 +7,8 @@ import {
 import { AgentHttpError } from "./http-error.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { isRuntimeFunction, isRuntimeString } from "./internal/runtime-value.ts"
+import { runInvocationReference } from "./invocations.ts"
+import { agentInvocationName } from "./internal/agent-invocation-name.ts"
 
 import type {
   AgentCallbackContext,
@@ -901,25 +903,34 @@ export function agentTriggerTask<CALL_OPTIONS = unknown>(
 /**
  * Runs the preparation of an accepted invocation: the task's `prepare`, or the trigger's `prepare` without a task,
  * then a task's `run`. Returns the invocation to start, or the handled `Response` that settles it.
+ * `agentName` is the Agent that owns the trigger. A task Agent owns the Invocation of its task.
  */
 export async function prepareAgentTriggerInvocation<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 >(
   invocation: ResolvedAgentTriggerInvocationResult<TRuntimeConfig, CALL_OPTIONS>,
+  agentName: string | undefined,
 ): Promise<ResolvedAgentTriggerInvocationResult<TRuntimeConfig, CALL_OPTIONS>> {
   if (isResolvedAgentTriggerHandledInvocation(invocation)) return invocation
   const task = invocation.task === undefined ? undefined : agentTriggerTask(invocation.trigger, invocation.task)
   // A task owns its preparation. Only an invocation without a task runs the trigger's `prepare`.
   const prepare = task ? task.prepare : invocation.trigger.prepare
+  if (!prepare && !task?.run) return invocation
+  const reference = await runInvocationReference(task?.agent ? taskAgentIdentity(task.agent).name : agentName, invocation.run)
+  const accepted = (input: AgentRunInput<CALL_OPTIONS>): AgentTriggerAcceptedInvocation<CALL_OPTIONS> => ({
+    input,
+    ...(reference ? { invocation: reference } : {}),
+    ...(invocation.run ? { run: invocation.run } : {}),
+  })
   let prepared = invocation
   if (prepare) {
-    const result = await prepare({ input: invocation.input, ...(invocation.run ? { run: invocation.run } : {}) })
+    const result = await prepare(accepted(invocation.input))
     if (isResponse(result)) return { response: result, trigger: invocation.trigger }
     if (result) prepared = { ...invocation, input: result }
   }
   if (!task?.run) return prepared
-  const output = await task.run({ input: prepared.input, ...(prepared.run ? { run: prepared.run } : {}) })
+  const output = await task.run(accepted(prepared.input))
   return { response: isResponse(output) ? output : new Response(null, { status: 204 }), trigger: invocation.trigger }
 }
 
@@ -960,7 +971,7 @@ export async function runAgentTriggerWith<
   triggerId: string,
   input: TInput,
 ): Promise<Response | AgentRunResult | unknown> {
-  const invocation = await prepareAgentTriggerInvocation(await resolveAgentTriggerInvocation<TRuntimeConfig, TInput, CALL_OPTIONS>(agent, context, triggerId, input))
+  const invocation = await prepareAgentTriggerInvocation(await resolveAgentTriggerInvocation<TRuntimeConfig, TInput, CALL_OPTIONS>(agent, context, triggerId, input), agentInvocationName(agent, context))
   if (isResolvedAgentTriggerHandledInvocation(invocation)) return invocation.response
   // SAFETY: A task Agent runs with the same runtime configuration as the Agent that owns the trigger.
   const executionAgent = (invocation.agent ?? agent) as AgentInput<AgentRuntimeContext<TRuntimeConfig>>
@@ -982,7 +993,7 @@ export async function streamAgentTriggerWith<
     output?: "events" | "ui-message-stream"
   } = {},
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
-  const invocation = await prepareAgentTriggerInvocation(await resolveAgentTriggerInvocation<TRuntimeConfig, TInput, CALL_OPTIONS>(agent, context, triggerId, input))
+  const invocation = await prepareAgentTriggerInvocation(await resolveAgentTriggerInvocation<TRuntimeConfig, TInput, CALL_OPTIONS>(agent, context, triggerId, input), agentInvocationName(agent, context))
   if (isResolvedAgentTriggerHandledInvocation(invocation)) return invocation.response
   await options.onInvocation?.(invocation)
   const output = options.output || (invocation.trigger.output === "ui-message-stream" ? "ui-message-stream" : "events")
