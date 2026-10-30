@@ -1,11 +1,11 @@
 import { isH3V1Event, toH3V1Request } from "./h3-v1-request.ts"
-import { viteHubPageSessionPath, viteHubPageToolsAssets, viteHubPageToolsCookie, viteHubPageToolsLoader, viteHubPageToolsPath, viteHubPageToolsQuery } from "./page-tools-loader.ts"
+import { viteHubPageSessionPath, viteHubPageToolsAssets, viteHubPageToolsCookie, viteHubPageToolsLoader, viteHubPageToolsPath, viteHubPageToolsQuery } from "./page-tools-shared.ts"
 import { forwardedRequestOrigin } from "./request-origin.ts"
 
-import type { ViteHubPageSession, ViteHubPageToolInfo } from "./page-tools-loader.ts"
+import type { ViteHubPageSession, ViteHubPageToolInfo } from "./page-tools-shared.ts"
 
 export { viteHubPageSessionPath, viteHubPageToolsAssets, viteHubPageToolsCookie, viteHubPageToolsLoader, viteHubPageToolsQuery }
-export type { ViteHubPageSession, ViteHubPageToolContext, ViteHubPageToolInfo, ViteHubPageToolModule } from "./page-tools-loader.ts"
+export type { ViteHubPageSession, ViteHubPageToolInfo } from "./page-tools-shared.ts"
 
 /** What the visitor check of a tool gets: the request of the session route and its H3 event. */
 export interface ViteHubPageToolVisitor {
@@ -30,6 +30,7 @@ interface PageToolsState {
   tools: WeakMap<object, Map<string, ViteHubPageTool>>
   apps: WeakMap<object, object>
   installed: WeakSet<object>
+  bases: WeakMap<object, string>
 }
 
 const stateKey: unique symbol = Symbol.for("vitehub.page-tools")
@@ -38,7 +39,7 @@ const stateKey: unique symbol = Symbol.for("vitehub.page-tools")
 const scope = globalThis as typeof globalThis & { [stateKey]?: PageToolsState }
 
 function state(): PageToolsState {
-  return scope[stateKey] ??= { installed: new WeakSet(), tools: new WeakMap(), apps: new WeakMap() }
+  return scope[stateKey] ??= { installed: new WeakSet(), tools: new WeakMap(), apps: new WeakMap(), bases: new WeakMap() }
 }
 
 /** Registers a page tool for one Nitro app, before or after installation. The same id replaces only that app's tool. */
@@ -59,17 +60,18 @@ export function registerViteHubPageTool(nitroApp: unknown, tool: ViteHubPageTool
  */
 export function hasViteHubPageToolsHint(request: Request, base = ""): boolean {
   const url = new URL(request.url)
+  base = viteHubPageToolsPath("", base)
   if (base && url.pathname !== base && !url.pathname.startsWith(`${base}/`)) return false
   const path = url.pathname.slice(base.length)
-  if (path.startsWith("/_vitehub") || path.startsWith("/api/")) return false
+  if (path.startsWith("/_vitehub") || path === "/api" || path.startsWith("/api/")) return false
   if (url.searchParams.has(viteHubPageToolsQuery)) return true
   const cookie = request.headers.get("cookie")
   return Boolean(cookie && cookie.split(";").some(part => part.trim() === `${viteHubPageToolsCookie}=1`))
 }
 
 /** Whether ViteHub adds the loader to the page of this request: it has the hint, and a tool is registered. */
-function wantsLoader(nitroApp: object, request: Request, base: string): boolean {
-  return (state().tools.get(nitroApp)?.size ?? 0) > 0 && hasViteHubPageToolsHint(request, base)
+function wantsLoader(nitroApp: object, request: Request): boolean {
+  return (state().tools.get(nitroApp)?.size ?? 0) > 0 && hasViteHubPageToolsHint(request, state().bases.get(nitroApp))
 }
 
 function loaderTag(nonce?: string, base = ""): string {
@@ -217,14 +219,16 @@ function nitro2Request(event: Nitro2Event): Request | undefined {
 /**
  * Adds the loader of the page tools to the HTML pages of a Nitro app, for requests with the hint, when at least one
  * tool is registered. Call it from each owner's Nitro plugin: it installs once per app, whatever the number of calls.
- * It reads that app's registry on each request, so plugin order does not matter.
+ * It reads that app's registry on each request, so plugin order does not matter. Owners may supply the application
+ * base pathname even after installation, so reserved routes under that mount stay excluded.
  * - Nitro 3: it wraps `nitroApp.fetch`, the Web entry that every preset calls.
  * - Nitro 2 with Nuxt: it hooks `render:html` for rendered pages, and `beforeResponse` for pages that a route returns
  *   as a `Response`, such as a prerendered file that a Cloudflare Worker reads from its assets.
  */
-export function installViteHubPageTools(nitroApp: unknown, base = ""): void {
+export function installViteHubPageTools(nitroApp: unknown, base?: string): void {
   if (nitroApp === null || typeof nitroApp !== "object") return
-  const { installed } = state()
+  const { installed, bases } = state()
+  if (base !== undefined) bases.set(nitroApp, base)
   if (installed.has(nitroApp)) return
   installed.add(nitroApp)
 
@@ -234,7 +238,7 @@ export function installViteHubPageTools(nitroApp: unknown, base = ""): void {
       // Nitro 3 preserves the Web request as event.req. Each request carries its own app binding.
       if (request instanceof Request) state().apps.set(request, nitroApp)
       const response: unknown = await Reflect.apply(fetch, nitroApp, [request, ...rest])
-      return response instanceof Response && request instanceof Request && wantsLoader(nitroApp, request, base) ? injectPageToolsLoader(response, response.headers, base) : response
+      return response instanceof Response && request instanceof Request && wantsLoader(nitroApp, request) ? injectPageToolsLoader(response, response.headers, state().bases.get(nitroApp)) : response
     })
     return
   }
@@ -246,22 +250,22 @@ export function installViteHubPageTools(nitroApp: unknown, base = ""): void {
   }])
   Reflect.apply(hook, hooks, ["render:html", (html: { bodyAppend: string[] }, context: { event: Nitro2Event }) => {
     const request = nitro2Request(context.event)
-    if (!request || !wantsLoader(nitroApp, request, base)) return
+    if (!request || !wantsLoader(nitroApp, request)) return
     const res = context.event.node?.res
     const policy = res?.getHeader?.("content-security-policy")
-    html.bodyAppend.push(loaderTag(typeof policy === "string" ? scriptNonce(new Headers({ "content-security-policy": policy })) : undefined, base))
+    html.bodyAppend.push(loaderTag(typeof policy === "string" ? scriptNonce(new Headers({ "content-security-policy": policy })) : undefined, state().bases.get(nitroApp)))
     // As on the fetch path: a page with the loader must never reach a shared cache.
     res?.setHeader?.("cache-control", "private, no-store")
   }])
   Reflect.apply(hook, hooks, ["beforeResponse", (event: Nitro2Event, response: { body?: unknown }) => {
     if (!(response.body instanceof Response)) return
     const request = nitro2Request(event)
-    if (request && wantsLoader(nitroApp, request, base)) {
+    if (request && wantsLoader(nitroApp, request)) {
       // H3 preserves Node response headers unless the returned Response replaces them.
       const headers = new Headers(response.body.headers)
       const policy = event.node?.res?.getHeader?.("content-security-policy")
       if (!headers.has("content-security-policy") && typeof policy === "string") headers.set("content-security-policy", policy)
-      response.body = injectPageToolsLoader(response.body, headers, base)
+      response.body = injectPageToolsLoader(response.body, headers, state().bases.get(nitroApp))
     }
   }])
 }

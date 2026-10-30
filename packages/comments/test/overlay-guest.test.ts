@@ -27,6 +27,7 @@ beforeEach(() => {
 
 afterEach(() => {
   document.querySelector("vitehub-comments")?.remove()
+  document.querySelector("vitehub-pill")?.remove()
   Reflect.deleteProperty(document, "elementsFromPoint")
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
@@ -43,9 +44,13 @@ async function compose(user: CommentsSession["user"], realtime = false) {
     return Response.json({ data: [] })
   }))
   const { default: start } = await import("../src/overlay/index.ts")
-  start({ tool: { id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "/overlay.js" }, signal: new AbortController().signal, open: false, exit: vi.fn() })
+  const pill = document.createElement("vitehub-pill")
+  const bar = document.createElement("vitehub-tool")
+  pill.append(bar)
+  document.body.append(pill)
+  start({ tool: { id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "/overlay.js" }, bar, signal: new AbortController().signal, open: false, exit: vi.fn() })
   const shadow = document.querySelector("vitehub-comments")!.shadowRoot!
-  await vi.waitFor(() => expect(shadow.querySelector(".toolbar button")).not.toBeNull())
+  await vi.waitFor(() => expect(bar.shadowRoot!.querySelector(".toolbar button")).not.toBeNull())
   if (realtime) await vi.waitFor(() => expect(connectRealtimeRoom).toHaveBeenCalledTimes(1))
   document.dispatchEvent(new KeyboardEvent("keydown", { key: "c", bubbles: true }))
   document.querySelector("h1")!.dispatchEvent(new MouseEvent("click", { clientX: 10, clientY: 10, bubbles: true }))
