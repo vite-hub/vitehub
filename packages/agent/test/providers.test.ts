@@ -17716,7 +17716,7 @@ describe("server helpers", () => {
     }
   })
 
-  it.each([true, false])("passes the failed Invocation to Chat error replies (errorConsoleLink: %s)", async (errorConsoleLink) => {
+  it.each([true, false])("passes the failed Invocation to Chat error replies (consoleLink: %s)", async (consoleLink) => {
     vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { support: "https://agents.example.test" } })
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
@@ -17725,7 +17725,7 @@ describe("server helpers", () => {
     const { agentInvocationId } = await import("../src/invocations.ts")
     const adapter = createTestChatAdapter({ deferMessageProcessing: true })
     // Each case needs its own message, because the Chat SDK drops duplicate message IDs.
-    const messageId = errorConsoleLink ? 7731 : 7732
+    const messageId = consoleLink ? 7731 : 7732
     const waitUntilTasks: Promise<unknown>[] = []
     const errorFallbackText = vi.fn((_context: { invocation?: { consoleUrl?: string, id: string }, run?: { runId: string } }) => "It failed.")
     const agent = defineAgent({
@@ -17734,7 +17734,7 @@ describe("server helpers", () => {
         defineChatCapability({
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           platforms: { telegram: () => adapter as never },
-          errorConsoleLink,
+          consoleLink,
           errorFallbackText,
           webhooks: { telegram: {} },
         }),
@@ -17768,7 +17768,7 @@ describe("server helpers", () => {
       const id = await agentInvocationId(args.run!.runId, "support")
       const consoleUrl = `https://agents.example.test/_vitehub/agents/support/invocations/${encodeURIComponent(id)}`
       expect(args.invocation).toEqual({ consoleUrl, id })
-      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", errorConsoleLink ? `It failed.\n\nDetails: ${consoleUrl}` : "It failed.")
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", consoleLink ? `It failed.\n\nDetails: ${consoleUrl}` : "It failed.")
     }
     finally {
       consoleError.mockRestore()
@@ -20492,6 +20492,66 @@ describe("server helpers", () => {
       markdown: "Final customer reply",
     })
     expect(adapter.postMessage.mock.invocationCallOrder[1]).toBeLessThan(adapter.deleteMessage.mock.invocationCallOrder[0]!)
+  })
+
+  it.each([true, false])("links the running Invocation from the loading message (consoleLink: %s)", async (consoleLink) => {
+    vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { support: "https://agents.example.test" } })
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { agentInvocationId } = await import("../src/invocations.ts")
+    const adapter = createTestChatAdapter()
+    let runId: string | undefined
+    const agent = defineAgent({
+      name: "support",
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          adapter: () => adapter as never,
+          messages: {
+            consoleLink,
+            delivery: "manual",
+            final: { delivery: "new-message" },
+            loading: { text: "Loading…", updates: "commentary" },
+          },
+        }),
+      },
+      driver: {
+        run: (context) => {
+          runId = context.run?.runId
+          return {
+            stream: (async function* () {
+              yield { delta: "Checking the request.", phase: "commentary", type: "text-delta" }
+              yield { finishReason: "stop", type: "finish" }
+            })(),
+          }
+        },
+      },
+      hooks: {
+        "agent:finish": (event) => event.reply("Final customer reply"),
+      },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const response = await handler(chatWebhookRequest(consoleLink ? 91_901 : 91_902), "telegram")
+
+      expect(response.status).toBe(200)
+      expect(runId).toBeDefined()
+      const id = await agentInvocationId(runId!, "support")
+      const footer = `\n\n[Details](https://agents.example.test/_vitehub/agents/support/invocations/${encodeURIComponent(id)})`
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", consoleLink ? { markdown: `Loading…${footer}` } : "Loading…")
+      expect(adapter.editMessage).toHaveBeenLastCalledWith("telegram:456", "sent-1", {
+        markdown: consoleLink ? `Checking the request.${footer}` : "Checking the request.",
+      })
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", {
+        markdown: "Final customer reply",
+      })
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it("shows only the latest commentary segment in the loading message", async () => {
