@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process"
+import { request as httpRequest } from "node:http"
 import { mkdir, readdir, readFile, symlink } from "node:fs/promises"
 import { createServer } from "node:net"
 import { join, resolve } from "node:path"
@@ -118,6 +119,8 @@ async function freePort(): Promise<number> {
 
 export interface BuiltServer {
   close(): void
+  pid: number | undefined
+  port: number
   fetch(path: string, init?: RequestInit): Promise<Response>
 }
 
@@ -143,7 +146,7 @@ export async function startBuiltServer(root: string, env: Record<string, string>
       await new Promise(done => setTimeout(done, 100))
     }
   }
-  return { close: () => server.kill(), fetch: fetchServer }
+  return { close: () => server.kill(), fetch: fetchServer, pid: server.pid, port }
 }
 
 interface PageRead {
@@ -188,4 +191,178 @@ export async function expectPreviewBypassesCache(server: BuiltServer, expect: ty
   expect(preview).toMatchObject({ body: { title: "Draft" }, ...privately })
   expect(publicRead.body).toMatchObject({ title: "Published" })
   expect((await read("/slow", false)).body).toEqual(publicRead.body)
+}
+
+/** `server/frame-page.ts`, next to `server/content.ts`: the HTML page that the frame redirects land on. */
+const framePage = `
+import { content } from "./content.ts"
+
+export const page = async (cookie) => {
+  const post = await content.collection("posts").get("hello")
+  const session = /(?:^|; )session=([^;]*)/.exec(cookie ?? "")?.[1] ?? ""
+  return \`<!doctype html><html><head><title>Frame</title></head><body><h1>\${post?.data.title}</h1><p id="session">\${session}</p><p id="frame">\${content.preview.frame()?.id ?? ""}</p></body></html>\`
+}
+`
+
+/**
+ * Routes of preview frame redirects on Nitro 3, as Web responses: a redirect to an HTML page, a sign-in redirect that
+ * sets two cookies for a page that needs one, a redirect to another site, and a loop. `/sign` signs posts/hello.
+ */
+export function nitro3FrameRoutes(contentImport: string): Array<[string, string]> {
+  const html = (code: string) => `new Response(${code}, { headers: { "content-type": "text/html; charset=utf-8" } })`
+  const redirect = (location: string) => `export default () => new Response(null, { status: 302, headers: { location: ${JSON.stringify(location)} } })\n`
+  return [
+    ["frame-page.ts", framePage],
+    ["routes/sign.post.ts", `import { content } from ${JSON.stringify(contentImport)}\n\nexport default async () => await content.preview.sign({ collection: "posts", id: "hello" })\n`],
+    ["routes/frame-page.ts", `import { page } from "../frame-page.ts"\n\nexport default async event => ${html(`await page(event.req.headers.get("cookie"))`)}\n`],
+    ["routes/account.ts", `import { page } from "../frame-page.ts"\n\nexport default async (event) => {\n  const cookie = event.req.headers.get("cookie") ?? ""\n  if (!cookie.includes("session=")) return new Response("Sign in first", { status: 401 })\n  return ${html("await page(cookie)")}\n}\n`],
+    ["routes/go.ts", redirect("/frame-page?from=go#intro")],
+    ["routes/web-page.ts", `import { page } from "../frame-page.ts"\n\nexport default async event => ${html(`await page(event.req.headers.get("cookie"))`)}\n`],
+    ["routes/go-web.ts", redirect("/web-page")],
+    ["routes/login.ts", `export default () => {\n  const headers = new Headers({ location: "/account" })\n  headers.append("set-cookie", "session=abc123; Path=/; HttpOnly; SameSite=Lax")\n  headers.append("set-cookie", "theme=dark; Path=/; Max-Age=3600")\n  return new Response(null, { status: 302, headers })\n}\n`],
+    ["routes/away.ts", redirect("https://example.invalid/blog/hello")],
+    ["routes/loop.ts", redirect("/loop")],
+  ]
+}
+
+/** The same routes on Nitro 2, with the h3 v1 helpers that write the Node response directly. */
+export function nitro2FrameRoutes(contentImport: string): Array<[string, string]> {
+  const redirect = (location: string) => `export default defineEventHandler(event => sendRedirect(event, ${JSON.stringify(location)}, 302))\n`
+  const html = `setResponseHeader(event, "content-type", "text/html; charset=utf-8")`
+  return [
+    ["frame-page.ts", framePage],
+    ["routes/sign.post.ts", `import { content } from ${JSON.stringify(contentImport)}\n\nexport default defineEventHandler(async () => await content.preview.sign({ collection: "posts", id: "hello" }))\n`],
+    ["routes/frame-page.ts", `import { page } from "../frame-page.ts"\n\nexport default defineEventHandler(async (event) => {\n  ${html}\n  return await page(getHeader(event, "cookie"))\n})\n`],
+    ["routes/account.ts", `import { page } from "../frame-page.ts"\n\nexport default defineEventHandler(async (event) => {\n  if (!getCookie(event, "session")) throw createError({ statusCode: 401, statusMessage: "Sign in first" })\n  ${html}\n  return await page(getHeader(event, "cookie"))\n})\n`],
+    ["routes/go.ts", redirect("/frame-page?from=go#intro")],
+    // A handler that returns a Web Response: h3 v1 sends its body as a stream.
+    ["routes/web-page.ts", `import { page } from "../frame-page.ts"\n\nexport default defineEventHandler(async event => new Response(await page(getHeader(event, "cookie")), { headers: { "content-type": "text/html; charset=utf-8" } }))\n`],
+    ["routes/go-web.ts", redirect("/web-page")],
+    ["routes/login.ts", `export default defineEventHandler((event) => {\n  setCookie(event, "session", "abc123", { path: "/", httpOnly: true, sameSite: "lax" })\n  setCookie(event, "theme", "dark", { path: "/", maxAge: 3600 })\n  return sendRedirect(event, "/account", 302)\n})\n`],
+    ["routes/away.ts", redirect("https://example.invalid/blog/hello")],
+    ["routes/loop.ts", redirect("/loop")],
+  ]
+}
+
+/** The form of a preview frame with "On screen" as the title of posts/hello. */
+export function frameForm(token: string): string {
+  return new URLSearchParams({ "vitehub-content-preview": JSON.stringify({ token, document: { collection: "posts", id: "hello", data: { title: "On screen" }, body: "# On screen" } }) }).toString()
+}
+
+/** Posts a preview frame form to `path` the way the Console frame does, without following redirects. */
+export async function postFrame(server: BuiltServer, path: string, token: string, headers: Record<string, string> = {}): Promise<Response> {
+  return await server.fetch(`${path}?vitehub-content-preview`, {
+    method: "POST",
+    redirect: "manual",
+    headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin", origin: `http://127.0.0.1:${server.port}`, ...headers },
+    body: frameForm(token),
+  })
+}
+
+/**
+ * After `expectPreviewBypassesCache()` seeded posts/hello: a preview frame follows same-origin redirects in the server
+ * with the posted document, gives the next page the cookies a redirect sets and the browser all of them, and gets an
+ * error page for a redirect to another site or a loop. The same requests outside a frame keep their redirects.
+ */
+export async function expectFrameRedirects(server: BuiltServer, expect: typeof import("vitest").expect): Promise<string> {
+  const signed: unknown = await (await server.fetch("/sign", { method: "POST" })).json()
+  const token = String(Reflect.get(Object(signed), "token"))
+  const titleOf = (html: string) => /<h1>([^<]*)<\/h1>/.exec(html)?.[1]
+
+  const go = await postFrame(server, "/go", token)
+  expect(go.status).toBe(200)
+  expect(go.headers.get("cache-control")).toBe("private, no-store")
+  const page = await go.text()
+  expect(titleOf(page)).toBe("On screen")
+  expect(page).toContain(`<script>history.replaceState(history.state,"","/frame-page?from=go&vitehub-content-preview="+"#intro")</script>`)
+
+  const web = await postFrame(server, "/go-web", token)
+  expect(web.status).toBe(200)
+  expect(titleOf(await web.text())).toBe("On screen")
+
+  const login = await postFrame(server, "/login", token, { cookie: "prefs=1" })
+  expect(login.status).toBe(200)
+  const account = await login.text()
+  expect(titleOf(account)).toBe("On screen")
+  expect(account).toContain(`<p id="session">abc123</p><p id="frame">hello</p>`)
+  expect(login.headers.getSetCookie().map(cookie => cookie.split(";", 1)[0])).toEqual(["session=abc123", "theme=dark"])
+
+  // Outside a frame, the same Cookie header gets the ordinary redirect with its cookies and public headers.
+  const outside = await server.fetch("/login", { redirect: "manual", headers: { cookie: "prefs=1" } })
+  expect(outside.status).toBe(302)
+  expect(outside.headers.get("location")).toBe("/account")
+  expect(outside.headers.getSetCookie().map(cookie => cookie.split(";", 1)[0])).toEqual(["session=abc123", "theme=dark"])
+  expect(outside.headers.get("cache-control")).not.toBe("private, no-store")
+  const normal = await server.fetch("/account", { headers: { cookie: "session=abc123" } })
+  expect(titleOf(await normal.text())).toBe("Published")
+
+  for (const path of ["/away", "/loop"]) {
+    const refused = await postFrame(server, path, token)
+    expect(refused.status).toBe(502)
+    expect(refused.headers.get("location")).toBeNull()
+    expect(await refused.text()).toContain(`<meta name="vitehub-content-preview-error"`)
+  }
+
+  // Frames and ordinary reads of the same pages at once stay apart.
+  const reads = await Promise.all(Array.from({ length: 12 }, async (_, index) => index % 2
+    ? { frame: false, title: titleOf(await (await server.fetch("/frame-page")).text()) }
+    : { frame: true, title: titleOf(await (await postFrame(server, "/go", token)).text()) }))
+  for (const read of reads) expect(read.title).toBe(read.frame ? "On screen" : "Published")
+  return token
+}
+
+/** Sends a frame form of `size` bytes to the server, all at once with its length or in chunks without one. */
+function upload(server: BuiltServer, size: number, chunked: boolean): Promise<{ status?: number, sent: number, closed: boolean, ms: number }> {
+  const started = Date.now()
+  return new Promise((resolve) => {
+    let sent = 0
+    let status: number | undefined
+    let finished = false
+    const headers: Record<string, string> = { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin" }
+    if (!chunked) headers["content-length"] = String(size)
+    const request = httpRequest({ host: "127.0.0.1", port: server.port, method: "POST", path: "/frame-page?vitehub-content-preview", headers }, (response) => {
+      status = response.statusCode
+      response.resume()
+      response.on("end", () => done(true))
+    })
+    const done = (closed: boolean) => {
+      if (finished) return
+      finished = true
+      clearInterval(timer)
+      request.destroy()
+      resolve({ status, sent, closed, ms: Date.now() - started })
+    }
+    request.on("error", () => done(true))
+    request.on("close", () => done(true))
+    const chunk = new Uint8Array(64 * 1024).fill(0x61)
+    if (!chunked) {
+      request.end(new Uint8Array(size).fill(0x61))
+      sent = size
+    }
+    const timer = setInterval(() => {
+      if (!chunked) return
+      if (sent >= size) {
+        request.end()
+        return
+      }
+      sent += chunk.byteLength
+      request.write(chunk)
+    }, 2)
+    setTimeout(() => done(false), 10_000)
+  })
+}
+
+/**
+ * Frame forms over 1 MiB on a direct Node server: one with an honest `Content-Length`, and a chunked one without a
+ * length. Each gets a 403 or a closed connection within seconds, without the server reading the rest, and the server
+ * keeps answering.
+ */
+export async function expectBoundedFrameUploads(server: BuiltServer, expect: typeof import("vitest").expect): Promise<void> {
+  for (const chunked of [false, true]) {
+    const result = await upload(server, 4 * 1024 * 1024, chunked)
+    expect(result.closed).toBe(true)
+    if (result.status !== undefined) expect(result.status).toBe(403)
+    expect(result.ms).toBeLessThan(10_000)
+    expect((await server.fetch("/frame-page")).status).toBe(200)
+  }
 }

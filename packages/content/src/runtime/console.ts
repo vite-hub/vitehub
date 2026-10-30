@@ -37,9 +37,10 @@ import type { AnyContentCollection, ContentDocument, ContentDocumentStatus, Cont
 import type { ContentDocumentSchedule, ContentSchedule } from "../schedules.ts"
 import type { ContentDocumentSessions, ContentSession } from "../sessions.ts"
 import { contentLive } from "../live.ts"
+import { contentPreviewFrameParameter } from "../preview.ts"
 
 type ContentRuntime = Pick<ContentDocumentsRuntime, "can" | "collection" | "collections" | "publish" | "revisions" | "supportsScheduling" | "schedule" | "schedules" | "unschedule">
-  & Partial<Pick<ContentDocumentsRuntime, "hasPolicy" | "live" | "sessions">>
+  & Partial<Pick<ContentDocumentsRuntime, "hasPolicy" | "live" | "preview" | "sessions">>
 
 const sessionActions: readonly ViteHubConsoleDocumentSessionAction[] = ["report", "acquire", "takeover", "release"]
 
@@ -163,6 +164,9 @@ function translate(error: unknown): never {
   if (String(code) === code && /^(?:CONTENT|SOURCE)_R\d+$/.test(code)) throw failure(400, code, message)
   throw error
 }
+
+/** Seconds a Console preview frame token stays valid. */
+const previewMaxAge = 15 * 60
 
 async function attempt<T>(run: () => Promise<T>): Promise<T> {
   try {
@@ -605,6 +609,20 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       return await attempt(async () => {
         const document = await collection.get(id, { ref })
         return document ? await view(collection, document) : null
+      })
+    },
+
+    async preview(input, context) {
+      if (!isRecord(input)) throw invalidInput("preview() requires { collection, id }.")
+      const collection = open(input.collection)
+      const id = text(input.id, "id")
+      await allow(context, collection, "read", id)
+      if (!content.preview) throw failure(404, "CONTENT_PREVIEW_UNAVAILABLE", "This Content runtime has no draft preview.")
+      const preview = content.preview
+      return await attempt(async () => {
+        // A short token for this document only: the editor asks again before it expires. The rest of the page reads published.
+        const { token, expiresAt } = await preview.sign({ collection: collection.name, id, maxAge: previewMaxAge })
+        return { parameter: contentPreviewFrameParameter, token, expiresAt: expiresAt.toISOString() }
       })
     },
 
