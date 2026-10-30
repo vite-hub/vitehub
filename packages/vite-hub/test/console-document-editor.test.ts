@@ -521,7 +521,7 @@ describe("Leaving Local only with pending body edits", () => {
     await flushPromises()
     expect(commit).toHaveBeenCalledOnce()
     expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toBeDefined()
-    expect(body.exists()).toBe(true)
+    expect(body.vm.$.isUnmounted).toBe(false)
 
     pending.resolve()
     await flushPromises()
