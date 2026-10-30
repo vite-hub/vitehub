@@ -2,9 +2,11 @@ import { Window } from "happy-dom"
 import { marked } from "marked"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import { hasViteHubPageToolsHint } from "@vite-hub/internal/runtime/page-tools"
+
 import { commentsSchema } from "../src/database.ts"
 import { createGitHubClient } from "../src/forge/github.ts"
-import { renderComment, renderSummary, unlinked } from "../src/forge/render.ts"
+import { previewUrl, renderComment, renderSummary, unlinked } from "../src/forge/render.ts"
 import { forgetGitHubToken, rememberGitHubToken } from "../src/forge/tokens.ts"
 import { defineComments, installComments } from "../src/index.ts"
 import { createCommentsStore } from "../src/store.ts"
@@ -181,7 +183,7 @@ describe("forge sync", () => {
     expect(summary!.body).toContain("**1 open**, 0 resolved on [pr7.preview.acme.dev](https://pr7.preview.acme.dev)")
     expect(posted!.body).toContain("**Ada** commented on the preview:\n\n> Bookmark names are cut off. Show them in full.")
     expect(posted!.body).toContain("`app/components/BookmarkSelector.vue`")
-    expect(posted!.body).toContain(`https://pr7.preview.acme.dev/forecast?group=eu&comments#comment-${thread!.id}`)
+    expect(posted!.body).toContain(`https://pr7.preview.acme.dev/forecast?group=eu&vitehub=comments#comment-${thread!.id}`)
     expect(posted!.token).toBe("app-token")
 
     const [, read] = await comments.get(thread!.id)
@@ -719,6 +721,14 @@ describe("forge render", () => {
     comments: [{ id: "c1", threadId: "t1", body: "Ask @grace | see #12", mentions: [], author: ada, createdAt: "2026-10-26T10:00:00.000Z", editedAt: null }],
   } satisfies CommentThread
 
+  it.each(["", "/portal"])("opens page tools from preview links under mount %s", (mount) => {
+    const url = previewUrl({ ...thread, context: { ...thread.context, url: `https://preview.test${mount}/forecast?group=eu#old` } })!
+    expect(hasViteHubPageToolsHint(new Request(url), mount)).toBe(true)
+    expect(new URL(url).searchParams.get("vitehub")).toBe("comments")
+    expect(new URL(url).searchParams.get("group")).toBe("eu")
+    expect(new URL(url).hash).toBe(`#comment-${thread.id}`)
+  })
+
   it("keeps app mentions and thread numbers from linking on GitHub", () => {
     expect(unlinked("@grace in #12, mail a@b.c")).toBe("@⁠grace in #⁠12, mail a@⁠b.c")
     expect(renderComment(thread, thread.comments[0], "author")).toContain("Ask @⁠grace \\| see \\#⁠12")
@@ -764,6 +774,6 @@ describe("forge render", () => {
 
   it("escapes table cells in the summary", () => {
     const summary = renderSummary({ title: "Preview comments", threads: [{ thread, failed: true }] })
-    expect(summary).toContain("| [#⁠3](https://pr7.preview.acme.dev/forecast?group=eu&comments#comment-t1) | Ask @⁠grace \\| see \\#⁠12<br><sub>`/forecast` · Ada</sub> | Open, not posted yet |")
+    expect(summary).toContain("| [#⁠3](https://pr7.preview.acme.dev/forecast?group=eu&vitehub=comments#comment-t1) | Ask @⁠grace \\| see \\#⁠12<br><sub>`/forecast` · Ada</sub> | Open, not posted yet |")
   })
 })

@@ -5,6 +5,7 @@ import { join, resolve } from "node:path"
 
 import { resolveViteHubProjectRoot, VITEHUB_APP_BASE_URL, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
+import { viteHubPageToolsLoader } from "@vite-hub/internal/runtime/page-tools-shared"
 
 import type { AgentRetentionPolicy, AgentInvocationsOptions } from "@vite-hub/agent/server"
 import type { AuthModuleOptions, ResolvedAuthViteConfig } from "@vite-hub/auth"
@@ -22,7 +23,7 @@ import { createConsoleCliNamespace } from "./cli.ts"
 import { consoleViteDevTools, type ConsoleViteDevTools } from "./devtools.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
 import { bindConsoleInvocationsIdentity, createConsoleInvocationsIdentity, releaseConsoleInvocationsBinding } from "./internal.ts"
-import { addConsoleRpcHandler } from "./nitro.ts"
+import { addConsolePageToolRoutes, addConsoleRpcHandler } from "./nitro.ts"
 import { consoleOpenAccessWarning, isConsoleSignInPage } from "./runtime/server/access.ts"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 import { resolveConsoleJournal, type ConsoleJournal } from "../storage-config.ts"
@@ -270,6 +271,7 @@ function configureConsoleNitroRoutes(
     join(consoleRuntimeRoot, "server/invocations.get.js"),
     join(consoleRuntimeRoot, "server/logs.get.js"),
     join(consoleRuntimeRoot, "server/page.get.js"),
+    join(consoleRuntimeRoot, "server/page-session.js"),
     join(consoleRuntimeRoot, "server/search.get.js"),
     join(consoleRuntimeRoot, "server/sign-in.js"),
     join(consoleRuntimeRoot, "server/sections.get.js"),
@@ -289,7 +291,10 @@ function configureConsoleNitroRoutes(
   const handlers = Array.isArray(nitro.handlers)
     ? nitro.handlers.filter(handler => !runtimeHandlers.has(handler?.handler) && !authHandlers.has(handler?.handler))
     : []
-  const kit = createNitroServerKit({ ...nitro, handlers })
+  const assets = Array.isArray(nitro.publicAssets)
+    ? nitro.publicAssets.filter(asset => asset?.dir !== join(consoleRuntimeRoot, "page"))
+    : []
+  const kit = createNitroServerKit({ ...nitro, handlers, publicAssets: assets })
   // Without a `console` option, `vite dev` serves only the RPC, so the CLI can call operations. No page, no assets.
   if (!rpcOnly) {
     // Console Auth already redirects in its middleware, including its OAuth start request.
@@ -316,10 +321,11 @@ function configureConsoleNitroRoutes(
     if (consoleAuthHandlers) kit.addHandler({ handler: consoleAuthHandlers.middleware, middleware: true, route: "/**" })
   }
   addConsoleRpcHandler(kit.config, consoleRuntimeRoot, baseURL, sections, !rpcOnly && oauth)
+  if (!rpcOnly) addConsolePageToolRoutes(kit.config, consoleRuntimeRoot, baseURL)
   const consoleAssetsBase = consoleMountPath(baseURL, "/_vitehub/assets")
-  const userPublicAssets = Array.isArray(nitro.publicAssets)
-    ? nitro.publicAssets.filter(asset => asset?.dir !== consolePublicRoot && asset?.dir !== consoleSkillsRoot)
-    : []
+  // The page tools contribute their loader asset to the kit.
+  const userPublicAssets = (kit.config.publicAssets as ConsoleNitroConfig["publicAssets"] ?? [])
+    .filter(asset => asset?.dir !== consolePublicRoot && asset?.dir !== consoleSkillsRoot)
   const publicAssets = [...rpcOnly
     ? []
     : [{
@@ -535,7 +541,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
     if (!generatedPlugin || !projectRoot || !root) return
     const catalog = await discoverConsoleBuildCatalog({ contentImportBase: options.contentImportBase, databaseDiscoveryRoot, databaseImplicitDefault: true, discoveryRoot: root, plugins: resolvedPlugins, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxTaskDiscoveryRoot: root, scheduleDiscoveryRoot, sections, serverDirs, workspaceDiscoveryRoot })
     consoleBuildCatalogs.set(projectRoot, catalog)
-    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, fixture, options.invocationRootState?.binding, invoke, observations, () => !options.invocationRootState?.closed, journal, consoleAuthMode, retention, consoleAccess(), options.runtimeCapabilityImports, development, applicationBase)
+    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, fixture, options.invocationRootState?.binding, invoke, observations, () => !options.invocationRootState?.closed, journal, consoleAuthMode, retention, consoleAccess(), options.runtimeCapabilityImports, development, applicationBase, !options.rpcOnly)
     if (options.invocationRootState) updateConsoleInvocationRootState(options.invocationRootState, projectRoot, identity)
   })
 
@@ -566,6 +572,15 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
   const plugin: Plugin & { devtools: ConsoleViteDevTools, vitehub: NonNullable<ViteHubCliContributingPlugin["vitehub"]> & NonNullable<OperationContributingPlugin["vitehub"]> } = {
     name: "vite-hub/console",
     devtools: consoleViteDevTools,
+    // Vite serves SPA HTML without passing it through the Nitro page-tools wrapper.
+    transformIndexHtml() {
+      if (options.rpcOnly) return
+      return [{
+        tag: "script",
+        attrs: { type: "module", src: consoleMountPath(baseURL, viteHubPageToolsLoader) },
+        injectTo: "body",
+      }]
+    },
     async config(config, environment) {
       development = environment.command === "serve"
       if (options.connections !== undefined && !isConsoleConnectionsEnabled(options, environment.command === "serve")) {
@@ -714,6 +729,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
           options.runtimeCapabilityImports,
           development,
           applicationBase,
+          !options.rpcOnly,
         )
       }
       // SAFETY: Nitro extends Vite's user config with this documented top-level configuration object.
@@ -814,6 +830,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
                 callbackState.runtimeCapabilityImports,
                 callbackState.development,
                 Reflect.get(callbackState.config, VITEHUB_APP_BASE_URL) ?? callbackState.baseURL,
+                !options.rpcOnly,
               )
             }
             const nitro = (callbackState.config as typeof callbackState.config & { nitro?: ConsoleNitroConfig }).nitro ?? {}

@@ -180,6 +180,21 @@ describe("Cloudflare Access Console Auth", () => {
     expect(verify).not.toHaveBeenCalled()
   })
 
+  it.each(["/", "/portal/"])("leaves page tools to their own authorization under %s", async (mountBaseURL) => {
+    const settings = vi.fn(() => ({ audience, teamDomain }))
+    const verify = vi.fn<CloudflareAccessVerifier>()
+    for (const path of ["_vitehub/page/session", "_vitehub/page/assets/loader.js?v=1"]) {
+      const event = consoleEvent(`https://app.example.com${mountBaseURL}${path}`)
+      expect(await handleCloudflareAccessConsoleRequest(event, settings, mountBaseURL, verify)).toBeUndefined()
+    }
+    expect(settings).not.toHaveBeenCalled()
+    expect(verify).not.toHaveBeenCalled()
+    for (const path of ["_vitehub", "_vitehub/page/session-extra", "_vitehub/page/assets-extra/loader.js"]) {
+      const event = consoleEvent(`https://app.example.com${mountBaseURL}${path}`)
+      expect((await handleCloudflareAccessConsoleRequest(event, settings, mountBaseURL, verify))?.status).toBe(401)
+    }
+  })
+
   it("bundles a generated guard that reads Env and verifies tokens on Node", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-cf-access-node-"))
     try {

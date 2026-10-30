@@ -77,7 +77,7 @@ pnpm vitehub db migrate
 pnpm vite dev
 ```
 
-Open `http://localhost:5173/?comments`. The `?comments` query turns on comment mode. A toolbar shows at the bottom of the page. The server also sets the `vitehub-comments` cookie, so other pages of the site keep comment mode until you close the toolbar.
+Open `http://localhost:5173/?vitehub`. The `?vitehub` query turns on comment mode. A toolbar shows at the bottom of the page. The server also sets the `vitehub-tools` cookie, so other pages of the site keep comment mode until you close the toolbar.
 
 1. Press <kbd>C</kbd>, or select **Comment** in the toolbar.
 2. Click a heading on the page. A comment box opens at that point.
@@ -94,7 +94,7 @@ Open `http://localhost:5173/` without the query in a private window. That browse
 ::tutorial-step{title="See who else is on the page"}
 ## See who else is on the page
 
-Open `http://localhost:5173/?comments` in a second browser, or in a private window. Type another name when you write a comment there.
+Open `http://localhost:5173/?vitehub` in a second browser, or in a private window. Type another name when you write a comment there.
 
 - The toolbar of each browser shows both people as avatars.
 - Move the pointer in one browser. Its cursor moves in the other browser, on the same element.
@@ -169,7 +169,7 @@ pnpm vitehub db migrate
 
 The singleton has no document yet. Open `http://localhost:5173/_vitehub/content`, open **Settings**, then **About**. Type a title and select **Publish**.
 
-Open `http://localhost:5173/?comments` again. The heading shows the title.
+Open `http://localhost:5173/?vitehub` again. The heading shows the title.
 
 1. Press <kbd>E</kbd>, or select **Edit** in the toolbar. Move the pointer over the heading. It gets an outline with its field address, `about#title`.
 2. Click the heading. It becomes editable and shows the current draft.

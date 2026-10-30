@@ -64,7 +64,7 @@ export function previewUrl(thread: CommentThread): string | undefined {
   try {
     const url = new URL(thread.context.url)
     url.hash = ""
-    return `${url.href}${url.search ? "&" : "?"}comments#comment-${thread.id}`
+    return `${url.href}${url.search ? "&" : "?"}vitehub=comments#comment-${thread.id}`
   }
   catch {
     return

@@ -54,448 +54,470 @@ const distributionEntries = [
 
 const consoleAssetRoot = resolve(import.meta.dirname, ".vitehub/console");
 
-function consoleAsset(extension: ".css" | ".js"): string {
+function consoleAsset(prefix: "console-" | "page-tool-", extension: ".css" | ".js"): string {
   const matches = readdirSync(consoleAssetRoot)
-    .filter(file => file.startsWith("console-") && file.endsWith(extension));
+    .filter(file => file.startsWith(prefix) && file.endsWith(extension));
   if (matches.length !== 1) {
-    throw new TypeError(`Expected one hashed Console ${extension} asset, found ${matches.length}.`);
+    throw new TypeError(`Expected one hashed Console ${prefix}*${extension} asset, found ${matches.length}.`);
   }
   return matches[0]!;
 }
 
 export default defineConfig({
-  pack: {
-    tsconfig: "tsconfig.build.json",
-    copy: [
-      { from: "src/cloudflare-prerender.mjs", to: "dist" },
-      { from: "src/error-diagnostics.ts", to: "dist" },
-      { from: ".vitehub/console", to: "dist/console/runtime/public" },
-      { from: ".vitehub/skills", to: "dist/console/runtime/public" },
-      { from: ".vitehub/comments-overlay", to: "dist" },
-      {
-        from: "src/console/runtime/components/console-wrap.ts",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-app.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-new-chat.ts",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-agent-list.ts",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-connection-state.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-connection.ts",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-session-bootstrap.ts",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-blob.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-database-model.ts",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-database.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-definitions.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-connect-agent.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-operation-view.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-workflow-actions.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-frame.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-home.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-invocation-composer.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-kv.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-mark.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-rail.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-search.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-section-icon.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-session-code-preview.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-session-code-language.ts",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-session-actions.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-session-cancel.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-session-inspector.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/invocation",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-workspace-file.ts",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-workspace-history.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-session-loading.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-session-navbar.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-session-trace-model.ts",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-session-trace.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-session.css",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-usage.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-usage-chart.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-usage-model-detail.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-usage-model.ts",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-usage-share-bar.vue",
-        to: "dist/console/runtime/components",
-      },
-      { from: "src/console/runtime/components/console-env.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-env-details.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-env-managed.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-env-activity.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-env-access.vue", to: "dist/console/runtime/components" },
-      {
-        from: "src/console/runtime/components/console-auth.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-auth-detail.vue",
-        to: "dist/console/runtime/components",
-      },
-      {
-        from: "src/console/runtime/components/console-auth-action.vue",
-        to: "dist/console/runtime/components",
-      },
-      { from: "src/console/runtime/client/auth-management.ts", to: "dist/console/runtime/client" },
-      { from: "src/console/runtime/components/console-auth-overview.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-auth-activity.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-auth-chart.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-auth-event-list.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-auth-event-setup.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-auth-user-events.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-connections.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-connections-details.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-connections-activity.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-connections-approvals.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-state.vue", to: "dist/console/runtime/components" },
-      ...["console-mcp-client.vue", "console-mcp-callback.vue", "console-mcp-connect.vue", "console-mcp-connection.vue", "console-mcp-content.vue", "console-mcp-items.vue"].map(file => ({ from: `src/console/runtime/components/${file}`, to: "dist/console/runtime/components" })),
-      { from: "src/console/runtime/components/console-loading.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-documents.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-document-dashboard.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-media-library.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-media-browser.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-media-crops.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-media-detail.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-media-field.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-media-focal.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-media-move.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-media-picker.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-media-uploads.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-document-settings.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-seo-panel.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-setup-hint.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-document-list.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-document-editor.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-document-diff.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-document-history.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-schema-form.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-markdown-editor.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-comark-component.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-media-dialog.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-property-row.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-page-header.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-presence-avatars.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-page-toolbar.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-schema-field.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-schema-list.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-relative-time.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-status.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-value.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-property-list.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-rate-limit.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-blob-detail.vue", to: "dist/console/runtime/components" },
-      { from: "src/console/runtime/components/console-toaster.vue", to: "dist/console/runtime/components" },
-      { from: "../ui/styles.css", to: "dist/ui" },
-      { from: "templates/cloudflare-types.d.ts", to: "dist" },
-    ],
-    deps: {
-      neverBundle: ["esbuild", "vite", /^@vite-hub\/(?!internal(?:\/|$))/],
-      alwaysBundle: [/^@vite-hub\/internal/],
-      onlyBundle: false,
-    },
-    plugins: [
-      {
-        name: "vite-hub-console-assets",
-        generateBundle(_options, bundle) {
-          const page = Object.values(bundle).find(output =>
-            output.type === "chunk"
-            && output.facadeModuleId?.replaceAll("\\", "/").endsWith("/src/console/runtime/server/page.get.ts")
-          );
-          if (!page || page.type !== "chunk") {
-            throw new TypeError("Expected the standalone Console page in the package bundle.");
-          }
-          page.code = page.code
-            .replaceAll("__VITEHUB_CONSOLE_STYLE_ASSET__", consoleAsset(".css"))
-            .replaceAll("__VITEHUB_CONSOLE_SCRIPT_ASSET__", consoleAsset(".js"));
+  pack: [
+    {
+      tsconfig: "tsconfig.build.json",
+      copy: [
+        { from: "src/cloudflare-prerender.mjs", to: "dist" },
+        { from: "src/error-diagnostics.ts", to: "dist" },
+        { from: ".vitehub/console", to: "dist/console/runtime/public" },
+        { from: ".vitehub/skills", to: "dist/console/runtime/public" },
+        { from: ".vitehub/comments-overlay", to: "dist" },
+        {
+          from: "src/console/runtime/components/console-wrap.ts",
+          to: "dist/console/runtime/components",
         },
-      },
-      {
-        name: "vite-hub-env-config-declarations",
-        generateBundle(_options, bundle) {
-          for (const file of ["index.d.ts", "env.d.ts"]) {
-            const chunk = bundle[file];
-            if (chunk?.type === "chunk") chunk.code = `import "@vite-hub/env/vite";\n${chunk.code}`;
-          }
+        {
+          from: "src/console/runtime/components/console-app.vue",
+          to: "dist/console/runtime/components",
         },
+        {
+          from: "src/console/runtime/components/console-new-chat.ts",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-agent-list.ts",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-connection-state.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-connection.ts",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-session-bootstrap.ts",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-blob.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-database-model.ts",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-database.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-definitions.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-connect-agent.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-operation-view.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-workflow-actions.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-frame.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-home.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-invocation-composer.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-kv.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-mark.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-rail.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-search.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-section-icon.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-session-code-preview.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-session-code-language.ts",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-session-actions.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-session-cancel.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-session-inspector.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/invocation",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-workspace-file.ts",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-workspace-history.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-session-loading.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-session-navbar.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-session-trace-model.ts",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-session-trace.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-session.css",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-usage.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-usage-chart.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-usage-model-detail.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-usage-model.ts",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-usage-share-bar.vue",
+          to: "dist/console/runtime/components",
+        },
+        { from: "src/console/runtime/components/console-env.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-env-details.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-env-managed.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-env-activity.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-env-access.vue", to: "dist/console/runtime/components" },
+        {
+          from: "src/console/runtime/components/console-auth.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-auth-detail.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-auth-action.vue",
+          to: "dist/console/runtime/components",
+        },
+        { from: "src/console/runtime/client/auth-management.ts", to: "dist/console/runtime/client" },
+        { from: "src/console/runtime/components/console-auth-overview.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-auth-activity.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-auth-chart.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-auth-event-list.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-auth-event-setup.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-auth-user-events.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-connections.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-connections-details.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-connections-activity.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-connections-approvals.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-state.vue", to: "dist/console/runtime/components" },
+        ...["console-mcp-client.vue", "console-mcp-callback.vue", "console-mcp-connect.vue", "console-mcp-connection.vue", "console-mcp-content.vue", "console-mcp-items.vue"].map(file => ({ from: `src/console/runtime/components/${file}`, to: "dist/console/runtime/components" })),
+        { from: "src/console/runtime/components/console-loading.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-documents.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-document-dashboard.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-media-library.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-media-browser.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-media-crops.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-media-detail.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-media-field.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-media-focal.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-media-move.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-media-picker.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-media-uploads.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-document-settings.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-seo-panel.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-setup-hint.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-document-list.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-document-editor.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-document-preview.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-document-diff.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-document-history.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-schema-form.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-markdown-editor.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-comark-component.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-media-dialog.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-property-row.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-page-header.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-presence-avatars.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-page-toolbar.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-schema-field.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-schema-list.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-relative-time.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-status.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-value.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-property-list.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-rate-limit.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-blob-detail.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-toaster.vue", to: "dist/console/runtime/components" },
+        { from: "../ui/styles.css", to: "dist/ui" },
+        { from: "templates/cloudflare-types.d.ts", to: "dist" },
+      ],
+      deps: {
+        neverBundle: ["esbuild", "vite", /^@vite-hub\/(?!internal(?:\/|$))/],
+        alwaysBundle: [/^@vite-hub\/internal/],
+        onlyBundle: false,
       },
-    ],
-    entry: [
-      ...distributionEntries,
-      "src/console/runtime/console-route.ts",
-      "src/console/runtime/client/appearance.ts",
-      "src/console/runtime/client/build.ts",
-      "src/console/runtime/client/invocation.ts",
-      "src/console/runtime/client/invocation-deletion.ts",
-      "src/console/runtime/client/request.ts",
-      "src/console/runtime/client/env-management.ts",
-      "src/console/runtime/client/connections-management.ts",
-      "src/console/runtime/client/blob-media.ts",
-      "src/console/runtime/client/documents.ts",
-      "src/console/runtime/client/format.ts",
-      "src/console/runtime/client/editor.ts",
-      "src/console/runtime/client/env-groups.ts",
-      "src/console/runtime/client/env-status.ts",
-      "src/console/runtime/client/live.ts",
-      "src/console/runtime/client/mcp-client.ts",
-      "src/console/runtime/client/media.ts",
-      "src/console/runtime/client/media-library.ts",
-      "src/console/runtime/client/media-uploads.ts",
-      "src/console/runtime/client/presence.ts",
-      "src/console/runtime/client/publish.ts",
-      "src/console/runtime/client/mcp.ts",
-      "src/console/runtime/client/operation-view.ts",
-      "src/console/runtime/client/problem.ts",
-      "src/console/runtime/client/rate-limit.ts",
-      "src/console/runtime/client/read-only.ts",
-      "src/console/runtime/client/schedule-run.ts",
-      "src/console/runtime/client/schema-form.ts",
-      "src/console/runtime/client/sign-in.ts",
-      "src/console/runtime/client/time.ts",
-      "src/console/runtime/client/toast.ts",
-      "src/console/runtime/client/workflow.ts",
-      "src/console/runtime/definitions.ts",
-      "src/console/runtime/mcp-client.ts",
-      "src/console/runtime/rpc.ts",
-      "src/console/runtime/sections.ts",
-      "src/console/runtime/server/agents.get.ts",
-      "src/console/runtime/server/channel-replay.ts",
-      "src/console/runtime/server/client.get.ts",
-      "src/console/runtime/server/database.get.ts",
-      "src/console/runtime/server/definitions.get.ts",
-      "src/console/runtime/server/documents.ts",
-      "src/console/runtime/server/invocation-capabilities.get.ts",
-      "src/console/runtime/server/rpc.ts",
-      "src/console/runtime/server/invocation.get.ts",
-      "src/console/runtime/server/invocation-workspace.get.ts",
-      "src/console/runtime/server/invocations.get.ts",
-      "src/console/runtime/server/env.get.ts",
-      "src/console/runtime/server/auth-manage.ts",
-      "src/console/runtime/server/env-manage.ts",
-      "src/console/runtime/server/logs.get.ts",
-      "src/console/runtime/server/mcp.ts",
-      "src/console/runtime/server/mcp-discovery.ts",
-      "src/console/runtime/server/mcp-authorization-server.ts",
-      "src/console/runtime/server/mcp-metadata.ts",
-      "src/console/runtime/server/page.get.ts",
-      "src/console/runtime/server/schedule-run.ts",
-      "src/console/runtime/server/search.get.ts",
-      "src/console/runtime/server/sign-in.ts",
-      "src/console/runtime/server/sections.get.ts",
-      "src/console/runtime/server/usage.get.ts",
-      "src/console/runtime/server/status.get.ts",
-    ],
-    exports: {
-      exclude: ["bin"],
-      bin: distributionBinEntries,
-      customExports(exports) {
-        delete exports["./console/runtime/console-route"];
-        delete exports["./console/runtime/client/sections"];
-        delete exports["./console/runtime/client/appearance"];
-        delete exports["./console/runtime/client/build"];
-        delete exports["./console/runtime/client/invocation"];
-        delete exports["./console/runtime/client/invocation-deletion"];
-        delete exports["./console/runtime/client/request"];
-        delete exports["./console/runtime/client/env-management"];
-        delete exports["./console/runtime/client/connections-management"];
-        delete exports["./console/runtime/client/blob-media"];
-        delete exports["./console/runtime/client/documents"];
-        delete exports["./console/runtime/client/editor"];
-        delete exports["./console/runtime/client/env-groups"];
-        delete exports["./console/runtime/client/env-status"];
-        delete exports["./console/runtime/client/format"];
-        delete exports["./console/runtime/client/live"];
-        delete exports["./console/runtime/client/mcp-client"];
-        delete exports["./console/runtime/client/mcp"];
-        delete exports["./console/runtime/client/operation-view"];
-        delete exports["./console/runtime/client/media"];
-        delete exports["./console/runtime/client/media-library"];
-        delete exports["./console/runtime/client/media-uploads"];
-        delete exports["./console/runtime/client/presence"];
-        delete exports["./console/runtime/client/publish"];
-        delete exports["./console/runtime/client/problem"];
-        delete exports["./console/runtime/client/rate-limit"];
-        delete exports["./console/runtime/client/read-only"];
-        delete exports["./console/runtime/client/schedule-run"];
-        delete exports["./console/runtime/client/schema-form"];
-        delete exports["./console/runtime/client/sign-in"];
-        delete exports["./console/runtime/client/time"];
-        delete exports["./console/runtime/client/toast"];
-        delete exports["./console/runtime/client/workflow"];
-        delete exports["./console/runtime/definitions"];
-        delete exports["./console/runtime/mcp-client"];
-        delete exports["./console/runtime/rpc"];
-        delete exports["./console/runtime/sections"];
-        delete exports["./console/runtime/server/agents.get"];
-        delete exports["./console/runtime/server/blob"];
-        delete exports["./console/runtime/server/channel-replay"];
-        delete exports["./console/runtime/server/client.get"];
-        delete exports["./console/runtime/server/database"];
-        delete exports["./console/runtime/server/database.get"];
-        delete exports["./console/runtime/server/definitions"];
-        delete exports["./console/runtime/server/definitions.get"];
-        delete exports["./console/runtime/server/documents"];
-        delete exports["./console/runtime/server/invocation-capabilities.get"];
-        delete exports["./console/runtime/server/rpc"];
-        delete exports["./console/runtime/server/invocation.get"];
-        delete exports["./console/runtime/server/invocation-workspace.get"];
-        delete exports["./console/runtime/server/invocations.get"];
-        delete exports["./console/runtime/server/env.get"];
-        delete exports["./console/runtime/server/auth-manage"];
-        delete exports["./console/runtime/server/env-manage"];
-        delete exports["./console/runtime/server/env"];
-        delete exports["./console/runtime/server/logs.get"];
-        delete exports["./console/runtime/server/mcp"];
-        delete exports["./console/runtime/server/mcp-client-operations"];
-        delete exports["./console/runtime/server/mcp-discovery"];
-        delete exports["./console/runtime/server/mcp-authorization-server"];
-        delete exports["./console/runtime/server/mcp-metadata"];
-        delete exports["./console/runtime/server/page.get"];
-        delete exports["./console/runtime/server/schedule-run"];
-        delete exports["./console/runtime/server/search.get"];
-        delete exports["./console/runtime/server/sign-in"];
-        delete exports["./console/runtime/server/sections.get"];
-        delete exports["./console/runtime/server/sections"];
-        delete exports["./console/runtime/server/usage.get"];
-        delete exports["./console/runtime/server/status.get"];
-        delete exports["./console/auth-client"];
-        delete exports["./console/auth-cloudflare-access"];
-        delete exports["./console/auth-inline"];
-        return normalizePackageExports({
-          ...frameworkPackageManifest.exports,
-          ...exports,
-          "./console/auth/client": "./dist/console/auth-client.js",
-          "./console/auth/cloudflare-access": "./dist/console/auth-cloudflare-access.js",
-          "./console/auth/inline": "./dist/console/auth-inline.js",
-          "./console/blob": "./dist/console/runtime/server/blob.js",
-          "./console/database": "./dist/console/runtime/server/database.js",
-          "./console/definitions": "./dist/console/runtime/server/definitions.js",
-          "./console/documents": "./dist/console/runtime/server/documents.js",
-          "./console/env": "./dist/console/runtime/server/env.js",
-          "./console/mcp-client": "./dist/console/runtime/server/mcp-client-operations.js",
-          "./console/sections": "./dist/console/runtime/server/sections.js",
-          "./ui/styles.css": "./dist/ui/styles.css",
-          "./tsconfig": "./tsconfig.json",
-        });
+      plugins: [
+        {
+          name: "vite-hub-console-assets",
+          generateBundle(_options, bundle) {
+            const page = Object.values(bundle).find(output =>
+              output.type === "chunk"
+              && output.facadeModuleId?.replaceAll("\\", "/").endsWith("/src/console/runtime/server/page.get.ts")
+            );
+            if (!page || page.type !== "chunk") {
+              throw new TypeError("Expected the standalone Console page in the package bundle.");
+            }
+            page.code = page.code
+              .replaceAll("__VITEHUB_CONSOLE_STYLE_ASSET__", consoleAsset("console-", ".css"))
+              .replaceAll("__VITEHUB_CONSOLE_SCRIPT_ASSET__", consoleAsset("console-", ".js"));
+            const tool = consoleAsset("page-tool-", ".js");
+            for (const output of Object.values(bundle)) {
+              if (output.type === "chunk") output.code = output.code.replaceAll("__VITEHUB_CONSOLE_PAGE_TOOL_ASSET__", tool);
+            }
+          },
+        },
+        {
+          name: "vite-hub-env-config-declarations",
+          generateBundle(_options, bundle) {
+            for (const file of ["index.d.ts", "env.d.ts"]) {
+              const chunk = bundle[file];
+              if (chunk?.type === "chunk") chunk.code = `import "@vite-hub/env/vite";\n${chunk.code}`;
+            }
+          },
+        },
+      ],
+      entry: [
+        ...distributionEntries,
+        "src/console/runtime/console-route.ts",
+        "src/console/runtime/client/appearance.ts",
+        "src/console/runtime/client/build.ts",
+        "src/console/runtime/client/invocation.ts",
+        "src/console/runtime/client/invocation-deletion.ts",
+        "src/console/runtime/client/request.ts",
+        "src/console/runtime/client/env-management.ts",
+        "src/console/runtime/client/connections-management.ts",
+        "src/console/runtime/client/blob-media.ts",
+        "src/console/runtime/client/documents.ts",
+        "src/console/runtime/client/format.ts",
+        "src/console/runtime/client/editor.ts",
+        "src/console/runtime/client/env-groups.ts",
+        "src/console/runtime/client/env-status.ts",
+        "src/console/runtime/client/live.ts",
+        "src/console/runtime/client/mcp-client.ts",
+        "src/console/runtime/client/media.ts",
+        "src/console/runtime/client/media-library.ts",
+        "src/console/runtime/client/media-uploads.ts",
+        "src/console/runtime/client/presence.ts",
+        "src/console/runtime/client/preview.ts",
+        "src/console/runtime/client/publish.ts",
+        "src/console/runtime/client/mcp.ts",
+        "src/console/runtime/client/operation-view.ts",
+        "src/console/runtime/client/problem.ts",
+        "src/console/runtime/client/rate-limit.ts",
+        "src/console/runtime/client/read-only.ts",
+        "src/console/runtime/client/schedule-run.ts",
+        "src/console/runtime/client/schema-form.ts",
+        "src/console/runtime/client/sign-in.ts",
+        "src/console/runtime/client/time.ts",
+        "src/console/runtime/client/toast.ts",
+        "src/console/runtime/client/workflow.ts",
+        "src/console/runtime/definitions.ts",
+        "src/console/runtime/mcp-client.ts",
+        "src/console/runtime/rpc.ts",
+        "src/console/runtime/sections.ts",
+        "src/console/runtime/server/agents.get.ts",
+        "src/console/runtime/server/channel-replay.ts",
+        "src/console/runtime/server/client.get.ts",
+        "src/console/runtime/server/database.get.ts",
+        "src/console/runtime/server/definitions.get.ts",
+        "src/console/runtime/server/documents.ts",
+        "src/console/runtime/server/invocation-capabilities.get.ts",
+        "src/console/runtime/server/rpc.ts",
+        "src/console/runtime/server/invocation.get.ts",
+        "src/console/runtime/server/invocation-workspace.get.ts",
+        "src/console/runtime/server/invocations.get.ts",
+        "src/console/runtime/server/env.get.ts",
+        "src/console/runtime/server/auth-manage.ts",
+        "src/console/runtime/server/env-manage.ts",
+        "src/console/runtime/server/logs.get.ts",
+        "src/console/runtime/server/mcp.ts",
+        "src/console/runtime/server/mcp-discovery.ts",
+        "src/console/runtime/server/mcp-authorization-server.ts",
+        "src/console/runtime/server/mcp-metadata.ts",
+        "src/console/runtime/server/page.get.ts",
+        "src/console/runtime/server/page-session.ts",
+        "src/console/runtime/server/schedule-run.ts",
+        "src/console/runtime/server/search.get.ts",
+        "src/console/runtime/server/sign-in.ts",
+        "src/console/runtime/server/sections.get.ts",
+        "src/console/runtime/server/usage.get.ts",
+        "src/console/runtime/server/status.get.ts",
+      ],
+      exports: {
+        exclude: ["bin"],
+        bin: distributionBinEntries,
+        customExports(exports) {
+          delete exports["./console/runtime/console-route"];
+          delete exports["./console/runtime/client/sections"];
+          delete exports["./console/runtime/client/appearance"];
+          delete exports["./console/runtime/client/build"];
+          delete exports["./console/runtime/client/invocation"];
+          delete exports["./console/runtime/client/invocation-deletion"];
+          delete exports["./console/runtime/client/request"];
+          delete exports["./console/runtime/client/env-management"];
+          delete exports["./console/runtime/client/connections-management"];
+          delete exports["./console/runtime/client/blob-media"];
+          delete exports["./console/runtime/client/documents"];
+          delete exports["./console/runtime/client/editor"];
+          delete exports["./console/runtime/client/env-groups"];
+          delete exports["./console/runtime/client/env-status"];
+          delete exports["./console/runtime/client/format"];
+          delete exports["./console/runtime/client/live"];
+          delete exports["./console/runtime/client/mcp-client"];
+          delete exports["./console/runtime/client/mcp"];
+          delete exports["./console/runtime/client/operation-view"];
+          delete exports["./console/runtime/client/media"];
+          delete exports["./console/runtime/client/media-library"];
+          delete exports["./console/runtime/client/media-uploads"];
+          delete exports["./console/runtime/client/presence"];
+          delete exports["./console/runtime/client/preview"];
+          delete exports["./console/runtime/client/publish"];
+          delete exports["./console/runtime/client/problem"];
+          delete exports["./console/runtime/client/rate-limit"];
+          delete exports["./console/runtime/client/read-only"];
+          delete exports["./console/runtime/client/schedule-run"];
+          delete exports["./console/runtime/client/schema-form"];
+          delete exports["./console/runtime/client/sign-in"];
+          delete exports["./console/runtime/client/time"];
+          delete exports["./console/runtime/client/toast"];
+          delete exports["./console/runtime/client/workflow"];
+          delete exports["./console/runtime/definitions"];
+          delete exports["./console/runtime/mcp-client"];
+          delete exports["./console/runtime/rpc"];
+          delete exports["./console/runtime/sections"];
+          delete exports["./console/runtime/server/agents.get"];
+          delete exports["./console/runtime/server/blob"];
+          delete exports["./console/runtime/server/channel-replay"];
+          delete exports["./console/runtime/server/client.get"];
+          delete exports["./console/runtime/server/database"];
+          delete exports["./console/runtime/server/database.get"];
+          delete exports["./console/runtime/server/definitions"];
+          delete exports["./console/runtime/server/definitions.get"];
+          delete exports["./console/runtime/server/documents"];
+          delete exports["./console/runtime/server/invocation-capabilities.get"];
+          delete exports["./console/runtime/server/rpc"];
+          delete exports["./console/runtime/server/invocation.get"];
+          delete exports["./console/runtime/server/invocation-workspace.get"];
+          delete exports["./console/runtime/server/invocations.get"];
+          delete exports["./console/runtime/server/env.get"];
+          delete exports["./console/runtime/server/auth-manage"];
+          delete exports["./console/runtime/server/env-manage"];
+          delete exports["./console/runtime/server/env"];
+          delete exports["./console/runtime/server/logs.get"];
+          delete exports["./console/runtime/server/mcp"];
+          delete exports["./console/runtime/server/mcp-client-operations"];
+          delete exports["./console/runtime/server/mcp-discovery"];
+          delete exports["./console/runtime/server/mcp-authorization-server"];
+          delete exports["./console/runtime/server/mcp-metadata"];
+          delete exports["./console/runtime/server/page.get"];
+          delete exports["./console/runtime/server/page-session"];
+          delete exports["./console/runtime/server/page-tool"];
+          delete exports["./console/runtime/server/schedule-run"];
+          delete exports["./console/runtime/server/search.get"];
+          delete exports["./console/runtime/server/sign-in"];
+          delete exports["./console/runtime/server/sections.get"];
+          delete exports["./console/runtime/server/sections"];
+          delete exports["./console/runtime/server/usage.get"];
+          delete exports["./console/runtime/server/status.get"];
+          delete exports["./console/auth-client"];
+          delete exports["./console/auth-cloudflare-access"];
+          delete exports["./console/auth-inline"];
+          return normalizePackageExports({
+            ...frameworkPackageManifest.exports,
+            ...exports,
+            "./console/auth/client": "./dist/console/auth-client.js",
+            "./console/auth/cloudflare-access": "./dist/console/auth-cloudflare-access.js",
+            "./console/auth/inline": "./dist/console/auth-inline.js",
+            "./console/blob": "./dist/console/runtime/server/blob.js",
+            "./console/database": "./dist/console/runtime/server/database.js",
+            "./console/definitions": "./dist/console/runtime/server/definitions.js",
+            "./console/documents": "./dist/console/runtime/server/documents.js",
+            "./console/env": "./dist/console/runtime/server/env.js",
+            "./console/mcp-client": "./dist/console/runtime/server/mcp-client-operations.js",
+            "./console/sections": "./dist/console/runtime/server/sections.js",
+            "./ui/styles.css": "./dist/ui/styles.css",
+            "./tsconfig": "./tsconfig.json",
+          });
+        },
+        inlinedDependencies: false,
       },
-      inlinedDependencies: false,
+      outExtensions: () => ({
+        dts: ".d.ts",
+        js: ".js",
+      }),
+      publint: true,
     },
-    outExtensions: () => ({
-      dts: ".d.ts",
-      js: ".js",
-    }),
-    publint: true,
-  },
+    {
+      // The shared browser loader bundles independently of the Console's server chunks.
+      deps: { alwaysBundle: [/./], onlyBundle: false },
+      dts: false,
+      entry: { "console/runtime/page/loader": "src/console/page/loader.ts" },
+      minify: true,
+      outExtensions: () => ({ js: ".js" }),
+      platform: "browser",
+      tsconfig: "tsconfig.build.json",
+    },
+  ],
 });

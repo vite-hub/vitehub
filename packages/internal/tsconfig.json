@@ -11,6 +11,8 @@
   ],
   "exclude": [
     "dist",
-    "node_modules"
+    "node_modules",
+    // Browser code: tsconfig.browser.json checks it with the DOM library.
+    "src/runtime/page-tools-loader.ts"
   ]
 }

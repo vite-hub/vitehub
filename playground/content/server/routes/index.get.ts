@@ -15,7 +15,7 @@ export default defineHandler(async () => {
 <body style="font: 15px/1.6 system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; padding: 0 1rem">
 <h1 ${attributes(contentField("settings", "title"))}>${escape(title)}</h1>${settings?.data.description ? `<p ${attributes(contentField("settings", "description"))}>${escape(settings.data.description)}</p>` : ""}
 <h2>Published posts</h2><ul>${list || "<li>Nothing published yet.</li>"}</ul>
-<p><a href="/login">Sign in</a> · <a href="/_vitehub/content">Console</a> · <a href="/?comments">Comment on this site</a></p></body>`, { headers: { "content-type": "text/html; charset=utf-8" } })
+<p><a href="/login">Sign in</a> · <a href="/_vitehub/content">Console</a> · <a href="/?vitehub=comments">Comment on this site</a></p></body>`, { headers: { "content-type": "text/html; charset=utf-8" } })
 })
 
 /** `contentField()` marks the element that renders a Content field, so comment mode can edit its text in place. */

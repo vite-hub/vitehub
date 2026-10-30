@@ -6,7 +6,7 @@ import * as v from "valibot"
 
 import { commentsErrors } from "../errors.ts"
 import { authorOf, guestFromHeaders } from "../identity.ts"
-import { commentsHintCookie, commentsPageScope, commentsRoute, normalizeCommentPage } from "../page.ts"
+import { commentsPageScope, commentsRoute, normalizeCommentPage } from "../page.ts"
 import { anchorSchema, bodySchema, contextSchema, describeIssue, mentionsSchema, pageSchema } from "../schema.ts"
 import { requestOf } from "./request.ts"
 import { resolveCommentsUser } from "./session.ts"
@@ -66,8 +66,6 @@ export interface CommentsHandlerOptions extends CommentsSessionOptions {
    */
   components?: Readonly<Record<string, readonly string[]>>
 }
-
-const hintMaxAge = 60 * 60 * 24 * 30
 
 /** Issued by `access()` after `authorize` allows an action, for that action on that thread. Each write needs one. */
 const actionGrant = defineGrant("vitehub.comments.action", (input: { action: CommentsAction, threadId: string | undefined }) => Object.freeze({ ...input }))
@@ -241,20 +239,16 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: describeIssue(issues) }))
   }
 
+  /** Who the overlay's person is and what they may do. The page tools session decides whether the overlay loads. */
   async function session(event: H3Event): Promise<Response> {
     const user = await resolveUser(event)
     const [read, comment, resolve] = await Promise.all((["read", "comment", "resolve"] as const).map(action => can(event, user, action)))
     const github = options.githubLogin?.configured() ? options.githubLogin : undefined
-    const pathname = new URL(event.req.url).pathname
+    const pathname = new URL(requestOf(event).url).pathname
     const route = pathname.slice(0, pathname.indexOf(commentsRoute) + commentsRoute.length)
-    // People who are not signed in can sign in with GitHub, and a GitHub account that may not comment can switch. Comment
-    // mode stays on for both.
+    // People who are not signed in can sign in with GitHub, and a GitHub account that may not comment can switch.
     const signIn = user !== false && !user && !comments.options.identify && github ? { provider: "github" as const, url: `${route}/auth/github` } : undefined
     const signOut = user && user.github && github ? `${route}/auth/sign-out` : undefined
-    const headers = new Headers()
-    headers.append("set-cookie", read || signIn || signOut
-      ? `${commentsHintCookie}=1; Path=/; Max-Age=${hintMaxAge}; SameSite=Lax`
-      : `${commentsHintCookie}=; Path=/; Max-Age=0; SameSite=Lax`)
     return json({
       data: {
         user: user ? authorOf(user) : null,
@@ -265,7 +259,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
         realtime: options.realtime,
         content: Boolean(options.content),
       },
-    }, { headers })
+    })
   }
 
   async function can(event: H3Event, user: CommentsUser | null | false, action: CommentsAction, thread?: CommentThread): Promise<boolean> {

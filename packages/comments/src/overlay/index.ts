@@ -1,11 +1,12 @@
 import { connectRealtimeRoom } from "@vite-hub/realtime/client"
 
 import { createAnchor, fieldAttribute, fieldElementOf, placeAnchor, selectorOf } from "../anchor.ts"
-import { commentRoom, commentsApiRoute, commentsHintCookie, commentsHintQuery, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
+import { commentRoom, commentsApiRoute, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
 import { api, readGuest, saveGuest } from "./api.ts"
 import { captureContext } from "./context.ts"
 import { documentStyles, overlayStyles } from "./styles.ts"
 
+import type { ViteHubPageToolContext, ViteHubPageToolModule } from "@vite-hub/internal/runtime/page-tools-loader"
 import type { RealtimeRoom } from "@vite-hub/realtime/client"
 import type { CommentAnchor, CommentAuthor, CommentContext, CommentMention } from "../types.ts"
 import type { CommentsApiError, CommentsSession, PageThread } from "./api.ts"
@@ -118,6 +119,8 @@ function renderBody(body: string, mentions: CommentMention[]): Node {
 }
 
 class CommentsOverlay extends HTMLElement {
+  /** The page tools context that started the overlay. */
+  context?: ViteHubPageToolContext
   private readonly shadow = this.attachShadow({ mode: "open" })
   private readonly root = h("div", { className: "root" })
   private readonly layer = h("div", { className: "layer" })
@@ -126,7 +129,8 @@ class CommentsOverlay extends HTMLElement {
   private readonly pinElements = new Map<string, HTMLElement>()
   private readonly cursors = h("div", { className: "layer" })
   private readonly floating = h("div")
-  private readonly toolbar = h("div", { className: "toolbar", role: "toolbar", "aria-label": "Comments" })
+  /** The Comments controls. They live in the tool's segment of the page tools pill, in a shadow root of their own. */
+  private readonly toolbar = h("div", { className: "bar toolbar", role: "group", "aria-label": "Comments" })
   private session?: CommentsSession
   private page = normalizeCommentPage(location.pathname)
   private threads: PageThread[] = []
@@ -148,36 +152,43 @@ class CommentsOverlay extends HTMLElement {
   private navigationRevision = 0
   private readonly cleanups: Array<() => void> = []
 
+  private get active() {
+    return this.isConnected && !this.context?.signal.aborted
+  }
+
   async connectedCallback() {
     this.shadow.append(h("style", {}, overlayStyles), this.root)
-    this.root.append(this.layer, this.cursors, this.floating, this.toolbar)
+    this.root.append(this.layer, this.cursors, this.floating)
     this.layer.append(this.outlines, this.pins)
-    this.root.style.setProperty("--font", getComputedStyle(document.body).fontFamily)
+    const bar = this.context?.bar
+    if (bar) {
+      // Hidden until the session allows the overlay, so the pill shows no empty segment.
+      bar.hidden = true
+      bar.attachShadow({ mode: "open" }).append(h("style", {}, overlayStyles), this.toolbar)
+    }
+    const font = getComputedStyle(document.body).fontFamily
+    for (const element of [this.root, this.toolbar]) element.style.setProperty("--font", font)
     this.followTheme()
     const style = h("style", { "data-vitehub-comments": true }, documentStyles)
     document.head.append(style)
     this.cleanups.push(() => style.remove())
 
     const [error, session] = await api.session()
-    if (!this.isConnected) return
+    if (!this.active) return
     if (error) {
       this.showToast(error.why, "error", { keep: true, action: ["Close", () => this.exit()] })
       return
     }
     if (!session.can.read) {
-      // Only the cookie asked for comment mode, such as after the person left the Console: go quietly. The session
-      // route already cleared the cookie.
-      if (!new URLSearchParams(location.search).has(commentsHintQuery)) {
-        this.exit()
-        return
-      }
       this.showDenied(session)
       return
     }
     this.session = session
+    if (bar) bar.hidden = false
     this.listen()
     this.renderToolbar()
     await this.load()
+    if (!this.active) return
     this.joinRoom()
     this.openFromHash()
   }
@@ -196,7 +207,7 @@ class CommentsOverlay extends HTMLElement {
   /** Keeps the overlay in the page's light or dark scheme when the page or the system switches. */
   private followTheme() {
     const apply = () => {
-      this.root.dataset.theme = hostIsDark() ? "dark" : "light"
+      this.root.dataset.theme = this.toolbar.dataset.theme = hostIsDark() ? "dark" : "light"
     }
     apply()
     const classes = new MutationObserver(apply)
@@ -263,8 +274,11 @@ class CommentsOverlay extends HTMLElement {
     this.cleanups.push(() => clearInterval(poll))
   }
 
+  /** Whether the event happened on the overlay, or on the page tools pill that holds its toolbar and the other tools. */
   private ours(event: Event): boolean {
-    return event.composedPath().includes(this)
+    const path = event.composedPath()
+    const pill = this.context?.bar.parentElement
+    return path.includes(this) || Boolean(pill && path.includes(pill))
   }
 
   private elementAt(x: number, y: number): Element | undefined {
@@ -339,6 +353,7 @@ class CommentsOverlay extends HTMLElement {
   }
 
   private async navigated() {
+    if (!this.active) return
     const page = normalizeCommentPage(location.pathname)
     if (page === this.page) return
     const revision = ++this.navigationRevision
@@ -371,7 +386,7 @@ class CommentsOverlay extends HTMLElement {
     const page = this.page
     const revision = ++this.loadRevision
     const [error, threads] = await api.threads(page)
-    if (page !== this.page || revision !== this.loadRevision || !this.isConnected) return
+    if (page !== this.page || revision !== this.loadRevision || !this.active) return
     if (error) {
       this.showToast(error.why, "error")
       return
@@ -393,7 +408,7 @@ class CommentsOverlay extends HTMLElement {
   }
 
   private joinRoom(reconnect = false) {
-    if (!this.session?.realtime || !this.isConnected || (this.room && !reconnect)) return
+    if (!this.session?.realtime || !this.active || (this.room && !reconnect)) return
     this.room?.destroy()
     const guest = readGuest()
     const identity = this.account() ?? (guest ? { id: `guest:${guest.id}`, name: `${guest.name} (guest)` } : undefined)
@@ -575,8 +590,6 @@ class CommentsOverlay extends HTMLElement {
       } }, icons.list(), String(open)),
       avatars.length > 0 && h("span", { className: "people", "aria-label": `${people.length} on this page` }, ...avatars),
       signOut && session.github && h("button", { className: "tool", title: `Signed in as @${session.github.login}. Sign out`, "aria-label": `Sign out @${session.github.login}`, onClick: () => void this.signOut(signOut) }, session.user?.image ? h("img", { className: "me", src: session.user.image, alt: "" }) : initials(session.user?.name ?? session.github.login)),
-      h("span", { className: "sep" }),
-      h("button", { className: "tool square", title: "Leave comment mode", "aria-label": "Leave comment mode", onClick: () => this.exit() }, icons.close()),
     ))
   }
 
@@ -920,21 +933,31 @@ class CommentsOverlay extends HTMLElement {
     location.reload()
   }
 
-  /** Leaves comment mode on every page: clears the hint cookie and the query, then removes the overlay. */
-  private exit() {
+  /** Ends comment and edit mode, then removes the overlay. The loader calls it when the page tools stop. */
+  stop() {
     void this.finishEdit(false)
-    document.cookie = `${commentsHintCookie}=; Path=/; Max-Age=0; SameSite=Lax`
-    const url = new URL(location.href)
-    if (url.searchParams.has(commentsHintQuery)) {
-      url.searchParams.delete(commentsHintQuery)
-      history.replaceState(history.state, "", url)
-    }
     this.setMode("view")
     this.remove()
   }
+
+  /** Turns the page tools off on every page. The loader then stops the overlay. The error toast calls it. */
+  private exit() {
+    this.context?.exit()
+  }
 }
 
-if (!customElements.get("vitehub-comments")) {
-  customElements.define("vitehub-comments", CommentsOverlay)
-  document.body.append(document.createElement("vitehub-comments"))
+/**
+ * The `comments` page tool: the page tools loader calls it for people that may read comments. It mounts the
+ * `<vitehub-comments>` element for pins, cursors, and cards, and draws the toolbar in `context.bar`, the tool's segment
+ * of the pill. It returns its cleanup. The toolbar always shows, so `context.open` changes nothing.
+ */
+const start: ViteHubPageToolModule["default"] = (context) => {
+  if (!customElements.get("vitehub-comments")) customElements.define("vitehub-comments", CommentsOverlay)
+  const overlay = document.createElement("vitehub-comments")
+  if (!(overlay instanceof CommentsOverlay)) return
+  overlay.context = context
+  document.body.append(overlay)
+  return () => overlay.stop()
 }
+
+export default start

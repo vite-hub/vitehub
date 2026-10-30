@@ -1,21 +1,22 @@
 /**
- * Styles of the overlay. They live in its shadow root, so the host page's CSS does not reach them. The overlay takes the
- * page's font and follows its light or dark scheme (`data-theme` on `.root`), so it reads as part of the site.
+ * Styles of the overlay. They live in its shadow root, and in the shadow root of its toolbar (`.bar`) in the page tools
+ * pill, so the host page's CSS does not reach them. The overlay takes the page's font and follows its light or dark
+ * scheme (`data-theme` on `.root` and `.bar`), so it reads as part of the site.
  */
 export const overlayStyles = `
 :host { all: initial; }
 * { box-sizing: border-box; }
-.root {
+.root, .bar {
   --surface: #fff; --surface-inset: #f4f4f5; --hover: rgb(0 0 0 / .05); --text: #18181b; --body: #3f3f46; --muted: #71717a;
   --ring: rgb(0 0 0 / .08); --divider: rgb(0 0 0 / .06); --accent: #2563eb; --on-accent: #fff; --accent-soft: rgb(37 99 235 / .1);
   --accent-text: #1d4ed8; --danger: #dc2626;
   --shadow: 0 0 0 1px var(--ring), 0 1px 2px rgb(0 0 0 / .04), 0 8px 24px -6px rgb(0 0 0 / .16);
   --ease-out: cubic-bezier(.23, 1, .32, 1);
-  position: fixed; inset: 0; pointer-events: none; z-index: 2147483000;
   font: 13px/1.5 var(--font, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif); color: var(--text);
   -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
 }
-.root[data-theme="dark"] {
+.root { position: fixed; inset: 0; pointer-events: none; z-index: 2147483000; }
+.root[data-theme="dark"], .bar[data-theme="dark"] {
   --surface: #1c1c1f; --surface-inset: #121214; --hover: rgb(255 255 255 / .06); --text: #fafafa; --body: #e4e4e7; --muted: #a1a1aa;
   --ring: rgb(255 255 255 / .1); --divider: rgb(255 255 255 / .07); --accent-soft: rgb(96 165 250 / .14); --accent-text: #93c5fd; --danger: #f87171;
   --shadow: 0 0 0 1px var(--ring), 0 1px 2px rgb(0 0 0 / .3), 0 12px 32px -8px rgb(0 0 0 / .6);
@@ -29,11 +30,10 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 textarea:focus-visible, input:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px var(--accent-soft); }
 .icon svg, .tool svg { flex: none; }
 
-.toolbar { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 2px; padding: 4px; background: var(--surface); border-radius: 999px; box-shadow: var(--shadow); }
+.toolbar { display: flex; align-items: center; gap: 2px; }
 .tool { height: 32px; min-width: 32px; padding: 0 12px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; color: var(--body); font-weight: 500; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .tool:hover { background: var(--hover); color: var(--text); }
 .tool[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); }
-.tool.square { padding: 0; }
 kbd { font: 500 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); padding: 3px 5px; border-radius: 5px; box-shadow: inset 0 0 0 1px var(--ring); }
 .tool[aria-pressed="true"] kbd { color: inherit; }
 .sep { width: 1px; height: 16px; background: var(--divider); margin: 0 4px; }
