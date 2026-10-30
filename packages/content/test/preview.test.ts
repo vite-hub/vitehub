@@ -469,6 +469,35 @@ describe("content preview", { timeout: 30_000 }, () => {
     expect(response.headers.getSetCookie()).toEqual(["session=abc; HttpOnly; Path=/auth", "seen=1; Path=/blog/../auth", "last=1; Path=/auth", "root=1; Path=/"])
   })
 
+  it("leaves cookie prefix rules to the browser: a __Host- cookie without Path=/ stays invalid", async () => {
+    const { content } = await setup()
+    const seen: Array<string | null> = []
+    const app = new H3()
+      .get("/blog/hello", () => new Response(null, { status: 302, headers: { location: "/auth/login" } }))
+      .get("/auth/login", () => {
+        const headers = new Headers({ location: "/auth/account" })
+        headers.append("set-cookie", "__Host-bad=1; Secure")
+        headers.append("set-cookie", "__Host-good=1; Secure; Path=/")
+        headers.append("set-cookie", "__Secure-bad=1")
+        return new Response(null, { status: 302, headers })
+      })
+      .get("/auth/account", (event) => {
+        seen.push(event.req.headers.get("cookie"))
+        return { ok: true }
+      })
+    const nitroApp = { fetch: (request: Request) => app.fetch(request), h3: app }
+    defineContentPreviewPlugin(content)(nitroApp)
+    const { token } = await content.preview.sign({ collection: "posts", id: "hello" })
+    const response = await nitroApp.fetch(new Request(`https://site.test/blog/hello?${contentPreviewFrameParameter}`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin" },
+      body: frameForm(token),
+    }))
+    expect(seen).toEqual(["__Host-good=1"])
+    // The invalid ones reach the browser unchanged, so it refuses them as it would on the redirect itself.
+    expect(response.headers.getSetCookie()).toEqual(["__Host-bad=1; Secure", "__Host-good=1; Secure; Path=/", "__Secure-bad=1; Path=/auth"])
+  })
+
   it("keeps a path-scoped cookie of a redirect for a later hop under its path, past a hop outside it", async () => {
     const { content } = await setup()
     const seen: Record<string, string | null> = {}

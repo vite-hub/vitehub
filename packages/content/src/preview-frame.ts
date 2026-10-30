@@ -144,6 +144,8 @@ function defaultCookiePath(url: URL): string {
 function withCookiePath(cookie: string, from: URL, posted: URL): string {
   const [pair = "", ...parts] = cookie.split(";")
   const path = parts.find(part => part.trim().toLowerCase().startsWith("path="))?.split("=", 2)[1]?.trim()
+  // A __Host- cookie needs its own Path=/; adding one would make the browser keep a cookie that it refuses.
+  if (/^\s*__host-/i.test(pair)) return cookie
   if (path?.startsWith("/") || defaultCookiePath(from) === defaultCookiePath(posted)) return cookie
   const kept = path === undefined ? parts : parts.filter(part => !part.trim().toLowerCase().startsWith("path="))
   return [pair, ...kept, ` Path=${defaultCookiePath(from)}`].join(";")
@@ -178,6 +180,9 @@ function keepCookies(jar: JarCookie[], setCookies: readonly string[], from: URL)
     const domain = attributes.get("domain")?.replace(/^\./, "").toLowerCase()
     if (domain && from.hostname !== domain && !from.hostname.endsWith(`.${domain}`)) continue
     if (attributes.has("secure") && from.protocol !== "https:" && !localHost(from.hostname)) continue
+    // Cookie prefixes: __Secure- needs Secure, and __Host- also needs Path=/ and no Domain.
+    if (/^__secure-/i.test(name) && !attributes.has("secure")) continue
+    if (/^__host-/i.test(name) && (!attributes.has("secure") || attributes.get("path") !== "/" || attributes.has("domain"))) continue
     const attributePath = attributes.get("path")
     const path = attributePath?.startsWith("/") ? attributePath : defaultCookiePath(from)
     const maxAge = attributes.get("max-age")
