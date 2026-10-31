@@ -99,11 +99,11 @@ defineProps<{
 }
 
 /*
- * iOS Safari zooms into a focused field with text under 16px and stays zoomed. Touch screens get 16px field text; a
- * mouse keeps the dense 14px. Unlayered, so it wins over the size utilities. The body selector also reaches the search
- * dialog and menus, which render outside the frame.
+ * iOS Safari zooms into a focused field with text under 16px and stays zoomed. Touch screens get 16px field text even when
+ * a mouse is the primary pointer. Mouse-only devices keep the dense 14px. Unlayered, so it wins over the size utilities.
+ * The body selector also reaches the search dialog and menus, which render outside the frame.
  */
-@media (pointer: coarse) {
+@media (any-pointer: coarse) {
   body:has(.vitehub-console) :is(input, select, textarea) {
     font-size: 1rem;
   }
