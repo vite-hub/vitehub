@@ -123,7 +123,7 @@ Change the default class for every instance with the `markdown.class` [default](
 - Image thumbnails are buttons. The expanded view closes with Escape and returns focus.
 - Write meaningful image alt text in the Markdown source. It becomes the button and dialog label.
 
-## API reference
+## API Reference
 
 ### Markdown
 
