@@ -293,6 +293,8 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
   collection<TName extends CollectionName<TCollections>>(name: TName): CollectionOf<TCollections[TName]>
   /** Copy draft documents to the `published` ref in one revision. Pass `expect` to publish exactly what was reviewed. */
   publish(options?: ContentPublishOptions<CollectionName<TCollections>>): Promise<ContentPublishResult>
+  /** Whether the Workspace store supports scheduled publishing. False for the GitHub store; does not check for a Schedule runner. */
+  supportsScheduling(): Promise<boolean>
   /**
    * The document that an app path shows, such as `/blog/hello`, or null. Each `documents()` collection maps a document
    * to a path with its `url`, and a document whose `url` is null does not resolve. A collection without `url` maps the
@@ -545,6 +547,7 @@ export function defineContent<
     collection: (name: string): unknown => requireDocuments().collection(name),
     publish: (publishOptions?: ContentPublishOptions) => requireDocuments().publish(publishOptions),
     resolve: (path: string, resolveOptions?: ContentResolveOptions) => requireDocuments().resolve(path, resolveOptions),
+    supportsScheduling: () => requireDocuments().supportsScheduling(),
     schedule: (scheduleOptions: ContentScheduleOptions) => requireDocuments().schedule(scheduleOptions),
     schedules: (schedulesOptions?: ContentSchedulesOptions) => requireDocuments().schedules(schedulesOptions),
     unschedule: (id: string, unscheduleOptions?: ContentUnscheduleOptions) => requireDocuments().unschedule(id, unscheduleOptions),
