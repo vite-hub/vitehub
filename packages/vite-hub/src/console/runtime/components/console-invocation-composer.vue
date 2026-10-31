@@ -152,7 +152,7 @@ async function submit(message: { text: string; files?: readonly FileUIPart[] }):
         </PromptInput>
       </div>
       <p class="px-3 text-center text-xs text-dimmed">
-        Enter sends · Shift+Enter adds a line · Images up to {{ consoleBytes(maximumImageBytes) }}
+        <span class="[@media(pointer:coarse)_and_(not_(any-pointer:fine))]:hidden">Enter sends · Shift+Enter adds a line · </span>Images up to {{ consoleBytes(maximumImageBytes) }}
       </p>
     </div>
   </div>
