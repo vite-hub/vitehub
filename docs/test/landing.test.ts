@@ -8,6 +8,7 @@ import {
   landingPrimitives,
   portabilityExamples,
 } from "../app/components/landing/content";
+import { primitiveScenes } from "../app/components/landing/primitive-scenes";
 import { primitiveLandings } from "../app/data/primitive-landings";
 
 const landingFiles = [
@@ -131,12 +132,7 @@ describe("landing page", () => {
     expect(source).not.toMatch(/role="(?:tab|tablist|radio|radiogroup)"/);
   });
 
-  it("keeps the full set of animated primitives", async () => {
-    const primitiveMotion = await readFile(
-      new URL("../app/components/landing/PrimitiveMotion.vue", import.meta.url),
-      "utf8",
-    );
-
+  it("keeps the full set of animated primitives", () => {
     expect(landingPrimitives.map((primitive) => primitive.id)).toEqual([
       "logs",
       "kv",
@@ -162,7 +158,7 @@ describe("landing page", () => {
       "ui",
     ]);
     for (const primitive of landingPrimitives) {
-      expect(primitiveMotion).toContain(`name === '${primitive.id}'`);
+      expect(primitiveScenes).toHaveProperty(primitive.id);
       expect(primitive.to).toMatch(/^\/docs\//);
       expect(primitive.icon).toMatch(/^i-(?:lucide|ph)-/);
     }

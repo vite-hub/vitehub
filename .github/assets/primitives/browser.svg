@@ -1,74 +1,47 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" class="primitive-motion is-playing" style="--cycle: 5000ms; --scene-delay: -350ms">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" fill="currentColor" shape-rendering="crispEdges" class="primitive-motion is-playing" style="--cycle: 5000ms; --scene-delay: -350ms">
 <style>
 svg { color: #59636e; --ui-bg: #ffffff; }
 @media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
 .primitive-motion {
-  --ease-move: cubic-bezier(0.65, 0, 0.35, 1);
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   overflow: visible;
 }
-.line,
-.ink-line,
-.card {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.line {
+.primitive-motion .line,
+.primitive-motion .job,
+.primitive-motion .command,
+.primitive-motion .budget {
   opacity: 0.55;
 }
-.soft,
-.job,
-.command,
-.budget,
-.ink,
-.token,
-.band,
-.pointer {
-  fill: currentColor;
-}
-.soft {
+.primitive-motion .soft {
   opacity: 0.35;
 }
-.job,
-.command,
-.budget {
-  opacity: 0.55;
-}
-.ink,
-.token,
-.pointer {
+.primitive-motion .ink,
+.primitive-motion .token,
+.primitive-motion .pointer {
   opacity: 0.85;
 }
-.a {
+.primitive-motion .a {
   animation-duration: var(--cycle);
   animation-delay: var(--scene-delay);
   animation-iteration-count: infinite;
   animation-fill-mode: both;
-  animation-timing-function: var(--ease-move);
+  animation-timing-function: steps(3);
 }
 .primitive-motion:not(.is-playing) .a {
   animation-play-state: paused;
 }
-.br-cursor {
-  transform-box: fill-box;
-  transform-origin: 0 0;
-}
-.br-cursor { animation-name: br-cursor; }
-.br-button { animation-name: br-button; }
+.primitive-motion .br-cursor { animation-name: br-cursor; }
+.primitive-motion .br-button { animation-name: br-button; }
 @media (prefers-reduced-motion: reduce) {
-  .a {
+  .primitive-motion .a {
     animation: none;
   }
 }
 @keyframes br-cursor {
-  0%, 10% { transform: translate(0, 0) scale(1); }
-  32% { transform: translate(20px, 2px) scale(1); }
-  35% { transform: translate(20px, 2px) scale(0.85); }
-  39%, 60% { transform: translate(20px, 2px) scale(1); }
-  86%, 100% { transform: translate(0, 0) scale(1); }
+  0%, 10% { transform: translate(0, 0); animation-timing-function: steps(10); }
+  32% { transform: translate(20px, 0); animation-timing-function: step-end; }
+  35% { transform: translate(20px, 2px); animation-timing-function: step-end; }
+  39%, 60% { transform: translate(20px, 0); animation-timing-function: steps(10); }
+  86%, 100% { transform: translate(0, 0); }
 }
 @keyframes br-button {
   0%, 34% { opacity: 0.35; }
@@ -76,15 +49,5 @@ svg { color: #59636e; --ui-bg: #ffffff; }
   70%, 100% { opacity: 0.35; }
 }
 </style>
-      <rect x="6" y="6" width="48" height="28" rx="2" class="line" />
-      <path d="M6 12h48" class="line" />
-      <circle cx="9.5" cy="9" r="0.9" class="command" />
-      <circle cx="12.5" cy="9" r="0.9" class="command" />
-      <circle cx="15.5" cy="9" r="0.9" class="command" />
-      <rect x="10" y="16" width="18" height="2" rx="1" class="soft" />
-      <rect x="10" y="20" width="12" height="2" rx="1" class="soft" />
-      <rect x="34" y="24" width="14" height="6" rx="1.5" class="soft a br-button" />
-      <g transform="translate(20 25)">
-        <path d="M0 0v7.5l2-1.9 1.6 3.4 1.4-.65-1.6-3.35H7z" class="pointer a br-cursor" />
-      </g>
+<path class="line" d="M2 6h44v2h-44zM0 8h2v2h-2zM46 8h2v2h-2zM0 10h48v2h-48zM0 12h2v2h-2zM46 12h2v2h-2zM0 14h2v2h-2zM46 14h2v2h-2zM0 16h2v2h-2zM46 16h2v2h-2zM0 18h2v2h-2zM46 18h2v2h-2zM0 20h2v2h-2zM46 20h2v2h-2zM0 22h2v2h-2zM46 22h2v2h-2zM0 24h2v2h-2zM46 24h2v2h-2zM0 26h2v2h-2zM46 26h2v2h-2zM0 28h2v2h-2zM46 28h2v2h-2zM0 30h2v2h-2zM46 30h2v2h-2zM2 32h44v2h-44z"/><path class="command" d="M4 8h2v2h-2zM8 8h2v2h-2zM12 8h2v2h-2z"/><path class="soft" d="M4 16h18v2h-18zM4 20h12v2h-12z"/><path class="soft a br-button" d="M28 24h14v2h-14zM28 26h14v2h-14zM28 28h14v2h-14z"/><path class="pointer a br-cursor" d="M12 24h2v2h-2zM12 26h4v2h-4zM12 28h6v2h-6zM12 30h4v2h-4z"/>
 </svg>

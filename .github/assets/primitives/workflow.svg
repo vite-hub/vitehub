@@ -1,67 +1,46 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" class="primitive-motion is-playing" style="--cycle: 5600ms; --scene-delay: -4760ms">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" fill="currentColor" shape-rendering="crispEdges" class="primitive-motion is-playing" style="--cycle: 5600ms; --scene-delay: -4760ms">
 <style>
 svg { color: #59636e; --ui-bg: #ffffff; }
 @media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
 .primitive-motion {
-  --ease-move: cubic-bezier(0.65, 0, 0.35, 1);
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   overflow: visible;
 }
-.line,
-.ink-line,
-.card {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.line {
+.primitive-motion .line,
+.primitive-motion .job,
+.primitive-motion .command,
+.primitive-motion .budget {
   opacity: 0.55;
 }
-.ink-line {
+.primitive-motion .ink,
+.primitive-motion .token,
+.primitive-motion .pointer {
   opacity: 0.85;
 }
-.soft,
-.job,
-.command,
-.budget,
-.ink,
-.token,
-.band,
-.pointer {
-  fill: currentColor;
-}
-.ink,
-.token,
-.pointer {
-  opacity: 0.85;
-}
-.a {
+.primitive-motion .a {
   animation-duration: var(--cycle);
   animation-delay: var(--scene-delay);
   animation-iteration-count: infinite;
   animation-fill-mode: both;
-  animation-timing-function: var(--ease-move);
+  animation-timing-function: steps(3);
 }
 .primitive-motion:not(.is-playing) .a {
   animation-play-state: paused;
 }
-.wf-rail-1,
-.wf-rail-2,
-.sh-command,
-.ws-file,
-.blob-progress {
+.primitive-motion .wf-rail-1,
+.primitive-motion .wf-rail-2,
+.primitive-motion .sh-command,
+.primitive-motion .ws-file,
+.primitive-motion .blob-progress {
   transform-box: fill-box;
   transform-origin: left center;
 }
-.wf-step-1 { animation-name: wf-step-1; }
-.wf-step-2 { animation-name: wf-step-2; }
-.wf-step-3 { animation-name: wf-step-3; }
-.wf-rail-1 { animation-name: wf-rail-1; }
-.wf-rail-2 { animation-name: wf-rail-2; }
+.primitive-motion .wf-step-1 { animation-name: wf-step-1; }
+.primitive-motion .wf-step-2 { animation-name: wf-step-2; }
+.primitive-motion .wf-step-3 { animation-name: wf-step-3; }
+.primitive-motion .wf-rail-1 { animation-name: wf-rail-1; }
+.primitive-motion .wf-rail-2 { animation-name: wf-rail-2; }
 @media (prefers-reduced-motion: reduce) {
-  .a {
+  .primitive-motion .a {
     animation: none;
   }
 }
@@ -74,7 +53,7 @@ svg { color: #59636e; --ui-bg: #ffffff; }
   0% { opacity: 0.85; transform: scaleX(1); }
   4% { opacity: 0; transform: scaleX(1); }
   5% { opacity: 0.85; transform: scaleX(0); }
-  10% { transform: scaleX(0); }
+  10% { transform: scaleX(0); animation-timing-function: steps(6); }
   24%, 100% { opacity: 0.85; transform: scaleX(1); }
 }
 @keyframes wf-step-2 {
@@ -87,7 +66,7 @@ svg { color: #59636e; --ui-bg: #ffffff; }
   0% { opacity: 0.85; transform: scaleX(1); }
   4% { opacity: 0; transform: scaleX(1); }
   5% { opacity: 0.85; transform: scaleX(0); }
-  48% { transform: scaleX(0); }
+  48% { transform: scaleX(0); animation-timing-function: steps(6); }
   62%, 100% { opacity: 0.85; transform: scaleX(1); }
 }
 @keyframes wf-step-3 {
@@ -96,13 +75,5 @@ svg { color: #59636e; --ui-bg: #ffffff; }
   66%, 100% { opacity: 0.85; }
 }
 </style>
-      <path d="M14 20h14M36 20h14" class="line" />
-      <path d="M14 20h14" class="ink-line a wf-rail-1" />
-      <path d="M36 20h14" class="ink-line a wf-rail-2" />
-      <circle cx="10" cy="20" r="4" class="line" />
-      <circle cx="32" cy="20" r="4" class="line" />
-      <circle cx="54" cy="20" r="4" class="line" />
-      <circle cx="10" cy="20" r="1.75" class="ink a wf-step-1" />
-      <circle cx="32" cy="20" r="1.75" class="ink a wf-step-2" />
-      <circle cx="54" cy="20" r="1.75" class="ink a wf-step-3" />
+<path class="line" d="M2 16h6v2h-6zM24 16h6v2h-6zM46 16h6v2h-6zM0 18h2v2h-2zM8 18h2v2h-2zM22 18h2v2h-2zM30 18h2v2h-2zM44 18h2v2h-2zM52 18h2v2h-2zM0 20h2v2h-2zM8 20h16v2h-16zM30 20h16v2h-16zM52 20h2v2h-2zM0 22h2v2h-2zM8 22h2v2h-2zM22 22h2v2h-2zM30 22h2v2h-2zM44 22h2v2h-2zM52 22h2v2h-2zM2 24h6v2h-6zM24 24h6v2h-6zM46 24h6v2h-6z"/><path class="ink a wf-rail-1" d="M10 20h12v2h-12z"/><path class="ink a wf-rail-2" d="M32 20h12v2h-12z"/><path class="ink a wf-step-1" d="M4 20h2v2h-2z"/><path class="ink a wf-step-2" d="M26 20h2v2h-2z"/><path class="ink a wf-step-3" d="M48 20h2v2h-2z"/>
 </svg>
