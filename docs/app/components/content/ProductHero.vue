@@ -17,6 +17,12 @@ const props = defineProps<{
   /** Built-in inbound Agent Channels, or examples of application-owned outbound connectors. */
   channels?: string;
   channelMode?: "builtin" | "custom";
+  /** Path of a short, silent demo video, such as `/videos/cms-demo.mp4`. It replaces the slot. */
+  video?: string;
+  /** Path of the still image that shows until the video plays. */
+  poster?: string;
+  /** What the video shows, for screen readers. Defaults to a demo of the product. */
+  videoLabel?: string;
 }>();
 
 const route = useRoute();
@@ -77,6 +83,23 @@ const channelItems = computed(() =>
     .filter(Boolean)
     .map((name) => ({ name, icon: channelIcons.get(name.toLowerCase()) ?? "i-lucide-plug" })),
 );
+/*
+ * The video has no `autoplay` attribute, because the server cannot read the motion setting.
+ * The client plays it only when the reader allows motion, and pauses it when they turn motion off.
+ */
+const videoElement = useTemplateRef<HTMLVideoElement>("video");
+const reducedMotion = usePreferredReducedMotion();
+watchEffect(() => {
+  const element = videoElement.value;
+  if (!element) return;
+  if (reducedMotion.value === "reduce") {
+    element.pause();
+    return;
+  }
+  // The browser can refuse to play without a gesture. The controls still let the reader start it.
+  element.play().catch(() => {});
+});
+
 const channelPath = computed(() =>
   props.channelMode === "custom" ? "/docs/channels/get-started" : "/docs/agents/channels",
 );
@@ -136,7 +159,20 @@ const channelPath = computed(() =>
     </div>
 
     <div class="vh-hero-panel">
-      <slot />
+      <video
+        v-if="video"
+        ref="video"
+        class="vh-hero-video"
+        :src="video"
+        :poster="poster"
+        :aria-label="videoLabel || `${page?.sourceTitle || page?.title} demo`"
+        muted
+        loop
+        playsinline
+        controls
+        preload="metadata"
+      />
+      <slot v-else />
     </div>
   </header>
 </template>
@@ -281,6 +317,18 @@ const channelPath = computed(() =>
 
 .vh-hero-panel :deep(> *) {
   margin: 0;
+}
+
+/* A fixed ratio keeps the page still while the video loads. Record the demo at 16:9 so nothing is cut. */
+.vh-hero-video {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius);
+  background: var(--ui-bg-muted);
 }
 
 /*

@@ -1,0 +1,86 @@
+{
+  "name": "@vite-hub/cms",
+  "version": "0.0.4",
+  "description": "Editable Content collections on a generated ViteHub Workspace, in Blob and Database or in a GitHub repository.",
+  "keywords": [
+    "cms",
+    "content",
+    "github",
+    "markdown",
+    "typescript",
+    "vite",
+    "vitehub"
+  ],
+  "homepage": "https://vitehub.dev",
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "license": "Apache-2.0",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vite-hub/vitehub.git",
+    "directory": "packages/cms"
+  },
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "import": "./dist/vite.js",
+      "default": "./dist/vite.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "typecheck": "vp run --cache -t @vite-hub/cms#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
+    "test": "vp run -t @vite-hub/cms#build && vp test"
+  },
+  "dependencies": {
+    "@vite-hub/content": "workspace:*",
+    "@vite-hub/source": "workspace:*",
+    "nostics": "catalog:runtime"
+  },
+  "devDependencies": {
+    "@libsql/client": "catalog:database",
+    "@types/node": "catalog:tooling",
+    "@vite-hub/blob": "workspace:*",
+    "@vite-hub/database": "workspace:*",
+    "@vite-hub/internal": "workspace:*",
+    "@vite-hub/workspace": "workspace:*",
+    "drizzle-orm": "catalog:database",
+    "publint": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
+    "vite-plus": "catalog:tooling",
+    "vitest": "catalog:tooling",
+    "zod": "catalog:runtime"
+  },
+  "peerDependencies": {
+    "@vite-hub/blob": "workspace:*",
+    "@vite-hub/database": "workspace:*",
+    "@vite-hub/workspace": "workspace:*",
+    "vite": "catalog:vite-compat"
+  },
+  "peerDependenciesMeta": {
+    "@vite-hub/blob": {
+      "optional": true
+    },
+    "vite": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=24.15.0"
+  }
+}

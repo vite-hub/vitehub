@@ -19,6 +19,7 @@ const serverPrimitiveSections = [
   "blob",
   "browser",
   "channels",
+  "cms",
   "comments",
   "connections",
   "content",

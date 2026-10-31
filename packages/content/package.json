@@ -61,11 +61,6 @@
       "import": "./dist/operations.js",
       "default": "./dist/operations.js"
     },
-    "./presets/cms": {
-      "types": "./dist/presets/cms.d.ts",
-      "import": "./dist/presets/cms.js",
-      "default": "./dist/presets/cms.js"
-    },
     "./realtime": {
       "types": "./dist/realtime.d.ts",
       "import": "./dist/realtime.js",

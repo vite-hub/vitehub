@@ -111,7 +111,7 @@ Add a Content singleton with one text field. The `cms` preset stores it in a Wor
 
 ```ts [server/content.ts]
 import { defineContent, singleton } from 'vite-hub/content'
-import cms from 'vite-hub/content/presets/cms'
+import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 
 export const content = defineContent({

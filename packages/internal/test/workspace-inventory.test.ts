@@ -14,6 +14,7 @@ describe("workspace inventory", () => {
       "browser",
       "channels",
       "cli",
+      "cms",
       "comments",
       "connections",
       "content",
