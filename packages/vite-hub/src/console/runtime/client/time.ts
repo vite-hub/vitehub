@@ -71,3 +71,20 @@ export function consoleDateTime(value: string | number): string {
   const time = typeof value === "number" ? value : Date.parse(value)
   return Number.isFinite(time) ? new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(time) : String(value)
 }
+
+/**
+ * The clock time of a log event in `timeZone`, the viewer's own zone by default, such as `14:33:59.120`. Returns the
+ * input for an invalid timestamp.
+ */
+export function consoleClockTime(value: string, timeZone?: string): string {
+  const time = Date.parse(value)
+  if (!Number.isFinite(time)) return value
+  return new Intl.DateTimeFormat("en", {
+    fractionalSecondDigits: 3,
+    hour: "2-digit",
+    hourCycle: "h23",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZone,
+  }).format(time)
+}
