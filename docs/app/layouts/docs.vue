@@ -25,6 +25,8 @@ const docsShellUi = {
 <template>
   <!-- There is no site footer. On wide screens there is no site header either: the sidebar carries the brand and the links. -->
   <UMain class="vh-docs-shell" :class="{ 'is-tutorial': hasCodePanel }">
+    <!-- The sidebar holds about 30 links, so keyboard users can jump past it. The link shows only when it has focus. -->
+    <a href="#docs-content" class="vh-skip-link">Skip to content</a>
     <UPage :ui="docsShellUi">
       <template v-if="showsNavigation" #left>
         <UPageAside class="vh-docs-aside hidden lg:flex">
@@ -33,7 +35,7 @@ const docsShellUi = {
       </template>
 
       <!-- The banner spans the page column, so its border meets the sidebar and the right edge. -->
-      <div class="relative">
+      <div id="docs-content" class="relative">
         <!-- Narrow screens open the navigation from the header menu and keep the code inline, so the button shows only on wide screens. -->
         <UTooltip v-if="hasCodePanel" :text="tutorialNavigation ? 'Hide navigation' : 'Show navigation'" :content="{ side: 'bottom', sideOffset: 6 }" :delay-duration="150">
           <button
@@ -58,6 +60,24 @@ const docsShellUi = {
 </template>
 
 <style scoped>
+.vh-skip-link {
+  position: fixed;
+  top: 0.5rem;
+  left: 0.5rem;
+  z-index: 60;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--ui-border);
+  background: var(--ui-bg);
+  color: var(--ui-text-highlighted);
+  font-size: 0.875rem;
+  font-weight: 500;
+  transform: translateY(calc(-100% - 1rem));
+}
+
+.vh-skip-link:focus {
+  transform: none;
+}
+
 .vh-docs-main,
 .vh-docs-landing,
 .vh-docs-split {
