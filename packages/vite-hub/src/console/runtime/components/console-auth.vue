@@ -347,7 +347,7 @@ onBeforeUnmount(() => {
                   <tr v-if="page === 'users'">
                     <th>User</th>
                     <th>Role</th>
-                    <th v-for="field in description?.fields" :key="field.key">{{ field.label }}</th>
+                    <th v-for="field in description?.fields" :key="field.key" :class="field.type === 'number' ? 'text-right' : ''">{{ field.label }}</th>
                     <th>Sign-in methods</th>
                     <th>Last active</th>
                     <th>Created</th>
@@ -393,12 +393,13 @@ onBeforeUnmount(() => {
                       </button>
                     </td>
                     <td>{{ user.role }}</td>
-                    <td v-for="field in description?.fields" :key="field.key" class="tabular-nums">
+                    <!-- Numbers align on the right, so their digits line up down the column. -->
+                    <td v-for="field in description?.fields" :key="field.key" class="tabular-nums" :class="field.type === 'number' ? 'text-right' : ''">
                       {{ authFieldValue(user.fields[field.key]) }}
                     </td>
                     <td>{{ user.providers.join(", ") || "None" }}</td>
-                    <td class="whitespace-nowrap text-muted">{{ authDate(user.lastActive) }}</td>
-                    <td class="whitespace-nowrap text-muted">{{ authDate(user.createdAt) }}</td>
+                    <td class="whitespace-nowrap text-muted tabular-nums">{{ authDate(user.lastActive) }}</td>
+                    <td class="whitespace-nowrap text-muted tabular-nums">{{ authDate(user.createdAt) }}</td>
                     <td :class="user.banned ? 'text-error' : 'text-muted'">
                       {{ user.banned ? "Banned" : "Active" }}
                     </td>
@@ -416,8 +417,8 @@ onBeforeUnmount(() => {
                       </button>
                     </td>
                     <td>{{ session.device }}</td>
-                    <td class="whitespace-nowrap text-muted">{{ authDate(session.createdAt) }}</td>
-                    <td class="whitespace-nowrap text-muted">{{ authDate(session.expiresAt) }}</td>
+                    <td class="whitespace-nowrap text-muted tabular-nums">{{ authDate(session.createdAt) }}</td>
+                    <td class="whitespace-nowrap text-muted tabular-nums">{{ authDate(session.expiresAt) }}</td>
                     <td class="text-right">
                       <UButton
                         color="neutral"

@@ -69,7 +69,8 @@ const columns = computed<TableColumn<Record<string, string | null>>[]>(() =>
     header: column.name,
     cell: ({ getValue }) => {
       const value = getValue<string | null>();
-      return value === null ? h("span", { class: "italic text-dimmed" }, "NULL") : value;
+      // Cells cut long values at 18rem. The title shows the whole value on hover.
+      return value === null ? h("span", { class: "italic text-dimmed" }, "NULL") : h("span", { title: value }, value);
     },
   })),
 );
