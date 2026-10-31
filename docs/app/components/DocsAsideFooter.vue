@@ -13,6 +13,7 @@ const { github, socials } = useAppConfig();
       color="neutral"
       variant="ghost"
       size="sm"
+      class="pointer-coarse:size-10 pointer-coarse:justify-center"
       aria-label="ViteHub on GitHub"
     />
     <UButton
@@ -22,12 +23,13 @@ const { github, socials } = useAppConfig();
       color="neutral"
       variant="ghost"
       size="sm"
+      class="pointer-coarse:size-10 pointer-coarse:justify-center"
       aria-label="ViteHub on Discord"
     />
     <ClientOnly>
-      <UColorModeButton color="neutral" variant="ghost" size="sm" class="ms-auto" />
+      <UColorModeButton color="neutral" variant="ghost" size="sm" class="ms-auto pointer-coarse:size-10 pointer-coarse:justify-center" />
       <template #fallback>
-        <div class="ms-auto size-7" />
+        <div class="ms-auto size-7 pointer-coarse:size-10" />
       </template>
     </ClientOnly>
   </div>

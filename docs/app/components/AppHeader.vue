@@ -121,6 +121,7 @@ const touchIconButton = "pointer-coarse:h-10 pointer-coarse:w-9 pointer-coarse:j
               color="neutral"
               variant="ghost"
               size="sm"
+              class="pointer-coarse:h-10"
             />
           </nav>
           <DocsSidebars class="vh-docs-menu-sidebars" panel />

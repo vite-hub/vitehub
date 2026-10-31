@@ -602,13 +602,11 @@ defineExpose({
           :actions="canWrite ? [{ label: 'Upload files', icon: 'i-lucide-upload', color: 'neutral', variant: 'outline', onClick: () => fileInput?.click() }] : []"
         />
 
-        <ul v-else-if="view === 'grid' && items.length" class="vitehub-media-grid" :aria-label="`Files in ${folderLabel(folder)}`" :aria-multiselectable="canSelect ? 'true' : undefined" role="listbox">
+        <!-- A plain list: each tile holds a button and a checkbox, and a listbox option cannot contain controls. -->
+        <ul v-else-if="view === 'grid' && items.length" class="vitehub-media-grid" :aria-label="`Files in ${folderLabel(folder)}`">
           <li
             v-for="file in items"
             :key="file.pathname"
-            role="option"
-            :aria-selected="selectedSet.has(file.pathname) || active === file.pathname"
-            :aria-disabled="!pickable(file) || undefined"
             class="vitehub-media-tile group"
             :class="{ 'is-selected': selectedSet.has(file.pathname), 'is-active': active === file.pathname, 'is-disabled': !pickable(file) }"
           >
@@ -617,6 +615,8 @@ defineExpose({
               class="vitehub-media-tile__button"
               :title="file.pathname"
               :disabled="!pickable(file)"
+              :aria-pressed="mode === 'picker' ? selectedSet.has(file.pathname) : undefined"
+              :aria-current="mode === 'page' && active === file.pathname ? 'true' : undefined"
               @click="click(file, $event)"
               @dblclick="activate(file)"
               @keydown.enter.prevent="mode === 'picker' ? activate(file) : click(file, $event as unknown as MouseEvent)"
@@ -667,7 +667,7 @@ defineExpose({
                 <UCheckbox color="neutral" :model-value="selectedSet.has(file.pathname)" :disabled="!pickable(file)" :aria-label="`Select ${file.name}`" @update:model-value="toggle(file)" />
               </td>
               <td>
-                <button type="button" class="flex min-w-0 items-center gap-2.5 text-start" :disabled="!pickable(file)" @click.stop="click(file, $event)" @keydown.enter.prevent="mode === 'picker' ? activate(file) : click(file, $event as unknown as MouseEvent)">
+                <button type="button" class="flex min-w-0 items-center gap-2.5 text-start" :disabled="!pickable(file)" :aria-pressed="mode === 'picker' ? selectedSet.has(file.pathname) : undefined" :aria-current="mode === 'page' && active === file.pathname ? 'true' : undefined" @click.stop="click(file, $event)" @keydown.enter.prevent="mode === 'picker' ? activate(file) : click(file, $event as unknown as MouseEvent)">
                   <span class="vitehub-media-row-thumb" :style="{ background: file.color }">
                     <img v-if="thumbnail(file, 64)" :src="thumbnail(file, 64)" alt="" loading="lazy" class="size-full object-cover" :style="{ objectPosition: consoleFocalCropPosition(file.focal, file, 1) }">
                     <UIcon v-else :name="consoleMediaTypeIcons[consoleMediaType(file.contentType)]" class="size-4 text-dimmed" aria-hidden="true" />
