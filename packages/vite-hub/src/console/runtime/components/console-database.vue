@@ -210,6 +210,7 @@ async function loadDatabase(): Promise<void> {
       }),
     );
     if (request !== controller) return;
+    openRow.value = undefined;
     database.value = value;
     error.value = undefined;
     if (props.view === "data") {
