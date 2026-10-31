@@ -1506,7 +1506,9 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     }
     const alias = (config.alias ??= {}) as Record<string, string>
     for (const [name, path] of Object.entries(generatedAliases)) alias[name] ??= path
-    // The Console and Agents bundle KV operations even with KV off. vitehub() gives Vite apps the same config and stub.
+    // The Console and Agents bundle KV operations even with KV off, and Nitro 2 refuses their unresolved imports. With KV
+    // off, the config says so. vitehub() stubs only the Upstash driver; there a missing config makes the KV runtime fall
+    // back to environment defaults.
     const kv = resolvedKVFromPlugin(retainedKVPlugin, viteConfig.kv)
     if (!kv) ((config.virtual ??= {}) as Record<string, string>)["#vitehub/kv/config"] ??= disabledKVConfigModule
     if (!hasUpstashStore(kv)) alias[upstashDriverSpecifier] ??= disabledUpstashDriver
