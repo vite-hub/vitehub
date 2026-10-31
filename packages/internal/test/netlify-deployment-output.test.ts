@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -18,6 +18,38 @@ afterEach(async () => {
 })
 
 describe("Netlify provider deployment output", () => {
+  it.each([
+    { conditions: undefined, expected: "netlify" },
+    { conditions: ["node"], expected: "node" },
+  ])("resolves provider exports and preserves explicit conditions: $expected", async ({ conditions, expected }) => {
+    const rootDir = await createTempProject()
+    const dependencyDir = join(rootDir, "node_modules", "provider-client")
+    await mkdir(dependencyDir, { recursive: true })
+    await writeFile(join(dependencyDir, "package.json"), JSON.stringify({
+      name: "provider-client",
+      type: "module",
+      exports: { netlify: "./netlify.mjs", node: "./node.mjs" },
+    }))
+    for (const provider of ["netlify", "node"]) {
+      await writeFile(join(dependencyDir, `${provider}.mjs`), `export default ${JSON.stringify(provider)}`)
+    }
+    const entry = join(rootDir, "entry.mjs")
+    await writeFile(entry, 'export { default } from "provider-client"')
+    const { writeProviderDeploymentOutputs } = await import("../src/build/deployment-output.ts")
+    await writeProviderDeploymentOutputs({
+      clientOutDir: "dist/client",
+      netlify: { functions: [{
+        bundleEntry: entry,
+        bundleOptions: { conditions, format: "esm", platform: "node" },
+        functionName: "provider-exports",
+      }] },
+      rootDir,
+    })
+    const outfile = join(rootDir, ".netlify", "v1", "functions", "provider-exports.mjs")
+    const loaded: { default: string } = await import(pathToFileURL(outfile).href)
+    expect(loaded.default).toBe(expected)
+  })
+
   it("preserves literal static config when bundled code declares config", async () => {
     const rootDir = await createTempProject()
     const entry = join(rootDir, "entry.mjs")

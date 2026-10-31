@@ -1,7 +1,7 @@
 ---
 title: ChatGPT plan usage
 description: Run a Codex Agent on a signed-in user's ChatGPT plan.
-navigation.order: 7
+navigation.order: 8
 icon: i-lucide-bot
 ---
 

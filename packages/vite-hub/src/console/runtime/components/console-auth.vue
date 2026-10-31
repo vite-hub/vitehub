@@ -28,8 +28,11 @@ import ConsoleAuthOverview from "./console-auth-overview.vue";
 import ConsoleAuthActivity from "./console-auth-activity.vue";
 import ConsoleFrame from "./console-frame.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
+import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
 const props = defineProps<{ sectionsBase: string; managementBase: string }>();
+// The rail's Search button and Cmd+K open the search of the page. Its API routes sit next to the sections route.
+const apiBase = props.sectionsBase.replace(/\/sections$/, "");
 const route = useRoute();
 const router = useRouter();
 const page = computed<AuthConsolePage>(() =>
@@ -62,6 +65,8 @@ const error = shallowRef<unknown>();
 const orgError = shallowRef<unknown>();
 const action = ref<AuthConsoleAction>();
 const actionId = ref<string>();
+/** The email of the user that a Sessions or Agents row action changes, for the confirmation. */
+const actionName = ref<string>();
 const labels: Record<AuthConsolePage, string> = {
   overview: "Overview",
   activity: "Activity",
@@ -221,6 +226,7 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <ConsoleFrame active="auth" :sections-base="sectionsBase">
+    <ConsoleSearch :agents-base="`${apiBase}/agents`" :definitions-base="`${apiBase}/definitions`" :kv-base="`${apiBase}/kv`" :search-base="`${apiBase}/search`" :sections-base="sectionsBase" />
     <UDashboardPanel id="auth" :ui="{ body: 'min-h-0 overflow-hidden p-0 sm:p-0 gap-0 sm:gap-0' }">
       <template #header>
         <UDashboardNavbar title="Auth" :toggle="false"
@@ -429,6 +435,7 @@ onBeforeUnmount(() => {
                         @click="
                           action = 'revokeSession';
                           actionId = session.id;
+                          actionName = session.user.email;
                         "
                         >Revoke</UButton
                       >
@@ -477,6 +484,7 @@ onBeforeUnmount(() => {
                         @click="
                           action = 'revokeConsent';
                           actionId = client.id;
+                          actionName = client.user.email;
                         "
                         >Revoke</UButton
                       >
@@ -546,6 +554,7 @@ onBeforeUnmount(() => {
       :base="managementBase"
       :action="action"
       :id="actionId"
+      :name="actionName"
       @close="action = undefined"
       @changed="refresh"
     />

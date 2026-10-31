@@ -1,85 +1,66 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" class="primitive-motion is-playing" style="--cycle: 5000ms; --scene-delay: -1850ms">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" fill="currentColor" shape-rendering="crispEdges" class="primitive-motion is-playing" style="--cycle: 5000ms; --scene-delay: -3700ms">
 <style>
 svg { color: #59636e; --ui-bg: #ffffff; }
 @media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
 .primitive-motion {
-  --ease-move: cubic-bezier(0.65, 0, 0.35, 1);
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   overflow: visible;
 }
-.line,
-.ink-line,
-.card {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.card {
-  fill: var(--tile-bg, var(--ui-bg));
-  stroke: color-mix(in srgb, currentColor 55%, transparent);
-}
-.soft,
-.job,
-.command,
-.budget,
-.ink,
-.token,
-.band,
-.pointer {
-  fill: currentColor;
-}
-.soft {
+.primitive-motion .soft {
   opacity: 0.35;
 }
-.ink,
-.token,
-.pointer {
+.primitive-motion .ink,
+.primitive-motion .token,
+.primitive-motion .pointer {
   opacity: 0.85;
 }
-.token,
-.band,
-.ghost,
-.q-in,
-.blob-next {
+.primitive-motion .card {
+  fill: color-mix(in srgb, currentColor 55%, var(--tile-bg, var(--ui-bg)));
+}
+.primitive-motion .card-fill {
+  fill: var(--tile-bg, var(--ui-bg));
+}
+.primitive-motion .token,
+.primitive-motion .band,
+.primitive-motion .ghost,
+.primitive-motion .q-in,
+.primitive-motion .blob-next {
   opacity: 0;
 }
-.a {
+.primitive-motion .a {
   animation-duration: var(--cycle);
   animation-delay: var(--scene-delay);
   animation-iteration-count: infinite;
   animation-fill-mode: both;
-  animation-timing-function: var(--ease-move);
+  animation-timing-function: steps(3);
 }
 .primitive-motion:not(.is-playing) .a {
   animation-play-state: paused;
 }
-.wf-rail-1,
-.wf-rail-2,
-.sh-command,
-.ws-file,
-.blob-progress {
+.primitive-motion .wf-rail-1,
+.primitive-motion .wf-rail-2,
+.primitive-motion .sh-command,
+.primitive-motion .ws-file,
+.primitive-motion .blob-progress {
   transform-box: fill-box;
   transform-origin: left center;
 }
-.blob-stack { animation-name: blob-stack; }
-.blob-progress { animation-name: blob-progress; }
-.blob-front { animation-name: blob-front; }
-.blob-next { animation-name: blob-next; }
-.blob-last { animation-name: blob-last; }
+.primitive-motion .blob-stack { animation-name: blob-stack; }
+.primitive-motion .blob-progress { animation-name: blob-progress; }
+.primitive-motion .blob-front { animation-name: blob-front; }
+.primitive-motion .blob-next { animation-name: blob-next; }
+.primitive-motion .blob-last { animation-name: blob-last; }
 @media (prefers-reduced-motion: reduce) {
-  .a {
+  .primitive-motion .a {
     animation: none;
   }
 }
 @keyframes blob-stack {
-  0%, 50% { transform: translate(0, 0); }
+  0%, 50% { transform: translate(0, 0); animation-timing-function: steps(2); }
   72%, 99.9% { transform: translate(4px, -4px); }
   100% { transform: translate(0, 0); }
 }
 @keyframes blob-progress {
-  0%, 6% { transform: scaleX(0); }
+  0%, 6% { transform: scaleX(0); animation-timing-function: steps(5); }
   44%, 99.9% { transform: scaleX(1); }
   100% { transform: scaleX(0); }
 }
@@ -99,23 +80,5 @@ svg { color: #59636e; --ui-bg: #ffffff; }
   100% { opacity: 1; }
 }
 </style>
-            <g class="a blob-stack">
-        <rect x="14" y="6" width="16" height="20" rx="2" class="card a blob-last" />
-        <rect x="10" y="10" width="16" height="20" rx="2" class="card" />
-        <g>
-          <rect x="6" y="14" width="16" height="20" rx="2" class="card" />
-          <g class="a blob-front">
-            <rect x="9" y="18" width="8" height="2" rx="1" class="soft" />
-            <rect x="9" y="22" width="6" height="2" rx="1" class="soft" />
-            <rect x="9" y="29" width="10" height="1.5" rx="0.75" class="soft" />
-            <rect x="9" y="29" width="10" height="1.5" rx="0.75" class="ink a blob-progress" />
-          </g>
-        </g>
-        <g class="a blob-next">
-          <rect x="2" y="18" width="16" height="20" rx="2" class="card" />
-          <rect x="5" y="22" width="8" height="2" rx="1" class="soft" />
-          <rect x="5" y="26" width="6" height="2" rx="1" class="soft" />
-          <rect x="5" y="33" width="10" height="1.5" rx="0.75" class="soft" />
-        </g>
-      </g>
+<g class="a blob-stack"><g class="a blob-last"><path class="card-fill" d="M10 8h12v2h-12zM10 10h12v2h-12zM10 12h12v2h-12zM10 14h12v2h-12zM10 16h12v2h-12zM10 18h12v2h-12zM10 20h12v2h-12zM10 22h12v2h-12z"/><path class="card" d="M10 6h12v2h-12zM8 8h2v2h-2zM22 8h2v2h-2zM8 10h2v2h-2zM22 10h2v2h-2zM8 12h2v2h-2zM22 12h2v2h-2zM8 14h2v2h-2zM22 14h2v2h-2zM8 16h2v2h-2zM22 16h2v2h-2zM8 18h2v2h-2zM22 18h2v2h-2zM8 20h2v2h-2zM22 20h2v2h-2zM8 22h2v2h-2zM22 22h2v2h-2zM10 24h12v2h-12z"/></g><g><path class="card-fill" d="M6 12h12v2h-12zM6 14h12v2h-12zM6 16h12v2h-12zM6 18h12v2h-12zM6 20h12v2h-12zM6 22h12v2h-12zM6 24h12v2h-12zM6 26h12v2h-12z"/><path class="card" d="M6 10h12v2h-12zM4 12h2v2h-2zM18 12h2v2h-2zM4 14h2v2h-2zM18 14h2v2h-2zM4 16h2v2h-2zM18 16h2v2h-2zM4 18h2v2h-2zM18 18h2v2h-2zM4 20h2v2h-2zM18 20h2v2h-2zM4 22h2v2h-2zM18 22h2v2h-2zM4 24h2v2h-2zM18 24h2v2h-2zM4 26h2v2h-2zM18 26h2v2h-2zM6 28h12v2h-12z"/></g><g><path class="card-fill" d="M2 16h12v2h-12zM2 18h12v2h-12zM2 20h12v2h-12zM2 22h12v2h-12zM2 24h12v2h-12zM2 26h12v2h-12zM2 28h12v2h-12zM2 30h12v2h-12z"/><path class="card" d="M2 14h12v2h-12zM0 16h2v2h-2zM14 16h2v2h-2zM0 18h2v2h-2zM14 18h2v2h-2zM0 20h2v2h-2zM14 20h2v2h-2zM0 22h2v2h-2zM14 22h2v2h-2zM0 24h2v2h-2zM14 24h2v2h-2zM0 26h2v2h-2zM14 26h2v2h-2zM0 28h2v2h-2zM14 28h2v2h-2zM0 30h2v2h-2zM14 30h2v2h-2zM2 32h12v2h-12z"/></g><g class="a blob-front"><path class="soft" d="M4 18h8v2h-8zM4 22h6v2h-6zM4 28h10v2h-10z"/><path class="ink a blob-progress" d="M4 28h10v2h-10z"/></g><g class="a blob-next"><g><path class="card-fill" d="M-2 20h12v2h-12zM-2 22h12v2h-12zM-2 24h12v2h-12zM-2 26h12v2h-12zM-2 28h12v2h-12zM-2 30h12v2h-12zM-2 32h12v2h-12zM-2 34h12v2h-12z"/><path class="card" d="M-2 18h12v2h-12zM-4 20h2v2h-2zM10 20h2v2h-2zM-4 22h2v2h-2zM10 22h2v2h-2zM-4 24h2v2h-2zM10 24h2v2h-2zM-4 26h2v2h-2zM10 26h2v2h-2zM-4 28h2v2h-2zM10 28h2v2h-2zM-4 30h2v2h-2zM10 30h2v2h-2zM-4 32h2v2h-2zM10 32h2v2h-2zM-4 34h2v2h-2zM10 34h2v2h-2zM-2 36h12v2h-12z"/></g><path class="soft" d="M0 22h8v2h-8zM0 26h6v2h-6zM0 32h10v2h-10z"/></g></g>
 </svg>

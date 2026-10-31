@@ -124,7 +124,7 @@ describe("@vite-hub/ui package contract", () => {
 
   it("ships flat console surfaces that fill their containers", () => {
     for (const block of [".vh-chat", ".vh-session"]) {
-      expect(stylesheet, block).toMatch(new RegExp(`\\n${block.replace(".", "\\.")}\\s*\\{[^}]*height: 100%;[^}]*min-height: 0;`));
+      expect(stylesheet, block).toMatch(new RegExp(`\\n\\s*${block.replace(".", "\\.")}\\s*\\{[^}]*height: 100%;[^}]*min-height: 0;`));
     }
     expect(stylesheet).not.toMatch(/backdrop-filter|mask-image|linear-gradient/);
     expect(stylesheet).not.toContain("--vh-ui-text-muted");
