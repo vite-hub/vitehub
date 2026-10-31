@@ -1,7 +1,19 @@
-import { contentEditorComponents } from "@vite-hub/content/editor"
-
-import type { DocumentComponent } from "@vite-hub/content"
+import { ContentImage } from "@vite-hub/content/editor"
+import type { DOMOutputSpec } from "@tiptap/pm/model"
 import type { ConsoleDocumentComponent } from "../definitions"
+import type { ConsoleMediaPicker } from "./media"
+
+/** Resolve media for display while the shared codec keeps its stored pathname. */
+export function consoleEditorMedia(resolveSrc: ConsoleMediaPicker["resolveSrc"]): typeof ContentImage {
+  return ContentImage.extend({
+    renderHTML({ node, HTMLAttributes }) {
+      const spec: DOMOutputSpec = this.parent?.({ node, HTMLAttributes }) ?? ["img", HTMLAttributes]
+      const src = resolveSrc?.(String(node.attrs.src))
+      if (src && Array.isArray(spec) && typeof spec[1] === "object" && spec[1] !== null) spec[1] = { ...spec[1], src }
+      return spec
+    },
+  })
+}
 
 /**
  * Menus of the document body editor, as plain data so they can be tested without an editor. Item `kind`s are Nuxt UI
@@ -28,18 +40,25 @@ export interface ConsoleSlashLabel {
 
 export type ConsoleSlashGroup = Array<ConsoleSlashLabel | ConsoleSlashItem>
 
-/** The collection components keyed by tag, as Content declares them, for the codec that Content owns. */
-export function consoleComponentRecord(components: readonly ConsoleDocumentComponent[] | undefined): Record<string, DocumentComponent> {
-  return Object.fromEntries((components ?? []).map(component => [component.name, { kind: component.kind, props: component.props }]))
+/** Collection components available in the slash menu. The Comark UI schema keeps unknown tags too. */
+export function consoleEditorComponents(components: readonly ConsoleDocumentComponent[] | undefined): ConsoleDocumentComponent[] {
+  return (components ?? []).filter(component => /^[a-z][a-z0-9-]*$/.test(component.name))
 }
 
-/**
- * The collection components the editor can register: the ones Content's `contentEditorComponents()` keeps, so the
- * Console and the server codec of a live room have the same schema.
- */
-export function consoleEditorComponents(components: readonly ConsoleDocumentComponent[] | undefined): ConsoleDocumentComponent[] {
-  const kept = new Set(contentEditorComponents(consoleComponentRecord(components), definition => definition.name))
-  return (components ?? []).filter(component => kept.has(component.name))
+/** Comark keeps bound props under `:name`, as JSON text or a parsed object. */
+export function consoleComponentProp(props: Record<string, unknown>, name: string, type: string): unknown {
+  const plain = Object.hasOwn(props, name)
+  const value = plain ? props[name] : props[`:${name}`]
+  if (typeof value !== "string" || (plain && type === "string")) return value
+  try { return JSON.parse(value) }
+  catch { return value }
+}
+
+export function consoleComponentWithProp(props: Record<string, unknown>, name: string, value: unknown): Record<string, unknown> {
+  const next = { ...props }
+  delete next[`:${name}`]
+  next[name] = value
+  return next
 }
 
 /** Default attributes of a new component: each prop's declared default. */

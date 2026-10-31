@@ -327,11 +327,6 @@ createApp(App)
   .use(createViteHubUI())
   .mount("#app");
 
-// KaTeX styles embed their fonts. Load them after the first render instead of in the blocking stylesheet.
-const loadMathStyles = () => void import("katex/dist/katex.min.css");
-if ("requestIdleCallback" in window) window.requestIdleCallback(loadMathStyles, { timeout: 2_000 });
-else setTimeout(loadMathStyles, 0);
-
 // Only the same-origin parent can navigate this editor; Vue Router runs its save/leave guards.
 if (window.parent !== window) {
   window.addEventListener("keydown", event => {

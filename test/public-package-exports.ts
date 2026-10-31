@@ -25,17 +25,6 @@ export interface PublicPackageBinContract {
 
 type OptionalPeerUsage = "both" | "declaration" | "runtime"
 
-const contentEditorTiptapPeers: Readonly<Record<string, OptionalPeerUsage>> = {
-  "comark": "runtime",
-  "comark-tiptap": "both",
-  "@tiptap/core": "both",
-  "@tiptap/extension-code-block": "runtime",
-  "@tiptap/extension-image": "runtime",
-  "@tiptap/extension-table": "runtime",
-  "@tiptap/pm": "runtime",
-  "@tiptap/starter-kit": "runtime",
-}
-
 const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUsage>>>([
   ["@vite-hub/agent", { "@vite-hub/workflow": "declaration" }],
   ["@vite-hub/agent/cli", { "vite": "both" }],
@@ -52,10 +41,10 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/comments/vite", { "vite": "both" }],
   ["@vite-hub/connections/agent", { "drizzle-orm": "both" }],
   ["@vite-hub/content/database", { "drizzle-orm": "both" }],
-  // The editor renders through comark-tiptap, which imports these Tiptap packages. Content keeps all of them external.
-  ["@vite-hub/content/editor", { ...contentEditorTiptapPeers, "@vite-hub/realtime": "declaration" }],
+  // Content owns its parser and Tiptap dependencies; only optional ViteHub integrations remain peers.
+  ["@vite-hub/content/editor", { "@vite-hub/realtime": "declaration" }],
   // Realtime loads the editor, and the Realtime and Workspace runtimes that hold the live document.
-  ["@vite-hub/content/realtime", { ...contentEditorTiptapPeers, "@vite-hub/realtime": "both", "@vite-hub/workspace": "runtime" }],
+  ["@vite-hub/content/realtime", { "@vite-hub/realtime": "both", "@vite-hub/workspace": "runtime" }],
   ["@vite-hub/connections/server", { "drizzle-orm": "both" }],
   ["@vite-hub/env/cli", { "vite": "runtime" }],
   ["@vite-hub/env/database", { "drizzle-orm": "both" }],
@@ -76,8 +65,6 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["vite-hub/logs/memory", { "evlog": "declaration" }],
   ["vite-hub/nuxt", { "vite": "both" }],
   ["vite-hub/source/client", { "vue": "both" }],
-  ["vite-hub/content", { "comark-content": "both" }],
-  ["vite-hub/content/client", { "comark-content": "both" }],
   ["vite-hub/ui", { "vue": "both" }],
   ["vite-hub/ui/headless", { "vue": "both" }],
   ["vite-hub/ui/nuxt", { "vue": "declaration" }],

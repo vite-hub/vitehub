@@ -63,8 +63,13 @@ catalogs:
     "@comark/html": 0.7.0
     "@types/mdast": ^4.0.4
     comark: 0.7.0
-    comark-content: 0.4.1
-    comark-tiptap: ^0.1.1
+  # Content/UI need the matching renderer stack; other consumers retain their parser behavior.
+  markdown-ui:
+    "@comark/html": 0.8.1
+    comark: 0.8.1
+    comark-content: 0.4.3
+    # Includes the editor fix in onmax/comark-ui#258; replace with its release when available.
+    comark-ui: https://pkg.pr.new/comark-ui@ef627712bbba068654ba083807807ea0bedce7e5
   nuxt:
     "@nuxt/content": ^3.16.1
     "@nuxt/ui": ^4.11.3
@@ -76,11 +81,11 @@ catalogs:
     nuxt: ^4.5.2 || >=5.0.0-0
   realtime:
     "@tiptap/core": ^3.31.4
-    "@tiptap/extension-code-block": ^3.31.4
     "@tiptap/extension-collaboration": ^3.31.4
     "@tiptap/extension-collaboration-caret": 3.31.4
     "@tiptap/extension-document": ^3.31.4
     "@tiptap/extension-image": ^3.31.4
+    "@tiptap/extension-list": ^3.31.4
     "@tiptap/extension-table": ^3.31.4
     "@tiptap/extensions": ^3.31.4
     "@tiptap/markdown": ^3.31.4

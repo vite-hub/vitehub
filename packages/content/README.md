@@ -11,12 +11,12 @@ Pass ViteHub Source definitions, registered names, readers, reader factories, or
 
 ```ts
 import { defineContent } from "@vite-hub/content"
-import fs from "comark-content/sources/fs"
+import { glob } from "@vite-hub/source/glob"
 
 export const content = defineContent({
   sources: {
-    docs: fs("./docs"),
-    blog: fs("./blog"),
+    docs: glob({ cwd: "docs", include: "**/*.md" }),
+    blog: glob({ cwd: "blog", include: "**/*.md" }),
   },
 })
 ```
@@ -41,7 +41,7 @@ export const content = defineContent({
       }),
     ],
   },
-  source: fs("./docs"),
+  source: glob({ cwd: "docs", include: "**/*.md" }),
 })
 ```
 
@@ -54,6 +54,28 @@ Use `contentSource(input, { prefix, schema })` to configure a Source. Adapted So
 Set `route: false` in `defineContent()` to disable the public `/api/content/**` route.
 Server reads, Console editing, draft preview, and configured SEO routes remain available.
 `defineContentHandler(content)` also returns 404 when this option is false.
+
+## Markdown rendering
+
+Content parses Markdown with the [Comark UI](https://comark-ui.onmax.me) preset, excluding the HTML-only `annotate`, `diff`, and `quiz` plugins that have no Vue renderers. Callouts, steps, tabs, cards, badges, diagrams, and tables use its parsers. `markdown.plugins` adds plugins; a plugin with a preset plugin's name replaces it. Content plugins still go in `plugins`. HTML-only blocks need an explicit parser plugin and application component override.
+
+Render a page with ViteHub UI. Its `Markdown` primitive accepts both a parsed Content page and a Markdown string, with Comark UI components and document styles already configured:
+
+```vue
+<script setup lang="ts">
+import { Markdown } from "@vite-hub/ui/markdown"
+
+const { data: page } = await useFetch("/api/content/get/docs/introduction")
+</script>
+
+<template>
+  <Markdown v-if="page" :value="page" />
+</template>
+```
+
+With the framework distribution, import from `vite-hub/ui/markdown`. The UI Nuxt module auto-imports `Markdown`. There is no separate Comark UI install, component map, or stylesheet to configure. Pass `components` only to override a renderer for your application.
+
+Content bundles Comark UI's parser and editor implementation and installs the Comark and Tiptap runtimes it needs. It leaves Vue to the UI package. Nuxt UI supplies the application's theme tokens; Nuxt UI Prose components are not needed. The preset's file include plugin stays off. Content leaves badge and chip images as URLs instead of downloading them during parsing. Icons and diagrams use Comark UI's default resolvers; override their plugins in `markdown.plugins` for an offline or private renderer.
 
 ## Document collections
 
@@ -133,7 +155,7 @@ The `content()` Agent Capability from `@vite-hub/agent/capabilities` gives an Ag
 
 `content.sessions` keeps presence and edit leases in the Database of the Workspace history: `report()` every 15 seconds, `acquire()` on the first edit, `release()` when the editor closes, and `list()` for list rows. While one session holds a document's lease, `save()`, `remove()`, and `restore()` from other callers throw `CONTENT_LEASE_HELD`; pass `{ session }` from the holder's tab, or `{ lease: "override" }`. Add `contentSessionsSchema` from `@vite-hub/content/database` next to `workspaceHistorySchema`. `documents({ editing: { lease: false } })` keeps presence without the lease.
 
-With Realtime enabled on a host with a room authority, ViteHub contributes a `content` Realtime Definition from `contentRealtime(content)` in `@vite-hub/content/realtime`: several people edit one Markdown document at once, the room saves into `draft` with `ifDigest`, and it holds the edit lease as `kind: 'live'`. `contentRealtimeEditor(collection)` and `contentMarkdownLoss()` in `@vite-hub/content/editor` are the codec and the loss check that the room and the Console share. `defineContent({ live: false })` keeps one editor at a time.
+With Realtime enabled on a host with a room authority, ViteHub contributes a `content` Realtime Definition from `contentRealtime(content)` in `@vite-hub/content/realtime`: several people edit one Markdown document at once, the room saves into `draft` with `ifDigest`, and it holds the edit lease as `kind: 'live'`. `contentRealtimeEditor()` in `@vite-hub/content/editor` adapts Comark UI's shared editor codec to the room. The Console uses `createContentEditorCodec()` from that same entry, with the same schema and loss check; unknown components, slots, task lists, and media survive an edit. `defineContent({ live: false })` keeps one editor at a time.
 
 ## SEO
 

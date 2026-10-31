@@ -79,6 +79,8 @@ icon: i-lucide-file-text
   :::
 ::
 
+The search examples use optional plugins from `comark-content`. See [search configuration](/docs/content/configure#providers) for installation and storage options. Reading and rendering Markdown needs no separate Comark setup.
+
 ::product-features
   :::product-feature-item{title="Write pages in Markdown" icon="i-lucide-file-text" to="/docs/content/get-started#define-and-read-content"}
   Point Content at a folder of Markdown files. It reads the headings and body of each page.
