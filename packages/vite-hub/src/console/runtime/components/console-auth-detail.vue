@@ -185,7 +185,8 @@ const impersonation = computed(() => {
             </dd>
             <dt class="text-muted">Status</dt>
             <dd>
-              {{ detail.user.banned ? "Banned" : "Active" }}
+              <!-- The same words and colors as the Status column of the user list. -->
+              <span :class="detail.user.banned ? 'text-error' : ''">{{ detail.user.banned ? "Banned" : "Active" }}</span>
               <p v-if="detail.user.banReason" class="mt-1 text-xs text-muted">
                 {{ detail.user.banReason }}
               </p>
