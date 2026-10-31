@@ -272,7 +272,10 @@ export type DefineContentOptions<
    * serves the `published` ref.
    */
   collections?: TCollections
-  /** Policy for Content surfaces. Without it, `content.can()` denies every action. */
+  /**
+   * Policy for Content surfaces. It replaces the policy of the preset, such as the CMS roles of `cms`. Without either,
+   * `content.can()` denies every action.
+   */
   authorize?: ContentAuthorize<CollectionName<TCollections>>
   /**
    * Live co-editing of Markdown documents through Realtime. `auto` (default) turns it on when Realtime is enabled and
@@ -337,7 +340,7 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
    * Workspace history, which needs `contentSessionsSchema` from `vite-hub/content/database`.
    */
   readonly sessions: ContentSessions<CollectionName<TCollections>>
-  /** Evaluate `defineContent({ authorize })`. Returns false when no policy is defined. */
+  /** Evaluate `defineContent({ authorize })`, or the policy of the preset. Returns false when there is no policy. */
   can(context: ContentCanContext<CollectionName<TCollections>>): Promise<boolean>
   /** Draft preview: a signed cookie that makes every Content read in its requests use the `draft` ref. */
   readonly preview: ContentPreview
@@ -346,8 +349,8 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
   /** `defineContent({ live })`: `auto` edits Markdown documents live where the host can, `false` never does. */
   readonly live: "auto" | false
   /**
-   * Whether `defineContent({ authorize })` defines a policy. Without one, `can()` denies every action, so surfaces such
-   * as the Console show no collections.
+   * Whether `defineContent({ authorize })` or its preset defines a policy. Without one, `can()` denies every action, so
+   * surfaces such as the Console show no collections.
    */
   readonly hasPolicy: boolean
   /** `defineContent({ seo })`, or undefined. */
@@ -404,6 +407,8 @@ export function defineContent<
   if (authorize !== undefined && typeof authorize !== "function") {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ authorize }) must be a function." })
   }
+  // The app's own policy wins over the preset's, such as the CMS roles of `cms`.
+  const policy = authorize ?? presetDefaults.authorize
   for (const plugin of options.plugins ?? []) {
     if (isComarkParsePlugin(plugin)) {
       throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] ${JSON.stringify(plugin.name)} is a Comark parse plugin, and defineContent({ plugins }) takes only Comark Content plugins. Pass it in defineContent({ markdown: { plugins } }).` })
@@ -544,7 +549,7 @@ export function defineContent<
     seo,
     live,
     route,
-    hasPolicy: authorize !== undefined,
+    hasPolicy: policy !== undefined,
     sitemap: async (sitemapOptions?: ContentSitemapOptions) =>
       documentsRuntime ? await contentSitemapEntries([...documentsRuntime.collections.values()], siteFor(sitemapOptions)) : [],
     robots: (sitemapOptions?: ContentSitemapOptions) => {
@@ -589,11 +594,11 @@ export function defineContent<
         throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.can() actor must be an Agent Actor with an id, or undefined." })
       }
       requireDocuments().collection(collection)
-      if (!authorize) return false
+      if (!policy) return false
       const decision: ContentAuthorizeContext<CollectionName<TCollections>> = { user, collection, action }
       if (actor !== undefined) decision.actor = actor
       if (id !== undefined) decision.id = id
-      return await authorize(decision) === true
+      return await policy(decision) === true
     },
   } as ContentDocumentsRuntime<TCollections>
   const runtime: ContentRuntime & ContentDocumentsRuntime<TCollections> = {

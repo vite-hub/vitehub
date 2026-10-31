@@ -16,6 +16,8 @@ export interface CmsPresetUsage {
   file: string
   /** Options from `extends: [cms, options]`. Empty for `extends: cms`. */
   options: CmsPresetOptions
+  /** Set when `defineContent()` passes its own `authorize`, which replaces the CMS roles. */
+  authorize?: true
 }
 
 /** The GitHub store of the `cms` preset, with defaults filled in. */
@@ -246,7 +248,9 @@ function readCmsPresetUsageInternal(source: string, file: string, projectRoot: s
   if (!selections.length) throw presetError(file, projectRoot, `imports the Content cms preset but does not select it with extends. ${usage}`)
   if (selections.length > 1) throw presetError(file, projectRoot, `selects the Content cms preset more than once. ${usage}`)
   const selection = selections[0]
-  if (!isNode(selection) || selection.type !== "ArrayExpression") return { file, options: {} }
+  const ownPolicy = Array.isArray(contentOptions?.properties) && contentOptions.properties.some(property => isNode(property) && propertyName(property) === "authorize")
+  const access = ownPolicy ? { authorize: true as const } : {}
+  if (!isNode(selection) || selection.type !== "ArrayExpression") return { file, options: {}, ...access }
 
   const elements = Array.isArray(selection.elements) ? selection.elements : []
   const optionsNode = unwrap(elements[1])
@@ -276,7 +280,7 @@ function readCmsPresetUsageInternal(source: string, file: string, projectRoot: s
   }
   const problem = cmsOptionsProblem(options)
   if (problem) throw presetError(file, projectRoot, `cms preset ${problem}`)
-  return { file, options }
+  return { file, options, ...access }
 }
 
 /** Database names and how to pick one, from `@vite-hub/database/config`. */

@@ -34,6 +34,12 @@
       "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./access": {
+      "types": "./dist/access.d.ts",
+      "import": "./dist/access.js",
+      "require": "./dist/access.js",
+      "default": "./dist/access.js"
+    },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js",
@@ -57,9 +63,11 @@
     "@libsql/client": "catalog:database",
     "@types/node": "catalog:tooling",
     "@vite-hub/blob": "workspace:*",
+    "@vite-hub/comments": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
+    "better-auth": "catalog:auth",
     "drizzle-orm": "catalog:database",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
@@ -70,12 +78,17 @@
   },
   "peerDependencies": {
     "@vite-hub/blob": "workspace:*",
+    "@vite-hub/comments": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
+    "better-auth": "catalog:auth",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
     "@vite-hub/blob": {
+      "optional": true
+    },
+    "@vite-hub/comments": {
       "optional": true
     },
     "vite": {

@@ -571,6 +571,12 @@
       "require": "./dist/cms.js",
       "default": "./dist/cms.js"
     },
+    "./cms/access": {
+      "types": "./dist/cms/access.d.ts",
+      "import": "./dist/cms/access.js",
+      "require": "./dist/cms/access.js",
+      "default": "./dist/cms/access.js"
+    },
     "./cms/vite": {
       "types": "./dist/cms/vite.d.ts",
       "import": "./dist/cms/vite.js",

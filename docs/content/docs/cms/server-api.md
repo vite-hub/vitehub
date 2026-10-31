@@ -2,11 +2,11 @@
 title: CMS server API
 description: The cms preset import, its options and the values they accept, what it sets in defineContent(), and how to use it without vitehub().
 navigation.title: Server API
-navigation.order: 4
+navigation.order: 5
 icon: i-lucide-code-2
 ---
 
-The CMS has one export, the `cms` preset. Pass it to `defineContent({ extends })` in `server/content.ts`. Everything that you call at runtime, such as `content.collection()`, `save()`, and `publish()`, is the [Content server API](/docs/content/server-api).
+The CMS has the `cms` preset and the CMS roles. Pass the preset to `defineContent({ extends })` in `server/content.ts`. Everything that you call at runtime, such as `content.collection()`, `save()`, and `publish()`, is the [Content server API](/docs/content/server-api).
 
 ## Imports
 
@@ -15,6 +15,7 @@ The CMS has one export, the `cms` preset. Pass it to `defineContent({ extends })
 | `cms` from `vite-hub/cms` | The preset, in an app with `vitehub()`. |
 | `cms`, or the default export, from `@vite-hub/cms` | The same preset, for libraries and apps that install the packages one by one. |
 | `CmsPresetOptions` type from `vite-hub/cms` or `@vite-hub/cms` | The options of the tuple form. |
+| `cmsAccess`, `cmsCan`, `cmsContentAuthorize`, `cmsCommentsAuthorize`, and `cmsConsoleAuthorize` from `vite-hub/cms/access` or `@vite-hub/cms/access` | The CMS roles for the Better Auth `admin` plugin, and the policies from them. See [Roles and access](/docs/cms/access). `cmsStatements`, `cmsAc`, and `cmsRoles` are the parts of `cmsAccess`. |
 
 ```ts [server/content.ts]
 import { defineContent, documents } from 'vite-hub/content'
@@ -46,7 +47,7 @@ The build reads `server/content.ts` without running it, to add the Workspace and
 
 The build follows a re-export of `content` from a relative file, such as `export { content } from './content/index'`. When it cannot read the selection, the build fails with `CONTENT_B0001`. At runtime, `defineContent()` checks the same rules and throws `CONTENT_R0006`.
 
-The preset fills `workspace` in `defineContent()`, so `extends` cannot be combined with `workspace`. With the GitHub store and `publish: 'pr'`, it also selects pull request publishing for `content.publish()`.
+The preset fills `workspace` in `defineContent()`, so `extends` cannot be combined with `workspace`. When `defineContent()` has no `authorize`, the preset also fills it with the CMS roles. With the GitHub store and `publish: 'pr'`, it also selects pull request publishing for `content.publish()`.
 
 ## Option values
 
