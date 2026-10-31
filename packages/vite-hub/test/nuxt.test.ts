@@ -2689,7 +2689,12 @@ describe("ViteHub Nuxt integration", () => {
         try {
           await nitro.hooks.callHook("compiled", nitro)
           const wrangler = JSON.parse(await readFile(resolve(nitro.options.output.serverDir, "wrangler.json"), "utf8")) as { compatibility_flags: string[] }
-          return wrangler.compatibility_flags.filter(flag => flag !== "nodejs_als")
+          return {
+            flags: wrangler.compatibility_flags.filter(flag => flag !== "nodejs_als"),
+            nodeCompat: config.cloudflare.nodeCompat,
+            modules: config.modules ?? [],
+            inlineFlags: config.cloudflare.wrangler.compatibility_flags,
+          }
         }
         finally {
           await nitro.close()
@@ -2710,8 +2715,16 @@ describe("ViteHub Nuxt integration", () => {
       ["an inline no_nodejs_compat_v2", ["no_nodejs_compat_v2"], undefined, ["no_nodejs_compat_v2", "nodejs_compat"]],
       ["a project no_nodejs_compat_v2", [], ["no_nodejs_compat_v2"], ["no_nodejs_compat_v2", "nodejs_compat"]],
       ["a project nodejs_compat_v2", [], ["nodejs_compat_v2"], ["nodejs_compat_v2"]],
+      ["an inline no_nodejs_compat", ["no_nodejs_compat"], undefined, ["no_nodejs_compat"]],
+      ["a project no_nodejs_compat", [], ["no_nodejs_compat"], ["no_nodejs_compat"]],
     ] as const)("writes valid flags for %s", async (_label, inline, project, expected) => {
-      expect((await writtenFlags([...inline], project && [...project])).toSorted()).toEqual([...expected].toSorted())
+      const result = await writtenFlags([...inline], project && [...project])
+      expect(result.flags.toSorted()).toEqual([...expected].toSorted())
+      if (result.flags.includes("no_nodejs_compat")) {
+        expect(result.nodeCompat).toBe(false)
+        expect(result.inlineFlags).toEqual([...inline])
+        expect(result.modules).not.toContainEqual(expect.objectContaining({ name: "vite-hub/cloudflare-node-compat" }))
+      }
     })
 
     it("leaves the flags alone without nodeCompat", async () => {

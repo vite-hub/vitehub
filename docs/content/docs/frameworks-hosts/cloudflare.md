@@ -106,6 +106,8 @@ With Nitro's `cloudflare.nodeCompat`, which the Nuxt `cloudflare` preset turns o
 
 When the app names `nodejs_compat_v2` or `no_nodejs_compat_v2` in `nitro.cloudflare.wrangler.compatibility_flags` or in its project Wrangler config, ViteHub leaves the flags as the app wrote them. `nodejs_compat_v2` alone provides `node:http` and `node:child_process` only from compatibility date 2026-08-04.
 
+An explicit `no_nodejs_compat` in either configuration disables Nitro's `cloudflare.nodeCompat` and skips ViteHub's flag rewrite, preserving the app's full Node.js compatibility opt-out.
+
 Check the output before deploying. `wrangler deploy --dry-run` validates the config, and `wrangler dev` starts the Worker, which catches a Node module that the date and flags leave out:
 
 ```bash [Terminal]

@@ -1533,9 +1533,12 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         const installed = modules.some(module => isRecord(module) && module.name === cloudflareNodeCompatModuleName)
         const project = await readProjectWranglerConfig(typeof config.rootDir === "string" ? config.rootDir : rootDir)
         const explicit = [...flags, ...(Array.isArray(project?.compatibility_flags) ? project.compatibility_flags : [])]
-        // An app that names nodejs_compat_v2 or no_nodejs_compat_v2 itself keeps its choice. Our own marker from an
-        // earlier run of this hook is not the app's choice.
-        if (markedNitroConfigs.has(config) || (!explicit.includes("nodejs_compat_v2") && !explicit.includes("no_nodejs_compat_v2"))) {
+        // A full opt-out must also stop Nitro itself from adding nodejs_compat. Explicit v2 choices stay as written;
+        // our own marker from an earlier run of this hook is not the app's choice.
+        if (explicit.includes("no_nodejs_compat")) {
+          cloudflare.nodeCompat = false
+        }
+        else if (markedNitroConfigs.has(config) || (!explicit.includes("nodejs_compat_v2") && !explicit.includes("no_nodejs_compat_v2"))) {
           // Nitro 2 adds no_nodejs_compat_v2 unless it sees nodejs_compat_v2, and that disables native Node imports used by
           // Workspaces. The marker stops it, and the module swaps it for nodejs_compat in the written wrangler.json.
           wrangler.compatibility_flags = [...new Set([...flags, "nodejs_compat_v2"])]
