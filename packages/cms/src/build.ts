@@ -248,7 +248,11 @@ function readCmsPresetUsageInternal(source: string, file: string, projectRoot: s
   if (!selections.length) throw presetError(file, projectRoot, `imports the Content cms preset but does not select it with extends. ${usage}`)
   if (selections.length > 1) throw presetError(file, projectRoot, `selects the Content cms preset more than once. ${usage}`)
   const selection = selections[0]
-  const ownPolicy = Array.isArray(contentOptions?.properties) && contentOptions.properties.some(property => isNode(property) && propertyName(property) === "authorize")
+  const ownPolicy = Array.isArray(contentOptions?.properties) && contentOptions.properties.some(property => {
+    if (!isNode(property) || propertyName(property) !== "authorize") return false
+    const value = unwrap(property.value)
+    return !isNode(value) || value.type !== "Identifier" || value.name !== "undefined"
+  })
   const access = ownPolicy ? { authorize: true as const } : {}
   if (!isNode(selection) || selection.type !== "ArrayExpression") return { file, options: {}, ...access }
 

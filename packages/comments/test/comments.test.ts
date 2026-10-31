@@ -87,6 +87,21 @@ describe("defineComments", () => {
     expect(await editorsOnly.can({ user: { id: "e", role: "editor" }, action: "comment" })).toBe(true)
   })
 
+  it("requires an explicit delete grant from legacy policies while preserving void for existing actions", async () => {
+    const comments = defineComments({
+      authorize: async ({ action }) => {
+        if (action === "read") return true
+        if (action === "comment" || action === "resolve") return
+      },
+    })
+    const user = { id: "ada" }
+    for (const action of ["read", "comment", "resolve"] as const) {
+      expect(await comments.can({ user, action })).toBe(true)
+    }
+    expect(await comments.can({ user, action: "delete" })).toBe(false)
+    expect(await defineComments({ authorize: async () => true }).can({ user, action: "delete" })).toBe(true)
+  })
+
   it("suggests earlier authors for @, without guests", async () => {
     const comments = await createComments()
     // Each comment gets its own millisecond, so "newest first" has one order.

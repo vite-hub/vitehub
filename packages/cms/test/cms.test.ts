@@ -333,6 +333,10 @@ describe("hubCms()", () => {
     ] }])
     const own = await inspect(presetContent.replace("extends: cms", "extends: [cms, { access: 'roles' }], authorize: () => true"))
     expect(own.fields[0]?.fields).toContainEqual({ label: "Access", value: "The app's defineContent({ authorize })" })
+    const undefinedPolicy = await inspect(presetContent.replace("extends: cms", "extends: cms, authorize: undefined"))
+    expect(undefinedPolicy.fields[0]?.fields).toContainEqual({ label: "Access", value: "No policy (all actions denied)" })
+    const undefinedRolesPolicy = await inspect(presetContent.replace("extends: cms", "extends: [cms, { access: 'roles' }], authorize: (undefined)"))
+    expect(undefinedRolesPolicy.fields[0]?.fields).toContainEqual({ label: "Access", value: "CMS roles of the Better Auth admin plugin (vitehub cms roles)" })
     // Without the preset there is nothing to inspect, but the roles still serve cmsContentAuthorize.
     const plain = await inspect("import { defineContent } from 'vite-hub/content'\nexport const content = defineContent({ workspace: 'site' })\n")
     expect(plain.fields).toEqual([])

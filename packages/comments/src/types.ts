@@ -238,7 +238,8 @@ export interface CommentCreatedEvent {
 
 export interface DefineCommentsOptions {
   /**
-   * Who may read, comment, and resolve. Return `false` to deny. Return `true` for `user: null` to let guests comment
+   * Who may read, comment, resolve, and delete. Return `false` to deny. Deletion requires `true`; other actions also
+   * allow `void`. Return `true` for `user: null` to let guests comment
    * under a name they choose. Without it: a person signed in with GitHub may do everything when they can push to the
    * repository of the build; any other signed-in user may do everything; anonymous people may comment as guests on the
    * development server only.

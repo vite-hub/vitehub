@@ -21,7 +21,7 @@ The `comments()` plugin has one option of its own, [`database`](#choose-the-data
 
 ## Decide who can comment
 
-`authorize` gets the user and the action. Return `false` to deny.
+`authorize` gets the user and the action. Return `false` to deny. The `delete` action requires `true`; `read`, `comment`, and `resolve` also accept a `void` return as permission.
 
 ```ts [server/comments.ts]
 import { defineComments } from 'vite-hub/comments'

@@ -362,6 +362,23 @@ describe("Comments API", () => {
     expect((await call(`/threads/${thread!.id}`, { method: "DELETE" })).response.status).toBe(200)
   })
 
+  it("denies others' deletion when a legacy policy falls through for delete", async () => {
+    const { comments, call } = await setup({ options: {
+      authorize: ({ action }) => {
+        if (action === "read" || action === "comment" || action === "resolve") return true
+      },
+    } })
+    const [, thread] = await comments.create({ page: "/", anchor, body: "Root", author: { id: "writer", name: "Writer" } })
+    const [, reply] = await comments.reply(thread!.id, { body: "Reply", author: { id: "writer", name: "Writer" } })
+    const [, own] = await comments.reply(thread!.id, { body: "Mine", author: { id: "ada", name: "Ada" } })
+    expect((await call("/session")).body.data.can.delete).toBe(false)
+    expect((await call(`/threads/${thread!.id}/resolve`, { method: "POST" })).response.status).toBe(200)
+    expect((await call(`/threads/${thread!.id}/comments/${reply!.id}`, { method: "DELETE" })).response.status).toBe(403)
+    expect((await call(`/threads/${thread!.id}`, { method: "DELETE" })).response.status).toBe(403)
+    expect((await call(`/threads/${thread!.id}/comments/${own!.id}`, { method: "DELETE" })).response.status).toBe(200)
+    expect((await comments.get(thread!.id))[1]?.comments).toHaveLength(2)
+  })
+
   it("lets authors delete their own reply, and checks delete for others'", async () => {
     let user: CommentsUser = { id: "ada", name: "Ada", role: "editor" }
     const comments = await createComments({ identify: () => user, authorize: ({ user, action }) => action !== "delete" || user?.role === "editor" })
