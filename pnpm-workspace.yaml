@@ -13,10 +13,6 @@ catalog:
   "@types/proper-lockfile": 4.1.4
   forges: https://pkg.pr.new/danielroe/forges@40d50b2f8bdc5585becfae405e1a3b8a325f7202
   proper-lockfile: 4.1.2
-  remark-gfm: ^4.0.1
-  remark-mdc: ^3.11.1
-  remark-parse: ^11.0.0
-  unified: ^11.0.5
   comark-chat: 0.7.1
   vite-doctor: https://pkg.pr.new/vite-doctor@9f33eb1748fb93f7399579b60d3bff6af3895eb1
 

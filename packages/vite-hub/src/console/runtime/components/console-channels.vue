@@ -11,6 +11,7 @@ import { rememberConsoleSection } from "../sections";
 import ConsoleFrame from "./console-frame.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
+import ConsoleState from "./console-state.vue";
 import ConsoleStatus from "./console-status.vue";
 import { isSafeExternalUrl } from "./invocation/internal/url";
 
@@ -116,10 +117,6 @@ const selected = computed(() => channels.value.find(entry => entry.agent === sel
 
 function isAbort(failure: unknown): boolean {
   return failure instanceof Object && "name" in failure && failure.name === "AbortError";
-}
-
-function errorMessage(failure: unknown): string | undefined {
-  return failure instanceof Error ? failure.message : failure ? "The Console could not load these Channels." : undefined;
 }
 
 async function loadChannels(): Promise<void> {
@@ -315,16 +312,7 @@ onBeforeUnmount(() => {
         </template>
       </ConsolePageHeader>
 
-      <UAlert
-        v-if="errorMessage(error)"
-        class="m-4"
-        color="error"
-        variant="subtle"
-        icon="i-lucide-cloud-off"
-        title="Couldn't load Channels"
-        :description="errorMessage(error)"
-        :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', color: 'neutral', variant: 'outline', onClick: loadChannels }]"
-      />
+      <ConsoleState v-if="error" :error="error" title="Could not load Channels" :retry="loadChannels" />
       <div v-else class="flex min-h-0 flex-1 flex-col md:flex-row">
         <nav class="flex max-h-[40vh] min-h-0 shrink-0 flex-col gap-1 overflow-y-auto border-b border-default p-2 md:max-h-none md:w-80 md:border-r md:border-b-0" aria-label="Channels and threads">
           <template v-if="channelsLoading && !channels.length">

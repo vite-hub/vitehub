@@ -434,7 +434,7 @@ const groups = computed<CommandPaletteGroup[]>(() => [
     ? [{
         id: "historical-agents",
         items: availableHistoricalAgentNames.value.map(name => ({
-          icon: "i-ph-clock-counter-clockwise-light",
+          icon: "i-lucide-history",
           label: name,
           onSelect: () => selectAgent(name),
         })),
