@@ -24,8 +24,6 @@ defineProps<{
 
 <style>
 .vitehub-console {
-  /* Chat bubbles, code blocks, and traces from @vite-hub/ui keep their radius; the Nuxt UI base is 0.25rem. */
-  --vh-ui-radius: 0.5rem;
   /* Sidebar and detail headers use the 44px height of the page header, so their titles and hairlines line up. */
   --ui-header-height: 2.75rem;
   height: 100dvh;
