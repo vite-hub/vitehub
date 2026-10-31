@@ -378,6 +378,7 @@ jobs:
       - uses: ./.github/actions/setup
 
       - run: vp run --filter vitehub-docs test
+      - run: vp run --filter vitehub-docs test:links:readme
       - run: vp run docs:build
       - run: vp run --filter vitehub-docs test:artifact
       - name: Verify Worker bundle

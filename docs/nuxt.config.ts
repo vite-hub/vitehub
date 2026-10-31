@@ -3,7 +3,12 @@ import { fileURLToPath } from "node:url";
 
 export default defineNuxtConfig({
   extends: ["docus"],
-  modules: ["./modules/vitehub-docs", "@vite-hub/ui/nuxt", "nuxt-schema-org"],
+  modules: ["./modules/vitehub-docs", "@vite-hub/ui/nuxt", "nuxt-schema-org", "nuxt-link-checker"],
+  linkChecker: {
+    failOnError: true,
+    fetchRemoteUrls: false,
+    showLiveInspections: false,
+  },
   site: {
     description: "Portable Agents for Vite, built on Server Primitives.",
     name: "ViteHub",
