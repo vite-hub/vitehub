@@ -169,7 +169,7 @@ Continue with [Configuration](/docs/queue/configure#queue-definition-options) fo
 
 `vitehub queue list` shows the Queue Definitions that the running app loads and the provider that sends their jobs. `vitehub queue send <name> '<json>'` sends one job, so you can try a handler without a route. Both call the `queue.list` and `queue.send` [operations](/docs/development/operations) of the Queues section, on the dev server or on a deployment with `--url`. They need `vitehub()` (the Console RPC), and `queue.send` is registered only when `console.invoke` is on.
 
-```bash [Terminal]
+```bash [commands/dispatch]
 pnpm vitehub queue list
 pnpm vitehub queue send welcome '{"userId":7}' --delay-seconds 30
 pnpm vitehub queue send welcome '{"userId":7}' --url https://app.example.com

@@ -742,7 +742,11 @@ function renderEvent(activity: InvocationActivity, inspect: InspectHandler, open
       ]))
     : h("span", { class: "vh-invocation-event__title" }, viewedImagePath ? "View image" : invocationActivityTitle(activity));
   const summaryContent = [
-    activity.name === "vitehub.agent.configured" ? frameworkMark() : activity.kind === "delivery" ? channelIcon(activityChannel(activity)) : renderActivityIcon(activity),
+    activity.name === "vitehub.agent.configured"
+      ? frameworkMark()
+      : activity.kind === "delivery"
+        ? h("span", { class: "vh-invocation-event__icon", "data-icon": "channel" }, [channelIcon(activityChannel(activity))])
+        : renderActivityIcon(activity),
     title,
     activity.status === "failed" ? h("span", { class: "vh-visually-hidden" }, "Failed") : null,
     suffix ? h("code", { class: "vh-invocation-event__suffix" }, suffix) : null,
@@ -1461,7 +1465,11 @@ function renderWorkSummary(
       open: detailsOpen,
     }, [
       h("summary", { class: "vh-invocation-work__summary" }, [
-        h("span", { class: "vh-invocation-work__title" }, active ? "Working…" : duration ? `Worked for ${duration}` : "Work details"),
+        h("span", { class: "vh-invocation-work__title" }, active
+          ? "Working…"
+          : duration
+            ? `${invocation.status === "cancelled" ? "Cancelled after" : "Worked for"} ${duration}`
+            : invocation.status === "cancelled" ? "Cancelled" : "Work details"),
         elapsed ? h("time", { class: "vh-invocation-work__elapsed", datetime: invocation.startedAt }, elapsed) : null,
         renderDisclosureChevron("vh-invocation-work__disclosure"),
       ]),
@@ -1920,9 +1928,11 @@ const agentInvocationInspector = defineComponent({
                 inspectorRow("Tokens", (props.invocation.usage?.totalTokens ?? metrics.value.tokens) === undefined
                   ? "Unknown"
                   : new Intl.NumberFormat("en").format((props.invocation.usage?.totalTokens ?? metrics.value.tokens)!)),
-                inspectorRow("Cost", usage?.cost?.display
-                  ? `${usage.cost.display}${usage.cost.estimated === true ? " (estimated)" : usage.cost.estimated === false ? " (reported)" : ""}`
-                  : "Unknown"),
+                // The runtime display already starts with ~ when the cost is estimated, so the label carries the qualifier.
+                inspectorRow(
+                  usage?.cost?.estimated === true ? "Estimated cost" : usage?.cost?.estimated === false ? "Reported cost" : "Cost",
+                  usage?.cost?.display || "Unknown",
+                ),
                 ...([
                   ["Input", partition?.inputTokens],
                   ["Output", partition?.outputTokens],

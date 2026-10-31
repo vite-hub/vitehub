@@ -224,6 +224,7 @@ export default defineNuxtConfig({
         "ph:key-light",
         "ph:layout-light",
         "ph:lightning-light",
+        "ph:list-bullets-light",
         "ph:list-checks-light",
         "ph:list-numbers-light",
         "ph:magnifying-glass-light",
