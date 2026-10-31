@@ -28,8 +28,12 @@ const resetOpen = ref(false);
 const resetting = ref(false);
 let request: AbortController | undefined;
 
-// A provider that cannot reset, or a key without a counter, leaves nothing to reset.
-const canReset = computed(() => !props.readOnly && peeked.value !== undefined && peeked.value.status !== "unsupported" && peeked.value.status !== "unused");
+// A readable result must contain an active counter; an unavailable counter may still exist.
+const canReset = computed(() => {
+  if (props.readOnly) return false;
+  const result = peeked.value;
+  return result?.status === "unavailable" || (result?.status === "known" && result.counters.some(counter => counter.used > 0 || counter.resetAt !== undefined));
+});
 
 function message(failure: unknown, fallback: string): string {
   return failure instanceof Error && failure.message ? failure.message : fallback;
