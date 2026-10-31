@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/gateways",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "One AI gateway model: route Codex and Claude Code model requests, and ask TypeSafe Jev typed questions, through TypeSafe, Vercel AI Gateway, Cloudflare AI Gateway, CLIProxyAPI, LiteLLM, Ollama, OpenRouter, OpenAI, or Anthropic.",
   "keywords": [
     "ai",
