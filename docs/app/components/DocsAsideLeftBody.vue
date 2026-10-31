@@ -186,10 +186,16 @@ function isActive(path: string) {
   margin-top: 0.125rem;
 }
 
-/* In the phone menu each link is a 40px tap target. */
+/* Touch devices keep 40px tap targets at every viewport width. */
 @media (pointer: coarse) {
   .vh-docs-sidebar-link {
     min-height: 2.5rem;
+  }
+}
+
+/* Center menu rows below the same 64rem handoff as the desktop sidebar. */
+@media (width < 64rem) {
+  .vh-docs-sidebar-link {
     align-items: center;
   }
 
