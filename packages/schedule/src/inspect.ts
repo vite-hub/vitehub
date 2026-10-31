@@ -94,7 +94,7 @@ function definitionRecord(summary: ViteHubDefinitionSummary): ViteHubConsoleReco
   const timeZone = field("Time zone")
   return {
     cells: {
-      manual: field("Manual") === "Enabled" ? "Yes" : "No",
+      manual: field("Manual") === "Enabled" ? "Enabled" : "Disabled",
       schedule: summary.name,
       timing: cron && timeZone ? scheduleConsoleTiming(cron, timeZone) : "-",
     },
