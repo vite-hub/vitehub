@@ -5,6 +5,7 @@ import type { ConsoleContributedSection, ConsoleOperationView } from "../definit
 import { loadOperationItems, operationCell, operationLink, operationValue } from "../client/operation-view";
 import ConsoleFrame from "./console-frame.vue";
 import ConsolePageHeader from "./console-page-header.vue";
+import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
 
 /**
@@ -17,6 +18,8 @@ const props = defineProps<{
   sectionsBase: string;
 }>();
 
+// The rail's Search button and Cmd+K open the search of the page. Its API routes sit next to the sections route.
+const apiBase = props.sectionsBase.replace(/\/sections$/, "");
 const view = computed(() => props.details.view as ConsoleOperationView);
 const filterId = ref<string>();
 const items = ref<Array<Record<string, unknown>>>([]);
@@ -57,6 +60,7 @@ onBeforeUnmount(() => controller?.abort());
 
 <template>
   <ConsoleFrame :active="details.id" :sections-base="sectionsBase">
+    <ConsoleSearch :agents-base="`${apiBase}/agents`" :definitions-base="definitionsBase" :kv-base="`${apiBase}/kv`" :search-base="`${apiBase}/search`" :sections-base="sectionsBase" />
     <UDashboardPanel :id="`console-${details.id}`" :ui="{ body: 'min-h-0 gap-0 overflow-auto p-0' }">
       <template #header>
         <ConsolePageHeader :title="details.label" :description="details.description" :toggle="false">

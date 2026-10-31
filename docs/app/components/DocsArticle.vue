@@ -41,7 +41,8 @@ const outlineUi = {
   content: "!min-h-0",
 };
 const mobileTocUi = {
-  root: "xl:hidden !static !px-0 !mx-0",
+  // The page body has no top margin, so the outline keeps the space that separates it from the first heading.
+  root: "xl:hidden !static !px-0 !mx-0 mb-6",
   container: "!border-s-0 !border-b !border-default !ps-0 !py-3",
   trigger: "!py-1 text-sm font-medium text-muted",
   content: "!pb-2",

@@ -275,10 +275,16 @@ function resetExample() {
   overflow: auto;
 }
 
-.component-preview-source :deep(.code-block-wrapper) {
+/*
+  MDC renders the source through Nuxt UI's ProsePre, not the docs code block.
+  Its outer margin left a blank band above the code, and its copy button repeated the toolbar copy.
+*/
+.component-preview-source > :deep(div) {
   margin: 0;
-  border: 0;
-  border-radius: 0;
+}
+
+.component-preview-source > :deep(div > button) {
+  display: none;
 }
 
 .component-preview-source :deep(pre) {

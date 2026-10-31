@@ -1,8 +1,8 @@
 ---
 title: Comments server API
 description: The comments operations, their inputs, and the browser transport.
-navigation.title: Server API
-navigation.order: 4
+navigation.title: Operations server API
+navigation.order: 23
 icon: i-lucide-server
 ---
 
