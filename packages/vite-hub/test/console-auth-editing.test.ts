@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({ read: vi.fn(), change: vi.fn() }))
 vi.mock("../src/console/runtime/client/auth-management", () => ({ readAuthConsole: mocks.read, changeAuthConsole: mocks.change }))
 vi.mock("../src/console/runtime/sections", () => ({ rememberConsoleSection() {} }))
 vi.mock("../src/console/runtime/components/console-frame.vue", () => ({ default: {} }))
+vi.mock("../src/console/runtime/components/console-search.vue", () => ({ default: {} }))
 vi.mock("../src/console/runtime/components/console-auth-detail.vue", () => ({ default: {} }))
 import Action from "../src/console/runtime/components/console-auth-action.vue"
 import Auth from "../src/console/runtime/components/console-auth.vue"
