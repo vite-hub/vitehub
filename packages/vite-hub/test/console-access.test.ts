@@ -31,9 +31,9 @@ import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.
 
 const policyKey = Symbol.for("vitehub.console.access")
 const serverRoot = fileURLToPath(new URL("../src/console/runtime/server/", import.meta.url))
-// The page shell, sign-in redirect and empty client script carry no project data. Static assets are public in the same way.
+// Page shells, static assets, and OAuth discovery carry no protected project data.
 // The Schedule run route runs a signed dispatch and nothing else; it does not read Console data.
-const shellRoutes = new Set(["client.get.ts", "page.get.ts", "schedule-run.ts", "sign-in.ts"])
+const shellRoutes = new Set(["client.get.ts", "mcp-authorization-server.ts", "mcp-discovery.ts", "mcp-metadata.ts", "page.get.ts", "schedule-run.ts", "sign-in.ts", "page-session.ts"])
 
 function event(headers: Record<string, string> = {}): ConsoleRequestEvent {
   return { method: "GET", req: new Request("http://vitehub.local/api/_vitehub/console/data", { headers }) }
@@ -62,7 +62,7 @@ afterEach(() => {
 })
 
 describe("Console data route contract", () => {
-  it("guards every Console server route with withConsoleAccess()", async () => {
+  it("guards every Console data route with withConsoleAccess()", async () => {
     const files = (await readdir(serverRoot)).filter(file => file.endsWith(".ts")).sort()
     const routes: string[] = []
     for (const file of files) {
@@ -487,15 +487,16 @@ describe("generated Console access", () => {
     expect(plugin).toContain('"authorize":true,"index":2,"method":"GET","route":"/api/_vitehub/console/**"')
     expect(plugin).toContain('import { createConsoleAppAuthAccess as vitehubCreateConsoleAppAuthAccess, createConsoleAppAuthPages as vitehubCreateConsoleAppAuthPages } from "vite-hub/console/auth"')
     expect(plugin).toContain('const vitehubConsoleAppAccess = vitehubCreateConsoleAppAuthAccess({ routes: [{"authorize":true,"index":1,"route":"/_vitehub/**"},{"authorize":true,"index":2,"method":"GET","route":"/api/_vitehub/console/**"}], getAuthForRequest: vitehubGetAuthForRequest, requireAuthAccessRoutes: vitehubRequireAuthAccessRoutes, requireSession: vitehubWithAuthorization(true, () => undefined) })')
-    expect(plugin).toContain('installConsoleAccess({ mode: "auth", check: vitehubConsoleAppAccess.check, user: vitehubConsoleAppAccess.user, signIn: vitehubConsoleAppPages.signIn, authBasePath: vitehubConsoleAppPages.authBasePath, signInPage: "/_vitehub/sign-in" })')
+    expect(plugin).toContain('installConsoleAccess({ mode: "auth", check: vitehubConsoleAppAccess.check, user: vitehubConsoleAppAccess.user, signIn: vitehubConsoleAppPages.signIn, authBasePath: vitehubConsoleAppPages.authBasePath, oauth: { ...{"path":"/_vitehub/mcp"}, auth: (request, event) => vitehubGetAuthForRequest(request, undefined, event) }, signInPage: "/_vitehub/sign-in" })')
   })
 
-  it("installs the sign-in page of app Auth in the generated plugin", async () => {
+  it.each(["/", "/portal/"])("installs the app Auth sign-in page and MCP OAuth below %s", async (base) => {
+    const mount = base.replace(/\/$/, "")
     const plugin = await generatedPlugin({
       console: { auth: "app", signInPage: "/sign-in" },
-      resolveAuthConfig: () => appAuth([{ authorize: true, route: "/_vitehub/**" }, { authorize: true, method: "GET", route: "/api/_vitehub/console/**" }]),
-    }, "build")
-    expect(plugin).toContain('installConsoleAccess({ mode: "auth", check: vitehubConsoleAppAccess.check, user: vitehubConsoleAppAccess.user, signIn: vitehubConsoleAppPages.signIn, authBasePath: vitehubConsoleAppPages.authBasePath, signInPage: "/sign-in" })')
+      resolveAuthConfig: () => appAuth([{ authorize: true, route: `${mount}/_vitehub/**` }, { authorize: true, method: "GET", route: `${mount}/api/_vitehub/console/**` }]),
+    }, "build", { base })
+    expect(plugin).toContain(`installConsoleAccess({ mode: "auth", check: vitehubConsoleAppAccess.check, user: vitehubConsoleAppAccess.user, signIn: vitehubConsoleAppPages.signIn, authBasePath: vitehubConsoleAppPages.authBasePath, oauth: { ...{"path":"${mount}/_vitehub/mcp"}, auth: (request, event) => vitehubGetAuthForRequest(request, undefined, event) }, signInPage: "/sign-in" })`)
   })
 
   it.each(["/", "/portal/"])("registers the page sign-in middleware before app Auth below %s", async (base) => {
@@ -506,11 +507,12 @@ describe("generated Console access", () => {
       console: { auth: "app", signInPage: "/sign-in" },
       resolveAuthConfig: () => appAuth([{ authorize: true, route: `${mount}/_vitehub/**` }, { authorize: true, route: `${mount}/api/_vitehub/console/**` }]),
     }, "build", config)
-    expect(config.nitro.handlers.slice(0, 2)).toEqual([
+    expect(config.nitro.handlers.slice(0, 3)).toEqual([
+      { handler: expect.stringMatching(/server\/mcp-discovery\.js$/), middleware: true, route: "/**" },
       { handler: expect.stringMatching(/server\/sign-in\.js$/), middleware: true, route: `${mount}/_vitehub/**` },
       { handler: expect.stringMatching(/server\/sign-in\.js$/), middleware: true, route: `${mount}/_vitehub` },
     ])
-    expect(config.nitro.handlers[2]).toEqual(appHandler)
+    expect(config.nitro.handlers[3]).toEqual(appHandler)
   })
 
   it.each([undefined, "/portal/"])("accepts exact GET rules for the registered Console API endpoints with base %s", async (base) => {
@@ -666,7 +668,7 @@ describe("Console sign-in page", () => {
       expect(resolveConsoleAccessBuild({ auth: "app", signInPage: "/sign-in" }, { root })).toEqual({ mode: "auth", signInPage: "/sign-in" })
       expect(resolveConsoleAccessBuild({ auth: false, signInPage: "/sign-in" }, { root })).toEqual({ mode: "open", signInPage: "/sign-in" })
       const handlers = { auth: true as const, middleware: join(root, "middleware.mjs") }
-      expect(resolveConsoleAccessBuild({ auth: {} }, { handlers, root })).toMatchObject({ mode: "auth", signInPage: "/_vitehub/sign-in" })
+      expect(resolveConsoleAccessBuild({ auth: {} }, { base: "/portal/", handlers, root })).toMatchObject({ mode: "auth", oauth: { path: "/portal/_vitehub/mcp" }, signInPage: "/_vitehub/sign-in" })
       expect(resolveConsoleAccessBuild({ auth: { provider: "cloudflare-access" } }, { handlers: { ...handlers, auth: "cloudflare-access" }, root }))
         .not.toHaveProperty("signInPage")
     }

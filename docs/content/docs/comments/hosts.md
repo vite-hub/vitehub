@@ -99,12 +99,12 @@ The presence rooms connect through Realtime, which checks the WebSocket origin i
 
 ## Caching
 
-Pages in comment mode go out with `cache-control: private, no-store`. Other pages keep the headers your app sets. A CDN that caches HTML by URL can serve a cached page to a browser with the `vitehub-comments` cookie, and that page has no overlay. Bypass the cache for requests with the cookie, or open pages with `?comments`.
+Pages with the page tools loader go out with `cache-control: private, no-store`. Other pages keep the headers your app sets. A CDN that caches HTML by URL can serve a cached page to a browser with the `vitehub-tools` cookie, and that page has no loader. Bypass the cache for requests with the cookie, or open pages with `?vitehub`.
 
 ## Content Security Policy
 
-The overlay is one script from the same origin, `/api/_vitehub/comments/assets/overlay.js`. When the page's `Content-Security-Policy` header has a script nonce, as with `'strict-dynamic'` in nuxt-security, the server gives the overlay script that nonce. The overlay adds its styles inside its shadow root, so `style-src` must allow inline styles. Presence uses a WebSocket to the same origin, so `connect-src`, when you set it, needs `'self'`.
+The page gets one script from the same origin, the page tools loader at `/_vitehub/page/assets/loader.js`. The loader imports the overlay from `/api/_vitehub/comments/assets/overlay.js`. With a base path, such as Vite `base: '/docs/'`, both paths start with `/docs`. When the page's `Content-Security-Policy` header has a script nonce, as with `'strict-dynamic'` in nuxt-security, the server gives the loader script that nonce, and `'strict-dynamic'` trusts the overlay that it imports. The overlay adds its styles inside its shadow root, so `style-src` must allow inline styles. Presence uses a WebSocket to the same origin, so `connect-src`, when you set it, needs `'self'`.
 
 ## Inspect the build
 
-`vitehub inspect` lists the Comments route `/api/_vitehub/comments/**`, the presence state, and the comment mode hint. The presence line reads `off: the host has no Realtime authority` when the build has none. The Database inspector lists the two Comments tables as contributed tables.
+`vitehub inspect` lists the Comments route `/api/_vitehub/comments/**`, the presence state, and the page tool hint. The presence line reads `off: the host has no Realtime authority` when the build has none. The Database inspector lists the two Comments tables as contributed tables.

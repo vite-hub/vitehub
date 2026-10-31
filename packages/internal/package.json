@@ -200,6 +200,24 @@
       "require": "./dist/runtime/mcp-tools.js",
       "default": "./dist/runtime/mcp-tools.js"
     },
+    "./runtime/page-tools": {
+      "types": "./dist/runtime/page-tools.d.ts",
+      "import": "./dist/runtime/page-tools.js",
+      "require": "./dist/runtime/page-tools.js",
+      "default": "./dist/runtime/page-tools.js"
+    },
+    "./runtime/page-tools-loader": {
+      "types": "./dist/runtime/page-tools-loader.d.ts",
+      "import": "./dist/runtime/page-tools-loader.js",
+      "require": "./dist/runtime/page-tools-loader.js",
+      "default": "./dist/runtime/page-tools-loader.js"
+    },
+    "./runtime/page-tools-shared": {
+      "types": "./dist/runtime/page-tools-shared.d.ts",
+      "import": "./dist/runtime/page-tools-shared.js",
+      "require": "./dist/runtime/page-tools-shared.js",
+      "default": "./dist/runtime/page-tools-shared.js"
+    },
     "./runtime/request-origin": {
       "types": "./dist/runtime/request-origin.d.ts",
       "import": "./dist/runtime/request-origin.js",
@@ -265,6 +283,12 @@
       "import": "./dist/build/mode.js",
       "require": "./dist/build/mode.js",
       "default": "./dist/build/mode.js"
+    },
+    "./build/page-tools": {
+      "types": "./dist/build/page-tools.d.ts",
+      "import": "./dist/build/page-tools.js",
+      "require": "./dist/build/page-tools.js",
+      "default": "./dist/build/page-tools.js"
     },
     "./build/paths": {
       "types": "./dist/build/paths.d.ts",
@@ -378,7 +402,7 @@
   "scripts": {
     "build": "vp pack",
     "test": "vp run -t @vite-hub/internal#build && vp run -t @vite-hub/markdown-template#build && vp test --exclude test/vite-e2e-output.test.ts && vp test test/vite-e2e-output.test.ts && vp test --config vitest.workerd.config.ts",
-    "typecheck": "vp run --cache -t @vite-hub/internal#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json"
+    "typecheck": "vp run --cache -t @vite-hub/internal#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.browser.json"
   },
   "dependencies": {
     "@standard-schema/spec": "catalog:runtime",
@@ -396,6 +420,7 @@
     "@types/semver": "^7.8.0",
     "@valibot/to-json-schema": "catalog:runtime",
     "exsolve": "catalog:unjs",
+    "happy-dom": "21.0.3",
     "nitro": "catalog:unjs",
     "sharp": "0.35.5",
     "typescript": "catalog:tooling",

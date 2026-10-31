@@ -7,7 +7,7 @@ export const commentsPageScope = "pages"
 
 export const commentsRealtimeDefinition = "comments"
 
-/** The route prefix of the Comments API. */
+/** The route prefix of the Comments API, below the app base. */
 export const commentsRoute = "/api/_vitehub/comments"
 
 /** Mount Comments under the application path, ignoring Vite asset URLs such as a CDN origin. */
@@ -21,12 +21,6 @@ export function commentsApiRoute(overlayURL: string): string {
   const index = path.lastIndexOf(`${commentsRoute}/assets/`)
   return index === -1 ? commentsRoute : `${path.slice(0, index)}${commentsRoute}`
 }
-
-/** The cookie that asks the server to add the overlay to HTML pages. It is a hint, never a credential. */
-export const commentsHintCookie = "vitehub-comments"
-
-/** The query parameter that turns comment mode on for a page. */
-export const commentsHintQuery = "comments"
 
 /**
  * The key of a page: its pathname without query or hash, and without a trailing slash except for `/`. Threads and

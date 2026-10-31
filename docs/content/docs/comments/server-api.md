@@ -228,7 +228,7 @@ The overlay calls the Comments API at `/api/_vitehub/comments`. Each answer is J
 
 | Route | Needs | Does |
 | --- | --- | --- |
-| `GET /session` | None | Returns `{ user, can: { read, comment, resolve }, realtime, content }`, plus `signIn: { provider, url }` for a person who can sign in with GitHub, and `github` with `signOut` for a person signed in with GitHub. Sets the `vitehub-comments` cookie when `read` is allowed or a sign-in is offered, and clears it when not. |
+| `GET /session` | None | Returns `{ user, can: { read, comment, resolve }, realtime, content }`, plus `signIn: { provider, url }` for a person who can sign in with GitHub, and `github` with `signOut` for a person signed in with GitHub. It sets no cookie: `GET /_vitehub/page/session` owns the `vitehub-tools` hint. |
 | `GET /threads?page=&status=` | `read` | Lists threads, as `list()` does. |
 | `POST /threads` | `comment` | Starts a thread from `{ page, anchor, context?, body, mentions? }`. |
 | `POST /threads/:id/comments` | `comment` | Replies with `{ body, mentions? }`. |
@@ -282,4 +282,4 @@ The server sets each person in the room from `identify` or the Auth session, and
 
 ## Generated output
 
-When the app has `server/comments.ts`, or uses `comments()`, the integration writes `.vitehub/nitro/comments/handler.mjs` and `.vitehub/nitro/comments/plugin.mjs`. Without `server/comments.ts`, `comments()` also writes `definition.mjs`, which exports `defineComments()` with no options. The handler serves `/api/_vitehub/comments/**`. The plugin installs Comments with its Database when the server starts, and adds the overlay to pages in comment mode. With a room authority, Realtime also gets `comments.mjs`, the presence room definition. Treat these files as build output, not application imports.
+When the app has `server/comments.ts`, or uses `comments()`, the integration writes `.vitehub/nitro/comments/handler.mjs`, `.vitehub/nitro/comments/plugin.mjs`, and `.vitehub/nitro/comments/page-session.mjs`. Without `server/comments.ts`, `comments()` also writes `definition.mjs`, which exports `defineComments()` with no options. The handler serves `/api/_vitehub/comments/**`. The plugin installs Comments with its Database when the server starts, and registers the overlay as the `comments` page tool, including its sign-in prompt. `page-session.mjs` serves `GET /_vitehub/page/session`, and the package serves the page tools loader at `/_vitehub/page/assets/loader.js`. These routes work without the Console. A root-relative Vite `base` or Nuxt `app.baseURL` prefixes these paths. Absolute and protocol-relative Vite asset URLs leave them at root unless an explicit ViteHub application base is set. With a room authority, Realtime also gets `comments.mjs`, the presence room definition. Treat these files as build output, not application imports.

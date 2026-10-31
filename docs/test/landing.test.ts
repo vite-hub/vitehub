@@ -23,31 +23,33 @@ const landingFiles = [
 ];
 
 describe("landing page", () => {
-  it("tells one Agent story where each step highlights its own field", () => {
+  it("annotates each Agent field on its own line", () => {
     const code = agentStory.code.join("\n");
 
     expect(agentStory.tutorialPath).toBe("/docs/getting-started/first-agent");
     expect(code).toContain("vite-hub/agent");
     expect(code).not.toContain("@vite-hub/");
-    expect(agentStory.steps.map((step) => step.id)).toEqual([
-      "channel",
+    expect(agentStory.notes.map((note) => note.id)).toEqual([
+      "channels",
       "driver",
       "workspace",
       "capabilities",
     ]);
 
-    const fields = {
-      channel: "channels:",
-      driver: "driver:",
-      workspace: "workspace:",
-      capabilities: "capabilities:",
-    } as const;
-    for (const step of agentStory.steps) {
-      const lines = step.lines.map((line) => agentStory.code[line]);
-      expect(lines.every((line) => line !== undefined)).toBe(true);
-      expect(lines.some((line) => line?.trimStart().startsWith(fields[step.id]))).toBe(true);
-      expect(step.to).toMatch(/^\/docs\//);
-      expect(step.description.length).toBeLessThan(80);
+    const files = [
+      { code: agentStory.code, notes: agentStory.notes },
+      { code: agentStory.route.code, notes: agentStory.route.notes },
+    ];
+    for (const file of files) {
+      for (const note of file.notes) {
+        // The note sits on the line that names its field, and that line is one of the lines it lights.
+        expect(file.code[note.line]).toContain(note.id);
+        expect((note.lines as readonly number[]).includes(note.line)).toBe(true);
+        expect(note.lines.every((line) => file.code[line] !== undefined)).toBe(true);
+        expect(note.to).toMatch(/^\/docs\//);
+        // Notes fit on one row beside the code.
+        expect(note.text.length).toBeLessThanOrEqual(56);
+      }
     }
   });
 

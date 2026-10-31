@@ -130,7 +130,7 @@ describe("Comments API", () => {
       const { call } = await setup({ consoleSession: session, options: { identify: customIdentity ? identify : undefined, authorize } })
       const current = await call("/session")
       expect(current.body.data).toMatchObject({ user: null, can: { read: false, comment: false, resolve: false } })
-      expect(current.response.headers.get("set-cookie")).toContain("Max-Age=0")
+      expect(current.response.headers.get("set-cookie")).toBeNull()
       expect((await call("/threads?page=/")).response.status).toBe(403)
       expect((await call("/threads", {
         method: "POST",
@@ -174,7 +174,7 @@ describe("Comments API", () => {
     const [, thread] = await comments.create({ page: "/", anchor, body: "Private", author: { id: "ada", name: "Ada" } })
     const current = await call("/session")
     expect(current.body.data.can).toEqual({ read: false, comment: false, resolve: false })
-    expect(current.response.headers.get("set-cookie")).toContain("Max-Age=0")
+    expect(current.response.headers.get("set-cookie")).toBeNull()
     for (const [path, init] of [
       ["/threads?page=/", {}],
       ["/threads", { method: "POST", json: { page: "/", anchor, body: "Denied" } }],
@@ -185,11 +185,12 @@ describe("Comments API", () => {
     }
   })
 
-  it("answers the session with access, and sets the comment mode hint", async () => {
+  it("answers the session with the user and access, without a cookie", async () => {
     const { call } = await setup()
     const { response, body } = await call("/session")
     expect(body.data).toEqual({ user: { id: "ada", name: "Ada" }, can: { read: true, comment: true, resolve: true }, realtime: true, content: false })
-    expect(response.headers.get("set-cookie")).toContain("vitehub-comments=1")
+    expect(response.headers.get("set-cookie")).toBeNull()
+    expect(response.headers.get("cache-control")).toBe("private, no-store")
   })
 
   it("runs with the Cloudflare bindings of the request, as Nitro's workerd dev server passes them", async () => {
@@ -202,11 +203,11 @@ describe("Comments API", () => {
     expect(body.data.user).toEqual({ id: "ada", name: "Ada" })
   })
 
-  it("clears the hint and denies threads to an anonymous user by default", async () => {
+  it("denies threads to an anonymous user by default", async () => {
     const { call } = await setup({ user: null })
     const session = await call("/session")
     expect(session.body.data.can.read).toBe(false)
-    expect(session.response.headers.get("set-cookie")).toContain("Max-Age=0")
+    expect(session.response.headers.get("set-cookie")).toBeNull()
     const threads = await call("/threads?page=/")
     expect(threads.response.status).toBe(403)
     expect(threads.body.error?.code).toBe("COMMENTS_FORBIDDEN")

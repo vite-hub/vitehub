@@ -134,7 +134,7 @@ See [Console sign-in](/docs/development/console) for `console-authorize.ts`. To 
 
 A `comments:read` grant allows reading threads and joining page presence. Creating, replying, resolving, reopening, deleting, and editing Content fields require the full `comments` grant as well as the Comments policy.
 
-When a person opens the Console, it calls `GET /api/_vitehub/comments/session`. That sets the comment mode cookie, so the app's pages show the Comments toolbar from then on. Nobody else gets the cookie, so their pages have no Comments script.
+When a person opens the Console, it calls `GET /_vitehub/page/session`. That sets the `vitehub-tools` cookie when the person may read comments, so the app's pages show the Comments toolbar from then on. Nobody else gets the cookie, so their pages have no Comments script.
 
 | Console sign-in | Comment author |
 | --- | --- |
@@ -356,7 +356,7 @@ export const comments = defineComments({
         from: 'comments@example.com',
         to: person.email,
         subject: `${comment.author.name} mentioned you on ${thread.page}`,
-        text: `${comment.body}\n\nhttps://example.com${thread.page}?comments#comment-${thread.id}`,
+        text: `${comment.body}\n\nhttps://example.com${thread.page}?vitehub=comments#comment-${thread.id}`,
       })
       if (error) console.error(error.why)
     }
@@ -364,15 +364,15 @@ export const comments = defineComments({
 })
 ```
 
-The link `<page>?comments#comment-<thread id>` opens the page in comment mode with the thread open.
+The link `<page>?vitehub=comments#comment-<thread id>` opens the page in comment mode with the thread open.
 
 The API waits for `onComment` before it answers the browser. Keep it short, or send the work to a [Queue](/docs/queue). Comments logs an error that `onComment` throws and still returns the saved comment.
 
 ## Turn comment mode on and off
 
-Comment mode starts when a person opens the [Console](#comment-as-the-console-team), or on any page with the `?comments` query, such as `https://example.com/pricing?comments`. The overlay asks the server for the session. When `authorize` allows `read`, the server sets the `vitehub-comments` cookie for 30 days, so every other page of the site opens in comment mode too. When it denies `read`, the server clears the cookie. The cookie is only a hint. Every API request checks access again.
+Comments is a ViteHub page tool. Comment mode starts when a person opens the [Console](#comment-as-the-console-team), or on any page with the `?vitehub` query, such as `https://example.com/pricing?vitehub`. `?vitehub=comments` does the same. The page then loads the page tools loader, which calls `GET /_vitehub/page/session`. That route runs the visitor check of each page tool. Comments allows the overlay when `authorize` allows `read`, or when it can offer GitHub sign-in or account switching. The sign-in prompt grants no access to threads. The route then sets the `vitehub-tools` cookie for 30 days, so every other page of the site opens in comment mode too. When no tool allows the person, the route clears the cookie and the loader stops. The cookie is only a hint. Every API request checks access again.
 
-The close button in the toolbar ends comment mode. It clears the cookie and removes the query.
+The Comments toolbar is one segment of the ViteHub tools pill at the bottom of the page. When the app has the Console, the pill also shows a **Console** link for people that the Console lets in. The **×** button of the pill, **Turn off ViteHub tools**, ends comment mode. It turns all page tools off: it clears the cookie, removes the query, and removes the pill.
 
 | Key | Action |
 | --- | --- |
@@ -381,30 +381,35 @@ The close button in the toolbar ends comment mode. It clears the cookie and remo
 | <kbd>Esc</kbd> | Close the open thread, or turn **Comment** and **Edit** off. |
 | <kbd>⌘</kbd> <kbd>Enter</kbd> | Send the comment. |
 
-Without the hint, the server returns each page unchanged: no script, no request, and no extra cache variant. With the hint, it adds one `<script type="module">` before `</body>` of HTML responses and sends them with `cache-control: private, no-store`. Paths under `/_vitehub` and `/api` never get the overlay.
+Without the hint, the server returns each page unchanged: no script, no request, and no extra cache variant. With the hint, it adds one loader script, `<script type="module" src="/_vitehub/page/assets/loader.js?v=8">`, before `</body>` of HTML responses and sends them with `cache-control: private, no-store`. The loader imports the overlay only for people that the session route allows. With an application base such as `/portal/`, the loader and session URLs start with `/portal/_vitehub/page/`. Paths under `/_vitehub` and `/api` within that application never get the loader.
 
 - Nitro 3 apps get the script from the server response. Nuxt 4 apps get it through Nitro's `render:html` hook, and also when a route returns the page as a `Response`.
-- A single-page app whose `index.html` Vite builds gets a short inline check instead. The check loads the overlay in the browser when it finds the query or the cookie.
-- A page that a CDN serves from its cache or as a static file never reaches the server, so it does not get the overlay. Use the query on a page that the server renders, or serve the prerendered files through a route.
+- A single-page app whose `index.html` Vite serves or builds gets a short inline check instead. The check loads the page tools loader in the browser when it finds the query or the cookie. It is in the built `index.html`, so it also works when a host serves that file as a static file. The server does not add a second loader to a page that has the check.
+- Other pages that a CDN serves from its cache or as static files never reach the server, so they do not get the loader. Use the query on a page that the server renders, or serve the prerendered files through a route.
+
+### Apps below a base path
+
+When the app has a Vite `base`, such as `base: '/docs/'`, or a Nuxt `app.baseURL`, Comments and the page tools follow it. The session route is `/docs/_vitehub/page/session`, the loader is `/docs/_vitehub/page/assets/loader.js`, and the Comments API is `/docs/api/_vitehub/comments`. The loader and the overlay find the base from their own URL, so you do not configure it twice. Paths under `/docs/_vitehub` and `/docs/api` never get the loader.
+
+ViteHub registers these routes below the part of the base that Nitro does not add. When you also set Nitro `baseURL` to the same path, as Nuxt does for `app.baseURL`, Nitro adds the base and ViteHub adds nothing. A base that you set with `NUXT_APP_BASE_URL` when the server starts also works on Nuxt 4: the loader tag takes the base of each request.
 
 A prerendered site can keep its files and still show the overlay. Run the server first, and return the file from a route. In a Nuxt 4 app on Cloudflare, set `assets.run_worker_first` in `wrangler.jsonc` and read the file from the assets binding:
 
 ```ts [server/middleware/pages.ts]
 import { defineEventHandler } from 'h3'
-import { wantsCommentMode } from 'vite-hub/comments/runtime'
 
 export default defineEventHandler(async (event) => {
   const { request, env } = event.context.cloudflare
   if (request.method !== 'GET') return
   let assetRequest = request
-  if (wantsCommentMode(request)) {
+  if (new URL(request.url).searchParams.has('vitehub') || /(?:^|;\s*)vitehub-tools=1(?:;|$)/.test(request.headers.get('cookie') || '')) {
     const headers = new Headers(request.headers)
     headers.delete('if-none-match')
     headers.delete('if-modified-since')
     assetRequest = new Request(request, { headers })
   }
   const file = await env.ASSETS.fetch(assetRequest)
-  // The overlay goes into this response for people in comment mode. Everyone else gets the file unchanged.
+  // The page tools loader goes into this response for people with the hint. Everyone else gets the file unchanged.
   if (file.status !== 404) return file
 })
 ```
@@ -517,7 +522,7 @@ App mentions and thread numbers stay plain text on GitHub: `@ada` does not notif
 
 ## Triage in the Console
 
-The Console has a Comments section at `/_vitehub/comments`. It lists the 500 threads with the newest activity, open threads first: first comment, page, author, replies, status, and last activity. Select a thread to read its comments in order, with the page context under them. **Open on page** opens its `?comments#comment-<id>` link in a new tab. Reply and resolve on the page, where the context is.
+The Console has a Comments section at `/_vitehub/comments`. It lists the 500 threads with the newest activity, open threads first: first comment, page, author, replies, status, and last activity. Select a thread to read its comments in order, with the page context under them. **Open on page** opens its `?vitehub=comments#comment-<id>` link in a new tab. Reply and resolve on the page, where the context is.
 
 `vitehub inspect` lists the Comments route, the `comments` Realtime Definition when presence runs, and the tables in the Database.
 

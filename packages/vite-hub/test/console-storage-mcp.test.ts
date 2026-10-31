@@ -124,7 +124,9 @@ describe("storage MCP operation adapters", () => {
       if (!(response instanceof Response)) throw new TypeError("Expected a Response")
       return Object(await response.json())
     }
-    expect((await rpc("tools/list")).result.tools.map((entry: { name: string }) => entry.name)).toEqual(["kv_list_keys"])
+    const names: string[] = (await rpc("tools/list")).result.tools.map((entry: { name: string }) => entry.name)
+    expect(names).toContain("kv_list_keys")
+    expect(names).not.toContain("blob_list_objects")
     expect((await rpc("tools/call", { name: "kv_list_keys" })).result.structuredContent.keys).toEqual(["a", "b", "c"])
     expect((await rpc("tools/call", { name: "blob_list_objects" })).error.code).toBe(-32602)
     expect((await rpc("tools/call", { name: "kv_list_keys", arguments: { limit: 501 } })).error.code).toBe(-32602)

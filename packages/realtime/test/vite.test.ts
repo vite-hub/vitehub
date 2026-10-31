@@ -1,9 +1,10 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it } from "vitest"
+import { realtimeDurableObjectKey } from "../src/durable-key.ts"
 
 const tempDirs: string[] = []
 
@@ -12,6 +13,24 @@ afterEach(async () => {
 })
 
 describe("hubRealtime", () => {
+  it.each([
+    { base: "/", nitro: {}, route: "/api/_vitehub/realtime/**" },
+    { base: "/portal/", nitro: {}, route: "/portal/api/_vitehub/realtime/**" },
+    { base: "/portal/", nitro: { baseURL: "/portal/" }, route: "/api/_vitehub/realtime/**" },
+    { base: "/nested/portal/", nitro: { baseURL: "/nested/" }, route: "/portal/api/_vitehub/realtime/**" },
+    { base: "/assets/", define: { __VITEHUB_APP_BASE_URL__: JSON.stringify("/portal/") }, nitro: { baseURL: "/portal/" }, route: "/api/_vitehub/realtime/**" },
+  ])("mounts Realtime for $base with Nitro $nitro", async ({ base, define, nitro, route }) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
+    tempDirs.push(root)
+    await mkdir(join(root, "server/realtime"), { recursive: true })
+    await writeFile(join(root, "server/realtime/comments.ts"), "export default {}\n")
+    const { hubRealtime } = await import("../src/vite.ts")
+    const config = { root, base, define, nitro }
+    const hook = hubRealtime({ authority: "memory" }).config as unknown as (config: Record<string, unknown>) => Promise<void>
+    await hook(config)
+    expect(config.nitro).toMatchObject({ handlers: [expect.objectContaining({ route })] })
+  })
+
   it("bundles the public Vue entry without server Node modules", async () => {
     const { build } = await import("vite")
     const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-browser-"))
@@ -66,6 +85,8 @@ describe("hubRealtime", () => {
 
     expect(config.nitro).toMatchObject({
       preset: "cloudflare-durable",
+      // Loaded on the first Realtime request, so the server (Tiptap, ProseMirror, Yjs) stays out of the Worker's start.
+      handlers: [expect.objectContaining({ lazy: true, route: "/wiki/api/_vitehub/realtime/**" })],
       cloudflare: {
         wrangler: {
           durable_objects: {
@@ -82,8 +103,17 @@ describe("hubRealtime", () => {
     const plugins = (config.nitro as { plugins?: string[] }).plugins ?? []
     const durable = plugins.find(file => file.endsWith("durable-object.mjs"))
     expect(durable).toBeDefined()
+    // The plugin loads with the Worker: it must not import the Realtime server, only fill the slot the server reads.
     const { readFile } = await import("node:fs/promises")
-    await expect(readFile(durable!, "utf8")).resolves.toContain(`hook("cloudflare:durable:init", (_durable, { state, env }) => registerRealtimeDurableObject(state, env))`)
+    await expect(readFile(durable!, "utf8")).resolves.not.toContain("import ")
+    const hooks: Array<(durable: unknown, context: { state: unknown, env: unknown }) => void> = []
+    const { default: install } = await import(pathToFileURL(durable!).href) as { default: (nitroApp: unknown) => void }
+    install({ hooks: { hook: (name: string, fn: (typeof hooks)[number]) => name === "cloudflare:durable:init" && hooks.push(fn) } })
+    const state = { storage: {} }
+    const env = { DB: {} }
+    for (const fn of hooks) fn({}, { state, env })
+    expect(Reflect.get(globalThis, Symbol.for(realtimeDurableObjectKey))).toEqual({ env, state })
+    Reflect.deleteProperty(globalThis, Symbol.for(realtimeDurableObjectKey))
   })
 
   it("loads the Yjs packages as one module graph in the Nitro environment", async () => {

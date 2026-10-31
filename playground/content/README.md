@@ -32,7 +32,7 @@ focal points, and crops; admins and editors also move and delete them, since the
 
 The public page at `/` lists published posts. It has no edit button: editors go to `/_vitehub/content`.
 
-`server/comments.ts` turns on Comments. Sign in, then open `/?comments` (or the "Comment on this site" link). Press `C`
+`server/comments.ts` turns on Comments. Sign in, then open `/?vitehub` (or the "Comment on this site" link). Press `C`
 and click the page to pin a comment; open the same page as a second user in another browser profile to see their
 pins, avatar, and cursor live. Press `E` and click the site title or a post title, which carry `contentField()`
 attributes, to edit the text in place: the edit saves a draft that `/_vitehub/content` shows and publishes. Writers

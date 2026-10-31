@@ -40,7 +40,9 @@ describe("Comments storage in Nitro's Vite configuration lifecycle", () => {
       expect(instance.options.plugins).toContain(file)
       const source = await readFile(file, "utf8")
       expect(source).toContain(`development: ${development}`)
-      expect(source).toContain("/portal/api/_vitehub/comments/assets/overlay.js")
+      expect(source).toContain('overlay: "/api/_vitehub/comments/assets/overlay.js?v=3", base: "/portal"')
+      expect(instance.options.handlers).toContainEqual({ route: "/portal/_vitehub/page/session", handler: join(root, ".vitehub/nitro/comments/page-session.mjs") })
+      expect(source).toContain("session: githubLogin.user, githubLogin,")
       expect(source).toContain(`from "@vite-hub/comments/runtime/connect${node ? "/node" : ""}"`)
       expect(source).toContain(development && node
         ? `connectDatabase(${JSON.stringify(`file:${join(root, ".vitehub/data/comments.sqlite")}`)}`

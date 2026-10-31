@@ -10,6 +10,9 @@ const isLanding = computed(() => isDocsLandingPath(docsManifest.sections, route.
 const isSiteArea = computed(() => isDocsSiteArea(route.path));
 // A tutorial with a code panel uses the whole page column, half for prose and half for files.
 const hasCodePanel = computed(() => getDocsPageByPath(normalizeDocsPath(route.path))?.codePanel === true);
+const tutorialNavigation = useTutorialNavigation();
+// Other docs pages always show the navigation. A tutorial shows it only when the reader opens it.
+const showsNavigation = computed(() => !hasCodePanel.value || tutorialNavigation.value);
 
 // The sidebar sits on the left edge of the viewport on every docs page. The page content centers in the remaining space.
 const docsShellUi = {
@@ -21,16 +24,31 @@ const docsShellUi = {
 
 <template>
   <!-- There is no site footer. On wide screens there is no site header either: the sidebar carries the brand and the links. -->
-  <UMain class="vh-docs-shell">
+  <UMain class="vh-docs-shell" :class="{ 'is-tutorial': hasCodePanel }">
     <UPage :ui="docsShellUi">
-      <template #left>
+      <template v-if="showsNavigation" #left>
         <UPageAside class="vh-docs-aside hidden lg:flex">
           <DocsSidebars class="vh-docs-aside-sidebars" panel />
         </UPageAside>
       </template>
 
       <!-- The banner spans the page column, so its border meets the sidebar and the right edge. -->
-      <AnnouncementBanner />
+      <div class="relative">
+        <!-- Narrow screens open the navigation from the header menu and keep the code inline, so the button shows only on wide screens. -->
+        <UTooltip v-if="hasCodePanel" :text="tutorialNavigation ? 'Hide navigation' : 'Show navigation'" :content="{ side: 'bottom', sideOffset: 6 }" :delay-duration="150">
+          <button
+            type="button"
+            class="vh-tutorial-toggle"
+            :class="{ 'beside-navigation': showsNavigation }"
+            :aria-label="tutorialNavigation ? 'Hide navigation' : 'Show navigation'"
+            :aria-pressed="tutorialNavigation"
+            @click="tutorialNavigation = !tutorialNavigation"
+          >
+            <UIcon name="i-lucide-panel-left" class="size-4" />
+          </button>
+        </UTooltip>
+        <AnnouncementBanner />
+      </div>
       <slot v-if="isSiteArea" />
       <div v-else :class="isLanding ? 'vh-docs-landing' : hasCodePanel ? 'vh-docs-split' : 'vh-docs-main'">
         <slot />
@@ -71,7 +89,59 @@ const docsShellUi = {
   }
 }
 
+.vh-tutorial-toggle {
+  display: none;
+}
+
 @media (min-width: 64rem) {
+  /* The button stays in the top left corner of the page column while the tutorial scrolls. At the top it is the first cell of the banner row. */
+  .vh-tutorial-toggle {
+    position: fixed;
+    z-index: 10;
+    top: 0;
+    left: 0;
+    display: flex;
+    width: 2.5rem;
+    height: 2.5rem;
+    align-items: center;
+    justify-content: center;
+    border-right: 1px solid var(--ui-border);
+    border-bottom: 1px solid var(--ui-border);
+    background: var(--ui-bg);
+    color: var(--ui-text-dimmed);
+    transition: color 150ms ease, background-color 150ms ease;
+  }
+
+  .vh-tutorial-toggle.beside-navigation {
+    left: var(--vh-sidebar-width);
+  }
+
+  .vh-tutorial-toggle[aria-pressed="true"] {
+    background: var(--ui-bg-elevated);
+    color: var(--ui-text-highlighted);
+  }
+
+  .vh-tutorial-toggle:hover {
+    color: var(--ui-text-highlighted);
+  }
+
+  .vh-tutorial-toggle:focus-visible {
+    outline: 2px solid var(--ui-primary);
+    outline-offset: -2px;
+  }
+
+  /* With the article padding, the prose starts just clear of the pinned button. */
+  .vh-docs-split {
+    padding-left: 1.25rem;
+  }
+
+  /* Beside a tutorial the navigation is a short page list, so its panel is narrower and the prose and code keep the width. */
+  /* The sum is set again here, because a custom property resolves its calc() where it is declared. */
+  .vh-docs-shell.is-tutorial {
+    --vh-panel-width: 12rem;
+    --vh-sidebar-width: calc(var(--vh-rail-width) + var(--vh-panel-width));
+  }
+
   /* AppHeader hides itself on wide docs pages. Sticky offsets and full-height columns read this variable. */
   .vh-docs-shell {
     --ui-header-height: 0px;
@@ -114,4 +184,5 @@ const docsShellUi = {
     border-right: 0;
   }
 }
+
 </style>

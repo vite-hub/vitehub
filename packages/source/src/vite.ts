@@ -239,7 +239,9 @@ export function mergeGeneratedSourceNitroConfig(
     if (duplicate) {
       throw sourceErrorDiagnostics.SOURCE_B0002({ message: `[vitehub] Generated ${generatedRouteOwner(handler)} route ${JSON.stringify(handler.route)} conflicts with an existing ${generatedRouteDescription(handler)}. Remove the matching server route.` })
     }
-    kit.addHandler(handler)
+    // Content routes import the Markdown parser and the Sources. Loaded on their first request, they stay out of the
+    // server's start.
+    kit.addHandler({ ...handler, lazy: true })
   }
 
   const modules = Array.isArray(nitro.modules) ? [...nitro.modules] : []

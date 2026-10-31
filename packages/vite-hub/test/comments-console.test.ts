@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { defineComments } from "@vite-hub/comments"
-import { createCommentsHandler } from "@vite-hub/comments/runtime"
+import { createCommentsHandler, defineCommentsPlugin, viteHubPageSessionHandler } from "@vite-hub/comments/runtime"
 import { hubComments } from "@vite-hub/comments/vite"
 import { H3 } from "h3"
 import { describe, expect, it, vi } from "vitest"
@@ -47,7 +47,7 @@ describe("Comments activation from the Console", () => {
     { base: "/portal/", mount: "/portal" },
     { base: "https://cdn.example/portal/", mount: "" },
     { base: "/_nuxt/", __vitehubAppBaseURL: "/portal/", mount: "/portal" },
-  ])("visits the session mounted by Comments: %j", async ({ mount, ...bases }) => {
+  ])("loads the shared page session for Comments: %j", async ({ mount, ...bases }) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-comments-console-"))
     try {
       await mkdir(join(root, "server"))
@@ -62,22 +62,26 @@ describe("Comments activation from the Console", () => {
       const route = config.nitro!.handlers.find(handler => handler.route.endsWith("/comments/**"))!.route.slice(0, -3)
       expect(route).toBe(`${mount}/api/_vitehub/comments`)
       const generated = await readFile(resolveGeneratedConsolePlugin(root, undefined, undefined), "utf8")
-      const visit = /"visit":"([^"]+)"/.exec(generated)?.[1]
-      expect(visit).toBe(`${route}/session`)
+      expect(generated).not.toContain('"visit":')
+      expect(config.nitro!.handlers).toEqual(expect.arrayContaining([expect.objectContaining({ route: `${mount}/_vitehub/page/session` })]))
 
-      const app = new H3().all(`${route}/**`, createCommentsHandler({ comments: defineComments({ authorize: () => true }), realtime: false }))
+      const comments = defineComments({ authorize: () => true })
+      const app = new H3()
+        .all(`${route}/**`, createCommentsHandler({ comments, realtime: false }))
+        .all(config.nitro!.handlers.find(handler => handler.route.endsWith("/_vitehub/page/session"))!.route, viteHubPageSessionHandler)
+      defineCommentsPlugin({ comments, database: () => undefined, overlay: `${route}/assets/overlay.js` })(app)
       let session: Response | undefined
       const fetch = vi.fn(async (url: string, init?: RequestInit) => {
-        if (init?.method === "POST") return Response.json({ ok: true, value: { sections: ["comments"], contributions: [{ ...describeConsoleContributedSections(["comments"])[0], visit }] } })
+        if (init?.method === "POST") return Response.json({ ok: true, value: { sections: ["comments"], contributions: describeConsoleContributedSections(["comments"]) } })
         session = await app.fetch(new Request(`http://site.test${url}`, init))
         return session
       })
       vi.stubGlobal("fetch", fetch)
-      const consoleMount = new URL(bases.base, "http://site.test").pathname.replace(/\/$/, "")
+      const consoleMount = mount
       await loadConsoleNavigation(`${consoleMount}/api/_vitehub/console/sections?${encodeURIComponent(root)}`)
       await vi.waitFor(() => expect(session?.status).toBe(200))
-      expect(session?.headers.get("set-cookie")).toContain("vitehub-comments=1")
-      expect(fetch).toHaveBeenLastCalledWith(`${route}/session`, { credentials: "same-origin" })
+      expect(session?.headers.get("set-cookie")).toContain("vitehub-tools=1")
+      expect(fetch).toHaveBeenLastCalledWith(`${mount}/_vitehub/page/session`, { credentials: "same-origin", headers: { accept: "application/json" } })
     }
     finally {
       vi.unstubAllGlobals()

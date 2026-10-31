@@ -63,6 +63,7 @@ import { hasNativeCloudflareSql } from "./cloudflare-sql.ts"
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 import { isH3V1Event, toH3V1Request } from "@vite-hub/internal/runtime/h3-v1-request"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
+import { realtimeDurableObjectKey } from "./durable-key.ts"
 
 export { applyRealtimeAwarenessUpdate, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness } from "./awareness.ts"
 export { RealtimeDocumentConflict, isRealtimeDocumentConflict } from "./conflict.ts"
@@ -458,10 +459,12 @@ function migrateLegacyDocument(sql: RealtimeRoomSql, key: string, clientUpdateCo
 function parseRoomPath(url: string): { definitionName: string, documentId: string, searchParams: URLSearchParams, workspaceEvents: boolean } {
   const parsed = new URL(url)
   const path = parsed.pathname
-  if (!path.startsWith(routePrefix)) throw new HTTPError({ status: 404 })
+  // Nitro may leave the app base on the request URL. The registered route already owns that prefix.
+  const at = path.indexOf(routePrefix)
+  if (at === -1) throw new HTTPError({ status: 404 })
   let parts: string[]
   try {
-    parts = path.slice(routePrefix.length).split("/").map(decodeURIComponent)
+    parts = path.slice(at + routePrefix.length).split("/").map(decodeURIComponent)
   }
   catch {
     throw new HTTPError({ status: 400, message: "Realtime route components must be valid URL encoding." })
@@ -669,7 +672,7 @@ function toWebEvent(event: H3Event): H3Event {
   return isH3V1Event(event) ? new H3Event(toH3V1Request(event), event.context) : event
 }
 
-const durableObjectKey: unique symbol = Symbol.for("vitehub.realtime.durable-object")
+const durableObjectKey: unique symbol = Symbol.for(realtimeDurableObjectKey)
 // SAFETY: This module owns the process slot shared by the separately bundled handler and Nitro plugin.
 const durableScope = globalThis as typeof globalThis & { [durableObjectKey]?: { env: unknown, state: unknown } }
 

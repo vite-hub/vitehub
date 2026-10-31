@@ -40,6 +40,8 @@ export function isAgentChannelDeliveryWorkflowBinding(value: unknown): value is 
     // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
     isRuntimeString((value as AgentChannelDeliveryWorkflowBinding).provider) &&
     // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
+    (isRuntimeString((value as AgentChannelDeliveryWorkflowBinding).stateScope) || (value as AgentChannelDeliveryWorkflowBinding).stateScope === undefined) &&
+    // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
     ((value as AgentChannelDeliveryWorkflowBinding).state === "chat" || (value as AgentChannelDeliveryWorkflowBinding).state === "webhook"),
   )
 }
@@ -49,6 +51,8 @@ export interface AgentChannelDeliveryWorkflowBinding {
   deliveryId: string
   provider: string
   state: "chat" | "webhook"
+  /** The webhook registration's `stateScope`, so the Workflow resolves the same webhook State scope. */
+  stateScope?: string
   steer?: {
     claimId: string
     deliveryIds?: string[]

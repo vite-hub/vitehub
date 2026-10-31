@@ -1,119 +1,164 @@
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { defineCommentsPlugin, injectOverlay, scriptNonce, wantsCommentMode } from "../src/runtime/plugin.ts"
-import { defineComments } from "../src/index.ts"
+import { respondViteHubPageSession } from "@vite-hub/internal/runtime/page-tools"
+
 import { commentsApiRoute } from "../src/page.ts"
+import { commentsConsoleSession } from "../src/runtime/console-session.ts"
+import { defineCommentsPlugin } from "../src/runtime/plugin.ts"
+import { defineComments } from "../src/index.ts"
 
-function streamed(chunks: string[], type = "text/html; charset=utf-8"): Response {
-  const encoder = new TextEncoder()
-  return new Response(new ReadableStream({
-    start(controller) {
-      for (const chunk of chunks) controller.enqueue(encoder.encode(chunk))
-      controller.close()
-    },
-  }), { headers: { "content-type": type, "content-length": "999" } })
+import type { CommentsUser, DefineCommentsOptions } from "../src/types.ts"
+import type { CommentsGitHubLogin } from "../src/runtime/github-login.ts"
+
+const loaderTag = (mount: string) => `<script type="module" src="${mount}/_vitehub/page/assets/loader.js?v=8" data-vitehub-page-tools></script>`
+
+/** Installs Comments with a session that reads the person from a `person` cookie. */
+function install(nitroApp: unknown, options: DefineCommentsOptions = {}, overlay = "/o.js"): void {
+  const warn = console.warn
+  console.warn = () => {}
+  const session = async (event: unknown): Promise<CommentsUser | null> => {
+    const request: unknown = event !== null && typeof event === "object" ? Reflect.get(event, "req") : undefined
+    const person = request instanceof Request ? /person=(\w+)/.exec(request.headers.get("cookie") ?? "")?.[1] : undefined
+    return person ? { id: person, name: person } : null
+  }
+  const base = commentsApiRoute(new URL(overlay, "http://localhost").href).slice(0, -"/api/_vitehub/comments".length)
+  defineCommentsPlugin({ comments: defineComments(options), database: () => undefined, overlay: overlay.slice(base.length), base, session })(nitroApp)
+  console.warn = warn
 }
 
-describe("overlay injection", () => {
-  it("uses the script's application mount for API calls and HTML injection", () => {
+async function pageSession(app: object, cookie: string) {
+  const request = new Request("http://site.test/_vitehub/page/session", { headers: { cookie } })
+  const response = await respondViteHubPageSession(app, request, { req: request })
+  return { cookie: response.headers.get("set-cookie"), body: await response.json() }
+}
+
+beforeEach(() => {
+  Reflect.deleteProperty(globalThis, Symbol.for("vitehub.page-tools"))
+})
+
+describe("Comments page tool", () => {
+  it.each([null, { id: "gh-ada", name: "Ada", github: { login: "ada", write: false } }])("offers the overlay for GitHub sign-in or account switching: %j", async (user) => {
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+    const app = {}
+    const githubLogin: CommentsGitHubLogin = { configured: () => true, user: async () => user, handle: async () => new Response(null) }
+    const options = { comments: defineComments(), database: () => undefined, overlay: "/o.js", githubLogin }
+    defineCommentsPlugin(options)(app)
+    const session = await pageSession(app, "")
+    expect(session.body.tools).toHaveLength(1)
+    expect(session.cookie).toContain("vitehub-tools=1;")
+    defineCommentsPlugin({ ...options, consoleSession: async () => false })(app)
+    expect((await pageSession(app, "")).body.tools).toEqual([])
+    defineCommentsPlugin({ ...options, comments: defineComments({ identify: () => null }) })(app)
+    expect((await pageSession(app, "")).body.tools).toEqual([])
+    defineCommentsPlugin({ ...options, githubLogin: { ...githubLogin, configured: () => false } })(app)
+    expect((await pageSession(app, "")).body.tools).toEqual([])
+    vi.restoreAllMocks()
+  })
+
+  it("keeps each app's overlay URL and authorization when another app installs Comments", async () => {
+    const appA = {}
+    const appB = {}
+    install(appA, { authorize: ({ user }) => user?.id === "ada" })
+    install(appB, { authorize: ({ user }) => user?.id === "ben" }, "/b.js")
+    expect((await pageSession(appA, "person=ada")).body.tools[0].script).toBe("/o.js")
+    expect((await pageSession(appB, "person=ada")).body).toEqual({ tools: [] })
+    expect((await pageSession(appB, "person=ben")).body.tools[0].script).toBe("/b.js")
+    expect((await pageSession(appA, "person=ben")).body).toEqual({ tools: [] })
+  })
+
+  it("lets a visitor load the overlay when authorize allows read", async () => {
+    const app = {}
+    install(app, { authorize: ({ user, action }) => action === "read" && user?.id === "ada" })
+    expect(await pageSession(app, "person=ada")).toEqual({
+      cookie: "vitehub-tools=1; Path=/; Max-Age=2592000; SameSite=Lax",
+      body: { tools: [{ id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "/o.js", lazy: true }] },
+    })
+    expect(await pageSession(app, "person=ben")).toEqual({ cookie: "vitehub-tools=; Path=/; Max-Age=0; SameSite=Lax", body: { tools: [] } })
+    // Without authorize, anonymous people may not read.
+    install(app)
+    expect((await pageSession(app, "")).body).toEqual({ tools: [] })
+  })
+
+  it.each([true, false])("checks Console read access before Comments identity: %s", async (allowed) => {
+    const app = {}
+    const identify = vi.fn(() => ({ id: "custom", name: "Custom" }))
+    const consoleSession = commentsConsoleSession({
+      authorize: async ({ kind }) => allowed && kind !== "write",
+      user: async () => null,
+      identify: async () => null,
+    })
+    defineCommentsPlugin({ comments: defineComments({ identify, authorize: () => true }), database: () => undefined, overlay: "/o.js", consoleSession })(app)
+    expect((await pageSession(app, "")).body.tools).toHaveLength(allowed ? 1 : 0)
+    expect(identify).toHaveBeenCalledTimes(allowed ? 1 : 0)
+  })
+
+  it("finds the API from the mounted overlay URL", () => {
     expect(commentsApiRoute("https://site.test/portal/api/_vitehub/comments/assets/overlay.js?v=1")).toBe("/portal/api/_vitehub/comments")
     expect(commentsApiRoute("https://site.test/api/_vitehub/comments/assets/overlay.js?v=1")).toBe("/api/_vitehub/comments")
-    expect(wantsCommentMode(new Request("http://site.test/portal/?comments"), "/portal")).toBe(true)
-    expect(wantsCommentMode(new Request("http://site.test/portal/_vitehub/content?comments"), "/portal")).toBe(false)
-    expect(wantsCommentMode(new Request("http://site.test/portal/api/x?comments"), "/portal")).toBe(false)
-    expect(wantsCommentMode(new Request("http://site.test/other?comments"), "/portal")).toBe(false)
   })
 
-  it("asks for comment mode with ?comments or the hint cookie, never on Console or API routes", () => {
-    expect(wantsCommentMode(new Request("http://site.test/pricing?comments"))).toBe(true)
-    expect(wantsCommentMode(new Request("http://site.test/", { headers: { cookie: "a=1; vitehub-comments=1" } }))).toBe(true)
-    expect(wantsCommentMode(new Request("http://site.test/"))).toBe(false)
-    expect(wantsCommentMode(new Request("http://site.test/_vitehub/content?comments"))).toBe(false)
-    expect(wantsCommentMode(new Request("http://site.test/api/x?comments"))).toBe(false)
-  })
-
-  it("adds the script before </body>, also when the tag spans two chunks", async () => {
-    const response = injectOverlay(streamed(["<html><body><h1>Hi</h1></bo", "dy></html>"]), "/o.js")
-    expect(await response.text()).toBe("<html><body><h1>Hi</h1><script type=\"module\" src=\"/o.js\" data-vitehub-comments></script></body></html>")
-    expect(response.headers.get("content-length")).toBeNull()
-    expect(response.headers.get("cache-control")).toBe("private, no-store")
-  })
-
-  it("gives the script the nonce of the page's Content Security Policy, which 'strict-dynamic' needs", async () => {
-    const policy = "default-src 'self'; script-src 'self' 'strict-dynamic' 'nonce-a1B2+c/3=='; style-src 'self' 'nonce-style'"
-    expect(scriptNonce(new Headers({ "content-security-policy": policy }))).toBe("a1B2+c/3==")
-    expect(scriptNonce(new Headers({ "content-security-policy": "default-src 'self' 'nonce-xyz'" }))).toBe("xyz")
-    expect(scriptNonce(new Headers())).toBeUndefined()
-    const page = new Response("<body></body>", { headers: { "content-type": "text/html", "content-security-policy": policy } })
-    expect(await injectOverlay(page, "/o.js").text()).toBe("<body><script type=\"module\" src=\"/o.js\" nonce=\"a1B2+c/3==\" data-vitehub-comments></script></body>")
-  })
-
-  it("appends the script to HTML without a body tag, and leaves other responses alone", async () => {
-    expect(await injectOverlay(streamed(["<h1>Hi</h1>"]), "/o.js").text()).toBe("<h1>Hi</h1><script type=\"module\" src=\"/o.js\" data-vitehub-comments></script>")
-    const json = streamed(["{}"], "application/json")
-    expect(injectOverlay(json, "/o.js")).toBe(json)
+  it.each(["", "/portal"])("adds one loader on Nitro 3 under mount %s, never on Console or API routes", async (mount) => {
+    const nitroApp = { fetch: (_request: Request) => new Response("<html><body>Page</body></html>", { headers: { "content-type": "text/html" } }) }
+    const overlay = `${mount}/api/_vitehub/comments/assets/overlay.js`
+    install(nitroApp, {}, overlay)
+    install(nitroApp, {}, overlay)
+    const page = async (path: string, cookie = "") => (await nitroApp.fetch(new Request(`http://site.test${path}`, { headers: { cookie } }))).text()
+    expect(await page(`${mount}/?vitehub`)).toBe(`<html><body>Page${loaderTag(mount)}</body></html>`)
+    expect(await page(`${mount}/`, "vitehub-tools=1")).toBe(`<html><body>Page${loaderTag(mount)}</body></html>`)
+    expect(await page(`${mount}/`)).toBe("<html><body>Page</body></html>")
+    expect(await page(`${mount}/?comments`, "vitehub-comments=1")).toBe("<html><body>Page</body></html>")
+    for (const path of ["/_vitehub/content", "/api/x"]) {
+      expect(await page(`${mount}${path}?vitehub`, "vitehub-tools=1")).toBe("<html><body>Page</body></html>")
+    }
+    if (mount) expect(await page("/outside?vitehub")).toBe("<html><body>Page</body></html>")
   })
 
   it.each([
     { mount: "", stripBase: false },
     { mount: "/portal", stripBase: false },
     { mount: "/portal", stripBase: true },
-  ])("adds a nonced script in Nuxt's render:html hook under mount $mount (base stripped: $stripBase), and keeps the page out of shared caches", ({ mount, stripBase }) => {
+  ])("adds a nonced loader in Nuxt's render:html hook under mount $mount (base stripped: $stripBase)", ({ mount, stripBase }) => {
     let render: ((html: { bodyAppend: string[] }, context: unknown) => void) | undefined
-    const nitroApp = { hooks: { hook: (name: string, handler: typeof render) => { if (name === "render:html") render = handler } } }
-    const warn = console.warn
-    console.warn = () => {}
-    const overlay = `${mount}/api/_vitehub/comments/assets/overlay.js`
-    defineCommentsPlugin({ comments: defineComments(), database: () => undefined, overlay })(nitroApp)
-    console.warn = warn
+    install({ hooks: { hook: (name: string, handler: typeof render) => { if (name === "render:html") render = handler } } }, {}, `${mount}/api/_vitehub/comments/assets/overlay.js`)
     const headers: Record<string, string> = {}
-    const page = (url: string) => {
+    const page = (path: string) => {
       const html = { bodyAppend: [] as string[] }
-      const req = { url: stripBase && url.startsWith(`${mount}/`) ? url.slice(mount.length) : url, originalUrl: stripBase ? url : undefined, headers: {} }
-      render!(html, { event: { node: { req, res: { setHeader: (name: string, value: string) => { headers[name] = value } } } } })
+      const req = { url: stripBase ? path.slice(mount.length) : path, originalUrl: stripBase ? path : undefined, headers: {} }
+      render!(html, { event: { node: { req, res: { setHeader: (name: string, value: string) => { headers[name] = value }, getHeader: () => "script-src 'nonce-n1'" } } } })
       return html.bodyAppend
     }
     expect(page(`${mount}/`)).toEqual([])
     expect(headers).toEqual({})
-    expect(page(`${mount}/?comments`)).toEqual([`<script type="module" src="${overlay}" data-vitehub-comments></script>`])
-    expect(page(`${mount}/_vitehub?comments`)).toEqual([])
-    expect(page(`${mount}/api/x?comments`)).toEqual([])
-    if (mount) expect(page("/outside?comments")).toEqual([])
+    expect(page(`${mount}/?vitehub`)).toEqual([loaderTag(mount).replace(" data-vitehub", ' nonce="n1" data-vitehub')])
     expect(headers).toEqual({ "cache-control": "private, no-store" })
-    const html = { bodyAppend: [] as string[] }
-    render!(html, { event: { node: { req: { url: `${mount}/?comments`, headers: {} }, res: { setHeader() {}, getHeader: () => "script-src 'self' 'strict-dynamic' 'nonce-n1'" } } } })
-    expect(html.bodyAppend[0]).toContain("nonce=\"n1\"")
+    expect(page(`${mount}/_vitehub?vitehub`)).toEqual([])
+    expect(page(`${mount}/api/x?vitehub`)).toEqual([])
   })
 
   it.each([
     { mount: "", stripBase: false },
     { mount: "/portal", stripBase: false },
     { mount: "/portal", stripBase: true },
-  ])("adds the script to a page returned as a Response by a Nitro 2 route under mount $mount (base stripped: $stripBase)", async ({ mount, stripBase }) => {
+  ])("adds the loader to Nitro 2 Response pages under mount $mount (base stripped: $stripBase)", async ({ mount, stripBase }) => {
     let respond: ((event: unknown, response: { body?: unknown }) => void) | undefined
-    const nitroApp = { hooks: { hook: (name: string, handler: typeof respond) => { if (name === "beforeResponse") respond = handler } } }
-    const warn = console.warn
-    console.warn = () => {}
-    const overlay = `${mount}/api/_vitehub/comments/assets/overlay.js`
-    defineCommentsPlugin({ comments: defineComments(), database: () => undefined, overlay })(nitroApp)
-    console.warn = warn
-    const send = (url: string, body: unknown, cookie = "") => {
+    install({ hooks: { hook: (name: string, handler: typeof respond) => { if (name === "beforeResponse") respond = handler } } }, {}, `${mount}/api/_vitehub/comments/assets/overlay.js`)
+    const send = (path: string, body: unknown, cookie = "") => {
       const response = { body }
-      const req = { url: stripBase && url.startsWith(`${mount}/`) ? url.slice(mount.length) : url, originalUrl: stripBase ? url : undefined, headers: { cookie } }
+      const req = { url: stripBase ? path.slice(mount.length) : path, originalUrl: stripBase ? path : undefined, headers: { cookie } }
       respond!({ node: { req } }, response)
       return response.body
     }
     const file = () => new Response("<html><body>Page</body></html>", { headers: { "content-type": "text/html", "cache-control": "public, max-age=3600" } })
     const plain = file()
     expect(send(`${mount}/guide/`, plain)).toBe(plain)
-    expect(send(`${mount}/guide/`, "<html></html>", "vitehub-comments=1")).toBe("<html></html>")
-    expect(send(`${mount}/_vitehub?comments`, plain)).toBe(plain)
-    expect(send(`${mount}/api/x?comments`, plain)).toBe(plain)
-    if (mount) expect(send("/outside?comments", plain)).toBe(plain)
-    const page = send(`${mount}/guide/`, file(), "theme=dark; vitehub-comments=1")
+    expect(send(`${mount}/guide/`, "<html></html>", "vitehub-tools=1")).toBe("<html></html>")
+    expect(send(`${mount}/_vitehub?vitehub`, plain)).toBe(plain)
+    expect(send(`${mount}/api/x?vitehub`, plain)).toBe(plain)
+    if (mount && !stripBase) expect(send("/outside?vitehub", plain)).toBe(plain)
+    const page = send(`${mount}/guide/`, file(), "theme=dark; vitehub-tools=1")
     expect(page).toBeInstanceOf(Response)
     if (!(page instanceof Response)) return
     expect(page.headers.get("cache-control")).toBe("private, no-store")
-    expect(await page.text()).toBe(`<html><body>Page<script type="module" src="${overlay}" data-vitehub-comments></script></body></html>`)
+    expect(await page.text()).toBe(`<html><body>Page${loaderTag(mount)}</body></html>`)
   })
 })

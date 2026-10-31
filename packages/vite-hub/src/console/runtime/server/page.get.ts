@@ -1,5 +1,5 @@
 import { consoleMountBase } from "../console-route.ts"
-import { consoleAppAuthBasePath, consoleSignInPage, consoleSignInRedirect } from "./access.ts"
+import { consoleAllowsRequest, consoleAppAuthBasePath, consoleSignInPage, consoleSignInRedirect } from "./access.ts"
 import { assertConsoleRequest, consoleRequestURL } from "./request.ts";
 import { isConsoleDevelopmentBuild } from "./development.ts"
 
@@ -44,16 +44,19 @@ export default async function consolePageHandler(event: ConsoleRequestEvent): Pr
     .replaceAll('href="/_vitehub/assets/', `href="${mountBase}/_vitehub/assets/`)
     .replaceAll('src="/api/_vitehub/console/client.js"', `src="${mountBase}/api/_vitehub/console/client.js"`)
     .replaceAll('src="/_vitehub/assets/', `src="${mountBase}/_vitehub/assets/`)
-  // On a development server, Nuxt DevTools and Vite DevTools show the Console in a frame of the same origin.
+  // On a development server, Nuxt DevTools and Vite DevTools show the Console in a frame of the same origin. The
+  // document editor shows pages of this origin in a frame, and its draft view posts a form to them.
   const development = isConsoleDevelopmentBuild()
+  const embedded = consoleRequestURL(event).searchParams.get("embed") === "1" && await consoleAllowsRequest(event)
+  const mayFrame = development || embedded
   return new Response(mountedPage, {
     headers: {
       "cache-control": "no-store",
-      "content-security-policy": `default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self' data:; frame-ancestors ${development ? "'self'" : "'none'"}; base-uri 'none'; form-action 'none'`,
+      "content-security-policy": `default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self' data:; frame-src 'self'; frame-ancestors ${mayFrame ? "'self'" : "'none'"}; base-uri 'none'; form-action 'self'`,
       "content-type": "text/html; charset=utf-8",
       "referrer-policy": "no-referrer",
       "x-content-type-options": "nosniff",
-      "x-frame-options": development ? "SAMEORIGIN" : "DENY",
+      "x-frame-options": mayFrame ? "SAMEORIGIN" : "DENY",
       "x-robots-tag": "noindex, nofollow",
     },
   });

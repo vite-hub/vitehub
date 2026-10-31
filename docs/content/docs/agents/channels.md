@@ -207,6 +207,29 @@ export default defineChannel('tickets', {
 - The route also answers at `/api/_vitehub/agents/channel-<name>/webhooks/<name>`. `channel-<name>` is the host that owns the Channel's webhook State and queue. It is not an Agent Definition, so it cannot have the name of one.
 - Standalone Channels need a Nitro host. Restart the development server after you add or remove one.
 
+### Keep webhook State when a Channel moves
+
+ViteHub keeps a webhook's State and queue under `webhook:<agent>:<origin>:<registration>:`. Accepted queued deliveries, provider cursors, and Channel State all use this scope. When you move a Channel to another owner, for example from an Agent to `server/channels/<name>/index.ts`, the scope changes, and the new owner does not see the old data.
+
+Set `webhooks.stateScope` to the old scope to keep it:
+
+```ts [server/channels/airtable/index.ts]
+import { defineChannel } from 'vite-hub/agent/channels'
+
+export default defineChannel('airtable', {
+  messages: false,
+  triggers: { /* ... */ },
+  webhooks: {
+    path: '/api/airtable/webhook',
+    durableState: true,
+    stateScope: 'webhook:support:airtable:airtable:',
+  },
+})
+```
+
+- ViteHub uses the value as the scope, with one trailing colon. A value that is not a string, or that is empty, makes the route throw a `TypeError`.
+- Give each registration its own `stateScope`, and remove the registration from the old owner. ViteHub does not check that a scope is unique. Registrations with the same scope share one queue and one Channel State.
+
 ### Verify a webhook signature
 
 Set `secretHeader`, `secretToken`, and `signature` on a webhook registration. ViteHub verifies the raw request body before it runs the trigger and answers `401` when the check fails.
@@ -264,7 +287,7 @@ With durable webhook State, such as SQLite, libSQL, or Cloudflare Durable Object
 
 - When admission finishes in time, the provider gets the trigger's own answer.
 - When admission is still running, the provider gets `202 { accepted: true, deferred: true, ok: true }`, and admission continues in the background. The provider does not see the trigger's own answer in this case, such as `ignored()` or a `Response` that the trigger returns.
-- The stored request is removed when admission settles. If the process stops first, or admission ends in a 5xx, the next process sends the request through the route again at startup. It checks the signature again. A request gets at most 3 admissions.
+- The stored request is removed when admission settles. If the process stops first, or admission ends in a 5xx, the next process sends the request through the route again at startup. It checks the signature again, and a timestamped signature such as `stripe-sha256` is checked against the request's first arrival, so a replay after the tolerance window still verifies. A request gets at most 3 admissions.
 
 The request is stored at `<scope>inbox:<id>` in webhook State. The ID is the provider's delivery header, such as `x-github-delivery`, or the SHA-256 of the raw body. Stopping the webhook queue waits up to `VITEHUB_SHUTDOWN_DRAIN_MS` for deferred admissions.
 
@@ -274,6 +297,8 @@ webhooks: {
   ackTimeoutMs: 8_000, // `false` waits for admission
 }
 ```
+
+When a trigger result is invalid, for example queued input that is not JSON-serializable while the trigger uses `prepare`, the route answers with a 5xx, and the delivery is recorded as `failed` with the reason in `error`.
 
 Chat message webhooks always wait for admission. Logs use `scope: "vitehub.channel.delivery"` with the events `admission.deferred`, `admission.completed`, `admission.failed`, `inbox.replaying`, `inbox.replayed`, and `inbox.dropped`.
 
@@ -649,7 +674,7 @@ A github() Channel that sets `app` gives its Agent forge access. The pull reques
 
 The Channel resolves one token for each repository. It uses `app.token` when you set it. Otherwise it mints an App installation token from `app` options or Server Env (`VITEHUB_GITHUB_APP_ID`, `VITEHUB_GITHUB_PRIVATE_KEY`, and the optional `VITEHUB_GITHUB_INSTALLATION_ID`), with `VITEHUB_GITHUB_TOKEN` as the fallback. Without a fixed installation, the App finds the installation of the repository.
 
-Git credentials come from `forgeGitCredentials()` and `forgeGitAuthHeader()` in `@vite-hub/forge`. They are in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, never in process arguments, and they reach only the pull request base and head repositories. A run without a pull request repository gets no credentials. An Agent with two github() Channels that set `app` gets no forge access.
+Git credentials come from `forgeGitCredentials()` and `forgeGitAuthHeader()` in `@vite-hub/forge`. They are in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, never in process arguments, and they reach only the pull request base and head repositories. A run without a pull request, such as a Teams or chat run, gets credentials for the repositories of the Agent's GitHub Workspace Sources, so it can clone them. A Source repository that the forge access cannot reach is left out. An Agent without GitHub Sources gets no credentials in such a run. An Agent with two github() Channels that set `app` gets no forge access.
 
 ```ts [server/agents/reviewer.ts]
 import { defineAgent } from 'vite-hub/agent'

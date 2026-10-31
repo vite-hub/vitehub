@@ -1,6 +1,7 @@
 import { defineDiagnostics, type Diagnostic } from "nostics"
 
 const consoleGuide = "https://vitehub.dev/docs/development/console"
+const mcpGuide = "https://vitehub.dev/docs/development/mcp"
 
 /** What the Console offers as the next step for a failure. */
 export type ConsoleDiagnosticAction = "docs" | "reload" | "retry" | "sign-in"
@@ -17,6 +18,8 @@ export type ConsoleDiagnosticCode =
   | "CONSOLE_IMPERSONATING"
   | "CONSOLE_LOOPBACK_ONLY"
   | "CONSOLE_MANAGER_REQUIRED"
+  | "CONSOLE_MCP_ORIGIN_REQUIRED"
+  | "CONSOLE_MCP_OAUTH_INCOMPLETE"
   | "CONSOLE_NOT_FOUND"
   | "CONSOLE_ORIGIN_REJECTED"
   | "CONSOLE_REQUEST_FAILED"
@@ -106,6 +109,18 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       "The development Console without sign-in accepts only requests from this machine.",
       "Open the Console from localhost, or set console.auth to \"app\" or a Console Auth config so the Console checks who calls it.",
       `${consoleGuide}#protect-the-console-route`,
+      "docs",
+    ),
+    CONSOLE_MCP_ORIGIN_REQUIRED: code(
+      "OAuth sign-in for MCP is off: the server has no configured public origin.",
+      "Set `vitehub({ publicUrl })` or `console.mcp.resource` to the public URL of the app, such as `https://app.example.com/_vitehub/mcp`, then build and deploy again.",
+      `${mcpGuide}#set-up-oauth`,
+      "docs",
+    ),
+    CONSOLE_MCP_OAUTH_INCOMPLETE: code(
+      "The Auth that signs the Console in cannot issue MCP access tokens.",
+      "Add `jwt()` and `oauthProvider({ resources: [\"<origin>/_vitehub/mcp\"], clientRegistrationDefaultResources: [\"<origin>/_vitehub/mcp\"], scopes: [..., \"vitehub:read\", \"vitehub:write\"] })` to that Auth. Without `resources`, Better Auth issues opaque tokens that the Console cannot check. The registration defaults link MCP clients to the resource.",
+      `${mcpGuide}#set-up-oauth`,
       "docs",
     ),
     CONSOLE_ENV_MANAGEMENT_UNAVAILABLE: code(
