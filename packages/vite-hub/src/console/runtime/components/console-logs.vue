@@ -19,7 +19,7 @@ const {
   containerProps,
   wrapperProps,
   scrollTo,
-} = useVirtualList(entries, { itemHeight: 44, overscan: 8 });
+} = useVirtualList(entries, { itemHeight: 32, overscan: 8 });
 const source = ref<LogSourceInfo>();
 const selectedId = ref<string>();
 const selected = computed(() => entries.value.find((entry) => entry.id === selectedId.value));
@@ -132,14 +132,16 @@ onBeforeUnmount(() => {
     <UDashboardPanel id="logs" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
       <ConsolePageHeader title="Logs" :description="source?.label" :toggle="false">
         <template #right>
-          <UButton
-            size="sm"
-            variant="ghost"
-            icon="i-lucide-refresh-cw"
-            aria-label="Refresh logs"
-            :loading="loading"
-            @click="load()"
-          />
+          <UTooltip text="Refresh logs">
+            <UButton
+              size="sm"
+              variant="ghost"
+              icon="i-lucide-refresh-cw"
+              aria-label="Refresh logs"
+              :loading="loading"
+              @click="load()"
+            />
+          </UTooltip>
           <UButton
             size="sm"
             :variant="following ? 'soft' : 'ghost'"
@@ -198,7 +200,7 @@ onBeforeUnmount(() => {
           <div
             class="sticky top-0 z-10 flex justify-between bg-default px-4 py-2 text-xs text-muted"
           >
-            <span>{{ entries.length }} events{{ following ? " · polling every 2s" : "" }}</span
+            <span class="tabular-nums">{{ entries.length === 1 ? "1 event" : `${entries.length} events` }}{{ following ? " · polling every 2s" : "" }}</span
             ><span>Newest first</span>
           </div>
           <p v-if="loading && !entries.length" role="status" class="p-6 text-sm text-muted">
@@ -236,7 +238,7 @@ onBeforeUnmount(() => {
                 <span v-if="mode === 'explorer'" class="truncate text-xs text-muted">{{
                   entry.service
                 }}</span>
-                <span class="truncate text-sm">{{ entry.message }}</span>
+                <span class="truncate text-[13px]">{{ entry.message }}</span>
               </button>
             </div>
           </div>
@@ -315,15 +317,15 @@ onBeforeUnmount(() => {
   display: grid;
   gap: 12px;
   align-items: center;
-  padding: 10px 16px;
-  height: 44px;
+  /* 32px rows, as in the other Console lists. The virtual list uses the same item height. */
+  height: 2rem;
+  padding: 0 16px;
 }
 .log-row.explorer {
   grid-template-columns: 84px 40px 90px minmax(0, 1fr);
 }
 .log-row.stream {
   grid-template-columns: 84px 40px minmax(0, 1fr);
-  padding-block: 7px;
 }
 @media (max-width: 900px) {
   .log-row.explorer {
