@@ -1,8 +1,10 @@
 import type { AccessAuthorizationContext } from "@vite-hub/runtime"
 import type { AuthAccessAuthorize, AuthDefinition, AuthDefinitionInput, AuthResolvedDefinitionOptions, AuthRuntimeConfiguration, AuthRuntimeContext, AuthSignInConfiguration } from "@vite-hub/auth"
-import { createAuthForRequest } from "@vite-hub/auth/server"
+import { createAuthForRequest, type getAuthForRequest } from "@vite-hub/auth/server"
 import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import * as v from "valibot"
+import { consoleMountBase } from "./runtime/console-route.ts"
+import { consoleRequestURL } from "./runtime/server/request.ts"
 import { consoleAuthPath } from "./auth-path.ts"
 
 export const consoleAuthBasePath = "/api/_vitehub/console/auth"
@@ -22,6 +24,10 @@ export function consoleAuthSignInPage(provider: string, request: Request, mountB
       : search.has("signed_out")
         ? "You have signed out."
         : "Sign in to access the ViteHub Console."
+  return consoleSignInDocument(message, `<a href="${escapeHTML(startPath)}">${escapeHTML(buttonLabel)}</a>`)
+}
+
+function consoleSignInDocument(message: string, actions: string, status = 200): Response {
   const page = `<!doctype html>
 <html lang="en">
   <head>
@@ -35,32 +41,34 @@ export function consoleAuthSignInPage(provider: string, request: Request, mountB
       main { width: min(24rem, calc(100% - 3rem)); }
       h1 { margin: 0 0 .5rem; font-size: 1.5rem; font-weight: 600; }
       p { margin: 0 0 1.5rem; color: light-dark(#525252, #a3a3a3); line-height: 1.5; }
-      a { display: inline-flex; min-height: 2.5rem; align-items: center; padding: 0 1rem; border-radius: .5rem; background: light-dark(#171717, #f5f5f5); color: light-dark(#fff, #171717); font-weight: 500; text-decoration: none; }
-      a:focus-visible { outline: 2px solid #3b82f6; outline-offset: 3px; }
+      form { margin: .75rem 0; }
+      a, button { font: inherit; border: 0; cursor: pointer; display: inline-flex; min-height: 2.5rem; align-items: center; padding: 0 1rem; border-radius: .5rem; background: light-dark(#171717, #f5f5f5); color: light-dark(#fff, #171717); font-weight: 500; text-decoration: none; }
+      a:focus-visible, button:focus-visible { outline: 2px solid #3b82f6; outline-offset: 3px; }
     </style>
   </head>
   <body>
     <main>
       <h1>Sign in</h1>
-      <p>${message}</p>
-      <a href="${escapeHTML(startPath)}">${escapeHTML(buttonLabel)}</a>
+      <p role="status">${escapeHTML(message)}</p>
+      ${actions}
     </main>
   </body>
 </html>`
   return new Response(page, {
     headers: {
       "cache-control": "no-store",
-      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+      "content-security-policy": `default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'self' https:; frame-ancestors 'none'`,
       "content-type": "text/html; charset=utf-8",
       "referrer-policy": "no-referrer",
       "x-content-type-options": "nosniff",
       "x-frame-options": "DENY",
       "x-robots-tag": "noindex, nofollow",
     },
+    status,
   })
 }
 
-export function consoleAuthPageResponse(request: Request, response: Response | undefined, mountBaseURL = "/"): Response | undefined {
+export function consoleAuthPageResponse(request: Request, response: Response | undefined, mountBaseURL = "/", authBasePath: string = consoleAuthBasePath): Response | undefined {
   if (response?.status === 401 && request.method === "GET" && request.headers.get("accept")?.includes("text/html")) {
     const signIn = new URL(consoleAuthPath(mountBaseURL, "/_vitehub/sign-in"), request.url)
     if (new URL(request.url).searchParams.has("auth_error")) signIn.searchParams.set("auth_error", "signin")
@@ -73,7 +81,7 @@ export function consoleAuthPageResponse(request: Request, response: Response | u
     || !response.headers.get("content-type")?.startsWith("text/plain")
   ) return response
 
-  const signOutPath = consoleAuthPath(mountBaseURL, `${consoleAuthBasePath}/sign-out`)
+  const signOutPath = authBasePath === consoleAuthBasePath ? consoleAuthPath(mountBaseURL, `${authBasePath}/sign-out`) : `${authBasePath}/sign-out`
   const signedOutPath = consoleAuthPath(mountBaseURL, "/_vitehub/sign-in?denied=1")
   const signOutLiteral = JSON.stringify(signOutPath).replaceAll("<", "\\u003c")
   const signedOutLiteral = JSON.stringify(signedOutPath).replaceAll("<", "\\u003c")
@@ -139,6 +147,95 @@ export function consoleAuthPageResponse(request: Request, response: Response | u
     },
     status: 403,
   })
+}
+
+/** Use the app's configured social providers and session without a second Auth Definition or client. */
+export function createConsoleAppAuthPages(resolveAuth: typeof getAuthForRequest): {
+  signIn: (event: object, denied?: Response) => Promise<Response>
+  authBasePath: (event: object) => Promise<string>
+} {
+  async function requestAuth(event: object) {
+    const request = toEventRequest(event)
+    const url = consoleRequestURL({ req: request })
+    const authRequest = { headers: request.headers, url: url.href }
+    let auth = resolveAuth(authRequest, undefined, event)
+    let context = await auth.$context
+    // A static provider has no origin until its first HTTP request. Resolve it before reading its URLs.
+    if (!context.baseURL) {
+      auth = resolveAuth(authRequest, { baseURL: url.origin }, event)
+      context = await auth.$context
+    }
+    return { auth, context, request, url }
+  }
+  return {
+    async authBasePath(event) {
+      const { context } = await requestAuth(event)
+      return new URL(context.baseURL).pathname.replace(/\/$/, "")
+    },
+    signIn: async (event: object, denied?: Response): Promise<Response> => {
+      const { auth, context, request, url } = await requestAuth(event)
+      const mount = consoleMountBase(url.pathname)
+      const page = `${mount}/_vitehub/sign-in`
+      const authURL = new URL(context.baseURL)
+      if (denied) {
+        const diagnostic = v.safeParse(v.object({ code: v.literal("CONSOLE_ACCESS_DENIED") }), await denied.clone().json().catch(() => undefined))
+        const response = diagnostic.success ? new Response("Forbidden.", { status: 403, headers: { "content-type": "text/plain" } }) : denied
+        return consoleAuthPageResponse(request, response, mount, authURL.pathname.replace(/\/$/, "")) ?? denied
+      }
+      if (request.method !== "GET" && request.method !== "HEAD" && request.method !== "POST") {
+        return new Response(null, { headers: { allow: "GET, HEAD, POST" }, status: 405 })
+      }
+      const target = consoleReturnPath(url.searchParams.get("redirect"), url, mount)
+      const retry = new URL(page, url)
+      retry.searchParams.set("redirect", target)
+      const actions = context.socialProviders.map((provider) => {
+        const start = new URL(retry)
+        start.searchParams.set("provider", provider.id)
+        const label = provider.id === "github" ? "GitHub" : provider.name
+        return `<form method="post" action="${escapeHTML(`${start.pathname}${start.search}`)}"><button type="submit">Sign in with ${escapeHTML(label)}</button></form>`
+      }).join("")
+      const render = (failed = false) => consoleSignInDocument(
+        failed ? "Sign-in failed. Try again." : actions ? "Sign in to access the ViteHub Console." : "No social sign-in provider is configured. Configure a provider in server Auth, or set console.signInPage to your app's sign-in page.",
+        actions,
+        actions ? 200 : 503,
+      )
+      if (request.method !== "POST") return render(url.searchParams.has("auth_error"))
+      // The Console starts OAuth with the app's own trusted origin. Cross-origin forms must not start a login.
+      if (request.headers.get("origin") !== url.origin || !await context.isTrustedOrigin(url.origin)) {
+        return new Response("Untrusted sign-in origin.", { status: 403 })
+      }
+      const provider = url.searchParams.get("provider")
+      if (!context.socialProviders.some(candidate => candidate.id === provider)) return render(true)
+      retry.searchParams.set("auth_error", "signin")
+      try {
+        const response = await auth.handler(new Request(`${authURL.href.replace(/\/$/, "")}/sign-in/social`, {
+          method: "POST",
+          headers: { "content-type": "application/json", origin: url.origin },
+          body: JSON.stringify({ provider, callbackURL: new URL(target, url).href, errorCallbackURL: retry.href }),
+        }))
+        if (!response.ok) return render(true)
+        const result = v.safeParse(v.object({ url: v.string() }), await response.json())
+        if (!result.success) return render(true)
+        const destination = new URL(result.output.url)
+        if (destination.protocol !== "https:" && destination.protocol !== "http:") return render(true)
+        const headers = new Headers(response.headers)
+        headers.delete("content-type")
+        headers.set("location", destination.href)
+        headers.set("cache-control", "no-store")
+        return new Response(null, { headers, status: 303 })
+      }
+      catch { return render(true) }
+    },
+  }
+}
+
+function consoleReturnPath(value: string | null, url: URL, mount: string): string {
+  const fallback = `${mount}/_vitehub`
+  if (!value || !/^\/(?!\/)[^\\\s]*$/.test(value)) return fallback
+  const target = new URL(value, url)
+  if (target.origin !== url.origin || !(target.pathname === fallback || target.pathname.startsWith(`${fallback}/`))) return fallback
+  if (target.pathname === `${fallback}/sign-in`) return fallback
+  return `${target.pathname}${target.search}${target.hash}`
 }
 
 export interface ConsoleAuthDefinition {
