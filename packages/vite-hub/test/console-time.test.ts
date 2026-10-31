@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { consoleDateTime, dayLabel, exactTimestamps, recentTimestamp } from "../src/console/runtime/client/time.ts"
+import { consoleClockTime, consoleDateTime, dayLabel, exactTimestamps, recentTimestamp } from "../src/console/runtime/client/time.ts"
 
 describe("recentTimestamp", () => {
   const now = Date.parse("2026-10-06T12:00:00.000Z")
@@ -59,5 +59,17 @@ describe("consoleDateTime", () => {
 
   it("returns an invalid timestamp unchanged", () => {
     expect(consoleDateTime("nope")).toBe("nope")
+  })
+})
+
+describe("consoleClockTime", () => {
+  it("shows a log time in the viewer's zone with milliseconds, not the UTC digits of the timestamp", () => {
+    expect(consoleClockTime("2026-10-28T14:33:59.120Z", "America/New_York")).toBe("10:33:59.120")
+    expect(consoleClockTime("2026-10-28T14:33:59.120Z", "Asia/Tokyo")).toBe("23:33:59.120")
+    expect(consoleClockTime("2026-10-28T00:05:00.000Z", "UTC")).toBe("00:05:00.000")
+  })
+
+  it("returns an invalid timestamp as it is", () => {
+    expect(consoleClockTime("nope")).toBe("nope")
   })
 })
