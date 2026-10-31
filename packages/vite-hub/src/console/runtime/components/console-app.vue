@@ -408,6 +408,23 @@ function closeDetails(): void {
   detailsMaximized.value = false;
 }
 
+// On desktop, the session navbar and the inspector move to another layout when the details panel opens, closes, or
+// changes size. Vue mounts new elements there, so keyboard focus would fall to the page body. Put it back on the
+// same control, on the active inspector tab, or on the details toggle.
+watch([detailsOpen, detailsMaximized], () => {
+  const focused = document.activeElement;
+  const panel = focused instanceof HTMLElement ? focused.closest(".vitehub-console__session-panel") : null;
+  if (!isDesktop.value || !(focused instanceof HTMLElement) || !panel) return;
+  const slot = focused.dataset.slot;
+  void nextTick(() => {
+    if (document.activeElement && document.activeElement !== document.body) return;
+    const same = detailsOpen.value && slot ? panel.querySelector(`[data-slot="${CSS.escape(slot)}"]`) : null;
+    const tab = detailsOpen.value && slot !== "session-details-toggle" ? panel.querySelector(".session-inspector [role='tab'][data-state='active']") : null;
+    const target = same ?? tab ?? panel.querySelector("[data-slot='session-details-toggle']");
+    if (target instanceof HTMLElement) target.focus();
+  });
+});
+
 async function loadCapabilityIds(): Promise<void> {
   capabilityIdsRequest?.abort();
   const controller = new AbortController();

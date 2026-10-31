@@ -180,6 +180,13 @@ function isActive(path: string) {
     color 150ms ease;
 }
 
+/* In the phone menu each link is a 40px tap target. */
+@media (pointer: coarse) {
+  .vh-docs-sidebar-link {
+    min-height: 2.5rem;
+  }
+}
+
 .vh-docs-sidebar-link.is-grouped {
   padding-left: 2rem;
 }

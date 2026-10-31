@@ -259,6 +259,13 @@ watch(activeSurface, async () => {
     scroller.scrollLeft += tabBounds.right - scrollerBounds.right;
 });
 
+// Opening a tab from the launcher replaces the launcher, and closing a tab removes its button. Move keyboard focus to
+// the active tab, so it does not fall to the page body.
+async function focusActiveTab() {
+  await nextTick();
+  tabstrip.value?.querySelector<HTMLElement>('[role="tab"][data-state="active"]')?.focus();
+}
+
 function openView(value: InspectorTab) {
   if (value === "workspace" && !props.workspaceBase) return;
   if (!openViews.value.includes(value)) openViews.value = [...openViews.value, value];
@@ -527,7 +534,7 @@ function message(error: unknown) {
                 type="button"
                 class="session-inspector__tab-close"
                 :aria-label="`Close ${item.label}`"
-                @click.stop="closeSurface(item)"
+                @click.stop="closeSurface(item); focusActiveTab()"
               >
                 <UIcon name="i-lucide-x" class="session-inspector__surface-close" aria-hidden="true" />
               </button>
@@ -566,6 +573,7 @@ function message(error: unknown) {
           :text="props.maximized ? 'Restore panel size' : 'Maximize panel'"
           ><UButton
             class="session-inspector__icon-button"
+            data-slot="session-inspector-maximize"
             :icon="props.maximized ? 'i-lucide-minimize-2' : 'i-lucide-maximize-2'"
             color="neutral"
             variant="ghost"
@@ -594,7 +602,7 @@ function message(error: unknown) {
         <span>Choose what to inspect in this Agent Invocation.</span>
       </div>
       <div class="session-inspector__surface-launcher">
-        <button v-for="view in inspectorViews" :key="view" type="button" @click="openView(view)">
+        <button v-for="view in inspectorViews" :key="view" type="button" @click="openView(view); focusActiveTab()">
           <UKbd>{{ viewMeta[view].shortcut }}</UKbd>
           <span><UIcon :name="viewMeta[view].icon" />{{ viewMeta[view].label }}</span>
           <small>{{ viewMeta[view].description }}</small>
