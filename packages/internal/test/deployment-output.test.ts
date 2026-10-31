@@ -773,7 +773,7 @@ describe("provider deployment outputs", () => {
     expect(vi.mocked(bundleEsmEntry)).toHaveBeenCalledWith(
       join(rootDir, "agent.mjs"),
       join(`${netlifyDir}.pending`, "functions", "vitehub-agent.mjs"),
-      { define: {}, format: "esm", minifyIdentifiers: true, minifySyntax: true, minifyWhitespace: true, platform: "node", rootDir, signal: undefined },
+      { conditions: ["netlify", "node"], define: {}, format: "esm", minifyIdentifiers: true, minifySyntax: true, minifyWhitespace: true, platform: "node", rootDir, signal: undefined },
     )
     await expect(readFile(join(netlifyDir, "config.json"), "utf8").then(JSON.parse)).resolves.toEqual({
       edge_functions: [{ function: "vitehub-edge", path: "/edge" }],
