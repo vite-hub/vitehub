@@ -42,6 +42,7 @@ import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPrese
 
 import { viteHubTypesPlugin } from "./internal/types.ts"
 import { withCmsPresetPlugins } from "./internal/cms-preset-features.ts"
+import { disabledUpstashDriver, hasUpstashStore, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
 import { consoleConnectionsActorId } from "./console/auth-build.ts"
 import { agentChannelEnvPlugin } from "./agent-channel-env.ts"
 import { agentInvocationsVitePlugin } from "./agent-invocations-vite.ts"
@@ -177,8 +178,6 @@ const frameworkVirtualImporters = new Set([
 
 const frameworkPackageName = "vite-hub"
 const generatedImportBase = "vite-hub/_internal"
-const upstashDriverSpecifier = "@vite-hub/kv/runtime/upstash-driver"
-const disabledUpstashDriver = fileURLToPath(import.meta.resolve(`${generatedImportBase}/kv/runtime/disabled-upstash`))
 function packageExportImportTarget(target: unknown): string | undefined {
   if (typeof target === "string") return target
   if (!target || typeof target !== "object" || Array.isArray(target)) return undefined
@@ -239,11 +238,6 @@ function getNitroFallbackImporter(id: string): string | undefined {
 function isGeneratedImporter(importer: string | undefined) {
   const normalized = importer?.replace(/\\/g, "/")
   return Boolean(normalized && (/(?:^|\/)\.vitehub(?:\/|$)/.test(normalized) || frameworkVirtualImporters.has(normalized)))
-}
-
-function hasUpstashStore(kv: ReturnType<typeof resolveKVViteConfig>["kv"]): boolean {
-  if (!kv) return false
-  return Object.values(kv.stores || { default: kv.store }).some(store => store.driver === "upstash")
 }
 
 function configureProviderOptionalImportAliases(
