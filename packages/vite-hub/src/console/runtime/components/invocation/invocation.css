@@ -765,7 +765,12 @@
 .vh-invocation-preparation__action:hover,
 .vh-invocation-preparation__action:focus-visible {
   color: var(--vh-ui-text);
-  outline: none;
+}
+
+/* A color change alone does not show where the keyboard focus is. */
+.vh-invocation-preparation__action:focus-visible {
+  outline: 2px solid var(--vh-ui-primary);
+  outline-offset: 1px;
 }
 
 .vh-invocation-preparation__action .vh-invocation-event__icon {

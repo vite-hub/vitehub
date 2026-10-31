@@ -57,3 +57,23 @@ it.each([
   expect(text?.includes("Upload")).toBe(!readOnly)
   expect(text?.includes("Delete")).toBe(!readOnly)
 })
+
+it("shows the grid as a list of controls and exposes the picked file", async () => {
+  const object = { pathname: "one.png", uploadedAt: "2026-10-15T11:00:00Z", customMetadata: {}, httpMetadata: { contentType: "image/png" }, size: 3 }
+  mocks.request.mockResolvedValue({ blobs: [object], folders: [], hasMore: false, store: "default", stores: ["default"] })
+  const client = createConsoleBlobMediaClient("/blob", { readOnly: true, store: "default" })
+  const app = createApp(ConsoleMediaBrowser, { client, defaultView: "grid", mode: "picker", selected: ["one.png"] })
+  for (const name of ["UAlert", "UCheckbox", "UEmpty", "UIcon", "UInput", "UModal", "UPopover", "USelect", "USkeleton", "UTooltip"]) app.component(name, slot)
+  app.component("UButton", button)
+  app.component("UDropdownMenu", menu)
+  // SAFETY: This test runs in happy-dom, whose window is the global scope.
+  const { document } = globalThis as unknown as Pick<Window, "document">
+  const container = document.createElement("div")
+  document.body.append(container)
+  cleanup = () => { app.unmount(); container.remove() }
+  app.mount(container)
+  await vi.waitFor(() => expect(container.querySelector(".vitehub-media-tile__button")).not.toBeNull())
+  // A listbox option cannot hold the tile's button and checkbox, so the grid is a plain list.
+  expect(container.querySelector('[role="listbox"], [role="option"]')).toBeNull()
+  expect(container.querySelector(".vitehub-media-tile__button")?.getAttribute("aria-pressed")).toBe("true")
+})

@@ -4,7 +4,7 @@ definePageMeta({ layout: "docs" });
 
 useSeoMeta({
   title: "Projects",
-  ogTitle: "Projects · ViteHub",
+  ogTitle: "Projects",
   description: "Open source applications built with ViteHub Server Primitives and Agents. Read the source and run the published apps.",
 });
 </script>

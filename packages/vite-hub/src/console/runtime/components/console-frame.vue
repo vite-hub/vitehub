@@ -14,6 +14,8 @@ defineProps<{
   <!-- Local storage keeps sidebar sizes and collapsed state across reloads; the cookie storage needs Nuxt to persist. -->
   <UDashboardGroup class="vitehub-console" unit="rem" storage="local" storage-key="vitehub-console-v2">
     <ConsoleRail :active="active" :sections-base="sectionsBase" />
+    <!-- Every page has a skip target, including pages without a main landmark or heading. -->
+    <span id="vitehub-console-content" class="sr-only" tabindex="-1" data-skip-target>Page content</span>
     <slot />
     <!-- Console toasts render here, apart from the toaster of a host app. -->
     <ConsoleToaster />

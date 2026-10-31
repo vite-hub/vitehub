@@ -9,7 +9,7 @@ import { consolePrimitives } from "../sections";
 /**
  * One Console state: an error, an empty list, or a primitive that is not configured.
  * - With `error`, it shows the why, the fix, the code, and one next step. A retry button appears only when `retry`
- *   is set and a retry can succeed. `401` asks to sign in again.
+ *   is set and a retry can succeed. `401` asks to sign in again. A fix that only repeats the main button is left out.
  * - Without `error`, it shows `title` and `description`, and links the setup guide of `section`.
  */
 const props = withDefaults(
@@ -78,6 +78,12 @@ const stateActions = computed<ButtonProps[]>(() => {
   return buttons;
 });
 
+// A fix that only names the main button, such as "Sign in again.", says the same thing twice. The button says it once.
+const fix = computed(() => {
+  const text = problem.value?.fix;
+  return text && text.replace(/\.$/, "") === stateActions.value[0]?.label ? undefined : text;
+});
+
 const copied = ref(false);
 let copiedTimer: ReturnType<typeof setTimeout> | undefined;
 async function copyCode(): Promise<void> {
@@ -108,7 +114,7 @@ onBeforeUnmount(() => {
     <div class="grid min-w-0 gap-1">
       <h2 class="text-[13px] font-medium leading-5 text-highlighted">{{ title }}</h2>
       <p v-if="problem?.why || description" class="leading-5 text-pretty text-muted">{{ problem?.why ?? description }}</p>
-      <p v-if="problem?.fix" class="leading-5 text-pretty text-default">{{ problem.fix }}</p>
+      <p v-if="fix" class="leading-5 text-pretty text-default">{{ fix }}</p>
       <slot />
       <div v-if="stateActions.length" class="mt-1 flex flex-wrap items-center gap-1">
         <UButton v-for="(button, index) in stateActions" :key="index" v-bind="button" />
@@ -137,7 +143,7 @@ onBeforeUnmount(() => {
         <p v-if="problem?.why || description" class="text-xs leading-5 text-pretty text-muted">
           {{ problem?.why ?? description }}
         </p>
-        <p v-if="problem?.fix" class="text-xs leading-5 text-pretty text-default">{{ problem.fix }}</p>
+        <p v-if="fix" class="text-xs leading-5 text-pretty text-default">{{ fix }}</p>
       </div>
     </div>
     <!-- Extra content for the state, such as a code example for an empty state. -->

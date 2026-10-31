@@ -3,7 +3,7 @@ import { examples } from "~/data/examples";
 
 useSeoMeta({
   title: "Projects and templates",
-  ogTitle: "Projects and templates · ViteHub",
+  ogTitle: "Projects and templates",
   description: "Explore open source ViteHub projects to read real application code, or start your own app from a published GitHub template.",
 });
 
