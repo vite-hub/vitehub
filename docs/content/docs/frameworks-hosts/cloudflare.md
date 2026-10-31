@@ -94,15 +94,24 @@ In Nuxt, the preset enables Nitro's `cloudflare.deployConfig` by default so a
 local production build emits `.output/server/wrangler.json`. An explicit
 `nitro.cloudflare.deployConfig: false` disables that file.
 
-With Node compatibility enabled, ViteHub emits `nodejs_compat_v2` and defaults
-Nitro's Cloudflare compatibility date to `2026-10-01`. If you set an explicit
-Nitro or Wrangler compatibility date, use `2026-10-01` or newer so imports such
-as `node:child_process` and `node:http` remain available with the v2-only flag.
-
 ```bash [Terminal]
 pnpm build
 test -f .output/server/wrangler.json
 find .output -maxdepth 4 -type f | sort
+```
+
+### Node.js compatibility in Nuxt
+
+With Nitro's `cloudflare.nodeCompat`, which the Nuxt `cloudflare` preset turns on, the generated `wrangler.json` gets `nodejs_compat`. Nitro 2 adds `no_nodejs_compat_v2` next to it unless the config names `nodejs_compat_v2`, and that leaves out Node modules that Workspaces import. ViteHub sets `nodejs_compat_v2` while Nitro builds and writes `nodejs_compat` in its place once the file is written, after the project's `wrangler.json`, `wrangler.jsonc`, or `wrangler.toml` was merged in. Wrangler refuses the two flags together.
+
+When the app names `nodejs_compat_v2` or `no_nodejs_compat_v2` in `nitro.cloudflare.wrangler.compatibility_flags` or in its project Wrangler config, ViteHub leaves the flags as the app wrote them. `nodejs_compat_v2` alone provides `node:http` and `node:child_process` only from compatibility date 2026-08-04.
+
+Check the output before deploying. `wrangler deploy --dry-run` validates the config, and `wrangler dev` starts the Worker, which catches a Node module that the date and flags leave out:
+
+```bash [Terminal]
+pnpm build
+pnpm wrangler deploy --dry-run
+pnpm wrangler dev
 ```
 
 Generate Agent routes through Provider Output. Raw Cloudflare Worker fetch handlers are not a public Agent API.

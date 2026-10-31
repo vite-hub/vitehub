@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -2660,39 +2661,66 @@ describe("ViteHub Nuxt integration", () => {
     })
   })
 
-  it.each([
-    // Wrangler refuses nodejs_compat together with nodejs_compat_v2, so only the second one stays.
-    [true, [], ["nodejs_compat_v2"]],
-    [true, ["custom"], ["custom", "nodejs_compat_v2"]],
-    [true, ["nodejs_compat"], ["nodejs_compat_v2"]],
-    [true, ["no_nodejs_compat_v2"], ["no_nodejs_compat_v2"]],
-    [false, ["custom"], ["custom"]],
-  ] as const)("keeps native Node compatibility in Cloudflare output with nodeCompat=%s and flags=%j", async (nodeCompat, flags, expected) => {
-    const { nuxt, runNitroConfigHook } = createNuxt()
-    const config = { cloudflare: { nodeCompat, wrangler: { compatibility_flags: [...flags] } } }
-    await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
-    await runNitroConfigHook(config)
-    expect(config.cloudflare.wrangler.compatibility_flags).toEqual(expected)
-    if (expected.some(flag => flag === "nodejs_compat_v2")) {
-      expect(config).toHaveProperty("compatibilityDate", { cloudflare: "2026-10-01" })
+  // Runs the Nuxt module twice, as Nuxt can, then Nitro 2's real Cloudflare preset, which merges the project file.
+  describe("Node compatibility flags in the written wrangler.json", { timeout: 30_000 }, () => {
+    async function writtenFlags(inline: string[], project?: string[]) {
+      const rootDir = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-node-compat-"))
+      try {
+        if (project) await writeFile(resolve(rootDir, "wrangler.json"), JSON.stringify({ compatibility_flags: project }))
+        const { nuxt, runNitroConfigHook } = createNuxt()
+        const config: { cloudflare: { nodeCompat: boolean, wrangler: Record<string, unknown> }, modules?: unknown[], rootDir: string } = {
+          cloudflare: { nodeCompat: true, wrangler: { compatibility_flags: [...inline] } },
+          rootDir,
+        }
+        await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+        await runNitroConfigHook(config)
+        await runNitroConfigHook(config)
+        const { createNitro } = await import("nitropack")
+        const nitro = await createNitro({
+          cloudflare: { ...config.cloudflare, deployConfig: true },
+          compatibilityDate: "2026-04-20",
+          dev: false,
+          logLevel: 0,
+          // The mocked vitehub() adds fake modules, so only this one runs.
+          modules: (config.modules ?? []).filter(module => isTestRecord(module) && module.name === "vite-hub/cloudflare-node-compat") as never,
+          preset: "cloudflare-module",
+          rootDir,
+        })
+        try {
+          await nitro.hooks.callHook("compiled", nitro)
+          const wrangler = JSON.parse(await readFile(resolve(nitro.options.output.serverDir, "wrangler.json"), "utf8")) as { compatibility_flags: string[] }
+          return wrangler.compatibility_flags.filter(flag => flag !== "nodejs_als")
+        }
+        finally {
+          await nitro.close()
+        }
+      }
+      finally {
+        await rm(rootDir, { force: true, recursive: true })
+      }
     }
-    else {
-      expect(config).not.toHaveProperty("compatibilityDate")
-    }
-    await runNitroConfigHook(config)
-    expect(config.cloudflare.wrangler.compatibility_flags).toEqual(expected)
-  })
 
-  it.each([
-    "2026-10-15",
-    { default: "2026-10-15" },
-    { cloudflare: "2026-10-15", default: "2025-01-15" },
-  ])("preserves an explicit Nitro compatibility date %j with Node compatibility", async (compatibilityDate) => {
-    const { nuxt, runNitroConfigHook } = createNuxt()
-    const config = { compatibilityDate, cloudflare: { nodeCompat: true } }
-    await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
-    await runNitroConfigHook(config)
-    expect(config.compatibilityDate).toEqual(compatibilityDate)
+    it.each([
+      // Wrangler refuses nodejs_compat next to nodejs_compat_v2, and v2 alone lacks node:http before 2026-08-04.
+      ["no flags", [], undefined, ["nodejs_compat"]],
+      ["other inline flags", ["custom"], undefined, ["custom", "nodejs_compat"]],
+      ["an inline nodejs_compat", ["nodejs_compat"], undefined, ["nodejs_compat"]],
+      ["a project nodejs_compat", [], ["nodejs_compat"], ["nodejs_compat"]],
+      // The app's own choices stay.
+      ["an inline no_nodejs_compat_v2", ["no_nodejs_compat_v2"], undefined, ["no_nodejs_compat_v2", "nodejs_compat"]],
+      ["a project no_nodejs_compat_v2", [], ["no_nodejs_compat_v2"], ["no_nodejs_compat_v2", "nodejs_compat"]],
+      ["a project nodejs_compat_v2", [], ["nodejs_compat_v2"], ["nodejs_compat_v2"]],
+    ] as const)("writes valid flags for %s", async (_label, inline, project, expected) => {
+      expect((await writtenFlags([...inline], project && [...project])).toSorted()).toEqual([...expected].toSorted())
+    })
+
+    it("leaves the flags alone without nodeCompat", async () => {
+      const { nuxt, runNitroConfigHook } = createNuxt()
+      const config = { cloudflare: { nodeCompat: false, wrangler: { compatibility_flags: ["custom"] } } }
+      await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+      await runNitroConfigHook(config)
+      expect(config.cloudflare.wrangler.compatibility_flags).toEqual(["custom"])
+    })
   })
 
   it("passes generated server Env to Wrangler while preserving an explicit alias", async () => {

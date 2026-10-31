@@ -1,6 +1,6 @@
 import { consoleD1Binding, consoleDatabaseUrl, resolveConsoleJournal, withDataDir, type ConsoleJournal } from "./storage-config.ts"
 import { readFileSync } from "node:fs"
-import { readFile } from "node:fs/promises"
+import { readFile, writeFile } from "node:fs/promises"
 import { findPackageJSON } from "node:module"
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -12,7 +12,6 @@ import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { resolveNuxtServerDirs, resolveViteHubProjectRoot, VITEHUB_APP_BASE_URL, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 import { removeViteHubDevServerFile, writeViteHubDevServerFile } from "@vite-hub/internal/cli"
 import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
-import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { nitroOptionalPeers } from "./internal/nitro-optional-peers.ts"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
 import { normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
@@ -83,15 +82,47 @@ function configuredProjectRootOption(value: unknown): string | undefined {
     : undefined
 }
 
-async function projectWranglerEnvAlias(rootDir: string): Promise<string | undefined> {
-  // Match Nitro's project-file discovery and parsing before adding our context-level default.
+/** The project's wrangler config, found and parsed the way Nitro's Cloudflare preset does. */
+async function readProjectWranglerConfig(rootDir: string): Promise<Record<string, unknown> | undefined> {
   const configPath = await findNearestFile(["wrangler.json", "wrangler.jsonc", "wrangler.toml"], { startingFrom: rootDir }).catch(() => undefined)
   if (!configPath) return undefined
   const text = await readFile(configPath, "utf8")
   const extension = extname(configPath)
   const config: unknown = extension === ".toml" ? parseTOML(text) : extension === ".jsonc" ? parseJSONC(text) : JSON.parse(text)
-  const alias = isRecord(config) && isRecord(config.alias) ? config.alias["#vitehub/env/server"] : undefined
+  return isRecord(config) ? config : undefined
+}
+
+async function projectWranglerEnvAlias(rootDir: string): Promise<string | undefined> {
+  const config = await readProjectWranglerConfig(rootDir)
+  const alias = isRecord(config?.alias) ? config.alias["#vitehub/env/server"] : undefined
   return typeof alias === "string" ? alias : undefined
+}
+
+const cloudflareNodeCompatModuleName = "vite-hub/cloudflare-node-compat"
+/** Nitro configs that hold our `nodejs_compat_v2` marker, so a later run of the Nitro config hook keeps it. */
+const markedNitroConfigs = new WeakSet<object>()
+
+/**
+ * Replaces the `nodejs_compat_v2` marker with `nodejs_compat` in the wrangler.json that Nitro's Cloudflare preset
+ * wrote, which also holds the project's flags. Wrangler refuses the two together, and before 2026-08-04 v2 alone leaves
+ * out Node modules such as `node:http` that `nodejs_compat` provides.
+ */
+const cloudflareNodeCompatModule = {
+  name: cloudflareNodeCompatModuleName,
+  setup(nitro: { hooks: { hook: (name: "compiled", callback: () => Promise<void>) => void }, options: { output: { serverDir: string } } }) {
+    nitro.hooks.hook("compiled", async () => {
+      const file = join(nitro.options.output.serverDir, "wrangler.json")
+      const text = await readFile(file, "utf8").catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return undefined
+        throw error
+      })
+      if (text === undefined) return
+      const wrangler: unknown = JSON.parse(text)
+      if (!isRecord(wrangler) || !Array.isArray(wrangler.compatibility_flags) || !wrangler.compatibility_flags.includes("nodejs_compat_v2")) return
+      const flags = [...new Set([...wrangler.compatibility_flags.filter(flag => flag !== "nodejs_compat_v2"), "nodejs_compat"])]
+      await writeFile(file, `${JSON.stringify({ ...wrangler, compatibility_flags: flags }, null, 2)}\n`)
+    })
+  },
 }
 
 function configuredScanDirs(value: unknown): string[] | undefined {
@@ -1497,12 +1528,19 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       }
       if (cloudflare.nodeCompat === true) {
         const wrangler = (cloudflare.wrangler ??= {}) as Record<string, unknown>
-        const flags = Array.isArray(wrangler.compatibility_flags) ? wrangler.compatibility_flags : []
-        // Nitro 2 otherwise adds no_nodejs_compat_v2, which disables native Node imports used by Workspaces.
-        // Wrangler refuses nodejs_compat next to nodejs_compat_v2; the default date enables the remaining Node APIs.
-        if (!flags.includes("no_nodejs_compat_v2")) {
-          wrangler.compatibility_flags = [...new Set([...flags.filter(flag => flag !== "nodejs_compat"), "nodejs_compat_v2"])]
-          config.compatibilityDate ??= { cloudflare: defaultCloudflareCompatibilityDate }
+        const flags: unknown[] = Array.isArray(wrangler.compatibility_flags) ? wrangler.compatibility_flags : []
+        const modules = Array.isArray(config.modules) ? config.modules : config.modules ? [config.modules] : []
+        const installed = modules.some(module => isRecord(module) && module.name === cloudflareNodeCompatModuleName)
+        const project = await readProjectWranglerConfig(typeof config.rootDir === "string" ? config.rootDir : rootDir)
+        const explicit = [...flags, ...(Array.isArray(project?.compatibility_flags) ? project.compatibility_flags : [])]
+        // An app that names nodejs_compat_v2 or no_nodejs_compat_v2 itself keeps its choice. Our own marker from an
+        // earlier run of this hook is not the app's choice.
+        if (markedNitroConfigs.has(config) || (!explicit.includes("nodejs_compat_v2") && !explicit.includes("no_nodejs_compat_v2"))) {
+          // Nitro 2 adds no_nodejs_compat_v2 unless it sees nodejs_compat_v2, and that disables native Node imports used by
+          // Workspaces. The marker stops it, and the module swaps it for nodejs_compat in the written wrangler.json.
+          wrangler.compatibility_flags = [...new Set([...flags, "nodejs_compat_v2"])]
+          markedNitroConfigs.add(config)
+          if (!installed) config.modules = [...modules, cloudflareNodeCompatModule]
         }
       }
     }
