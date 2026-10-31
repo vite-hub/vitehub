@@ -65,7 +65,7 @@ FIXTURE_R0001: The note is locked.
 Fix: Unlock it first.
 ```
 
-`structuredContent.error` has `code`, `message`, `fix`, and `details` for failures below status 500. A call to an unknown tool, or a message the server does not know, is a JSON-RPC error.
+`structuredContent.error` has `code`, `message`, `fix`, and `details` for failures below status 500. Server failures return `OPERATION_FAILED` with a generic message and omit provider diagnostics. A call to an unknown tool, or a message the server does not know, is a JSON-RPC error.
 
 An operation with `invoke: true`, such as `workflow.start`, `queue.send`, or `schedule.run`, is a tool only when [`console.invoke`](/docs/development/console) is on. That is the default in development and off in a production build.
 
@@ -79,6 +79,8 @@ Each ability is one tool, named after its operation. The agent reads the same da
 | `blob` | `blob_list`, `blob_head`, `blob_get`, `blob_media`, `blob_variants` | `blob_put`, `blob_del` |
 | `databases` | `databases_tables`, `databases_browse` | none |
 | `content` | `content_collections`, `content_list`, `content_resolve`, `content_show`, `content_status`, `content_diff`, `content_revisions`, `content_schedules`, `content_sitemap` | `content_save`, `content_restore`, `content_remove`, `content_publish`, `content_schedule`, `content_unschedule` |
+
+`content_save` requires `ifDigest`: the current draft digest from `content_show`, or explicit `null` to create a new document. A missing digest fails without saving, and a stale digest fails with a conflict.
 
 [Operations](/docs/development/operations#built-in-operations) lists the operations of the other sections. Their tools follow the same naming rule.
 

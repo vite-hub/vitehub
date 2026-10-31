@@ -83,4 +83,35 @@ describe("storage MCP tools", () => {
     expect(listed.result.structuredContent).toMatchObject({ blobs: [{ pathname: "a.txt", size: 3, contentType: "text/plain" }], hasMore: true })
     expect(JSON.stringify(listed.result)).not.toContain("https://secret.test")
   })
+
+  it.each(["kv", "blob"] as const)("masks %s provider failures", async (section) => {
+    installConsoleSections("/storage-mcp", [section])
+    installConsoleAccess({ mode: "open", authorize: () => ({ sections: [`${section}:read`] }) })
+    storage[section].list.mockResolvedValueOnce([{
+      code: section === "kv" ? "KV_OPERATION_FAILED" : "BLOB_OPERATION_FAILED",
+      message: "Provider request failed.",
+      cause: new Error("private-provider-diagnostic at https://storage.example.test/private"),
+    }, null])
+
+    const failed = (await rpc("tools/call", { name: `${section}_list`, arguments: {} })).result
+    expect(failed).toMatchObject({
+      isError: true,
+      structuredContent: { error: { code: "OPERATION_FAILED", message: `${section}.list failed on the server.` } },
+    })
+    expect(JSON.stringify(failed)).not.toContain("private-provider-diagnostic")
+    expect(JSON.stringify(failed)).not.toContain("storage.example.test")
+  })
+
+  it("masks every diagnostic field of a server failure", async () => {
+    installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["kv:read"] }) })
+    storage.kv.list.mockRejectedValueOnce(Object.assign(new Error("secret provider failure"), {
+      status: 502, code: "secret-code", details: { secret: 1 }, docs: "https://secret.test", fix: "Use secret credentials.",
+    }))
+    const failed = (await rpc("tools/call", { name: "kv_list", arguments: {} })).result
+    expect(failed).toEqual({
+      content: [{ type: "text", text: "OPERATION_FAILED: kv.list failed on the server." }],
+      isError: true,
+      structuredContent: { error: { code: "OPERATION_FAILED", message: "kv.list failed on the server." } },
+    })
+  })
 })
