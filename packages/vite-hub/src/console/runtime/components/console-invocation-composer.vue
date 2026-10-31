@@ -138,7 +138,7 @@ async function submit(message: { text: string; files?: readonly FileUIPart[] }):
           <template #submit="{ canSubmit }">
             <UButton
               aria-label="Start Agent"
-              class="console-invocation-composer__submit size-8 rounded-full transition-transform hover:scale-105 disabled:opacity-30 active:scale-[0.97]"
+              class="console-invocation-composer__submit size-8 rounded-full disabled:opacity-30"
               color="primary"
               icon="i-lucide-arrow-up"
               :disabled="!canSubmit"
