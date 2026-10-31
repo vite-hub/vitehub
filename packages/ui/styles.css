@@ -4,7 +4,8 @@
 @import "comark-chat/style.css";
 
 :root {
-  --vh-ui-radius: var(--ui-radius, 0.5rem);
+  /* Nuxt UI's --ui-radius is its smallest step (rounded-sm). Every radius here derives from rounded-lg, twice that step, so a part follows the app's --ui-radius. */
+  --vh-ui-radius: calc(var(--ui-radius, 0.25rem) * 2);
   --vh-ui-border: var(--ui-border, color-mix(in oklab, currentColor 14%, transparent));
   --vh-ui-muted: var(--ui-text-muted, color-mix(in oklab, currentColor 68%, transparent));
   --vh-ui-dimmed: var(--ui-text-muted, color-mix(in oklab, currentColor 68%, transparent));
@@ -130,8 +131,10 @@
   z-index: 2;
 }
 
-.vh-chat__scroll-button:hover {
-  color: var(--vh-ui-text);
+@media (hover: hover) {
+  .vh-chat__scroll-button:hover {
+    color: var(--vh-ui-text);
+  }
 }
 
 /* comark-chat draws message parts with the `--comark-*` tokens, so they take ViteHub's colors. */
@@ -235,7 +238,7 @@
   aspect-ratio: 4 / 3;
   background: var(--vh-ui-bg-elevated);
   border: 1px solid var(--vh-ui-border);
-  border-radius: 0.5rem;
+  border-radius: var(--vh-ui-radius);
   color: var(--vh-ui-muted);
   cursor: zoom-in;
   display: inline-flex;
@@ -325,7 +328,7 @@
 }
 
 .vh-image-dialog__image {
-  border-radius: 0.5rem;
+  border-radius: var(--vh-ui-radius);
   display: block;
   max-height: calc(92dvh - 3rem);
   max-width: 92vw;
@@ -334,7 +337,7 @@
 
 .vh-image-dialog__error {
   background: black;
-  border-radius: 0.5rem;
+  border-radius: var(--vh-ui-radius);
   color: white;
   font-size: 0.875rem;
   max-width: 24rem;
@@ -519,7 +522,7 @@
   appearance: none;
   background: transparent;
   border: 0;
-  border-radius: 0.375rem;
+  border-radius: calc(var(--vh-ui-radius) * 0.75);
   box-sizing: border-box;
   color: var(--vh-ui-muted);
   cursor: pointer;
@@ -1016,7 +1019,7 @@ button.vh-agent-tool-list__count:focus-visible {
 
   [data-slot="bubble-content"] {
     border: 1px solid transparent;
-    border-radius: 0.75rem;
+    border-radius: calc(var(--vh-ui-radius) * 1.5);
     font-size: 0.875rem;
     line-height: 1.625;
     max-width: 100%;
@@ -1051,8 +1054,11 @@ button.vh-agent-tool-list__count:focus-visible {
     color: var(--vh-ui-inverted);
   }
 
-  [data-slot="bubble"][data-variant="default"] > :is(a, button)[data-slot="bubble-content"]:hover {
-    background: color-mix(in oklab, var(--vh-ui-primary) 80%, transparent);
+  /* Hover colors apply only where a pointer can hover, so a tap on a touch screen does not leave them on, as on the primitive rail. */
+  @media (hover: hover) {
+    [data-slot="bubble"][data-variant="default"] > :is(a, button)[data-slot="bubble-content"]:hover {
+      background: color-mix(in oklab, var(--vh-ui-primary) 80%, transparent);
+    }
   }
 
   [data-slot="bubble"][data-variant="secondary"] > [data-slot="bubble-content"] {
@@ -1064,8 +1070,10 @@ button.vh-agent-tool-list__count:focus-visible {
     background: var(--vh-ui-bg-muted);
   }
 
-  [data-slot="bubble"]:is([data-variant="secondary"], [data-variant="muted"]) > :is(a, button)[data-slot="bubble-content"]:hover {
-    background: color-mix(in oklab, var(--vh-ui-bg-elevated), var(--vh-ui-highlighted) 5%);
+  @media (hover: hover) {
+    [data-slot="bubble"]:is([data-variant="secondary"], [data-variant="muted"]) > :is(a, button)[data-slot="bubble-content"]:hover {
+      background: color-mix(in oklab, var(--vh-ui-bg-elevated), var(--vh-ui-highlighted) 5%);
+    }
   }
 
   [data-slot="bubble"][data-variant="tinted"] > [data-slot="bubble-content"] {
@@ -1073,8 +1081,10 @@ button.vh-agent-tool-list__count:focus-visible {
     color: var(--vh-ui-highlighted);
   }
 
-  [data-slot="bubble"][data-variant="tinted"] > :is(a, button)[data-slot="bubble-content"]:hover {
-    background: color-mix(in oklab, var(--vh-ui-primary) 22%, var(--vh-ui-bg));
+  @media (hover: hover) {
+    [data-slot="bubble"][data-variant="tinted"] > :is(a, button)[data-slot="bubble-content"]:hover {
+      background: color-mix(in oklab, var(--vh-ui-primary) 22%, var(--vh-ui-bg));
+    }
   }
 
   [data-slot="bubble"][data-variant="outline"] > [data-slot="bubble-content"] {
@@ -1089,9 +1099,11 @@ button.vh-agent-tool-list__count:focus-visible {
     padding: 0;
   }
 
-  [data-slot="bubble"]:is([data-variant="outline"], [data-variant="ghost"]) > :is(a, button)[data-slot="bubble-content"]:hover {
-    background: var(--vh-ui-bg-elevated);
-    color: var(--vh-ui-highlighted);
+  @media (hover: hover) {
+    [data-slot="bubble"]:is([data-variant="outline"], [data-variant="ghost"]) > :is(a, button)[data-slot="bubble-content"]:hover {
+      background: var(--vh-ui-bg-elevated);
+      color: var(--vh-ui-highlighted);
+    }
   }
 
   [data-slot="bubble"][data-variant="destructive"] > [data-slot="bubble-content"] {
@@ -1099,8 +1111,10 @@ button.vh-agent-tool-list__count:focus-visible {
     color: var(--vh-ui-error);
   }
 
-  [data-slot="bubble"][data-variant="destructive"] > :is(a, button)[data-slot="bubble-content"]:hover {
-    background: color-mix(in oklab, var(--vh-ui-error) 20%, transparent);
+  @media (hover: hover) {
+    [data-slot="bubble"][data-variant="destructive"] > :is(a, button)[data-slot="bubble-content"]:hover {
+      background: color-mix(in oklab, var(--vh-ui-error) 20%, transparent);
+    }
   }
 
   [data-slot="bubble-reactions"] {
@@ -1169,8 +1183,10 @@ button.vh-agent-tool-list__count:focus-visible {
     text-underline-offset: 3px;
   }
 
-  :is(a[data-slot="marker"], [data-slot="marker-content"] > a):hover {
-    color: var(--vh-ui-highlighted);
+  @media (hover: hover) {
+    :is(a[data-slot="marker"], [data-slot="marker-content"] > a):hover {
+      color: var(--vh-ui-highlighted);
+    }
   }
 
   [data-slot="marker"][data-variant="separator"]::before,
@@ -1216,7 +1232,7 @@ button.vh-agent-tool-list__count:focus-visible {
   }
 
   [data-slot="trace"] > :has(> [data-slot="trace-line"]) {
-    border-radius: 0.375rem;
+    border-radius: calc(var(--vh-ui-radius) * 0.75);
     display: flex;
     max-width: 100%;
     min-width: 0;
@@ -1246,8 +1262,10 @@ button.vh-agent-tool-list__count:focus-visible {
     cursor: pointer;
   }
 
-  :is(a, button):hover [data-slot="trace-line"] {
-    color: var(--vh-ui-highlighted);
+  @media (hover: hover) {
+    :is(a, button):hover [data-slot="trace-line"] {
+      color: var(--vh-ui-highlighted);
+    }
   }
 
   [data-slot="trace-line"][data-status="error"],
@@ -1305,7 +1323,7 @@ button.vh-agent-tool-list__count:focus-visible {
     align-items: center;
     background: transparent;
     border: 0;
-    border-radius: 0.375rem;
+    border-radius: calc(var(--vh-ui-radius) * 0.75);
     color: var(--vh-ui-muted);
     cursor: pointer;
     display: flex;
@@ -1320,8 +1338,10 @@ button.vh-agent-tool-list__count:focus-visible {
     width: fit-content;
   }
 
-  [data-slot="trace-collapsible-trigger"]:hover {
-    color: var(--vh-ui-highlighted);
+  @media (hover: hover) {
+    [data-slot="trace-collapsible-trigger"]:hover {
+      color: var(--vh-ui-highlighted);
+    }
   }
 
   [data-slot="trace-collapsible-trigger"]:focus-visible {
@@ -1395,7 +1415,7 @@ button.vh-agent-tool-list__count:focus-visible {
   [data-slot="attachment"] {
     background: var(--vh-ui-bg);
     border: 1px solid var(--vh-ui-border);
-    border-radius: 0.75rem;
+    border-radius: calc(var(--vh-ui-radius) * 1.5);
     color: var(--vh-ui-text);
     display: flex;
     flex-shrink: 0;
@@ -1407,8 +1427,9 @@ button.vh-agent-tool-list__count:focus-visible {
     width: fit-content;
   }
 
-  [data-slot="attachment"]:focus-within {
-    box-shadow: 0 0 0 1px var(--vh-ui-ring);
+  /* The trigger covers the attachment and hides its own outline, so the attachment shows the ring of the other parts. */
+  [data-slot="attachment"]:has([data-slot="attachment-trigger"]:focus-visible) {
+    box-shadow: 0 0 0 3px var(--vh-ui-ring);
   }
 
   [data-slot="attachment"]:has(> a, > button):hover {
@@ -1452,7 +1473,7 @@ button.vh-agent-tool-list__count:focus-visible {
   }
 
   [data-slot="attachment"][data-size="xs"] {
-    border-radius: 0.5rem;
+    border-radius: var(--vh-ui-radius);
     font-size: 0.75rem;
     gap: 0.375rem;
     line-height: 1rem;
@@ -1484,7 +1505,7 @@ button.vh-agent-tool-list__count:focus-visible {
     align-items: center;
     aspect-ratio: 1;
     background: var(--vh-ui-bg-elevated);
-    border-radius: 0.5rem;
+    border-radius: var(--vh-ui-radius);
     color: var(--vh-ui-highlighted);
     display: flex;
     flex-shrink: 0;
@@ -1503,7 +1524,7 @@ button.vh-agent-tool-list__count:focus-visible {
   }
 
   [data-slot="attachment"][data-size="xs"] [data-slot="attachment-media"] {
-    border-radius: 0.375rem;
+    border-radius: calc(var(--vh-ui-radius) * 0.75);
     width: 1.75rem;
   }
 
@@ -1634,7 +1655,7 @@ button.vh-agent-tool-list__count:focus-visible {
 
   [data-slot="code-block"] {
     border: 1px solid var(--vh-ui-border);
-    border-radius: 0.5rem;
+    border-radius: var(--vh-ui-radius);
     color: var(--vh-ui-highlighted);
     display: flex;
     flex-direction: column;
@@ -1941,7 +1962,7 @@ button.vh-agent-tool-list__count:focus-visible {
     align-items: center;
     background: var(--vh-ui-bg);
     border: 1px solid var(--vh-ui-border);
-    border-radius: 0.5rem;
+    border-radius: var(--vh-ui-radius);
     bottom: 1rem;
     color: var(--vh-ui-highlighted);
     cursor: pointer;
@@ -1955,8 +1976,10 @@ button.vh-agent-tool-list__count:focus-visible {
     width: 2rem;
   }
 
-  [data-slot="message-scroller-button"]:hover {
-    background: var(--vh-ui-bg-elevated);
+  @media (hover: hover) {
+    [data-slot="message-scroller-button"]:hover {
+      background: var(--vh-ui-bg-elevated);
+    }
   }
 
   [data-slot="message-scroller-button"]:focus-visible {
@@ -1978,7 +2001,7 @@ button.vh-agent-tool-list__count:focus-visible {
   [data-slot="prompt-input-group"] {
     background: var(--vh-ui-bg);
     border: 1px solid var(--vh-ui-border);
-    border-radius: 1rem;
+    border-radius: calc(var(--vh-ui-radius) * 2);
     display: flex;
     flex-direction: column;
     min-width: 0;
@@ -2155,7 +2178,7 @@ button.vh-agent-tool-list__count:focus-visible {
   }
 
   .collaboration-carets__label {
-    border-radius: 0.25rem 0.25rem 0.25rem 0;
+    border-radius: calc(var(--vh-ui-radius) * 0.5) calc(var(--vh-ui-radius) * 0.5) calc(var(--vh-ui-radius) * 0.5) 0;
     color: #fff;
     font-size: 0.75rem;
     font-style: normal;
@@ -2264,7 +2287,7 @@ button.vh-agent-tool-list__count:focus-visible {
   [data-slot="comment-layer-popover"] {
     background: var(--vh-ui-bg);
     border: 1px solid var(--vh-ui-border);
-    border-radius: 0.75rem;
+    border-radius: calc(var(--vh-ui-radius) * 1.5);
     box-shadow: 0 8px 24px rgb(0 0 0 / 0.16);
     color: var(--vh-ui-text);
     font-size: 0.875rem;
@@ -2367,7 +2390,7 @@ button.vh-agent-tool-list__count:focus-visible {
   [data-slot="comment-composer-mentions"] {
     background: var(--vh-ui-bg);
     border: 1px solid var(--vh-ui-border);
-    border-radius: 0.5rem;
+    border-radius: var(--vh-ui-radius);
     box-shadow: 0 4px 16px rgb(0 0 0 / 0.12);
     left: 0;
     list-style: none;
@@ -2380,7 +2403,7 @@ button.vh-agent-tool-list__count:focus-visible {
   }
 
   [data-slot="comment-composer-mention"] {
-    border-radius: 0.375rem;
+    border-radius: calc(var(--vh-ui-radius) * 0.75);
     cursor: pointer;
     padding: 0.375rem 0.5rem;
   }

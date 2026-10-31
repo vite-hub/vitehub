@@ -5,13 +5,17 @@ import { useVirtualList } from "@vueuse/core";
 import { logPageSchema, logSourceInfoSchema } from "../../../logs/source";
 import type { LogEntry, LogSourceInfo } from "../../../logs/source";
 import { requestConsole } from "../client/request";
+import { consoleClockTime, exactTimestamps } from "../client/time";
 import ConsoleFrame from "./console-frame.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
+import ConsoleSearch from "./console-search.vue";
 import ConsoleSetupHint from "./console-setup-hint.vue";
 import ConsoleState from "./console-state.vue";
 
 const props = defineProps<{ logsBase: string; sectionsBase: string }>();
+// The rail's Search button and Cmd+K open the search of the page. Its API routes sit next to the sections route.
+const apiBase = props.sectionsBase.replace(/\/sections$/, "");
 const mode = ref("explorer");
 const text = ref("");
 const level = ref("all");
@@ -71,6 +75,10 @@ const docs = computed(() => {
     return undefined;
   }
 });
+function exactTitle(value: string): string | undefined {
+  const exact = exactTimestamps(value);
+  return exact && `${exact.local}\n${exact.utc}`;
+}
 function field(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
@@ -143,6 +151,7 @@ onBeforeUnmount(() => {
 
 <template>
   <ConsoleFrame active="logs" :sections-base="sectionsBase">
+    <ConsoleSearch :agents-base="`${apiBase}/agents`" :definitions-base="`${apiBase}/definitions`" :kv-base="`${apiBase}/kv`" :search-base="`${apiBase}/search`" :sections-base="sectionsBase" />
     <UDashboardPanel id="logs" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
       <ConsolePageHeader title="Logs" :description="source?.label" :toggle="false">
         <template #right>
@@ -233,10 +242,12 @@ onBeforeUnmount(() => {
                 :aria-pressed="selectedId === entry.id"
                 @click="selectedId = entry.id"
               >
+                <!-- Local time, as in the rest of the Console. The tooltip has the date in the local zone and in UTC. -->
                 <time
                   class="font-mono text-xs text-muted tabular-nums"
                   :datetime="entry.timestamp"
-                  >{{ entry.timestamp.slice(11, 23) }}</time
+                  :title="exactTitle(entry.timestamp)"
+                  >{{ consoleClockTime(entry.timestamp) }}</time
                 >
                 <span class="font-mono text-[11px] uppercase" :class="levelClass(entry.level)">{{
                   entry.level

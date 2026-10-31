@@ -1,4 +1,4 @@
-import { getViteHubMcpTools, registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
+import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { blobOperations } from "../../blob/src/operations.ts"
@@ -20,9 +20,6 @@ vi.mock("@vite-hub/blob", () => ({ blob: storage.blob }))
 vi.mock("@vite-hub/blob/runtime/state", () => ({
   getBlobRuntimeConfig: () => ({ stores: { default: { driver: "fs" }, archive: { driver: "fs" } } }),
 }))
-
-const context = { user: null }
-const tool = (name: string) => getViteHubMcpTools().find(tool => tool.name === name)!
 
 beforeEach(() => {
   vi.resetAllMocks()
@@ -56,82 +53,65 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe("storage MCP operation adapters", () => {
-  it("registers lazily and removes tools when the owner operations are uninstalled", () => {
-    expect(tool("kv_list_keys").annotations).toEqual({ readOnlyHint: true })
-    expect(tool("blob_list_objects").annotations).toEqual({ readOnlyHint: true })
-    expect(storage.kv.list).not.toHaveBeenCalled()
-    expect(storage.blob.list).not.toHaveBeenCalled()
-    installConsoleOperations([])
-    expect(tool("kv_list_keys")).toBeUndefined()
-    expect(tool("blob_list_objects")).toBeUndefined()
-  })
+describe("storage MCP tools", () => {
+  async function rpc(method: string, params?: Record<string, unknown>) {
+    const req = new Request("http://app.test/_vitehub/mcp", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) })
+    const response: unknown = await Reflect.apply(handler, undefined, [{ req, context: {} }])
+    if (!(response instanceof Response)) throw new TypeError("Expected a Response")
+    return Object(await response.json())
+  }
 
-  it("lists only KV keys using owner store selection, filtering, and pagination", async () => {
-    const list = tool("kv_list_keys")
-    expect((await list.call({ limit: 1 }, context)).structured).toEqual({ keys: ["a"], cursor: "1", limit: 1, prefix: "", store: "default", stores: ["default", "cache"] })
-    expect((await list.call({ limit: 1, cursor: "1" }, context)).structured).toMatchObject({ keys: ["b"] })
-    expect((await list.call({ prefix: "c" }, context)).structured).toMatchObject({ keys: ["c"], limit: 200 })
-    expect((await list.call({ store: "cache" }, context)).structured).toMatchObject({ keys: ["cached"], store: "cache" })
-    await expect(list.call({ store: "missing" }, context)).rejects.toThrow('KV store "missing" was not found.')
-    expect(storage.kv.get).not.toHaveBeenCalled()
-    expect(storage.kv.has).not.toHaveBeenCalled()
-    expect(storage.kv.set).not.toHaveBeenCalled()
-    expect(storage.kv.del).not.toHaveBeenCalled()
-  })
-
-  it("hides KV provider failures and makes expired cursors actionable", async () => {
-    const list = tool("kv_list_keys")
-    storage.kv.list.mockResolvedValue([Object.assign(new Error("provider secret"), { code: "KV_OPERATION_FAILED", cause: new Error("token") }), undefined])
-    expect(await list.call({}, context)).toEqual({ text: "KV listing failed.", isError: true })
-    storage.kv.list.mockResolvedValue([Object.assign(new Error("provider secret"), { code: "KV_INVALID_CURSOR" }), undefined])
-    expect(await list.call({ cursor: "expired" }, context)).toEqual({ text: "The cursor expired. List again without a cursor.", structured: { errorCode: "cursor_expired" }, isError: true })
-  })
-
-  it("returns only allowed Blob metadata while retaining owner pagination and hidden-path filtering", async () => {
-    const list = tool("blob_list_objects")
-    const first = await list.call({ limit: 1 }, context)
-    expect(first.structured).toEqual({ blobs: [{ pathname: "a.txt", size: 3, contentType: "text/plain", uploadedAt: "2026-10-01T00:00:00.000Z" }], cursor: "2", hasMore: true, limit: 1, prefix: "", store: "default", stores: ["default", "archive"] })
-    expect(first.text).not.toContain("secret")
-    expect((await list.call({ cursor: "2", limit: 1 }, context)).structured).toMatchObject({ blobs: [{ pathname: "b.txt" }], hasMore: false })
-    expect((await list.call({ store: "archive", prefix: "b" }, context)).structured).toMatchObject({ blobs: [{ pathname: "b.txt" }], limit: 100, store: "archive" })
-    await expect(list.call({ store: "missing" }, context)).rejects.toThrow('Blob store "missing" was not found.')
-    expect(storage.blob.get).not.toHaveBeenCalled()
-    expect(storage.blob.head).not.toHaveBeenCalled()
-    expect(storage.blob.put).not.toHaveBeenCalled()
-    expect(storage.blob.del).not.toHaveBeenCalled()
-  })
-
-  it.each(["kv_list_keys", "blob_list_objects"])("keeps %s bounded and rejects undeclared inputs", async name => {
-    const list = tool(name)
-    const maximum = name === "kv_list_keys" ? 500 : 250
-    for (const limit of [0, maximum + 1, 1.5, "1"]) await expect(list.call({ limit }, context)).rejects.toThrow("limit")
-    await expect(list.call({ prefix: {} }, context)).rejects.toThrow("Use only")
-    await expect(list.call({ showVitehub: true }, context)).rejects.toThrow("Use only")
-    expect(storage.kv.list).not.toHaveBeenCalled()
-    expect(storage.blob.list).not.toHaveBeenCalled()
-  })
-
-  it("keeps storage tools behind installed sections and read grants at the MCP route", async () => {
+  it("serves one tool per KV and Blob operation, behind read grants", async () => {
     registerViteHubMcpTools("comments", [])
-    registerViteHubMcpTools("console-database", [])
-    registerViteHubMcpTools("content", [])
     installConsoleSections("/storage-mcp", ["kv", "blob"])
     installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["kv:read"] }) })
-    async function rpc(method: string, params?: Record<string, unknown>) {
-      const req = new Request("http://app.test/_vitehub/mcp", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) })
-      const response: unknown = await Reflect.apply(handler, undefined, [{ req, context: {} }])
-      if (!(response instanceof Response)) throw new TypeError("Expected a Response")
-      return Object(await response.json())
-    }
     const names: string[] = (await rpc("tools/list")).result.tools.map((entry: { name: string }) => entry.name)
-    expect(names).toContain("kv_list_keys")
-    expect(names).not.toContain("blob_list_objects")
-    expect((await rpc("tools/call", { name: "kv_list_keys" })).result.structuredContent.keys).toEqual(["a", "b", "c"])
-    expect((await rpc("tools/call", { name: "blob_list_objects" })).error.code).toBe(-32602)
-    expect((await rpc("tools/call", { name: "kv_list_keys", arguments: { limit: 501 } })).error.code).toBe(-32602)
-    expect((await rpc("tools/call", { name: "kv_list_keys", arguments: { store: "missing" } })).result).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("was not found") }] })
+    expect(names.filter(name => name.startsWith("kv_")).sort()).toEqual(["kv_get", "kv_has", "kv_list"])
+    expect(names.filter(name => name.startsWith("blob_"))).toEqual([])
+    const listed = await rpc("tools/call", { name: "kv_list", arguments: { limit: 1 } })
+    expect(listed.result.structuredContent).toMatchObject({ keys: ["a"], cursor: "1" })
+    expect((await rpc("tools/call", { name: "kv_list", arguments: { store: "missing" } })).result).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("was not found") }] })
+    expect((await rpc("tools/call", { name: "kv_set", arguments: { key: "a", value: "b" } })).error.code).toBe(-32602)
+    expect(storage.kv.set).not.toHaveBeenCalled()
+  })
+
+  it("keeps the Blob list free of provider URLs and secrets", async () => {
+    registerViteHubMcpTools("comments", [])
     installConsoleSections("/storage-mcp", ["blob"])
-    expect((await rpc("tools/call", { name: "kv_list_keys" })).error.code).toBe(-32602)
+    installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["blob:read"] }) })
+    const listed = await rpc("tools/call", { name: "blob_list", arguments: { limit: 1 } })
+    expect(listed.result.structuredContent).toMatchObject({ blobs: [{ pathname: "a.txt", size: 3, contentType: "text/plain" }], hasMore: true })
+    expect(JSON.stringify(listed.result)).not.toContain("https://secret.test")
+  })
+
+  it.each(["kv", "blob"] as const)("masks %s provider failures", async (section) => {
+    installConsoleSections("/storage-mcp", [section])
+    installConsoleAccess({ mode: "open", authorize: () => ({ sections: [`${section}:read`] }) })
+    storage[section].list.mockResolvedValueOnce([{
+      code: section === "kv" ? "KV_OPERATION_FAILED" : "BLOB_OPERATION_FAILED",
+      message: "Provider request failed.",
+      cause: new Error("private-provider-diagnostic at https://storage.example.test/private"),
+    }, null])
+
+    const failed = (await rpc("tools/call", { name: `${section}_list`, arguments: {} })).result
+    expect(failed).toMatchObject({
+      isError: true,
+      structuredContent: { error: { code: "OPERATION_FAILED", message: `${section}.list failed on the server.` } },
+    })
+    expect(JSON.stringify(failed)).not.toContain("private-provider-diagnostic")
+    expect(JSON.stringify(failed)).not.toContain("storage.example.test")
+  })
+
+  it("masks every diagnostic field of a server failure", async () => {
+    installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["kv:read"] }) })
+    storage.kv.list.mockRejectedValueOnce(Object.assign(new Error("secret provider failure"), {
+      status: 502, code: "secret-code", details: { secret: 1 }, docs: "https://secret.test", fix: "Use secret credentials.",
+    }))
+    const failed = (await rpc("tools/call", { name: "kv_list", arguments: {} })).result
+    expect(failed).toEqual({
+      content: [{ type: "text", text: "OPERATION_FAILED: kv.list failed on the server." }],
+      isError: true,
+      structuredContent: { error: { code: "OPERATION_FAILED", message: "kv.list failed on the server." } },
+    })
   })
 })

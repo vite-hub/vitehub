@@ -485,7 +485,9 @@ function formatAxis(durationMs: number) {
 
 function formatMinutes(durationMs: number) {
   const totalSeconds = Math.round(durationMs / 1_000);
-  return `${Math.floor(totalSeconds / 60)}m ${totalSeconds % 60}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  if (minutes < 60) return `${minutes}m ${totalSeconds % 60}s`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
 function trim(value: number, digits: number) {

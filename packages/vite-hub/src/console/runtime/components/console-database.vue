@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import type { TableColumn } from "@nuxt/ui";
+import type { TableColumn, TableRow } from "@nuxt/ui";
 import { computed, h, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
-import type { ConsoleDatabaseRelationship, ConsoleDatabaseTable } from "./console-database-model";
+import type { ConsoleDatabaseCell, ConsoleDatabaseRelationship, ConsoleDatabaseTable } from "./console-database-model";
 import { requestConsole } from "../client/request";
 import { resolveConsoleRouteName } from "../console-route";
 import { rememberConsoleSection } from "../sections";
-import { consoleDatabaseRequestQuery, parseConsoleDatabase } from "./console-database-model";
+import { consoleDatabaseNumericColumns, consoleDatabaseRequestQuery, consoleDatabaseRowFields, parseConsoleDatabase } from "./console-database-model";
+import { useConsoleToast } from "../client/toast";
 import ConsoleFrame from "./console-frame.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
@@ -43,6 +44,9 @@ const offset = ref(0);
 const database = ref<ReturnType<typeof parseConsoleDatabase>>();
 const loading = ref(true);
 const error = ref<unknown>();
+/** The row open in the drawer. Grid cells cut long values, so the drawer shows each value in full. */
+const openRow = ref<Record<string, ConsoleDatabaseCell>>();
+const toast = useConsoleToast();
 let request: AbortController | undefined;
 let filterTimer: ReturnType<typeof setTimeout> | undefined;
 const defaultSort = "__vitehub_default__";
@@ -62,11 +66,14 @@ const selectedTable = computed(
     database.value?.tables.find((table) => table.name === routeTable.value) ??
     database.value?.tables[0],
 );
+// Numbers align right, so digits of the same place line up down the column.
+const numericColumns = computed(() => consoleDatabaseNumericColumns(database.value?.rows ?? []));
 // SQL NULL renders as a dimmed italic marker, so it does not look like the text "NULL".
 const columns = computed<TableColumn<Record<string, string | null>>[]>(() =>
   (selectedTable.value?.columns ?? []).map((column) => ({
     accessorKey: column.key,
     header: column.name,
+    ...(numericColumns.value.has(column.key) ? { meta: { class: { td: "text-right tabular-nums", th: "text-right" } } } : {}),
     cell: ({ getValue }) => {
       const value = getValue<string | null>();
       // Cells cut long values at 18rem. The title shows the whole value on hover.
@@ -84,6 +91,20 @@ const tableRows = computed(() =>
     ),
   ),
 );
+const rowFields = computed(() =>
+  openRow.value && selectedTable.value ? consoleDatabaseRowFields(selectedTable.value, openRow.value) : [],
+);
+// The primary key names the row. A row without one reads "Row".
+const rowTitle = computed(() => {
+  const key = rowFields.value.find((field) => field.column.primary && !field.null);
+  return key?.text ?? "Row";
+});
+const rowOpen = computed({
+  get: () => Boolean(openRow.value),
+  set: (open: boolean) => {
+    if (!open) openRow.value = undefined;
+  },
+});
 const databaseItems = computed(() =>
   (database.value?.databases ?? []).map((name) => ({ label: name, value: name })),
 );
@@ -163,6 +184,7 @@ function resetTableState(): void {
     clearTimeout(filterTimer);
     filterTimer = undefined;
   }
+  openRow.value = undefined;
   filter.value = "";
   appliedSearch.value = "";
   sort.value = "";
@@ -191,6 +213,7 @@ async function loadDatabase(): Promise<void> {
       }),
     );
     if (request !== controller) return;
+    openRow.value = undefined;
     database.value = value;
     error.value = undefined;
     if (props.view === "data") {
@@ -255,6 +278,19 @@ async function openSchema(): Promise<void> {
     name: resolveConsoleRouteName(route.name, schemaRouteName),
     params: { database: databaseName },
   });
+}
+
+function selectRow(_event: Event, row: TableRow<Record<string, string | null>>): void {
+  openRow.value = database.value?.rows[row.index];
+}
+
+async function copyValue(column: string, value: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(value);
+    toast.show({ title: `${column} copied` });
+  } catch {
+    toast.error(`Couldn't copy ${column}.`);
+  }
 }
 
 function applyFilter(): void {
@@ -431,18 +467,21 @@ onBeforeUnmount(() => {
           </div>
         </ConsolePageToolbar>
 
-        <div class="min-h-0 flex-1 overflow-auto">
+        <!-- UTable's root scrolls, so its sticky header stays in view. A scrolling wrapper would scroll the header away. -->
+        <div class="flex min-h-0 flex-1 flex-col">
           <UTable
             :columns="columns"
             :data="tableRows"
             :loading="loading"
             sticky="header"
+            :on-select="selectRow"
             :ui="{
+              root: 'min-h-0 flex-1',
               base: 'w-max min-w-full',
               thead: 'bg-default',
               th: 'whitespace-nowrap border-r border-default font-mono font-normal last:border-r-0',
               td: 'max-w-72 truncate whitespace-nowrap border-r border-default font-mono text-xs last:border-r-0',
-              tr: 'border-b border-default hover:bg-elevated/50',
+              tr: 'cursor-pointer border-b border-default outline-none hover:bg-elevated/50 focus-visible:bg-elevated/50 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary',
               empty: 'h-40 border-r-0 text-center text-[13px] text-muted',
             }"
           >
@@ -522,6 +561,45 @@ onBeforeUnmount(() => {
         </div>
       </main>
     </UDashboardPanel>
+    <USlideover
+      v-model:open="rowOpen"
+      :title="rowTitle"
+      :description="selectedTable ? `${selectedTable.name} · ${database?.database}` : undefined"
+      :ui="{ content: 'sm:max-w-xl', title: 'truncate font-mono text-sm', description: 'font-mono text-xs' }"
+    >
+      <template #body>
+        <dl class="divide-y divide-default border-b border-default">
+          <div v-for="field in rowFields" :key="field.column.key" class="group grid gap-1 py-2.5 sm:grid-cols-[minmax(0,9rem)_minmax(0,1fr)] sm:gap-4">
+            <dt class="grid min-w-0 content-start gap-0.5">
+              <span class="flex min-w-0 items-center gap-1.5 font-mono text-xs text-toned">
+                <span class="truncate" :title="field.column.name">{{ field.column.name }}</span>
+                <UIcon v-if="field.column.primary" name="i-lucide-key-round" class="size-3 shrink-0 text-dimmed" aria-label="Primary key" />
+                <UIcon v-else-if="field.column.foreignKey" name="i-lucide-link" class="size-3 shrink-0 text-dimmed" :aria-label="`References ${field.column.foreignKey.table}`" />
+              </span>
+              <span class="font-mono text-xs text-dimmed">{{ field.column.type }}</span>
+            </dt>
+            <dd class="flex min-w-0 items-start gap-2">
+              <span v-if="field.null" class="flex-1 font-mono text-xs leading-5 italic text-dimmed">NULL</span>
+              <div v-else class="grid min-w-0 flex-1 gap-1">
+                <pre class="whitespace-pre-wrap break-words font-mono text-xs leading-5 text-highlighted">{{ field.text }}</pre>
+                <p v-if="field.truncated" class="text-xs text-muted">The Console shows only the start of this value.</p>
+              </div>
+              <UTooltip v-if="!field.null" text="Copy">
+                <UButton
+                  class="-my-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
+                  :aria-label="`Copy ${field.column.name}`"
+                  color="neutral"
+                  icon="i-lucide-copy"
+                  size="xs"
+                  variant="ghost"
+                  @click="copyValue(field.column.name, field.text)"
+                />
+              </UTooltip>
+            </dd>
+          </div>
+        </dl>
+      </template>
+    </USlideover>
   </ConsoleFrame>
 </template>
 
