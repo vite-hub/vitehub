@@ -2,6 +2,7 @@
 import { mount } from "@vue/test-utils"
 import { describe, expect, it, vi } from "vitest"
 import type { Editor } from "@tiptap/core"
+import type { DefineComponent } from "vue"
 
 vi.mock("@nuxt/ui/utils/editor", () => ({ createHandlers: () => ({}), mapEditorItems: () => [] }))
 vi.mock("../src/console/runtime/components/console-comark-component.vue", () => ({ default: {} }))
@@ -11,7 +12,10 @@ import MarkdownEditor from "../src/console/runtime/components/console-markdown-e
 
 describe("Console Markdown loads", () => {
   it.each([false, true])("keeps a load out of undo history (Source reload: %s)", async (reload) => {
-    const wrapper = mount({ ...MarkdownEditor, render: () => null }, {
+    // The `.vue` module shim types every component without props, so name the props this test sets.
+    type EditorComponent = DefineComponent<{ active?: boolean, collection: string, modelValue: string }>
+    const headless = { ...MarkdownEditor, render: () => null }
+    const wrapper = mount<typeof headless, EditorComponent>(headless, {
       props: { active: true, collection: "posts", modelValue: "Initial body." },
     })
     try {
