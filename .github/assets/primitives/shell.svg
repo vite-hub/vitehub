@@ -1,104 +1,73 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" class="primitive-motion is-playing" style="--cycle: 5000ms; --scene-delay: -2200ms">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" fill="currentColor" shape-rendering="crispEdges" class="primitive-motion is-playing" style="--cycle: 4400ms; --scene-delay: -1936ms">
 <style>
 svg { color: #59636e; --ui-bg: #ffffff; }
 @media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
 .primitive-motion {
-  --ease-move: cubic-bezier(0.65, 0, 0.35, 1);
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   overflow: visible;
 }
-.line,
-.ink-line,
-.card {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.line {
+.primitive-motion .line,
+.primitive-motion .job,
+.primitive-motion .command,
+.primitive-motion .budget {
   opacity: 0.55;
 }
-.ink-line {
-  opacity: 0.85;
-}
-.soft,
-.job,
-.command,
-.budget,
-.ink,
-.token,
-.band,
-.pointer {
-  fill: currentColor;
-}
-.soft {
+.primitive-motion .soft {
   opacity: 0.35;
 }
-.job,
-.command,
-.budget {
-  opacity: 0.55;
-}
-.ink,
-.token,
-.pointer {
+.primitive-motion .ink,
+.primitive-motion .token,
+.primitive-motion .pointer {
   opacity: 0.85;
 }
-.a {
+.primitive-motion .a {
   animation-duration: var(--cycle);
   animation-delay: var(--scene-delay);
   animation-iteration-count: infinite;
   animation-fill-mode: both;
-  animation-timing-function: var(--ease-move);
+  animation-timing-function: steps(3);
 }
 .primitive-motion:not(.is-playing) .a {
   animation-play-state: paused;
 }
-.wf-rail-1,
-.wf-rail-2,
-.sh-command,
-.ws-file,
-.blob-progress {
+.primitive-motion .wf-rail-1,
+.primitive-motion .wf-rail-2,
+.primitive-motion .sh-command,
+.primitive-motion .ws-file,
+.primitive-motion .blob-progress {
   transform-box: fill-box;
   transform-origin: left center;
 }
-.sh-command { animation-name: sh-command; }
-.sh-cursor { animation-name: sh-cursor; }
-.sh-output-1 { animation-name: sh-output-1; }
-.sh-output-2 { animation-name: sh-output-2; }
+.primitive-motion .sh-command { animation-name: sh-command; }
+.primitive-motion .sh-cursor { animation-name: sh-cursor; }
+.primitive-motion .sh-output-1 { animation-name: sh-output-1; }
+.primitive-motion .sh-output-2 { animation-name: sh-output-2; }
 @media (prefers-reduced-motion: reduce) {
-  .a {
+  .primitive-motion .a {
     animation: none;
   }
 }
 @keyframes sh-command {
   0% { opacity: 0.55; transform: scaleX(1); }
   4% { opacity: 0; transform: scaleX(1); }
-  5%, 8% { opacity: 0.55; transform: scaleX(0); animation-timing-function: steps(6, end); }
+  5%, 8% { opacity: 0.55; transform: scaleX(0); animation-timing-function: steps(10); }
   36%, 100% { opacity: 0.55; transform: scaleX(1); }
 }
 @keyframes sh-cursor {
   0% { opacity: 0.85; transform: translateX(0); }
   4% { opacity: 0; transform: translateX(0); }
-  5%, 8% { opacity: 0.85; transform: translateX(-21px); animation-timing-function: steps(6, end); }
+  5%, 8% { opacity: 0.85; transform: translateX(-20px); animation-timing-function: steps(10); }
   36%, 100% { opacity: 0.85; transform: translateX(0); }
 }
 @keyframes sh-output-1 {
   0% { opacity: 0.35; transform: translateY(0); }
-  4%, 40% { opacity: 0; transform: translateY(2px); animation-timing-function: var(--ease-out); }
+  4%, 40% { opacity: 0; transform: translateY(2px); }
   48%, 100% { opacity: 0.35; transform: translateY(0); }
 }
 @keyframes sh-output-2 {
   0% { opacity: 0.35; transform: translateY(0); }
-  4%, 46% { opacity: 0; transform: translateY(2px); animation-timing-function: var(--ease-out); }
+  4%, 46% { opacity: 0; transform: translateY(2px); }
   54%, 100% { opacity: 0.35; transform: translateY(0); }
 }
 </style>
-      <rect x="6" y="6" width="52" height="28" rx="2.5" class="line" />
-      <path d="m11 12.5 3 2.5-3 2.5" class="ink-line" />
-      <rect x="17" y="13.5" width="20" height="3" rx="1" class="command a sh-command" />
-      <rect x="38" y="12.5" width="2" height="5" class="ink a sh-cursor" />
-      <rect x="11" y="22" width="32" height="2.5" rx="1" class="soft a sh-output-1" />
-      <rect x="11" y="27" width="22" height="2.5" rx="1" class="soft a sh-output-2" />
+<path class="line" d="M2 6h48v2h-48zM0 8h2v2h-2zM50 8h2v2h-2zM0 10h2v2h-2zM50 10h2v2h-2zM0 12h2v2h-2zM50 12h2v2h-2zM0 14h2v2h-2zM50 14h2v2h-2zM0 16h2v2h-2zM50 16h2v2h-2zM0 18h2v2h-2zM50 18h2v2h-2zM0 20h2v2h-2zM50 20h2v2h-2zM0 22h2v2h-2zM50 22h2v2h-2zM0 24h2v2h-2zM50 24h2v2h-2zM0 26h2v2h-2zM50 26h2v2h-2zM0 28h2v2h-2zM50 28h2v2h-2zM0 30h2v2h-2zM50 30h2v2h-2zM2 32h48v2h-48z"/><path class="ink" d="M4 12h2v2h-2zM6 14h2v2h-2zM4 16h2v2h-2z"/><path class="command a sh-command" d="M12 14h20v2h-20z"/><path class="ink a sh-cursor" d="M32 12h2v2h-2zM32 14h2v2h-2zM32 16h2v2h-2z"/><path class="soft a sh-output-1" d="M4 22h32v2h-32z"/><path class="soft a sh-output-2" d="M4 26h22v2h-22z"/>
 </svg>

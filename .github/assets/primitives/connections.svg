@@ -1,78 +1,60 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" class="primitive-motion is-playing" style="--cycle: 6000ms; --scene-delay: -5760ms">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" fill="currentColor" shape-rendering="crispEdges" class="primitive-motion is-playing" style="--cycle: 6000ms; --scene-delay: -5760ms">
 <style>
 svg { color: #59636e; --ui-bg: #ffffff; }
 @media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
 .primitive-motion {
-  --ease-move: cubic-bezier(0.65, 0, 0.35, 1);
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   overflow: visible;
 }
-.line,
-.ink-line,
-.card {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.line {
+.primitive-motion .line,
+.primitive-motion .job,
+.primitive-motion .command,
+.primitive-motion .budget {
   opacity: 0.55;
 }
-.link {
+.primitive-motion .link {
   opacity: 0.4;
 }
-.soft,
-.job,
-.command,
-.budget,
-.ink,
-.token,
-.band,
-.pointer {
-  fill: currentColor;
-}
-.soft {
+.primitive-motion .soft {
   opacity: 0.35;
 }
-.ink,
-.token,
-.pointer {
+.primitive-motion .ink,
+.primitive-motion .token,
+.primitive-motion .pointer {
   opacity: 0.85;
 }
-.token,
-.band,
-.ghost,
-.q-in,
-.blob-next {
+.primitive-motion .token,
+.primitive-motion .band,
+.primitive-motion .ghost,
+.primitive-motion .q-in,
+.primitive-motion .blob-next {
   opacity: 0;
 }
-.a {
+.primitive-motion .a {
   animation-duration: var(--cycle);
   animation-delay: var(--scene-delay);
   animation-iteration-count: infinite;
   animation-fill-mode: both;
-  animation-timing-function: var(--ease-move);
+  animation-timing-function: steps(3);
 }
 .primitive-motion:not(.is-playing) .a {
   animation-play-state: paused;
 }
-.conn-call-1 { animation-name: conn-call-1; }
-.conn-call-2 { animation-name: conn-call-2; }
-.conn-call-3 { animation-name: conn-call-3; }
-.conn-service-1 { animation-name: conn-service-1; }
-.conn-service-2 { animation-name: conn-service-2; }
-.conn-service-3 { animation-name: conn-service-3; }
+.primitive-motion .conn-call-1 { animation-name: conn-call-1; }
+.primitive-motion .conn-call-2 { animation-name: conn-call-2; }
+.primitive-motion .conn-call-3 { animation-name: conn-call-3; }
+.primitive-motion .conn-service-1 { animation-name: conn-service-1; }
+.primitive-motion .conn-service-2 { animation-name: conn-service-2; }
+.primitive-motion .conn-service-3 { animation-name: conn-service-3; }
 @media (prefers-reduced-motion: reduce) {
-  .a {
+  .primitive-motion .a {
     animation: none;
   }
 }
 @keyframes conn-call-1 {
   0%, 4% { opacity: 0; transform: translate(0, 0); }
-  7% { opacity: 0.85; transform: translate(0, 0); }
-  20% { opacity: 0.85; transform: translate(21px, -7.5px); }
-  23%, 100% { opacity: 0; transform: translate(23px, -8.2px); }
+  7% { opacity: 0.85; transform: translate(0, 0); animation-timing-function: steps(4); }
+  20% { opacity: 0.85; transform: translate(16px, -8px); }
+  23%, 100% { opacity: 0; transform: translate(16px, -8px); }
 }
 @keyframes conn-service-1 {
   0%, 19% { opacity: 0.35; }
@@ -81,9 +63,9 @@ svg { color: #59636e; --ui-bg: #ffffff; }
 }
 @keyframes conn-call-3 {
   0%, 36% { opacity: 0; transform: translate(0, 0); }
-  39% { opacity: 0.85; transform: translate(0, 0); }
-  52% { opacity: 0.85; transform: translate(21px, 7.5px); }
-  55%, 100% { opacity: 0; transform: translate(23px, 8.2px); }
+  39% { opacity: 0.85; transform: translate(0, 0); animation-timing-function: steps(4); }
+  52% { opacity: 0.85; transform: translate(16px, 8px); }
+  55%, 100% { opacity: 0; transform: translate(16px, 8px); }
 }
 @keyframes conn-service-3 {
   0%, 51% { opacity: 0.35; }
@@ -92,9 +74,9 @@ svg { color: #59636e; --ui-bg: #ffffff; }
 }
 @keyframes conn-call-2 {
   0%, 68% { opacity: 0; transform: translateX(0); }
-  71% { opacity: 0.85; transform: translateX(0); }
-  84% { opacity: 0.85; transform: translateX(21px); }
-  87%, 100% { opacity: 0; transform: translateX(23px); }
+  71% { opacity: 0.85; transform: translateX(0); animation-timing-function: steps(10); }
+  84% { opacity: 0.85; transform: translateX(20px); }
+  87%, 100% { opacity: 0; transform: translateX(20px); }
 }
 @keyframes conn-service-2 {
   0%, 83% { opacity: 0.35; }
@@ -102,16 +84,5 @@ svg { color: #59636e; --ui-bg: #ffffff; }
   100% { opacity: 0.35; }
 }
 </style>
-      <path d="M18 18 42 9.5M18 20h24M18 22l24 8.5" class="line link" />
-      <rect x="6" y="14" width="12" height="12" rx="2.5" class="line" />
-      <rect x="10" y="18" width="4" height="4" rx="1" class="soft" />
-      <circle cx="46" cy="9" r="4" class="line" />
-      <circle cx="46" cy="20" r="4" class="line" />
-      <circle cx="46" cy="31" r="4" class="line" />
-      <circle cx="46" cy="9" r="1.5" class="soft a conn-service-1" />
-      <circle cx="46" cy="20" r="1.5" class="soft a conn-service-2" />
-      <circle cx="46" cy="31" r="1.5" class="soft a conn-service-3" />
-      <circle cx="18" cy="18" r="1.75" class="token a conn-call-1" />
-      <circle cx="18" cy="20" r="1.75" class="token a conn-call-2" />
-      <circle cx="18" cy="22" r="1.75" class="token a conn-call-3" />
+<path class="link" d="M28 8h8v2h-8zM24 10h4v2h-4zM20 12h4v2h-4zM16 14h4v2h-4zM14 16h2v2h-2zM14 20h22v2h-22zM14 24h2v2h-2zM16 26h4v2h-4zM20 28h4v2h-4zM24 30h4v2h-4zM28 32h8v2h-8z"/><path class="line" d="M38 4h6v2h-6zM36 6h2v2h-2zM44 6h2v2h-2zM36 8h2v2h-2zM44 8h2v2h-2zM36 10h2v2h-2zM44 10h2v2h-2zM38 12h6v2h-6zM2 14h10v2h-10zM0 16h2v2h-2zM12 16h2v2h-2zM38 16h6v2h-6zM0 18h2v2h-2zM12 18h2v2h-2zM36 18h2v2h-2zM44 18h2v2h-2zM0 20h2v2h-2zM12 20h2v2h-2zM36 20h2v2h-2zM44 20h2v2h-2zM0 22h2v2h-2zM12 22h2v2h-2zM36 22h2v2h-2zM44 22h2v2h-2zM0 24h2v2h-2zM12 24h2v2h-2zM38 24h6v2h-6zM2 26h10v2h-10zM38 28h6v2h-6zM36 30h2v2h-2zM44 30h2v2h-2zM36 32h2v2h-2zM44 32h2v2h-2zM36 34h2v2h-2zM44 34h2v2h-2zM38 36h6v2h-6z"/><path class="soft" d="M4 18h6v2h-6zM4 20h6v2h-6zM4 22h6v2h-6z"/><path class="soft a conn-service-1" d="M40 8h2v2h-2z"/><path class="soft a conn-service-2" d="M40 20h2v2h-2z"/><path class="soft a conn-service-3" d="M40 32h2v2h-2z"/><path class="token a conn-call-1" d="M12 14h4v2h-4zM12 16h4v2h-4z"/><path class="token a conn-call-2" d="M12 18h4v2h-4zM12 20h4v2h-4z"/><path class="token a conn-call-3" d="M12 22h4v2h-4zM12 24h4v2h-4z"/>
 </svg>

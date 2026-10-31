@@ -1,46 +1,24 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" class="primitive-motion is-playing" style="--cycle: 5000ms; --scene-delay: 0ms">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" fill="currentColor" shape-rendering="crispEdges" class="primitive-motion is-playing" style="--cycle: 5000ms; --scene-delay: 0ms">
 <style>
 svg { color: #59636e; --ui-bg: #ffffff; }
 @media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
 .primitive-motion {
-  --ease-move: cubic-bezier(0.65, 0, 0.35, 1);
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   overflow: visible;
 }
-.line,
-.ink-line,
-.card {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.line {
+.primitive-motion .line,
+.primitive-motion .job,
+.primitive-motion .command,
+.primitive-motion .budget {
   opacity: 0.55;
 }
-.soft,
-.job,
-.command,
-.budget,
-.ink,
-.token,
-.band,
-.pointer {
-  fill: currentColor;
-}
-.soft {
+.primitive-motion .soft {
   opacity: 0.35;
 }
 @media (prefers-reduced-motion: reduce) {
-  .a {
+  .primitive-motion .a {
     animation: none;
   }
 }
 </style>
-      <rect x="6" y="7" width="46" height="27" rx="2" class="line" />
-      <path d="M35 7v27" class="line" />
-      <path d="M11 14h4m4 0h11M11 20h4m4 0h11M11 26h4m4 0h11" class="line" />
-      <rect x="9" y="17" width="24" height="6" rx="1" class="soft" />
-      <path d="M39 13h8m-8 5h6m-6 5h8m-8 5h5" class="line" />
+<path class="line" d="M2 6h42v2h-42zM0 8h2v2h-2zM28 8h2v2h-2zM44 8h2v2h-2zM0 10h2v2h-2zM28 10h2v2h-2zM44 10h2v2h-2zM0 12h2v2h-2zM28 12h2v2h-2zM44 12h2v2h-2zM0 14h2v2h-2zM28 14h2v2h-2zM44 14h2v2h-2zM0 16h2v2h-2zM28 16h2v2h-2zM44 16h2v2h-2zM0 18h2v2h-2zM28 18h2v2h-2zM44 18h2v2h-2zM0 20h2v2h-2zM28 20h2v2h-2zM44 20h2v2h-2zM0 22h2v2h-2zM28 22h2v2h-2zM44 22h2v2h-2zM0 24h2v2h-2zM28 24h2v2h-2zM44 24h2v2h-2zM0 26h2v2h-2zM28 26h2v2h-2zM44 26h2v2h-2zM0 28h2v2h-2zM28 28h2v2h-2zM44 28h2v2h-2zM0 30h2v2h-2zM28 30h2v2h-2zM44 30h2v2h-2zM2 32h42v2h-42z"/><path class="line" d="M4 12h4v2h-4zM10 12h14v2h-14zM4 18h4v2h-4zM10 18h14v2h-14zM4 24h4v2h-4zM10 24h14v2h-14z"/><path class="soft" d="M2 16h26v2h-26zM2 18h26v2h-26zM2 20h26v2h-26z"/><path class="line" d="M32 12h8v2h-8zM32 16h6v2h-6zM32 20h8v2h-8zM32 24h4v2h-4z"/>
 </svg>

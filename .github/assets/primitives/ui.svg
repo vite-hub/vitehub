@@ -1,76 +1,59 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" class="primitive-motion is-playing" style="--cycle: 5000ms; --scene-delay: -3850ms">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" fill="currentColor" shape-rendering="crispEdges" class="primitive-motion is-playing" style="--cycle: 5000ms; --scene-delay: -3850ms">
 <style>
 svg { color: #59636e; --ui-bg: #ffffff; }
 @media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
 .primitive-motion {
-  --ease-move: cubic-bezier(0.65, 0, 0.35, 1);
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   overflow: visible;
 }
-.line,
-.ink-line,
-.card {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.line {
+.primitive-motion .line,
+.primitive-motion .job,
+.primitive-motion .command,
+.primitive-motion .budget {
   opacity: 0.55;
 }
-.soft,
-.job,
-.command,
-.budget,
-.ink,
-.token,
-.band,
-.pointer {
-  fill: currentColor;
-}
-.soft {
+.primitive-motion .soft {
   opacity: 0.35;
 }
-.job,
-.command,
-.budget {
-  opacity: 0.55;
-}
-.ink,
-.token,
-.pointer {
+.primitive-motion .ink,
+.primitive-motion .token,
+.primitive-motion .pointer {
   opacity: 0.85;
 }
-.token,
-.band,
-.ghost,
-.q-in,
-.blob-next {
+.primitive-motion .token,
+.primitive-motion .band,
+.primitive-motion .ghost,
+.primitive-motion .q-in,
+.primitive-motion .blob-next {
   opacity: 0;
 }
-.a {
+.primitive-motion .a {
   animation-duration: var(--cycle);
   animation-delay: var(--scene-delay);
   animation-iteration-count: infinite;
   animation-fill-mode: both;
-  animation-timing-function: var(--ease-move);
+  animation-timing-function: steps(3);
 }
 .primitive-motion:not(.is-playing) .a {
   animation-play-state: paused;
 }
+.primitive-motion .ui-token { animation-name: ui-token; }
+.primitive-motion .ui-panel { animation-name: ui-panel; }
 @media (prefers-reduced-motion: reduce) {
-  .a {
+  .primitive-motion .a {
     animation: none;
   }
 }
+@keyframes ui-token {
+  0%, 10% { opacity: 0; transform: translateX(0); }
+  14% { opacity: 0.85; transform: translateX(0); animation-timing-function: steps(4); }
+  30% { opacity: 0.85; transform: translateX(-8px); }
+  34%, 100% { opacity: 0; transform: translateX(-8px); }
+}
+@keyframes ui-panel {
+  0%, 30% { opacity: 0.35; }
+  36%, 60% { opacity: 0.8; }
+  72%, 100% { opacity: 0.35; }
+}
 </style>
-      <rect x="6" y="7" width="42" height="26" rx="2" class="line" />
-      <path d="M6 13h42" class="line" />
-      <circle cx="10" cy="10" r="1" class="command" />
-      <circle cx="14" cy="10" r="1" class="command" />
-      <rect x="11" y="18" width="19" height="2.5" rx="1" class="soft" />
-      <rect x="11" y="23" width="13" height="2.5" rx="1" class="soft" />
-      <rect x="36" y="18" width="7" height="8" rx="1.5" class="soft a ui-panel" />
-      <circle cx="52" cy="20" r="2" class="token a ui-token" />
+<path class="line" d="M2 6h38v2h-38zM0 8h2v2h-2zM40 8h2v2h-2zM0 10h2v2h-2zM40 10h2v2h-2zM0 12h42v2h-42zM0 14h2v2h-2zM40 14h2v2h-2zM0 16h2v2h-2zM40 16h2v2h-2zM0 18h2v2h-2zM40 18h2v2h-2zM0 20h2v2h-2zM40 20h2v2h-2zM0 22h2v2h-2zM40 22h2v2h-2zM0 24h2v2h-2zM40 24h2v2h-2zM0 26h2v2h-2zM40 26h2v2h-2zM0 28h2v2h-2zM40 28h2v2h-2zM0 30h2v2h-2zM40 30h2v2h-2zM2 32h38v2h-38z"/><path class="command" d="M4 8h2v2h-2zM8 8h2v2h-2z"/><path class="soft" d="M6 18h18v2h-18zM6 22h12v2h-12z"/><path class="soft a ui-panel" d="M30 18h8v2h-8zM30 20h8v2h-8zM30 22h8v2h-8zM30 24h8v2h-8z"/><path class="token a ui-token" d="M46 20h4v2h-4zM46 22h4v2h-4z"/>
 </svg>

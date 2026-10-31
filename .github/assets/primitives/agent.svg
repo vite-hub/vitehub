@@ -1,87 +1,61 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" class="primitive-motion is-playing" style="--cycle: 6000ms; --scene-delay: -2400ms">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" fill="currentColor" shape-rendering="crispEdges" class="primitive-motion is-playing" style="--cycle: 6000ms; --scene-delay: -2400ms">
 <style>
 svg { color: #59636e; --ui-bg: #ffffff; }
 @media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
 .primitive-motion {
-  --ease-move: cubic-bezier(0.65, 0, 0.35, 1);
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   overflow: visible;
 }
-.line,
-.ink-line,
-.card {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.line {
+.primitive-motion .line,
+.primitive-motion .job,
+.primitive-motion .command,
+.primitive-motion .budget {
   opacity: 0.55;
 }
-.link {
+.primitive-motion .link {
   opacity: 0.4;
 }
-.soft,
-.job,
-.command,
-.budget,
-.ink,
-.token,
-.band,
-.pointer {
-  fill: currentColor;
-}
-.soft {
+.primitive-motion .soft {
   opacity: 0.35;
 }
-.ink,
-.token,
-.pointer {
+.primitive-motion .ink,
+.primitive-motion .token,
+.primitive-motion .pointer {
   opacity: 0.85;
 }
-.token,
-.band,
-.ghost,
-.q-in,
-.blob-next {
+.primitive-motion .token,
+.primitive-motion .band,
+.primitive-motion .ghost,
+.primitive-motion .q-in,
+.primitive-motion .blob-next {
   opacity: 0;
 }
-.a {
+.primitive-motion .a {
   animation-duration: var(--cycle);
   animation-delay: var(--scene-delay);
   animation-iteration-count: infinite;
   animation-fill-mode: both;
-  animation-timing-function: var(--ease-move);
+  animation-timing-function: steps(3);
 }
 .primitive-motion:not(.is-playing) .a {
   animation-play-state: paused;
 }
-.ag-call { animation-name: ag-call; }
-.ag-run { animation-name: ag-run; }
-.ag-call-1 { animation-name: ag-call-1; }
-.ag-call-2 { animation-name: ag-call-2; }
-.ag-call-3 { animation-name: ag-call-3; }
-.ag-tool-1 { animation-name: ag-tool-1; }
-.ag-tool-2 { animation-name: ag-tool-2; }
-.ag-tool-3 { animation-name: ag-tool-3; }
-.ag-call { animation-name: ag-call; }
-.ag-run { animation-name: ag-run; }
-.ag-call-1 { animation-name: ag-call-1; }
-.ag-call-2 { animation-name: ag-call-2; }
-.ag-call-3 { animation-name: ag-call-3; }
-.ag-tool-1 { animation-name: ag-tool-1; }
-.ag-tool-2 { animation-name: ag-tool-2; }
-.ag-tool-3 { animation-name: ag-tool-3; }
+.primitive-motion .ag-call { animation-name: ag-call; }
+.primitive-motion .ag-run { animation-name: ag-run; }
+.primitive-motion .ag-call-1 { animation-name: ag-call-1; }
+.primitive-motion .ag-call-2 { animation-name: ag-call-2; }
+.primitive-motion .ag-call-3 { animation-name: ag-call-3; }
+.primitive-motion .ag-tool-1 { animation-name: ag-tool-1; }
+.primitive-motion .ag-tool-2 { animation-name: ag-tool-2; }
+.primitive-motion .ag-tool-3 { animation-name: ag-tool-3; }
 @media (prefers-reduced-motion: reduce) {
-  .a {
+  .primitive-motion .a {
     animation: none;
   }
 }
 @keyframes ag-call {
   0%, 4% { opacity: 0; transform: translateX(0); }
-  7% { opacity: 0.85; transform: translateX(0); }
-  16% { opacity: 0.85; transform: translateX(5px); }
+  7% { opacity: 0.85; transform: translateX(0); animation-timing-function: steps(3); }
+  16% { opacity: 0.85; transform: translateX(6px); }
   19%, 100% { opacity: 0; transform: translateX(6px); }
 }
 @keyframes ag-run {
@@ -91,9 +65,9 @@ svg { color: #59636e; --ui-bg: #ffffff; }
 }
 @keyframes ag-call-1 {
   0%, 22% { opacity: 0; transform: translate(0, 0); }
-  25% { opacity: 0.85; transform: translate(0, 0); }
-  36% { opacity: 0.85; transform: translate(8.5px, -6.4px); }
-  39%, 100% { opacity: 0; transform: translate(10px, -7.5px); }
+  25% { opacity: 0.85; transform: translate(0, 0); animation-timing-function: steps(4); }
+  36% { opacity: 0.85; transform: translate(8px, -8px); }
+  39%, 100% { opacity: 0; transform: translate(8px, -8px); }
 }
 @keyframes ag-tool-1 {
   0%, 35% { opacity: 0.35; }
@@ -102,9 +76,9 @@ svg { color: #59636e; --ui-bg: #ffffff; }
 }
 @keyframes ag-call-2 {
   0%, 44% { opacity: 0; transform: translateX(0); }
-  47% { opacity: 0.85; transform: translateX(0); }
-  58% { opacity: 0.85; transform: translateX(8.5px); }
-  61%, 100% { opacity: 0; transform: translateX(10px); }
+  47% { opacity: 0.85; transform: translateX(0); animation-timing-function: steps(4); }
+  58% { opacity: 0.85; transform: translateX(8px); }
+  61%, 100% { opacity: 0; transform: translateX(8px); }
 }
 @keyframes ag-tool-2 {
   0%, 57% { opacity: 0.35; }
@@ -113,53 +87,9 @@ svg { color: #59636e; --ui-bg: #ffffff; }
 }
 @keyframes ag-call-3 {
   0%, 66% { opacity: 0; transform: translate(0, 0); }
-  69% { opacity: 0.85; transform: translate(0, 0); }
-  80% { opacity: 0.85; transform: translate(8.5px, 6.4px); }
-  83%, 100% { opacity: 0; transform: translate(10px, 7.5px); }
-}
-@keyframes ag-tool-3 {
-  0%, 79% { opacity: 0.35; }
-  84%, 90% { opacity: 0.85; }
-  100% { opacity: 0.35; }
-}
-@keyframes ag-call {
-  0%, 4% { opacity: 0; transform: translateX(0); }
-  7% { opacity: 0.85; transform: translateX(0); }
-  16% { opacity: 0.85; transform: translateX(5px); }
-  19%, 100% { opacity: 0; transform: translateX(6px); }
-}
-@keyframes ag-run {
-  0%, 17% { opacity: 0.35; }
-  21%, 88% { opacity: 0.85; }
-  96%, 100% { opacity: 0.35; }
-}
-@keyframes ag-call-1 {
-  0%, 22% { opacity: 0; transform: translate(0, 0); }
-  25% { opacity: 0.85; transform: translate(0, 0); }
-  36% { opacity: 0.85; transform: translate(8.5px, -6.4px); }
-  39%, 100% { opacity: 0; transform: translate(10px, -7.5px); }
-}
-@keyframes ag-tool-1 {
-  0%, 35% { opacity: 0.35; }
-  40%, 46% { opacity: 0.85; }
-  56%, 100% { opacity: 0.35; }
-}
-@keyframes ag-call-2 {
-  0%, 44% { opacity: 0; transform: translateX(0); }
-  47% { opacity: 0.85; transform: translateX(0); }
-  58% { opacity: 0.85; transform: translateX(8.5px); }
-  61%, 100% { opacity: 0; transform: translateX(10px); }
-}
-@keyframes ag-tool-2 {
-  0%, 57% { opacity: 0.35; }
-  62%, 68% { opacity: 0.85; }
-  78%, 100% { opacity: 0.35; }
-}
-@keyframes ag-call-3 {
-  0%, 66% { opacity: 0; transform: translate(0, 0); }
-  69% { opacity: 0.85; transform: translate(0, 0); }
-  80% { opacity: 0.85; transform: translate(8.5px, 6.4px); }
-  83%, 100% { opacity: 0; transform: translate(10px, 7.5px); }
+  69% { opacity: 0.85; transform: translate(0, 0); animation-timing-function: steps(4); }
+  80% { opacity: 0.85; transform: translate(8px, 8px); }
+  83%, 100% { opacity: 0; transform: translate(8px, 8px); }
 }
 @keyframes ag-tool-3 {
   0%, 79% { opacity: 0.35; }
@@ -167,20 +97,5 @@ svg { color: #59636e; --ui-bg: #ffffff; }
   100% { opacity: 0.35; }
 }
 </style>
-      <rect x="6" y="15" width="10" height="10" rx="2" class="line" />
-      <rect x="9" y="18.5" width="4" height="3" rx="1" class="soft" />
-      <path d="M16 20h6" class="line link" />
-      <path d="M22 13h12v14H22z" class="line" />
-      <circle cx="28" cy="20" r="2" class="ink a ag-run" />
-      <path d="M34 18 44 10.5M34 20h10M34 22l10 7.5" class="line link" />
-      <rect x="44" y="7" width="7" height="7" rx="1.5" class="line" />
-      <rect x="44" y="16.5" width="7" height="7" rx="1.5" class="line" />
-      <rect x="44" y="26" width="7" height="7" rx="1.5" class="line" />
-      <rect x="46" y="9" width="3" height="3" rx="0.75" class="soft a ag-tool-1" />
-      <rect x="46" y="18.5" width="3" height="3" rx="0.75" class="soft a ag-tool-2" />
-      <rect x="46" y="28" width="3" height="3" rx="0.75" class="soft a ag-tool-3" />
-      <circle cx="16" cy="20" r="1.75" class="token a ag-call" />
-      <circle cx="34" cy="18" r="1.75" class="token a ag-call-1" />
-      <circle cx="34" cy="20" r="1.75" class="token a ag-call-2" />
-      <circle cx="34" cy="22" r="1.75" class="token a ag-call-3" />
+<path class="line" d="M40 4h6v2h-6zM38 6h2v2h-2zM46 6h2v2h-2zM38 8h2v2h-2zM46 8h2v2h-2zM38 10h2v2h-2zM46 10h2v2h-2zM16 12h12v2h-12zM40 12h6v2h-6zM2 14h8v2h-8zM16 14h2v2h-2zM26 14h2v2h-2zM0 16h2v2h-2zM10 16h2v2h-2zM16 16h2v2h-2zM26 16h2v2h-2zM40 16h6v2h-6zM0 18h2v2h-2zM10 18h2v2h-2zM16 18h2v2h-2zM26 18h2v2h-2zM38 18h2v2h-2zM46 18h2v2h-2zM0 20h2v2h-2zM10 20h2v2h-2zM16 20h2v2h-2zM26 20h2v2h-2zM38 20h2v2h-2zM46 20h2v2h-2zM0 22h2v2h-2zM10 22h2v2h-2zM16 22h2v2h-2zM26 22h2v2h-2zM38 22h2v2h-2zM46 22h2v2h-2zM2 24h8v2h-8zM16 24h2v2h-2zM26 24h2v2h-2zM40 24h6v2h-6zM16 26h12v2h-12zM40 28h6v2h-6zM38 30h2v2h-2zM46 30h2v2h-2zM38 32h2v2h-2zM46 32h2v2h-2zM38 34h2v2h-2zM46 34h2v2h-2zM40 36h6v2h-6z"/><path class="link" d="M36 8h2v2h-2zM34 10h2v2h-2zM32 12h2v2h-2zM30 14h2v2h-2zM28 16h2v2h-2zM12 20h4v2h-4zM28 20h10v2h-10zM28 24h2v2h-2zM30 26h2v2h-2zM32 28h2v2h-2zM34 30h2v2h-2zM36 32h2v2h-2z"/><path class="soft" d="M4 18h4v2h-4zM4 20h4v2h-4z"/><path class="ink a ag-run" d="M20 18h4v2h-4zM20 20h4v2h-4z"/><path class="soft a ag-tool-1" d="M42 8h2v2h-2z"/><path class="soft a ag-tool-2" d="M42 20h2v2h-2z"/><path class="soft a ag-tool-3" d="M42 32h2v2h-2z"/><path class="token a ag-call" d="M10 18h4v2h-4zM10 20h4v2h-4z"/><path class="token a ag-call-1" d="M26 14h4v2h-4zM26 16h4v2h-4z"/><path class="token a ag-call-2" d="M26 18h4v2h-4zM26 20h4v2h-4z"/><path class="token a ag-call-3" d="M26 22h4v2h-4zM26 24h4v2h-4z"/>
 </svg>

@@ -1,76 +1,47 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" class="primitive-motion is-playing" style="--cycle: 3600ms; --scene-delay: -1728ms">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" fill="currentColor" shape-rendering="crispEdges" class="primitive-motion is-playing" style="--cycle: 3600ms; --scene-delay: -1728ms">
 <style>
 svg { color: #59636e; --ui-bg: #ffffff; }
 @media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
 .primitive-motion {
-  --ease-move: cubic-bezier(0.65, 0, 0.35, 1);
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   overflow: visible;
 }
-.line,
-.ink-line,
-.card {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.line {
+.primitive-motion .line,
+.primitive-motion .job,
+.primitive-motion .command,
+.primitive-motion .budget {
   opacity: 0.55;
 }
-.soft,
-.job,
-.command,
-.budget,
-.ink,
-.token,
-.band,
-.pointer {
-  fill: currentColor;
-}
-.soft {
+.primitive-motion .soft {
   opacity: 0.35;
 }
-.job,
-.command,
-.budget {
-  opacity: 0.55;
-}
-.token,
-.band,
-.ghost,
-.q-in,
-.blob-next {
+.primitive-motion .token,
+.primitive-motion .band,
+.primitive-motion .ghost,
+.primitive-motion .q-in,
+.primitive-motion .blob-next {
   opacity: 0;
 }
-.a {
+.primitive-motion .a {
   animation-duration: var(--cycle);
   animation-delay: var(--scene-delay);
   animation-iteration-count: infinite;
   animation-fill-mode: both;
-  animation-timing-function: var(--ease-move);
+  animation-timing-function: steps(3);
 }
 .primitive-motion:not(.is-playing) .a {
   animation-play-state: paused;
 }
-.q-worker,
-.sch-ring,
-.mail-unread {
-  transform-box: fill-box;
-  transform-origin: center;
-}
-.q-belt { animation-name: q-belt; }
-.q-in { animation-name: q-in; }
-.q-out { animation-name: q-out; }
-.q-worker { animation-name: q-worker; }
+.primitive-motion .q-belt { animation-name: q-belt; }
+.primitive-motion .q-in { animation-name: q-in; }
+.primitive-motion .q-out { animation-name: q-out; }
+.primitive-motion .q-worker { animation-name: q-worker; }
 @media (prefers-reduced-motion: reduce) {
-  .a {
+  .primitive-motion .a {
     animation: none;
   }
 }
 @keyframes q-belt {
-  0%, 20% { transform: translateX(0); }
+  0%, 20% { transform: translateX(0); animation-timing-function: steps(6); }
   60%, 99.9% { transform: translateX(12px); }
   100% { transform: translateX(0); }
 }
@@ -85,19 +56,10 @@ svg { color: #59636e; --ui-bg: #ffffff; }
   100% { opacity: 0.55; }
 }
 @keyframes q-worker {
-  0%, 52% { opacity: 0.35; transform: scale(1); }
-  62% { opacity: 0.85; transform: scale(1.15); }
-  80% { opacity: 0.85; transform: scale(1); }
-  96%, 100% { opacity: 0.35; transform: scale(1); }
+  0%, 52% { opacity: 0.35; }
+  62%, 80% { opacity: 0.85; }
+  96%, 100% { opacity: 0.35; }
 }
 </style>
-      <path d="M6 20h40" class="line" />
-      <rect x="46" y="13" width="12" height="14" rx="2" class="line" />
-      <rect x="49" y="17" width="6" height="6" rx="1" class="soft a q-worker" />
-      <g class="a q-belt">
-        <circle cx="2" cy="20" r="3" class="job a q-in" />
-        <circle cx="14" cy="20" r="3" class="job" />
-        <circle cx="26" cy="20" r="3" class="job" />
-        <circle cx="38" cy="20" r="3" class="job a q-out" />
-      </g>
+<path class="line" d="M42 12h8v2h-8zM40 14h2v2h-2zM50 14h2v2h-2zM40 16h2v2h-2zM50 16h2v2h-2zM40 18h2v2h-2zM50 18h2v2h-2zM0 20h42v2h-42zM50 20h2v2h-2zM40 22h2v2h-2zM50 22h2v2h-2zM40 24h2v2h-2zM50 24h2v2h-2zM42 26h8v2h-8z"/><path class="soft a q-worker" d="M44 16h4v2h-4zM44 18h4v2h-4zM44 20h4v2h-4zM44 22h4v2h-4z"/><g class="a q-belt"><path class="job a q-in" d="M-6 18h6v2h-6zM-6 20h6v2h-6zM-6 22h6v2h-6z"/><path class="job" d="M6 18h6v2h-6zM18 18h6v2h-6zM6 20h6v2h-6zM18 20h6v2h-6zM6 22h6v2h-6zM18 22h6v2h-6z"/><path class="job a q-out" d="M30 18h6v2h-6zM30 20h6v2h-6zM30 22h6v2h-6z"/></g>
 </svg>
