@@ -6,8 +6,10 @@ import { join, resolve } from "node:path"
 import { setTimeout as sleep } from "node:timers/promises"
 import { parseArgs } from "node:util"
 
+import { stopChild } from "./process.mjs"
+
 const repoRoot = resolve(import.meta.dirname, "..", "..")
-const baseDir = "/tmp/netlify"
+const baseDir = join(repoRoot, ".cache", "netlify")
 const appName = "vitehub-agent-netlify"
 const appDir = join(baseDir, appName)
 const log = message => console.log(`[e2e:netlify] ${message}`)
@@ -174,6 +176,8 @@ async function writeFixtureFiles(overrides, vitePlusVersion, vitestVersion) {
 async function createProject({ packageSource, preview }) {
   await mkdir(baseDir, { recursive: true })
   await rm(appDir, { force: true, recursive: true })
+  await writeFile(join(baseDir, "package.json"), JSON.stringify({ private: true }), "utf8")
+  await writeFile(join(baseDir, "pnpm-workspace.yaml"), "packages: []\n", "utf8")
   const vitePlus = await readPackageJson(join(repoRoot, "node_modules/vite-plus/package.json"))
   run("vp", ["create", "vite:application", "--directory", appName, "--no-interactive", "--no-hooks", "--package-manager", "pnpm"], {
     cwd: baseDir,
@@ -270,36 +274,27 @@ function spawnLogged(command, args, options = {}) {
     cwd: options.cwd ?? appDir,
     env: { ...process.env, ...options.env },
     stdio: ["ignore", "pipe", "pipe"],
+    detached: process.platform !== "win32",
   })
   child.stdout.on("data", chunk => process.stdout.write(`[netlify-dev] ${chunk}`))
   child.stderr.on("data", chunk => process.stderr.write(`[netlify-dev] ${chunk}`))
   return child
 }
 
-async function stopProcess(child) {
-  if (child.exitCode !== null) return
-  child.kill("SIGTERM")
-  await sleep(750)
-  if (child.exitCode === null) child.kill("SIGKILL")
-}
-
 async function runNetlifyDevProof() {
-  await rm(join(appDir, ".netlify"), { force: true, recursive: true })
-  await rm(join(appDir, "dist"), { force: true, recursive: true })
   const port = 8888
-  const targetPort = 5173
   const dev = spawnLogged("netlify", [
     "dev",
     "--offline",
     "--no-open",
     "--port",
     String(port),
-    "--target-port",
-    String(targetPort),
-    "--command",
-    // Nitro's Vite plugin defaults the dev server to port 3000, so pass the target port explicitly.
-    // Keep Vite's default localhost host: netlify dev waits on localhost, which can resolve to ::1.
-    `pnpm dev -- --port ${targetPort} --strictPort`,
+    "--framework",
+    "#static",
+    "--dir",
+    "dist/client",
+    "--functions",
+    ".netlify/v1/functions",
   ])
   try {
     const text = await waitForChat(port)
@@ -307,7 +302,7 @@ async function runNetlifyDevProof() {
     await assertNetlifyFunctionOutput()
   }
   finally {
-    await stopProcess(dev)
+    await stopChild(dev, 750)
   }
 }
 

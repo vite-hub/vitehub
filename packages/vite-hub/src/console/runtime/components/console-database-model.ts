@@ -62,6 +62,19 @@ export function consoleDatabaseRequestQuery(input: {
   };
 }
 
+/** Columns whose values on this page are all numbers. NULL cells do not count either way. */
+export function consoleDatabaseNumericColumns(rows: readonly Record<string, ConsoleDatabaseCell>[]): Set<string> {
+  const numeric = new Set<string>();
+  const other = new Set<string>();
+  for (const row of rows) {
+    for (const [key, cell] of Object.entries(row)) {
+      if (cell.kind === "null") continue;
+      (cell.kind === "number" || cell.kind === "bigint" ? numeric : other).add(key);
+    }
+  }
+  return new Set([...numeric].filter((key) => !other.has(key)));
+}
+
 const cellKinds = new Set<ConsoleDatabaseCell["kind"]>([
   "bigint",
   "boolean",
