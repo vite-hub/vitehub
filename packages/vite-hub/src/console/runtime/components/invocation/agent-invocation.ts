@@ -1465,7 +1465,11 @@ function renderWorkSummary(
       open: detailsOpen,
     }, [
       h("summary", { class: "vh-invocation-work__summary" }, [
-        h("span", { class: "vh-invocation-work__title" }, active ? "Working…" : duration ? `Worked for ${duration}` : "Work details"),
+        h("span", { class: "vh-invocation-work__title" }, active
+          ? "Working…"
+          : duration
+            ? `${invocation.status === "cancelled" ? "Cancelled after" : "Worked for"} ${duration}`
+            : invocation.status === "cancelled" ? "Cancelled" : "Work details"),
         elapsed ? h("time", { class: "vh-invocation-work__elapsed", datetime: invocation.startedAt }, elapsed) : null,
         renderDisclosureChevron("vh-invocation-work__disclosure"),
       ]),
