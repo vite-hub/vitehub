@@ -37,3 +37,25 @@ it("resets the original peek key while displaying its redacted response", async 
     app.unmount()
   }
 })
+
+it.each([
+  ["known", true],
+  ["unavailable", true],
+  ["unused", false],
+  ["unsupported", false],
+] as const)("offers Reset after a %s peek: %s", async (status, offered) => {
+  mocks.peek.mockResolvedValue({ name: "login", key: "203.0.113.7", status, counters: [], reason: "test" })
+  const app = renderer.createApp({ ...RateLimit, render: () => null }, { base: "/rate-limit", name: "login" })
+  app.provide(ssrContextKey, {})
+  try {
+    const instance = app.mount({})
+    // SAFETY: These are the component's setup bindings, exposed by Vue's test renderer.
+    const state = (instance.$ as unknown as { setupState: { canReset: boolean, key: string, peek: () => Promise<void> } }).setupState
+    state.key = "203.0.113.7"
+    await state.peek()
+    expect(state.canReset).toBe(offered)
+  }
+  finally {
+    app.unmount()
+  }
+})

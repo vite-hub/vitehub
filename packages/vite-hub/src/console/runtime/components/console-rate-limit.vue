@@ -28,7 +28,8 @@ const resetOpen = ref(false);
 const resetting = ref(false);
 let request: AbortController | undefined;
 
-const canReset = computed(() => !props.readOnly && peeked.value !== undefined && peeked.value.status !== "unsupported");
+// A provider that cannot reset, or a key without a counter, leaves nothing to reset.
+const canReset = computed(() => !props.readOnly && peeked.value !== undefined && peeked.value.status !== "unsupported" && peeked.value.status !== "unused");
 
 function message(failure: unknown, fallback: string): string {
   return failure instanceof Error && failure.message ? failure.message : fallback;
