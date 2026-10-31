@@ -34,31 +34,26 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./cli": {
       "types": "./dist/cli.d.ts",
       "import": "./dist/cli.js",
-      "require": "./dist/cli.js",
       "default": "./dist/cli.js"
     },
     "./client": {
       "types": "./dist/client.d.ts",
       "import": "./dist/client.js",
-      "require": "./dist/client.js",
       "default": "./dist/client.js"
     },
     "./config": {
       "types": "./dist/config.d.ts",
       "import": "./dist/config.js",
-      "require": "./dist/config.js",
       "default": "./dist/config.js"
     },
     "./content-type": {
       "types": "./dist/content-type.d.ts",
       "import": "./dist/content-type.js",
-      "require": "./dist/content-type.js",
       "default": "./dist/content-type.js"
     },
     "./drivers/akamai": {
@@ -76,13 +71,11 @@
     "./drivers/cloudflare": {
       "types": "./dist/drivers/cloudflare.d.ts",
       "import": "./dist/drivers/cloudflare.js",
-      "require": "./dist/drivers/cloudflare.js",
       "default": "./dist/drivers/cloudflare.js"
     },
     "./drivers/cloudflare-native": {
       "types": "./dist/drivers/cloudflare-native.d.ts",
       "import": "./dist/drivers/cloudflare-native.js",
-      "require": "./dist/drivers/cloudflare-native.js",
       "default": "./dist/drivers/cloudflare-native.js"
     },
     "./drivers/digitalocean-spaces": {
@@ -116,7 +109,6 @@
     "./drivers/netlify-blobs": {
       "types": "./dist/drivers/netlify-blobs.d.ts",
       "import": "./dist/drivers/netlify-blobs.js",
-      "require": "./dist/drivers/netlify-blobs.js",
       "default": "./dist/drivers/netlify-blobs.js"
     },
     "./drivers/onedrive": {
@@ -142,67 +134,56 @@
     "./drivers/vercel": {
       "types": "./dist/drivers/vercel.d.ts",
       "import": "./dist/drivers/vercel.js",
-      "require": "./dist/drivers/vercel.js",
       "default": "./dist/drivers/vercel.js"
     },
     "./ensure": {
       "types": "./dist/ensure.d.ts",
       "import": "./dist/ensure.js",
-      "require": "./dist/ensure.js",
       "default": "./dist/ensure.js"
     },
     "./errors": {
       "types": "./dist/errors.d.ts",
       "import": "./dist/errors.js",
-      "require": "./dist/errors.js",
       "default": "./dist/errors.js"
     },
     "./media": {
       "types": "./dist/media.d.ts",
       "import": "./dist/media.js",
-      "require": "./dist/media.js",
       "default": "./dist/media.js"
     },
     "./operations": {
       "types": "./dist/operations.d.ts",
       "import": "./dist/operations.js",
-      "require": "./dist/operations.js",
       "default": "./dist/operations.js"
     },
     "./reference": {
       "types": "./dist/reference.d.ts",
       "import": "./dist/reference.js",
-      "require": "./dist/reference.js",
       "default": "./dist/reference.js"
     },
     "./runtime/state": {
       "types": "./dist/runtime/state.d.ts",
       "import": "./dist/runtime/state.js",
-      "require": "./dist/runtime/state.js",
       "default": "./dist/runtime/state.js"
     },
     "./served": {
       "types": "./dist/served.d.ts",
       "import": "./dist/served.js",
-      "require": "./dist/served.js",
       "default": "./dist/served.js"
     },
     "./virtual": {
       "types": "./dist/virtual.d.ts",
       "import": "./dist/virtual.js",
-      "require": "./dist/virtual.js",
       "default": "./dist/virtual.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js",
-      "require": "./dist/vite.js",
       "default": "./dist/vite.js"
     },
     "./vue": {
       "types": "./dist/vue.d.ts",
       "import": "./dist/vue.js",
-      "require": "./dist/vue.js",
       "default": "./dist/vue.js"
     },
     "./package.json": "./package.json"

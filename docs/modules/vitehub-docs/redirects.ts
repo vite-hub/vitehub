@@ -178,9 +178,9 @@ export const docsLegacyFragmentRedirects = {
     "next-steps": "/docs/blob",
   },
   "/docs/cms": {
-    "set-up": "/docs/cms/get-started",
+    "set-up": "/docs/cms/get-started#install-and-turn-on-vitehub",
     "define-the-collections": "/docs/cms/get-started",
-    "create-the-tables-and-resources": "/docs/cms/get-started",
+    "create-the-tables-and-resources": "/docs/cms/get-started#create-the-tables",
     "what-the-preset-adds": "/docs/cms/configure",
     options: "/docs/cms/configure",
     "github-store": "/docs/cms/configure",

@@ -12,7 +12,7 @@ export function normalizePackageExports(
           value.import.startsWith("./dist/") &&
           value.import.endsWith(".js")
         ) {
-          return [key, { ...value, require: value.require ?? value.import, default: value.default ?? value.import }];
+          return [key, { ...value, default: value.default ?? value.import }];
         }
         return [key, value];
       }
@@ -24,7 +24,6 @@ export function normalizePackageExports(
         {
           types: value.replace(/\.js$/, ".d.ts"),
           import: value,
-          require: value,
           default: value,
         },
       ];

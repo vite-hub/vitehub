@@ -1,5 +1,6 @@
 import { readdir, readFile } from "node:fs/promises"
 
+import { getSchema } from "@tiptap/core"
 import { createRealtimeYDoc, readRealtimeYDoc } from "@vite-hub/realtime/server"
 import { describe, expect, it } from "vitest"
 
@@ -119,5 +120,21 @@ describe("contentRealtimeEditor", () => {
 
   it("opens an empty body with one empty paragraph", async () => {
     expect(await editor.fromMarkdown("")).toMatchObject({ type: "doc", content: [{ type: "paragraph" }] })
+  })
+
+  it("keeps equivalent inline mark orders editable without losing mark ranges or link targets", async () => {
+    const schema = getSchema(editor.extensions())
+    const document = async (markdown: string) => schema.nodeFromJSON(await editor.fromMarkdown(markdown))
+    for (const [source, equivalent] of [
+      ["**[repros](https://x.dev)** here\n", "[**repros**](https://x.dev) here\n"],
+      ["[_Journey_](https://x.dev) by\n", "*[Journey](https://x.dev)* by\n"],
+      ["***[a](https://x.dev)***\n", "[***a***](https://x.dev)\n"],
+    ] as const) {
+      expect(await editor.verify!(source, {})).toMatchObject({ writable: true })
+      expect(await editor.verify!(equivalent, {})).toMatchObject({ writable: true })
+      expect((await document(source)).eq(await document(equivalent))).toBe(true)
+    }
+    expect((await document("**[a](https://x.dev) b**\n")).eq(await document("[**a**](https://x.dev) b\n"))).toBe(false)
+    expect((await document("[a](https://x.dev)\n")).eq(await document("[a](https://y.dev)\n"))).toBe(false)
   })
 })
