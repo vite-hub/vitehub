@@ -220,7 +220,7 @@ const impersonation = computed(() => {
         </section>
         <section class="space-y-3 p-4" aria-labelledby="auth-user-sessions">
           <h2 id="auth-user-sessions" class="font-medium text-highlighted">
-            Sessions <span class="ml-1 text-muted tabular-nums">{{ detail.sessions.total }}</span>
+            Sessions <span class="ml-1 font-normal text-dimmed tabular-nums">{{ detail.sessions.total }}</span>
           </h2>
           <p v-if="!detail.sessions.total" class="text-muted">No active sessions.</p>
           <ul class="space-y-3">
@@ -266,7 +266,10 @@ const impersonation = computed(() => {
           </div>
         </section>
         <section class="space-y-3 p-4" aria-labelledby="auth-user-accounts">
-          <h2 id="auth-user-accounts" class="font-medium text-highlighted">Linked accounts</h2>
+          <h2 id="auth-user-accounts" class="font-medium text-highlighted">
+            Linked accounts
+            <span class="ml-1 font-normal text-dimmed tabular-nums">{{ detail.accountsTotal }}</span>
+          </h2>
           <p v-if="detail.accountsTotal > detail.accounts.length" class="text-xs text-muted">
             Showing the first {{ detail.accounts.length }} of {{ detail.accountsTotal }} linked
             accounts.
@@ -290,7 +293,7 @@ const impersonation = computed(() => {
         >
           <h2 id="auth-user-agents" class="font-medium text-highlighted">
             Approved clients
-            <span class="ml-1 text-muted tabular-nums">{{ detail.agents.total }}</span>
+            <span class="ml-1 font-normal text-dimmed tabular-nums">{{ detail.agents.total }}</span>
           </h2>
           <p v-if="!detail.agents.total" class="text-muted">No approved clients.</p>
           <ul class="space-y-3">
@@ -339,7 +342,10 @@ const impersonation = computed(() => {
           class="space-y-3 p-4"
           aria-labelledby="auth-user-organizations"
         >
-          <h2 id="auth-user-organizations" class="font-medium text-highlighted">Organizations</h2>
+          <h2 id="auth-user-organizations" class="font-medium text-highlighted">
+            Organizations
+            <span class="ml-1 font-normal text-dimmed tabular-nums">{{ detail.organizationsTotal }}</span>
+          </h2>
           <p
             v-if="detail.organizationsTotal > detail.organizations.length"
             class="text-xs text-muted"

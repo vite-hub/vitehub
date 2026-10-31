@@ -472,7 +472,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 </script>
 
 <template>
-  <UDashboardPanel id="console-usage" class="console-usage" :ui="{ body: 'min-h-0 overflow-y-auto p-0 sm:p-0 gap-0 sm:gap-0' }">
+  <UDashboardPanel id="console-usage" :ui="{ body: 'min-h-0 overflow-y-auto p-0 sm:p-0 gap-0 sm:gap-0' }">
     <template #header>
       <UDashboardNavbar title="Usage" :toggle="false" :ui="{ root: 'border-b border-default' }">
         <template #right>
@@ -877,7 +877,3 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
     </template>
   </UDashboardPanel>
 </template>
-
-<style scoped>
-:global(.dark .console-usage) { background: #000; }
-</style>
