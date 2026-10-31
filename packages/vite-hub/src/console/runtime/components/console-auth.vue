@@ -62,6 +62,8 @@ const error = shallowRef<unknown>();
 const orgError = shallowRef<unknown>();
 const action = ref<AuthConsoleAction>();
 const actionId = ref<string>();
+/** The email of the user that a Sessions or Agents row action changes, for the confirmation. */
+const actionName = ref<string>();
 const labels: Record<AuthConsolePage, string> = {
   overview: "Overview",
   activity: "Activity",
@@ -429,6 +431,7 @@ onBeforeUnmount(() => {
                         @click="
                           action = 'revokeSession';
                           actionId = session.id;
+                          actionName = session.user.email;
                         "
                         >Revoke</UButton
                       >
@@ -477,6 +480,7 @@ onBeforeUnmount(() => {
                         @click="
                           action = 'revokeConsent';
                           actionId = client.id;
+                          actionName = client.user.email;
                         "
                         >Revoke</UButton
                       >
@@ -546,6 +550,7 @@ onBeforeUnmount(() => {
       :base="managementBase"
       :action="action"
       :id="actionId"
+      :name="actionName"
       @close="action = undefined"
       @changed="refresh"
     />
