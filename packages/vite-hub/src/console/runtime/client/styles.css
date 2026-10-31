@@ -72,7 +72,7 @@
   --ui-text-highlighted: oklch(0.205 0 0);
   /*
    * Nuxt UI multiplies this base: sm is 1x, md 1.5x, lg 2x, xl 3x. At 0.25rem, buttons and inputs get 6px, panels
-   * 8px, and floating menus the 12px Geist radius. The Console frame keeps the @vite-hub/ui parts at 0.5rem.
+   * 8px, and floating menus the 12px Geist radius. The @vite-hub/ui parts derive their radii from it: framed parts get 8px.
    */
   --ui-radius: 0.25rem;
   /* Primary actions are black on light and white on dark, as in the Vercel dashboard. */
