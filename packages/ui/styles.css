@@ -2010,6 +2010,13 @@ button.vh-agent-tool-list__count:focus-visible {
     width: 100%;
   }
 
+  /* iOS Safari zooms into a focused field with text under 16px. Touch screens get 16px text, mouse-only devices keep 14px. */
+  @media (any-pointer: coarse) {
+    [data-slot="prompt-input-textarea"] {
+      font-size: 1rem;
+    }
+  }
+
   [data-slot="prompt-input-textarea"]::placeholder {
     color: var(--vh-ui-muted);
   }
