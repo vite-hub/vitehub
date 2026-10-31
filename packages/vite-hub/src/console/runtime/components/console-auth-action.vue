@@ -7,6 +7,7 @@ import type {
 } from "@vite-hub/auth/console";
 import { computed, ref, watch } from "vue";
 import { authDuration, changeAuthConsole } from "../client/auth-management";
+import { useConsoleToast } from "../client/toast";
 const props = defineProps<{
   base: string;
   action?: AuthConsoleAction;
@@ -68,6 +69,30 @@ watch(
         : String(props.value);
   },
 );
+const toast = useConsoleToast();
+/** The toast after an action succeeds. Impersonation opens the app instead, so it has none. */
+function doneTitle(action: AuthConsoleAction): string | undefined {
+  switch (action) {
+    case "ban":
+      return "User banned";
+    case "unban":
+      return "User unbanned";
+    case "remove":
+      return "User removed";
+    case "revokeSession":
+      return "Session revoked";
+    case "revokeSessions":
+      return "Sessions revoked";
+    case "revokeConsent":
+      return "Client access revoked";
+    case "setRole":
+      return "Role changed";
+    case "editField":
+      return `${props.field?.label ?? "Field"} saved`;
+    case "impersonate":
+      return undefined;
+  }
+}
 async function submit() {
   if (!props.action) return;
   pending.value = true;
@@ -105,6 +130,8 @@ async function submit() {
         body = { action: props.action, userId: props.userId! };
     }
     await changeAuthConsole(props.base, body);
+    const done = doneTitle(props.action);
+    if (done) toast.show({ title: done });
     emit("changed", props.action);
     emit("close");
   } catch (cause) {
