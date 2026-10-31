@@ -109,7 +109,7 @@ async function resume(): Promise<void> {
 </script>
 
 <template>
-  <div class="grid gap-6">
+  <div v-if="canStart || canResume || workflowRuns.length" class="grid gap-6">
     <section v-if="canStart" class="grid gap-2" aria-label="Start a run">
       <h3 class="text-xs font-medium text-highlighted">Start a run</h3>
       <UTextarea v-model="payloadText" :rows="5" :ui="{ base: 'font-mono text-xs' }" aria-label="Payload (JSON)" placeholder="Payload as JSON. Leave empty to start without one." />
