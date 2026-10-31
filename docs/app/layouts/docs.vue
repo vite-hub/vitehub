@@ -35,7 +35,7 @@ const docsShellUi = {
       </template>
 
       <!-- The banner spans the page column, so its border meets the sidebar and the right edge. -->
-      <div id="docs-content" class="relative">
+      <div id="docs-content" tabindex="-1" class="relative">
         <!-- Narrow screens open the navigation from the header menu and keep the code inline, so the button shows only on wide screens. -->
         <UTooltip v-if="hasCodePanel" :text="tutorialNavigation ? 'Hide navigation' : 'Show navigation'" :content="{ side: 'bottom', sideOffset: 6 }" :delay-duration="150">
           <button
