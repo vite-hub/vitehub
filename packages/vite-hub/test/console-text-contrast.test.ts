@@ -55,6 +55,12 @@ describe("Console text contrast", () => {
     "system dark": block(":root:not(.light):not(.dark)"),
   }
 
+  it.each(["ui-bg-muted", "ui-bg-elevated", "ui-bg-accented"])("keeps light dimmed text at 4.5:1 on %s", (name) => {
+    const value = token(themes.light, "ui-text-dimmed")
+    const background = token(themes.light, name)
+    expect(contrast(value, background), `ui-text-dimmed ${value} on ${name} ${background}`).toBeGreaterThanOrEqual(4.5)
+  })
+
   it.each(Object.entries(themes))("keeps every text tone it sets at 4.5:1 on the %s page", (_name, theme) => {
     const background = token(theme, "ui-bg")
     const tones = ["ui-text", "ui-text-toned", "ui-text-muted", "ui-text-dimmed", "ui-text-highlighted"]
