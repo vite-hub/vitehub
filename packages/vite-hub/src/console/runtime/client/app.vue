@@ -1,7 +1,7 @@
 <template>
   <UApp :toaster="null">
     <!-- The first Tab stop. It skips the section rail, which has about 20 stops before the page content. -->
-    <a href="#" class="vitehub-console__skip-link" @click.prevent="skipToContent">Skip to content</a>
+    <a href="#vitehub-console-content" class="vitehub-console__skip-link" @click.prevent="skipToContent">Skip to content</a>
     <RouterView v-slot="{ Component }">
       <component :is="Component" v-if="Component" />
       <ConsoleLoading v-else />
@@ -13,9 +13,11 @@
 import { RouterView } from "vue-router";
 import ConsoleLoading from "../components/console-loading.vue";
 
-// Pages do not share one content element, so focus the page's main landmark, or its first heading when it has none.
+// Prefer the page's main landmark or first heading; the shared frame supplies a fallback after the rail.
 function skipToContent(): void {
-  const target = document.querySelector<HTMLElement>("main") ?? document.querySelector<HTMLElement>(".vitehub-console h1");
+  const target = document.querySelector<HTMLElement>("main")
+    ?? document.querySelector<HTMLElement>(".vitehub-console h1")
+    ?? document.getElementById("vitehub-console-content");
   if (!target) return;
   if (!target.matches("a[href], button, input, select, textarea, [tabindex]")) {
     target.tabIndex = -1;
@@ -45,7 +47,7 @@ function skipToContent(): void {
   transform: none;
 }
 
-/* The skip target is a region or a heading, not a control, so it does not draw a focus ring. */
+/* Non-interactive skip targets do not draw a focus ring. */
 [data-skip-target]:focus {
   outline: none;
 }
