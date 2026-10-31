@@ -1920,9 +1920,8 @@ const agentInvocationInspector = defineComponent({
                 inspectorRow("Tokens", (props.invocation.usage?.totalTokens ?? metrics.value.tokens) === undefined
                   ? "Unknown"
                   : new Intl.NumberFormat("en").format((props.invocation.usage?.totalTokens ?? metrics.value.tokens)!)),
-                inspectorRow("Cost", usage?.cost?.display
-                  ? `${usage.cost.display}${usage.cost.estimated === true ? " (estimated)" : usage.cost.estimated === false ? " (reported)" : ""}`
-                  : "Unknown"),
+                // The runtime display already starts with ~ when the cost is estimated.
+                inspectorRow("Cost", usage?.cost?.display || "Unknown"),
                 ...([
                   ["Input", partition?.inputTokens],
                   ["Output", partition?.outputTokens],
