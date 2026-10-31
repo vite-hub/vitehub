@@ -33,6 +33,43 @@ describe("Auth Console editing", () => {
     } finally { app.unmount() }
   })
 
+  it("opens the organization drawer before its data loads and opens a member's user drawer", async () => {
+    const pending: Array<(value: unknown) => void> = []
+    mocks.read.mockReset().mockImplementation((_base, operation) => operation === "organization"
+      ? new Promise(resolve => pending.push(resolve))
+      : Promise.resolve({ storage: { enabled: false } }))
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/", component: {} }] })
+    await router.push("/")
+    const app = renderer.createApp({ ...Auth, render: () => null }, { sectionsBase: "/sections", managementBase: "/manage" })
+    app.use(router)
+    app.provide(ssrContextKey, {})
+    const instance = app.mount({})
+    const state = (instance.$ as unknown as { setupState: {
+      openOrganization: (id: string, offset?: number) => Promise<void>; closeOrganization: () => void;
+      selectedOrgId?: string; orgLoading: boolean; selectedOrg?: { id: string }; selectedUser?: string;
+    } }).setupState
+    try {
+      await router.push("/?org=org")
+      await new Promise(resolve => setTimeout(resolve))
+      expect(state.selectedOrgId).toBe("org")
+      expect(state.orgLoading).toBe(true)
+      expect(state.selectedOrg).toBeUndefined()
+      pending[0]!({ id: "org" })
+      await new Promise(resolve => setTimeout(resolve))
+      expect(state.orgLoading).toBe(false)
+      expect(state.selectedOrg?.id).toBe("org")
+      state.selectedUser = "user-1"
+      await router.isReady()
+      await new Promise(resolve => setTimeout(resolve))
+      expect(router.currentRoute.value.query.user).toBe("user-1")
+      expect(state.selectedOrgId).toBe("org")
+      state.closeOrganization()
+      await new Promise(resolve => setTimeout(resolve))
+      expect(state.selectedOrgId).toBeUndefined()
+      expect(state.orgLoading).toBe(false)
+    } finally { app.unmount() }
+  })
+
   it("ignores stale organization successes and errors after selection, closing, and unmount", async () => {
     const pending: Array<{ resolve: (value: unknown) => void; reject: (error: Error) => void }> = []
     mocks.read.mockReset().mockImplementation((_base, operation) => operation === "organization"

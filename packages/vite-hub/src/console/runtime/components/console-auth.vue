@@ -59,7 +59,11 @@ const { filter, offset, org: selectedOrgId, q: search, user: selectedUser } = us
   user: querySelection(),
 });
 const selectedOrg = shallowRef<AuthConsoleOrganizationDetail>();
+const orgName = computed(
+  () => selectedOrg.value?.name ?? organizations.value.find((org) => org.id === selectedOrgId.value)?.name,
+);
 const orgOffset = ref(0);
+const orgLoading = ref(false);
 const loading = ref(false);
 const error = shallowRef<unknown>();
 const orgError = shallowRef<unknown>();
@@ -111,6 +115,7 @@ function closeOrganization() {
   selectedOrg.value = undefined;
   orgError.value = undefined;
   selectedOrgId.value = undefined;
+  orgLoading.value = false;
 }
 let timer: ReturnType<typeof setTimeout> | undefined;
 async function refresh() {
@@ -204,7 +209,9 @@ async function openOrganization(id: string, offset = 0) {
   orgController?.abort();
   const current = new AbortController();
   orgController = current;
+  if (selectedOrg.value?.id !== id) selectedOrg.value = undefined;
   orgError.value = undefined;
+  orgLoading.value = true;
   try {
     const result = await readAuthConsole(
       props.managementBase,
@@ -217,6 +224,8 @@ async function openOrganization(id: string, offset = 0) {
     orgOffset.value = offset;
   } catch (cause) {
     if (!current.signal.aborted) orgError.value = cause;
+  } finally {
+    if (!current.signal.aborted) orgLoading.value = false;
   }
 }
 rememberConsoleSection("auth");
@@ -563,8 +572,8 @@ onBeforeUnmount(() => {
       @changed="refresh"
     />
     <USlideover
-      :open="Boolean(selectedOrg || orgError)"
-      :title="selectedOrg?.name ?? 'Organization'"
+      :open="Boolean(selectedOrgId)"
+      :title="orgName ?? 'Organization'"
       description="Members and pending invitations"
       @update:open="
         (value) => {
@@ -579,21 +588,26 @@ onBeforeUnmount(() => {
           v-if="orgError"
           :error="orgError"
           title="Could not load organization"
-        /><template v-if="selectedOrg"
+          :retry="() => selectedOrgId && openOrganization(selectedOrgId, orgOffset)"
+        /><p v-else-if="orgLoading && !selectedOrg" role="status" class="text-sm text-muted">
+          Loading organization…
+        </p><template v-if="selectedOrg"
           ><h2 class="mb-3 text-sm font-medium">
             Members <span class="text-muted tabular-nums">{{ selectedOrg.membersTotal }}</span>
           </h2>
-          <ul class="space-y-3">
-            <li
-              v-for="member in selectedOrg.members"
-              :key="member.id"
-              class="flex justify-between gap-3 text-sm"
-            >
-              <div>
-                <p>{{ member.user.name }}</p>
-                <p class="text-xs text-muted">{{ member.user.email }}</p>
-              </div>
-              <span class="text-muted">{{ member.role }}</span>
+          <ul class="-mx-2 space-y-0.5">
+            <li v-for="member in selectedOrg.members" :key="member.id">
+              <button
+                type="button"
+                class="flex w-full justify-between gap-3 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-elevated/50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary"
+                @click="selectedUser = member.user.id"
+              >
+                <span class="min-w-0">
+                  <span class="block truncate">{{ member.user.name }}</span>
+                  <span class="block truncate text-xs text-muted">{{ member.user.email }}</span>
+                </span>
+                <span class="shrink-0 text-muted">{{ member.role }}</span>
+              </button>
             </li>
           </ul>
           <h2 class="mb-3 mt-6 text-sm font-medium">
