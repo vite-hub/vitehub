@@ -141,9 +141,10 @@ onBeforeUnmount(() => {
 <style>
 /*
  * The header icons are 22px, half of what a finger needs. On a touch screen each one takes the full 44px header height
- * and half of the 6px gap to its neighbors, so taps do not miss and never land on the next button. A mouse keeps 22px.
+ * and half of the 6px gap to its neighbors, so taps do not miss and never land on the next button.
+ * Devices with only fine pointers keep 22px.
  */
-@media (pointer: coarse) {
+@media (any-pointer: coarse) {
   .vitehub-console__session-navbar :is(a, button) {
     position: relative;
   }
