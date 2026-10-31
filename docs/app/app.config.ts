@@ -1,3 +1,16 @@
+// DESIGN.md keeps the docs black, white, and zinc. Nuxt UI tints callout text, code, and links with the callout color,
+// and amber or green text on the callout background is below 4.5:1 contrast, so every callout uses body colors.
+const monochromeCallout = {
+  base: [
+    "border-default bg-muted/30 text-default dark:text-default [&>ul]:marker:text-muted",
+    "[&_code]:text-default dark:[&_code]:text-default [&_code]:border-default",
+    "[&_a]:text-default [&_a]:hover:text-default [&_a]:focus-visible:text-default [&_a]:hover:border-default [&_a]:outline-inverted",
+    "[&_a]:[&>code]:outline-inverted [&_a]:hover:[&>code]:border-default [&_a]:hover:[&>code]:text-default",
+    "[&_a]:focus-visible:[&>code]:border-default [&_a]:focus-visible:[&>code]:text-default",
+  ].join(" "),
+  icon: "text-muted",
+};
+
 export default defineAppConfig({
   github: {
     url: "https://github.com/vite-hub/vitehub",
@@ -160,10 +173,10 @@ export default defineAppConfig({
         },
         variants: {
           color: {
-            info: { base: "border-default bg-muted/30", icon: "text-muted" },
-            warning: { base: "border-default bg-muted/30", icon: "text-muted" },
-            error: { base: "border-default bg-muted/30", icon: "text-muted" },
-            success: { base: "border-default bg-muted/30", icon: "text-muted" },
+            info: monochromeCallout,
+            warning: monochromeCallout,
+            error: monochromeCallout,
+            success: monochromeCallout,
             neutral: { base: "border-s-stone-500/50" },
           },
         },

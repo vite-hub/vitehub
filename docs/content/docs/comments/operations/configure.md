@@ -1,8 +1,8 @@
 ---
 title: Configure comments
 description: Set the access policy, add subject kinds, react to mentions, and choose the Database.
-navigation.title: Configure
-navigation.order: 3
+navigation.title: Configure operations
+navigation.order: 22
 icon: i-lucide-settings
 ---
 

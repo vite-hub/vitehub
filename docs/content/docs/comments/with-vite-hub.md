@@ -3,7 +3,7 @@ title: Add presence and edits with ViteHub
 description: Run Comments in a ViteHub app, see each other's cursors on a page, and edit a Content field in place.
 layout: tutorial
 navigation.title: With ViteHub
-navigation.order: 3
+navigation.order: 9
 icon: i-lucide-users
 ---
 
