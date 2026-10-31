@@ -1920,8 +1920,11 @@ const agentInvocationInspector = defineComponent({
                 inspectorRow("Tokens", (props.invocation.usage?.totalTokens ?? metrics.value.tokens) === undefined
                   ? "Unknown"
                   : new Intl.NumberFormat("en").format((props.invocation.usage?.totalTokens ?? metrics.value.tokens)!)),
-                // The runtime display already starts with ~ when the cost is estimated.
-                inspectorRow("Cost", usage?.cost?.display || "Unknown"),
+                // The runtime display already starts with ~ when the cost is estimated, so the label carries the qualifier.
+                inspectorRow(
+                  usage?.cost?.estimated === true ? "Estimated cost" : usage?.cost?.estimated === false ? "Reported cost" : "Cost",
+                  usage?.cost?.display || "Unknown",
+                ),
                 ...([
                   ["Input", partition?.inputTokens],
                   ["Output", partition?.outputTokens],
