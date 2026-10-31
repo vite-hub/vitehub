@@ -589,7 +589,7 @@ async function startNewChat(): Promise<void> {
     params: { agent: encodeAgentRouteParam(agentName) },
   });
   await nextTick();
-  document.querySelector<HTMLElement>('[aria-label="Test this Agent"]')?.focus();
+  document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Test this Agent"]')?.focus();
 }
 
 async function selectAgent(name: string): Promise<void> {

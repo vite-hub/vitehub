@@ -7,7 +7,7 @@ import type { ConsoleDatabaseRelationship, ConsoleDatabaseTable } from "./consol
 import { requestConsole } from "../client/request";
 import { resolveConsoleRouteName } from "../console-route";
 import { rememberConsoleSection } from "../sections";
-import { consoleDatabaseRequestQuery, parseConsoleDatabase } from "./console-database-model";
+import { consoleDatabaseNumericColumns, consoleDatabaseRequestQuery, parseConsoleDatabase } from "./console-database-model";
 import ConsoleFrame from "./console-frame.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
@@ -62,11 +62,14 @@ const selectedTable = computed(
     database.value?.tables.find((table) => table.name === routeTable.value) ??
     database.value?.tables[0],
 );
+// Numbers align right, so digits of the same place line up down the column.
+const numericColumns = computed(() => consoleDatabaseNumericColumns(database.value?.rows ?? []));
 // SQL NULL renders as a dimmed italic marker, so it does not look like the text "NULL".
 const columns = computed<TableColumn<Record<string, string | null>>[]>(() =>
   (selectedTable.value?.columns ?? []).map((column) => ({
     accessorKey: column.key,
     header: column.name,
+    ...(numericColumns.value.has(column.key) ? { meta: { class: { td: "text-right tabular-nums", th: "text-right" } } } : {}),
     cell: ({ getValue }) => {
       const value = getValue<string | null>();
       // Cells cut long values at 18rem. The title shows the whole value on hover.

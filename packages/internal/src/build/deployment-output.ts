@@ -657,6 +657,7 @@ async function writeNetlifyDeploymentOutput(options: NetlifyDeploymentOutputOpti
     await mkdir(dirname(outfile), { recursive: true })
     await bundleEsmEntry(func.bundleEntry, outfile, {
       ...func.bundleOptions,
+      conditions: func.bundleOptions.conditions ?? ["netlify", "node"],
       define: { ...options.bundleDefines, ...func.bundleOptions.define },
       minifyIdentifiers: func.config ? true : func.bundleOptions.minifyIdentifiers ?? true,
       minifySyntax: func.bundleOptions.minifySyntax ?? true,
