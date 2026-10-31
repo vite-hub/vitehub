@@ -54,6 +54,7 @@
 /*
  * The shadcn/ui neutral palette. Hierarchy comes from four text tones, not from size:
  * highlighted for names, default for body text, muted for descriptions, and dimmed for meta.
+ * Dimmed text still names columns, types, and empty values, so every tone keeps at least 4.5:1 (WCAG AA) on the page and neutral surfaces.
  */
 :root {
   color-scheme: light;
@@ -66,8 +67,8 @@
   --ui-border-accented: oklch(0.87 0 0);
   --ui-text: oklch(0.371 0 0);
   --ui-text-toned: oklch(0.439 0 0);
-  --ui-text-muted: oklch(0.556 0 0);
-  --ui-text-dimmed: oklch(0.708 0 0);
+  --ui-text-muted: oklch(0.5 0 0);
+  --ui-text-dimmed: oklch(0.52 0 0);
   --ui-text-highlighted: oklch(0.205 0 0);
   /*
    * Nuxt UI multiplies this base: sm is 1x, md 1.5x, lg 2x, xl 3x. At 0.25rem, buttons and inputs get 6px, panels
@@ -76,6 +77,14 @@
   --ui-radius: 0.25rem;
   /* Primary actions are black on light and white on dark, as in the Vercel dashboard. */
   --ui-primary: oklch(0.205 0 0);
+  /*
+   * Status colors as text. Nuxt UI draws text and dots with the same 500 shade, which reaches only 2.1:1 (amber) to
+   * 3.8:1 (red) on white. These shades keep 4.5:1 (WCAG AA) on the page and on a 10% tint of the same color.
+   */
+  --vitehub-console-error-text: var(--ui-color-error-700);
+  --vitehub-console-info-text: var(--ui-color-info-700);
+  --vitehub-console-success-text: var(--ui-color-success-700);
+  --vitehub-console-warning-text: var(--ui-color-warning-800);
   /* Popovers, menus, and tooltips use a translucent surface over the page. */
   --vitehub-console-floating: rgb(255 255 255 / 92%);
   --vitehub-console-scrollbar: oklch(0.87 0 0);
@@ -98,13 +107,17 @@
   --ui-text: oklch(0.87 0 0);
   --ui-text-toned: oklch(0.8 0 0);
   --ui-text-muted: oklch(0.708 0 0);
-  --ui-text-dimmed: oklch(0.556 0 0);
+  --ui-text-dimmed: oklch(0.62 0 0);
   --ui-text-highlighted: oklch(0.985 0 0);
   --ui-primary: oklch(0.985 0 0);
   /* Dark floating surfaces sit one step above the page instead of matching it. */
   --vitehub-console-floating: rgb(23 23 23 / 92%);
   --vitehub-console-scrollbar: rgb(255 255 255 / 12%);
   --vitehub-console-scrollbar-hover: rgb(255 255 255 / 22%);
+  --vitehub-console-error-text: var(--ui-error);
+  --vitehub-console-info-text: var(--ui-info);
+  --vitehub-console-success-text: var(--ui-success);
+  --vitehub-console-warning-text: var(--ui-warning);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -119,12 +132,33 @@
     --ui-border-accented: rgb(255 255 255 / 22%);
     --ui-text: #f4f4f5;
     --ui-text-muted: #a1a1aa;
-    --ui-text-dimmed: #71717a;
+    --ui-text-dimmed: #85858f;
     --ui-text-highlighted: #fafafa;
     --vitehub-console-floating: rgb(24 24 27 / 84%);
     --vitehub-console-scrollbar: rgb(255 255 255 / 12%);
     --vitehub-console-scrollbar-hover: rgb(255 255 255 / 22%);
+    --vitehub-console-error-text: var(--ui-color-error-400);
+    --vitehub-console-info-text: var(--ui-color-info-400);
+    --vitehub-console-success-text: var(--ui-color-success-400);
+    --vitehub-console-warning-text: var(--ui-color-warning-400);
   }
+}
+
+/* Dots, bars, and fills keep the brighter Nuxt UI shade. Only text uses the status text colors. */
+.text-error {
+  color: var(--vitehub-console-error-text);
+}
+
+.text-info {
+  color: var(--vitehub-console-info-text);
+}
+
+.text-success {
+  color: var(--vitehub-console-success-text);
+}
+
+.text-warning {
+  color: var(--vitehub-console-warning-text);
 }
 
 * {

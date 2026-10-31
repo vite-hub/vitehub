@@ -4999,6 +4999,8 @@ describe("Agent invocation console", () => {
 
     expect(page).toContain("/_vitehub/assets/__VITEHUB_CONSOLE_STYLE_ASSET__")
     expect(page).toContain("/_vitehub/assets/__VITEHUB_CONSOLE_SCRIPT_ASSET__")
+    // Android Chrome shrinks the layout for the software keyboard, so the Agent composer stays above it as on iOS.
+    expect(page).toContain('<meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">')
     expect(response.headers.get("cache-control")).toBe("no-store")
     expect(response.headers.get("content-security-policy")).toContain("script-src 'self' 'wasm-unsafe-eval'")
     expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'")
