@@ -8,6 +8,7 @@ const lifecycle = vi.hoisted(() => ({
   get: vi.fn(() => undefined),
   removeArtifactDir: vi.fn(async () => undefined),
   reset: vi.fn(async () => undefined),
+  resolveOutputs: vi.fn((): { cloudflare: false | object, vercel: false | object } => ({ cloudflare: false, vercel: { provider: "vercel" } })),
   retainSources: vi.fn(async () => ({ resolve: (path: string) => path })),
   useCatalog: vi.fn((_config: object) => ({})),
   writeProviderEntries: vi.fn(async () => ({})),
@@ -71,6 +72,7 @@ vi.mock("../src/internal/vite-build.ts", () => ({
   discoverWorkflowProviderSources: () => ({ agentInstructions: new Map(), paths: [] }),
   generateWorkflowProviderOutputs: () => undefined,
   hasVercelNativeWorkflowEntry: () => false,
+  resolveWorkflowProviderOutputs: lifecycle.resolveOutputs,
   workflowPackageName: "@vite-hub/workflow",
   writeProviderEntries: lifecycle.writeProviderEntries,
 }))
@@ -252,6 +254,19 @@ describe("Workflow Provider Output lifecycle", () => {
     expect(lifecycle.writeProviderEntries).toHaveBeenCalledOnce()
     expect(lifecycle.contribute).toHaveBeenCalledOnce()
     expect(lifecycle.reset).not.toHaveBeenCalled()
+    expect(lifecycle.finalize).toHaveBeenCalledOnce()
+  })
+
+  it("does not retain sources when the build writes no Provider Output", async () => {
+    lifecycle.resolveOutputs.mockReturnValueOnce({ cloudflare: false, vercel: false })
+    await runSuccessfulProviderLifecycle(createPlugin(), "client")
+
+    expect(lifecycle.retainSources).not.toHaveBeenCalled()
+    expect(lifecycle.writeProviderEntries).toHaveBeenCalledWith(
+      "/project", undefined, expect.anything(), undefined,
+      undefined, undefined, "/project", expect.any(String), expect.any(Map),
+    )
+    expect(lifecycle.contribute).toHaveBeenCalledOnce()
     expect(lifecycle.finalize).toHaveBeenCalledOnce()
   })
 })
