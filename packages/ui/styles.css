@@ -1051,8 +1051,11 @@ button.vh-agent-tool-list__count:focus-visible {
     color: var(--vh-ui-inverted);
   }
 
-  [data-slot="bubble"][data-variant="default"] > :is(a, button)[data-slot="bubble-content"]:hover {
-    background: color-mix(in oklab, var(--vh-ui-primary) 80%, transparent);
+  /* Hover colors apply only where a pointer can hover, so a tap on a touch screen does not leave them on, as on the primitive rail. */
+  @media (hover: hover) {
+    [data-slot="bubble"][data-variant="default"] > :is(a, button)[data-slot="bubble-content"]:hover {
+      background: color-mix(in oklab, var(--vh-ui-primary) 80%, transparent);
+    }
   }
 
   [data-slot="bubble"][data-variant="secondary"] > [data-slot="bubble-content"] {
@@ -1064,8 +1067,10 @@ button.vh-agent-tool-list__count:focus-visible {
     background: var(--vh-ui-bg-muted);
   }
 
-  [data-slot="bubble"]:is([data-variant="secondary"], [data-variant="muted"]) > :is(a, button)[data-slot="bubble-content"]:hover {
-    background: color-mix(in oklab, var(--vh-ui-bg-elevated), var(--vh-ui-highlighted) 5%);
+  @media (hover: hover) {
+    [data-slot="bubble"]:is([data-variant="secondary"], [data-variant="muted"]) > :is(a, button)[data-slot="bubble-content"]:hover {
+      background: color-mix(in oklab, var(--vh-ui-bg-elevated), var(--vh-ui-highlighted) 5%);
+    }
   }
 
   [data-slot="bubble"][data-variant="tinted"] > [data-slot="bubble-content"] {
@@ -1073,8 +1078,10 @@ button.vh-agent-tool-list__count:focus-visible {
     color: var(--vh-ui-highlighted);
   }
 
-  [data-slot="bubble"][data-variant="tinted"] > :is(a, button)[data-slot="bubble-content"]:hover {
-    background: color-mix(in oklab, var(--vh-ui-primary) 22%, var(--vh-ui-bg));
+  @media (hover: hover) {
+    [data-slot="bubble"][data-variant="tinted"] > :is(a, button)[data-slot="bubble-content"]:hover {
+      background: color-mix(in oklab, var(--vh-ui-primary) 22%, var(--vh-ui-bg));
+    }
   }
 
   [data-slot="bubble"][data-variant="outline"] > [data-slot="bubble-content"] {
@@ -1089,9 +1096,11 @@ button.vh-agent-tool-list__count:focus-visible {
     padding: 0;
   }
 
-  [data-slot="bubble"]:is([data-variant="outline"], [data-variant="ghost"]) > :is(a, button)[data-slot="bubble-content"]:hover {
-    background: var(--vh-ui-bg-elevated);
-    color: var(--vh-ui-highlighted);
+  @media (hover: hover) {
+    [data-slot="bubble"]:is([data-variant="outline"], [data-variant="ghost"]) > :is(a, button)[data-slot="bubble-content"]:hover {
+      background: var(--vh-ui-bg-elevated);
+      color: var(--vh-ui-highlighted);
+    }
   }
 
   [data-slot="bubble"][data-variant="destructive"] > [data-slot="bubble-content"] {
@@ -1099,8 +1108,10 @@ button.vh-agent-tool-list__count:focus-visible {
     color: var(--vh-ui-error);
   }
 
-  [data-slot="bubble"][data-variant="destructive"] > :is(a, button)[data-slot="bubble-content"]:hover {
-    background: color-mix(in oklab, var(--vh-ui-error) 20%, transparent);
+  @media (hover: hover) {
+    [data-slot="bubble"][data-variant="destructive"] > :is(a, button)[data-slot="bubble-content"]:hover {
+      background: color-mix(in oklab, var(--vh-ui-error) 20%, transparent);
+    }
   }
 
   [data-slot="bubble-reactions"] {
@@ -1169,8 +1180,10 @@ button.vh-agent-tool-list__count:focus-visible {
     text-underline-offset: 3px;
   }
 
-  :is(a[data-slot="marker"], [data-slot="marker-content"] > a):hover {
-    color: var(--vh-ui-highlighted);
+  @media (hover: hover) {
+    :is(a[data-slot="marker"], [data-slot="marker-content"] > a):hover {
+      color: var(--vh-ui-highlighted);
+    }
   }
 
   [data-slot="marker"][data-variant="separator"]::before,
@@ -1246,8 +1259,10 @@ button.vh-agent-tool-list__count:focus-visible {
     cursor: pointer;
   }
 
-  :is(a, button):hover [data-slot="trace-line"] {
-    color: var(--vh-ui-highlighted);
+  @media (hover: hover) {
+    :is(a, button):hover [data-slot="trace-line"] {
+      color: var(--vh-ui-highlighted);
+    }
   }
 
   [data-slot="trace-line"][data-status="error"],
@@ -1320,8 +1335,10 @@ button.vh-agent-tool-list__count:focus-visible {
     width: fit-content;
   }
 
-  [data-slot="trace-collapsible-trigger"]:hover {
-    color: var(--vh-ui-highlighted);
+  @media (hover: hover) {
+    [data-slot="trace-collapsible-trigger"]:hover {
+      color: var(--vh-ui-highlighted);
+    }
   }
 
   [data-slot="trace-collapsible-trigger"]:focus-visible {
@@ -1955,8 +1972,10 @@ button.vh-agent-tool-list__count:focus-visible {
     width: 2rem;
   }
 
-  [data-slot="message-scroller-button"]:hover {
-    background: var(--vh-ui-bg-elevated);
+  @media (hover: hover) {
+    [data-slot="message-scroller-button"]:hover {
+      background: var(--vh-ui-bg-elevated);
+    }
   }
 
   [data-slot="message-scroller-button"]:focus-visible {
