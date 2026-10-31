@@ -1,5 +1,6 @@
 import { describeViteHubConsoleDocumentActions, describeViteHubConsoleRuntimeReader, describeViteHubConsoleSection, isViteHubConsoleDocumentEditorSection, isViteHubConsoleRuntimeSection, readViteHubConsoleSection, resolveViteHubConsoleSectionPages } from "@vite-hub/internal/console"
 import { authConsoleSection } from "@vite-hub/auth/console";
+import { cmsStore } from "@vite-hub/cms/vite"
 import { commentsConsoleSection } from "@vite-hub/comments/vite"
 import { contentConsoleSection } from "@vite-hub/content/vite"
 import { emailConsoleSection } from "@vite-hub/email/vite"
@@ -110,6 +111,8 @@ const registeredSections: readonly ConsoleRegisteredSection[] = [
     contentImportBase: context.contentImportBase,
     projectRoot: context.projectRoot,
     schedules: context.scheduleDefinitions,
+    // The GitHub store of the CMS cannot schedule publishes, so the editor needs no publishDue() runner.
+    scheduling: cmsStore({ projectRoot: context.projectRoot, serverDirs: context.serverDirs }) !== "github",
     serverDirs: context.serverDirs,
   })),
   registerConsoleSection(commentsConsoleSection, context => ({ projectRoot: context.projectRoot, serverDirs: context.serverDirs })),

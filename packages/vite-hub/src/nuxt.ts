@@ -906,7 +906,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     : configuredEnv
   const rootDir = nuxt.options.rootDir || process.cwd()
   const projectRoot = resolveViteHubProjectRoot(rootDir)
-  // The Content cms preset turns on Workspace, Database, and Blob. Nuxt knows the root here, so resolve it once.
+  // The `cms` preset turns on Workspace, Database, and Blob. Nuxt knows the root here, so resolve it once.
   const options = markCmsPresetFeaturesResolved(withDataDir(resolveCmsPresetFeatures({
     ...moduleOptions,
     console: resolveConsoleOptions(moduleOptions.console),

@@ -42,7 +42,7 @@ describe("Content cms preset with only server/content.ts and vitehub({ preset })
     const inspect = await runCli(root, zeroConfig(), ["inspect", "definitions", "--kind", "database", "--json"])
     expect(inspect.exitCode).toBe(0)
     expect(inspect.stdout).toContain("\"Contributed by\"")
-    expect(inspect.stdout).toContain("@vite-hub/content/vite")
+    expect(inspect.stdout).toContain("@vite-hub/cms/vite")
     expect(inspect.stdout).toContain("uses the Content cms preset and the app has no Database Definition")
     expect(inspect.stdout).toContain(".vitehub/content/database.ts")
 

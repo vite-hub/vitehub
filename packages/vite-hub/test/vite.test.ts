@@ -677,7 +677,7 @@ describe("vitehub", () => {
   })
 
   it("keeps coherent defaults and opt-in integrations", () => {
-    // Database, Blob, and Workspace are in the list for the Content cms preset, which turns them on when it is used.
+    // Database, Blob, and Workspace are in the list for the `cms` preset, which turns them on when it is used.
     expect(pluginNames(vitehub({ preset: "node" }))).toEqual(expect.arrayContaining(["@vite-hub/database/vite", "@vite-hub/blob/vite", "@vite-hub/workspace/vite"]))
     expect(appliedPluginNames(vitehub({ preset: "node" }))).toEqual([
       "vite-hub/doctor",
@@ -697,6 +697,7 @@ describe("vitehub", () => {
       "@vite-hub/kv/optional-peers",
       "@vite-hub/source/vite",
       "@vite-hub/content/vite",
+      "@vite-hub/cms/vite",
       "@vite-hub/comments/vite",
       "vite-hub/task",
       "vite-hub/nitro-cache-bypass",
@@ -749,6 +750,7 @@ describe("vitehub", () => {
       "@vite-hub/workspace/vite",
       "@vite-hub/source/vite",
       "@vite-hub/content/vite",
+      "@vite-hub/cms/vite",
       "@vite-hub/comments/vite",
       "vite-hub/task",
       "vite-hub/nitro-cache-bypass",
@@ -1675,7 +1677,7 @@ describe("vitehub", () => {
     expect(appliedPluginNames(vitehub({ preset: "node" }))).not.toContain("@vite-hub/blob/vite")
     expect(pluginNames(vitehub({ preset: "node", blob: false }))).not.toContain("@vite-hub/blob/vite")
     expect(pluginNames(vitehub({ preset: "deno" }))).not.toContain("@vite-hub/blob/vite")
-    // Only the Content cms preset case of the default list builds Blob.
+    // Only the `cms` preset case of the default list builds Blob.
     expect(integrationMocks.hubBlob).toHaveBeenCalledOnce()
     // SAFETY: The explicit Deno preset installs the named deployment plugin.
     const deployment = vitehub({ preset: "deno", blob: true }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin

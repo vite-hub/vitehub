@@ -78,6 +78,7 @@ export type {
   ContentUnscheduleOptions,
 } from "./schedules.ts"
 export type { ContentSourceInput, ContentSourceOptions, ContentSourceReader } from "./content-source.ts"
+export { defineContentPreset } from "./presets.ts"
 export type { ContentPreset, ContentPresetDefaults, ContentPresetSelection } from "./presets.ts"
 export { contentSessionTimeouts } from "./defaults.ts"
 export type {
@@ -250,6 +251,7 @@ type CollectionOf<TDefinition> =
 export type DefineContentOptions<
   TPlugins extends ReadonlyArray<ContentPlugin<any, any>> = ReadonlyArray<ContentPlugin<any, any>>,
   TCollections extends ContentCollections = ContentCollections,
+  TPresetOptions extends object = object,
 > = Omit<ContentOptions, "basePath" | "plugins" | "source" | "sources"> & {
   plugins?: TPlugins
   /** Generate and serve `/api/content/**`. False keeps server methods and Console editing available. */
@@ -259,10 +261,10 @@ export type DefineContentOptions<
   /** Named read-only Sources. Each name becomes a Content instance. */
   sources?: Record<string, ContentSourceInput>
   /**
-   * Preset that fills Definition options, such as `cms` from `vite-hub/content/presets/cms`, or `[preset, options]`.
+   * Preset that fills Definition options, such as `cms` from `vite-hub/cms`, or `[preset, options]`.
    * The `cms` preset sets `workspace`, so do not pass both.
    */
-  extends?: ContentPresetSelection
+  extends?: ContentPresetSelection<TPresetOptions>
   /** Workspace that stores `collections`. It needs retained history, such as the Blob + Database Store. */
   workspace?: string
   /**
@@ -378,7 +380,8 @@ const contentActions: ReadonlySet<string> = new Set<ContentAction>(["read", "wri
 export function defineContent<
   const TPlugins extends ReadonlyArray<ContentPlugin<any, any>> = [],
   const TCollections extends ContentCollections = {},
->(options: DefineContentOptions<TPlugins, TCollections> = {}): ContentRuntime & Omit<ContentMethods<TPlugins>, "search"> & ContentDocumentsRuntime<TCollections> {
+  TPresetOptions extends object = object,
+>(options: DefineContentOptions<TPlugins, TCollections, TPresetOptions> = {}): ContentRuntime & Omit<ContentMethods<TPlugins>, "search"> & ContentDocumentsRuntime<TCollections> {
   if (options.source && options.sources) throw new Error("Define either source or sources, not both.")
   if (options.extends !== undefined && options.workspace !== undefined) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ extends }) sets workspace. Remove workspace, or name the Workspace in the preset options." })
@@ -422,7 +425,7 @@ export function defineContent<
     }
   }
   if (collectionEntries.length && (String(workspace) !== workspace || !workspace)) {
-    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ collections }) requires extends: cms from vite-hub/content/presets/cms, or workspace: the name of a Workspace with retained history." })
+    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ collections }) requires extends: cms from vite-hub/cms, or workspace: the name of a Workspace with retained history." })
   }
   const inputs: Record<string, ContentSourceInput | undefined> = sources ?? (source || !collectionEntries.length ? { default: source } : {})
   const instances = Object.entries(inputs).map(([name, input]) => {

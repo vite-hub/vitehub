@@ -15,8 +15,8 @@ import { createFakeGitHub, textSha } from "../../workspace/test/fake-github.ts"
 import { contentSessionsSchema } from "../src/database.ts"
 import { documents } from "../src/collections.ts"
 import { defineContent } from "../src/index.ts"
+import { defineContentPreset } from "../src/presets.ts"
 import { createContentConsoleActions } from "../src/runtime/console.ts"
-import cms from "../src/presets/cms.ts"
 
 import type { FakeGitHub } from "../../workspace/test/fake-github.ts"
 import type { ContentDocumentUrl } from "../src/index.ts"
@@ -25,6 +25,13 @@ const sessionsTable = await readFile(new URL("./fixtures/sessions.sql", import.m
 const cleanup: Array<() => Promise<void> | void> = []
 let fake: FakeGitHub
 let workspaces = 0
+
+// A preset that publishes with pull requests, as the GitHub store of `@vite-hub/cms` does with `publish: "pr"`.
+const pullRequests = defineContentPreset({
+  name: "pull-requests",
+  options: { workspace: "content" },
+  configure: options => ({ workspace: options.workspace, publish: "pr" }),
+})
 
 const page = (title: string, body = "Body\n") => `---\ntitle: ${title}\n---\n${body}`
 
@@ -71,7 +78,7 @@ async function setup(options: { authorize?: () => boolean, database?: boolean, f
     rules: { "**": { write: false } },
   })
   const content = defineContent({
-    ...(options.publish ? { extends: [cms, { store: "github", publish: options.publish, workspace }] as const } : { workspace }),
+    ...(options.publish === "pr" ? { extends: [pullRequests, { workspace }] as const } : { workspace }),
     collections: { posts: documents({ path: options.path ?? ["content/posts/**/*.md"], fields: { title: z.string() }, ...(options.url ? { url: options.url } : {}) }) },
     logger: false,
     ...(options.authorize ? { authorize: options.authorize } : {}),
@@ -611,7 +618,7 @@ describe("Content on the GitHub store", () => {
       const { posts, workspace } = await setup({ publish: "pr" })
       const saved = await posts.save("b", { data: { title: "B" }, body: "" })
       const editor = defineContent({
-        extends: [cms, { store: "github", publish: "pr", workspace }] as const,
+        extends: [pullRequests, { workspace }] as const,
         collections: { posts: documents({ path: "content/posts/**/*.md", fields: { title: z.string() } }) },
         authorize: () => true,
         logger: false,

@@ -14,9 +14,10 @@ import { hubAuth, resolveAuthViteConfig } from "@vite-hub/auth/vite"
 import { hubBlob, resolveBlobViteConfig } from "@vite-hub/blob/vite"
 import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubChannels } from "@vite-hub/channels/vite"
+import { hubCms, usesCms } from "@vite-hub/cms/vite"
 import { hubComments } from "@vite-hub/comments/vite"
 import type { HubCommentsOptions } from "@vite-hub/comments/vite"
-import { contributeContentRealtime, hubContent, usesCmsPreset } from "@vite-hub/content/vite"
+import { contributeContentRealtime, hubContent } from "@vite-hub/content/vite"
 import { hubConnections, hubConnectionsTypesCleanup } from "@vite-hub/connections/vite"
 import { hubDb } from "@vite-hub/database/vite"
 import { hubEmail, hubEmailOptionalPeerResolver } from "@vite-hub/email/vite"
@@ -113,6 +114,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/sandbox": true,
   "@vite-hub/channels": true,
   "@vite-hub/cli": false,
+  "@vite-hub/cms": true,
   "@vite-hub/comments": true,
   "@vite-hub/connections": true,
   "@vite-hub/content": true,
@@ -959,8 +961,8 @@ function doctorPlugin(): Plugin {
 }
 
 /**
- * The ViteHub plugin list. When `server/content.ts` selects the Content `cms` preset and `database`, `blob`, or
- * `workspace` is unset, ViteHub turns that feature on. See `withCmsPresetPlugins()`.
+ * The ViteHub plugin list. When `server/content.ts` selects the `cms` preset of `@vite-hub/cms` and `database`,
+ * `blob`, or `workspace` is unset, ViteHub turns that feature on. See `withCmsPresetPlugins()`.
  */
 /** Builds the ViteHub plugin list for one resolved feature configuration. */
 function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
@@ -1231,7 +1233,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   const overlayAssets = options.console === false || options.comments?.overlay === false ? undefined : commentsOverlayAssets()
   const commentsPlugin = hubComments({
     ...options.comments,
-    ...(overlayAssets ? { overlayAssets, overlayDevOnly: devOperationsOnly, overlayEdit: usesCmsPreset } : {}),
+    ...(overlayAssets ? { overlayAssets, overlayDevOnly: devOperationsOnly, overlayEdit: usesCms } : {}),
     operationsImports: {
       auth: "vite-hub/auth/server",
       database: "vite-hub/database/drizzle",
@@ -1318,9 +1320,11 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     importBase: "vite-hub/source",
   })
   plugins.push(sourcePlugin)
-  // Reads the Content cms preset and contributes its Workspace, Database tables, and, when the app has none, the
-  // default Database. Inert without the preset. It also adds the `vitehub content` commands and the Content operations.
-  plugins.push(hubContent({
+  // Adds the `vitehub content` commands, the Content operations, and the Content inspector. Inert without server/content.ts.
+  plugins.push(hubContent())
+  // Reads the `cms` preset and contributes its Workspace, Database tables, and, when the app has none, the default
+  // Database. Inert without the preset.
+  plugins.push(hubCms({
     imports: {
       blob: "vite-hub/blob",
       blobDatabase: "vite-hub/workspace/blob-database",

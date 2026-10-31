@@ -33,7 +33,8 @@ export const commentsOverlayMiddlewarePath = ".vitehub/comments/inject-overlay.m
 /** Generated Database Definition that comments add when the app has none, relative to the project root. */
 export const commentsDatabaseModulePath = ".vitehub/comments/database.ts"
 
-const commentsAndContent: ReadonlySet<string> = new Set(["@vite-hub/comments/vite", "@vite-hub/content/vite"])
+// The CMS plugin collects the Database contributions of Comments, so Comments skips it to avoid a loop.
+const commentsAndCms: ReadonlySet<string> = new Set(["@vite-hub/comments/vite", "@vite-hub/cms/vite"])
 
 function displayPath(file: string, root: string): string {
   return file.startsWith(`${root}/`) ? file.slice(root.length + 1) : file
@@ -333,7 +334,7 @@ export function hubComments(options: HubCommentsOptions = {}): CommentsVitePlugi
         if (options.database !== undefined) return [tables]
         // Without a Database Definition the app has nowhere to keep comments, so comments add the `default` Database.
         // The Content plugin does the same, and it sees this one, so only one of them adds it.
-        const others = (await flattenPluginOptions(context.plugins)).filter(plugin => !commentsAndContent.has(String(Reflect.get(plugin, "name"))))
+        const others = (await flattenPluginOptions(context.plugins)).filter(plugin => !commentsAndCms.has(String(Reflect.get(plugin, "name"))))
         const { collectDatabaseContributions } = await import("@vite-hub/database/vite")
         const { discoverDatabaseDefinitions } = await import("@vite-hub/database/config")
         const contributed = await collectDatabaseContributions(others, { ...context, plugins: others })

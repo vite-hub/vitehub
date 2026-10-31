@@ -13,11 +13,12 @@ import { registerWorkspace } from "@vite-hub/workspace/test"
 
 import { createBlobStorage } from "../../blob/src/storage.ts"
 import { createDriver } from "../../blob/src/drivers/fs.ts"
-import { readCmsPresetUsage, renderCmsWorkspaceModule, resolveCmsPresetPlan } from "../src/cms-build.ts"
-import { documents } from "../src/collections.ts"
-import { defineContent } from "../src/index.ts"
-import cms from "../src/presets/cms.ts"
-import { cmsPresetStore, hubContent, usesCmsPreset } from "../src/vite.ts"
+import { defineContent } from "@vite-hub/content"
+import { documents } from "@vite-hub/content/collections"
+
+import { readCmsPresetUsage, renderCmsWorkspaceModule, resolveCmsPresetPlan } from "../src/build.ts"
+import cms from "../src/index.ts"
+import { cmsStore, hubCms, usesCms } from "../src/vite.ts"
 
 import type { ResolvedConfig } from "vite"
 
@@ -28,7 +29,7 @@ afterEach(async () => {
 })
 
 async function temporaryRoot(): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), "vitehub-content-cms-"))
+  const root = await mkdtemp(join(tmpdir(), "vitehub-cms-"))
   cleanup.push(() => rm(root, { force: true, recursive: true }))
   return root
 }
@@ -58,25 +59,34 @@ describe("reading the cms preset from server/content.ts", () => {
     expect(read("import { defineContent } from 'vite-hub/content'\nexport const content = defineContent({ workspace: 'site' })\n")).toBeUndefined()
   })
 
+  it("reads the preset only from vite-hub/cms and @vite-hub/cms", () => {
+    const source = (module: string) => `import { defineContent } from 'vite-hub/content'\nimport cms from '${module}'\nexport const content = defineContent({ extends: cms })\n`
+    expect(read(source("vite-hub/cms"))).toEqual({ file, options: {} })
+    expect(read(source("@vite-hub/cms"))).toEqual({ file, options: {} })
+    // The preset left Content, so the old paths select nothing.
+    expect(read(source("vite-hub/content/presets/cms"))).toBeUndefined()
+    expect(read(source("@vite-hub/content/presets/cms"))).toBeUndefined()
+  })
+
   it("reads the bare form and the tuple form with string literal options", () => {
     expect(read([
       "import { defineContent } from 'vite-hub/content'",
-      "import cms from 'vite-hub/content/presets/cms'",
+      "import cms from 'vite-hub/cms'",
       "export const content = defineContent({ extends: cms, collections: {} })",
     ].join("\n"))).toEqual({ file, options: {} })
     expect(read([
       "import { defineContent } from '@vite-hub/content'",
-      "import { cms as preset } from '@vite-hub/content/presets/cms'",
+      "import { cms as preset } from '@vite-hub/cms'",
       "export const content = defineContent({ extends: [preset, { database: 'content', 'blob': `media`, workspace: undefined }] } satisfies object)",
     ].join("\n"))).toEqual({ file, options: { blob: "media", database: "content" } })
     expect(read([
       "import { defineContent } from 'vite-hub/content'",
-      "import * as presets from 'vite-hub/content/presets/cms'",
+      "import * as presets from 'vite-hub/cms'",
       "export const content = defineContent({ extends: [presets.default, { workspace: 'site' }] as const })",
     ].join("\n"))).toEqual({ file, options: { workspace: "site" } })
     expect(read([
       "import { defineContent } from 'vite-hub/content'",
-      "import cms from 'vite-hub/content/presets/cms'",
+      "import cms from 'vite-hub/cms'",
       "const content = defineContent({ extends: cms })",
       "export { content }",
     ].join("\n"))).toEqual({ file, options: {} })
@@ -87,7 +97,7 @@ describe("reading the cms preset from server/content.ts", () => {
     const contentFile = await writeProjectFile(root, "server/content.ts", "export { content } from './definition.ts'\n")
     await writeProjectFile(root, "server/definition.ts", [
       "import { defineContent } from 'vite-hub/content'",
-      "import cms from 'vite-hub/content/presets/cms'",
+      "import cms from 'vite-hub/cms'",
       "export const content = defineContent({ extends: [cms, { workspace: 'site' }] })",
     ].join("\n"))
     await expect(readFile(contentFile, "utf8")).resolves.toContain("export { content }")
@@ -96,16 +106,16 @@ describe("reading the cms preset from server/content.ts", () => {
   })
 
   it("explains selections that the build cannot read", () => {
-    const missing = errorOf(() => read("import cms from 'vite-hub/content/presets/cms'\nexport const content = defineContent(Object.assign({}, { preset: cms }))\n"))
+    const missing = errorOf(() => read("import cms from 'vite-hub/cms'\nexport const content = defineContent(Object.assign({}, { preset: cms }))\n"))
     expect(missing.code).toBe("CONTENT_B0001")
     expect(missing.message).toContain("\"server/content.ts\": imports the Content cms preset but does not select it with extends.")
-    expect(errorOf(() => read("import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/content/presets/cms'\nconst name = 'x'\nexport const content = defineContent({ extends: [cms, { database: name }] })")).message)
+    expect(errorOf(() => read("import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/cms'\nconst name = 'x'\nexport const content = defineContent({ extends: [cms, { database: name }] })")).message)
       .toContain("cms preset option \"database\" must be a string literal")
-    expect(errorOf(() => read("import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/content/presets/cms'\nexport const content = defineContent({ extends: [cms, { speed: 'x' }] })")).message)
+    expect(errorOf(() => read("import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/cms'\nexport const content = defineContent({ extends: [cms, { speed: 'x' }] })")).message)
       .toContain("unknown cms preset option \"speed\". Use blob, database, workspace, store, repo, branch, draftBranch, root, publish.")
-    expect(errorOf(() => read("import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/content/presets/cms'\nconst o = {}\nexport const content = defineContent({ extends: [cms, o] })")).message)
+    expect(errorOf(() => read("import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/cms'\nconst o = {}\nexport const content = defineContent({ extends: [cms, o] })")).message)
       .toContain("the cms preset tuple must be [cms, { ... }] with an object literal.")
-    expect(errorOf(() => read("import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/content/presets/cms'\nexport const content = defineContent({ extends: cms, extends: [cms, {}] })")).message)
+    expect(errorOf(() => read("import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/cms'\nexport const content = defineContent({ extends: cms, extends: [cms, {}] })")).message)
       .toContain("selects the Content cms preset more than once.")
   })
 })
@@ -209,14 +219,14 @@ describe("defineContent({ extends: cms })", () => {
   })
 })
 
-describe("hubContent()", () => {
+describe("hubCms()", () => {
   async function project(content: string, databases: Record<string, string> = { "server/databases/config.ts": "export default {}\n" }) {
     const root = await temporaryRoot()
     await writeProjectFile(root, "server/content.ts", content)
     for (const [path, body] of Object.entries(databases)) await writeProjectFile(root, path, body)
     return root
   }
-  const presetContent = "import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/content/presets/cms'\nexport const content = defineContent({ extends: cms })\n"
+  const presetContent = "import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/cms'\nexport const content = defineContent({ extends: cms })\n"
 
   function resolvedConfig(root: string, plugins: Array<{ name: string, api?: unknown }>): ResolvedConfig {
     // SAFETY: configResolved reads only the root and plugin names and APIs.
@@ -226,7 +236,7 @@ describe("hubContent()", () => {
 
   it("contributes the Workspace module and the history tables", async () => {
     const root = await project(presetContent)
-    const plugin = hubContent({ imports: { blob: "vite-hub/blob" } })
+    const plugin = hubCms({ imports: { blob: "vite-hub/blob" } })
     const workspaces = await plugin.vitehub.workspaces({ projectRoot: root, root })
     const module = join(root, ".vitehub/content/workspace.mjs")
     expect(workspaces).toEqual([{ definition: { export: "contentWorkspace", module }, name: "content", reason: "Stores the documents of the Content cms preset." }])
@@ -238,7 +248,7 @@ describe("hubContent()", () => {
 
   it("adds the default Database Definition when the app has none, and removes it once the app defines one", async () => {
     const root = await project(presetContent, {})
-    const plugin = hubContent({ imports: { databaseDefinition: "vite-hub/database" } })
+    const plugin = hubCms({ imports: { databaseDefinition: "vite-hub/database" } })
     const definition = join(root, ".vitehub/content/database.ts")
     expect(await plugin.vitehub.databases({ projectRoot: root, root, rootDir: root })).toEqual([
       { definition, name: "default", reason: "\"server/content.ts\" uses the Content cms preset and the app has no Database Definition. Add server/databases/config.ts to define this Database yourself." },
@@ -255,21 +265,21 @@ describe("hubContent()", () => {
   })
 
   it("reads whether server/content.ts uses the preset without running it", async () => {
-    expect(usesCmsPreset({ projectRoot: await project(presetContent, {}) })).toBe(true)
-    expect(usesCmsPreset({ projectRoot: await project("export const content = defineContent({ workspace: 'site' })\n", {}) })).toBe(false)
-    expect(usesCmsPreset({ projectRoot: await temporaryRoot() })).toBe(false)
+    expect(usesCms({ projectRoot: await project(presetContent, {}) })).toBe(true)
+    expect(usesCms({ projectRoot: await project("export const content = defineContent({ workspace: 'site' })\n", {}) })).toBe(false)
+    expect(usesCms({ projectRoot: await temporaryRoot() })).toBe(false)
     const custom = await temporaryRoot()
     await writeProjectFile(custom, "app/server/content.ts", presetContent)
-    expect(usesCmsPreset({ projectRoot: custom, serverDirs: ["app/server"] })).toBe(true)
-    expect(cmsPresetStore({ projectRoot: custom, serverDirs: ["app/server"] })).toBe("blob-database")
+    expect(usesCms({ projectRoot: custom, serverDirs: ["app/server"] })).toBe(true)
+    expect(cmsStore({ projectRoot: custom, serverDirs: ["app/server"] })).toBe("blob-database")
     await writeProjectFile(custom, "app/server/content.ts", presetContent.replace("extends: cms", "extends: [cms, { store: 'github', repo: 'owner/repo' }]"))
-    expect(cmsPresetStore({ projectRoot: custom, serverDirs: ["app/server"] })).toBe("github")
+    expect(cmsStore({ projectRoot: custom, serverDirs: ["app/server"] })).toBe("github")
   })
 
   it("contributes nothing and removes the generated module without the preset", async () => {
     const root = await project("export const content = {}\n")
     await writeProjectFile(root, ".vitehub/content/workspace.mjs", "stale")
-    const plugin = hubContent()
+    const plugin = hubCms()
     expect(await plugin.vitehub.workspaces({ projectRoot: root, root })).toEqual([])
     expect(await plugin.vitehub.databases({ projectRoot: root, root, rootDir: root })).toEqual([])
     await expect(readFile(join(root, ".vitehub/content/workspace.mjs"))).rejects.toThrow()
@@ -278,7 +288,7 @@ describe("hubContent()", () => {
 
   it("requires Workspace, Database, and Blob, and the selected Blob store", async () => {
     const root = await project(presetContent)
-    const plugin = hubContent()
+    const plugin = hubCms()
     const configResolved = plugin.configResolved as (config: ResolvedConfig) => Promise<void>
     await expect(configResolved(resolvedConfig(root, [{ name: "@vite-hub/database/vite" }, blobPlugin(false)])))
       .rejects.toThrow("[vitehub] \"server/content.ts\" uses the Content cms preset: it needs workspace, blob enabled. Set vitehub({ workspace: true, blob: true }) in your Vite config.")
@@ -290,8 +300,8 @@ describe("hubContent()", () => {
 
   it("skips its own plugin when vitehub() nests it in context.plugins", async () => {
     const root = await project("export const content = {}\n")
-    const plugin = hubContent()
-    // vitehub() returns an array, so the Content plugin sits one level down in the app's plugin list. Collecting the
+    const plugin = hubCms()
+    // vitehub() returns an array, so the CMS plugin sits one level down in the app's plugin list. Collecting the
     // Database contributions of that list must not call this plugin's hooks again.
     const plugins = [[{ name: "@vite-hub/workspace/vite" }, plugin, { name: "@vite-hub/database/vite" }], false]
     expect(await plugin.vitehub.workspaces({ plugins, projectRoot: root, root })).toEqual([])
@@ -303,7 +313,7 @@ describe("hubContent()", () => {
       "server/databases/blog/config.ts": "export default defineDatabase({ name: 'blog', schema: {} })\n",
       "server/databases/audit/config.ts": "export default defineDatabase({ name: 'audit', schema: {} })\n",
     })
-    await expect(hubContent().vitehub.workspaces({ projectRoot: root, root }))
+    await expect(hubCms().vitehub.workspaces({ projectRoot: root, root }))
       .rejects.toThrow("Choose one with extends: [cms, { database: \"audit\" }].")
   })
 })
@@ -311,7 +321,7 @@ describe("hubContent()", () => {
 describe("the cms preset on the GitHub store", () => {
   const githubSource = (options: string) => [
     "import { defineContent } from 'vite-hub/content'",
-    "import cms from 'vite-hub/content/presets/cms'",
+    "import cms from 'vite-hub/cms'",
     `export const content = defineContent({ extends: [cms, { ${options} }] })`,
   ].join("\n")
   const choices = (names: string[]) => ({
@@ -398,11 +408,17 @@ describe("the cms preset on the GitHub store", () => {
     content.dispose()
   })
 
+  it("publishes with pull requests only on the GitHub store with publish: pr", () => {
+    expect(cms.configure({ ...cms.options, store: "github", publish: "pr" })).toEqual({ workspace: "content", publish: "pr" })
+    expect(cms.configure({ ...cms.options, store: "github" })).toEqual({ workspace: "content" })
+    expect(cms.configure({ ...cms.options, repo: "onmax/docs", publish: "commit" })).toEqual({ workspace: "content" })
+  })
+
   it("contributes only the sessions table, and needs no Blob store", async () => {
     const root = await temporaryRoot()
     await writeProjectFile(root, "server/content.ts", githubSource("store: 'github', repo: 'onmax/docs'"))
     await writeProjectFile(root, "server/databases/config.ts", "export default {}\n")
-    const plugin = hubContent({ imports: { blob: "vite-hub/blob" } })
+    const plugin = hubCms({ imports: { blob: "vite-hub/blob" } })
     const workspaces = await plugin.vitehub.workspaces({ projectRoot: root, root })
     expect(workspaces).toMatchObject([{ name: "content", definition: { export: "contentWorkspace" } }])
     await expect(readFile(join(root, ".vitehub/content/workspace.mjs"), "utf8")).resolves.toContain("provider: \"github\"")
