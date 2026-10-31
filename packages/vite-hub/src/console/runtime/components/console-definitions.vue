@@ -337,7 +337,9 @@ onBeforeUnmount(() => request?.abort());
         </template>
       </ConsolePageHeader>
 
-      <div class="min-h-0 flex-1 overflow-y-auto" aria-live="polite">
+      <!-- Only the load state is announced. A live region around the whole list would read every refreshed row. -->
+      <p class="sr-only" role="status">{{ loading && !content ? "Loading…" : "" }}</p>
+      <div class="min-h-0 flex-1 overflow-y-auto">
         <div v-if="loading && !content" class="mx-auto grid w-full max-w-3xl gap-3 p-4 sm:p-6" aria-busy="true">
           <USkeleton class="h-4 w-40" />
           <USkeleton v-for="index in 5" :key="index" class="h-9 w-full" />

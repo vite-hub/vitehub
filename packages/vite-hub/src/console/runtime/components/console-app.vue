@@ -1263,7 +1263,8 @@ onBeforeUnmount(() => {
       :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }"
     >
       <template #body>
-        <div class="flex h-full min-h-0 w-full flex-col overflow-hidden" aria-live="polite">
+        <!-- No live region here: the thread is a log, and the connection state is an alert. A polite region around both made screen readers read the session again after each update. -->
+        <div class="flex h-full min-h-0 w-full flex-col overflow-hidden">
           <ConsoleConnectionState
             v-if="connectionUnavailable"
             :compact="Boolean(invocationView)"
