@@ -499,6 +499,9 @@ patchedDependencies:
   nuxt-agent-discovery@0.7.0:
     hash: eae642b00b65c617dccc6c1131668445ffc39ae8b7fccab23438fe521d80c1d1
     path: patches/nuxt-agent-discovery@0.7.0.patch
+  pkce-challenge@5.0.1:
+    hash: 10a80fae3f18cbc5ab3849ddf3265fd0669afe8f2e5f2d3f1d55dcd6a4e9bbf5
+    path: patches/pkce-challenge@5.0.1.patch
 
 importers:
 
@@ -2690,6 +2693,9 @@ importers:
       '@libsql/client':
         specifier: catalog:database
         version: 0.18.0
+      '@modelcontextprotocol/sdk':
+        specifier: catalog:ai
+        version: 1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.7)
       '@standard-schema/spec':
         specifier: catalog:runtime
         version: 1.1.0
@@ -17459,7 +17465,7 @@ snapshots:
       '@ai-sdk/provider': 4.0.21
       '@ai-sdk/provider-utils': 5.0.53(zod@4.6.5)
       cross-spawn: 7.0.6
-      pkce-challenge: 5.0.1
+      pkce-challenge: 5.0.1(patch_hash=10a80fae3f18cbc5ab3849ddf3265fd0669afe8f2e5f2d3f1d55dcd6a4e9bbf5)
       zod: 4.6.5
 
   '@ai-sdk/mcp@2.0.69(zod@4.6.7)':
@@ -17467,7 +17473,7 @@ snapshots:
       '@ai-sdk/provider': 4.0.24
       '@ai-sdk/provider-utils': 5.0.56(zod@4.6.7)
       cross-spawn: 7.0.6
-      pkce-challenge: 5.0.1
+      pkce-challenge: 5.0.1(patch_hash=10a80fae3f18cbc5ab3849ddf3265fd0669afe8f2e5f2d3f1d55dcd6a4e9bbf5)
       zod: 4.6.7
     optional: true
 
@@ -20063,7 +20069,7 @@ snapshots:
       eventsource: 3.0.7
       eventsource-parser: 3.1.1
       jose: 6.2.12
-      pkce-challenge: 5.0.1
+      pkce-challenge: 5.0.1(patch_hash=10a80fae3f18cbc5ab3849ddf3265fd0669afe8f2e5f2d3f1d55dcd6a4e9bbf5)
       zod: 4.6.5
 
   '@modelcontextprotocol/core@2.0.0':
@@ -20085,7 +20091,7 @@ snapshots:
       hono: 4.13.12
       jose: 6.2.12
       json-schema-typed: 8.0.2
-      pkce-challenge: 5.0.1
+      pkce-challenge: 5.0.1(patch_hash=10a80fae3f18cbc5ab3849ddf3265fd0669afe8f2e5f2d3f1d55dcd6a4e9bbf5)
       raw-body: 3.0.2
       zod: 4.6.7
       zod-to-json-schema: 3.25.2(zod@4.6.7)
@@ -20109,7 +20115,7 @@ snapshots:
       hono: 4.13.12
       jose: 6.2.12
       json-schema-typed: 8.0.2
-      pkce-challenge: 5.0.1
+      pkce-challenge: 5.0.1(patch_hash=10a80fae3f18cbc5ab3849ddf3265fd0669afe8f2e5f2d3f1d55dcd6a4e9bbf5)
       raw-body: 3.0.2
       zod: 4.6.5
       zod-to-json-schema: 3.25.2(zod@4.6.5)
@@ -20133,7 +20139,7 @@ snapshots:
       hono: 4.13.12
       jose: 6.2.12
       json-schema-typed: 8.0.2
-      pkce-challenge: 5.0.1
+      pkce-challenge: 5.0.1(patch_hash=10a80fae3f18cbc5ab3849ddf3265fd0669afe8f2e5f2d3f1d55dcd6a4e9bbf5)
       raw-body: 3.0.2
       zod: 4.6.7
       zod-to-json-schema: 3.25.2(zod@4.6.5)
@@ -36269,7 +36275,7 @@ snapshots:
     optionalDependencies:
       '@napi-rs/nice': 1.1.1
 
-  pkce-challenge@5.0.1: {}
+  pkce-challenge@5.0.1(patch_hash=10a80fae3f18cbc5ab3849ddf3265fd0669afe8f2e5f2d3f1d55dcd6a4e9bbf5): {}
 
   pkg-pr-new@0.0.91: {}
 

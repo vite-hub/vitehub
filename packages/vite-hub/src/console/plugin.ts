@@ -224,6 +224,7 @@ function renderConsoleNitroPlugin(
   const agentsEnabled = sections.includes("agents")
   const blobEnabled = sections.includes("blob")
   const databaseEnabled = sections.includes("databases")
+  const mcpClientEnabled = sections.includes("mcp-client")
   const schedulesEnabled = sections.includes("schedules")
   const runnableSchedules = (invoke ? catalog.manualSchedules ?? [] : [])
     .map(schedule => ` [${JSON.stringify(schedule.name)}]: () => import(${JSON.stringify(pathToFileURL(schedule.handler).href)}),`)
@@ -237,6 +238,8 @@ function renderConsoleNitroPlugin(
   return [
     `import { ${access ? "installConsoleAccess, " : ""}installConsoleBuild, installConsoleDevelopment, installConsoleOperations, installConsolePageTool, installConsoleProjectName, installConsoleSections } from "vite-hub/console/sections"`,
     ...operations.map((operation, index) => `import { ${operation.export} as vitehubConsoleOperations${index} } from ${JSON.stringify(operation.module)}`),
+    // The MCP client section loads the MCP client SDK, so only an app that turns the section on bundles it.
+    ...(mcpClientEnabled ? [`import { consoleMcpClientOperations as vitehubConsoleMcpClientOperations } from "vite-hub/console/mcp-client"`] : []),
     ...accessCode.imports,
     ...(agentsEnabled ? runtimeCapabilities.imports : []),
     ...(blobEnabled
@@ -270,7 +273,7 @@ function renderConsoleNitroPlugin(
       : []),
     ...(sections.includes("env") ? [`installConsoleEnv(${JSON.stringify(projectRoot)}, describeServerEnv(), async request => { try { return await (await import("#vitehub/env/server")).manageServerEnv(request) } catch { return Response.json({ message: "Env management is unavailable." }, { status: 503, headers: { "cache-control": "no-store" } }) } }, async event => (await import("#vitehub/env/server")).inspectServerEnv(event))`] : []),
     // Always installed, so agent tools see the operations before the first RPC call.
-    `installConsoleOperations([${operations.map((operation, index) => `{ operations: vitehubConsoleOperations${index}, plugin: ${JSON.stringify(operation.plugin)} }`).join(", ")}], { invoke: ${invoke} })`,
+    `installConsoleOperations([${[...(mcpClientEnabled ? ["{ operations: vitehubConsoleMcpClientOperations, plugin: \"vite-hub\" }"] : []), ...operations.map((operation, index) => `{ operations: vitehubConsoleOperations${index}, plugin: ${JSON.stringify(operation.plugin)} }`)].join(", ")}], { invoke: ${invoke} })`,
     `installConsoleProjectName(${JSON.stringify(projectRoot)}, ${JSON.stringify(resolveConsoleProjectNameFromRoot(projectRoot))})`,
     // The application module loads on the first document request, so the Console does not start Content at boot.
     ...(documentEditors.length

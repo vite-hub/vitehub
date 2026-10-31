@@ -18,8 +18,11 @@ export type ConsoleDiagnosticCode =
   | "CONSOLE_IMPERSONATING"
   | "CONSOLE_LOOPBACK_ONLY"
   | "CONSOLE_MANAGER_REQUIRED"
+  | "CONSOLE_MCP_AUTHORIZATION_FAILED"
   | "CONSOLE_MCP_ORIGIN_REQUIRED"
   | "CONSOLE_MCP_OAUTH_INCOMPLETE"
+  | "CONSOLE_MCP_SIGNED_OUT"
+  | "CONSOLE_MCP_UNREACHABLE"
   | "CONSOLE_NOT_FOUND"
   | "CONSOLE_ORIGIN_REJECTED"
   | "CONSOLE_REQUEST_FAILED"
@@ -133,6 +136,24 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       "The Connections management route is not mounted.",
       "Set connections: { management: true } for production, then build and deploy again.",
       `${consoleGuide}#manage-connections`,
+      "docs",
+    ),
+    CONSOLE_MCP_UNREACHABLE: code(
+      "The MCP server did not answer, or it failed the MCP handshake.",
+      "Check that the server runs and that the URL is its Streamable HTTP endpoint, such as /mcp.",
+      `${consoleGuide}#connect-to-mcp-servers`,
+      "retry",
+    ),
+    CONSOLE_MCP_SIGNED_OUT: code(
+      "The MCP server rejects the credentials of this connection.",
+      "Sign in again. For a token, connect again with a new one.",
+      `${consoleGuide}#connect-to-mcp-servers`,
+      "docs",
+    ),
+    CONSOLE_MCP_AUTHORIZATION_FAILED: code(
+      "The OAuth sign-in with the MCP server failed.",
+      "Start the sign-in again. The server must publish RFC 9728 metadata that names an authorization server with client registration.",
+      `${consoleGuide}#connect-to-mcp-servers`,
       "docs",
     ),
     CONSOLE_REQUEST_INVALID: code(

@@ -187,6 +187,7 @@ describe("Console Go to shortcuts", () => {
       comments: "g n",
       usage: "g u",
       channels: "g v",
+      "mcp-client": "g p",
       databases: "g d",
       kv: "g k",
       logs: "g l",
