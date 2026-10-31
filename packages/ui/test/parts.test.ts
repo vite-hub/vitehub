@@ -32,6 +32,29 @@ import {
   TraceTitle,
 } from "../src/index.ts";
 
+function unlayeredRules(stylesheet: string): { body: string; prelude: string }[] {
+  const rules: { body: string; prelude: string }[] = [];
+  let depth = 0;
+  let prelude = "";
+  let start = 0;
+  for (let index = 0; index < stylesheet.length; index++) {
+    const char = stylesheet[index];
+    if (char === "{") {
+      if (depth === 0) start = index;
+      depth++;
+    } else if (char === "}") {
+      depth--;
+      if (depth === 0) {
+        const rule = { body: stylesheet.slice(start + 1, index), prelude: prelude.trim() };
+        if (/^@media\b/.test(rule.prelude)) rules.push(...unlayeredRules(rule.body));
+        else if (!rule.prelude.startsWith("@layer")) rules.push(rule);
+        prelude = "";
+      }
+    } else if (depth === 0) prelude = char === ";" ? "" : prelude + char;
+  }
+  return rules;
+}
+
 const ButtonStub = defineComponent({
   setup(_props, { attrs, slots }) {
     return () => h("button", { ...attrs, "data-stub": "UButton" }, slots.default?.());
@@ -178,5 +201,36 @@ describe("shadcn/ui parts", () => {
     const parts = stylesheet.slice(stylesheet.indexOf("@layer components {"));
     for (const slot of ["message", "bubble-content", "marker", "trace-line", "trace-collapsible-content-inner", "attachment"])
       expect(parts, slot).toContain(`[data-slot="${slot}"]`);
+  });
+
+  it("checks every unlayered selector inside media queries", () => {
+    const rules = unlayeredRules(`
+      @media (hover: hover) {
+        .vh-chat__scroll-button:hover { color: white; }
+        .vh-chat { height: 100%; }
+        @media (pointer: fine) { .vh-file-tree { width: 100%; } }
+        @layer components { .vh-session { height: 100%; } }
+      }
+    `);
+    expect(rules.map(({ prelude }) => prelude)).toEqual([
+      ".vh-chat__scroll-button:hover",
+      ".vh-chat",
+      ".vh-file-tree",
+    ]);
+  });
+
+  it("keeps component rules in a layer, so a utility class such as h-96 on Chat wins", () => {
+    const stylesheet = readFileSync(resolve(import.meta.dirname, "../styles.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+    const unlayered = unlayeredRules(stylesheet);
+    // Outside a layer stay only the theme tokens and the rules that restyle Nuxt UI components, whose utility classes
+    // would win over a layer: the Markdown elements in the typeset, the scroll button, the image dialog, and the rail.
+    const restylesNuxtUI = /^(\.vh-chat:has\(\.vh-chat__composer\) )?\.vh-chat__scroll-button|^\.vh-typeset(-chat)?[ [>]|^\.vh-image-(overlay|dialog|dialog__action)\b|^(\.dark )?\.vh-primitive-/;
+    for (const { body, prelude } of unlayered) {
+      if (prelude === ":root") continue;
+      if (prelude.startsWith("@")) expect(body, prelude).toMatch(/vh-primitive-/);
+      else expect(prelude).toMatch(restylesNuxtUI);
+    }
+    for (const root of [".vh-chat", ".vh-session", ".vh-typeset", ".vh-file-tree", ".vh-agent-tool-list"])
+      expect(unlayered.map(({ prelude }) => prelude), root).not.toContain(root);
   });
 });
