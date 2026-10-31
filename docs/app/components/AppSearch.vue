@@ -10,6 +10,18 @@ const props = defineProps<{
 const { forced: forcedColorMode } = useDocusColorMode();
 const { search, status: searchStatus, init } = useSearchCollection("docs", { immediate: false, ignoredTags: ["style"] });
 
+const emptyResultTerm = ref<string>();
+let searchRequestId = 0;
+async function searchWithFeedback(...args: Parameters<typeof search>) {
+  const requestId = ++searchRequestId;
+  emptyResultTerm.value = undefined;
+  const results = await search(...args);
+  if (requestId === searchRequestId && results.length === 0) {
+    emptyResultTerm.value = args[0];
+  }
+  return results;
+}
+
 const { open } = useContentSearch();
 watch(open, (value) => {
   if (value && searchStatus.value === "idle") {
@@ -29,7 +41,7 @@ function searchPath(prefix: string) {
 
 <template>
   <LazyUContentSearch
-    :search="search"
+    :search="searchWithFeedback"
     :search-status="searchStatus"
     :links="links"
     :navigation="navigation"
@@ -41,10 +53,11 @@ function searchPath(prefix: string) {
       <span v-else class="vh-search-title">{{ item.label }}</span>
     </template>
 
-    <!-- The index loads on first open. Until it is ready, an empty list means "still loading", not "no match". -->
+    <!-- Index readiness precedes query completion; only a completed empty result confirms no match. -->
     <template #empty="{ searchTerm }">
       <span v-if="searchStatus === 'error'">Search could not load. Reload the page to try again.</span>
       <span v-else-if="searchStatus !== 'ready'">Loading the search index…</span>
+      <span v-else-if="searchTerm && emptyResultTerm !== searchTerm">Searching pages…</span>
       <span v-else>No pages match “{{ searchTerm }}”.</span>
     </template>
   </LazyUContentSearch>
