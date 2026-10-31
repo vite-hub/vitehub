@@ -742,7 +742,11 @@ function renderEvent(activity: InvocationActivity, inspect: InspectHandler, open
       ]))
     : h("span", { class: "vh-invocation-event__title" }, viewedImagePath ? "View image" : invocationActivityTitle(activity));
   const summaryContent = [
-    activity.name === "vitehub.agent.configured" ? frameworkMark() : activity.kind === "delivery" ? channelIcon(activityChannel(activity)) : renderActivityIcon(activity),
+    activity.name === "vitehub.agent.configured"
+      ? frameworkMark()
+      : activity.kind === "delivery"
+        ? h("span", { class: "vh-invocation-event__icon", "data-icon": "channel" }, [channelIcon(activityChannel(activity))])
+        : renderActivityIcon(activity),
     title,
     activity.status === "failed" ? h("span", { class: "vh-visually-hidden" }, "Failed") : null,
     suffix ? h("code", { class: "vh-invocation-event__suffix" }, suffix) : null,
