@@ -8,6 +8,8 @@ import { requestConsole } from "../client/request";
 import ConsoleFrame from "./console-frame.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
+import ConsoleSetupHint from "./console-setup-hint.vue";
+import ConsoleState from "./console-state.vue";
 
 const props = defineProps<{ logsBase: string; sectionsBase: string }>();
 const mode = ref("explorer");
@@ -24,8 +26,9 @@ const source = ref<LogSourceInfo>();
 const selectedId = ref<string>();
 const selected = computed(() => entries.value.find((entry) => entry.id === selectedId.value));
 const cursor = ref<string>();
-const loading = ref(false);
-const error = ref("");
+// The first load starts on mount, so the page opens in its loading state instead of the empty state.
+const loading = ref(true);
+const error = ref<unknown>();
 const following = ref(false);
 const dropped = ref(0);
 let request: AbortController | undefined;
@@ -65,7 +68,7 @@ async function load(older = false) {
   const controller = new AbortController();
   request = controller;
   loading.value = true;
-  error.value = "";
+  error.value = undefined;
   const params = new URLSearchParams({ limit: "200" });
   if (text.value) params.set("text", text.value);
   if (level.value !== "all") params.set("level", level.value);
@@ -99,7 +102,7 @@ async function load(older = false) {
       selectedId.value = entries.value[0]?.id;
   } catch (cause) {
     if (!controller.signal.aborted && !disposed)
-      error.value = cause instanceof Error ? cause.message : "Could not read logs.";
+      error.value = cause;
   } finally {
     if (request === controller) loading.value = false;
   }
@@ -183,16 +186,16 @@ onBeforeUnmount(() => {
           class="w-32"
         />
       </ConsolePageToolbar>
-      <p v-if="error" role="alert" class="p-4 text-sm text-error">
-        {{ error }} <UButton variant="link" @click="load()">Retry</UButton>
-      </p>
-      <div v-if="!source && !loading && !error" class="m-auto max-w-sm p-8 text-center">
-        <h2 class="text-sm font-medium">Connect a log source</h2>
-        <p class="mt-2 text-sm text-muted">
-          Set logs.source to a server module that reads your existing backend. For local
-          development, enable logs: true.
-        </p>
+      <!-- A failed refresh keeps the loaded events on screen; a failed first load replaces them. -->
+      <div v-if="error && entries.length" class="shrink-0 px-4 pt-3">
+        <ConsoleState compact :error="error" title="Could not refresh logs" :retry="() => load()" />
       </div>
+      <ConsoleState v-if="error && !entries.length" :error="error" title="Could not load logs" :retry="() => load()" />
+      <ConsoleState v-else-if="!source && !loading" section="logs" icon="i-lucide-logs" title="Connect a log source">
+        <p class="max-w-sm text-xs leading-5 text-pretty text-muted">
+          <ConsoleSetupHint :hint="{ message: 'Set `logs: true` to capture events in development, or set `logs.source` to a server module that reads your log backend.' }" />
+        </p>
+      </ConsoleState>
       <div v-else class="logs-workspace min-h-0 flex-1">
         <section aria-label="Log events" class="flex min-h-0 min-w-0 flex-col">
           <div
