@@ -72,7 +72,7 @@ export const consoleOperationRequestBytes = {
 } as const
 
 // The handlers of these operations read the signed-in user themselves, when they need it.
-function defineConsoleOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "run"> & { run: (input: Input, context: ConsoleOperationContext) => Output | Promise<Output> }): OperationDefinition<Input, Output> {
+export function defineConsoleOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "run"> & { run: (input: Input, context: ConsoleOperationContext) => Output | Promise<Output> }): OperationDefinition<Input, Output> {
   return defineOperation({
     ...definition,
     user: false,

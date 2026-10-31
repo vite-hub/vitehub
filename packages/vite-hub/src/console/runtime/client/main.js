@@ -18,6 +18,8 @@ const ConsoleEnv = () => import("../components/console-env.vue");
 const ConsoleHome = () => import("../components/console-home.vue");
 const ConsoleLogs = () => import("../components/console-logs.vue");
 const ConsoleKv = () => import("../components/console-kv.vue");
+const ConsoleMcpClient = () => import("../components/console-mcp-client.vue");
+const ConsoleMcpCallback = () => import("../components/console-mcp-callback.vue");
 import {
   consoleDatabasesSchemaPath,
   consoleDatabasesTablePath,
@@ -54,6 +56,21 @@ const router = createRouter({
         sectionsBase,
       },
     },
+    {
+      component: ConsoleMcpClient,
+      name: "vitehub-console-mcp-client",
+      path: "/mcp-client",
+      meta: { consoleSection: "mcp-client", title: "MCP client · ViteHub Console" },
+      props: {
+        agentsBase: consolePath("/api/_vitehub/console/agents"),
+        definitionsBase: consolePath("/api/_vitehub/console/definitions"),
+        kvBase: consolePath("/api/_vitehub/console/kv"),
+        searchBase: consolePath("/api/_vitehub/console/search"),
+        sectionsBase,
+      },
+    },
+    // Authorization servers send the browser here after an MCP sign-in (`consoleMcpCallbackPath`).
+    { component: ConsoleMcpCallback, name: "vitehub-console-mcp-client-callback", path: "/mcp-client/callback", meta: { consoleSection: "mcp-client", title: "MCP client · ViteHub Console" }, props: { sectionsBase } },
     {
       component: ConsoleHome,
       name: "vitehub-console",

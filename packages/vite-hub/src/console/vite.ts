@@ -83,6 +83,12 @@ export interface ConsoleOptions {
   observations?: AgentInvocationsOptions["observations"]
   retention?: AgentRetentionPolicy
   /**
+   * Show the MCP client section: it connects to MCP servers as the person who signed in to the Console, with OAuth or a
+   * token. It lists the servers that the app announces in its RFC 9728 metadata, such as its own `/mcp`. ViteHub MCP,
+   * the MCP server of the Console at `/_vitehub/mcp`, does not need this option.
+   */
+  mcpClient?: boolean
+  /**
    * Path of the app's sign-in page, such as `/sign-in`, for `auth: "app"` or `auth: false`. A signed-out visit to a
    * Console page goes there with `redirect` set to that page, and the Console links to it when a session ends.
    * App Auth defaults to the built-in page at `/_vitehub/sign-in`, using its configured social providers.
@@ -936,7 +942,16 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
         load: async () => (await import("./runtime/server/operations.ts")).consoleOperations.filter(operation => sections.includes("databases") || !operation.name.startsWith("databases.")),
         module: "vite-hub/console/server",
         runtime: false,
-      }],
+      },
+      // The generated Console plugin installs these at runtime. The CLI and `vitehub inspect` read them from here.
+      ...(sections.includes("mcp-client")
+        ? [{
+            export: "consoleMcpClientOperations",
+            load: async () => (await import("./runtime/server/mcp-client-operations.ts")).consoleMcpClientOperations,
+            module: "vite-hub/console/mcp-client",
+            runtime: false as const,
+          }]
+        : [])],
     },
   }
   return plugin
