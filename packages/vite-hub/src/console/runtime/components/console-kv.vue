@@ -460,7 +460,7 @@ onBeforeUnmount(() => {
           <p v-else class="px-2 py-1.5 text-xs text-muted">No keys in this store yet.</p>
         </nav>
 
-        <section class="flex min-h-0 min-w-0 flex-1 flex-col" aria-live="polite" aria-label="Value">
+        <section class="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Value">
           <div v-if="valueLoading && !selectedValue" class="grid gap-2 p-4" aria-busy="true">
             <USkeleton class="h-4 w-56" />
             <USkeleton v-for="index in 6" :key="index" class="h-3.5" :class="index % 2 ? 'w-2/3' : 'w-1/2'" />
