@@ -442,7 +442,7 @@ onBeforeUnmount(() => request?.abort());
           <ConsolePropertyList v-if="selectedDefinition.fields.length" title="Configuration" :items="selectedDefinition.fields" />
           <ConsoleRateLimit v-if="rateLimitBase" :base="rateLimitBase" :name="selectedDefinition.name" :read-only="sectionReadOnly" />
           <ConsoleWorkflowActions v-if="workflowBase && selectedDefinition" :base="workflowBase" :can-resume="registeredOperations.includes('workflow.resume')" :can-start="registeredOperations.includes('workflow.start')" :workflow="selectedDefinition.name" />
-          <p class="flex gap-2 rounded-md bg-elevated/50 px-3 py-2.5 text-xs leading-relaxed text-pretty text-muted">
+          <p class="flex gap-2 text-xs leading-relaxed text-pretty text-muted">
             <UIcon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
             <ConsoleSetupHint :hint="{ message: sectionDetails.view.notice }" />
           </p>
