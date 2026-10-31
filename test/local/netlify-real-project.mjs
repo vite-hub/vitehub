@@ -272,6 +272,7 @@ function spawnLogged(command, args, options = {}) {
     cwd: options.cwd ?? appDir,
     env: { ...process.env, ...options.env },
     stdio: ["ignore", "pipe", "pipe"],
+    detached: process.platform !== "win32",
   })
   child.stdout.on("data", chunk => process.stdout.write(`[netlify-dev] ${chunk}`))
   child.stderr.on("data", chunk => process.stderr.write(`[netlify-dev] ${chunk}`))
@@ -279,10 +280,18 @@ function spawnLogged(command, args, options = {}) {
 }
 
 async function stopProcess(child) {
-  if (child.exitCode !== null) return
-  child.kill("SIGTERM")
+  const signalProcess = (signal) => {
+    try {
+      if (process.platform === "win32") child.kill(signal)
+      else if (child.pid !== undefined) process.kill(-child.pid, signal)
+    }
+    catch (error) {
+      if (error.code !== "ESRCH") throw error
+    }
+  }
+  signalProcess("SIGTERM")
   await sleep(750)
-  if (child.exitCode === null) child.kill("SIGKILL")
+  signalProcess("SIGKILL")
 }
 
 async function runNetlifyDevProof() {
