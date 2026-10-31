@@ -3,7 +3,12 @@ import { fileURLToPath } from "node:url";
 
 export default defineNuxtConfig({
   extends: ["docus"],
-  modules: ["./modules/vitehub-docs", "@vite-hub/ui/nuxt", "nuxt-schema-org"],
+  modules: ["./modules/vitehub-docs", "@vite-hub/ui/nuxt", "nuxt-schema-org", "nuxt-link-checker"],
+  linkChecker: {
+    failOnError: true,
+    fetchRemoteUrls: false,
+    showLiveInspections: false,
+  },
   site: {
     description: "Portable Agents for Vite, built on Server Primitives.",
     name: "ViteHub",
@@ -293,8 +298,8 @@ export default defineNuxtConfig({
         ],
         assets: {
           // The Worker sees every page request, so www and trailing-slash URLs redirect
-          // even when the page is prerendered. Build assets skip the Worker.
-          run_worker_first: ["/*", "!/_nuxt/*"],
+          // even when the page is prerendered. Build assets and robots.txt skip the Worker.
+          run_worker_first: ["/*", "!/_nuxt/*", "!/robots.txt"],
         },
         observability: {
           enabled: true,
@@ -304,7 +309,7 @@ export default defineNuxtConfig({
     },
     prerender: {
       failOnError: true,
-      routes: ["/about", "/contact", "/openapi.json", "/privacy"],
+      routes: ["/about", "/contact", "/openapi.json", "/privacy", "/robots.txt"],
     },
   },
   future: {
