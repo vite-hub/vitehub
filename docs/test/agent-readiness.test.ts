@@ -168,7 +168,8 @@ describe("trust and developer discovery content", () => {
     // Docus renders AppFooter on every page. The override renders nothing.
     expect(footer).not.toMatch(/<(?:UFooter|NuxtLink|a)\b/);
     expect(error).not.toContain("<AppFooter");
-    expect(error).toContain("Documentation index");
+    expect(error).toContain("label: \"Docs\", to: \"/docs\"");
+    expect(error).toContain("<AppSearch");
     expect(error).toContain("llms.txt");
     expect(error).toContain("Sitemap");
   });
