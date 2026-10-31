@@ -492,7 +492,7 @@ onBeforeUnmount(() => {
               </template>
             </header>
             <div v-if="editing" class="flex min-h-0 flex-1 flex-col gap-2 p-4">
-              <UTextarea v-model="editText" class="min-h-0 flex-1" :rows="12" :ui="{ base: 'font-mono text-xs' }" aria-label="Value" autofocus />
+              <UTextarea v-model="editText" class="min-h-0 flex-1 items-stretch" :rows="12" :ui="{ base: 'font-mono text-xs' }" aria-label="Value" autofocus />
               <div class="flex flex-wrap items-center gap-2">
                 <UInput v-model="editTtl" class="w-40" size="sm" type="number" min="1" placeholder="No expiry" aria-label="Expires in seconds" />
                 <span class="text-xs text-muted">Expires in seconds</span>

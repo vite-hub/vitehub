@@ -47,37 +47,32 @@ const fileError = ref<string>();
 const fileLoading = ref(false);
 const viewMeta: Record<
   InspectorTab,
-  { description: string; icon: string; label: string; shortcut: string }
+  { description: string; icon: string; label: string }
 > = {
   details: {
     description: "Review the run, runtime, and identifiers.",
     icon: "i-lucide-circle-dot",
     label: "Invocation",
-    shortcut: "I",
   },
   capabilities: {
     description: "Inspect capabilities, servers, and tool contracts.",
     icon: "i-lucide-blocks",
     label: "Capabilities",
-    shortcut: "C",
   },
   trace: {
     description: "Follow spans, timings, and recorded attributes.",
     icon: "i-lucide-list-tree",
     label: "Trace",
-    shortcut: "T",
   },
   workspace: {
     description: "Browse the mounted Agent workspace.",
     icon: "i-lucide-folder-tree",
     label: "Workspace",
-    shortcut: "W",
   },
   diff: {
     description: "Review code changes from this run or its pull request.",
     icon: "i-lucide-git-compare-arrows",
     label: "Diff",
-    shortcut: "D",
   },
 };
 const inspectorViews = computed<InspectorTab[]>(() => [
@@ -163,7 +158,6 @@ const launcherItems = computed<DropdownMenuItem[]>(() =>
   inspectorViews.value.map((view) => ({
     icon: viewMeta[view].icon,
     label: viewMeta[view].label,
-    kbds: [viewMeta[view].shortcut],
     onSelect: () => openView(view),
   })),
 );
@@ -603,7 +597,6 @@ function message(error: unknown) {
       </div>
       <div class="session-inspector__surface-launcher">
         <button v-for="view in inspectorViews" :key="view" type="button" @click="openView(view); focusActiveTab()">
-          <UKbd>{{ viewMeta[view].shortcut }}</UKbd>
           <span><UIcon :name="viewMeta[view].icon" />{{ viewMeta[view].label }}</span>
           <small>{{ viewMeta[view].description }}</small>
         </button>
