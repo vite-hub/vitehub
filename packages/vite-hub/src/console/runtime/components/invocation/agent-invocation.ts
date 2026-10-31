@@ -31,7 +31,7 @@ import { isSafeExternalUrl } from "./internal/url.ts";
 import { Markdown } from "@vite-hub/ui/markdown";
 import { ToolList } from "@vite-hub/ui/tool-list";
 
-const InvocationPatchDiff = defineAsyncComponent(() => import("@vite-hub/ui/patch-diff").then(module => ({ default: module.PatchDiff })));
+const InvocationPatchDiff = defineAsyncComponent(() => import("@vite-hub/ui/patch-diff").then(module => module.PatchDiff));
 
 function statusLabel(status: AgentInvocationView["status"]): string {
   const labels = {

@@ -48,6 +48,17 @@ const retention = computed(() =>
     ? `Temporary · this process · ${source.value.retention.maxEntries} events maximum`
     : source.value?.retention.description,
 );
+const levels = [
+  { label: "All levels", value: "all" },
+  { label: "Debug", value: "debug" },
+  { label: "Info", value: "info" },
+  { label: "Warn", value: "warn" },
+  { label: "Error", value: "error" },
+];
+/** The color of a level in the event list and in the event details. */
+function levelClass(value: string): string {
+  return value === "error" ? "text-error" : value === "warn" ? "text-warning" : "text-muted";
+}
 const diagnostic = computed(() => {
   const data = selected.value?.data;
   if (!data) return undefined;
@@ -191,7 +202,7 @@ onBeforeUnmount(() => {
         />
         <USelect
           v-model="level"
-          :items="[{ label: 'All levels', value: 'all' }, 'debug', 'info', 'warn', 'error']"
+          :items="levels"
           aria-label="Log level"
           :disabled="!!source && !source.filters.includes('level')"
           class="w-32"
@@ -238,17 +249,9 @@ onBeforeUnmount(() => {
                   :title="exactTitle(entry.timestamp)"
                   >{{ consoleClockTime(entry.timestamp) }}</time
                 >
-                <span
-                  class="font-mono text-[11px] uppercase"
-                  :class="
-                    entry.level === 'error'
-                      ? 'text-error'
-                      : entry.level === 'warn'
-                        ? 'text-warning'
-                        : 'text-muted'
-                  "
-                  >{{ entry.level }}</span
-                >
+                <span class="font-mono text-[11px] uppercase" :class="levelClass(entry.level)">{{
+                  entry.level
+                }}</span>
                 <span v-if="mode === 'explorer'" class="truncate text-xs text-muted">{{
                   entry.service
                 }}</span>
@@ -269,7 +272,9 @@ onBeforeUnmount(() => {
           <template v-if="selected">
             <div class="mb-5 flex items-center justify-between gap-3">
               <h2 class="text-sm font-medium">Event details</h2>
-              <span class="font-mono text-xs text-muted">{{ selected.level }}</span>
+              <span class="font-mono text-[11px] uppercase" :class="levelClass(selected.level)">{{
+                selected.level
+              }}</span>
             </div>
             <h3 class="break-words text-sm font-medium">{{ selected.message }}</h3>
             <dl class="my-5 grid grid-cols-[auto_1fr] gap-x-5 gap-y-2 text-xs">

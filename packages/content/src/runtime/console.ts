@@ -1013,5 +1013,3 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
   }
   return actions
 }
-
-export { contentMcpTools, registerContentMcpTools } from "./mcp.ts"
