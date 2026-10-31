@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -13,6 +13,12 @@ const requestTimeout = 15_000;
 
 if (!existsSync(serverEntry)) {
   throw new Error("Missing docs/.output/server/index.mjs. Build vitehub-docs before running the artifact smoke.");
+}
+
+assertRobots(readFileSync(resolve(docsRoot, ".output/public/robots.txt"), "utf8"));
+const wranglerConfig = JSON.parse(readFileSync(resolve(docsRoot, ".output/server/wrangler.json"), "utf8"));
+if (!wranglerConfig.assets?.run_worker_first?.includes("!/robots.txt")) {
+  throw new Error("robots.txt must be served before the Worker");
 }
 
 await assertPortAvailable();
@@ -49,6 +55,9 @@ try {
   const openApi = await request("OpenAPI", "/openapi.json", 200, "application/json");
   if (JSON.parse(openApi).openapi !== "3.1.0") throw new Error("OpenAPI route did not return the 3.1.0 document");
   await assertTextRoute("sitemap", "/sitemap.xml", 200, "text/xml", "<urlset");
+  assertRobots(await request("robots", "/robots.txt", 200, "text/plain", {
+    "user-agent": "Mozilla/5.0 (compatible; AhrefsBot/7.0; +http://ahrefs.com/robot/)",
+  }));
   await assertTextRoute("HTML 404", "/missing-docs-artifact-smoke", 404, "text/html", "Page not found", { accept: "text/html" });
   await assertTextRoute("static logo", "/vitehub-logo.svg", 200, "image/svg+xml", "<svg");
   // Prerendered pages must still reach the Worker so the Accept header selects the representation.
@@ -57,7 +66,7 @@ try {
   await assertTextRoute("Markdown twin", "/docs/getting-started.md", 200, "text/markdown", "# Introduction");
   await assertTextRoute("Markdown home", "/", 200, "text/markdown", "> Portable Agents for Vite", { accept: "text/markdown" });
   await assertTextRoute("Markdown 404", "/missing-docs-artifact-smoke", 404, "text/markdown", "404", { accept: "text/markdown" });
-  process.stdout.write("Docs artifact smoke passed: HTML, Markdown negotiation, OpenAPI, sitemap, 404, and static asset routes.\n");
+  process.stdout.write("Docs artifact smoke passed: HTML, Markdown negotiation, OpenAPI, sitemap, robots, 404, and static asset routes.\n");
 }
 catch (error) {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n${serverOutput}\n`);
@@ -75,6 +84,11 @@ function signalServer(signal) {
   catch (error) {
     if (!(error instanceof Error) || !("code" in error) || error.code !== "ESRCH") throw error;
   }
+}
+
+function assertRobots(body) {
+  if (!/^User-agent: \*\s*\nAllow: \/\s*$/m.test(body)) throw new Error("robots.txt does not allow crawling for all user agents");
+  if (!/^Sitemap: https:\/\/vitehub\.dev\/sitemap\.xml\s*$/m.test(body)) throw new Error("robots.txt does not declare the canonical sitemap");
 }
 
 function stopServer() {
