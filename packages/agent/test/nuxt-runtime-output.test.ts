@@ -9,14 +9,14 @@ import { promisify } from "node:util"
 
 import { expect, it } from "vitest"
 
-import { syncPackedWorkspaceDependencies } from "../../internal/test-utils/published-types.js"
+import { packedWorkspacePackages, syncPackedWorkspaceDependencies } from "../../internal/test-utils/published-types.js"
 
 const execFileAsync = promisify(execFile)
 const packageRoot = resolve(import.meta.dirname, "..")
 const workspaceRoot = resolve(packageRoot, "../..")
 const childProcessTimeout = 60_000
 // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-const packedPackages = [
+const packedPackages = await packedWorkspacePackages(workspaceRoot, [
   "agent",
   "sandbox",
   "env",
@@ -27,7 +27,7 @@ const packedPackages = [
   "runtime",
   "source",
   "workspace",
-] as const
+])
 
 async function runPnpm(args: string[], cwd: string): Promise<void> {
   const npmExecPath = process.env.npm_execpath
