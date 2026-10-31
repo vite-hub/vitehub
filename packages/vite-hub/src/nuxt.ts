@@ -1498,7 +1498,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         const wrangler = (cloudflare.wrangler ??= {}) as Record<string, unknown>
         const flags = Array.isArray(wrangler.compatibility_flags) ? wrangler.compatibility_flags : []
         // Nitro 2 otherwise adds no_nodejs_compat_v2, which disables native Node imports used by Workspaces.
-        if (!flags.includes("no_nodejs_compat_v2")) wrangler.compatibility_flags = [...new Set([...flags, "nodejs_compat", "nodejs_compat_v2"])]
+        // Wrangler refuses nodejs_compat next to nodejs_compat_v2, and v2 already includes it.
+        if (!flags.includes("no_nodejs_compat_v2")) wrangler.compatibility_flags = [...new Set([...flags.filter(flag => flag !== "nodejs_compat"), "nodejs_compat_v2"])]
       }
     }
     if (emailPlugin && nuxt.options.dev) {

@@ -2661,8 +2661,10 @@ describe("ViteHub Nuxt integration", () => {
   })
 
   it.each([
-    [true, [], ["nodejs_compat", "nodejs_compat_v2"]],
-    [true, ["custom"], ["custom", "nodejs_compat", "nodejs_compat_v2"]],
+    // Wrangler refuses nodejs_compat together with nodejs_compat_v2, so only the second one stays.
+    [true, [], ["nodejs_compat_v2"]],
+    [true, ["custom"], ["custom", "nodejs_compat_v2"]],
+    [true, ["nodejs_compat"], ["nodejs_compat_v2"]],
     [true, ["no_nodejs_compat_v2"], ["no_nodejs_compat_v2"]],
     [false, ["custom"], ["custom"]],
   ] as const)("keeps native Node compatibility in Cloudflare output with nodeCompat=%s and flags=%j", async (nodeCompat, flags, expected) => {
