@@ -174,6 +174,8 @@ The stylesheet maps its CSS variables to Nuxt UI tokens. Override them on any el
 
 The variables are `--vh-ui-radius`, `--vh-ui-border`, `--vh-ui-text`, `--vh-ui-muted`, `--vh-ui-dimmed`, `--vh-ui-bg`, `--vh-ui-bg-muted`, `--vh-ui-bg-elevated`, `--vh-ui-error`, `--vh-ui-info`, `--vh-ui-success`, and `--vh-ui-warning`.
 
+`--vh-ui-radius` is the corner radius of framed parts, such as `CodeBlock` and `CodeView`. It defaults to Nuxt UI's `rounded-lg`, twice `--ui-radius`. Smaller and larger corners, such as those of `Bubble` and `PromptInput`, derive from it, so one value changes them all.
+
 ## Server rendering
 
 Chat output supports Vue server rendering. Scroll observers, clipboard actions, and attachment conversion use browser APIs. They become interactive after hydration.
