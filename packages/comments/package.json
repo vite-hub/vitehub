@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/comments",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Comments and in-place edits on live ViteHub sites, with presence and Content drafts.",
   "keywords": [
     "annotations",
