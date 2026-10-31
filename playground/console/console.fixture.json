@@ -910,7 +910,7 @@
                 "totalTokens": 6530
               },
               "cost": {
-                "display": "$0.0245",
+                "display": "~$0.0245",
                 "estimated": true,
                 "source": "catalog",
                 "usd": "0.0245"
@@ -1537,7 +1537,7 @@
                 "totalTokens": 52130
               },
               "cost": {
-                "display": "$0.1832",
+                "display": "~$0.1832",
                 "estimated": true,
                 "source": "catalog",
                 "usd": "0.1832"

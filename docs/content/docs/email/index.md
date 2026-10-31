@@ -8,36 +8,26 @@ icon: i-lucide-mail
 
 ::product-hero{tagline="Send email from your server through Resend or Cloudflare, and write messages as Markdown templates." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
   :::product-files
-::agent-only{skill="email"}
-Use Email for outbound transactional messages. Email keeps delivery behind a provider-neutral driver and supports Markdown templates with a text fallback.
-
-Read [Get started](/docs/email/get-started), [Configure](/docs/email/configure), and [Server API](/docs/email/server-api).
-
-Keep recipients, sender identity, and delivery authorization in application policy. Use test capture or a local driver before sending to real recipients.
-
-Prove rendered HTML and text output, a rejected address, and the provider response. Do not claim delivery from a queued request alone.
-::
-
-::product-hero{tagline="One message contract for transactional email: the Vite config selects Resend or Cloudflare Email, and routes stay unchanged." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::code-group
-  ```ts [server/api/send-welcome.post.ts]
+  ```ts [server/api/welcome.post.ts]
   import renderWelcome from '#vitehub/emails/welcome'
+  import { defineEventHandler } from 'h3'
   import { renderEmailMarkdown } from 'vite-hub/email/markdown'
   import { email } from 'vite-hub/email/server'
 
-  export async function sendWelcome(name: string, to: string) {
-    const markdown = await renderWelcome({ user: { name } })
+  export default defineEventHandler(async () => {
+    // Fill the template, then make HTML and text
+    const markdown = await renderWelcome({ user: { name: 'Ada' } })
     const body = await renderEmailMarkdown(markdown)
 
     const [error, sent] = await email.send({
       ...body,
       from: 'verified-sender@example.com',
-      to,
+      to: 'ada@example.com',
       subject: 'Your workspace is ready',
     })
     if (error) throw error
     return sent
-  }
+  })
   ```
 
   ```md [server/emails/welcome.md]
@@ -65,51 +55,6 @@ Prove rendered HTML and text output, a rejected address, and the provider respon
         },
       },
     })],
-  })
-  ```
-
-  ```ts [server/api/feedback.post.ts]
-  import { defineEventHandler } from 'h3'
-  import { email } from 'vite-hub/email/server'
-
-  // Send a plain text email
-  export default defineEventHandler(async () => {
-    return email.send({
-      from: 'hello@example.com',
-      to: 'team@example.com',
-      subject: 'New feedback',
-      text: 'Someone sent feedback.',
-    })
-  })
-  ```
-
-  ```md [server/emails/welcome.md]
-  # Welcome {{ data.user.name }}
-
-  Your account is ready.
-  ```
-
-  ```ts [server/api/welcome.post.ts]
-  import { defineEventHandler } from 'h3'
-  import renderWelcome from '#vitehub/emails/welcome'
-  import {
-    renderEmailMarkdown,
-  } from 'vite-hub/email/markdown'
-  import { email } from 'vite-hub/email/server'
-
-  export default defineEventHandler(async () => {
-    // Fill the template, then make HTML and text
-    const markdown = await renderWelcome({
-      user: { name: 'Ada' },
-    })
-    const body = await renderEmailMarkdown(markdown)
-
-    return email.send({
-      ...body,
-      from: 'hello@example.com',
-      to: 'ada@example.com',
-      subject: 'Your account is ready',
-    })
   })
   ```
 
@@ -156,4 +101,14 @@ Prove rendered HTML and text output, a rejected address, and the provider respon
   :::product-feature-item{title="Clear errors, no double sends" icon="i-lucide-circle-alert" to="/docs/email/limits-and-errors#handle-delivery-errors"}
   Each failure has an `EMAIL_*` code. Email does not retry, so a message is not sent twice by mistake.
   :::
+::
+
+::agent-only{skill="email"}
+Use Email for outbound transactional messages. Email keeps delivery behind a provider-neutral driver and supports Markdown templates with a text fallback.
+
+Read [Get started](/docs/email/get-started), [Configure](/docs/email/configure), and [Server API](/docs/email/server-api).
+
+Keep recipients, sender identity, and delivery authorization in application policy. Use test capture or a local driver before sending to real recipients.
+
+Prove rendered HTML and text output, a rejected address, and the provider response. Do not claim delivery from a queued request alone.
 ::

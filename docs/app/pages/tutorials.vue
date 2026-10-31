@@ -4,7 +4,7 @@ definePageMeta({ layout: "docs" });
 
 useSeoMeta({
   title: "Tutorials",
-  ogTitle: "Tutorials · ViteHub",
+  ogTitle: "Tutorials",
   description: "Build complete applications with Nuxt and ViteHub, or start with a short product quickstart.",
 });
 </script>
