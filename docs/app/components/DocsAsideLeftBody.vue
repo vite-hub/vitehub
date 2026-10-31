@@ -52,7 +52,7 @@ function isActive(path: string) {
         :aria-current="isActive(area.to) ? 'page' : undefined"
       >
         <UIcon :name="area.icon" class="size-4 shrink-0" />
-        <span class="min-w-0 truncate">{{ area.label }}</span>
+        <span class="min-w-0">{{ area.label }}</span>
       </NuxtLink>
     </section>
 
@@ -67,7 +67,7 @@ function isActive(path: string) {
           :aria-current="isActive(page.path) ? 'page' : undefined"
         >
           <UIcon :name="sidebarPageIcon(page)" class="size-4 shrink-0" />
-          <span class="min-w-0 truncate">{{ page.title }}</span>
+          <span class="min-w-0">{{ page.title }}</span>
         </NuxtLink>
       </section>
 
@@ -80,7 +80,7 @@ function isActive(path: string) {
           :aria-current="isActive(page.path) ? 'page' : undefined"
         >
           <UIcon :name="sidebarPageIcon(page)" class="size-4 shrink-0" />
-          <span class="min-w-0 truncate">{{ page.title }}</span>
+          <span class="min-w-0">{{ page.title }}</span>
         </NuxtLink>
       </template>
     </template>
@@ -94,7 +94,7 @@ function isActive(path: string) {
         class="vh-docs-sidebar-link"
       >
         <UIcon :name="sidebarSectionIcon(relatedSection)" class="size-4 shrink-0" />
-        <span class="min-w-0 truncate">{{ relatedSection.title }}</span>
+        <span class="min-w-0">{{ relatedSection.title }}</span>
       </NuxtLink>
     </section>
 
@@ -110,7 +110,7 @@ function isActive(path: string) {
         class="vh-docs-sidebar-link"
       >
         <UIcon :name="sidebarSectionIcon(catalogSection)" class="size-4 shrink-0" />
-        <span class="min-w-0 truncate">{{ catalogSection.title }}</span>
+        <span class="min-w-0">{{ catalogSection.title }}</span>
       </NuxtLink>
     </section>
   </nav>
@@ -166,24 +166,41 @@ function isActive(path: string) {
   text-transform: uppercase;
 }
 
+/* A long title wraps instead of being cut off. The icon stays on its first line. */
 .vh-docs-sidebar-link {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.625rem;
   border-left: 2px solid transparent;
   padding: 0.25rem 1.25rem;
   color: var(--ui-text-muted);
   font-size: 0.875rem;
+  line-height: 1.25rem;
   transition:
     border-color 150ms ease,
     background-color 150ms ease,
     color 150ms ease;
 }
 
-/* In the phone menu each link is a 40px tap target. */
+.vh-docs-sidebar-link > .iconify {
+  margin-top: 0.125rem;
+}
+
+/* Touch devices keep 40px tap targets at every viewport width. */
 @media (pointer: coarse) {
   .vh-docs-sidebar-link {
     min-height: 2.5rem;
+  }
+}
+
+/* Center menu rows below the same 64rem handoff as the desktop sidebar. */
+@media (width < 64rem) {
+  .vh-docs-sidebar-link {
+    align-items: center;
+  }
+
+  .vh-docs-sidebar-link > .iconify {
+    margin-top: 0;
   }
 }
 
