@@ -168,6 +168,8 @@ A Vite app that builds with the Nitro Vite plugin and a Cloudflare preset gets e
 
 Cloudflare Nuxt output copies discovered D1 migration SQL beside the generated Wrangler config, so `.output/server` can apply migrations without the source checkout.
 
+A project `wrangler.json`, `wrangler.jsonc`, or `wrangler.toml` can still declare a D1 binding that ViteHub writes, for example one kept from NuxtHub. Nitro merges that file into the generated config, and ViteHub then keeps one entry per binding name, at the top level and in each `env`: its own entry wins, and the project entry only fills the fields it lacks, such as `preview_database_id` or `migrations_table`. ViteHub keeps its own `migrations_dir` and ignores the project's `migrations_dir` and `migrations_pattern`, because the staged migrations live there. When the two name a different `database_id`, `database_name`, or `preview_database_id`, the build fails with [`DATABASE_WRANGLER_BINDING_CONFLICT`](/docs/database/limits-and-errors#database_wrangler_binding_conflict). The simplest setup removes the binding from the project file.
+
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['@vite-hub/database/nuxt'],
@@ -191,3 +193,9 @@ Run `vitehub provision run --provider cloudflare` to resolve the D1 id into `.vi
 - The Console database browser and the Agent `db_query` guard are written for SQLite. With Postgres, the Agent tools run statements through Drizzle `execute()` and read the schema from `information_schema`.
 - Keep provider credentials in Server Env. Direct D1 HTTP access sends `CLOUDFLARE_API_TOKEN` only as the Cloudflare Bearer credential. Proxy access sends only its configured `cloudflare.http.authToken`.
 - Keep migrations, backups, and hosted database lifecycle in deployment workflows, not in route code.
+
+## Related guides
+
+Use the [Turso](/docs/guides/turso), [Neon Postgres](/docs/guides/neon-postgres),
+and [Cloudflare D1](/docs/guides/cloudflare-d1) guides for provider setup and
+verification steps.

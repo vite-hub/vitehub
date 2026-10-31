@@ -14,6 +14,26 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: ({ path }: { path: string }) => `Cannot read Provision State from "${path}".`,
       fix: "Check file access and restore valid JSON while preserving existing resource IDs.",
     },
+    INTERNAL_R0020: {
+      fix: "Give the operation a name like `content.publish`, a description, a section, a kind, an input schema, and a run function.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    INTERNAL_R0021: {
+      fix: "Run `vitehub inspect definitions --kind operation` to list the operations of this app.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    INTERNAL_R0022: {
+      fix: "Send input that matches the schema of the operation. `vitehub <namespace> <command> --help` shows the fields.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    INTERNAL_R0024: {
+      fix: "Start the dev server with `vite dev`, or pass `--url <origin>` of a deployed app with credentials in VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    INTERNAL_R0023: {
+      fix: "Ask for access to the section of this operation.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
     INTERNAL_B0001: dynamicError,
     INTERNAL_B0002: dynamicError,
     INTERNAL_B0003: dynamicError,
@@ -61,6 +81,26 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     INTERNAL_B0045: dynamicError,
     INTERNAL_B0046: dynamicError,
     INTERNAL_B0047: dynamicError,
+    INTERNAL_B0048: {
+      fix: "Rename one of the two operations. A name is `<section>.<verb>` and is unique in the app.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    INTERNAL_B0049: {
+      fix: "Set `cli: { namespace, command }` on one of the two operations.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    INTERNAL_B0050: {
+      fix: "Rename one of the two operations, or set `mcp: false` on it. MCP tool names replace every character outside letters, digits, `_`, and `-` with `_`.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    INTERNAL_R0025: {
+      fix: "Start `vite dev` in the project that you run the command from, or pass `--url` of that server.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    INTERNAL_R0026: {
+      why: "The server parsed a destructive operation that the CLI did not confirm.",
+      fix: "Review the operation, then run it again with --yes to confirm the change.",
+    },
     INTERNAL_C0001: dynamicError,
     INTERNAL_C0002: dynamicError,
     INTERNAL_R0001: dynamicError,

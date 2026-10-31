@@ -3,17 +3,20 @@ import "@vite-hub/ui/styles.css";
 
 import ui from "@nuxt/ui/vue-plugin";
 import { createViteHubUI } from "@vite-hub/ui";
-import { createApp, defineAsyncComponent } from "vue";
+import { createApp } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
 
 const ConsoleApp = () => import("../components/console-app.vue");
 const ConsoleAuth = () => import("../components/console-auth.vue");
 const ConsoleBlob = () => import("../components/console-blob.vue");
+const ConsoleChannels = () => import("../components/console-channels.vue");
 const ConsoleConnections = () => import("../components/console-connections.vue");
 const ConsoleDatabase = () => import("../components/console-database.vue");
 const ConsoleDefinitions = () => import("../components/console-definitions.vue");
+const ConsoleOperationView = () => import("../components/console-operation-view.vue");
 const ConsoleEnv = () => import("../components/console-env.vue");
 const ConsoleHome = () => import("../components/console-home.vue");
+const ConsoleLogs = () => import("../components/console-logs.vue");
 const ConsoleKv = () => import("../components/console-kv.vue");
 import {
   consoleDatabasesSchemaPath,
@@ -35,6 +38,7 @@ const capabilitiesBase = consolePath("/api/_vitehub/console/invocation-capabilit
 const router = createRouter({
   history: createWebHistory(consolePath("/_vitehub/")),
   routes: [
+    { component: ConsoleLogs, name: "vitehub-console-logs", path: "/logs", meta: { consoleSection: "logs", title: "Logs · ViteHub Console" }, props: { logsBase: consolePath("/api/_vitehub/console/logs"), sectionsBase } },
     { component: ConsoleEnv, name: "vitehub-console-env", path: "/env", meta: { consoleSection: "env", title: "Env · ViteHub Console" }, props: { agentsBase: consolePath("/api/_vitehub/console/agents"), definitionsBase: consolePath("/api/_vitehub/console/definitions"), kvBase: consolePath("/api/_vitehub/console/kv"), envBase: consolePath("/api/_vitehub/console/env"), managementBase: consolePath("/_vitehub/env/manage"), searchBase: consolePath("/api/_vitehub/console/search"), sectionsBase } },
     {
       component: ConsoleConnections,
@@ -129,6 +133,20 @@ const router = createRouter({
       },
     },
     {
+      component: ConsoleChannels,
+      name: "vitehub-console-channels",
+      path: "/channels",
+      meta: { consoleSection: "channels", title: "Channels · ViteHub Console" },
+      props: {
+        agentsBase: consolePath("/api/_vitehub/console/agents"),
+        channelsBase: consolePath("/api/_vitehub/console/channels"),
+        definitionsBase: consolePath("/api/_vitehub/console/definitions"),
+        kvBase: consolePath("/api/_vitehub/console/kv"),
+        searchBase: consolePath("/api/_vitehub/console/search"),
+        sectionsBase,
+      },
+    },
+    {
       component: ConsoleKv,
       name: "vitehub-console-kv",
       path: "/kv",
@@ -194,7 +212,7 @@ const router = createRouter({
 const loadSections = createConsoleSectionLoader(sectionsBase);
 
 // The document editor loads Tiptap and the Comark kit, so it is a separate chunk.
-const ConsoleDocuments = defineAsyncComponent(() => import("../components/console-documents.vue"));
+const ConsoleDocuments = () => import("../components/console-documents.vue");
 
 /** Adds one route for each installed section that an owner package contributes. */
 function addContributedRoutes(navigation) {
@@ -239,6 +257,16 @@ function addContributedRoutes(navigation) {
       }
       continue;
     }
+    if (details.view.kind === "operation-view") {
+      router.addRoute({
+        component: ConsoleOperationView,
+        name,
+        path: `/${section}`,
+        meta: { consoleSection: section, title: `${details.label} · ViteHub Console` },
+        props: { definitionsBase: consolePath("/api/_vitehub/console/definitions"), details, sectionsBase },
+      });
+      continue;
+    }
     router.addRoute({
       component: ConsoleDefinitions,
       name,
@@ -248,7 +276,9 @@ function addContributedRoutes(navigation) {
         agentsBase: consolePath("/api/_vitehub/console/agents"),
         definitionsBase: consolePath("/api/_vitehub/console/definitions"),
         details,
+        ...(section === "rate-limits" ? { rateLimitBase: consolePath("/api/_vitehub/console/rate-limit") } : {}),
         ...(section === "schedules" ? { scheduleRunBase: consolePath("/api/_vitehub/console/schedule-run") } : {}),
+        ...(section === "workflows" ? { workflowBase: consolePath("/api/_vitehub/console/workflow") } : {}),
         kvBase: consolePath("/api/_vitehub/console/kv"),
         searchBase: consolePath("/api/_vitehub/console/search"),
         sectionsBase,
@@ -266,6 +296,7 @@ const appearance = startConsoleAppearance({
 });
 
 router.beforeEach(async (to) => {
+  if (window.parent !== window && to.query.embed !== "1") return { ...to, query: { ...to.query, embed: "1" } };
   if (to.matched.length === 0) {
     // Contributed section routes exist only after the navigation response arrives.
     const navigation = await loadConsoleNavigation(sectionsBase);
@@ -300,3 +331,19 @@ createApp(App)
 const loadMathStyles = () => void import("katex/dist/katex.min.css");
 if ("requestIdleCallback" in window) window.requestIdleCallback(loadMathStyles, { timeout: 2_000 });
 else setTimeout(loadMathStyles, 0);
+
+// Only the same-origin parent can navigate this editor; Vue Router runs its save/leave guards.
+if (window.parent !== window) {
+  window.addEventListener("keydown", event => {
+    if (event.key === "Escape" && !event.defaultPrevented) window.parent.postMessage({ type: "vitehub:minimize" }, location.origin);
+  });
+  window.addEventListener("message", (event) => {
+    if (event.origin !== location.origin || event.source !== window.parent) return;
+    const data = event.data;
+    if (data?.type === "vitehub:navigate" && typeof data.path === "string" && data.path.startsWith("/") && !data.path.startsWith("//") && !data.path.includes("\\")) void router.push(data.path);
+  });
+  router.afterEach((to, _from, failure) => {
+    if (!failure) window.parent.postMessage({ type: "vitehub:route", path: to.fullPath }, location.origin);
+  });
+  void router.isReady().then(() => window.parent.postMessage({ type: "vitehub:ready" }, location.origin));
+}

@@ -33,6 +33,43 @@ export interface ViteHubConsoleDocumentEditorView {
   notice: string
 }
 
+export interface ViteHubConsoleOperationColumn {
+  /** Dot path into each item of the result, such as `author.name` or `messages.0.body`. */
+  key: string
+  label: string
+  /** `datetime` shows a time in milliseconds since the epoch as a date. `excerpt` cuts a long text. */
+  format?: "datetime" | "excerpt"
+}
+
+/** A chip above the list. Choosing it merges `input` into the operation input. The first chip is the default. */
+export interface ViteHubConsoleOperationFilter {
+  id: string
+  label: string
+  input: Readonly<Record<string, unknown>>
+}
+
+/**
+ * Lists the items that an operation returns, called over the Console RPC with the signed-in Console user. The operation
+ * checks the access of that user for each item, so the view shows only what the user may read. `operation` must return an
+ * array of objects with an `id`. A failure of the operation, with its `fix`, shows where the list would be.
+ */
+export interface ViteHubConsoleOperationView {
+  columns: readonly ViteHubConsoleOperationColumn[]
+  filters?: readonly ViteHubConsoleOperationFilter[]
+  kind: "operation-view"
+  /**
+   * Makes each row a link: `{path}` placeholders take values from the item and are URL-encoded, and `{path:path}` takes an
+   * app path and encodes each segment (a value that is not an app path, such as `//evil.com/x`, gives no link). Rows where
+   * `when.path` is not `when.equals` get none.
+   */
+  link?: { label?: string, template: string, when?: { equals: string, path: string } }
+  notice: string
+  /** Operation name, such as `comments.list`. */
+  operation: string
+  /** Fetch every page with `limit` and a `before` object whose keys read these dot paths from the last item. */
+  pagination?: { limit: number, cursor: Readonly<Record<string, string>> }
+}
+
 export interface ViteHubConsoleAuthView {
   kind: "auth-management";
   notice: string;
@@ -41,6 +78,7 @@ export interface ViteHubConsoleAuthView {
 export interface ViteHubConsoleAuthSection extends ViteHubConsoleSectionDescriptor<ViteHubConsoleAuthView> {}
 
 export type ViteHubConsoleSectionView =
+  | ViteHubConsoleOperationView
   | ViteHubConsoleAuthView
   | ViteHubConsoleDefinitionCatalogView
   | ViteHubConsoleRecordTableView
@@ -107,6 +145,13 @@ export interface ViteHubConsoleSectionPage {
   requires?: readonly string[]
 }
 
+/** One entry of a record's activity, such as a comment in a thread. `at` is an ISO 8601 timestamp. */
+export interface ViteHubConsoleRecordActivity {
+  author: string
+  at: string
+  text: string
+}
+
 /** One serializable record row. Values are display strings. Do not put credentials in records. */
 export interface ViteHubConsoleRecord {
   cells: Readonly<Record<string, string>>
@@ -114,6 +159,13 @@ export interface ViteHubConsoleRecord {
   id: string
   /** The Console can run this record when it represents a runnable Schedule Definition. */
   runnable?: boolean
+  /**
+   * Where the record lives in the app, such as the page of a comment thread. `href` is an app path that starts with one
+   * `/`, or an `https:` URL. The Console opens it in a new tab.
+   */
+  link?: { href: string, label: string }
+  /** Entries in time order, such as the comments of a thread. The Console shows them as a conversation. */
+  activity?: readonly ViteHubConsoleRecordActivity[]
 }
 
 /** Serializable description of a Console section. The Console UI in `vite-hub` renders the view. */
@@ -171,7 +223,16 @@ export interface ViteHubConsoleRuntimeRecordTableSection<TOptions = void> extend
   /** Reads build-time records on the server. When omitted, the section has only runtime records. */
   read?: (options: TOptions) => MaybePromise<readonly ViteHubConsoleRecord[]>
   runtime: ViteHubConsoleRuntimeReader
+  /**
+   * Returns the absolute path of the application module that turns the section on, such as `server/comments.ts`, or
+   * `undefined` when the project has none. With it, the host shows the section only when the module exists; without
+   * it, a Vite option enables the section.
+   */
+  entry?: (options: TOptions) => MaybePromise<string | undefined>
 }
+
+/** A section whose list comes from an operation, called with the Console user on each visit. It has no build-time data. */
+export interface ViteHubConsoleOperationSection extends ViteHubConsoleSectionDescriptor<ViteHubConsoleOperationView> {}
 
 /**
  * A document editor section. The owner finds the application module that holds its runtime, such as `server/content.ts`,
@@ -201,8 +262,10 @@ export type ViteHubConsoleSectionContribution<TOptions = void> =
   | ViteHubConsoleRecordTableSection<TOptions>
   | ViteHubConsoleRuntimeRecordTableSection<TOptions>
   | ViteHubConsoleDocumentEditorSection<TOptions>
+  | ViteHubConsoleOperationSection
 
 export type ViteHubConsoleSectionContent =
+  | { kind: "operation-view" }
   | { kind: "auth-management" }
   | { definitions: readonly ViteHubDefinitionSummary[], kind: "definition-catalog" }
   | { kind: "record-table", records: readonly ViteHubConsoleRecord[] }
@@ -251,8 +314,10 @@ export interface ViteHubConsoleDocumentCollection {
   label: string
   /** Name of one document, for example `Post`. Defaults to `label` made singular, or `Document`. */
   singularLabel?: string
-  /** Where the documents live, for example `posts/**\/*.md`. */
+  /** Where the documents live, for example `posts/**\/*.md`. A collection with several globs lists them, separated by a comma. */
   path: string
+  /** Every glob of the collection. The new-document form offers a folder for each when there are several. */
+  paths?: readonly string[]
   /** JSON Schema of the document fields. The Console generates its form from it. */
   schema: Record<string, unknown>
   /** String field that names a document in lists, for example `title`. Lists use the id without it. */
@@ -331,6 +396,17 @@ export interface ViteHubConsoleDocumentSummary {
   schedule?: ViteHubConsoleDocumentSchedule
   /** How many field issues the draft has. Absent when it validates. Publish refuses the document until they are fixed. */
   issues?: number
+  /**
+   * Set when the published version also changed after the draft started from it, for example with a Git commit.
+   * `publish` refuses the document until a `save` with `ifPublishedDigest` records which published version it builds on.
+   */
+  conflict?: ViteHubConsoleDocumentConflict
+}
+
+/** A document that changed on the published side and in the draft. */
+export interface ViteHubConsoleDocumentConflict {
+  /** Digest of the published version, or null when it was deleted there. Send it as `ifPublishedDigest`. */
+  published: string | null
 }
 
 /** One unpublished change of a collection, with the draft digest the editor showed. */
@@ -396,6 +472,11 @@ export interface ViteHubConsoleDocument {
    * working; `publish` and `schedule` refuse the document with `CONTENT_INVALID` until the list is empty.
    */
   issues?: Array<{ field?: string, path: Array<string | number>, message: string }>
+  /**
+   * Set when the published version also changed after the draft started from it, for example with a Git commit.
+   * `publish` refuses the document until a `save` with `ifPublishedDigest` records which published version it builds on.
+   */
+  conflict?: ViteHubConsoleDocumentConflict
 }
 
 /** One stored file as written, without parsing or validation, so any version can be shown and compared. */
@@ -611,6 +692,15 @@ export interface ViteHubConsoleDocumentSessions {
   sessions: ViteHubConsoleDocumentSession[]
 }
 
+/** A token for one preview frame form, from the `preview` action. */
+export interface ViteHubConsoleDocumentPreview {
+  /** The search parameter and form field name, such as `vitehub-content-preview`. */
+  parameter: string
+  token: string
+  /** ISO timestamp. */
+  expiresAt: string
+}
+
 /** The signed-in Console user, or `null` when the Console access mode has no user. */
 export interface ViteHubConsoleDocumentActionContext {
   user: Record<string, unknown> | null
@@ -629,15 +719,23 @@ export interface ViteHubConsoleDocumentActions {
    */
   setup?(context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentSetup>
   list(input: ViteHubConsoleDocumentListInput, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentPage>
-  /** Reads the draft. Returns null when the draft has no such document. */
-  get(input: { collection: string, id: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument | null>
+  /** Reads the draft, or the published version with `ref: "published"`. Returns null when that ref has no such document. */
+  get(input: { collection: string, id: string, ref?: "draft" | "published" }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument | null>
+  /**
+   * Signs a short token for the side browser of the editor, for this one document. The page at the document URL renders
+   * the posted version of it in place of its draft: it receives a form POST to `url?parameter` whose `parameter` field
+   * holds `{ token, document }` as JSON. Every other read of the page stays published. Check read access to the
+   * document first.
+   */
+  preview(input: { collection: string, id: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentPreview>
   /** Reads the stored file on the draft, or at one earlier `revision`, without validating it. Null when it does not exist there. */
   raw(input: { collection: string, id: string, revision?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleRawDocument | null>
   /**
    * `ifDigest: null` creates a document that must not exist yet. `session` is the tab token: while another tab holds
-   * the edit lease, the save fails with `409 CONTENT_LEASE_HELD` and `details.holder`.
+   * the edit lease, the save fails with `409 CONTENT_LEASE_HELD` and `details.holder`. `ifPublishedDigest` resolves a
+   * `conflict`: it names the published version that the person saw, which the draft then builds on.
    */
-  save(input: { collection: string, id: string, data: Record<string, unknown>, body: string, ifDigest: string | null, session?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument>
+  save(input: { collection: string, id: string, data: Record<string, unknown>, body: string, ifDigest: string | null, ifPublishedDigest?: string | null, session?: string, live?: boolean }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument>
   /** `live: true` when the tab edits in the live room of the document, which holds the lease for everyone in it. */
   remove(input: { collection: string, id: string, ifDigest: string, session?: string, live?: boolean }, context: ViteHubConsoleDocumentActionContext): MaybePromise<void>
   /**
@@ -676,7 +774,7 @@ export interface ViteHubConsoleDocumentActions {
 
 export type ViteHubConsoleDocumentActionName = Exclude<keyof ViteHubConsoleDocumentActions, "collections" | "mediaAccess" | "setup">
 
-export const viteHubConsoleDocumentActionNames: readonly ViteHubConsoleDocumentActionName[] = ["get", "list", "overview", "publish", "raw", "references", "remove", "restore", "revisions", "save", "schedule", "search", "session", "sessions", "unschedule"]
+export const viteHubConsoleDocumentActionNames: readonly ViteHubConsoleDocumentActionName[] = ["get", "list", "overview", "preview", "publish", "raw", "references", "remove", "restore", "revisions", "save", "schedule", "search", "session", "sessions", "unschedule"]
 
 /** Creates the document actions from the namespace of the application module that `entry` found. */
 export type ViteHubConsoleDocumentActionsFactory = (module: Record<string, unknown>) => ViteHubConsoleDocumentActions
@@ -724,6 +822,13 @@ function isDefinitionCatalogSection<TOptions>(
   return section.view.kind === "definition-catalog"
 }
 
+/** Returns true for a section that lists the result of an operation. */
+export function isViteHubConsoleOperationSection<TOptions>(
+  section: ViteHubConsoleSectionContribution<TOptions>,
+): section is ViteHubConsoleOperationSection {
+  return section.view.kind === "operation-view"
+}
+
 /** Returns true for a document editor section. */
 export function isViteHubConsoleDocumentEditorSection<TOptions>(
   section: ViteHubConsoleSectionContribution<TOptions>,
@@ -760,6 +865,15 @@ export function describeViteHubConsoleRuntimeReader<TOptions>(section: ViteHubCo
   return checkedServerExport(section, section.runtime, "runtime")
 }
 
+/** A checked copy of an operation view that only holds JSON. */
+export function describeOperationView(view: ViteHubConsoleOperationView): ViteHubConsoleOperationView {
+  if (String(view.operation) !== view.operation || !/^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*$/.test(view.operation)) {
+    throw new TypeError(`[vitehub] A Console operation view needs an operation name such as "comments.list"; received ${JSON.stringify(view.operation)}.`)
+  }
+  // SAFETY: The view holds strings, numbers, booleans, and plain objects, so a JSON round trip copies it.
+  return JSON.parse(JSON.stringify(view)) as ViteHubConsoleOperationView
+}
+
 /** Returns the serializable part of a contribution. */
 export function describeViteHubConsoleSection<TOptions>(section: ViteHubConsoleSectionContribution<TOptions>): ViteHubConsoleSectionDescriptor {
   if (!isViteHubConsoleSectionId(section.id)) {
@@ -767,7 +881,9 @@ export function describeViteHubConsoleSection<TOptions>(section: ViteHubConsoleS
   }
   const view: ViteHubConsoleSectionView = section.view.kind === "record-table"
     ? { columns: section.view.columns.map(column => ({ key: column.key, label: column.label })), kind: "record-table", notice: section.view.notice }
-    : { kind: section.view.kind, notice: section.view.notice }
+    : section.view.kind === "operation-view"
+      ? describeOperationView(section.view)
+      : { kind: section.view.kind, notice: section.view.notice }
   const descriptor: ViteHubConsoleSectionDescriptor = { description: section.description, icon: section.icon, id: section.id, label: section.label, view }
   if (section.pages?.length) descriptor.pages = describePages(section)
   return descriptor
@@ -828,6 +944,7 @@ export async function readViteHubConsoleSection<TOptions>(
   if (isViteHubConsoleRuntimeSection(section)) {
     return { kind: "record-table", records: section.read ? [...await section.read(options)] : [] }
   }
+  if (isViteHubConsoleOperationSection(section)) return { kind: "operation-view" }
   if (isDefinitionCatalogSection(section)) {
     return { definitions: [...await section.read(options)], kind: "definition-catalog" }
   }

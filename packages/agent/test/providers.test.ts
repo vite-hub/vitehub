@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto"
 import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
-import { glob, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
+import { glob, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { runInNewContext } from "node:vm"
 import { dirname, join, relative, resolve } from "node:path"
@@ -9,12 +9,12 @@ import { clearTimeout as clearNodeTimeout, setTimeout as setNodeTimeout } from "
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
-import { Chat, Message } from "chat"
+import { Chat, Message, parseMarkdown } from "chat"
 import { transform } from "esbuild"
 import { removeProviderOutputArtifactDir } from "@vite-hub/internal/build/provider-output-sources"
 import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { collectViteHubProviderOutputEntries } from "@vite-hub/internal/inspect"
-import { mergeConfig, build as viteBuild } from "vite"
+import { mergeConfig, resolveConfig, build as viteBuild } from "vite"
 import type { ConfigEnv, UserConfig } from "vite"
 import { describe, expect, it, vi } from "vitest"
 
@@ -132,6 +132,7 @@ const hostedAgentRoot = join(import.meta.dirname, "../../../fixtures/tutorials/a
 function agentProviderOutputAliases(extra: Array<{ find: string; replacement: string }> = []) {
   return [
     ...extra,
+    { find: "@vite-hub/agent/env-identity", replacement: resolve(import.meta.dirname, "../src/env-identity.ts") },
     { find: "@vite-hub/agent/server/registry", replacement: resolve(import.meta.dirname, "../src/server/registry.ts") },
     { find: "@vite-hub/agent/server/internal", replacement: resolve(import.meta.dirname, "../src/server/internal.ts") },
     { find: "@vite-hub/agent/server/workspace", replacement: resolve(import.meta.dirname, "../src/server/workspace.ts") },
@@ -1306,6 +1307,7 @@ describe("agent Vite plugin", () => {
     const previousHosting = process.env.VITEHUB_HOSTING
     const previousNetlifyDev = process.env.NETLIFY_DEV
     try {
+      await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
       delete process.env.VITEHUB_HOSTING
       process.env.NETLIFY_DEV = "true"
       await mkdir(join(root, "server", "agents"), { recursive: true })
@@ -1316,20 +1318,13 @@ describe("agent Vite plugin", () => {
           "@vite-hub/kv/runtime/upstash-driver": "vite-hub/_internal/kv/runtime/disabled-upstash",
         },
       } as never)
-      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      const configResolved = plugin.configResolved as (config: {
-        build?: { outDir?: string }
-        command: "serve"
-        plugins: Array<{ name: string }>
-        resolve: { alias: Array<{ find: string; replacement: string }> }
-        root: string
-      }) => Promise<void>
       vi.mocked(writeProviderDeploymentOutputs).mockClear()
 
-      await configResolved({
+      await resolveConfig({
         build: { outDir: "dist/client" },
-        command: "serve",
-        plugins: kvMode === "configured" ? [{ name: "@vite-hub/kv/vite" }] : [],
+        configFile: false,
+        envDir: false,
+        plugins: [{ name: plugin.name, configResolved: plugin.configResolved }, ...(kvMode === "configured" ? [{ name: "@vite-hub/kv/vite" }] : [])],
         resolve: {
           alias: [
             { find: "@", replacement: join(root, "src") },
@@ -1338,7 +1333,7 @@ describe("agent Vite plugin", () => {
           ],
         },
         root,
-      })
+      }, "serve")
 
       const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
       const capabilityOption = kvMode === "configured" ? " capabilities: vitehubAgentRouteCapabilities," : ""
@@ -2939,7 +2934,7 @@ export default defineAgent({
         expect(queuePlugin).toContain('import { resumeWebhookQueues, warmWebhookRoutes } from "./chat-webhook-route"')
         expect(queuePlugin).not.toContain("nitroApp.hooks.hook('request'")
         expect(queuePlugin).toContain("startWebhookQueues(startedAt)")
-        expect(webhookRoute).toContain('import { createAgentWebhookWarmup } from "@vite-hub/agent/server/internal"')
+        expect(webhookRoute).toContain('import { createAgentWebhookWarmup, installChannelsConsoleHost } from "@vite-hub/agent/server/internal"')
         expect(webhookRoute).toContain("() => handler.warm({ agentIdentity: agentIdentities[name], state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver }),")
         const resumeWebhookQueues = vi.fn((_waitUntil: unknown, _before: number) => vi.fn())
         const warmWebhookRoutes = vi.fn(async () => undefined)
@@ -3263,7 +3258,6 @@ export default defineAgent({
     expect(pkg.exports?.["./cloudflare/state"]).toEqual({
       types: "./dist/cloudflare/state.d.ts",
       import: "./dist/cloudflare/state.js",
-      require: "./dist/cloudflare/state.js",
       default: "./dist/cloudflare/state.js",
     })
   })
@@ -3275,7 +3269,6 @@ export default defineAgent({
     expect(pkg.exports?.["./server/internal"]).toEqual({
       types: "./dist/server/internal.d.ts",
       import: "./dist/server/internal.js",
-      require: "./dist/server/internal.js",
       default: "./dist/server/internal.js",
     })
   })
@@ -3304,7 +3297,6 @@ export default defineAgent({
     expect(pkg.exports?.["./output"]).toEqual({
       types: "./dist/output.d.ts",
       import: "./dist/output.js",
-      require: "./dist/output.js",
       default: "./dist/output.js",
     })
   })
@@ -12789,6 +12781,11 @@ describe("server helpers", () => {
       const miniDiscordTranscripts = miniDiscord._chatInstance()!.transcripts
       const miniSlackTranscripts = miniSlack._chatInstance()!.transcripts
       const coordinatorTranscripts = coordinatorDiscord._chatInstance()!.transcripts
+      // ViteHub keeps the messages of a Channel with transcripts by itself, for the identity of the person.
+      const savedByMini = await miniSlackTranscripts.count({ userKey: "account:verified" })
+      const savedByCoordinator = await coordinatorTranscripts.count({ userKey: "account:verified" })
+      expect(savedByMini).toBeGreaterThanOrEqual(2)
+      expect(savedByCoordinator).toBeGreaterThanOrEqual(1)
       await miniDiscordTranscripts.append(
         // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
         { adapter: { name: "discord" }, id: "discord:456" } as never,
@@ -12809,17 +12806,17 @@ describe("server helpers", () => {
         { userKey: "account:verified" },
       )
 
-      await expect(miniSlackTranscripts.count({ userKey: "account:verified" })).resolves.toBe(2)
-      await expect(miniSlackTranscripts.list({ userKey: "account:verified" })).resolves.toMatchObject([
-        { platform: "discord", text: "discord" },
-        { platform: "slack", text: "slack" },
-      ])
-      await expect(state.getList("chat:mini:transcripts:user:account:verified")).resolves.toHaveLength(2)
-      await expect(state.getList("chat:work-coordinator:transcripts:user:account:verified")).resolves.toHaveLength(1)
+      await expect(miniSlackTranscripts.count({ userKey: "account:verified" })).resolves.toBe(savedByMini + 2)
+      await expect(miniSlackTranscripts.list({ limit: 200, userKey: "account:verified" })).resolves.toEqual(expect.arrayContaining([
+        expect.objectContaining({ platform: "discord", text: "discord" }),
+        expect.objectContaining({ platform: "slack", text: "slack" }),
+      ]))
+      await expect(state.getList("chat:mini:transcripts:user:account:verified")).resolves.toHaveLength(savedByMini + 2)
+      await expect(state.getList("chat:work-coordinator:transcripts:user:account:verified")).resolves.toHaveLength(savedByCoordinator + 1)
       await expect(state.getList("chat:mini:discord:transcripts:user:account:verified")).resolves.toEqual([])
       await expect(state.getList("chat:mini:slack:transcripts:user:account:verified")).resolves.toEqual([])
       await expect(miniSlackTranscripts.delete({ userKey: "account:verified" })).resolves.toEqual({
-        deleted: 2,
+        deleted: savedByMini + 2,
       })
       await expect(miniDiscordTranscripts.list({ userKey: "account:verified" })).resolves.toEqual([])
     } finally {
@@ -14224,6 +14221,8 @@ describe("server helpers", () => {
       }
       await expect(drain).resolves.toEqual({ active: 1, interrupted: 1, unsettled: 0 })
       await Promise.allSettled(waitUntilTasks)
+      const interrupted = await state.get<Record<string, { transcriptUserKey?: string | null }>>("chat:support:telegram:vitehub:interrupted-chat")
+      expect(Object.values(interrupted ?? {}).map(record => record.transcriptUserKey)).toEqual(["telegram:123"])
       const restartNotice = scenario === "citation notice" ? "Restarted. [source link unavailable]" : "The server restarted while I was working on this. I'll retry it automatically."
       expect([...firstAdapter.postMessage.mock.calls, ...firstAdapter.editMessage.mock.calls].flat()).toContainEqual(expect.stringContaining(restartNotice))
 
@@ -14327,7 +14326,9 @@ describe("server helpers", () => {
       await vi.waitFor(() => expect(prompts).toHaveLength(2), { timeout: 10_000 })
       expect(prompts[1]).toContain("[Retry after interruption]")
       expect(prompts[1]).toContain("review the pull request")
-      expect([...secondAdapter.postMessage.mock.calls, ...secondAdapter.editMessage.mock.calls].flat()).toContainEqual(expect.stringContaining(restartNotice))
+      const noticeCalls = [...secondAdapter.postMessage.mock.calls, ...secondAdapter.editMessage.mock.calls].flat()
+      if (scenario === "retry failure") expect(noticeCalls).not.toContainEqual(expect.stringContaining(restartNotice))
+      else expect(noticeCalls).toContainEqual(expect.stringContaining(restartNotice))
       if (scenario === "second restart") {
         await drainInlineChatInvocations({ timeoutMs: 0 })
       }
@@ -17200,6 +17201,7 @@ describe("server helpers", () => {
         return [{ id, status: async () => ({ status: "queued" }) }]
       })
       const errorFallbackText = vi.fn(() => "Could not process message.")
+      let transcriptIdentity = "account:original"
       const agent = defineAgent({
         channels: {
           telegram: testTelegram(telegram, {
@@ -17209,7 +17211,7 @@ describe("server helpers", () => {
               // SAFETY: createTestChatAdapter implements the Adapter contract exercised by this resolver fixture.
               return adapter as never
             },
-            messages: { concurrency: "steer", delivery: "manual", errorFallbackText, state },
+            messages: { concurrency: "steer", delivery: "manual", errorFallbackText, identity: () => transcriptIdentity, state },
           }),
         },
         driver: { run: () => "unused" },
@@ -17244,6 +17246,7 @@ describe("server helpers", () => {
         expect(ownershipKey).toBeDefined()
         await state.forceReleaseLock(ownershipKey!)
 
+        transcriptIdentity = "account:current"
         await expect(handler(request(91_147, "beta"), "telegram", reclaimerRuntime)).resolves.toMatchObject({ status: 200 })
         expect(createBatch.mock.calls.length).toBeGreaterThan(1)
         const queue = `${ownershipKey}:queue`
@@ -17302,6 +17305,22 @@ describe("server helpers", () => {
         )
         expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Could not process message.")
         expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "Could not process message.")
+        // Read after the provider window expires, with the identity resolver changed since the first delivery.
+        adapter.fetchMessages.mockResolvedValue({ messages: [] })
+        const conversation = await handler.conversation(request(91_147, "beta"), { channel: "telegram", threadId: "telegram:456" }, reclaimerRuntime)
+        const fallbacks = conversation.messages.filter(message => message.role === "assistant")
+        expect(fallbacks).toHaveLength(2)
+        expect(fallbacks.every(message => message.source === "transcript" && message.text === "Could not process message.")).toBe(true)
+        const chat = adapter._chatInstance()
+        if (!(chat instanceof Chat)) throw new Error("Expected the conversation's Chat client")
+        for (const userKey of ["account:original", "account:current"]) {
+          const entries = await chat.history.user.list({ threadId: "telegram:456", userKey })
+          expect(entries.filter(entry => entry.role === "assistant")).toEqual([
+            expect.objectContaining({ text: "Could not process message." }),
+          ])
+        }
+        const { channelConversationArchive } = await import("../src/internal/channel-conversation.ts")
+        expect(channelConversationArchive(conversation).messages.filter(message => message.role === "assistant")).toEqual(fallbacks)
         expect(remainingFallbackProgressFailures).toBe(0)
         expect(queueReplaceHead).toHaveBeenCalledWith(
           expect.any(String),
@@ -17519,11 +17538,27 @@ describe("server helpers", () => {
       title: "bounds a fallback post that never settles and keeps it reserved for retry",
     },
   ] as const)("$title", async ({ boundary, deliveryFailure, firstDeliveryCount, finalDeliveryCount }) => {
-    const { deliverDurableSteerErrorFallbacks, postChatErrorFallback } = await import("../src/server/routes.ts")
+    const { deliverDurableSteerErrorFallbacks, postChatErrorFallback, recordTranscriptsOfThread } = await import("../src/server/routes.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-fallback-recovery-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const queue = "durable-steer-fallback-recovery"
+    const adapter = createTestChatAdapter()
+    const chat = new Chat({
+      // SAFETY: createTestChatAdapter implements the Adapter methods used by the transcript store.
+      adapters: { telegram: adapter as unknown as Adapter },
+      identity: () => "account:original",
+      state,
+      transcripts: { maxPerUser: 50 },
+      userName: "vitehub",
+    })
+    const recorder: Parameters<typeof recordTranscriptsOfThread>[1] = {
+      inbound: async () => {},
+      outbound: async (_adapter, threadId, id, text, userKey) => {
+        if (!userKey) return
+        await chat.history.user.append(chat.thread(threadId), { platformMessageId: id, role: "assistant", text }, { userKey })
+      },
+    }
     const entry = {
       enqueuedAt: Date.now(),
       expiresAt: Number.MAX_SAFE_INTEGER,
@@ -17557,7 +17592,7 @@ describe("server helpers", () => {
       const delivered = await postChatErrorFallback(
         new Error("failed"),
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-        { post } as never,
+        recordTranscriptsOfThread({ adapter, id: "telegram:456", post } as never, recorder, "account:original"),
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         entry.message.errorDeliveries[0]!.message as never,
         { errorFallbackText: "Fallback" },
@@ -17610,6 +17645,7 @@ describe("server helpers", () => {
       expect(reserved.message?.errorDeliveries?.[0]?.fallbackStatus).toBe("reserved")
       if (deliveryFailure === "timeout") {
         await vi.waitFor(() => expect(lateDeliveryDelete).toHaveBeenCalledOnce())
+        await expect(chat.history.user.list({ threadId: "telegram:456", userKey: "account:original" })).resolves.toEqual([])
       }
 
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -17620,6 +17656,14 @@ describe("server helpers", () => {
         message?: { errorDeliveries?: Array<{ fallbackStatus?: string }> }
       }
       expect(delivered.message?.errorDeliveries?.[0]?.fallbackStatus).toBe("delivered")
+      if (deliveryFailure === "timeout") {
+        const transcripts = await chat.history.user.list({ threadId: "telegram:456", userKey: "account:original" })
+        expect(transcripts).toEqual([expect.objectContaining({ platformMessageId: "fallback", role: "assistant", text: "Fallback", userKey: "account:original" })])
+        const { channelConversationArchive, stitchChannelConversation } = await import("../src/internal/channel-conversation.ts")
+        const messages = stitchChannelConversation({ invocations: [], provider: [], threadId: "telegram:456", transcripts })
+        expect(messages).toEqual([expect.objectContaining({ id: "fallback", source: "transcript", text: "Fallback" })])
+        expect(channelConversationArchive({ agent: "calories", channel: "telegram", messages, provider: "telegram", retention: { durable: true, maxMessages: 50, ttlMs: 0 }, threadId: "telegram:456" }).messages).toEqual(messages)
+      }
       queueReplaceHead.mockRestore()
     } finally {
       await state.disconnect()
@@ -17669,7 +17713,7 @@ describe("server helpers", () => {
     }
   })
 
-  it.each([true, false])("passes the failed Invocation to Chat error replies (errorConsoleLink: %s)", async (errorConsoleLink) => {
+  it.each([true, false])("passes the failed Invocation to Chat error replies (consoleLink: %s)", async (consoleLink) => {
     vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { support: "https://agents.example.test" } })
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
@@ -17678,7 +17722,7 @@ describe("server helpers", () => {
     const { agentInvocationId } = await import("../src/invocations.ts")
     const adapter = createTestChatAdapter({ deferMessageProcessing: true })
     // Each case needs its own message, because the Chat SDK drops duplicate message IDs.
-    const messageId = errorConsoleLink ? 7731 : 7732
+    const messageId = consoleLink ? 7731 : 7732
     const waitUntilTasks: Promise<unknown>[] = []
     const errorFallbackText = vi.fn((_context: { invocation?: { consoleUrl?: string, id: string }, run?: { runId: string } }) => "It failed.")
     const agent = defineAgent({
@@ -17687,7 +17731,7 @@ describe("server helpers", () => {
         defineChatCapability({
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           platforms: { telegram: () => adapter as never },
-          errorConsoleLink,
+          consoleLink,
           errorFallbackText,
           webhooks: { telegram: {} },
         }),
@@ -17721,7 +17765,7 @@ describe("server helpers", () => {
       const id = await agentInvocationId(args.run!.runId, "support")
       const consoleUrl = `https://agents.example.test/_vitehub/agents/support/invocations/${encodeURIComponent(id)}`
       expect(args.invocation).toEqual({ consoleUrl, id })
-      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", errorConsoleLink ? `It failed.\n\nDetails: ${consoleUrl}` : "It failed.")
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", consoleLink ? `It failed.\n\nDetails: ${consoleUrl}` : "It failed.")
     }
     finally {
       consoleError.mockRestore()
@@ -20445,6 +20489,83 @@ describe("server helpers", () => {
       markdown: "Final customer reply",
     })
     expect(adapter.postMessage.mock.invocationCallOrder[1]).toBeLessThan(adapter.deleteMessage.mock.invocationCallOrder[0]!)
+  })
+
+  it.each([
+    { base: "/", consoleLink: true, messageId: 91_901 },
+    { base: "/", consoleLink: false, messageId: 91_902 },
+    { base: "/team_(east)/", consoleLink: true, messageId: 91_903 },
+    { base: "/team_east)/", consoleLink: true, messageId: 91_904 },
+  ])("links the running Invocation from the loading message (consoleLink: $consoleLink, base: $base)", async ({ base, consoleLink, messageId }) => {
+    vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { support: "https://agents.example.test" } })
+    vi.stubGlobal("__VITEHUB_APP_BASE_URL__", base)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { agentInvocationId } = await import("../src/invocations.ts")
+    const adapter = createTestChatAdapter()
+    let runId: string | undefined
+    const agent = defineAgent({
+      name: "support",
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          adapter: () => adapter as never,
+          messages: {
+            consoleLink,
+            delivery: "manual",
+            final: { delivery: "new-message" },
+            loading: { text: "Loading…", updates: "commentary" },
+          },
+        }),
+      },
+      driver: {
+        run: (context) => {
+          runId = context.run?.runId
+          return {
+            stream: (async function* () {
+              yield { delta: "Checking the request.", phase: "commentary", type: "text-delta" }
+              yield { finishReason: "stop", type: "finish" }
+            })(),
+          }
+        },
+      },
+      hooks: {
+        "agent:finish": (event) => event.reply("Final customer reply"),
+      },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const response = await handler(chatWebhookRequest(messageId), "telegram")
+
+      expect(response.status).toBe(200)
+      expect(runId).toBeDefined()
+      const id = await agentInvocationId(runId!, "support")
+      const consoleUrl = `https://agents.example.test${base}_vitehub/agents/support/invocations/${encodeURIComponent(id)}`
+      for (const message of [adapter.postMessage.mock.calls[0]?.[1], adapter.editMessage.mock.calls.at(-1)?.[2]]) {
+        if (!consoleLink) continue
+        const markdown = isRuntimeObject(message) && message && "markdown" in message && isRuntimeString(message.markdown) ? message.markdown : ""
+        expect(parseMarkdown(markdown)).toMatchObject({
+          children: [
+            { type: "paragraph" },
+            { children: [{ type: "link", url: consoleUrl }], type: "paragraph" },
+          ],
+        })
+      }
+      const footer = `\n\n[Details](<${consoleUrl}>)`
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", consoleLink ? { markdown: `Loading…${footer}` } : "Loading…")
+      expect(adapter.editMessage).toHaveBeenLastCalledWith("telegram:456", "sent-1", {
+        markdown: consoleLink ? `Checking the request.${footer}` : "Checking the request.",
+      })
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", {
+        markdown: "Final customer reply",
+      })
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it("shows only the latest commentary segment in the loading message", async () => {
@@ -24436,6 +24557,8 @@ describe("server helpers", () => {
       get(target, property, receiver) {
         if (property !== "appendToList") return Reflect.get(target, property, receiver)
         return async (...args: Parameters<typeof state.appendToList>) => {
+          // Only the delivery journal fails; transcript entries and participant indexes use separate lists.
+          if (String(args[0]).includes("transcripts:")) return await state.appendToList(...args)
           eventAppends += 1
           if (eventAppends > 2) throw new Error("journal unavailable")
           return await state.appendToList(...args)

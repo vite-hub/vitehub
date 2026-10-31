@@ -1,7 +1,12 @@
+import { isChatGPTGateway } from "@vite-hub/gateways/internal"
+import { chatgptCodexLaunchArgs, chatgptProviderError, chatgptTokenEnvironment, inspectChatGPTGateway } from "./internal/chatgpt-gateway.ts"
+import { startChatGPTTransport } from "./internal/chatgpt-transport.ts"
+import { chatgptProtocolSource, chatgptSessionConfiguration } from "./internal/chatgpt-protocol.ts"
+import type { ChatGPTGateway } from "@vite-hub/gateways"
 import { copyProviderCallbackMetadata, providerCallbackMetadata, withProviderCallbackMetadata } from "./internal/provider-callback-metadata.ts"
 import { protectGeneratedProviderGitFiles, unmergedProviderGitFiles } from "./internal/generated-provider-git-files.ts"
 import { preparedProviderCheckoutHead } from "./internal/prepared-provider-checkout.ts"
-import { codexDeveloperInstructionsArg, codexDeveloperInstructionsMaxBytes, codexLaunchArgs } from "./internal/codex-launch-args.ts"
+import { codexConfigArg, codexDeveloperInstructionsArg, codexDeveloperInstructionsMaxBytes, codexLaunchArgs } from "./internal/codex-launch-args.ts"
 import { resolveAgentDriverGateway, withAgentDriverGatewayEnvironment } from "./internal/agent-gateway.ts"
 import { resolveAgentInstructions } from "./agent-instructions.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
@@ -9,8 +14,8 @@ import { isProviderSessionCursorRecord, providerNativeThreadId, providerSessionC
 import type { ProviderSessionCursorRecord } from "./internal/provider-session-cursor.ts"
 export { providerNativeThreadId } from "./internal/provider-session-cursor.ts"
 import { browserRuntimeEnvironment } from "./internal/browser-runtime.ts"
-import { forgeGitEnvironment, readForgeAccess } from "./internal/forge-access.ts"
-import { preparePullRequestCheckout, pullRequestCheckoutPlan, pullRequestRepositories, type PullRequestCheckoutPlan } from "./internal/pull-request-checkout.ts"
+import { forgeGitEnvironment, forgeGitScope, readForgeAccess } from "./internal/forge-access.ts"
+import { preparePullRequestCheckout, pullRequestCheckoutPlan, type PullRequestCheckoutPlan } from "./internal/pull-request-checkout.ts"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { once } from "node:events"
@@ -116,7 +121,7 @@ export interface ProviderAgentAdapterOptions<
   env?: AgentProviderEnvironmentResolver<TRuntimeConfig>
   execution?: { attachments?: { maxBytes?: number } }
   /** LLM proxy or gateway for model requests. It replaces `credentials`. */
-  gateway?: AiGateway
+  gateway?: AiGateway | ChatGPTGateway
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   launch?: AgentProviderLaunchResolver<TRuntimeConfig>
   model?: string
@@ -517,6 +522,19 @@ function providerEnvironment(env: Record<string, string | undefined> | undefined
   return Object.fromEntries(Object.entries({ ...host, ...env }).filter((entry): entry is [string, string] => hasRuntimeType(entry[1], "string")))
 }
 
+// Credential-bearing Node and native processes must not accept startup loaders from driver.env.
+const chatgptLaunchEnvironmentKeys = new Set<string>([
+  ...providerHostEnvironmentKeys,
+  "CODEX_HOME",
+  chatgptTokenEnvironment,
+  "T3_MCP_BEARER_TOKEN",
+  "VITEHUB_BROWSER_ACTIVE",
+  "AGENT_BROWSER_SESSION",
+  "AGENT_BROWSER_SOCKET_DIR",
+  "AGENT_BROWSER_EXECUTABLE_PATH",
+  "AGENT_BROWSER_ARGS",
+])
+
 function withPathPrefix(env: NodeJS.ProcessEnv, prefix: readonly string[] | undefined): NodeJS.ProcessEnv {
   if (!prefix?.length) return env
   return { ...env, PATH: [...prefix, env.PATH].filter(Boolean).join(delimiter) }
@@ -612,16 +630,20 @@ function providerLauncherSource(
   launchSecrets: readonly string[],
   cwd: string,
   requirementCapture?: ProviderRequirementCapture,
+  clientInfo?: { name: string, title: string, version: string },
+  environmentKeys?: readonly string[],
 ): string {
   return `import { spawn } from "node:child_process"
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs"
 import { setTimeout as delay } from "node:timers/promises"
+import { createInterface } from "node:readline"
+import { once } from "node:events"
 
 const child = spawn(${JSON.stringify(launch.command)}, [...${JSON.stringify([...launch.args || []])}, ...process.argv.slice(2)], {
   cwd: ${JSON.stringify(cwd)},
   detached: true,
-  env: process.env,
-  stdio: ["inherit", "inherit", "pipe"],
+  env: ${environmentKeys ? `Object.fromEntries(${JSON.stringify(environmentKeys)}.filter(key => process.env[key] !== undefined).map(key => [key, process.env[key]]))` : "process.env"},
+  stdio: ${JSON.stringify(clientInfo ? ["pipe", "pipe", "pipe"] : ["inherit", "inherit", "pipe"])},
 })
 
 const signals = ["SIGINT", "SIGTERM", "SIGHUP"]
@@ -656,7 +678,7 @@ const diagnosticSecrets = [...new Set([...secretEnvironmentKeys
   .concat(${JSON.stringify([...launchSecrets])})
   .sort((left, right) => right.length - left.length)
 const diagnosticSecretBuffers = diagnosticSecrets.map(secret => Buffer.from(secret))
-const stderrRetentionBytes = ${providerLaunchStderrMaxBytes} + Math.max(0, ...diagnosticSecrets.map(secret => Buffer.byteLength(secret)))
+let stderrRetentionBytes = ${providerLaunchStderrMaxBytes} + Math.max(0, ...diagnosticSecrets.map(secret => Buffer.byteLength(secret)))
 
 function redactDiagnostic(value) {
   let redacted = String(value)
@@ -707,7 +729,9 @@ function forwardStderr(chunk) {
   }
 }
 
+${clientInfo ? chatgptProtocolSource(clientInfo, providerLaunchStderrMaxBytes) : ""}
 child.stderr.on("data", (chunk) => {
+  if (${Boolean(clientInfo)}) return
   if (!requirementCapture) return forwardStderr(chunk)
   requirementOutput = Buffer.concat([requirementOutput, chunk])
   let newline
@@ -802,6 +826,8 @@ async function materializeProviderLauncher(
   launchSecrets: readonly string[],
   cwd: string,
   requirementCapture?: ProviderRequirementCapture,
+  clientInfo?: { name: string, title: string, version: string },
+  environmentKeys?: readonly string[],
 ): Promise<MaterializedProviderLauncher> {
   if (process.platform === "win32") {
     throw agentDiagnostics.AGENT_R0676({ message: "[vitehub] driver.launch is not supported on Windows because provider launchers require a POSIX executable." })
@@ -810,7 +836,7 @@ async function materializeProviderLauncher(
   const path = join(root, "provider-launcher")
   const diagnosticPath = join(root, "provider-launch-failure.json")
   const shellArgument = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`
-  await writeFile(sourcePath, providerLauncherSource(launch, diagnosticPath, secretEnvironmentKeys, launchSecrets, cwd, requirementCapture), { mode: 0o600 })
+  await writeFile(sourcePath, providerLauncherSource(launch, diagnosticPath, secretEnvironmentKeys, launchSecrets, cwd, requirementCapture, clientInfo, environmentKeys), { mode: 0o600 })
   await writeFile(path, `#!/bin/sh\nexec ${shellArgument(process.execPath)} ${shellArgument(sourcePath)} "$@"\n`, { mode: 0o700 })
   return { diagnosticPath, path }
 }
@@ -1467,6 +1493,11 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
 ): Promise<AgentProviderStatus> {
   const options = withoutReplacedCredentials(configuredOptions)
   const signal = context.abortSignal
+  if (isChatGPTGateway(options.gateway)) {
+    const status = await inspectChatGPTGateway(options.gateway, context)
+    return resolveInstalledProviderExecutable("codex") ? status
+      : { ...status, readiness: "unavailable", reason: "Install @openai/codex in this app so the ChatGPT gateway can launch Codex." }
+  }
   const checkRequirements = inspectionOptions.checkRequirements !== false
   // The toolchain exists only after an invocation prepares its checkout.
   const providedToolchainCommands = providerToolchainCommandsFor(options)
@@ -2885,10 +2916,13 @@ async function* runProvider<
   if (context.input.timeout !== undefined && context.input.timeout > 2_147_483_647) {
     throw agentDiagnostics.AGENT_R0711({ message: "[vitehub] Provider Agent timeout must be no greater than 2,147,483,647 milliseconds." })
   }
+  const chatgptExpiry = isChatGPTGateway(options.gateway) ? new AbortController() : undefined
+  let chatgptExpiryTimer: ReturnType<typeof setTimeout> | undefined
   const timeoutSignal = context.input.timeout === undefined ? undefined : AbortSignal.timeout(context.input.timeout)
-  const effectiveSignal = context.input.abortSignal && timeoutSignal
+  const invocationSignal = context.input.abortSignal && timeoutSignal
     ? AbortSignal.any([context.input.abortSignal, timeoutSignal])
     : context.input.abortSignal || timeoutSignal
+  const effectiveSignal = chatgptExpiry ? AbortSignal.any([chatgptExpiry.signal, ...(invocationSignal ? [invocationSignal] : [])]) : invocationSignal
   if (effectiveSignal !== context.input.abortSignal) {
     const wrapped = { ...context, input: { ...context.input, abortSignal: effectiveSignal } }
     if (isAuxiliaryAgentAdapterContext(context)) markAuxiliaryMessageChannelInstructionContext(wrapped)
@@ -2909,8 +2943,8 @@ async function* runProvider<
   // SAFETY: The provider runtime accepts the transport thread ID or a generated non-empty UUID.
   const threadId = (transportSessionId || crypto.randomUUID()) as ThreadId
   const auxiliary = isAuxiliaryAgentAdapterContext(context)
-  // A Sandbox session lasts one invocation, so provider sessions cannot resume in the next one.
-  const preservesProviderSession = !auxiliary && !options.sandbox && (options.provider !== "codex"
+  // Sandbox and ChatGPT homes last one invocation; conversation history is replayed on the next one.
+  const preservesProviderSession = !auxiliary && !options.sandbox && !chatgptExpiry && (options.provider !== "codex"
     || options.credentials === undefined
     || Boolean(options.credentialProfile?.trim()))
   const releaseSessionLock = sessionKey && !auxiliary
@@ -2941,7 +2975,7 @@ async function* runProvider<
       releaseCwdLock = await acquireProviderSessionLock(cwdLocks, providerRoot, effectiveSignal)
     }
     try {
-      launchRoot = options.launch === undefined && !options.sandbox ? undefined : await mkdtemp(join(tmpdir(), "vitehub-provider-launch-"))
+      launchRoot = options.launch === undefined && !options.sandbox && !chatgptExpiry ? undefined : await mkdtemp(join(tmpdir(), "vitehub-provider-launch-"))
       // The provider and its commands run on this host, so they get a temporary
       // directory that the invocation removes. A Sandbox has its own filesystem.
       if (!options.sandbox) {
@@ -2981,15 +3015,20 @@ async function* runProvider<
   let providerLaunchSecretEnvironmentKeys: readonly string[] = []
   let providerLaunchDiagnosticSecrets: readonly string[] = []
   let providerRuntimeEnvironment: Record<string, string> | undefined
-  const workspaceCommandEnvironment = (environment: Record<string, string> | undefined) => workspaceBrowserEnvironment(
-    browserRuntimeEnvironment(context.context),
-    providerRuntimeEnvironment ? { ...providerRuntimeEnvironment, ...environment } : environment,
-  )
+  let chatgptCommandEnvironment: Record<string, string> | undefined
+  const workspaceCommandEnvironment = (environment: Record<string, string> | undefined) => {
+    const base = chatgptCommandEnvironment ?? providerRuntimeEnvironment
+    return workspaceBrowserEnvironment(
+      browserRuntimeEnvironment(context.context),
+      base ? { ...base, ...environment, ...(chatgptExpiry ? { [chatgptTokenEnvironment]: "", T3_MCP_BEARER_TOKEN: "" } : {}) } : environment,
+    )
+  }
   let developerInstructionsDigest: string | undefined
   let sessionStore: PartitionedProviderSessionStore | undefined
   let codexCredentialHome: CodexCredentialHome | undefined
   let codexHomeActivity: CodexHomeActivity | undefined
   let toolServer: Awaited<ReturnType<typeof startToolServer>> | undefined
+  let chatgptTransport: Awaited<ReturnType<typeof startChatGPTTransport>> | undefined
   const pendingToolEvents: StreamEvent[] = []
   const capabilityApprovals = new Map<string, (approved: boolean) => boolean>()
   const capabilityApprovalIds = new Set<string>()
@@ -3201,8 +3240,9 @@ async function* runProvider<
       purpose: "invocation",
     }
     // A run that opts out of the managed checkout still acts on its pull
-    // request's repositories, so keep credentials scoped to them.
-    const githubScope = pullRequestCheckoutPlan(context.context) ?? pullRequestRepositories(context.context)
+    // request's repositories, so keep credentials scoped to them. Other runs
+    // reach the Agent's GitHub Sources.
+    const githubScope = forgeGitScope(context.context, context.workspaceDefinition)
     const githubEnvironment = auxiliary || !readForgeAccess(context.runtime)
       ? undefined
       : await waitForProviderOperation(
@@ -3215,9 +3255,29 @@ async function* runProvider<
           Promise.resolve(resolveRuntimeValue(options.env, resolverContext)),
           effectiveSignal,
         ))
-    const gateway = options.gateway === undefined
+    let gateway = options.gateway === undefined
       ? undefined
       : await waitForProviderOperation(resolveAgentDriverGateway(options.gateway, options.provider, resolverContext), effectiveSignal)
+    if (gateway?.chatgpt && chatgptExpiry) {
+      const expire = () => chatgptExpiry.abort(agentDiagnostics.AGENT_R1024())
+      const remaining = gateway.chatgpt.expiresAt - Date.now()
+      if (remaining <= 0) expire()
+      else chatgptExpiryTimer = setTimeout(expire, Math.min(remaining, 2_147_483_647))
+      effectiveSignal?.throwIfAborted()
+    }
+    if (gateway?.chatgpt) {
+      chatgptTransport = await waitForProviderOperation(
+        startChatGPTTransport(gateway.chatgpt, effectiveSignal),
+        effectiveSignal,
+        transport => transport.close(),
+        observeLateCleanup,
+      )
+      gateway = {
+        ...gateway,
+        environment: { [chatgptTokenEnvironment]: "" },
+        launchArgs: chatgptCodexLaunchArgs(chatgptTransport.url),
+      }
+    }
     // driver.env can override the forge access environment. The gateway owns its own variables.
     const providerEnvironmentOverrides = withAgentDriverGatewayEnvironment(gateway, githubEnvironment
       ? { ...githubEnvironment, ...configuredEnvironmentOverrides }
@@ -3259,7 +3319,7 @@ async function* runProvider<
       pendingResumeCursor = durableResumeState.cursor
       resumeInstructions = durableResumeState.instructions
     }
-    if (codexHomeRetention) {
+    if (codexHomeRetention && !gateway?.chatgpt) {
       // The home is known only after credentials and driver.env resolve. Retention runs in the background.
       const home = resolveCodexHome({
         credentialHome: codexCredentialHome?.homePath,
@@ -3278,6 +3338,7 @@ async function* runProvider<
       })
     }
     const providerExecutable = options.providerSettings?.binaryPath ?? resolveInstalledProviderExecutable(options.provider)
+    if (gateway?.chatgpt && !providerExecutable) throw agentDiagnostics.AGENT_R1015()
     const providerCommand = providerExecutable === undefined || (hasRuntimeType(providerExecutable, "string") && !providerExecutable.trim())
       ? (options.provider === "codex" ? "codex" : "claude")
       : providerExecutable
@@ -3310,9 +3371,28 @@ async function* runProvider<
         lateToolServer => lateToolServer.close(),
         observeLateCleanup,
       )
-      providerRuntimeEnvironment.T3_MCP_BEARER_TOKEN = toolServer.mcp.authorizationHeader.slice("Bearer ".length)
+      if (!gateway?.chatgpt) providerRuntimeEnvironment.T3_MCP_BEARER_TOKEN = toolServer.mcp.authorizationHeader.slice("Bearer ".length)
     }
     let providerLauncher: string | undefined
+    let chatgptHome: string | undefined
+    if (gateway?.chatgpt) {
+      if (!launchRoot || typeof providerCommand !== "string") throw agentDiagnostics.AGENT_R1015()
+      providerRuntimeEnvironment.T3_MCP_BEARER_TOKEN = ""
+      chatgptCommandEnvironment = { ...providerRuntimeEnvironment, [chatgptTokenEnvironment]: "" }
+      chatgptHome = join(launchRoot, "codex-home")
+      await mkdir(chatgptHome, { mode: 0o700 })
+      providerRuntimeEnvironment.CODEX_HOME = chatgptHome
+      providerRuntimeEnvironment = Object.fromEntries(Object.entries(providerRuntimeEnvironment).filter(([key]) => chatgptLaunchEnvironmentKeys.has(key)))
+      // Codex also launches helpers such as git outside shell tools. Pin their
+      // search path to the host, resolving relative entries before changing cwd.
+      providerRuntimeEnvironment.PATH = (process.env.PATH ?? "").split(delimiter).filter(Boolean).map(entry => resolve(entry)).join(delimiter)
+      delete providerRuntimeEnvironment.PATHEXT
+      if (process.env.PATHEXT !== undefined) providerRuntimeEnvironment.PATHEXT = process.env.PATHEXT
+      providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, [chatgptTokenEnvironment, "T3_MCP_BEARER_TOKEN"])
+      const launcher = await materializeProviderLauncher(launchRoot, { command: process.execPath, args: [providerCommand] }, providerLaunchSecretEnvironmentKeys, [], providerCwd, undefined, gateway.chatgpt.clientInfo, [...Object.keys(providerRuntimeEnvironment), "T3_MCP_BEARER_TOKEN"])
+      providerLauncher = launcher.path
+      providerLaunchDiagnosticPath = launcher.diagnosticPath
+    }
     if (options.launch !== undefined) {
       if (!hasRuntimeType(providerCommand, "string")) {
         throw agentDiagnostics.AGENT_R0716({ message: "[vitehub] driver.providerSettings.binaryPath must be a string." })
@@ -3558,10 +3638,21 @@ async function* runProvider<
       generatedLaunchArgs,
       ...(codexDeveloperInstructions === undefined ? [] : [codexDeveloperInstructionsArg(codexDeveloperInstructions)]),
       gateway?.launchArgs,
+      ...(gateway?.chatgpt ? [
+        codexConfigArg("mcp_servers", "{}"),
+        codexConfigArg("projects", `{${JSON.stringify(providerCwd)}={trust_level="untrusted"}}`),
+        // Command tools have no ChatGPT token. Keep their search path and managed
+        // Chromium loaders separate from the credential-bearing processes.
+        ...Object.entries({
+          PATH: chatgptCommandEnvironment?.PATH ?? "",
+          ...(capabilityEnvironment?.LD_LIBRARY_PATH ? { LD_LIBRARY_PATH: capabilityEnvironment.LD_LIBRARY_PATH } : {}),
+          ...(capabilityEnvironment?.FONTCONFIG_PATH ? { FONTCONFIG_PATH: capabilityEnvironment.FONTCONFIG_PATH } : {}),
+        }).map(([key, value]) => codexConfigArg(`shell_environment_policy.set.${key}`, JSON.stringify(value))),
+      ] : []),
       // The assigned host tools enforce Capability authorization themselves.
       // Preauthorize their exact names so unattended native approval cannot
       // reject them before the host receives the request. Shell policy stays intact.
-      ...(nativeUnattendedTools
+      ...(nativeUnattendedTools && !gateway?.chatgpt
         ? [
           ...(toolServer ? [`-c 'mcp_servers.t3-code.url=${JSON.stringify(toolServer.mcp.endpoint)}'`] : []),
           '-c \'mcp_servers.t3-code.bearer_token_env_var="T3_MCP_BEARER_TOKEN"\'',
@@ -3592,6 +3683,7 @@ async function* runProvider<
       ...options.providerSettings,
       binaryPath: providerLauncher || providerExecutable,
       ...(codexCredentialHome ? { homePath: codexCredentialHome.homePath } : {}),
+      ...(chatgptHome ? { homePath: chatgptHome } : {}),
       ...(launchArgs === undefined ? {} : { launchArgs }),
     }).filter(([, value]) => value !== undefined))
     const runtimeOptions: Parameters<typeof createProviderRuntime>[0] = {
@@ -3633,10 +3725,14 @@ async function* runProvider<
     effectiveSignal?.throwIfAborted()
     const session = await waitForProviderOperation(runtime.startSession({
       cwd: providerCwd,
-      // The runtime's thread-scoped MCP map replaces server configuration,
-      // including per-tool approval modes. Use the complete launch configuration
-      // for these host-authorized unattended tools instead.
-      mcp: nativeUnattendedTools ? undefined : toolServer?.mcp,
+      // ChatGPT's launcher consumes the private thread configuration and restores
+      // the complete MCP map, including unattended approval modes. Other Drivers
+      // use their launch configuration for unattended tools.
+      mcp: chatgptTransport ? chatgptSessionConfiguration(chatgptTransport.key, toolServer ? {
+        url: toolServer.mcp.endpoint,
+        http_headers: { Authorization: toolServer.mcp.authorizationHeader },
+        ...(nativeUnattendedTools ? { tools: Object.fromEntries(Object.keys(context.tools ?? {}).map(name => [name, { approval_mode: "approve" as const }])) } : {}),
+      } : undefined) : nativeUnattendedTools ? undefined : toolServer?.mcp,
       model: options.model,
       resumeCursor,
       runtimeMode: providerRuntimeMode[options.permissions ?? defaultAgentProviderPermissions],
@@ -3809,7 +3905,8 @@ async function* runProvider<
       if (current.value.type === "item.completed" && current.value.itemId) messagePhases.delete(current.value.itemId)
       const failure = normalized.find(event => event.type === "error" && !event.recoverable)
       if (failure?.type === "error") {
-        caught = agentDiagnostics.AGENT_R0726({ message: failure.error })
+        caught = chatgptExpiry ? chatgptProviderError(JSON.stringify(current.value), isChatGPTGateway(options.gateway) ? options.gateway.connection : undefined) ?? agentDiagnostics.AGENT_R1023() : agentDiagnostics.AGENT_R0726({ message: failure.error })
+        if (chatgptExpiry) failure.error = caught instanceof Error ? caught.message : "ChatGPT plan inference failed."
         if (codexCredentialHome?.scope && /spend.?cap|spend(ing)? limit|budget.*exceed|quota.*exhaust/i.test(failure.error)) {
           if (recentProviderQuotaFailures.size >= 128) recentProviderQuotaFailures.clear()
           recentProviderQuotaFailures.set(codexCredentialHome.scope, { message: failure.error, expiresAt: Date.now() + 30_000 })
@@ -3853,6 +3950,7 @@ async function* runProvider<
         }
         while (pendingToolEvents.length) yield pendingToolEvents.shift()!
       }
+      if (chatgptExpiry && caught) throw caught
       for (const event of normalized) yield event
       if (caught) throw caught
       if (isTerminalEvent(current.value, turn.turnId)) break
@@ -3867,10 +3965,11 @@ async function* runProvider<
       providerLaunchDiagnosticSecrets,
       error,
     )
-    caught = launchFailure ?? error
+    caught = (chatgptExpiry ? chatgptProviderError(error, isChatGPTGateway(options.gateway) ? options.gateway.connection : undefined) : undefined) ?? launchFailure ?? error
     throw caught
   }
   finally {
+    if (chatgptExpiryTimer) clearTimeout(chatgptExpiryTimer)
     acceptingSteering = false
     unregister?.()
     clearActiveSandbox?.()
@@ -3930,7 +4029,10 @@ async function* runProvider<
         releaseWorkspaceCleanup?.()
       }
     })()
-    const toolCleanup = Promise.resolve().then(() => toolServer?.close())
+    const toolCleanup = Promise.all([
+      Promise.resolve().then(() => toolServer?.close()),
+      Promise.resolve().then(() => chatgptTransport?.close()),
+    ])
     const shutdownTask = (async () => {
       const runtimeCleanup = runtimeCleanupDeferred
         ? deferredRuntimeStopped.finally(() => runtimeCleanupSettled = true)

@@ -34,7 +34,10 @@ import type {
   ContentPublishExpectation,
   ContentPublishMismatch,
   ContentPublishOptions,
+  ContentResolved,
+  ContentResolveOptions,
   ContentPublishResult,
+  ContentPullRequest,
   ContentRawDocument,
   ContentReadOptions,
   ContentRef,
@@ -58,8 +61,8 @@ import type { ContentSitemapEntry, ContentSitemapOptions, DefineContentSeoOption
 import type { ContentCollectionsRuntime, ContentHistorySource } from "./collections-types.ts"
 import type { ContentSessions } from "./sessions.ts"
 export { contentSource } from "./content-source.ts"
-export { contentKeyVariable, contentPreviewCookieName, defineContentPreviewPlugin } from "./preview.ts"
-export type { ContentPreview, ContentPreviewCookie, ContentPreviewEvent, ContentPreviewHost, ContentPreviewOptions } from "./preview.ts"
+export { contentKeyVariable, contentPreviewCookieName, contentPreviewFrameParameter, contentPreviewPublishedParameter, defineContentPreviewPlugin } from "./preview.ts"
+export type { ContentPreview, ContentPreviewCookie, ContentPreviewDocument, ContentPreviewEvent, ContentPreviewFrame, ContentPreviewFrameOptions, ContentPreviewHost, ContentPreviewOptions, ContentPreviewToken } from "./preview.ts"
 export { contentScheduleOverdueMs, contentSchedulesRef } from "./defaults.ts"
 export type {
   ContentDocumentSchedule,
@@ -93,6 +96,8 @@ export { file, image } from "@vite-hub/blob/reference"
 export type { BlobReference, BlobReferenceOptions } from "@vite-hub/blob/reference"
 export type { ContentSeo, ContentSeoField, ContentSeoHint, ContentSeoOptions } from "./seo.ts"
 export { contentHead, defaultContentImageUrl } from "./head.ts"
+export { contentField, contentFieldAttribute, formatContentField, parseContentField } from "./field.ts"
+export type { ContentFieldAddress } from "./field.ts"
 export type {
   ContentHead,
   ContentHeadCollection,
@@ -137,7 +142,10 @@ export type {
   ContentPublishExpectation,
   ContentPublishMismatch,
   ContentPublishOptions,
+  ContentResolved,
+  ContentResolveOptions,
   ContentPublishResult,
+  ContentPullRequest,
   ContentRawDocument,
   ContentReadOptions,
   ContentRef,
@@ -243,6 +251,8 @@ export type DefineContentOptions<
   TCollections extends ContentCollections = ContentCollections,
 > = Omit<ContentOptions, "basePath" | "plugins" | "source" | "sources"> & {
   plugins?: TPlugins
+  /** Generate and serve `/api/content/**`. False keeps server methods and Console editing available. */
+  route?: boolean
   /** One read-only Source, served as the `default` instance. */
   source?: ContentSourceInput
   /** Named read-only Sources. Each name becomes a Content instance. */
@@ -281,10 +291,21 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
    * `schema`. Narrow an entry with `kind`. Empty without `collections`.
    */
   collections(): AnyContentCollection[]
+  /** The revision id at the head of a ref, or null before the first revision. It changes with every save and publish. */
+  head(ref: ContentRef): Promise<string | null>
   /** Open one collection or singleton to list, read, save, remove, restore, and compare documents. */
   collection<TName extends CollectionName<TCollections>>(name: TName): CollectionOf<TCollections[TName]>
   /** Copy draft documents to the `published` ref in one revision. Pass `expect` to publish exactly what was reviewed. */
   publish(options?: ContentPublishOptions<CollectionName<TCollections>>): Promise<ContentPublishResult>
+  /** Whether the Workspace store supports scheduled publishing. False for the GitHub store; does not check for a Schedule runner. */
+  supportsScheduling(): Promise<boolean>
+  /**
+   * The document that an app path shows, such as `/blog/hello`, or null. Each `documents()` collection maps a document
+   * to a path with its `url`, and a document whose `url` is null does not resolve. A collection without `url` maps the
+   * id after a slash, without a trailing `/index`. A query string, a hash, and a trailing slash are ignored. Use it to
+   * link a page to its document, for example to an Edit button.
+   */
+  resolve(path: string, options?: ContentResolveOptions): Promise<ContentResolved<CollectionName<TCollections>> | null>
   /**
    * Publish exactly these reviewed drafts at a later time. The draft digests must match now. At its time,
    * `publishDue()` calls `publish({ expect })`; a draft saved after scheduling makes the schedule `failed` instead.
@@ -317,6 +338,8 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
   can(context: ContentCanContext<CollectionName<TCollections>>): Promise<boolean>
   /** Draft preview: a signed cookie that makes every Content read in its requests use the `draft` ref. */
   readonly preview: ContentPreview
+  /** Whether the public Content HTTP route is enabled. Server methods and Console editing remain available. */
+  readonly route: boolean
   /** `defineContent({ live })`: `auto` edits Markdown documents live where the host can, `false` never does. */
   readonly live: "auto" | false
   /**
@@ -359,7 +382,7 @@ export function defineContent<
   if (options.extends !== undefined && options.workspace !== undefined) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ extends }) sets workspace. Remove workspace, or name the Workspace in the preset options." })
   }
-  const { source, sources, collections, authorize, seo: seoOptions, live = "auto", ...sharedOptions } = options
+  const { source, sources, collections, authorize, seo: seoOptions, live = "auto", route = true, ...sharedOptions } = options
   if (live !== "auto" && live !== false) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ live }) must be 'auto' or false." })
   }
@@ -386,7 +409,7 @@ export function defineContent<
     if (!isContentCollectionDefinition(definition)) continue
     for (const [otherName, otherDefinition] of collectionEntries.slice(index + 1)) {
       if (isContentCollectionDefinition(otherDefinition) && collectionPathsOverlap(definition, otherDefinition)) {
-        throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content collection paths ${JSON.stringify(name)} and ${JSON.stringify(otherName)} overlap.` })
+        throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content collection paths ${JSON.stringify(name)} (${definition.path}) and ${JSON.stringify(otherName)} (${otherDefinition.path}) overlap.` })
       }
     }
   }
@@ -406,7 +429,9 @@ export function defineContent<
         // SAFETY: Each definition was checked with isContentCollectionDefinition() above.
         collections: Object.fromEntries(collectionEntries),
         defaultRef: () => preview.active() ? "draft" : "published",
+        previewFrame: () => preview.frame(),
         live,
+        ...(presetDefaults.publish ? { publish: presetDefaults.publish } : {}),
       })
     : undefined
   const collectionInstances: Array<{ instance: ComarkContent, source: ContentHistorySource }> = []
@@ -507,6 +532,7 @@ export function defineContent<
     preview,
     seo,
     live,
+    route,
     hasPolicy: authorize !== undefined,
     sitemap: async (sitemapOptions?: ContentSitemapOptions) =>
       documentsRuntime ? await contentSitemapEntries([...documentsRuntime.collections.values()], siteFor(sitemapOptions)) : [],
@@ -519,6 +545,7 @@ export function defineContent<
       })
     },
     collections: () => documentsRuntime ? [...documentsRuntime.collections.values()] : [],
+    head: async ref => documentsRuntime ? await documentsRuntime.head(ref) : null,
     // SAFETY: Each method forwards its arguments unchanged, so the overloads of ContentSessions hold.
     sessions: {
       report: (...args: unknown[]) => Reflect.apply(requireDocuments().sessions.report, undefined, args),
@@ -528,6 +555,8 @@ export function defineContent<
     } as ContentSessions,
     collection: (name: string): unknown => requireDocuments().collection(name),
     publish: (publishOptions?: ContentPublishOptions) => requireDocuments().publish(publishOptions),
+    resolve: (path: string, resolveOptions?: ContentResolveOptions) => requireDocuments().resolve(path, resolveOptions),
+    supportsScheduling: () => requireDocuments().supportsScheduling(),
     schedule: (scheduleOptions: ContentScheduleOptions) => requireDocuments().schedule(scheduleOptions),
     schedules: (schedulesOptions?: ContentSchedulesOptions) => requireDocuments().schedules(schedulesOptions),
     unschedule: (id: string, unscheduleOptions?: ContentUnscheduleOptions) => requireDocuments().unschedule(id, unscheduleOptions),
@@ -606,10 +635,11 @@ export function defineContent<
  * cookie reads the `draft` ref and gets `Cache-Control: private, no-store`.
  */
 export function defineContentHandler(
-  content: Pick<ComarkContent, "handler"> & { preview?: ContentPreview },
+  content: Pick<ComarkContent, "handler"> & { preview?: ContentPreview, route?: boolean },
 ): ContentHandler {
   // SAFETY: ContentHandler preserves the callable and fetch contracts exposed by H3's handler.
   return defineEventHandler(async (event: H3Event) => {
+    if (content.route === false) return new Response("Not Found", { status: 404 })
     const dispatch = () => serveContent(content, event)
     return await (content.preview
       ? content.preview.run(event, dispatch)

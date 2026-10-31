@@ -6,10 +6,12 @@
     "cloudflare",
     "h3",
     "rate-limit",
+    "rate-limiting",
+    "typescript",
     "vite",
     "vitehub"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -29,43 +31,36 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./cli": {
       "types": "./dist/cli.d.ts",
       "import": "./dist/cli.js",
-      "require": "./dist/cli.js",
       "default": "./dist/cli.js"
     },
     "./drivers/cloudflare": {
       "types": "./dist/drivers/cloudflare.d.ts",
       "import": "./dist/drivers/cloudflare.js",
-      "require": "./dist/drivers/cloudflare.js",
       "default": "./dist/drivers/cloudflare.js"
     },
     "./drivers/memory": {
       "types": "./dist/drivers/memory.d.ts",
       "import": "./dist/drivers/memory.js",
-      "require": "./dist/drivers/memory.js",
       "default": "./dist/drivers/memory.js"
+    },
+    "./operations": {
+      "types": "./dist/operations.d.ts",
+      "import": "./dist/operations.js",
+      "default": "./dist/operations.js"
     },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.js",
-      "require": "./dist/runtime.js",
       "default": "./dist/runtime.js"
-    },
-    "./runtime/console": {
-      "types": "./dist/runtime/console.d.ts",
-      "import": "./dist/runtime/console.js",
-      "require": "./dist/runtime/console.js",
-      "default": "./dist/runtime/console.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js",
-      "require": "./dist/vite.js",
       "default": "./dist/vite.js"
     },
     "./package.json": "./package.json"
@@ -73,7 +68,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "vp run --cache -t @vite-hub/rate-limit#build && node ../../node_modules/typescript-native/bin/tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/rate-limit#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/rate-limit#build && vp test"
   },
   "dependencies": {

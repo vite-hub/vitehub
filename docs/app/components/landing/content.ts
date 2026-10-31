@@ -36,7 +36,7 @@ export const installOptions = {
 export const agentStory = {
   path: "server/agents/review.ts",
   // Flue and Eve are open and self-hostable too. The real difference is that the Agent lives inside the app.
-  positioning: "Your Agents live in your app, not beside it. They share its server, storage, and deploy.",
+  positioning: "An Agent is one more file in your server. It deploys with your app and uses the same storage as your routes.",
   tutorialPath: "/docs/getting-started/first-agent",
   code: [
     'import { defineAgent } from "vite-hub/agent"',
@@ -53,37 +53,34 @@ export const agentStory = {
     '  capabilities: [browser(), kv({ mode: "write" })],',
     "})",
   ],
-  steps: [
+  // Each note sits on `line` and lights `lines` while the reader points at it.
+  notes: [
     {
-      id: "channel",
-      label: "Channel",
-      title: "A pull request opens",
-      description: "Channels start an Invocation from GitHub, Slack, HTTP, or web chat.",
-      lines: [2, 6, 7, 8],
+      id: "channels",
+      line: 6,
+      lines: [6, 7, 8],
+      text: "A pull request opens on GitHub. The run starts.",
       to: "/docs/agents/channels",
     },
     {
       id: "driver",
-      label: "Driver",
-      title: "Codex takes the run",
-      description: "Bring Codex, Claude Code, an AI SDK model, or your own function.",
+      line: 9,
       lines: [9],
+      text: "Codex does the work. Claude Code and AI SDK also fit.",
       to: "/docs/agents/agent-drivers",
     },
     {
       id: "workspace",
-      label: "Workspace",
-      title: "It works in a real file tree",
-      description: "A persistent Workspace holds the repository between runs.",
+      line: 10,
       lines: [10],
+      text: "The repository stays on disk between runs.",
       to: "/docs/agents/workspace-context",
     },
     {
       id: "capabilities",
-      label: "Capabilities",
-      title: "It uses your app's primitives",
-      description: "Capabilities wrap KV, Blob, Database, and more. Codex keeps its own tools.",
+      line: 11,
       lines: [1, 11],
+      text: "A browser, and write access to your app's KV.",
       to: "/docs/agents/capabilities",
     },
   ],
@@ -100,6 +97,15 @@ export const agentStory = {
       "  if (error) throw error",
       "  return keys",
       "})",
+    ],
+    notes: [
+      {
+        id: "kv",
+        line: 4,
+        lines: [1, 4],
+        text: "The same store. No second database for the Agent.",
+        to: "/docs/kv/agent-capability",
+      },
     ],
   },
 } as const;
@@ -123,6 +129,13 @@ export const closingHosts = [
 // Start with the primitives most Vite apps reach for. Agent stays in the catalog without taking over the page.
 // Icons match the docs navigation, so a tile and its section look the same.
 export const landingPrimitives = [
+  {
+    id: "logs",
+    name: "Logs",
+    description: "Structured logs with Evlog",
+    to: "/docs/logs",
+    icon: "i-lucide-logs",
+  },
   {
     id: "kv",
     name: "KV",

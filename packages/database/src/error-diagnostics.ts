@@ -78,6 +78,14 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ database, missing }: { database: string, missing: string }) => `The database "${database}" uses D1 HTTP and needs ${missing} at runtime.`,
       fix: "Set the missing values in the Database Definition or in the runtime environment, then restart the server.",
     },
+    DATABASE_NOT_CONNECTED: {
+      why: ({ database, looked }: { database: string, looked: string }) => `The database "${database}" found no connection. It looked for ${looked}.`,
+      fix: "Set the environment variable or add the Cloudflare D1 binding that `connectDatabase()` reads, or pass another location, such as `file:./data/app.sqlite`.",
+    },
+    DATABASE_UNSUPPORTED_URL: {
+      why: ({ database, value }: { database: string, value: string }) => `The database "${database}" cannot connect to ${value}.`,
+      fix: "Use `d1:BINDING`, `env:VARIABLE` with a libSQL URL, a `libsql://` or `https://` URL, or a `file:` path on Node.",
+    },
     DATABASE_NOT_FOUND: {
       why: ({ database }: { database: string }) => `The database "${database}" is not configured.`,
       fix: "Add a Database Definition with this name, for example `server/databases/<name>.ts`, or use the name of a discovered database. Run `vitehub inspect definitions --kind database` to see them.",
@@ -181,6 +189,10 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     DATABASE_SCHEMA_LOAD_FAILED: {
       why: ({ problem, source }: { problem: string, source: string }) => `${source} could not load: ${problem}`,
       fix: "Read `error.cause` for the import error, and fix the module. `vitehub db generate` needs every schema module to load.",
+    },
+    DATABASE_WRANGLER_BINDING_CONFLICT: {
+      why: ({ binding, field, generated, project, scope }: { binding: string, field: string, generated: string, project: string, scope: string }) => `The D1 binding "${binding}"${scope} is declared by ViteHub and by the project's Wrangler config with a different ${field}: ${JSON.stringify(generated)} and ${JSON.stringify(project)}.`,
+      fix: "Remove the binding from the project's Wrangler config, since ViteHub writes it, or give one of them another binding name.",
     },
   },
 })

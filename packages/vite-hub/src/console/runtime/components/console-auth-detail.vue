@@ -7,7 +7,7 @@ import type {
   AuthConsoleValue,
 } from "@vite-hub/auth/console";
 import { computed, ref, shallowRef, watch } from "vue";
-import { authDate, authFieldValue, readAuthConsole } from "../client/auth-management";
+import { authDate, authDuration, authFieldValue, readAuthConsole } from "../client/auth-management";
 import { consoleMountBase, consoleMountPath } from "../console-route";
 import ConsoleAuthAction from "./console-auth-action.vue";
 import ConsoleAuthUserEvents from "./console-auth-user-events.vue";
@@ -101,9 +101,23 @@ const actions = computed(() => [
     label: detail.value?.user.banned ? "Unban user" : "Ban user",
   },
   { id: "revokeSessions" as const, label: "Revoke all sessions" },
-  { id: "impersonate" as const, label: "Impersonate" },
   { id: "remove" as const, label: "Remove user" },
 ]);
+// Shown only when the Console enables impersonation. The first reason that blocks it replaces the explanation.
+const impersonation = computed(() => {
+  const settings = props.description.impersonation;
+  if (!settings || !detail.value) return undefined;
+  const blocked = [
+    props.description.actions.impersonate,
+    detail.value.impersonation ?? { enabled: false, reason: "Reload to check this user." },
+  ].find((capability) => !capability.enabled);
+  return {
+    enabled: !blocked,
+    note:
+      blocked?.reason ??
+      `The session lasts ${authDuration(settings.duration)}. Activity records the start and the stop.`,
+  };
+});
 </script>
 <template>
   <USlideover
@@ -118,6 +132,31 @@ const actions = computed(() => [
         Loading user…
       </p>
       <div v-else-if="detail" class="divide-y divide-default text-sm">
+        <section
+          v-if="impersonation"
+          class="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 p-4"
+          aria-labelledby="auth-impersonate"
+        >
+          <div class="min-w-48 flex-1 space-y-1">
+            <h2 id="auth-impersonate" class="font-medium text-highlighted">
+              Open the app as this user
+            </h2>
+            <p id="auth-impersonate-note" class="text-xs text-pretty text-muted">
+              {{ impersonation.note }}
+            </p>
+          </div>
+          <UButton
+            icon="i-lucide-venetian-mask"
+            color="neutral"
+            variant="outline"
+            size="sm"
+            class="shrink-0"
+            aria-describedby="auth-impersonate-note"
+            :disabled="!impersonation.enabled"
+            @click="act('impersonate')"
+            >Impersonate</UButton
+          >
+        </section>
         <section class="space-y-3 p-4" aria-labelledby="auth-profile">
           <h2 id="auth-profile" class="font-medium text-highlighted">Profile</h2>
           <dl class="grid grid-cols-[8rem_1fr] items-start gap-x-3 gap-y-3">
@@ -181,7 +220,7 @@ const actions = computed(() => [
         </section>
         <section class="space-y-3 p-4" aria-labelledby="auth-user-sessions">
           <h2 id="auth-user-sessions" class="font-medium text-highlighted">
-            Sessions <span class="ml-1 text-muted tabular-nums">{{ detail.sessions.total }}</span>
+            Sessions <span class="ml-1 font-normal text-dimmed tabular-nums">{{ detail.sessions.total }}</span>
           </h2>
           <p v-if="!detail.sessions.total" class="text-muted">No active sessions.</p>
           <ul class="space-y-3">
@@ -227,7 +266,10 @@ const actions = computed(() => [
           </div>
         </section>
         <section class="space-y-3 p-4" aria-labelledby="auth-user-accounts">
-          <h2 id="auth-user-accounts" class="font-medium text-highlighted">Linked accounts</h2>
+          <h2 id="auth-user-accounts" class="font-medium text-highlighted">
+            Linked accounts
+            <span class="ml-1 font-normal text-dimmed tabular-nums">{{ detail.accountsTotal }}</span>
+          </h2>
           <p v-if="detail.accountsTotal > detail.accounts.length" class="text-xs text-muted">
             Showing the first {{ detail.accounts.length }} of {{ detail.accountsTotal }} linked
             accounts.
@@ -251,7 +293,7 @@ const actions = computed(() => [
         >
           <h2 id="auth-user-agents" class="font-medium text-highlighted">
             Approved clients
-            <span class="ml-1 text-muted tabular-nums">{{ detail.agents.total }}</span>
+            <span class="ml-1 font-normal text-dimmed tabular-nums">{{ detail.agents.total }}</span>
           </h2>
           <p v-if="!detail.agents.total" class="text-muted">No approved clients.</p>
           <ul class="space-y-3">
@@ -300,7 +342,10 @@ const actions = computed(() => [
           class="space-y-3 p-4"
           aria-labelledby="auth-user-organizations"
         >
-          <h2 id="auth-user-organizations" class="font-medium text-highlighted">Organizations</h2>
+          <h2 id="auth-user-organizations" class="font-medium text-highlighted">
+            Organizations
+            <span class="ml-1 font-normal text-dimmed tabular-nums">{{ detail.organizationsTotal }}</span>
+          </h2>
           <p
             v-if="detail.organizationsTotal > detail.organizations.length"
             class="text-xs text-muted"
@@ -351,6 +396,7 @@ const actions = computed(() => [
         :field="field"
         :value="fieldValue"
         :name="detail?.user.email"
+        :duration="description.impersonation?.duration"
         @close="action = undefined"
         @changed="changed"
       />

@@ -6,10 +6,14 @@
     "auth",
     "authentication",
     "better-auth",
+    "nuxt",
+    "nuxt-module",
+    "session",
+    "typescript",
     "vite",
     "vitehub"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -35,67 +39,56 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./agent": {
       "types": "./dist/agent.d.ts",
       "import": "./dist/agent.js",
-      "require": "./dist/agent.js",
       "default": "./dist/agent.js"
     },
     "./cli": {
       "types": "./dist/cli.d.ts",
       "import": "./dist/cli.js",
-      "require": "./dist/cli.js",
       "default": "./dist/cli.js"
     },
     "./console": {
       "types": "./dist/console.d.ts",
       "import": "./dist/console.js",
-      "require": "./dist/console.js",
       "default": "./dist/console.js"
     },
     "./console-runtime": {
       "types": "./dist/console-runtime.d.ts",
       "import": "./dist/console-runtime.js",
-      "require": "./dist/console-runtime.js",
       "default": "./dist/console-runtime.js"
     },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
       "import": "./dist/nuxt.js",
-      "require": "./dist/nuxt.js",
       "default": "./dist/nuxt.js"
     },
     "./presets": {
       "types": "./dist/presets.d.ts",
       "import": "./dist/presets.js",
-      "require": "./dist/presets.js",
       "default": "./dist/presets.js"
     },
     "./runtime/console": {
       "types": "./dist/runtime/console.d.ts",
       "import": "./dist/runtime/console.js",
-      "require": "./dist/runtime/console.js",
       "default": "./dist/runtime/console.js"
     },
     "./server": {
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js",
-      "require": "./dist/server.js",
       "default": "./dist/server.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js",
-      "require": "./dist/vite.js",
       "default": "./dist/vite.js"
     },
     "./vue": {
       "types": "./dist/vue.d.ts",
       "import": "./dist/vue.js",
-      "require": "./dist/vue.js",
       "default": "./dist/vue.js"
     },
     "./package.json": "./package.json"
@@ -103,7 +96,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "vp run --cache -t @vite-hub/auth#build && node ../../node_modules/typescript-native/bin/tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/auth#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/auth#build && vp test"
   },
   "dependencies": {

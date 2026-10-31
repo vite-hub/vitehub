@@ -263,7 +263,10 @@ any new migration to an existing D1 database:
    files unchanged. The baseline must not create existing tables or change data.
 5. Run `pnpm nuxt build` to generate `.output/server/wrangler.json`. Check that
    its D1 resource identity and `migrations_dir` refer to the existing database
-   and the new directory, then list the pending migrations:
+   and the new directory. ViteHub writes the D1 binding, so you can remove it
+   from the project's `wrangler.json`; if you keep it, it must name the same
+   database (see [Database hosts](/docs/database/hosts)). Then list the pending
+   migrations:
 
 ```bash [Terminal]
 pnpm wrangler d1 migrations list <database-name> --remote --config .output/server/wrangler.json
@@ -382,3 +385,8 @@ feature.
 
 - Give an Agent the same data with the [KV](/docs/kv/agent-capability), [Blob](/docs/blob/agent-capability), and [Database](/docs/database/agent-capability) Capabilities.
 - Read [Server primitives](/docs/getting-started/server-primitives) for Queue, Workflow, Schedule, Auth, and the other APIs that NuxtHub does not provide.
+
+## Related guides
+
+Read [ViteHub vs NuxtHub](/docs/compare/nuxthub) for the current scope and Nuxt
+compatibility requirements before choosing a migration.

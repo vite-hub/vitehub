@@ -92,6 +92,25 @@ function componentAttrs(attrs: Record<string, unknown>, component: DocumentCompo
  * The parts of a Comark tree that carry meaning: adjacent text merged, declared component props with their defaults,
  * and without the empty `component` node that a reference-link definition leaves.
  */
+/** Inline marks in a fixed nesting order, outermost first. `code` stays innermost, since Markdown keeps no marks inside it. */
+const markOrder = ["a", "strong", "em", "del", "code"]
+
+/**
+ * Marks that wrap exactly the same content, in `markOrder`. The editor keeps the marks of a text as a set, so
+ * `**[a](/x)**` and `[**a**](/x)` are the same document to it.
+ */
+function orderMarkChain(node: ComarkNode): ComarkNode {
+  const chain: Array<[string, Record<string, unknown>]> = []
+  let inner: ComarkNode = node
+  while (Array.isArray(inner) && markOrder.includes(String(inner[0])) && inner.length === 3) {
+    chain.push([String(inner[0]), isRecord(inner[1]) ? inner[1] : {}])
+    inner = inner[2] as ComarkNode
+  }
+  if (chain.length < 2) return node
+  chain.sort(([a], [b]) => markOrder.indexOf(a) - markOrder.indexOf(b))
+  return chain.reduceRight<ComarkNode>((child, [tag, attrs]) => [tag, attrs, child] as ComarkNode, inner)
+}
+
 function normalizeNodes(nodes: readonly unknown[], components: Readonly<Record<string, DocumentComponent>>): ComarkNode[] {
   const result: ComarkNode[] = []
   for (const node of nodes) {
@@ -106,7 +125,7 @@ function normalizeNodes(nodes: readonly unknown[], components: Readonly<Record<s
     const attrs = isRecord(rawAttrs) ? rawAttrs : {}
     if (tag === "component" && !children.length && !Object.keys(attrs).length) continue
     const component = String(tag) === tag && Object.hasOwn(components, tag) ? components[tag] : undefined
-    result.push([tag, component ? componentAttrs(attrs, component) : attrs, ...normalizeNodes(children, components)])
+    result.push(orderMarkChain([tag, component ? componentAttrs(attrs, component) : attrs, ...normalizeNodes(children, components)] as ComarkNode))
   }
   return result
 }

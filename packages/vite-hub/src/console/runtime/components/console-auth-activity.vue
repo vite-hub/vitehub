@@ -5,6 +5,7 @@ import type { AuthConsoleActivity, AuthConsoleActivityQuery } from "@vite-hub/au
 import { readAuthConsole } from "../client/auth-management";
 import ConsoleAuthEventList from "./console-auth-event-list.vue";
 import ConsoleAuthEventSetup from "./console-auth-event-setup.vue";
+import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleState from "./console-state.vue";
 
 const props = defineProps<{ base: string; enabled: boolean; revision: number }>();
@@ -95,35 +96,34 @@ onBeforeUnmount(() => controller?.abort());
 <template>
   <ConsoleAuthEventSetup v-if="!enabled" class="overflow-y-auto" />
   <div v-else class="flex min-h-0 flex-1 flex-col">
-    <form
-      class="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b border-default px-3 py-2 sm:px-4"
-      @submit.prevent="filter(group, userInput)"
-    >
-      <USelect
-        :model-value="group"
-        :items="groups"
-        aria-label="Event type group"
-        size="sm"
-        class="w-40"
-        @update:model-value="filter(String($event), userId)"
-      />
-      <UInput
-        v-model="userInput"
-        aria-label="Filter by subject user ID"
-        placeholder="Subject user ID"
-        size="sm"
-        class="min-w-40 flex-1 sm:max-w-64"
-      />
-      <UButton type="submit" color="neutral" variant="ghost" size="sm">Apply</UButton>
-      <UButton
-        v-if="userId || group !== 'all'"
-        color="neutral"
-        variant="ghost"
-        size="sm"
-        @click="filter('all', '')"
-        >Clear filters</UButton
-      >
-    </form>
+    <ConsolePageToolbar width="6xl">
+      <form class="contents" @submit.prevent="filter(group, userInput)">
+        <USelect
+          :model-value="group"
+          :items="groups"
+          aria-label="Event type group"
+          size="sm"
+          class="w-40"
+          @update:model-value="filter(String($event), userId)"
+        />
+        <UInput
+          v-model="userInput"
+          aria-label="Filter by subject user ID"
+          placeholder="Subject user ID"
+          size="sm"
+          class="min-w-40 flex-1 sm:max-w-64"
+        />
+        <UButton type="submit" color="neutral" variant="ghost" size="sm">Apply</UButton>
+        <UButton
+          v-if="userId || group !== 'all'"
+          color="neutral"
+          variant="ghost"
+          size="sm"
+          @click="filter('all', '')"
+          >Clear filters</UButton
+        >
+      </form>
+    </ConsolePageToolbar>
     <div class="min-h-0 flex-1 overflow-y-auto" :aria-busy="loading">
       <div class="mx-auto flex w-full max-w-6xl flex-col gap-3 p-4 sm:p-6">
       <ConsoleState v-if="error" :error="error" title="Could not load activity" :retry="load" />

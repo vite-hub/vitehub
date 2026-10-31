@@ -1,29 +1,26 @@
-import { EventEmitter } from "node:events"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { Readable, Writable } from "node:stream"
-import { pathToFileURL } from "node:url"
 import { createClient } from "@libsql/client"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
+import * as v from "valibot"
 
 import { createBlobDatabaseWorkspaceStore, workspaceHistorySchema } from "@vite-hub/workspace/blob-database"
+import { createOperationRegistry, operationExpectedRootsHeader, projectRootHash, runOperation } from "@vite-hub/internal/operations"
 import { registerWorkspace } from "@vite-hub/workspace/test"
 
 import { createBlobStorage } from "../../blob/src/storage.ts"
 import { createDriver } from "../../blob/src/drivers/fs.ts"
 import { createContentCliContributor, runContentCli } from "../src/cli.ts"
-import { contentDevHeader, contentDevHeaderValue, contentDevRoute, contentDevRuntimeRoute } from "../src/dev.ts"
 import { contentSessionsSchema } from "../src/database.ts"
 import { documents, singleton } from "../src/collections.ts"
 import { defineContent } from "../src/index.ts"
-import { handleContentDevRequest } from "../src/runtime/dev.ts"
-import { contentDevRuntimeUnavailableMessage, hubContent } from "../src/vite.ts"
+import { contentOperations } from "../src/operations.ts"
+import { hubContent } from "../src/vite.ts"
 
-import type { IncomingMessage, ServerResponse } from "node:http"
 import type { ContentCliOptions } from "../src/cli.ts"
 
 const migration = [
@@ -36,6 +33,7 @@ const rootDir = "/app"
 
 afterEach(async () => {
   vi.restoreAllMocks()
+  vi.unstubAllEnvs()
   for (const dispose of cleanup.splice(0).reverse()) await dispose()
 })
 
@@ -58,9 +56,10 @@ async function historyWorkspace(): Promise<string> {
   return workspace
 }
 
-function contentOn(workspace: string, title: z.ZodType = z.string().min(1)) {
+function contentOn(workspace: string, title: z.ZodType = z.string().min(1), authorize?: () => boolean) {
   const content = defineContent({
     workspace,
+    ...(authorize ? { authorize } : {}),
     collections: {
       posts: documents({ path: "posts/**/*.md", fields: { title, tags: z.array(z.string()).default([]) } }),
       pages: documents({ path: "pages/*.md", fields: { title: z.string() } }),
@@ -71,9 +70,9 @@ function contentOn(workspace: string, title: z.ZodType = z.string().min(1)) {
   return content
 }
 
-async function setup() {
+async function setup(authorize?: () => boolean) {
   const workspace = await historyWorkspace()
-  const content = contentOn(workspace)
+  const content = contentOn(workspace, undefined, authorize)
   return { content, pages: content.collection("pages"), posts: content.collection("posts"), workspace }
 }
 
@@ -88,11 +87,20 @@ function stream() {
   }
 }
 
-/** A fake Vite + Nitro dev server: `GET` discovery, `POST` straight into the Nitro dev handler. */
+/**
+ * A fake dev server: it answers the operation RPC with the Content operations, as the Console does. The local policy
+ * is the one `vite dev` installs, so `content.can()` is not asked for a user the CLI does not have.
+ */
 function devServer(content: unknown) {
-  return vi.fn(async (input: string | URL | Request, init?: RequestInit) => init?.method === "POST"
-    ? await handleContentDevRequest(new Request(input, init), content)
-    : Response.json({ root: rootDir, runtime: "nitro" }))
+  vi.stubEnv("NODE_ENV", "development")
+  const registry = createOperationRegistry([{ operations: contentOperations }])
+  Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), content === undefined ? {} : { content: async () => ({ content }) })
+  cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+  return vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+    const { input, operation } = JSON.parse(String(init?.body)) as { input: unknown, operation: string }
+    const result = await runOperation(registry, operation, input, { access: { mode: "local", sections: "all" }, development: true, surface: "cli", user: null })
+    return Response.json(result, { status: result.ok ? 200 : result.status })
+  })
 }
 
 function cli(content: unknown, options: ContentCliOptions = {}) {
@@ -100,7 +108,7 @@ function cli(content: unknown, options: ContentCliOptions = {}) {
   const run = async (...args: string[]) => {
     const stdout = stream()
     const stderr = stream()
-    const code = await runContentCli(args, { cwd: rootDir, env: {}, rootDir, stderr, stdout }, { fetch, ...options })
+    const code = await runContentCli(args, { cwd: rootDir, env: { VITEHUB_DEV_SERVER_URL: "http://localhost:5173" }, rootDir, stderr, stdout }, { fetch, ...options })
     return { code, stderr: stderr.output(), stdout: stdout.output() }
   }
   return { fetch, run }
@@ -109,6 +117,51 @@ function cli(content: unknown, options: ContentCliOptions = {}) {
 const hello = { data: { title: "Hello", tags: ["vue"] }, body: "# Hello\n\nFirst post.\n" }
 
 describe("vitehub content", { timeout: 30_000 }, () => {
+  it.each([
+    { paths: ["content/posts/**/*.md", "content/news/*.md"], id: "news/fresh", path: "content/news/fresh.md" },
+    { paths: ["docs/pages/**/*.md", "packages/*/docs/**/*.md"], id: "packages/zoom/docs/fresh", path: "packages/zoom/docs/fresh.md" },
+  ])("creates a document at $path in a multi-folder collection", async ({ paths, id, path }) => {
+    const workspace = await historyWorkspace()
+    const content = defineContent({ workspace, collections: { pages: documents({ path: paths, fields: { title: z.string() } }) }, logger: false })
+    cleanup.push(() => content.dispose())
+    const editor = vi.fn(async (file: string) => {
+      expect(await readFile(file, "utf8")).toBe("---\ntitle: null\n---\n")
+      await writeFile(file, "---\ntitle: Fresh\n---\n")
+    })
+    const { run } = cli(content, { editor })
+    const template = await runOperation(createOperationRegistry([{ operations: contentOperations }]), "content.show", { collection: "pages", id, create: true }, { access: { mode: "local", sections: "all" }, development: true, surface: "cli", user: null })
+    expect(template).toMatchObject({ ok: true, value: { path, digest: null, ref: "draft" } })
+    expect((await run("edit", "pages", id)).code).toBe(0)
+    expect(editor).toHaveBeenCalledOnce()
+    expect(await content.collection("pages").raw(id, { ref: "draft" })).toMatchObject({ path, text: "---\ntitle: Fresh\n---\n" })
+  })
+
+  it("prints the pull request that a publish opened", async () => {
+    const { content, posts } = await setup()
+    await posts.save("hello", hello)
+    const pullRequest = { number: 7, url: "https://github.com/onmax/docs/pull/7" }
+    // A project with `publish: 'pr'` answers a publish with the pull request that it opened.
+    const withPullRequest = { ...content, publish: async (options: Parameters<typeof content.publish>[0]) => ({ ...await content.publish(options), pullRequest, pending: true as const }) }
+    const published = await cli(withPullRequest).run("publish", "--yes")
+    expect(published).toEqual({
+      code: 0,
+      stderr: "",
+      stdout: `Opened pull request #7 for 1 document:\n  add     posts/hello\n${pullRequest.url}\nThe documents are published when it merges.\n`,
+    })
+    await posts.save("second", { data: { title: "Second" }, body: "" })
+    const json = await cli(withPullRequest).run("publish", "--yes", "--json")
+    expect(JSON.parse(json.stdout)).toMatchObject({ dryRun: false, documents: [{ id: "second", change: "add" }], pullRequest })
+  })
+
+  it("checks discovered roots but leaves explicit deployed URLs independent of the local path", async () => {
+    const { content } = await setup()
+    const { fetch, run } = cli(content)
+    expect((await run("collections", "--url", "https://app.example.com")).code).toBe(0)
+    expect(new Headers(fetch.mock.calls.at(-1)?.[1]?.headers).has(operationExpectedRootsHeader)).toBe(false)
+    expect((await run("collections")).code).toBe(0)
+    expect(new Headers(fetch.mock.calls.at(-1)?.[1]?.headers).get(operationExpectedRootsHeader)).toContain(projectRootHash(rootDir))
+  })
+
   it("lists collections with fields and document states", async () => {
     const { content, posts } = await setup()
     await posts.save("hello", hello)
@@ -445,7 +498,7 @@ describe("vitehub content", { timeout: 30_000 }, () => {
 
     const held = await run("edit", "posts", "hello", "--file", file)
     expect(held.code).toBe(1)
-    expect(held.stderr).toMatch(/^Nothing was saved\. Ana holds the edit lease since \S+ on posts\/hello\.\nWait until they finish, or pass --override-lease to save anyway\.\n$/)
+    expect(held.stderr).toMatch(/^Nothing was saved\. Ana holds the edit lease since \S+ on posts\/hello\.\nWait until they finish, or pass --override-lease to write anyway\.\n$/)
     expect(await posts.get("hello", { ref: "draft" })).toMatchObject({ data: { title: "Hello" } })
     expect(JSON.parse((await run("edit", "posts", "hello", "--file", file, "--json")).stdout)).toMatchObject({
       error: { code: "CONTENT_LEASE_HELD", details: { collection: "posts", id: "hello", holder: { kind: "edit", user: { id: "ana", name: "Ana" } } } },
@@ -453,6 +506,94 @@ describe("vitehub content", { timeout: 30_000 }, () => {
 
     expect((await run("edit", "posts", "hello", "--file", file, "--override-lease")).code).toBe(0)
     expect(await posts.get("hello", { ref: "draft" })).toMatchObject({ data: { title: "From the CLI" } })
+  })
+
+  it("deletes a draft only after confirmation, and the next publish deletes it from the site", async () => {
+    const { content, posts } = await setup()
+    const saved = await posts.save("hello", hello)
+    await content.publish({ expect: [{ collection: "posts", id: "hello", digest: saved.digest }] })
+
+    const unconfirmed = await cli(content).run("rm", "posts", "hello", "--json")
+    expect(JSON.parse(unconfirmed.stdout)).toMatchObject({ error: { code: "CONTENT_DELETE_UNCONFIRMED" } })
+    const declined = await cli(content, { confirm: async () => false }).run("rm", "posts", "hello")
+    expect(declined).toMatchObject({ code: 1, stderr: "Delete posts/hello from the draft. The next publish deletes it from the site.\nDelete cancelled.\n" })
+    expect(await posts.get("hello", { ref: "draft" })).not.toBeNull()
+
+    const confirm = vi.fn(async () => true)
+    const deleted = await cli(content, { confirm }).run("rm", "posts", "hello")
+    expect(confirm).toHaveBeenCalledWith("Delete? [y/N] ")
+    expect(deleted).toMatchObject({ code: 0, stdout: "Deleted posts/hello from the draft. Publish to delete it from the site.\n" })
+    expect(await posts.get("hello", { ref: "draft" })).toBeNull()
+    expect(await posts.get("hello", { ref: "published" })).toMatchObject({ data: { title: "Hello" } })
+    expect(await posts.status("hello")).toMatchObject({ state: "deleted" })
+    expect((await cli(content).run("rm", "posts", "hello", "--yes")).stderr).toContain("exists on neither draft")
+  })
+
+  it("restores a document from an earlier revision as a draft", async () => {
+    const { content, posts } = await setup()
+    await posts.save("hello", hello)
+    const [first] = (await content.revisions("posts", "hello")).revisions
+    await posts.save("hello", { ...hello, data: { ...hello.data, title: "Second" } })
+    const { run } = cli(content)
+
+    expect((await run("restore", "posts", "hello")).stderr).toContain("Missing --revision.")
+    const restored = await run("restore", "posts", "hello", "--revision", first!.id)
+    expect(restored.code).toBe(0)
+    expect(restored.stdout).toMatch(new RegExp(`^Restored posts/hello from revision ${first!.id} to the draft as [0-9a-f]{12}\\. Publish to put it on the site\\.\\n$`))
+    expect(await posts.get("hello", { ref: "draft" })).toMatchObject({ data: { title: "Hello" } })
+    expect(await posts.get("hello", { ref: "published" })).toBeNull()
+
+    // A deleted draft restores too.
+    await posts.remove("hello", {})
+    expect((await run("restore", "posts", "hello", "--revision", first!.id)).code).toBe(0)
+    expect(await posts.get("hello", { ref: "draft" })).toMatchObject({ data: { title: "Hello" } })
+  })
+
+  it.each(["agent", "mcp"] as const)("never lets the %s surface take over a person's edit lease", async (surface) => {
+    const { content, posts } = await setup(() => true)
+    const saved = await posts.save("hello", hello)
+    const [first] = (await content.revisions("posts", "hello")).revisions
+    await content.sessions.acquire("posts", "hello", { session: "tab-ana-0001", user: { id: "ana", name: "Ana" } })
+    devServer(content)
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    const context = { access: { mode: "open" as const, sections: "all" as const }, surface, user: null }
+    const text = "---\ntitle: From a model\ntags: []\n---\n"
+
+    for (const [operation, input] of [
+      ["content.save", { collection: "posts", id: "hello", text, ifDigest: saved.digest, lease: "override" }],
+      ["content.remove", { collection: "posts", id: "hello", ifDigest: saved.digest, lease: "override" }],
+      ["content.restore", { collection: "posts", id: "hello", revision: first!.id, lease: "override" }],
+    ] as const) {
+      expect(await runOperation(registry, operation, input, context)).toMatchObject({ ok: false, code: "CONTENT_FORBIDDEN", status: 403 })
+    }
+    // Ordinary writes always tell the model to wait, even when the developer permits explicit overrides.
+    for (const overrideLeases of [false, true]) {
+      for (const [operation, input] of [
+        ["content.save", { collection: "posts", id: "hello", text, ifDigest: saved.digest }],
+        ["content.remove", { collection: "posts", id: "hello", ifDigest: saved.digest }],
+        ["content.restore", { collection: "posts", id: "hello", revision: first!.id }],
+      ] as const) {
+        const held = await runOperation(registry, operation, input, { ...context, overrideLeases })
+        expect(held).toMatchObject({ ok: false, code: "CONTENT_LEASE_HELD", status: 409, message: "Ana is editing Content document \"posts/hello\". Nothing was saved.", details: { holder: { user: { name: "Ana" } } } })
+        expect(JSON.stringify(held)).not.toContain("override")
+      }
+    }
+    expect(await posts.get("hello", { ref: "draft" })).toMatchObject({ data: { title: "Hello" } })
+
+    // The developer may allow it.
+    expect(await runOperation(registry, "content.save", { collection: "posts", id: "hello", text, ifDigest: saved.digest, lease: "override" }, { ...context, overrideLeases: true })).toMatchObject({ ok: true })
+  })
+
+  it("deletes through the operation only with the draft digest that the caller read", async () => {
+    const { content, posts } = await setup(() => true)
+    const saved = await posts.save("hello", hello)
+    devServer(content)
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    const context = { access: { mode: "open" as const, sections: "all" as const }, surface: "mcp" as const, user: null }
+    expect(await runOperation(registry, "content.remove", { collection: "posts", id: "hello" }, context)).toMatchObject({ ok: false, status: 400 })
+    expect(await runOperation(registry, "content.remove", { collection: "posts", id: "hello", ifDigest: "stale" }, context)).toMatchObject({ ok: false, code: "WORKSPACE_CONFLICT", status: 409 })
+    expect(await runOperation(registry, "content.remove", { collection: "posts", id: "hello", ifDigest: saved.digest }, context)).toMatchObject({ ok: true, value: { collection: "posts", id: "hello" } })
+    expect(await posts.get("hello", { ref: "draft" })).toBeNull()
   })
 
   it("works with singletons", async () => {
@@ -571,23 +712,25 @@ describe("vitehub content", { timeout: 30_000 }, () => {
     expect(JSON.parse((await run("sitemap", "--json")).stdout)).toMatchObject({ entries: [{ collection: "posts", id: "hello", loc: "https://example.com/blog/hello" }] })
   })
 
-  it("explains when no Vite + Nitro Development Server is reachable", async () => {
-    const run = async (fetch: typeof globalThis.fetch, ...args: string[]) => {
-      const stdout = stream()
-      const stderr = stream()
-      const code = await runContentCli(args, { cwd: rootDir, env: {}, rootDir, stderr, stdout }, { fetch })
-      return { code, stderr: stderr.output(), stdout: stdout.output() }
-    }
-    const offline = await run(vi.fn(async () => { throw new TypeError("fetch failed") }), "status")
-    expect(offline.code).toBe(1)
-    expect(offline.stderr).toContain("No Compatible Vite Development Server found at http://localhost:5173.")
-    expect(offline.stderr).toContain("Nuxt, plain Vite, and deployed apps are not supported.")
+  it("explains when the app is unreachable and when it has no Content", async () => {
+    const stdout = stream()
+    const stderr = stream()
+    const offline = vi.fn(async () => { throw new TypeError("fetch failed") })
+    const code = await runContentCli(["status"], { cwd: rootDir, env: { VITEHUB_DEV_SERVER_URL: "http://localhost:5173" }, rootDir, stderr, stdout }, { fetch: offline })
+    expect(code).toBe(1)
+    expect(stderr.output()).toContain("The request to http://localhost:5173 failed")
+    expect(stderr.output()).toContain("Fix: Start the dev server")
 
-    const unavailable = await run(vi.fn(async () => Response.json({ message: contentDevRuntimeUnavailableMessage, root: rootDir, runtime: "unavailable" })), "status", "--json")
-    expect(JSON.parse(unavailable.stdout)).toEqual({ error: { code: "CONTENT_DEV_RUNTIME_UNAVAILABLE", message: contentDevRuntimeUnavailableMessage } })
+    // Without a known dev server the command asks for one. It does not try a port.
+    const unknown = stream()
+    const unknownErr = stream()
+    const none = vi.fn()
+    expect(await runContentCli(["status", "--json"], { cwd: rootDir, env: {}, rootDir, stderr: unknownErr, stdout: unknown }, { fetch: none })).toBe(1)
+    expect(JSON.parse(unknown.output()).error).toMatchObject({ code: "CONTENT_R0015", fix: expect.stringContaining("vite dev") })
+    expect(none).not.toHaveBeenCalled()
 
     const undefinedContent = await cli(undefined).run("collections", "--json")
-    expect(JSON.parse(undefinedContent.stdout)).toMatchObject({ error: { code: "CONTENT_UNDEFINED" } })
+    expect(JSON.parse(undefinedContent.stdout)).toMatchObject({ error: { code: "CONTENT_UNDEFINED", fix: expect.stringContaining("server/content.ts") } })
   })
 
   it("prints help and contributes the content namespace", async () => {
@@ -595,76 +738,326 @@ describe("vitehub content", { timeout: 30_000 }, () => {
     const help = await run("publish", "--help")
     expect(help.code).toBe(0)
     expect(help.stdout).toContain("Usage: vitehub content publish [--collection <name>] [--id <id>...] [--message <text>] [--dry-run] [--yes] [--json] [--url <url>]")
-    expect(help.stdout).toContain("It does not reach a deployed app.")
-    expect((await run("nope")).stderr).toBe("Unknown content command: nope\nCommands: collections, list, show, status, diff, revisions, edit, publish, schedule, scheduled, unschedule, sitemap\n")
+    expect(help.stdout).toContain("With --url it calls a deployed app")
+    expect((await run("nope")).stderr).toBe("Unknown content command: nope\nCommands: collections, list, show, status, diff, revisions, edit, rm, restore, publish, schedule, scheduled, unschedule, sitemap\n")
     const [namespace] = createContentCliContributor().namespaces
     expect(namespace?.name).toBe("content")
-    expect(namespace?.features.map(feature => feature.name)).toEqual(["collections", "list", "show", "status", "diff", "revisions", "edit", "publish", "schedule", "scheduled", "unschedule", "sitemap"])
+    expect(namespace?.features.map(feature => feature.name)).toEqual(["collections", "list", "show", "status", "diff", "revisions", "edit", "rm", "restore", "publish", "schedule", "scheduled", "unschedule", "sitemap"])
   })
 })
 
-describe("Content dev handler", () => {
-  it("rejects requests without the guard header, from another host, or with another method", async () => {
-    const url = `http://localhost:5173${contentDevRuntimeRoute}`
-    const json = { "content-type": "application/json" }
-    expect((await handleContentDevRequest(new Request(url, { body: "{}", headers: json, method: "POST" }), undefined)).status).toBe(403)
-    expect((await handleContentDevRequest(new Request(`http://attacker.test${contentDevRuntimeRoute}`, { body: "{}", headers: { ...json, [contentDevHeader]: contentDevHeaderValue }, method: "POST" }), undefined)).status).toBe(403)
-    expect((await handleContentDevRequest(new Request(url, { headers: { [contentDevHeader]: contentDevHeaderValue } }), undefined)).status).toBe(405)
+describe("Content operations", () => {
+  it("requires collection and document read access for every document in a schedule", async () => {
+    let collectionReadable = false
+    let documentReadable = true
+    const content = defineContent({
+      workspace: await historyWorkspace(),
+      authorize: ({ id }) => id === undefined ? collectionReadable : documentReadable,
+      collections: { posts: documents({ path: "posts/*.md", fields: { title: z.string() } }) },
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    const saved = await content.collection("posts").save("hello", { data: { title: "Hello" } })
+    const schedule = await content.schedule({ at: new Date(Date.now() + 3_600_000), expect: [{ collection: "posts", id: "hello", digest: saved.digest }] })
+    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    const context = { access: { mode: "open", sections: "all" as const }, surface: "console" as const, user: null }
+    const list = (input: unknown) => runOperation(registry, "content.schedules", input, context)
+    for (const input of [{}, { collection: "posts" }, { collection: "posts", id: "hello" }]) {
+      expect(await list(input)).toMatchObject({ ok: true, value: { schedules: [] } })
+    }
+    collectionReadable = true
+    expect(await list({})).toMatchObject({ ok: true, value: { schedules: [{ id: schedule.id }] } })
+    documentReadable = false
+    expect(await list({})).toMatchObject({ ok: true, value: { schedules: [] } })
+  })
+
+  it("filters document policy before pagination and sitemap output", async () => {
+    const content = defineContent({
+      workspace: await historyWorkspace(),
+      authorize: ({ id }) => id === undefined || id.startsWith("visible"),
+      collections: { posts: documents({ path: "posts/*.md", fields: { title: z.string() }, url: "/blog/:id" }) },
+      seo: { site: "https://example.com" },
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    for (const id of ["hidden", "visible-a", "visible-b"]) await content.collection("posts").save(id, { data: { title: id } })
+    await content.publish()
+    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    const context = { access: { mode: "open", sections: "all" as const }, surface: "console" as const, user: null }
+    const first = await runOperation(registry, "content.list", { collection: "posts", limit: 1 }, context)
+    expect(first).toMatchObject({ ok: true, value: { items: [{ id: "visible-a" }], total: 2, cursor: expect.any(String) } })
+    if (!first.ok) throw new Error(first.message)
+    const page = v.parse(v.object({ cursor: v.string() }), first.value)
+    expect(await runOperation(registry, "content.list", { collection: "posts", limit: 1, cursor: page.cursor }, context))
+      .toMatchObject({ ok: true, value: { items: [{ id: "visible-b" }], total: 2 } })
+    const sitemap = await runOperation(registry, "content.sitemap", {}, context)
+    expect(sitemap).toMatchObject({ ok: true, value: { entries: [{ id: "visible-a" }, { id: "visible-b" }] } })
+  })
+
+  it("does not trust runtime NODE_ENV as production Content authorization", async () => {
+    const content = contentOn(await historyWorkspace())
+    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    vi.stubEnv("NODE_ENV", "development")
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    expect(await runOperation(registry, "content.list", { collection: "posts" }, {
+      access: { mode: "open", sections: "all" }, surface: "cli", user: null,
+    })).toMatchObject({ ok: false, code: "CONTENT_FORBIDDEN" })
+  })
+
+  it("rejects a publish that does not pin the digests of a dry run", async () => {
     const { content } = await setup()
-    const post = (body: unknown) => handleContentDevRequest(new Request(url, { body: JSON.stringify(body), headers: { ...json, [contentDevHeader]: contentDevHeaderValue }, method: "POST" }), content)
-    expect((await post({ operation: "clear" })).status).toBe(400)
-    // A publish must pin the digests a dry run listed.
-    for (const body of [
-      { operation: "publish" },
-      { operation: "publish", collection: "posts" },
-      { operation: "publish", expect: [] },
-      { operation: "publish", expect: [{ collection: "posts", id: "hello" }] },
-      { operation: "publish", expect: [{ collection: "posts", id: "hello", digest: null }], collection: "posts" },
-      { operation: "publish", dryRun: true, expect: [{ collection: "posts", id: "hello", digest: null }] },
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    const run = (input: unknown) => runOperation(registry, "content.publish", input, { access: { mode: "local", sections: "all" }, development: true, surface: "cli", user: null })
+    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    for (const input of [
+      {},
+      { collection: "posts" },
+      { expect: [] },
+      { expect: [{ collection: "posts", id: "hello" }] },
+      { collection: "posts", expect: [{ collection: "posts", digest: null, id: "hello" }] },
+      { dryRun: true, expect: [{ collection: "posts", digest: null, id: "hello" }] },
     ]) {
-      const response = await post(body)
-      expect(response.status, JSON.stringify(body)).toBe(400)
+      const result = await run(input)
+      expect(result, JSON.stringify(input)).toMatchObject({ ok: false, status: 400 })
     }
   })
+
+  it("finds the document at a public path for the comments overlay, and nothing else", async () => {
+    const workspace = await historyWorkspace()
+    const content = defineContent({
+      authorize: ({ action, id, user }) => action === "read" ? id !== "secret" : user?.id === "editor",
+      collections: {
+        pages: documents({ path: "pages/*.md", fields: { title: z.string() }, url: "/:id" }),
+        posts: documents({ path: "posts/*.md", fields: { title: z.string() }, url: "/blog/:id" }),
+      },
+      logger: false,
+      workspace,
+    })
+    cleanup.push(() => content.dispose())
+    await content.collection("posts").save("hello world", { data: { title: "Hello" } })
+    await content.collection("pages").save("about", { data: { title: "About" } })
+    await content.collection("pages").save("secret", { data: { title: "Secret" } })
+    await content.publish()
+    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    const resolve = (path: string) => runOperation(registry, "content.resolve", { path }, { access: { mode: "open", sections: "all" }, surface: "console", user: null })
+    expect(await resolve("/blog/hello%20world")).toEqual({ ok: true, value: { collection: "posts", id: "hello world" } })
+    expect(await resolve("/blog/hello%20world/")).toMatchObject({ value: { id: "hello world" } })
+    expect(await resolve("/about?ref=1")).toEqual({ ok: true, value: { collection: "pages", id: "about" } })
+    // A document the reader may not read, and a path without a document, both answer null.
+    expect(await resolve("/secret")).toEqual({ ok: true, value: null })
+    expect(await resolve("/nowhere")).toEqual({ ok: true, value: null })
+  })
+
+  it("resolves published URLs while a draft changes or deletes the page", async () => {
+    const content = defineContent({
+      authorize: ({ id }) => id !== "secret",
+      collections: { posts: documents({ path: "posts/*.md", fields: { title: z.string() }, url: "/blog/:title" }) },
+      logger: false,
+      workspace: await historyWorkspace(),
+    })
+    cleanup.push(() => content.dispose())
+    const posts = content.collection("posts")
+    await posts.save("hello", { data: { title: "published" } })
+    await posts.save("secret", { data: { title: "secret" } })
+    await content.publish()
+    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    const resolve = (path: string) => runOperation(registry, "content.resolve", { path }, { access: { mode: "open", sections: "all" }, surface: "console", user: null })
+    const found = { ok: true, value: { collection: "posts", id: "hello" } }
+    await posts.save("hello", { data: { title: "draft" } })
+    expect(await resolve("/blog/draft")).toEqual({ ok: true, value: null })
+    expect(await resolve("/blog/published")).toEqual(found)
+    // A pending deletion also leaves the published page online.
+    await posts.remove("hello")
+    await posts.remove("secret")
+    expect(await resolve("/blog/published")).toEqual(found)
+    expect(await resolve("/blog/secret")).toEqual({ ok: true, value: null })
+    // Publishing invalidates the fallback index as well as the draft index.
+    await content.publish()
+    expect(await resolve("/blog/published")).toEqual({ ok: true, value: null })
+  })
+
+  it("resolves the document served by the current published or preview ref when URLs collide", async () => {
+    vi.stubEnv("VITEHUB_CONTENT_KEY", "42".repeat(32))
+    const content = defineContent({
+      authorize: () => true,
+      collections: { pages: documents({ path: "pages/*.md", fields: { title: z.string() }, url: "/:title" }) },
+      logger: false,
+      workspace: await historyWorkspace(),
+    })
+    cleanup.push(() => content.dispose())
+    const pages = content.collection("pages")
+    await pages.save("live", { data: { title: "about" } })
+    await content.publish()
+    await pages.save("live", { data: { title: "moved" } })
+    await pages.save("unpublished", { data: { title: "about" } })
+    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    const resolve = (path: string) => runOperation(registry, "content.resolve", { path }, { access: { mode: "open", sections: "all" }, surface: "console", user: null })
+    expect(await resolve("/about")).toEqual({ ok: true, value: { collection: "pages", id: "live" } })
+    expect(await resolve("/moved")).toEqual({ ok: true, value: null })
+    const { setCookie } = await content.preview.enable(new Request("https://site.test/_vitehub"))
+    const request = new Request("https://site.test/about", { headers: { cookie: setCookie.split(";", 1)[0]! } })
+    await content.preview.run(request, async () => {
+      expect(await resolve("/about")).toEqual({ ok: true, value: { collection: "pages", id: "unpublished" } })
+      expect(await resolve("/moved")).toEqual({ ok: true, value: { collection: "pages", id: "live" } })
+      await pages.remove("unpublished")
+      expect(await resolve("/about")).toEqual({ ok: true, value: null })
+    })
+    expect(await resolve("/about")).toEqual({ ok: true, value: { collection: "pages", id: "live" } })
+  }, 15_000)
+
+  it("resolves a readable document even when collection enumeration is denied", async () => {
+    const content = defineContent({
+      authorize: ({ action, id }) => action === "read" && id === "hello",
+      collections: { posts: documents({ path: "posts/*.md", fields: { title: z.string() }, url: "/blog/:id" }) },
+      logger: false,
+      workspace: await historyWorkspace(),
+    })
+    cleanup.push(() => content.dispose())
+    await content.collection("posts").save("hello", { data: { title: "Hello" } })
+    await content.collection("posts").save("secret", { data: { title: "Secret" } })
+    await content.publish()
+    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    const resolve = (path: string) => runOperation(registry, "content.resolve", { path }, { access: { mode: "open", sections: "all" }, surface: "console", user: null })
+    expect(await resolve("/blog/hello")).toEqual({ ok: true, value: { collection: "posts", id: "hello" } })
+    expect(await resolve("/blog/secret")).toEqual({ ok: true, value: null })
+  })
+
+  it.each([
+    ["/blog/:id/", "Hello", "/blog/hello"],
+    ["/blog/:id/?lang=en#top", "Hello", "/blog/hello"],
+    ["/blog/:title/", "", "/blog"],
+    ["/blog/?lang=en#top", "Hello", "/blog"],
+  ])("resolves normalized paths for the URL pattern %s", async (url, title, target) => {
+    const content = defineContent({
+      authorize: () => true,
+      collections: { posts: documents({ path: "posts/*.md", fields: { title: z.string() }, url }) },
+      logger: false,
+      workspace: await historyWorkspace(),
+    })
+    cleanup.push(() => content.dispose())
+    await content.collection("posts").save("hello", { data: { title } })
+    await content.publish()
+    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    for (const path of [target, `${target}/`, `${target}/?ref=1#top`]) {
+      expect(await runOperation(registry, "content.resolve", { path }, { access: { mode: "open", sections: "all" }, surface: "console", user: null })).toEqual({ ok: true, value: { collection: "posts", id: "hello" } })
+    }
+  })
+
+  it("lists each collection once per head, and not at all when no route can produce the path", async () => {
+    const workspace = await historyWorkspace()
+    const content = defineContent({
+      authorize: () => true,
+      collections: {
+        pages: documents({ path: "pages/*.md", fields: { title: z.string() }, url: "/:id" }),
+        posts: documents({ path: "posts/*.md", fields: { title: z.string() }, url: "/blog/:id" }),
+      },
+      logger: false,
+      workspace,
+    })
+    cleanup.push(() => content.dispose())
+    const pages = content.collection("pages")
+    const posts = content.collection("posts")
+    await posts.save("hello", { data: { title: "Hello" } })
+    await pages.save("about", { data: { title: "About" } })
+    await content.publish()
+    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    const postList = vi.spyOn(posts, "list")
+    const pageList = vi.spyOn(pages, "list")
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    const resolve = (path: string) => runOperation(registry, "content.resolve", { path }, { access: { mode: "open", sections: "all" }, surface: "console", user: null })
+
+    expect(await resolve("/blog/hello")).toEqual({ ok: true, value: { collection: "posts", id: "hello" } })
+    expect(await resolve("/blog/hello")).toEqual({ ok: true, value: { collection: "posts", id: "hello" } })
+    expect(postList).toHaveBeenCalledTimes(1)
+    // `/about` can only come from the pages route. The blog route cannot produce it, so posts are not listed again.
+    expect(await resolve("/about")).toEqual({ ok: true, value: { collection: "pages", id: "about" } })
+    expect(await resolve("/nowhere")).toEqual({ ok: true, value: null })
+    expect([postList.mock.calls.length, pageList.mock.calls.length]).toEqual([1, 1])
+    // No collection at all can produce this one.
+    expect(await resolve("/blog")).toEqual({ ok: true, value: null })
+    // Draft changes leave the published index intact until publication moves its head.
+    await posts.save("second", { data: { title: "Second" } })
+    expect(await resolve("/blog/second")).toEqual({ ok: true, value: null })
+    expect(postList).toHaveBeenCalledTimes(1)
+    await content.publish()
+    expect(await resolve("/blog/second")).toEqual({ ok: true, value: { collection: "posts", id: "second" } })
+    expect(postList).toHaveBeenCalledTimes(2)
+    expect(postList.mock.calls[0]![0]).toMatchObject({ limit: 1_000, ref: "published" })
+  })
+
+  it("reads every page of a large collection when it builds the index", async () => {
+    const collection = {
+      kind: "documents",
+      list: vi.fn(async (options: { cursor?: string }) => {
+        const page = Number(options.cursor ?? 0)
+        return { items: Array.from({ length: 1_000 }, (_, index) => ({ id: `d${page * 1_000 + index}`, url: `/d/d${page * 1_000 + index}` })), nextCursor: page < 4 ? String(page + 1) : null, total: 5_000 }
+      }),
+      name: "docs",
+      routable: true,
+      urlPattern: "/d/:id",
+    }
+    const runtime = {
+      can: async () => true,
+      collection: () => collection,
+      collections: () => [collection],
+      head: async () => "head-1",
+      hasPolicy: true,
+      publish: async () => undefined,
+      revisions: async () => undefined,
+      schedule: async () => undefined,
+      schedules: async () => undefined,
+      sitemap: async () => undefined,
+      unschedule: async () => undefined,
+    }
+    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content: runtime }) })
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    const resolve = (path: string) => runOperation(registry, "content.resolve", { path }, { access: { mode: "open", sections: "all" }, surface: "console", user: null })
+    // The last document of 5,000: far beyond any first page.
+    expect(await resolve("/d/d4999")).toEqual({ ok: true, value: { collection: "docs", id: "d4999" } })
+    expect(collection.list).toHaveBeenCalledTimes(5)
+    expect(await resolve("/d/d2500")).toMatchObject({ value: { id: "d2500" } })
+    expect(collection.list).toHaveBeenCalledTimes(5)
+  })
+
+  it("applies content.can() for a signed-in user and for an Agent Actor", async () => {
+    const workspace = await historyWorkspace()
+    const content = defineContent({
+      authorize: ({ action, user }) => action === "read" || user?.id === "editor",
+      collections: { posts: documents({ path: "posts/**/*.md", fields: { title: z.string() } }) },
+      logger: false,
+      workspace,
+    })
+    cleanup.push(() => content.dispose())
+    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    const text = "---\ntitle: Hello\n---\n\nHi\n"
+    const as = (id: string | undefined) => ({ access: { mode: "open", sections: "all" as const }, surface: "console" as const, user: id ? { id } : null })
+    expect(await runOperation(registry, "content.save", { collection: "posts", id: "hello", ifDigest: null, text }, as("reader"))).toMatchObject({ code: "CONTENT_FORBIDDEN", fix: expect.stringContaining("authorize"), ok: false, status: 403 })
+    expect(await runOperation(registry, "content.save", { collection: "posts", id: "hello", ifDigest: null, text }, as("editor"))).toMatchObject({ ok: true })
+    expect(await runOperation(registry, "content.list", { collection: "posts" }, as(undefined))).toMatchObject({ ok: true, value: { items: [{ id: "hello" }] } })
+    // A deployed app without a signed-in user is not the trusted dev CLI.
+    expect(await runOperation(registry, "content.publish", { dryRun: true }, as(undefined))).toMatchObject({ ok: true })
+  })
 })
-
-/** Fake Vite dev server parts that the dev endpoint registration uses. */
-function fakeServer() {
-  const middlewares: Array<(req: IncomingMessage, res: ServerResponse, next: () => void) => void> = []
-  return {
-    middlewares,
-    server: {
-      config: { root: rootDir, server: {} },
-      environments: {},
-      middlewares: { use: (handler: (req: IncomingMessage, res: ServerResponse, next: () => void) => void) => middlewares.push(handler) },
-      resolvedUrls: { local: ["http://localhost:5173/"] },
-    },
-  }
-}
-
-async function call(middleware: (req: IncomingMessage, res: ServerResponse, next: () => void) => void, init: { body?: string, headers?: Record<string, string>, method: string }) {
-  const req = Object.assign(Readable.from(init.body ? [Buffer.from(init.body)] : []), {
-    headers: { host: "localhost:5173", ...init.headers },
-    method: init.method,
-    url: contentDevRoute,
-  }) as unknown as IncomingMessage
-  const done = new EventEmitter()
-  const chunks: Buffer[] = []
-  const res = Object.assign(new Writable({
-    write(chunk, _encoding, callback) {
-      chunks.push(Buffer.from(chunk))
-      callback()
-    },
-    final(callback) {
-      done.emit("end")
-      callback()
-    },
-  }), { setHeader() {}, statusCode: 200 })
-  const ended = new Promise(resolve => done.once("end", resolve))
-  middleware(req, res as unknown as ServerResponse, () => done.emit("end"))
-  await ended
-  return { body: Buffer.concat(chunks).toString("utf8"), status: res.statusCode }
-}
 
 describe("hubContent", () => {
   type ConfigHook = (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<void>
@@ -684,21 +1077,39 @@ describe("hubContent", () => {
     return root
   }
 
-  it("adds the Nitro dev handler for the Content Definition only in serve mode", async () => {
+  it("adds no dev endpoint and contributes the Content operations", async () => {
     const root = await project(true)
-    const plugin = hubContent({ importBase: "vite-hub/_internal/content" })
-    const build: Record<string, unknown> = { nitro: { handlers: [] }, root }
-    await configHook(plugin)(build, { command: "build", mode: "production" })
-    expect(build.nitro).toEqual({ handlers: [] })
-
+    const plugin = hubContent()
     const serve: Record<string, unknown> = { nitro: { handlers: [] }, root }
     await configHook(plugin)(serve, { command: "serve", mode: "development" })
-    const handler = join(root, ".vitehub/nitro/content/dev-handler.ts")
-    expect(serve.nitro).toEqual({ handlers: [{ handler, route: contentDevRuntimeRoute }], plugins: [] })
-    const source = await readFile(handler, "utf8")
-    expect(source).toContain("import { handleContentDevRequest } from \"vite-hub/_internal/content/runtime/dev\"")
-    expect(source).toContain(`import * as definition from ${JSON.stringify(pathToFileURL(join(root, "server", "content.ts")).href)}`)
-    expect(source).toContain("handleContentDevRequest(event.req, definition.content)")
+    expect(serve.nitro).toEqual({ handlers: [] })
+    const operations = plugin.vitehub.operations
+    if (!(operations instanceof Function)) throw new Error("expected a function that reads the project first")
+    const entries = await operations()
+    expect(entries).toEqual([expect.objectContaining({ export: "contentOperations", module: "@vite-hub/content/operations" })])
+    expect(await entries[0]!.load!()).toBe(contentOperations)
+    // An app without server/content.ts has no Content to operate on.
+    const without = hubContent()
+    await configHook(without)({ root: await project(false) }, { command: "serve", mode: "development" })
+    const none = without.vitehub.operations
+    expect(none instanceof Function ? await none() : none).toEqual([])
+  })
+
+  it.each([
+    "export const content = defineContent({ route: false })",
+    "const route = false; const options = { route }; export const content = defineContent({ ...options })",
+  ])("reports a disabled public Content route: %s", async (definition) => {
+    const root = await project(true)
+    await writeFile(join(root, "server", "content.ts"), `import { defineContent } from "vite-hub/content"\n${definition}\n`)
+    const plugin = hubContent()
+    await configHook(plugin)({ root }, { command: "serve", mode: "development" })
+    const inspection = await (plugin.vitehub.inspect as () => Promise<{ definitions: Array<{ list: () => unknown }> }>)()
+    expect(inspection.definitions[0]!.list()).toEqual([{
+      fields: [{ label: "Route", value: "Disabled" }, { label: "Collections", value: "vitehub content collections" }],
+      file: "server/content.ts",
+      name: "content",
+      source: "server-content",
+    }])
   })
 
   it("contributes the CLI namespace and the Content inspector only when the app defines Content", async () => {
@@ -723,14 +1134,61 @@ describe("hubContent", () => {
     expect(await (without.vitehub.cli as () => Promise<unknown>)()).toBeUndefined()
     expect(await (without.vitehub.inspect as () => Promise<unknown>)()).toBeUndefined()
   })
+})
 
-  it("registers a guarded endpoint that reports hosts without an in-process Nitro environment", async () => {
-    const { middlewares, server } = fakeServer()
-    const plugin = hubContent()
-    const configureServer = plugin.configureServer as unknown as (server: unknown) => void
-    configureServer(server)
-    expect((await call(middlewares[0]!, { method: "GET" })).status).toBe(403)
-    const discovery = await call(middlewares[0]!, { headers: { [contentDevHeader]: contentDevHeaderValue }, method: "GET" })
-    expect(JSON.parse(discovery.body)).toEqual({ message: contentDevRuntimeUnavailableMessage, root: rootDir, runtime: "unavailable" })
+describe("Content operations in a development server and for Agents", () => {
+  async function operationsOn(content: ReturnType<typeof defineContent>) {
+    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    return (name: string, input: unknown, context: Parameters<typeof runOperation>[3]) => runOperation(registry, name, input, context)
+  }
+
+  async function policed() {
+    const workspace = await historyWorkspace()
+    const content = defineContent({
+      authorize: ({ user }) => user?.id === "editor",
+      collections: { posts: documents({ path: "posts/**/*.md", fields: { title: z.string() } }) },
+      logger: false,
+      workspace,
+    })
+    cleanup.push(() => content.dispose())
+    return content
+  }
+
+  const text = "---\ntitle: Hello\n---\n\nHi\n"
+  const cli = (mode: string, development = false) => ({ access: { mode, sections: "all" as const }, development, surface: "cli" as const, user: null })
+
+  it("trusts the CLI without a user only in a development server, with local or open access", async () => {
+    const run = await operationsOn(await policed())
+    const list = { collection: "posts" }
+    for (const mode of ["local", "open"]) {
+      vi.stubEnv("NODE_ENV", "development")
+      expect(await run("content.list", list, cli(mode, true)), mode).toMatchObject({ ok: true })
+      vi.stubEnv("NODE_ENV", "production")
+      expect(await run("content.list", list, cli(mode)), mode).toMatchObject({ code: "CONTENT_FORBIDDEN", ok: false, status: 403 })
+    }
+    vi.stubEnv("NODE_ENV", "development")
+    // A Console that signs people in is never trusted this way.
+    expect(await run("content.list", list, cli("auth", true))).toMatchObject({ code: "CONTENT_FORBIDDEN" })
+    expect(await run("content.list", list, { access: { mode: "local", sections: "all" }, development: true, surface: "console", user: null })).toMatchObject({ code: "CONTENT_FORBIDDEN" })
+  })
+
+  it("rejects lease override from an Agent unless the developer allowed it", async () => {
+    const run = await operationsOn(await policed())
+    const input = { collection: "posts", id: "hello", ifDigest: null, lease: "override", text }
+    const agent = { access: { mode: "agent", sections: "all" as const }, actor: { id: "agent_1" }, surface: "agent" as const, user: { id: "editor" } }
+    expect(await run("content.save", input, agent)).toMatchObject({ code: "CONTENT_FORBIDDEN", fix: expect.stringContaining("overrideLeases"), ok: false, status: 403 })
+    expect(await run("content.save", input, { ...agent, overrideLeases: true })).toMatchObject({ ok: true })
+    // Without the override, an Agent saves as before, and a person may still override from the Console.
+    expect(await run("content.save", { ...input, ifDigest: undefined, lease: undefined }, agent)).toMatchObject({ ok: true })
+    expect(await run("content.save", { ...input, ifDigest: undefined }, { access: { mode: "open", sections: "all" }, surface: "console", user: { id: "editor" } })).toMatchObject({ ok: true })
+  })
+
+  it("marks a publish dry run as read only", () => {
+    const publish = contentOperations.find(operation => operation.name === "content.publish")!
+    expect(publish.readOnlyWhen?.({ dryRun: true } as never)).toBe(true)
+    expect(publish.readOnlyWhen?.({ expect: [] } as never)).toBe(false)
+    expect(publish.kind).toBe("destructive")
   })
 })

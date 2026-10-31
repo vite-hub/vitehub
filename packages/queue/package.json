@@ -3,14 +3,19 @@
   "version": "0.1.0",
   "description": "Queue primitives and Vite deployment integration for ViteHub.",
   "keywords": [
+    "background-jobs",
     "cloudflare",
     "h3",
+    "job-queue",
+    "nuxt",
+    "nuxt-module",
     "queue",
+    "typescript",
     "vercel",
     "vite",
     "vitehub"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -30,49 +35,46 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./internal/runtime/cloudflare-client": {
       "types": "./dist/internal/runtime/cloudflare-client.d.ts",
       "import": "./dist/internal/runtime/cloudflare-client.js",
-      "require": "./dist/internal/runtime/cloudflare-client.js",
       "default": "./dist/internal/runtime/cloudflare-client.js"
     },
     "./internal/runtime/cloudflare-vite": {
       "types": "./dist/internal/runtime/cloudflare-vite.d.ts",
       "import": "./dist/internal/runtime/cloudflare-vite.js",
-      "require": "./dist/internal/runtime/cloudflare-vite.js",
       "default": "./dist/internal/runtime/cloudflare-vite.js"
     },
     "./internal/runtime/state": {
       "types": "./dist/internal/runtime/state.d.ts",
       "import": "./dist/internal/runtime/state.js",
-      "require": "./dist/internal/runtime/state.js",
       "default": "./dist/internal/runtime/state.js"
     },
     "./internal/runtime/vercel-client": {
       "types": "./dist/internal/runtime/vercel-client.d.ts",
       "import": "./dist/internal/runtime/vercel-client.js",
-      "require": "./dist/internal/runtime/vercel-client.js",
       "default": "./dist/internal/runtime/vercel-client.js"
     },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
       "import": "./dist/nuxt.js",
-      "require": "./dist/nuxt.js",
       "default": "./dist/nuxt.js"
+    },
+    "./operations": {
+      "types": "./dist/operations.d.ts",
+      "import": "./dist/operations.js",
+      "default": "./dist/operations.js"
     },
     "./runtime/hosted": {
       "types": "./dist/runtime/hosted.d.ts",
       "import": "./dist/runtime/hosted.js",
-      "require": "./dist/runtime/hosted.js",
       "default": "./dist/runtime/hosted.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js",
-      "require": "./dist/vite.js",
       "default": "./dist/vite.js"
     },
     "./package.json": "./package.json"
@@ -80,7 +82,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "vp run --cache -t @vite-hub/queue#build && node ../../node_modules/typescript-native/bin/tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/queue#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/queue#build && vp test"
   },
   "dependencies": {

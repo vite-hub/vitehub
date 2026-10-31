@@ -3,12 +3,19 @@
   "version": "0.1.0",
   "description": "Schedule primitives and definition discovery for ViteHub.",
   "keywords": [
+    "cloudflare",
     "cron",
+    "cron-jobs",
+    "netlify",
+    "nuxt",
+    "nuxt-module",
     "schedule",
+    "typescript",
+    "vercel",
     "vite",
     "vitehub"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -28,61 +35,46 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.js",
       "default": "./dist/index.js"
-    },
-    "./cli": {
-      "types": "./dist/cli.d.ts",
-      "import": "./dist/cli.js",
-      "require": "./dist/cli.js",
-      "default": "./dist/cli.js"
     },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
       "import": "./dist/nuxt.js",
-      "require": "./dist/nuxt.js",
       "default": "./dist/nuxt.js"
+    },
+    "./operations": {
+      "types": "./dist/operations.d.ts",
+      "import": "./dist/operations.js",
+      "default": "./dist/operations.js"
     },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.js",
-      "require": "./dist/runtime.js",
       "default": "./dist/runtime.js"
-    },
-    "./runtime/dev": {
-      "types": "./dist/runtime/dev.d.ts",
-      "import": "./dist/runtime/dev.js",
-      "require": "./dist/runtime/dev.js",
-      "default": "./dist/runtime/dev.js"
     },
     "./runtime/kv": {
       "types": "./dist/runtime/kv.d.ts",
       "import": "./dist/runtime/kv.js",
-      "require": "./dist/runtime/kv.js",
       "default": "./dist/runtime/kv.js"
     },
     "./runtime/process": {
       "types": "./dist/runtime/process.d.ts",
       "import": "./dist/runtime/process.js",
-      "require": "./dist/runtime/process.js",
       "default": "./dist/runtime/process.js"
     },
     "./runtime/state": {
       "types": "./dist/runtime/state.d.ts",
       "import": "./dist/runtime/state.js",
-      "require": "./dist/runtime/state.js",
       "default": "./dist/runtime/state.js"
     },
     "./runtime/static": {
       "types": "./dist/runtime/static.d.ts",
       "import": "./dist/runtime/static.js",
-      "require": "./dist/runtime/static.js",
       "default": "./dist/runtime/static.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js",
-      "require": "./dist/vite.js",
       "default": "./dist/vite.js"
     },
     "./package.json": "./package.json"
@@ -90,7 +82,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "vp run --cache -t @vite-hub/schedule#build && node ../../node_modules/typescript-native/bin/tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/schedule#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/schedule#build && vp test"
   },
   "dependencies": {
@@ -98,7 +90,8 @@
     "cron-schedule": "catalog:workflow",
     "effect": "catalog:effect",
     "esbuild": "catalog:tooling",
-    "nostics": "catalog:runtime"
+    "nostics": "catalog:runtime",
+    "valibot": "catalog:runtime"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",

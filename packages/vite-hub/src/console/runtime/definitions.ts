@@ -20,15 +20,49 @@ export interface ConsoleRecordColumn {
   label: string
 }
 
+export interface ConsoleRecordActivity {
+  author: string
+  at: string
+  text: string
+}
+
 export interface ConsoleRecord {
   cells: Readonly<Record<string, string>>
   fields: readonly ConsoleDefinitionField[]
   id: string
   /** The Console can run this record when it represents a runnable Schedule Definition. */
   runnable?: boolean
+  /** Where the record lives in the app. `href` is an app path or an `https:` URL. */
+  link?: { href: string, label: string }
+  /** Entries in time order, such as the comments of a thread. */
+  activity?: readonly ConsoleRecordActivity[]
+}
+
+export interface ConsoleOperationColumn {
+  format?: "datetime" | "excerpt"
+  key: string
+  label: string
+}
+
+export interface ConsoleOperationFilter {
+  id: string
+  input: Readonly<Record<string, unknown>>
+  label: string
+}
+
+/** Mirrors `ViteHubConsoleOperationView`. */
+export interface ConsoleOperationView {
+  columns: readonly ConsoleOperationColumn[]
+  filters?: readonly ConsoleOperationFilter[]
+  kind: "operation-view"
+  link?: { label?: string, template: string, when?: { equals: string, path: string } }
+  notice: string
+  operation: string
+  pagination?: { limit: number, cursor: Readonly<Record<string, string>> }
 }
 
 export type ConsoleSectionView =
+  | ConsoleOperationView
   | { kind: "auth-management"; notice: string }
   | { kind: "definition-catalog", notice: string }
   | { columns: readonly ConsoleRecordColumn[], kind: "record-table", notice: string }
@@ -49,6 +83,8 @@ export interface ConsoleDocumentCollection {
   singularLabel?: string
   name: string
   path: string
+  /** Every glob of the collection, when it has several. The new-document form offers a folder for each. */
+  paths?: readonly string[]
   schema: Record<string, unknown>
   titleField?: string
   /** Comark components that bodies may use, for the body editor's insert menu. */
@@ -123,6 +159,7 @@ export interface ConsoleContributedSection {
 }
 
 export type ConsoleSectionContent =
+  | { kind: "operation-view" }
   | { kind: "auth-management" }
   | { definitions: readonly ConsoleDefinitionSummary[], kind: "definition-catalog" }
   | { kind: "record-table", records: readonly ConsoleRecord[] }
@@ -176,6 +213,37 @@ export function parseConsoleDefinitionFields(value: unknown): ConsoleDefinitionF
   })
 }
 
+function parseConsoleOperationView(view: Record<string, unknown>): ConsoleOperationView | undefined {
+  if (!text(view.operation) || !Array.isArray(view.columns) || !text(view.notice)) return undefined
+  const columns = view.columns.flatMap((entry): ConsoleOperationColumn[] => {
+    const column = record(entry)
+    if (!text(column?.key) || !text(column.label)) return []
+    return [{ key: column.key, label: column.label, ...(column.format === "datetime" || column.format === "excerpt" ? { format: column.format } : {}) }]
+  })
+  const filters = Array.isArray(view.filters)
+    ? view.filters.flatMap((entry): ConsoleOperationFilter[] => {
+        const filter = record(entry)
+        return text(filter?.id) && text(filter.label) && record(filter.input) ? [{ id: filter.id, input: { ...record(filter.input) }, label: filter.label }] : []
+      })
+    : []
+  const link = record(view.link)
+  const when = record(link?.when)
+  const pagination = record(view.pagination)
+  const cursor = record(pagination?.cursor)
+  const cursorPaths = Object.entries(cursor ?? {}).filter((entry): entry is [string, string] => text(entry[1]))
+  return {
+    columns,
+    kind: "operation-view",
+    notice: view.notice,
+    operation: view.operation,
+    ...(typeof pagination?.limit === "number" && Number.isInteger(pagination.limit) && pagination.limit > 0 && cursorPaths.length
+      ? { pagination: { limit: pagination.limit, cursor: Object.fromEntries(cursorPaths) } }
+      : {}),
+    ...(filters.length ? { filters } : {}),
+    ...(text(link?.template) ? { link: { template: link.template, ...(text(link.label) ? { label: link.label } : {}), ...(text(when?.path) && text(when.equals) ? { when: { equals: when.equals, path: when.path } } : {}) } } : {}),
+  }
+}
+
 function parseConsoleSectionView(value: unknown): ConsoleSectionView | undefined {
   const view = record(value)
   if (!text(view?.notice)) return undefined
@@ -185,6 +253,7 @@ function parseConsoleSectionView(value: unknown): ConsoleSectionView | undefined
     view.kind === "document-editor"
   )
     return { kind: view.kind, notice: view.notice }
+  if (view.kind === "operation-view") return parseConsoleOperationView(view)
   if (view.kind !== "record-table" || !Array.isArray(view.columns)) return undefined
   const columns = view.columns.flatMap((entry) => {
     const column = record(entry)
@@ -247,12 +316,35 @@ function parseConsoleRecords(value: unknown): ConsoleRecord[] {
     const row = record(entry)
     const cells = record(row?.cells)
     if (!row || !cells || !text(row.id)) return []
-    return [{
+    const parsed: ConsoleRecord = {
       cells: Object.fromEntries(Object.entries(cells).filter((cell): cell is [string, string] => text(cell[1]))),
       fields: parseConsoleDefinitionFields(row.fields),
       id: row.id,
       runnable: row.runnable === true ? true : undefined,
-    }]
+    }
+    const link = parseConsoleRecordLink(row.link)
+    if (link) parsed.link = link
+    const activity = parseConsoleRecordActivity(row.activity)
+    if (activity.length) parsed.activity = activity
+    return [parsed]
+  })
+}
+
+/** A record link that the Console may open: an app path, or an `https:` URL. Other schemes, such as `javascript:`, drop. */
+export function parseConsoleRecordLink(value: unknown): ConsoleRecord["link"] {
+  const link = record(value)
+  if (!link || !text(link.href) || !text(link.label)) return undefined
+  if (!/^\/(?!\/)/.test(link.href) && !/^https:\/\//i.test(link.href)) return undefined
+  // Browsers normalize backslashes and strip tabs/newlines before resolving app paths.
+  if (link.href.startsWith("/") && /[\\\t\n\r]/.test(link.href)) return undefined
+  return { href: link.href, label: link.label }
+}
+
+export function parseConsoleRecordActivity(value: unknown): ConsoleRecordActivity[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry) => {
+    const item = record(entry)
+    return item && text(item.author) && text(item.at) && text(item.text) ? [{ author: item.author, at: item.at, text: item.text }] : []
   })
 }
 
@@ -292,6 +384,7 @@ export function parseConsoleDocumentCollections(value: unknown): ConsoleDocument
       path: collection.path,
       schema,
     }
+    if (Array.isArray(collection.paths) && collection.paths.every(text)) parsed.paths = [...collection.paths]
     if (text(collection.titleField)) parsed.titleField = collection.titleField
     if (text(collection.singularLabel) && collection.singularLabel.trim()) parsed.singularLabel = collection.singularLabel
     const components = parseConsoleDocumentComponents(collection.components)
@@ -317,6 +410,7 @@ export function parseConsoleSectionContent(value: unknown, section: string): Con
     const setup = parseConsoleDocumentSetup(source.setup)
     return setup ? { collections: parseConsoleDocumentCollections(source.collections), kind: "document-editor", setup } : { collections: parseConsoleDocumentCollections(source.collections), kind: "document-editor" }
   }
+  if (source.kind === "operation-view") return { kind: "operation-view" }
   if (source.kind === "record-table") {
     return Array.isArray(source.records) ? { kind: "record-table", records: parseConsoleRecords(source.records) } : undefined
   }

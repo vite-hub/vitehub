@@ -22,6 +22,7 @@ icon: i-lucide-code-2
 | `contentSource` from `vite-hub/content` | Adapt one Source and set Comark options such as `prefix` and `schema`. |
 | `defineContentHandler` from `vite-hub/content` | Adapt a Content runtime to an H3 or Nitro route in another server. |
 | `createContentClient`, `defineContentClientPlugin` from `vite-hub/content/client` | Use or extend the typed Comark Content client. |
+| `contentField`, `formatContentField`, `parseContentField` from `vite-hub/content/client` | Mark the element that renders a field, and read the [field address](#field-addresses) back. |
 | `comark-content/database/*`, `comark-content/plugins/*`, `comark-content/sources/*` | Comark databases, parser and search plugins, and native Comark Sources. |
 
 Libraries can install `@vite-hub/content` and use the matching `@vite-hub/content`, `@vite-hub/content/client`, and `@vite-hub/content/presets/cms` imports. `documents` and `optional` come from `@vite-hub/content/collections`, which needs `@vite-hub/workspace`. A read-only Content runtime does not install Workspace or Database. Without `vitehub()`, add `hubContent()` from `@vite-hub/content/vite` next to the Workspace, Database, and Blob plugins so the `cms` preset gets its Workspace, tables, and, when the app has none, its Database. Only `vitehub()` turns those plugins on for you.
@@ -184,16 +185,17 @@ await posts.remove('old-post')
 | Option | Behavior |
 | --- | --- |
 | `ifDigest` | The document digest you edited on `draft`. `null` requires that the document does not exist yet. Omit it to overwrite the draft. |
+| `ifPublishedDigest` | The digest you reviewed on `published`, or `null` if absent. On the GitHub store, explicitly replaces this document's publish base after you reapply your edit to the published version. A changed published ref refuses the save; `ifDigest` still protects the draft independently. |
 | `message` | Revision message. Defaults to a message such as `Save posts/hello`. |
 | `metadata` | JSON-safe revision metadata, such as the author. Content reserves the `content` key. |
 | `session` | The caller's [session](/docs/content/editing-together) token. Its own edit lease does not block the write, and the write renews it. |
 | `lease` | `'override'` writes even while another session holds the edit lease. Without it, the write fails with `CONTENT_LEASE_HELD` while another session holds a live lease. |
 
-Saving content identical to the draft keeps the current draft revision. A first save on an empty draft starts the draft from `published`, so no published file is lost.
+Saving content identical to the draft keeps the current draft revision unless `ifPublishedDigest` is supplied to record a reviewed base. A first save on an empty draft starts the draft from `published`, so no published file is lost.
 
 ### Conflicts
 
-Saves of different documents never conflict. When another save moved the draft head, Content commits again on the new head. A save fails with `WORKSPACE_CONFLICT` only when `ifDigest` no longer matches this document. The error `details` carry `collection`, `id`, `path`, `ref: 'draft'`, `expected`, and `actual`. Load the document again, merge, and save with the new digest.
+When another save moved the draft head, Content commits again on the new head. A save fails with `WORKSPACE_CONFLICT` when `ifDigest` no longer matches this document. The error `details` carry `collection`, `id`, `path`, `ref: 'draft'`, `expected`, and `actual`. Load the document again, merge, and save with the new digest. With `ifPublishedDigest`, the published version must also match and its branch must stay at the checked revision until the save commits; otherwise the conflict names the published ref.
 
 ### Status
 
@@ -204,7 +206,9 @@ Saves of different documents never conflict. When another save moved the draft h
 | `changed` | Published, with unpublished draft changes. |
 | `deleted` | Removed from the draft, still published until the next `publish()`. |
 
-`status(id)` returns `{ collection, id, state, draft, published, issues?, schedule? }`, where `issues` counts the field issues of the draft, where `draft` and `published` are the document digests on each ref or `null`, and `schedule` is the document's [scheduled publish](/docs/content/scheduling#statuses), if any. It returns `null` when the document exists on neither ref. An empty draft mirrors `published`, so before the first save `draft` equals `published`.
+`status(id)` returns `{ collection, id, state, draft, published, issues?, schedule?, conflict? }`, where `issues` counts the field issues of the draft, where `draft` and `published` are the document digests on each ref or `null`, and `schedule` is the document's [scheduled publish](/docs/content/scheduling#statuses), if any. It returns `null` when the document exists on neither ref. An empty draft mirrors `published`, so before the first save `draft` equals `published`.
+
+On the [GitHub store](/docs/content/cms-preset#github-store), `conflict: { base }` marks a document that the draft and the published branch both changed since the draft took it from published, for example with a Git commit. `base` is the digest that the draft started from. `publish()` refuses the document until a save with `ifPublishedDigest` records the published version that the person reviewed. `status()` reports it before anyone tries to publish.
 
 ### Publish
 
@@ -281,7 +285,20 @@ An unknown collection, a `user` that is not an object or `null`, or an `actor` w
 await content.preview.enable(event, { maxAge: 900 }) // sets the cookie: { setCookie, expiresAt }
 content.preview.disable(event)                       // clears it
 await content.preview.run(event, () => posts.get('hello')) // draft when the event has a valid cookie
-content.preview.active()                             // true inside a preview request
+content.preview.active()                             // true with a valid preview cookie
+await content.preview.sign({ collection: 'posts', id: 'hello', maxAge: 900 }) // a preview frame token for one document
+content.preview.frame()                              // { collection, id, document? } in a preview frame
 ```
 
-A request with a valid preview cookie reads `draft` through every Content read above. See [Draft preview](/docs/content/preview) for the signing key, the cookie, and caching.
+A request with a valid preview cookie reads `draft` through every Content read above. A preview frame reads the draft of its one document through collection `get()` and `list()`, and `published` everywhere else. A request with `?vitehub-content-published` reads `published` even with the cookie. See [Draft preview](/docs/content/preview) for the signing key, the cookie, and caching.
+
+## Field addresses
+
+`contentField()` returns the `data-content-field` attribute for the element that renders one field. Tools on the page read it to find the document and field behind the text. [Comments](/docs/comments/configure#mark-content-fields) uses it to edit the text in place and save a draft.
+
+```vue
+<h1 v-bind="contentField('about', 'hero.title')">{{ about.hero.title }}</h1>
+<span v-bind="contentField('customers', customer.id, 'name')">{{ customer.data.name }}</span>
+```
+
+The address is `<collection>[:<id>]#<field.path>`, such as `about#hero.title` for a singleton or `customers:acme#name` for a document. `formatContentField()` throws a `TypeError` for a name or path that the format cannot hold. `parseContentField()` returns `{ collection, id?, field }`, or `undefined`.

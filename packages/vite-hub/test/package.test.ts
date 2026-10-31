@@ -100,6 +100,7 @@ const consolidatedOwnerExports = new Set([
 ]);
 
 const lowLevelOwnerExports = new Set([
+  "@vite-hub/comments/testing",
   "@vite-hub/agent/ai-sdk",
   "@vite-hub/agent/cloudflare/state",
   "@vite-hub/agent/env-identity",
@@ -114,24 +115,34 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/blob/config",
   "@vite-hub/blob/errors",
   "@vite-hub/blob/served",
+  "@vite-hub/comments/client",
+  "@vite-hub/comments/testing",
   "@vite-hub/sandbox/ssh",
   "@vite-hub/database/config",
+  "@vite-hub/database/connect",
+  "@vite-hub/database/connect/node",
   "@vite-hub/env/seal",
   "@vite-hub/kv/errors",
+  "@vite-hub/realtime/client",
   "@vite-hub/ui/primitive-rail",
   "@vite-hub/workspace/source-metadata",
 ]);
 
 const generatedRuntimeOwnerExports = new Set([
+  "@vite-hub/comments/operations",
   "@vite-hub/runtime/shutdown",
   "@vite-hub/agent/runtime/empty-registry",
   "@vite-hub/agent/runtime/invocations-dev",
+  "@vite-hub/agent/operations",
   "@vite-hub/agent/runtime/workflow",
   "@vite-hub/agent/server/registry",
   "@vite-hub/auth/runtime/console",
-  "@vite-hub/blob/runtime/dev",
+  "@vite-hub/blob/operations",
   "@vite-hub/blob/runtime/state",
-  "@vite-hub/content/runtime/dev",
+  "@vite-hub/comments/runtime/connect",
+  "@vite-hub/comments/runtime/connect/node",
+  "@vite-hub/comments/runtime/console",
+  "@vite-hub/content/operations",
   "@vite-hub/database/runtime/agent",
   "@vite-hub/database/runtime/cloudflare-env",
   "@vite-hub/database/runtime/d1",
@@ -143,23 +154,26 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/database/runtime/virtual-databases",
   "@vite-hub/database/runtime/virtual-schema",
   "@vite-hub/content/runtime/console",
+  "@vite-hub/email/operations",
   "@vite-hub/email/runtime/console",
   "@vite-hub/kv/runtime/cloudflare-kv",
-  "@vite-hub/kv/runtime/dev",
+  "@vite-hub/kv/operations",
   "@vite-hub/kv/runtime/upstash-driver",
+  "@vite-hub/queue/operations",
   "@vite-hub/queue/runtime/hosted",
   "@vite-hub/rate-limit/runtime",
-  "@vite-hub/rate-limit/runtime/console",
+  "@vite-hub/rate-limit/operations",
   "@vite-hub/sandbox/task/runtime/empty-registry",
   "@vite-hub/sandbox/task/runtime/provider-loader",
   "@vite-hub/sandbox/task/runtime/state",
-  "@vite-hub/schedule/runtime/dev",
+  "@vite-hub/schedule/operations",
   "@vite-hub/schedule/runtime/state",
   "@vite-hub/schedule/runtime/static",
+  "@vite-hub/workflow/operations",
+  "@vite-hub/workspace/operations",
   "@vite-hub/workflow/runtime/cloudflare-runner",
   "@vite-hub/workflow/runtime/cloudflare-shared",
   "@vite-hub/workflow/runtime/cloudflare-vite",
-  "@vite-hub/workflow/runtime/dev",
   "@vite-hub/workflow/runtime/execute",
   "@vite-hub/workflow/runtime/openworkflow",
   "@vite-hub/workflow/runtime/openworkflow-worker",
@@ -283,7 +297,10 @@ describe("framework package contract", () => {
       .sort();
     const exportedForwarders = new Set(manifestForwarders.map(({ source }) => source));
 
-    expect(sourceForwarders).toEqual([...exportedForwarders].sort());
+    // This build helper is shared internally, without a public framework export.
+    expect(sourceForwarderTargets(readFileSync(`${packageRoot}/src/nitro-plugin.ts`, "utf8")))
+      .toEqual(["@vite-hub/internal/build/included-nitro"]);
+    expect(sourceForwarders).toEqual([...exportedForwarders, "src/nitro-plugin.ts"].sort());
     expect(
       manifestEntries
         .filter(({ source }) => !exportedForwarders.has(source))
@@ -294,7 +311,7 @@ describe("framework package contract", () => {
       "./_internal/agent/invocations",
       "./_internal/database/runtime/state",
       "./_internal/kv/runtime/disabled-upstash",
-      "./_internal/task/runtime/dev",
+      "./_internal/task/operations",
       "./agent",
       "./agent/capabilities",
       "./agent/invocations/database",
@@ -308,12 +325,16 @@ describe("framework package contract", () => {
       "./console/definitions",
       "./console/documents",
       "./console/env",
-      "./console/kv",
       "./console/sections",
       "./console/server",
       "./console/ui",
       "./doctor",
+      "./logs",
+      "./logs/host",
+      "./logs/memory",
+      "./logs/source",
       "./nuxt",
+      "./operations",
       "./source/vite",
       "./task",
     ]);
@@ -741,16 +762,24 @@ describe("framework package contract", () => {
     const consoleClient = readFileSync(`${packageRoot}/${consoleClientFile}`, "utf8");
     expect(consoleClient).toContain('"bot":{"width":24');
     expect(consoleClient).toContain('"folder-tree":{"width":24');
-    expect(consoleClient).toContain("prefers-color-scheme: dark");
-    expect(consoleClient).toMatch(/classList\.toggle\(["`]dark["`]/);
+    // Shared appearance and route code may move out of the entry when route chunks change.
+    const consoleClientModules = [
+      consoleClient,
+      ...globSync("dist/console/runtime/public/console/chunks/*.js", { cwd: packageRoot })
+        .map(file => readFileSync(`${packageRoot}/${file}`, "utf8")),
+    ];
+    const consoleAppearance = consoleClientModules.find(source => source.includes("vitehub-console:appearance"));
+    expect(consoleAppearance).toContain("prefers-color-scheme: dark");
+    expect(consoleAppearance).toMatch(/classList\.toggle\(["`]dark["`]/);
     // The Console appearance module is the only color scheme writer. Nuxt UI color mode stays off.
-    expect(consoleClient).toContain("vitehub-console:appearance");
+    expect(consoleAppearance).not.toContain("vueuse-color-scheme");
     expect(consoleClient).not.toContain("vueuse-color-scheme");
-    expect(consoleClient).toContain("ViteHub");
-    expect(consoleClient).toContain("/agents/:agent/invocations/:invocation");
-    expect(consoleClient).toContain("/blob");
-    expect(consoleClient).toContain("/databases");
-    expect(consoleClient).toContain("/kv");
+    const consoleClientCode = consoleClientModules.join("\n");
+    expect(consoleClientCode).toContain("ViteHub");
+    expect(consoleClientCode).toContain("/agents/:agent/invocations/:invocation");
+    expect(consoleClientCode).toContain("/blob");
+    expect(consoleClientCode).toContain("/databases");
+    expect(consoleClientCode).toContain("/kv");
     // Owner-contributed sections get their routes from the navigation response at runtime.
     expect(consoleClient).toContain(".addRoute(");
     expect(consoleClient).toContain(".hasRoute(");
@@ -795,7 +824,7 @@ describe("framework package contract", () => {
     expect(manifest.dependencies).not.toHaveProperty("@googleapis/drive");
   });
 
-  it("configures Nitro with Console files from the distributed package", async () => {
+  it("configures distributed Console files without OAuth discovery for open access", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-distributed-console-"));
     try {
       await writeFile(join(root, "package.json"), "{}\n", "utf8");
@@ -828,7 +857,7 @@ describe("framework package contract", () => {
       if (!Array.isArray(handlers) || !Array.isArray(publicAssets)) {
         throw new TypeError("Expected the distributed Console Nitro configuration.");
       }
-      expect(handlers).toHaveLength(9);
+      expect(handlers).toHaveLength(11);
       expect(handlers.map((registration) => Reflect.get(Object(registration), "route"))).toEqual([
         "/api/_vitehub/console/status",
         "/api/_vitehub/console/usage",
@@ -839,6 +868,8 @@ describe("framework package contract", () => {
         "/_vitehub/env/manage",
         "/_vitehub/channels/replay",
         "/_vitehub/schedules/run",
+        "/_vitehub/mcp",
+        "/_vitehub/page/session",
       ]);
       for (const registration of handlers) {
         const handler = Reflect.get(Object(registration), "handler");
@@ -846,12 +877,21 @@ describe("framework package contract", () => {
         expect(handler).toContain("/dist/console/runtime/server/");
         expect(existsSync(handler), handler).toBe(true);
       }
-      expect(publicAssets).toHaveLength(1);
-      const publicAssetDir = Reflect.get(Object(publicAssets[0]), "dir");
-      if (String(publicAssetDir) !== publicAssetDir)
-        throw new TypeError("Expected a Console public asset path.");
+      expect(publicAssets).toHaveLength(3);
+      const [publicAssetDir, skillsDir] = publicAssets.map((asset) => Reflect.get(Object(asset), "dir"));
+      if (String(publicAssetDir) !== publicAssetDir || String(skillsDir) !== skillsDir)
+        throw new TypeError("Expected Console public asset paths.");
       expect(publicAssetDir).toContain("/dist/console/runtime/public/console");
       expect(existsSync(publicAssetDir), publicAssetDir).toBe(true);
+      // The skills CLI reads this index from `<app>/_vitehub/.well-known/skills/index.json`.
+      const skillsIndex: { skills: Array<{ name: string, files: string[] }> } = JSON.parse(readFileSync(`${skillsDir}/index.json`, "utf8"));
+      expect(skillsIndex.skills.map((skill) => skill.name)).toEqual(["vitehub"]);
+      for (const file of skillsIndex.skills[0].files) expect(existsSync(`${skillsDir}/vitehub/${file}`), file).toBe(true);
+      expect(skillsIndex.skills[0].files).toContain("SKILL.md");
+      // The page tools loader, so the `console` page tool works without Comments.
+      const loaderDir = Reflect.get(Object(publicAssets[2]), "dir");
+      expect(Reflect.get(Object(publicAssets[2]), "baseURL")).toBe("/_vitehub/page/assets");
+      expect(existsSync(`${String(loaderDir)}/loader.js`), String(loaderDir)).toBe(true);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

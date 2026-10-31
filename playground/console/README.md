@@ -27,6 +27,16 @@ Blob, Databases, Email, Rate Limits, Sandboxes, Workspaces, Schedules, Workflows
 This playground does not change the Console routes generated for Vite
 or Nuxt applications.
 
+To check Content loading and Rich/Source editing, start this playground on a fixed port and run the browser regression:
+
+```bash
+pnpm exec vp dev --config playground/console/vite.config.ts --host 127.0.0.1 --port 3087
+# In another terminal, from the repository root:
+CONSOLE_TEST_URL=http://127.0.0.1:3087 node --test packages/vite-hub/test/console-content.browser.mjs
+```
+
+The check uses installed Playwright Chromium, the real Console components, and intercepted RPC responses with nine synthetic documents. Saves and publishes change only the fixture in that browser test. It covers delayed and failed loads, retry, empty filters, Rich hydration, mode switching, failed saves and publishes, keyboard controls, and mobile layouts. Set `CONSOLE_TEST_ARTIFACTS` to a project-local directory to save screenshots and element bounds. Stop the dev server when the check ends.
+
 To see an error state, set the `playground-fail` cookie to `<route>=<status>` pairs. A route is the path after
 `/api/_vitehub/console/`, and it also matches the paths under it:
 
@@ -46,6 +56,6 @@ cloudflared tunnel --url http://127.0.0.1:5173
 Quick Tunnel URLs are public and have no uptime guarantee. Keep playground data
 synthetic.
 
-Auth serves 1,048 synthetic users from `auth-fixture.ts`. It covers Users, profile details, Sessions, Organizations, and Agents, with a plan field, a computed project count, read-only roles, and the OAuth provider's grant revocation limit. Ban, unban, field edits, removal, and session revocation change only this in-memory fixture. Restart the playground to reset it. The real Better Auth fixture is `packages/auth/test/console.test.ts`.
+Auth serves 1,048 synthetic users from `auth-fixture.ts`. It covers Users, profile details, Sessions, Organizations, and Agents, with a plan field, a computed project count, read-only roles, and the OAuth provider's grant revocation limit. Ban, unban, field edits, removal, and session revocation change only this in-memory fixture. Impersonate is on: start it from a non-admin user, and the playground root returns to the Console, where the Auth section shows the banner and **Stop impersonating**. Admins and the banned user show Better Auth's refusal. Restart the playground to reset it. The real Better Auth fixture is `packages/auth/test/console.test.ts`.
 
 Auth opens on Overview. The fixture has 30 days of sign-ins and sign-ups, sign-in methods, and recent events across all Activity groups. Activity supports subject user IDs and cursor pagination. User panels include their recent events. To check both pages without event storage, restart with `VITEHUB_PLAYGROUND_AUTH_EVENTS=off pnpm exec vp run console:dev`. Database totals remain visible and both pages show the setup snippet. Omit the variable to restore events.

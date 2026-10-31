@@ -12,14 +12,10 @@ import { normalizeHosting } from "@vite-hub/internal/hosting"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 
 import { normalizeWorkflowOptions } from "./config.ts"
-import { registerWorkflowDevEndpoint } from "./dev-endpoint.ts"
-import { workflowDevRuntimeRoute } from "./dev-support.ts"
-import { writeWorkflowDevFiles } from "./internal/dev-runtime.ts"
-import type { WorkflowDevGeneratedState } from "./internal/dev-runtime.ts"
-import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
+import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import { inspectWorkflowDefinitions } from "./inspect.ts"
 import { discoverWorkflowDevDefinitions, workflowDevGeneratedDir, writeWorkflowDevRegistryFiles } from "./internal/dev-registry.ts"
-import { createCloudflareWorkflowNitroConfig, createOptionalViteDevtoolsPlugin, createVercelWorkflowTransformPlugin, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, resolveVercelWorkflowWorld, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
+import { createCloudflareWorkflowNitroConfig, createOptionalViteDevtoolsPlugin, createVercelWorkflowTransformPlugin, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, resolveVercelWorkflowWorld, resolveWorkflowProviderOutputs, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
 
 import type { ResolvedWorkflowOptions, WorkflowModuleOptions } from "./types.ts"
 import type { ProviderDeploymentOutputGeneration, ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
@@ -40,7 +36,8 @@ interface WorkflowNitroConfigOptions {
 }
 
 export type WorkflowVitePlugin = Plugin & {
-  vitehub?: ViteHubInspectionPluginMetadata & ViteHubCliPluginMetadata & {
+  vitehub?: ViteHubInspectionPluginMetadata & {
+    operations?: readonly OperationContributionEntry[]
     workflow?: {
       createNitroConfig?: (options: WorkflowNitroConfigOptions) => Promise<Record<string, unknown>>
       prepareScheduleRuntime?: (artifactDir?: string, config?: ResolvedConfig) => Promise<{
@@ -248,16 +245,6 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     }
   }
 
-  function devGeneratedState(): WorkflowDevGeneratedState {
-    try {
-      const config = normalizeWorkflowOptions(workflow, { hosting: internalOptions.hosting ?? "vercel" })
-      return { configuredProvider: config ? config.provider : null }
-    }
-    catch (error) {
-      return { configError: error instanceof Error ? error.message : String(error), configuredProvider: null }
-    }
-  }
-
   // Provider servers install the discovered Workflow registry in production.
   // In `vite dev`, a generated Nitro plugin installs it and the resolved runtime configuration.
   let devRootDir: string | undefined
@@ -306,20 +293,10 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         devStartupPlugin = plugin
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
         kit.addPlugin(plugin, "start")
-        const { handler } = await writeWorkflowDevFiles({ ...devGeneratedState(), importBase: internalOptions.importBase, projectRoot: devRootDir })
-        kit.addHandler({ handler, route: workflowDevRuntimeRoute })
         Reflect.set(config, "nitro", kit.config)
       },
     },
     configureServer(server) {
-      if (resolved?.command === "serve") {
-        registerWorkflowDevEndpoint(server, {
-          nitroBaseURL: () => {
-            const baseURL = Reflect.get(Object(Reflect.get(resolved ?? {}, "nitro")), "baseURL")
-            return typeof baseURL === "string" ? baseURL : process.env.NITRO_APP_BASE_URL
-          },
-        })
-      }
       const rootDir = devRootDir
       const workflowConfig = devWorkflow
       if (!rootDir || !workflowConfig) return
@@ -410,7 +387,6 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         devRootDir = resolveViteHubProjectRoot(config.root, { projectRoot: typeof projectRoot === "string" ? projectRoot : undefined })
         devWorkflow = resolveDevWorkflow()
         await writeDevRegistry(devRootDir, devWorkflow ?? false)
-        await writeWorkflowDevFiles({ ...devGeneratedState(), importBase: internalOptions.importBase, projectRoot: devRootDir })
       }
     },
     configEnvironment(name, config) {
@@ -422,9 +398,11 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
       }
     },
     vitehub: {
-      cli: async () => (await import("./cli.ts")).createWorkflowCliContributor(),
+      // The Console, `vitehub workflow`, and agents run these. The app imports them through `vite-hub`.
+      operations: [{ export: "workflowOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).workflowOperations, module: "@vite-hub/workflow/operations" }],
       inspect: () => {
         const options = normalizeWorkflowOptions(workflow, { hosting: internalOptions?.hosting ?? "vercel" })
+        const outputs = resolveWorkflowProviderOutputs(workflow, internalOptions?.hosting ?? "vercel")
         return {
           definitions: options ? [{
             kind: "workflow",
@@ -436,8 +414,8 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
           }] : [],
           providerOutput: (() => {
           const rootDir = resolveViteHubProjectRoot(resolved?.root ?? process.cwd())
-          if (options?.provider === "cloudflare") return [{ description: "Generated Cloudflare Workflow worker", owner: "workflow", path: resolve(createDefaultCloudflareOutputRoot(rootDir), "worker.mjs") }]
-          if (options?.provider === "vercel") return [{ description: "Generated Vercel Workflow function", owner: "workflow", path: resolve(createDefaultVercelOutputRoot(rootDir), "functions", resolveNitroVercelFunctionName(resolved ?? {}, "workflow") ?? "__server.func", "index.mjs") }]
+          if (outputs.cloudflare) return [{ description: "Generated Cloudflare Workflow worker", owner: "workflow", path: resolve(createDefaultCloudflareOutputRoot(rootDir), "worker.mjs") }]
+          if (outputs.vercel) return [{ description: "Generated Vercel Workflow function", owner: "workflow", path: resolve(createDefaultVercelOutputRoot(rootDir), "functions", resolveNitroVercelFunctionName(resolved ?? {}, "workflow") ?? "__server.func", "index.mjs") }]
           return []
           })(),
         }
@@ -530,7 +508,9 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
           vercel: providerRuntimeImportAliases("vercel", generation, buildProviderOutput),
         }
         const providerSources = discoverWorkflowProviderSources(config.root, workflowServerDirs)
-        const retainedSources = await retainProviderOutputSources({
+        const outputs = resolveWorkflowProviderOutputs(workflowOptions, internalOptions?.hosting)
+        // Only Provider Output bundles read retained sources, and a snapshot of every alias root is slow in large apps.
+        const retainedSources = !outputs.cloudflare && !outputs.vercel ? { resolve: (path: string) => path } : await retainProviderOutputSources({
           artifactDir: resolve(artifactDir, "sources"),
           paths: [
             ...Object.keys(importAliases),

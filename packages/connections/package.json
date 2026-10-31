@@ -3,14 +3,16 @@
   "version": "0.1.0",
   "description": "Provider OAuth and API key connections with typed, governed, and audited calls for ViteHub.",
   "keywords": [
-    "connections",
-    "oauth",
     "api-key",
+    "connections",
     "gmail",
+    "oauth",
+    "oauth2",
+    "typescript",
     "vite",
     "vitehub"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -36,37 +38,36 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./agent": {
       "types": "./dist/agent.d.ts",
       "import": "./dist/agent.js",
-      "require": "./dist/agent.js",
       "default": "./dist/agent.js"
+    },
+    "./chatgpt": {
+      "types": "./dist/chatgpt.d.ts",
+      "import": "./dist/chatgpt.js",
+      "default": "./dist/chatgpt.js"
     },
     "./google": {
       "types": "./dist/google.d.ts",
       "import": "./dist/google.js",
-      "require": "./dist/google.js",
       "default": "./dist/google.js"
     },
     "./http": {
       "types": "./dist/http.d.ts",
       "import": "./dist/http.js",
-      "require": "./dist/http.js",
       "default": "./dist/http.js"
     },
     "./server": {
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js",
-      "require": "./dist/server.js",
       "default": "./dist/server.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js",
-      "require": "./dist/vite.js",
       "default": "./dist/vite.js"
     },
     "./package.json": "./package.json"
@@ -75,12 +76,13 @@
     "build": "vp pack",
     "dev": "vp pack --watch",
     "generate": "node scripts/generate-google.ts gmail v1",
-    "typecheck": "vp run --cache -t @vite-hub/connections#build && node ../../node_modules/typescript-native/bin/tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/connections#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
     "test": "vp run -t vite-hub#build && vp run -t @vite-hub/connections#build && vp test"
   },
   "dependencies": {
     "@vite-hub/env": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
+    "jose": "catalog:auth",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs",
     "valibot": "catalog:runtime"

@@ -2,7 +2,7 @@ import { boxedPrimitive } from "./internal/boxed-primitive.ts"
 import { maxAgentInvocationListLimit as MAX_LIST_LIMIT, normalizeAgentInvocationListOptions } from "./invocations/list-options.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { searchableAgentInvocationText } from "./invocations/search.ts"
-import { createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
+import { consoleInvocationUrl, createTraceEventLog, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError, resolvePublicUrl } from "@vite-hub/runtime"
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
 import { parentInvocationTrace } from "./internal/invocation-scope.ts"
 import { abortLocalAgentInvocation, createAgentInvocationCancellationError, registerAgentInvocationCancellation } from "./internal/invocation-cancellation.ts"
@@ -12,7 +12,7 @@ import { failInterruptedAgentInvocations } from "./server/invocation-health.ts"
 
 import type { AgentInvocationCancellationDriver } from "./internal/invocation-cancellation.ts"
 import type { AgentInvocationStatus } from "./agent-invocation.ts"
-import type { AgentRunMetadata, AgentRuntimeConfig, AgentRuntimeContext, MaybePromise } from "./types.ts"
+import type { AgentInvocationReference, AgentRunMetadata, AgentRuntimeConfig, AgentRuntimeContext, MaybePromise } from "./types.ts"
 import type { RuntimeDiagnosticError, TraceEvent, TraceEventContentPolicy, TraceEventLog, TraceEventLogEntry, TraceEventPayload } from "@vite-hub/runtime"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { isWebhookQueueStop } from "./internal/webhook-queue.ts"
@@ -1393,6 +1393,19 @@ function assertInvocationId(id: string): void {
 export async function agentInvocationId(runId: string, agentName?: string): Promise<string> {
   assertInvocationId(runId)
   return await boundedIdentity(invocationIdentity(runId, agentName))
+}
+
+/** The Invocation ID and Console URL of a run. */
+export async function runInvocationReference(agentName: string | undefined, run: AgentRunMetadata | undefined): Promise<AgentInvocationReference | undefined> {
+  if (!run?.runId) return
+  try {
+    const id = await agentInvocationId(run.runId, agentName)
+    const origin = agentName ? resolvePublicUrl({ agentName }) : undefined
+    return { id, ...(origin && agentName ? { consoleUrl: consoleInvocationUrl(origin, agentName, id) } : {}) }
+  }
+  catch {
+    return undefined
+  }
 }
 
 /** Why a journaled Invocation cannot be started again with the same input. */

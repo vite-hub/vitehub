@@ -3,11 +3,14 @@
   "version": "0.1.0",
   "description": "Unified shell runtimes for ViteHub.",
   "keywords": [
+    "bash",
+    "command-execution",
     "just-bash",
     "shell",
+    "typescript",
     "vitehub"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -27,19 +30,16 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./providers/just-bash": {
       "types": "./dist/providers/just-bash.d.ts",
       "import": "./dist/providers/just-bash.js",
-      "require": "./dist/providers/just-bash.js",
       "default": "./dist/providers/just-bash.js"
     },
     "./workspace": {
       "types": "./dist/workspace.d.ts",
       "import": "./dist/workspace.js",
-      "require": "./dist/workspace.js",
       "default": "./dist/workspace.js"
     },
     "./package.json": "./package.json"
@@ -47,7 +47,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "vp run --cache -t @vite-hub/shell#build && node ../../node_modules/typescript-native/bin/tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/shell#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/shell#build && vp test"
   },
   "dependencies": {

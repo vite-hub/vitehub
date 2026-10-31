@@ -4,14 +4,17 @@
   "description": "Portable, isolated Sandboxes for ViteHub Agents, and Sandbox Tasks that run named package projects in them.",
   "keywords": [
     "agent",
+    "ai-agents",
     "cloudflare",
+    "code-execution",
     "runtime",
     "sandbox",
+    "typescript",
     "vercel",
     "vite",
     "vitehub"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -41,87 +44,74 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./_internal/cloudflare": {
       "types": "./dist/internal/cloudflare.d.ts",
       "import": "./dist/internal/cloudflare.js",
-      "require": "./dist/internal/cloudflare.js",
       "default": "./dist/internal/cloudflare.js"
     },
     "./_internal/toolchain": {
       "types": "./dist/internal/host-toolchain.d.ts",
       "import": "./dist/internal/host-toolchain.js",
-      "require": "./dist/internal/host-toolchain.js",
       "default": "./dist/internal/host-toolchain.js"
     },
     "./_internal/vercel": {
       "types": "./dist/internal/vercel.d.ts",
       "import": "./dist/internal/vercel.js",
-      "require": "./dist/internal/vercel.js",
       "default": "./dist/internal/vercel.js"
     },
     "./ssh": {
       "types": "./dist/ssh.d.ts",
       "import": "./dist/ssh.js",
-      "require": "./dist/ssh.js",
       "default": "./dist/ssh.js"
     },
     "./task": {
       "types": "./dist/task/index.d.ts",
       "import": "./dist/task/index.js",
-      "require": "./dist/task/index.js",
       "default": "./dist/task/index.js"
     },
     "./task/runtime/empty-registry": {
       "types": "./dist/task/runtime/empty-registry.d.ts",
       "import": "./dist/task/runtime/empty-registry.js",
-      "require": "./dist/task/runtime/empty-registry.js",
       "default": "./dist/task/runtime/empty-registry.js"
     },
     "./task/runtime/provider-loader": {
       "types": "./dist/task/runtime/provider-loader.d.ts",
       "import": "./dist/task/runtime/provider-loader.js",
-      "require": "./dist/task/runtime/provider-loader.js",
       "default": "./dist/task/runtime/provider-loader.js"
     },
     "./task/runtime/state": {
       "types": "./dist/task/runtime/state.d.ts",
       "import": "./dist/task/runtime/state.js",
-      "require": "./dist/task/runtime/state.js",
       "default": "./dist/task/runtime/state.js"
     },
     "./task/vite": {
       "types": "./dist/task/vite.d.ts",
       "import": "./dist/task/vite.js",
-      "require": "./dist/task/vite.js",
       "default": "./dist/task/vite.js"
     },
     "./package.json": "./package.json",
     "./_internal/task/runtime": {
       "types": "./dist/task/index.d.ts",
       "import": "./dist/task/index.js",
-      "require": "./dist/task/index.js",
       "default": "./dist/task/index.js"
     },
     "./_internal/task/runtime/providers/cloudflare": {
       "types": "./dist/task/runtime/providers/cloudflare.d.ts",
       "import": "./dist/task/runtime/providers/cloudflare.js",
-      "require": "./dist/task/runtime/providers/cloudflare.js",
       "default": "./dist/task/runtime/providers/cloudflare.js"
     },
     "./_internal/task/runtime/providers/vercel": {
       "types": "./dist/task/runtime/providers/vercel.d.ts",
       "import": "./dist/task/runtime/providers/vercel.js",
-      "require": "./dist/task/runtime/providers/vercel.js",
       "default": "./dist/task/runtime/providers/vercel.js"
     }
   },
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "vp run --cache -t @vite-hub/sandbox#build && node ../../node_modules/typescript-native/bin/tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/sandbox#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/sandbox#build && vp test"
   },
   "dependencies": {

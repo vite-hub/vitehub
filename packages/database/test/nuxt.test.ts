@@ -172,7 +172,7 @@ describe("Database Nuxt integration", () => {
           ],
         },
       },
-      modules: [expect.any(Function)],
+      modules: [expect.any(Function), expect.any(Function)],
       exportConditions: ["vitehub-hosted", "workerd"],
       handlers: [
         {
@@ -463,6 +463,116 @@ describe("Database Nuxt integration", () => {
     finally {
       await rm(rootDir, { force: true, recursive: true })
     }
+  })
+
+  // The first test also imports nitropack, which can take longer than the default timeout.
+  describe("a D1 binding that the project's wrangler.json also declares", { timeout: 30_000 }, () => {
+    /** Runs the Database module, then Nitro 2's real Cloudflare preset, which merges the project file into its output. */
+    async function writeWrangler(project: Record<string, unknown>, wrangler: Record<string, unknown> = {}, database: Record<string, unknown> = {}) {
+      const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-wrangler-"))
+      const definition = join(rootDir, "server/databases/config.ts")
+      await mkdir(dirname(definition), { recursive: true })
+      await writeFile(definition, 'import { defineDatabase } from "@vite-hub/database"\nexport default defineDatabase({ schema: {} })\n')
+      await writeFile(join(rootDir, "wrangler.json"), JSON.stringify(project))
+      const { hooks, nuxt } = createNuxt({
+        database: { driver: "d1", binding: "DB", databaseId: "content-id", databaseName: "content-db", ...database },
+        dev: false,
+        nitro: { preset: "cloudflare_module" },
+        rootDir,
+        vite: {},
+      })
+      await hubDb()(undefined, nuxt)
+      const nitroConfig: { cloudflare?: { wrangler?: Record<string, unknown> }, modules?: NitroModule[] } = { cloudflare: { wrangler } }
+      await callHook(hooks, "nitro:config", nitroConfig)
+      const { createNitro } = await import("nitropack")
+      const nitro = await createNitro({
+        cloudflare: { deployConfig: true, wrangler: nitroConfig.cloudflare!.wrangler },
+        compatibilityDate: "2026-10-01",
+        dev: false,
+        logLevel: 0,
+        modules: nitroConfig.modules,
+        preset: "cloudflare-module",
+        rootDir,
+      } as NitroConfig)
+      return {
+        rootDir,
+        async compile() {
+          try {
+            await nitro.hooks.callHook("compiled", nitro)
+            return JSON.parse(await readFile(join(nitro.options.output.serverDir, "wrangler.json"), "utf8")) as { d1_databases: unknown[], env?: Record<string, { d1_databases: unknown[] }> }
+          }
+          finally {
+            await nitro.close()
+          }
+        },
+      }
+    }
+    type NitroModule = Exclude<NonNullable<NitroConfig["modules"]>[number], string>
+    type NitroConfig = NonNullable<Parameters<typeof import("nitropack")["createNitro"]>[0]>
+
+    const generated = { binding: "DB", database_id: "content-id", database_name: "content-db", migrations_dir: ".vitehub/database/migrations/DB" }
+
+    it.each([
+      ["a full entry", { binding: "DB", database_id: "content-id", database_name: "content-db" }],
+      ["an entry without database_id", { binding: "DB", database_name: "content-db" }],
+      ["an entry without database_name", { binding: "DB", database_id: "content-id" }],
+    ])("keeps one binding for %s", async (_label, entry) => {
+      const { compile, rootDir } = await writeWrangler({ d1_databases: [entry, { binding: "OTHER", database_id: "other-id" }] })
+      try {
+        expect((await compile()).d1_databases).toEqual([generated, { binding: "OTHER", database_id: "other-id" }])
+      }
+      finally {
+        await rm(rootDir, { force: true, recursive: true })
+      }
+    })
+
+    it("fills fields ViteHub leaves out, but keeps its own migrations", async () => {
+      const { compile, rootDir } = await writeWrangler({ d1_databases: [{
+        binding: "DB",
+        database_id: "content-id",
+        migrations_dir: "old-migrations",
+        migrations_pattern: "old-migrations/**/*.sql",
+        migrations_table: "d1_migrations",
+        preview_database_id: "preview-id",
+      }] })
+      try {
+        expect((await compile()).d1_databases).toEqual([{ ...generated, migrations_table: "d1_migrations", preview_database_id: "preview-id" }])
+      }
+      finally {
+        await rm(rootDir, { force: true, recursive: true })
+      }
+    })
+
+    it("keeps one binding in each Wrangler environment", async () => {
+      const production = { binding: "DB", database_id: "production-id", database_name: "production-db" }
+      const { compile, rootDir } = await writeWrangler(
+        { env: { production: { d1_databases: [{ ...production, preview_database_id: "production-preview" }] } } },
+        { env: { production: { d1_databases: [production] } } },
+      )
+      try {
+        const wrangler = await compile()
+        expect(wrangler.d1_databases).toEqual([generated])
+        expect(wrangler.env?.production?.d1_databases).toEqual([{ ...production, preview_database_id: "production-preview" }])
+      }
+      finally {
+        await rm(rootDir, { force: true, recursive: true })
+      }
+    })
+
+    it.each([
+      ["database_id", { binding: "DB", database_id: "other-id" }],
+      ["database_name", { binding: "DB", database_name: "other-db" }],
+      ["preview_database_id", { binding: "DB", database_id: "content-id", preview_database_id: "preview-b" }],
+    ])("fails when the project binding names another %s", async (field, entry) => {
+      const database = field === "preview_database_id" ? { previewDatabaseId: "preview-a" } : {}
+      const { compile, rootDir } = await writeWrangler({ d1_databases: [entry] }, {}, database)
+      try {
+        await expect(compile()).rejects.toMatchObject({ code: "DATABASE_WRANGLER_BINDING_CONFLICT", message: expect.stringContaining(field) })
+      }
+      finally {
+        await rm(rootDir, { force: true, recursive: true })
+      }
+    })
   })
 
   it.each([
@@ -1713,7 +1823,7 @@ describe("Database Nuxt integration", () => {
         "#vitehub/database/definition-defaults": join(projectRoot, ".vitehub/database/definition-defaults.mjs"),
         "@vite-hub/database/drizzle": join(projectRoot, ".vitehub/database/cloudflare-runtime.mjs"),
       })
-      expect(nitroConfig.modules).toHaveLength(1)
+      expect(nitroConfig.modules).toHaveLength(2)
       if (resource === "inherited") return
       const defaultsFile = join(projectRoot, ".vitehub/database/definition-defaults.mjs")
       const { default: defaults } = await import(pathToFileURL(defaultsFile).href)

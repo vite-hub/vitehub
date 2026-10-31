@@ -1,5 +1,5 @@
 [
-  { "page": "getting-started/installation.md", "label": "package.json", "fixture": "installation/package.json", "verification": "json" },
+  { "page": "getting-started/installation.md", "label": "package.json", "fixture": "installation/package.fixture.json", "verification": "json" },
   { "page": "getting-started/installation.md", "label": "vite.config.ts", "fixture": "installation/vite.config.ts", "verification": "typecheck" },
   { "page": "getting-started/installation.md", "label": "tsconfig.json", "fixture": "installation/tsconfig.json", "verification": "json" },
   { "page": "getting-started/installation.md", "label": "nuxt.config.ts", "fixture": "installation/nuxt.config.ts", "verification": "typecheck" },

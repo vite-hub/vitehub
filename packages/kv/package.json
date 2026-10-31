@@ -4,12 +4,16 @@
   "description": "Vite-first key-value storage primitives and integration for ViteHub.",
   "keywords": [
     "cloudflare",
+    "key-value",
     "kv",
+    "redis",
+    "typescript",
+    "upstash",
     "vercel",
     "vite",
     "vitehub"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -29,49 +33,41 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./cli": {
       "types": "./dist/cli.d.ts",
       "import": "./dist/cli.js",
-      "require": "./dist/cli.js",
       "default": "./dist/cli.js"
     },
     "./errors": {
       "types": "./dist/errors.d.ts",
       "import": "./dist/errors.js",
-      "require": "./dist/errors.js",
       "default": "./dist/errors.js"
+    },
+    "./operations": {
+      "types": "./dist/operations.d.ts",
+      "import": "./dist/operations.js",
+      "default": "./dist/operations.js"
     },
     "./runtime/cloudflare-kv": {
       "types": "./dist/runtime/cloudflare-kv.d.ts",
       "import": "./dist/runtime/cloudflare-kv.js",
-      "require": "./dist/runtime/cloudflare-kv.js",
       "default": "./dist/runtime/cloudflare-kv.js"
-    },
-    "./runtime/dev": {
-      "types": "./dist/runtime/dev.d.ts",
-      "import": "./dist/runtime/dev.js",
-      "require": "./dist/runtime/dev.js",
-      "default": "./dist/runtime/dev.js"
     },
     "./runtime/upstash-driver": {
       "types": "./dist/runtime/upstash-driver.d.ts",
       "import": "./dist/runtime/upstash-driver.js",
-      "require": "./dist/runtime/upstash-driver.js",
       "default": "./dist/runtime/upstash-driver.js"
     },
     "./virtual": {
       "types": "./dist/virtual.d.ts",
       "import": "./dist/virtual.js",
-      "require": "./dist/virtual.js",
       "default": "./dist/virtual.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js",
-      "require": "./dist/vite.js",
       "default": "./dist/vite.js"
     },
     "./package.json": "./package.json"
@@ -79,7 +75,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "vp run --cache -t @vite-hub/kv#build && node ../../node_modules/typescript-native/bin/tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/kv#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/kv#build && vp test"
   },
   "dependencies": {

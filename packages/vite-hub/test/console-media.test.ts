@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createDriver } from "../../blob/src/drivers/fs.ts"
 import { createBlobStorage } from "../../blob/src/storage.ts"
 import { consoleBlobKey, consoleBlobRegistryKey, consoleBlobRootKey, consoleDocumentsKey, consoleDocumentsRegistryKey, consoleDocumentsRootKey, consoleSectionsKey, consoleSectionsRegistryKey, consoleSectionsRootKey } from "../src/console/internal.ts"
-import { consoleRpcHeader, consoleRpcMethods } from "../src/console/runtime/rpc.ts"
+import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAccess, withConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleBlob } from "../src/console/runtime/server/blob.ts"
 import { installConsoleDocuments } from "../src/console/runtime/server/documents.ts"
@@ -47,6 +47,7 @@ function actions(): ConsoleDocumentActions {
     list: unused,
     mediaAccess: () => roles[role]!,
     overview: unused,
+    preview: unused,
     publish: unused,
     raw: unused,
     references,
@@ -75,7 +76,7 @@ async function respond(request: Request): Promise<{ body: Record<string, unknown
 
 function media(action: string, body: Record<string, unknown> = {}, section = "content") {
   return respond(new Request("http://localhost/_vitehub/rpc/__call", {
-    body: JSON.stringify({ input: { body, method: "POST", query: { action, section } }, method: consoleRpcMethods.media }),
+    body: JSON.stringify({ input: { action, body, section }, operation: "media.action" }),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
     method: "POST",
   }))

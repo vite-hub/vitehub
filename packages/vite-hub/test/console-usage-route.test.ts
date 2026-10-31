@@ -22,7 +22,7 @@ it("registers one production Usage GET endpoint when configuration is reapplied"
     const config = { root, vitehubCliDiscovery: true, nitro: { handlers: [] as Array<{ handler: string, route: string, method?: string }> } }
     for (let pass = 0; pass < 2; pass++) await Reflect.apply(handler, plugin, [config, { command: "build", mode: "production" }])
     expect(config.nitro.handlers.filter(handler => handler.route === "/api/_vitehub/console/usage")).toEqual([
-      { handler: expect.stringMatching(/server\/usage\.get\.js$/), route: "/api/_vitehub/console/usage", method: "get" },
+      { handler: expect.stringMatching(/server\/usage\.get\.js$/), route: "/api/_vitehub/console/usage", method: "get", lazy: true },
     ])
   } finally { await rm(root, { recursive: true, force: true }) }
 })

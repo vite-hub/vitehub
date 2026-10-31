@@ -11,7 +11,9 @@ export const connectionInspectionSchema: v.GenericSchema<unknown, ConnectionInsp
   account: v.optional(v.object({ email: v.optional(v.string()), id: v.string() })),
   actions: v.array(v.object({ highRisk: v.boolean(), id: v.string(), method: v.string(), write: v.boolean() })),
   connectedAt: v.optional(v.string()),
-  credential: v.picklist(["api-key", "oauth2"]),
+  credential: v.picklist(["api-key", "oauth2", "chatgpt"]),
+  expiresAt: v.optional(v.string()),
+  chatgpt: v.optional(v.object({ clientId: v.optional(v.string()), hostId: v.string(), plan: v.picklist(["enabled", "disabled"]) })),
   name: v.string(),
   provider: v.string(),
   refreshedAt: v.optional(v.string()),
@@ -43,28 +45,29 @@ export function connectionStatusLabel(status: ConnectionInspection["status"]): s
   return { connected: "Connected", disconnected: "Not connected", reauth_required: "Reconnect required", revoked: "Revoked" }[status]
 }
 
-const statusColors = { connected: "success", disconnected: "neutral", reauth_required: "error", revoked: "neutral" } as const
+const statusTones = { connected: "success", disconnected: "neutral", reauth_required: "error", revoked: "neutral" } as const
 
-/** The badge color of a Connection status. Only a Connection that stopped working is red. */
-export function connectionStatusColor(status: ConnectionInspection["status"]): (typeof statusColors)[ConnectionInspection["status"]] {
-  return statusColors[status]
+/** The status dot tone of a Connection status. Only a Connection that stopped working is red. */
+export function connectionStatusTone(status: ConnectionInspection["status"]): (typeof statusTones)[ConnectionInspection["status"]] {
+  return statusTones[status]
 }
 
 /** How the Console connects a Connection: OAuth redirects to the provider, an API key is pasted. */
 export function connectionCredentialLabel(credential: ConnectionInspection["credential"]): string {
-  return { "api-key": "API key", oauth2: "OAuth" }[credential]
+  return { "api-key": "API key", oauth2: "OAuth", chatgpt: "ChatGPT plan" }[credential]
 }
 
 /** The one action that a Connection needs next. */
 export interface ConnectionNextStep {
   /** `connect` opens the provider authorization. `key` opens the API key form. */
-  readonly kind: "connect" | "key"
-  readonly label: "Connect" | "Reconnect" | "Replace key" | "Set key"
+  readonly kind: "connect" | "key" | "cli"
+  readonly label: "Connect" | "Reconnect" | "Replace key" | "Set key" | "Sign in with CLI"
 }
 
 /** The next step of a Connection, or `undefined` when it is connected with every declared scope. */
 export function connectionNextStep(connection: Pick<ConnectionInspection, "credential" | "scopes" | "status">): ConnectionNextStep | undefined {
   if (connection.status === "connected" && !connection.scopes.missing.length) return undefined
+  if (connection.credential === "chatgpt") return { kind: "cli", label: "Sign in with CLI" }
   const fresh = connection.status === "disconnected" || connection.status === "revoked"
   return connection.credential === "api-key"
     ? { kind: "key", label: fresh ? "Set key" : "Replace key" }

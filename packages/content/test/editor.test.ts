@@ -149,6 +149,16 @@ describe("contentMarkdownLoss", () => {
     expect(contentMarkdownLoss(await nodes("::counter{:count=\"3\" :open=\"true\"}\n::"), await nodes("::counter{count=\"3\" open=\"true\"}\n::"), { components: typed })).toBeUndefined()
   })
 
+  it("treats marks around exactly the same text as equal in either order", async () => {
+    // The editor keeps marks as a set on the text, so it cannot keep which one was written outside.
+    expect(await contentMarkdownLossOf("**[repros](https://x.dev)** here\n", "[**repros**](https://x.dev) here\n")).toBeUndefined()
+    expect(await contentMarkdownLossOf("[_Journey_](https://x.dev) by\n", "*[Journey](https://x.dev)* by\n")).toBeUndefined()
+    expect(await contentMarkdownLossOf("***[a](https://x.dev)***\n", "[***a***](https://x.dev)\n")).toBeUndefined()
+    // Marks around different text still differ.
+    expect(await contentMarkdownLossOf("**[a](https://x.dev) b**\n", "[**a**](https://x.dev) b\n")).toBeDefined()
+    expect(await contentMarkdownLossOf("[a](https://x.dev)\n", "[a](https://y.dev)\n")).toBeDefined()
+  })
+
   it("accepts a reference link written inline", async () => {
     expect(await contentMarkdownLossOf("A [link][ref].\n\n[ref]: https://example.com \"Title\"\n", "A [link](https://example.com){title=\"Title\"}.\n")).toBeUndefined()
   })

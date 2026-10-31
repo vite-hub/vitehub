@@ -180,8 +180,21 @@ body {
   border-radius: 0.125rem;
 }
 
-.docs-content [data-reka-tabs-content] .code-block-wrapper {
+/* The tabs frame the panel, so a code block inside it drops its own border and margin. */
+.docs-content [role="tabpanel"] .code-block-wrapper {
   margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+/* A note under the code keeps a rule above it and the same inset as the code. */
+.docs-content [role="tabpanel"] .code-block-wrapper:not(:last-child) {
+  border-bottom: 1px solid var(--ui-border);
+}
+
+.docs-content [role="tabpanel"] > * > :where(p, ul, ol) {
+  margin: 0;
+  padding: 0.75rem 1rem;
 }
 
 .docs-content [data-slot="root"].framework-tabs > [data-slot="list"] > [data-slot="trigger"]:first-of-type [data-slot="leadingIcon"] {
@@ -193,7 +206,7 @@ body {
   filter: grayscale(1);
 }
 
-.docs-content [data-reka-tabs-content] pre {
+.docs-content [role="tabpanel"] pre {
   border-width: 0 !important;
 }
 

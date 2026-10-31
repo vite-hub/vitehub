@@ -1,0 +1,32 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "forceConsistentCasingInFileNames": true,
+    "rootDir": "..",
+    "paths": {
+      "vite": [
+        "./node_modules/vite/dist/vite/node/index.d.ts"
+      ],
+      "@vite-hub/internal/*": [
+        "../internal/src/*.ts"
+      ]
+    },
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
+    ]
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.d.ts",
+    "test/**/*.ts",
+    "test/**/*.test-d.ts"
+  ],
+  "exclude": [
+    "dist",
+    "docs",
+    "examples",
+    "node_modules"
+  ]
+}

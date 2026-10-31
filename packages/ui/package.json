@@ -4,8 +4,11 @@
   "description": "AI interface primitives for Vue and Nuxt.",
   "keywords": [
     "ai",
+    "ai-chat",
     "chat",
     "nuxt",
+    "nuxt-module",
+    "typescript",
     "vitehub",
     "vue"
   ],
@@ -31,7 +34,6 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./attachment": {
@@ -74,6 +76,11 @@
       "import": "./dist/code-view.js",
       "default": "./dist/code-view.js"
     },
+    "./comments": {
+      "types": "./dist/comments.d.ts",
+      "import": "./dist/comments.js",
+      "default": "./dist/comments.js"
+    },
     "./connection-status": {
       "types": "./dist/connection-status.d.ts",
       "import": "./dist/connection-status.js",
@@ -97,7 +104,6 @@
     "./headless": {
       "types": "./dist/headless.d.ts",
       "import": "./dist/headless.js",
-      "require": "./dist/headless.js",
       "default": "./dist/headless.js"
     },
     "./markdown": {
@@ -128,7 +134,6 @@
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
       "import": "./dist/nuxt.js",
-      "require": "./dist/nuxt.js",
       "default": "./dist/nuxt.js"
     },
     "./patch-diff": {
@@ -139,7 +144,6 @@
     "./primitive-rail": {
       "types": "./dist/primitive-rail.d.ts",
       "import": "./dist/primitive-rail.js",
-      "require": "./dist/primitive-rail.js",
       "default": "./dist/primitive-rail.js"
     },
     "./prompt-input": {
@@ -175,7 +179,6 @@
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js",
-      "require": "./dist/vite.js",
       "default": "./dist/vite.js"
     },
     "./package.json": "./package.json",
@@ -184,7 +187,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "vp run --cache -t @vite-hub/ui#build && node ../../node_modules/typescript-native/bin/tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/ui#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/runtime#build && vp run -t @vite-hub/ui#build && vp test"
   },
   "dependencies": {
@@ -193,6 +196,7 @@
     "@nuxt/kit": "4.6.2",
     "@shikijs/langs": "4.5.0",
     "@types/node": "catalog:tooling",
+    "@vite-hub/comments": "workspace:*",
     "nostics": "catalog:runtime",
     "katex": "^0.17.0",
     "reka-ui": "catalog:ui",

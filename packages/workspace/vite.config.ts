@@ -33,10 +33,10 @@ export default defineConfig({
       "src/mountx.ts",
       "src/nitro.ts",
       "src/nuxt.ts",
+      "src/operations.ts",
       "src/runtime.ts",
       "src/runtime/workspace.ts",
       "src/internal/path.ts",
-      "src/runtime/history-dev.ts",
       "src/source-metadata.ts",
       "src/runtime/empty-assets-registry.ts",
       "src/runtime/empty-registry.ts",
@@ -56,14 +56,12 @@ export default defineConfig({
         "runtime/empty-registry",
         "runtime/state",
         "runtime/workspace",
-        "runtime/history-dev",
         "providers/github/store",
       ],
       customExports(exports) {
         exports["./internal/runtime/assets"] = "./dist/runtime/assets.js";
         exports["./internal/runtime/hosted"] = "./dist/hosted.js";
         exports["./internal/runtime/hosted-vercel-blob"] = "./dist/hosted-vercel-blob.js";
-        exports["./internal/runtime/history-dev"] = "./dist/runtime/history-dev.js";
         exports["./internal/runtime/state"] = "./dist/runtime/state.js";
         exports["./internal/runtime/workspace"] = "./dist/runtime/workspace.js";
         exports["./internal/stores/github"] = "./dist/providers/github/store.js";
@@ -73,13 +71,7 @@ export default defineConfig({
             if (typeof value !== "string" || !value.endsWith(".js")) {
               return [key, value];
             }
-            const types = value.replace(/\.js$/, ".d.ts");
-            // drizzle-kit loads Database schemas through require(), and Database Definitions and contributed
-            // tables import workspaceHistorySchema from this subpath.
-            return [
-              key,
-              key === "./blob-database" ? { types, import: value, require: value, default: value } : { types, import: value },
-            ];
+            return [key, { types: value.replace(/\.js$/, ".d.ts"), import: value }];
           }),
         ));
       },

@@ -25,6 +25,8 @@ export type {
   ConnectionApprovalPage,
   ConnectionApprovalStatus,
   ConnectionCallOptions,
+  ConnectionChatGPTProvider,
+  ConnectionChatGPTDefinition,
   ConnectionClient,
   ConnectionClientTree,
   ConnectionDefinition,

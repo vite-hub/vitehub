@@ -7,9 +7,10 @@
     "capabilities",
     "policy",
     "runtime",
+    "typescript",
     "vitehub"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -34,43 +35,36 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./h3": {
       "types": "./dist/h3.d.ts",
       "import": "./dist/h3.js",
-      "require": "./dist/h3.js",
       "default": "./dist/h3.js"
     },
     "./internal/execution-budget": {
       "types": "./dist/internal/execution-budget.d.ts",
       "import": "./dist/internal/execution-budget.js",
-      "require": "./dist/internal/execution-budget.js",
       "default": "./dist/internal/execution-budget.js"
     },
     "./internal/grant": {
       "types": "./dist/internal/grant.d.ts",
       "import": "./dist/internal/grant.js",
-      "require": "./dist/internal/grant.js",
       "default": "./dist/internal/grant.js"
     },
     "./internal/runtime-type": {
       "types": "./dist/internal/runtime-type.d.ts",
       "import": "./dist/internal/runtime-type.js",
-      "require": "./dist/internal/runtime-type.js",
       "default": "./dist/internal/runtime-type.js"
     },
     "./node": {
       "types": "./dist/node.d.ts",
       "import": "./dist/node.js",
-      "require": "./dist/node.js",
       "default": "./dist/node.js"
     },
     "./shutdown": {
       "types": "./dist/shutdown.d.ts",
       "import": "./dist/shutdown.js",
-      "require": "./dist/shutdown.js",
       "default": "./dist/shutdown.js"
     },
     "./package.json": "./package.json"
@@ -78,7 +72,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "vp run --cache -t @vite-hub/runtime#build && node ../../node_modules/typescript-native/bin/tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/runtime#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/runtime#build && vp test"
   },
   "dependencies": {

@@ -1,3 +1,4 @@
+import type { ChatGPTGateway } from "@vite-hub/gateways"
 import type { AgentActivity, Message, StreamEvent } from "./messages.ts"
 import type { AiGateway, AskAnswerType, AskQuestion } from "@vite-hub/gateways"
 import type { AgentRunEventPublisher, AgentRunEvents } from "./run-events.ts"
@@ -709,6 +710,13 @@ export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends Agent
    * `"bearer"` compares `Authorization: Bearer <secretToken>` in constant time; `secretHeader` defaults to `"authorization"`.
    * A `secretToken` that resolves to no secret is a configuration error (HTTP 500) that names the Channel.
    */
+  /**
+   * The webhook State and queue scope, used instead of `webhook:<agent>:<origin>:<registration>:`. Set it to the old
+   * scope to keep accepted deliveries, cursors, and Channel State when a Channel moves to another owner, such as a
+   * Channel module in `server/channels`. Trailing colons are optional. Give each registration its own scope: two
+   * registrations with the same scope share one queue and one Channel State.
+   */
+  stateScope?: string
   signature?: "bearer" | "github-sha256" | "stripe-sha256" | (string & {}) | {
     /**
      * `secretHeader` carries `prefix` followed by the HMAC-SHA256 of the raw body.
@@ -951,8 +959,14 @@ export type AgentChannelTriggerDefinition<
   | (AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS, AgentChannelTriggerContext<TRuntimeConfig>> & { durableState?: false })
   | (AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS, AgentDurableChannelTriggerContext<TRuntimeConfig>> & { durableState: true })
 
-/** The accepted input and run metadata that `prepare` and a task's `run` receive. */
-export type AgentTriggerAcceptedInvocation<CALL_OPTIONS = unknown> = Pick<AgentTriggerRunInvokeResult<CALL_OPTIONS>, "input" | "run">
+/** The accepted input, run metadata and Invocation reference that `prepare` and a task's `run` receive. */
+export type AgentTriggerAcceptedInvocation<CALL_OPTIONS = unknown> = Pick<AgentTriggerRunInvokeResult<CALL_OPTIONS>, "input" | "run"> & {
+  /**
+   * Present when the delivery has a run ID. It is the Invocation that the accepted input starts:
+   * the task Agent's Invocation for a task with `agent`, otherwise the Invocation of the Agent that owns the trigger.
+   */
+  invocation?: AgentInvocationReference
+}
 
 /**
  * What `prepare` returns: new input to run, nothing to keep the accepted input, or a handled `Response`.
@@ -1827,7 +1841,7 @@ export interface AgentProviderDriverOptions<
    * ViteHub writes the provider configuration and passes the key and headers in the provider environment.
    * A gateway replaces Codex `credentials`.
    */
-  gateway?: AiGateway
+  gateway?: AiGateway | ChatGPTGateway
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   launch?: AgentProviderLaunchResolver<TRuntimeConfig>
   model?: string
@@ -2579,10 +2593,11 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   delivery?: "automatic" | "manual"
   durable?: boolean
   /**
-   * Add the Console URL of the failed Invocation to each error reply.
+   * Link the Invocation in the Console, for internal users. Error replies get `Details: <Console URL>`,
+   * and an inline loading message gets a `[Details](<Console URL>)` link that stays through commentary updates.
    * Off by default, because the link shows internal details to the people in the conversation.
    */
-  errorConsoleLink?: boolean
+  consoleLink?: boolean
   errorFallbackText?: string | null | ((context: AgentChatErrorHookArgs<TRuntimeConfig> & {
     /** The text ViteHub sends when `errorFallbackText` is not set. */
     defaultText: string
@@ -2626,7 +2641,11 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   wrapUp?: false | AgentChatWrapUpOptions
   /** IANA time zone for the send time in each message header that the model reads. Defaults to `"UTC"`. An invalid value uses UTC. */
   timeZone?: string
-  transcripts?: TranscriptsConfig
+  /**
+   * Keep every inbound and outbound message of the Channel in Chat SDK's transcript store. It is on when the Agent State
+   * is durable, and `false` turns it off. A config sets `maxPerUser`, `retention`, and `storeFormatted`.
+   */
+  transcripts?: false | TranscriptsConfig
   triggerHistory?: AgentChatTriggerHistory
   userName?: string
   [key: string]: unknown
@@ -2862,6 +2881,8 @@ export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfi
   message?: AgentChannelMessageDefinition<TRuntimeConfig>
   messages?: false | AgentMessageChannelSettings<TRuntimeConfig>
   route?: unknown
+  /** Same as `messages.transcripts`, for this Channel. */
+  transcripts?: false | TranscriptsConfig
   triggers?: Record<string, AgentChannelTriggerDefinition<TRuntimeConfig, any, any>>
   webhooks?: boolean | AgentChannelWebhookRegistrationDefinition<TRuntimeConfig> | AgentChannelWebhookRegistrationDefinition<TRuntimeConfig>[]
 }

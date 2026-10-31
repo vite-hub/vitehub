@@ -21,8 +21,6 @@ icon: i-lucide-database-zap
     ],
   })
   ```
-Read [Get started](/docs/kv/get-started), [Configure](/docs/kv/configure), [Server API](/docs/kv/server-api), [Hosts](/docs/kv/hosts), or [Limits and errors](/docs/kv/limits-and-errors).
-
   ```ts [server/api/settings.get.ts]
   import { defineEventHandler } from 'h3'
   import { kv } from 'vite-hub/kv'
@@ -65,12 +63,10 @@ Read [Get started](/docs/kv/get-started), [Configure](/docs/kv/configure), [Serv
 ::product-features
   :::product-feature-item{title="Save and read by key" icon="i-lucide-key-round" to="/docs/kv/server-api#use-it-at-runtime"}
   `kv.set()` saves a value under a key. `kv.get()` reads it back, or returns `null`.
-  :::product-feature-item{title="Errors are values" size="large" icon="i-lucide-code-2" to="/docs/kv/limits-and-errors"}
-  `[error, value]` on every method. Each code has a `why` and a `fix`.
   :::
 
-  :::product-feature-item{title="Check errors without try/catch" icon="i-lucide-code-2" to="/docs/kv/server-api#runtime-helper"}
-  Every call returns `[error, value]`. Check the error first, then use the value.
+  :::product-feature-item{title="Check errors without try/catch" icon="i-lucide-code-2" to="/docs/kv/limits-and-errors"}
+  Every call returns `[error, value]`. Each error has a `code`, a `why`, and a `fix`.
   :::
 
   :::product-feature-item{title="Keep data apart" icon="i-lucide-layers" to="/docs/kv/configure#configuration-options"}

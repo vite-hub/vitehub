@@ -239,7 +239,9 @@ export function mergeGeneratedSourceNitroConfig(
     if (duplicate) {
       throw sourceErrorDiagnostics.SOURCE_B0002({ message: `[vitehub] Generated ${generatedRouteOwner(handler)} route ${JSON.stringify(handler.route)} conflicts with an existing ${generatedRouteDescription(handler)}. Remove the matching server route.` })
     }
-    kit.addHandler(handler)
+    // Content routes import the Markdown parser and the Sources. Loaded on their first request, they stay out of the
+    // server's start.
+    kit.addHandler({ ...handler, lazy: true })
   }
 
   const modules = Array.isArray(nitro.modules) ? [...nitro.modules] : []
@@ -978,6 +980,8 @@ export async function findContentEntry(options: Pick<SourceGenerationOptions, "p
 
 /** What a Content module's `defineContent()` call may define, as far as reading the file without running it can tell. */
 export interface ContentEntryFeatures {
+  /** Public HTTP route. True unless `route` is literally false. */
+  route: boolean
   /** Editable `collections`. True when discovery cannot follow the options. */
   collections: boolean
   /** `seo: { sitemap }` that is not literally false. */
@@ -1021,7 +1025,7 @@ function unwrapAst(node: unknown): unknown {
  * `sitemap` or `robots` that is not `false`, or a `seo` value that discovery cannot follow.
  */
 export function inspectContentModule(program: unknown, contentImportBase?: string): ContentEntryFeatures {
-  const maybe: ContentEntryFeatures = { collections: true, sitemap: false, robots: false, live: true }
+  const maybe: ContentEntryFeatures = { route: true, collections: true, sitemap: false, robots: false, live: true }
   const body = isAstNode(program) ? astNodes(program.body) : []
   const constants = new Map<string, unknown>()
   const defineContentNames = new Set<string>()
@@ -1093,14 +1097,15 @@ export function inspectContentModule(program: unknown, contentImportBase?: strin
     && astName(calleeNode.property) === "defineContent"
   if ((!callee || !defineContentNames.has(callee)) && !namespaceCall) return maybe
   const [argument, ...rest] = Array.isArray(call.arguments) ? call.arguments : []
-  if (argument === undefined) return { collections: false, sitemap: false, robots: false, live: true }
+  if (argument === undefined) return { route: true, collections: false, sitemap: false, robots: false, live: true }
   const options = rest.length ? undefined : properties(resolveNode(argument))
   // Unknown option shapes may still enable SEO at runtime (for example via a spread).
   // Keep generated handlers enabled rather than silently omitting valid routes.
-  if (!options) return { collections: true, sitemap: true, robots: true, live: true }
+  if (!options) return { route: true, collections: true, sitemap: true, robots: true, live: true }
 
+  const route = resolveNode(options.get("route"))
   const live = unwrapAst(options.get("live"))
-  const features: ContentEntryFeatures = { collections: false, sitemap: false, robots: false, live: !(isAstNode(live) && live.type === "Literal" && live.value === false) }
+  const features: ContentEntryFeatures = { route: !(isAstNode(route) && route.type === "Literal" && route.value === false), collections: false, sitemap: false, robots: false, live: !(isAstNode(live) && live.type === "Literal" && live.value === false) }
   if (options.has("collections")) {
     const value = resolveNode(options.get("collections"))
     features.collections = !isAstNode(value) || value.type !== "ObjectExpression" || (Array.isArray(value.properties) && value.properties.length > 0)
@@ -1126,7 +1131,7 @@ export async function inspectContentEntry(file: string, contentImportBase?: stri
   }
   catch {
     // The runtime reports the syntax error.
-    return { collections: true, sitemap: false, robots: false, live: true }
+    return { route: true, collections: true, sitemap: false, robots: false, live: true }
   }
 }
 
@@ -1144,13 +1149,15 @@ async function writeContentArtifact(
   }
   const importBase = JSON.stringify(options.contentImportBase ?? "@vite-hub/content")
   const contentModule = JSON.stringify(toRuntimeModuleSpecifier(file))
-  await writeFileIfChanged(output, [
+  const features = await inspectContentEntry(file, options.contentImportBase ?? "@vite-hub/content")
+  if (features.route) await writeFileIfChanged(output, [
     `import { defineContentHandler } from ${importBase}`,
     `import { content } from ${contentModule}`,
     "",
     "export default defineContentHandler(content)",
     "",
   ].join("\n"))
+  else await rm(output, { force: true })
   // A Nitro plugin: scopes each request that carries the Content preview cookie to drafts and out of Nitro's cache.
   await writeFileIfChanged(preview, [
     `import { defineContentPreviewPlugin } from ${importBase}`,
@@ -1159,9 +1166,9 @@ async function writeContentArtifact(
     "export default defineContentPreviewPlugin(content)",
     "",
   ].join("\n"))
-  const handlers: GeneratedSourceHandler[] = [{ handler: preview, plugin: true }, { handler: output, route: "/api/content/**" }]
+  const handlers: GeneratedSourceHandler[] = [{ handler: preview, plugin: true }]
+  if (features.route) handlers.push({ handler: output, route: "/api/content/**" })
   // `defineContent({ seo: { sitemap, robots } })` adds the site-wide SEO routes.
-  const features = await inspectContentEntry(file, options.contentImportBase ?? "@vite-hub/content")
   for (const [enabled, path, helper, route] of [
     [features.sitemap, sitemap, "defineContentSitemapHandler", "/sitemap.xml"],
     [features.robots, robots, "defineContentRobotsHandler", "/robots.txt"],

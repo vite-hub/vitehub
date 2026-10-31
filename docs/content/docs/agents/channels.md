@@ -207,6 +207,29 @@ export default defineChannel('tickets', {
 - The route also answers at `/api/_vitehub/agents/channel-<name>/webhooks/<name>`. `channel-<name>` is the host that owns the Channel's webhook State and queue. It is not an Agent Definition, so it cannot have the name of one.
 - Standalone Channels need a Nitro host. Restart the development server after you add or remove one.
 
+### Keep webhook State when a Channel moves
+
+ViteHub keeps a webhook's State and queue under `webhook:<agent>:<origin>:<registration>:`. Accepted queued deliveries, provider cursors, and Channel State all use this scope. When you move a Channel to another owner, for example from an Agent to `server/channels/<name>/index.ts`, the scope changes, and the new owner does not see the old data.
+
+Set `webhooks.stateScope` to the old scope to keep it:
+
+```ts [server/channels/airtable/index.ts]
+import { defineChannel } from 'vite-hub/agent/channels'
+
+export default defineChannel('airtable', {
+  messages: false,
+  triggers: { /* ... */ },
+  webhooks: {
+    path: '/api/airtable/webhook',
+    durableState: true,
+    stateScope: 'webhook:support:airtable:airtable:',
+  },
+})
+```
+
+- ViteHub uses the value as the scope, with one trailing colon. A value that is not a string, or that is empty, makes the route throw a `TypeError`.
+- Give each registration its own `stateScope`, and remove the registration from the old owner. ViteHub does not check that a scope is unique. Registrations with the same scope share one queue and one Channel State.
+
 ### Verify a webhook signature
 
 Set `secretHeader`, `secretToken`, and `signature` on a webhook registration. ViteHub verifies the raw request body before it runs the trigger and answers `401` when the check fails.
@@ -264,7 +287,7 @@ With durable webhook State, such as SQLite, libSQL, or Cloudflare Durable Object
 
 - When admission finishes in time, the provider gets the trigger's own answer.
 - When admission is still running, the provider gets `202 { accepted: true, deferred: true, ok: true }`, and admission continues in the background. The provider does not see the trigger's own answer in this case, such as `ignored()` or a `Response` that the trigger returns.
-- The stored request is removed when admission settles. If the process stops first, or admission ends in a 5xx, the next process sends the request through the route again at startup. It checks the signature again. A request gets at most 3 admissions.
+- The stored request is removed when admission settles. If the process stops first, or admission ends in a 5xx, the next process sends the request through the route again at startup. It checks the signature again, and a timestamped signature such as `stripe-sha256` is checked against the request's first arrival, so a replay after the tolerance window still verifies. A request gets at most 3 admissions.
 
 The request is stored at `<scope>inbox:<id>` in webhook State. The ID is the provider's delivery header, such as `x-github-delivery`, or the SHA-256 of the raw body. Stopping the webhook queue waits up to `VITEHUB_SHUTDOWN_DRAIN_MS` for deferred admissions.
 
@@ -275,7 +298,83 @@ webhooks: {
 }
 ```
 
+When a trigger result is invalid, for example queued input that is not JSON-serializable while the trigger uses `prepare`, the route answers with a 5xx, and the delivery is recorded as `failed` with the reason in `error`.
+
 Chat message webhooks always wait for admission. Logs use `scope: "vitehub.channel.delivery"` with the events `admission.deferred`, `admission.completed`, `admission.failed`, `inbox.replaying`, `inbox.replayed`, and `inbox.dropped`.
+
+## See and export a conversation
+
+A chat Channel keeps one conversation for each provider thread, such as one Telegram chat. The Console section **Channels**, the `channels.*` operations, and the CLI read it back: every message in order, who wrote it, the attachments, and the Invocation that answered. You can then download it as Markdown or as the `channels history` archive.
+
+The conversation is stitched from three sources, and a message is never listed twice:
+
+| Source | What it holds | Limit |
+| --- | --- | --- |
+| The provider history and the thread cache | The messages and the attachments. Telegram has no history API, so ViteHub reads the thread cache of the adapter. | The `threadHistory` window: 100 messages for seven days. |
+| Transcripts | Every inbound and outbound message of the Channel, kept in Chat SDK's transcript store. See [Keep transcripts](#keep-transcripts). | `transcripts.maxPerUser` and `retention`. The reader takes at most 500 entries for one person and marks the result `truncated` when it hits that limit. |
+| Invocations | The message that started each Invocation and the replies after it carry its `invocationId`. When the journal keeps content (`invocations: { content: 'content' }`), an Invocation also adds the prompt or the reply that no other source still has. | The journal's retention. |
+
+Two entries are the same message when they have the same platform message id. An entry without an id matches a message with the same role and text within one minute, and each message absorbs at most one such entry. An edit appends the message again with the same id, and the last entry wins. A message that the provider reports as deleted is dropped with its transcript copies. At one time a person speaks before the Agent, so a reply never sorts before its trigger.
+
+When overlapping Invocations have identical recorded replies, the conversation keeps each delivered message but leaves its `invocationId` unset if the available evidence cannot distinguish which Invocation sent it. It does not synthesize another copy from those ambiguous records, even when fewer deliveries remain than recorded replies.
+
+### Keep transcripts
+
+When the Agent State is durable (libSQL, or a Cloudflare Durable Object), ViteHub appends every inbound and outbound message of a chat Channel to the transcript store. This stores the text of the conversations in your State, for the people who wrote them. Set `transcripts: false` on the Channel (or `messages: { transcripts: false }` for all) to keep none, or a config to set the limits:
+
+```ts [server/agents/support.ts]
+export default defineAgent({
+  channels: {
+    support: telegram({ transcripts: { maxPerUser: 500, retention: '90d' } }),
+    private: telegram({ transcripts: false }),
+  },
+})
+```
+
+`channels.list` says which Channels do it. A Channel reports `durable-transcripts` only when the transcripts are kept in a durable State. Otherwise it reports `provider-window`, and the Console and the Markdown export warn that older messages may be missing, since Telegram keeps only 100 messages for seven days. Delete a person's transcripts with Chat SDK's `history.user.delete()`.
+
+### Who can read a conversation
+
+A conversation is private. Every surface refuses a thread that the Channel does not know, with `CHANNELS_THREAD_UNKNOWN` (404): the Agent has no Invocation in that thread for this Channel, and no transcript holds it. The reader checks this before it asks the provider, so the bot token cannot be used to read another chat. A group thread that has a transcript but no Invocation is not found. The Channel keeps evidence of admitted Invocations in State, so group transcripts remain readable when the journal is unavailable; rejected messages do not establish a known group.
+
+On the Console, the CLI, and [MCP](/docs/development/mcp) (where the app serves `/_vitehub/mcp`), a person who may use the `channels` section reads every thread of it, so set `console.authorize` for the people who may. An Agent that calls the operations through `operations()` reads nothing unless the capability sets `conversations`:
+
+```ts [server/agents/support.ts]
+operations({ include: ['channels.*', 'conversations.export'], conversations: 'participant' })
+```
+
+`channels.*` does not match `conversations.export`, so list it as well. `participant` lets the Agent read the threads where its Actor takes part. That means the Actor id, its Auth user id (`actor.meta.authUserId`), or the user id of the call equals the id of a person in the thread: an author, the user key of a transcript, or the person who started an Invocation. An Actor without an identity that matches is refused with `CHANNELS_FORBIDDEN`. `all` lets it read every thread that the Channel knows. An Agent's `conversations.export` always waits for approval, unless `approve` is `'never'`, and never includes media.
+
+### Operations and commands
+
+| Operation | Input | Answer |
+| --- | --- | --- |
+| `channels.list` | none | Each Agent and Channel with its provider and retention. |
+| `channels.threads` | `agent`, `channel`, `cursor?`, `limit?` | Threads from the journal, most recent first, with title, people, last activity, and number of runs. It reads no conversation, so it has no message count. |
+| `channels.conversation` | `agent`, `channel`, `thread`, `cursor?`, `limit?` | The messages in order, each with `role`, `author`, `text`, `attachments`, `at`, and `invocationId`, and the `messageCount`. |
+| `conversations.export` | `agent`, `channel`, `thread`, `format`, `media?` | `text` in `markdown` or `json`, and the attachment files when `media` is on. |
+
+A `cursor` is an opaque value that names the last item of the previous page by id and time, so a page stays stable when new messages arrive or the provider window slides.
+
+```bash [Terminal]
+pnpm vitehub channels list
+pnpm vitehub channels threads support telegram
+pnpm vitehub channels conversation support telegram telegram:456
+pnpm vitehub conversations export support telegram telegram:456 > chat.md
+pnpm vitehub conversations export support telegram telegram:456 --format json --output ./chat
+```
+
+Without `--output`, the export goes to stdout, so a redirect works, and the attachments are left out. With `--output <directory>`, the command writes the file and a `media/` directory with the attachments, in the layout of `channels history`. The CLI refuses a file name or a path that the server sends and that leaves the directory. Add `--url <origin>` for a deployed app. See the [CLI](/docs/development/cli#export-a-channel-conversation).
+
+The Markdown export puts the text of each message in a fenced block longer than any backtick run in it, escapes names in headings and links, and links only `http(s)` URLs and the files of the export. A message cannot add headings, links, or HTML to the document.
+
+The JSON export is the `channels history` archive with `schemaVersion: 1`. Each message keeps every field that the provider gave it and adds `role`, `source` (`provider`, `transcript`, or `invocation`), and `invocationId`. A quoted message (`replyTo`) is searched for attachments at any depth. `retention` adds `durable`, and `truncated: true` appears when the transcript limit cut the oldest messages. `vitehub channels history` writes the same messages from a signed request to the deployed webhook route, which keeps its behavior: it needs no known thread, and a journal that fails never breaks it.
+
+The failures have their own codes: `CHANNELS_EXPORT_TOO_LARGE` (413) when the export is larger than 35 MiB, `CHANNELS_ADAPTER_MISSING` (500) when the Channel has no Chat adapter, and `CHANNELS_HOST_UNAVAILABLE` (503) when the Agent State cannot read lists.
+
+### State
+
+The Console reads conversations with the State and the adapters that the webhook routes use. The generated webhook route module installs the reader when the server starts, for a libSQL State (the default in `vite dev`, or `VITEHUB_AGENT_STATE_URL` and `agent.providers.state`) and for a Cloudflare Durable Object State (`agent.providers.state: 'cloudflare'`). On Cloudflare, the reader runs in a Worker that starts the webhook route module. A custom State that the generated code does not install makes the operations answer `CHANNELS_HOST_UNAVAILABLE` with the State options to use. A Channel with its own `history` collection has no per-thread conversation; use `channels history` and `channels replay` for it.
 
 ## Replay Channel history
 
@@ -575,7 +674,7 @@ A github() Channel that sets `app` gives its Agent forge access. The pull reques
 
 The Channel resolves one token for each repository. It uses `app.token` when you set it. Otherwise it mints an App installation token from `app` options or Server Env (`VITEHUB_GITHUB_APP_ID`, `VITEHUB_GITHUB_PRIVATE_KEY`, and the optional `VITEHUB_GITHUB_INSTALLATION_ID`), with `VITEHUB_GITHUB_TOKEN` as the fallback. Without a fixed installation, the App finds the installation of the repository.
 
-Git credentials come from `forgeGitCredentials()` and `forgeGitAuthHeader()` in `@vite-hub/forge`. They are in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, never in process arguments, and they reach only the pull request base and head repositories. A run without a pull request repository gets no credentials. An Agent with two github() Channels that set `app` gets no forge access.
+Git credentials come from `forgeGitCredentials()` and `forgeGitAuthHeader()` in `@vite-hub/forge`. They are in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, never in process arguments, and they reach only the pull request base and head repositories. A run without a pull request, such as a Teams or chat run, gets credentials for the repositories of the Agent's GitHub Workspace Sources, so it can clone them. A Source repository that the forge access cannot reach is left out. An Agent without GitHub Sources gets no credentials in such a run. An Agent with two github() Channels that set `app` gets no forge access.
 
 ```ts [server/agents/reviewer.ts]
 import { defineAgent } from 'vite-hub/agent'

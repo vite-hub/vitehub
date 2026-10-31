@@ -6,10 +6,12 @@
     "content",
     "files",
     "github",
+    "retrieval",
     "source",
+    "typescript",
     "vitehub"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -31,67 +33,56 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./client": {
       "types": "./dist/client.d.ts",
       "import": "./dist/client.js",
-      "require": "./dist/client.js",
       "default": "./dist/client.js"
     },
     "./drizzle": {
       "types": "./dist/drizzle.d.ts",
       "import": "./dist/drizzle.js",
-      "require": "./dist/drizzle.js",
       "default": "./dist/drizzle.js"
     },
     "./file": {
       "types": "./dist/file.d.ts",
       "import": "./dist/file.js",
-      "require": "./dist/file.js",
       "default": "./dist/file.js"
     },
     "./files": {
       "types": "./dist/files.d.ts",
       "import": "./dist/files.js",
-      "require": "./dist/files.js",
       "default": "./dist/files.js"
     },
     "./github": {
       "types": "./dist/github.d.ts",
       "import": "./dist/github.js",
-      "require": "./dist/github.js",
       "default": "./dist/github.js"
     },
     "./glob": {
       "types": "./dist/glob.d.ts",
       "import": "./dist/glob.js",
-      "require": "./dist/glob.js",
       "default": "./dist/glob.js"
     },
     "./markdown": {
       "types": "./dist/markdown.d.ts",
       "import": "./dist/markdown.js",
-      "require": "./dist/markdown.js",
       "default": "./dist/markdown.js"
     },
     "./mcp": {
       "types": "./dist/mcp.d.ts",
       "import": "./dist/mcp.js",
-      "require": "./dist/mcp.js",
       "default": "./dist/mcp.js"
     },
     "./server": {
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js",
-      "require": "./dist/server.js",
       "default": "./dist/server.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js",
-      "require": "./dist/vite.js",
       "default": "./dist/vite.js"
     },
     "./package.json": "./package.json",
@@ -100,7 +91,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "vp run --cache -t @vite-hub/source#build && node ../../node_modules/typescript-native/bin/tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/source#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/source#build && vp test"
   },
   "dependencies": {

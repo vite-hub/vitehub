@@ -26,7 +26,14 @@ export interface ConsoleDocumentScheduled extends ConsoleDocumentSchedule {
   documents: ConsoleDocumentPublishExpectation[]
 }
 
+/** The draft and the site both changed this document. `published` is the site digest, or null when the site deleted it. */
+export interface ConsoleDocumentConflict {
+  published: string | null
+}
+
 export interface ConsoleDocumentSummary {
+  /** The site changed after the draft started from it. Publishing refuses it until the person compares. */
+  conflict?: ConsoleDocumentConflict
   data: Record<string, unknown>
   /** Draft digest, or null for a document deleted on the draft. */
   digest: string | null
@@ -67,6 +74,8 @@ export interface ConsoleDocumentPage {
 export interface ConsoleDocument {
   body: string
   collection: string
+  /** The site changed after the draft started from it. Publishing refuses it until the person compares. */
+  conflict?: ConsoleDocumentConflict
   data: Record<string, unknown>
   digest: string
   id: string
@@ -114,6 +123,8 @@ export interface ConsoleDocumentListQuery {
 
 export interface ConsoleDocumentPublished {
   documents: Array<{ change: "add" | "update" | "delete", collection: string, id: string }>
+  /** Set when the project publishes through a pull request: the documents go live when it merges. */
+  pullRequest?: { number: number, url: string }
   revision: string | null
 }
 
@@ -201,6 +212,14 @@ export interface ConsoleDocumentPresence {
   user: ConsoleDocumentSessionUser | null
 }
 
+/** A token for one preview frame form. Mirrors `ViteHubConsoleDocumentPreview`. */
+export interface ConsoleDocumentPreview {
+  /** The search parameter and form field name. */
+  parameter: string
+  token: string
+  expiresAt: string
+}
+
 /** Every open tab in readable collections. */
 export interface ConsoleDocumentSessions {
   available: boolean
@@ -216,6 +235,7 @@ interface ConsoleDocumentActionResults {
   get: ConsoleDocument | null
   list: ConsoleDocumentPage
   overview: ConsoleDocumentOverview
+  preview: ConsoleDocumentPreview
   search: { items: ConsoleDocumentSearchResult[] }
   publish: ConsoleDocumentPublished
   raw: ConsoleRawDocument | null
@@ -231,12 +251,15 @@ interface ConsoleDocumentActionResults {
 
 /** The owner document actions of one document editor section, called through the Console RPC transport. */
 export interface ConsoleDocumentsClient {
-  get(collection: string, id: string): Promise<ConsoleDocument | null>
+  /** Reads the draft, or the version on the site with `ref: "published"`. */
+  get(collection: string, id: string, ref?: "draft" | "published"): Promise<ConsoleDocument | null>
   list(collection: string, query?: ConsoleDocumentListQuery): Promise<ConsoleDocumentPage>
   /** Counts, unpublished changes, and recent activity of every readable collection, in one request. */
   overview(options?: { activity?: number }): Promise<ConsoleDocumentOverview>
   /** Finds drafts by title, id, fields, and body across every readable collection. */
   search(query: string, options?: { limit?: number, signal?: AbortSignal }): Promise<ConsoleDocumentSearchResult[]>
+  /** A short token for the side browser: the page renders the posted documents in place of their drafts. */
+  preview(collection: string, id: string): Promise<ConsoleDocumentPreview>
   /** Publishes exactly these drafts. A draft saved after review fails with a conflict and nothing is published. */
   publish(collection: string, expect: readonly ConsoleDocumentPublishExpectation[]): Promise<ConsoleDocumentPublished>
   /** Reads the stored file on the draft, or at an earlier revision, without validating it. */
@@ -246,7 +269,8 @@ export interface ConsoleDocumentsClient {
   restore(collection: string, id: string, revision: string, ifDigest: string | null, session?: string, live?: boolean): Promise<ConsoleDocument>
   revisions(collection: string, id: string, cursor?: string): Promise<{ cursor?: string, revisions: ConsoleDocumentRevision[] }>
   /** `session` is this tab's token, so its own edit lease does not block the save. */
-  save(collection: string, id: string, input: { body: string, data: Record<string, unknown>, ifDigest: string | null, session?: string }): Promise<ConsoleDocument>
+  /** `ifPublishedDigest` names the version on the site that the person compared, which resolves a `conflict`. */
+  save(collection: string, id: string, input: { body: string, data: Record<string, unknown>, ifDigest: string | null, ifPublishedDigest?: string | null, live?: boolean, session?: string }): Promise<ConsoleDocument>
   /** Publishes exactly these drafts at `at`, an ISO timestamp. A draft saved after scheduling makes the schedule fail. */
   schedule(collection: string, at: string, expect: readonly ConsoleDocumentPublishExpectation[]): Promise<ConsoleDocumentScheduled>
   /** Cancels a pending schedule, or dismisses a failed one. */
@@ -272,9 +296,10 @@ export function createConsoleDocumentsClient(base: string, section: string): Con
     overview: (options: { activity?: number } = {}) => call("overview", { ...options }),
     search: async (query: string, options: { limit?: number, signal?: AbortSignal } = {}) =>
       (await call("search", options.limit ? { limit: options.limit, query } : { query }, options.signal)).items,
-    get: (collection: string, id: string) => call("get", { collection, id }),
+    get: (collection: string, id: string, ref?: "draft" | "published") => call("get", ref === "published" ? { collection, id, ref } : { collection, id }),
+    preview: (collection: string, id: string) => call("preview", { collection, id }),
     raw: (collection: string, id: string, revision?: string) => call("raw", revision ? { collection, id, revision } : { collection, id }),
-    save: (collection: string, id: string, input: { body: string, data: Record<string, unknown>, ifDigest: string | null, session?: string }) =>
+    save: (collection: string, id: string, input: { body: string, data: Record<string, unknown>, ifDigest: string | null, ifPublishedDigest?: string | null, live?: boolean, session?: string }) =>
       call("save", { collection, id, ...input }),
     remove: (collection: string, id: string, ifDigest: string, session?: string, live?: boolean) => call("remove", { collection, id, ifDigest, ...(session ? { session } : {}), ...(live ? { live } : {}) }),
     publish: (collection: string, expect: readonly ConsoleDocumentPublishExpectation[]) =>
@@ -347,9 +372,22 @@ export interface ConsolePublishMismatch {
   id: string
 }
 
-/** Returns the documents that changed after review, from a publish conflict, or undefined for another error. */
+/** Returns the drafts that changed after review, from a publish conflict, or undefined for another error. */
 export function consolePublishMismatches(error: unknown): ConsolePublishMismatch[] | undefined {
-  if (!isConsoleConflict(error) || !(error instanceof ConsoleRequestError)) return
+  if (!isConsoleConflict(error) || !(error instanceof ConsoleRequestError) || error.details?.ref === "published") return
+  return publishConflictDocuments(error)
+}
+
+/**
+ * Returns the documents that also changed on the site after their draft started, from a publish conflict, or undefined
+ * for another error. Publishing them would erase that change, so the person compares and chooses first.
+ */
+export function consolePublishedConflicts(error: unknown): ConsolePublishMismatch[] | undefined {
+  if (!isConsoleConflict(error) || !(error instanceof ConsoleRequestError) || error.details?.ref !== "published") return
+  return publishConflictDocuments(error)
+}
+
+function publishConflictDocuments(error: ConsoleRequestError): ConsolePublishMismatch[] | undefined {
   const documents = error.details?.documents
   if (!Array.isArray(documents)) return
   return documents.flatMap((entry) => {
@@ -455,6 +493,35 @@ export function consoleDocumentStateColor(state: ConsoleDocumentState): "error" 
  * as `Person` for People. Without it, `Posts` → `Post` and `Stories` → `Story`, and labels that are not a plain one-word
  * plural become `Document`.
  */
+/** A folder where a new document of a collection can go, and the start of the id that puts it there. */
+export interface ConsoleDocumentFolder {
+  /** The folder before the first wildcard of a glob, such as `docs/pages/`. "" is the Workspace root. */
+  folder: string
+  /** What the id starts with so that the path lands in `folder`. */
+  prefix: string
+}
+
+/**
+ * One folder for each glob of a collection. Ids are the path below the folder that all globs share, so a collection with
+ * one glob has one folder and an empty prefix.
+ */
+export function consoleDocumentFolders(collection: Pick<ConsoleDocumentCollection, "path" | "paths">): ConsoleDocumentFolder[] {
+  const globs = collection.paths?.length ? collection.paths : [collection.path]
+  const bases = globs.map((glob) => {
+    const segments = glob.replace(/^\.?\/+/, "").split("/")
+    const wildcard = segments.findIndex(segment => /[*?]/.test(segment))
+    return segments.slice(0, wildcard < 0 ? segments.length - 1 : wildcard).map(segment => `${segment}/`).join("")
+  })
+  const split = bases.map(base => base.split("/").filter(Boolean))
+  const shared: string[] = []
+  for (const [index, segment] of (split[0] ?? []).entries()) {
+    if (!split.every(parts => parts[index] === segment)) break
+    shared.push(segment)
+  }
+  const common = shared.map(segment => `${segment}/`).join("")
+  return [...new Set(bases)].map(folder => ({ folder, prefix: folder.slice(common.length) }))
+}
+
 export function consoleSingularLabel(collection: Pick<ConsoleDocumentCollection, "label" | "singularLabel">): string {
   if (collection.singularLabel?.trim()) return collection.singularLabel.trim()
   const word = collection.label.trim()

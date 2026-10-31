@@ -1,3 +1,4 @@
+import type { ConsoleDatabaseInspection } from "../../internal.ts"
 import { asc, count, desc, getTableColumns, is, or, sql } from "drizzle-orm"
 import { getTableConfig, SQLiteTable } from "drizzle-orm/sqlite-core"
 
@@ -195,19 +196,31 @@ function tableMetadata(entries: readonly DatabaseTableEntry[]): {
   return { relationships, tables }
 }
 
-async function consoleDatabaseHandler(event: ConsoleRequestEvent): Promise<ConsoleDatabaseResponse> {
-  assertConsoleRequest(event, ["GET"])
-  const url = consoleRequestURL(event)
+/** Reads only schema metadata. It never queries table rows. */
+export function consoleDatabaseSchema(requested: string | null): {
+  database: ConsoleDatabaseInspection["databases"][string]
+  requestedDatabase: string
+  inspection: ConsoleDatabaseInspection
+  entries: DatabaseTableEntry[]
+  metadata: { tables: ConsoleDatabaseTable[]; relationships: ConsoleDatabaseRelationship[] }
+} {
   const inspection = getConsoleDatabase()
   if (!inspection.names.length) throw requestError(404, "No Database Definitions are configured.")
 
-  const requestedDatabase = url.searchParams.get("database") || inspection.names[0]!
+  const requestedDatabase = requested || inspection.names[0]!
   if (!inspection.names.includes(requestedDatabase)) throw requestError(404, "Database not found.")
   const database = inspection.databases[requestedDatabase]
   if (!database) throw requestError(404, "Database not found.")
 
   const entries = databaseTables(database.schema)
   const metadata = tableMetadata(entries)
+  return { database, requestedDatabase, inspection, entries, metadata }
+}
+
+async function consoleDatabaseHandler(event: ConsoleRequestEvent): Promise<ConsoleDatabaseResponse> {
+  assertConsoleRequest(event, ["GET"])
+  const url = consoleRequestURL(event)
+  const { database, requestedDatabase, inspection, entries, metadata } = consoleDatabaseSchema(url.searchParams.get("database"))
   const requestedTable = url.searchParams.get("table") || undefined
   const entry = requestedTable ? entries.find(candidate => candidate.name === requestedTable) : undefined
 

@@ -16,6 +16,7 @@ import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/p
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { publishProviderSourcesToDeploymentOutputs, rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
+import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { buildSync, transform } from "esbuild"
 import type { Plugin } from "esbuild"
 
@@ -592,6 +593,24 @@ const providerEntrySpecs: ProviderEntrySpec[] = [
 
 function resolveWorkflowConfig(workflow: WorkflowModuleOptions | undefined, hosting: string): false | ResolvedWorkflowOptions {
   return normalizeWorkflowOptions(workflow, { hosting }) ?? false
+}
+
+/**
+ * The Provider Output that a build writes. Without a host, both outputs are written.
+ * Only Vercel deploys the Vercel output, so other hosts skip it.
+ */
+export function resolveWorkflowProviderOutputs(workflow: WorkflowModuleOptions | undefined, hosting?: string): {
+  cloudflare: false | ResolvedWorkflowOptions
+  vercel: false | ResolvedWorkflowOptions
+} {
+  if (!hosting) {
+    return { cloudflare: resolveWorkflowConfig(workflow, "cloudflare"), vercel: resolveWorkflowConfig(workflow, "vercel") }
+  }
+  const config = resolveWorkflowConfig(workflow, hosting)
+  return {
+    cloudflare: config && config.provider === "cloudflare" ? config : false,
+    vercel: config && config.provider === "vercel" && getHostingProvider(hosting) === "vercel" ? config : false,
+  }
 }
 
 interface GeneratedWorkflowArtifacts {
@@ -1438,19 +1457,7 @@ async function generateProviderOutputsWithinLock(
     workspace: options.workspaceImportBase,
     workspaceDependencies: options.workspaceDependencyRuntimeImports,
   }, options.serverDirs, options.includeUserAppEntry, options.transformRegistry, options.definitionRootDir)
-  const inferredWorkflowConfig = options.hosting
-    ? resolveWorkflowConfig(options.workflow, options.hosting)
-    : undefined
-  const cloudflareWorkflowConfig = inferredWorkflowConfig === undefined
-    ? resolveWorkflowConfig(options.workflow, "cloudflare")
-    : inferredWorkflowConfig && inferredWorkflowConfig.provider === "cloudflare"
-      ? inferredWorkflowConfig
-      : false
-  const vercelWorkflowConfig = inferredWorkflowConfig === undefined
-    ? resolveWorkflowConfig(options.workflow, "vercel")
-    : inferredWorkflowConfig && inferredWorkflowConfig.provider === "vercel"
-      ? inferredWorkflowConfig
-      : false
+  const { cloudflare: cloudflareWorkflowConfig, vercel: vercelWorkflowConfig } = resolveWorkflowProviderOutputs(options.workflow, options.hosting)
   const workflowTransformPlugin = vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
     ? await createVercelWorkflowTransformPlugin(options.rootDir)
     : undefined

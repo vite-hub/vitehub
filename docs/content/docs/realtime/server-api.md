@@ -15,6 +15,7 @@ icon: i-lucide-code-2
 | `RealtimeDocumentConflict` from `vite-hub/realtime` | Throw from a document adapter when `ifDigest` no longer matches. |
 | `realtimeDocumentLayout`, `readRealtimeStatus` from `vite-hub/realtime` | Read the `body`, `fields`, and `status` root types of a room document. |
 | `useRealtimeTiptap` from `vite-hub/realtime/vue` | Connect a Vue TipTap editor, fields, presence, saves, and resets. |
+| `connectRealtimeRoom` from `@vite-hub/realtime/client` | Join one room for [presence without an editor](#presence-without-an-editor), in any framework. |
 | `refreshRealtimeDocument` from `vite-hub/realtime/server` | Tell the open room of a document that its stored copy changed. |
 | `workspaceDocument` from `vite-hub/realtime/server` | The Workspace document adapter, for wrapping or composing. |
 | `createRealtimeHandler` from `vite-hub/realtime/server` | Build a handler for a manual server integration. The ViteHub integration generates this route for normal applications. |
@@ -241,6 +242,31 @@ const editor = useEditor({ extensions: realtime.extensions.value })
 during SSR and while the document id is empty, and it changes when the
 document changes, so create the editor again for each document. Pass
 `carets: false` to leave the carets out.
+
+## Presence without an editor
+
+`connectRealtimeRoom(definition, documentId, options?)` joins one room to share presence, such as who is on a page and where each cursor is. It does not edit the room document, and it has no Vue dependency. [Comments](/docs/comments/server-api#presence-rooms) uses it for its page rooms.
+
+```ts
+import { connectRealtimeRoom } from '@vite-hub/realtime/client'
+
+const room = connectRealtimeRoom('comments', 'pages/home', { changes: true })
+room.setLocal('cursor', { x: 120, y: 80 })
+room.onUpdate(() => render(room.people(), room.states()))
+room.onChange(change => reload(change))
+```
+
+| Member | Behavior |
+| --- | --- |
+| `people()` | The people in the room, this browser included. |
+| `states()` | The fields that each other client set with `setLocal()`, by client id. |
+| `setLocal(field, value)` | Sets one field of this browser's awareness state. `null` removes it. |
+| `status()` | `connecting`, `connected`, or `disconnected`. |
+| `notify(change)`, `onChange(listener)` | Send and receive change hints through the workspace events room. Both need `changes: true`. |
+| `onUpdate(listener)` | Runs when people, their fields, or the status change. Returns a function that removes it. |
+| `destroy()` | Leaves the room. |
+
+`identity` sets the person this browser shows as. A definition with `identify` or `auth: true` replaces it with the server's identity. When the room re-seeds, the client joins the new seed on its own.
 
 ## Saves, refresh, and resets
 

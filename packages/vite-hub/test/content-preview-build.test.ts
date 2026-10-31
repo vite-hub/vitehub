@@ -9,17 +9,18 @@ import { createBuilder } from "vite"
 import { describe, expect, it } from "vitest"
 
 import { vitehub } from "../src/index.ts"
-import { cachedRouteRules, contentKey, contentModule, contentRoutes, createHistoryDatabase, expectPreviewBypassesCache, linkFixtureModules, startBuiltServer } from "./content-preview-fixture.ts"
+import { browserChecks, expectBrowserFrameRedirects } from "./content-preview-browser.ts"
+import { cachedRouteRules, contentKey, contentModule, contentRoutes, createHistoryDatabase, expectBoundedFrameUploads, expectFrameRedirects, expectPreviewBypassesCache, followFrame, linkFixtureModules, nitro2FrameRoutes, nitro3FrameRoutes, startBuiltServer } from "./content-preview-fixture.ts"
 
 describe("Content preview in a built Nitro 3 app", () => {
-  it("keeps preview requests out of the swr route cache", async () => {
+  it("keeps preview requests out of the swr route cache, and lets the browser post a preview frame form through redirects", async () => {
     // The real path: on macOS the temporary directory is a symlink, and generated route paths must match Vite's root.
     const root = await realpath(await mkdtemp(join(tmpdir(), "vitehub-content-preview-nitro-")))
     try {
       await linkFixtureModules(root)
       await writeFile(join(root, "package.json"), JSON.stringify({ private: true, type: "module" }))
       await writeFile(join(root, "index.html"), "<main>ok</main>\n")
-      const files: Array<[string, string]> = [["content.ts", contentModule], ...contentRoutes("../content.ts")]
+      const files: Array<[string, string]> = [["content.ts", contentModule], ...contentRoutes("../content.ts"), ...nitro3FrameRoutes("../content.ts")]
       for (const [path, source] of files) {
         await mkdir(dirname(join(root, "server", path)), { recursive: true })
         await writeFile(join(root, "server", path), source)
@@ -39,6 +40,9 @@ describe("Content preview in a built Nitro 3 app", () => {
       const server = await startBuiltServer(root, { CONTENT_FIXTURE_DATABASE: database, NODE_ENV: "production", VITEHUB_CONTENT_KEY: contentKey })
       try {
         await expectPreviewBypassesCache(server, expect)
+        const token = await expectFrameRedirects(server, expect)
+        if (browserChecks) console.info(`Nitro 3 Chromium frame checks: ${await expectBrowserFrameRedirects(server, token, expect)} passed`)
+        await expectBoundedFrameUploads(server, expect)
       }
       finally {
         server.close()
@@ -58,7 +62,7 @@ async function writeFiles(root: string, files: Array<[string, string]>): Promise
 }
 
 describe("Content preview in a built Nuxt 4 app", () => {
-  it("previews whole pages and server routes on Nitro 2 and keeps them out of the swr route cache", async () => {
+  it("previews whole pages and server routes on Nitro 2, keeps them out of the swr route cache, and lets the browser post a preview frame form through redirects", async () => {
     const root = await realpath(await mkdtemp(join(tmpdir(), "vitehub-content-preview-nuxt-")))
     try {
       const nuxt = dirname(createRequire(import.meta.url).resolve("nuxt/package.json"))
@@ -72,7 +76,7 @@ describe("Content preview in a built Nuxt 4 app", () => {
           `  compatibilityDate: "2026-10-01",`,
           `  devtools: { enabled: false },`,
           `  modules: [[viteHubNuxt, { preset: "node" }]],`,
-          `  routeRules: ${JSON.stringify({ ...cachedRouteRules, "/post": { swr: 60 } })},`,
+          `  routeRules: ${JSON.stringify({ ...cachedRouteRules, "/post": { swr: 60 }, "/old-post": { redirect: "/post" } })},`,
           `  telemetry: false,`,
           `})`,
           ``,
@@ -87,7 +91,17 @@ describe("Content preview in a built Nuxt 4 app", () => {
           `<template><h1>{{ data?.title }}</h1></template>`,
           ``,
         ].join("\n")],
+        // A Nuxt page that redirects during SSR, the way a locale or sign-in middleware does.
+        ["app/pages/redirecting.vue", [
+          `<script setup lang="ts">`,
+          `definePageMeta({ middleware: () => navigateTo("/post?from=middleware") })`,
+          `</script>`,
+          ``,
+          `<template><p>never</p></template>`,
+          ``,
+        ].join("\n")],
         ["server/content.ts", contentModule],
+        ...nitro2FrameRoutes("../content.ts").map(([path, source]): [string, string] => [`server/${path}`, source]),
         ["server/api/post.ts", `import { content } from "../content.ts"\n\nexport default defineEventHandler(async () => ({ title: (await content.collection("posts").get("hello"))?.data.title }))\n`],
         ...contentRoutes("../content.ts", code => `defineEventHandler(${code})`).map(([path, source]): [string, string] => [`server/${path}`, source]),
       ])
@@ -119,6 +133,20 @@ describe("Content preview in a built Nuxt 4 app", () => {
           return { preview, title: Reflect.get(Object(await response.json()), "title") }
         }))
         for (const read of reads) expect(read.title).toBe(read.preview ? "Draft" : "Published")
+
+        // Preview frames on Nitro 2, whose redirects h3 v1 writes to the Node response directly.
+        const token = await expectFrameRedirects(server, expect)
+        // A route rule redirect and an SSR middleware redirect land on the Nuxt page, which reads Content through
+        // /api/post, with the document on screen.
+        for (const [path, location] of [["/old-post", "/post"], ["/redirecting", "/post?from=middleware"]]) {
+          const framed = await followFrame(server, path, token)
+          expect(framed.locations).toEqual([`http://127.0.0.1:${server.port}${location}${location.includes("?") ? "&" : "?"}vitehub-content-preview=1`])
+          expect(framed.response.status).toBe(200)
+          expect(/<h1>([^<]*)<\/h1>/.exec(await framed.response.text())?.[1]).toBe("On screen")
+        }
+        if (browserChecks) console.info(`Nuxt 4 Chromium frame checks: ${await expectBrowserFrameRedirects(server, token, expect, ["/post", "/old-post", "/redirecting"])} passed`)
+        expect((await page(false)).title).toBe("Published")
+        await expectBoundedFrameUploads(server, expect)
       }
       finally {
         server.close()

@@ -4,14 +4,10 @@ import { basename, join, resolve } from "node:path"
 
 import { createTwoFilesPatch, FILE_HEADERS_ONLY } from "diff"
 
-import {
-  discoverViteHubDevServer,
-  fetchViteHubDevEndpoint,
-  readViteHubDevTargetOption,
-  resolveViteHubDevServerUrl,
-} from "@vite-hub/internal/cli"
+import { findViteHubDevServerUrl, readViteHubDevTargetOption } from "@vite-hub/internal/cli"
+import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { callOperation } from "@vite-hub/internal/operations"
 
-import { contentDevHeader, contentDevHeaderValue, contentDevRoute } from "./dev.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { renderContentSitemap } from "./sitemap.ts"
 
@@ -23,9 +19,8 @@ import type {
   ContentDevCollectionsResult,
   ContentDevDiffResult,
   ContentDevListResult,
-  ContentDevOperation,
   ContentDevPublishResult,
-  ContentDevRequestBody,
+  ContentDevRemoveResult,
   ContentDevRevisionsResult,
   ContentDevSaveResult,
   ContentDevSchedulesResult,
@@ -33,9 +28,9 @@ import type {
   ContentDevSitemapResult,
   ContentDevStatusResult,
   ContentDevUnscheduleResult,
-} from "./dev.ts"
+} from "./results.ts"
 
-export type ContentCliContext = Pick<ViteHubCliContext, "cwd" | "env" | "rootDir"> & ViteHubCliStreams
+export type ContentCliContext = Pick<ViteHubCliContext, "cwd" | "env" | "fetch" | "rootDir"> & ViteHubCliStreams
 
 export interface ContentCliOptions {
   /** Ask the user to confirm a publish or schedule. Defaults to a prompt on an interactive terminal; without one, `--yes` is required. */
@@ -50,10 +45,10 @@ export interface ContentCliOptions {
 
 type ContentCliOption =
   | "at" | "collection" | "cursor" | "dry-run" | "file" | "id" | "if-digest" | "limit" | "message" | "override-lease"
-  | "ref" | "search" | "site" | "status" | "xml" | "yes"
+  | "ref" | "revision" | "search" | "site" | "status" | "xml" | "yes"
 
 type ContentCliCommandName =
-  | "collections" | "list" | "show" | "status" | "diff" | "revisions" | "edit"
+  | "collections" | "list" | "show" | "status" | "diff" | "revisions" | "edit" | "rm" | "restore"
   | "publish" | "schedule" | "scheduled" | "unschedule" | "sitemap"
 
 interface ContentCliCommand {
@@ -79,6 +74,7 @@ interface ParsedContentArgs {
   message?: string
   overrideLease: boolean
   ref?: ContentRef
+  revision?: string
   schedule?: string
   search?: string
   site?: string
@@ -92,13 +88,8 @@ interface ParsedContentArgs {
 interface ContentCliFailure {
   code?: string
   details?: unknown
+  fix?: string
   message: string
-}
-
-const contentDevEndpoint = {
-  header: contentDevHeader,
-  headerValue: contentDevHeaderValue,
-  route: contentDevRoute,
 }
 
 const usageError = (message: string) => contentErrorDiagnostics.CONTENT_R0014({ message })
@@ -108,9 +99,6 @@ const contentDevTargetErrors = {
   missingValue: usageError,
 }
 
-// Nuxt mounts Vite under `/_nuxt/`, so the Content dev endpoint is not reachable there.
-const contentDevServerHint = "`vitehub content` needs a running Vite + Nitro Development Server of an app with server/content.ts. Nuxt, plain Vite, and deployed apps are not supported."
-
 const contentCommands: readonly ContentCliCommand[] = [
   { description: "List collections and singletons with their fields and document counts.", name: "collections", options: [], positionals: [] },
   { description: "List the documents of a collection with their state, title, and field issues. Reads the draft unless --ref published.", name: "list", options: ["ref", "search", "limit", "cursor"], positionals: ["collection"] },
@@ -119,6 +107,8 @@ const contentCommands: readonly ContentCliCommand[] = [
   { description: "Print a unified diff of one document from published to draft, frontmatter included. Omit the id for a singleton.", name: "diff", options: [], positionals: ["collection", "id?"] },
   { description: "List the revisions that saved, removed, restored, or published one document, newest first.", name: "revisions", options: ["ref", "limit", "cursor"], positionals: ["collection", "id?"] },
   { description: "Edit the draft of one document in $EDITOR, or save it from --file. Fails while someone else holds the edit lease, unless --override-lease.", name: "edit", options: ["file", "if-digest", "message", "override-lease"], positionals: ["collection", "id?"] },
+  { description: "Delete one document from the draft. The next publish deletes it from the site. Asks for confirmation unless --yes. Fails while someone else holds the edit lease, unless --override-lease.", name: "rm", options: ["message", "override-lease", "yes"], positionals: ["collection", "id?"] },
+  { description: "Save the version of one document from an earlier revision as its draft. Publishes nothing. Fails while someone else holds the edit lease, unless --override-lease.", name: "restore", options: ["revision", "message", "override-lease"], positionals: ["collection", "id?"] },
   { description: "Publish the listed draft documents in one revision, pinned to the digests shown. Asks for confirmation unless --yes. A draft saved after the list fails the publish.", name: "publish", options: ["collection", "id", "message", "dry-run", "yes"], positionals: [] },
   { description: "Publish the listed draft documents at a later time, pinned to the digests shown. A Schedule Definition that calls content.publishDue() runs it.", name: "schedule", options: ["at", "collection", "id", "message", "dry-run", "yes"], positionals: [] },
   { description: "List pending, overdue, and failed schedules, earliest first.", name: "scheduled", options: ["status"], positionals: ["collection?", "id?"] },
@@ -138,6 +128,7 @@ const optionUsage: Record<ContentCliOption, string> = {
   "message": "[--message <text>]",
   "override-lease": "[--override-lease]",
   "ref": "[--ref draft|published]",
+  "revision": "--revision <id>",
   "search": "[--search <text>]",
   "site": "[--site <url>]",
   "status": "[--status pending|overdue|failed]",
@@ -155,8 +146,9 @@ const optionHelp: Record<ContentCliOption, string> = {
   "if-digest": "  --if-digest <digest> Save only if the draft still has this digest, as `show --json` prints it.",
   "limit": "  --limit <n>          Show at most n entries. Defaults to 20 for revisions and 50 for list. Maximum 100.",
   "message": "  --message <text>     Revision message.",
-  "override-lease": "  --override-lease     Save even while another session holds the edit lease of the document.",
+  "override-lease": "  --override-lease     Write even while another session holds the edit lease of the document.",
   "ref": "  --ref <ref>          `draft` (default) or `published`. For revisions, `draft` lists saves and `published` publishes.",
+  "revision": "  --revision <id>      The revision to restore from, as `vitehub content revisions` lists it.",
   "search": "  --search <text>      Only documents whose search fields contain the text.",
   "site": "  --site <url>         Public origin of the URLs. Defaults to defineContent({ seo: { site } }).",
   "status": "  --status <status>    Only pending, overdue, or failed schedules.",
@@ -165,7 +157,7 @@ const optionHelp: Record<ContentCliOption, string> = {
 }
 
 const booleanOptions = { "dry-run": "dryRun", "override-lease": "overrideLease", "xml": "xml", "yes": "yes" } as const
-const valueOptions = ["at", "collection", "cursor", "file", "id", "if-digest", "limit", "message", "ref", "search", "site", "status"] as const
+const valueOptions = ["at", "collection", "cursor", "file", "id", "if-digest", "limit", "message", "ref", "revision", "search", "site", "status"] as const
 
 function commandUsage(command: ContentCliCommand): string {
   const positionals = command.positionals.map(name => name.endsWith("?") ? ` [${name.slice(0, -1)}]` : ` <${name}>`).join("")
@@ -178,13 +170,14 @@ function writeUsage(command: ContentCliCommand, stream: ViteHubCliStreams["stdou
     `Usage: ${commandUsage(command)}`,
     "",
     command.description,
-    "The command calls the Content runtime of a running Vite + Nitro Development Server, so it reads and writes",
-    "the same Workspace Store as the app. It does not reach a deployed app.",
+    "The command runs the content.* operation of the running app, so it reads and writes the same Workspace Store",
+    "as the app. Without --url it calls the dev server. With --url it calls a deployed app; set the credentials in",
+    "VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET.",
     "",
     "Options:",
     ...command.options.map(option => optionHelp[option]),
     "  --json               Print JSON.",
-    "  --url <url>          Compatible Vite Development Server URL. Defaults to http://localhost:5173.",
+    "  --url <url>          Dev server or deployed app URL. Defaults to the dev server of this project (.vitehub/dev-server.json).",
     "  --timeout <ms>       Request timeout.",
     "  -h, --help           Show this help.",
     "",
@@ -232,7 +225,7 @@ function setValueOption(parsed: ParsedContentArgs, option: typeof valueOptions[n
 }
 
 function parseArgs(command: ContentCliCommand, args: readonly string[], env: NodeJS.ProcessEnv): ParsedContentArgs {
-  const parsed: ParsedContentArgs = { dryRun: false, help: false, json: false, overrideLease: false, url: resolveViteHubDevServerUrl(env), xml: false, yes: false }
+  const parsed: ParsedContentArgs = { dryRun: false, help: false, json: false, overrideLease: false, url: "", xml: false, yes: false }
   const positionals: string[] = []
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!
@@ -290,6 +283,7 @@ function parseArgs(command: ContentCliCommand, args: readonly string[], env: Nod
   })
   if (parsed.ids && parsed.collection === undefined) throw usageError("--id requires --collection.")
   if (command.options.includes("at") && parsed.at === undefined && !parsed.help) throw usageError("Missing --at.")
+  if (command.options.includes("revision") && parsed.revision === undefined && !parsed.help) throw usageError("Missing --revision. `vitehub content revisions` lists them.")
   if (command.options.includes("at") && parsed.at !== undefined && !parsed.help) {
     const value = parsed.at.trim()
     const date = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value) ? new Date(value) : undefined
@@ -319,34 +313,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && Object(value) === value && !Array.isArray(value)
 }
 
-async function readFailure(response: Response): Promise<ContentCliFailure> {
-  let text: string
-  try { text = await response.text() }
-  catch (error) { return { message: `Could not read the Content error response: ${error instanceof Error ? error.message : String(error)}` } }
-  try {
-    const body: unknown = JSON.parse(text)
-    const error: unknown = isRecord(body) ? body.error : undefined
-    if (isRecord(error) && String(error.message) === error.message) {
-      const failure: ContentCliFailure = { message: error.message }
-      if (String(error.code) === error.code) failure.code = error.code
-      if (error.details !== undefined) failure.details = error.details
-      return failure
-    }
-  }
-  catch {
-    // Guard rejections use plain text.
-  }
-  return { message: text || `Content Dev request failed with HTTP ${response.status}.` }
-}
-
 function writeFailure(parsed: Pick<ParsedContentArgs, "json">, context: ContentCliContext, failure: ContentCliFailure): number {
   if (parsed.json) context.stdout.write(`${JSON.stringify({ error: failure }, null, 2)}\n`)
-  else context.stderr.write(`${failure.message}\n`)
+  else context.stderr.write(`${failure.message}\n${failure.fix ? `Fix: ${failure.fix}\n` : ""}`)
   return 1
-}
-
-function withTimeout(timeout: number | undefined): Pick<RequestInit, "signal"> {
-  return timeout ? { signal: AbortSignal.timeout(timeout) } : {}
 }
 
 function plural(count: number, noun: string): string {
@@ -567,13 +537,18 @@ async function readStandardInput(): Promise<string> {
   return Buffer.concat(chunks).toString("utf8")
 }
 
-type ContentDevRequestOptions = Omit<ContentDevRequestBody, "operation">
+type ContentDevOperation = keyof ContentDevResults
+
+/** The input of a Content operation. The operation validates it. */
+type ContentDevRequestOptions = Record<string, unknown>
 
 interface ContentDevResults {
   collections: ContentDevCollectionsResult
   diff: ContentDevDiffResult
   list: ContentDevListResult
   publish: ContentDevPublishResult
+  remove: ContentDevRemoveResult
+  restore: ContentDevSaveResult
   revisions: ContentDevRevisionsResult
   save: ContentDevSaveResult
   schedule: ContentSchedule
@@ -584,20 +559,22 @@ interface ContentDevResults {
   unschedule: ContentDevUnscheduleResult
 }
 
-/** One request to the dev endpoint, typed by the result that the Nitro handler returns for the operation. */
+/** One call of a `content.*` operation, typed by the result that the operation returns. */
 type ContentDevCall = <TOperation extends ContentDevOperation>(
   operation: TOperation,
   options: ContentDevRequestOptions,
 ) => Promise<{ failure: ContentCliFailure, result?: undefined } | { failure?: undefined, result: ContentDevResults[TOperation] }>
 
 /** Ask before a write, unless `--yes`. Returns an exit code when the user did not confirm. */
-async function confirmWrite(parsed: ParsedContentArgs, context: ContentCliContext, options: ContentCliOptions, action: "Publish" | "Schedule"): Promise<number | undefined> {
+async function confirmWrite(parsed: ParsedContentArgs, context: ContentCliContext, options: ContentCliOptions, action: "Delete" | "Publish" | "Schedule"): Promise<number | undefined> {
   if (parsed.yes) return
   const confirmed = options.confirm ? await options.confirm(`${action}? [y/N] `) : await defaultConfirm(`${action}? [y/N] `)
+  const code = action === "Delete" ? "CONTENT_DELETE" : "CONTENT_PUBLISH"
   if (confirmed === undefined) {
-    return writeFailure(parsed, context, { code: "CONTENT_PUBLISH_UNCONFIRMED", message: `${action === "Publish" ? "Publishing" : "Scheduling"} needs confirmation. Pass --yes to ${action.toLowerCase()} without a prompt, or --dry-run to only list the changes.` })
+    const without = `Pass --yes to ${action.toLowerCase()} without a prompt${action === "Delete" ? "" : ", or --dry-run to only list the changes"}.`
+    return writeFailure(parsed, context, { code: `${code}_UNCONFIRMED`, message: `${{ Delete: "Deleting", Publish: "Publishing", Schedule: "Scheduling" }[action]} needs confirmation. ${without}` })
   }
-  if (!confirmed) return writeFailure(parsed, context, { code: "CONTENT_PUBLISH_CANCELLED", message: `${action} cancelled.` })
+  if (!confirmed) return writeFailure(parsed, context, { code: `${code}_CANCELLED`, message: `${action} cancelled.` })
 }
 
 /**
@@ -651,6 +628,10 @@ async function runPublish(
     context.stderr.write("Nothing to publish: every selected document is published as drafted.\n")
     return 0
   }
+  if (result.pullRequest) {
+    context.stdout.write(`Opened pull request #${result.pullRequest.number} for ${plural(result.documents.length, "document")}:\n${changeLines(result.documents)}\n${result.pullRequest.url}\nThe documents are published when it merges.\n`)
+    return 0
+  }
   context.stdout.write(`Published ${plural(result.documents.length, "document")} in revision ${result.revision.id}:\n${changeLines(result.documents)}\n`)
   return 0
 }
@@ -665,18 +646,18 @@ function leaseHolder(failure: ContentCliFailure): string | undefined {
   return `${holder.kind === "live" ? `A live session (${name})` : name} holds the edit lease${since}`
 }
 
-function writeSaveFailure(parsed: Pick<ParsedContentArgs, "json">, context: ContentCliContext, failure: ContentCliFailure, document: string, kept?: string): number {
+function writeSaveFailure(parsed: Pick<ParsedContentArgs, "json">, context: ContentCliContext, failure: ContentCliFailure, document: string, kept?: string, again = "Run the edit again."): number {
   if (parsed.json) return writeFailure(parsed, context, failure)
   const retry = kept ? `Your edit is kept in ${kept}. Save it with \`vitehub content edit ${document.replace("/", " ")} --file ${kept}\`.` : ""
   const holder = leaseHolder(failure)
   if (holder) {
-    context.stderr.write(`Nothing was saved. ${holder} on ${document}.\nWait until they finish, or pass --override-lease to save anyway.\n${retry ? `${retry}\n` : ""}`)
+    context.stderr.write(`Nothing was saved. ${holder} on ${document}.\nWait until they finish, or pass --override-lease to write anyway.\n${retry ? `${retry}\n` : ""}`)
     return 1
   }
   if (failure.code === "WORKSPACE_CONFLICT") {
     const details = isRecord(failure.details) ? failure.details : {}
     const actual = String(details.actual) === details.actual ? `draft is now ${shortDigest(details.actual)}` : "the draft was deleted"
-    context.stderr.write(`Nothing was saved. ${document} changed after you opened it (${actual}).\n${retry ? `${retry}\n` : "Run the edit again.\n"}`)
+    context.stderr.write(`Nothing was saved. ${document} changed after you opened it (${actual}).\n${retry || again}\n`)
     return 1
   }
   context.stderr.write(`${failure.message}\n${retry ? `${retry}\n` : ""}`)
@@ -752,6 +733,57 @@ async function runEdit(parsed: ParsedContentArgs, context: ContentCliContext, ca
   return 0
 }
 
+/** Delete one draft, pinned to the digest that the command read, after the user confirms. */
+async function runRemove(parsed: ParsedContentArgs, context: ContentCliContext, call: ContentDevCall, options: ContentCliOptions): Promise<number> {
+  const target = { collection: parsed.collection!, ...(parsed.id === undefined ? {} : { id: parsed.id }) }
+  const shown = await call("show", target)
+  if (shown.failure) return writeFailure(parsed, context, shown.failure)
+  const document = `${shown.result.collection}/${shown.result.id}`
+  if (!parsed.yes && !parsed.json) context.stderr.write(`Delete ${document} from the draft. The next publish deletes it from the site.\n`)
+  const declined = await confirmWrite(parsed, context, options, "Delete")
+  if (declined !== undefined) return declined
+  const removed = await call("remove", {
+    ...target,
+    ifDigest: shown.result.digest,
+    ...(parsed.message === undefined ? {} : { message: parsed.message }),
+    ...(parsed.overrideLease ? { lease: "override" } : {}),
+  })
+  if (removed.failure) return writeSaveFailure(parsed, context, removed.failure, document, undefined, "Run the command again.")
+  if (parsed.json) context.stdout.write(`${JSON.stringify(removed.result, null, 2)}\n`)
+  else context.stdout.write(`Deleted ${document} from the draft. Publish to delete it from the site.\n`)
+  return 0
+}
+
+/** Save a document's version from an earlier revision as its draft, pinned to the draft that the command read. */
+async function runRestore(parsed: ParsedContentArgs, context: ContentCliContext, call: ContentDevCall): Promise<number> {
+  const target = { collection: parsed.collection!, ...(parsed.id === undefined ? {} : { id: parsed.id }) }
+  // A deleted draft has no digest: the restore then requires that it is still missing.
+  const shown = await call("show", { ...target, create: true })
+  if (shown.failure) return writeFailure(parsed, context, shown.failure)
+  const document = `${shown.result.collection}/${shown.result.id}`
+  const restored = await call("restore", {
+    ...target,
+    ifDigest: shown.result.digest,
+    revision: parsed.revision,
+    ...(parsed.message === undefined ? {} : { message: parsed.message }),
+    ...(parsed.overrideLease ? { lease: "override" } : {}),
+  })
+  if (restored.failure) return writeSaveFailure(parsed, context, restored.failure, document, undefined, "Run the command again.")
+  if (parsed.json) context.stdout.write(`${JSON.stringify(restored.result, null, 2)}\n`)
+  else context.stdout.write(`Restored ${document} from revision ${parsed.revision} to the draft as ${shortDigest(restored.result.digest)}. Publish to put it on the site.\n`)
+  return 0
+}
+
+/** The roots that a dev server may name for this project: the Vite root and the ViteHub project root. */
+function projectRoots(rootDir: string): string[] {
+  try {
+    return [...new Set([rootDir, resolveViteHubProjectRoot(rootDir)])]
+  }
+  catch {
+    return [rootDir]
+  }
+}
+
 async function runContentCommand(command: ContentCliCommand, args: string[], context: ContentCliContext, options: ContentCliOptions): Promise<number> {
   let parsed: ParsedContentArgs
   try {
@@ -773,49 +805,32 @@ async function runContentCommand(command: ContentCliCommand, args: string[], con
     writeUsage(command, context.stdout)
     return 0
   }
-  const fetchImpl = options.fetch ?? globalThis.fetch
-  let discoveryError = ""
-  const server = await discoverViteHubDevServer<{ message?: unknown, root?: unknown, runtime?: unknown }>({
-    endpoint: contentDevEndpoint,
-    fetch: fetchImpl,
-    parseDiscovery: value => isRecord(value) ? value : {},
-    rootDir: context.rootDir,
-    ...withTimeout(parsed.timeout),
-    serverUrl: parsed.url,
-    stderr: parsed.json ? { write: (chunk) => { discoveryError += String(chunk); return true } } : context.stderr,
-  })
-  if (!server) {
-    if (parsed.json) return writeFailure(parsed, context, { message: `${discoveryError.trim()} ${contentDevServerHint}` })
-    context.stderr.write(`${contentDevServerHint}\n`)
-    return 1
-  }
-  if (server.discovery.runtime !== "nitro") {
-    return writeFailure(parsed, context, {
-      code: "CONTENT_DEV_RUNTIME_UNAVAILABLE",
-      message: String(server.discovery.message) === server.discovery.message
-        ? server.discovery.message
-        : "This Vite Development Server cannot reach the Content runtime.",
-    })
-  }
-  const call: ContentDevCall = async <TOperation extends ContentDevOperation>(operation: TOperation, options: ContentDevRequestOptions) => {
-    const body: ContentDevRequestBody = { ...options, operation }
-    let response: Response
-    try {
-      response = await fetchViteHubDevEndpoint(fetchImpl, server.url, contentDevEndpoint, {
-        body: JSON.stringify(body),
-        headers: { accept: "application/json", "content-type": "application/json" },
-        method: "POST",
-        ...withTimeout(parsed.timeout),
-      })
+  const roots = parsed.url ? undefined : projectRoots(context.rootDir)
+  // The dev server of this project, never a guessed port. Another project may use 5173.
+  if (!parsed.url) {
+    const found = findViteHubDevServerUrl(roots ?? [], context.env)
+    if (!found) {
+      const error = contentErrorDiagnostics.CONTENT_R0015({ message: `No dev server is running for ${context.rootDir}.` })
+      return writeFailure(parsed, context, { code: "CONTENT_R0015", fix: Reflect.get(error, "fix") as string, message: error.message })
     }
-    catch (error) {
-      return { failure: { message: `Content Dev request failed: ${error instanceof Error ? error.message : String(error)}` } }
+    parsed.url = found
+  }
+  const call: ContentDevCall = async <TOperation extends ContentDevOperation>(operation: TOperation, input: ContentDevRequestOptions) => {
+    const result = await callOperation({
+      env: context.env,
+      fetch: context.fetch ?? options.fetch ?? globalThis.fetch,
+      ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
+      ...(roots ? { roots } : {}),
+      url: parsed.url,
+    }, `content.${operation}`, input)
+    if (!result.ok) {
+      const failure: ContentCliFailure = { code: result.code, message: result.message }
+      if (result.details !== undefined) failure.details = result.details
+      if (result.fix) failure.fix = result.fix
+      return { failure }
     }
-    if (!response.ok) return { failure: await readFailure(response) }
-    const result: unknown = await response.json().catch(() => undefined)
-    if (result === null || Object(result) !== result || Array.isArray(result)) return { failure: { message: "The Content Dev response is not valid JSON." } }
-    // SAFETY: The Content dev handler of the same package answers each operation with its documented result type.
-    return { result: result as ContentDevResults[TOperation] }
+    // SAFETY: The Content operation of the same name returns its documented result type.
+    return { result: result.value as ContentDevResults[TOperation] }
   }
   const print = (result: unknown) => context.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
   switch (command.name) {
@@ -824,6 +839,10 @@ async function runContentCommand(command: ContentCliCommand, args: string[], con
       return await runPublish(command, parsed, context, call, options)
     case "edit":
       return await runEdit(parsed, context, call, options)
+    case "rm":
+      return await runRemove(parsed, context, call, options)
+    case "restore":
+      return await runRestore(parsed, context, call)
     case "diff": {
       const { failure, result } = await call("diff", requestBody(parsed))
       if (failure) return writeFailure(parsed, context, failure)
@@ -898,7 +917,7 @@ async function runContentCommand(command: ContentCliCommand, args: string[], con
 }
 
 /**
- * Runs one `vitehub content` command against a running Vite + Nitro Development Server.
+ * Runs one `vitehub content` command against the running dev server or a deployed app.
  * `args[0]` is the command name, for example `status` or `publish`.
  */
 export async function runContentCli(args: string[], context: ContentCliContext, options: ContentCliOptions = {}): Promise<number> {
@@ -914,7 +933,7 @@ export async function runContentCli(args: string[], context: ContentCliContext, 
 export function createContentCliContributor(options: ContentCliOptions = {}): ViteHubCliContributor {
   return {
     namespaces: [{
-      description: "Inspect, edit, publish, and schedule Content documents in a running Vite + Nitro Development Server.",
+      description: "Inspect, edit, delete, restore, publish, and schedule Content documents in the running dev server or a deployed app.",
       features: contentCommands.map(command => ({
         description: command.description,
         name: command.name,

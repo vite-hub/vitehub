@@ -70,6 +70,14 @@ The database has no connection at runtime. `error.why` lists what it needs: a Cl
 
 The database uses D1 HTTP, and a value is missing at runtime: `cloudflare.databaseId`, `cloudflare.http.url` and `cloudflare.http.authToken`, or the `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` environment variables when `cloudflare.http` is `true`.
 
+### DATABASE_NOT_CONNECTED
+
+`connectDatabase()` found no database for a query. `error.why` says what it looked for: the environment variable of an `env:` location, the D1 binding of a `d1:` location, or, with no location, `DATABASE_URL`, `TURSO_DATABASE_URL`, and the D1 binding `DB`. Set the variable or add the binding to the Worker, then retry. See [Connect without a Definition](/docs/database/configure#connect-without-a-definition).
+
+### DATABASE_UNSUPPORTED_URL
+
+`connectDatabase()` cannot use the location. It reads `d1:BINDING`, `env:VARIABLE`, `libsql://` and `https://` URLs, and `file:` paths. Postgres URLs are not supported yet, and a `file:` path needs Node: import `connectDatabase()` from `@vite-hub/database/connect/node`.
+
 ### DATABASE_NOT_FOUND
 
 `useDatabase(name)` or `agentDb.database(name)` received a name that has no Database Definition. Run `vitehub inspect definitions --kind database` to see the discovered databases.
@@ -169,3 +177,7 @@ A schema uses a key that the generated schema module uses for its own exports. R
 ### DATABASE_SCHEMA_LOAD_FAILED
 
 A Database Definition or a contributed schema module threw when it loaded. `error.why` has the import error, and `error.cause` keeps it. During config resolution ViteHub can warn and read the literal `schema` keys instead, but `vitehub db generate` needs every schema module to load.
+
+### DATABASE_WRANGLER_BINDING_CONFLICT
+
+An app on Cloudflare declares a D1 binding in its project `wrangler.json` (or `wrangler.jsonc`, `wrangler.toml`) that ViteHub also writes, and the two name a different `database_id`, `database_name`, or `preview_database_id`. Remove the binding from the project file, since ViteHub writes it, or rename one of them. When the two agree, ViteHub keeps one binding and fills fields it lacks from the project entry.

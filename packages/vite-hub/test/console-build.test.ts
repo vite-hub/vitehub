@@ -31,7 +31,7 @@ function event(): ConsoleRequestEvent {
 }
 
 async function generatedBuild(file: string, root: string, sections: Parameters<typeof writeConsoleNitroPlugin>[2]): Promise<string> {
-  await writeConsoleNitroPlugin(file, root, sections, [], { agents: [], content: {} }, [], ["default"])
+  await writeConsoleNitroPlugin(file, root, sections, [], { agents: [], content: {} }, [])
   const build = buildPattern.exec(await readFile(file, "utf8"))?.[1]
   if (!build) throw new TypeError("Expected the generated Console plugin to install a build id.")
   return build
@@ -52,13 +52,18 @@ function stubDocument(): { show: () => void } {
 
 /** Answers each Console sections call with the next build id. */
 function stubSections(builds: string[]): ReturnType<typeof vi.fn> {
-  const fetchMock = vi.fn(async () => {
+  const sectionsMock = vi.fn(async () => {
     const build = builds.length > 1 ? builds.shift() : builds[0]
     const result: ConsoleRpcResult = { ok: true, value: { build, sections: ["kv"] } }
     return Response.json(result)
   })
-  vi.stubGlobal("fetch", fetchMock)
-  return fetchMock
+  vi.stubGlobal("fetch", async (url: string) => {
+    // Navigation also opens the page tools session; it must not consume a build id.
+    if (url.endsWith("/_vitehub/page/session")) return Response.json({ tools: [] })
+    expect(url).toMatch(/\/_vitehub\/rpc\/__call$/)
+    return sectionsMock()
+  })
+  return sectionsMock
 }
 
 afterEach(() => {
@@ -76,7 +81,8 @@ describe("Console build id", () => {
       const first = await generatedBuild(file, root, ["kv"])
       expect(await generatedBuild(file, root, ["kv"])).toBe(first)
       expect(await generatedBuild(file, root, ["kv", "blob"])).not.toBe(first)
-      expect(await readFile(file, "utf8")).toContain(`import { installConsoleBuild, installConsoleDevelopment, installConsoleProjectName, installConsoleSections } from "vite-hub/console/sections"`)
+      expect(await readFile(file, "utf8")).toContain(`import { installConsoleBuild, installConsoleDevelopment, installConsoleOperations, installConsolePageTool, installConsoleProjectName, installConsoleSections } from "vite-hub/console/sections"`)
+      expect(await readFile(file, "utf8")).toContain("installConsoleOperations([], { invoke: false })")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -101,28 +107,28 @@ describe("Console build id", () => {
   it("marks an update when the deployed build changes, on an interval and when the tab is visible again", async () => {
     vi.useFakeTimers()
     const document = stubDocument()
-    const fetchMock = stubSections(["first", "first", "second"])
+    const sectionsMock = stubSections(["first", "first", "second"])
     const updateReady = useConsoleUpdate()
 
     watchConsoleBuild("/watch-build/api/_vitehub/console/sections")
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(sectionsMock).toHaveBeenCalledTimes(1))
 
     await vi.advanceTimersByTimeAsync(consoleBuildCheckInterval)
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(sectionsMock).toHaveBeenCalledTimes(2)
     expect(updateReady.value).toBe(false)
 
     // A tab that is visible again checks at once, but not right after another check.
     document.show()
     await vi.advanceTimersByTimeAsync(0)
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(sectionsMock).toHaveBeenCalledTimes(2)
 
     await vi.advanceTimersByTimeAsync(10_000)
     document.show()
     await vi.waitFor(() => expect(updateReady.value).toBe(true))
-    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(sectionsMock).toHaveBeenCalledTimes(3)
 
     // After an update is found, the Console stops asking.
     await vi.advanceTimersByTimeAsync(consoleBuildCheckInterval * 3)
-    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(sectionsMock).toHaveBeenCalledTimes(3)
   })
 })

@@ -14,6 +14,7 @@ import {
   consoleFixFieldsLabel,
   consoleInvalidDocument,
   consoleListQuery,
+  consolePublishedConflicts,
   consolePublishMismatches,
   parseConsoleListQuery,
   rememberConsoleListQuery,
@@ -27,6 +28,7 @@ import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsolePresenceAvatars from "./console-presence-avatars.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
 import ConsoleStatus from "./console-status.vue";
+import ConsoleState from "./console-state.vue";
 
 import type { ConsoleDocumentCollection, ConsoleDocumentPage, ConsoleDocumentPublishExpectation, ConsoleDocumentsClient, ConsoleDocumentSummary, ConsoleListState } from "../client/documents";
 import type { ConsoleDocumentSetup } from "../definitions";
@@ -88,7 +90,6 @@ const total = computed(() => states.value.draft + states.value.changed + states.
 const publishableChanges = computed(() => page.value?.changes.filter(change => !change.issues) ?? []);
 const blockedChanges = computed(() => (page.value?.changes.length ?? 0) - publishableChanges.value.length);
 const pendingChanges = computed(() => publishableChanges.value.length);
-// Geist tabs: a count of zero shows no badge.
 const stateTabs = computed(() => [
   { label: "All", value: "all", count: total.value },
   { label: "Drafts", value: "draft", count: states.value.draft },
@@ -96,7 +97,7 @@ const stateTabs = computed(() => [
   { label: "Published", value: "published", count: states.value.published },
   ...(states.value.deleted || state.value === "deleted" ? [{ label: "Deleted", value: "deleted", count: states.value.deleted }] : []),
   ...(page.value?.scheduled || state.value === "scheduled" ? [{ label: "Scheduled", value: "scheduled", count: page.value?.scheduled ?? 0 }] : []),
-].map(({ count, ...tab }) => (count ? { ...tab, badge: { class: "rounded-full tabular-nums", color: "neutral" as const, label: String(count), variant: "soft" as const } } : tab)));
+].map(({ count, ...tab }) => ({ ...tab, badge: { class: "min-w-5 justify-center rounded-full tabular-nums", color: "neutral" as const, label: page.value ? String(count) : "…", variant: "soft" as const } })));
 const selectedPublishable = computed<ConsoleDocumentPublishExpectation[]>(() => items.value
   .filter(item => selected.value.has(item.id) && item.state !== "published")
   .map(item => ({ digest: item.digest, id: item.id })));
@@ -144,6 +145,7 @@ function writeQuery(): void {
 
 async function load(append = false): Promise<void> {
   const current = ++request;
+  error.value = undefined;
   if (append) loadingMore.value = true;
   else loading.value = true;
   const [field, direction] = sort.value.split(":");
@@ -184,6 +186,10 @@ function open(item: Pick<ConsoleDocumentSummary, "id">): void {
   void router.push(documentRoute(item));
 }
 
+function revealStateTab(event: FocusEvent): void {
+  if (event.target instanceof HTMLElement) event.target.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+
 function create(): void {
   void router.push({ name: route.name ?? undefined, params: { collection: props.collection.name, document: [] }, query: { new: "1" } });
 }
@@ -218,7 +224,7 @@ function refreshAfterPublishProblem(): void {
  * (deleted rows leave) and roll back if the request fails.
  */
 async function publish(expect: readonly ConsoleDocumentPublishExpectation[] = publishableChanges.value): Promise<void> {
-  if (publishing.value || !expect.length) return;
+  if (publishing.value || loading.value || !expect.length) return;
   const before = { items: items.value, page: page.value, selected: selected.value };
   const targets = new Set(expect.map(entry => entry.id));
   const counts = { ...states.value };
@@ -251,9 +257,19 @@ async function publish(expect: readonly ConsoleDocumentPublishExpectation[] = pu
     page.value = before.page;
     selected.value = before.selected;
     const moved = consolePublishMismatches(publishError);
+    const site = consolePublishedConflicts(publishError);
     const invalid = consoleInvalidDocument(publishError);
     // A publish that stopped for a reason the reader must act on stays as a note above the list.
-    if (moved) {
+    if (site?.length) {
+      const first = site[0]!;
+      publishProblem.value = {
+        actions: [{ color: "neutral", label: `Open ${documentTitle(first.id)}`, onClick: () => open({ id: first.id }), variant: "outline" }],
+        color: "warning",
+        description: `Nothing was published. ${site.map(entry => documentTitle(entry.id)).join(", ")} also changed on the site after the draft started from ${site.length === 1 ? "it" : "them"}, for example with a Git commit. Open ${site.length === 1 ? "it" : "each one"} to compare and choose what to keep.`,
+        title: site.length === 1 ? "1 document changed on the site too" : `${site.length} documents changed on the site too`,
+      };
+    }
+    else if (moved) {
       const names = moved.map(entry => `${documentTitle(entry.id)}${entry.actual === null ? " (deleted)" : ""}`).join(", ");
       publishProblem.value = {
         actions: [{ color: "neutral", label: "Refresh", onClick: refreshAfterPublishProblem, variant: "outline" }],
@@ -271,7 +287,7 @@ async function publish(expect: readonly ConsoleDocumentPublishExpectation[] = pu
         title: `${documentTitle(invalid)} no longer validates`,
       };
     }
-    else toast.error("Couldn't publish. Try again.", { label: "Retry", onClick: () => publish(expect) });
+    else toast.error(`Couldn't publish. ${consoleErrorMessage(publishError, "Try again.")}`, { label: "Retry", onClick: () => publish(expect) });
   }
   finally {
     publishing.value = false;
@@ -310,6 +326,7 @@ watch(() => route.query, () => {
 watch(() => [props.collection.name, props.changes], () => void load(), { immediate: true });
 rememberConsoleListQuery(props.collection.name, consoleListQuery(initial, defaultSort.value));
 onBeforeUnmount(() => {
+  request++;
   if (searchTimer) clearTimeout(searchTimer);
 });
 </script>
@@ -317,8 +334,9 @@ onBeforeUnmount(() => {
 <template>
   <ConsolePageHeader :title="collection.label" :description="collection.path">
     <template #right>
+      <ConsoleStatus v-if="publishing" label="Publishing…" pending />
       <UPopover v-if="collection.access.publish && pendingChanges" v-model:open="publishOpen">
-        <UButton variant="outline" size="sm" label="Publish" :aria-label="`Publish ${pendingChanges} ${pendingChanges === 1 ? 'change' : 'changes'}`">
+        <UButton variant="outline" size="sm" label="Publish" :loading="publishing" :disabled="loading" :aria-label="`Publish ${pendingChanges} ${pendingChanges === 1 ? 'change' : 'changes'}`">
           <template #trailing>
             <UBadge color="neutral" variant="soft" size="sm" class="rounded-full tabular-nums" :label="String(pendingChanges)" />
           </template>
@@ -349,6 +367,7 @@ onBeforeUnmount(() => {
       size="sm"
       :placeholder="`Search ${collection.label.toLowerCase()}…`"
       aria-label="Search documents"
+      :ui="{ base: 'text-base sm:text-sm' }"
     />
     <UTabs
       v-model="state"
@@ -357,8 +376,11 @@ onBeforeUnmount(() => {
       size="xs"
       variant="link"
       color="neutral"
+      class="min-w-0 max-w-full"
       aria-label="Filter by state"
-      :ui="{ trigger: 'text-[13px]' }"
+      :aria-busy="!page && loading"
+      :ui="{ list: 'max-w-full overflow-x-auto', trigger: 'shrink-0 text-[13px]' }"
+      @focusin="revealStateTab"
     />
     <div v-if="activeFilters.length" class="flex flex-wrap items-center gap-1.5">
       <UButton
@@ -418,7 +440,8 @@ onBeforeUnmount(() => {
     />
   </div>
 
-  <div class="min-h-0 flex-1 overflow-y-auto" aria-live="polite" :aria-busy="loading">
+  <p class="sr-only" role="status">{{ publishing ? 'Publishing changes…' : loading ? 'Loading documents…' : error ? 'Documents could not be loaded.' : `${page?.total ?? 0} documents` }}</p>
+  <div class="min-h-0 flex-1 overflow-y-auto" :aria-busy="loading || loadingMore || publishing">
     <UAlert
       v-if="publishProblem"
       class="m-4"
@@ -432,32 +455,27 @@ onBeforeUnmount(() => {
       close
       @update:open="publishProblem = undefined"
     />
-    <UAlert
+    <ConsoleState
       v-if="error"
       class="m-4"
-      color="error"
-      variant="subtle"
-      icon="i-lucide-cloud-off"
+      :compact="Boolean(items.length)"
       :title="`Couldn't load ${collection.label.toLowerCase()}`"
-      :description="consoleErrorMessage(error)"
-      :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', color: 'neutral', variant: 'outline', onClick: () => load() }]"
+      :error="error"
+      :retry="() => load()"
     />
-    <div v-else-if="loading && !items.length" class="grid gap-px p-4" aria-hidden="true">
-      <USkeleton v-for="index in 6" :key="index" class="h-12 rounded-md" />
-    </div>
     <UEmpty
-      v-else-if="!items.length"
+      v-if="!loading && !error && !items.length"
       class="m-4 py-12"
       icon="i-lucide-file-text"
       :title="emptyState?.title ?? `No ${collection.label.toLowerCase()} yet`"
       :description="emptyState?.description ?? (collection.access.write ? 'Create the first document.' : 'Documents appear here when someone saves one.')"
       :actions="emptyState ? (emptyState.action ? [{ label: 'Clear filters', color: 'neutral', variant: 'outline', onClick: () => { search = ''; state = 'all'; filters = {} } }] : []) : collection.access.write ? [{ label: 'New document', icon: 'i-lucide-plus', onClick: create }] : []"
     />
-    <table v-else class="w-full table-fixed text-left">
+    <table v-if="items.length || loading" class="w-full table-fixed text-left" aria-label="Documents">
       <thead class="sticky top-0 z-10 bg-default text-xs text-muted shadow-[inset_0_-1px_0_var(--ui-border)]">
         <tr class="h-9">
           <th v-if="collection.access.publish" class="w-10 ps-4 font-medium">
-            <UCheckbox :model-value="allSelected" aria-label="Select every document on this page" @update:model-value="toggleAll" />
+            <UCheckbox :model-value="allSelected" :disabled="loading || publishing" aria-label="Select every document on this page" @update:model-value="toggleAll" />
           </th>
           <th class="font-medium" :class="collection.access.publish ? 'px-2' : 'px-4'">Title</th>
           <th class="hidden px-2 font-medium sm:table-cell" :class="page?.scheduled ? 'w-56' : 'w-28'">State</th>
@@ -467,6 +485,23 @@ onBeforeUnmount(() => {
         </tr>
       </thead>
       <tbody class="divide-y divide-default">
+        <template v-if="loading && !items.length">
+          <tr v-for="index in 9" :key="index" class="h-18 sm:h-12" aria-hidden="true">
+            <td v-if="collection.access.publish" class="ps-4"><USkeleton class="size-4 animate-none rounded" /></td>
+            <td class="px-2 py-2 sm:py-1.5">
+              <div class="mb-1 h-4">
+                <span v-if="index === 1" class="text-xs text-muted">Loading documents…</span>
+                <USkeleton v-else class="h-4 w-2/3 animate-none rounded" />
+              </div>
+              <USkeleton class="h-3 w-1/3 animate-none rounded" />
+              <USkeleton class="mt-1 h-4 w-16 animate-none rounded sm:hidden" />
+            </td>
+            <td class="hidden px-2 sm:table-cell"><USkeleton class="h-3 w-16 animate-none rounded" /></td>
+            <td v-if="tagField" class="hidden px-2 lg:table-cell"><USkeleton class="h-3 w-12 animate-none rounded" /></td>
+            <td v-if="dateField" class="hidden px-2 md:table-cell"><USkeleton class="h-3 w-16 animate-none rounded" /></td>
+            <td class="hidden px-4 sm:table-cell"><USkeleton class="ms-auto h-3 w-12 animate-none rounded" /></td>
+          </tr>
+        </template>
         <tr
           v-for="item in items"
           :key="item.id"
@@ -479,6 +514,7 @@ onBeforeUnmount(() => {
             <UCheckbox
               :class="selected.size ? '' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100'"
               :model-value="selected.has(item.id)"
+              :disabled="loading || publishing"
               :aria-label="`Select ${item.title}`"
               @update:model-value="toggle(item.id, $event)"
             />
@@ -499,6 +535,7 @@ onBeforeUnmount(() => {
             <span class="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-3 sm:hidden">
               <ConsoleStatus :tone="consoleDocumentStateColor(item.state)" :label="consoleDocumentStateLabel(item.state)" />
               <ConsoleStatus v-if="item.issues" tone="error" :label="item.issues === 1 ? '1 issue' : `${item.issues} issues`" />
+              <ConsoleStatus v-if="item.conflict" tone="warning" label="Changed on the site too" />
               <ConsoleStatus v-if="item.schedule" :tone="consoleDocumentScheduleTone(item.schedule)" :label="consoleDocumentScheduleLabel(item.schedule)" />
             </span>
           </td>
@@ -507,6 +544,9 @@ onBeforeUnmount(() => {
               <ConsoleStatus :tone="consoleDocumentStateColor(item.state)" :label="consoleDocumentStateLabel(item.state)" class="text-[13px]" />
               <UTooltip v-if="item.issues" :text="consoleFixFieldsLabel(item.issues)" :content="{ side: 'top' }">
                 <ConsoleStatus tone="error" :label="item.issues === 1 ? '1 issue' : `${item.issues} issues`" class="text-[13px]" />
+              </UTooltip>
+              <UTooltip v-if="item.conflict" text="Open it to compare with the site before you publish" :content="{ side: 'top' }">
+                <ConsoleStatus tone="warning" label="Changed on the site too" class="text-[13px]" />
               </UTooltip>
               <UTooltip v-if="item.schedule" :text="consoleDocumentScheduleHint(item.schedule, setup)" :content="{ side: 'top' }">
                 <ConsoleStatus :tone="consoleDocumentScheduleTone(item.schedule)" :label="consoleDocumentScheduleLabel(item.schedule)" class="text-[13px]" />
@@ -525,10 +565,13 @@ onBeforeUnmount(() => {
     <div v-if="page?.nextCursor" class="flex justify-center p-4">
       <UButton variant="outline" size="sm" label="Load more" :loading="loadingMore" @click="load(true)" />
     </div>
-    <p v-if="items.length" class="flex flex-wrap gap-x-3 px-4 py-3 text-xs text-dimmed">
-      <span class="tabular-nums">{{ items.length }} of {{ page?.total ?? items.length }}</span>
-      <span v-if="state === 'draft'">Drafts aren't on the site until you publish them.</span>
-      <span v-else-if="state === 'deleted'">Deleted documents stay on the site until you publish the deletion.</span>
+    <p v-if="loading || items.length" class="flex flex-wrap gap-x-3 px-4 py-3 text-xs text-muted">
+      <span v-if="loading">{{ items.length ? 'Updating documents…' : 'Loading documents…' }}</span>
+      <template v-else>
+        <span class="tabular-nums">{{ items.length }} of {{ page?.total ?? items.length }}</span>
+        <span v-if="state === 'draft'">Drafts aren't on the site until you publish them.</span>
+        <span v-else-if="state === 'deleted'">Deleted documents stay on the site until you publish the deletion.</span>
+      </template>
     </p>
   </div>
 </template>

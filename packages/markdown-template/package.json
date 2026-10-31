@@ -6,9 +6,11 @@
     "agent",
     "markdown",
     "template",
+    "templating",
+    "typescript",
     "vitehub"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -36,25 +38,21 @@
     "./file": {
       "types": "./dist/file.d.ts",
       "import": "./dist/file.js",
-      "require": "./dist/file.js",
       "default": "./dist/file.js"
     },
     "./internal/composition": {
       "types": "./dist/internal/composition.d.ts",
       "import": "./dist/internal/composition.js",
-      "require": "./dist/internal/composition.js",
       "default": "./dist/internal/composition.js"
     },
     "./internal/vite": {
       "types": "./dist/internal/vite.d.ts",
       "import": "./dist/internal/vite.js",
-      "require": "./dist/internal/vite.js",
       "default": "./dist/internal/vite.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js",
-      "require": "./dist/vite.js",
       "default": "./dist/vite.js"
     },
     "./package.json": "./package.json"
@@ -62,7 +60,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "vp run --cache -t @vite-hub/markdown-template#build && node ../../node_modules/typescript-native/bin/tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/markdown-template#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/markdown-template#build && vp test"
   },
   "dependencies": {

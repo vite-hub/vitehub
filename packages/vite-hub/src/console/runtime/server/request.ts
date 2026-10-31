@@ -1,4 +1,5 @@
 import { consoleDiagnostic, consoleStatusDiagnosticCode, type ConsoleDiagnosticCode } from "../diagnostics.ts"
+import { isConsoleDevelopmentBuild } from "./development.ts"
 
 interface ConsoleHeaders {
   get(name: string): string | null
@@ -16,6 +17,7 @@ export interface ConsoleRequestEvent {
     req?: {
       headers?: Record<string, string | string[] | undefined>
       method?: string
+      originalUrl?: string
       socket?: { remoteAddress?: string, encrypted?: boolean }
       url?: string
       [Symbol.asyncIterator]?: () => AsyncIterator<Uint8Array | string>
@@ -31,6 +33,7 @@ export interface ConsoleRequestEvent {
     headers?: ConsoleHeaders
     json?: () => Promise<unknown>
     method?: string
+    signal?: AbortSignal
     url?: string | URL
   }
   res?: {
@@ -121,7 +124,7 @@ export function consoleRequestError(statusCode: number, statusMessage: string, c
 
 /** Tells if the Console runs on a development server. */
 export function isConsoleDevelopmentRuntime(): boolean {
-  return globalThis.process?.env?.NODE_ENV === "development"
+  return isConsoleDevelopmentBuild()
 }
 
 export function assertConsoleRequest(event: ConsoleRequestEvent, allowedMethods: readonly string[] = ["GET"]): void {
@@ -143,7 +146,8 @@ export function setConsoleResponseHeaders(event: ConsoleRequestEvent): void {
 }
 
 export function consoleRequestURL(event: ConsoleRequestEvent): URL {
-  const value = event.req?.url ?? event.node?.req?.url ?? "/"
+  // H3 1 strips a mounted base from url and retains the public path in originalUrl.
+  const value = event.node?.req?.originalUrl || event.req?.url || event.node?.req?.url || "/"
   const header = (name: string) => {
     for (const source of [event.req?.headers, event.headers, event.node?.req?.headers]) {
       if (!source) continue

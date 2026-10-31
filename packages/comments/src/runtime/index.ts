@@ -1,0 +1,11 @@
+export { createCommentsHandler } from "./handler.ts"
+export type { CommentsContent, CommentsContentField, CommentsHandlerOptions } from "./handler.ts"
+export { defineCommentsPlugin, installedComments } from "./plugin.ts"
+export type { CommentsPluginOptions } from "./plugin.ts"
+export { commentsConsoleSession } from "./console-session.ts"
+export type { CommentsConsoleAccess } from "./console-session.ts"
+export { commentsMcpTools } from "./mcp.ts"
+// The route `GET /_vitehub/page/session` of the page tools. The Vite plugin serves it from this module.
+export { viteHubPageSessionHandler } from "@vite-hub/internal/runtime/page-tools"
+export { createCommentsGitHubLogin, githubLoginEnv } from "./github-login.ts"
+export type { CommentsGitHubLogin } from "./github-login.ts"
