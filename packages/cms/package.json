@@ -91,6 +91,9 @@
     "@vite-hub/comments": {
       "optional": true
     },
+    "better-auth": {
+      "optional": true
+    },
     "vite": {
       "optional": true
     }

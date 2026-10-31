@@ -52,7 +52,7 @@ Start with the Blob + Database store. Change the store with one option, without 
   :::
 
   :::product-feature-item{title="Decide who edits and publishes" icon="i-lucide-lock" to="/docs/cms/access"}
-  Give each user a role: `viewer`, `commenter`, `editor`, or `publisher`. Or write your own `authorize`.
+  Set `access: 'roles'` and give each user a role: `viewer`, `commenter`, `editor`, or `publisher`. Or write your own `authorize`.
   :::
 
   :::product-feature-item{title="Edit in the Console" icon="i-lucide-file-pen-line" to="/docs/content/console"}

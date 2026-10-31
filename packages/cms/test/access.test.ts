@@ -91,8 +91,25 @@ describe("CMS roles", () => {
 describe("the default policy of defineContent({ extends: cms })", () => {
   const collections = { posts: documents({ path: "posts/*.md", fields: { title: z.string() } }) }
 
-  it("applies the CMS roles when the app sets no authorize", async () => {
+  it("rejects unsupported access modes", () => {
+    expect(() => defineContent({ extends: [cms, { access: "implicit" as never }], collections, logger: false })).toThrow('option "access" must be "roles"')
+  })
+
+  it("does not grant access from an unrelated application role", async () => {
     const content = defineContent({ extends: cms, collections, logger: false })
+    try {
+      expect(content.hasPolicy).toBe(false)
+      for (const role of ["editor", "publisher", "admin"]) {
+        expect(await content.can({ user: { id: "u1", role }, collection: "posts", action: "read" })).toBe(false)
+      }
+    }
+    finally {
+      content.dispose()
+    }
+  })
+
+  it("applies the CMS roles only when the preset opts in", async () => {
+    const content = defineContent({ extends: [cms, { access: "roles" }], collections, logger: false })
     try {
       expect(content.hasPolicy).toBe(true)
       expect(await content.can({ user: { id: "u1", role: "editor" }, collection: "posts", action: "write" })).toBe(true)
@@ -109,7 +126,7 @@ describe("the default policy of defineContent({ extends: cms })", () => {
   })
 
   it("uses the app's authorize instead", async () => {
-    const content = defineContent({ extends: [cms, { workspace: "site" }], collections, logger: false, authorize: ({ user }) => user?.id === "owner" })
+    const content = defineContent({ extends: [cms, { workspace: "site", access: "roles" }], collections, logger: false, authorize: ({ user }) => user?.id === "owner" })
     try {
       expect(await content.can({ user: { id: "owner" }, collection: "posts", action: "publish" })).toBe(true)
       expect(await content.can({ user: { id: "u1", role: "admin" }, collection: "posts", action: "read" })).toBe(false)

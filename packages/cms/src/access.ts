@@ -87,7 +87,7 @@ export function cmsCan(user: CmsUser | null | undefined, permissions: CmsPermiss
 
 /**
  * `defineContent({ authorize })` from the CMS roles: `content.can()` allows an action when a role of the user has
- * `content:<action>`. `defineContent({ extends: cms })` uses it when the app sets no `authorize`.
+ * `content:<action>`. `defineContent({ extends: [cms, { access: "roles" }] })` uses it when the app sets no `authorize`.
  */
 export const cmsContentAuthorize: ContentAuthorize = ({ user, action }) => cmsCan(user, { content: [action] })
 
@@ -102,7 +102,7 @@ const commentPermissions: Readonly<Record<CommentsAuthorizeContext["action"], Cm
 
 /**
  * `defineComments({ authorize })` from the CMS roles: `read` needs `comment:read`, `comment` needs `comment:create`,
- * and `resolve` needs `comment:resolve`.
+ * `resolve` needs `comment:resolve`, and deleting others' comments or threads needs `comment:delete`.
  */
 export function cmsCommentsAuthorize(context: Pick<CommentsAuthorizeContext, "user" | "action">): boolean {
   if (!Object.hasOwn(commentPermissions, context.action)) return false

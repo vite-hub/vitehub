@@ -53,14 +53,14 @@ export default defineAuth({ plugins: [admin(cmsAccess)] })
 | `viewer` | `read` | None |
 | `commenter` | `read` | `read`, `create`, `resolve` |
 | `editor` | `read`, `write` | `read`, `create`, `resolve` |
-| `publisher` | `read`, `write`, `publish` | `read`, `create`, `resolve` |
+| `publisher` | `read`, `write`, `publish` | `read`, `create`, `resolve`, `delete` |
 | `admin` | Everything, with the Better Auth admin permissions | Everything |
 
-`user.role` holds one role, or several separated by commas. `cmsCan(user, { content: ["publish"] })` checks it without a request; a missing user or an unknown role is denied. Without `authorize` in `defineContent()`, the `cms` preset uses `cmsContentAuthorize`, so a user without a role, such as every user without the `admin` plugin, is denied. `cmsCommentsAuthorize` and `cmsConsoleAuthorize` give Comments and the Console the same roles. `vitehub cms roles` prints the table.
+`user.role` holds one role, or several separated by commas. `cmsCan(user, { content: ["publish"] })` checks it without a request; a missing user or an unknown role is denied. Opt into the role policy with `extends: [cms, { access: "roles" }]` or `authorize: cmsContentAuthorize`. With `extends: cms` alone, every action stays denied, including for unrelated application roles. Your own `authorize` overrides the preset policy. `cmsCommentsAuthorize` and `cmsConsoleAuthorize` give Comments and the Console the same roles. `vitehub cms roles` prints the table.
 
 ## Inspect
 
-`usesCms({ projectRoot, serverDirs })` and `cmsStore(...)` from `@vite-hub/cms/vite` read `server/content.ts` the same way, without running it. `vitehub inspect definitions --kind database` lists the tables and the Database that the CMS contributes, with `@vite-hub/cms/vite` as the contributor. `vitehub inspect definitions --kind cms` shows the store, the Workspace, and whether the CMS roles or the app's `authorize` decide access.
+`usesCms({ projectRoot, serverDirs })` and `cmsStore(...)` from `@vite-hub/cms/vite` read `server/content.ts` the same way, without running it. `vitehub inspect definitions --kind database` lists the tables and the Database that the CMS contributes, with `@vite-hub/cms/vite` as the contributor. `vitehub inspect definitions --kind cms` shows the store, the Workspace, and whether access uses the CMS roles, the app's `authorize`, or no policy.
 
 ## Errors
 

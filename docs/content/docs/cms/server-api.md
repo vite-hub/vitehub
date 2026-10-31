@@ -47,12 +47,13 @@ The build reads `server/content.ts` without running it, to add the Workspace and
 
 The build follows a re-export of `content` from a relative file, such as `export { content } from './content/index'`. When it cannot read the selection, the build fails with `CONTENT_B0001`. At runtime, `defineContent()` checks the same rules and throws `CONTENT_R0006`.
 
-The preset fills `workspace` in `defineContent()`, so `extends` cannot be combined with `workspace`. When `defineContent()` has no `authorize`, the preset also fills it with the CMS roles. With the GitHub store and `publish: 'pr'`, it also selects pull request publishing for `content.publish()`.
+The preset fills `workspace` in `defineContent()`, so `extends` cannot be combined with `workspace`. With `access: 'roles'` and no `authorize` in `defineContent()`, the preset also fills it with the CMS role policy. Without either, every action stays denied. With the GitHub store and `publish: 'pr'`, it also selects pull request publishing for `content.publish()`.
 
 ## Option values
 
 | Option | Accepts |
 | --- | --- |
+| `access` | `'roles'` to opt into the CMS role policy. |
 | `database`, `blob`, `workspace` | A name of letters, numbers, dots, underscores, and dashes that starts with a letter or number. Slashes separate parts, such as `content/main`. |
 | `store` | `'blob-database'` or `'github'`. |
 | `repo` | A repository as `owner/name`. The owner has letters, numbers, and dashes. The name has letters, numbers, dots, underscores, and dashes, and is not `.` or `..`. |

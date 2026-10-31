@@ -192,9 +192,10 @@ export interface CommentsForgeOptions {
 /**
  * - `read`: see pins and threads, and join the page room.
  * - `comment`: start threads and reply; signed-in authors can delete their own comments.
- * - `resolve`: resolve and reopen; signed-in users can delete any thread or comment.
+ * - `resolve`: resolve and reopen.
+ * - `delete`: signed-in users can delete any thread or comment.
  */
-export type CommentsAction = "read" | "comment" | "resolve"
+export type CommentsAction = "read" | "comment" | "resolve" | "delete"
 
 /** The user that `identify` or the ViteHub Auth session resolved. `null` for an anonymous request. */
 export type CommentsUser = Record<string, unknown> & { id: string, github?: CommentsGitHubAccess }

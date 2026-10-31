@@ -74,6 +74,13 @@ describe("reading the cms preset from server/content.ts", () => {
       "import cms from 'vite-hub/cms'",
       "export const content = defineContent({ extends: cms, collections: {} })",
     ].join("\n"))).toEqual({ file, options: {} })
+    expect(read([
+      "import { defineContent } from 'vite-hub/content'",
+      "import cms from 'vite-hub/cms'",
+      "export const content = defineContent({ extends: [cms, { access: 'roles' }] })",
+    ].join("\n"))).toEqual({ file, options: { access: "roles" } })
+    expect(() => read("import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/cms'\nexport const content = defineContent({ extends: [cms, { access: 'implicit' }] })"))
+      .toThrow('option "access" must be "roles"')
     // The app's own policy replaces the CMS roles, and inspection says so.
     expect(read([
       "import { defineContent } from 'vite-hub/content'",
@@ -118,7 +125,7 @@ describe("reading the cms preset from server/content.ts", () => {
     expect(errorOf(() => read("import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/cms'\nconst name = 'x'\nexport const content = defineContent({ extends: [cms, { database: name }] })")).message)
       .toContain("cms preset option \"database\" must be a string literal")
     expect(errorOf(() => read("import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/cms'\nexport const content = defineContent({ extends: [cms, { speed: 'x' }] })")).message)
-      .toContain("unknown cms preset option \"speed\". Use blob, database, workspace, store, repo, branch, draftBranch, root, publish.")
+      .toContain("unknown cms preset option \"speed\". Use access, blob, database, workspace, store, repo, branch, draftBranch, root, publish.")
     expect(errorOf(() => read("import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/cms'\nconst o = {}\nexport const content = defineContent({ extends: [cms, o] })")).message)
       .toContain("the cms preset tuple must be [cms, { ... }] with an object literal.")
     expect(errorOf(() => read("import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/cms'\nexport const content = defineContent({ extends: cms, extends: [cms, {}] })")).message)
@@ -315,14 +322,16 @@ describe("hubCms()", () => {
       const definitions = (await inspection())?.definitions ?? []
       return { cli: await cli(), fields: definitions.flatMap(definition => definition.list().map(entry => ({ kind: definition.kind, fields: entry.fields }))) }
     }
-    const roles = await inspect(presetContent)
+    const denied = await inspect(presetContent)
+    expect(denied.fields[0]?.fields).toContainEqual({ label: "Access", value: "No policy (all actions denied)" })
+    const roles = await inspect(presetContent.replace("extends: cms", "extends: [cms, { access: 'roles' }]"))
     expect(roles.cli?.namespaces).toMatchObject([{ name: "cms", features: [{ name: "roles" }] }])
     expect(roles.fields).toEqual([{ kind: "cms", fields: [
       { label: "Store", value: "blob-database" },
       { label: "Workspace", value: "content" },
       { label: "Access", value: "CMS roles of the Better Auth admin plugin (vitehub cms roles)" },
     ] }])
-    const own = await inspect(presetContent.replace("extends: cms", "extends: cms, authorize: () => true"))
+    const own = await inspect(presetContent.replace("extends: cms", "extends: [cms, { access: 'roles' }], authorize: () => true"))
     expect(own.fields[0]?.fields).toContainEqual({ label: "Access", value: "The app's defineContent({ authorize })" })
     // Without the preset there is nothing to inspect, but the roles still serve cmsContentAuthorize.
     const plain = await inspect("import { defineContent } from 'vite-hub/content'\nexport const content = defineContent({ workspace: 'site' })\n")
@@ -444,10 +453,10 @@ describe("the cms preset on the GitHub store", () => {
   })
 
   it("publishes with pull requests only on the GitHub store with publish: pr", () => {
-    const authorize = expect.any(Function)
-    expect(cms.configure({ ...cms.options, store: "github", publish: "pr" })).toEqual({ workspace: "content", publish: "pr", authorize })
-    expect(cms.configure({ ...cms.options, store: "github" })).toEqual({ workspace: "content", authorize })
-    expect(cms.configure({ ...cms.options, repo: "onmax/docs", publish: "commit" })).toEqual({ workspace: "content", authorize })
+    expect(cms.configure({ ...cms.options, store: "github", publish: "pr" })).toEqual({ workspace: "content", publish: "pr" })
+    expect(cms.configure({ ...cms.options, store: "github" })).toEqual({ workspace: "content" })
+    expect(cms.configure({ ...cms.options, repo: "onmax/docs", publish: "commit" })).toEqual({ workspace: "content" })
+    expect(cms.configure({ ...cms.options, access: "roles", store: "github", publish: "pr" })).toEqual({ workspace: "content", publish: "pr", authorize: expect.any(Function) })
   })
 
   it("contributes only the sessions table, and needs no Blob store", async () => {

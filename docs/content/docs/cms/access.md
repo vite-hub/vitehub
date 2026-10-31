@@ -66,11 +66,11 @@ export default defineAuth({
 })
 ```
 
-## The default policy
+## Opt into the role policy
 
-With `extends: cms` and no `authorize` in `defineContent()`, the CMS roles decide every `content.can()` call. The [Console editor](/docs/content/console) and the [Content Agent Capability](/docs/content/agent-capability) use it. An Agent gets the role of the Auth user that its Actor stands for.
+Set `extends: [cms, { access: 'roles' }]` to make the CMS roles decide every `content.can()` call when you set no `authorize`. The [Console editor](/docs/content/console) and the [Content Agent Capability](/docs/content/agent-capability) use it. An Agent gets the role of the Auth user that its Actor stands for.
 
-Without the `admin` plugin, users have no `role`. Then the default policy denies every action, as Content does without a policy. The default policy loads Better Auth only for a user that has a role.
+With `extends: cms` alone, every action stays denied, even if your app has an unrelated `user.role` field. The role policy requires this explicit opt-in or `authorize: cmsContentAuthorize`. Once enabled, it loads Better Auth only for a user with a string role; a missing or unknown role is denied.
 
 Set `authorize` to use your own policy. It replaces the CMS roles:
 
@@ -87,11 +87,11 @@ export const content = defineContent({
 })
 ```
 
-`cmsCan(user, permissions)` reads only `user.role`, so it needs no request. A missing user, a user without a role, and an unknown role are denied. `cmsContentAuthorize` is the default policy as a function. Use it with `defineContent({ workspace })`, which has no preset.
+`cmsCan(user, permissions)` reads only `user.role`, so it needs no request. A missing user, a user without a role, and an unknown role are denied. `cmsContentAuthorize` is the role policy as a function. Use it with `defineContent({ workspace })`, which has no preset.
 
 ## Comments and the Console
 
-`cmsCommentsAuthorize` gives Comments the same roles. `read` needs `comment:read`, `comment` needs `comment:create`, `resolve` needs `comment:resolve`, and `delete` (Operations Comments) needs `comment:delete`, which only `publisher` and `admin` have:
+`cmsCommentsAuthorize` gives Comments the same roles. `read` needs `comment:read`, `comment` needs `comment:create`, `resolve` needs `comment:resolve`, and `delete` needs `comment:delete`, which only `publisher` and `admin` have. Signed-in authors may delete their own comments with `comment:create`:
 
 ```ts [server/comments.ts]
 import { defineComments } from 'vite-hub/comments'
@@ -119,7 +119,7 @@ Set `console: { auth: 'app', authorize: './server/console-authorize.ts' }` in `v
 pnpm vitehub cms roles
 ```
 
-`vitehub inspect definitions --kind cms` shows whether the CMS roles or the app's `authorize` decide access.
+`vitehub inspect definitions --kind cms` shows whether access uses the CMS roles, the app's `authorize`, or no policy.
 
 ## Later
 
