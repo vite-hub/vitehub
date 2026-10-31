@@ -177,3 +177,7 @@ A schema uses a key that the generated schema module uses for its own exports. R
 ### DATABASE_SCHEMA_LOAD_FAILED
 
 A Database Definition or a contributed schema module threw when it loaded. `error.why` has the import error, and `error.cause` keeps it. During config resolution ViteHub can warn and read the literal `schema` keys instead, but `vitehub db generate` needs every schema module to load.
+
+### DATABASE_WRANGLER_BINDING_CONFLICT
+
+An app on Cloudflare declares a D1 binding in its project `wrangler.json` (or `wrangler.jsonc`, `wrangler.toml`) that ViteHub also writes, and the two name a different `database_id`, `database_name`, or `preview_database_id`. Remove the binding from the project file, since ViteHub writes it, or rename one of them. When the two agree, ViteHub keeps one binding and fills fields it lacks from the project entry.

@@ -112,7 +112,7 @@ The editing menu in the header switches between **Collaborative** and **Local on
 
 ## The body round-trips
 
-The body is Markdown, and the rich editor edits it through Comark. Opening a document and switching between Rich and Source writes nothing: the stored text stays byte for byte until someone edits it. After an edit the editor writes canonical Markdown, so formatting choices such as `*` bullets may become `-`.
+The body is Markdown, and the rich editor edits it through Comark. Opening a document and switching between Rich and Source writes nothing: the stored text stays byte for byte until someone edits it. After an edit the editor writes canonical Markdown, so formatting choices such as `*` bullets may become `-`. Marks around exactly the same text are one document to the editor, so `**[a](/x)**` may become `[**a**](/x)`.
 
 When a body uses Markdown that the rich editor would drop, such as a footnote definition the base parser drops, Rich mode is read-only for that document and says so. Edit it in Source. Components do not need a collection declaration to round-trip through the shared Comark UI schema.
 
