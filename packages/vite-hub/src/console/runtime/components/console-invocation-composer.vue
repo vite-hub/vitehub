@@ -99,7 +99,7 @@ async function submit(message: { text: string; files?: readonly FileUIPart[] }):
         :description="errorMessage(error)"
         variant="subtle"
       />
-      <div class="console-invocation-composer__surface relative">
+      <div class="console-invocation-composer__surface relative min-w-0">
         <PromptInput
           v-model="draft"
           v-model:files="files"
