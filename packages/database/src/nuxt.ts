@@ -15,6 +15,7 @@ import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { mergeCloudflareD1Bindings, mergeCloudflareHyperdriveBindings, resolveCloudflareD1Binding, resolveCloudflareD1BindingName, resolveCloudflareD1Bindings, resolveCloudflareHyperdriveBindings } from "./internal/cloudflare.ts"
 import { getDatabaseNuxtProvisionStateKey } from "./provision.ts"
 import { renderDatabaseRuntimeModule } from "./internal/runtime-module.ts"
+import { collapseGeneratedWranglerD1Bindings } from "./internal/wrangler-output.ts"
 import { renderPostgresDatabaseExpression, usesPostgres } from "./internal/runtime-config-expression.ts"
 import { generatedDatabaseTypesFile, removeGeneratedDatabaseTypes, renderContributionImport, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { resolveSourceImport } from "./internal/source-dependencies.ts"
@@ -354,6 +355,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
               }
             }
             for (const copy of migrationCopies) installNitroCloudflareMigrations(config, copy.source, copy.target)
+            installNitroCloudflareD1BindingCollapse(config)
           }
           mergeNitroDatabaseRuntimeAlias(config, root, runtimeProvider)
         }
@@ -741,6 +743,18 @@ function installNitroCloudflareMigrations(config: Record<string, unknown>, sourc
         .filter(entry => entry.isFile() && entry.name.endsWith(".sql"))
         .map(entry => copyFile(resolve(sourceDir, entry.name), resolve(outputDir, entry.name))))
     })
+  })
+  config.modules = modules
+}
+
+/** Nitro merges a project wrangler.json into its output after this config, so a binding both declare appears twice. */
+function installNitroCloudflareD1BindingCollapse(config: Record<string, unknown>) {
+  const modules = Array.isArray(config.modules) ? [...config.modules] : []
+  modules.push((nitro: {
+    hooks: { hook: (name: "compiled", callback: () => Promise<void>) => void }
+    options: { output: { serverDir: string } }
+  }) => {
+    nitro.hooks.hook("compiled", () => collapseGeneratedWranglerD1Bindings(nitro.options.output.serverDir))
   })
   config.modules = modules
 }
