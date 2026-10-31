@@ -99,9 +99,11 @@ function operationTools(context: ToolContext, registeredNames: ReadonlySet<strin
             return operationResult(await (operation.run as (value: unknown, context: OperationContext) => unknown)(input, operationContext))
           }
           catch (error) {
-            const { details, ...failed } = toOperationFailure(error)
-            // Server failures keep their details out of the answer.
-            return toolFailure(failed.status >= 500 || !details ? failed : { ...failed, details })
+            const failed = toOperationFailure(error)
+            // Provider diagnostics can occur in any field, including the message and fix.
+            return toolFailure(failed.status >= 500
+              ? { code: "OPERATION_FAILED", message: `${operation.name} failed on the server.`, status: failed.status }
+              : failed)
           }
         },
       }

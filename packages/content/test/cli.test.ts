@@ -117,6 +117,24 @@ function cli(content: unknown, options: ContentCliOptions = {}) {
 const hello = { data: { title: "Hello", tags: ["vue"] }, body: "# Hello\n\nFirst post.\n" }
 
 describe("vitehub content", { timeout: 30_000 }, () => {
+  it("requires a digest for MCP saves and preserves CLI saves without one", async () => {
+    const { content, posts } = await setup(() => true)
+    devServer(content)
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    const context = { access: { mode: "local", sections: "all" }, development: true, surface: "mcp", user: null } as const
+    const input = { collection: "posts", id: "hello", text: "---\ntitle: Changed\n---\nUpdated\n" }
+    const first = await posts.save("hello", hello, { ifDigest: null })
+    const save = (value: unknown) => runOperation(registry, "content.save", value, context)
+
+    await expect(save(input)).resolves.toMatchObject({ ok: false, status: 400, code: "CONTENT_R0009", message: expect.stringContaining("content.save requires ifDigest") })
+    expect((await posts.raw("hello", { ref: "draft" }))?.digest).toBe(first.digest)
+    await expect(save({ ...input, ifDigest: null })).resolves.toMatchObject({ ok: false, status: 409 })
+    await expect(save({ ...input, ifDigest: first.digest })).resolves.toMatchObject({ ok: true })
+    await expect(save({ ...input, ifDigest: first.digest })).resolves.toMatchObject({ ok: false, status: 409 })
+    await expect(save({ ...input, id: "new", ifDigest: null })).resolves.toMatchObject({ ok: true })
+    await expect(runOperation(registry, "content.save", input, { ...context, surface: "cli" })).resolves.toMatchObject({ ok: true })
+  })
+
   it.each([
     { paths: ["content/posts/**/*.md", "content/news/*.md"], id: "news/fresh", path: "content/news/fresh.md" },
     { paths: ["docs/pages/**/*.md", "packages/*/docs/**/*.md"], id: "packages/zoom/docs/fresh", path: "packages/zoom/docs/fresh.md" },

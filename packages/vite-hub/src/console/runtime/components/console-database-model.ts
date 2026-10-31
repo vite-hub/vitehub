@@ -228,3 +228,37 @@ export function parseConsoleDatabase(value: unknown): ConsoleDatabase {
     total,
   };
 }
+
+/** One column of a row as the row drawer shows it. `text` is the full value, with JSON indented. */
+export interface ConsoleDatabaseRowField {
+  column: ConsoleDatabaseColumn;
+  null: boolean;
+  text: string;
+  truncated: boolean;
+}
+
+function indentJson(value: string): string {
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2);
+  } catch {
+    return value;
+  }
+}
+
+/** The fields of one row in column order. A column that the row does not carry reads as NULL. */
+export function consoleDatabaseRowFields(
+  table: ConsoleDatabaseTable,
+  row: Record<string, ConsoleDatabaseCell>,
+): ConsoleDatabaseRowField[] {
+  return table.columns.map((column) => {
+    const cell = row[column.key];
+    if (!cell || cell.kind === "null") return { column, null: true, text: "NULL", truncated: false };
+    return {
+      column,
+      null: false,
+      // A cut JSON value does not parse, so it shows as the server sent it.
+      text: cell.kind === "json" && !cell.truncated ? indentJson(cell.value) : cell.value,
+      truncated: cell.truncated === true,
+    };
+  });
+}

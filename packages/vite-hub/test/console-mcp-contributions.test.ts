@@ -253,18 +253,16 @@ describe("MCP owner contributions", () => {
     expect(calls).toHaveLength(1)
   })
 
-  it("runs registered Database tools only inside installed and allowed sections", async () => {
+  it("runs Database operation tools only inside allowed sections", async () => {
     installConsoleDatabase("/mcp-test", {}, [])
     installConsoleSections("/mcp-test", ["databases", "comments"])
     installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["databases"] }) })
     const list = await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" })
-    expect(list.body.result.tools.map((tool: { name: string }) => tool.name).filter((name: string) => name.startsWith("database_"))).toEqual(["database_list_databases", "database_get_schema"])
-    const call = { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "database_list_databases" } }
-    expect((await rpc(call)).body.result.structuredContent).toEqual({ databases: [] })
+    // Each ability is one tool, named after its operation.
+    expect(list.body.result.tools.map((tool: { name: string }) => tool.name).filter((name: string) => name.startsWith("database")).sort()).toEqual(["databases_browse", "databases_tables"])
+    const call = { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "databases_tables", arguments: {} } }
+    expect((await rpc(call)).body.result).toMatchObject({ content: [{ text: expect.stringContaining("No Database Definitions are configured.") }] })
     installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["comments"] }) })
-    expect((await rpc(call)).body.error.code).toBe(-32602)
-    installConsoleAccess({ mode: "open" })
-    installConsoleSections("/mcp-test", ["comments"])
     expect((await rpc(call)).body.error.code).toBe(-32602)
   })
 
@@ -273,12 +271,11 @@ describe("MCP owner contributions", () => {
     installConsoleSections("/mcp-test", ["databases"])
     installConsoleAccess({ mode: "open" })
     const init = { headers: version ? { "MCP-Protocol-Version": version } : undefined }
-    const call = { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "database_get_schema", arguments: { database: 7 } } }
-    const invalid = (await rpc(call, init)).body
-    if (version === "2025-11-25") expect(invalid.result).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("database_get_schema") }] })
-    else expect(invalid.error).toMatchObject({ code: -32602, message: expect.stringContaining("database_get_schema") })
+    const call = { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "databases_tables", arguments: { database: 7 } } }
+    // Operation tools check their input when they run, so every revision gets a tool error that names the operation.
+    expect((await rpc(call, init)).body.result).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("Invalid input for databases.tables") }] })
     const validCall = { ...call, params: { ...call.params, arguments: { database: "missing" } } }
-    expect((await rpc(validCall, init)).body.result).toMatchObject({ content: [{ text: "No Database Definitions are configured." }], isError: true })
+    expect((await rpc(validCall, init)).body.result).toMatchObject({ content: [{ text: expect.stringContaining("No Database Definitions are configured.") }], isError: true })
   })
 
   it.each([

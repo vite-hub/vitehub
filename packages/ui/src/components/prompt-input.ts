@@ -24,6 +24,11 @@ const submitIcons: Record<ChatStatus, string> = {
   submitted: "i-ph-stop-fill",
 };
 
+/** Whether the device has only coarse pointers, such as a phone. A tablet with a trackpad or a mouse is not touch only. */
+function touchOnly(): boolean {
+  return typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches && !matchMedia("(any-pointer: fine)").matches;
+}
+
 // The shadcn/ui Prompt Input pattern: a framed textarea with attachments above it and the attach and send buttons below.
 export const PromptInput = defineComponent({
   name: "PromptInput",
@@ -127,9 +132,11 @@ export const PromptInput = defineComponent({
             "aria-label": attrs["aria-label"] ?? "Message",
             "data-slot": "prompt-input-textarea",
             onInput: (event: Event) => emit("update:modelValue", (event.target as HTMLTextAreaElement).value),
-            // Enter sends and Shift+Enter adds a line. Composing text with an input method never sends.
+            // Enter sends and Shift+Enter adds a line. Composing text with an input method never sends. On a touch-only
+            // device the on-screen keyboard has no Shift+Enter, so Enter adds a line and the send button sends.
             onKeydown: (event: KeyboardEvent) => {
               if (event.key !== "Enter" || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;
+              if (touchOnly()) return;
               event.preventDefault();
               if (props.status === "ready") form.value?.requestSubmit();
             },
