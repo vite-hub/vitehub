@@ -130,8 +130,10 @@
   z-index: 2;
 }
 
-.vh-chat__scroll-button:hover {
-  color: var(--vh-ui-text);
+@media (hover: hover) {
+  .vh-chat__scroll-button:hover {
+    color: var(--vh-ui-text);
+  }
 }
 
 /* comark-chat draws message parts with the `--comark-*` tokens, so they take ViteHub's colors. */
