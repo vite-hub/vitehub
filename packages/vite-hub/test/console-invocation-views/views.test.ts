@@ -4041,7 +4041,7 @@ describe("Agent Invocation UI", () => {
     } } });
     const summary = wrapper.get(".vh-invocation-inspector__metrics").text();
     expect(summary).toContain("Cache writes1,024");
-    expect(summary).toContain(`Cost$0.01 (${estimated ? "estimated" : "reported"})`);
+    expect(summary).toContain(`${estimated ? "Estimated" : "Reported"} cost$0.01`);
   });
 
   it("groups recorded Agent Definition details as captured setup", () => {
@@ -4145,12 +4145,13 @@ describe("Agent Invocation UI", () => {
   it("preserves terminal usage and capability visibility in details", () => {
     const invocation: AgentInvocationView = {
       id: "summary", status: "completed", traceId: "trace", createdAt: "2026-09-05T00:00:00Z", updatedAt: "2026-09-05T00:00:00Z", observations: [],
-      usage: { totalTokens: 1234, cost: { display: "$0.02", estimated: true } },
+      usage: { totalTokens: 1234, cost: { display: "~$0.02", estimated: true } },
       configuration: { capabilities: [{ id: "files" }], tools: [{ capabilityId: "files", name: "read_file" }] },
     };
     const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
     expect(wrapper.get(".vh-invocation-inspector__metrics").text()).toContain("1,234");
-    expect(wrapper.get(".vh-invocation-inspector__metrics").text()).toContain("$0.02 (estimated)");
+    expect(wrapper.get(".vh-invocation-inspector__metrics").text()).toContain("Estimated cost~$0.02");
+    expect(wrapper.get(".vh-invocation-inspector__metrics").text()).not.toContain("(estimated)");
     expect(wrapper.text()).not.toContain("Capabilities");
     expect(wrapper.get(".vh-agent-tool-list").text()).toContain("read_file");
     expect(mount(AgentInvocationInspector, { props: { invocation, showCapabilities: true } }).text()).toContain("Capabilities");

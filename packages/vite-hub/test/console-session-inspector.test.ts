@@ -1,4 +1,4 @@
-import { createRenderer, createSSRApp, h, nextTick, ssrContextKey } from "vue"
+import { createRenderer, createSSRApp, defineComponent, h, nextTick, ssrContextKey, type PropType } from "vue"
 import { renderToString } from "vue/server-renderer"
 import { describe, expect, it, vi } from "vitest"
 
@@ -48,6 +48,33 @@ describe("Console inspector initialization", () => {
       app.component(name, { render: () => null })
     }
     expect(await renderToString(app)).toContain("Recorded Sources")
+  })
+
+  it("shows no key hints on tab launchers, because no key opens a tab", async () => {
+    const menuItems: Record<string, unknown>[] = []
+    const app = createSSRApp(Inspector, {
+      invocation: { id: "run" },
+      tab: "details",
+      activeSurface: "",
+      openViews: [],
+    })
+    app.component("UDropdownMenu", defineComponent({
+      props: { items: { type: Array as PropType<Record<string, unknown>[]>, required: true } },
+      setup(props, { slots }) {
+        menuItems.push(...props.items)
+        return () => slots.default?.()
+      },
+    }))
+    app.component("UTooltip", defineComponent({ setup: (_props, { slots }) => () => slots.default?.() }))
+    app.component("UKbd", defineComponent({ setup: (_props, { slots }) => () => h("kbd", slots.default?.()) }))
+    for (const name of ["UIcon", "UButton", "UEmpty"]) {
+      app.component(name, { render: () => null })
+    }
+    const html = await renderToString(app)
+    expect(html).toContain("Open a tab")
+    expect(html).not.toContain("<kbd")
+    expect(menuItems.map(item => item.label)).toEqual(["Invocation", "Capabilities", "Trace"])
+    expect(menuItems.filter(item => "kbds" in item)).toEqual([])
   })
 
   it("requests a preselected file without waiting for a Workspace scan", async () => {
