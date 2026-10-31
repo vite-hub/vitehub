@@ -465,7 +465,7 @@ describe("hubBrowser", () => {
     })
 
     const enabledOutput = {
-      compatibility_date: "2026-04-20",
+      compatibility_date: "2026-10-01",
       queues: { producers: [{ binding: "JOBS", queue: "jobs" }] },
       browser: { binding: "BROWSER", remote: true },
       compatibility_flags: ["custom", "nodejs_compat"],
@@ -482,7 +482,7 @@ describe("hubBrowser", () => {
       root,
     })
     const disabledOutput = {
-      compatibility_date: "2026-04-20",
+      compatibility_date: "2026-10-01",
       queues: { producers: [{ binding: "JOBS", queue: "jobs" }] },
       compatibility_flags: ["custom", "nodejs_compat"],
     }

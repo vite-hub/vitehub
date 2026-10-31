@@ -12,6 +12,7 @@ import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { resolveNuxtServerDirs, resolveViteHubProjectRoot, VITEHUB_APP_BASE_URL, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 import { removeViteHubDevServerFile, writeViteHubDevServerFile } from "@vite-hub/internal/cli"
 import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
+import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { nitroOptionalPeers } from "./internal/nitro-optional-peers.ts"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
 import { normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
@@ -1498,8 +1499,11 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         const wrangler = (cloudflare.wrangler ??= {}) as Record<string, unknown>
         const flags = Array.isArray(wrangler.compatibility_flags) ? wrangler.compatibility_flags : []
         // Nitro 2 otherwise adds no_nodejs_compat_v2, which disables native Node imports used by Workspaces.
-        // Wrangler refuses nodejs_compat next to nodejs_compat_v2, and v2 already includes it.
-        if (!flags.includes("no_nodejs_compat_v2")) wrangler.compatibility_flags = [...new Set([...flags.filter(flag => flag !== "nodejs_compat"), "nodejs_compat_v2"])]
+        // Wrangler refuses nodejs_compat next to nodejs_compat_v2; the default date enables the remaining Node APIs.
+        if (!flags.includes("no_nodejs_compat_v2")) {
+          wrangler.compatibility_flags = [...new Set([...flags.filter(flag => flag !== "nodejs_compat"), "nodejs_compat_v2"])]
+          config.compatibilityDate ??= { cloudflare: defaultCloudflareCompatibilityDate }
+        }
       }
     }
     if (emailPlugin && nuxt.options.dev) {

@@ -94,6 +94,11 @@ In Nuxt, the preset enables Nitro's `cloudflare.deployConfig` by default so a
 local production build emits `.output/server/wrangler.json`. An explicit
 `nitro.cloudflare.deployConfig: false` disables that file.
 
+With Node compatibility enabled, ViteHub emits `nodejs_compat_v2` and defaults
+Nitro's Cloudflare compatibility date to `2026-10-01`. If you set an explicit
+Nitro or Wrangler compatibility date, use `2026-10-01` or newer so imports such
+as `node:child_process` and `node:http` remain available with the v2-only flag.
+
 ```bash [Terminal]
 pnpm build
 test -f .output/server/wrangler.json

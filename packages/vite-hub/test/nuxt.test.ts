@@ -2673,8 +2673,26 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
     await runNitroConfigHook(config)
     expect(config.cloudflare.wrangler.compatibility_flags).toEqual(expected)
+    if (expected.some(flag => flag === "nodejs_compat_v2")) {
+      expect(config).toHaveProperty("compatibilityDate", { cloudflare: "2026-10-01" })
+    }
+    else {
+      expect(config).not.toHaveProperty("compatibilityDate")
+    }
     await runNitroConfigHook(config)
     expect(config.cloudflare.wrangler.compatibility_flags).toEqual(expected)
+  })
+
+  it.each([
+    "2026-10-15",
+    { default: "2026-10-15" },
+    { cloudflare: "2026-10-15", default: "2025-01-15" },
+  ])("preserves an explicit Nitro compatibility date %j with Node compatibility", async (compatibilityDate) => {
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    const config = { compatibilityDate, cloudflare: { nodeCompat: true } }
+    await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+    await runNitroConfigHook(config)
+    expect(config.compatibilityDate).toEqual(compatibilityDate)
   })
 
   it("passes generated server Env to Wrangler while preserving an explicit alias", async () => {

@@ -6,7 +6,8 @@ import { toSafeAppName } from "./user-entry.ts"
 
 import type { ProviderOutputConfigOwnership } from "./provider-output-config.ts"
 
-export const defaultCloudflareCompatibilityDate = "2026-04-20"
+// Node compatibility must also be enabled by date when Nitro emits nodejs_compat_v2 alone.
+export const defaultCloudflareCompatibilityDate = "2026-10-01"
 export const cloudflareRuntimeExternal = "cloudflare:*"
 
 interface CloudflareWranglerConfigOptions {

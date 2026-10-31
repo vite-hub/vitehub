@@ -1513,7 +1513,7 @@ describe("Vite workflow provider outputs", () => {
     expect(existsSync(join(cloudflareDir, "worker.mjs"))).toBe(false)
     await expect(readFile(join(cloudflareDir, "index.js"), "utf8")).resolves.toBe("export default { fetch() {} }\n")
     await expect(readFile(wranglerConfig, "utf8").then(JSON.parse)).resolves.toEqual({
-      compatibility_date: "2026-04-20",
+      compatibility_date: "2026-10-01",
       compatibility_flags: ["nodejs_compat"],
       main: "index.js",
       observability: { enabled: true },
