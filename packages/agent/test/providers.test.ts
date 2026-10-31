@@ -3258,7 +3258,6 @@ export default defineAgent({
     expect(pkg.exports?.["./cloudflare/state"]).toEqual({
       types: "./dist/cloudflare/state.d.ts",
       import: "./dist/cloudflare/state.js",
-      require: "./dist/cloudflare/state.js",
       default: "./dist/cloudflare/state.js",
     })
   })
@@ -3270,7 +3269,6 @@ export default defineAgent({
     expect(pkg.exports?.["./server/internal"]).toEqual({
       types: "./dist/server/internal.d.ts",
       import: "./dist/server/internal.js",
-      require: "./dist/server/internal.js",
       default: "./dist/server/internal.js",
     })
   })
@@ -3299,7 +3297,6 @@ export default defineAgent({
     expect(pkg.exports?.["./output"]).toEqual({
       types: "./dist/output.d.ts",
       import: "./dist/output.js",
-      require: "./dist/output.js",
       default: "./dist/output.js",
     })
   })
