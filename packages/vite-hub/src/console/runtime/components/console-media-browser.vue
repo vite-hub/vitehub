@@ -21,6 +21,7 @@ import ConsoleMediaMove from "./console-media-move.vue";
 import ConsoleMediaUploads from "./console-media-uploads.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
+import ConsoleState from "./console-state.vue";
 
 import type { ConsoleMediaAccess, ConsoleMediaClient, ConsoleMediaFile, ConsoleMediaReferenceDocument, ConsoleMediaType, ConsoleMediaUploadResult } from "../client/media-library";
 
@@ -559,15 +560,7 @@ defineExpose({
     </ConsolePageToolbar>
 
     <div class="min-h-0 flex-1 overflow-y-auto" :class="mode === 'page' ? 'p-4' : 'p-3'">
-      <UAlert
-        v-if="error"
-        color="error"
-        variant="subtle"
-        icon="i-lucide-cloud-off"
-        title="Couldn't load media"
-        :description="consoleErrorMessage(error)"
-        :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', color: 'neutral', variant: 'outline', onClick: () => load() }]"
-      />
+      <ConsoleState v-if="error" :error="error" :compact="mode === 'picker'" title="Could not load files" :retry="() => load()" />
       <div v-else-if="loading && !items.length && !folders.length" class="vitehub-media-grid" aria-busy="true">
         <USkeleton v-for="index in 12" :key="index" class="aspect-square rounded-md" />
       </div>
