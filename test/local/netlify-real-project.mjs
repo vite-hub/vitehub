@@ -6,6 +6,8 @@ import { join, resolve } from "node:path"
 import { setTimeout as sleep } from "node:timers/promises"
 import { parseArgs } from "node:util"
 
+import { stopChild } from "./process.mjs"
+
 const repoRoot = resolve(import.meta.dirname, "..", "..")
 const baseDir = join(repoRoot, ".cache", "netlify")
 const appName = "vitehub-agent-netlify"
@@ -279,21 +281,6 @@ function spawnLogged(command, args, options = {}) {
   return child
 }
 
-async function stopProcess(child) {
-  const signalProcess = (signal) => {
-    try {
-      if (process.platform === "win32") child.kill(signal)
-      else if (child.pid !== undefined) process.kill(-child.pid, signal)
-    }
-    catch (error) {
-      if (error.code !== "ESRCH") throw error
-    }
-  }
-  signalProcess("SIGTERM")
-  await sleep(750)
-  signalProcess("SIGKILL")
-}
-
 async function runNetlifyDevProof() {
   const port = 8888
   const dev = spawnLogged("netlify", [
@@ -315,7 +302,7 @@ async function runNetlifyDevProof() {
     await assertNetlifyFunctionOutput()
   }
   finally {
-    await stopProcess(dev)
+    await stopChild(dev, 750)
   }
 }
 

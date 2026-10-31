@@ -242,18 +242,37 @@ describe("live smoke deployment gate", () => {
     expect(command).toContain('-f head_sha="$GITHUB_SHA" -f branch=main -f event=push')
     const directory = mkdtempSync(join(tmpdir(), "vitehub-live-ci-gate-"))
     try {
-      writeFileSync(join(directory, "gh"), '#!/bin/sh\nprintf "%s\\n" "$CI_CONCLUSION"\nexit "$API_STATUS"\n', { mode: 0o755 })
+      writeFileSync(join(directory, "gh"), `#!/bin/sh
+case "$2" in
+  */git/ref/heads/main) printf "%s\\n" "$MAIN_SHA"; exit "$MAIN_API_STATUS" ;;
+  */actions/workflows/ci.yml/runs) printf "%s\\n" "$CI_CONCLUSION"; exit "$API_STATUS" ;;
+  *) exit 1 ;;
+esac
+`, { mode: 0o755 })
       for (const conclusion of ["success", "failure", "cancelled", "missing"]) {
         const result = spawnSync("bash", ["-eo", "pipefail", "-c", command], {
           encoding: "utf8",
-          env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, CI_CONCLUSION: conclusion, API_STATUS: "0", GITHUB_SHA: "verified-main", GITHUB_REPOSITORY: "vite-hub/vitehub" },
+          env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, MAIN_SHA: "verified-main", MAIN_API_STATUS: "0", CI_CONCLUSION: conclusion, API_STATUS: "0", GITHUB_SHA: "verified-main", GITHUB_REPOSITORY: "vite-hub/vitehub" },
         })
         expect(result.status === 0, result.stdout + result.stderr).toBe(conclusion === "success")
       }
       const unavailable = spawnSync("bash", ["-eo", "pipefail", "-c", command], {
-        env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, CI_CONCLUSION: "success", API_STATUS: "1" },
+        env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, MAIN_SHA: "verified-main", MAIN_API_STATUS: "0", CI_CONCLUSION: "success", API_STATUS: "1", GITHUB_SHA: "verified-main", GITHUB_REPOSITORY: "vite-hub/vitehub" },
       })
       expect(unavailable.status).not.toBe(0)
+      for (const event of ["schedule", "workflow_dispatch"]) {
+        for (const sha of ["verified-main", "stale-main", "feature-commit"]) {
+          const result = spawnSync("bash", ["-eo", "pipefail", "-c", command], {
+            encoding: "utf8",
+            env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, MAIN_SHA: "verified-main", MAIN_API_STATUS: "0", CI_CONCLUSION: "success", API_STATUS: "0", GITHUB_SHA: sha, GITHUB_REPOSITORY: "vite-hub/vitehub", GITHUB_EVENT_NAME: event },
+          })
+          expect(result.status === 0, `${event} at ${sha}: ${result.stdout}${result.stderr}`).toBe(sha === "verified-main")
+        }
+      }
+      const mainUnavailable = spawnSync("bash", ["-eo", "pipefail", "-c", command], {
+        env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, MAIN_SHA: "verified-main", MAIN_API_STATUS: "1", CI_CONCLUSION: "success", API_STATUS: "0", GITHUB_SHA: "verified-main", GITHUB_REPOSITORY: "vite-hub/vitehub" },
+      })
+      expect(mainUnavailable.status).not.toBe(0)
     }
     finally {
       rmSync(directory, { recursive: true, force: true })
