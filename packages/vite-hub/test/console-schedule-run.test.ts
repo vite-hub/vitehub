@@ -179,7 +179,7 @@ describe("Console Schedule runs", () => {
     installSchedules()
     // The Schedule package writes these cells for each Schedule Definition record.
     const records = ["definition:sync", "definition:nightly", "other:sync"].map(id => ({
-      cells: { manual: "Yes", schedule: id.split(":")[1]!, timing: "0 9 * * *" },
+      cells: { manual: "Enabled", schedule: id.split(":")[1]!, timing: "0 9 * * *" },
       fields: [],
       id,
     }))
