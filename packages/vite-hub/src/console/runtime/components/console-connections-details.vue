@@ -7,7 +7,7 @@ import {
   connectionConnectURL,
   connectionCredentialLabel,
   connectionResultSchema,
-  connectionStatusColor,
+  connectionStatusTone,
   connectionStatusLabel,
   requestConnectionsManagement,
 } from "../client/connections-management";
@@ -15,6 +15,7 @@ import ConsoleConnectionsActivity from "./console-connections-activity.vue";
 import ConsoleConnectionsApprovals from "./console-connections-approvals.vue";
 import { consoleDateTime } from "../client/time";
 import ConsoleState from "./console-state.vue";
+import ConsoleStatus from "./console-status.vue";
 
 const props = defineProps<{
   connection: ConnectionInspection;
@@ -130,12 +131,7 @@ onMounted(async () => {
       <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-8 gap-y-4 text-sm">
         <dt class="text-muted">Status</dt>
         <dd>
-          <UBadge
-            :color="connectionStatusColor(current.status)"
-            :label="connectionStatusLabel(current.status)"
-            size="sm"
-            variant="subtle"
-          />
+          <ConsoleStatus :label="connectionStatusLabel(current.status)" :tone="connectionStatusTone(current.status)" />
         </dd>
         <dt class="text-muted">Type</dt>
         <dd>{{ connectionCredentialLabel(current.credential) }}</dd>
@@ -214,7 +210,7 @@ onMounted(async () => {
           external
           color="neutral"
           variant="outline"
-          trailing-icon="i-ph-arrow-up-right-light"
+          trailing-icon="i-lucide-arrow-up-right"
           :disabled="busy"
         />
         <UButton
