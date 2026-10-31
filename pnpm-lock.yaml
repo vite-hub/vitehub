@@ -1355,6 +1355,9 @@ importers:
       '@vite-hub/blob':
         specifier: workspace:*
         version: link:../blob
+      '@vite-hub/comments':
+        specifier: workspace:*
+        version: link:../comments
       '@vite-hub/database':
         specifier: workspace:*
         version: link:../database
@@ -1364,6 +1367,9 @@ importers:
       '@vite-hub/workspace':
         specifier: workspace:*
         version: link:../workspace
+      better-auth:
+        specifier: catalog:auth
+        version: 1.7.7(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.11)(drizzle-orm@0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2))(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(vitest@4.1.11)(vue@3.5.44(typescript@6.0.3))
       drizzle-orm:
         specifier: catalog:database
         version: 0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2)
@@ -3367,6 +3373,9 @@ importers:
       '@libsql/client':
         specifier: catalog:database
         version: 0.18.0
+      better-auth:
+        specifier: catalog:auth
+        version: 1.7.7(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.11)(drizzle-orm@0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2))(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(vitest@4.1.11)(vue@3.5.44(typescript@6.0.3))
       comark-content:
         specifier: catalog:markdown-ui
         version: 0.4.3(@azure/identity@4.13.3)(@azure/storage-blob@12.34.0)(@netlify/blobs@11.1.4(patch_hash=e68b68d12280a77f02150a25bb8e8334464a16b0427da4485beec88a63c971cd))(@upstash/redis@1.39.0)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(katex@0.18.11)(shiki@4.5.0)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.33(crossws@0.4.12(srvx@1.0.5))(ocache@0.3.0))(tailwindcss@4.3.3))

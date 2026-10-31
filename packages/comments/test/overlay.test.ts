@@ -330,14 +330,14 @@ describe("Comments overlay", () => {
     expect(shadow.querySelector(".pin-button")).toBeNull()
   })
 
-  it.each([null, { id: "moderator", name: "Moderator" }, { id: "guest:console", name: "Guest", guest: true }])("shows deletion only to authenticated resolve-only users: %j", async (user) => {
+  it.each([null, { id: "moderator", name: "Moderator" }, { id: "guest:console", name: "Guest", guest: true }])("shows deletion only to authenticated users with delete permission: %j", async (user) => {
     const authenticated = Boolean(user && !user.guest)
     overlay.remove()
     vi.mocked(api.session).mockResolvedValue([undefined, {
       user,
-      can: { read: true, comment: !authenticated, resolve: true }, realtime: false, content: false,
+      can: { read: true, comment: !authenticated, resolve: true, delete: true }, realtime: false, content: false,
     }])
-    vi.mocked(api.threads).mockResolvedValue([undefined, [{ ...thread(), can: { comment: !authenticated, resolve: true } }]])
+    vi.mocked(api.threads).mockResolvedValue([undefined, [{ ...thread(), can: { comment: !authenticated, resolve: true, delete: true } }]])
     overlay = createOverlay()
     document.body.append(overlay)
     shadow = overlay.shadowRoot!
@@ -349,6 +349,18 @@ describe("Comments overlay", () => {
       button!.click()
       await vi.waitFor(() => expect(api.removeComment).toHaveBeenCalledWith("thread", "root"))
     }
+  })
+
+  it("hides deletion of others' comments from a resolver without delete permission", async () => {
+    overlay.remove()
+    vi.mocked(api.threads).mockResolvedValue([undefined, [{ ...thread(), createdBy: { id: "writer", name: "Writer" }, comments: [{ ...thread().comments[0]!, author: { id: "writer", name: "Writer" } }], can: { comment: true, resolve: true, delete: false } }]])
+    overlay = createOverlay()
+    document.body.append(overlay)
+    shadow = overlay.shadowRoot!
+    await vi.waitFor(() => expect(shadow.querySelector(".pin-button")).not.toBeNull())
+    openThread()
+    expect(shadow.querySelector('[aria-label="Resolve"]')).not.toBeNull()
+    expect(shadow.querySelector('[aria-label="Delete comment"]')).toBeNull()
   })
 
   it("links a saved draft to Content below the app base", async () => {

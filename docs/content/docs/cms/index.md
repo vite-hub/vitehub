@@ -51,8 +51,8 @@ Start with the Blob + Database store. Change the store with one option, without 
   `publish: 'pr'` opens one pull request for each publish. The documents stay pending until it merges.
   :::
 
-  :::product-feature-item{title="Decide who edits and publishes" icon="i-lucide-lock" to="/docs/cms/configure#access"}
-  `authorize` allows or denies `read`, `write`, and `publish` for each user and Agent.
+  :::product-feature-item{title="Decide who edits and publishes" icon="i-lucide-lock" to="/docs/cms/access"}
+  Set `access: 'roles'` and give each user a role: `viewer`, `commenter`, `editor`, or `publisher`. Or write your own `authorize`.
   :::
 
   :::product-feature-item{title="Edit in the Console" icon="i-lucide-file-pen-line" to="/docs/content/console"}
@@ -73,4 +73,4 @@ The CMS stores the collections. [Content](/docs/content) owns everything you do 
 
 ## Deploy and operate
 
-[Hosts](/docs/cms/hosts) lists where each store runs and what to provision before a hosted deploy. [Limits and errors](/docs/cms/limits-and-errors) lists the limits of the GitHub store and the fix for each error code. The [Server API](/docs/cms/server-api) lists the imports and every preset option.
+[Roles and access](/docs/cms/access) gives each user a role with the Better Auth `admin` plugin. [Hosts](/docs/cms/hosts) lists where each store runs and what to provision before a hosted deploy. [Limits and errors](/docs/cms/limits-and-errors) lists the limits of the GitHub store and the fix for each error code. The [Server API](/docs/cms/server-api) lists the imports and every preset option.
