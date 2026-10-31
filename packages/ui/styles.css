@@ -2502,6 +2502,13 @@ button.vh-agent-tool-list__count:focus-visible {
     opacity: 1;
   }
 
+  /* A touch screen has no hover, so Edit and Delete always show on a device with one, also on a laptop whose main pointer is a mouse. */
+  @media (any-pointer: coarse) {
+    [data-slot="comment-reply-actions"] {
+      opacity: 1;
+    }
+  }
+
   [data-slot="comment-reply"][data-compact="true"] [data-slot="comment-reply-body"] {
     display: -webkit-box;
     -webkit-box-orient: vertical;
