@@ -275,10 +275,7 @@ onBeforeUnmount(() => request?.abort());
 
       <template #default="{ collapsed }">
         <nav class="vitehub-console__section-nav" :class="{ 'is-collapsed': collapsed }" :aria-label="itemsTitle">
-          <div v-if="!collapsed && error" class="px-1 pb-2">
-            <ConsoleState compact :error="error" title="Couldn't load definitions" :retry="loadDefinitions" />
-          </div>
-          <template v-else-if="loading && !entries.length">
+          <template v-if="loading && !entries.length">
             <USkeleton v-for="index in 4" :key="index" class="my-0.5 h-11 rounded-md" />
           </template>
           <template v-else-if="entries.length">
@@ -409,6 +406,8 @@ onBeforeUnmount(() => request?.abort());
             </p>
           </main>
         </template>
+        <!-- The page shows a load failure, as the record table does. The sidebar has no room for its details. -->
+        <ConsoleState v-else-if="error" :error="error" :title="`Couldn't load ${sectionDetails.label}`" :retry="loadDefinitions" />
         <UEmpty
           v-else-if="!selectedDefinition"
           variant="naked"

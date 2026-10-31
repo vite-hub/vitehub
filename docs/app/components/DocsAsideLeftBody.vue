@@ -191,12 +191,23 @@ function isActive(path: string) {
   padding-left: 2rem;
 }
 
-.vh-docs-sidebar-link:hover,
-.vh-docs-sidebar-link:focus-visible,
+/* Hover and focus only tint the row. The left rule marks the current page, so a hovered row never looks current. */
+.vh-docs-sidebar-link:focus-visible {
+  background: color-mix(in srgb, var(--ui-text-highlighted) 4%, transparent);
+  color: var(--ui-text);
+}
+
+@media (hover: hover) {
+  .vh-docs-sidebar-link:hover {
+    background: color-mix(in srgb, var(--ui-text-highlighted) 4%, transparent);
+    color: var(--ui-text);
+  }
+}
+
 .vh-docs-sidebar-link.is-active {
   border-left-color: var(--ui-text-highlighted);
-  background: color-mix(in srgb, var(--ui-text-highlighted) 6%, transparent);
-  color: var(--ui-text);
+  background: color-mix(in srgb, var(--ui-text-highlighted) 7%, transparent);
+  color: var(--ui-text-highlighted);
 }
 
 /* Related sits at the foot of the list, just above the panel footer, which draws the only rule. */

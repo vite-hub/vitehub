@@ -49,6 +49,15 @@ function replaceRun(next: ConsoleWorkflowRunView): void {
   runs.value = [next, ...runs.value.filter((run) => !(run.id === next.id && run.workflow === next.workflow))];
 }
 
+async function copy(value: string, label: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(value);
+    toast.show({ title: `${label} copied` });
+  } catch {
+    toast.error(`Couldn't copy the ${label.toLowerCase()}.`);
+  }
+}
+
 async function start(): Promise<void> {
   if (starting.value) return;
   starting.value = true;
@@ -124,7 +133,10 @@ async function resume(): Promise<void> {
       <ul class="divide-y divide-default border-y border-default">
         <li v-for="run in workflowRuns" :key="run.id" class="grid gap-2 py-2.5">
           <div class="flex min-w-0 items-center gap-2">
-            <span class="min-w-0 flex-1 truncate font-mono text-xs text-highlighted">{{ run.id }}</span>
+            <span class="min-w-0 truncate font-mono text-xs text-highlighted" :title="run.id">{{ run.id }}</span>
+            <UTooltip text="Copy run ID">
+              <UButton class="-ms-1 me-auto" aria-label="Copy run ID" color="neutral" icon="i-lucide-copy" size="xs" variant="ghost" @click="copy(run.id, 'Run ID')" />
+            </UTooltip>
             <ConsoleStatus :label="statusOf(run).label" :tone="statusOf(run).tone" :pending="statusOf(run).pending" />
             <UTooltip text="Refresh">
               <UButton aria-label="Refresh run" icon="i-lucide-refresh-cw" size="xs" variant="ghost" :loading="busyRun === run.id" @click="refresh(run)" />
@@ -134,7 +146,12 @@ async function resume(): Promise<void> {
             </UTooltip>
           </div>
           <p v-if="run.error" class="text-xs text-error">{{ run.error }}</p>
-          <pre v-if="run.result" class="max-h-64 overflow-auto rounded-md bg-elevated p-3 font-mono text-xs leading-5 text-toned"><code>{{ run.result }}</code></pre>
+          <div v-if="run.result" class="relative">
+            <pre class="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md bg-elevated p-3 pe-10 font-mono text-xs leading-5 text-toned"><code>{{ run.result }}</code></pre>
+            <UTooltip text="Copy result">
+              <UButton class="absolute end-1.5 top-1.5" aria-label="Copy result" color="neutral" icon="i-lucide-copy" size="xs" variant="ghost" @click="copy(run.result, 'Result')" />
+            </UTooltip>
+          </div>
         </li>
       </ul>
     </section>

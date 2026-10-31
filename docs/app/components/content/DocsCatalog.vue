@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { useIntersectionObserver } from "@vueuse/core";
 import { docsManifest } from "~~/modules/vitehub-docs/runtime/utils/docs";
-import { getDocsCatalog, getDocsSectionKind } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
+import { getDocsCatalog } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
 
 type CatalogTile = {
   description: string | null;
   icon: string;
-  kind: string;
   key: string;
   /** Landing scene name when the product has a looping micro-animation. */
   scene: string | null;
@@ -51,7 +50,6 @@ const rows = computed<CatalogRow[]>(() => {
       tiles: group.sections.map(section => ({
           description: section.description,
           icon: sidebarSectionIcon(section),
-          kind: getDocsSectionKind(section),
           key: section.id,
           scene: scenes.get(section.id) ?? null,
           title: section.title,
@@ -95,16 +93,11 @@ function offset(index: number) {
               <UIcon v-else :name="tile.icon" class="size-5" />
             </div>
             <div class="min-w-0">
-              <p class="vh-docs-catalog-tile-kind">{{ tile.kind }}</p>
               <h3 class="vh-docs-catalog-tile-title">
                 <span>{{ tile.title }}</span>
                 <UIcon name="i-lucide-arrow-right" class="vh-docs-catalog-tile-arrow size-3.5 shrink-0" aria-hidden="true" />
               </h3>
               <p v-if="tile.description" class="vh-docs-catalog-tile-description">{{ tile.description }}</p>
-              <span class="vh-docs-catalog-tile-action">
-                View {{ tile.kind === "Getting started" ? "guide" : "docs" }}
-                <UIcon name="i-lucide-arrow-up-right" class="size-3.5 shrink-0" aria-hidden="true" />
-              </span>
             </div>
           </NuxtLink>
         </li>
@@ -205,16 +198,6 @@ function offset(index: number) {
   line-height: 1.25rem;
 }
 
-.vh-docs-catalog-tile-kind {
-  margin: 0 0 0.25rem;
-  color: var(--ui-text-dimmed);
-  font-size: 0.625rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  line-height: 1;
-  text-transform: uppercase;
-}
-
 .vh-docs-catalog-tile-arrow {
   opacity: 0;
   transform: translateX(-0.25rem);
@@ -232,19 +215,6 @@ function offset(index: number) {
   -webkit-line-clamp: 2;
 }
 
-.vh-docs-catalog-tile-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  margin-top: auto;
-  padding-top: 0.75rem;
-  color: var(--ui-text-dimmed);
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-}
-
 @media (hover: hover) and (pointer: fine) {
   .vh-docs-catalog-tile:hover {
     --tile-bg: color-mix(in srgb, var(--ui-bg-muted) 35%, var(--ui-bg));
@@ -258,11 +228,6 @@ function offset(index: number) {
   .vh-docs-catalog-tile:focus-visible .vh-docs-catalog-tile-arrow {
     opacity: 1;
     transform: translateX(0);
-  }
-
-  .vh-docs-catalog-tile:hover .vh-docs-catalog-tile-action,
-  .vh-docs-catalog-tile:focus-visible .vh-docs-catalog-tile-action {
-    color: var(--ui-text-highlighted);
   }
 }
 

@@ -392,6 +392,22 @@
         { "name": "createdAt", "type": "timestamp" }
       ],
       "rows": []
+    },
+    {
+      "name": "rateLimit",
+      "position": { "x": 420, "y": 720 },
+      "columns": [
+        { "name": "id", "type": "text", "primary": true },
+        { "name": "key", "type": "text" },
+        { "name": "count", "type": "integer" },
+        { "name": "lastRequest", "type": "integer" }
+      ],
+      "rows": [
+        { "id": "rl_01", "key": "192.0.2.1/sign-in/email", "count": 3, "lastRequest": 1788163928000 },
+        { "id": "rl_02", "key": "198.51.100.24/sign-up/email", "count": 1, "lastRequest": 1788160318000 },
+        { "id": "rl_03", "key": "203.0.113.7/get-session", "count": 118, "lastRequest": 1788164105000 },
+        { "id": "rl_04", "key": "203.0.113.7/forget-password", "count": 12, "lastRequest": 1788151200000 }
+      ]
     }
   ],
   "relationships": [
