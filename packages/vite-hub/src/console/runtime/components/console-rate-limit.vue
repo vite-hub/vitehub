@@ -28,7 +28,12 @@ const resetOpen = ref(false);
 const resetting = ref(false);
 let request: AbortController | undefined;
 
-const canReset = computed(() => !props.readOnly && peeked.value !== undefined && peeked.value.status !== "unsupported");
+// A readable result must contain an active counter; an unavailable counter may still exist.
+const canReset = computed(() => {
+  if (props.readOnly) return false;
+  const result = peeked.value;
+  return result?.status === "unavailable" || (result?.status === "known" && result.counters.some(counter => counter.used > 0 || counter.resetAt !== undefined));
+});
 
 function message(failure: unknown, fallback: string): string {
   return failure instanceof Error && failure.message ? failure.message : fallback;
@@ -125,14 +130,16 @@ onBeforeUnmount(() => request?.abort());
         <table class="w-full text-left text-[13px]">
           <thead>
             <tr class="border-b border-default">
-              <th v-for="heading in ['Policy', 'Used', 'Remaining', 'Resets at']" :key="heading" class="h-8 whitespace-nowrap px-2 text-xs font-medium text-dimmed" scope="col">{{ heading }}</th>
+              <th class="h-8 whitespace-nowrap px-2 text-xs font-medium text-dimmed" scope="col">Policy</th>
+              <th v-for="heading in ['Used', 'Remaining']" :key="heading" class="h-8 whitespace-nowrap px-2 text-right text-xs font-medium text-dimmed" scope="col">{{ heading }}</th>
+              <th class="h-8 whitespace-nowrap px-2 text-xs font-medium text-dimmed" scope="col">Resets at</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="counter in peeked.counters" :key="`${counter.limit}/${counter.window}`" class="h-10 border-b border-default">
               <td class="px-2 py-1.5 tabular-nums">{{ counter.limit }} per {{ counter.window }}</td>
-              <td class="px-2 py-1.5 tabular-nums">{{ counter.used }}</td>
-              <td class="px-2 py-1.5 tabular-nums">{{ counter.remaining }}</td>
+              <td class="px-2 py-1.5 text-right tabular-nums">{{ counter.used }}</td>
+              <td class="px-2 py-1.5 text-right tabular-nums">{{ counter.remaining }}</td>
               <td class="px-2 py-1.5 tabular-nums">{{ expiry(counter.resetAt) }}</td>
             </tr>
           </tbody>

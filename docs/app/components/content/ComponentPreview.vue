@@ -115,6 +115,8 @@ const previewHeights = new Map(Object.entries({
   TraceTurnExample: 18,
 }));
 const previewHeight = computed(() => props.height ?? previewHeights.get(props.name) ?? 8);
+// Chat fills its parent's height, so its frame keeps a fixed height like the flush blocks.
+const fixedHeight = computed(() => props.flush || props.name === "ChatExample");
 
 const exampleModules = import.meta.glob("./examples/*.vue");
 // SAFETY: Vite's raw eager glob returns each matching file's default export as a string.
@@ -204,15 +206,15 @@ function resetExample() {
 
     <div
       class="component-preview-stage min-w-0 bg-elevated/35"
-      :class="{ 'component-preview-flush': flush }"
+      :class="{ 'component-preview-flush': flush, 'component-preview-fixed': fixedHeight }"
       :style="{ '--preview-content-height': `${previewHeight}rem` }"
     >
       <Suspense>
         <component :is="example" :key="resetKey" />
 
         <template #fallback>
-          <div role="status" class="grid h-full place-items-center text-sm text-muted">
-            Loading preview...
+          <div role="status" class="grid min-h-(--preview-content-height) place-items-center text-sm text-muted">
+            Loading preview…
           </div>
         </template>
       </Suspense>
@@ -228,9 +230,10 @@ function resetExample() {
 </template>
 
 <style scoped>
+/* The reserved height is a minimum. Text that wraps on a narrow screen grows the frame instead of scrolling inside it. */
 .component-preview-stage {
   --preview-stage-padding: 1rem;
-  height: calc(var(--preview-content-height) + 2 * var(--preview-stage-padding));
+  min-height: calc(var(--preview-content-height) + 2 * var(--preview-stage-padding));
   overflow: auto;
   padding: var(--preview-stage-padding);
   scrollbar-gutter: stable;
@@ -252,6 +255,10 @@ function resetExample() {
   --preview-stage-padding: 0rem;
 }
 
+.component-preview-stage.component-preview-fixed {
+  height: calc(var(--preview-content-height) + 2 * var(--preview-stage-padding));
+}
+
 /* The 44px toolbar fits 36px touch targets without growing. */
 @media (pointer: coarse) {
   .component-preview-action {
@@ -268,10 +275,16 @@ function resetExample() {
   overflow: auto;
 }
 
-.component-preview-source :deep(.code-block-wrapper) {
+/*
+  MDC renders the source through Nuxt UI's ProsePre, not the docs code block.
+  Its outer margin left a blank band above the code, and its copy button repeated the toolbar copy.
+*/
+.component-preview-source > :deep(div) {
   margin: 0;
-  border: 0;
-  border-radius: 0;
+}
+
+.component-preview-source > :deep(div > button) {
+  display: none;
 }
 
 .component-preview-source :deep(pre) {
