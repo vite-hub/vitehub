@@ -40,5 +40,12 @@ function searchPath(prefix: string) {
       <span v-if="item.labelHtml" class="vh-search-title" v-html="item.labelHtml" />
       <span v-else class="vh-search-title">{{ item.label }}</span>
     </template>
+
+    <!-- The index loads on first open. Until it is ready, an empty list means "still loading", not "no match". -->
+    <template #empty="{ searchTerm }">
+      <span v-if="searchStatus === 'error'">Search could not load. Reload the page to try again.</span>
+      <span v-else-if="searchStatus !== 'ready'">Loading the search index…</span>
+      <span v-else>No pages match “{{ searchTerm }}”.</span>
+    </template>
   </LazyUContentSearch>
 </template>
