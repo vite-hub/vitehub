@@ -168,6 +168,8 @@ A Vite app that builds with the Nitro Vite plugin and a Cloudflare preset gets e
 
 Cloudflare Nuxt output copies discovered D1 migration SQL beside the generated Wrangler config, so `.output/server` can apply migrations without the source checkout.
 
+A project `wrangler.json`, `wrangler.jsonc`, or `wrangler.toml` can still declare a D1 binding that ViteHub writes, for example one kept from NuxtHub. Nitro merges that file into the generated config, and ViteHub then keeps one entry per binding name, at the top level and in each `env`: its own entry wins, and the project entry only fills the fields it lacks, such as `preview_database_id` or `migrations_table`. ViteHub keeps its own `migrations_dir` and ignores the project's `migrations_dir` and `migrations_pattern`, because the staged migrations live there. When the two name a different `database_id`, `database_name`, or `preview_database_id`, the build fails with [`DATABASE_WRANGLER_BINDING_CONFLICT`](/docs/database/limits-and-errors#database_wrangler_binding_conflict). The simplest setup removes the binding from the project file.
+
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['@vite-hub/database/nuxt'],

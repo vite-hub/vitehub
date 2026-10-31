@@ -224,6 +224,8 @@ On Node, the runtime variables can also contain a `file:` location. Comments cho
 
 On `vite dev`, threads go to `.vitehub/data/comments.sqlite` in the project, with a `.gitignore` next to it. That keeps the threads you write on your computer out of your app's database. Two strings change it: a `file:` path is used as it is, and an `env:` variable is used when it is set.
 
+With a Nitro Cloudflare preset, such as `NITRO_PRESET=cloudflare_module`, `vite dev` runs the server in workerd, which cannot open that file. There, threads go to a local D1 binding `COMMENTS` that Miniflare keeps in `.wrangler/state`, or to the `database` option when you set one. An unset `env:` variable falls back to that local D1 database. Set Nitro's `devServer.runner` to `node-worker` to keep the file.
+
 When the server finds no database, the API answers `500`, and the server log shows [`DATABASE_NOT_CONNECTED`](/docs/database/limits-and-errors#database_not_connected) with what it looked for. A string that Comments cannot use, such as a Postgres URL, fails the build with [`DATABASE_UNSUPPORTED_URL`](/docs/database/limits-and-errors#database_unsupported_url). Postgres comes in a later version.
 
 ### Turso and other libSQL databases
@@ -255,7 +257,7 @@ pnpm wrangler deploy
 
 Comments adds the `COMMENTS` binding to the Wrangler config of the build, without a database id, and `wrangler deploy` creates the D1 database. When `wrangler.jsonc` already has a binding with that name, Comments uses yours, with its id. Name a binding `DB` and you can leave out `database`.
 
-To try the Worker on your computer, run `pnpm wrangler dev` after the build. Wrangler keeps a local D1 database in `.wrangler/state`. Set the Nitro preset with `NITRO_PRESET` when you build, not in `vite.config.ts`: with the Cloudflare preset, `vite dev` runs the server in `workerd`, where Comments does not start yet.
+To try the Worker on your computer, run `pnpm wrangler dev` after the build, or `NITRO_PRESET=cloudflare_module pnpm vite dev` during development. Both keep a local D1 database in `.wrangler/state`.
 
 Add the variables of [Sign in with GitHub](#sign-in-with-github) as Worker secrets, such as `pnpm wrangler secret put VITEHUB_GITHUB_CLIENT_ID`.
 
