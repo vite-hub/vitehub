@@ -1,0 +1,39 @@
+diff --git a/dist/index.mjs b/dist/index.mjs
+index ebfb3fd7c3f27bc8c3fa3e5ec50b0f4b4cd32f20..fb1ab85d606058285b80860ceacd83bc490a0ece 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -852,6 +852,26 @@ function createSerializer(specs) {
+ 	function sameMark(a, b) {
+ 		return a.type === b.type && JSON.stringify(a.attrs ?? {}) === JSON.stringify(b.attrs ?? {});
+ 	}
++	function orderLeafMarks(leaves) {
++		let open = [];
++		leaves.forEach((leaf, index) => {
++			const continuing = [];
++			for (const mark of open) {
++				if (mark.type === CODE_PM_NAME || !leaf.marks.some((m) => sameMark(m, mark))) break;
++				continuing.push(mark);
++			}
++			const runLength = (mark) => {
++				let length = 1;
++				while (leaves[index + length]?.marks.some((m) => sameMark(m, mark))) length++;
++				return length;
++			};
++			const rest = leaf.marks.filter((m) => !continuing.some((c) => sameMark(c, m))).map((m, i) => [m, i, runLength(m)]).sort(([a, ai, an], [b, bi, bn]) => {
++				return (a.type === CODE_PM_NAME ? 1 : 0) - (b.type === CODE_PM_NAME ? 1 : 0) || bn - an || ai - bi;
++			}).map(([m]) => m);
++			leaf.marks = [...continuing, ...rest];
++			open = leaf.marks;
++		});
++	}
+ 	function groupLeaves(leaves, depth) {
+ 		const out = [];
+ 		let i = 0;
+@@ -900,6 +920,7 @@ function createSerializer(specs) {
+ 				base: result
+ 			});
+ 		}
++		orderLeafMarks(leaves);
+ 		return groupLeaves(leaves, 0);
+ 	}
+ 	function parseBlocks(children) {

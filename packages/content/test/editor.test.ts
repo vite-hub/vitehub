@@ -111,6 +111,13 @@ describe("contentRealtimeEditor", () => {
     }
   })
 
+  it("keeps bold and italic around a link as one mark", async () => {
+    // comark-tiptap closed the mark around the link and Markdown dropped the spaces: **a**[**b**](/x)**c**.
+    for (const body of ["**Missing [CLAUDE.md](https://claude.md) constraints?**\n", "*a [b](/x) c*\n", "**[a](/x) b**\n", "**a [`b`](/x) c**\n"]) {
+      expect(await editor.verify!(body, {}), body).toEqual({ writable: true })
+    }
+  })
+
   it("writes a declared default, which counts as form and not as loss", async () => {
     expect(await editor.verify!("::alert\nA note.\n::\n", {})).toEqual({ canonical: "::alert{type=\"info\"}\nA note.\n::\n", writable: true })
   })
