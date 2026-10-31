@@ -140,8 +140,9 @@ function fileChanges(attributes: Record<string, unknown>): { patches: string[]; 
   const body = attributes["vitehub.activity.body"];
   if (attributes["vitehub.activity.kind"] === "change" && hasRuntimeType(body, "string") && /^diff --git /m.test(body)) {
     const paths = [...body.matchAll(/^diff --git a\/(.+?) b\/.+$/gm)].map(match => match[1]!);
+    // Diff views take one file per patch, and a turn diff can change several files.
     return {
-      patches: [body.endsWith("\n") ? body : `${body}\n`],
+      patches: (body.endsWith("\n") ? body : `${body}\n`).split(/^(?=diff --git )/m).filter(patch => patch.startsWith("diff --git ")),
       paths: [...new Set(paths)],
     };
   }

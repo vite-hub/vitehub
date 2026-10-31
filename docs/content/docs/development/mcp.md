@@ -65,47 +65,30 @@ FIXTURE_R0001: The note is locked.
 Fix: Unlock it first.
 ```
 
-`structuredContent.error` has `code`, `message`, `fix`, and `details` for failures below status 500. A call to an unknown tool, or a message the server does not know, is a JSON-RPC error.
+`structuredContent.error` has `code`, `message`, `fix`, and `details` for failures below status 500. Server failures return `OPERATION_FAILED` with a generic message and omit provider diagnostics. A call to an unknown tool, or a message the server does not know, is a JSON-RPC error.
+
+An operation with `invoke: true`, such as `workflow.start`, `queue.send`, or `schedule.run`, is a tool only when [`console.invoke`](/docs/development/console) is on. That is the default in development and off in a production build.
+
+## Tools by primitive
+
+Each ability is one tool, named after its operation. The agent reads the same data as the Console and the CLI. A `read` tool can return stored data: `kv_get` returns a value, `blob_get` returns the bytes, and `databases_browse` returns rows. Grant only the sections that the agent needs, and use a `:read` grant, such as `'kv:read'`, for a role that must not write.
+
+| Section | Read tools | Write and destructive tools |
+| --- | --- | --- |
+| `kv` | `kv_list`, `kv_get`, `kv_has` | `kv_set`, `kv_del` |
+| `blob` | `blob_list`, `blob_head`, `blob_get`, `blob_media`, `blob_variants` | `blob_put`, `blob_del` |
+| `databases` | `databases_tables`, `databases_browse` | none |
+| `content` | `content_collections`, `content_list`, `content_resolve`, `content_show`, `content_status`, `content_diff`, `content_revisions`, `content_schedules`, `content_sitemap` | `content_save`, `content_restore`, `content_remove`, `content_publish`, `content_schedule`, `content_unschedule` |
+
+`content_save` requires `ifDigest`: the current draft digest from `content_show`, or explicit `null` to create a new document. A missing digest fails without saving, and a stale digest fails with a conflict.
+
+[Operations](/docs/development/operations#built-in-operations) lists the operations of the other sections. Their tools follow the same naming rule.
 
 ## Package tools
 
-Installed packages also contribute tools alongside operations. They use the same Console section grants and OAuth scopes. When a registered tool shares an operation’s MCP name, the registered tool supplies the schema and implementation.
+A package can also register tools that are not operations. They use the same Console section grants and OAuth scopes. When a registered tool has the same name as an operation tool, the registered tool supplies the schema and implementation.
 
 With [Comments](/docs/comments), ask an agent, for example: "Read the open comments on /pricing and fix them."
-
-### Content, section `content`
-
-| Tool | Needs | Does |
-| --- | --- | --- |
-| `content_list_collections` | Content `read` | Lists readable collections and their field schemas. |
-| `content_list_documents` | Content `read` | Lists readable documents, draft digests, and `nextCursor`. Filters: `collection`, `search`, `state`, `cursor`, `limit`, default 50 and at most 200. |
-| `content_read_document` | Content `read` | Reads the draft for `collection` and `id`. For a singleton, use its collection name as `id`. |
-| `content_save_draft` | Content `write` | Saves `data` and `body` with `ifDigest`. Use the current draft digest, or `null` for a new document. Does not publish. |
-
-These tools call the same owner actions as the Console. Each call passes the Console user to `content.can()`. Lists filter documents by that user's access. Saves preserve digest conflict checks and edit leases. They cannot override another editor's lease. Saves are marked as destructive writes because they replace a draft. These registered tools have a 256 KiB request body limit, including the JSON-RPC envelope.
-
-### Database, section `databases`
-
-| Tool | Does |
-| --- | --- |
-| `database_list_databases` | Lists the Database names installed in the Console. |
-| `database_get_schema` | Lists tables, columns, and relationships for `database`. Defaults to the first Database. Does not query rows. |
-
-### KV, section `kv`
-
-| Tool | Does |
-| --- | --- |
-| `kv_list_keys` | Lists keys without values. Accepts `store`, `prefix`, `cursor`, and `limit`, default 200 and at most 500. |
-
-### Blob, section `blob`
-
-| Tool | Does |
-| --- | --- |
-| `blob_list_objects` | Lists object names, sizes, content types, and upload dates. Accepts `store`, `prefix`, `cursor`, and `limit`, default 100 and at most 250. |
-
-KV and Blob default to the `default` store. Only stores installed in the Console can be selected. A result cursor continues the listing. Blob uses the Console's default filter for ViteHub-owned paths. It returns no bytes, URLs, HTTP metadata, or custom metadata.
-
-All Database, KV, Blob, and Content read tools are marked read-only.
 
 ### Comments, section `comments`
 
