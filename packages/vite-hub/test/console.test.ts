@@ -4925,7 +4925,7 @@ describe("Agent invocation console", () => {
   })
 
   it("serves the standalone shell with build-replaceable assets and a restrictive non-cacheable policy", async () => {
-    const response = consolePageHandler(event("127.0.0.1"))
+    const response = await consolePageHandler(event("127.0.0.1"))
     const page = await response.text()
 
     expect(page).toContain("/_vitehub/assets/__VITEHUB_CONSOLE_STYLE_ASSET__")
@@ -4943,7 +4943,7 @@ describe("Agent invocation console", () => {
     const request = event("127.0.0.1")
     request.req = { url: "http://localhost/portal/_vitehub" }
     request.node!.req!.url = "http://localhost/portal/_vitehub"
-    const page = await consolePageHandler(request).text()
+    const page = await (await consolePageHandler(request)).text()
 
     expect(page).toContain('href="/portal/_vitehub/assets/__VITEHUB_CONSOLE_STYLE_ASSET__"')
     expect(page).toContain('src="/portal/api/_vitehub/console/client.js"')
