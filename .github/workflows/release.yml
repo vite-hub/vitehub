@@ -154,7 +154,7 @@ jobs:
       - run: vp run --no-cache --filter "./packages/*" build
 
       # vp run orders tasks by workspace:* dependencies only, so pin the
-      # release version after the build.
+      # release version only while packing.
       - name: Pin release dependency versions
         env:
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
@@ -179,6 +179,7 @@ jobs:
             manifests.push({ manifest, path })
           }
 
+          writeFileSync(".release/workspace-manifests.json", JSON.stringify(Object.fromEntries(manifests.map(({ path }) => [path, readFileSync(path, "utf8")]))))
           const releaseNames = new Set(manifests.map(({ manifest }) => manifest.name))
           for (const { manifest, path } of manifests) {
             for (const section of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
@@ -197,6 +198,16 @@ jobs:
             --output .release/npm \
             --source-sha "$GITHUB_SHA" \
             --verify-reproducible
+
+      - name: Restore workspace dependency ranges
+        run: |
+          node <<'NODE'
+          const { readFileSync, rmSync, writeFileSync } = require("node:fs")
+
+          const manifests = JSON.parse(readFileSync(".release/workspace-manifests.json", "utf8"))
+          for (const [path, source] of Object.entries(manifests)) writeFileSync(path, source)
+          rmSync(".release/workspace-manifests.json")
+          NODE
 
       - name: Verify exact release tarballs
         run: |
