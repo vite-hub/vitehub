@@ -12,8 +12,8 @@ import { consoleBytes } from "../client/format";
 import { requestConsole } from "../client/request";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
-const ConsoleFileTree = defineAsyncComponent(() => import("@vite-hub/ui/file-tree").then(module => ({ default: module.FileTree })));
-const ConsolePatchDiff = defineAsyncComponent(() => import("@vite-hub/ui/patch-diff").then(module => ({ default: module.PatchDiff })));
+const ConsoleFileTree = defineAsyncComponent(() => import("@vite-hub/ui/file-tree").then(module => module.FileTree));
+const ConsolePatchDiff = defineAsyncComponent(() => import("@vite-hub/ui/patch-diff").then(module => module.PatchDiff));
 
 type InspectorTab = "details" | "trace" | "workspace" | "capabilities" | "diff";
 type WorkspaceDescriptor = {
@@ -89,7 +89,7 @@ const inspectorViews = computed<InspectorTab[]>(() => [
 ]);
 const diffs = computed(() => invocationActivities(props.invocation)
   .filter(activity => activity.patches.length)
-  .map(activity => ({ id: activity.id, patch: activity.patches.join(""), sequence: activity.sequence })));
+  .map(activity => ({ id: activity.id, patches: activity.patches, sequence: activity.sequence })));
 const selectedDiffs = ref<number[]>([]);
 const activeDiffTurn = ref<number | "all">("all");
 const allDiffsSelected = computed(() => diffs.value.length > 0 && selectedDiffs.value.length === diffs.value.length);
@@ -661,7 +661,7 @@ function message(error: unknown) {
             <input v-model="selectedDiffs" type="checkbox" :value="index" />
             <span>Turn {{ index + 1 }}</span>
           </label>
-          <ConsolePatchDiff :patch="diff.patch" class="session-inspector__patch" />
+          <ConsolePatchDiff v-for="(patch, patchIndex) in diff.patches" :key="patchIndex" :patch="patch" class="session-inspector__patch" />
         </section>
       </div>
     </div>
