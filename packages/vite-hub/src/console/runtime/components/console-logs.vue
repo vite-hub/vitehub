@@ -8,10 +8,13 @@ import { requestConsole } from "../client/request";
 import ConsoleFrame from "./console-frame.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
+import ConsoleSearch from "./console-search.vue";
 import ConsoleSetupHint from "./console-setup-hint.vue";
 import ConsoleState from "./console-state.vue";
 
 const props = defineProps<{ logsBase: string; sectionsBase: string }>();
+// The rail's Search button and Cmd+K open the search of the page. Its API routes sit next to the sections route.
+const apiBase = props.sectionsBase.replace(/\/sections$/, "");
 const mode = ref("explorer");
 const text = ref("");
 const level = ref("all");
@@ -132,6 +135,7 @@ onBeforeUnmount(() => {
 
 <template>
   <ConsoleFrame active="logs" :sections-base="sectionsBase">
+    <ConsoleSearch :agents-base="`${apiBase}/agents`" :definitions-base="`${apiBase}/definitions`" :kv-base="`${apiBase}/kv`" :search-base="`${apiBase}/search`" :sections-base="sectionsBase" />
     <UDashboardPanel id="logs" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
       <ConsolePageHeader title="Logs" :description="source?.label" :toggle="false">
         <template #right>

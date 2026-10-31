@@ -1407,8 +1407,9 @@ button.vh-agent-tool-list__count:focus-visible {
     width: fit-content;
   }
 
-  [data-slot="attachment"]:focus-within {
-    box-shadow: 0 0 0 1px var(--vh-ui-ring);
+  /* The trigger covers the attachment and hides its own outline, so the attachment shows the ring of the other parts. */
+  [data-slot="attachment"]:has([data-slot="attachment-trigger"]:focus-visible) {
+    box-shadow: 0 0 0 3px var(--vh-ui-ring);
   }
 
   [data-slot="attachment"]:has(> a, > button):hover {

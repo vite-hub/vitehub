@@ -25,29 +25,42 @@ const checked = ref(false);
 const unset = ref(false);
 const error = ref("");
 const pending = ref(false);
-const labels: Record<AuthConsoleAction, string> = {
-  ban: "Ban user",
-  unban: "Unban user",
-  remove: "Remove user",
-  revokeSession: "Revoke session",
-  revokeSessions: "Revoke all sessions",
-  setRole: "Set role",
-  editField: "Edit field",
-  impersonate: "Impersonate user",
-  revokeConsent: "Revoke client access",
-};
 const destructive = computed(() =>
   ["remove", "ban", "revokeSession", "revokeSessions", "revokeConsent"].includes(
     props.action ?? "",
   ),
 );
-const title = computed(() =>
-  props.action === "editField"
-    ? `Edit ${props.field?.label ?? "field"}`
-    : props.action
-      ? labels[props.action]
-      : "Auth action",
-);
+/**
+ * Dialog copy for each action. A destructive action asks a question and says what happens to the user, as the other
+ * Console confirmations do. The submit button names the action, and its pending label says that it runs.
+ */
+const copy = computed(() => {
+  const user = props.name ?? "the user";
+  const User = props.name ?? "The user";
+  const field = props.field?.label ?? "field";
+  switch (props.action) {
+    case "ban":
+      return { title: "Ban this user?", description: `${User} can no longer sign in, and every session ends.`, submit: "Ban user", pending: "Banning…" };
+    case "unban":
+      return { title: "Unban this user?", description: `${User} can sign in again.`, submit: "Unban user", pending: "Unbanning…" };
+    case "remove":
+      return { title: "Remove this user?", description: `${User} and their Auth data are deleted. This cannot be undone.`, submit: "Remove user", pending: "Removing…" };
+    case "revokeSession":
+      return { title: "Revoke this session?", description: `The session ends, and ${user} must sign in again on that device.`, submit: "Revoke session", pending: "Revoking…" };
+    case "revokeSessions":
+      return { title: "Revoke all sessions?", description: `Every session of ${user} ends, and they must sign in again.`, submit: "Revoke all sessions", pending: "Revoking…" };
+    case "revokeConsent":
+      return { title: "Revoke client access?", description: `The client can no longer act for ${user} until they approve it again.`, submit: "Revoke access", pending: "Revoking…" };
+    case "setRole":
+      return { title: "Change role", description: `The role decides what ${user} can do in the app.`, submit: "Save", pending: "Saving…" };
+    case "editField":
+      return { title: `Edit ${field}`, description: `Change ${field} for ${user}.`, submit: "Save", pending: "Saving…" };
+    case "impersonate":
+      return { title: "Impersonate user", description: `Open the app as ${user}.`, submit: "Impersonate", pending: "Opening the app…" };
+    default:
+      return { title: "Auth action", description: "", submit: "Continue", pending: "Working…" };
+  }
+});
 const open = computed({
   get: () => Boolean(props.action),
   set: (value: boolean) => {
@@ -117,18 +130,15 @@ async function submit() {
 <template>
   <UModal
     v-model:open="open"
-    :title="title"
-    :description="name ? `${title} for ${name}.` : title"
+    :title="copy.title"
+    :description="copy.description"
     :content="{ role: destructive ? 'alertdialog' : 'dialog' }"
-    :dismissible="!pending && !destructive"
+    :dismissible="!pending"
     :close="!pending && !destructive"
   >
     <template #body>
       <form class="space-y-4" @submit.prevent="submit">
-        <p v-if="action === 'remove'" class="text-sm text-muted">
-          This permanently removes the user and their Auth data.
-        </p>
-        <ul v-else-if="action === 'impersonate'" class="space-y-3 text-sm text-muted">
+        <ul v-if="action === 'impersonate'" class="space-y-3 text-sm text-muted">
           <li class="flex gap-3">
             <UIcon name="i-lucide-log-in" class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
             <span class="text-pretty"
@@ -148,12 +158,6 @@ async function submit() {
             <span class="text-pretty">Auth Activity records when you start and when you stop.</span>
           </li>
         </ul>
-        <p
-          v-else-if="action === 'revokeSession' || action === 'revokeSessions'"
-          class="text-sm text-muted"
-        >
-          The affected sessions will end. The user must sign in again.
-        </p>
         <UFormField v-if="action === 'ban'" label="Reason"
           ><UInput v-model="text" class="w-full" maxlength="1000"
         /></UFormField>
@@ -197,9 +201,9 @@ async function submit() {
             >Cancel</UButton
           ><UButton
             type="submit"
-            :color="action === 'remove' || action === 'ban' ? 'error' : 'primary'"
+            :color="destructive ? 'error' : 'primary'"
             :disabled="pending"
-            >{{ pending ? "Working…" : title }}</UButton
+            >{{ pending ? copy.pending : copy.submit }}</UButton
           >
         </div>
       </form>

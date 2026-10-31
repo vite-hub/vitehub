@@ -87,7 +87,7 @@ Comments also needs to know the repository. It reads it from the `origin` remote
 
 A production build keeps threads in a database that you point it to. With a Turso database or Cloudflare D1, set its variable or binding and you are done: see [Choose the Database](/docs/comments/configure#choose-the-database). On Node, the simplest is a SQLite file:
 
-```ts [vite.config.ts]
+```ts [node/vite.config.ts]
 export default defineConfig({
   plugins: [vue(), comments({ database: 'file:./data/comments.sqlite' })],
 })
