@@ -1095,12 +1095,19 @@ async function resolveAgentWebhookState(
   registration: AgentWebhookRegistrationDefinition,
   handlerOptions: AgentChannelWebhookRouteOptions,
 ): Promise<{ keyPrefix: string; state: StateAdapter } | undefined> {
+  const { stateScope: declaredScope } = registration
+  const stateScope = declaredScope === undefined ? undefined : isRuntimeString(declaredScope) ? declaredScope.replace(/:+$/, "") : ""
+  if (stateScope !== undefined && !stateScope.trim()) {
+    throw new TypeError(`[vitehub] Webhook registration "${registration.id || registration.provider}" stateScope must be a non-empty string.`)
+  }
   const stateOption = handlerOptions.webhookState
   if (!stateOption) return
   const agentName = routeAgentIdentity(handlerOptions)?.name || "agent"
   const origin = chatRegistrationOrigin(registration)
   const registrationId = registration.id || registration.path || origin
-  const keyPrefix = `webhook:${webhookScopeComponent(agentName)}:${webhookScopeComponent(origin)}:${webhookScopeComponent(registrationId)}:`
+  const keyPrefix = stateScope === undefined
+    ? `webhook:${webhookScopeComponent(agentName)}:${webhookScopeComponent(origin)}:${webhookScopeComponent(registrationId)}:`
+    : `${stateScope}:`
   // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
   const state = await resolveMaybe(stateOption, {
     ...context,
@@ -3431,6 +3438,7 @@ async function resolveWorkflowAgentChannelDelivery(
     channelId: binding.channelId,
     id: binding.channelId,
     provider: binding.provider,
+    stateScope: binding.stateScope,
   }
   const handlerOptions = (await agentChannelDeliveryWorkflowStateResolver?.(context, binding)) || {}
   const webhookState = binding.state === "webhook" ? await resolveAgentWebhookState(context, registration, handlerOptions) : undefined
@@ -9888,6 +9896,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
                           deliveryId: channelDelivery.delivery.id,
                           provider: registration.provider,
                           state: workflowCustody ? "chat" : webhookDeliveryState ? "webhook" : "chat",
+                          ...(registration.stateScope === undefined ? {} : { stateScope: registration.stateScope }),
                         },
                       },
                       ...(ownershipAbort

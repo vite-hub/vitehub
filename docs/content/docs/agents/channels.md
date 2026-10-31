@@ -207,6 +207,29 @@ export default defineChannel('tickets', {
 - The route also answers at `/api/_vitehub/agents/channel-<name>/webhooks/<name>`. `channel-<name>` is the host that owns the Channel's webhook State and queue. It is not an Agent Definition, so it cannot have the name of one.
 - Standalone Channels need a Nitro host. Restart the development server after you add or remove one.
 
+### Keep webhook State when a Channel moves
+
+ViteHub keeps a webhook's State and queue under `webhook:<agent>:<origin>:<registration>:`. Accepted queued deliveries, provider cursors, and Channel State all use this scope. When you move a Channel to another owner, for example from an Agent to `server/channels/<name>/index.ts`, the scope changes, and the new owner does not see the old data.
+
+Set `webhooks.stateScope` to the old scope to keep it:
+
+```ts [server/channels/airtable/index.ts]
+import { defineChannel } from 'vite-hub/agent/channels'
+
+export default defineChannel('airtable', {
+  messages: false,
+  triggers: { /* ... */ },
+  webhooks: {
+    path: '/api/airtable/webhook',
+    durableState: true,
+    stateScope: 'webhook:support:airtable:airtable:',
+  },
+})
+```
+
+- ViteHub uses the value as the scope, with one trailing colon. A value that is not a string, or that is empty, makes the route throw a `TypeError`.
+- Give each registration its own `stateScope`, and remove the registration from the old owner. ViteHub does not check that a scope is unique. Registrations with the same scope share one queue and one Channel State.
+
 ### Verify a webhook signature
 
 Set `secretHeader`, `secretToken`, and `signature` on a webhook registration. ViteHub verifies the raw request body before it runs the trigger and answers `401` when the check fails.
