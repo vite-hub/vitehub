@@ -615,6 +615,47 @@ describe("ViteHub Nuxt integration", () => {
     expect(blobLoad.mock.contexts[0]).toBe(context)
   })
 
+  it("gives the Console's KV operations a disabled config and Upstash stub when KV is off", async () => {
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    const nitroConfig: Record<string, unknown> = {}
+
+    await viteHubNuxtModule({ console: { auth: false }, preset: "cloudflare" }, nuxt)
+    await runNitroConfigHook(nitroConfig)
+
+    const kvConfig = (nitroConfig.virtual as Record<string, string> | undefined)?.["#vitehub/kv/config"]
+    expect(kvConfig).toBeTypeOf("string")
+    const kvConfigModule = await import(`data:text/javascript,${encodeURIComponent(kvConfig!)}`) as { kv: unknown }
+    expect(kvConfigModule.kv).toBe(false)
+    expect((nitroConfig.alias as Record<string, string>)["@vite-hub/kv/runtime/upstash-driver"]).toMatch(/[\\/]kv[\\/]runtime[\\/]disabled-upstash\.(?:ts|js)$/)
+  })
+
+  it("stubs the Upstash driver for a KV store on another driver and keeps the KV plugin's config", async () => {
+    const { nuxt, runNitroConfigHook } = createNuxt(false, [{
+      name: "@vite-hub/kv/vite",
+      api: { getConfig: () => ({ kv: { store: { binding: "KV", driver: "cloudflare-kv-binding" as const } } }) },
+    }])
+    const nitroConfig: Record<string, unknown> = {}
+
+    await viteHubNuxtModule({ console: { auth: false }, kv: true, preset: "cloudflare" }, nuxt)
+    await runNitroConfigHook(nitroConfig)
+
+    expect((nitroConfig.virtual as Record<string, string> | undefined)?.["#vitehub/kv/config"]).toBeUndefined()
+    expect((nitroConfig.alias as Record<string, string>)["@vite-hub/kv/runtime/upstash-driver"]).toMatch(/[\\/]kv[\\/]runtime[\\/]disabled-upstash\.(?:ts|js)$/)
+  })
+
+  it("keeps the Upstash driver for an Upstash KV store", async () => {
+    const { nuxt, runNitroConfigHook } = createNuxt(false, [{
+      name: "@vite-hub/kv/vite",
+      api: { getConfig: () => ({ kv: { store: { driver: "upstash" as const, url: "https://kv.example.com", token: "token" } } }) },
+    }])
+    const nitroConfig: Record<string, unknown> = {}
+
+    await viteHubNuxtModule({ console: { auth: false }, kv: true, preset: "cloudflare" }, nuxt)
+    await runNitroConfigHook(nitroConfig)
+
+    expect((nitroConfig.alias as Record<string, string> | undefined)?.["@vite-hub/kv/runtime/upstash-driver"]).toBeUndefined()
+  })
+
   it("installs Nitro modules owned by replayed ViteHub plugins", async () => {
     const setup = vi.fn()
     const nitroModule = { name: "@vite-hub/sandbox/task/provider-runtime", setup }
@@ -2850,6 +2891,7 @@ describe("ViteHub Nuxt integration", () => {
         "#vitehub/env/description": "/tmp/vitehub-nuxt/.vitehub/env/description.mjs",
         "#vitehub/env/public": "/tmp/vitehub-nuxt/.vitehub/env/public.mjs",
         "#vitehub/env/server": "/tmp/vitehub-nuxt/.vitehub/env/server.mjs",
+        "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/[\\/]kv[\\/]runtime[\\/]disabled-upstash\.(?:ts|js)$/),
       },
       cloudflare: {
         wrangler: {
@@ -2881,6 +2923,7 @@ describe("ViteHub Nuxt integration", () => {
         ],
       },
       sandbox: true,
+      virtual: { "#vitehub/kv/config": "export const kv = false\nexport default { kv }\n" },
       workflows: true,
     })
   })
