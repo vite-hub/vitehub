@@ -36,10 +36,10 @@ const primitive = computed(() => consolePrimitives.find((entry) => entry.id === 
 const docsURL = computed(() => problem.value ? problem.value.docs : props.docs ?? primitive.value?.setup);
 const stateIcon = computed(() => {
   if (props.icon && !problem.value) return props.icon;
-  if (problem.value?.action === "sign-in") return "i-ph-sign-in-light";
-  if (problem.value?.status === 403) return "i-ph-lock-simple-light";
-  if (problem.value) return "i-ph-cloud-slash-light";
-  return props.icon ?? "i-ph-tray-light";
+  if (problem.value?.action === "sign-in") return "i-lucide-log-in";
+  if (problem.value?.status === 403) return "i-lucide-lock";
+  if (problem.value) return "i-lucide-cloud-off";
+  return props.icon ?? "i-lucide-inbox";
 });
 
 function reload(): void {
@@ -53,7 +53,7 @@ const docsAction = computed<ButtonProps | undefined>(() =>
         label: problem.value ? (props.compact ? "Docs" : "Read the docs") : "Get started",
         to: docsURL.value,
         target: "_blank",
-        trailingIcon: "i-ph-arrow-up-right-light",
+        trailingIcon: "i-lucide-arrow-up-right",
       }
     : undefined,
 );
@@ -64,10 +64,10 @@ const stateActions = computed<ButtonProps[]>(() => {
   if (action === "sign-in") {
     // The sign-in page brings the person back to this page. Without one, the page reloads, which lets Cloudflare Access sign them in.
     const signIn = consoleSignInURL({ document, location: window.location });
-    main.push(signIn ? { label: "Sign in again", icon: "i-ph-sign-in-light", to: signIn, external: true } : { label: "Sign in again", icon: "i-ph-sign-in-light", onClick: reload });
+    main.push(signIn ? { label: "Sign in again", icon: "i-lucide-log-in", to: signIn, external: true } : { label: "Sign in again", icon: "i-lucide-log-in", onClick: reload });
   }
-  else if (action === "reload") main.push({ label: "Reload", icon: "i-ph-arrows-clockwise-light", onClick: reload });
-  else if (action === "retry" && props.retry) main.push({ label: "Try again", icon: "i-ph-arrows-clockwise-light", onClick: () => void props.retry?.() });
+  else if (action === "reload") main.push({ label: "Reload", icon: "i-lucide-refresh-cw", onClick: reload });
+  else if (action === "retry" && props.retry) main.push({ label: "Try again", icon: "i-lucide-refresh-cw", onClick: () => void props.retry?.() });
   const first = main[0];
   const buttons: ButtonProps[] = first ? [{ color: "neutral", variant: "soft", size: "xs", ...first }] : [];
   // Later buttons are ghost buttons, so every button in the row has the same height and padding.
