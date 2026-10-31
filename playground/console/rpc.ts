@@ -25,6 +25,7 @@ const fixtureRoutes: Record<string, string> = {
   "logs.list": "logs",
   "search.query": "search",
   "sections.list": "sections",
+  "skills.inspect": "skills",
   "status.get": "status",
   "usage.get": "usage",
 }

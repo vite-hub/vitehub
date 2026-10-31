@@ -299,6 +299,15 @@ const sectionsList = defineConsoleOperation({
   section: false,
 })
 
+const skillsInspect = defineConsoleOperation({
+  description: "Inspect the bundled Skill files of an Agent, or read one exact bundled text file.",
+  input: v.strictObject({ agent: optionalText, path: optionalText }),
+  kind: "read",
+  name: "skills.inspect",
+  run: async (input, context) => (await import("./skills.get.ts")).default(legacyEvent("skills", "GET", { query: input }, context)),
+  section: "skills",
+})
+
 const statusGet = defineConsoleOperation({
   cli: { command: "status", namespace: "agents" },
   description: "Read the status of an Agent: its setup and what it can do.",
@@ -356,6 +365,7 @@ export const consoleOperations: readonly AnyOperation[] = [
   mediaAction,
   searchQuery,
   sectionsList,
+  skillsInspect,
   statusGet,
   usageGet,
 ]

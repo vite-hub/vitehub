@@ -85,12 +85,12 @@ const sectionGroups = computed(() =>
     };
   }),
 );
-// Usage comes with Agents, so it is not offered on its own. A user limited to some sections may not see the others,
+// Usage and Skills come with Agents, so they are not offered on their own. A user limited to some sections may not see the others,
 // so the Overview does not call them "not enabled".
 const notEnabledPrimitives = computed(() =>
   installedNavigation.value?.scoped
     ? []
-    : consolePrimitives.filter((entry) => entry.id !== "usage" && !sections.value.includes(entry.id)),
+    : consolePrimitives.filter((entry) => entry.id !== "usage" && entry.id !== "skills" && !sections.value.includes(entry.id)),
 );
 const agentsEnabled = computed(() => sections.value.includes("agents"));
 const sessionItems = computed(() =>
