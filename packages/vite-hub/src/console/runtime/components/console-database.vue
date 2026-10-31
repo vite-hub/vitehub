@@ -467,7 +467,8 @@ onBeforeUnmount(() => {
           </div>
         </ConsolePageToolbar>
 
-        <div class="min-h-0 flex-1 overflow-auto">
+        <!-- UTable's root scrolls, so its sticky header stays in view. A scrolling wrapper would scroll the header away. -->
+        <div class="flex min-h-0 flex-1 flex-col">
           <UTable
             :columns="columns"
             :data="tableRows"
@@ -475,6 +476,7 @@ onBeforeUnmount(() => {
             sticky="header"
             :on-select="selectRow"
             :ui="{
+              root: 'min-h-0 flex-1',
               base: 'w-max min-w-full',
               thead: 'bg-default',
               th: 'whitespace-nowrap border-r border-default font-mono font-normal last:border-r-0',
