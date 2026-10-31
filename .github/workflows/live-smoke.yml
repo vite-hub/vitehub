@@ -18,12 +18,32 @@ env:
 jobs:
   setup-cloudflare:
     name: setup
+    permissions:
+      actions: read
+      contents: read
     runs-on: ubuntu-latest
     environment: Production
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Require successful CI for the current main commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          main_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
+          if [ "$GITHUB_SHA" != "$main_sha" ]; then
+            echo "::error::Live smoke deployment requires the current main commit ($main_sha). Selected: $GITHUB_SHA."
+            exit 1
+          fi
+          conclusion=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
+            --method GET -f head_sha="$GITHUB_SHA" -f branch=main -f event=push -f per_page=1 \
+            --jq '.workflow_runs[0].conclusion // "missing"')
+          if [ "$conclusion" != "success" ]; then
+            echo "::error::Live smoke deployment requires successful CI for $GITHUB_SHA on main. Result: $conclusion."
+            exit 1
+          fi
+
       - uses: ./.github/actions/setup
 
       - name: Build vitehub packages

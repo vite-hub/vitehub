@@ -31,38 +31,41 @@ Use each primitive alone, or use them together in one app.
 <!-- primitives:start -->
 <table>
   <tr>
+    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/logs"><img src=".github/assets/primitives/logs.svg" alt="" height="40"><br><b>Logs</b></a><br>Structured logs with Evlog</td>
     <td width="33%" valign="top"><a href="https://vitehub.dev/docs/kv"><img src=".github/assets/primitives/kv.svg" alt="" height="40"><br><b>KV</b></a><br>State and cache</td>
     <td width="33%" valign="top"><a href="https://vitehub.dev/docs/blob"><img src=".github/assets/primitives/blob.svg" alt="" height="40"><br><b>Blob</b></a><br>Files and uploads</td>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/database"><img src=".github/assets/primitives/database.svg" alt="" height="40"><br><b>Database</b></a><br>Relational data</td>
   </tr>
   <tr>
+    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/database"><img src=".github/assets/primitives/database.svg" alt="" height="40"><br><b>Database</b></a><br>Relational data</td>
     <td width="33%" valign="top"><a href="https://vitehub.dev/docs/queue"><img src=".github/assets/primitives/queue.svg" alt="" height="40"><br><b>Queue</b></a><br>Background jobs</td>
     <td width="33%" valign="top"><a href="https://vitehub.dev/docs/workflows"><img src=".github/assets/primitives/workflow.svg" alt="" height="40"><br><b>Workflow</b></a><br>Durable orchestration</td>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/schedule"><img src=".github/assets/primitives/schedule.svg" alt="" height="40"><br><b>Schedule</b></a><br>Recurring work</td>
   </tr>
   <tr>
+    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/schedule"><img src=".github/assets/primitives/schedule.svg" alt="" height="40"><br><b>Schedule</b></a><br>Recurring work</td>
     <td width="33%" valign="top"><a href="https://vitehub.dev/docs/auth"><img src=".github/assets/primitives/auth.svg" alt="" height="40"><br><b>Auth</b></a><br>Users and sessions</td>
     <td width="33%" valign="top"><a href="https://vitehub.dev/docs/connections"><img src=".github/assets/primitives/connections.svg" alt="" height="40"><br><b>Connections</b></a><br>Connected account APIs</td>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/workspace"><img src=".github/assets/primitives/workspace.svg" alt="" height="40"><br><b>Workspace</b></a><br>Persistent file trees</td>
   </tr>
   <tr>
+    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/workspace"><img src=".github/assets/primitives/workspace.svg" alt="" height="40"><br><b>Workspace</b></a><br>Persistent file trees</td>
     <td width="33%" valign="top"><a href="https://vitehub.dev/docs/sandbox"><img src=".github/assets/primitives/sandbox.svg" alt="" height="40"><br><b>Sandbox</b></a><br>Isolated execution</td>
     <td width="33%" valign="top"><a href="https://vitehub.dev/docs/browser"><img src=".github/assets/primitives/browser.svg" alt="" height="40"><br><b>Browser</b></a><br>Browser operations</td>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/shell"><img src=".github/assets/primitives/shell.svg" alt="" height="40"><br><b>Shell</b></a><br>Command execution</td>
   </tr>
   <tr>
+    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/shell"><img src=".github/assets/primitives/shell.svg" alt="" height="40"><br><b>Shell</b></a><br>Command execution</td>
     <td width="33%" valign="top"><a href="https://vitehub.dev/docs/source"><img src=".github/assets/primitives/source.svg" alt="" height="40"><br><b>Source</b></a><br>Read-only content</td>
     <td width="33%" valign="top"><a href="https://vitehub.dev/docs/content"><img src=".github/assets/primitives/content.svg" alt="" height="40"><br><b>Content</b></a><br>Parse and search</td>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/email"><img src=".github/assets/primitives/email.svg" alt="" height="40"><br><b>Email</b></a><br>Transactional email</td>
   </tr>
   <tr>
+    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/email"><img src=".github/assets/primitives/email.svg" alt="" height="40"><br><b>Email</b></a><br>Transactional email</td>
     <td width="33%" valign="top"><a href="https://vitehub.dev/docs/channels"><img src=".github/assets/primitives/channels.svg" alt="" height="40"><br><b>Channels</b></a><br>Named message delivery</td>
     <td width="33%" valign="top"><a href="https://vitehub.dev/docs/env"><img src=".github/assets/primitives/env.svg" alt="" height="40"><br><b>Env</b></a><br>Typed configuration</td>
-    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/rate-limit"><img src=".github/assets/primitives/rate-limit.svg" alt="" height="40"><br><b>Rate Limit</b></a><br>Request budgets</td>
   </tr>
   <tr>
+    <td width="33%" valign="top"><a href="https://vitehub.dev/docs/rate-limit"><img src=".github/assets/primitives/rate-limit.svg" alt="" height="40"><br><b>Rate Limit</b></a><br>Request budgets</td>
     <td width="33%" valign="top"><a href="https://vitehub.dev/docs/realtime"><img src=".github/assets/primitives/realtime.svg" alt="" height="40"><br><b>Realtime</b></a><br>Collaborative documents</td>
     <td width="33%" valign="top"><a href="https://vitehub.dev/docs/agents"><img src=".github/assets/primitives/agent.svg" alt="" height="40"><br><b>Agent</b></a><br>Portable automation</td>
+  </tr>
+  <tr>
     <td width="33%" valign="top"><a href="https://vitehub.dev/docs/ui"><img src=".github/assets/primitives/ui.svg" alt="" height="40"><br><b>UI</b></a><br>Agent interfaces</td>
   </tr>
 </table>
