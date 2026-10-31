@@ -465,66 +465,109 @@ describe("Database Nuxt integration", () => {
     }
   })
 
-  describe("a D1 binding that the project's wrangler.json also declares", () => {
-    async function compileWithProjectBinding(projectBinding: Record<string, unknown>) {
+  // The first test also imports nitropack, which can take longer than the default timeout.
+  describe("a D1 binding that the project's wrangler.json also declares", { timeout: 30_000 }, () => {
+    /** Runs the Database module, then Nitro 2's real Cloudflare preset, which merges the project file into its output. */
+    async function writeWrangler(project: Record<string, unknown>, wrangler: Record<string, unknown> = {}, database: Record<string, unknown> = {}) {
       const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-wrangler-"))
       const definition = join(rootDir, "server/databases/config.ts")
       await mkdir(dirname(definition), { recursive: true })
       await writeFile(definition, 'import { defineDatabase } from "@vite-hub/database"\nexport default defineDatabase({ schema: {} })\n')
+      await writeFile(join(rootDir, "wrangler.json"), JSON.stringify(project))
       const { hooks, nuxt } = createNuxt({
-        database: { driver: "d1", binding: "DB", databaseId: "content-id", databaseName: "content-db" },
+        database: { driver: "d1", binding: "DB", databaseId: "content-id", databaseName: "content-db", ...database },
         dev: false,
         nitro: { preset: "cloudflare_module" },
         rootDir,
         vite: {},
       })
       await hubDb()(undefined, nuxt)
-      const nitroConfig: { cloudflare?: { wrangler?: { d1_databases?: unknown[] } }, modules?: Array<(nitro: unknown) => void> } = {}
+      const nitroConfig: { cloudflare?: { wrangler?: Record<string, unknown> }, modules?: NitroModule[] } = { cloudflare: { wrangler } }
       await callHook(hooks, "nitro:config", nitroConfig)
-
-      // Nitro's Cloudflare preset merges the project's wrangler.json into the generated one with defu, which
-      // concatenates arrays, and writes it before module `compiled` hooks run.
-      const serverDir = join(rootDir, ".output/server")
-      await mkdir(serverDir, { recursive: true })
-      await writeFile(join(serverDir, "wrangler.json"), JSON.stringify({
-        name: "app",
-        d1_databases: [...nitroConfig.cloudflare!.wrangler!.d1_databases!, projectBinding],
-      }))
-      const callbacks: Array<() => Promise<void>> = []
-      for (const module of nitroConfig.modules ?? []) {
-        module({
-          hooks: { hook: (_name: "compiled", callback: () => Promise<void>) => callbacks.push(callback) },
-          options: { output: { serverDir } },
-        })
+      const { createNitro } = await import("nitropack")
+      const nitro = await createNitro({
+        cloudflare: { deployConfig: true, wrangler: nitroConfig.cloudflare!.wrangler },
+        compatibilityDate: "2026-10-01",
+        dev: false,
+        logLevel: 0,
+        modules: nitroConfig.modules,
+        preset: "cloudflare-module",
+        rootDir,
+      } as NitroConfig)
+      return {
+        rootDir,
+        async compile() {
+          try {
+            await nitro.hooks.callHook("compiled", nitro)
+            return JSON.parse(await readFile(join(nitro.options.output.serverDir, "wrangler.json"), "utf8")) as { d1_databases: unknown[], env?: Record<string, { d1_databases: unknown[] }> }
+          }
+          finally {
+            await nitro.close()
+          }
+        },
       }
-      return { callbacks, rootDir, serverDir }
     }
+    type NitroModule = Exclude<NonNullable<NitroConfig["modules"]>[number], string>
+    type NitroConfig = NonNullable<Parameters<typeof import("nitropack")["createNitro"]>[0]>
 
-    it("keeps one binding in the generated wrangler.json", async () => {
-      const { callbacks, rootDir, serverDir } = await compileWithProjectBinding({ binding: "DB", database_id: "content-id", database_name: "content-db", preview_database_id: "preview-id" })
+    const generated = { binding: "DB", database_id: "content-id", database_name: "content-db", migrations_dir: ".vitehub/database/migrations/DB" }
+
+    it.each([
+      ["a full entry", { binding: "DB", database_id: "content-id", database_name: "content-db" }],
+      ["an entry without database_id", { binding: "DB", database_name: "content-db" }],
+      ["an entry without database_name", { binding: "DB", database_id: "content-id" }],
+    ])("keeps one binding for %s", async (_label, entry) => {
+      const { compile, rootDir } = await writeWrangler({ d1_databases: [entry, { binding: "OTHER", database_id: "other-id" }] })
       try {
-        for (const compiled of callbacks) await compiled()
-        const wrangler = JSON.parse(await readFile(join(serverDir, "wrangler.json"), "utf8")) as { name: string, d1_databases: unknown[] }
-        expect(wrangler.name).toBe("app")
-        expect(wrangler.d1_databases).toEqual([{
-          binding: "DB",
-          database_id: "content-id",
-          database_name: "content-db",
-          migrations_dir: ".vitehub/database/migrations/DB",
-          preview_database_id: "preview-id",
-        }])
+        expect((await compile()).d1_databases).toEqual([generated, { binding: "OTHER", database_id: "other-id" }])
       }
       finally {
         await rm(rootDir, { force: true, recursive: true })
       }
     })
 
-    it("fails when the two bindings name different databases", async () => {
-      const { callbacks, rootDir } = await compileWithProjectBinding({ binding: "DB", database_id: "other-id", database_name: "content-db" })
+    it("fills fields ViteHub leaves out, but keeps its own migrations", async () => {
+      const { compile, rootDir } = await writeWrangler({ d1_databases: [{
+        binding: "DB",
+        database_id: "content-id",
+        migrations_dir: "old-migrations",
+        migrations_pattern: "old-migrations/**/*.sql",
+        migrations_table: "d1_migrations",
+        preview_database_id: "preview-id",
+      }] })
       try {
-        await expect((async () => {
-          for (const compiled of callbacks) await compiled()
-        })()).rejects.toThrow(/D1 binding "DB".*database_id/)
+        expect((await compile()).d1_databases).toEqual([{ ...generated, migrations_table: "d1_migrations", preview_database_id: "preview-id" }])
+      }
+      finally {
+        await rm(rootDir, { force: true, recursive: true })
+      }
+    })
+
+    it("keeps one binding in each Wrangler environment", async () => {
+      const production = { binding: "DB", database_id: "production-id", database_name: "production-db" }
+      const { compile, rootDir } = await writeWrangler(
+        { env: { production: { d1_databases: [{ ...production, preview_database_id: "production-preview" }] } } },
+        { env: { production: { d1_databases: [production] } } },
+      )
+      try {
+        const wrangler = await compile()
+        expect(wrangler.d1_databases).toEqual([generated])
+        expect(wrangler.env?.production?.d1_databases).toEqual([{ ...production, preview_database_id: "production-preview" }])
+      }
+      finally {
+        await rm(rootDir, { force: true, recursive: true })
+      }
+    })
+
+    it.each([
+      ["database_id", { binding: "DB", database_id: "other-id" }],
+      ["database_name", { binding: "DB", database_name: "other-db" }],
+      ["preview_database_id", { binding: "DB", database_id: "content-id", preview_database_id: "preview-b" }],
+    ])("fails when the project binding names another %s", async (field, entry) => {
+      const database = field === "preview_database_id" ? { previewDatabaseId: "preview-a" } : {}
+      const { compile, rootDir } = await writeWrangler({ d1_databases: [entry] }, {}, database)
+      try {
+        await expect(compile()).rejects.toMatchObject({ code: "DATABASE_WRANGLER_BINDING_CONFLICT", message: expect.stringContaining(field) })
       }
       finally {
         await rm(rootDir, { force: true, recursive: true })

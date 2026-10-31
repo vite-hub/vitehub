@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { copyFile, mkdir, readFile, readdir, rm } from "node:fs/promises"
 import { watch as watchFs, type FSWatcher } from "node:fs"
 import { createRequire } from "node:module"
 import { dirname, relative, resolve, sep } from "node:path"
@@ -12,9 +12,10 @@ import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { isPlainObject as isRecord } from "@vite-hub/internal/object"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 
-import { collapseCloudflareD1Bindings, mergeCloudflareD1Bindings, mergeCloudflareHyperdriveBindings, resolveCloudflareD1Binding, resolveCloudflareD1BindingName, resolveCloudflareD1Bindings, resolveCloudflareHyperdriveBindings } from "./internal/cloudflare.ts"
+import { mergeCloudflareD1Bindings, mergeCloudflareHyperdriveBindings, resolveCloudflareD1Binding, resolveCloudflareD1BindingName, resolveCloudflareD1Bindings, resolveCloudflareHyperdriveBindings } from "./internal/cloudflare.ts"
 import { getDatabaseNuxtProvisionStateKey } from "./provision.ts"
 import { renderDatabaseRuntimeModule } from "./internal/runtime-module.ts"
+import { collapseGeneratedWranglerD1Bindings } from "./internal/wrangler-output.ts"
 import { renderPostgresDatabaseExpression, usesPostgres } from "./internal/runtime-config-expression.ts"
 import { generatedDatabaseTypesFile, removeGeneratedDatabaseTypes, renderContributionImport, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { resolveSourceImport } from "./internal/source-dependencies.ts"
@@ -753,19 +754,7 @@ function installNitroCloudflareD1BindingCollapse(config: Record<string, unknown>
     hooks: { hook: (name: "compiled", callback: () => Promise<void>) => void }
     options: { output: { serverDir: string } }
   }) => {
-    nitro.hooks.hook("compiled", async () => {
-      const file = resolve(nitro.options.output.serverDir, "wrangler.json")
-      const text = await readFile(file, "utf8").catch((error: NodeJS.ErrnoException) => {
-        if (error.code === "ENOENT") return undefined
-        throw error
-      })
-      if (text === undefined) return
-      const wrangler: unknown = JSON.parse(text)
-      if (!isRecord(wrangler) || !Array.isArray(wrangler.d1_databases)) return
-      const d1Databases = collapseCloudflareD1Bindings(wrangler.d1_databases)
-      if (d1Databases.length === wrangler.d1_databases.length) return
-      await writeFile(file, `${JSON.stringify({ ...wrangler, d1_databases: d1Databases }, null, 2)}\n`)
-    })
+    nitro.hooks.hook("compiled", () => collapseGeneratedWranglerD1Bindings(nitro.options.output.serverDir))
   })
   config.modules = modules
 }
