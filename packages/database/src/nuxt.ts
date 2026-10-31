@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readFile, readdir, rm } from "node:fs/promises"
+import { copyFile, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { watch as watchFs, type FSWatcher } from "node:fs"
 import { createRequire } from "node:module"
 import { dirname, relative, resolve, sep } from "node:path"
@@ -12,7 +12,7 @@ import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { isPlainObject as isRecord } from "@vite-hub/internal/object"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 
-import { mergeCloudflareD1Bindings, mergeCloudflareHyperdriveBindings, resolveCloudflareD1Binding, resolveCloudflareD1BindingName, resolveCloudflareD1Bindings, resolveCloudflareHyperdriveBindings } from "./internal/cloudflare.ts"
+import { collapseCloudflareD1Bindings, mergeCloudflareD1Bindings, mergeCloudflareHyperdriveBindings, resolveCloudflareD1Binding, resolveCloudflareD1BindingName, resolveCloudflareD1Bindings, resolveCloudflareHyperdriveBindings } from "./internal/cloudflare.ts"
 import { getDatabaseNuxtProvisionStateKey } from "./provision.ts"
 import { renderDatabaseRuntimeModule } from "./internal/runtime-module.ts"
 import { renderPostgresDatabaseExpression, usesPostgres } from "./internal/runtime-config-expression.ts"
@@ -354,6 +354,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
               }
             }
             for (const copy of migrationCopies) installNitroCloudflareMigrations(config, copy.source, copy.target)
+            installNitroCloudflareD1BindingCollapse(config)
           }
           mergeNitroDatabaseRuntimeAlias(config, root, runtimeProvider)
         }
@@ -740,6 +741,30 @@ function installNitroCloudflareMigrations(config: Record<string, unknown>, sourc
       await Promise.all(entries
         .filter(entry => entry.isFile() && entry.name.endsWith(".sql"))
         .map(entry => copyFile(resolve(sourceDir, entry.name), resolve(outputDir, entry.name))))
+    })
+  })
+  config.modules = modules
+}
+
+/** Nitro merges a project wrangler.json into its output after this config, so a binding both declare appears twice. */
+function installNitroCloudflareD1BindingCollapse(config: Record<string, unknown>) {
+  const modules = Array.isArray(config.modules) ? [...config.modules] : []
+  modules.push((nitro: {
+    hooks: { hook: (name: "compiled", callback: () => Promise<void>) => void }
+    options: { output: { serverDir: string } }
+  }) => {
+    nitro.hooks.hook("compiled", async () => {
+      const file = resolve(nitro.options.output.serverDir, "wrangler.json")
+      const text = await readFile(file, "utf8").catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return undefined
+        throw error
+      })
+      if (text === undefined) return
+      const wrangler: unknown = JSON.parse(text)
+      if (!isRecord(wrangler) || !Array.isArray(wrangler.d1_databases)) return
+      const d1Databases = collapseCloudflareD1Bindings(wrangler.d1_databases)
+      if (d1Databases.length === wrangler.d1_databases.length) return
+      await writeFile(file, `${JSON.stringify({ ...wrangler, d1_databases: d1Databases }, null, 2)}\n`)
     })
   })
   config.modules = modules

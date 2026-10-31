@@ -247,6 +247,35 @@ export function resolveCloudflareD1Bindings(
   return { d1Databases, unresolved }
 }
 
+/**
+ * One entry per binding name. The first entry wins and later entries with the same name only fill fields it lacks,
+ * so Nitro's array concatenation of a project wrangler.json never leaves Wrangler with two bindings of one name.
+ */
+export function collapseCloudflareD1Bindings(bindings: readonly unknown[]): unknown[] {
+  const collapsed: unknown[] = []
+  const byName = new Map<string, Record<string, unknown>>()
+  for (const binding of bindings) {
+    if (!isCloudflareD1WranglerBinding(binding)) {
+      collapsed.push(binding)
+      continue
+    }
+    const first = byName.get(binding.binding)
+    if (!first) {
+      const copy: Record<string, unknown> = { ...binding }
+      byName.set(binding.binding, copy)
+      collapsed.push(copy)
+      continue
+    }
+    for (const [key, value] of Object.entries(binding)) {
+      if (first[key] === undefined) first[key] = value
+      else if ((key === "database_id" || key === "database_name") && first[key] !== value) {
+        throw new Error(`D1 binding "${binding.binding}" is declared twice with a different ${key}: ${JSON.stringify(first[key])} and ${JSON.stringify(value)}. Remove it from the project's wrangler config, or give one of them another binding name.`)
+      }
+    }
+  }
+  return collapsed
+}
+
 export function mergeCloudflareD1Bindings(
   current: unknown,
   generated: CloudflareD1WranglerBinding[],
