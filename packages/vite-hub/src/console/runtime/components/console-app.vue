@@ -1518,7 +1518,6 @@ onBeforeUnmount(() => {
 
 <style>
 .vitehub-console {
-  --ui-header-height: 2.5rem;
   height: 100dvh;
   min-height: 0;
   overflow: hidden;
@@ -1642,7 +1641,6 @@ button.vitehub-console__section-label:hover {
 .vitehub-console__agent-row[aria-current="true"] {
   background: var(--ui-bg-accented);
   color: var(--ui-text-highlighted);
-  font-weight: 500;
 }
 
 .dark .vitehub-console__agent-row:hover {
