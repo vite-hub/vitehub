@@ -93,7 +93,7 @@ Package typechecks use the pinned `tsrs` Rust port of TypeScript in its default 
 
 Root contracts do not include package tests. The full local gate does not replace provider runtime or browser checks. Read [CI](.github/workflows/ci.yml) for checks enabled on each event and the [live smoke workflow](.github/workflows/live-smoke.yml) for external-service requirements. Do not run live tasks without authorization.
 
-A push to `main` deploys the docs site to vitehub.dev after the `checks` and `docs` jobs pass. The `docs-deploy` job uses the Cloudflare token of the `Production` environment. `vp run --filter vitehub-docs deploy:cloudflare` remains the manual path.
+A push to `main` deploys the docs site to vitehub.dev after all repository verification jobs pass. Scheduled and manual live-smoke deployments also require successful CI for the exact `main` commit. The `docs-deploy` job uses the Cloudflare token of the `Production` environment. `vp run --filter vitehub-docs deploy:cloudflare` remains the manual path.
 
 The [Console playground](playground/console/README.md) exercises the real UI with synthetic data. It cannot prove invocation execution, persistence, or provider behavior. For a Console runtime change, also exercise the real route and runtime with a local consumer.
 

@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" class="primitive-motion is-playing" style="--cycle: 5600ms; --scene-delay: -4536ms">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" class="primitive-motion is-playing" style="--cycle: 5600ms; --scene-delay: -1008ms">
 <style>
 svg { color: #59636e; --ui-bg: #ffffff; }
 @media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
