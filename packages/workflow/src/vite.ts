@@ -15,7 +15,7 @@ import { normalizeWorkflowOptions } from "./config.ts"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import { inspectWorkflowDefinitions } from "./inspect.ts"
 import { discoverWorkflowDevDefinitions, workflowDevGeneratedDir, writeWorkflowDevRegistryFiles } from "./internal/dev-registry.ts"
-import { createCloudflareWorkflowNitroConfig, createOptionalViteDevtoolsPlugin, createVercelWorkflowTransformPlugin, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, resolveVercelWorkflowWorld, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
+import { createCloudflareWorkflowNitroConfig, createOptionalViteDevtoolsPlugin, createVercelWorkflowTransformPlugin, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, resolveVercelWorkflowWorld, resolveWorkflowProviderOutputs, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
 
 import type { ResolvedWorkflowOptions, WorkflowModuleOptions } from "./types.ts"
 import type { ProviderDeploymentOutputGeneration, ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
@@ -402,6 +402,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
       operations: [{ export: "workflowOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).workflowOperations, module: "@vite-hub/workflow/operations" }],
       inspect: () => {
         const options = normalizeWorkflowOptions(workflow, { hosting: internalOptions?.hosting ?? "vercel" })
+        const outputs = resolveWorkflowProviderOutputs(workflow, internalOptions?.hosting ?? "vercel")
         return {
           definitions: options ? [{
             kind: "workflow",
@@ -413,8 +414,8 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
           }] : [],
           providerOutput: (() => {
           const rootDir = resolveViteHubProjectRoot(resolved?.root ?? process.cwd())
-          if (options?.provider === "cloudflare") return [{ description: "Generated Cloudflare Workflow worker", owner: "workflow", path: resolve(createDefaultCloudflareOutputRoot(rootDir), "worker.mjs") }]
-          if (options?.provider === "vercel") return [{ description: "Generated Vercel Workflow function", owner: "workflow", path: resolve(createDefaultVercelOutputRoot(rootDir), "functions", resolveNitroVercelFunctionName(resolved ?? {}, "workflow") ?? "__server.func", "index.mjs") }]
+          if (outputs.cloudflare) return [{ description: "Generated Cloudflare Workflow worker", owner: "workflow", path: resolve(createDefaultCloudflareOutputRoot(rootDir), "worker.mjs") }]
+          if (outputs.vercel) return [{ description: "Generated Vercel Workflow function", owner: "workflow", path: resolve(createDefaultVercelOutputRoot(rootDir), "functions", resolveNitroVercelFunctionName(resolved ?? {}, "workflow") ?? "__server.func", "index.mjs") }]
           return []
           })(),
         }
@@ -507,7 +508,9 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
           vercel: providerRuntimeImportAliases("vercel", generation, buildProviderOutput),
         }
         const providerSources = discoverWorkflowProviderSources(config.root, workflowServerDirs)
-        const retainedSources = await retainProviderOutputSources({
+        const outputs = resolveWorkflowProviderOutputs(workflowOptions, internalOptions?.hosting)
+        // Only Provider Output bundles read retained sources, and a snapshot of every alias root is slow in large apps.
+        const retainedSources = !outputs.cloudflare && !outputs.vercel ? { resolve: (path: string) => path } : await retainProviderOutputSources({
           artifactDir: resolve(artifactDir, "sources"),
           paths: [
             ...Object.keys(importAliases),

@@ -190,5 +190,9 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ problem, source }: { problem: string, source: string }) => `${source} could not load: ${problem}`,
       fix: "Read `error.cause` for the import error, and fix the module. `vitehub db generate` needs every schema module to load.",
     },
+    DATABASE_WRANGLER_BINDING_CONFLICT: {
+      why: ({ binding, field, generated, project, scope }: { binding: string, field: string, generated: string, project: string, scope: string }) => `The D1 binding "${binding}"${scope} is declared by ViteHub and by the project's Wrangler config with a different ${field}: ${JSON.stringify(generated)} and ${JSON.stringify(project)}.`,
+      fix: "Remove the binding from the project's Wrangler config, since ViteHub writes it, or give one of them another binding name.",
+    },
   },
 })

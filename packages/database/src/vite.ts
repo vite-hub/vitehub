@@ -18,6 +18,7 @@ import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { renderDatabaseConfigExpression, renderPostgresDatabaseExpression, usesD1ReadReplication, usesPostgres, usesSqlite } from "./internal/runtime-config-expression.ts"
 import { dbPackageName, supportsHostedDatabaseRuntime, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
+import { collapseGeneratedWranglerD1Bindings } from "./internal/wrangler-output.ts"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { inspectDatabaseDefinitions } from "./inspect.ts"
 import { createDatabaseProvisionStep } from "./provision.ts"
@@ -375,7 +376,10 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         mergeNitroCloudflareD1Bindings()
         installNitroPostgresRequestScope()
         installNitroRequestStats()
-        nitro.hooks.hook("compiled", () => copyNitroMigrations(nitro.options.output.serverDir))
+        nitro.hooks.hook("compiled", async () => {
+          await copyNitroMigrations(nitro.options.output.serverDir)
+          if (nitroOptions && getHostingProvider(nitroOptions.preset) === "cloudflare") await collapseGeneratedWranglerD1Bindings(nitro.options.output.serverDir)
+        })
       },
     },
     vitehub: {
