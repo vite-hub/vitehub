@@ -1,3 +1,4 @@
+import { consoleDocumentMetadata } from "../../document-metadata.ts"
 import { consoleMountBase } from "../console-route.ts"
 import { consoleAllowsRequest, consoleAppAuthBasePath, consoleSignInPage, consoleSignInRedirect } from "./access.ts"
 import { assertConsoleRequest, consoleRequestURL } from "./request.ts";
@@ -12,8 +13,7 @@ const page = `<!doctype html>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" data-vitehub-console-theme="light" content="#fdfdfd" media="(prefers-color-scheme: light)">
     <meta name="theme-color" data-vitehub-console-theme="dark" content="#0a0a0a" media="(prefers-color-scheme: dark)">
-    <meta name="description" content="Read-only ViteHub project inspection">
-    <meta name="robots" content="noindex, nofollow">
+    <meta name="robots" content="noindex, nofollow">${consoleDocumentMetadata}
     <title>ViteHub Console</title>
     <link rel="stylesheet" href="/_vitehub/assets/__VITEHUB_CONSOLE_STYLE_ASSET__">
   </head>
