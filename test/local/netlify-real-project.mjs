@@ -295,22 +295,19 @@ async function stopProcess(child) {
 }
 
 async function runNetlifyDevProof() {
-  await rm(join(appDir, ".netlify"), { force: true, recursive: true })
-  await rm(join(appDir, "dist"), { force: true, recursive: true })
   const port = 8888
-  const targetPort = 5173
   const dev = spawnLogged("netlify", [
     "dev",
     "--offline",
     "--no-open",
     "--port",
     String(port),
-    "--target-port",
-    String(targetPort),
-    "--command",
-    // Nitro's Vite plugin defaults the dev server to port 3000, so pass the target port explicitly.
-    // Keep Vite's default localhost host: netlify dev waits on localhost, which can resolve to ::1.
-    `pnpm dev --port ${targetPort} --strictPort`,
+    "--framework",
+    "#static",
+    "--dir",
+    "dist/client",
+    "--functions",
+    ".netlify/v1/functions",
   ])
   try {
     const text = await waitForChat(port)
