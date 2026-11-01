@@ -215,6 +215,7 @@ function fakeRegistryRuntime(packages: ReleaseEntry[], initial = new Map<string,
   let existing: ReturnType<typeof verifiedRegistryEntry> | undefined
   let failAudit = false
   let installFailures = 0
+  let auditFailures = 0
   let sleeps = 0
   const byTarball = new Map(packages.map(pkg => [pkg.tarball, pkg]))
   const runtime = {
@@ -226,6 +227,10 @@ function fakeRegistryRuntime(packages: ReleaseEntry[], initial = new Map<string,
       }
       if (command === "npm" && args[0] === "audit") {
         events.push("audit")
+        if (auditFailures > 0) {
+          auditFailures--
+          throw new Error("npm error code E404")
+        }
         if (failAudit) throw new Error("signature audit failed")
       }
       if (command === "npm" && args[0] === "publish" && !args.includes("--dry-run")) {
@@ -277,6 +282,7 @@ function fakeRegistryRuntime(packages: ReleaseEntry[], initial = new Map<string,
       publishError = message
       existing = entry
     },
+    setAuditFailures: (count: number) => { auditFailures = count },
     setInstallFailures: (count: number) => { installFailures = count },
     setDistTag: (name: string, tag: string, version: string) => distTags.set(name, { tag, version }),
     state,
@@ -765,7 +771,7 @@ describe("release publication", () => {
     expect(processing.events).not.toContain("audit")
   })
 
-  it("retries the signature audit install while npm catches up, then reports audit failures", async () => {
+  it("retries the signature audit while npm catches up, then reports audit failures", async () => {
     const root = await temporaryDirectory("vitehub-release-audit-retry-")
     const artifact = await writeArtifact(root, [{ name: "@vite-hub/runtime" }])
     const delayed = fakeRegistryRuntime(artifact.manifest.packages)
@@ -773,6 +779,12 @@ describe("release publication", () => {
     await publishReleaseArtifacts({ manifestPath: artifact.manifestPath, runtime: delayed.runtime, sourceRef, sourceSha, tag: "latest" })
     expect(delayed.getSleeps()).toBe(2)
     expect(delayed.events).toEqual(["audit"])
+
+    const unsigned = fakeRegistryRuntime(artifact.manifest.packages)
+    unsigned.setAuditFailures(2)
+    await publishReleaseArtifacts({ manifestPath: artifact.manifestPath, runtime: unsigned.runtime, sourceRef, sourceSha, tag: "latest" })
+    expect(unsigned.getSleeps()).toBe(2)
+    expect(unsigned.events).toEqual(["audit", "audit", "audit"])
 
     const exhausted = fakeRegistryRuntime(artifact.manifest.packages)
     exhausted.setInstallFailures(3)
