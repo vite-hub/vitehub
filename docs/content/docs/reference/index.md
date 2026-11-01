@@ -56,6 +56,7 @@ instead of one root barrel.
 | Package | Status | Purpose |
 | --- | --- | --- |
 | `@vite-hub/cli` | Public CLI package | Loads Vite config and runs package-owned CLI namespaces. |
+| `@vite-hub/codemods` | Public CLI package | Migrates applications to ViteHub with `npx @vite-hub/codemods <codemod>`, for example from `nuxt-safe-runtime-config` to Env. |
 | `@vite-hub/internal` | Internal package | Shared discovery, Provider Output, provisioning, runtime, and build helpers. |
 
 ## Package rules

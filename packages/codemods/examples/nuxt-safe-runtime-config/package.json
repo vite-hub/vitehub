@@ -1,0 +1,21 @@
+{
+  "name": "@vite-hub/codemods-nuxt-lab",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nuxt build",
+    "start": "node .output/server/index.mjs",
+    "typecheck": "nuxt typecheck"
+  },
+  "dependencies": {
+    "nuxt": "catalog:nuxt",
+    "nuxt-safe-runtime-config": "0.3.2",
+    "valibot": "catalog:runtime",
+    "vite-hub": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "catalog:tooling",
+    "vue-tsc": "catalog:tooling"
+  }
+}
