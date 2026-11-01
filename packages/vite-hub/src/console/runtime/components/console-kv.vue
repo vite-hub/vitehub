@@ -12,6 +12,7 @@ import ConsoleFrame from "./console-frame.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleSearch from "./console-search.vue";
+import ConsoleState from "./console-state.vue";
 import ConsoleStatus from "./console-status.vue";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
@@ -432,16 +433,7 @@ onBeforeUnmount(() => {
         <span class="ms-auto text-xs text-muted tabular-nums" aria-live="polite">{{ keyFilter.trim() ? `${visibleKeys.length} of ${keyCount}` : keyCount }}</span>
       </ConsolePageToolbar>
 
-      <UAlert
-        v-if="errorMessage(listError)"
-        class="m-4"
-        color="error"
-        variant="subtle"
-        icon="i-lucide-cloud-off"
-        title="Couldn't load keys"
-        :description="errorMessage(listError)"
-        :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', color: 'neutral', variant: 'outline', onClick: refresh }]"
-      />
+      <ConsoleState v-if="listError" :error="listError" title="Could not load keys" :retry="refresh" />
       <div v-else class="flex min-h-0 flex-1 flex-col md:flex-row">
         <nav class="flex max-h-[40vh] min-h-0 shrink-0 flex-col overflow-y-auto border-b border-default p-2 md:max-h-none md:w-80 md:border-r md:border-b-0" aria-label="Keys">
           <template v-if="listLoading && !keys.length">
@@ -473,16 +465,7 @@ onBeforeUnmount(() => {
             <USkeleton class="h-4 w-56" />
             <USkeleton v-for="index in 6" :key="index" class="h-3.5" :class="index % 2 ? 'w-2/3' : 'w-1/2'" />
           </div>
-          <UAlert
-            v-else-if="errorMessage(valueError)"
-            class="m-4"
-            color="error"
-            variant="subtle"
-            icon="i-lucide-cloud-off"
-            title="Couldn't load this value"
-            :description="errorMessage(valueError)"
-            :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', color: 'neutral', variant: 'outline', onClick: () => loadValue() }]"
-          />
+          <ConsoleState v-else-if="valueError" :error="valueError" title="Could not load this value" :retry="() => loadValue()" />
           <UEmpty
             v-else-if="selectedValue && !selectedValue.found"
             variant="naked"
@@ -509,7 +492,7 @@ onBeforeUnmount(() => {
               </template>
             </header>
             <div v-if="editing" class="flex min-h-0 flex-1 flex-col gap-2 p-4">
-              <UTextarea v-model="editText" class="min-h-0 flex-1" :rows="12" :ui="{ base: 'font-mono text-xs' }" aria-label="Value" autofocus />
+              <UTextarea v-model="editText" class="min-h-0 flex-1 items-stretch" :rows="12" :ui="{ base: 'font-mono text-xs' }" aria-label="Value" autofocus />
               <div class="flex flex-wrap items-center gap-2">
                 <UInput v-model="editTtl" class="w-40" size="sm" type="number" min="1" placeholder="No expiry" aria-label="Expires in seconds" />
                 <span class="text-xs text-muted">Expires in seconds</span>

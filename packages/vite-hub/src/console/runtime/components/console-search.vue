@@ -16,7 +16,7 @@ import { publishConsoleDocumentChanges } from "../client/publish"
 import { loadConsoleKVPages, requestConsole } from "../client/request"
 import { loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections"
 import type { ConsoleNavigation } from "../client/sections"
-import { relativeDuration } from "../client/time"
+import { recentTimestamp } from "../client/time"
 import { useConsoleToast } from "../client/toast"
 import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route"
 import { parseConsoleSectionContent } from "../definitions"
@@ -24,6 +24,7 @@ import { consoleOverviewShortcut, consoleSectionDetails, consoleSectionPageRoute
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 import ConsoleSectionIcon from "./console-section-icon.vue";
 import { resolveConsoleAgentCatalog } from "./console-agent-list";
+import { invocationStatusLabel } from "./invocation/agent-invocation-list";
 
 interface ConsoleSearchFilter {
   search?: string;
@@ -434,7 +435,7 @@ const groups = computed<CommandPaletteGroup[]>(() => [
     ? [{
         id: "historical-agents",
         items: availableHistoricalAgentNames.value.map(name => ({
-          icon: "i-ph-clock-counter-clockwise-light",
+          icon: "i-lucide-history",
           label: name,
           onSelect: () => selectAgent(name),
         })),
@@ -497,12 +498,10 @@ function errorMessage(error: unknown): string | undefined {
       : undefined;
 }
 
+// Reads like a row of the session list: `Done`, then `5m ago` within a day or a date such as `Aug 30`.
 function itemDescription(item: ConsoleSearchItem): string {
-  const updatedAt = new Date(item.updatedAt).valueOf();
-  const age = Number.isFinite(updatedAt)
-    ? `${relativeDuration(Math.max(0, Date.now() - updatedAt))} ago`
-    : undefined;
-  return [item.agentName, item.status, age, item.excerpt ? undefined : item.context]
+  const age = recentTimestamp(item.updatedAt, Date.now());
+  return [item.agentName, invocationStatusLabel(item.status), age === "now" ? "just now" : age, item.excerpt ? undefined : item.context]
     .filter(Boolean)
     .join(" · ");
 }

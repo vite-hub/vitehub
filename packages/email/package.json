@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/email",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "description": "Provider-neutral transactional email primitives and Vite integration for ViteHub.",
   "keywords": [
     "cloudflare",
@@ -93,6 +93,7 @@
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "esbuild": "catalog:tooling",
+    "katex": "^0.17.0",
     "nostics": "catalog:runtime",
     "valibot": "catalog:runtime"
   },

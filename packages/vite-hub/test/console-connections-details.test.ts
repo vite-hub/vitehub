@@ -67,7 +67,7 @@ async function render(props: Record<string, unknown>, inspected: ConnectionInspe
   const root = page().document.createElement("div")
   page().document.body.append(root)
   const app = createApp(Details as Component, { endpoint: "/_vitehub/connections", ...props })
-  app.component("UButton", UButton).component("UInput", UInput).component("UBadge", Passthrough)
+  app.component("UButton", UButton).component("UInput", UInput)
     .component("UFormField", Passthrough).component("UIcon", Passthrough).component("UTooltip", Passthrough)
   app.mount(root)
   mounted.push(() => app.unmount())

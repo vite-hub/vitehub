@@ -36,11 +36,13 @@ const outlineUi = {
   root: "!static !mx-0 !px-0",
   container: "!pt-0 !border-s-0 !ps-0",
   link: "!h-auto min-h-7 !py-1 leading-5 !text-muted hover:!text-highlighted",
-  linkText: "!whitespace-normal !overflow-visible !text-clip",
+  // Long code headings such as KV_UNSUPPORTED_OPERATION have no spaces, so they break anywhere instead of overflowing the column.
+  linkText: "!whitespace-normal !overflow-visible !text-clip [overflow-wrap:anywhere]",
   content: "!min-h-0",
 };
 const mobileTocUi = {
-  root: "xl:hidden !static !px-0 !mx-0",
+  // The page body has no top margin, so the outline keeps the space that separates it from the first heading.
+  root: "xl:hidden !static !px-0 !mx-0 mb-6",
   container: "!border-s-0 !border-b !border-default !ps-0 !py-3",
   trigger: "!py-1 text-sm font-medium text-muted",
   content: "!pb-2",

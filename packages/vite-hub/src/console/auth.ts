@@ -5,6 +5,7 @@ import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import * as v from "valibot"
 import { consoleOAuthPlugins } from "./auth-oauth.ts"
 import { consoleAuthOAuthPage } from "./auth-oauth-page.ts"
+import { consoleDocumentMetadata } from "./document-metadata.ts"
 import { consoleMountBase } from "./runtime/console-route.ts"
 import { consoleRequestURL } from "./runtime/server/request.ts"
 import { consoleAuthPath, consoleEventPath } from "./auth-path.ts"
@@ -43,7 +44,7 @@ function consoleSignInDocument(message: string, actions: string, status = 200): 
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="robots" content="noindex, nofollow">
+    <meta name="robots" content="noindex, nofollow">${consoleDocumentMetadata}
     <title>Sign in · ViteHub Console</title>
     <style>
       :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
@@ -67,7 +68,7 @@ function consoleSignInDocument(message: string, actions: string, status = 200): 
   return new Response(page, {
     headers: {
       "cache-control": "no-store",
-      "content-security-policy": `default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'self' https:; frame-ancestors ${development ? "'self'" : "'none'"}`,
+      "content-security-policy": `default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'self' https:; frame-ancestors ${development ? "'self'" : "'none'"}`,
       "content-type": "text/html; charset=utf-8",
       "referrer-policy": "no-referrer",
       "x-content-type-options": "nosniff",
@@ -133,7 +134,7 @@ export function consoleImpersonationPage(input: {
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="robots" content="noindex, nofollow">
+    <meta name="robots" content="noindex, nofollow">${consoleDocumentMetadata}
     <title>Viewing as ${escapeHTML(name)} · ViteHub Console</title>
     <style>
       :root { color-scheme: light dark; font-family: system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
@@ -171,7 +172,7 @@ export function consoleImpersonationPage(input: {
   return new Response(page, {
     headers: {
       "cache-control": "no-store",
-      "content-security-policy": `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors ${development ? "'self'" : "'none'"}`,
+      "content-security-policy": `default-src 'none'; img-src 'self' data:; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors ${development ? "'self'" : "'none'"}`,
       "content-type": "text/html; charset=utf-8",
       "referrer-policy": "no-referrer",
       "x-content-type-options": "nosniff",
@@ -227,7 +228,7 @@ export function consoleAuthPageResponse(request: Request, response: Response | u
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="robots" content="noindex, nofollow">
+    <meta name="robots" content="noindex, nofollow">${consoleDocumentMetadata}
     <title>Access denied · ViteHub Console</title>
     <style>
       :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
@@ -253,7 +254,7 @@ export function consoleAuthPageResponse(request: Request, response: Response | u
   return new Response(page, {
     headers: {
       "cache-control": "no-store",
-      "content-security-policy": `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors ${development ? "'self'" : "'none'"}`,
+      "content-security-policy": `default-src 'none'; img-src 'self' data:; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors ${development ? "'self'" : "'none'"}`,
       "content-type": "text/html; charset=utf-8",
       "referrer-policy": "no-referrer",
       "x-content-type-options": "nosniff",

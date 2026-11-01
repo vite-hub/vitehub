@@ -53,7 +53,6 @@ const UButton = defineComponent({
       : h("button", { "aria-label": props.ariaLabel, "data-button": props.label, onClick: props.onClick, type: "button" }, props.label)
   },
 })
-const UBadge = defineComponent({ props: { color: String, label: String }, setup: props => () => h("span", { "data-badge": props.color }, props.label) })
 const Passthrough = defineComponent({ setup: (_props, { slots }) => () => slots.default?.() })
 interface Column { id?: string, accessorKey?: string }
 const UTable = defineComponent({
@@ -90,7 +89,7 @@ async function render(connections: ConnectionInspection[], counts: Record<string
     agentsBase: "/agents", definitionsBase: "/definitions", kvBase: "/kv",
     managementBase: "/_vitehub/connections", searchBase: "/search", sectionsBase: "/sections",
   })
-  app.component("UButton", UButton).component("UBadge", UBadge).component("UIcon", Passthrough)
+  app.component("UButton", UButton).component("UIcon", Passthrough)
     .component("UTooltip", Passthrough).component("UInput", Passthrough).component("UDashboardNavbar", Passthrough)
     .component("UDashboardPanel", UDashboardPanel).component("UTable", UTable).component("USlideover", USlideover)
   app.mount(root)
@@ -101,7 +100,12 @@ async function render(connections: ConnectionInspection[], counts: Record<string
     if (!element) throw new Error(`Expected a row for ${name}`)
     return {
       actions: [...element.querySelectorAll("[data-column=action] [data-button]")].map(button => button.getAttribute("data-button")),
-      badges: [...element.querySelectorAll("[data-badge]")].map(badge => `${badge.getAttribute("data-badge")}:${badge.textContent}`),
+      // Each status is a ConsoleStatus: a dot whose background names the tone, then the label.
+      statuses: [...element.querySelectorAll("[data-column=status] > div > span")].map((status) => {
+        const dot = status.querySelector("[aria-hidden=true]")?.className ?? ""
+        const tone = ["success", "warning", "error"].find(name => dot.includes(`bg-${name}`)) ?? "neutral"
+        return `${tone}:${status.textContent?.trim()}`
+      }),
       element,
       text: (column: string) => element.querySelector(`[data-column=${column}]`)?.textContent ?? "",
     }
@@ -132,17 +136,17 @@ describe("Console Connections rows", () => {
     unmount = () => app.unmount()
 
     expect(row("drop").actions).toEqual([])
-    expect(row("drop").badges).toEqual(["success:Connected"])
+    expect(row("drop").statuses).toEqual(["success:Connected"])
     expect(row("drop").text("account")).toBe("github-22072217")
     expect(row("drop").text("credential")).toBe("OAuth")
 
     expect(row("support-inbox").actions).toEqual(["Connect"])
-    expect(row("support-inbox").badges).toEqual(["neutral:Not connected"])
+    expect(row("support-inbox").statuses).toEqual(["neutral:Not connected"])
     expect(row("support-inbox").text("name")).toBe("support-inboxgoogle")
     expect(row("calendar").actions).toEqual(["Reconnect"])
-    expect(row("calendar").badges).toEqual(["error:Reconnect required"])
+    expect(row("calendar").statuses).toEqual(["error:Reconnect required"])
     expect(row("gmail").actions).toEqual(["Reconnect"])
-    expect(row("gmail").badges).toEqual(["success:Connected", "warning:1 missing scope"])
+    expect(row("gmail").statuses).toEqual(["success:Connected", "warning:1 missing scope"])
     expect(row("old").actions).toEqual(["Connect"])
 
     expect(row("posthog").actions).toEqual(["Set key"])

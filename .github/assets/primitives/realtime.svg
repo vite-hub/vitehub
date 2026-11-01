@@ -1,61 +1,46 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" class="primitive-motion is-playing" style="--cycle: 6000ms; --scene-delay: -3960ms">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" fill="currentColor" shape-rendering="crispEdges" class="primitive-motion is-playing" style="--cycle: 6000ms; --scene-delay: -180ms">
 <style>
 svg { color: #59636e; --ui-bg: #ffffff; }
 @media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
 .primitive-motion {
-  --ease-move: cubic-bezier(0.65, 0, 0.35, 1);
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   overflow: visible;
 }
-.line,
-.ink-line,
-.card {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.line {
+.primitive-motion .line,
+.primitive-motion .job,
+.primitive-motion .command,
+.primitive-motion .budget {
   opacity: 0.55;
 }
-.soft,
-.job,
-.command,
-.budget,
-.ink,
-.token,
-.band,
-.pointer {
-  fill: currentColor;
-}
-.soft {
+.primitive-motion .soft {
   opacity: 0.35;
 }
-.job,
-.command,
-.budget {
-  opacity: 0.55;
-}
-.ink,
-.token,
-.pointer {
+.primitive-motion .ink,
+.primitive-motion .token,
+.primitive-motion .pointer {
   opacity: 0.85;
 }
-.a {
+.primitive-motion .a {
   animation-duration: var(--cycle);
   animation-delay: var(--scene-delay);
   animation-iteration-count: infinite;
   animation-fill-mode: both;
-  animation-timing-function: var(--ease-move);
+  animation-timing-function: steps(3);
 }
 .primitive-motion:not(.is-playing) .a {
   animation-play-state: paused;
 }
-.rt-caret-a { animation-name: rt-caret-a; }
-.rt-caret-b { animation-name: rt-caret-b; }
+.primitive-motion .sch-hand-1,
+.primitive-motion .sch-hand-2,
+.primitive-motion .sch-hand-3,
+.primitive-motion .sch-hand-4,
+.primitive-motion .rt-caret-a,
+.primitive-motion .rt-caret-b {
+  animation-timing-function: step-end;
+}
+.primitive-motion .rt-caret-a { animation-name: rt-caret-a; }
+.primitive-motion .rt-caret-b { animation-name: rt-caret-b; }
 @media (prefers-reduced-motion: reduce) {
-  .a {
+  .primitive-motion .a {
     animation: none;
   }
 }
@@ -70,13 +55,5 @@ svg { color: #59636e; --ui-bg: #ffffff; }
   92%, 100% { transform: translate(0, 0); }
 }
 </style>
-      <rect x="6" y="6" width="36" height="28" rx="2" class="line" />
-      <rect x="10" y="11.5" width="26" height="2" rx="1" class="soft" />
-      <rect x="10" y="17.5" width="20" height="2" rx="1" class="soft" />
-      <rect x="10" y="23.5" width="24" height="2" rx="1" class="soft" />
-      <rect x="10" y="29.5" width="14" height="2" rx="1" class="soft" />
-      <rect x="36.5" y="10" width="1.25" height="5" class="ink a rt-caret-a" />
-      <rect x="24.5" y="28" width="1.25" height="5" class="command a rt-caret-b" />
-      <circle cx="50" cy="13" r="2.5" class="ink" />
-      <circle cx="50" cy="20" r="2.5" class="command" />
+<path class="line" d="M2 6h32v2h-32zM0 8h2v2h-2zM34 8h2v2h-2zM0 10h2v2h-2zM34 10h2v2h-2zM0 12h2v2h-2zM34 12h2v2h-2zM0 14h2v2h-2zM34 14h2v2h-2zM0 16h2v2h-2zM34 16h2v2h-2zM0 18h2v2h-2zM34 18h2v2h-2zM0 20h2v2h-2zM34 20h2v2h-2zM0 22h2v2h-2zM34 22h2v2h-2zM0 24h2v2h-2zM34 24h2v2h-2zM0 26h2v2h-2zM34 26h2v2h-2zM0 28h2v2h-2zM34 28h2v2h-2zM0 30h2v2h-2zM34 30h2v2h-2zM2 32h32v2h-32z"/><path class="soft" d="M4 12h26v2h-26zM4 18h20v2h-20zM4 24h24v2h-24zM4 30h14v2h-14z"/><path class="ink a rt-caret-a" d="M30 10h2v2h-2zM30 12h2v2h-2zM30 14h2v2h-2z"/><path class="command a rt-caret-b" d="M18 28h2v2h-2zM18 30h2v2h-2zM18 32h2v2h-2z"/><path class="ink" d="M42 12h4v2h-4zM42 14h4v2h-4z"/><path class="command" d="M42 18h4v2h-4zM42 20h4v2h-4z"/>
 </svg>

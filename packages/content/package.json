@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/content",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "description": "Comark Content runtime integration for ViteHub Sources, with editable document collections on Workspace history.",
   "keywords": [
     "comark",
@@ -101,6 +101,7 @@
     "comark-content": "catalog:markdown-ui",
     "diff": "catalog:runtime",
     "h3": "catalog:unjs",
+    "katex": "^0.18.7",
     "nostics": "catalog:runtime",
     "vega-canvas": "^2.0.0",
     "vega-loader": "^5.1.3",
