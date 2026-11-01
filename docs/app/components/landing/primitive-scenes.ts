@@ -381,6 +381,42 @@ export const primitiveScenes: Readonly<Record<string, PrimitiveScene>> = {
       px("command", rect(21, 9, 2, 2)),
     ],
   },
+
+  gateways: {
+    cycle: 5600,
+    nodes: [
+      px("line", box(0, 3, 5, 5), box(0, 12, 5, 5), box(10, 6, 6, 8, "square"), art(21, 8, ring5)),
+      px("link", line(5, 5, 9, 9), line(5, 14, 9, 10), hline(16, 10, 5)),
+      px("soft a gw-route", rect(12, 9, 2, 2)),
+      px("soft a gw-model", rect(23, 10, 1, 1)),
+      token("gw-in-1", 4, 4),
+      token("gw-in-2", 4, 14),
+      token("gw-out", 15, 9),
+    ],
+  },
+
+  cms: {
+    cycle: 5000,
+    nodes: [
+      px("line", box(0, 3, 14, 14)),
+      px("command", hline(2, 5, 6)),
+      px("soft", hline(2, 8, 10), hline(2, 11, 7)),
+      px("soft a cms-edit", hline(2, 14, 9)),
+      px("line", box(19, 5, 8, 10)),
+      px("soft a cms-page", hline(21, 8, 4), hline(21, 10, 3), hline(21, 12, 4)),
+      token("cms-token", 14, 9),
+    ],
+  },
+
+  comments: {
+    cycle: 5000,
+    nodes: [
+      px("line", box(0, 5, 17, 12)),
+      px("soft", hline(2, 8, 12), hline(2, 14, 8)),
+      px("soft a cm-mark", hline(2, 11, 10)),
+      g("a cm-bubble", card(15, 1, 11, 7), px("soft", hline(17, 3, 6), hline(17, 5, 4)), px("card", art(16, 8, ["#.", "##"]))),
+    ],
+  },
 };
 
 /** SVG path data for a set of pixels. Each row of neighboring pixels becomes one rectangle. */

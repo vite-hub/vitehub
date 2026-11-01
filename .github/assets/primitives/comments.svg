@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" fill="currentColor" shape-rendering="crispEdges" class="primitive-motion is-playing" style="--cycle: 5000ms; --scene-delay: -2550ms">
+<style>
+svg { color: #59636e; --ui-bg: #ffffff; }
+@media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
+.primitive-motion {
+  overflow: visible;
+}
+.primitive-motion .line,
+.primitive-motion .job,
+.primitive-motion .command,
+.primitive-motion .budget {
+  opacity: 0.55;
+}
+.primitive-motion .soft {
+  opacity: 0.35;
+}
+.primitive-motion .card {
+  fill: color-mix(in srgb, currentColor 55%, var(--tile-bg, var(--ui-bg)));
+}
+.primitive-motion .card-fill {
+  fill: var(--tile-bg, var(--ui-bg));
+}
+.primitive-motion .a {
+  animation-duration: var(--cycle);
+  animation-delay: var(--scene-delay);
+  animation-iteration-count: infinite;
+  animation-fill-mode: both;
+  animation-timing-function: steps(3);
+}
+.primitive-motion:not(.is-playing) .a {
+  animation-play-state: paused;
+}
+.primitive-motion .cm-mark { animation-name: cm-mark; }
+.primitive-motion .cm-bubble { animation-name: cm-bubble; }
+@media (prefers-reduced-motion: reduce) {
+  .primitive-motion .a {
+    animation: none;
+  }
+}
+@keyframes cm-mark {
+  0%, 10% { opacity: 0.35; }
+  16%, 80% { opacity: 0.85; }
+  90%, 100% { opacity: 0.35; }
+}
+@keyframes cm-bubble {
+  0%, 18% { opacity: 0; transform: translateY(2px); animation-timing-function: steps(1); }
+  24%, 80% { opacity: 1; transform: translateY(0); }
+  90%, 100% { opacity: 0; transform: translateY(0); }
+}
+</style>
+<path class="line" d="M2 10h30v2h-30zM0 12h2v2h-2zM32 12h2v2h-2zM0 14h2v2h-2zM32 14h2v2h-2zM0 16h2v2h-2zM32 16h2v2h-2zM0 18h2v2h-2zM32 18h2v2h-2zM0 20h2v2h-2zM32 20h2v2h-2zM0 22h2v2h-2zM32 22h2v2h-2zM0 24h2v2h-2zM32 24h2v2h-2zM0 26h2v2h-2zM32 26h2v2h-2zM0 28h2v2h-2zM32 28h2v2h-2zM0 30h2v2h-2zM32 30h2v2h-2zM2 32h30v2h-30z"/><path class="soft" d="M4 16h24v2h-24zM4 28h16v2h-16z"/><path class="soft a cm-mark" d="M4 22h20v2h-20z"/><g class="a cm-bubble"><g><path class="card-fill" d="M32 4h18v2h-18zM32 6h18v2h-18zM32 8h18v2h-18zM32 10h18v2h-18zM32 12h18v2h-18z"/><path class="card" d="M32 2h18v2h-18zM30 4h2v2h-2zM50 4h2v2h-2zM30 6h2v2h-2zM50 6h2v2h-2zM30 8h2v2h-2zM50 8h2v2h-2zM30 10h2v2h-2zM50 10h2v2h-2zM30 12h2v2h-2zM50 12h2v2h-2zM32 14h18v2h-18z"/></g><path class="soft" d="M34 6h12v2h-12zM34 10h8v2h-8z"/><path class="card" d="M32 16h2v2h-2zM32 18h4v2h-4z"/></g>
+</svg>
