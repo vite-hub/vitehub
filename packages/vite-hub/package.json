@@ -173,6 +173,11 @@
       "import": "./dist/_internal/kv.js",
       "default": "./dist/_internal/kv.js"
     },
+    "./_internal/kv/runtime/nitro-cache": {
+      "types": "./dist/_internal/kv/runtime/nitro-cache.d.ts",
+      "import": "./dist/_internal/kv/runtime/nitro-cache.js",
+      "default": "./dist/_internal/kv/runtime/nitro-cache.js"
+    },
     "./_internal/kv/operations": {
       "types": "./dist/_internal/kv/operations.d.ts",
       "import": "./dist/_internal/kv/operations.js",

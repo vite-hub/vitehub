@@ -1141,7 +1141,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     await hubDatabaseNuxt(defaultD1 ? { driver: "d1", ...databaseOptions } : databaseOptions)(undefined, nuxt)
   }
 
-  const installedPlugins = flattenPlugins(vitehub(options as Parameters<typeof vitehub>[0]))
+  const installedPlugins = flattenPlugins(vitehub(markCmsPresetFeaturesResolved({
+    ...options,
+    ...(effectiveKV !== undefined ? { kv: effectiveKV } : {}),
+  } as Parameters<typeof vitehub>[0])))
     // Nuxt runs its own Nitro.
     .filter(plugin => !isIncludedNitroPlugin(plugin))
     .filter(plugin => !(options.database && plugin.name === "@vite-hub/database/vite"))
@@ -1567,7 +1570,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     const kv = resolvedKVFromPlugin(retainedKVPlugin, viteConfig.kv)
     if (!kv) ((config.virtual ??= {}) as Record<string, string>)["#vitehub/kv/config"] ??= disabledKVConfigModule
     if (!hasUpstashStore(kv)) alias[upstashDriverSpecifier] ??= disabledUpstashDriver
-    if (options.kv) addNitroImports(config, "vite-hub/kv", ["kv"])
+    if (effectiveKV) addNitroImports(config, "vite-hub/kv", ["kv"])
     if (options.blob) addNitroImports(config, "vite-hub/blob", ["blob"])
     if (options.database) addNitroImports(config, "vite-hub/database/drizzle", ["db", "schema"])
     installGeneratedTypeScriptCompiler(config, join(nuxt.options.buildDir, "vitehub"))

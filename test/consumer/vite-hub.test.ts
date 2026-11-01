@@ -721,7 +721,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
     }
   }, 600_000)
 
-  it("auto-imports KV and stores Nitro cache entries through a packed Nuxt route", async () => {
+  it.each([true, { driver: "kv" }] as const)("auto-imports KV and stores Nitro cache entries through a packed Nuxt route (cache: %j)", async (cache) => {
     const root = await mkdtemp(join(tmpdir(), "vite-hub-nuxt-kv-cache-consumer-"))
     const appDir = join(root, "app")
     const packDir = join(root, "packs")
@@ -738,7 +738,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           export default {
             modules: ["vite-hub/nuxt"],
             nitro: { preset: "node-server" },
-            vitehub: { agent: false, cache: true, kv: true, preset: "node" },
+            vitehub: { agent: false, cache: ${JSON.stringify(cache)}, kv: true, preset: "node" },
           }
         `),
         // No \`kv\` import: the module auto-imports \`kv\` in server code. Nuxt 5 does not auto-import
@@ -790,7 +790,11 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         const second = await fetch(`${origin}/api/visits`)
         expect(await second.json()).toEqual({ visits: 1 })
       })
-      expect(existsSync(join(appDir, ".vitehub/data/cache"))).toBe(true)
+      if (cache === true) expect(existsSync(join(appDir, ".vitehub/data/cache"))).toBe(true)
+      else {
+        const keys = await readdir(join(appDir, ".vitehub/data/kv/nitro-cache"), { recursive: true })
+        expect(keys.some(key => key.endsWith(".json"))).toBe(true)
+      }
     }
     finally {
       await rm(root, { recursive: true, force: true })

@@ -308,6 +308,10 @@ deployment always names a real namespace. The `netlify` preset has no
 default cache store, so `cache: true` fails the build there. A `cache` mount
 that you set in `nitro.storage` takes precedence.
 
+To share the app's KV store instead, on any preset, set
+`cache: { driver: "kv" }` with `kv` enabled. Cache keys get the `nitro-cache:`
+prefix.
+
 To keep the cache namespace that NuxtHub created on Cloudflare, pass its ID:
 
 ```ts [nuxt.config.ts]
