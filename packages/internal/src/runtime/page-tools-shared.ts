@@ -24,6 +24,20 @@ export const viteHubPageSessionPath = "/_vitehub/page/session"
  */
 export const viteHubPageToolsLoader = "/_vitehub/page/assets/loader.js?v=8"
 
+/**
+ * The buttons of the pill and of each tool's segment. The pill is always the dark review toolbar of Drop, so it reads
+ * the same on every site. The pill sets the `--vitehub-pill-*` colors, and segments inherit them through their shadow
+ * roots. A pressed or expanded button is inverted, like the active tool in Drop.
+ */
+export const viteHubPillButtonStyles = `button{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:28px;height:28px;padding:0 10px;border-radius:8px;font:inherit;white-space:nowrap;color:var(--vitehub-pill-text);cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition-property:background-color,color,scale;transition-duration:150ms;transition-timing-function:cubic-bezier(.23,1,.32,1)}
+@media(hover:hover){button:where(:not(:disabled):hover){background:var(--vitehub-pill-hover);color:var(--vitehub-pill-strong)}}
+button:where(:not(:disabled):active){scale:.96}
+button[aria-pressed=true],button[aria-expanded=true]{background:var(--vitehub-pill-on);color:var(--vitehub-pill-on-text)}
+button:focus-visible{outline:2px solid var(--vitehub-pill-on);outline-offset:1px}
+button svg{width:14px;height:14px;flex:none}
+@media(pointer:coarse){button{min-width:44px;height:44px}}
+@media(prefers-reduced-motion:reduce){button{transition:none}}`
+
 /** The attribute of the script that loads the page tools. A page that has it does not get a second one. */
 export const viteHubPageToolsMarker = "data-vitehub-page-tools"
 

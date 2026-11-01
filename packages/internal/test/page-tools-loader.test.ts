@@ -156,17 +156,6 @@ describe("loadViteHubPageTools", () => {
     expect(pill().segments).toEqual([["vitehub-tool", "comments", true], ["vitehub-tool", "console", false]])
   })
 
-  it("follows the page's dark scheme", async () => {
-    page("/?vitehub")
-    session({ tools: [consoleTool] })
-    await loadViteHubPageTools({ load: modules().load })
-    const { element } = pill()
-    expect(element.style.colorScheme).toBe("light")
-    document.documentElement.classList.add("dark")
-    await new Promise(resolve => setTimeout(resolve))
-    expect(element.style.colorScheme).toBe("dark")
-  })
-
   it("opens the tool that ?vitehub=<id> names", async () => {
     page("/?vitehub=console")
     session({ tools: [comments, consoleTool] })

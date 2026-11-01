@@ -8,7 +8,7 @@ import type { ViteHubPageWindow, ViteHubPageWindowOptions } from "./page-tools-w
  * This file runs only in the browser. The package's Node program does not include it, because the DOM types conflict
  * with the Node stream types: `tsconfig.browser.json` checks it.
  */
-import { readViteHubPageSession, viteHubPageSessionUrl, viteHubPageToolsCookie, viteHubPageToolsQuery } from "./page-tools-shared.ts"
+import { readViteHubPageSession, viteHubPageSessionUrl, viteHubPageToolsCookie, viteHubPageToolsQuery, viteHubPillButtonStyles } from "./page-tools-shared.ts"
 
 import type { ViteHubPageSession, ViteHubPageToolInfo } from "./page-tools-shared.ts"
 
@@ -18,7 +18,8 @@ export interface ViteHubPageToolContext {
   /**
    * The tool's segment in the pill: a `<vitehub-tool slot="<tool id>">` element. Attach a shadow root to it and draw the
    * tool's controls there, so their CSS stays apart from the pill and from other tools. Inherited styles, such as the
-   * pill's text color, font, and `color-scheme`, reach it, so `light-dark()` follows the page. The pill hides a segment
+   * pill's text color, font, dark `color-scheme`, and `--vitehub-pill-*` colors, reach it. Use `viteHubPillButtonStyles`
+   * from `page-tools-shared` for its buttons, so every segment matches. The pill hides a segment
    * that is still empty when the default export returns. Set `bar.hidden` to hide or show it later.
    */
   bar: HTMLElement
@@ -48,29 +49,16 @@ function startOf(module: unknown): ViteHubPageToolModule["default"] | undefined 
   return start instanceof Function ? start as ViteHubPageToolModule["default"] : undefined
 }
 
-// The pill takes its colors from `color-scheme`, which the loader sets from the page, and the page's font. The tools in
-// its segments inherit both. Each visible segment ends with a short divider.
-const pillStyles = `:host{all:initial;position:fixed;left:50%;bottom:16px;translate:-50% 0;z-index:2147483001;font-size:13px;line-height:1.5;color:light-dark(#3f3f46,#e4e4e7);-webkit-font-smoothing:antialiased}
-div{max-width:calc(100vw - 24px);overflow-x:auto;--line:light-dark(#0000000f,#ffffff12);display:flex;align-items:center;gap:2px;padding:4px;border-radius:999px;background:light-dark(#fff,#1c1c1f);box-shadow:0 0 0 1px light-dark(#00000014,#ffffff1a),0 1px 2px #0000000a,0 8px 24px -6px light-dark(#00000029,#0009)}
-::slotted(*){flex-shrink:0;display:flex;align-items:center;padding-right:5px;margin-right:3px;background:linear-gradient(var(--line),var(--line)) right/1px 16px no-repeat}
+// Drop's review toolbar: dark glass with the system font on every page. The tools in its segments inherit the colors
+// and the font. Each visible segment ends with a short divider.
+const pillStyles = `:host{all:initial;position:fixed;left:50%;bottom:max(16px,env(safe-area-inset-bottom));translate:-50% 0;z-index:2147483001;color-scheme:dark;font:500 12px/1 ui-sans-serif,system-ui,sans-serif;color:#d4d4d4;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;--vitehub-pill-text:#d4d4d4;--vitehub-pill-strong:#fafafa;--vitehub-pill-muted:#a3a3a3;--vitehub-pill-hover:rgb(255 255 255/8%);--vitehub-pill-on:#fafafa;--vitehub-pill-on-text:#0a0a0a;--vitehub-pill-line:rgb(255 255 255/12%);--vitehub-pill-surface:#111}
+div{box-sizing:border-box;max-width:calc(100vw - 16px);overflow-x:auto;scrollbar-width:none;display:flex;align-items:center;gap:4px;padding:4px;border:1px solid var(--vitehub-pill-line);border-radius:12px;background:rgb(17 17 17/92%);box-shadow:0 8px 24px rgb(0 0 0/25%);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+::slotted(*){flex-shrink:0;display:flex;align-items:center;gap:4px;padding-right:5px;background:linear-gradient(var(--vitehub-pill-line),var(--vitehub-pill-line)) right/1px 18px no-repeat}
 ::slotted([hidden]){display:none!important}
-button{all:unset;flex-shrink:0;position:sticky;right:0;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;cursor:pointer;color:light-dark(#71717a,#a1a1aa)}
-button:hover{background:light-dark(#0000000d,#ffffff0f);color:light-dark(#18181b,#fafafa)}
-:focus-visible{outline:2px solid #2563eb;outline-offset:2px}`
+${viteHubPillButtonStyles}
+button{flex-shrink:0;position:sticky;right:0;padding:0}`
 
-/** Whether the page shows its dark scheme: a `dark` class (Nuxt UI, Tailwind), `data-theme="dark"`, or `color-scheme`. */
-function pageIsDark(): boolean {
-  const root = document.documentElement
-  if (root.classList.contains("dark") || root.dataset.theme === "dark") return true
-  if (root.classList.contains("light") || root.dataset.theme === "light") return false
-  const scheme = getComputedStyle(root).colorScheme
-  return scheme === "dark" || (scheme.includes("dark") && matchMedia("(prefers-color-scheme: dark)").matches)
-}
-
-/**
- * Draws the pill: one `<vitehub-pill>` at the bottom center of the page, with a named slot per tool in session order and
- * the exit button. It follows the page's light or dark scheme until `signal` aborts.
- */
+/** Draws the pill: one `<vitehub-pill>` at the bottom center of the page, with a named slot per tool in session order and the exit button. */
 function mountPill(tools: ViteHubPageToolInfo[], exit: () => void, signal: AbortSignal): HTMLElement {
   const pill = document.createElement("vitehub-pill")
   const shadow = pill.attachShadow({ mode: "open" })
@@ -96,19 +84,7 @@ function mountPill(tools: ViteHubPageToolInfo[], exit: () => void, signal: Abort
     toolbar.insertBefore(slot, button)
   }
   button.addEventListener("click", exit)
-  pill.style.fontFamily = getComputedStyle(document.body).fontFamily
-
-  const theme = () => {
-    pill.style.colorScheme = pageIsDark() ? "dark" : "light"
-  }
-  theme()
-  const observer = new MutationObserver(theme)
-  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style", "data-theme"] })
-  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", theme, { signal })
-  signal.addEventListener("abort", () => {
-    observer.disconnect()
-    pill.remove()
-  }, { once: true })
+  signal.addEventListener("abort", () => pill.remove(), { once: true })
   document.body.append(pill)
   return pill
 }
@@ -183,7 +159,7 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
     const mountLaunch = () => {
       const shadow = bar.attachShadow({ mode: "open" })
       const style = document.createElement("style")
-      style.textContent = "button{all:unset;display:block;box-sizing:border-box;font:inherit;color:inherit;border-radius:999px;padding:0 12px;min-height:36px;cursor:pointer}button:focus-visible{outline:2px solid #2563eb;outline-offset:-2px}"
+      style.textContent = viteHubPillButtonStyles
       shadow.append(style, launch)
     }
     const run = (path?: string, show = true): Promise<boolean> => {

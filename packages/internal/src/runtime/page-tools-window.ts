@@ -14,7 +14,7 @@ export interface ViteHubPageWindowOptions {
 }
 
 const styles = `
-:host{all:initial;--surface:light-dark(#fff,#000);--text:light-dark(#18181b,#fafafa);--muted:light-dark(#52525b,#a1a1aa);--line:light-dark(#d4d4d8,#3f3f46);--hover:light-dark(#f4f4f5,#27272a);--focus:#3b82f6;position:fixed;inset:0;z-index:2147483000;pointer-events:none;color:var(--text);font:400 .875rem/1.5 system-ui,sans-serif;color-scheme:light dark}
+:host{all:initial;--surface:light-dark(#fff,#171717);--text:light-dark(#18181b,#fafafa);--muted:light-dark(#52525b,#a3a3a3);--line:light-dark(#d4d4d8,rgb(255 255 255/12%));--hover:light-dark(#f4f4f5,rgb(255 255 255/8%));--focus:light-dark(#3b82f6,#fafafa);position:fixed;inset:0;z-index:2147483000;pointer-events:none;color:var(--text);font:400 .875rem/1.5 system-ui,sans-serif;color-scheme:light dark}
 :host([hidden]){display:none}
 .window{position:absolute;right:16px;bottom:76px;width:min(600px,calc(100vw - 32px));height:min(640px,calc(100dvh - 100px));min-width:300px;min-height:240px;max-width:calc(100vw - 32px);max-height:calc(100dvh - 100px);display:flex;flex-direction:column;overflow:hidden;resize:both;pointer-events:auto;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 32px #0002}
 .window.expanded{inset:12px 12px 76px;width:auto!important;height:auto!important;max-width:none;max-height:none;resize:none}

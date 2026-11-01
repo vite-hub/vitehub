@@ -74,13 +74,14 @@ describe("the Comments page tool", () => {
     expect(bar.shadowRoot!.querySelector("button[title=\"Comments on this page\"]")!.getAttribute("aria-pressed")).toBe("false")
   })
 
-  it("updates the retained panel when the page theme changes", async () => {
+  it("keeps the retained panel dark, like the pill, on light and dark pages", async () => {
     site({ read: true, comment: true })
     const { panel } = await openPanel()
+    expect(panel.querySelector<HTMLElement>(".root")!.dataset.theme).toBe("dark")
     document.documentElement.classList.add("dark")
-    await vi.waitFor(() => expect(panel.querySelector<HTMLElement>(".root")!.dataset.theme).toBe("dark"))
     document.documentElement.classList.remove("dark")
-    await vi.waitFor(() => expect(panel.querySelector<HTMLElement>(".root")!.dataset.theme).toBe("light"))
+    await new Promise(resolve => setTimeout(resolve))
+    expect(panel.querySelector<HTMLElement>(".root")!.dataset.theme).toBe("dark")
   })
 
   it("updates the page label when navigating between empty pages", async () => {

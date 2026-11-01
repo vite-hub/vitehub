@@ -1,10 +1,11 @@
+import { viteHubPillButtonStyles } from "@vite-hub/internal/runtime/page-tools-shared"
 import { connectRealtimeRoom } from "@vite-hub/realtime/client"
 
 import { createAnchor, fieldAttribute, fieldElementOf, placeAnchor, selectorOf } from "../anchor.ts"
 import { commentRoom, commentsApiRoute, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
 import { api, readGuest, saveGuest } from "./api.ts"
 import { captureContext } from "./context.ts"
-import { documentStyles, overlayStyles } from "./styles.ts"
+import { documentStyles, overlayStyles, pillBarStyles } from "./styles.ts"
 
 import type { ViteHubPageToolContext, ViteHubPageToolModule } from "@vite-hub/internal/runtime/page-tools-loader"
 import type { RealtimeRoom } from "@vite-hub/realtime/client"
@@ -168,10 +169,9 @@ class CommentsOverlay extends HTMLElement {
     if (bar) {
       // Hidden until the session allows the overlay, so the pill shows no empty segment.
       bar.hidden = true
-      bar.attachShadow({ mode: "open" }).append(h("style", {}, overlayStyles), this.toolbar)
+      bar.attachShadow({ mode: "open" }).append(h("style", {}, overlayStyles + viteHubPillButtonStyles + pillBarStyles), this.toolbar)
     }
-    const font = getComputedStyle(document.body).fontFamily
-    for (const element of [this.root, this.toolbar]) element.style.setProperty("--font", font)
+    this.root.style.setProperty("--font", getComputedStyle(document.body).fontFamily)
     this.followTheme()
     const style = h("style", { "data-vitehub-comments": true }, documentStyles)
     document.head.append(style)
@@ -214,8 +214,7 @@ class CommentsOverlay extends HTMLElement {
   /** Keeps the overlay in the page's light or dark scheme when the page or the system switches. */
   private followTheme() {
     const apply = () => {
-      this.root.dataset.theme = this.toolbar.dataset.theme = hostIsDark() ? "dark" : "light"
-      if (this.panelBody) this.panelBody.dataset.theme = this.root.dataset.theme
+      this.root.dataset.theme = hostIsDark() ? "dark" : "light"
     }
     apply()
     const classes = new MutationObserver(apply)
@@ -730,9 +729,10 @@ class CommentsOverlay extends HTMLElement {
       })
       const host = document.createElement("div")
       const shadow = host.attachShadow({ mode: "open" })
-      this.panelBody = h("div", { className: "root" })
+      // The window opens from the dark pill, so the list in it is dark too, like the comments panel of Drop.
+      this.panelBody = h("div", { className: "root", "data-theme": "dark" })
       shadow.append(h("style", {}, overlayStyles + `
-        :host{display:block;height:100%}.root{position:static;height:100%;pointer-events:auto}
+        :host{display:block;height:100%}.root{position:static;height:100%;pointer-events:auto}.root[data-theme="dark"]{--surface:#171717}
         .panel,.card{position:static;width:auto;max-width:none;max-height:none;border:0;border-radius:0;box-shadow:none}
         .panel-head>.title h2,.panel-head>.icon{display:none}.panel-list{max-height:40vh}
         .card{border-top:1px solid var(--line)}
@@ -768,7 +768,6 @@ class CommentsOverlay extends HTMLElement {
     if (this.panelBody && this.panel && this.panelBody.dataset.key !== key) {
       const drafts = new Map([...this.panelBody.querySelectorAll<HTMLTextAreaElement>("textarea")].map(input => [input.closest<HTMLElement>("[data-card]")?.dataset.card, { value: input.value, mentions: this.composeMentions.get(input) ?? [] }]))
       this.panelBody.dataset.key = key
-      this.panelBody.dataset.theme = hostIsDark() ? "dark" : "light"
       this.panelBody.replaceChildren(this.renderPanel(), ...(thread ? [this.renderThread(thread)] : []))
       for (const input of this.panelBody.querySelectorAll<HTMLTextAreaElement>("textarea")) {
         const draft = drafts.get(input.closest<HTMLElement>("[data-card]")?.dataset.card)

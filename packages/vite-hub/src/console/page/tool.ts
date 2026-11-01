@@ -1,7 +1,8 @@
 import { contentFieldAttribute, parseContentField } from "@vite-hub/content/client"
+import { viteHubPillButtonStyles } from "@vite-hub/internal/runtime/page-tools-shared"
 import type { ViteHubPageToolModule } from "@vite-hub/internal/runtime/page-tools-loader"
 
-const styles = `:host{display:flex}button{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 12px;border:0;border-radius:999px;background:transparent;color:inherit;font:500 .875rem/1.5 system-ui,sans-serif;white-space:nowrap;cursor:pointer}button:hover,button[aria-expanded=true]{background:light-dark(#f4f4f5,#27272a)}button:focus-visible{outline:2px solid #3b82f6;outline-offset:-2px}@media(pointer:coarse){button{min-height:44px}}`
+const styles = `:host{display:flex;gap:4px}${viteHubPillButtonStyles}`
 const start: ViteHubPageToolModule["default"] = (context) => {
   const { bar, tool, signal } = context
   const shadow = bar.attachShadow({ mode: "open" })
