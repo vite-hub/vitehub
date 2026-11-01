@@ -2692,10 +2692,17 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ preset: "cloudflare" }, production.nuxt)
     expect(nitroOptions(production.nuxt)).not.toHaveProperty("devServer")
 
-    vi.stubEnv("NITRO_DEV_RUNNER", "miniflare")
-    const fromEnv = createNuxt(true)
-    await viteHubNuxtModule({ preset: "cloudflare" }, fromEnv.nuxt)
-    expect(nitroOptions(fromEnv.nuxt)).not.toHaveProperty("devServer")
+    for (const runner of ["node-worker", "miniflare"]) {
+      vi.stubEnv("NITRO_DEV_RUNNER", runner)
+      const fromEnv = createNuxt(true)
+      await viteHubNuxtModule({ preset: "cloudflare" }, fromEnv.nuxt)
+      expect(nitroOptions(fromEnv.nuxt)).toMatchObject({ devServer: { runner } })
+
+      const explicit = createNuxt(true)
+      Object.assign(explicit.nuxt.options, { nitro: { devServer: { runner: "custom-runner" } } })
+      await viteHubNuxtModule({ preset: "cloudflare" }, explicit.nuxt)
+      expect(nitroOptions(explicit.nuxt)).toMatchObject({ devServer: { runner: "custom-runner" } })
+    }
   })
 
   it.each([undefined, false, true])("defaults Cloudflare deployment output while preserving an explicit %s setting", async (deployConfig) => {
