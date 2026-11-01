@@ -272,7 +272,7 @@ Comments opens the file with Node's built-in `node:sqlite`, so there is no drive
 
 ### A ViteHub Database
 
-In a [ViteHub app](/docs/comments/with-vite-hub), Comments adds three tables, `vitehub_comment_threads`, `vitehub_comments`, and `vitehub_comment_scope_counters`, to a Database at build time. Without the `database` option, it uses the Database named `default`, else the only Database. `vitehub({ database: true })` gives an app without a Database Definition a `default` Database. The [CMS preset](/docs/content/cms-preset) of Content adds one too.
+In a [ViteHub app](/docs/comments/with-vite-hub), Comments adds three tables, `vitehub_comment_threads`, `vitehub_comments`, and `vitehub_comment_scope_counters`, to a Database at build time. Without the `database` option, it uses the Database named `default`, else the only Database. `vitehub({ database: true })` gives an app without a Database Definition a `default` Database. The [CMS](/docs/cms) adds one too.
 
 To use another Database, give its name:
 

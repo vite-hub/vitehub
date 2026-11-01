@@ -84,7 +84,7 @@ Content bundles Comark UI's parser and editor implementation and installs the Co
 ```ts
 import { defineContent } from "@vite-hub/content"
 import { documents } from "@vite-hub/content/collections"
-import cms from "@vite-hub/content/presets/cms"
+import cms from "@vite-hub/cms"
 import { z } from "zod"
 
 export const content = defineContent({
@@ -108,9 +108,9 @@ await content.revisions("posts", "hello")
 content.collections() // [posts], each with name, kind, format, path, fields, and schema
 ```
 
-To keep documents in a Git repository, pass `extends: [cms, { repo: "owner/name" }]`; `repo` selects the GitHub store. Published content is on `branch` (default `main`) and drafts on `draftBranch` (default `vitehub/content`), created by the first save. The preset needs a Database for editor sessions and no Blob store. `publish: "commit"` (default) commits to `branch`, and `publish: "pr"` opens a pull request from a `vitehub/publish/*` branch and returns `pullRequest` with `pending: true`. `branch` is merged into the draft when it moves. `content.schedule()` throws `CONTENT_R0016`, and digests are Git blob shas. Options: `store`, `repo`, `branch`, `draftBranch`, `root` (default `""`, the repository root), and `publish`. See the [CMS preset docs](https://vitehub.dev/docs/content/cms-preset#github-store).
+`cms` comes from [`@vite-hub/cms`](https://www.npmjs.com/package/@vite-hub/cms), the CMS built on Content. It adds the Workspace that stores the collections, its Database tables, and, with `repo`, the GitHub store. Without it, pass `workspace`: the name of a Workspace with retained history. `defineContentPreset()` creates a preset for `defineContent({ extends })`; a preset fills Definition options at runtime only.
 
-`await content.supportsScheduling()` reports whether the Workspace store supports scheduled publishing. It returns `false` for the GitHub store and does not check for a Schedule runner. The Console marks scheduling unavailable for GitHub Workspaces, and the GitHub CMS preset does not ask for a `content.publishDue()` runner.
+`await content.supportsScheduling()` reports whether the Workspace store supports scheduled publishing. It returns `false` for the GitHub store and does not check for a Schedule runner. The Console marks scheduling unavailable for GitHub Workspaces. With `scheduling: false` in its options, the Content Console section does not ask for a `content.publishDue()` runner; `vite-hub` sets it for the GitHub store of the CMS.
 
 `documents({ label, titleField })` names a collection, such as `label: { singular: "Person", plural: "People" }`, and the string field that names a document. Without them the label is the name in title case, and the title field is the first of `title`, `name`, `label`, and `heading`, then the first required string field. `singleton()` takes a `label` string and `titleField` too.
 

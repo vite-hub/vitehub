@@ -1,8 +1,9 @@
-import { cmsOptionKeys, cmsOptionProblem, cmsOptionsProblem, cmsStoreOf } from "../cms-options.ts"
-import { contentErrorDiagnostics } from "../error-diagnostics.ts"
-import { defineContentPreset } from "../presets.ts"
+import { defineContentPreset } from "@vite-hub/content"
 
-import type { ContentPreset } from "../presets.ts"
+import { cmsErrorDiagnostics } from "./error-diagnostics.ts"
+import { cmsOptionKeys, cmsOptionProblem, cmsOptionsProblem, cmsStoreOf } from "./options.ts"
+
+import type { ContentPreset } from "@vite-hub/content"
 
 /** Options of the `cms` Content preset. The build reads them from `server/content.ts`, so pass string literals. */
 export interface CmsPresetOptions {
@@ -38,10 +39,10 @@ export interface CmsPresetOptions {
 
 /**
  * Store editable collections without wiring. `vitehub()` turns on Workspace, Database, and Blob when they are unset.
- * At build time the Content Vite plugin adds a Workspace named `content` on the Blob + Database Store, using the
- * `default` Blob store and the default or only Database, and adds the Workspace history tables to that Database. When
- * the app has no Database Definition, it adds the `default` Database. `defineContent({ extends: cms })` then uses
- * that Workspace.
+ * At build time `hubCms()` from `@vite-hub/cms/vite` adds a Workspace named `content` on the Blob + Database Store,
+ * using the `default` Blob store and the default or only Database, and adds the Workspace history tables to that
+ * Database. When the app has no Database Definition, it adds the `default` Database. `defineContent({ extends: cms })`
+ * then uses that Workspace.
  *
  * With `repo` (or `store: "github"`) the Workspace is a GitHub repository instead: published content on one branch, drafts on
  * another, and no Blob store. The Database keeps editor sessions.
@@ -62,13 +63,13 @@ const cms: ContentPreset<CmsPresetOptions> = defineContentPreset<CmsPresetOption
   configure(options) {
     for (const key of cmsOptionKeys) {
       const problem = cmsOptionProblem(key, Reflect.get(options, key))
-      if (problem) throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content cms preset option ${JSON.stringify(key)} ${problem}` })
+      if (problem) throw cmsErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content cms preset option ${JSON.stringify(key)} ${problem}` })
     }
     // The default `blob` is not something the app set, so a GitHub store does not see it.
     const github = cmsStoreOf(options) === "github"
     const set = { ...options, blob: github && options.blob === "default" ? undefined : options.blob }
     const problem = cmsOptionsProblem(set)
-    if (problem) throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content cms preset ${problem}` })
+    if (problem) throw cmsErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content cms preset ${problem}` })
     return { workspace: options.workspace, ...(github && options.publish === "pr" ? { publish: "pr" as const } : {}) }
   },
 })

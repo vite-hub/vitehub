@@ -118,7 +118,7 @@ The search examples use optional plugins from `comark-content`. See [search conf
   A collection holds pages that people edit in your app. Each save is a draft. Visitors see only what you publish.
   :::
 
-  :::product-feature-item{title="One preset stores the collections" icon="i-lucide-newspaper" to="/docs/content/cms-preset"}
+  :::product-feature-item{title="One preset stores the collections" icon="i-lucide-newspaper" to="/docs/cms"}
   `extends: cms` adds the Workspace, its history tables, and a Database when the app has none.
   :::
 

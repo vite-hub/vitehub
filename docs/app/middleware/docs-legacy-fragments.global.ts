@@ -9,7 +9,10 @@ export default defineNuxtRouteMiddleware((to) => {
   // SAFETY: Unknown fragments must resolve to no redirects, so indexing the known fragment map is safe.
   const target = redirects?.[fragment as keyof typeof redirects];
 
-  if (!target || target === to.path) return;
+  if (!target) return;
 
-  return navigateTo({ path: target, hash: `#${fragment}` }, { replace: true });
+  const [targetPath, targetFragment = fragment] = target.split("#", 2);
+  if (targetPath === to.path && targetFragment === fragment) return;
+
+  return navigateTo({ path: targetPath, hash: `#${targetFragment}` }, { replace: true });
 });
