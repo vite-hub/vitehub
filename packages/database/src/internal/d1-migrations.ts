@@ -12,6 +12,7 @@ export interface D1HttpTarget {
   accountId?: string
   databaseId?: string
   token?: string
+  proxy?: { url?: string, token?: string }
 }
 
 export type D1Query = (sql: string, params?: unknown[]) => Promise<unknown[]>
@@ -27,19 +28,26 @@ export interface D1Ledger {
   table: string
 }
 
-/** Sends SQL to the Cloudflare D1 HTTP API. Returns the rows of the last statement. */
+/** Sends SQL to the Cloudflare D1 HTTP API or a configured proxy. Returns the rows of the last statement. */
 export function createD1Query(target: D1HttpTarget, request: typeof fetch = fetch): D1Query {
-  const missing = [
+  const missing = (target.proxy ? [
+    !target.proxy.url && "`cloudflare.http.url`",
+    !target.proxy.token && "`cloudflare.http.authToken`",
+  ] : [
     !target.accountId && "`CLOUDFLARE_ACCOUNT_ID`",
     !target.token && "`CLOUDFLARE_API_TOKEN`",
     !target.databaseId && "a value for `cloudflare.databaseId`",
-  ].filter(Boolean)
-  if (missing.length) throw new Error(`ViteHub applies D1 HTTP migrations with the Cloudflare API, which needs ${missing.join(" and ")}.`)
-  const url = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(target.accountId!)}/d1/database/${encodeURIComponent(target.databaseId!)}/query`
+  ]).filter(Boolean)
+  if (missing.length) throw new Error(`ViteHub applies D1 HTTP migrations with ${target.proxy ? "the configured proxy" : "the Cloudflare API"}, which needs ${missing.join(" and ")}.`)
+  const url = target.proxy
+    ? target.proxy.url!
+    : `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(target.accountId!)}/d1/database/${encodeURIComponent(target.databaseId!)}/query`
+  if (!["http:", "https:"].includes(new URL(url).protocol)) throw new Error("D1 HTTP migrations need an HTTP or HTTPS URL for `cloudflare.http.url`.")
+  const token = target.proxy ? target.proxy.token : target.token
   return async (sql, params = []) => {
     const response = await request(url, {
       body: JSON.stringify({ params, sql }),
-      headers: { Authorization: `Bearer ${target.token}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       method: "POST",
     })
     const payload: unknown = await response.json().catch(() => undefined)
@@ -52,7 +60,16 @@ export function createD1Query(target: D1HttpTarget, request: typeof fetch = fetc
 /** Lists the `.sql` files of a migrations directory in the order that Wrangler applies them. */
 export function listD1MigrationFiles(migrationsDir: string): string[] {
   if (!existsSync(migrationsDir)) return []
-  return readdirSync(migrationsDir).filter(name => name.endsWith(".sql")).sort()
+  return readdirSync(migrationsDir).filter(name => name.endsWith(".sql")).sort((a, b) => {
+    const aNumber = Number.parseInt(a.split("_")[0]!, 10)
+    const bNumber = Number.parseInt(b.split("_")[0]!, 10)
+    if (aNumber !== bNumber) {
+      if (Number.isFinite(aNumber) && Number.isFinite(bNumber)) return aNumber - bNumber
+      if (Number.isFinite(aNumber)) return -1
+      if (Number.isFinite(bNumber)) return 1
+    }
+    return a < b ? -1 : a > b ? 1 : 0
+  })
 }
 
 /**
@@ -102,9 +119,57 @@ export async function applyD1Migrations(
   }
   for (const name of listD1MigrationFiles(migrationsDir)) {
     if (ledger.applied.has(name)) continue
-    await query(`${readFileSync(join(migrationsDir, name), "utf8")}\n;\n${insert(name)}`)
+    const sql = normalizeSqlLineEndings(readFileSync(join(migrationsDir, name), "utf8"))
+    await query(`${sql}\n;\n${insert(name)}`)
     onApplied(name)
   }
+}
+
+/** D1's statement splitter needs LF in compound SQL; quoted values and identifiers must retain their bytes. */
+function normalizeSqlLineEndings(sql: string): string {
+  let normalized = ""
+  let quote: "'" | '"' | "`" | "]" | undefined
+  let comment: "line" | "block" | undefined
+  for (let index = 0; index < sql.length; index++) {
+    const char = sql[index]!
+    const next = sql[index + 1]
+    if (quote) {
+      normalized += char
+      if (char === quote) {
+        if (next === quote) {
+          normalized += next
+          index++
+        }
+        else quote = undefined
+      }
+      continue
+    }
+    if (char === "\r" && next === "\n") {
+      normalized += "\n"
+      index++
+      if (comment === "line") comment = undefined
+      continue
+    }
+    normalized += char
+    if (comment === "line") {
+      if (char === "\n") comment = undefined
+    }
+    else if (comment === "block") {
+      if (char === "*" && next === "/") {
+        normalized += next
+        index++
+        comment = undefined
+      }
+    }
+    else if ((char === "-" && next === "-") || (char === "/" && next === "*")) {
+      normalized += next
+      index++
+      comment = char === "-" ? "line" : "block"
+    }
+    else if (char === "'" || char === '"' || char === "`") quote = char
+    else if (char === "[") quote = "]"
+  }
+  return normalized
 }
 
 function quoteIdentifier(name: string): string {

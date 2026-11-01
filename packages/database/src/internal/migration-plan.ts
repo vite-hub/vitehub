@@ -13,6 +13,7 @@ import { findDataLoss } from "./migration-sql.ts"
 import type postgres from "postgres"
 import type { Result } from "@vite-hub/runtime"
 import type { ResolvedDrizzleDatabaseConfig } from "../types.ts"
+import type { D1HttpTarget } from "./d1-migrations.ts"
 import type { DataLossStatement, TableColumns } from "./migration-sql.ts"
 
 /** A migration in the migrations folder that the database has not applied. */
@@ -43,9 +44,9 @@ interface JournalEntry {
   when: number
 }
 
-/** The connection that the generated Drizzle Kit config uses. Keep it in sync with `renderDbCredentials()`. */
+/** D1 HTTP uses the runtime's API or proxy target; other connections follow `renderDbCredentials()`. */
 type MigrationTarget =
-  | { kind: "d1-http", accountId?: string, databaseId?: string, token?: string }
+  | ({ kind: "d1-http" } & D1HttpTarget)
   | { kind: "libsql", authToken?: string, url: string }
   | { kind: "local", path: string }
   | { kind: "postgres", url?: string }
@@ -57,11 +58,16 @@ const postgresMigrationsTable = "\"drizzle\".\"__drizzle_migrations\""
 function resolveTarget(database: ResolvedDrizzleDatabaseConfig, { env, projectRoot }: MigrationPlanOptions): MigrationTarget | undefined {
   if (database.dialect === "postgresql") return { kind: "postgres", url: resolveConfigValue(database.connection?.url, env)?.trim() || undefined }
   if (database.cloudflare?.http && database.cloudflare.databaseId !== undefined) {
+    const http = database.cloudflare.http
     return {
       accountId: env.CLOUDFLARE_ACCOUNT_ID?.trim() || undefined,
       databaseId: resolveConfigValue(database.cloudflare.databaseId, env)?.trim() || undefined,
       kind: "d1-http",
       token: env.CLOUDFLARE_API_TOKEN?.trim() || undefined,
+      ...(http === true ? {} : { proxy: {
+        token: resolveConfigValue(http.authToken, env)?.trim() || undefined,
+        url: resolveConfigValue(http.url, env)?.trim() || undefined,
+      } }),
     }
   }
   const url = resolveConfigValue(database.connection?.url, env)?.trim()
@@ -79,7 +85,9 @@ function isMemorySqliteUrl(url: string): boolean {
 function describeTarget(target: MigrationTarget, projectRoot: string): string {
   switch (target.kind) {
     case "d1-http":
-      return `Cloudflare D1 ${target.databaseId ?? "(no database id)"} over HTTP`
+      return target.proxy
+        ? `D1 HTTP proxy ${withoutCredentials(target.proxy.url ?? "")}`
+        : `Cloudflare D1 ${target.databaseId ?? "(no database id)"} over HTTP`
     case "libsql":
       return `libSQL ${withoutCredentials(target.url)}`
     case "local":

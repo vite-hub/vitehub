@@ -1,12 +1,13 @@
 import { spawn as spawnProcess } from "node:child_process"
 import { existsSync } from "node:fs"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 
 import { createClient } from "@libsql/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createDbCliContributor } from "../src/cli.ts"
+import { createRuntimeEnvConfigValue } from "../src/config-value.ts"
 import { readMigrationPlan } from "../src/internal/migration-plan.ts"
 
 import type { InArgs } from "@libsql/client"
@@ -218,6 +219,101 @@ async function createFakeD1(rootDir: string, setup?: string) {
 describe("vitehub db migrate with D1 over HTTP", () => {
   afterEach(() => {
     vi.unstubAllGlobals()
+  })
+
+  async function handwrittenD1Project(files: Record<string, string>) {
+    const project = await createProject()
+    project.database.cloudflare = { binding: "DB", databaseId: "database-id", http: true, migrationsDir: project.database.migrationsDir }
+    await mkdir(project.database.migrationsDir)
+    await Promise.all(Object.entries(files).map(([name, sql]) => writeFile(join(project.database.migrationsDir, name), sql)))
+    return { ...project, migrate: (args: string[] = [], env: NodeJS.ProcessEnv = d1Env) => project.run("migrate", args, env) }
+  }
+
+  it.each(["literal", "environment"])("checks and applies migrations at the configured %s proxy target", async (mode) => {
+    const project = await handwrittenD1Project({
+      "0000_init.sql": "CREATE TABLE notes (id INTEGER PRIMARY KEY, title TEXT);",
+      "0001_add_body.sql": "ALTER TABLE notes ADD body TEXT;",
+    })
+    const url = "https://proxy.example.test/d1/raw?database=notes"
+    project.database.cloudflare!.http = mode === "literal"
+      ? { authToken: "proxy-token", url }
+      : { authToken: createRuntimeEnvConfigValue(["D1_PROXY_TOKEN"]), url: createRuntimeEnvConfigValue(["D1_PROXY_URL"]) }
+    const env = { ...(mode === "literal" ? d1Env : {}), D1_PROXY_TOKEN: "proxy-token", D1_PROXY_URL: url }
+    const d1 = await createFakeD1(project.rootDir, "CREATE TABLE notes (id INTEGER PRIMARY KEY, title TEXT); CREATE TABLE d1_migrations (name TEXT UNIQUE); INSERT INTO d1_migrations VALUES ('0000_init.sql');")
+    vi.stubGlobal("fetch", d1.fetch)
+    try {
+      const dryRun = await project.migrate(["--dry-run"], env)
+      expect(dryRun).toMatchObject({ exitCode: 0, stderr: "" })
+      expect(dryRun.stdout).toContain("(D1 HTTP proxy https://proxy.example.test/d1/raw): 1 pending migration.")
+      expect(dryRun.stdout).toContain("1 pending migration.")
+      expect(dryRun.stdout).toContain("0001_add_body")
+      expect(dryRun.stdout).not.toContain("0000_init")
+      await expect(d1.rows("SELECT name FROM pragma_table_info('notes')")).resolves.toEqual([["id"], ["title"]])
+
+      await expect(project.migrate([], env)).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+      await expect(d1.rows("SELECT name FROM pragma_table_info('notes')")).resolves.toEqual([["id"], ["title"], ["body"]])
+      await expect(d1.rows("SELECT name FROM d1_migrations ORDER BY rowid")).resolves.toEqual([["0000_init.sql"], ["0001_add_body.sql"]])
+      for (const [requestedUrl, init] of d1.fetch.mock.calls) {
+        expect(requestedUrl).toBe(url)
+        expect(init?.headers).toMatchObject({ Authorization: "Bearer proxy-token" })
+      }
+    }
+    finally {
+      d1.client.close()
+    }
+  })
+
+  it("checks and applies numbered files in Wrangler order before unnumbered files", async () => {
+    const project = await handwrittenD1Project({
+      "!last.sql": "INSERT INTO notes (body) VALUES ('ready');",
+      "0002_second.sql": "CREATE TABLE notes (id INTEGER PRIMARY KEY);",
+      "10_tenth.sql": "ALTER TABLE notes ADD body TEXT;",
+      "2_second.sql": "ALTER TABLE notes ADD title TEXT;",
+      "z_last.sql": "INSERT INTO notes (body) VALUES ('done');",
+    })
+    const names = ["0002_second", "2_second", "10_tenth", "!last", "z_last"]
+    const d1 = await createFakeD1(project.rootDir)
+    vi.stubGlobal("fetch", d1.fetch)
+    try {
+      const [error, plan] = await readMigrationPlan(project.database, { env: d1Env, fetch: d1.fetch, projectRoot: project.rootDir })
+      expect(error).toBeUndefined()
+      expect(plan?.pending.map(migration => migration.name)).toEqual(names)
+
+      await expect(project.migrate()).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+      await expect(d1.rows("SELECT name FROM d1_migrations ORDER BY id")).resolves.toEqual(names.map(name => [`${name}.sql`]))
+      await expect(d1.rows("SELECT body FROM notes ORDER BY id")).resolves.toEqual([["ready"], ["done"]])
+    }
+    finally {
+      d1.client.close()
+    }
+  })
+
+  it("normalizes CRLF compound SQL without changing quoted values or identifiers", async () => {
+    const lines = [
+      "-- A comment with ' and \" quotes",
+      "CREATE TABLE notes (id INTEGER PRIMARY KEY, title TEXT);",
+      "/* A comment with ' and [ quotes */",
+      "CREATE TABLE audit (title TEXT, \"double\r\nquoted\" TEXT, `backtick\r\nquoted` TEXT, [bracket\r\nquoted] TEXT);",
+      "CREATE TRIGGER log_note AFTER INSERT ON notes",
+      "BEGIN",
+      "  INSERT INTO audit (title) VALUES ('first\r\nsecond''s');",
+      "  INSERT INTO audit (title) VALUES (NEW.title);",
+      "END;",
+      "INSERT INTO notes (title) VALUES ('hello');",
+    ]
+    const project = await handwrittenD1Project({ "0001_trigger.sql": lines.join("\r\n") })
+    const d1 = await createFakeD1(project.rootDir)
+    vi.stubGlobal("fetch", d1.fetch)
+    try {
+      await expect(project.migrate()).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+      const migration = d1.fetch.mock.calls.map(([, init]) => JSON.parse(String(init?.body)) as { sql: string }).find(({ sql }) => sql.includes("CREATE TRIGGER"))
+      expect(migration?.sql).toBe(`${lines.join("\n")}\n;\nINSERT INTO "d1_migrations" (name) VALUES ('0001_trigger.sql');`)
+      await expect(d1.rows("SELECT title FROM audit ORDER BY rowid")).resolves.toEqual([["first\r\nsecond's"], ["hello"]])
+      await expect(d1.rows("SELECT name FROM d1_migrations")).resolves.toEqual([["0001_trigger.sql"]])
+    }
+    finally {
+      d1.client.close()
+    }
   })
 
   async function d1MigrateProject(migrationsTable?: string) {

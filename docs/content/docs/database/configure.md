@@ -102,7 +102,7 @@ The check reads the same database that Drizzle Kit migrates:
 | --- | --- |
 | Local SQLite | Reads the file. A missing file has no applied migrations, and the dry run does not create it. |
 | Remote libSQL | Connects with `connection.url` and `connection.authToken`. |
-| D1 HTTP (`cloudflare.http`) | Calls the Cloudflare API with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`, and reads Wrangler's migrations table. Without them, the check fails with `DATABASE_MIGRATION_CHECK_FAILED`. |
+| D1 HTTP (`cloudflare.http`) | Reads Wrangler's migrations table. `true` calls the Cloudflare API with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`; an object uses its resolved `url` and `authToken`. Missing credentials fail the check with `DATABASE_MIGRATION_CHECK_FAILED`. |
 | Postgres | Connects with `connection.url` or the PG* variables. It needs the `postgres` package in the app. |
 
 Wrangler applies the migrations of a native D1 binding with `wrangler d1 migrations apply`, not `vitehub db migrate`. That path does not use this check.
