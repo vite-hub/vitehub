@@ -387,3 +387,18 @@ describe("third review regressions", () => {
     })).toEqual([])
   })
 })
+
+describe("TypeScript parameter properties", () => {
+  it("binds a constructor parameter property that shadows a ViteHub import", async () => {
+    expect(await projectCodes(knownDefinitionNames, {
+      "server/queues/welcome.ts": queue,
+      "server/utils/mailer.ts": [
+        'import { runQueue } from "vite-hub/queue"',
+        "export class Mailer {",
+        '  constructor(private runQueue: (name: string) => void) { runQueue("local") }',
+        "}",
+        'export const send = () => runQueue("welcome", {})',
+      ].join("\n"),
+    })).toEqual([])
+  })
+})

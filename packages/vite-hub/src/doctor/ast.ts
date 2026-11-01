@@ -232,6 +232,8 @@ function buildScopes(root: unknown): WeakMap<object, Scope> {
       case "Identifier":
         if (isIdentifier(pattern)) scope.bindings.set(pattern.name, binding)
         break
+      // `constructor(private name: T)` declares the parameter inside a TypeScript wrapper.
+      case "TSParameterProperty": bind(pattern.parameter, scope, binding); break
       case "RestElement": bind(pattern.argument, scope, inner); break
       case "AssignmentPattern": bind(pattern.left, scope, inner); break
       case "ArrayPattern":
