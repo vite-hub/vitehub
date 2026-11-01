@@ -67,8 +67,10 @@ export interface ConsoleMcpOAuthOptions {
  * The resource and the issuer are fixed, so a token issued through another host, such as a preview, still names them.
  */
 export function consoleMcpOAuth(options: ConsoleMcpOAuthOptions): BetterAuthPlugin[] {
-  const issuer = (options.issuer ?? `${new URL(options.resource).origin}/api/auth`).replace(/\/+$/, "")
-  const loginPage = options.loginPage ?? new URL("sign-in", options.resource.replace(/\/+$/, "")).pathname
+  const resource = new URL(options.resource)
+  const issuer = (options.issuer ?? `${resource.origin}/api/auth`).replace(/\/+$/, "")
+  resource.pathname = resource.pathname.replace(/\/+$/, "")
+  const loginPage = options.loginPage ?? new URL("sign-in", resource).pathname
   return [
     // By default the plugin signs a token on every session read, which the Console never uses and which fails after the secret changes.
     jwt({ disableSettingJwtHeader: true, jwt: { issuer } }),
