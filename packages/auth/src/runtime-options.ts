@@ -1,4 +1,5 @@
 import { createAuthMiddleware } from "better-auth/api"
+import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { resolvePublicUrl } from "@vite-hub/runtime"
 import { resolveAuthMountPath } from "./application-path.ts"
 import { applyAuthPreset } from "./preset-options.ts"
@@ -116,6 +117,10 @@ function withDerivedSecret(options: AuthBetterAuthRuntimeOptions, event: unknown
   return secret ? { ...options, secret } : options
 }
 
+export function trustsProxyHeaders(options: unknown): boolean {
+  return isPlainObject(options) && isPlainObject(options.advanced) && options.advanced.trustedProxyHeaders === true
+}
+
 /** Resolves one coherent option snapshot before projecting it for Better Auth or host callers. */
 export function resolveAuthOptions(
   definition: AuthDefinition,
@@ -130,16 +135,26 @@ export function resolveAuthOptions(
   const callback = typeof definition.options === "function"
   const staticRequestRuntime = request && typeof definition.options !== "function" ? definition.options.runtime : undefined
   const usesContext = !request || callback || Boolean(staticRequestRuntime)
-  const context: AuthRuntimeContext = {
-    env: usesContext ? input.env?.(input.event ?? request) ?? {} : {},
+  const env = usesContext ? input.env?.(input.event ?? request) ?? {} : {}
+  const requestUrlOrigin = request ? new URL(request.url).origin : undefined
+  const proxiedOrigin = request ? forwardedRequestOrigin(request) : undefined
+  const contextFor = (origin: string | undefined): AuthRuntimeContext => ({
+    env,
     ...(request ? { request } : {}),
-    requestOrigin: usesContext && request ? new URL(request.url).origin : "http://localhost",
-  }
+    requestOrigin: usesContext && origin ? origin : "http://localhost",
+  })
+  // Proxy headers count only with Better Auth's `advanced.trustedProxyHeaders`: on hosts that set the request URL
+  // themselves, a client could otherwise choose the origin of callback URLs and emailed links.
+  let context = contextFor(!callback && trustsProxyHeaders(definition.options) ? proxiedOrigin : requestUrlOrigin)
+  // SAFETY: `callback` is true only when definition.options is the AuthDefinitionResolver branch.
+  const resolveDefinition = () => (callback ? (definition.options as AuthDefinitionResolver)(context) : definition.options) as AuthRuntimeOptions & Record<string, unknown>
   // SAFETY: The callback branch returns AuthRuntimeOptions and the static branch is typed as AuthRuntimeOptions by AuthDefinition.
-  const declared = (callback
-    // SAFETY: `callback` is true only when definition.options is the AuthDefinitionResolver branch.
-    ? (definition.options as AuthDefinitionResolver)(context)
-    : definition.options) as AuthRuntimeOptions & Record<string, unknown>
+  let declared = resolveDefinition()
+  if (callback && trustsProxyHeaders(declared) && proxiedOrigin !== requestUrlOrigin) {
+    // A callback opts in from the options it returns, so it runs once more with the origin the client used.
+    context = contextFor(proxiedOrigin)
+    declared = resolveDefinition()
+  }
   const runtime = request && !callback ? staticRequestRuntime : declared.runtime
   const resolvedRuntime = !runtime
     ? {}
@@ -154,7 +169,8 @@ export function resolveAuthOptions(
     ...input.runtimeOptions,
   } as AuthRuntimeOptions & Record<string, unknown>
   if (request) {
-    const baseURL = requestRuntimeOptions.baseURL || resolvePublicUrl({ request })
+    const trusted = trustsProxyHeaders(callback || Object.hasOwn(requestRuntimeOptions, "advanced") ? requestRuntimeOptions : declared)
+    const baseURL = requestRuntimeOptions.baseURL || resolvePublicUrl({ request: trusted ? { url: forwardedRequestOrigin(request) } : request })
     const staticTrustedOrigins = !callback && Object.hasOwn(declared, "trustedOrigins")
     // SAFETY: Origin defaults preserve the runtime options shape and add only supported Better Auth fields.
     requestRuntimeOptions = {

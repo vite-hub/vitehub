@@ -6,7 +6,7 @@ import { betterAuth } from "better-auth"
 import { resolveAuthMountPath } from "./application-path.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
 import { unwrapAuthRequest } from "./request.ts"
-import { resolveAuthOptions } from "./runtime-options.ts"
+import { resolveAuthOptions, trustsProxyHeaders } from "./runtime-options.ts"
 import { throwAuthenticationProviderError } from "./errors.ts"
 import { getAuthenticationSession } from "./session.ts"
 import { getAuthRuntimeState } from "./runtime-state.ts"
@@ -46,7 +46,7 @@ function hasRuntimeOptions(options: AuthRuntimeOptions | undefined): boolean {
 
 function hasRequestRuntimeOptions(definition: AuthDefinition): boolean {
   if (typeof definition.options === "function") return true
-  return typeof definition.options.runtime === "function"
+  return typeof definition.options.runtime === "function" || trustsProxyHeaders(definition.options)
 }
 
 function hasConfiguredPublicUrl(): boolean {

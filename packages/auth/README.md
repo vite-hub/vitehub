@@ -132,6 +132,8 @@ export default defineAuth(({ env, requestOrigin }) => ({
 
 When `@vite-hub/env` is installed, the Auth Definition callback receives the typed server env. It also receives `requestOrigin`, so same-origin apps do not need a separate auth URL environment variable.
 
+Behind a proxy that ends TLS, set Better Auth's `advanced.trustedProxyHeaders: true`. `requestOrigin`, the default `baseURL`, and the `Origin` check then use the first `X-Forwarded-Proto` and `X-Forwarded-Host` values. Set it only when a proxy you run sets these headers.
+
 Each Auth request or route guard resolves its Definition and `runtime` callbacks once. The guard uses the same resolved options for session lookup, route authorization, and automatic provider sign-in. A later request resolves fresh options.
 
 The generated Nitro middleware uses `access.signIn` when one of the configured `access.routes` needs a browser redirect. Route objects can add an `authorize` callback when a valid session is not sufficient:

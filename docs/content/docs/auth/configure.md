@@ -88,10 +88,24 @@ export default defineAuth(({ env, requestOrigin }) => ({
 | Callback input | Value |
 | --- | --- |
 | `env` | Typed Server Env when the Env Vite Integration is registered. `vitehub()` registers it by default. |
-| `requestOrigin` | The origin of the current request. Same-origin apps do not need a separate auth URL variable. |
+| `requestOrigin` | The origin of the current request. With [`advanced.trustedProxyHeaders`](#behind-a-proxy-that-ends-tls), the origin the client used. Same-origin apps do not need a separate auth URL variable. |
 | `request` | The current request headers and URL, when a request exists. |
 
 Without a `baseURL`, Auth uses `vitehub({ publicUrl })`, then the request origin. When Nitro serves the app below a path, such as Nuxt `app.baseURL: '/app/'`, Auth serves its routes and OAuth callbacks below that path, such as `/app/api/auth`. Set `baseURL` to an origin; Better Auth ignores `basePath` when `baseURL` has a path. Each Auth request or route guard resolves the Definition and `runtime` callbacks once. A later request resolves fresh options.
+
+### Behind a proxy that ends TLS
+
+On a server behind Caddy, nginx, or Traefik, Node sees `http://` requests on an internal address, so `requestOrigin` and the default `baseURL` would start with `http://`. Set Better Auth's `advanced.trustedProxyHeaders` to read the origin from the first `X-Forwarded-Proto` and `X-Forwarded-Host` values instead. Without `X-Forwarded-Host`, the host comes from the request. `vitehub({ publicUrl })` still wins over both.
+
+```ts [server/auth.ts]
+export default defineAuth(({ env, requestOrigin }) => ({
+  advanced: { trustedProxyHeaders: true },
+  baseURL: requestOrigin,
+  secret: env.auth.secret.unseal(),
+}))
+```
+
+Turn it on only when a proxy you run sets these headers. Without one, a client can send them and choose the origin of callback URLs and emailed links. A callback Definition that returns `trustedProxyHeaders: true` runs a second time with the forwarded origin when it differs from the request origin. Auth checks the `Origin` of requests against this origin too.
 
 ## Sessions without a database
 
