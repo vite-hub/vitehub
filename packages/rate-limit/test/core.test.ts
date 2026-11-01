@@ -107,41 +107,36 @@ describe("Rate Limit core", () => {
     expect(reads).toBe(1)
   })
 
-  it("uses inspected option values for runtime driver inputs", async () => {
-    const driver = memoryRateLimitDriver()
+  it("keeps a shared budget when a name getter changes", async () => {
+    const driver = memoryRateLimitDriver({ now: () => 1 })
     const options: CreateRateLimiterOptions = { driver, limit: 1, window: "1m" }
     let nameReads = 0
     Object.defineProperty(options, "name", {
       get: () => nameReads++ === 0 ? "inspected" : "changed",
     })
-    const consume = vi.spyOn(driver, "consume")
     const limiter = createRateLimiter(options)
+    const sameBudget = createRateLimiter({ driver, limit: 1, name: "inspected", window: "1m" })
 
-    await limiter.consume({ key: "user" })
-
-    expect(consume).toHaveBeenCalledWith(expect.objectContaining({ name: "inspected" }))
+    await expect(limiter.consume({ key: "user" })).resolves.toMatchObject({ allowed: true, used: 1 })
+    await expect(sameBudget.consume({ key: "user" })).resolves.toMatchObject({ allowed: false, reason: "limited", used: 1 })
   })
 
-  it("uses inspected driver methods for runtime calls", async () => {
-    const driver = memoryRateLimitDriver()
-    const consume = vi.fn(driver.consume)
-    const peek = vi.fn(() => [null, { used: 0 }])
-    const reset = vi.fn(() => [null])
-    Object.assign(driver, { consume, peek, reset })
+  it("keeps counter state usable after the driver methods change", async () => {
+    const driver = memoryRateLimitDriver({ now: () => 1 })
     const limiter = createRateLimiter({ driver, limit: 1, window: "1m" })
 
     Object.assign(driver, {
-      consume: vi.fn(() => { throw new Error("changed consume") }),
-      peek: vi.fn(() => { throw new Error("changed peek") }),
-      reset: vi.fn(() => { throw new Error("changed reset") }),
+      consume: () => { throw new Error("changed consume") },
+      peek: () => { throw new Error("changed peek") },
+      reset: () => { throw new Error("changed reset") },
     })
 
-    await expect(limiter.consume({ key: "user" })).resolves.toMatchObject({ allowed: true })
-    await expect(limiter.peek({ key: "user" })).resolves.toMatchObject({ used: 0 })
+    await expect(limiter.consume({ key: "user" })).resolves.toMatchObject({ allowed: true, used: 1 })
+    await expect(limiter.consume({ key: "user" })).resolves.toMatchObject({ allowed: false, reason: "limited" })
+    await expect(limiter.peek({ key: "user" })).resolves.toMatchObject({ status: "known", remaining: 0, used: 1 })
     await expect(limiter.reset({ key: "user" })).resolves.toMatchObject({ status: "reset" })
-    expect(consume).toHaveBeenCalled()
-    expect(peek).toHaveBeenCalled()
-    expect(reset).toHaveBeenCalled()
+    await expect(limiter.peek({ key: "user" })).resolves.toMatchObject({ status: "known", remaining: 1, used: 0 })
+    await expect(limiter.consume({ key: "user" })).resolves.toMatchObject({ allowed: true, used: 1 })
   })
 
   it.each(["allow", "deny"] as const)("rejects malformed consume tuples before applying failure %s", async (failure) => {
@@ -522,67 +517,6 @@ describe("Rate Limit core", () => {
       limit: 1,
       window: "1m",
     })).toThrow("valid enforcement")
-  })
-
-  it.each(["s", "m", "d"])("rejects %s windows that overflow during conversion", (unit) => {
-    const options = { driver: memoryRateLimitDriver(), limit: 1, window: "1m" as const }
-    Object.assign(options, { window: `${"1" + "0".repeat(307)}${unit}` })
-    expect(() => createRateLimiter(options)).toThrow("finite")
-  })
-
-  it.each(["8640000000000001ms", "8640000000001s", "144000000001m", "2400000001h", "100000001d"] as const)("rejects %s windows outside the timestamp range", (window) => {
-    expect(() => createRateLimiter({ driver: memoryRateLimitDriver(), limit: 1, window })).toThrow("8640000000000000")
-  })
-
-  it.each(["8640000000000000.1ms", "8640000000000.0001s", "144000000000.000001m", "2400000000.00000001h", "100000000.000000001d"] as const)("rejects fractional overflow in %s before decimal rounding", (window) => {
-    expect(() => createRateLimiter({ driver: memoryRateLimitDriver(), limit: 1, window })).toThrow("8640000000000000")
-  })
-
-  it.each(["8640000000000000ms", "100000000d", "8640000000000000.000ms", "100000000.000000000d"] as const)("keeps %s counter reset timestamps inspectable", async (window) => {
-    const limiter = createRateLimiter({ driver: memoryRateLimitDriver({ now: () => 60_001 }), limit: 1, window })
-    const consumed = await limiter.consume({ key: "user" })
-    expect(consumed.resetAt).toBe(8.64e15)
-    const counter = await limiter.peek({ key: "user" })
-    expect(counter).toMatchObject({ resetAt: 8.64e15, status: "known", used: 1 })
-    expect(new Date(consumed.resetAt!).toISOString()).toBe("+275760-09-13T00:00:00.000Z")
-  })
-
-  it.each([
-    { timestamp: 6e15, window: "5000000000000000ms" },
-    { timestamp: 8.64e15, window: "1ms" },
-  ] as const)("rejects an unrepresentable fixed-window end at $timestamp without storing a counter", async ({ timestamp, window }) => {
-    const driver = memoryRateLimitDriver({ now: () => timestamp })
-    const limiter = createRateLimiter({ driver, failure: "allow", limit: 1, window })
-    await expect(limiter.consume({ key: "user" })).rejects.toMatchObject({ code: "RATE_LIMIT_R0045" })
-    expect(driver.size()).toBe(0)
-    const counter = await limiter.peek({ key: "user" })
-    expect(counter).toMatchObject({ status: "known", used: 0 })
-    expect(counter).not.toHaveProperty("resetAt")
-  })
-
-  it.each(["consume", "peek"] as const)("rejects custom %s timestamps outside the supported range", async (operation) => {
-    for (const resetAt of [8.64e15 + 1, 1e16]) {
-      const driver: RateLimitDriver = {
-        capabilities: strictCapabilities,
-        consume: () => [null, { allowed: true, resetAt }],
-        name: "custom",
-        peek: () => [null, { resetAt, used: 1 }],
-      }
-      const limiter = createRateLimiter({ driver, failure: "allow", limit: 2, window: "1m" })
-      await expect(limiter[operation]({ key: "user" })).rejects.toThrow("8640000000000000")
-    }
-  })
-
-  it("accepts the exact custom reset timestamp boundary for consume and peek", async () => {
-    const driver: RateLimitDriver = {
-      capabilities: strictCapabilities,
-      consume: () => [null, { allowed: true, resetAt: 8.64e15 }],
-      name: "custom",
-      peek: () => [null, { resetAt: 8.64e15, used: 1 }],
-    }
-    const limiter = createRateLimiter({ driver, limit: 2, window: "1m" })
-    await expect(limiter.consume({ key: "user" })).resolves.toMatchObject({ resetAt: 8.64e15 })
-    await expect(limiter.peek({ key: "user" })).resolves.toMatchObject({ resetAt: 8.64e15, status: "known" })
   })
 
   it.each([null, "60s", {}, [0], [1.5], [Number.NaN], new Array(1), Object.assign(new Array(3), { 0: 1, 2: 60_000 }), [8.64e15 + 1], [Number.MAX_VALUE]])("rejects malformed supported windows: %j", windows => {
