@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/content",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "description": "Comark Content runtime integration for ViteHub Sources, with editable document collections on Workspace history.",
   "keywords": [
     "comark",
@@ -29,67 +29,56 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./cli": {
       "types": "./dist/cli.d.ts",
       "import": "./dist/cli.js",
-      "require": "./dist/cli.js",
       "default": "./dist/cli.js"
     },
     "./client": {
       "types": "./dist/client.d.ts",
       "import": "./dist/client.js",
-      "require": "./dist/client.js",
       "default": "./dist/client.js"
     },
     "./collections": {
       "types": "./dist/collections.d.ts",
       "import": "./dist/collections.js",
-      "require": "./dist/collections.js",
       "default": "./dist/collections.js"
     },
     "./database": {
       "types": "./dist/database.d.ts",
       "import": "./dist/database.js",
-      "require": "./dist/database.js",
       "default": "./dist/database.js"
     },
     "./editor": {
       "types": "./dist/editor.d.ts",
       "import": "./dist/editor.js",
-      "require": "./dist/editor.js",
       "default": "./dist/editor.js"
     },
     "./operations": {
       "types": "./dist/operations.d.ts",
       "import": "./dist/operations.js",
-      "require": "./dist/operations.js",
       "default": "./dist/operations.js"
     },
     "./presets/cms": {
       "types": "./dist/presets/cms.d.ts",
       "import": "./dist/presets/cms.js",
-      "require": "./dist/presets/cms.js",
       "default": "./dist/presets/cms.js"
     },
     "./realtime": {
       "types": "./dist/realtime.d.ts",
       "import": "./dist/realtime.js",
-      "require": "./dist/realtime.js",
       "default": "./dist/realtime.js"
     },
     "./runtime/console": {
       "types": "./dist/runtime/console.d.ts",
       "import": "./dist/runtime/console.js",
-      "require": "./dist/runtime/console.js",
       "default": "./dist/runtime/console.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js",
-      "require": "./dist/vite.js",
       "default": "./dist/vite.js"
     },
     "./package.json": "./package.json"
@@ -117,6 +106,7 @@
     "comark-content": "catalog:markdown-ui",
     "diff": "catalog:runtime",
     "h3": "catalog:unjs",
+    "katex": "^0.18.7",
     "nostics": "catalog:runtime",
     "vega-canvas": "^2.0.0",
     "vega-loader": "^5.1.3",

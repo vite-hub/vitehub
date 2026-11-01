@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/realtime",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "description": "Realtime document primitives and Vite integration for ViteHub.",
   "keywords": [
     "collaboration",
@@ -32,31 +32,26 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./client": {
       "types": "./dist/client.d.ts",
       "import": "./dist/client.js",
-      "require": "./dist/client.js",
       "default": "./dist/client.js"
     },
     "./server": {
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js",
-      "require": "./dist/server.js",
       "default": "./dist/server.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js",
-      "require": "./dist/vite.js",
       "default": "./dist/vite.js"
     },
     "./vue": {
       "types": "./dist/vue.d.ts",
       "import": "./dist/vue.js",
-      "require": "./dist/vue.js",
       "default": "./dist/vue.js"
     },
     "./package.json": "./package.json"

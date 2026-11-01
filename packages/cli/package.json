@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/cli",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "description": "Command-line workflows for ViteHub projects.",
   "keywords": [
     "agent",
@@ -35,7 +35,6 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./package.json": "./package.json"

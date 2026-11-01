@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import { readdirSync, readFileSync } from "node:fs"
 
 import { describe, expect, it } from "vitest"
 
@@ -33,6 +33,15 @@ describe("shared Console navigation layout", () => {
     expect(rail).toContain('<PrimitiveRail class="vitehub-console__rail" label="Console">')
     expect(rail).toContain(':current="section.id === active"')
     expect(rail).toContain("<UDashboardSearchButton")
+  })
+
+  it("mounts search on every page with the rail, so the rail's Search button opens it", () => {
+    const pages = readdirSync(new URL("../src/console/runtime/components/", import.meta.url))
+      .filter(file => file.endsWith(".vue"))
+      .map(file => file.slice(0, -".vue".length))
+      .filter(name => component(name).includes("<ConsoleFrame"))
+    expect(pages).toContain("console-logs")
+    for (const name of pages) expect(component(name), name).toContain("<ConsoleSearch")
   })
 
   it("shows appearance and sign-out inside one avatar menu", () => {

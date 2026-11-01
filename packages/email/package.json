@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/email",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "description": "Provider-neutral transactional email primitives and Vite integration for ViteHub.",
   "keywords": [
     "cloudflare",
@@ -37,55 +37,46 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./drivers/cloudflare-email": {
       "types": "./dist/drivers/cloudflare-email.d.ts",
       "import": "./dist/drivers/cloudflare-email.js",
-      "require": "./dist/drivers/cloudflare-email.js",
       "default": "./dist/drivers/cloudflare-email.js"
     },
     "./drivers/resend": {
       "types": "./dist/drivers/resend.d.ts",
       "import": "./dist/drivers/resend.js",
-      "require": "./dist/drivers/resend.js",
       "default": "./dist/drivers/resend.js"
     },
     "./markdown": {
       "types": "./dist/markdown.d.ts",
       "import": "./dist/markdown.js",
-      "require": "./dist/markdown.js",
       "default": "./dist/markdown.js"
     },
     "./operations": {
       "types": "./dist/operations.d.ts",
       "import": "./dist/operations.js",
-      "require": "./dist/operations.js",
       "default": "./dist/operations.js"
     },
     "./runtime/console": {
       "types": "./dist/runtime/console.d.ts",
       "import": "./dist/runtime/console.js",
-      "require": "./dist/runtime/console.js",
       "default": "./dist/runtime/console.js"
     },
     "./server": {
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js",
-      "require": "./dist/server.js",
       "default": "./dist/server.js"
     },
     "./test": {
       "types": "./dist/test.d.ts",
       "import": "./dist/test.js",
-      "require": "./dist/test.js",
       "default": "./dist/test.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js",
-      "require": "./dist/vite.js",
       "default": "./dist/vite.js"
     },
     "./package.json": "./package.json"
@@ -98,11 +89,11 @@
   },
   "dependencies": {
     "@comark/html": "catalog:markdown",
-    "katex": "^0.17.0",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "esbuild": "catalog:tooling",
+    "katex": "^0.17.0",
     "nostics": "catalog:runtime",
     "valibot": "catalog:runtime"
   },

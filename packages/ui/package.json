@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/ui",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "description": "AI interface primitives for Vue and Nuxt.",
   "keywords": [
     "ai",
@@ -34,7 +34,6 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./attachment": {
@@ -105,7 +104,6 @@
     "./headless": {
       "types": "./dist/headless.d.ts",
       "import": "./dist/headless.js",
-      "require": "./dist/headless.js",
       "default": "./dist/headless.js"
     },
     "./markdown": {
@@ -136,7 +134,6 @@
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
       "import": "./dist/nuxt.js",
-      "require": "./dist/nuxt.js",
       "default": "./dist/nuxt.js"
     },
     "./patch-diff": {
@@ -147,7 +144,6 @@
     "./primitive-rail": {
       "types": "./dist/primitive-rail.d.ts",
       "import": "./dist/primitive-rail.js",
-      "require": "./dist/primitive-rail.js",
       "default": "./dist/primitive-rail.js"
     },
     "./prompt-input": {
@@ -183,7 +179,6 @@
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js",
-      "require": "./dist/vite.js",
       "default": "./dist/vite.js"
     },
     "./package.json": "./package.json",

@@ -540,7 +540,7 @@ const revisions = defineOperation({
 
 const save = defineOperation({
   cli: { command: "edit", positional: ["collection", "id"] },
-  description: "Save the whole stored file of one document to the draft. Fails while someone else holds the edit lease, unless lease is override.",
+  description: "Save the whole stored file of one document to the draft. MCP requires ifDigest: the current draft digest, or null for creation. Fails while someone else holds the edit lease, unless lease is override.",
   input: v.strictObject({
     collection: text,
     id: optionalText,
@@ -558,6 +558,11 @@ const save = defineOperation({
     const collection = content.collection(input.collection)
     const id = documentId(collection, input.id, "save")
     await access.allow("write", collection.name, id)
+    if (context.surface === "mcp" && input.ifDigest === undefined) {
+      throw new ContentOperationError(400, "CONTENT_R0009", "content.save requires ifDigest on MCP calls.", {
+        fix: "Read the draft with content_show and pass its digest, or pass null to create a new document.",
+      })
+    }
     const lease = leaseOption(input.lease, context)
     const parsed = parseDocumentFile(input.text, collection.format)
     if (!("frontmatter" in parsed)) {

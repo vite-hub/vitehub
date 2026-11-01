@@ -1,7 +1,7 @@
 # @vite-hub/channels
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fchannels&icon=npm)](https://www.npmjs.com/package/@vite-hub/channels)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fchannels&period=month&icon=npm)](https://www.npmjs.com/package/@vite-hub/channels)
+[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fchannels&icon=npm)](https://npmx.dev/package/@vite-hub/channels)
+[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fchannels&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/channels)
 [![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
 [![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
 

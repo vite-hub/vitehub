@@ -1,84 +1,59 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" class="primitive-motion is-playing" style="--cycle: 5000ms; --scene-delay: -1100ms">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" fill="currentColor" shape-rendering="crispEdges" class="primitive-motion is-playing" style="--cycle: 5000ms; --scene-delay: -2950ms">
 <style>
 svg { color: #59636e; --ui-bg: #ffffff; }
 @media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
 .primitive-motion {
-  --ease-move: cubic-bezier(0.65, 0, 0.35, 1);
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   overflow: visible;
 }
-.line,
-.ink-line,
-.card {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.line {
+.primitive-motion .line,
+.primitive-motion .job,
+.primitive-motion .command,
+.primitive-motion .budget {
   opacity: 0.55;
 }
-.ink-line {
-  opacity: 0.85;
-}
-.soft,
-.job,
-.command,
-.budget,
-.ink,
-.token,
-.band,
-.pointer {
-  fill: currentColor;
-}
-.soft {
+.primitive-motion .soft {
   opacity: 0.35;
 }
-.ink,
-.token,
-.pointer {
+.primitive-motion .ink,
+.primitive-motion .token,
+.primitive-motion .pointer {
   opacity: 0.85;
 }
-.token,
-.band,
-.ghost,
-.q-in,
-.blob-next {
+.primitive-motion .token,
+.primitive-motion .band,
+.primitive-motion .ghost,
+.primitive-motion .q-in,
+.primitive-motion .blob-next {
   opacity: 0;
 }
-.a {
+.primitive-motion .a {
   animation-duration: var(--cycle);
   animation-delay: var(--scene-delay);
   animation-iteration-count: infinite;
   animation-fill-mode: both;
-  animation-timing-function: var(--ease-move);
+  animation-timing-function: steps(3);
 }
 .primitive-motion:not(.is-playing) .a {
   animation-play-state: paused;
 }
-.auth-shackle {
-  transform-box: fill-box;
-  transform-origin: 100% 100%;
-}
-.auth-token { animation-name: auth-token; }
-.auth-shackle { animation-name: auth-shackle; }
-.auth-session { animation-name: auth-session; }
+.primitive-motion .auth-token { animation-name: auth-token; }
+.primitive-motion .auth-shackle { animation-name: auth-shackle; }
+.primitive-motion .auth-session { animation-name: auth-session; }
 @media (prefers-reduced-motion: reduce) {
-  .a {
+  .primitive-motion .a {
     animation: none;
   }
 }
 @keyframes auth-token {
   0%, 6% { opacity: 0; transform: translateX(0); }
-  10% { opacity: 0.85; transform: translateX(0); }
-  24% { opacity: 0.85; transform: translateX(-14px); }
+  10% { opacity: 0.85; transform: translateX(0); animation-timing-function: steps(8); }
+  24% { opacity: 0.85; transform: translateX(-16px); }
   28%, 100% { opacity: 0; transform: translateX(-16px); }
 }
 @keyframes auth-shackle {
-  0%, 26% { transform: translateY(0) rotate(0deg); }
-  36%, 62% { transform: translateY(-3px) rotate(-14deg); }
-  72%, 100% { transform: translateY(0) rotate(0deg); }
+  0%, 26% { transform: translateY(0); animation-timing-function: steps(2); }
+  36%, 62% { transform: translateY(-4px); animation-timing-function: steps(2); }
+  72%, 100% { transform: translateY(0); }
 }
 @keyframes auth-session {
   0%, 32% { opacity: 0.35; }
@@ -86,17 +61,5 @@ svg { color: #59636e; --ui-bg: #ffffff; }
   76%, 100% { opacity: 0.35; }
 }
 </style>
-      <defs>
-        <clipPath id="vh-auth-shackle">
-          <rect x="0" y="0" width="64" height="18" />
-        </clipPath>
-      </defs>
-            <g clip-path="url(#vh-auth-shackle)">
-        <path d="M10.5 18v-3.5a5.5 5.5 0 0 1 11 0V22" class="ink-line a auth-shackle" />
-      </g>
-      <rect x="6" y="18" width="20" height="15" rx="2.5" class="line" />
-      <circle cx="16" cy="24.5" r="1.75" class="ink" />
-      <path d="M16 26v3" class="ink-line" />
-      <rect x="36" y="22.5" width="14" height="6" rx="3" class="soft a auth-session" />
-      <circle cx="32" cy="24.5" r="2" class="token a auth-token" />
+<path class="ink a auth-shackle" d="M6 8h8v2h-8zM4 10h2v2h-2zM14 10h2v2h-2zM4 12h2v2h-2zM14 12h2v2h-2zM4 14h2v2h-2zM14 14h2v2h-2zM4 16h2v2h-2zM14 16h2v2h-2z"/><path class="line" d="M2 18h16v2h-16zM0 20h2v2h-2zM18 20h2v2h-2zM0 22h2v2h-2zM18 22h2v2h-2zM0 24h2v2h-2zM18 24h2v2h-2zM0 26h2v2h-2zM18 26h2v2h-2zM0 28h2v2h-2zM18 28h2v2h-2zM0 30h2v2h-2zM18 30h2v2h-2zM2 32h16v2h-16z"/><path class="ink" d="M8 22h4v2h-4zM8 24h4v2h-4zM8 26h4v2h-4z"/><path class="soft a auth-session" d="M32 22h10v2h-10zM30 24h14v2h-14zM32 26h10v2h-10z"/><path class="token a auth-token" d="M24 22h4v2h-4zM24 24h4v2h-4z"/>
 </svg>

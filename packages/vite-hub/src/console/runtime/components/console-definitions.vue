@@ -275,10 +275,7 @@ onBeforeUnmount(() => request?.abort());
 
       <template #default="{ collapsed }">
         <nav class="vitehub-console__section-nav" :class="{ 'is-collapsed': collapsed }" :aria-label="itemsTitle">
-          <div v-if="!collapsed && error" class="px-1 pb-2">
-            <ConsoleState compact :error="error" title="Couldn't load definitions" :retry="loadDefinitions" />
-          </div>
-          <template v-else-if="loading && !entries.length">
+          <template v-if="loading && !entries.length">
             <USkeleton v-for="index in 4" :key="index" class="my-0.5 h-11 rounded-md" />
           </template>
           <template v-else-if="entries.length">
@@ -409,6 +406,8 @@ onBeforeUnmount(() => request?.abort());
             </p>
           </main>
         </template>
+        <!-- The page shows a load failure, as the record table does. The sidebar has no room for its details. -->
+        <ConsoleState v-else-if="error" :error="error" :title="`Couldn't load ${sectionDetails.label}`" :retry="loadDefinitions" />
         <UEmpty
           v-else-if="!selectedDefinition"
           variant="naked"
@@ -437,7 +436,7 @@ onBeforeUnmount(() => request?.abort());
           <ConsolePropertyList v-if="selectedDefinition.fields.length" title="Configuration" :items="selectedDefinition.fields" />
           <ConsoleRateLimit v-if="rateLimitBase" :base="rateLimitBase" :name="selectedDefinition.name" :read-only="sectionReadOnly" />
           <ConsoleWorkflowActions v-if="workflowBase && selectedDefinition" :base="workflowBase" :can-resume="registeredOperations.includes('workflow.resume')" :can-start="registeredOperations.includes('workflow.start')" :workflow="selectedDefinition.name" />
-          <p class="flex gap-2 rounded-md bg-elevated/50 px-3 py-2.5 text-xs leading-relaxed text-pretty text-muted">
+          <p class="flex gap-2 text-xs leading-relaxed text-pretty text-muted">
             <UIcon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
             <ConsoleSetupHint :hint="{ message: sectionDetails.view.notice }" />
           </p>

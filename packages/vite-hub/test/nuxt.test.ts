@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import { dirname, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { build } from "esbuild"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -624,9 +625,35 @@ describe("ViteHub Nuxt integration", () => {
 
     const kvConfig = (nitroConfig.virtual as Record<string, string> | undefined)?.["#vitehub/kv/config"]
     expect(kvConfig).toBeTypeOf("string")
-    const kvConfigModule = await import(`data:text/javascript,${encodeURIComponent(kvConfig!)}`) as { kv: unknown }
-    expect(kvConfigModule.kv).toBe(false)
-    expect((nitroConfig.alias as Record<string, string>)["@vite-hub/kv/runtime/upstash-driver"]).toMatch(/[\\/]kv[\\/]runtime[\\/]disabled-upstash\.(?:ts|js)$/)
+    // The same exports as the module that @vite-hub/kv/vite generates.
+    const kvConfigModule = await import(`data:text/javascript,${encodeURIComponent(kvConfig!)}`) as Record<string, unknown>
+    expect({ ...kvConfigModule }).toEqual({ default: { hosting: undefined, kv: false }, hosting: undefined, kv: false })
+    // The alias names a real module, the stub that throws only when an Upstash store is used.
+    const stub = (nitroConfig.alias as Record<string, string>)["@vite-hub/kv/runtime/upstash-driver"]!
+    const { default: upstashDriver } = await import(pathToFileURL(stub).href) as { default: () => never }
+    expect(() => upstashDriver()).toThrow(expect.objectContaining({ code: "VITE_HUB_R0001" }))
+  })
+
+  it("installs the disabled KV config in development too, and keeps the app's own config and alias", async () => {
+    const { nuxt, runNitroConfigHook } = createNuxt(true)
+    const nitroConfig: Record<string, unknown> = {
+      alias: { "@vite-hub/kv/runtime/upstash-driver": "/app/upstash.mjs" },
+      virtual: { "#vitehub/kv/config": "export const kv = { custom: true }" },
+    }
+
+    await viteHubNuxtModule({ console: { auth: false }, preset: "cloudflare" }, nuxt)
+    await runNitroConfigHook(nitroConfig)
+
+    expect(nitroConfig).toMatchObject({
+      alias: { "@vite-hub/kv/runtime/upstash-driver": "/app/upstash.mjs" },
+      virtual: { "#vitehub/kv/config": "export const kv = { custom: true }" },
+    })
+
+    const fresh = createNuxt(true)
+    const freshConfig: Record<string, unknown> = {}
+    await viteHubNuxtModule({ console: { auth: false }, preset: "cloudflare" }, fresh.nuxt)
+    await fresh.runNitroConfigHook(freshConfig)
+    expect(freshConfig).toHaveProperty(["virtual", "#vitehub/kv/config"], expect.stringContaining("export const kv = false"))
   })
 
   it("stubs the Upstash driver for a KV store on another driver and keeps the KV plugin's config", async () => {
@@ -2660,19 +2687,79 @@ describe("ViteHub Nuxt integration", () => {
     })
   })
 
-  it.each([
-    [true, [], ["nodejs_compat", "nodejs_compat_v2"]],
-    [true, ["custom"], ["custom", "nodejs_compat", "nodejs_compat_v2"]],
-    [true, ["no_nodejs_compat_v2"], ["no_nodejs_compat_v2"]],
-    [false, ["custom"], ["custom"]],
-  ] as const)("keeps native Node compatibility in Cloudflare output with nodeCompat=%s and flags=%j", async (nodeCompat, flags, expected) => {
-    const { nuxt, runNitroConfigHook } = createNuxt()
-    const config = { cloudflare: { nodeCompat, wrangler: { compatibility_flags: [...flags] } } }
-    await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
-    await runNitroConfigHook(config)
-    expect(config.cloudflare.wrangler.compatibility_flags).toEqual(expected)
-    await runNitroConfigHook(config)
-    expect(config.cloudflare.wrangler.compatibility_flags).toEqual(expected)
+  // Runs the Nuxt module twice, as Nuxt can, then Nitro 2's real Cloudflare preset, which merges the project file.
+  describe("Node compatibility flags in the written wrangler.json", { timeout: 30_000 }, () => {
+    async function writtenFlags(inline: string[], project?: string[]) {
+      const rootDir = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-node-compat-"))
+      try {
+        if (project) await writeFile(resolve(rootDir, "wrangler.json"), JSON.stringify({ compatibility_flags: project }))
+        const { nuxt, runNitroConfigHook } = createNuxt()
+        const config: { cloudflare: { nodeCompat: boolean, wrangler: Record<string, unknown> }, modules?: unknown[], rootDir: string } = {
+          cloudflare: { nodeCompat: true, wrangler: { compatibility_flags: [...inline] } },
+          rootDir,
+        }
+        await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+        await runNitroConfigHook(config)
+        await runNitroConfigHook(config)
+        const { createNitro } = await import("nitropack")
+        const nitro = await createNitro({
+          cloudflare: { ...config.cloudflare, deployConfig: true },
+          compatibilityDate: "2026-04-20",
+          dev: false,
+          logLevel: 0,
+          // The mocked vitehub() adds fake modules, so only this one runs.
+          modules: (config.modules ?? []).filter(module => isTestRecord(module) && module.name === "vite-hub/cloudflare-node-compat") as never,
+          preset: "cloudflare-module",
+          rootDir,
+        })
+        try {
+          await nitro.hooks.callHook("compiled", nitro)
+          const wrangler = JSON.parse(await readFile(resolve(nitro.options.output.serverDir, "wrangler.json"), "utf8")) as { compatibility_flags: string[] }
+          return {
+            flags: wrangler.compatibility_flags.filter(flag => flag !== "nodejs_als"),
+            nodeCompat: config.cloudflare.nodeCompat,
+            modules: config.modules ?? [],
+            inlineFlags: config.cloudflare.wrangler.compatibility_flags,
+          }
+        }
+        finally {
+          await nitro.close()
+        }
+      }
+      finally {
+        await rm(rootDir, { force: true, recursive: true })
+      }
+    }
+
+    it.each([
+      // Wrangler refuses nodejs_compat next to nodejs_compat_v2, and v2 alone lacks node:http before 2026-08-04.
+      ["no flags", [], undefined, ["nodejs_compat"]],
+      ["other inline flags", ["custom"], undefined, ["custom", "nodejs_compat"]],
+      ["an inline nodejs_compat", ["nodejs_compat"], undefined, ["nodejs_compat"]],
+      ["a project nodejs_compat", [], ["nodejs_compat"], ["nodejs_compat"]],
+      // The app's own choices stay.
+      ["an inline no_nodejs_compat_v2", ["no_nodejs_compat_v2"], undefined, ["no_nodejs_compat_v2", "nodejs_compat"]],
+      ["a project no_nodejs_compat_v2", [], ["no_nodejs_compat_v2"], ["no_nodejs_compat_v2", "nodejs_compat"]],
+      ["a project nodejs_compat_v2", [], ["nodejs_compat_v2"], ["nodejs_compat_v2"]],
+      ["an inline no_nodejs_compat", ["no_nodejs_compat"], undefined, ["no_nodejs_compat"]],
+      ["a project no_nodejs_compat", [], ["no_nodejs_compat"], ["no_nodejs_compat"]],
+    ] as const)("writes valid flags for %s", async (_label, inline, project, expected) => {
+      const result = await writtenFlags([...inline], project && [...project])
+      expect(result.flags.toSorted()).toEqual([...expected].toSorted())
+      if (result.flags.includes("no_nodejs_compat")) {
+        expect(result.nodeCompat).toBe(false)
+        expect(result.inlineFlags).toEqual([...inline])
+        expect(result.modules).not.toContainEqual(expect.objectContaining({ name: "vite-hub/cloudflare-node-compat" }))
+      }
+    })
+
+    it("leaves the flags alone without nodeCompat", async () => {
+      const { nuxt, runNitroConfigHook } = createNuxt()
+      const config = { cloudflare: { nodeCompat: false, wrangler: { compatibility_flags: ["custom"] } } }
+      await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+      await runNitroConfigHook(config)
+      expect(config.cloudflare.wrangler.compatibility_flags).toEqual(["custom"])
+    })
   })
 
   it("passes generated server Env to Wrangler while preserving an explicit alias", async () => {
@@ -2923,7 +3010,7 @@ describe("ViteHub Nuxt integration", () => {
         ],
       },
       sandbox: true,
-      virtual: { "#vitehub/kv/config": "export const kv = false\nexport default { kv }\n" },
+      virtual: { "#vitehub/kv/config": "export const hosting = undefined\nexport const kv = false\nexport default { hosting, kv }\n" },
       workflows: true,
     })
   })

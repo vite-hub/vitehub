@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/presets",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "description": "Ready-made Agents built from ViteHub primitives: Babysitter, Labeller, and the workspace preset.",
   "keywords": [
     "agent",
@@ -31,25 +31,21 @@
     "./babysitter": {
       "types": "./dist/babysitter.d.ts",
       "import": "./dist/babysitter.js",
-      "require": "./dist/babysitter.js",
       "default": "./dist/babysitter.js"
     },
     "./babysitter/server": {
       "types": "./dist/babysitter/server.d.ts",
       "import": "./dist/babysitter/server.js",
-      "require": "./dist/babysitter/server.js",
       "default": "./dist/babysitter/server.js"
     },
     "./labeller": {
       "types": "./dist/labeller.d.ts",
       "import": "./dist/labeller.js",
-      "require": "./dist/labeller.js",
       "default": "./dist/labeller.js"
     },
     "./workspace": {
       "types": "./dist/workspace.d.ts",
       "import": "./dist/workspace.js",
-      "require": "./dist/workspace.js",
       "default": "./dist/workspace.js"
     },
     "./package.json": "./package.json"

@@ -21,7 +21,7 @@ describe("internal package exports", () => {
 });
 
 describe("normalizePackageExports", () => {
-  it("adds portable conditions to distribution imports", () => {
+  it("adds ESM conditions to distribution imports", () => {
     expect(normalizePackageExports({
       "./feature": "./dist/feature.js",
       "./metadata": "./package.json",
@@ -29,25 +29,23 @@ describe("normalizePackageExports", () => {
       "./feature": {
         types: "./dist/feature.d.ts",
         import: "./dist/feature.js",
-        require: "./dist/feature.js",
         default: "./dist/feature.js",
       },
       "./metadata": "./package.json",
     });
   });
 
-  it("preserves explicit conditions while filling missing portable ones", () => {
+  it("preserves explicit conditions", () => {
     expect(normalizePackageExports({
       "./feature": {
         types: "./dist/feature.d.ts",
         import: "./dist/feature.js",
-        require: "./dist/feature.cjs",
+        default: "./dist/feature.mjs",
       },
     })["./feature"]).toEqual({
       types: "./dist/feature.d.ts",
       import: "./dist/feature.js",
-      require: "./dist/feature.cjs",
-      default: "./dist/feature.js",
+      default: "./dist/feature.mjs",
     });
   });
 });

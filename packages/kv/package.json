@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/kv",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "description": "Vite-first key-value storage primitives and integration for ViteHub.",
   "keywords": [
     "cloudflare",
@@ -33,49 +33,41 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./cli": {
       "types": "./dist/cli.d.ts",
       "import": "./dist/cli.js",
-      "require": "./dist/cli.js",
       "default": "./dist/cli.js"
     },
     "./errors": {
       "types": "./dist/errors.d.ts",
       "import": "./dist/errors.js",
-      "require": "./dist/errors.js",
       "default": "./dist/errors.js"
     },
     "./operations": {
       "types": "./dist/operations.d.ts",
       "import": "./dist/operations.js",
-      "require": "./dist/operations.js",
       "default": "./dist/operations.js"
     },
     "./runtime/cloudflare-kv": {
       "types": "./dist/runtime/cloudflare-kv.d.ts",
       "import": "./dist/runtime/cloudflare-kv.js",
-      "require": "./dist/runtime/cloudflare-kv.js",
       "default": "./dist/runtime/cloudflare-kv.js"
     },
     "./runtime/upstash-driver": {
       "types": "./dist/runtime/upstash-driver.d.ts",
       "import": "./dist/runtime/upstash-driver.js",
-      "require": "./dist/runtime/upstash-driver.js",
       "default": "./dist/runtime/upstash-driver.js"
     },
     "./virtual": {
       "types": "./dist/virtual.d.ts",
       "import": "./dist/virtual.js",
-      "require": "./dist/virtual.js",
       "default": "./dist/virtual.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js",
-      "require": "./dist/vite.js",
       "default": "./dist/vite.js"
     },
     "./package.json": "./package.json"

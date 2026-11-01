@@ -1,7 +1,7 @@
 # @vite-hub/connections
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fconnections&icon=npm)](https://www.npmjs.com/package/@vite-hub/connections)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fconnections&period=month&icon=npm)](https://www.npmjs.com/package/@vite-hub/connections)
+[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fconnections&icon=npm)](https://npmx.dev/package/@vite-hub/connections)
+[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fconnections&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/connections)
 [![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
 [![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
 

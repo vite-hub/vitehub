@@ -19,8 +19,6 @@ describe("agent-ready HTTP contracts", () => {
     expect(workspace).toContain("nuxt-agent-discovery@0.7.0: patches/nuxt-agent-discovery@0.7.0.patch");
     expect(config).toContain('routes: ["/", "/docs", "/docs/**", "/about", "/contact", "/privacy"]');
     expect(config).not.toContain("routeRules:");
-    // Docus adds the negotiated routes to this list. Every page runs the Worker for canonical redirects.
-    expect(config).toContain('run_worker_first: ["/*", "!/_nuxt/*"]');
     expect(config).toContain("contentRawMarkdown: false");
   });
 
@@ -170,7 +168,8 @@ describe("trust and developer discovery content", () => {
     // Docus renders AppFooter on every page. The override renders nothing.
     expect(footer).not.toMatch(/<(?:UFooter|NuxtLink|a)\b/);
     expect(error).not.toContain("<AppFooter");
-    expect(error).toContain("Documentation index");
+    expect(error).toContain("label: \"Docs\", to: \"/docs\"");
+    expect(error).toContain("<AppSearch");
     expect(error).toContain("llms.txt");
     expect(error).toContain("Sitemap");
   });

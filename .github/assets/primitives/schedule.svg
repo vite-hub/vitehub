@@ -1,93 +1,89 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" class="primitive-motion is-playing" style="--cycle: 5000ms; --scene-delay: -4250ms">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" fill="currentColor" shape-rendering="crispEdges" class="primitive-motion is-playing" style="--cycle: 5000ms; --scene-delay: -1100ms">
 <style>
 svg { color: #59636e; --ui-bg: #ffffff; }
 @media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
 .primitive-motion {
-  --ease-move: cubic-bezier(0.65, 0, 0.35, 1);
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   overflow: visible;
 }
-.line,
-.ink-line,
-.card {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.line {
+.primitive-motion .line,
+.primitive-motion .job,
+.primitive-motion .command,
+.primitive-motion .budget {
   opacity: 0.55;
 }
-.ink-line {
-  opacity: 0.85;
-}
-.soft,
-.job,
-.command,
-.budget,
-.ink,
-.token,
-.band,
-.pointer {
-  fill: currentColor;
-}
-.soft {
+.primitive-motion .soft {
   opacity: 0.35;
 }
-.ink,
-.token,
-.pointer {
+.primitive-motion .ink,
+.primitive-motion .token,
+.primitive-motion .pointer {
   opacity: 0.85;
 }
-.token,
-.band,
-.ghost,
-.q-in,
-.blob-next {
+.primitive-motion .token,
+.primitive-motion .band,
+.primitive-motion .ghost,
+.primitive-motion .q-in,
+.primitive-motion .blob-next {
   opacity: 0;
 }
-.a {
+.primitive-motion .a {
   animation-duration: var(--cycle);
   animation-delay: var(--scene-delay);
   animation-iteration-count: infinite;
   animation-fill-mode: both;
-  animation-timing-function: var(--ease-move);
+  animation-timing-function: steps(3);
 }
 .primitive-motion:not(.is-playing) .a {
   animation-play-state: paused;
 }
-.q-worker,
-.sch-ring,
-.mail-unread {
-  transform-box: fill-box;
-  transform-origin: center;
+.primitive-motion .sch-hand-1,
+.primitive-motion .sch-hand-2,
+.primitive-motion .sch-hand-3,
+.primitive-motion .sch-hand-4,
+.primitive-motion .rt-caret-a,
+.primitive-motion .rt-caret-b {
+  animation-timing-function: step-end;
 }
-.sch-hand {
-  transform-box: fill-box;
-  transform-origin: 50% 100%;
-}
-.sch-hand { animation-name: sch-hand; }
-.sch-ring { animation-name: sch-ring; }
-.sch-runs { animation-name: sch-runs; }
-.sch-fired { animation-name: sch-fired; }
-.sch-next { animation-name: sch-next; }
+.primitive-motion .sch-hand-1 { animation-name: sch-hand-1; }
+.primitive-motion .sch-hand-2 { animation-name: sch-hand-2; }
+.primitive-motion .sch-hand-3 { animation-name: sch-hand-3; }
+.primitive-motion .sch-hand-4 { animation-name: sch-hand-4; }
+.primitive-motion .sch-ring { animation-name: sch-ring; }
+.primitive-motion .sch-runs { animation-name: sch-runs; }
+.primitive-motion .sch-fired { animation-name: sch-fired; }
+.primitive-motion .sch-next { animation-name: sch-next; }
 @media (prefers-reduced-motion: reduce) {
-  .a {
+  .primitive-motion .a {
     animation: none;
   }
 }
-@keyframes sch-hand {
-  0%, 4% { transform: rotate(0deg); }
-  46%, 100% { transform: rotate(360deg); }
+@keyframes sch-hand-1 {
+  0% { opacity: 0.85; }
+  14.5% { opacity: 0; }
+  46%, 100% { opacity: 0.85; }
+}
+@keyframes sch-hand-2 {
+  0% { opacity: 0; }
+  14.5% { opacity: 0.85; }
+  25%, 100% { opacity: 0; }
+}
+@keyframes sch-hand-3 {
+  0% { opacity: 0; }
+  25% { opacity: 0.85; }
+  35.5%, 100% { opacity: 0; }
+}
+@keyframes sch-hand-4 {
+  0% { opacity: 0; }
+  35.5% { opacity: 0.85; }
+  46%, 100% { opacity: 0; }
 }
 @keyframes sch-ring {
-  0%, 46% { opacity: 0; transform: scale(1); }
-  49% { opacity: 0.5; transform: scale(1); animation-timing-function: var(--ease-out); }
-  68%, 100% { opacity: 0; transform: scale(1.3); }
+  0%, 46% { opacity: 0; }
+  49% { opacity: 0.5; }
+  68%, 100% { opacity: 0; }
 }
 @keyframes sch-runs {
-  0%, 60% { transform: translateX(0); }
+  0%, 60% { transform: translateX(0); animation-timing-function: steps(4); }
   84%, 99.9% { transform: translateX(-8px); }
   100% { transform: translateX(0); }
 }
@@ -103,16 +99,5 @@ svg { color: #59636e; --ui-bg: #ffffff; }
   100% { opacity: 0; }
 }
 </style>
-      <circle cx="19" cy="20" r="13" class="line" />
-      <path d="M19 20l5 3" class="line" />
-      <path d="M19 20V11" class="ink-line a sch-hand" />
-      <circle cx="19" cy="20" r="1.75" class="ink" />
-      <circle cx="19" cy="20" r="13" class="ink-line ghost a sch-ring" />
-      <path d="M36 20h22" class="line" />
-      <g class="a sch-runs">
-        <circle cx="41" cy="20" r="2" class="soft a sch-fired" />
-        <circle cx="49" cy="20" r="2" class="soft" />
-        <circle cx="57" cy="20" r="2" class="soft" />
-        <circle cx="65" cy="20" r="2" class="soft a sch-next" />
-      </g>
+<path class="line" d="M8 8h10v2h-10zM4 10h4v2h-4zM18 10h4v2h-4zM2 12h2v2h-2zM22 12h2v2h-2zM2 14h2v2h-2zM22 14h2v2h-2zM0 16h2v2h-2zM24 16h2v2h-2zM0 18h2v2h-2zM24 18h2v2h-2zM0 20h2v2h-2zM24 20h2v2h-2zM0 22h2v2h-2zM14 22h2v2h-2zM24 22h2v2h-2zM0 24h2v2h-2zM16 24h2v2h-2zM24 24h2v2h-2zM2 26h2v2h-2zM22 26h2v2h-2zM2 28h2v2h-2zM22 28h2v2h-2zM4 30h4v2h-4zM18 30h4v2h-4zM8 32h10v2h-10z"/><path class="ink a sch-hand-1" d="M12 12h2v2h-2zM12 14h2v2h-2zM12 16h2v2h-2zM12 18h2v2h-2z"/><path class="ink ghost a sch-hand-2" d="M14 20h8v2h-8z"/><path class="ink ghost a sch-hand-3" d="M12 22h2v2h-2zM12 24h2v2h-2zM12 26h2v2h-2zM12 28h2v2h-2z"/><path class="ink ghost a sch-hand-4" d="M4 20h8v2h-8z"/><path class="ink" d="M12 20h2v2h-2z"/><path class="ink ghost a sch-ring" d="M8 8h10v2h-10zM4 10h4v2h-4zM18 10h4v2h-4zM2 12h2v2h-2zM22 12h2v2h-2zM2 14h2v2h-2zM22 14h2v2h-2zM0 16h2v2h-2zM24 16h2v2h-2zM0 18h2v2h-2zM24 18h2v2h-2zM0 20h2v2h-2zM24 20h2v2h-2zM0 22h2v2h-2zM24 22h2v2h-2zM0 24h2v2h-2zM24 24h2v2h-2zM2 26h2v2h-2zM22 26h2v2h-2zM2 28h2v2h-2zM22 28h2v2h-2zM4 30h4v2h-4zM18 30h4v2h-4zM8 32h10v2h-10z"/><path class="line" d="M30 20h24v2h-24z"/><g class="a sch-runs"><path class="soft a sch-fired" d="M34 18h4v2h-4zM34 20h4v2h-4z"/><path class="soft" d="M42 18h4v2h-4zM50 18h4v2h-4zM42 20h4v2h-4zM50 20h4v2h-4z"/><path class="soft a sch-next" d="M58 18h4v2h-4zM58 20h4v2h-4z"/></g>
 </svg>

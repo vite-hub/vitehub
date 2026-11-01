@@ -3,21 +3,20 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { array, boolean, object, optional, parse, record, string } from "valibot"
+import { array, boolean, object, optional, parse, pipe, record, string, transform, union } from "valibot"
 import { describe, expect, it } from "vitest"
 import { parse as parseYaml } from "yaml"
 
-const workflow = parse(object({ permissions: record(string(), string()), jobs: record(string(), object({
+const workflowSchema = object({ permissions: record(string(), string()), jobs: record(string(), object({
   name: optional(string()),
-  needs: optional(array(string())),
+  permissions: optional(record(string(), string())),
+  needs: optional(pipe(union([string(), array(string())]), transform(value => typeof value === "string" ? [value] : value))),
   if: optional(string()),
   "continue-on-error": optional(boolean()),
   steps: array(object({ run: optional(string()), env: optional(record(string(), string())) })),
-})) }), parseYaml(readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8")))
+})) })
+const workflow = parse(workflowSchema, parseYaml(readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8")))
 const jobNames = Object.keys(workflow.jobs).filter(name => name !== "ci")
-// These jobs failed on every push to main from 2026-10-19 to 10-22. They run and report, but do not fail ci.
-const advisoryJobs = ["consumer-contracts", "consumer-contracts-success", "docs", "docs-deploy", "verify-providers"]
-const blockingJobs = jobNames.filter(name => !advisoryJobs.includes(name))
 const gate = workflow.jobs.ci!
 const fullSuite = "${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) }}"
 
@@ -56,13 +55,12 @@ describe("CI merge gate", () => {
     }
   })
 
-  it("builds contracts and examples once before running either check", () => {
+  it("builds example dependencies once before checking metadata and examples", () => {
     const commands = workflow.jobs["contracts-examples"]?.steps.flatMap(step => step.run ? [step.run] : [])
     expect(commands).toEqual([
       "vp run build",
       "git diff --exit-code -- 'packages/*/package.json' || {\n  echo \"::error::vp run build rewrote package.json exports. Run it locally and commit the result.\"\n  exit 1\n}\n",
       "vp run package:metadata",
-      "vp test --config vitest.config.ts --exclude test/docs-host-fixtures.test.ts",
       "vp run --ignore-depends-on examples:verify",
     ])
   })
@@ -119,10 +117,24 @@ describe("CI merge gate", () => {
     expect(marker?.if).toBeUndefined()
   })
 
-  it("runs docs workspace tests on pushes", () => {
+  it("runs docs verification on pull requests before changes can reach production", () => {
     const docs = workflow.jobs.docs
-    expect(docs?.if).toBe(fullSuite)
+    expect(docs?.if).toBeUndefined()
+    expect(docs?.["continue-on-error"]).not.toBe(true)
     expect(docs?.steps.some(step => step.run === "vp run --filter vitehub-docs test")).toBe(true)
+  })
+
+  it("requires successful docs verification and deployment on pushes", () => {
+    expect(workflow.jobs["docs-deploy"]?.["continue-on-error"]).not.toBe(true)
+    expect(workflow.jobs["docs-deploy"]?.needs?.toSorted()).toEqual(jobNames.filter(name => !["docs-deploy", "prepublish-contracts", "package-tests", "consumer-contracts"].includes(name)).toSorted())
+    for (const name of ["docs", "docs-deploy"]) {
+      for (const result of ["failure", "cancelled", "skipped"]) {
+        const run = runGate({ ...successfulJobs, [name]: { result } }, "push")
+        expect(run.status, `${name}: ${result}`).not.toBe(0)
+        expect(run.stderr).toContain(`${name}: ${result}`)
+      }
+    }
+    expect(runGate({ ...successfulJobs, "docs-deploy": { result: "skipped" } }).status).toBe(0)
   })
 
   it.each(["push", "workflow_dispatch"])("rejects a partial package test rerun with failed shards on %s", (event) => {
@@ -135,16 +147,18 @@ describe("CI merge gate", () => {
     expect(result.stderr).toContain("package-tests-success: skipped")
   })
 
-  it.each(advisoryJobs)("reports a failed %s job without failing ci", (name) => {
-    const result = runGate({ ...successfulJobs, [name]: { result: "failure" } }, "push")
-    expect(result.status, result.stderr).toBe(0)
-    expect(result.stdout).toContain(`::warning::${name} (advisory): failure`)
+  it("rejects a partial consumer test rerun with a failed matrix shard", () => {
+    const result = runGate({
+      ...successfulJobs,
+      "consumer-contracts": { result: "success" },
+      "consumer-contracts-success": { result: "skipped" },
+    }, "push")
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toContain("consumer-contracts-success: skipped")
   })
 
-  it("keeps the workflow run green when an advisory job fails", () => {
-    for (const name of ["consumer-contracts", "docs", "docs-deploy", "verify-providers"]) {
-      expect(workflow.jobs[name]?.["continue-on-error"], name).toBe(true)
-    }
+  it.each(jobNames)("keeps failures from %s blocking", (name) => {
+    expect(workflow.jobs[name]?.["continue-on-error"]).not.toBe(true)
   })
 
   const pullRequestJobs = [
@@ -153,6 +167,7 @@ describe("CI merge gate", () => {
     "contract-tests",
     "package-tests",
     "package-tests-success",
+    "docs",
   ]
 
   it("accepts the checks intentionally skipped on pull requests", () => {
@@ -195,7 +210,7 @@ describe("CI merge gate", () => {
     expect(workflow.jobs["consumer-contracts"]?.if).toBe(fullSuite)
   })
 
-  it.each(blockingJobs)("rejects a failed or cancelled %s job", (name) => {
+  it.each(jobNames)("rejects a failed or cancelled %s job", (name) => {
     for (const result of ["failure", "cancelled"]) {
       expect(runGate({ ...successfulJobs, [name]: { result } }).status).not.toBe(0)
     }
@@ -210,5 +225,57 @@ describe("CI merge gate", () => {
     const result = runGate({ ...successfulJobs, "new-verification": { result: "skipped" } })
     expect(result.status).not.toBe(0)
     expect(result.stderr).toContain("new-verification: skipped")
+  })
+})
+
+describe("live smoke deployment gate", () => {
+  const liveSmoke = parse(workflowSchema, parseYaml(readFileSync(new URL("../.github/workflows/live-smoke.yml", import.meta.url), "utf8")))
+
+  it("checks CI for the exact main commit before building and deploying", () => {
+    const setup = liveSmoke.jobs["setup-cloudflare"]
+    expect(setup?.permissions).toEqual({ actions: "read", contents: "read" })
+    expect(liveSmoke.jobs["live-smoke"]?.needs).toEqual(["setup-cloudflare"])
+    const commands = setup?.steps.flatMap(step => step.run ? [step.run] : []) ?? []
+    const command = commands[0]
+    if (!command) throw new Error("Live smoke must check CI before building")
+    expect(command).toContain('actions/workflows/ci.yml/runs')
+    expect(command).toContain('-f head_sha="$GITHUB_SHA" -f branch=main -f event=push')
+    const directory = mkdtempSync(join(tmpdir(), "vitehub-live-ci-gate-"))
+    try {
+      writeFileSync(join(directory, "gh"), `#!/bin/sh
+case "$2" in
+  */git/ref/heads/main) printf "%s\\n" "$MAIN_SHA"; exit "$MAIN_API_STATUS" ;;
+  */actions/workflows/ci.yml/runs) printf "%s\\n" "$CI_CONCLUSION"; exit "$API_STATUS" ;;
+  *) exit 1 ;;
+esac
+`, { mode: 0o755 })
+      for (const conclusion of ["success", "failure", "cancelled", "missing"]) {
+        const result = spawnSync("bash", ["-eo", "pipefail", "-c", command], {
+          encoding: "utf8",
+          env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, MAIN_SHA: "verified-main", MAIN_API_STATUS: "0", CI_CONCLUSION: conclusion, API_STATUS: "0", GITHUB_SHA: "verified-main", GITHUB_REPOSITORY: "vite-hub/vitehub" },
+        })
+        expect(result.status === 0, result.stdout + result.stderr).toBe(conclusion === "success")
+      }
+      const unavailable = spawnSync("bash", ["-eo", "pipefail", "-c", command], {
+        env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, MAIN_SHA: "verified-main", MAIN_API_STATUS: "0", CI_CONCLUSION: "success", API_STATUS: "1", GITHUB_SHA: "verified-main", GITHUB_REPOSITORY: "vite-hub/vitehub" },
+      })
+      expect(unavailable.status).not.toBe(0)
+      for (const event of ["schedule", "workflow_dispatch"]) {
+        for (const sha of ["verified-main", "stale-main", "feature-commit"]) {
+          const result = spawnSync("bash", ["-eo", "pipefail", "-c", command], {
+            encoding: "utf8",
+            env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, MAIN_SHA: "verified-main", MAIN_API_STATUS: "0", CI_CONCLUSION: "success", API_STATUS: "0", GITHUB_SHA: sha, GITHUB_REPOSITORY: "vite-hub/vitehub", GITHUB_EVENT_NAME: event },
+          })
+          expect(result.status === 0, `${event} at ${sha}: ${result.stdout}${result.stderr}`).toBe(sha === "verified-main")
+        }
+      }
+      const mainUnavailable = spawnSync("bash", ["-eo", "pipefail", "-c", command], {
+        env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, MAIN_SHA: "verified-main", MAIN_API_STATUS: "1", CI_CONCLUSION: "success", API_STATUS: "0", GITHUB_SHA: "verified-main", GITHUB_REPOSITORY: "vite-hub/vitehub" },
+      })
+      expect(mainUnavailable.status).not.toBe(0)
+    }
+    finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 })

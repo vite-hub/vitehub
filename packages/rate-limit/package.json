@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/rate-limit",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "description": "Provider-neutral Rate Limit primitives and Vite deployment integration for ViteHub.",
   "keywords": [
     "cloudflare",
@@ -31,43 +31,36 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./cli": {
       "types": "./dist/cli.d.ts",
       "import": "./dist/cli.js",
-      "require": "./dist/cli.js",
       "default": "./dist/cli.js"
     },
     "./drivers/cloudflare": {
       "types": "./dist/drivers/cloudflare.d.ts",
       "import": "./dist/drivers/cloudflare.js",
-      "require": "./dist/drivers/cloudflare.js",
       "default": "./dist/drivers/cloudflare.js"
     },
     "./drivers/memory": {
       "types": "./dist/drivers/memory.d.ts",
       "import": "./dist/drivers/memory.js",
-      "require": "./dist/drivers/memory.js",
       "default": "./dist/drivers/memory.js"
     },
     "./operations": {
       "types": "./dist/operations.d.ts",
       "import": "./dist/operations.js",
-      "require": "./dist/operations.js",
       "default": "./dist/operations.js"
     },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.js",
-      "require": "./dist/runtime.js",
       "default": "./dist/runtime.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js",
-      "require": "./dist/vite.js",
       "default": "./dist/vite.js"
     },
     "./package.json": "./package.json"

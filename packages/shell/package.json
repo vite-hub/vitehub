@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/shell",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "description": "Unified shell runtimes for ViteHub.",
   "keywords": [
     "bash",
@@ -30,19 +30,16 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./providers/just-bash": {
       "types": "./dist/providers/just-bash.d.ts",
       "import": "./dist/providers/just-bash.js",
-      "require": "./dist/providers/just-bash.js",
       "default": "./dist/providers/just-bash.js"
     },
     "./workspace": {
       "types": "./dist/workspace.d.ts",
       "import": "./dist/workspace.js",
-      "require": "./dist/workspace.js",
       "default": "./dist/workspace.js"
     },
     "./package.json": "./package.json"

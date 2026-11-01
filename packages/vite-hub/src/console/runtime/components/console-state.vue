@@ -9,7 +9,7 @@ import { consolePrimitives } from "../sections";
 /**
  * One Console state: an error, an empty list, or a primitive that is not configured.
  * - With `error`, it shows the why, the fix, the code, and one next step. A retry button appears only when `retry`
- *   is set and a retry can succeed. `401` asks to sign in again.
+ *   is set and a retry can succeed. `401` asks to sign in again. A fix that only repeats the main button is left out.
  * - Without `error`, it shows `title` and `description`, and links the setup guide of `section`.
  */
 const props = withDefaults(
@@ -36,10 +36,10 @@ const primitive = computed(() => consolePrimitives.find((entry) => entry.id === 
 const docsURL = computed(() => problem.value ? problem.value.docs : props.docs ?? primitive.value?.setup);
 const stateIcon = computed(() => {
   if (props.icon && !problem.value) return props.icon;
-  if (problem.value?.action === "sign-in") return "i-ph-sign-in-light";
-  if (problem.value?.status === 403) return "i-ph-lock-simple-light";
-  if (problem.value) return "i-ph-cloud-slash-light";
-  return props.icon ?? "i-ph-tray-light";
+  if (problem.value?.action === "sign-in") return "i-lucide-log-in";
+  if (problem.value?.status === 403) return "i-lucide-lock";
+  if (problem.value) return "i-lucide-cloud-off";
+  return props.icon ?? "i-lucide-inbox";
 });
 
 function reload(): void {
@@ -53,7 +53,7 @@ const docsAction = computed<ButtonProps | undefined>(() =>
         label: problem.value ? (props.compact ? "Docs" : "Read the docs") : "Get started",
         to: docsURL.value,
         target: "_blank",
-        trailingIcon: "i-ph-arrow-up-right-light",
+        trailingIcon: "i-lucide-arrow-up-right",
       }
     : undefined,
 );
@@ -64,10 +64,10 @@ const stateActions = computed<ButtonProps[]>(() => {
   if (action === "sign-in") {
     // The sign-in page brings the person back to this page. Without one, the page reloads, which lets Cloudflare Access sign them in.
     const signIn = consoleSignInURL({ document, location: window.location });
-    main.push(signIn ? { label: "Sign in again", icon: "i-ph-sign-in-light", to: signIn, external: true } : { label: "Sign in again", icon: "i-ph-sign-in-light", onClick: reload });
+    main.push(signIn ? { label: "Sign in again", icon: "i-lucide-log-in", to: signIn, external: true } : { label: "Sign in again", icon: "i-lucide-log-in", onClick: reload });
   }
-  else if (action === "reload") main.push({ label: "Reload", icon: "i-ph-arrows-clockwise-light", onClick: reload });
-  else if (action === "retry" && props.retry) main.push({ label: "Try again", icon: "i-ph-arrows-clockwise-light", onClick: () => void props.retry?.() });
+  else if (action === "reload") main.push({ label: "Reload", icon: "i-lucide-refresh-cw", onClick: reload });
+  else if (action === "retry" && props.retry) main.push({ label: "Try again", icon: "i-lucide-refresh-cw", onClick: () => void props.retry?.() });
   const first = main[0];
   const buttons: ButtonProps[] = first ? [{ color: "neutral", variant: "soft", size: "xs", ...first }] : [];
   // Later buttons are ghost buttons, so every button in the row has the same height and padding.
@@ -76,6 +76,12 @@ const stateActions = computed<ButtonProps[]>(() => {
   }
   for (const extra of props.actions ?? []) buttons.push({ color: "neutral", variant: "ghost", size: "xs", ...extra });
   return buttons;
+});
+
+// A fix that only names the main button, such as "Sign in again.", says the same thing twice. The button says it once.
+const fix = computed(() => {
+  const text = problem.value?.fix;
+  return text && text.replace(/\.$/, "") === stateActions.value[0]?.label ? undefined : text;
 });
 
 const copied = ref(false);
@@ -108,7 +114,7 @@ onBeforeUnmount(() => {
     <div class="grid min-w-0 gap-1">
       <h2 class="text-[13px] font-medium leading-5 text-highlighted">{{ title }}</h2>
       <p v-if="problem?.why || description" class="leading-5 text-pretty text-muted">{{ problem?.why ?? description }}</p>
-      <p v-if="problem?.fix" class="leading-5 text-pretty text-default">{{ problem.fix }}</p>
+      <p v-if="fix" class="leading-5 text-pretty text-default">{{ fix }}</p>
       <slot />
       <div v-if="stateActions.length" class="mt-1 flex flex-wrap items-center gap-1">
         <UButton v-for="(button, index) in stateActions" :key="index" v-bind="button" />
@@ -137,7 +143,7 @@ onBeforeUnmount(() => {
         <p v-if="problem?.why || description" class="text-xs leading-5 text-pretty text-muted">
           {{ problem?.why ?? description }}
         </p>
-        <p v-if="problem?.fix" class="text-xs leading-5 text-pretty text-default">{{ problem.fix }}</p>
+        <p v-if="fix" class="text-xs leading-5 text-pretty text-default">{{ fix }}</p>
       </div>
     </div>
     <!-- Extra content for the state, such as a code example for an empty state. -->

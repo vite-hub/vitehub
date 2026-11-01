@@ -5,8 +5,10 @@ import {
   loadConnectionApprovals,
   requestConnectionsManagement,
 } from "../client/connections-management";
+import type { ConsoleConnectionApproval } from "../client/connections-management";
 import { consoleDateTime } from "../client/time";
 import ConsoleState from "./console-state.vue";
+import ConsoleStatus from "./console-status.vue";
 const props = defineProps<{ endpoint: string; name: string }>();
 const emit = defineEmits<{ changed: [] }>();
 const approvals = ref<Awaited<ReturnType<typeof loadConnectionApprovals>>["history"]>([]);
@@ -20,6 +22,13 @@ const errorTitle = ref("Could not complete the request");
 const notice = ref("");
 const pending = ref<Awaited<ReturnType<typeof loadConnectionApprovals>>["history"]>([]);
 const decided = computed(() => approvals.value.filter((approval) => approval.status !== "pending"));
+/** A decided approval as a Console status. A denied call and a failed call are both calls that did not run as asked. */
+const outcomes: Partial<Record<ConsoleConnectionApproval["status"], { label: string; tone: "error" | "neutral" | "success" }>> = {
+  approved: { label: "Approved", tone: "neutral" },
+  denied: { label: "Denied", tone: "error" },
+  executed: { label: "Executed", tone: "success" },
+  failed: { label: "Failed", tone: "error" },
+};
 async function run(action: () => Promise<void>) {
   busy.value = true;
   error.value = undefined;
@@ -69,10 +78,10 @@ function decide(id: string, decision: "approve" | "deny") {
       );
       notice.value =
         result.approval.status === "executed"
-          ? "Approved. The call ran. Status: executed."
+          ? "Approved. The call ran."
           : result.approval.status === "denied"
             ? "Denied. The call does not run."
-            : `Status: ${result.approval.status}.`;
+            : `${outcomes[result.approval.status]?.label ?? result.approval.status}.`;
     } catch (cause) {
       failure = cause;
     }
@@ -138,14 +147,10 @@ onMounted(load);
         <li v-for="approval in decided" :key="approval.id" class="space-y-1 py-3 text-xs">
           <div class="flex flex-wrap justify-between gap-2">
             <span class="break-all font-mono text-highlighted">{{ approval.action }}</span
-            ><span
-              :class="
-                approval.status === 'failed' || approval.status === 'denied'
-                  ? 'text-error'
-                  : 'text-muted'
-              "
-              >{{ approval.status }}</span
-            >
+            ><ConsoleStatus
+              :label="outcomes[approval.status]?.label ?? approval.status"
+              :tone="outcomes[approval.status]?.tone"
+            />
           </div>
           <p class="break-all text-muted">
             Requested by {{ approval.actor
