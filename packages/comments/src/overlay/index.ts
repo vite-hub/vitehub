@@ -722,15 +722,16 @@ class CommentsOverlay extends HTMLElement {
     if (!this.context) return
     if (!this.pageWindow) {
       this.pageWindow = this.context.createWindow({
-        id: "comments", title: "Comments", trigger: this.context.bar,
+        id: "comments", title: "Comments", trigger: this.context.bar, colorScheme: () => "dark",
         onHide: () => { this.panel = false; this.renderToolbar() },
       })
       const host = document.createElement("div")
       const shadow = host.attachShadow({ mode: "open" })
-      // The window opens from the dark pill, so the list in it is dark too, like the comments panel of Drop.
+      // The window opens from the dark pill, so the window and its list are dark, like the comments panel of Drop. The list
+      // takes the dark window surface.
       this.panelBody = h("div", { className: "root", "data-theme": "dark" })
       shadow.append(h("style", {}, overlayStyles + `
-        :host{display:block;height:100%}.root{position:static;height:100%;pointer-events:auto}.root[data-theme="dark"]{--surface:#171717}
+        :host{display:block;height:100%}.root{position:static;height:100%;pointer-events:auto}.root[data-theme="dark"]{--surface:#0a0a0a}
         .panel,.card{position:static;width:auto;max-width:none;max-height:none;border:0;border-radius:0;box-shadow:none}
         .panel-head>.title h2,.panel-head>.icon{display:none}.panel-list{max-height:40vh}
         .card{border-top:1px solid var(--line)}
