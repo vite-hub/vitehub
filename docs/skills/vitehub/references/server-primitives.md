@@ -18,7 +18,7 @@ provider output          deployment artifact when applicable
 
 With the current facade, register `vitehub()` from `vite-hub` and import application APIs from feature subpaths such as `vite-hub/kv`, `vite-hub/blob`, or `vite-hub/rate-limit`. Validate those paths against installed exports before coding.
 
-For Database runtime access, import `useDatabase` from `vite-hub/database/drizzle` and call it with the discovered database name. Use `useDatabase("default")` for a Default Database. Query through the returned `db` and `schema`; do not import a Database Definition into application code or use the direct `db`, `schema`, or `databases` exports.
+For Database runtime access, import `useDatabase` from `vite-hub/database/drizzle` and call it with the discovered database name. Use `useDatabase("default")` for a Default Database. Query through the returned `db` and `schema`. Do not import a Database Definition into application code. In explicit imports, prefer `useDatabase()` over the direct `db`, `schema`, and `databases` exports. In Nuxt server code with `database` enabled and Nitro auto-imports on, the module auto-imports `db` and `schema` for the Default Database; that code can use them without an import. Use `useDatabase(name)` for a Named Database.
 
 ## Authority
 

@@ -141,7 +141,20 @@ mcp({
 
 `optional: true` leaves the server out, without an unavailable notice, until the Connection is connected. `tools` exposes only the named server tools. It also works on a client config without a Connection.
 
-Outside an Agent, `callMcpTool({ connection: 'crm' }, 'search', { query }, { retries: 2 })` from `vite-hub/agent/mcp` calls one tool through the Connection as the `server` actor. Allow it with `access: { server: { read: true, write: ['fetch'] } }`. It rejects approval-gated writes like the Agent client. A tool that is not in `tools` fails with `MCP_TOOL_NOT_FOUND`. `retries` repeats a failed call after 100 ms, then 200 ms, and so on, and stops when `signal` aborts.
+Outside an Agent, `callMcpTool()` from `vite-hub/agent/mcp` calls one tool through the Connection as the `server` actor. Allow it with `access: { server: { read: true, write: ['fetch'] } }`. It returns an `[error, value]` tuple and does not reject for a failed call. `value` is the tool's `structuredContent`, or its text content parsed as JSON when possible.
+
+```ts [server/api/crm/search.get.ts]
+import { callMcpTool } from 'vite-hub/agent/mcp'
+
+export default defineEventHandler(async (event) => {
+  const { query } = getQuery(event)
+  const [error, result] = await callMcpTool({ connection: 'crm' }, 'search', { query }, { retries: 2 })
+  if (error) throw createError({ statusCode: 502, message: error.message })
+  return result
+})
+```
+
+`error` is set when the server cannot be reached or the tool reports an error. Approval-gated writes fail like the Agent client. A tool that is not in `tools` returns an `MCP_TOOL_NOT_FOUND` error. `retries` repeats a failed call after 100 ms, then 200 ms, and so on, and stops when `signal` aborts. It returns the last error.
 
 Each request maps to a Connection Operation id:
 

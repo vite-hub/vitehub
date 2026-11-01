@@ -310,7 +310,8 @@ describe("MCP sign-in against a real Better Auth", () => {
     }
   })
 
-  it("signs an agent in and asks for consent on the built-in app Auth page by default", async () => {
+  it.each(["", "/"])("signs an agent in and asks for consent on the built-in app Auth page by default (resource suffix: %s)", async (suffix) => {
+    const resource = `${app}/_vitehub/mcp${suffix}`
     const database = new DatabaseSync(":memory:")
     const definition = defineAuth(() => ({ baseURL: app, database, emailAndPassword: { enabled: true }, plugins: consoleMcpOAuth({ resource }), secret: "test-secret-at-least-32-bytes-long" }))
     const real = (request: Pick<Request, "headers" | "url">) => createAuthForRequest(definition, request)
@@ -347,6 +348,16 @@ describe("MCP sign-in against a real Better Auth", () => {
     finally {
       database.close()
     }
+  })
+
+  it.each(["", "/"])("defaults to the mounted sibling sign-in page (resource suffix: %s)", (suffix) => {
+    const resource = `${app}/portal/_vitehub/mcp${suffix}`
+    const provider = consoleMcpOAuth({ resource }).find(plugin => plugin.id === "oauth-provider")
+    expect(provider?.options).toMatchObject({
+      consentPage: "/portal/_vitehub/sign-in",
+      loginPage: "/portal/_vitehub/sign-in",
+      resources: [resource],
+    })
   })
 
   it("keeps supplied plugins, and adds no OAuth schema with migrate false", async () => {

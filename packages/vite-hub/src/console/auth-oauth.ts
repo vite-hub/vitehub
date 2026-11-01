@@ -68,7 +68,7 @@ export interface ConsoleMcpOAuthOptions {
  */
 export function consoleMcpOAuth(options: ConsoleMcpOAuthOptions): BetterAuthPlugin[] {
   const issuer = (options.issuer ?? `${new URL(options.resource).origin}/api/auth`).replace(/\/+$/, "")
-  const loginPage = options.loginPage ?? new URL("sign-in", options.resource).pathname
+  const loginPage = options.loginPage ?? new URL("sign-in", options.resource.replace(/\/+$/, "")).pathname
   return [
     // By default the plugin signs a token on every session read, which the Console never uses and which fails after the secret changes.
     jwt({ disableSettingJwtHeader: true, jwt: { issuer } }),
