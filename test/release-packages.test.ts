@@ -212,6 +212,7 @@ function fakeRegistryRuntime(packages: ReleaseEntry[], initial = new Map<string,
   const events: string[] = []
   let failPublish: string | undefined
   let publishError = ""
+  let existing: ReturnType<typeof verifiedRegistryEntry> | undefined
   let failAudit = false
   let installFailures = 0
   let sleeps = 0
@@ -229,7 +230,13 @@ function fakeRegistryRuntime(packages: ReleaseEntry[], initial = new Map<string,
       }
       if (command === "npm" && args[0] === "publish" && !args.includes("--dry-run")) {
         const pkg = byTarball.get(args[1]!.slice(2))!
-        if (pkg.name === failPublish) throw new Error(publishError || `publish failed for ${pkg.name}`)
+        if (pkg.name === failPublish) {
+          if (existing) {
+            state.set(pkg.name, existing)
+            distTags.set(pkg.name, { tag: existing.tag, version: existing.version })
+          }
+          throw new Error(publishError || `publish failed for ${pkg.name}`)
+        }
         const tag = args[args.indexOf("--tag") + 1]!
         state.set(pkg.name, verifiedRegistryEntry(pkg, tag))
         distTags.set(pkg.name, { tag, version: pkg.version })
@@ -265,9 +272,10 @@ function fakeRegistryRuntime(packages: ReleaseEntry[], initial = new Map<string,
     getSleeps: () => sleeps,
     runtime,
     setFailAudit: (value = true) => { failAudit = value },
-    setFailPublish: (name?: string, message = "") => {
+    setFailPublish: (name?: string, message = "", entry?: ReturnType<typeof verifiedRegistryEntry>) => {
       failPublish = name
       publishError = message
+      existing = entry
     },
     setInstallFailures: (count: number) => { installFailures = count },
     setDistTag: (name: string, tag: string, version: string) => distTags.set(name, { tag, version }),
@@ -722,19 +730,36 @@ describe("release publication", () => {
     expect(registry.calls.filter(call => call.args[0] === "publish").map(call => call.args[1])).toEqual(artifact.manifest.packages.map(pkg => `./${pkg.tarball}`))
   })
 
-  it("continues past an already published version and stops on other publish conflicts", async () => {
+  it("verifies an already published version against the release and stops on other publish conflicts", async () => {
     const root = await temporaryDirectory("vitehub-release-conflict-")
     const artifact = await writeArtifact(root, [
       { name: "@vite-hub/runtime" },
       { dependencies: ["@vite-hub/runtime"], name: "@vite-hub/app" },
     ])
-    const published = fakeRegistryRuntime(artifact.manifest.packages)
-    published.setFailPublish("@vite-hub/runtime", "npm error code EPUBLISHCONFLICT\nnpm error cannot publish over the previously published versions: 1.2.3.")
-    await publishReleaseArtifacts({ manifestPath: artifact.manifestPath, runtime: published.runtime, sourceRef, sourceSha, tag: "latest" })
-    expect(published.calls.filter(call => call.args[0] === "publish").map(call => call.args[1])).toEqual(artifact.manifest.packages.map(pkg => `./${pkg.tarball}`))
+    const [runtimePackage] = artifact.manifest.packages
+    const conflict = "npm error code EPUBLISHCONFLICT\nnpm error cannot publish over the previously published versions: 1.2.3."
+
+    const matching = fakeRegistryRuntime(artifact.manifest.packages)
+    matching.setFailPublish(runtimePackage.name, conflict, verifiedRegistryEntry(runtimePackage))
+    await publishReleaseArtifacts({ manifestPath: artifact.manifestPath, runtime: matching.runtime, sourceRef, sourceSha, tag: "latest" })
+    expect(matching.calls.filter(call => call.args[0] === "publish").map(call => call.args[1])).toEqual(artifact.manifest.packages.map(pkg => `./${pkg.tarball}`))
+    expect(matching.events).toEqual([`verified:${runtimePackage.name}`, "audit"])
+
+    const foreign = verifiedRegistryEntry(runtimePackage)
+    foreign.integrity = `sha512-${Buffer.alloc(64, 1).toString("base64")}`
+    const different = fakeRegistryRuntime(artifact.manifest.packages)
+    different.setFailPublish(runtimePackage.name, conflict, foreign)
+    await expect(publishReleaseArtifacts({ attempts: 1, manifestPath: artifact.manifestPath, runtime: different.runtime, sourceRef, sourceSha, tag: "latest" }))
+      .rejects.toThrow("Registry integrity mismatch")
+    expect(different.events).not.toContain("audit")
+
+    const missing = fakeRegistryRuntime(artifact.manifest.packages)
+    missing.setFailPublish(runtimePackage.name, conflict)
+    await expect(publishReleaseArtifacts({ attempts: 1, manifestPath: artifact.manifestPath, runtime: missing.runtime, sourceRef, sourceSha, tag: "latest" }))
+      .rejects.toThrow(`Registry does not show ${runtimePackage.name}@1.2.3`)
 
     const processing = fakeRegistryRuntime(artifact.manifest.packages)
-    processing.setFailPublish("@vite-hub/runtime", "npm error code E409\nnpm error 409 Conflict")
+    processing.setFailPublish(runtimePackage.name, "npm error code E409\nnpm error 409 Conflict")
     await expect(publishReleaseArtifacts({ manifestPath: artifact.manifestPath, runtime: processing.runtime, sourceRef, sourceSha, tag: "latest" }))
       .rejects.toThrow("E409")
     expect(processing.events).not.toContain("audit")

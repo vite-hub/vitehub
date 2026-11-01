@@ -625,6 +625,21 @@ export async function inspectPublishedPackage(pkg, options) {
   return { state: "verified" }
 }
 
+// npm rejected this version as already published, so it must match this release before the release counts.
+async function verifyConflictingPackage(pkg, options) {
+  const attempts = options.attempts || 20
+  for (let attempt = 1; ; attempt++) {
+    try {
+      if ((await inspectPublishedPackage(pkg, options)).state === "verified") return
+      if (attempt >= attempts) fail(`Registry does not show ${pkg.name}@${pkg.version}`)
+    }
+    catch (error) {
+      if (attempt >= attempts) throw error
+    }
+    await options.runtime.sleep(options.retryDelayMs ?? 30_000)
+  }
+}
+
 async function auditPublishedSignatures(packages, runtime, options) {
   const directory = await mkdtemp(join(tmpdir(), "vitehub-release-audit-"))
   try {
@@ -668,6 +683,7 @@ export async function publishReleaseArtifacts(options) {
     }
   }
 
+  const conflicts = []
   for (const [index, pkg] of verified.manifest.packages.entries()) {
     const publishArgs = ["publish", `./${pkg.tarball}`, "--access", "public", "--tag", options.tag, "--ignore-scripts", "--no-git-checks", `--registry=${npmRegistry}`]
     if (options.dryRun) {
@@ -686,11 +702,13 @@ export async function publishReleaseArtifacts(options) {
       await command(runtime, "npm", publishArgs, { cwd: verified.artifactRoot })
     }
     catch (error) {
-      // A rerun checks the provenance of this version before it publishes anything.
       if (!/EPUBLISHCONFLICT|cannot publish over the previously published/.test(String(error?.message))) throw error
-      options.onProgress?.(`${pkg.name}@${pkg.version} is already published; continuing.`)
+      options.onProgress?.(`${pkg.name}@${pkg.version} is already published; verifying it after the whole set.`)
+      conflicts.push(pkg)
     }
   }
+
+  for (const pkg of conflicts) await verifyConflictingPackage(pkg, { ...options, runtime })
 
   if (!options.dryRun) await auditPublishedSignatures(verified.manifest.packages, runtime, options)
   return verified.manifest.packages.length
