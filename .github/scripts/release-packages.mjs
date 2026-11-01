@@ -625,17 +625,23 @@ export async function inspectPublishedPackage(pkg, options) {
   return { state: "verified" }
 }
 
-async function waitUntilVerified(pkg, options) {
+// One retry window covers the whole set, so slow propagation can't add up per package.
+async function waitUntilVerified(packages, options) {
   const attempts = options.attempts || 20
-  for (let attempt = 1; ; attempt++) {
-    try {
-      if ((await inspectPublishedPackage(pkg, options)).state === "verified") return
-      if (attempt >= attempts) fail(`Registry does not show ${pkg.name}@${pkg.version}`)
+  let pending = packages
+  for (let attempt = 1; pending.length > 0; attempt++) {
+    const failures = []
+    for (const pkg of pending) {
+      try {
+        if ((await inspectPublishedPackage(pkg, options)).state !== "verified") failures.push({ error: new Error(`Registry does not show ${pkg.name}@${pkg.version}`), pkg })
+      }
+      catch (error) {
+        failures.push({ error, pkg })
+      }
     }
-    catch (error) {
-      if (attempt >= attempts) throw error
-    }
-    await options.runtime.sleep(options.retryDelayMs ?? 30_000)
+    if (failures.length > 0 && attempt >= attempts) throw failures[0].error
+    pending = failures.map(failure => failure.pkg)
+    if (pending.length > 0) await options.runtime.sleep(options.retryDelayMs ?? 30_000)
   }
 }
 
@@ -704,14 +710,14 @@ export async function publishReleaseArtifacts(options) {
       if (!/EPUBLISHCONFLICT|cannot publish over the previously published/.test(String(error?.message))) throw error
       // Dependents must not be published against a version this release did not produce.
       options.onProgress?.(`${pkg.name}@${pkg.version} is already published; verifying it before its dependents.`)
-      await waitUntilVerified(pkg, { ...options, runtime })
+      await waitUntilVerified([pkg], { ...options, runtime })
       continue
     }
     published.push(pkg)
   }
 
   // npm can take minutes to serve new versions, so check the whole set once instead of after each package.
-  for (const pkg of published) await waitUntilVerified(pkg, { ...options, runtime })
+  await waitUntilVerified(published, { ...options, runtime })
 
   if (!options.dryRun) await auditPublishedSignatures(verified.manifest.packages, runtime, options)
   return verified.manifest.packages.length

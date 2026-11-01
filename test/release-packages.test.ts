@@ -216,7 +216,7 @@ function fakeRegistryRuntime(packages: ReleaseEntry[], initial = new Map<string,
   let failAudit = false
   let installFailures = 0
   let auditFailures = 0
-  let unattested: string | undefined
+  const unattested = new Set<string>()
   let sleeps = 0
   const byTarball = new Map(packages.map(pkg => [pkg.tarball, pkg]))
   const runtime = {
@@ -245,7 +245,7 @@ function fakeRegistryRuntime(packages: ReleaseEntry[], initial = new Map<string,
         }
         const tag = args[args.indexOf("--tag") + 1]!
         const entry = verifiedRegistryEntry(pkg, tag)
-        if (pkg.name === unattested) entry.attestations = []
+        if (unattested.has(pkg.name)) entry.attestations = []
         state.set(pkg.name, entry)
         distTags.set(pkg.name, { tag, version: pkg.version })
       }
@@ -286,7 +286,7 @@ function fakeRegistryRuntime(packages: ReleaseEntry[], initial = new Map<string,
       existing = entry
     },
     setAuditFailures: (count: number) => { auditFailures = count },
-    setUnattested: (name: string) => { unattested = name },
+    setUnattested: (name: string) => { unattested.add(name) },
     setInstallFailures: (count: number) => { installFailures = count },
     setDistTag: (name: string, tag: string, version: string) => distTags.set(name, { tag, version }),
     state,
@@ -744,6 +744,21 @@ describe("release publication", () => {
     await expect(publishReleaseArtifacts({ attempts: 1, manifestPath: artifact.manifestPath, runtime: unattested.runtime, sourceRef, sourceSha, tag: "latest" }))
       .rejects.toThrow("Registry attestations are incomplete for @vite-hub/app@1.2.3")
     expect(unattested.events).not.toContain("audit")
+  })
+
+  it("shares one verification window across the whole published set", async () => {
+    const root = await temporaryDirectory("vitehub-release-shared-window-")
+    const artifact = await writeArtifact(root, [
+      { name: "@vite-hub/runtime" },
+      { dependencies: ["@vite-hub/runtime"], name: "@vite-hub/app" },
+      { dependencies: ["@vite-hub/app"], name: "@vite-hub/final" },
+    ])
+    const registry = fakeRegistryRuntime(artifact.manifest.packages)
+    for (const pkg of artifact.manifest.packages) registry.setUnattested(pkg.name)
+
+    await expect(publishReleaseArtifacts({ attempts: 3, manifestPath: artifact.manifestPath, runtime: registry.runtime, sourceRef, sourceSha, tag: "latest" }))
+      .rejects.toThrow("Registry attestations are incomplete for @vite-hub/runtime@1.2.3")
+    expect(registry.getSleeps()).toBe(2)
   })
 
   it("verifies an already published version before its dependents and stops on other publish conflicts", async () => {
