@@ -17,7 +17,7 @@ import { dirname, join, resolve } from "node:path"
 import { promisify } from "node:util"
 import { gzipSync } from "node:zlib"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   createReleaseArtifacts,
@@ -759,6 +759,42 @@ describe("release publication", () => {
     await expect(publishReleaseArtifacts({ attempts: 3, manifestPath: artifact.manifestPath, runtime: registry.runtime, sourceRef, sourceSha, tag: "latest" }))
       .rejects.toThrow("Registry attestations are incomplete for @vite-hub/runtime@1.2.3")
     expect(registry.getSleeps()).toBe(2)
+  })
+
+  it("stops the whole-set verification at its deadline, even inside a round", async () => {
+    const root = await temporaryDirectory("vitehub-release-deadline-")
+    const artifact = await writeArtifact(root, [
+      { name: "@vite-hub/runtime" },
+      { dependencies: ["@vite-hub/runtime"], name: "@vite-hub/app" },
+      { dependencies: ["@vite-hub/app"], name: "@vite-hub/final" },
+    ])
+    const registry = fakeRegistryRuntime(artifact.manifest.packages)
+    for (const pkg of artifact.manifest.packages) registry.setUnattested(pkg.name)
+    let now = 1_000_000
+    let published = 0
+    const requests: string[] = []
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now)
+    const runtime = {
+      ...registry.runtime,
+      exec: async (command: string, args: string[], options?: { cwd?: string, timeout?: number }) => {
+        if (args[0] === "publish") published++
+        return registry.runtime.exec(command, args, options)
+      },
+      fetch: async (input: string) => {
+        if (published === artifact.manifest.packages.length) requests.push(input)
+        now += 400
+        return registry.runtime.fetch(input)
+      },
+    }
+    try {
+      await expect(publishReleaseArtifacts({ attempts: 20, verifyTimeoutMs: 1_000, manifestPath: artifact.manifestPath, runtime, sourceRef, sourceSha, tag: "latest" }))
+        .rejects.toThrow("Registry attestations are incomplete for @vite-hub/runtime@1.2.3")
+    }
+    finally {
+      clock.mockRestore()
+    }
+    expect(requests).toHaveLength(3)
+    expect(registry.getSleeps()).toBe(0)
   })
 
   it("verifies an already published version before its dependents and stops on other publish conflicts", async () => {

@@ -561,7 +561,9 @@ function assertAttestationSubject(statement, pkg) {
 
 async function registryFetch(runtime, url, options, label) {
   try {
-    return await runtime.fetch(url, { signal: AbortSignal.timeout(options.requestTimeoutMs ?? 15_000) })
+    const timeout = Math.min(options.requestTimeoutMs ?? 15_000, options.deadline === undefined ? Infinity : options.deadline - Date.now())
+    if (timeout <= 0) fail("Registry verification deadline passed")
+    return await runtime.fetch(url, { signal: AbortSignal.timeout(timeout) })
   }
   catch (error) {
     throw new Error(`Registry request failed for ${label}`, { cause: error })
@@ -625,23 +627,24 @@ export async function inspectPublishedPackage(pkg, options) {
   return { state: "verified" }
 }
 
-// One retry window covers the whole set, so slow propagation can't add up per package.
+// One deadline covers the whole set, so slow propagation can't add up per package or per request.
 async function waitUntilVerified(packages, options) {
   const attempts = options.attempts || 20
+  const deadline = Date.now() + (options.verifyTimeoutMs ?? 900_000)
   let pending = packages
   for (let attempt = 1; pending.length > 0; attempt++) {
     const failures = []
     for (const pkg of pending) {
       try {
-        if ((await inspectPublishedPackage(pkg, options)).state !== "verified") failures.push({ error: new Error(`Registry does not show ${pkg.name}@${pkg.version}`), pkg })
+        if ((await inspectPublishedPackage(pkg, { ...options, deadline })).state !== "verified") failures.push({ error: new Error(`Registry does not show ${pkg.name}@${pkg.version}`), pkg })
       }
       catch (error) {
         failures.push({ error, pkg })
       }
     }
-    if (failures.length > 0 && attempt >= attempts) throw failures[0].error
+    if (failures.length > 0 && (attempt >= attempts || Date.now() >= deadline)) throw failures[0].error
     pending = failures.map(failure => failure.pkg)
-    if (pending.length > 0) await options.runtime.sleep(options.retryDelayMs ?? 30_000)
+    if (pending.length > 0) await options.runtime.sleep(Math.min(options.retryDelayMs ?? 30_000, deadline - Date.now()))
   }
 }
 
