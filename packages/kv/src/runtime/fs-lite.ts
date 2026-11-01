@@ -1,5 +1,5 @@
-import { opendir, stat } from "node:fs/promises"
-import { join, relative, resolve, sep } from "node:path"
+import { mkdir, opendir, stat, writeFile } from "node:fs/promises"
+import { dirname, join, relative, resolve, sep } from "node:path"
 
 import createDriver from "unstorage/drivers/fs-lite"
 
@@ -32,6 +32,22 @@ export default function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfi
     catch (error) {
       // A key can be removed between the existence check and stat.
       if (error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR")) return false
+      throw error
+    }
+  }
+  // The exclusive create flag makes the existence check and the write one step, also across processes on one disk.
+  // fs-lite never expires keys, so the TTL does not apply.
+  driver.setIfAbsentItem = async (key, value) => {
+    // The underlying driver validates the key before it resolves the file path.
+    if (await driver.hasItem(key, {})) return false
+    const path = join(root, key.replace(/:/g, "/"))
+    await mkdir(dirname(path), { recursive: true })
+    try {
+      await writeFile(path, value, { encoding: "utf8", flag: "wx" })
+      return true
+    }
+    catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "EEXIST" && (await stat(path)).isFile()) return false
       throw error
     }
   }

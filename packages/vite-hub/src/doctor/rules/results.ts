@@ -9,7 +9,7 @@ type HandleKind = "kv" | "blob" | "media" | "email" | "channel" | "queueClient"
 
 /** Methods that return `[error, value]` for each Runtime Helper handle. */
 const tupleMethods: Record<HandleKind, Set<string>> = {
-  kv: new Set(["clear", "del", "get", "getAndDelete", "has", "increment", "keys", "list", "set"]),
+  kv: new Set(["clear", "del", "get", "getAndDelete", "has", "increment", "keys", "list", "set", "setIfAbsent"]),
   blob: new Set(["createMultipartUpload", "del", "get", "handleMultipartUpload", "handleUpload", "head", "list", "put", "resumeMultipartUpload", "serve", "sign"]),
   media: new Set(["createFolder", "get", "handleUpload", "list", "move", "moveFolder", "put", "remove", "removeFolder", "replaceCrop", "update", "variants"]),
   email: new Set(["send"]),
