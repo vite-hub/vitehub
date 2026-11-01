@@ -1,6 +1,6 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { basename, dirname, join } from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -35,6 +35,28 @@ describe("fs-lite", () => {
     await storage.removeItem("invite")
     expect(await storage.setIfAbsentItem!("invite", "second")).toBe(true)
     expect(await storage.getItem("invite")).toBe("second")
+    await storage.dispose()
+  })
+
+  it("never shows a partial value to a call that lost", async () => {
+    const storage = createHostedKVStorage({ store: { driver: "fs-lite", base } })
+    const value = "x".repeat(8 * 1024 * 1024)
+    const reads = await claims(4, async () => {
+      if (await storage.setIfAbsentItem!("big", value)) return true
+      expect(await readFile(join(base, "big"), "utf8")).toHaveLength(value.length)
+      return false
+    })
+
+    expect(reads.filter(Boolean)).toHaveLength(1)
+    expect(await readdir(dirname(base))).not.toContainEqual(expect.stringMatching(new RegExp(`^\\.${basename(base)}-.*\\.tmp$`)))
+    await storage.dispose()
+  })
+
+  it("rejects undefined instead of writing a value", async () => {
+    const storage = createHostedKVStorage({ store: { driver: "fs-lite", base } })
+
+    await expect(storage.setIfAbsentItem!("missing", undefined)).rejects.toThrow("needs a value")
+    expect(await storage.hasItem("missing")).toBe(false)
     await storage.dispose()
   })
 

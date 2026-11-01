@@ -1,5 +1,6 @@
-import { mkdir, opendir, stat, writeFile } from "node:fs/promises"
-import { dirname, join, relative, resolve, sep } from "node:path"
+import { randomUUID } from "node:crypto"
+import { link, mkdir, opendir, rm, stat, writeFile } from "node:fs/promises"
+import { basename, dirname, join, relative, resolve, sep } from "node:path"
 
 import createDriver from "unstorage/drivers/fs-lite"
 
@@ -35,20 +36,26 @@ export default function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfi
       throw error
     }
   }
-  // The exclusive create flag makes the existence check and the write one step, also across processes on one disk.
+  // link() publishes the complete file and fails when the key exists, in one step, also across processes on one disk.
   // fs-lite never expires keys, so the TTL does not apply.
   driver.setIfAbsentItem = async (key, value) => {
     // The underlying driver validates the key before it resolves the file path.
     if (await driver.hasItem(key, {})) return false
     const path = join(root, key.replace(/:/g, "/"))
     await mkdir(dirname(path), { recursive: true })
+    // The temporary file sits beside the store directory, on the same disk but outside the key listing.
+    const temporary = join(dirname(root), `.${basename(root)}-${randomUUID()}.tmp`)
+    await writeFile(temporary, value, "utf8")
     try {
-      await writeFile(path, value, { encoding: "utf8", flag: "wx" })
+      await link(temporary, path)
       return true
     }
     catch (error) {
       if (error instanceof Error && "code" in error && error.code === "EEXIST" && (await stat(path)).isFile()) return false
       throw error
+    }
+    finally {
+      await rm(temporary, { force: true })
     }
   }
   const expired = () => kvErrorDiagnostics.KV_INVALID_CURSOR({ problem: "expired" })

@@ -40,6 +40,8 @@ function isPrimitive(value: unknown) {
 
 // Matches the serializer of unstorage's setItem(), so get() reads the value back as it reads a set() value.
 function serializeValue(value: unknown): string {
+  // set() removes a key for `undefined`; a conditional write cannot mean that.
+  if (value === undefined) throw new TypeError("kv.setIfAbsent() needs a value. Use kv.del() to remove a key.")
   if (isPrimitive(value)) return String(value)
   if (Array.isArray(value)) return JSON.stringify(value)
   if (value && typeof value === "object") {
@@ -72,6 +74,6 @@ export function createHostedKVStorage(config: false | ResolvedKVModuleOptions | 
   }
   if (incrementItem) storage.incrementItem = (key, ttl) => incrementItem(normalizeKey(key), ttl)
   const setIfAbsentItem = driver.setIfAbsentItem
-  if (setIfAbsentItem) storage.setIfAbsentItem = (key, value, ttl) => setIfAbsentItem(normalizeKey(key), serializeValue(value), ttl)
+  if (setIfAbsentItem) storage.setIfAbsentItem = async (key, value, ttl) => setIfAbsentItem(normalizeKey(key), serializeValue(value), ttl)
   return storage
 }
