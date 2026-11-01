@@ -8,6 +8,7 @@ import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
 
 import { discoverRealtimeDefinitions } from "./discovery.ts"
+export { discoverRealtimeDefinitions } from "./discovery.ts"
 import { realtimeDurableObjectKey } from "./durable-key.ts"
 import { summarizeRealtimeDefinitions } from "./inspect.ts"
 

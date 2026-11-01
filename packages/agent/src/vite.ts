@@ -497,6 +497,11 @@ function discoverProjectAgentDefinitions(root: string, serverDirs = [join(root, 
   return [...unique.values()]
 }
 
+/** Lists each discovered Agent Definition with its name and file. Vite Doctor rules read it. */
+export function listAgentDefinitionFiles(root: string, serverDirs?: string[]): { name: string, handler: string }[] {
+  return discoverProjectAgentDefinitions(root, serverDirs).map(({ name, handler }) => ({ name, handler }))
+}
+
 async function isColocatedAgentInstructionDependency(root: string, file: string, serverDirs?: string[]): Promise<boolean> {
   const target = resolve(file)
   for (const definition of discoverProjectAgentDefinitions(root, serverDirs)) {
