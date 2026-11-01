@@ -641,7 +641,7 @@ const restore = defineOperation({
  */
 const publish = defineOperation({
   cli: { command: "publish" },
-  description: "Publish draft documents in two steps. First call it with dryRun, and optionally collection or ids, to list the changes and their draft digests. Then call it with only expect, the confirmed digests, and an optional message: collection and ids are not allowed then. Publishes in one revision; a draft saved after the dry run fails the publish.",
+  description: "Publish draft documents in two steps. First call it with dryRun to list the changes and their draft digests: add collection to list one collection, and ids, which need collection, to list some of its documents. Then call it with only expect, the confirmed digests, and an optional message: collection and ids are not allowed then. Publishes in one revision; a draft saved after the dry run fails the publish.",
   input: v.strictObject({
     collection: optionalText,
     dryRun: v.optional(v.boolean()),
