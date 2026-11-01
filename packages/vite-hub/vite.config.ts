@@ -120,7 +120,7 @@ const runtimeEntries = [
 ];
 
 const consoleAssetRoot = resolve(import.meta.dirname, ".vitehub/console");
-const configurationOwners = /^@vite-hub\/(?:agent|auth|comments|database|realtime|schedule|workspace)(?:\/|$)/;
+const configurationOwners = /^@vite-hub\/(?:agent|auth|comments|connections|database|realtime|schedule|workspace)(?:\/|$)/;
 
 function consoleAsset(prefix: "console-" | "page-tool-", extension: ".css" | ".js"): string {
   const matches = readdirSync(consoleAssetRoot)

@@ -37,6 +37,7 @@ import { ownerModules } from "./internal/owner-modules.ts"
 import { discoverConsoleBuildCatalog } from "./console/build.ts"
 import { assertConsoleRetention, writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./console/plugin.ts"
 import { installConsoleProjectName, installConsoleSections } from "./console/runtime/server/sections.ts"
+import { consoleOperationFeatures } from "./console/operation-features.ts"
 import { resolveConsoleProjectNameFromRoot } from "./console/project.ts"
 import { isConsoleConnectionsEnabled, resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
 import { consoleContributedSections, consoleDocumentEditorSectionIds, discoverConsoleEntrySections, isConsoleContributedSectionId } from "./console/contributions.ts"
@@ -313,10 +314,10 @@ function normalizeGeneratedNitroPlugins(config: Record<string, unknown>, root: s
 }
 
 /** Nitro 2 runs user Rollup plugins before its own resolvers, so these see generated and cache imports first. */
-function installNitroBuildPlugins(config: Record<string, unknown>, generatedRoots: string[], dev = false): void {
+function installNitroBuildPlugins(config: Record<string, unknown>, generatedRoots: string[], dev = false, sections: readonly string[] = []): void {
   const rollupConfig = (config.rollupConfig ??= {}) as Record<string, unknown>
   const plugins = (rollupConfig.plugins ??= []) as Array<{ name?: string }>
-  for (const plugin of [nitroCacheBypass(), nitroFileUrlResolver, nitroViteHubH3(generatedRoots), nitroOptionalPeers(config), ...dev ? [nitroCloudflareWorkersDev] : []]) {
+  for (const plugin of [nitroCacheBypass(), nitroFileUrlResolver, nitroViteHubH3(generatedRoots), nitroOptionalPeers(config), consoleOperationFeatures(sections), ...dev ? [nitroCloudflareWorkersDev] : []]) {
     if (!plugins.some(candidate => candidate.name === plugin.name)) plugins.unshift(plugin)
   }
 }
@@ -1523,7 +1524,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     config.externals = { ...externals, inline: externals.inline === true ? true : [...new Set([...inline, "vite-hub", "@vite-hub/", join(projectRoot, ".vitehub"), h3RuntimeRoot])] }
     installNitroRuntimeResolvers(config, replayPlugins)
     normalizeGeneratedNitroPlugins(config, projectRoot)
-    installNitroBuildPlugins(config, [join(projectRoot, ".vitehub"), join(nuxt.options.buildDir, "vitehub")], nuxt.options.dev === true && plan.preset === "cloudflare")
+    installNitroBuildPlugins(config, [join(projectRoot, ".vitehub"), join(nuxt.options.buildDir, "vitehub")], nuxt.options.dev === true && plan.preset === "cloudflare", consoleSections)
     if (nuxt.options.dev && plan.preset === "cloudflare") {
       const alias = (config.alias ??= {}) as Record<string, string>
       alias["cloudflare:workers"] ??= await writeCloudflareWorkersDevShim(nuxt.options.buildDir)

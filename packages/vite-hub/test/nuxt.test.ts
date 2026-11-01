@@ -592,6 +592,7 @@ describe("ViteHub Nuxt integration", () => {
 
     const plugins = nitroConfig.rollupConfig.plugins as unknown as Plugin[]
     expect(plugins.map(plugin => plugin.name)).toEqual([
+      "vite-hub/console-operation-features",
       "vite-hub/nitro-optional-peers",
       "vite-hub/nitro-h3",
       "vite-hub/nitro-file-url",
@@ -3086,6 +3087,7 @@ describe("ViteHub Nuxt integration", () => {
       rollupConfig: {
         plugins: [
           expect.objectContaining({ name: "vite-hub/nitro-cloudflare-workers-dev" }),
+          expect.objectContaining({ name: "vite-hub/console-operation-features" }),
           expect.objectContaining({ name: "vite-hub/nitro-optional-peers" }),
           expect.objectContaining({ name: "vite-hub/nitro-h3" }),
           expect.objectContaining({ name: "vite-hub/nitro-file-url" }),

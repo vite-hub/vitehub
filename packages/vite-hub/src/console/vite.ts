@@ -25,6 +25,7 @@ import { consoleViteDevTools, type ConsoleViteDevTools } from "./devtools.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
 import { bindConsoleInvocationsIdentity, createConsoleInvocationsIdentity, releaseConsoleInvocationsBinding } from "./internal.ts"
 import { addConsolePageToolRoutes, addConsoleRpcHandler } from "./nitro.ts"
+import { transformConsoleOperationFeatures } from "./operation-features.ts"
 import { consoleOpenAccessWarning, isConsoleSignInPage } from "./runtime/server/access.ts"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 import { resolveConsoleJournal, type ConsoleJournal } from "../storage-config.ts"
@@ -558,6 +559,10 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
   const plugin: Plugin & { devtools: ConsoleViteDevTools, vitehub: NonNullable<ViteHubCliContributingPlugin["vitehub"]> & NonNullable<OperationContributingPlugin["vitehub"]> } = {
     name: "vite-hub/console",
     devtools: consoleViteDevTools,
+    transform(code) {
+      const transformed = transformConsoleOperationFeatures(code, sections)
+      return transformed === undefined ? undefined : { code: transformed, map: null }
+    },
     async config(config, environment) {
       development = environment.command === "serve"
       if (options.connections !== undefined && !isConsoleConnectionsEnabled(options, environment.command === "serve")) {

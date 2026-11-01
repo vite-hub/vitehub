@@ -659,6 +659,9 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       await writeFile(join(appDir, "vite.config.ts"), config(", agent: true"), "utf8")
       await expect(run("pnpm", ["exec", "vite", "build"], appDir)).rejects.toThrow("Install the missing packages in your app with: pnpm add @vite-hub/agent")
 
+      await writeFile(join(appDir, "vite.config.ts"), config(', observability: { service: "lean-app" }'), "utf8")
+      await expect(run("pnpm", ["exec", "vite", "build"], appDir)).rejects.toThrow("Install the missing packages in your app with: pnpm add @vite-hub/agent")
+
       await writeFile(join(appDir, "vite.config.ts"), config(""), "utf8")
       await writeFile(join(appDir, "server/comments.ts"), "export const comments = {}\n", "utf8")
       await expect(run("pnpm", ["exec", "vite", "build"], appDir)).rejects.toThrow("pnpm add @vite-hub/comments @vite-hub/database drizzle-orm")

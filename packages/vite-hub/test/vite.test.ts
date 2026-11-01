@@ -5,6 +5,16 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { assertFeaturePackages, isPackageInstalled } from "../src/internal/optional-owners.ts"
+
+vi.mock("../src/internal/optional-owners.ts", async importOriginal => {
+  const original = await importOriginal<typeof import("../src/internal/optional-owners.ts")>()
+  return {
+    ...original,
+    assertFeaturePackages: vi.fn(original.assertFeaturePackages),
+    isPackageInstalled: vi.fn(original.isPackageInstalled),
+  }
+})
 
 const kvCacheDriver = fileURLToPath(import.meta.resolve("vite-hub/_internal/kv/runtime/nitro-cache"))
 
@@ -924,6 +934,20 @@ describe("vitehub", () => {
       .toContain("vite-hub/error-log")
     expect(pluginNames(vitehub({ preset: "node", observability: { service: "support" } })))
       .not.toContain("vite-hub/error-log")
+  })
+
+  it("requires the Agent package for observability without Agents", () => {
+    vitehub({ preset: "node", observability: { service: "support" } })
+    expect(assertFeaturePackages).toHaveBeenLastCalledWith(["agent"])
+  })
+
+  it("omits the Workspace Shell loader when the Shell package is absent", () => {
+    vi.mocked(isPackageInstalled).withImplementation(name => name !== "@vite-hub/shell", () => {
+      vitehub({ preset: "node", agent: true })
+      expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
+        workspaceDependencyRuntimeImports: {},
+      }))
+    })
   })
 
   it("passes configured Email drivers through the canonical integration", () => {

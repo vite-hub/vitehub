@@ -1194,6 +1194,7 @@
     "@json-render/core": "0.21.0",
     "@json-render/vue": "0.21.0",
     "@standard-schema/spec": "catalog:runtime",
+    "@types/json-schema": "catalog:ai",
     "@types/node": "catalog:tooling",
     "@valibot/to-json-schema": "catalog:runtime",
     "@vite-hub/blob": "workspace:*",

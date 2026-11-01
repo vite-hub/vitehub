@@ -190,7 +190,7 @@ function frameworkWorkspaceDependencyRuntimeImports(sandboxTask: boolean) {
           sandboxTaskRuntimeState: `${generatedImportBase}/sandbox/task/runtime/state`,
         }
       : {}),
-    shellWorkspace: "vite-hub/shell/workspace",
+    ...(isPackageInstalled("@vite-hub/shell") ? { shellWorkspace: "vite-hub/shell/workspace" } : {}),
   }
 }
 const frameworkProviderImportAliases = Object.fromEntries(
@@ -1008,7 +1008,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     ? !("provider" in consoleAuth && consoleAuth.provider === "cloudflare-access")
     : configuredConsole?.auth === "app" && Boolean(options.auth)
   assertFeaturePackages(([
-    ["agent", options.agent],
+    ["agent", options.agent || options.observability],
     ["auth", options.auth],
     ["console agents", configuredConsole && options.agent],
     ["console sign-in", consoleSignIn],
