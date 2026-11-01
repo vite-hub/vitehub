@@ -29,7 +29,7 @@ export default defineConfig({
 | `blob: { stores: Record<string, BlobStoreConfig> }` | Defines named Blob Stores. `stores.default` is required. |
 | `blob: { serve: false }` | Disables Blob route generation. This is the default. |
 | `blob: { serve: true }` | Generates an opt-in Nitro route at `/api/_vitehub/blob/**` for serving the Default Blob Store. |
-| `blob: { serve: { route?, store?, publicBaseUrl?, headers?, authorize? } }` | Generates an opt-in Nitro route. `route` defaults to `/api/_vitehub/blob`, `store` defaults to `default`, `publicBaseUrl` changes generated public URLs, and `headers` adds static response headers. `authorize: true` requires a signed-in Auth session. |
+| `blob: { serve: { route?, store?, publicBaseUrl?, headers?, authorize?, anonymous? } }` | Generates an opt-in Nitro route. `route` defaults to `/api/_vitehub/blob`, `store` defaults to `default`, `publicBaseUrl` changes generated public URLs, and `headers` adds static response headers. `authorize: true` requires a signed-in Auth session. `anonymous: true` also sends signed-out requests to the `authorize` export. |
 
 ### Protect served objects
 
@@ -54,6 +54,31 @@ export const authorize: BlobServeAuthorize = ({ request, user }) =>
 ```
 
 A request without a session returns JSON `401`. A `false` result returns `403`, and a `Response` is returned as-is. ViteHub checks access before the store read and before conditional `304` handling, so a cached `ETag` does not bypass the check. Browsers send the same-origin session cookie with `<img src>`, so image tags work without extra headers. Authorized responses use `Cache-Control: private, no-cache` unless `serve.headers` sets `Cache-Control`. If `server/blob.ts` exports `authorize` while `serve.authorize` is not `true`, the build fails with `BLOB_B0001`. Restart the dev server after you add or remove `server/blob.ts`.
+
+### Share objects with signed-out readers
+
+Some apps share a file with anyone who has its link. Set `serve.anonymous: true` with `serve.authorize: true` to send signed-out requests to the `authorize` export too. For these requests, `session` and `user` are `null`. Type the export as `BlobServeAnonymousAuthorize` so TypeScript makes you check `user` first.
+
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [vitehub({
+    auth: true,
+    blob: { serve: { route: '/files', authorize: true, anonymous: true } },
+  })],
+})
+```
+
+```ts [server/blob.ts]
+import type { BlobServeAnonymousAuthorize } from 'vite-hub/blob'
+
+export const authorize: BlobServeAnonymousAuthorize = ({ request, user }) => {
+  const pathname = new URL(request.url).pathname
+  if (pathname.startsWith('/files/public/')) return true
+  return user !== null && pathname.startsWith(`/files/${user.id}/`)
+}
+```
+
+`false` returns JSON `401` for a signed-out request and `403` for a signed-in one. A `Response` is returned as-is. Signed-out requests reach the callback only with this option, because a callback written for `authorize: true` can expect a user. `anonymous: true` without `authorize: true` fails with `BLOB_C0016`, and without an `authorize` export the build fails with `BLOB_B0006`.
 
 ## Serve blob-backed assets
 

@@ -6,7 +6,7 @@ import { H3 } from "h3"
 import { Request as ForeignRequest, Response as ForeignResponse } from "undici"
 
 import { defineAuth } from "../src/index.ts"
-import { handleAuthRequest, requireAuthAccessRoutes, withAuth, withAuthorization } from "../src/server.ts"
+import { handleAuthRequest, requireAuthAccessRoutes, withAnonymousAuthorization, withAuth, withAuthorization } from "../src/server.ts"
 
 import type { AuthAuthorization } from "../src/index.ts"
 
@@ -593,6 +593,63 @@ describe("server authentication provider boundaries", () => {
       // SAFETY: The test deliberately violates the input contract to prove the runtime guard.
       expect(() => withAuthorization(true, undefined as never, definition)).toThrow(expect.objectContaining({ code: "AUTH_R0015" }))
       expect(() => withAuth(undefined as never, definition)).toThrow(expect.objectContaining({ code: "AUTH_R0015" }))
+    })
+  })
+
+  describe("withAnonymousAuthorization", () => {
+    const sharedRequest = new Request("https://example.com/f/shared/report.pdf", {
+      headers: { accept: "text/html,*/*" },
+    })
+    const anonymousAction = vi.fn((_input: unknown, _authorization: unknown) => "served")
+
+    beforeEach(() => anonymousAction.mockClear())
+
+    it("runs the callback for a signed-out caller with a null session and user", async () => {
+      const authorize = vi.fn(({ request }: { request: Pick<Request, "url"> }) => new URL(request.url).pathname.startsWith("/f/shared/"))
+      const signInDefinition = defineAuth({ access: { signIn: { provider: "github" } }, appName: "ViteHub" })
+      providerMocks.getSession.mockResolvedValue(null)
+
+      await expect(withAnonymousAuthorization(authorize, anonymousAction, signInDefinition)({ req: sharedRequest })).resolves.toBe("served")
+      expect(authorize).toHaveBeenCalledWith({ request: sharedRequest, session: null, user: null })
+      const authorization = anonymousAction.mock.calls[0]?.[1]
+      expect(authorization).toEqual({ request: sharedRequest, session: null, user: null })
+      expect(Object.isFrozen(authorization)).toBe(true)
+    })
+
+    it("returns 401 for false without a session and 403 with one, without a sign-in redirect", async () => {
+      const guarded = withAnonymousAuthorization(() => false, anonymousAction, defineAuth({ access: { signIn: { provider: "github" } }, appName: "ViteHub" }))
+      providerMocks.getSession.mockResolvedValue(null)
+      const signedOut = await guarded({ req: sharedRequest })
+      expect(signedOut).toMatchObject({ status: 401 })
+      if (!(signedOut instanceof Response)) return
+      expect(signedOut.headers.get("location")).toBeNull()
+      expect(await signedOut.json()).toEqual({ error: "Unauthorized." })
+
+      providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
+      await expect(guarded({ req: sharedRequest })).resolves.toMatchObject({ status: 403 })
+      expect(anonymousAction).not.toHaveBeenCalled()
+    })
+
+    it("passes the session and user of a signed-in caller", async () => {
+      const authorize = vi.fn(() => true)
+      providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
+
+      await expect(withAnonymousAuthorization(authorize, anonymousAction, definition)(request)).resolves.toBe("served")
+      expect(authorize).toHaveBeenCalledWith({ request, session: { id: "session-1" }, user: { id: "user-1" } })
+    })
+
+    it("returns a custom callback response as-is for a signed-out caller", async () => {
+      const denied = new Response("Not found", { status: 403 })
+      providerMocks.getSession.mockResolvedValue(null)
+
+      await expect(withAnonymousAuthorization(() => denied, anonymousAction, definition)(request)).resolves.toBe(denied)
+      expect(anonymousAction).not.toHaveBeenCalled()
+    })
+
+    it("rejects an authorize value that is not a function", () => {
+      // SAFETY: The test deliberately violates the input contract to prove the runtime guard.
+      expect(() => withAnonymousAuthorization(true as never, anonymousAction, definition)).toThrow(expect.objectContaining({ code: "AUTH_R0014" }))
+      expect(() => withAnonymousAuthorization(() => true, undefined as never, definition)).toThrow(expect.objectContaining({ code: "AUTH_R0015" }))
     })
   })
 

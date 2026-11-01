@@ -1,4 +1,4 @@
-import type { AccessAuthorize, ViteHubError, ViteHubErrorDetails } from "@vite-hub/runtime"
+import type { AccessAuthorize, AnonymousAccessAuthorize, ViteHubError, ViteHubErrorDetails } from "@vite-hub/runtime"
 import type { H3V1Event, H3V1NodeResponse } from "@vite-hub/internal/runtime/h3-v1-request"
 
 import type { BlobImagesOptions, BlobImageVariant, MediaCrop, MediaFocalPoint, MediaRecord, MediaUpdate, MediaVariantEntry } from "./media/types.ts"
@@ -517,6 +517,11 @@ export type BlobStoreName = "default" | (string & {})
 export type BlobServeOptions = boolean | {
   /** Requires a signed-in Auth session. Export `authorize` from `server/blob.ts` to also decide each request. */
   authorize?: boolean
+  /**
+   * Also runs the `authorize` export for signed-out callers, with `session` and `user` set to `null`.
+   * Requires `authorize: true` and an `authorize` export (type `BlobServeAnonymousAuthorize`).
+   */
+  anonymous?: boolean
   headers?: Record<string, string>
   publicBaseUrl?: string
   route?: string
@@ -526,7 +531,11 @@ export type BlobServeOptions = boolean | {
 /** Decides whether a signed-in user can read one object from the Blob serve route. */
 export type BlobServeAuthorize = AccessAuthorize
 
+/** Decides whether a signed-in or signed-out caller can read one object. Used with `blob.serve.anonymous: true`. */
+export type BlobServeAnonymousAuthorize = AnonymousAccessAuthorize
+
 export interface BlobServeConfig {
+  anonymous?: true
   authorize?: true
   headers?: Record<string, string>
   publicBaseUrl?: string
