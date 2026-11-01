@@ -990,6 +990,12 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     cloudflare.deployConfig ??= true
     const wasm = (nitro.wasm ??= {}) as Record<string, unknown>
     wasm.lazy ??= true
+    // Nitro 3 resolves the Cloudflare preset to `cloudflare-dev` in development, which runs the server in workerd.
+    // ViteHub's Cloudflare development shims bindings on Node, so keep Nitro's Node runner unless the app picks one.
+    if (nuxt.options.dev && !process.env.NITRO_DEV_RUNNER) {
+      const devServer = (nitro.devServer ??= {}) as Record<string, unknown>
+      devServer.runner ??= "node-worker"
+    }
   }
   nuxt.options.vite ??= {}
   nuxt.options.vite.root ??= rootDir
