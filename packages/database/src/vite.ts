@@ -486,15 +486,19 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       const resetRuntimeContribution = () => {
         providerOutput?.resetRuntimeContribution("database", siblingRuntimeGenerations.get(this))
       }
-      if (error || !resolved || !runtimeConfig || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
+      // Only a failed build resets the environment's generation: other plugins' Provider Output shares it.
+      if (error) {
         resetRuntimeContribution()
         await siblingRuntimeGenerations.reset(this, providerOutput, error)
+        return
+      }
+      if (!resolved || !runtimeConfig || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
+        resetRuntimeContribution()
         return
       }
       const provider = resolveHostedProvider(resolved)
       if (!provider) {
         resetRuntimeContribution()
-        await siblingRuntimeGenerations.reset(this, providerOutput)
         return
       }
       const runtimeDir = resolve(databaseRoot(), HOSTED_RUNTIME_DIR)
@@ -504,7 +508,6 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
           rm(resolve(runtimeDir, `${provider}-runtime.mjs`), { force: true }),
           rm(resolve(runtimeDir, "definition-defaults.mjs"), { force: true }),
         ])
-        await siblingRuntimeGenerations.reset(this, providerOutput)
         return
       }
       const definitionDefaults = await writeHostedDatabaseRuntimeModules(runtimeDir, runtimeConfig, [provider])
