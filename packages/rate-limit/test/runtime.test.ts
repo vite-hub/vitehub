@@ -1,4 +1,4 @@
-import { mockEvent } from "h3"
+import { HTTPError, mockEvent } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { checkRateLimit, peekRateLimit, requireRateLimit, resetRateLimit } from "../src/index.ts"
@@ -35,21 +35,20 @@ describe("managed Rate Limit guard", () => {
     await expect(requireRateLimit(event, "uploads", { key: "", limit: 1, window: "1m" })).rejects.toThrow("non-empty string")
   })
 
-  it("allows requests and then throws an H3 429 response", async () => {
+  it("allows the budget then throws H3 429 with Retry-After", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(30_000)
     const event = requestEvent("192.0.2.1")
 
     await expect(requireRateLimit(event, "uploads", { limit: 2, window: "1m" })).resolves.toBeUndefined()
     await expect(requireRateLimit(event, "uploads", { limit: 2, window: "1m" })).resolves.toBeUndefined()
-    await expect(requireRateLimit(event, "uploads", { limit: 2, window: "1m" })).rejects.toMatchObject({
-      status: 429,
-      statusText: "Too Many Requests",
-    })
-
     try {
       await requireRateLimit(event, "uploads", { limit: 2, window: "1m" })
+      expect.unreachable("Expected the request to be limited")
     }
     catch (error) {
-      expect(Number((error as { headers?: Headers }).headers?.get("Retry-After"))).toBeGreaterThan(0)
+      if (!(error instanceof HTTPError)) throw error
+      expect(error).toMatchObject({ status: 429, statusText: "Too Many Requests" })
+      expect(error.headers?.get("Retry-After")).toBe("30")
     }
   })
 
