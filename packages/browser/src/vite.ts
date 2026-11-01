@@ -21,6 +21,7 @@ import {
 } from "@vite-hub/internal/build/vite"
 
 import { discoverBrowserDefinitions } from "./discovery.ts"
+export { discoverBrowserDefinitions } from "./discovery.ts"
 
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { Plugin, ResolvedConfig } from "vite"
