@@ -419,7 +419,7 @@ All Console paths in this guide use the application base: an explicit ViteHub ap
 
 The ViteHub tools pill shows at the bottom of the app's pages when a page has the `?vitehub` query or the `vitehub-tools` cookie. Opening the Console sets that cookie for you. When the Console is on, the pill has a **Console** button that opens the Console in a floating window, next to page tools such as [Comments](/docs/comments/configure#turn-comment-mode-on-and-off).
 
-The link uses the same access check as the Console data routes, for any section. A person that the Console rejects does not get the link. An `authorize` result with at least one section, such as `{ sections: ['content'] }`, allows the link. With the development default, the Console and its link exist on the development server only. **Turn off ViteHub tools**, the **×** of the pill, clears the cookie and removes the pill.
+The link uses the same access check as the Console data routes, for any section. A person that the Console rejects does not get the link. An `authorize` result with at least one section, such as `{ sections: ['content'] }`, allows the link. With the development default, the Console and its link exist on the development server only. **Turn off ViteHub tools**, the **×** of the pill, clears the cookie and removes the pill. The ViteHub mark at the start of the pill collapses it to the mark alone, and the browser keeps it collapsed on the next pages until you select the mark again. Open windows and comment mode stay as they are.
 
 The check runs in `GET /_vitehub/page/session`. The Console serves that route and the page tools loader, so the link also works in an app without Comments. The link is only a shortcut. Every Console route checks access again.
 
