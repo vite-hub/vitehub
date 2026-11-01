@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { flushPromises, shallowMount } from "@vue/test-utils"
 import { nextTick } from "vue"
+import type { DefineComponent } from "vue"
 import { describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({ request: vi.fn() }))
@@ -28,7 +29,11 @@ describe("Console definition loading announcements", () => {
     const response = (section: string) => kind === "definition-catalog"
       ? { section, kind, definitions: [] }
       : { section, kind, records: [] }
-    const wrapper = shallowMount(Definitions, {
+    type DefinitionsComponent = DefineComponent<{
+      agentsBase: string, definitionsBase: string, details: ConsoleContributedSection,
+      kvBase: string, searchBase: string, sectionsBase: string,
+    }>
+    const wrapper = shallowMount<typeof Definitions, DefinitionsComponent>(Definitions, {
       props: {
         agentsBase: "/agents", definitionsBase: "/definitions", kvBase: "/kv",
         searchBase: "/search", sectionsBase: "/sections", details: details("schedules"),
