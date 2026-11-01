@@ -279,6 +279,7 @@
     "ai": "catalog:ai",
     "chat": "catalog:chat",
     "comark": "catalog:markdown",
+    "katex": "^0.17.0",
     "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
     "nostics": "catalog:runtime",

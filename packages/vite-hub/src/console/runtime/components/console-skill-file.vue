@@ -36,7 +36,8 @@ const SkillLink = defineComponent({
         const base = new URL("https://bundled.invalid");
         // Encode each part, so a file name with "%", "?", or "#" resolves as a name.
         base.pathname = `/${props.file.path.split("/").map(encodeURIComponent).join("/")}`;
-        const target = new URL(link.href, base);
+        // Preserve bare percent signs while keeping URL-encoded links intact.
+        const target = new URL(link.href.replace(/%(?![\da-f]{2})/gi, "%25"), base);
         if (target.origin === "https://bundled.invalid") {
           path = decodeURIComponent(target.pathname.slice(1));
           hash = target.hash;

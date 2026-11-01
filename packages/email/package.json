@@ -98,6 +98,7 @@
   },
   "dependencies": {
     "@comark/html": "catalog:markdown",
+    "katex": "^0.17.0",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
