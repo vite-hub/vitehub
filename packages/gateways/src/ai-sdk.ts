@@ -75,19 +75,21 @@ async function createModel(name: string, modelId: string, api: AiGatewayModelApi
       ...(route.apiKey && route.auth === "bearer" ? { apiKey: route.apiKey } : {}),
     }).chatModel(modelId)
   }
-  if (!route.apiKey) {
+  const apiKey = route.apiKey
+  if (!apiKey) {
     throw gatewayDiagnostics.GATEWAYS_R0002({ message: `[vitehub] Gateway "${name}" needs an API key for the "${api}" model API. Pass apiKey, or use api: "chat".` })
   }
   if (api === "responses") {
     const { createOpenAI } = await load(api, async () => await import("@ai-sdk/openai"))
     return createOpenAI({
       ...shared,
-      apiKey: route.apiKey,
+      apiKey,
       baseURL: route.baseURL,
-      // The OpenAI provider always adds bearer auth; remove it for gateways that select x-api-key.
+      // Apply the gateway credential after the provider merges call-level headers.
       fetch: route.auth === "x-api-key" ? async (input, init) => {
         const headers = new Headers(init?.headers)
         headers.delete("authorization")
+        headers.set("x-api-key", apiKey)
         return await (fetch ?? globalThis.fetch)(input, { ...init, headers })
       } : fetch,
     }).responses(modelId)
@@ -96,7 +98,7 @@ async function createModel(name: string, modelId: string, api: AiGatewayModelApi
   return createAnthropic({
     ...shared,
     baseURL: `${route.baseURL}/v1`,
-    ...(route.auth === "x-api-key" ? { apiKey: route.apiKey } : { authToken: route.apiKey }),
+    ...(route.auth === "x-api-key" ? { apiKey } : { authToken: apiKey }),
   }).languageModel(modelId)
 }
 

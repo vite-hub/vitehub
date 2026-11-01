@@ -101,23 +101,27 @@ describe("languageModel()", () => {
     expect(sent(fetch, 1).headers.get("authorization")).toBe("Bearer proxy-key")
   })
 
-  it.each(["openai-compatible", "codex"] as const)("honors x-api-key authentication for Responses through %s", async (route) => {
+  it.each(["openai-compatible", "codex"] as const)("keeps the gateway x-api-key authoritative for Responses through %s", async (route) => {
     const fetch = vi.fn<typeof globalThis.fetch>(async (_url, init) => JSON.parse(String(init?.body)).stream
       ? new Response(`event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: await openaiResponse().json() })}\n\n`, { headers: { "content-type": "text/event-stream" } })
       : openaiResponse())
-    const definition = { apiKey: "proxy-key", auth: "x-api-key", headers: { "x-custom": "value" }, name: "internal" } as const
+    let apiKey = "proxy-key"
+    const definition = { apiKey: async () => apiKey, auth: "x-api-key", headers: { "x-custom": "value" }, name: "internal" } as const
     const options = { api: "responses", fetch } as const
     const model = route === "codex"
       ? languageModel(defineAiGateway({ ...definition, baseURL: { codex: "https://proxy.example/v1" } }), "gpt-5", options)
       : languageModel(defineAiGateway({ ...definition, baseURL: { "openai-compatible": "https://proxy.example/v1" } }), "gpt-5", options)
-    await expect(generateText({ model, prompt: "Hello" })).resolves.toMatchObject({ text: "Hi" })
-    await streamText({ model, prompt: "Hello" }).usage
+    await expect(generateText({ headers: { "authorization": "Bearer wrong", "x-api-key": "wrong", "x-call": "value" }, model, prompt: "Hello" })).resolves.toMatchObject({ text: "Hi" })
+    apiKey = "rotated-key"
+    await streamText({ headers: { "Authorization": "Bearer wrong", "X-Api-Key": "wrong", "x-call": "value" }, model, prompt: "Hello" }).usage
 
+    expect(fetch).toHaveBeenCalledTimes(2)
     for (const index of [0, 1]) {
       expect(sent(fetch, index).url).toBe("https://proxy.example/v1/responses")
-      expect(sent(fetch, index).headers.get("x-api-key")).toBe("proxy-key")
+      expect(sent(fetch, index).headers.get("x-api-key")).toBe(index === 0 ? "proxy-key" : "rotated-key")
       expect(sent(fetch, index).headers.has("authorization")).toBe(false)
       expect(sent(fetch, index).headers.get("x-custom")).toBe("value")
+      expect(sent(fetch, index).headers.get("x-call")).toBe("value")
     }
   })
 
