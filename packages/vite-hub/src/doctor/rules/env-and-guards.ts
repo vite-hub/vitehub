@@ -86,7 +86,8 @@ function envPatternBindings(ctx: RuleContext, envRoot: (node: unknown) => EnvPat
 /** Resolves expressions that read Server Env: `useServerEnv()`, `await loadServerEnv()`, and names bound from them. */
 function envPaths(ctx: RuleContext): (node: unknown) => EnvPath | undefined {
   const r = resolver(ctx)
-  function root(node: unknown, seen = new Set<unknown>()): EnvPath | undefined {
+  // `usePatterns` is false while the pattern map is built, so building it never reads itself.
+  function root(node: unknown, usePatterns: boolean, seen = new Set<unknown>()): EnvPath | undefined {
     const target = unwrap(node)
     if (seen.has(target)) return
     seen.add(target)
@@ -95,23 +96,30 @@ function envPaths(ctx: RuleContext): (node: unknown) => EnvPath | undefined {
       return { path: [], sync: false }
     }
     if (isNodeType(target, "MemberExpression")) {
-      const base = root(target.object, seen)
+      const base = root(target.object, usePatterns, seen)
       const property = target.computed === true ? stringValue(target.property) : isIdentifier(target.property) ? target.property.name : undefined
       return base && property !== undefined ? { path: [...base.path, property], sync: base.sync } : undefined
     }
     if (isIdentifier(target)) {
       const binding = r.binding(target)
-      if (binding && isNodeType(binding.declaration, "VariableDeclarator") && isIdentifier(binding.declaration.id)) return root(binding.init, seen)
-      if (binding && !binding.declaration && !binding.origin) return patterns().get(target.name)
+      if (binding && isNodeType(binding.declaration, "VariableDeclarator") && isIdentifier(binding.declaration.id)) return root(binding.init, usePatterns, seen)
+      if (usePatterns && binding && !binding.declaration && !binding.origin) return patterns().get(target.name)
     }
   }
   let cached: Map<string, EnvPath> | undefined
-  const patterns = () => (cached ??= envPatternBindings(ctx, node => root(node)))
-  return node => root(node)
+  const patterns = () => (cached ??= envPatternBindings(ctx, node => root(node, false)))
+  return node => root(node, true)
 }
 
 const coercingCalls = new Set(["String", "JSON.stringify", "Buffer.from", "encodeURIComponent", "btoa"])
-const coercingOperators = new Set(["+", "==", "===", "!=", "!=="])
+const coercingOperators = new Set(["+", "==", "!="])
+const strictOperators = new Set(["===", "!=="])
+
+/** `value === undefined` and `value == null` test whether an optional secret is set. They read no value. */
+function isNullish(node: unknown): boolean {
+  const target = unwrap(node)
+  return isNodeType(target, "Literal") && target.value === null || isIdentifier(target, "undefined")
+}
 
 export const unsealSecretEnv: DoctorRule = createRule({
   meta: {
@@ -126,13 +134,15 @@ export const unsealSecretEnv: DoctorRule = createRule({
     if (!secrets.size) return
     const envPath = envPaths(ctx)
 
-    function check(node: unknown, use: string) {
+    function check(node: unknown, use: string, strict = false) {
       const found = envPath(node)
       if (!found) return
       const path = found.path.join(".")
       if (!secrets.has(path)) return
       ctx.report(diagnostics.VHUB0004({
-        why: `\`${path}\` is a secret Server Env value, a \`SecretEnv\`. ${use} converts it to the string \`<redacted>\`, so the code sends or compares \`<redacted>\` and not the secret.`,
+        why: strict
+          ? `\`${path}\` is a secret Server Env value, a \`SecretEnv\` object. ${use} compares the object, so it is never equal to a string.`
+          : `\`${path}\` is a secret Server Env value, a \`SecretEnv\`. ${use} converts it to the string \`<redacted>\`, so the code sends or compares \`<redacted>\` and not the secret.`,
         fix: `Call \`.unseal()\` where the code needs the raw value, for example \`${path.split(".").at(-1)}.unseal()\`.`,
       }), { range: ctx.range(node) })
     }
@@ -142,9 +152,12 @@ export const unsealSecretEnv: DoctorRule = createRule({
         if (isNodeType(node, "TemplateLiteral") && Array.isArray(node.expressions)) {
           for (const expression of node.expressions) check(expression, "A template literal")
         }
-        else if (isNodeType(node, "BinaryExpression") && typeof node.operator === "string" && coercingOperators.has(node.operator)) {
-          check(node.left, `The \`${node.operator}\` operator`)
-          check(node.right, `The \`${node.operator}\` operator`)
+        else if (isNodeType(node, "BinaryExpression") && typeof node.operator === "string") {
+          const strict = strictOperators.has(node.operator)
+          if (!strict && !coercingOperators.has(node.operator)) return
+          if (node.operator !== "+" && (isNullish(node.left) || isNullish(node.right))) return
+          check(node.left, `The \`${node.operator}\` operator`, strict)
+          check(node.right, `The \`${node.operator}\` operator`, strict)
         }
         else if (isNodeType(node, "CallExpression")) {
           const callee = memberPath(node.callee)?.join(".")
@@ -458,6 +471,20 @@ function isRouteHandler(fn: AstNode): boolean {
   return isIdentifier(callee) && handlerFactories.has(callee.name)
 }
 
+/** True when the call result is assigned to a name that is declared outside `handler`. */
+function isAssignedOutside(r: Resolver, call: AstNode, handler: AstNode): boolean {
+  let current = parentOf(call)
+  while (current && current !== handler) {
+    if (isNodeType(current, "AssignmentExpression") && isIdentifier(current.left)) {
+      let declaration: AstNode | undefined = r.binding(current.left)?.declaration
+      while (declaration && declaration !== handler) declaration = parentOf(declaration)
+      if (!declaration) return true
+    }
+    current = parentOf(current)
+  }
+  return false
+}
+
 export const rateLimiterAtModuleScope: DoctorRule = createRule({
   meta: {
     id: "vitehub/rate-limiter-at-module-scope",
@@ -474,7 +501,8 @@ export const rateLimiterAtModuleScope: DoctorRule = createRule({
         if (!isNodeType(node, "CallExpression") || !isExport(r.callee(node), ["rate-limit/drivers/memory"], "memoryRateLimitDriver")) return
         let current = parentOf(node)
         while (current && !(isFunctionNode(current) && isRouteHandler(current))) current = parentOf(current)
-        if (!current) return
+        // `limiter ??= createRateLimiter(...)` keeps one driver in a binding outside the handler.
+        if (!current || isAssignedOutside(r, node, current)) return
         ctx.report(diagnostics.VHUB0009({
           why: "`memoryRateLimitDriver()` keeps its counters in the driver object. This route handler creates a new driver for each request, so every request starts at zero and the limit is never reached.",
           fix: "Create the driver and its `createRateLimiter()` once at module scope, and use that limiter in the handler.",

@@ -369,6 +369,13 @@ describe("vitehub/destructure-result-tuples beyond KV and Blob", () => {
       "server/utils/settings.ts": [
         'import { kv } from "vite-hub/kv"',
         'import { runAgent } from "vite-hub/agent"',
+        "export default defineEventHandler(async () => {",
+        '  const result = await kv.get("settings")',
+        "  if (result[0]) throw result[0]",
+        "  const stored = await kv.get(\"other\")",
+        "  const [error, other] = stored",
+        "  return { settings: result[1], other, error }",
+        "})",
         "export async function clear() {",
         '  const [error] = await kv.del("settings")',
         "  if (error) throw error",

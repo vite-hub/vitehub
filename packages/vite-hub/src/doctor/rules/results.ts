@@ -1,7 +1,7 @@
 import { createRule } from "vite-doctor/extension"
 import type { DoctorRule } from "vite-doctor/extension"
 
-import { callArguments, isFunctionNode, isIdentifier, isNode, isNodeType, parentOf, objectValue, resolver, semanticParent, stringValue, unwrap } from "../ast.ts"
+import { callArguments, isFunctionNode, isIdentifier, isNodeType, numberValue, objectValue, parentOf, resolver, semanticParent, stringValue, unwrap, walkScript } from "../ast.ts"
 import type { AstNode, Resolver } from "../ast.ts"
 import { diagnostics } from "../diagnostics.ts"
 
@@ -93,15 +93,31 @@ function enclosingFunctionOf(node: AstNode): AstNode | undefined {
 
 type Misuse = "value" | "response"
 
+/** True when a name that holds the tuple is later indexed, such as `result[0]`, or destructured. */
+function readsAsTuple(r: Resolver, target: unknown): boolean {
+  if (!isIdentifier(target)) return false
+  const own = r.binding(target)
+  if (!own) return false
+  let found = false
+  walkScript(r.ctx.file.scriptAst, (node) => {
+    if (found || node === target || !isIdentifier(node, target.name) || r.binding(node) !== own) return
+    const { parent, child } = semanticParent(node)
+    if (parent?.type === "MemberExpression" && parent.object === child && parent.computed === true && numberValue(parent.property) !== undefined) found = true
+    else if (parent?.type === "VariableDeclarator" && parent.init === child && isNodeType(parent.id, "ArrayPattern")) found = true
+    else if (parent?.type === "AssignmentExpression" && parent.right === child && isNodeType(parent.left, "ArrayPattern")) found = true
+  })
+  return found
+}
+
 /** How the awaited tuple is used, when the use treats it as the value. */
-function misuseOf(awaited: AstNode): Misuse | undefined {
+function misuseOf(r: Resolver, awaited: AstNode): Misuse | undefined {
   const { parent, child } = semanticParent(awaited)
   if (!parent) return
   switch (parent.type) {
     case "VariableDeclarator":
-      return isNodeType(parent.id, "ArrayPattern") ? undefined : "value"
+      return isNodeType(parent.id, "ArrayPattern") || readsAsTuple(r, parent.id) ? undefined : "value"
     case "AssignmentExpression":
-      return isNodeType(parent.left, "ArrayPattern") ? undefined : "value"
+      return isNodeType(parent.left, "ArrayPattern") || readsAsTuple(r, parent.left) ? undefined : "value"
     case "LogicalExpression":
     case "BinaryExpression":
     case "TemplateLiteral":
@@ -152,7 +168,7 @@ export const destructureResultTuples: DoctorRule = createRule({
         // A returned promise resolves to the tuple too, so a route handler responds with it.
         const awaited = parent?.type === "AwaitExpression" ? parent : parent?.type === "ArrowFunctionExpression" || parent?.type === "ReturnStatement" ? node : undefined
         if (!awaited) return
-        const misuse = misuseOf(awaited)
+        const misuse = misuseOf(r, awaited)
         if (!misuse) return
         const why = {
           "value": `\`${name}\` returns an \`[error, value]\` tuple and does not throw on failures. This code uses the tuple as the value. A tuple is always truthy, and the error is lost.`,

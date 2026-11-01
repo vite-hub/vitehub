@@ -193,7 +193,7 @@ export default defineEventHandler(async () => {
 })
 ```
 
-The rule accepts a statement that ignores the result, such as `await kv.set(key, value)`, a pattern such as `const [error] = await kv.del(key)`, an index such as `(await blob.head(path))[0]`, and a tuple that a helper function returns to its caller. `runAgent(agent, context, input)` with a Runtime Context returns the value and throws, so the rule does not check it. Read [KV server API](/docs/kv/server-api) and [Blob server API](/docs/blob/server-api) for each method.
+The rule accepts a statement that ignores the result, such as `await kv.set(key, value)`, a pattern such as `const [error] = await kv.del(key)`, a name that code later indexes or destructures, an index such as `(await blob.head(path))[0]`, and a tuple that a helper function returns to its caller. `runAgent(agent, context, input)` with a Runtime Context returns the value and throws, so the rule does not check it. Read [KV server API](/docs/kv/server-api) and [Blob server API](/docs/blob/server-api) for each method.
 
 ## VHUB0004
 
@@ -201,7 +201,7 @@ The rule accepts a statement that ignores the result, such as `await kv.set(key,
 
 A secret Server Env value is a `SecretEnv`. When code converts it to a string, the result is `<redacted>`. A request then sends `Bearer <redacted>`, and a comparison with the secret is always false. ViteHub does not report this at runtime.
 
-The rule reads the secret paths from `.vitehub/env/description.mjs`, which ViteHub writes when you run `vite dev`, `vite build`, or `nuxt prepare`. It does not run before that file exists. It checks values from `useServerEnv()` and `await loadServerEnv()` of `#vitehub/env/server`, and names destructured from them. It reports a secret in a template literal, with `+`, `==`, `===`, `!=`, or `!==`, as an argument of `String()`, `JSON.stringify()`, `Buffer.from()`, `encodeURIComponent()`, `btoa()`, or `encode()`, and as a value in a `headers` object.
+The rule reads the secret paths from `.vitehub/env/description.mjs`, which ViteHub writes when Vite resolves the config, for example on `vite dev`, `vite build`, `nuxt dev`, or `nuxt build`. It does not run before that file exists. It checks values from `useServerEnv()` and `await loadServerEnv()` of `#vitehub/env/server`, and names destructured from them. It reports a secret in a template literal, with `+`, `==`, or `!=`, compared with `===` or `!==` to a value, as an argument of `String()`, `JSON.stringify()`, `Buffer.from()`, `encodeURIComponent()`, `btoa()`, or `encode()`, and as a value in a `headers` object.
 
 ```ts [server/api/issues.get.ts]
 import { useServerEnv } from '#vitehub/env/server'
@@ -366,7 +366,7 @@ Use `requireRateLimit()` when the request must fail with status 429. Read [Rate 
 
 `memoryRateLimitDriver()` keeps its counters in the driver object. A route handler that creates the driver creates new counters for each request, so the limit is never reached.
 
-The rule reports `memoryRateLimitDriver()` from `@vite-hub/rate-limit/drivers/memory` inside a route handler: a default-exported function or a function passed to `defineEventHandler()`. It does not check test files.
+The rule reports `memoryRateLimitDriver()` from `@vite-hub/rate-limit/drivers/memory` inside a route handler: a default-exported function or a function passed to `defineEventHandler()`. It does not report a driver that the handler assigns to a name outside the handler, as in `limiter ??= createRateLimiter(...)`, and it does not check test files.
 
 ```ts [server/api/search.get.ts]
 import { createRateLimiter } from 'vite-hub/rate-limit'
@@ -511,6 +511,8 @@ export default defineQueue(async ({ payload }) => {})
 
 A file default-exports `defineQueue()`, `defineWorkflow()`, `defineSchedule()`, `defineBrowser()`, `defineRealtime()`, `defineOutboundChannel()`, `defineAgent()`, `defineConnection()`, or `defineSandboxTask()`, but ViteHub does not discover the file. The Definition is never registered: a Schedule never runs, and calls by name fail.
 
+A discovered file can re-export a Definition from another module, as in `export { default } from '../utils/email-queue'`. The rule does not report that module.
+
 ```ts [server/utils/report.ts]
 // Invalid: ViteHub does not scan server/utils/.
 import { defineSchedule } from 'vite-hub/schedule'
@@ -639,14 +641,14 @@ export default defineWorkflow(async ({ payload, steps }) => {
 
 - each value is in its range: minute 0-59, hour 0-23, day of month 1-31, month 1-12, day of week 0-7
 - ranges do not run backwards, and steps are positive numbers
-- fields use only numbers, `*`, `,`, `-`, and `/`; Cloudflare, Vercel, and Netlify do not accept names such as `MON`, or `?`, `L`, and `#`
-- only one of the day of month and the day of week is set, because Vercel does not accept both
+
+The rule does not report names such as `MON` or a cron that sets both day fields. The process runtime accepts them, and the build for Cloudflare, Vercel, or Netlify rejects them with `SCHEDULE_R0003`.
 
 ```ts [server/schedules/digest.ts]
 import { defineSchedule } from 'vite-hub/schedule'
 
-// Invalid
-export default defineSchedule({ cron: '0 8 * * MON', handler })
+// Invalid: the hour 24 is outside 0-23.
+export default defineSchedule({ cron: '0 24 * * 1', handler })
 
 // Valid
 export default defineSchedule({ cron: '0 8 * * 1', handler })
@@ -725,7 +727,7 @@ const realtime = useRealtimeTiptap('notes', id, {
 </script>
 ```
 
-The rule checks files that import a `vite-hub/realtime` path, and every file when `package.json` lists `@vite-hub/realtime`. Read [Carets](/docs/realtime/server-api#carets).
+The rule checks files that import a `vite-hub/realtime` path, so an editor that ViteHub Realtime does not sync can keep the extension. Read [Carets](/docs/realtime/server-api#carets).
 
 ## VHUB0025
 
@@ -962,7 +964,7 @@ ViteHub reads `server/comments.ts` without running it. A default export selects 
 
 - A default export next to `export const comments`. ViteHub never installs the live API.
 - `defineComments()` exported under another name, with no default export. The entry selects Comment operations.
-- A `database` option that is not a string literal. ViteHub then stores Comments in the default Database.
+- A `database` option that is not a string literal, in the live-site form. ViteHub then stores Comments in the default Database.
 
 ```ts [server/comments.ts]
 // Invalid

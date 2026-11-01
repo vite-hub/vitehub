@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs"
 
-import { relative, resolve } from "node:path"
+import { dirname, relative, resolve } from "node:path"
 import * as v from "valibot"
 import type { ProjectInventoryContributor, RuleContext } from "vite-doctor/extension"
 
@@ -15,6 +15,7 @@ const definitionSchema = v.object({
   file: v.string(),
   steps: v.optional(v.array(v.string())),
   manual: v.optional(v.boolean()),
+  imports: v.optional(v.array(v.string())),
 })
 const inventorySchema = v.object({
   /** Definitions that each owner package discovers. A kind is missing when its discovery failed. */
@@ -33,6 +34,8 @@ export type DiscoveredFile = {
   steps?: string[]
   /** Whether a Schedule Definition sets `manual: true`. */
   manual?: boolean
+  /** Relative imports of the Definition file, relative to the project root and without an extension. */
+  imports?: string[]
 }
 
 const emptyInventory: ViteHubInventory = { definitions: {} }
@@ -95,6 +98,16 @@ function readEnvFacts(root: string): ViteHubInventory["env"] {
   return { secret: paths(entry => entry.secret), provider: paths(entry => entry.source === "provider") }
 }
 
+const importSpecifier = /(?:\bfrom|\bimport)\s*\(?\s*["'](\.{1,2}\/[^"']+)["']/g
+
+/** A Definition file can re-export a module from elsewhere, which then becomes the Definition. */
+function relativeImports(root: string, file: string): { imports?: string[] } {
+  if (!existsSync(file)) return {}
+  const imports = [...readFileSync(file, "utf8").matchAll(importSpecifier)]
+    .map(match => relative(root, resolve(dirname(file), match[1] ?? "")).replaceAll("\\", "/").replace(/\.(?:c|m)?[jt]sx?$/, ""))
+  return imports.length ? { imports } : {}
+}
+
 export const viteHubInventoryContributor: ProjectInventoryContributor = {
   name: inventoryName,
   async contribute(project) {
@@ -110,6 +123,7 @@ export const viteHubInventoryContributor: ProjectInventoryContributor = {
           file: path(definition.handler),
           ...(definition.steps?.length ? { steps: definition.steps.map(path) } : {}),
           ...(definition.manual === undefined ? {} : { manual: definition.manual }),
+          ...relativeImports(root, definition.handler),
         }))
       }
       catch {

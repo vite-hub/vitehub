@@ -1,7 +1,7 @@
 import { createRule } from "vite-doctor/extension"
 import type { DoctorRule } from "vite-doctor/extension"
 
-import { callArguments, defaultExport, enclosingFunction, isExport, isIdentifier, isNode, isNodeType, isTestFile, memberPath, objectProperties, objectValue, propertyName, resolver, semanticParent, stringValue, unwrap, walkScript } from "../ast.ts"
+import { callArguments, chainRoot, defaultExport, enclosingFunction, isExport, isIdentifier, isNode, isNodeType, isTestFile, memberPath, objectProperties, objectValue, propertyName, resolver, semanticParent, stringValue, unwrap, walkScript } from "../ast.ts"
 import type { AstNode, Resolver, ViteHubReference } from "../ast.ts"
 import { diagnostics } from "../diagnostics.ts"
 import { discoveredDefinition, viteHubInventory } from "../inventory.ts"
@@ -145,6 +145,9 @@ export const definitionLocation: DoctorRule = createRule({
         if (!factory) return
         const files = definitions[factory.kind]
         if (!files || files.some(definition => definition.file === ctx.file.relativePath)) return
+        // A discovered file can re-export this module: `export { default } from "../utils/email-queue"`.
+        const module = ctx.file.relativePath.replace(/\.(?:c|m)?[jt]sx?$/, "")
+        if (files.some(definition => definition.imports?.some(target => target === module || target === module.replace(/\/index$/, "")))) return
         if (factory.kind === "agent" && !agentDefinitionPath.test(ctx.file.relativePath)) return
         ctx.report(diagnostics.VHUB0015({
           why: `\`${ctx.file.relativePath}\` default-exports \`${factory.name}()\`, but ViteHub does not discover this file. The Definition is never registered, so calls to it fail and it never runs.`,
@@ -342,6 +345,7 @@ export const workflowStepNames: DoctorRule = createRule({
     const owners = new Map<string, string[]>()
     for (const step of steps) owners.set(stepPropertyName(step), [...owners.get(stepPropertyName(step)) ?? [], step])
     const names = [...owners.keys()].filter(Boolean)
+    const r = resolver(ctx)
     return {
       ScriptNode(node) {
         if (isNodeType(node, "Program")) {
@@ -358,7 +362,10 @@ export const workflowStepNames: DoctorRule = createRule({
         }
         if (!isNodeType(node, "MemberExpression") || node.computed === true || !isIdentifier(node.property)) return
         const objectPath = memberPath(node.object)
-        if (objectPath?.at(-1) !== "steps") return
+        if (!objectPath || objectPath.at(-1) !== "steps" || objectPath.length > 2) return
+        // Steps come from the handler argument, as `{ steps }` or `ctx.steps`. A local such as `run.steps` is other data.
+        const binding = r.binding(chainRoot(node.object))
+        if (!binding || binding.declaration || binding.origin) return
         const step = node.property.name
         if (names.includes(step)) return
         ctx.report(diagnostics.VHUB0020({
@@ -386,10 +393,8 @@ function cronProblems(cron: string): string[] {
   fields.forEach((field, index) => {
     const spec = cronFields[index]
     if (!spec) return
-    if (!/^[*,/\-0-9]+$/.test(field)) {
-      problems.push(`the ${spec.label} field \`${field}\` uses names or special characters. Cloudflare, Vercel, and Netlify accept only numbers, \`*\`, \`,\`, \`-\`, and \`/\``)
-      return
-    }
+    // Names such as `MON` work in the process runtime, and provider builds reject them with `SCHEDULE_R0003`.
+    if (!/^[*,/\-0-9]+$/.test(field)) return
     for (const part of field.split(",")) {
       const [range, step] = part.split("/")
       if (step !== undefined && !(/^\d+$/.test(step) && Number(step) > 0)) problems.push(`the ${spec.label} step \`/${step}\` is not a positive number`)
@@ -406,7 +411,6 @@ function cronProblems(cron: string): string[] {
       if (numbers.length === 2 && (numbers[0] ?? 0) > (numbers[1] ?? 0)) problems.push(`the ${spec.label} range \`${range}\` runs backwards`)
     }
   })
-  if (fields[2] !== "*" && fields[4] !== "*") problems.push("both the day of month and the day of week are set. Vercel does not accept this")
   return problems
 }
 

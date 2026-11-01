@@ -101,8 +101,8 @@ export const realtimeCarets: DoctorRule = createRule({
     requires: { script: true },
   },
   create(ctx) {
-    const usesRealtime = dependsOn(ctx, "@vite-hub/realtime")
-      || importsOf(ctx).some(declaration => vitehubModule(declaration.source)?.startsWith("realtime"))
+    // Only an editor that ViteHub Realtime syncs is affected, so the rule checks files that import Realtime.
+    const usesRealtime = importsOf(ctx).some(declaration => vitehubModule(declaration.source)?.startsWith("realtime"))
     if (!usesRealtime) return
     return {
       ScriptNode(node) {
@@ -388,7 +388,7 @@ function checkViteHubOptions(ctx: RuleContext, options: unknown, host: "nuxt" | 
     }
     else if (name === "connections" && host === "nuxt" && !(isNodeType(value, "Literal") && value.value === false)) {
       report = {
-        why: "The Nuxt module does not support `connections` yet. `nuxt dev` runs, but `nuxt build` fails with `VITE_HUB_B0012`.",
+        why: "The Nuxt module does not support `connections` yet. `nuxt build` fails with `VITE_HUB_B0012`. Without `database`, `nuxt dev` also fails with `VITE_HUB_R0124`.",
         fix: "Remove `connections` from the Nuxt config, or use the `vitehub()` Vite plugin for Connections.",
       }
     }
@@ -602,7 +602,7 @@ export const markdownFilePath: DoctorRule = createRule({
 
 // VHUB0035
 
-const commentsEntryFile = /(?:^|\/)server\/comments\.[cm]?[jt]s$/
+const commentsEntryFile = /(?:^|\/)server\/comments\.m?[jt]s$/
 
 /** The exported names of the entry, and the export statement of each name. */
 function namedExports(ctx: RuleContext): Map<string, AstNode> {
@@ -657,7 +657,8 @@ export const commentsEntry: DoctorRule = createRule({
             fix: `Rename the export to \`comments\`: \`export const comments = defineComments({ ... })\`.`,
           }), { range: ctx.range(node) })
         }
-        const database = objectProperty(callArguments(node)[0], "database")
+        // Comment operations, selected by a default export, have no `database` option.
+        const database = hasDefault ? undefined : objectProperty(callArguments(node)[0], "database")
         if (database && stringValue(database.value) === undefined) {
           ctx.report(diagnostics.VHUB0035({
             why: "ViteHub reads `database` from `defineComments()` without running the file, so it must be a string literal. With any other value, ViteHub stores Comments in the default Database.",

@@ -109,6 +109,8 @@ describe("vitehub/definition-location", () => {
       "server/schedules/report.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule({ cron: "0 8 * * *", handler: async () => {} })\n',
       "server/agents/support.ts": 'import { defineAgent } from "vite-hub/agent"\nexport default defineAgent({})\n',
       "server/utils/base-agent.ts": 'import { defineAgent } from "vite-hub/agent"\nexport default defineAgent({})\n',
+      "server/utils/email-queue.ts": queue,
+      "server/queues/email.ts": 'export { default } from "../utils/email-queue"\n',
     })).toEqual([])
   })
 })
@@ -245,25 +247,30 @@ describe("vitehub/workflow-step-names", () => {
   it("accepts steps that match their files", async () => {
     expect(await projectCodes(workflowStepNames, {
       ...steps,
-      "server/workflows/onboard/index.ts": 'import { defineWorkflow } from "vite-hub/workflow"\nexport default defineWorkflow(async ({ payload, steps }) => { const user = await steps.createUser(payload); return await steps.sendWelcome(user) })\n',
+      "server/workflows/onboard/index.ts": [
+        'import { defineWorkflow, getWorkflowRun } from "vite-hub/workflow"',
+        "export default defineWorkflow(async ({ payload, steps }) => { const user = await steps.createUser(payload); return await steps.sendWelcome(user) })",
+        'export async function stepCount(id) { const run = await getWorkflowRun("onboard", id); return run.steps.length }',
+      ].join("\n"),
     })).toEqual([])
   })
 })
 
 describe("vitehub/valid-schedule-cron", () => {
-  it("reports out-of-range, named, and conflicting cron fields", async () => {
+  it("reports out-of-range values, bad steps, and backwards ranges", async () => {
     expect(await codes(validScheduleCron, {
       "server/schedules/a.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule({ cron: "60 8 * * *", handler: async () => {} })\n',
-      "server/schedules/b.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule("0 8 * * MON", async () => {})\n',
-      "server/schedules/c.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule({ cron: "0 0 1 * 1", handler: async () => {} })\n',
       "server/schedules/d.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule({ cron: "*/0 5-2 * 13 *", handler: async () => {} })\n',
-    })).toEqual(["VHUB0021", "VHUB0021", "VHUB0021", "VHUB0021"])
+    })).toEqual(["VHUB0021", "VHUB0021"])
   })
 
   it("accepts portable cron expressions", async () => {
     expect(await codes(validScheduleCron, {
       "server/schedules/a.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule({ cron: "*/15 0-23 * 1,6 *", handler: async () => {} })\n',
       "server/schedules/b.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule("0 8 * * 1-5", async () => {})\n',
+      // The process runtime accepts names and both day fields. Provider builds report them with `SCHEDULE_R0003`.
+      "server/schedules/c.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule("0 8 * * MON", async () => {})\n',
+      "server/schedules/e.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule({ cron: "0 0 1 * 1", handler: async () => {} })\n',
     })).toEqual([])
   })
 })

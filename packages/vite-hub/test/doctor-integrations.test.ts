@@ -44,6 +44,11 @@ describe("vitehub/realtime-carets", () => {
       ),
       "src/Other.vue": "<script setup lang=\"ts\">\nimport CollaborationCaret from \"@tiptap/extension-collaboration-caret\"\n</script>\n",
     })).toEqual([])
+    // A second editor in a Realtime app that ViteHub does not sync.
+    expect(await codes(realtimeCarets, {
+      "package.json": manifest({ "@vite-hub/realtime": "*" }),
+      "src/Plain.vue": "<script setup lang=\"ts\">\nimport CollaborationCaret from \"@tiptap/extension-collaboration-caret\"\n</script>\n",
+    })).toEqual([])
   })
 })
 
@@ -338,6 +343,10 @@ describe("vitehub/comments-entry", () => {
     expect(await codes(commentsEntry, {
       "server/comments.ts": "import { defineComments } from \"vite-hub/comments\"\nexport default defineComments({})\n",
       "server/utils/comments.ts": "import { defineComments } from \"vite-hub/comments\"\nexport const threads = defineComments({ database: name })\n",
+    })).toEqual([])
+    // A default export selects Comment operations, which have no `database` option.
+    expect(await codes(commentsEntry, {
+      "server/comments.ts": "import { defineComments } from \"vite-hub/comments\"\nexport default defineComments({ database: name })\n",
     })).toEqual([])
   })
 })

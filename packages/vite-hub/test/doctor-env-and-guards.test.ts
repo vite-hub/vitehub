@@ -265,3 +265,37 @@ describe("vitehub/no-nested-blob-reference-schema", () => {
     })).toEqual([])
   })
 })
+
+describe("Server Env rules with parameters and optional secrets", () => {
+  const route = [
+    'import { useServerEnv } from "#vitehub/env/server"',
+    "export default defineEventHandler((event) => {",
+    "  const { req } = event.node",
+    "  const env = useServerEnv(event)",
+    "  if (env.github.token === undefined || env.github.token == null) return",
+    '  if (env.github.token === event.headers.get("x-token")) return',
+    "  return `${req.url}`",
+    "})",
+  ].join("\n")
+
+  it("follows destructured parameters without recursion, and accepts null checks", async () => {
+    expect(await projectCodes(unsealSecretEnv, { ".vitehub/env/description.mjs": description, "server/api/check.get.ts": route })).toEqual(["VHUB0004"])
+    expect(await projectCodes(loadProviderEnv, { ".vitehub/env/description.mjs": description, "server/api/check.get.ts": route })).toEqual([])
+  })
+})
+
+describe("vitehub/rate-limiter-at-module-scope with a cached limiter", () => {
+  it("accepts a driver kept in a binding outside the handler", async () => {
+    expect(await codes(rateLimiterAtModuleScope, {
+      "server/api/upload.post.ts": [
+        'import { createRateLimiter } from "@vite-hub/rate-limit"',
+        'import { memoryRateLimitDriver } from "@vite-hub/rate-limit/drivers/memory"',
+        "let limiter",
+        "export default defineEventHandler(async () => {",
+        '  limiter ??= createRateLimiter({ driver: memoryRateLimitDriver(), limit: 20, window: "1m" })',
+        "  if (!limiter) limiter = createRateLimiter({ driver: memoryRateLimitDriver(), limit: 20, window: \"1m\" })",
+        "})",
+      ].join("\n"),
+    })).toEqual([])
+  })
+})
