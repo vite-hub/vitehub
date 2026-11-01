@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { usePreferredReducedMotion } from "@vueuse/core";
 // `::product-hero` opens a product landing page. The copy comes from the page frontmatter and the
 // section manifest. The default slot renders in the right column: a `::product-files` file tree, a
 // `::code-group` whose tabs become a file list beside the code, or an interactive component.
