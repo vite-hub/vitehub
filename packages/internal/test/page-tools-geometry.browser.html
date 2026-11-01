@@ -18,65 +18,79 @@
   const dockKey = "vitehub-tools-dock"
   const collapsedKey = "vitehub-tools-collapsed"
   const saved = [localStorage.getItem(dockKey), localStorage.getItem(collapsedKey)]
-  const safe = { top: 60, right: 20, bottom: 30, left: 100 }
+  const insets = [
+    { top: 60, right: 20, bottom: 30, left: 100 },
+    { top: 0, right: 0, bottom: 0, left: 0 },
+    { top: 0, right: 7, bottom: 10, left: 3 },
+  ]
+  const scenarios = insets.flatMap(safe => [false, true].flatMap(collapsed =>
+    ["top", "right", "bottom", "left"].flatMap(edge => [0, 50, 100].map(at => ({ safe, collapsed, edge, at }))),
+  ))
   let exit
   let toolWindow
   let cases = 0
   try {
-    localStorage.removeItem(collapsedKey)
     // Only the session request is mocked: the actual loader, pill, window and styles render together.
     window.fetch = async () => Response.json({ tools: [{ id: "content", label: "Content", script: "/content.js" }] })
-    for (const edge of ["top", "right", "bottom", "left"]) {
-      for (const at of [0, 50, 100]) {
-        document.cookie = "vitehub-tools=1; Path=/"
-        localStorage.setItem(dockKey, JSON.stringify({ edge, at }))
-        await loadViteHubPageTools({ load: async () => ({ default(context) {
-          exit = context.exit
-          const trigger = document.createElement("button")
-          trigger.textContent = "Content"
-          context.bar.append(trigger)
-          toolWindow = createViteHubPageWindow({ id: "geometry", title: "Content", trigger, signal: context.signal })
-        } }) })
-        const pill = document.querySelector("vitehub-pill")
-        const host = document.querySelector("vitehub-window")
-        for (const element of [pill, host]) {
-          for (const [side, value] of Object.entries(safe)) element.style.setProperty(`--safe-${side}`, `${value}px`)
-        }
-        toolWindow.show()
-        // Cancel opening motion so the test measures the final layout, not an intermediate animation frame.
-        pill.style.transition = "none"
-        const panel = host.shadowRoot.querySelector(".window")
-        panel.style.transition = "none"
-        await new Promise(requestAnimationFrame)
-        await new Promise(requestAnimationFrame)
-        const vertical = edge === "left" || edge === "right"
-        const pillBox = pill.getBoundingClientRect()
-        const bounds = (label) => {
-          const box = panel.getBoundingClientRect()
-          assert(box.left >= safe.left - 1 && box.right <= innerWidth - safe.right + 1, `${edge} ${at}% ${label}: horizontal safe bounds`)
-          assert(box.top >= safe.top - 1 && box.bottom <= innerHeight - safe.bottom + 1, `${edge} ${at}% ${label}: vertical safe bounds`)
-          const gap = edge === "top" ? box.top - pillBox.bottom : edge === "bottom" ? pillBox.top - box.bottom : edge === "left" ? box.left - pillBox.right : pillBox.left - box.right
-          assert(Math.abs(gap - 8) < 1, `${edge} ${at}% ${label}: gap ${gap}`)
-          return box
-        }
-        const measure = (label) => {
-          const box = bounds(label)
-          const pillPoint = vertical ? pillBox.top + pillBox.height * at / 100 : pillBox.left + pillBox.width * at / 100
-          const windowPoint = vertical ? box.top + box.height * at / 100 : box.left + box.width * at / 100
-          assert(Math.abs(pillPoint - windowPoint) < 1, `${edge} ${at}% ${label}: pill ${pillPoint}, window ${windowPoint}`)
-        }
-        measure("default size")
-        panel.style.width = "2000px"
-        panel.style.height = "2000px"
-        measure("resized beyond viewport")
-        host.shadowRoot.querySelector(".expand").click()
-        bounds("expanded")
-        cases++
-        toolWindow.destroy()
-        exit()
+    for (const { safe, collapsed, edge, at } of scenarios) {
+      result.textContent = `Running… ${cases}/${scenarios.length}: ${edge} ${at}%, collapsed=${collapsed}`
+      if (collapsed) localStorage.setItem(collapsedKey, "1")
+      else localStorage.removeItem(collapsedKey)
+      document.cookie = "vitehub-tools=1; Path=/"
+      localStorage.setItem(dockKey, JSON.stringify({ edge, at }))
+      await loadViteHubPageTools({ load: async () => ({ default(context) {
+        exit = context.exit
+        const trigger = document.createElement("button")
+        trigger.textContent = "Content"
+        context.bar.append(trigger)
+        toolWindow = createViteHubPageWindow({ id: "geometry", title: "Content", trigger, signal: context.signal })
+      } }) })
+      const pill = document.querySelector("vitehub-pill")
+      const host = document.querySelector("vitehub-window")
+      for (const element of [pill, host]) {
+        for (const [side, value] of Object.entries(safe)) element.style.setProperty(`--safe-${side}`, `${value}px`)
       }
+      toolWindow.show()
+      // Cancel opening motion so the test measures the final layout, not an intermediate animation frame.
+      pill.style.transition = "none"
+      const panel = host.shadowRoot.querySelector(".window")
+      panel.style.transition = "none"
+      await new Promise(requestAnimationFrame)
+      await new Promise(requestAnimationFrame)
+      const vertical = edge === "left" || edge === "right"
+      const hostBox = pill.getBoundingClientRect()
+      // Collapsing clips the toolbar without reflowing its host. Measure the visible hexagon's box.
+      const height = Number.parseFloat(getComputedStyle(pill).getPropertyValue("--vitehub-hex-h"))
+      const width = height * 10 / 9
+      const pillBox = collapsed
+        ? new DOMRect(hostBox.left + (hostBox.width - width) / 2, hostBox.top + (hostBox.height - height) / 2, width, height)
+        : hostBox
+      const bounds = (label) => {
+        const box = panel.getBoundingClientRect()
+        assert(box.left >= safe.left - 1 && box.right <= innerWidth - safe.right + 1, `${edge} ${at}% ${label}: horizontal safe bounds`)
+        assert(box.top >= safe.top - 1 && box.bottom <= innerHeight - safe.bottom + 1, `${edge} ${at}% ${label}: vertical safe bounds`)
+        const gap = edge === "top" ? box.top - pillBox.bottom : edge === "bottom" ? pillBox.top - box.bottom : edge === "left" ? box.left - pillBox.right : pillBox.left - box.right
+        assert(Math.abs(gap - 8) < 1, `${edge} ${at}% ${label}: gap ${gap}`)
+        return box
+      }
+      const measure = (label) => {
+        const box = panel.getBoundingClientRect()
+        const pillPoint = vertical ? pillBox.top + pillBox.height * at / 100 : pillBox.left + pillBox.width * at / 100
+        const windowPoint = vertical ? box.top + box.height * at / 100 : box.left + box.width * at / 100
+        assert(Math.abs(pillPoint - windowPoint) < 1, `${edge} ${at}% collapsed=${collapsed} safe=${JSON.stringify(safe)} ${label}: pill ${pillPoint}, window ${windowPoint}`)
+        bounds(label)
+      }
+      measure("default size")
+      panel.style.width = "2000px"
+      panel.style.height = "2000px"
+      measure("resized beyond viewport")
+      host.shadowRoot.querySelector(".expand").click()
+      bounds("expanded")
+      cases++
+      toolWindow.destroy()
+      exit()
     }
-    result.textContent = `PASS: ${cases} dock positions align at default and oversized window sizes; expanded windows stay within asymmetric safe areas`
+    result.textContent = `PASS: ${cases} dock states align at default and oversized window sizes, with zero, low and asymmetric safe areas; expanded windows stay within safe bounds`
   } catch (error) {
     result.textContent = `FAIL: ${error.stack}`
     throw error

@@ -122,6 +122,33 @@ async function startEdit() {
 }
 
 describe("Comments overlay", () => {
+  it.each(["body swap", "astro:before-swap", "turbo:before-render"])("saves the active inline edit on %s without relying on blur", async (event) => {
+    document.documentElement.append(pill)
+    const title = await startEdit()
+    title.textContent = "Edited before navigation"
+    const before = document.body
+    const next = document.createElement("body")
+    next.innerHTML = '<h1 data-content-field="settings#title">Next page</h1>'
+    try {
+      if (event !== "body swap") {
+        document.dispatchEvent(new Event(event))
+        expect(api.saveField).toHaveBeenCalledOnce()
+        expect(title.hasAttribute("data-vitehub-editing")).toBe(false)
+      }
+      before.replaceWith(next)
+      await vi.waitFor(() => expect(api.saveField).toHaveBeenCalledWith({ field: "settings#title", value: "Edited before navigation", ifDigest: "draft-digest" }))
+      expect(title.hasAttribute("data-vitehub-editing")).toBe(false)
+      expect(document.querySelector("h1")!.textContent).toBe("Next page")
+      await startEdit()
+      document.querySelector("h1")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+      expect(api.saveField).toHaveBeenCalledOnce()
+    }
+    finally {
+      next.replaceWith(before)
+      pill.remove()
+    }
+  })
+
   it.each(["comment", "edit"])("restores %s styling after an Astro root/head/body swap and a Turbo head merge", async (mode) => {
     document.documentElement.append(pill)
     const selector = mode === "comment" ? '[title="Comment (C)"]' : '[title="Edit text (E)"]'

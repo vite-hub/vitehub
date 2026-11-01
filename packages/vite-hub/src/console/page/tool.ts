@@ -124,6 +124,12 @@ const start: ViteHubPageToolModule["default"] = (context) => {
     // was already minimized, it stays minimized, and only a picked field opens it.
     let selecting = false
     let restore = false
+    // Astro and Turbo can replace the head and root classes while the Content tool stays connected.
+    const mutations = new MutationObserver(() => {
+      if (style.parentElement !== document.head) document.head.append(style)
+      if (selecting && !document.documentElement.classList.contains("vitehub-select-content")) document.documentElement.classList.add("vitehub-select-content")
+    })
+    mutations.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] })
     const stop = (picked: boolean) => {
       if (!selecting) return
       selecting = false
@@ -159,7 +165,7 @@ const start: ViteHubPageToolModule["default"] = (context) => {
       event.preventDefault()
       stop(false)
     }, { capture: true, signal })
-    signal.addEventListener("abort", () => { stop(true); style.remove() }, { once: true })
+    signal.addEventListener("abort", () => { mutations.disconnect(); stop(true); style.remove() }, { once: true })
   }
 }
 export default start

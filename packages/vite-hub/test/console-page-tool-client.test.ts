@@ -43,6 +43,46 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+it.each([false, true])("keeps Content field selection styles through head and body swaps (selecting: %s)", async (selecting) => {
+  history.replaceState(null, "", "/?vitehub=content")
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ tools: [
+    { id: "content", label: "Content", script: "/_vitehub/assets/page-tool.js" },
+  ] })))
+  await loadViteHubPageTools({ load: async () => ({ default: start }) })
+  const select = document.querySelector("vitehub-tool")!.shadowRoot!.querySelectorAll("button")[1]!
+  if (selecting) select.click()
+  const style = [...document.head.querySelectorAll("style")].find(element => element.textContent?.includes(".vitehub-select-content"))!
+  const before = document.body
+  const head = document.head
+  const next = document.createElement("body")
+  const nextHead = document.createElement("head")
+  next.innerHTML = '<h1 data-content-field="pages:next#title">Next page</h1>'
+  try {
+    document.documentElement.className = "next-page"
+    head.replaceWith(nextHead)
+    before.replaceWith(next)
+    await vi.waitFor(() => {
+      expect(style.parentElement).toBe(nextHead)
+      expect(document.documentElement.classList.contains("vitehub-select-content")).toBe(selecting)
+    })
+    expect(document.documentElement.classList.contains("next-page")).toBe(true)
+    // Turbo can remove a head stylesheet while retaining the head itself.
+    style.remove()
+    await vi.waitFor(() => expect(style.parentElement).toBe(nextHead))
+    if (!selecting) select.click()
+    expect(document.documentElement.classList.contains("vitehub-select-content")).toBe(true)
+    document.querySelector("vitehub-pill")!.shadowRoot!.querySelector<HTMLButtonElement>('button[aria-label="Turn off ViteHub tools"]')!.click()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(style.isConnected).toBe(false)
+    expect(document.documentElement.classList.contains("vitehub-select-content")).toBe(false)
+  }
+  finally {
+    next.replaceWith(before)
+    nextHead.replaceWith(head)
+    document.documentElement.className = ""
+  }
+})
+
 it("opens and minimizes the retained Console window when Trusted Types blocks HTML sinks", async () => {
   vi.spyOn(ShadowRoot.prototype, "innerHTML", "set").mockImplementation(() => {
     throw new TypeError("This document requires 'TrustedHTML' assignment.")

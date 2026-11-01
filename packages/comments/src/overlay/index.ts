@@ -238,6 +238,8 @@ class CommentsOverlay extends HTMLElement {
     let timer: ReturnType<typeof setTimeout> | undefined
     const mutations = new MutationObserver((records) => {
       if (records.every(record => record.target === this || this.contains(record.target))) return
+      // A direct body/field replacement need not blur the detached editable element.
+      if (this.editing && !this.editing.element.isConnected) void this.finishEdit(true)
       // Astro replaces html attributes; Astro and Turbo both merge the head. The retained overlay must restore its
       // stylesheet and mode class without resetting its mode or drafts, even when the URL stays the same.
       this.restoreDocumentState()
@@ -253,6 +255,10 @@ class CommentsOverlay extends HTMLElement {
 
     // Client navigation: Nuxt and other routers use the History API.
     const navigate = () => queueMicrotask(() => this.navigated())
+    // Finalize the inline draft before Astro or Turbo removes its field, as a normal blur would.
+    for (const event of ["astro:before-swap", "turbo:before-render"]) {
+      this.on(document, event as keyof DocumentEventMap, () => void this.finishEdit(true))
+    }
     for (const method of ["pushState", "replaceState"] as const) {
       const original = history[method]
       history[method] = function (this: History, ...args: Parameters<History["pushState"]>) {

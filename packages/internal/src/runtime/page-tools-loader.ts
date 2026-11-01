@@ -205,6 +205,7 @@ function mountPill(tools: ViteHubPageToolInfo[], exit: () => void, signal: Abort
     if (dragged) return
     const collapsed = !pill.hasAttribute("collapsed")
     collapse(collapsed)
+    place(dock)
     try { collapsed ? localStorage.setItem(collapsedKey, "1") : localStorage.removeItem(collapsedKey) }
     catch {}
   })
@@ -229,7 +230,9 @@ function mountPill(tools: ViteHubPageToolInfo[], exit: () => void, signal: Abort
     dock = next
     pill.setAttribute("edge", next.edge)
     pill.style.setProperty("--at", String(next.at))
-    dockViteHubPageWindows({ ...next, thickness: vertical() ? toolbar.offsetWidth : toolbar.offsetHeight })
+    const collapsed = pill.hasAttribute("collapsed")
+    const thickness = collapsed ? vertical() ? hexagonSize(pill).width : hexagonSize(pill).height : vertical() ? toolbar.offsetWidth : toolbar.offsetHeight
+    dockViteHubPageWindows({ ...next, collapsed, thickness })
   }
   // Dragging the mark docks the pill to the edge under the pointer and keeps the mark under it. A press that moves less
   // than 4px is a click.
