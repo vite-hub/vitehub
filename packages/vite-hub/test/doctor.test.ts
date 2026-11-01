@@ -400,6 +400,9 @@ describe("vitehub/destructure-result-tuples outside route files", () => {
     expect(await codes(destructureResultTuples, {
       "server/api/settings.get.ts": 'import { kv } from "vite-hub/kv"\nexport default async function readSettings() { return await kv.get("settings") }\n',
     })).toEqual(["VHUB0003"])
+    expect(await codes(destructureResultTuples, {
+      "src/api/client.ts": 'import { kv } from "vite-hub/kv"\nexport default async function readSettings() { return await kv.get("settings") }\n',
+    })).toEqual([])
   })
 })
 
@@ -426,6 +429,34 @@ describe("ViteHub Project Inventory", () => {
     try {
       const inventory = await viteHubInventoryContributor.contribute({ root, framework: "vite", ssr: false, vueVersion: "", isMonorepo: false })
       expect(inventory).toMatchObject({ definitions: { workflow: expect.arrayContaining([expect.objectContaining({ name: "onboard" }), expect.objectContaining({ name: "import" })]) } })
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("keeps the app server directory when the resolved layers omit the app", async () => {
+    const { rm } = await import("node:fs/promises")
+    const { join } = await import("node:path")
+    const { viteHubInventoryContributor } = await import("../src/doctor/inventory.ts")
+    const root = await project({
+      "app-root/server/queues/welcome.ts": "export default 1\n",
+      "shared-layer/server/queues/digest.ts": "export default 1\n",
+    })
+    const appRoot = join(root, "app-root")
+    try {
+      const inventory = await viteHubInventoryContributor.contribute({
+        root: appRoot, framework: "nuxt", ssr: true, vueVersion: "", isMonorepo: false,
+        nuxt: {
+          version: "4.0.0", appDir: join(appRoot, "app"), appRoots: [], autoImportEnabled: true, autoImportsAuthoritative: false,
+          autoImports: new Map(), components: new Map(), serverDirs: { api: [], routes: [], middleware: [], plugins: [] },
+          layers: [{ root: join(root, "shared-layer"), priority: 1 }],
+        },
+      })
+      expect(inventory).toMatchObject({ definitions: { queue: [
+        { name: "digest", file: "../shared-layer/server/queues/digest.ts" },
+        { name: "welcome", file: "server/queues/welcome.ts" },
+      ] } })
     }
     finally {
       await rm(root, { recursive: true, force: true })

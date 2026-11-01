@@ -340,3 +340,19 @@ describe("second review regressions", () => {
     })).toEqual([])
   })
 })
+
+describe("pullfrog review regressions", () => {
+  it("reports a secret that a call inside a logger call uses first", async () => {
+    expect(await projectCodes(unsealSecretEnv, {
+      ".vitehub/env/description.mjs": description,
+      "server/api/sync.post.ts": [
+        'import { useServerEnv } from "#vitehub/env/server"',
+        "export default defineEventHandler(async (event) => {",
+        "  const { github } = useServerEnv(event)",
+        '  logger.info(await fetch("https://api.github.com", { headers: { Authorization: `Bearer ${github.token}` } }))',
+        "  console.log(JSON.stringify(github.token))",
+        "})",
+      ].join("\n"),
+    })).toEqual(["VHUB0004"])
+  })
+})

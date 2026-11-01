@@ -201,7 +201,7 @@ The rule accepts a statement that ignores the result, such as `await kv.set(key,
 
 A secret Server Env value is a `SecretEnv`. When code converts it to a string, the result is `<redacted>`. A request then sends `Bearer <redacted>`, and a comparison with the secret is always false. ViteHub does not report this at runtime.
 
-The rule reads the secret paths from `.vitehub/env/description.mjs`, which ViteHub writes when Vite resolves the config, for example on `vite dev`, `vite build`, `nuxt dev`, or `nuxt build`. It does not run before that file exists. It checks values from `useServerEnv()` and `await loadServerEnv()` of `#vitehub/env/server`, and names destructured from them. It follows bindings, so a parameter or `catch` variable with the same name is not a secret. It reports a secret in a template literal, with `+`, `==`, or `!=`, compared with `===` or `!==` to a value, as an argument of `String()`, `JSON.stringify()`, `Buffer.from()`, `encodeURIComponent()`, `btoa()`, or `encode()`, and as a value in a `headers` object. It does not report a secret inside `console.*()` or a logger call such as `logger.info()`, where `<redacted>` is the intended output.
+The rule reads the secret paths from `.vitehub/env/description.mjs`, which ViteHub writes when Vite resolves the config, for example on `vite dev`, `vite build`, `nuxt dev`, or `nuxt build`. It does not run before that file exists. It checks values from `useServerEnv()` and `await loadServerEnv()` of `#vitehub/env/server`, and names destructured from them. It follows bindings, so a parameter or `catch` variable with the same name is not a secret. It reports a secret in a template literal, with `+`, `==`, or `!=`, compared with `===` or `!==` to a value, as an argument of `String()`, `JSON.stringify()`, `Buffer.from()`, `encodeURIComponent()`, `btoa()`, or `encode()`, and as a value in a `headers` object. It does not report a secret that goes into `console.*()` or a logger call such as `logger.info()`, where `<redacted>` is the intended output. It still reports a secret that another call uses first, as in `logger.info(await fetch(url, { headers }))`.
 
 ```ts [server/api/issues.get.ts]
 import { useServerEnv } from '#vitehub/env/server'
@@ -576,7 +576,7 @@ The rule does not check test files.
 
 **Do not destructure results that are not tuples.** Rule `vitehub/no-destructure-non-tuples`.
 
-Code destructures `[error, value]` from an API that does not return a tuple. These APIs return their value and throw on failure: `runWorkflow()`, `deferWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflowSignal()`, `getQueue()`, and `runAgent(agent, context, input)` with a Runtime Context. `runSchedule()` returns a Schedule Run record: a failed handler resolves with `status: "failed"`. `runSandboxTask()` and `runBrowser()` return a Web `Response`, which is not iterable.
+Code destructures `[error, value]` from an API that does not return a tuple. These APIs return their value and throw on failure: `runWorkflow()`, `deferWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflowSignal()`, and `getQueue()`. `runSchedule()` returns a Schedule Run record: a failed handler resolves with `status: "failed"`. `runSandboxTask()` and `runBrowser()` return a Web `Response`, which is not iterable.
 
 ```ts [server/api/onboard.post.ts]
 import { runWorkflow } from 'vite-hub/workflow'
@@ -588,7 +588,7 @@ const [error, run] = await runWorkflow('onboard-user', body)
 const run = await runWorkflow('onboard-user', body)
 ```
 
-`runAgent(agent, input)` and `runAgent(agent, input, { output: 'drained' })` return tuples, so the rule accepts them. A third argument that is not an object literal is not checked.
+The rule does not check `runAgent()`. Its tuple forms are tuples, and `runAgent(agent, context, input)` returns the Agent's output, which can be an array.
 
 ## VHUB0019
 
@@ -618,7 +618,7 @@ The rule reports property reads and object destructuring that use a name that is
 
 **Call folder Workflow steps by their file names.** Rule `vitehub/workflow-step-names`.
 
-In a folder Workflow, each numbered file is a step. ViteHub removes the number prefix and converts the rest to camelCase: `01.send-email.ts` becomes `steps.sendEmail`. The rule reports `steps.<name>` in `index.ts` that matches no step file, and step files that become the same property or an empty one. These errors appear only when the Workflow runs.
+In a folder Workflow, each numbered file is a step. ViteHub removes the number prefix and converts the rest to camelCase: `01.send-email.ts` becomes `steps.sendEmail`. The rule reports `steps.<name>` in `index.ts` that matches no step file, and step files that become the same property or an empty one. A folder Workflow without `index.ts` gets the step file reports on each step file. These errors appear only when the Workflow runs.
 
 ```ts [server/workflows/onboard-user/index.ts]
 import { defineWorkflow } from 'vite-hub/workflow'

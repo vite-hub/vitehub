@@ -466,9 +466,9 @@ export function defaultExport(ctx: RuleContext): { node: AstNode, value: unknown
 
 const handlerFactories = new Set(["defineEventHandler", "eventHandler", "defineHandler", "defineCachedEventHandler", "defineLazyEventHandler"])
 /** Files whose default export Nitro serves as a route or middleware. */
-const routeFile = /(?:^|\/)(?:server\/)?(?:api|routes|middleware)\//
+const routeFile = /(?:^|\/)server\/(?:api|routes|middleware)\//
 
-/** True when `fn` handles a request: it is passed to `defineEventHandler()`, or it is the default export of a route file. */
+/** True when `fn` handles a request: it is passed to `defineEventHandler()`, or it is the default export of a file under `server/api`, `server/routes`, or `server/middleware`. */
 export function isRouteHandler(ctx: RuleContext, fn: AstNode): boolean {
   const { parent } = semanticParent(fn)
   if (parent?.type === "ExportDefaultDeclaration") return routeFile.test(ctx.file.relativePath)

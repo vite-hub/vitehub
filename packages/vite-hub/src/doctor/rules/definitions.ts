@@ -236,14 +236,7 @@ function nonTupleResult(r: Resolver, call: unknown): { name: string, kind: "resp
   if (isExport(reference, ["workflow"], ["runWorkflow", "deferWorkflow", "getWorkflowRun", "cancelWorkflow", "resumeWorkflowSignal"])
     || isExport(reference, ["queue"], "getQueue")
     || isExport(reference, ["schedule/runtime"], "runSchedule")) return { name: reference.name, kind: "value" }
-  if (isExport(reference, ["agent"], "runAgent")) {
-    const args = callArguments(call)
-    // With a Runtime Context, `runAgent()` returns the value. A literal third argument shows which form this is.
-    const third = unwrap(args[2])
-    if (args.length === 4 || args.length === 3 && isNodeType(third, "ObjectExpression") && stringValue(objectValue(third, "output")) !== "drained") {
-      return { name: reference.name, kind: "value" }
-    }
-  }
+  // `runAgent(agent, context, input)` returns the Agent's output, which can be an array, so it is not checked.
 }
 
 function arrayPatternTarget(awaited: AstNode): AstNode | undefined {
@@ -339,6 +332,8 @@ function stepPropertyName(file: string): string {
   return base.replace(/[-_.]+([a-z0-9])/gi, (_, char: string) => char.toUpperCase())
 }
 
+const sourceFile = /\.(?:c|m)?[jt]sx?$/
+
 export const workflowStepNames: DoctorRule = createRule({
   meta: {
     id: "vitehub/workflow-step-names",
@@ -348,11 +343,32 @@ export const workflowStepNames: DoctorRule = createRule({
     requires: { script: true },
   },
   create(ctx) {
-    const workflow = viteHubInventory(ctx).definitions.workflow?.find(definition => definition.file === ctx.file.relativePath && definition.steps?.length)
-    const steps = workflow?.steps
-    if (!workflow || !steps) return
+    const workflows = viteHubInventory(ctx).definitions.workflow ?? []
+    const path = ctx.file.relativePath
+    const workflow = workflows.find(definition => definition.file === path && definition.steps?.length)
+    // A folder Workflow without `index.ts` has no index file to report on, so each step file reports its own name.
+    const indexless = workflow ? undefined : workflows.find(definition => definition.steps?.includes(path) && !sourceFile.test(definition.file))
+    const steps = (workflow ?? indexless)?.steps
+    if (!steps) return
     const owners = new Map<string, string[]>()
     for (const step of steps) owners.set(stepPropertyName(step), [...owners.get(stepPropertyName(step)) ?? [], step])
+    if (indexless) {
+      const name = stepPropertyName(path)
+      const files = owners.get(name) ?? []
+      if (name && files.length < 2) return
+      return {
+        ScriptNode(node) {
+          if (!isNodeType(node, "Program")) return
+          ctx.report(diagnostics.VHUB0020({
+            why: name
+              ? `The step files ${quoteList(files)} of the \`${indexless.name}\` Workflow all become the \`steps.${name}\` property. The Workflow fails when it runs.`
+              : `The step file \`${path}\` has no name after its number prefix, so it has no \`steps\` property. The Workflow fails when it runs.`,
+            fix: "Rename the step files so that each one has a unique name after its number prefix, for example `01.create-user.ts`.",
+          }))
+        },
+      }
+    }
+    if (!workflow) return
     const names = [...owners.keys()].filter(Boolean)
     const r = resolver(ctx)
     return {

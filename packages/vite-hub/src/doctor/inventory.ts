@@ -88,6 +88,8 @@ function serverDirsOf(project: ProjectInfo): string[] {
   const isApp = (layer: { root: string }) => resolve(layer.root) === resolve(root)
   const layers = [...project.nuxt?.layers ?? []].sort((a, b) => Number(isApp(b)) - Number(isApp(a)))
   const resolved = layers.map(layer => resolve(root, layer.serverDir ?? (isApp(layer) ? appServerDir : undefined) ?? resolve(layer.root, "server")))
+  // Like `resolveNuxtServerDirs()`, add the app server directory when the layer list does not include the app.
+  if (resolved.length && !layers.some(isApp)) resolved.unshift(resolve(root, appServerDir ?? "server"))
   if (resolved.length) return [...new Set(resolved)]
   // Only Nuxt registers the directories under `layers/` as layers.
   if (project.framework !== "nuxt") return [resolve(root, appServerDir ?? "server")]

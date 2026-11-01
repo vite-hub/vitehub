@@ -98,13 +98,18 @@ function isNullish(node: unknown): boolean {
 
 const logMethods = new Set(["debug", "error", "info", "log", "trace", "warn"])
 
-/** True inside the arguments of `console.*()` or a logger call such as `logger.info()`. */
+/**
+ * True when the nearest call that receives the value is `console.*()` or a logger call such as `logger.info()`.
+ * Converting calls such as `JSON.stringify()` pass the value on. Any other call, such as `fetch()`, uses it first.
+ */
 function inLogCall(node: unknown): boolean {
   let current = parentOf(node)
   while (current && !isFunctionNode(current)) {
+    if (current.type === "NewExpression") return false
     if (current.type === "CallExpression") {
       const path = memberPath(current.callee)
       if (path && (path[0] === "console" || path.length > 1 && logMethods.has(path.at(-1) ?? ""))) return true
+      if (!path || !coercingCalls.has(path.join("."))) return false
     }
     current = parentOf(current)
   }

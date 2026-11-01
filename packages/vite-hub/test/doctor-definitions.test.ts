@@ -168,15 +168,13 @@ describe("vitehub/no-destructure-non-tuples", () => {
       "server/api/a.ts": [
         'import { runWorkflow } from "vite-hub/workflow"',
         'import { runSandboxTask } from "vite-hub/sandbox/task"',
-        'import { runAgent } from "vite-hub/agent"',
-        "export async function run(agent, ctx) {",
+        "export async function run() {",
         '  const [error, run] = await runWorkflow("onboard", {})',
         '  const [failure, output] = await runSandboxTask("resize", {})',
-        '  const [problem, answer] = await runAgent(agent, ctx, { prompt: "hi" })',
-        "  return { error, run, failure, output, problem, answer }",
+        "  return { error, run, failure, output }",
         "}",
       ].join("\n"),
-    })).toEqual(["VHUB0018", "VHUB0018", "VHUB0018"])
+    })).toEqual(["VHUB0018", "VHUB0018"])
   })
 
   it("accepts direct results and the tuple form of runAgent", async () => {
@@ -357,5 +355,22 @@ describe("second review regressions", () => {
       "server/api/run.post.ts": 'import { runSchedule } from "vite-hub/schedule/runtime"\nexport default defineEventHandler(async () => { const [error, run] = await runSchedule("digest") })\n',
     })
     expect(result).toEqual(["VHUB0018"])
+  })
+})
+
+describe("pullfrog review regressions", () => {
+  it("accepts destructured Agent output from runAgent with a Runtime Context", async () => {
+    expect(await codes(noDestructureNonTuples, {
+      "server/api/ask.post.ts": 'import { runAgent } from "vite-hub/agent"\nexport default defineEventHandler(async (event) => { const [first, second] = await runAgent(agent, ctx, { prompt: "hi" }); return { first, second } })\n',
+    })).toEqual([])
+  })
+
+  it("reports colliding and empty step names in a folder Workflow without index.ts", async () => {
+    expect(await projectCodes(workflowStepNames, {
+      "server/workflows/import/01.read.ts": "export default async function () {}\n",
+      "server/workflows/import/02-read.ts": "export default async function () {}\n",
+      "server/workflows/import/03-.ts": "export default async function () {}\n",
+      "server/workflows/import/04.write.ts": "export default async function () {}\n",
+    })).toEqual(["VHUB0020", "VHUB0020", "VHUB0020"])
   })
 })
