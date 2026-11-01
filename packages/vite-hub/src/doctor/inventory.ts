@@ -83,12 +83,17 @@ function serverDirsOf(project: ProjectInfo): string[] {
   const root = project.root
   // Without the manifest of `nuxt prepare`, Doctor does not know `serverDir`, so read a literal one from the config.
   const appServerDir = configuredServerDir(root)
-  // The same resolution as Doctor's own Nuxt runtime graph.
-  const resolved = project.nuxt?.layers.map(layer => resolve(root, layer.serverDir ?? (resolve(layer.root) === resolve(root) ? appServerDir : undefined) ?? resolve(layer.root, "server")))
-  if (resolved?.length) return [...new Set(resolved)]
-  const layers = resolve(root, "layers")
-  const layerDirs = isDirectory(layers)
-    ? readdirSync(layers, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => resolve(layers, entry.name, "server"))
+  // The same resolution as Doctor's own Nuxt runtime graph. The app comes first, then layers in Nuxt priority order,
+  // as `resolveNuxtServerDirs()` passes them to discovery during the build.
+  const isApp = (layer: { root: string }) => resolve(layer.root) === resolve(root)
+  const layers = [...project.nuxt?.layers ?? []].sort((a, b) => Number(isApp(b)) - Number(isApp(a)))
+  const resolved = layers.map(layer => resolve(root, layer.serverDir ?? (isApp(layer) ? appServerDir : undefined) ?? resolve(layer.root, "server")))
+  if (resolved.length) return [...new Set(resolved)]
+  // Only Nuxt registers the directories under `layers/` as layers.
+  if (project.framework !== "nuxt") return [resolve(root, appServerDir ?? "server")]
+  const layerRoot = resolve(root, "layers")
+  const layerDirs = isDirectory(layerRoot)
+    ? readdirSync(layerRoot, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => resolve(layerRoot, entry.name, "server"))
     : []
   return [resolve(root, appServerDir ?? "server"), ...layerDirs.filter(isDirectory)]
 }
@@ -124,7 +129,8 @@ const importSpecifier = /(?:\bfrom|\bimport)\s*\(?\s*["'](\.{1,2}\/[^"']+)["']/g
 
 /** A Definition file can re-export a module from elsewhere, which then becomes the Definition. */
 function relativeImports(root: string, file: string): { imports?: string[] } {
-  if (!existsSync(file)) return {}
+  // A folder Workflow without `index.ts` has its directory as the handler.
+  if (!existsSync(file) || !statSync(file).isFile()) return {}
   const imports = [...readFileSync(file, "utf8").matchAll(importSpecifier)]
     .map(match => relative(root, resolve(dirname(file), match[1] ?? "")).replaceAll("\\", "/").replace(/\.(?:c|m)?[jt]sx?$/, ""))
   return imports.length ? { imports } : {}

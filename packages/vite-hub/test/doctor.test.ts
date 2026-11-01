@@ -404,6 +404,66 @@ describe("vitehub/destructure-result-tuples outside route files", () => {
 })
 
 describe("ViteHub Project Inventory", () => {
+  async function project(files: Record<string, string>) {
+    const { mkdtemp, mkdir, writeFile } = await import("node:fs/promises")
+    const { join } = await import("node:path")
+    const { tmpdir } = await import("node:os")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-doctor-inventory-"))
+    for (const [file, text] of Object.entries(files)) {
+      await mkdir(join(root, file, ".."), { recursive: true })
+      await writeFile(join(root, file), text)
+    }
+    return root
+  }
+
+  it("keeps the other Workflows when a folder Workflow has no index file", async () => {
+    const { rm } = await import("node:fs/promises")
+    const { viteHubInventoryContributor } = await import("../src/doctor/inventory.ts")
+    const root = await project({
+      "server/workflows/onboard.ts": "export default 1\n",
+      "server/workflows/import/01.read.ts": "export default async function () {}\n",
+    })
+    try {
+      const inventory = await viteHubInventoryContributor.contribute({ root, framework: "vite", ssr: false, vueVersion: "", isMonorepo: false })
+      expect(inventory).toMatchObject({ definitions: { workflow: expect.arrayContaining([expect.objectContaining({ name: "onboard" }), expect.objectContaining({ name: "import" })]) } })
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("uses the server directories of the Nuxt layers that Doctor resolves", async () => {
+    const { rm } = await import("node:fs/promises")
+    const { join } = await import("node:path")
+    const { viteHubInventoryContributor } = await import("../src/doctor/inventory.ts")
+    const root = await project({
+      "app-root/backend/queues/welcome.ts": "export default 1\n",
+      "app-root/layers/unused/server/queues/stale.ts": "export default 1\n",
+      "shared-layer/server/queues/digest.ts": "export default 1\n",
+    })
+    const appRoot = join(root, "app-root")
+    try {
+      const inventory = await viteHubInventoryContributor.contribute({
+        root: appRoot, framework: "nuxt", ssr: true, vueVersion: "", isMonorepo: false,
+        nuxt: {
+          version: "4.0.0", appDir: join(appRoot, "app"), appRoots: [], autoImportEnabled: true, autoImportsAuthoritative: false,
+          autoImports: new Map(), components: new Map(), serverDirs: { api: [], routes: [], middleware: [], plugins: [] },
+          layers: [
+            { root: join(root, "shared-layer"), priority: 1 },
+            { root: appRoot, serverDir: join(appRoot, "backend"), priority: 2 },
+          ],
+        },
+      })
+      expect(inventory).toMatchObject({ definitions: { queue: [
+        { name: "digest", file: "../shared-layer/server/queues/digest.ts" },
+        { name: "welcome", file: "backend/queues/welcome.ts" },
+      ] } })
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("lists Definitions with the discovery of each owner package", async () => {
     const { mkdtemp, mkdir, rm, writeFile } = await import("node:fs/promises")
     const { join } = await import("node:path")
@@ -426,7 +486,8 @@ describe("ViteHub Project Inventory", () => {
         await mkdir(join(root, file, ".."), { recursive: true })
         await writeFile(join(root, file), text)
       }
-      const inventory = await viteHubInventoryContributor.contribute({ root, framework: "vite", ssr: false, vueVersion: "", isMonorepo: false })
+      // Without resolved Nuxt layers, a Nuxt project reads the layers under `layers/`.
+      const inventory = await viteHubInventoryContributor.contribute({ root, framework: "nuxt", ssr: false, vueVersion: "", isMonorepo: false })
       expect(inventory).toMatchObject({
         definitions: {
           queue: expect.arrayContaining([{ name: "welcome-email", file: "server/queues/welcome-email.ts" }, { name: "digest", file: "layers/base/server/queues/digest.ts" }]),

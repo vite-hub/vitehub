@@ -52,7 +52,7 @@ In a Nuxt app, `pnpm vite-doctor . --host-extensions` also loads the extension t
 
 Some rules read the whole project, not only one file:
 
-- [`VHUB0013`](#vhub0013), [`VHUB0014`](#vhub0014), [`VHUB0015`](#vhub0015), [`VHUB0020`](#vhub0020), and [`VHUB0022`](#vhub0022) read the Definitions that each ViteHub package discovers, with the same discovery code that the build uses. They use the server directories of the Nuxt layers that Doctor resolves, including `serverDir` and `extends`. Run `nuxt prepare` so Doctor can read them. Without it, they use `server/`, a literal `serverDir` in `nuxt.config`, and the `server/` directory of each layer under `layers/`.
+- [`VHUB0013`](#vhub0013), [`VHUB0014`](#vhub0014), [`VHUB0015`](#vhub0015), [`VHUB0020`](#vhub0020), and [`VHUB0022`](#vhub0022) read the Definitions that each ViteHub package discovers, with the same discovery code that the build uses. They use the server directories of the Nuxt layers that Doctor resolves, including `serverDir` and `extends`. Run `nuxt prepare` so Doctor can read them. Without it, they use `server/` or a literal `serverDir` in `nuxt.config`, and in a Nuxt app also the `server/` directory of each layer under `layers/`.
 - [`VHUB0004`](#vhub0004) and [`VHUB0007`](#vhub0007) read the generated `.vitehub/env/description.mjs` to find secret and provider values. Run the dev server or a build once to generate it. Before that, these two rules report nothing.
 
 | Code | Rule | Severity |
