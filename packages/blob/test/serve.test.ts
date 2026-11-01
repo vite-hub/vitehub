@@ -336,6 +336,16 @@ describe("Blob response transforms", () => {
     expect(run).toHaveBeenCalledTimes(1)
   })
 
+  it("answers 404 when a route rethrows a missing object", async () => {
+    const app = new H3().get("/files/**", async (event) => {
+      const [error, body] = await storage.serve(event, "missing.txt")
+      if (error) throw error
+      return body
+    })
+    const response = await app.fetch(new Request("https://example.test/files/missing.txt"))
+    expect(response.status).toBe(404)
+  })
+
   it("does not serve a cached derivative after the source is deleted", async () => {
     const first = event()
     await storage.serve(first, "private/original", options)
