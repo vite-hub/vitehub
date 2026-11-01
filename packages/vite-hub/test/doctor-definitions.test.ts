@@ -402,3 +402,18 @@ describe("TypeScript parameter properties", () => {
     })).toEqual([])
   })
 })
+
+describe("folder Workflow handler steps", () => {
+  it("checks only the steps argument of the Workflow handler", async () => {
+    expect(await projectCodes(workflowStepNames, {
+      "server/workflows/onboard/01.create-user.ts": "export default async function () {}\n",
+      "server/workflows/onboard/index.ts": [
+        'import { defineWorkflow } from "vite-hub/workflow"',
+        "export function stepNames(run) { return run.steps?.map(step => step.name) }",
+        "export function count(steps) { return steps.length }",
+        "export default defineWorkflow(async (ctx) => { await ctx.steps.createUser(ctx.payload); return ctx.steps.sendWelcome() })",
+      ].join("\n"),
+    })).toEqual(["VHUB0020"])
+  })
+})
+

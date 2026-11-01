@@ -1,7 +1,7 @@
 import { createRule } from "vite-doctor/extension"
-import type { DoctorRule } from "vite-doctor/extension"
+import type { DoctorRule, RuleContext } from "vite-doctor/extension"
 
-import { callArguments, chainRoot, defaultExport, enclosingFunction, isExport, isIdentifier, isNode, isNodeType, isTestFile, memberPath, objectProperties, objectProperty, objectValue, propertyName, resolver, semanticParent, stringValue, unwrap, walkScript } from "../ast.ts"
+import { callArguments, chainRoot, defaultExport, enclosingFunction, isExport, isFunctionNode, isIdentifier, isNode, isNodeType, isTestFile, memberPath, objectProperties, objectProperty, objectValue, propertyName, resolver, semanticParent, stringValue, unwrap, walkScript } from "../ast.ts"
 import type { AstNode, Resolver, ViteHubReference } from "../ast.ts"
 import { diagnostics } from "../diagnostics.ts"
 import { discoveredDefinition, viteHubInventory } from "../inventory.ts"
@@ -335,6 +335,24 @@ function stepPropertyName(file: string): string {
 
 const sourceFile = /\.(?:c|m)?[jt]sx?$/
 
+/** The handler of a folder Workflow index: the function passed to `defineWorkflow()`, or the default-exported function. */
+function workflowHandler(ctx: RuleContext): { fn: AstNode, params: Set<string> } | undefined {
+  const value = unwrap(defaultExport(ctx)?.value)
+  const fn = isNodeType(value, "CallExpression") ? unwrap(callArguments(value)[0]) : value
+  if (!isFunctionNode(fn) || !isNode(fn) || !Array.isArray(fn.params)) return
+  const names = new Set<string>()
+  const collect = (pattern: unknown): void => {
+    const target = unwrap(pattern)
+    if (isIdentifier(target)) names.add(target.name)
+    else if (isNodeType(target, "AssignmentPattern")) collect(target.left)
+    else if (isNodeType(target, "ObjectPattern") && Array.isArray(target.properties)) {
+      for (const property of target.properties) if (isNode(property)) collect(property.type === "RestElement" ? property.argument : property.value)
+    }
+  }
+  collect(fn.params[0])
+  return { fn, params: names }
+}
+
 export const workflowStepNames: DoctorRule = createRule({
   meta: {
     id: "vitehub/workflow-step-names",
@@ -371,6 +389,7 @@ export const workflowStepNames: DoctorRule = createRule({
     }
     if (!workflow) return
     const names = [...owners.keys()].filter(Boolean)
+    const handler = workflowHandler(ctx)
     const r = resolver(ctx)
     return {
       ScriptNode(node) {
@@ -389,9 +408,10 @@ export const workflowStepNames: DoctorRule = createRule({
         if (!isNodeType(node, "MemberExpression") || node.computed === true || !isIdentifier(node.property)) return
         const objectPath = memberPath(node.object)
         if (!objectPath || objectPath.at(-1) !== "steps" || objectPath.length > 2) return
-        // Steps come from the handler argument, as `{ steps }` or `ctx.steps`. A local such as `run.steps` is other data.
-        const binding = r.binding(chainRoot(node.object))
-        if (!binding || binding.declaration || binding.origin) return
+        // Steps come from the Workflow handler's argument, as `{ steps }` or `ctx.steps`. Other `steps` are other data.
+        const root = chainRoot(node.object)
+        const binding = r.binding(root)
+        if (!root || !binding || !handler || binding !== r.scopes.lookup(handler.fn, root.name) || !handler.params.has(root.name)) return
         const step = node.property.name
         if (names.includes(step)) return
         ctx.report(diagnostics.VHUB0020({
