@@ -1,17 +1,21 @@
 // @vitest-environment happy-dom
+import type { Window } from "happy-dom"
 import { createApp, h, ref } from "vue"
 import { afterEach, expect, it, vi } from "vitest"
 
 import ConsoleMediaPicker from "../src/console/runtime/components/console-media-picker.vue"
 
+import type { ConsoleMediaPicker as MediaPicker } from "../src/console/runtime/client/media"
 import type { ConsoleMediaClient, ConsoleMediaInfo } from "../src/console/runtime/client/media-library"
 
 let cleanup: (() => void) | undefined
 afterEach(() => { cleanup?.() })
 
 function mountPicker(info: () => Promise<ConsoleMediaInfo>) {
-  const picker = ref<InstanceType<typeof ConsoleMediaPicker>>()
+  const picker = ref<MediaPicker>()
   const client = { info: vi.fn(info), list: vi.fn() } as unknown as ConsoleMediaClient
+  // SAFETY: This test runs in happy-dom, whose window is the global scope.
+  const { document } = globalThis as unknown as Pick<Window, "document">
   const container = document.createElement("div")
   document.body.append(container)
   const app = createApp({ render: () => h(ConsoleMediaPicker, { ref: picker, client, section: "content" }) })
