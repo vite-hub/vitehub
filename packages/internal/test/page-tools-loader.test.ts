@@ -197,6 +197,39 @@ describe("loadViteHubPageTools", () => {
     expect([pill().element.getAttribute("edge"), pill().element.style.getPropertyValue("--at")]).toEqual(["bottom", "50"])
   })
 
+  it.each([
+    [false, "top", 200, 10, 100, 5.1],
+    [true, "top", 200, 10, 24 * 10 / 9, 8.2],
+    [false, "left", 10, 200, 100, 11],
+    [true, "left", 10, 200, 24, 16.5],
+  ] as const)("accounts for asymmetric safe areas when dragging (collapsed: %s, edge: %s)", async (collapsed, edge, x, y, size, expected) => {
+    page("/?vitehub")
+    if (collapsed) localStorage.setItem("vitehub-tools-collapsed", "1")
+    session({ tools: [consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    const { element } = pill()
+    const mark = element.shadowRoot!.querySelector<HTMLButtonElement>("button.mark")!
+    const toolbar = element.shadowRoot!.querySelector<HTMLElement>('[role="toolbar"]')!
+    vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(1200)
+    vi.spyOn(document.documentElement, "clientHeight", "get").mockReturnValue(676)
+    vi.spyOn(toolbar, "offsetWidth", "get").mockReturnValue(size)
+    vi.spyOn(toolbar, "offsetHeight", "get").mockReturnValue(size)
+    vi.spyOn(element, "offsetWidth", "get").mockReturnValue(size)
+    vi.spyOn(element, "offsetHeight", "get").mockReturnValue(size)
+    vi.spyOn(mark, "offsetWidth", "get").mockReturnValue(size)
+    vi.spyOn(mark, "offsetHeight", "get").mockReturnValue(size)
+    vi.spyOn(mark, "getBoundingClientRect").mockReturnValue(new DOMRect(600 - size / 2, 338 - size / 2, size, size))
+    const computed = getComputedStyle(element)
+    const read = computed.getPropertyValue.bind(computed)
+    vi.spyOn(computed, "getPropertyValue").mockImplementation(name => name.startsWith("--safe-") ? name === "--safe-left" || name === "--safe-top" ? "100px" : "20px" : read(name))
+    vi.stubGlobal("getComputedStyle", () => computed)
+    mark.setPointerCapture = () => {}
+    mark.dispatchEvent(new PointerEvent("pointerdown", { button: 0, clientX: 600, clientY: 338, pointerId: 1 }))
+    mark.dispatchEvent(new PointerEvent("pointermove", { clientX: x, clientY: y, pointerId: 1 }))
+    mark.dispatchEvent(new PointerEvent("lostpointercapture", { pointerId: 1 }))
+    expect(JSON.parse(localStorage.getItem("vitehub-tools-dock")!)).toEqual({ edge, at: expected })
+  })
+
   it("docks to the edge where the mark is dragged, keeps a short press a click, and remembers the dock", async () => {
     page("/?vitehub")
     session({ tools: [consoleTool] })

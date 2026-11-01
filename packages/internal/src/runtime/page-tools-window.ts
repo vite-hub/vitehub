@@ -79,6 +79,15 @@ function placeHost(host: HTMLElement) {
   host.style.setProperty("--at", String(dock.at))
   if (dock.thickness) host.style.setProperty("--thickness", `${dock.thickness}px`)
   else host.style.removeProperty("--thickness")
+  for (const side of ["top", "right", "bottom", "left"] as const) {
+    host.shadowRoot!.querySelector<HTMLElement>(`.grip.${side}`)!.hidden = resizeShare(side) === 0
+  }
+}
+
+function resizeShare(side: ViteHubPageToolsEdge): number {
+  const vertical = side === "top" || side === "bottom"
+  const far = vertical === (dock.edge === "top" || dock.edge === "bottom")
+  return far ? 1 : side === "top" || side === "left" ? dock.at / 100 : 1 - dock.at / 100
 }
 
 /** Moves every window, open or hidden, to where the pill docks. The loader calls it when the pill moves. */
@@ -136,15 +145,15 @@ export function createViteHubPageWindow(options: ViteHubPageWindowOptions): Vite
     grip.className = `grip ${side}`
     grip.addEventListener("pointerdown", (event) => {
       if (event.button !== 0) return
+      const share = resizeShare(side)
+      if (share === 0) return
       event.preventDefault()
       grip.setPointerCapture(event.pointerId)
       const vertical = side === "top" || side === "bottom"
       const start = vertical ? panel.offsetHeight : panel.offsetWidth
-      const far = vertical === (dock.edge === "top" || dock.edge === "bottom")
-      const share = far ? 1 : side === "top" || side === "left" ? dock.at / 100 : 1 - dock.at / 100
       const move = (moved: PointerEvent) => {
         const delta = vertical ? moved.clientY - event.clientY : moved.clientX - event.clientX
-        const size = start + (side === "top" || side === "left" ? -delta : delta) / Math.max(share, .5)
+        const size = start + (side === "top" || side === "left" ? -delta : delta) / share
         if (vertical) panel.style.height = `${Math.max(240, size)}px`
         else panel.style.width = `${Math.max(300, size)}px`
       }

@@ -12,6 +12,39 @@ afterEach(() => {
 })
 
 describe("page tool window", () => {
+  it.each([
+    ["bottom", "left", 0], ["top", "right", 100],
+    ["left", "top", 0], ["right", "bottom", 100],
+  ] as const)("hides the immovable %s-docked %s grip at %s%%", (edge, side, at) => {
+    dockViteHubPageWindows({ edge, at })
+    const window = createViteHubPageWindow({ id: "content", title: "Content", trigger: document.createElement("button"), signal: new AbortController().signal })
+    const grip = window.body.closest(".window")!.querySelector<HTMLElement>(`.grip.${side}`)!
+    expect(grip.hidden).toBe(true)
+    dockViteHubPageWindows({ edge, at: 50 })
+    expect(grip.hidden).toBe(false)
+    window.destroy()
+  })
+
+  it.each([
+    ["bottom", "left", 20, -10, 650],
+    ["top", "right", 80, 10, 650],
+    ["left", "top", 20, -10, 450],
+    ["right", "bottom", 80, 10, 450],
+  ] as const)("keeps the %s-docked %s grip under the pointer at %s%%", (edge, side, at, delta, expected) => {
+    dockViteHubPageWindows({ edge, at })
+    const window = createViteHubPageWindow({ id: "content", title: "Content", trigger: document.createElement("button"), signal: new AbortController().signal })
+    const panel = window.body.closest<HTMLElement>(".window")!
+    vi.spyOn(panel, "offsetWidth", "get").mockReturnValue(600)
+    vi.spyOn(panel, "offsetHeight", "get").mockReturnValue(400)
+    const grip = panel.querySelector<HTMLElement>(`.grip.${side}`)!
+    grip.setPointerCapture = () => {}
+    grip.dispatchEvent(new PointerEvent("pointerdown", { button: 0, clientX: 200, clientY: 200, pointerId: 1 }))
+    grip.dispatchEvent(new PointerEvent("pointermove", { clientX: 200 + delta, clientY: 200 + delta, pointerId: 1 }))
+    grip.dispatchEvent(new PointerEvent("lostpointercapture", { pointerId: 1 }))
+    expect(side === "left" || side === "right" ? panel.style.width : panel.style.height).toBe(`${expected}px`)
+    window.destroy()
+  })
+
   it("preserves layout dimensions across restores during the opening scale transition", () => {
     const callbacks: (() => void)[] = []
     vi.stubGlobal("ResizeObserver", class {

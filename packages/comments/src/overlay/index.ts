@@ -131,6 +131,7 @@ class CommentsOverlay extends HTMLElement {
   private readonly composeMentions = new WeakMap<HTMLTextAreaElement, CommentMention[]>()
   /** The Comments controls. They live in the tool's segment of the page tools pill, in a shadow root of their own. */
   private readonly toolbar = h("div", { className: "bar toolbar", role: "group", "aria-label": "Comments" })
+  private readonly documentStyle = h("style", { "data-vitehub-comments": true }, documentStyles)
   private session?: CommentsSession
   private page = normalizeCommentPage(location.pathname)
   private threads: PageThread[] = []
@@ -172,9 +173,8 @@ class CommentsOverlay extends HTMLElement {
     }
     this.root.style.setProperty("--font", getComputedStyle(document.body).fontFamily)
     this.followTheme()
-    const style = h("style", { "data-vitehub-comments": true }, documentStyles)
-    document.head.append(style)
-    this.cleanups.push(() => style.remove())
+    this.restoreDocumentState()
+    this.cleanups.push(() => this.documentStyle.remove())
 
     const [error, session] = await api.session()
     if (!this.active || error || !session.can.read) {
@@ -238,6 +238,9 @@ class CommentsOverlay extends HTMLElement {
     let timer: ReturnType<typeof setTimeout> | undefined
     const mutations = new MutationObserver((records) => {
       if (records.every(record => record.target === this || this.contains(record.target))) return
+      // Astro replaces html attributes; Astro and Turbo both merge the head. The retained overlay must restore its
+      // stylesheet and mode class without resetting its mode or drafts, even when the URL stays the same.
+      this.restoreDocumentState()
       clearTimeout(timer)
       timer = setTimeout(schedule, 50)
     })
@@ -349,11 +352,19 @@ class CommentsOverlay extends HTMLElement {
   private setMode(mode: Mode) {
     this.mode = mode
     this.hover = undefined
-    document.documentElement.classList.toggle("vitehub-comment-mode", mode === "comment")
-    document.documentElement.classList.toggle("vitehub-edit-mode", mode === "edit")
+    this.restoreDocumentState()
     if (mode !== "comment") this.draft = undefined
     this.renderToolbar()
     this.render()
+  }
+
+  private restoreDocumentState() {
+    if (this.documentStyle.parentElement !== document.head) document.head.append(this.documentStyle)
+    for (const mode of ["comment", "edit"] as const) {
+      const name = `vitehub-${mode}-mode`
+      const active = this.mode === mode
+      if (document.documentElement.classList.contains(name) !== active) document.documentElement.classList.toggle(name, active)
+    }
   }
 
   private async navigated() {

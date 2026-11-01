@@ -68,17 +68,17 @@ const hexagonPoints: Array<[number, number, number, number]> = [
   [-0.235, 2, 1, 0], [-0.235, -1.01, 1, -1.72], [-0.5, 1.01, 0, 1.72], [-0.5, 1.01, 0, -1.72],
 ]
 const pillHexagon = `polygon(${hexagonPoints.map(([x, dx, y, dy]) => `calc(50% + var(--vitehub-hex-w) * ${x} + ${dx}px) calc(50% + var(--vitehub-hex-h) * ${y / 2} + ${dy}px)`).join(",")})`
-const along = (margin: string, size: string) => `calc(${margin} + ${size} / 2 + (100% - 2 * ${margin} - ${size}) * var(--at) / 100)`
-const pillStyles = `:host{all:initial;position:fixed;z-index:2147483001;pointer-events:none;filter:drop-shadow(0 8px 24px rgb(0 0 0/25%));color-scheme:dark;font:500 12px/1 ui-sans-serif,system-ui,sans-serif;color:#d4d4d4;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;--vitehub-pill-text:#d4d4d4;--vitehub-pill-strong:#fafafa;--vitehub-pill-muted:#a3a3a3;--vitehub-pill-hover:rgb(255 255 255/8%);--vitehub-pill-on:#fafafa;--vitehub-pill-on-text:#0a0a0a;--vitehub-pill-line:rgb(255 255 255/12%);--vitehub-pill-surface:#111;--vitehub-pill-flow:row;--vitehub-pill-ease:cubic-bezier(.32,.72,0,1);--vitehub-hex-h:24px;--vitehub-hex-w:calc(var(--vitehub-hex-h) * 10 / 9);--vitehub-pill-morph:320ms;--vitehub-pill-fade:opacity 180ms ease-out 80ms,visibility 0s;--at:50;transition-property:left,top,right,bottom,translate;transition-duration:var(--vitehub-pill-morph);transition-timing-function:var(--vitehub-pill-ease);transition-delay:var(--vitehub-pill-wait,0s)}
-:host([collapsed]){--vitehub-pill-morph:240ms;--vitehub-pill-wait:40ms;--vitehub-pill-fade:opacity 80ms ease-out,visibility 0s 80ms}
-:host(:is([edge=top],[edge=bottom])){left:calc(16px + (100% - 32px) * var(--at) / 100);--x:calc(var(--at) * -1%)}
-:host(:is([edge=left],[edge=right])){top:calc(16px + (100% - 32px) * var(--at) / 100);--y:calc(var(--at) * -1%);--vitehub-pill-flow:column}
+const along = (size: string) => `calc(var(--start) + ${size} / 2 + (100% - var(--start) - var(--end) - ${size}) * var(--at) / 100)`
+const pillStyles = `:host{all:initial;position:fixed;z-index:2147483001;pointer-events:none;filter:drop-shadow(0 8px 24px rgb(0 0 0/25%));color-scheme:dark;font:500 12px/1 ui-sans-serif,system-ui,sans-serif;color:#d4d4d4;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;--vitehub-pill-text:#d4d4d4;--vitehub-pill-strong:#fafafa;--vitehub-pill-muted:#a3a3a3;--vitehub-pill-hover:rgb(255 255 255/8%);--vitehub-pill-on:#fafafa;--vitehub-pill-on-text:#0a0a0a;--vitehub-pill-line:rgb(255 255 255/12%);--vitehub-pill-surface:#111;--vitehub-pill-flow:row;--vitehub-pill-ease:cubic-bezier(.32,.72,0,1);--vitehub-hex-h:24px;--vitehub-hex-w:calc(var(--vitehub-hex-h) * 10 / 9);--vitehub-pill-morph:320ms;--vitehub-pill-fade:opacity 180ms ease-out 80ms,visibility 0s;--at:50;--margin:16px;--safe-top:env(safe-area-inset-top,0px);--safe-right:env(safe-area-inset-right,0px);--safe-bottom:env(safe-area-inset-bottom,0px);--safe-left:env(safe-area-inset-left,0px);transition-property:left,top,right,bottom,translate;transition-duration:var(--vitehub-pill-morph);transition-timing-function:var(--vitehub-pill-ease);transition-delay:var(--vitehub-pill-wait,0s)}
+:host([collapsed]){--margin:2px;--vitehub-pill-morph:240ms;--vitehub-pill-wait:40ms;--vitehub-pill-fade:opacity 80ms ease-out,visibility 0s 80ms}
+:host(:is([edge=top],[edge=bottom])){left:${along("0px")};--start:max(var(--margin),var(--safe-left));--end:max(var(--margin),var(--safe-right));--x:calc(var(--at) * -1%)}
+:host(:is([edge=left],[edge=right])){top:${along("0px")};--start:max(var(--margin),var(--safe-top));--end:max(var(--margin),var(--safe-bottom));--y:calc(var(--at) * -1%);--vitehub-pill-flow:column}
 :host([edge=bottom]){bottom:max(16px,env(safe-area-inset-bottom))}
 :host([edge=top]){top:max(16px,env(safe-area-inset-top))}
 :host([edge=right]){right:max(16px,env(safe-area-inset-right))}
 :host([edge=left]){left:max(16px,env(safe-area-inset-left))}
-:host([collapsed]:is([edge=top],[edge=bottom])){left:${along("2px", "var(--vitehub-hex-w)")};--x:-50%}
-:host([collapsed]:is([edge=left],[edge=right])){top:${along("2px", "var(--vitehub-hex-h)")};--y:-50%}
+:host([collapsed]:is([edge=top],[edge=bottom])){left:${along("var(--vitehub-hex-w)")};--x:-50%}
+:host([collapsed]:is([edge=left],[edge=right])){top:${along("var(--vitehub-hex-h)")};--y:-50%}
 :host([collapsed][edge=bottom]){bottom:calc(max(2px,env(safe-area-inset-bottom)) + var(--vitehub-hex-h) / 2);--y:50%}
 :host([collapsed][edge=top]){top:calc(max(2px,env(safe-area-inset-top)) + var(--vitehub-hex-h) / 2);--y:-50%}
 :host([collapsed][edge=right]){right:calc(max(2px,env(safe-area-inset-right)) + var(--vitehub-hex-w) / 2);--x:50%}
@@ -164,11 +164,11 @@ export function viteHubPageToolsEdgeAt(x: number, y: number, width: number, heig
 
 /**
  * The place along an edge, from 0 to 100, that puts a part of `size` pixels with its center at `center`, when the part
- * stays `margin` pixels inside both ends of a `length` edge. It snaps to the ends and to the middle.
+ * stays inside the safe `start` and `end` margins of a `length` edge. It snaps to the ends and to the middle.
  */
-function placeAlong(center: number, size: number, margin: number, length: number): number {
-  const free = length - 2 * margin - size
-  const at = free > 0 ? Math.min(100, Math.max(0, (center - margin - size / 2) / free * 100)) : 50
+function placeAlong(center: number, size: number, start: number, end: number, length: number): number {
+  const free = length - start - end - size
+  const at = free > 0 ? Math.min(100, Math.max(0, (center - start - size / 2) / free * 100)) : 50
   return at < 2 ? 0 : at > 98 ? 100 : Math.abs(at - 50) < 3 ? 50 : Math.round(at * 10) / 10
 }
 
@@ -256,7 +256,12 @@ function mountPill(tools: ViteHubPageToolInfo[], exit: () => void, signal: Abort
       const lead = collapsed ? size / 2 : side ? mark.offsetTop + mark.offsetHeight / 2 : mark.offsetLeft + mark.offsetWidth / 2
       const hexagon = collapsed ? side ? hexagonSize(pill).height : hexagonSize(pill).width : size
       const center = (side ? y : x) - lead + size / 2
-      place({ edge, at: placeAlong(center, hexagon, collapsed ? 2 : 16, side ? height : width) })
+      // Use the same asymmetric safe margins as CSS, so a drag keeps its place on devices with cutouts.
+      const computed = getComputedStyle(pill)
+      const margin = collapsed ? 2 : 16
+      const start = Math.max(margin, Number.parseFloat(computed.getPropertyValue(side ? "--safe-top" : "--safe-left")) || 0)
+      const end = Math.max(margin, Number.parseFloat(computed.getPropertyValue(side ? "--safe-bottom" : "--safe-right")) || 0)
+      place({ edge, at: placeAlong(center, hexagon, start, end, side ? height : width) })
     }
     mark.addEventListener("pointermove", move)
     mark.addEventListener("lostpointercapture", () => {

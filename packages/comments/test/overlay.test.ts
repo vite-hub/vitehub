@@ -122,6 +122,39 @@ async function startEdit() {
 }
 
 describe("Comments overlay", () => {
+  it.each(["comment", "edit"])("restores %s styling after an Astro root/head/body swap and a Turbo head merge", async (mode) => {
+    document.documentElement.append(pill)
+    const selector = mode === "comment" ? '[title="Comment (C)"]' : '[title="Edit text (E)"]'
+    bar.shadowRoot!.querySelector<HTMLButtonElement>(selector)!.click()
+    const style = document.head.querySelector("style[data-vitehub-comments]")!
+    const before = document.body
+    const next = document.createElement("body")
+    next.innerHTML = '<h1 data-content-field="settings#title">Next page</h1>'
+    try {
+      // Astro copies the incoming html attributes and removes unmatched head elements before swapping the body.
+      document.documentElement.className = "next-page"
+      style.remove()
+      before.replaceWith(next)
+      await vi.waitFor(() => {
+        expect(document.documentElement.classList.contains(`vitehub-${mode}-mode`)).toBe(true)
+        expect(style.parentElement).toBe(document.head)
+      })
+      expect(document.documentElement.classList.contains("next-page")).toBe(true)
+      expect(bar.shadowRoot!.querySelector(selector)!.getAttribute("aria-pressed")).toBe("true")
+      expect(room.destroy).not.toHaveBeenCalled()
+      // Turbo can remove the stylesheet without changing the root attributes or the URL.
+      style.remove()
+      await vi.waitFor(() => expect(style.parentElement).toBe(document.head))
+      expect(document.head.querySelectorAll("style[data-vitehub-comments]")).toHaveLength(1)
+    }
+    finally {
+      overlay.remove()
+      document.documentElement.className = ""
+      next.replaceWith(before)
+      pill.remove()
+    }
+  })
+
   it("keeps the overlay, unsent reply, listeners and polling alive through a body swap", async () => {
     // The real loader retains the toolbar separately from the router's body.
     document.documentElement.append(pill)
