@@ -22,6 +22,7 @@ export const content = defineContent({
 
 | Option | Default | Description |
 | --- | --- | --- |
+| `access` | No policy | Set `'roles'` to opt into the CMS role policy. Your own `authorize` overrides it. |
 | `database` | The Database named `default`, else the only Database, else a `default` Database that the preset adds | Database Definition that receives the history tables and the editor sessions table. Required when the app has several Databases and none is named `default`. |
 | `blob` | `default` | Blob store that holds file contents. Not for the GitHub store. |
 | `workspace` | `content` | Name and store identity of the Workspace. It must not match a Workspace in `server/workspaces/`. |
@@ -51,13 +52,15 @@ A setting you pass wins. `blob: { stores: { media: ... } }` configures Blob. `wo
 | Database tables | `workspaceHistorySchema` from `vite-hub/workspace/blob-database` and `contentSessionsSchema` from `vite-hub/content/database`, added to the Database named `default`, or to the only Database | `vitehub inspect` and the Console Database section show a `Contributed tables` field. |
 | Features | `workspace`, `database`, and `blob` turn on when `vitehub()` leaves them unset | The `@vite-hub/workspace/vite`, `@vite-hub/database/vite`, and `@vite-hub/blob/vite` plugins are in the resolved Vite config. |
 | Blob store | `default` | Files are stored under `vitehub/workspace-history/` in that store. |
-| `defineContent()` | `workspace: 'content'` | `content.collection(name)` reads and writes that Workspace. |
+| `defineContent()` | `workspace: 'content'`, and with `access: 'roles'`, the CMS roles as `authorize` when the app sets none | `content.collection(name)` reads and writes that Workspace. `vitehub inspect definitions --kind cms` shows what decides access. |
 
 The collections behave as described in [Document collections](/docs/content/configure#document-collections): saves go to the `draft` ref, `publish()` copies documents to `published`, and `/api/content/**` serves only published documents.
 
 ## Access
 
-`authorize` in `defineContent()` decides who may read drafts, write, and publish. The [Console editor](/docs/content/console) and the [Content Agent Capability](/docs/content/agent-capability) call it through `content.can()`.
+Opt into CMS roles with `extends: [cms, { access: 'roles' }]`. Install the Better Auth `admin` plugin with `admin(cmsAccess)` from `vite-hub/cms/access`, and give each user a role: `viewer`, `commenter`, `editor`, or `publisher`. `admin` may do everything, and `user`, the role of new users, may do nothing. With no opt-in or `authorize`, every action stays denied. [Roles and access](/docs/cms/access) explains the setup.
+
+The [Console editor](/docs/content/console) and the [Content Agent Capability](/docs/content/agent-capability) check access through `content.can()`. To use your own policy instead of the roles, set `authorize` in `defineContent()`:
 
 ```ts [server/content.ts]
 export const content = defineContent({
@@ -68,7 +71,7 @@ export const content = defineContent({
 })
 ```
 
-`action` is `read` for drafts, `write` for save, remove, and restore, or `publish`. Without `authorize`, every action is denied and the Console shows no collections. Published documents stay public through `/api/content/**`.
+`action` is `read` for drafts, `write` for save, remove, and restore, or `publish`. Published documents stay public through `/api/content/**`.
 
 - [Access](/docs/content/configure#access) lists every field that `authorize` gets, and shows how to give Agents less than the user they act for.
 - [Give editors only the Content section](/docs/content/console#give-editors-only-the-content-section) keeps editors out of the other Console sections.

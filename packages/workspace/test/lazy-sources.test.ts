@@ -507,9 +507,18 @@ describe("lazy sources", () => {
       })
     }
     else vi.spyOn(store, "writeFile").mockRejectedValueOnce(new Error("write failed"))
-    const materialization = createWorkspaceSourceView(definition, store).materializeSources({ abortSignal: abort.signal })
+    let reportFailure!: () => void
+    const failed = new Promise<void>((resolve) => { reportFailure = resolve })
+    const materialization = createWorkspaceSourceView(definition, store).materializeSources({
+      abortSignal: abort.signal,
+      onProgress(event) {
+        if (event.status === "failed") reportFailure()
+      },
+    })
     if (stage === "abort") await expect(materialization).rejects.toThrow("write canceled")
     else await expect(materialization).resolves.toMatchObject({ sources: [{ status: "error", error: "write failed" }] })
+    // Abort rejects the caller before the Source finishes its failure checkpoint.
+    await failed
     vi.restoreAllMocks()
     await expect(store.stat("docs/child")).resolves.toBeUndefined()
     await store.mkdir("docs/child", { recursive: true })

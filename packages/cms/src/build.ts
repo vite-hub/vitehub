@@ -16,6 +16,8 @@ export interface CmsPresetUsage {
   file: string
   /** Options from `extends: [cms, options]`. Empty for `extends: cms`. */
   options: CmsPresetOptions
+  /** Whether `defineContent()` passes its own `authorize`, or a spread makes its presence unknown. */
+  authorize?: true | "unknown"
 }
 
 /** The GitHub store of the `cms` preset, with defaults filled in. */
@@ -246,7 +248,20 @@ function readCmsPresetUsageInternal(source: string, file: string, projectRoot: s
   if (!selections.length) throw presetError(file, projectRoot, `imports the Content cms preset but does not select it with extends. ${usage}`)
   if (selections.length > 1) throw presetError(file, projectRoot, `selects the Content cms preset more than once. ${usage}`)
   const selection = selections[0]
-  if (!isNode(selection) || selection.type !== "ArrayExpression") return { file, options: {} }
+  let ownPolicy: CmsPresetUsage["authorize"]
+  for (const property of Array.isArray(contentOptions?.properties) ? contentOptions.properties : []) {
+    if (!isNode(property)) continue
+    if (property.type === "SpreadElement") {
+      ownPolicy = "unknown"
+      continue
+    }
+    if (propertyName(property) !== "authorize") continue
+    const value = unwrap(property.value)
+    const absent = isNode(value) && ((value.type === "Identifier" && value.name === "undefined") || (value.type === "UnaryExpression" && value.operator === "void"))
+    ownPolicy = absent ? undefined : true
+  }
+  const access = ownPolicy ? { authorize: ownPolicy } : {}
+  if (!isNode(selection) || selection.type !== "ArrayExpression") return { file, options: {}, ...access }
 
   const elements = Array.isArray(selection.elements) ? selection.elements : []
   const optionsNode = unwrap(elements[1])
@@ -276,7 +291,7 @@ function readCmsPresetUsageInternal(source: string, file: string, projectRoot: s
   }
   const problem = cmsOptionsProblem(options)
   if (problem) throw presetError(file, projectRoot, `cms preset ${problem}`)
-  return { file, options }
+  return { file, options, ...access }
 }
 
 /** Database names and how to pick one, from `@vite-hub/database/config`. */

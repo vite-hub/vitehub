@@ -242,7 +242,8 @@ export function defineComments(configuration: DefineCommentsOptions | LiveCommen
     async can(context) {
       if (!options.authorize) return defaultPolicy(context.user, runtimes.get(comments)?.development)
       const scope = context.scope ?? context.thread?.scope ?? commentsPageScope
-      return await options.authorize({ ...context, scope }) !== false
+      const decision = await options.authorize({ ...context, scope })
+      return context.action === "delete" ? decision === true : decision !== false
     },
     async people({ query, user, scope = commentsPageScope }) {
       const current = store()

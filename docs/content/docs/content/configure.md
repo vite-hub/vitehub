@@ -309,7 +309,7 @@ authorize: ({ user, actor, action }) => {
 },
 ```
 
-Without `authorize`, `content.can()` returns `false` for every action, and `content.hasPolicy` is `false`. The Console then shows no collections and asks you to add `authorize`. Published documents are public through `/api/content/**`; `read` covers drafts, including a [preview cookie](/docs/content/preview). The [Agent Capability](/docs/content/agent-capability#access-and-approval) checks `read` for published documents too, for each document it shows.
+Without `authorize`, `content.can()` returns `false` for every action, and `content.hasPolicy` is `false`. A preset can set a default policy: with `extends: [cms, { access: 'roles' }]`, the [CMS roles](/docs/cms/access) decide, and your `authorize` replaces them. With no policy, the Console shows no collections and asks you to add `authorize`. Published documents are public through `/api/content/**`; `read` covers drafts, including a [preview cookie](/docs/content/preview). The [Agent Capability](/docs/content/agent-capability#access-and-approval) checks `read` for published documents too, for each document it shows.
 
 The runtime methods, such as `save()` and `publish()`, are trusted server API. They do not call `authorize`. Check `content.can()` yourself before you call them from a route that acts for a user.
 

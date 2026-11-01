@@ -132,7 +132,8 @@ describe("Comments MCP tools", () => {
     const request = event({ "x-person": "ada" })
     await api(request)
     expect((await tool.call({}, { user: { id: "other" }, event: request })).isError).toBeUndefined()
-    expect(seen).toEqual([ada, ada, ada, ada])
+    // The HTTP session checks read, comment, resolve, and delete; the tool checks read again.
+    expect(seen).toEqual([ada, ada, ada, ada, ada])
     expect((await tool.call({}, { user: ada, event: event() })).isError).toBe(true)
   })
 
