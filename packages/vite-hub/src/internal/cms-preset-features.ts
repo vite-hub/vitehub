@@ -1,7 +1,7 @@
 import { resolve } from "node:path"
 
+import { cmsStore } from "@vite-hub/cms/vite"
 import { usesComments } from "@vite-hub/comments/vite"
-import { cmsPresetStore } from "@vite-hub/content/vite"
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { isIncludedNitroPlugin } from "../nitro-plugin.ts"
@@ -19,7 +19,7 @@ type CmsPresetConfig = UserConfig & { [VITEHUB_PROJECT_ROOT]?: string, [VITEHUB_
 /** Options whose `cms` preset features a framework integration already resolved, for example Nuxt with a known root. */
 const resolvedFeatureOptions = new WeakSet<object>()
 
-/** The features that the Content `cms` preset needs. `vitehub()` turns on the ones left unset. */
+/** The features that the `cms` preset needs. `vitehub()` turns on the ones left unset. */
 function withCmsPresetFeatures<T extends CmsPresetFeatureOptions>(options: T, store: "blob-database" | "github"): T {
   return { ...options, blob: options.blob ?? (store === "blob-database" ? true : undefined), database: options.database ?? true, workspace: options.workspace ?? true }
 }
@@ -34,7 +34,7 @@ function hasUnsetCmsPresetFeature(options: CmsPresetFeatureOptions): boolean {
  * Pass the final options to `markCmsPresetFeaturesResolved()` so `vitehub()` builds one plugin list.
  */
 export function resolveCmsPresetFeatures<T extends CmsPresetFeatureOptions>(options: T, project: { projectRoot: string, serverDirs?: string[] }): T {
-  const store = hasUnsetCmsPresetFeature(options) ? cmsPresetStore(project) : undefined
+  const store = hasUnsetCmsPresetFeature(options) ? cmsStore(project) : undefined
   if (store) return withCmsPresetFeatures(options, store)
   // Comments need the Database only.
   return options.database === undefined && usesComments(project) ? { ...options, database: true } : options
@@ -50,7 +50,7 @@ function selectedCmsPresetStore(config: CmsPresetConfig): "blob-database" | "git
   const projectRoot = config[VITEHUB_PROJECT_ROOT]
     ? resolve(config[VITEHUB_PROJECT_ROOT])
     : resolveViteHubProjectRoot(resolve(config.root ?? process.cwd()))
-  return cmsPresetStore({ projectRoot, serverDirs: config[VITEHUB_SERVER_DIRS] })
+  return cmsStore({ projectRoot, serverDirs: config[VITEHUB_SERVER_DIRS] })
 }
 
 /**
@@ -172,7 +172,7 @@ function composeVariants(plain: unknown[], alt: unknown[], selects: (config: Cms
 }
 
 /**
- * Builds the plugin list for `options`. When `database`, `blob`, or `workspace` is unset, the Content `cms` preset in
+ * Builds the plugin list for `options`. When `database`, `blob`, or `workspace` is unset, the `cms` preset in
  * `server/content.ts` turns it on. When `database` is unset, `server/comments.ts` turns it on. The project root is known
  * only once Vite filters plugins, so each build of the list is merged into one that Vite filters, as `composeVariants()`
  * does. An explicit `false` is never overridden.

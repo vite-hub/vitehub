@@ -231,7 +231,7 @@ vitehub: {
 | `definition` | `string` | Absolute path of a module whose default export is `defineDatabase({ schema })`. A Named Database sets the same `name`. |
 | `reason` | `string` | Optional. Why the package adds the Database. `vitehub inspect` shows it. |
 
-A contributed Database works like one in `server/databases/`: `vitehub db generate` and `db migrate`, the runtime registry, `vitehub provision`, and `vitehub inspect definitions` include it. Inspection lists its `Contributed by`, `Reason`, and `Migrations` fields. Its migrations go where an application Definition with the same name keeps them, `server/databases/migrations/` for `default` and `server/databases/<name>/migrations/` otherwise, so adding that Definition later keeps the migration history. The [Content CMS preset](/docs/content/cms-preset) uses this to add the `default` Database.
+A contributed Database works like one in `server/databases/`: `vitehub db generate` and `db migrate`, the runtime registry, `vitehub provision`, and `vitehub inspect definitions` include it. Inspection lists its `Contributed by`, `Reason`, and `Migrations` fields. Its migrations go where an application Definition with the same name keeps them, `server/databases/migrations/` for `default` and `server/databases/<name>/migrations/` otherwise, so adding that Definition later keeps the migration history. The [CMS](/docs/cms) uses this to add the `default` Database.
 
 The factory context also has `rootDir`, the root that Database Definitions are discovered from, and `plugins`, the flat list of Vite plugins.
 

@@ -15,7 +15,7 @@ icon: i-lucide-sliders-horizontal
 | `source` | Content Source input | One read-only Source. Cannot be combined with `sources`. |
 | `sources` | `Record<string, ContentSourceInput>` | Named read-only Sources. Each name becomes a Content instance. |
 | `collections` | `Record<string, documents(...) \| singleton(...)>` | Editable collections and singletons, in Markdown, JSON, or YAML. Each name becomes a Content instance that serves published documents. See [Document collections](#document-collections) and [Singletons and data files](#singletons-and-data-files). |
-| `extends` | `cms` or `[cms, { database?, blob?, workspace? }]` | Preset that stores `collections` without wiring. See [CMS preset](/docs/content/cms-preset). Cannot be combined with `workspace`. |
+| `extends` | `cms` or `[cms, { ... }]` | Preset that stores `collections` without wiring. See [CMS options](/docs/cms/configure#options). Cannot be combined with `workspace`. |
 | `workspace` | `string` | The Workspace that stores `collections`, when you define it yourself. Required with `collections` unless `extends` sets it. It needs retained history. |
 | `authorize` | `({ user, actor?, collection, action, id? }) => boolean \| Promise<boolean>` | Policy that Content surfaces evaluate through `content.can()`. See [Access](#access). |
 | `live` | `'auto' \| false` | Live co-editing of Markdown documents. `auto` (default) turns it on when Realtime is enabled and the host has a room authority. See [Live editing](/docs/content/editing-together#live-editing). |
@@ -47,11 +47,11 @@ Use a collection when people or Agents edit the content at runtime. Sources stay
 
 ### Store the collection
 
-Collections need a Workspace with retained history. The [CMS preset](/docs/content/cms-preset) sets it up: `defineContent({ extends: cms })` turns on Workspace, Database, and Blob, adds a `content` Workspace on the [Blob + Database Store](/docs/workspace/configure#blob-database-store), and adds its history tables and the `contentSessionsSchema` table of [Editing together](/docs/content/editing-together) to your Database at build time. When the app has no Database Definition, the preset adds the `default` Database.
+Collections need a Workspace with retained history. The [CMS](/docs/cms) sets it up: `defineContent({ extends: cms })` turns on Workspace, Database, and Blob, adds a `content` Workspace on the [Blob + Database Store](/docs/workspace/configure#blob-database-store), and adds its history tables and the `contentSessionsSchema` table of [Editing together](/docs/content/editing-together) to your Database at build time. When the app has no Database Definition, the preset adds the `default` Database.
 
 ```ts [server/content.ts]
 import { defineContent, documents } from 'vite-hub/content'
-import cms from '@vite-hub/content/presets/cms'
+import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 
 export const content = defineContent({
@@ -68,7 +68,7 @@ To use a Workspace you define yourself, pass its name as `workspace` instead of 
 
 ```ts [server/content.ts]
 import { defineContent, documents, optional } from 'vite-hub/content'
-import cms from '@vite-hub/content/presets/cms'
+import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 import * as v from 'valibot'
 

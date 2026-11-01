@@ -53,6 +53,7 @@ const sidebarIconMap = {
   "i-lucide-messages-square": "i-ph-chats-circle-light",
   "i-lucide-monitor": "i-ph-browser-light",
   "i-lucide-network": "i-ph-tree-structure-light",
+  "i-lucide-newspaper": "i-ph-newspaper-light",
   "i-lucide-package": "i-ph-package-light",
   "i-lucide-panels-top-left": "i-ph-browser-light",
   "i-lucide-play-circle": "i-ph-play-circle-light",
@@ -107,6 +108,8 @@ export const railSectionIconMap: Readonly<Record<string, PrimitiveIconName>> = {
   "blob": "blob",
   "browser": "browser",
   "channels": "channel",
+  // The CMS stores Content collections, so it shares the Content icon until @vite-hub/ui/primitive-rail has its own.
+  "cms": "content",
   // No comment icon exists in @vite-hub/ui/primitive-rail yet; the speech bubble of Channels is the closest.
   "comments": "channel",
   "connections": "connection",
