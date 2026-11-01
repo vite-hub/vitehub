@@ -625,8 +625,9 @@ export async function inspectPublishedPackage(pkg, options) {
   return { state: "verified" }
 }
 
+// npm took one to four minutes to show v0.1.0 packages after npm publish returned.
 async function waitForPublishedPackage(pkg, options) {
-  const attempts = options.attempts || 12
+  const attempts = options.attempts || 72
   let lastError
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
@@ -636,7 +637,7 @@ async function waitForPublishedPackage(pkg, options) {
     catch (error) {
       lastError = error
     }
-    if (attempt < attempts) await options.runtime.sleep(options.retryDelayMs ?? 2_500)
+    if (attempt < attempts) await options.runtime.sleep(options.retryDelayMs ?? 5_000)
   }
   throw new Error(`Registry did not verify ${pkg.name}@${pkg.version} after ${attempts} attempts`, { cause: lastError })
 }
