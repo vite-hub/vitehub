@@ -486,7 +486,6 @@
     "./cms/access": {
       "types": "./dist/cms/access.d.ts",
       "import": "./dist/cms/access.js",
-      "require": "./dist/cms/access.js",
       "default": "./dist/cms/access.js"
     },
     "./cms/vite": {
