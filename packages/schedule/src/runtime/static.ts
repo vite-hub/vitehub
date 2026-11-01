@@ -270,14 +270,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isCallable(value: unknown): value is CallableFunction {
-  if (value === null || value === undefined || Object(value) !== value) return false
-  try {
-    Function.prototype.toString.call(value)
-    return true
-  }
-  catch {
-    return false
-  }
+  // Callable HTMLDDA browser values report undefined without being undefined.
+  return typeof value === "function" || (typeof value === "undefined" && value !== undefined)
 }
 
 // ponytail: Keep this provider entry free of the Node-backed shared Cloudflare runtime module.

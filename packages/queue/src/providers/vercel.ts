@@ -11,14 +11,8 @@ function invalidVercelSendResponse(cause: unknown): Result<never, "QUEUE_PROVIDE
 }
 
 function isRuntimeFunction(value: unknown): boolean {
-  if (value === null || value === undefined || Object(value) !== value) return false
-  try {
-    Function.prototype.toString.call(value)
-    return true
-  }
-  catch {
-    return false
-  }
+  // Callable HTMLDDA browser values report undefined without being undefined.
+  return typeof value === "function" || (typeof value === "undefined" && value !== undefined)
 }
 
 function isVercelQueueSDK(value: unknown): value is VercelQueueSDK {
