@@ -13,14 +13,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Object.prototype.toString.call(value) === "[object Object]";
 }
 
+// The Workers binding is a `Fetcher`, not a plain object.
 function isCloudflareAssets(value: unknown): value is CloudflareAssets {
-  return isRecord(value) && Object.prototype.toString.call(value.fetch) === "[object Function]";
+  return typeof value === "object" && value !== null && "fetch" in value && typeof value.fetch === "function";
 }
 
-function getAssets(value: unknown): CloudflareAssets | undefined {
-  if (!isRecord(value) || !isRecord(value.env)) return;
+// Nitro keeps the Worker request in `event.context.cloudflare`. h3 v1 events have no `request`.
+function getCloudflareAssetRequest(value: unknown) {
+  if (!isRecord(value) || !isRecord(value.env) || !(value.request instanceof Request)) return;
   const assets = value.env.ASSETS;
-  return isCloudflareAssets(assets) ? assets : undefined;
+  return isCloudflareAssets(assets) ? { assets, request: value.request } : undefined;
 }
 
 function acceptsMarkdown(accept: string | undefined) {
@@ -71,20 +73,23 @@ export default defineEventHandler(async (event) => {
     if (getCookie(event, "vh-tutorial-navigation") === "true") return;
   }
 
-  const assets = getAssets(event.context.cloudflare);
+  const cloudflare = getCloudflareAssetRequest(event.context.cloudflare);
   const agentDiscovery = useRuntimeConfig(event).agentDiscovery;
   const userAgents = isRecord(agentDiscovery) ? agentDiscovery.userAgents : undefined;
-  if (!assets || !shouldServePrerenderedAsset({
+  if (!cloudflare || !shouldServePrerenderedAsset({
     accept: getRequestHeader(event, "accept"),
     method: event.method,
     userAgent: getRequestHeader(event, "user-agent"),
     userAgents,
   })) return;
 
-  const response = await assets.fetch(event.request);
+  const response = await cloudflare.assets.fetch(cloudflare.request);
   if (response.status !== 404) {
     const headers = new Headers(response.headers);
-    headers.set("Vary", headers.get("Vary") ? `${headers.get("Vary")}, Accept` : "Accept");
+    // Same as the Vary that Markdown negotiation sends, since this choice also reads both headers.
+    // `_headers` already sets it for some pages.
+    const vary = new Set((headers.get("Vary") ?? "").split(",").map(value => value.trim()).filter(Boolean));
+    headers.set("Vary", [...vary.add("Accept").add("User-Agent")].join(", "));
     if (isTutorial) {
       headers.set("Cache-Control", "private, no-store");
       headers.append("Vary", "Cookie");
