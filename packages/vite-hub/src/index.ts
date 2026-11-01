@@ -553,12 +553,14 @@ function deploymentNitroModule(
     options: { commands: Record<string, unknown>, output: { dir: string, serverDir: string }, preset?: string, rootDir: string }
   }) => {
     if (deploymentPresetFromNitro(nitro.options.preset) !== plan.preset) return
-    if (plan.preset === "cloudflare" && sandboxTaskRequested && !isDeployCommandOwned()) {
-      const outputRelative = relative(nitro.options.output.dir, nitro.options.output.serverDir).replaceAll("\\", "/")
-      const serverDir = /^[\w./-]+$/.test(outputRelative)
-        ? `./${outputRelative}`
-        : shellQuote(`./${outputRelative}`)
-      nitro.options.commands.deploy = `npx wrangler --cwd ${serverDir} deploy --containers-rollout=gradual`
+    if (plan.preset === "cloudflare" && !isDeployCommandOwned()) {
+      // Nitro's `--cwd ./` relies on the `.wrangler/deploy` redirect in the project root, which a copied output lacks and a parent Wrangler config breaks.
+      // `--cwd` into the server directory fails once that redirect exists, so name the config file.
+      const configRelative = relative(nitro.options.output.dir, join(nitro.options.output.serverDir, "wrangler.json")).replaceAll("\\", "/")
+      const config = /^[\w./-]+$/.test(configRelative)
+        ? `./${configRelative}`
+        : shellQuote(`./${configRelative}`)
+      nitro.options.commands.deploy = `npx wrangler deploy --config ${config}${sandboxTaskRequested ? " --containers-rollout=gradual" : ""}`
     }
     nitro.hooks.hook("compiled", async () => {
       const outputDir = nitro.options.output.dir

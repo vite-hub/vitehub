@@ -1361,66 +1361,24 @@ describe("vitehub", () => {
     })
   })
 
-  it("deploys Cloudflare Sandbox containers through the generated Nitro command", async () => {
-    const userModule = (nitro: { options: { commands: Record<string, unknown> } }) => {
-      nitro.options.commands.deploy = "node ./deploy.mjs"
-    }
-    const config = await applyDeploymentConfig(
-      { preset: "cloudflare", sandboxTask: true },
-      { nitro: { commands: { preview: "node ./preview.mjs" }, modules: [userModule] } },
-    )
-
-    // SAFETY: applyDeploymentConfig has populated Nitro commands and modules for the Cloudflare Sandbox preset.
-    const nitroConfig = config.nitro as { commands: Record<string, unknown>, modules: unknown[] }
-    // SAFETY: The deployment preset prepends its Nitro module to the configured module list.
-    const module = nitroConfig.modules[0] as (nitro: {
-      hooks: { hook: ReturnType<typeof vi.fn> }
-      options: {
-        commands: Record<string, unknown>
-        output: { dir: string, serverDir: string }
-        rootDir: string
-      }
-    }) => void
-    const nitro = {
-      hooks: { hook: vi.fn() },
-      options: {
-        commands: nitroConfig.commands,
-        output: { dir: "/app/.output", serverDir: "/app/.output/cloudflare worker" },
-        preset: "cloudflare_module",
-        rootDir: "/app",
-      },
-    }
-    module(nitro)
-
-    expect(nitro.options).toMatchObject({
-      commands: {
-        deploy: "npx wrangler --cwd './cloudflare worker' deploy --containers-rollout=gradual",
-        preview: "node ./preview.mjs",
-      },
-    })
-    expect(nitroConfig.modules[1]).toBe(userModule)
-    userModule(nitro)
-    expect(nitro.options.commands.deploy).toBe("node ./deploy.mjs")
-  })
-
-  it("preserves an explicit Cloudflare Sandbox deploy command", async () => {
-    const plugins = vitehub({ preset: "cloudflare", sandboxTask: true })
-    // SAFETY: The explicit preset and Sandbox option install both named plugins.
-    const preset = plugins.find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
-    // SAFETY: The explicit preset and Sandbox option install both named plugins.
-    const output = plugins.find(candidate => (candidate as Plugin).name === "vite-hub/deployment-output") as Plugin
-    const config: Record<string, unknown> = { nitro: { commands: { deploy: "node ./deploy.mjs" } } }
+  async function cloudflareCommands(
+    options: Parameters<typeof vitehub>[0],
+    config: Record<string, unknown>,
+    serverDir = "/app/.output/server",
+  ) {
+    const plugins = vitehub(options)
+    const preset = dependencyPluginByName(plugins, "vite-hub/deployment-preset")
+    const output = dependencyPluginByName(plugins, "vite-hub/deployment-output")
     await callHook(preset.config, [config, { command: "build", mode: "production" }])
-
     // SAFETY: The preset config hook populated Nitro commands and modules above.
-    const nitroConfig = config.nitro as { commands: Record<string, unknown>, modules: unknown[] }
-    nitroConfig.commands.deploy = "npx wrangler --cwd ./ deploy"
+    const nitroConfig = config.nitro as { commands?: Record<string, unknown>, modules: unknown[] }
     callHook(output.configResolved, [{ command: "build", nitro: nitroConfig }])
+    // Nitro applies the cloudflare-module preset defaults before modules run.
     const nitro = {
       hooks: { hook: vi.fn() },
       options: {
-        commands: nitroConfig.commands,
-        output: { dir: "/app/.output", serverDir: "/app/.output/server" },
+        commands: { deploy: "npx wrangler --cwd ./ deploy", preview: "npx wrangler --cwd ./ dev", ...nitroConfig.commands },
+        output: { dir: "/app/.output", serverDir },
         preset: "cloudflare_module",
         rootDir: "/app",
       },
@@ -1428,8 +1386,47 @@ describe("vitehub", () => {
     // SAFETY: The deployment preset prepends its Nitro module to the module list.
     const module = nitroConfig.modules[0] as (target: typeof nitro) => void
     module(nitro)
+    return { commands: nitro.options.commands, modules: nitroConfig.modules, nitro }
+  }
 
-    expect(nitro.options).toMatchObject({ commands: { deploy: "npx wrangler --cwd ./ deploy" } })
+  it("deploys Cloudflare builds with the generated Wrangler config", async () => {
+    const { commands } = await cloudflareCommands({ preset: "cloudflare" }, {})
+
+    expect(commands).toEqual({
+      deploy: "npx wrangler deploy --config ./server/wrangler.json",
+      preview: "npx wrangler --cwd ./ dev",
+    })
+  })
+
+  it("deploys Cloudflare Sandbox containers through the generated Nitro command", async () => {
+    const userModule = (nitro: { options: { commands: Record<string, unknown> } }) => {
+      nitro.options.commands.deploy = "node ./deploy.mjs"
+    }
+    const { commands, modules, nitro } = await cloudflareCommands(
+      { preset: "cloudflare", sandboxTask: true },
+      { nitro: { commands: { preview: "node ./preview.mjs" }, modules: [userModule] } },
+      "/app/.output/cloudflare worker",
+    )
+
+    expect(commands).toEqual({
+      deploy: "npx wrangler deploy --config './cloudflare worker/wrangler.json' --containers-rollout=gradual",
+      preview: "node ./preview.mjs",
+    })
+    expect(modules[1]).toBe(userModule)
+    userModule(nitro)
+    expect(commands.deploy).toBe("node ./deploy.mjs")
+  })
+
+  it("preserves an explicit Cloudflare deploy command", async () => {
+    const { commands } = await cloudflareCommands(
+      { preset: "cloudflare", sandboxTask: true },
+      { nitro: { commands: { deploy: "node ./deploy.mjs" } } },
+    )
+
+    expect(commands).toEqual({
+      deploy: "node ./deploy.mjs",
+      preview: "npx wrangler --cwd ./ dev",
+    })
   })
 
   it("aliases Cloudflare runtime imports during Nitro prerendering", async () => {

@@ -136,6 +136,8 @@ Use Nitro's generated deployment command for production and non-production Worke
 pnpm exec nitro deploy --prebuilt
 ```
 
+ViteHub writes the deploy command in `.output/nitro.json` as `wrangler deploy --config` with the generated `.output/server/wrangler.json`, so it also works from a copy of `.output` alone and inside a workspace with its own Wrangler config. Set `nitro.commands.deploy` to use your own.
+
 When Sandbox is enabled, ViteHub writes an explicit gradual Container rollout into `.output/nitro.json`. This deploys the Worker and its Container application through the same generated contract. A direct Wrangler command with `--containers-rollout=none` bypasses ViteHub's deployment command and can leave a newly scoped Sandbox binding without a Container application to run.
 
 ### Rate Limiting bindings

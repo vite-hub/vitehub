@@ -29,7 +29,7 @@ default Cloudflare dev runtime reads your own wrangler config, which does not
 have the generated `$DurableObject` binding, so the room handler opens memory
 rooms. Auth, `authorize()`, and document adapters run as they do in production.
 To exercise Durable Objects, build and run the output with
-`npx wrangler --cwd .output/server dev`.
+`npx wrangler dev --config .output/server/wrangler.json`.
 
 Room WebSockets need a dev server that passes upgrade requests to Nitro.
 `vite dev` does. Some `nuxt dev` CLI versions give Vite no HTTP server, so
