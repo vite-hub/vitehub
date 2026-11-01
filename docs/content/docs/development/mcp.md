@@ -126,12 +126,14 @@ import { consoleMcpOAuth } from 'vite-hub/console/auth'
 export default defineAuth(({ requestOrigin }) => ({
   baseURL: requestOrigin,
   plugins: [
-    ...consoleMcpOAuth({ resource: 'https://app.example.com/_vitehub/mcp', loginPage: '/sign-in' }),
+    ...consoleMcpOAuth({ resource: 'https://app.example.com/_vitehub/mcp' }),
   ],
 }))
 ```
 
-`loginPage` is the app's sign-in page, and `consentPage` defaults to it. Better Auth sends the person there with a signed query: the parameters named by `ba_param`, plus `sig`. Send those parameters back unchanged, in their order, as `oauth_query` in the body of the sign-in request, such as `/api/auth/sign-in/email`. Its response has the `url` of the next step. A signed-in person comes back to the consent page: show the client name from `/api/auth/oauth2/public-client?client_id=…`, and send `{ accept, oauth_query }` to `/api/auth/oauth2/consent`. Go to the `url` of its response. Better Auth's `oauthProviderClient()` adds `oauth_query` to client requests automatically.
+Better Auth sends a signed-out person to `loginPage`, and a signed-in person to `consentPage`, which defaults to `loginPage`. By default, `loginPage` is the built-in `/_vitehub/sign-in` page next to the resource. It signs the person in with email and password, when `emailAndPassword` is on, or with the social providers of the Auth. Then it shows the client name and asks the person to allow or deny it.
+
+To use the app's own sign-in page, set `loginPage`, such as `'/sign-in'`. Apps with two-factor authentication must use a page that completes their challenge; the built-in page does not complete it. Better Auth sends the person there with a signed query: the parameters named by `ba_param`, plus `sig`. Send those parameters back unchanged, in their order, as `oauth_query` in the body of the sign-in request, such as `/api/auth/sign-in/email`. Its response has the `url` of the next step. A signed-in person comes back to the consent page: show the client name from `/api/auth/oauth2/public-client?client_id=…`, and send `{ accept, oauth_query }` to `/api/auth/oauth2/consent`. Go to the `url` of its response. Better Auth's `oauthProviderClient()` adds `oauth_query` to client requests automatically.
 
 To configure the provider yourself, add `jwt()`, `consoleMcpNativeClients()`, and `oauthProvider()` with the options that the next paragraph names. Use the Better Auth version that ViteHub uses, or their plugin types do not fit `defineAuth()`.
 
