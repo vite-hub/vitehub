@@ -625,28 +625,23 @@ export async function inspectPublishedPackage(pkg, options) {
   return { state: "verified" }
 }
 
-async function waitForPublishedPackage(pkg, options) {
-  const attempts = options.attempts || 12
-  let lastError
-  for (let attempt = 1; attempt <= attempts; attempt++) {
-    try {
-      const result = await inspectPublishedPackage(pkg, options)
-      if (result.state === "verified") return
-    }
-    catch (error) {
-      lastError = error
-    }
-    if (attempt < attempts) await options.runtime.sleep(options.retryDelayMs ?? 2_500)
-  }
-  throw new Error(`Registry did not verify ${pkg.name}@${pkg.version} after ${attempts} attempts`, { cause: lastError })
-}
-
-async function auditPublishedSignatures(packages, runtime) {
+async function auditPublishedSignatures(packages, runtime, options) {
   const directory = await mkdtemp(join(tmpdir(), "vitehub-release-audit-"))
   try {
     const dependencies = Object.fromEntries(packages.map(pkg => [pkg.name, pkg.version]))
     await writeFile(join(directory, "package.json"), `${JSON.stringify({ dependencies, private: true }, null, 2)}\n`)
-    await command(runtime, "npm", ["install", "--ignore-scripts", "--legacy-peer-deps", "--no-audit", "--no-fund", `--registry=${npmRegistry}`], { cwd: directory })
+    // npm can take minutes to serve versions it just accepted, so retry the install for the whole set once.
+    const attempts = options.attempts || 20
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await command(runtime, "npm", ["install", "--ignore-scripts", "--legacy-peer-deps", "--no-audit", "--no-fund", `--registry=${npmRegistry}`], { cwd: directory })
+        break
+      }
+      catch (error) {
+        if (attempt >= attempts || !/ETARGET|E404/.test(String(error?.message))) throw error
+        await runtime.sleep(options.retryDelayMs ?? 30_000)
+      }
+    }
     await command(runtime, "npm", ["audit", "signatures", `--registry=${npmRegistry}`], { cwd: directory })
   }
   finally {
@@ -691,15 +686,13 @@ export async function publishReleaseArtifacts(options) {
       await command(runtime, "npm", publishArgs, { cwd: verified.artifactRoot })
     }
     catch (error) {
-      const raced = await inspectPublishedPackage(pkg, { ...options, runtime })
-      if (raced.state !== "verified") throw error
-      options.onProgress?.(`${pkg.name}@${pkg.version} was published concurrently with matching provenance; continuing.`)
-      continue
+      // A rerun checks the provenance of this version before it publishes anything.
+      if (!/EPUBLISHCONFLICT|cannot publish over the previously published/.test(String(error?.message))) throw error
+      options.onProgress?.(`${pkg.name}@${pkg.version} is already published; continuing.`)
     }
-    await waitForPublishedPackage(pkg, { ...options, runtime })
   }
 
-  if (!options.dryRun) await auditPublishedSignatures(verified.manifest.packages, runtime)
+  if (!options.dryRun) await auditPublishedSignatures(verified.manifest.packages, runtime, options)
   return verified.manifest.packages.length
 }
 

@@ -210,21 +210,26 @@ function fakeRegistryRuntime(packages: ReleaseEntry[], initial = new Map<string,
   const distTags = new Map([...initial].map(([name, entry]) => [name, { tag: entry.tag, version: entry.version }]))
   const calls: Array<{ args: string[], command: string, cwd?: string, timeout?: number }> = []
   const events: string[] = []
-  const incompleteReads = new Map<string, number>()
   let failPublish: string | undefined
+  let publishError = ""
   let failAudit = false
+  let installFailures = 0
   let sleeps = 0
   const byTarball = new Map(packages.map(pkg => [pkg.tarball, pkg]))
   const runtime = {
     exec: async (command: string, args: string[], options: { cwd?: string, timeout?: number } = {}) => {
       calls.push({ args: [...args], command, cwd: options.cwd, timeout: options.timeout })
+      if (command === "npm" && args[0] === "install" && installFailures > 0) {
+        installFailures--
+        throw new Error("npm error code ETARGET")
+      }
       if (command === "npm" && args[0] === "audit") {
         events.push("audit")
         if (failAudit) throw new Error("signature audit failed")
       }
       if (command === "npm" && args[0] === "publish" && !args.includes("--dry-run")) {
         const pkg = byTarball.get(args[1]!.slice(2))!
-        if (pkg.name === failPublish) throw new Error(`publish failed for ${pkg.name}`)
+        if (pkg.name === failPublish) throw new Error(publishError || `publish failed for ${pkg.name}`)
         const tag = args[args.indexOf("--tag") + 1]!
         state.set(pkg.name, verifiedRegistryEntry(pkg, tag))
         distTags.set(pkg.name, { tag, version: pkg.version })
@@ -237,11 +242,6 @@ function fakeRegistryRuntime(packages: ReleaseEntry[], initial = new Map<string,
         const encoded = encodeURIComponent(pkg.name)
         const entry = state.get(pkg.name)
         if (url.href === `https://registry.npmjs.org/${encoded}/${pkg.version}`) {
-          const remaining = incompleteReads.get(pkg.name) || 0
-          if (entry && remaining > 0) {
-            incompleteReads.set(pkg.name, remaining - 1)
-            return response(404)
-          }
           return entry
             ? response(200, { dist: { attestations: { url: `https://registry.npmjs.org/-/npm/v1/attestations/${encoded}@${pkg.version}` }, integrity: entry.integrity } })
             : response(404)
@@ -265,9 +265,12 @@ function fakeRegistryRuntime(packages: ReleaseEntry[], initial = new Map<string,
     getSleeps: () => sleeps,
     runtime,
     setFailAudit: (value = true) => { failAudit = value },
-    setFailPublish: (name?: string) => { failPublish = name },
+    setFailPublish: (name?: string, message = "") => {
+      failPublish = name
+      publishError = message
+    },
+    setInstallFailures: (count: number) => { installFailures = count },
     setDistTag: (name: string, tag: string, version: string) => distTags.set(name, { tag, version }),
-    setIncompleteReads: (name: string, count: number) => incompleteReads.set(name, count),
     state,
   }
 }
@@ -683,7 +686,7 @@ describe("release publication", () => {
     const registry = fakeRegistryRuntime(artifact.manifest.packages)
     registry.setFailPublish("@vite-hub/app")
 
-    await expect(publishReleaseArtifacts({ attempts: 1, manifestPath: artifact.manifestPath, runtime: registry.runtime, sourceRef, sourceSha, tag: "latest" }))
+    await expect(publishReleaseArtifacts({ manifestPath: artifact.manifestPath, runtime: registry.runtime, sourceRef, sourceSha, tag: "latest" }))
       .rejects.toThrow("publish failed")
     expect(registry.calls.filter(call => call.args[0] === "publish").map(call => call.args[1])).toEqual([
       `./${artifact.manifest.packages[0].tarball}`,
@@ -692,7 +695,7 @@ describe("release publication", () => {
 
     registry.setFailPublish()
     registry.calls.splice(0)
-    await publishReleaseArtifacts({ attempts: 1, manifestPath: artifact.manifestPath, runtime: registry.runtime, sourceRef, sourceSha, tag: "latest" })
+    await publishReleaseArtifacts({ manifestPath: artifact.manifestPath, runtime: registry.runtime, sourceRef, sourceSha, tag: "latest" })
     expect(registry.calls.filter(call => call.args[0] === "publish").map(call => call.args[1])).toEqual([
       `./${artifact.manifest.packages[1].tarball}`,
       `./${artifact.manifest.packages[2].tarball}`,
@@ -704,34 +707,61 @@ describe("release publication", () => {
     expect(registry.calls.every(call => call.args.includes("--registry=https://registry.npmjs.org/"))).toBe(true)
   })
 
-  it("retries registry propagation before auditing the fully verified set", async () => {
-    const root = await temporaryDirectory("vitehub-release-propagation-")
-    const artifact = await writeArtifact(root, [{ name: "@vite-hub/runtime" }])
+  it("publishes the whole set without waiting between packages", async () => {
+    const root = await temporaryDirectory("vitehub-release-no-wait-")
+    const artifact = await writeArtifact(root, [
+      { name: "@vite-hub/runtime" },
+      { dependencies: ["@vite-hub/runtime"], name: "@vite-hub/app" },
+    ])
     const registry = fakeRegistryRuntime(artifact.manifest.packages)
-    registry.setIncompleteReads("@vite-hub/runtime", 2)
 
-    await publishReleaseArtifacts({ attempts: 3, manifestPath: artifact.manifestPath, runtime: registry.runtime, sourceRef, sourceSha, tag: "latest" })
+    await publishReleaseArtifacts({ manifestPath: artifact.manifestPath, runtime: registry.runtime, sourceRef, sourceSha, tag: "latest" })
 
-    expect(registry.getSleeps()).toBe(2)
-    expect(registry.events).toEqual(["verified:@vite-hub/runtime", "audit"])
+    expect(registry.getSleeps()).toBe(0)
+    expect(registry.events).toEqual(["audit"])
+    expect(registry.calls.filter(call => call.args[0] === "publish").map(call => call.args[1])).toEqual(artifact.manifest.packages.map(pkg => `./${pkg.tarball}`))
   })
 
-  it("reports exhausted propagation and signature audit failures", async () => {
-    const propagationRoot = await temporaryDirectory("vitehub-release-propagation-failure-")
-    const propagation = await writeArtifact(propagationRoot, [{ name: "@vite-hub/runtime" }])
-    const delayed = fakeRegistryRuntime(propagation.manifest.packages)
-    delayed.setIncompleteReads("@vite-hub/runtime", 2)
-    await expect(publishReleaseArtifacts({ attempts: 2, manifestPath: propagation.manifestPath, runtime: delayed.runtime, sourceRef, sourceSha, tag: "latest" }))
-      .rejects.toThrow("Registry did not verify @vite-hub/runtime@1.2.3 after 2 attempts")
-    expect(delayed.events).not.toContain("audit")
+  it("continues past an already published version and stops on other publish conflicts", async () => {
+    const root = await temporaryDirectory("vitehub-release-conflict-")
+    const artifact = await writeArtifact(root, [
+      { name: "@vite-hub/runtime" },
+      { dependencies: ["@vite-hub/runtime"], name: "@vite-hub/app" },
+    ])
+    const published = fakeRegistryRuntime(artifact.manifest.packages)
+    published.setFailPublish("@vite-hub/runtime", "npm error code EPUBLISHCONFLICT\nnpm error cannot publish over the previously published versions: 1.2.3.")
+    await publishReleaseArtifacts({ manifestPath: artifact.manifestPath, runtime: published.runtime, sourceRef, sourceSha, tag: "latest" })
+    expect(published.calls.filter(call => call.args[0] === "publish").map(call => call.args[1])).toEqual(artifact.manifest.packages.map(pkg => `./${pkg.tarball}`))
+
+    const processing = fakeRegistryRuntime(artifact.manifest.packages)
+    processing.setFailPublish("@vite-hub/runtime", "npm error code E409\nnpm error 409 Conflict")
+    await expect(publishReleaseArtifacts({ manifestPath: artifact.manifestPath, runtime: processing.runtime, sourceRef, sourceSha, tag: "latest" }))
+      .rejects.toThrow("E409")
+    expect(processing.events).not.toContain("audit")
+  })
+
+  it("retries the signature audit install while npm catches up, then reports audit failures", async () => {
+    const root = await temporaryDirectory("vitehub-release-audit-retry-")
+    const artifact = await writeArtifact(root, [{ name: "@vite-hub/runtime" }])
+    const delayed = fakeRegistryRuntime(artifact.manifest.packages)
+    delayed.setInstallFailures(2)
+    await publishReleaseArtifacts({ manifestPath: artifact.manifestPath, runtime: delayed.runtime, sourceRef, sourceSha, tag: "latest" })
+    expect(delayed.getSleeps()).toBe(2)
+    expect(delayed.events).toEqual(["audit"])
+
+    const exhausted = fakeRegistryRuntime(artifact.manifest.packages)
+    exhausted.setInstallFailures(3)
+    await expect(publishReleaseArtifacts({ attempts: 2, manifestPath: artifact.manifestPath, runtime: exhausted.runtime, sourceRef, sourceSha, tag: "latest" }))
+      .rejects.toThrow("ETARGET")
+    expect(exhausted.events).not.toContain("audit")
 
     const auditRoot = await temporaryDirectory("vitehub-release-audit-failure-")
     const audit = await writeArtifact(auditRoot, [{ name: "@vite-hub/runtime" }])
     const registry = fakeRegistryRuntime(audit.manifest.packages)
     registry.setFailAudit()
-    await expect(publishReleaseArtifacts({ attempts: 1, manifestPath: audit.manifestPath, runtime: registry.runtime, sourceRef, sourceSha, tag: "latest" }))
+    await expect(publishReleaseArtifacts({ manifestPath: audit.manifestPath, runtime: registry.runtime, sourceRef, sourceSha, tag: "latest" }))
       .rejects.toThrow("signature audit failed")
-    expect(registry.events).toEqual(["verified:@vite-hub/runtime", "audit"])
+    expect(registry.events).toEqual(["audit"])
   })
 
   it("bounds a registry request that never settles", async () => {
