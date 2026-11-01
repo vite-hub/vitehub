@@ -162,11 +162,9 @@ async function runProvision(args: string[], context: ProvisionFeatureContext, op
 
   const { actions, checked, warnings } = await planProvision(provider, context, options, parsed.json)
   if (!parsed.json) {
+    if (!checked) context.stdout.write("provision: plan not checked.\n")
     if (!actions.length) {
-      // A step that skipped for missing credentials planned nothing; that is not "nothing to create".
-      context.stdout.write(checked
-        ? `provision: no ${provider} resources to create.\n`
-        : `provision: plan not checked, missing ${PROVIDER_CREDENTIALS[provider]}. Set them to see which ${provider} resources this app needs.\n`)
+      if (checked) context.stdout.write(`provision: no ${provider} resources to create.\n`)
       return 0
     }
     writeActions(actions, context.stdout)

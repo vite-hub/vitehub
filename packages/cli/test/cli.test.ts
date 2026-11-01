@@ -577,19 +577,30 @@ describe("ViteHub CLI", () => {
     expect(stdout.output()).toContain("create\ttest-resource\tdemo")
   })
 
-  it("dry-run without credentials says the plan was not checked", async () => {
+  it.each([
+    {
+      env: {},
+      provider: "cloudflare",
+      warning: "test: skipping, missing CLOUDFLARE_ACCOUNT_ID/CLOUDFLARE_API_TOKEN.",
+    },
+    {
+      env: { VERCEL_TOKEN: "test-token" },
+      provider: "vercel",
+      warning: "blob: skipping Vercel Blob, missing VERCEL_TOKEN/VERCEL_PROJECT_ID.",
+    },
+  ])("reports an unchecked $provider dry-run without guessing missing settings", async ({ env, provider, warning }) => {
     const rootDir = await createTempDir()
-    const apply = vi.fn(async () => ({}))
     const stdout = stream()
+    const stderr = stream()
     const plugin = {
       vitehub: {
         cli: async () => ({
           namespaces: [],
           provision: [{
-            id: "test:cloudflare",
-            provider: "cloudflare",
-            plan: async (context: { markPlanUnchecked?: () => void, logger: { warn: (message: string) => void } }) => {
-              context.logger.warn("test: skipping, missing CLOUDFLARE_ACCOUNT_ID/CLOUDFLARE_API_TOKEN.")
+            id: `test:${provider}`,
+            provider,
+            plan: async (context: ProvisionContext) => {
+              context.logger.warn(warning)
               context.markPlanUnchecked?.()
               return []
             },
@@ -599,18 +610,36 @@ describe("ViteHub CLI", () => {
     }
 
     const exitCode = await runViteHubCli({
-      args: ["provision", "run", "--provider", "cloudflare", "--dry-run"],
+      args: ["provision", "run", "--provider", provider, "--dry-run"],
       cwd: rootDir,
-      env: {},
+      env,
       loadConfig: async () => ({ plugins: [plugin], root: rootDir }),
-      stderr: stream(),
+      stderr,
       stdout,
     })
 
     expect(exitCode).toBe(0)
-    expect(apply).not.toHaveBeenCalled()
-    expect(stdout.output()).toContain("provision: plan not checked, missing")
-    expect(stdout.output()).not.toContain("no cloudflare resources to create")
+    expect(stdout.output()).toBe("provision: plan not checked.\n")
+    expect(stderr.output()).toBe(`${warning}\n`)
+
+    const json = stream()
+    await expect(runViteHubCli({
+      args: ["provision", "run", "--provider", provider, "--dry-run", "--json"],
+      cwd: rootDir,
+      env,
+      loadConfig: async () => ({ plugins: [plugin], root: rootDir }),
+      stderr: stream(),
+      stdout: json,
+    })).resolves.toBe(0)
+    expect(JSON.parse(json.output())).toEqual({
+      actions: [],
+      ids: {},
+      mode: "dry-run",
+      provider,
+      schemaVersion: 1,
+      stateFile: null,
+      warnings: [warning],
+    })
   })
 
   it.each([
@@ -1005,6 +1034,18 @@ export default function (_options, nuxt) {
       warnings: ["test: lookup warning"],
     })
     expect(stderr.output()).toBe("")
+
+    const human = stream()
+    await expect(runViteHubCli({
+      args: ["provision", "run", "--provider", "cloudflare", "--dry-run"],
+      cwd: rootDir,
+      env,
+      loadConfig,
+      stderr,
+      stdout: human,
+    })).resolves.toBe(0)
+    expect(human.output()).toBe(`${unchecked ? "provision: plan not checked.\n" : ""}create\ttest-resource\tdemo\n`)
+    expect(stderr.output()).toBe("test: lookup warning\n")
     expect(apply).not.toHaveBeenCalled()
   })
 
