@@ -137,17 +137,11 @@ jobs:
             manifests.push({ manifest, path })
           }
 
-          const releaseNames = new Set(manifests.map(({ manifest }) => manifest.name))
           for (const { manifest, path } of manifests) {
             if (process.env.RELEASE_PUBLISH === "true" && manifest.version !== process.env.RELEASE_VERSION) {
               throw new Error(`Release tag does not match ${manifest.name} version ${manifest.version}`)
             }
             manifest.version = process.env.RELEASE_VERSION
-            for (const section of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
-              for (const name of Object.keys(manifest[section] || {})) {
-                if (releaseNames.has(name)) manifest[section][name] = process.env.RELEASE_VERSION
-              }
-            }
             writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`)
           }
           NODE
@@ -159,6 +153,44 @@ jobs:
       # fingerprints. The root build task always enables the cache.
       - run: vp run --no-cache --filter "./packages/*" build
 
+      # vp run orders tasks by workspace:* dependencies only, so pin the
+      # release version only while packing.
+      - name: Pin release dependency versions
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          node <<'NODE'
+          const { readdirSync, readFileSync, writeFileSync } = require("node:fs")
+          const { join } = require("node:path")
+
+          const manifests = []
+          for (const entry of readdirSync("packages", { withFileTypes: true })) {
+            if (!entry.isDirectory()) continue
+            const path = join("packages", entry.name, "package.json")
+            let manifest
+            try {
+              manifest = JSON.parse(readFileSync(path, "utf8"))
+            }
+            catch (error) {
+              if (error.code === "ENOENT") continue
+              throw error
+            }
+            if (manifest.private === true) continue
+            manifests.push({ manifest, path })
+          }
+
+          writeFileSync(".release/workspace-manifests.json", JSON.stringify(Object.fromEntries(manifests.map(({ path }) => [path, readFileSync(path, "utf8")]))))
+          const releaseNames = new Set(manifests.map(({ manifest }) => manifest.name))
+          for (const { manifest, path } of manifests) {
+            for (const section of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
+              for (const name of Object.keys(manifest[section] || {})) {
+                if (releaseNames.has(name)) manifest[section][name] = process.env.RELEASE_VERSION
+              }
+            }
+            writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`)
+          }
+          NODE
+
       - name: Pack immutable release tarballs
         run: |
           node .github/scripts/release-packages.mjs pack \
@@ -166,6 +198,16 @@ jobs:
             --output .release/npm \
             --source-sha "$GITHUB_SHA" \
             --verify-reproducible
+
+      - name: Restore workspace dependency ranges
+        run: |
+          node <<'NODE'
+          const { readFileSync, rmSync, writeFileSync } = require("node:fs")
+
+          const manifests = JSON.parse(readFileSync(".release/workspace-manifests.json", "utf8"))
+          for (const [path, source] of Object.entries(manifests)) writeFileSync(path, source)
+          rmSync(".release/workspace-manifests.json")
+          NODE
 
       - name: Verify exact release tarballs
         run: |

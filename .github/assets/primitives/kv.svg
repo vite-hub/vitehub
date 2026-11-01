@@ -1,75 +1,35 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" class="primitive-motion is-playing" style="--cycle: 5400ms; --scene-delay: -1998ms">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" fill="currentColor" shape-rendering="crispEdges" class="primitive-motion is-playing" style="--cycle: 5400ms; --scene-delay: -1998ms">
 <style>
 svg { color: #59636e; --ui-bg: #ffffff; }
 @media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
 .primitive-motion {
-  --ease-move: cubic-bezier(0.65, 0, 0.35, 1);
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   overflow: visible;
 }
-.soft,
-.job,
-.command,
-.budget,
-.ink,
-.token,
-.band,
-.pointer {
-  fill: currentColor;
-}
-.soft {
+.primitive-motion .soft {
   opacity: 0.35;
 }
-.a {
+.primitive-motion .a {
   animation-duration: var(--cycle);
   animation-delay: var(--scene-delay);
   animation-iteration-count: infinite;
   animation-fill-mode: both;
-  animation-timing-function: var(--ease-move);
+  animation-timing-function: steps(3);
 }
 .primitive-motion:not(.is-playing) .a {
   animation-play-state: paused;
 }
-.kv-strip { animation-name: kv-strip; }
+.primitive-motion .kv-strip { animation-name: kv-strip; animation-timing-function: steps(4); }
 @media (prefers-reduced-motion: reduce) {
-  .a {
+  .primitive-motion .a {
     animation: none;
   }
 }
 @keyframes kv-strip {
-  0% { transform: translateY(0); animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1); }
-  33.333% { transform: translateY(-8px); animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1); }
-  66.667% { transform: translateY(-16px); animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1); }
+  0% { transform: translateY(0); }
+  33.333% { transform: translateY(-8px); }
+  66.667% { transform: translateY(-16px); }
   100% { transform: translateY(-24px); }
 }
 </style>
-      <defs>
-        <linearGradient id="vh-kv-fade" x1="0" y1="4" x2="0" y2="36" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stop-color="#fff" stop-opacity="0" />
-          <stop offset="0.24" stop-color="#fff" />
-          <stop offset="0.76" stop-color="#fff" />
-          <stop offset="1" stop-color="#fff" stop-opacity="0" />
-        </linearGradient>
-        <mask id="vh-kv-window" maskUnits="userSpaceOnUse" x="0" y="4" width="64" height="32">
-          <rect x="0" y="4" width="64" height="32" fill="url(#vh-kv-fade)" />
-        </mask>
-      </defs>
-            <g mask="url(#vh-kv-window)">
-        <g class="a kv-strip">
-            <rect x="6" y="7" width="8" height="5" rx="1.5" class="soft" />
-            <rect x="18" y="7" width="24" height="5" rx="1.5" class="soft" />
-            <rect x="6" y="15" width="8" height="5" rx="1.5" class="soft" />
-            <rect x="18" y="15" width="16" height="5" rx="1.5" class="soft" />
-            <rect x="6" y="23" width="8" height="5" rx="1.5" class="soft" />
-            <rect x="18" y="23" width="20" height="5" rx="1.5" class="soft" />
-            <rect x="6" y="31" width="8" height="5" rx="1.5" class="soft" />
-            <rect x="18" y="31" width="24" height="5" rx="1.5" class="soft" />
-            <rect x="6" y="39" width="8" height="5" rx="1.5" class="soft" />
-            <rect x="18" y="39" width="16" height="5" rx="1.5" class="soft" />
-            <rect x="6" y="47" width="8" height="5" rx="1.5" class="soft" />
-            <rect x="18" y="47" width="20" height="5" rx="1.5" class="soft" />
-            <rect x="6" y="55" width="8" height="5" rx="1.5" class="soft" />
-            <rect x="18" y="55" width="24" height="5" rx="1.5" class="soft" />
-        </g>
-      </g>
+<defs><mask id="vh-kv-fade" maskUnits="userSpaceOnUse" x="-8" y="0" width="74" height="40"><rect y="4" width="58" height="2" fill="#fff" fill-opacity="0.25"/><rect y="34" width="58" height="2" fill="#fff" fill-opacity="0.25"/><rect y="6" width="58" height="2" fill="#fff" fill-opacity="0.5"/><rect y="32" width="58" height="2" fill="#fff" fill-opacity="0.5"/><rect y="8" width="58" height="2" fill="#fff" fill-opacity="0.75"/><rect y="30" width="58" height="2" fill="#fff" fill-opacity="0.75"/><rect x="-8" y="10" width="74" height="20" fill="#fff"/></mask></defs><g mask="url(#vh-kv-fade)"><g class="a kv-strip"><path class="soft" d="M0 6h8v2h-8zM12 6h24v2h-24zM0 8h8v2h-8zM12 8h24v2h-24zM0 14h8v2h-8zM12 14h16v2h-16zM0 16h8v2h-8zM12 16h16v2h-16zM0 22h8v2h-8zM12 22h20v2h-20zM0 24h8v2h-8zM12 24h20v2h-20zM0 30h8v2h-8zM12 30h24v2h-24zM0 32h8v2h-8zM12 32h24v2h-24zM0 38h8v2h-8zM12 38h16v2h-16zM0 40h8v2h-8zM12 40h16v2h-16zM0 46h8v2h-8zM12 46h20v2h-20zM0 48h8v2h-8zM12 48h20v2h-20zM0 54h8v2h-8zM12 54h24v2h-24zM0 56h8v2h-8zM12 56h24v2h-24z"/></g></g>
 </svg>

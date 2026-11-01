@@ -1,91 +1,65 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" class="primitive-motion is-playing" style="--cycle: 5000ms; --scene-delay: -3300ms">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" fill="currentColor" shape-rendering="crispEdges" class="primitive-motion is-playing" style="--cycle: 5000ms; --scene-delay: -3300ms">
 <style>
 svg { color: #59636e; --ui-bg: #ffffff; }
 @media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
 .primitive-motion {
-  --ease-move: cubic-bezier(0.65, 0, 0.35, 1);
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   overflow: visible;
 }
-.line,
-.ink-line,
-.card {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.line {
+.primitive-motion .line,
+.primitive-motion .job,
+.primitive-motion .command,
+.primitive-motion .budget {
   opacity: 0.55;
 }
-.ink-line {
+.primitive-motion .ink,
+.primitive-motion .token,
+.primitive-motion .pointer {
   opacity: 0.85;
 }
-.soft,
-.job,
-.command,
-.budget,
-.ink,
-.token,
-.band,
-.pointer {
-  fill: currentColor;
-}
-.job,
-.command,
-.budget {
-  opacity: 0.55;
-}
-.ink,
-.token,
-.pointer {
-  opacity: 0.85;
-}
-.token,
-.band,
-.ghost,
-.q-in,
-.blob-next {
+.primitive-motion .token,
+.primitive-motion .band,
+.primitive-motion .ghost,
+.primitive-motion .q-in,
+.primitive-motion .blob-next {
   opacity: 0;
 }
-.a {
+.primitive-motion .a {
   animation-duration: var(--cycle);
   animation-delay: var(--scene-delay);
   animation-iteration-count: infinite;
   animation-fill-mode: both;
-  animation-timing-function: var(--ease-move);
+  animation-timing-function: steps(3);
 }
 .primitive-motion:not(.is-playing) .a {
   animation-play-state: paused;
 }
-.rl-request { animation-name: rl-request; }
-.rl-gate { animation-name: rl-gate; }
-.rl-budget-1 { animation-name: rl-budget-1; }
-.rl-budget-2 { animation-name: rl-budget-2; }
-.rl-budget-3 { animation-name: rl-budget-3; }
+.primitive-motion .rl-request { animation-name: rl-request; }
+.primitive-motion .rl-gate { animation-name: rl-gate; }
+.primitive-motion .rl-budget-1 { animation-name: rl-budget-1; }
+.primitive-motion .rl-budget-2 { animation-name: rl-budget-2; }
+.primitive-motion .rl-budget-3 { animation-name: rl-budget-3; }
 @media (prefers-reduced-motion: reduce) {
-  .a {
+  .primitive-motion .a {
     animation: none;
   }
 }
 @keyframes rl-request {
   0%, 4% { opacity: 0; transform: translateX(0); }
-  6% { opacity: 0.85; transform: translateX(0); }
+  6% { opacity: 0.85; transform: translateX(0); animation-timing-function: steps(9); }
   13% { opacity: 0.85; transform: translateX(-18px); }
-  15%, 18% { opacity: 0; transform: translateX(-20px); }
+  15%, 18% { opacity: 0; transform: translateX(-18px); }
   18.1% { opacity: 0; transform: translateX(0); }
-  20% { opacity: 0.85; transform: translateX(0); }
+  20% { opacity: 0.85; transform: translateX(0); animation-timing-function: steps(9); }
   27% { opacity: 0.85; transform: translateX(-18px); }
-  29%, 32% { opacity: 0; transform: translateX(-20px); }
+  29%, 32% { opacity: 0; transform: translateX(-18px); }
   32.1% { opacity: 0; transform: translateX(0); }
-  34% { opacity: 0.85; transform: translateX(0); }
+  34% { opacity: 0.85; transform: translateX(0); animation-timing-function: steps(9); }
   41% { opacity: 0.85; transform: translateX(-18px); }
-  43%, 46% { opacity: 0; transform: translateX(-20px); }
+  43%, 46% { opacity: 0; transform: translateX(-18px); }
   46.1% { opacity: 0; transform: translateX(0); }
-  48% { opacity: 0.85; transform: translateX(0); }
-  55% { opacity: 0.85; transform: translateX(-17px); animation-timing-function: var(--ease-out); }
-  63% { opacity: 0.5; transform: translateX(-8px); }
+  48% { opacity: 0.85; transform: translateX(0); animation-timing-function: steps(9); }
+  55% { opacity: 0.85; transform: translateX(-18px); animation-timing-function: steps(5); }
+  63% { opacity: 0.5; transform: translateX(-8px); animation-timing-function: steps(1); }
   68%, 100% { opacity: 0; transform: translateX(-6px); }
 }
 @keyframes rl-gate {
@@ -109,10 +83,5 @@ svg { color: #59636e; --ui-bg: #ffffff; }
   96%, 100% { opacity: 0.55; }
 }
 </style>
-      <rect x="6" y="13" width="4" height="14" rx="1" class="budget a rl-budget-3" />
-      <rect x="13" y="13" width="4" height="14" rx="1" class="budget a rl-budget-2" />
-      <rect x="20" y="13" width="4" height="14" rx="1" class="budget a rl-budget-1" />
-      <path d="M30 11v18" class="line" />
-      <path d="M30 11v18" class="ink-line ghost a rl-gate" />
-      <circle cx="52" cy="20" r="2" class="token a rl-request" />
+<path class="budget a rl-budget-3" d="M0 12h4v2h-4zM0 14h4v2h-4zM0 16h4v2h-4zM0 18h4v2h-4zM0 20h4v2h-4zM0 22h4v2h-4zM0 24h4v2h-4zM0 26h4v2h-4z"/><path class="budget a rl-budget-2" d="M8 12h4v2h-4zM8 14h4v2h-4zM8 16h4v2h-4zM8 18h4v2h-4zM8 20h4v2h-4zM8 22h4v2h-4zM8 24h4v2h-4zM8 26h4v2h-4z"/><path class="budget a rl-budget-1" d="M16 12h4v2h-4zM16 14h4v2h-4zM16 16h4v2h-4zM16 18h4v2h-4zM16 20h4v2h-4zM16 22h4v2h-4zM16 24h4v2h-4zM16 26h4v2h-4z"/><path class="line" d="M24 10h2v2h-2zM24 12h2v2h-2zM24 14h2v2h-2zM24 16h2v2h-2zM24 18h2v2h-2zM24 20h2v2h-2zM24 22h2v2h-2zM24 24h2v2h-2zM24 26h2v2h-2zM24 28h2v2h-2z"/><path class="ink ghost a rl-gate" d="M24 10h2v2h-2zM24 12h2v2h-2zM24 14h2v2h-2zM24 16h2v2h-2zM24 18h2v2h-2zM24 20h2v2h-2zM24 22h2v2h-2zM24 24h2v2h-2zM24 26h2v2h-2zM24 28h2v2h-2z"/><path class="token a rl-request" d="M44 18h4v2h-4zM44 20h4v2h-4z"/>
 </svg>

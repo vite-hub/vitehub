@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/sandbox",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "description": "Portable, isolated Sandboxes for ViteHub Agents, and Sandbox Tasks that run named package projects in them.",
   "keywords": [
     "agent",

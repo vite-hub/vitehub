@@ -5,13 +5,17 @@ import { useVirtualList } from "@vueuse/core";
 import { logPageSchema, logSourceInfoSchema } from "../../../logs/source";
 import type { LogEntry, LogSourceInfo } from "../../../logs/source";
 import { requestConsole } from "../client/request";
+import { consoleClockTime, exactTimestamps } from "../client/time";
 import ConsoleFrame from "./console-frame.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
+import ConsoleSearch from "./console-search.vue";
 import ConsoleSetupHint from "./console-setup-hint.vue";
 import ConsoleState from "./console-state.vue";
 
 const props = defineProps<{ logsBase: string; sectionsBase: string }>();
+// The rail's Search button and Cmd+K open the search of the page. Its API routes sit next to the sections route.
+const apiBase = props.sectionsBase.replace(/\/sections$/, "");
 const mode = ref("explorer");
 const text = ref("");
 const level = ref("all");
@@ -44,6 +48,17 @@ const retention = computed(() =>
     ? `Temporary · this process · ${source.value.retention.maxEntries} events maximum`
     : source.value?.retention.description,
 );
+const levels = [
+  { label: "All levels", value: "all" },
+  { label: "Debug", value: "debug" },
+  { label: "Info", value: "info" },
+  { label: "Warn", value: "warn" },
+  { label: "Error", value: "error" },
+];
+/** The color of a level in the event list and in the event details. */
+function levelClass(value: string): string {
+  return value === "error" ? "text-error" : value === "warn" ? "text-warning" : "text-muted";
+}
 const diagnostic = computed(() => {
   const data = selected.value?.data;
   if (!data) return undefined;
@@ -60,6 +75,10 @@ const docs = computed(() => {
     return undefined;
   }
 });
+function exactTitle(value: string): string | undefined {
+  const exact = exactTimestamps(value);
+  return exact && `${exact.local}\n${exact.utc}`;
+}
 function field(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
@@ -132,6 +151,7 @@ onBeforeUnmount(() => {
 
 <template>
   <ConsoleFrame active="logs" :sections-base="sectionsBase">
+    <ConsoleSearch :agents-base="`${apiBase}/agents`" :definitions-base="`${apiBase}/definitions`" :kv-base="`${apiBase}/kv`" :search-base="`${apiBase}/search`" :sections-base="sectionsBase" />
     <UDashboardPanel id="logs" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
       <ConsolePageHeader title="Logs" :description="source?.label" :toggle="false">
         <template #right>
@@ -182,7 +202,7 @@ onBeforeUnmount(() => {
         />
         <USelect
           v-model="level"
-          :items="[{ label: 'All levels', value: 'all' }, 'debug', 'info', 'warn', 'error']"
+          :items="levels"
           aria-label="Log level"
           :disabled="!!source && !source.filters.includes('level')"
           class="w-32"
@@ -222,22 +242,16 @@ onBeforeUnmount(() => {
                 :aria-pressed="selectedId === entry.id"
                 @click="selectedId = entry.id"
               >
+                <!-- Local time, as in the rest of the Console. The tooltip has the date in the local zone and in UTC. -->
                 <time
                   class="font-mono text-xs text-muted tabular-nums"
                   :datetime="entry.timestamp"
-                  >{{ entry.timestamp.slice(11, 23) }}</time
+                  :title="exactTitle(entry.timestamp)"
+                  >{{ consoleClockTime(entry.timestamp) }}</time
                 >
-                <span
-                  class="font-mono text-[11px] uppercase"
-                  :class="
-                    entry.level === 'error'
-                      ? 'text-error'
-                      : entry.level === 'warn'
-                        ? 'text-warning'
-                        : 'text-muted'
-                  "
-                  >{{ entry.level }}</span
-                >
+                <span class="font-mono text-[11px] uppercase" :class="levelClass(entry.level)">{{
+                  entry.level
+                }}</span>
                 <span v-if="mode === 'explorer'" class="truncate text-xs text-muted">{{
                   entry.service
                 }}</span>
@@ -258,7 +272,9 @@ onBeforeUnmount(() => {
           <template v-if="selected">
             <div class="mb-5 flex items-center justify-between gap-3">
               <h2 class="text-sm font-medium">Event details</h2>
-              <span class="font-mono text-xs text-muted">{{ selected.level }}</span>
+              <span class="font-mono text-[11px] uppercase" :class="levelClass(selected.level)">{{
+                selected.level
+              }}</span>
             </div>
             <h3 class="break-words text-sm font-medium">{{ selected.message }}</h3>
             <dl class="my-5 grid grid-cols-[auto_1fr] gap-x-5 gap-y-2 text-xs">
