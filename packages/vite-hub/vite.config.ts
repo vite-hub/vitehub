@@ -518,6 +518,13 @@ export default defineConfig({
       tsconfig: "tsconfig.build.json",
       treeshake: { moduleSideEffects: false },
       dts: { tsconfig: "tsconfig.declarations.json", emitDtsOnly: true },
+      plugins: [{
+        name: "vite-hub-env-config-declarations",
+        generateBundle(_options, bundle) {
+          const chunk = bundle["index.d.ts"];
+          if (chunk?.type === "chunk") chunk.code = `import "@vite-hub/env/vite";\n${chunk.code}`;
+        },
+      }],
       deps: {
         neverBundle: ["esbuild", "vite", /^@vite-hub\/(?!internal(?:\/|$))/],
         alwaysBundle: [/^@vite-hub\/internal/],

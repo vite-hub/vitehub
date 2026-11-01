@@ -253,10 +253,9 @@ async function assertPackedPackage(tarball: string, framework: boolean) {
 
   if (!framework) return
 
-  expect(manifest.dependencies).toMatchObject({
-    "@workflow/builders": expect.any(String),
-    workflow: expect.any(String),
-  })
+  for (const name of ["@workflow/builders", "workflow"]) {
+    expect(manifest.dependencies).not.toHaveProperty(name)
+  }
 
   for (const [name, spec] of Object.entries(manifest.dependencies || {})) {
     if (name.startsWith("@vite-hub/") && !spec.startsWith("npm:")) {
@@ -621,7 +620,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       const config = (features: string) => `
         import { defineConfig } from "vite"
         import { vitehub } from "vite-hub"
-        export default defineConfig({ plugins: [vitehub({ preset: "cloudflare", blob: true, queue: true${features} })] })
+        export default defineConfig({ env: { public: {} }, plugins: [vitehub({ preset: "cloudflare", blob: true, queue: true${features} })] })
       `
       await Promise.all([
         writeFile(join(appDir, "vite.config.ts"), config(""), "utf8"),

@@ -560,6 +560,20 @@ describe("generated Console access", () => {
     })).not.toThrow()
   })
 
+  it.each(["/", "/portal/"])("omits status authorization and generated access checks without Agents below %s", async (base) => {
+    const prefix = base.replace(/\/$/, "")
+    const plugin = await generatedPlugin({
+      console: { auth: "app" },
+      sections: ["env", "kv"],
+      resolveAuthConfig: () => appAuth([
+        { authorize: true, route: `${prefix}/_vitehub/**` },
+        { method: "GET", route: `${prefix}/api/_vitehub/console/status` },
+      ]),
+    }, "build", { base })
+    expect(plugin).toContain(`"authorize":true,"index":0,"route":"${prefix}/_vitehub/**"`)
+    expect(plugin).not.toContain(`"route":"${prefix}/api/_vitehub/console/status"`)
+  })
+
   it.each([
     { authorize: true, method: "POST", route: "/api/_vitehub/console/status" } as const,
     { method: "GET", route: "/api/_vitehub/console/status" } as const,
@@ -568,6 +582,7 @@ describe("generated Console access", () => {
     expect(() => assertConsoleProductionAccess({ auth: "app" }, {
       auth: appAuth([{ authorize: true, route: "/_vitehub/**" }, route]),
       development: false,
+      sections: ["agents"],
     })).toThrow("/api/_vitehub/console/status")
   })
 

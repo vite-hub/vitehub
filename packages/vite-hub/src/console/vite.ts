@@ -217,7 +217,9 @@ export function updateConsoleInvocationRootState(
 function consoleAccessTargets(base: string | undefined, sections?: readonly ConsoleSectionId[]): Array<{ method?: string; route: string }> {
   return [
     { route: consoleMountPath(base, "/_vitehub/**") },
-    { method: "GET", route: consoleMountPath(base, "/api/_vitehub/console/status") },
+    ...(sections?.includes("agents")
+      ? [{ method: "GET", route: consoleMountPath(base, "/api/_vitehub/console/status") }]
+      : []),
     ...(sections?.includes("logs")
       ? [{ method: "GET", route: consoleMountPath(base, "/api/_vitehub/console/logs") }]
       : []),
