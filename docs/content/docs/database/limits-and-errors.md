@@ -39,6 +39,7 @@ export default defineEventHandler(async () => {
 | `DATABASE_D1_INVALID_RESPONSE`, `DATABASE_D1_REQUEST_FAILED` | When a D1 HTTP query fails |
 | `DATABASE_DISABLED`, `DATABASE_INVALID_D1_HTTP_URL`, `DATABASE_MISSING_CONNECTION`, `DATABASE_MISSING_D1_HTTP_CONFIG`, `DATABASE_NOT_FOUND` | When code first uses the database |
 | `DATABASE_MIGRATION_CHECK_FAILED`, `DATABASE_MIGRATION_DATA_LOSS` | Printed by `vitehub db migrate`, which then exits with code 1 |
+| `DATABASE_MIGRATION_DATA_LOSS`, `DATABASE_MIGRATE_ON_START_UNSUPPORTED` | With `migrateOnStart`, when the Node server starts. `DATABASE_MIGRATE_ON_START_UNSUPPORTED` also fails the build |
 | `DATABASE_INVALID_CASING`, `DATABASE_INVALID_DIALECT`, `DATABASE_INVALID_NAME`, `DATABASE_INVALID_OPTIONS`, `DATABASE_UNKNOWN_OPTION` | By `defineDatabase()`, or by the build when it reads the Definition |
 | Every other code | During discovery, the build, or `vitehub provision run` |
 
@@ -97,6 +98,12 @@ ViteHub cannot read which migrations the database has applied. `error.why` has t
 ### DATABASE_MIGRATION_DATA_LOSS
 
 A pending migration drops a table, a column, or a schema, deletes every row of a table, or rebuilds a SQLite table without one of its columns. `error.why` names each migration and statement. Run `vitehub db migrate --dry-run` to read the SQL. To keep the data, change the schema or edit the migration. To accept the loss, back up the data and run `vitehub db migrate --allow-data-loss`.
+
+With `migrateOnStart`, the server throws this error when it starts and does not handle requests. To accept the loss, back up the data and set `migrateOnStart: { allowDataLoss: true }`.
+
+### DATABASE_MIGRATE_ON_START_UNSUPPORTED
+
+`migrateOnStart` applies migrations only to local SQLite files in a production Node server. The build fails with this error for another host, a Postgres database, or D1 over HTTP. The server fails to start with it when a database connects to remote libSQL. Build with the Node preset and a `file:` URL, or remove `migrateOnStart` and run `vitehub db migrate` from the deployment.
 
 ## Definition errors
 

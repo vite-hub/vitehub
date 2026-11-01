@@ -100,6 +100,11 @@
       "import": "./dist/runtime/hosted.js",
       "default": "./dist/runtime/hosted.js"
     },
+    "./runtime/migrate-on-start": {
+      "types": "./dist/runtime/migrate-on-start.d.ts",
+      "import": "./dist/runtime/migrate-on-start.js",
+      "default": "./dist/runtime/migrate-on-start.js"
+    },
     "./runtime/postgres": {
       "types": "./dist/runtime/postgres.d.ts",
       "import": "./dist/runtime/postgres.js",

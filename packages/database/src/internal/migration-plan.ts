@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync } from "node:fs"
 import { createRequire } from "node:module"
 
 import { createClient } from "@libsql/client"
@@ -8,20 +8,15 @@ import { resolveConfigValue } from "../config-value.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { resolveLocalSqlitePath } from "../runtime/local-path.ts"
 import { applyD1Migrations, createD1Query, listD1MigrationFiles, readD1Ledger } from "./d1-migrations.ts"
-import { findDataLoss } from "./migration-sql.ts"
+import { readJournal, readPendingMigration } from "./migration-journal.ts"
 
 import type postgres from "postgres"
 import type { Result } from "@vite-hub/runtime"
 import type { ResolvedDrizzleDatabaseConfig } from "../types.ts"
 import type { D1HttpTarget } from "./d1-migrations.ts"
-import type { DataLossStatement, TableColumns } from "./migration-sql.ts"
+import type { PendingMigration } from "./migration-journal.ts"
 
-/** A migration in the migrations folder that the database has not applied. */
-export interface PendingMigration {
-  dataLoss: DataLossStatement[]
-  name: string
-  statements: string[]
-}
+export type { PendingMigration } from "./migration-journal.ts"
 
 export interface MigrationPlan {
   database: string
@@ -36,12 +31,6 @@ export interface MigrationPlanOptions {
   env: NodeJS.ProcessEnv
   fetch?: typeof fetch
   projectRoot: string
-}
-
-interface JournalEntry {
-  idx: number
-  tag: string
-  when: number
 }
 
 /** D1 HTTP uses the runtime's API or proxy target; other connections follow `renderDbCredentials()`. */
@@ -135,10 +124,6 @@ async function readSqliteLastApplied(url: string, authToken?: string): Promise<n
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Object.prototype.toString.call(value) === "[object Object]"
-}
-
 async function readPostgresLastApplied(target: Extract<MigrationTarget, { kind: "postgres" }>, projectRoot: string, env: NodeJS.ProcessEnv): Promise<number | undefined> {
   let connect: typeof postgres
   try {
@@ -174,49 +159,6 @@ function toMillis(value: unknown): number | undefined {
   if (value === null || value === undefined) return
   const millis = Number(value)
   return Number.isFinite(millis) ? millis : undefined
-}
-
-function readJournal(migrationsDir: string): JournalEntry[] {
-  const file = join(migrationsDir, "meta", "_journal.json")
-  if (!existsSync(file)) return []
-  const journal: unknown = JSON.parse(readFileSync(file, "utf8"))
-  const entries = isRecord(journal) ? journal.entries : undefined
-  if (!Array.isArray(entries)) throw new Error(`${file} has no \`entries\` list.`)
-  return entries.map((entry: unknown) => {
-    if (!isRecord(entry) || typeof entry.tag !== "string" || typeof entry.when !== "number" || typeof entry.idx !== "number") {
-      throw new Error(`${file} has an entry without a string \`tag\` and number \`idx\` and \`when\`.`)
-    }
-    return { idx: entry.idx, tag: entry.tag, when: entry.when }
-  })
-}
-
-/** Reads the table columns from the Drizzle snapshot of a journal entry. */
-function readSnapshotColumns(migrationsDir: string, idx: number): TableColumns | undefined {
-  const file = join(migrationsDir, "meta", `${String(idx).padStart(4, "0")}_snapshot.json`)
-  if (!existsSync(file)) return
-  let snapshot: unknown
-  try {
-    snapshot = JSON.parse(readFileSync(file, "utf8"))
-  }
-  catch {
-    return
-  }
-  if (!isRecord(snapshot) || !isRecord(snapshot.tables)) return
-  const tables = new Map<string, string[]>()
-  for (const table of Object.values(snapshot.tables)) {
-    if (!isRecord(table) || typeof table.name !== "string" || !isRecord(table.columns)) continue
-    tables.set(table.name.toLowerCase(), Object.keys(table.columns))
-  }
-  return tables
-}
-
-function readPendingMigration(migrationsDir: string, tag: string, entries: readonly JournalEntry[]): PendingMigration {
-  const sql = readFileSync(join(migrationsDir, `${tag}.sql`), "utf8")
-  const statements = sql.split("--> statement-breakpoint").map(statement => statement.trim()).filter(Boolean)
-  // A hand-written D1 migration has no journal entry, so there is no previous snapshot to compare a rebuild with.
-  const idx = entries.find(entry => entry.tag === tag)?.idx
-  const before = idx === undefined ? undefined : idx > 0 ? readSnapshotColumns(migrationsDir, idx - 1) : new Map<string, string[]>()
-  return { dataLoss: findDataLoss(statements, before), name: tag, statements }
 }
 
 /**

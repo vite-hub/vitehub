@@ -96,6 +96,8 @@ Before it applies anything, `vitehub db migrate` reads Drizzle's migrations tabl
 
 The check connects to the migration target: the local SQLite file, remote libSQL, D1 HTTP with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` (or the object-form `cloudflare.http` proxy's resolved `url` and `authToken`), or Postgres with the `postgres` package. When it cannot read the migrations table, it fails with `DATABASE_MIGRATION_CHECK_FAILED` and does not guess. A D1 HTTP database without Wrangler's table but with `__drizzle_migrations` keeps the migrations that Drizzle Kit applied: the first `vitehub db migrate` writes them to Wrangler's table. Wrangler applies the migrations of a native D1 binding, so that path has no check.
 
+A self-hosted Node build can apply migrations itself with `database: { migrateOnStart: true }`. The build writes each database's migrations into a Nitro plugin. When the server starts, the plugin applies the pending ones to the local SQLite file in one transaction, before the server handles a request. It uses Drizzle Kit's ledger and refuses data loss like `vitehub db migrate`, unless `migrateOnStart: { allowDataLoss: true }`. Another host, Postgres, D1 over HTTP, and remote libSQL fail with `DATABASE_MIGRATE_ON_START_UNSUPPORTED`. Run one server process per database file.
+
 ## Contributed tables
 
 Packages can add Drizzle tables to an application's Database from their own Vite plugin with `vitehub.databases`. Each entry has the shared contribution shape `{ name, definition: { module, export }, reason? }`, where `export` holds an object of tables. Database entries can also set `database` and `dialect`. Without `database`, the tables go to the default or only Database:
