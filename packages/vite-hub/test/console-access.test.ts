@@ -687,13 +687,11 @@ describe("Console sign-in page", () => {
     expect(mounted.headers.get("location")).toBe("/portal/sign-in?from=console&redirect=%2Fportal%2F_vitehub")
   })
 
-  it("serves the page with a link to the sign-in page to a signed-in visitor, and to one the policy rejects", async () => {
-    for (const authorize of [() => true, () => false]) {
-      installConsoleAccess({ mode: "open", authorize, signInPage: "/sign-in" })
-      const response = await consolePageHandler(visit("/_vitehub/auth"))
-      expect(response.status).toBe(200)
-      await expect(response.text()).resolves.toContain('<meta name="vitehub-console-sign-in" content="/sign-in">')
-    }
+  it("serves the page with a link to the sign-in page to a signed-in visitor", async () => {
+    installConsoleAccess({ mode: "open", authorize: () => true, signInPage: "/sign-in" })
+    const response = await consolePageHandler(visit("/_vitehub/auth"))
+    expect(response.status).toBe(200)
+    await expect(response.text()).resolves.toContain('<meta name="vitehub-console-sign-in" content="/sign-in">')
   })
 
   it("serves the page without a sign-in link when the policy names no sign-in page", async () => {
@@ -701,5 +699,53 @@ describe("Console sign-in page", () => {
     const response = await consolePageHandler(visit("/_vitehub/auth"))
     expect(response.status).toBe(200)
     await expect(response.text()).resolves.not.toContain("vitehub-console-sign-in")
+  })
+})
+
+describe("Console pages and console.authorize", () => {
+  const visit = (path: string): ConsoleRequestEvent => ({ method: "GET", req: new Request(`http://vitehub.local${path}`, { headers: { accept: "text/html" } }) })
+  const session = async () => undefined
+  const user = async () => ({ id: "u1", email: "member@vitehub.dev" })
+
+  it.each([
+    ["false", () => false],
+    ["no sections", () => ({ sections: [] })],
+  ])("answers 403 without the Console to a signed-in visitor that authorize rejects with %s", async (_label, result) => {
+    for (const signInPage of [undefined, "/sign-in"]) {
+      const authorize = vi.fn(result)
+      installConsoleAccess({ mode: "auth", check: session, user, authorize, ...(signInPage ? { signInPage } : {}) })
+      const response = await consolePageHandler(visit("/_vitehub/auth"))
+      expect(response.status).toBe(403)
+      expect(response.headers.get("x-frame-options")).toBe("DENY")
+      const page = await response.text()
+      expect(page).toContain("Access denied")
+      expect(page).toContain("The Console access policy rejected this account.")
+      expect(page).not.toContain("/_vitehub/assets/")
+      expect(page).not.toContain("console/client.js")
+      expect(authorize).toHaveBeenCalledTimes(1)
+      expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ user: { id: "u1", email: "member@vitehub.dev" } }))
+    }
+  })
+
+  it("rejects the page the same way with open access", async () => {
+    installConsoleAccess({ mode: "open", authorize: () => false })
+    expect((await consolePageHandler(visit("/portal/_vitehub"))).status).toBe(403)
+  })
+
+  it("sends the Response that authorize returns, as data routes do", async () => {
+    installConsoleAccess({ mode: "auth", check: session, user, authorize: () => new Response("Not found", { status: 404 }) })
+    const response = await consolePageHandler(visit("/_vitehub/auth"))
+    expect(response.status).toBe(404)
+    await expect(response.text()).resolves.toBe("Not found")
+  })
+
+  it("keeps the signed-out state when the check answers 401 and there is no sign-in page", async () => {
+    installConsoleAccess({ mode: "auth", check: async () => new Response(null, { status: 401 }), user, authorize: () => false })
+    expect((await consolePageHandler(visit("/_vitehub/auth"))).status).toBe(200)
+  })
+
+  it("serves the page to a visitor with some sections", async () => {
+    installConsoleAccess({ mode: "auth", check: session, user, authorize: () => ({ sections: ["content"] }) })
+    expect((await consolePageHandler(visit("/_vitehub/content"))).status).toBe(200)
   })
 })
