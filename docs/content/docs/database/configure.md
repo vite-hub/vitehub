@@ -102,10 +102,12 @@ The check reads the same database that Drizzle Kit migrates:
 | --- | --- |
 | Local SQLite | Reads the file. A missing file has no applied migrations, and the dry run does not create it. |
 | Remote libSQL | Connects with `connection.url` and `connection.authToken`. |
-| D1 HTTP (`cloudflare.http`) | Calls the Cloudflare API with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. Without them, the check fails with `DATABASE_MIGRATION_CHECK_FAILED`. |
+| D1 HTTP (`cloudflare.http`) | Calls the Cloudflare API with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`, and reads Wrangler's migrations table. Without them, the check fails with `DATABASE_MIGRATION_CHECK_FAILED`. |
 | Postgres | Connects with `connection.url` or the PG* variables. It needs the `postgres` package in the app. |
 
 Wrangler applies the migrations of a native D1 binding with `wrangler d1 migrations apply`, not `vitehub db migrate`. That path does not use this check.
+
+For D1 HTTP, `vitehub db migrate` uses Wrangler's migrations table: `cloudflare.migrationsTable`, or `d1_migrations` by default, with one row for each applied `.sql` file. Wrangler and `vitehub db migrate` can then migrate the same database in turns. ViteHub sends each file with its ledger row in one request, so D1 keeps neither when the file fails. When the table does not exist yet and Drizzle Kit's `__drizzle_migrations` does, ViteHub records the migrations that Drizzle Kit applied before.
 
 ## Tables from Nuxt layers
 
@@ -291,7 +293,7 @@ Errors: [`DATABASE_NOT_CONNECTED`](/docs/database/limits-and-errors#database_not
 | `cloudflare.http` | `true \| { url?, authToken? }` | No | Selects authenticated D1 raw HTTP access for local and hosted runtimes. `true` uses Cloudflare's API. An object selects a compatible proxy. |
 | `cloudflare.previewDatabaseId` | `DatabaseConfigValue` | No | D1 preview database id. |
 | `cloudflare.databaseName` | `DatabaseConfigValue` | No | D1 database name. |
-| `cloudflare.migrationsTable` | `string` | No | D1 migrations table. |
+| `cloudflare.migrationsTable` | `string` | No | D1 migrations table that Wrangler and `vitehub db migrate` use. Default: `d1_migrations`. |
 | `cloudflare.readReplication` | `boolean` | No | Reads from D1 read replicas. Inherits `database.readReplication`. See [Read from D1 replicas](/docs/database/hosts#read-from-d1-replicas). |
 | `drizzle.casing` | `DrizzleCasing` | No | Drizzle casing option. Values: `snake_case`, `camelCase`. Applies to queries and to migrations from `vitehub db generate`. |
 

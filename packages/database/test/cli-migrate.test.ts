@@ -1,6 +1,6 @@
 import { spawn as spawnProcess } from "node:child_process"
 import { existsSync } from "node:fs"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 
 import { createClient } from "@libsql/client"
@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createDbCliContributor } from "../src/cli.ts"
 import { readMigrationPlan } from "../src/internal/migration-plan.ts"
 
+import type { InArgs } from "@libsql/client"
 import type { ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../src/types.ts"
 
 const tempDirs: string[] = []
@@ -63,11 +64,11 @@ async function createProject() {
     rootDir,
   }) as unknown as ResolvedDBViteConfig)!
 
-  async function run(feature: "generate" | "migrate", args: string[] = []) {
+  async function run(feature: "generate" | "migrate", args: string[] = [], env: NodeJS.ProcessEnv = process.env) {
     const stdout = { write: vi.fn() }
     const stderr = { write: vi.fn() }
     const command = contributor.namespaces[0]!.features.find(candidate => candidate.name === feature)!
-    const exitCode = await command.run(args, { env: process.env, rootDir, spawn: realSpawn, stderr, stdout } as never)
+    const exitCode = await command.run(args, { env, rootDir, spawn: realSpawn, stderr, stdout } as never)
     const text = (write: ReturnType<typeof vi.fn>) => write.mock.calls.map(([chunk]) => String(chunk)).join("")
     return { exitCode, stderr: text(stderr.write), stdout: text(stdout.write) }
   }
@@ -160,39 +161,133 @@ describe("readMigrationPlan", () => {
     expect(request).not.toHaveBeenCalled()
   }, 60_000)
 
-  it("reads the Drizzle migrations table of D1 over HTTP", async () => {
+  it("reads Wrangler's migrations table of D1 over HTTP", async () => {
     const { database, rootDir } = await d1Project()
-    const request = vi.fn<typeof fetch>(async (_url, init) => {
-      const { sql } = JSON.parse(String(init?.body)) as { sql: string }
-      const rows = sql.includes("sqlite_master") ? [["__drizzle_migrations"]] : [[Number.MAX_SAFE_INTEGER]]
-      return Response.json({ result: [{ results: { columns: [], rows } }], success: true })
-    })
+    const d1 = await createFakeD1(rootDir, "CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE); INSERT INTO d1_migrations (name) VALUES ('0000_init.sql');")
 
-    const [error, plan] = await readMigrationPlan(database, {
-      env: { CLOUDFLARE_ACCOUNT_ID: "account", CLOUDFLARE_API_TOKEN: "token" },
-      fetch: request,
-      projectRoot: rootDir,
-    })
+    const [error, plan] = await readMigrationPlan(database, { env: d1Env, fetch: d1.fetch, projectRoot: rootDir })
 
     expect(error).toBeUndefined()
     expect(plan).toEqual({ database: "default", pending: [], target: "Cloudflare D1 database-id over HTTP" })
-    expect(request).toHaveBeenCalledWith("https://api.cloudflare.com/client/v4/accounts/account/d1/database/database-id/raw", expect.objectContaining({
+    expect(d1.fetch).toHaveBeenCalledWith("https://api.cloudflare.com/client/v4/accounts/account/d1/database/database-id/query", expect.objectContaining({
       headers: expect.objectContaining({ Authorization: "Bearer token" }),
       method: "POST",
     }))
   }, 60_000)
 
-  it("accepts the Cloudflare D1 object row response shape", async () => {
+  it("accepts the Cloudflare D1 array row response shape", async () => {
     const { database, rootDir } = await d1Project()
-    const request = vi.fn<typeof fetch>(async () => Response.json({ result: [{ results: [{ name: "__drizzle_migrations" }] }], success: true }))
+    const request = vi.fn<typeof fetch>(async () => Response.json({ result: [{ results: { columns: ["name"], rows: [] } }], success: true }))
 
-    const [error, plan] = await readMigrationPlan(database, {
-      env: { CLOUDFLARE_ACCOUNT_ID: "account", CLOUDFLARE_API_TOKEN: "token" },
-      fetch: request,
-      projectRoot: rootDir,
-    })
+    const [error, plan] = await readMigrationPlan(database, { env: d1Env, fetch: request, projectRoot: rootDir })
 
     expect(error).toBeUndefined()
-    expect(plan?.pending).toHaveLength(1)
+    expect(plan?.pending.map(migration => migration.name)).toEqual(["0000_init"])
   }, 60_000)
+})
+
+const d1Env = { CLOUDFLARE_ACCOUNT_ID: "account", CLOUDFLARE_API_TOKEN: "token" }
+
+/** A D1 HTTP `/query` endpoint backed by a SQLite file. Like D1, a request with many statements changes all or nothing. */
+async function createFakeD1(rootDir: string, setup?: string) {
+  const client = createClient({ url: `file:${join(rootDir, "d1.db")}` })
+  if (setup) await client.executeMultiple(setup)
+  const fetch = vi.fn<typeof globalThis.fetch>(async (_url, init) => {
+    const { params, sql } = JSON.parse(String(init?.body)) as { params: InArgs, sql: string }
+    if (/^\s*SELECT/i.test(sql)) {
+      const result = await client.execute({ args: params, sql })
+      const results = result.rows.map(row => Object.fromEntries(result.columns.map((column, index) => [column, row[index]])))
+      return Response.json({ result: [{ results, success: true }], success: true })
+    }
+    try {
+      await client.executeMultiple(`BEGIN;\n${sql}\nCOMMIT;`)
+    }
+    catch (error) {
+      await client.execute("ROLLBACK").catch(() => {})
+      return Response.json({ errors: [{ code: 7500, message: String(error) }], result: [], success: false }, { status: 400 })
+    }
+    return Response.json({ result: [{ results: [], success: true }], success: true })
+  })
+  const rows = async (sql: string) => {
+    const result = await client.execute(sql)
+    return result.rows.map(row => result.columns.map((_, index) => row[index]))
+  }
+  return { client, fetch, rows }
+}
+
+describe("vitehub db migrate with D1 over HTTP", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  async function d1MigrateProject(migrationsTable?: string) {
+    const project = await createProject()
+    project.database.cloudflare = { binding: "DB", databaseId: "database-id", http: true, migrationsDir: project.database.migrationsDir, ...(migrationsTable ? { migrationsTable } : {}) }
+    await project.writeSchema(["title"])
+    await expect(project.run("generate", ["--name", "init"])).resolves.toMatchObject({ exitCode: 0 })
+    const init = await readFile(join(project.database.migrationsDir, "0000_init.sql"), "utf8")
+    await project.writeSchema(["title", "body"])
+    await expect(project.run("generate", ["--name", "add_body"])).resolves.toMatchObject({ exitCode: 0 })
+    const env = { ...process.env, ...d1Env }
+    return { ...project, init, migrate: (args: string[] = []) => project.run("migrate", args, env) }
+  }
+
+  it("applies only the migrations that Wrangler's ledger lacks", async () => {
+    const project = await d1MigrateProject()
+    // `wrangler d1 migrations apply` applied the first migration.
+    const d1 = await createFakeD1(project.rootDir, `${project.init};\nCREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL); INSERT INTO d1_migrations (name) VALUES ('0000_init.sql');`)
+    vi.stubGlobal("fetch", d1.fetch)
+
+    const dryRun = await project.migrate(["--dry-run"])
+    expect(dryRun).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(dryRun.stdout).toContain("(Cloudflare D1 database-id over HTTP): 1 pending migration.")
+    expect(dryRun.stdout).toContain("  0001_add_body\n    ALTER TABLE `notes` ADD `body` text;")
+
+    const applied = await project.migrate()
+    expect(applied).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(applied.stdout).toContain("[vitehub] Database \"default\": applied 0001_add_body.sql.")
+    await expect(d1.rows("SELECT name FROM d1_migrations ORDER BY id")).resolves.toEqual([["0000_init.sql"], ["0001_add_body.sql"]])
+    await expect(d1.rows("SELECT name FROM pragma_table_info('notes')")).resolves.toEqual([["id"], ["title"], ["body"]])
+    await expect(d1.rows("SELECT name FROM sqlite_master WHERE name = '__drizzle_migrations'")).resolves.toEqual([])
+
+    await expect(project.migrate(["--dry-run"])).resolves.toMatchObject({ exitCode: 0, stdout: expect.stringContaining("no pending migrations.") })
+    d1.client.close()
+  }, 120_000)
+
+  it("creates the configured migrations table on a new database", async () => {
+    const project = await d1MigrateProject("custom_migrations")
+    const d1 = await createFakeD1(project.rootDir)
+    vi.stubGlobal("fetch", d1.fetch)
+
+    await expect(project.migrate()).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+
+    await expect(d1.rows("SELECT name FROM custom_migrations ORDER BY id")).resolves.toEqual([["0000_init.sql"], ["0001_add_body.sql"]])
+    await expect(d1.rows("SELECT name FROM sqlite_master WHERE name = 'd1_migrations'")).resolves.toEqual([])
+    d1.client.close()
+  }, 120_000)
+
+  it("keeps the migrations that Drizzle Kit applied before", async () => {
+    const project = await d1MigrateProject()
+    const journal = JSON.parse(await readFile(join(project.database.migrationsDir, "meta/_journal.json"), "utf8")) as { entries: Array<{ when: number }> }
+    const d1 = await createFakeD1(project.rootDir, `${project.init};\nCREATE TABLE __drizzle_migrations (id INTEGER PRIMARY KEY, hash TEXT NOT NULL, created_at NUMERIC); INSERT INTO __drizzle_migrations (hash, created_at) VALUES ('hash', ${journal.entries[0]!.when});`)
+    vi.stubGlobal("fetch", d1.fetch)
+
+    await expect(project.migrate()).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+
+    await expect(d1.rows("SELECT name FROM d1_migrations ORDER BY id")).resolves.toEqual([["0000_init.sql"], ["0001_add_body.sql"]])
+    d1.client.close()
+  }, 120_000)
+
+  it("leaves the ledger as it was when a migration fails", async () => {
+    const project = await d1MigrateProject()
+    const d1 = await createFakeD1(project.rootDir, "CREATE TABLE notes (id INTEGER PRIMARY KEY, title TEXT);")
+    vi.stubGlobal("fetch", d1.fetch)
+
+    const failed = await project.migrate(["--allow-data-loss"])
+
+    expect(failed.exitCode).toBe(1)
+    expect(failed.stderr).toContain("[vitehub] D1 migration failed for the database \"default\". Cloudflare D1 returned HTTP 400")
+    await expect(d1.rows("SELECT name FROM d1_migrations")).resolves.toEqual([])
+    d1.client.close()
+  }, 120_000)
 })
