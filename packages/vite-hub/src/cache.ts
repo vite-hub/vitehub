@@ -15,7 +15,7 @@ export type CacheOptions =
 type CacheDriver = Exclude<CacheOptions["driver"], "kv">
 
 /** Unstorage driver that `{ driver: "kv" }` mounts. It runs over `kv` from `vite-hub/kv`. */
-const kvCacheDriver = "vite-hub/_internal/kv/cache"
+const kvCacheDriver = "vite-hub/_internal/kv/runtime/nitro-cache"
 type KVCacheMount = { driver: typeof kvCacheDriver, base: string }
 
 export interface ResolvedCacheStorage {

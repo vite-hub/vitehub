@@ -1117,6 +1117,27 @@ describe("ViteHub Nuxt integration", () => {
     expect(production.runDevToolsCustomTabsHook()).toEqual([])
   })
 
+  it.each([false, true])("uses the effective Vite KV configuration for Nitro cache (dev: %s)", async (dev) => {
+    const { vitehub } = await vi.importActual<typeof import("../src/index.ts")>("../src/index.ts")
+    mocks.vitehub.mockImplementation((options: Parameters<typeof vitehub>[0]) => vitehub(options).filter(
+      plugin => isTestRecord(plugin) && ["vite-hub/deployment-preset", "@vite-hub/kv/vite"].includes(String(plugin.name)),
+    ))
+
+    const enabled = createNuxt(dev)
+    enabled.nuxt.options.vite.kv = { driver: "fs-lite" }
+    await viteHubNuxtModule({ cache: { driver: "kv" }, preset: "node" }, enabled.nuxt)
+    expect(enabled.nuxt.options.vite.plugins).toContainEqual(expect.objectContaining({ name: "@vite-hub/kv/vite" }))
+    const config = nitroOptions(enabled.nuxt)
+    await enabled.runNitroConfigHook(config)
+    const mount = { base: "nitro-cache", driver: "vite-hub/_internal/kv/runtime/nitro-cache" }
+    expect(config).toMatchObject({ devStorage: { cache: mount }, storage: { cache: mount } })
+
+    const disabled = createNuxt(dev)
+    disabled.nuxt.options.vite.kv = false
+    await viteHubNuxtModule({ cache: { driver: "kv" }, kv: true, preset: "node" }, disabled.nuxt)
+    await expect(disabled.runNitroConfigHook(nitroOptions(disabled.nuxt))).rejects.toThrow("`kv` is not enabled")
+  })
+
   it("uses the effective Vite KV configuration for the Nuxt Console", async () => {
     const named = createNuxt(true)
     named.nuxt.options.vite.kv = {

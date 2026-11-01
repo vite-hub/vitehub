@@ -1292,10 +1292,18 @@ describe("vitehub", () => {
 
   it("mounts Nitro cache storage on the app's KV store", async () => {
     const config = await applyDeploymentConfig({ cache: { driver: "kv" }, kv: true, preset: "cloudflare" })
-    const mount = { base: "nitro-cache", driver: "vite-hub/_internal/kv/cache" }
+    const mount = { base: "nitro-cache", driver: "vite-hub/_internal/kv/runtime/nitro-cache" }
 
     expect(config.nitro).toMatchObject({ devStorage: { cache: mount }, storage: { cache: mount } })
-    expect(() => vitehub({ cache: { driver: "kv" }, preset: "cloudflare" })).toThrow("`kv` is not enabled")
+    await expect(applyDeploymentConfig({ cache: { driver: "kv" }, preset: "cloudflare" })).rejects.toThrow("`kv` is not enabled")
+  })
+
+  it.each(["build", "serve"] as const)("validates the effective KV cache configuration during %s", async (command) => {
+    const options = { cache: { driver: "kv" as const }, kv: true, preset: "node" as const }
+    await expect(applyDeploymentConfig(options, { kv: false }, command)).rejects.toThrow("`kv` is not enabled")
+    await expect(applyDeploymentConfig({ ...options, kv: false }, { kv: { driver: "fs-lite" } }, command)).resolves.toHaveProperty(
+      "nitro.storage.cache.driver", "vite-hub/_internal/kv/runtime/nitro-cache",
+    )
   })
 
   it("stores the Node cache under dataDir", async () => {
@@ -1307,9 +1315,9 @@ describe("vitehub", () => {
     })
   })
 
-  it("rejects a cache store that the preset cannot provide", () => {
-    expect(() => vitehub({ cache: true, preset: "netlify" })).toThrow("`cache: true` has no default store for the netlify preset.")
-    expect(() => vitehub({ cache: { driver: "fs-lite" }, preset: "cloudflare" })).toThrow("`cache.driver: \"fs-lite\"` requires the node preset, but the preset is cloudflare.")
+  it("rejects a cache store that the preset cannot provide", async () => {
+    await expect(applyDeploymentConfig({ cache: true, preset: "netlify" })).rejects.toThrow("`cache: true` has no default store for the netlify preset.")
+    await expect(applyDeploymentConfig({ cache: { driver: "fs-lite" }, preset: "cloudflare" })).rejects.toThrow("`cache.driver: \"fs-lite\"` requires the node preset, but the preset is cloudflare.")
   })
 
   it("preserves an explicit Cloudflare WASM loading mode", async () => {

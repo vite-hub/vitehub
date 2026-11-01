@@ -1132,7 +1132,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     await hubDatabaseNuxt(defaultD1 ? { driver: "d1", ...databaseOptions } : databaseOptions)(undefined, nuxt)
   }
 
-  const installedPlugins = flattenPlugins(vitehub(options as Parameters<typeof vitehub>[0]))
+  const installedPlugins = flattenPlugins(vitehub({
+    ...options,
+    ...(effectiveKV !== undefined ? { kv: effectiveKV } : {}),
+  } as Parameters<typeof vitehub>[0]))
     // Nuxt runs its own Nitro.
     .filter(plugin => !isIncludedNitroPlugin(plugin))
     .filter(plugin => !(options.database && plugin.name === "@vite-hub/database/vite"))

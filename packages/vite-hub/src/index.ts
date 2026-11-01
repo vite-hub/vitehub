@@ -582,7 +582,6 @@ function deploymentPlugins(
   envPlugin: EnvVitePlugin | undefined,
 ): Plugin[] {
   let deployCommandOwned = false
-  const cacheStorage = options.cache ? resolveCacheStorage(options.cache, plan.preset, Boolean(options.kv)) : undefined
   const resolvedBuildConfigs = new WeakMap<object, { current: ResolvedBuildConfig }>()
   let providerOutput: ReturnType<typeof useProviderOutputCatalog> | undefined
   let deploymentRoot: string | undefined
@@ -796,7 +795,10 @@ function deploymentPlugins(
               nitro = composeNitroCloudflareProviderOutput(providerOutput, nitro)
             }
           }
-          if (cacheStorage) nitro = applyCacheStorage(nitro, cacheStorage)
+          if (options.cache) {
+            const cacheStorage = resolveCacheStorage(options.cache, plan.preset, Boolean(config.kv ?? options.kv))
+            nitro = applyCacheStorage(nitro, cacheStorage)
+          }
           ;(config as { nitro?: unknown }).nitro = nitro
         },
       },
