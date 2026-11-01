@@ -423,7 +423,14 @@ describe("Workflow payload data named steps", () => {
       "server/workflows/onboard/01.create-user.ts": "export default async function () {}\n",
       "server/workflows/onboard/index.ts": [
         'import { defineWorkflow } from "vite-hub/workflow"',
-        "export default defineWorkflow(async ({ payload, steps: run }) => { payload.steps.map(x => x); await run.createUser(payload); return run.sendWelcome() })",
+        "export default defineWorkflow(async ({ payload, steps: run }) => { payload.steps.map(x => x); return run.createUser(payload) })",
+      ].join("\n"),
+    })).toEqual([])
+    expect(await projectCodes(workflowStepNames, {
+      "server/workflows/onboard/01.create-user.ts": "export default async function () {}\n",
+      "server/workflows/onboard/index.ts": [
+        'import { defineWorkflow } from "vite-hub/workflow"',
+        "export default defineWorkflow(async ({ payload, steps: run }) => run.sendWelcome(payload))",
       ].join("\n"),
     })).toEqual(["VHUB0020"])
   })
