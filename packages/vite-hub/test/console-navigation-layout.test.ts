@@ -115,7 +115,7 @@ describe("shared Console navigation layout", () => {
     expect(home).toMatch(/<button\s+type="button"\s+class="vitehub-console__overview-cell-target absolute inset-0"[^>]*\/>/)
     expect(home).toContain(':href="section.docs"')
     expect(home).toContain(':aria-label="`${section.label} documentation`"')
-    expect(home).toContain('consolePrimitives.filter((entry) => entry.id !== "usage" && !sections.value.includes(entry.id))')
+    expect(home).toContain('consolePrimitives.filter((entry) => entry.id !== "usage" && entry.id !== "skills" && !sections.value.includes(entry.id))')
     expect(home).toContain(':aria-label="`Set up ${entry.label}`"')
     expect(home).toContain('v-for="guide in consoleGuides"')
     expect(home).toContain("Add your first primitive")

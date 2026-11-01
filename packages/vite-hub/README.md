@@ -204,6 +204,8 @@ Retention defaults to 30 days and 10,000 terminal records. To change a limit, pa
 
 ## Invoke Agents from the Console
 
+The Console **Skills** page shows the bundled files of each discovered Agent Definition in a searchable tree. Read Markdown previews or file source, including supporting references and scripts. Source-mounted Skills are available in the session Workspace. See [Inspect Skills](https://vitehub.dev/docs/development/console#inspect-skills).
+
 The Console **Usage** page provides session history with date, Agent, status, and search filters. Open a row to inspect that session in the existing Agents view. History keeps completed, failed, and cancelled Agent Invocations visible even when token or cost evidence is unavailable. Totals use the same filters as the history table. See [Session history and usage](https://vitehub.dev/docs/development/console#inspect-usage) for the identity, coverage, and pagination contract.
 
 `console: true` reuses the app Auth Definition and its server access policy, with built-in social provider sign-in. Enable app Auth and authorize the Console routes in that Definition. A `console` object requires an explicit `auth` choice. Use `console: { auth: false }` for no sign-in, `console: { auth: "app" }` to reuse the Primary Auth Definition, `console: { auth: { ... } }` for an independent Console session, or `console: { auth: { provider: "cloudflare-access" } }` to verify a Cloudflare Access token on each Console request. `auth: false` also works in production, but the build and the production server log a warning.

@@ -33,6 +33,28 @@ it("loads Console data through the playground's stateless RPC endpoint", async (
   })
 })
 
+it("loads bundled Skill files through the playground's operation bridge", async () => {
+  const file = { path: ".agents/skills/review/SKILL.md", content: "# Review", size: 8 }
+  const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+    if (String(input) === "/_vitehub/rpc/__call") {
+      return Response.json(await callConsoleFixture("http://localhost:5173", JSON.parse(String(init?.body))))
+    }
+    return Response.json(file)
+  })
+  vi.stubGlobal("fetch", fetch)
+
+  await expect(requestConsole("/api/_vitehub/console/skills", { query: { agent: "reviewer", path: file.path } })).resolves.toEqual(file)
+  const fixture = new URL("http://localhost:5173/api/_vitehub/console/skills")
+  fixture.searchParams.set("agent", "reviewer")
+  fixture.searchParams.set("path", file.path)
+  expect(fetch).toHaveBeenCalledTimes(2)
+  expect(fetch).toHaveBeenLastCalledWith(fixture, {
+    body: undefined,
+    headers: { "content-type": "application/json" },
+    method: "GET",
+  })
+})
+
 it("serves Auth analytics, cursor filters and explicit disabled-event data", async () => {
   const { authFixture } = await vi.importActual<{ authFixture: (input: unknown, enabled?: boolean) => unknown }>("../../../playground/console/auth-fixture.ts")
   expect(authFixture({ operation: "overview" })).toMatchObject({ users: 1048, analytics: { days: expect.any(Array) }, recent: { enabled: true } })
