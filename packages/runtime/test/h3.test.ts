@@ -58,6 +58,35 @@ describe("@vite-hub/runtime/h3", () => {
     expect(event["~standard"].req).toBe(hostRequest)
   })
 
+  it("reads the event only on the first read of a Standard Context property", () => {
+    const reads = { context: 0, res: 0 }
+    const response = { headers: new Headers() }
+    const context = { cloudflare: { env: { BUCKET: "bucket" }, context: { waitUntil: vi.fn() } } }
+    const event = {
+      req: new Request("https://example.test/"),
+      get context() {
+        reads.context++
+        return context
+      },
+      get res() {
+        reads.res++
+        return response
+      },
+    }
+
+    installStandardContext(event)
+    expect(reads).toEqual({ context: 0, res: 0 })
+
+    const standard = event["~standard"]
+    const { res, runtime, waitUntil } = standard
+    expect(reads.res).toBe(1)
+    const afterFirstRead = { ...reads }
+    expect(standard.res).toBe(res)
+    expect(standard.runtime).toBe(runtime)
+    expect(standard.waitUntil).toBe(waitUntil)
+    expect(reads).toEqual(afterFirstRead)
+  })
+
   it("does not set Standard Context on an event without a request", () => {
     expect(() => installStandardContext({ context: {} })).toThrow(expect.objectContaining({ name: "RUNTIME_R0015" }))
   })
