@@ -335,22 +335,22 @@ function stepPropertyName(file: string): string {
 
 const sourceFile = /\.(?:c|m)?[jt]sx?$/
 
-/** The handler of a folder Workflow index: the function passed to `defineWorkflow()`, or the default-exported function. */
-function workflowHandler(ctx: RuleContext): { fn: AstNode, params: Set<string> } | undefined {
+/**
+ * The handler of a folder Workflow index: the function passed to `defineWorkflow()`, or the default-exported function.
+ * `context` names the whole first parameter (`ctx.steps`), and `steps` names its destructured `steps` property.
+ */
+function workflowHandler(ctx: RuleContext): { fn: AstNode, context?: string, steps?: string } | undefined {
   const value = unwrap(defaultExport(ctx)?.value)
   const fn = isNodeType(value, "CallExpression") ? unwrap(callArguments(value)[0]) : value
   if (!isFunctionNode(fn) || !isNode(fn) || !Array.isArray(fn.params)) return
-  const names = new Set<string>()
-  const collect = (pattern: unknown): void => {
-    const target = unwrap(pattern)
-    if (isIdentifier(target)) names.add(target.name)
-    else if (isNodeType(target, "AssignmentPattern")) collect(target.left)
-    else if (isNodeType(target, "ObjectPattern") && Array.isArray(target.properties)) {
-      for (const property of target.properties) if (isNode(property)) collect(property.type === "RestElement" ? property.argument : property.value)
-    }
-  }
-  collect(fn.params[0])
-  return { fn, params: names }
+  let param = unwrap(fn.params[0])
+  if (isNodeType(param, "AssignmentPattern")) param = unwrap(param.left)
+  if (isIdentifier(param)) return { fn, context: param.name }
+  const properties = isNodeType(param, "ObjectPattern") && Array.isArray(param.properties) ? param.properties.filter(isNode) : []
+  const property = properties.find(entry => propertyName(entry) === "steps")
+  let target = unwrap(property?.value)
+  if (isNodeType(target, "AssignmentPattern")) target = unwrap(target.left)
+  return { fn, ...(isIdentifier(target) ? { steps: target.name } : {}) }
 }
 
 export const workflowStepNames: DoctorRule = createRule({
@@ -407,11 +407,13 @@ export const workflowStepNames: DoctorRule = createRule({
         }
         if (!isNodeType(node, "MemberExpression") || node.computed === true || !isIdentifier(node.property)) return
         const objectPath = memberPath(node.object)
-        if (!objectPath || objectPath.at(-1) !== "steps" || objectPath.length > 2) return
+        if (!objectPath || objectPath.length > 2) return
         // Steps come from the Workflow handler's argument, as `{ steps }` or `ctx.steps`. Other `steps` are other data.
         const root = chainRoot(node.object)
         const binding = r.binding(root)
-        if (!root || !binding || !handler || binding !== r.scopes.lookup(handler.fn, root.name) || !handler.params.has(root.name)) return
+        if (!root || !binding || !handler || binding !== r.scopes.lookup(handler.fn, root.name)) return
+        const isSteps = objectPath.length === 1 ? root.name === handler.steps : root.name === handler.context && objectPath[1] === "steps"
+        if (!isSteps) return
         const step = node.property.name
         if (names.includes(step)) return
         ctx.report(diagnostics.VHUB0020({

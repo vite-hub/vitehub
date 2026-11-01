@@ -417,3 +417,15 @@ describe("folder Workflow handler steps", () => {
   })
 })
 
+describe("Workflow payload data named steps", () => {
+  it("does not read payload.steps as the step runner", async () => {
+    expect(await projectCodes(workflowStepNames, {
+      "server/workflows/onboard/01.create-user.ts": "export default async function () {}\n",
+      "server/workflows/onboard/index.ts": [
+        'import { defineWorkflow } from "vite-hub/workflow"',
+        "export default defineWorkflow(async ({ payload, steps: run }) => { payload.steps.map(x => x); await run.createUser(payload); return run.sendWelcome() })",
+      ].join("\n"),
+    })).toEqual(["VHUB0020"])
+  })
+})
+
