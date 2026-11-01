@@ -17,8 +17,8 @@ export interface DeclarationDiagnostic {
   text: string
 }
 
-export function isPackageDeclarationDiagnostic(diagnostic: ts.Diagnostic, packageName?: string) {
-  const path = diagnostic.file?.fileName.replaceAll("\\", "/") || ""
+export function isPackageDeclarationFile(fileName: string, packageName?: string) {
+  const path = fileName.replaceAll("\\", "/")
   if (!path.includes("/node_modules/")) return true
   // Dependency declarations have their own release contracts. Keep this test
   // scoped to diagnostics emitted by the packed ViteHub package itself.
@@ -27,18 +27,27 @@ export function isPackageDeclarationDiagnostic(diagnostic: ts.Diagnostic, packag
 
 function declarationDiagnostics({ displayDirectory, options, packageName, rootNames }: DeclarationProgram): DeclarationDiagnostic[] {
   const program = ts.createProgram(rootNames, options)
+  // Check only the files whose diagnostics the contract reports. A file's
+  // diagnostics do not depend on checking other files (incremental builds
+  // rely on this), and dependency declarations cost most of the check time.
+  const files = program.getSourceFiles().filter(file => isPackageDeclarationFile(file.fileName, packageName))
   const host: ts.FormatDiagnosticsHost = {
     getCanonicalFileName: file => file,
     getCurrentDirectory: () => displayDirectory,
     getNewLine: () => "\n",
   }
-  return ts.getPreEmitDiagnostics(program)
-    .filter(diagnostic => isPackageDeclarationDiagnostic(diagnostic, packageName))
-    .map(diagnostic => ({
-      code: diagnostic.code,
-      fileName: diagnostic.file?.fileName,
-      text: ts.formatDiagnosticsWithColorAndContext([diagnostic], host),
-    }))
+  // Same order as ts.getPreEmitDiagnostics, which checks every file.
+  const diagnostics = ts.sortAndDeduplicateDiagnostics([
+    ...program.getOptionsDiagnostics(),
+    ...files.flatMap(file => program.getSyntacticDiagnostics(file)),
+    ...program.getGlobalDiagnostics(),
+    ...files.flatMap(file => program.getSemanticDiagnostics(file)),
+  ])
+  return diagnostics.map(diagnostic => ({
+    code: diagnostic.code,
+    fileName: diagnostic.file?.fileName,
+    text: ts.formatDiagnosticsWithColorAndContext([diagnostic], host),
+  }))
 }
 
 // The consumer contract runs each program in its own Node process, so the

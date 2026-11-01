@@ -13,7 +13,7 @@ import { array, boolean, object, optional, parse, record, string } from "valibot
 import { parse as parseYaml } from "yaml"
 
 import { publicPackageBinContracts, publicPackageExportContracts } from "../public-package-exports"
-import { type DeclarationDiagnostic, type DeclarationProgram, isPackageDeclarationDiagnostic } from "./declaration-diagnostics"
+import { type DeclarationDiagnostic, type DeclarationProgram, isPackageDeclarationFile } from "./declaration-diagnostics"
 import { readReleaseArtifactTarballs, resolveReleaseArtifactTarball } from "../utils/release-artifacts"
 import { packageInfos } from "../utils/repo"
 
@@ -485,6 +485,11 @@ function declarationPeerAbsentRuntimeContracts(omittedPeer: string) {
 
 async function exercisePackagesWithoutOptionalPeers(root: string, specs: Record<string, string>) {
   const requiredPeerVersions = await requiredPeerSpecs()
+  // Read each packed manifest once, before the fixtures queue their installs.
+  const packedManifests = new Map(await settled(Object.entries(specs).map(async ([packageName, spec]) => {
+    const { stdout } = await run("tar", ["-xOf", spec.slice("file:".length), "package/package.json"], repoRoot)
+    return [packageName, parse(packageManifestSchema, JSON.parse(stdout))] as const
+  })))
 
   await settled(packagesByExportCount.map(async (info) => {
     const appDir = join(root, "absent-peers", info.name)
@@ -505,9 +510,7 @@ async function exercisePackagesWithoutOptionalPeers(root: string, specs: Record<
       const dependencyInfo = packageInfos.find(candidate => candidate.packageName === packageName)
       if (!dependencyInfo) continue
       const dependencyManifest = await readManifest(join(repoRoot, "packages", dependencyInfo.name, "package.json"))
-      const packedManifest = specs[packageName]
-        ? parse(packageManifestSchema, JSON.parse((await run("tar", ["-xOf", specs[packageName]!.slice("file:".length), "package/package.json"], repoRoot)).stdout))
-        : {}
+      const packedManifest = packedManifests.get(packageName) || {}
       const dependencies = [
         ...Object.keys(dependencyManifest.dependencies || {}),
         ...Object.keys(dependencyManifest.optionalDependencies || {}),
@@ -778,25 +781,9 @@ async function packageTypeDependenciesFrom(runnerDir: string, packageName: strin
 
 describe("published declaration diagnostics", () => {
   it("reports package diagnostics without adopting dependency diagnostics", () => {
-    const diagnosticAt = (fileName: string) => ({
-      category: ts.DiagnosticCategory.Error,
-      code: 2307,
-      // SAFETY: This fixture only supplies the SourceFile field read by the diagnostic filter.
-      file: { fileName } as ts.SourceFile,
-      length: 3,
-      messageText: "Cannot find a declaration dependency.",
-      start: 0,
-    })
-
-    expect(isPackageDeclarationDiagnostic(
-      diagnosticAt("/consumer/node_modules/@vite-hub/ui/dist/index.d.ts"),
-      "@vite-hub/ui",
-    )).toBe(true)
-    expect(isPackageDeclarationDiagnostic(
-      diagnosticAt("/consumer/node_modules/@comark/vue/dist/index.d.ts"),
-      "@vite-hub/ui",
-    )).toBe(false)
-    expect(isPackageDeclarationDiagnostic(diagnosticAt("/consumer/export.ts"), "@vite-hub/ui")).toBe(true)
+    expect(isPackageDeclarationFile("/consumer/node_modules/@vite-hub/ui/dist/index.d.ts", "@vite-hub/ui")).toBe(true)
+    expect(isPackageDeclarationFile("/consumer/node_modules/@comark/vue/dist/index.d.ts", "@vite-hub/ui")).toBe(false)
+    expect(isPackageDeclarationFile("/consumer/export.ts", "@vite-hub/ui")).toBe(true)
   })
 
   it("keeps declared type dependencies visible from a packed pnpm package", async () => {
