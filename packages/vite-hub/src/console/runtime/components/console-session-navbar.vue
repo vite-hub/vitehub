@@ -64,10 +64,11 @@ onBeforeUnmount(() => {
   >
     <template #title>
       <div v-if="hasDisplay" class="flex min-w-0 items-center gap-2 text-sm">
-        <span v-if="project" class="max-w-40 shrink-0 truncate font-normal text-muted">{{
+        <!-- A phone shows only the session title. The sessions menu names the Agent, as page headers hide their trail. -->
+        <span v-if="project" class="hidden max-w-40 shrink-0 truncate font-normal text-muted sm:inline">{{
           project
         }}</span>
-        <span v-if="project" class="text-dimmed" aria-hidden="true">/</span>
+        <span v-if="project" class="hidden text-dimmed sm:inline" aria-hidden="true">/</span>
         <strong class="min-w-0 truncate font-medium text-highlighted">{{ title }}</strong>
       </div>
       <span v-else class="text-sm font-medium">{{ title }}</span>
@@ -137,3 +138,22 @@ onBeforeUnmount(() => {
     </template>
   </UDashboardNavbar>
 </template>
+
+<style>
+/*
+ * The header icons are 22px, half of what a finger needs. On a touch screen each one takes the full 44px header height
+ * and half of the 6px gap to its neighbors, so taps do not miss and never land on the next button.
+ * Devices with only fine pointers keep 22px.
+ */
+@media (any-pointer: coarse) {
+  .vitehub-console__session-navbar :is(a, button) {
+    position: relative;
+  }
+
+  .vitehub-console__session-navbar :is(a, button)::before {
+    content: "";
+    inset: -0.6875rem -0.1875rem;
+    position: absolute;
+  }
+}
+</style>

@@ -51,25 +51,25 @@ export const supportMatrixHosts: SupportMatrixHost[] = [
   {
     id: "netlify",
     label: "Netlify",
-    icon: "i-ph-cloud-light",
+    icon: "i-simple-icons-netlify",
     to: "/docs/frameworks-hosts/netlify",
   },
   {
     id: "deno",
     label: "Deno",
-    icon: "i-ph-terminal-window-light",
+    icon: "i-simple-icons-deno",
     to: "/docs/frameworks-hosts/deno",
   },
   {
     id: "nitro",
     label: "Nitro / UnJS",
-    icon: "i-unjs-nitro",
+    icon: "i-unjs-nitro-mark",
     to: "/docs/frameworks-hosts/nitro-unjs",
   },
   {
     id: "node",
     label: "Node / self-hosted",
-    icon: "i-ph-hard-drives-light",
+    icon: "i-simple-icons-nodedotjs",
     to: "/docs/frameworks-hosts/node-self-hosted",
   },
 ];

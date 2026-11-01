@@ -45,11 +45,11 @@ export function connectionStatusLabel(status: ConnectionInspection["status"]): s
   return { connected: "Connected", disconnected: "Not connected", reauth_required: "Reconnect required", revoked: "Revoked" }[status]
 }
 
-const statusColors = { connected: "success", disconnected: "neutral", reauth_required: "error", revoked: "neutral" } as const
+const statusTones = { connected: "success", disconnected: "neutral", reauth_required: "error", revoked: "neutral" } as const
 
-/** The badge color of a Connection status. Only a Connection that stopped working is red. */
-export function connectionStatusColor(status: ConnectionInspection["status"]): (typeof statusColors)[ConnectionInspection["status"]] {
-  return statusColors[status]
+/** The status dot tone of a Connection status. Only a Connection that stopped working is red. */
+export function connectionStatusTone(status: ConnectionInspection["status"]): (typeof statusTones)[ConnectionInspection["status"]] {
+  return statusTones[status]
 }
 
 /** How the Console connects a Connection: OAuth redirects to the provider, an API key is pasted. */

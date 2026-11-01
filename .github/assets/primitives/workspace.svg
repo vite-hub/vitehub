@@ -1,93 +1,70 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" class="primitive-motion is-playing" style="--cycle: 5000ms; --scene-delay: -4800ms">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" fill="currentColor" shape-rendering="crispEdges" class="primitive-motion is-playing" style="--cycle: 5000ms; --scene-delay: -1650ms">
 <style>
 svg { color: #59636e; --ui-bg: #ffffff; }
 @media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
 .primitive-motion {
-  --ease-move: cubic-bezier(0.65, 0, 0.35, 1);
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   overflow: visible;
 }
-.line,
-.ink-line,
-.card {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.line {
+.primitive-motion .line,
+.primitive-motion .job,
+.primitive-motion .command,
+.primitive-motion .budget {
   opacity: 0.55;
 }
-.soft,
-.job,
-.command,
-.budget,
-.ink,
-.token,
-.band,
-.pointer {
-  fill: currentColor;
-}
-.soft {
+.primitive-motion .soft {
   opacity: 0.35;
 }
-.ink,
-.token,
-.pointer {
+.primitive-motion .ink,
+.primitive-motion .token,
+.primitive-motion .pointer {
   opacity: 0.85;
 }
-.token,
-.band,
-.ghost,
-.q-in,
-.blob-next {
+.primitive-motion .token,
+.primitive-motion .band,
+.primitive-motion .ghost,
+.primitive-motion .q-in,
+.primitive-motion .blob-next {
   opacity: 0;
 }
-.a {
+.primitive-motion .a {
   animation-duration: var(--cycle);
   animation-delay: var(--scene-delay);
   animation-iteration-count: infinite;
   animation-fill-mode: both;
-  animation-timing-function: var(--ease-move);
+  animation-timing-function: steps(3);
 }
 .primitive-motion:not(.is-playing) .a {
   animation-play-state: paused;
 }
-.wf-rail-1,
-.wf-rail-2,
-.sh-command,
-.ws-file,
-.blob-progress {
+.primitive-motion .wf-rail-1,
+.primitive-motion .wf-rail-2,
+.primitive-motion .sh-command,
+.primitive-motion .ws-file,
+.primitive-motion .blob-progress {
   transform-box: fill-box;
   transform-origin: left center;
 }
-.ws-token { animation-name: ws-token; }
-.ws-file { animation-name: ws-file; }
+.primitive-motion .ws-token { animation-name: ws-token; }
+.primitive-motion .ws-file { animation-name: ws-file; }
 @media (prefers-reduced-motion: reduce) {
-  .a {
+  .primitive-motion .a {
     animation: none;
   }
 }
 @keyframes ws-token {
   0%, 6% { opacity: 0; transform: translate(0, 0); }
-  10% { opacity: 0.85; transform: translate(0, 0); }
-  30% { opacity: 0.85; transform: translate(0, 18px); }
-  38% { opacity: 0.85; transform: translate(6px, 18px); }
-  42%, 100% { opacity: 0; transform: translate(8px, 18px); }
+  10% { opacity: 0.85; transform: translate(0, 0); animation-timing-function: steps(8); }
+  30% { opacity: 0.85; transform: translate(0, 16px); animation-timing-function: steps(3); }
+  38% { opacity: 0.85; transform: translate(6px, 16px); }
+  42%, 100% { opacity: 0; transform: translate(6px, 16px); }
 }
 @keyframes ws-file {
   0% { opacity: 0.35; transform: scaleX(1); }
   4% { opacity: 0; transform: scaleX(1); }
   5% { opacity: 0.35; transform: scaleX(0); }
-  38% { transform: scaleX(0); animation-timing-function: var(--ease-out); }
+  38% { transform: scaleX(0); animation-timing-function: steps(13); }
   54%, 100% { opacity: 0.35; transform: scaleX(1); }
 }
 </style>
-      <rect x="6" y="6" width="7" height="6" rx="1" class="line" />
-      <path d="M9.5 12v18M9.5 16H15M9.5 23H15M9.5 30H15" class="line" />
-      <rect x="18" y="14.5" width="22" height="3" rx="1" class="soft" />
-      <rect x="18" y="21.5" width="16" height="3" rx="1" class="soft" />
-      <rect x="18" y="28.5" width="26" height="3" rx="1" class="soft a ws-file" />
-      <circle cx="9.5" cy="12" r="2" class="token a ws-token" />
+<path class="line" d="M0 4h8v2h-8zM0 6h2v2h-2zM6 6h2v2h-2zM0 8h8v2h-8zM2 10h2v2h-2zM2 12h2v2h-2zM2 14h2v2h-2zM2 16h6v2h-6zM2 18h2v2h-2zM2 20h2v2h-2zM2 22h6v2h-6zM2 24h2v2h-2zM2 26h2v2h-2zM2 28h6v2h-6z"/><path class="soft" d="M10 16h22v2h-22zM10 22h16v2h-16z"/><path class="soft a ws-file" d="M10 28h26v2h-26z"/><path class="token a ws-token" d="M2 10h4v2h-4zM2 12h4v2h-4z"/>
 </svg>

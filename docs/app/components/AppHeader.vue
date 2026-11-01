@@ -50,9 +50,7 @@ const touchIconButton = "pointer-coarse:h-10 pointer-coarse:w-9 pointer-coarse:j
           :ui="{ content: 'h-auto max-w-64 whitespace-normal px-3 py-2 text-left leading-5' }"
         >
           <ULink :to="isDocsRoute ? '/docs' : '/'" class="vh-brand" aria-label="ViteHub alpha">
-            <span class="vh-brand-mark" aria-hidden="true">
-              <img src="/vitehub-mark.svg" alt="" class="h-4 w-[1.125rem]" />
-            </span>
+            <span class="vh-brand-mark" aria-hidden="true" />
             <span class="vh-brand-name">
               <span>ViteHub</span>
               <span class="vh-brand-alpha">alpha</span>
@@ -104,8 +102,12 @@ const touchIconButton = "pointer-coarse:h-10 pointer-coarse:w-9 pointer-coarse:j
         />
         <ClientOnly>
           <UColorModeButton :class="touchIconButton" />
+          <!-- Before hydration, show the icon for the current mode. The color mode script sets the dark class before the first paint. -->
           <template #fallback>
-            <div :class="['size-8 animate-pulse bg-muted', touchIconButton]" />
+            <span :class="['inline-flex size-8 items-center justify-center text-default', touchIconButton]" aria-hidden="true">
+              <UIcon name="i-ph-sun-light" class="size-5 dark:hidden" />
+              <UIcon name="i-ph-moon-light" class="hidden size-5 dark:block" />
+            </span>
           </template>
         </ClientOnly>
       </template>
@@ -121,6 +123,7 @@ const touchIconButton = "pointer-coarse:h-10 pointer-coarse:w-9 pointer-coarse:j
               color="neutral"
               variant="ghost"
               size="sm"
+              class="pointer-coarse:h-10"
             />
           </nav>
           <DocsSidebars class="vh-docs-menu-sidebars" panel />
@@ -187,13 +190,13 @@ const touchIconButton = "pointer-coarse:h-10 pointer-coarse:w-9 pointer-coarse:j
   letter-spacing: 0;
 }
 
+/* Like the docs rail, the mark is a mask filled with the text color, so it follows light and dark mode without a frame. */
 .vh-brand-mark {
-  display: inline-grid;
-  width: 1.5rem;
-  height: 1.5rem;
-  place-items: center;
-  border: 1px solid var(--ui-border);
-  background: #fafafa;
+  display: block;
+  width: 1.125rem;
+  height: 1rem;
+  background-color: var(--ui-text-highlighted);
+  mask: url("/vitehub-mark.svg") center / contain no-repeat;
 }
 
 .vh-brand-name {

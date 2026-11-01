@@ -12,8 +12,8 @@ import { consoleBytes } from "../client/format";
 import { requestConsole } from "../client/request";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
-const ConsoleFileTree = defineAsyncComponent(() => import("@vite-hub/ui/file-tree").then(module => ({ default: module.FileTree })));
-const ConsolePatchDiff = defineAsyncComponent(() => import("@vite-hub/ui/patch-diff").then(module => ({ default: module.PatchDiff })));
+const ConsoleFileTree = defineAsyncComponent(() => import("@vite-hub/ui/file-tree").then(module => module.FileTree));
+const ConsolePatchDiff = defineAsyncComponent(() => import("@vite-hub/ui/patch-diff").then(module => module.PatchDiff));
 
 type InspectorTab = "details" | "trace" | "workspace" | "capabilities" | "diff";
 type WorkspaceDescriptor = {
@@ -47,37 +47,32 @@ const fileError = ref<string>();
 const fileLoading = ref(false);
 const viewMeta: Record<
   InspectorTab,
-  { description: string; icon: string; label: string; shortcut: string }
+  { description: string; icon: string; label: string }
 > = {
   details: {
     description: "Review the run, runtime, and identifiers.",
     icon: "i-lucide-circle-dot",
     label: "Invocation",
-    shortcut: "I",
   },
   capabilities: {
     description: "Inspect capabilities, servers, and tool contracts.",
     icon: "i-lucide-blocks",
     label: "Capabilities",
-    shortcut: "C",
   },
   trace: {
     description: "Follow spans, timings, and recorded attributes.",
     icon: "i-lucide-list-tree",
     label: "Trace",
-    shortcut: "T",
   },
   workspace: {
     description: "Browse the mounted Agent workspace.",
     icon: "i-lucide-folder-tree",
     label: "Workspace",
-    shortcut: "W",
   },
   diff: {
     description: "Review code changes from this run or its pull request.",
     icon: "i-lucide-git-compare-arrows",
     label: "Diff",
-    shortcut: "D",
   },
 };
 const inspectorViews = computed<InspectorTab[]>(() => [
@@ -89,7 +84,7 @@ const inspectorViews = computed<InspectorTab[]>(() => [
 ]);
 const diffs = computed(() => invocationActivities(props.invocation)
   .filter(activity => activity.patches.length)
-  .map(activity => ({ id: activity.id, patch: activity.patches.join(""), sequence: activity.sequence })));
+  .map(activity => ({ id: activity.id, patches: activity.patches, sequence: activity.sequence })));
 const selectedDiffs = ref<number[]>([]);
 const activeDiffTurn = ref<number | "all">("all");
 const allDiffsSelected = computed(() => diffs.value.length > 0 && selectedDiffs.value.length === diffs.value.length);
@@ -163,7 +158,6 @@ const launcherItems = computed<DropdownMenuItem[]>(() =>
   inspectorViews.value.map((view) => ({
     icon: viewMeta[view].icon,
     label: viewMeta[view].label,
-    kbds: [viewMeta[view].shortcut],
     onSelect: () => openView(view),
   })),
 );
@@ -258,6 +252,13 @@ watch(activeSurface, async () => {
   else if (tabBounds.right > scrollerBounds.right)
     scroller.scrollLeft += tabBounds.right - scrollerBounds.right;
 });
+
+// Opening a tab from the launcher replaces the launcher, and closing a tab removes its button. Move keyboard focus to
+// the active tab, so it does not fall to the page body.
+async function focusActiveTab() {
+  await nextTick();
+  tabstrip.value?.querySelector<HTMLElement>('[role="tab"][data-state="active"]')?.focus();
+}
 
 function openView(value: InspectorTab) {
   if (value === "workspace" && !props.workspaceBase) return;
@@ -527,7 +528,7 @@ function message(error: unknown) {
                 type="button"
                 class="session-inspector__tab-close"
                 :aria-label="`Close ${item.label}`"
-                @click.stop="closeSurface(item)"
+                @click.stop="closeSurface(item); focusActiveTab()"
               >
                 <UIcon name="i-lucide-x" class="session-inspector__surface-close" aria-hidden="true" />
               </button>
@@ -566,6 +567,7 @@ function message(error: unknown) {
           :text="props.maximized ? 'Restore panel size' : 'Maximize panel'"
           ><UButton
             class="session-inspector__icon-button"
+            data-slot="session-inspector-maximize"
             :icon="props.maximized ? 'i-lucide-minimize-2' : 'i-lucide-maximize-2'"
             color="neutral"
             variant="ghost"
@@ -594,8 +596,7 @@ function message(error: unknown) {
         <span>Choose what to inspect in this Agent Invocation.</span>
       </div>
       <div class="session-inspector__surface-launcher">
-        <button v-for="view in inspectorViews" :key="view" type="button" @click="openView(view)">
-          <UKbd>{{ viewMeta[view].shortcut }}</UKbd>
+        <button v-for="view in inspectorViews" :key="view" type="button" @click="openView(view); focusActiveTab()">
           <span><UIcon :name="viewMeta[view].icon" />{{ viewMeta[view].label }}</span>
           <small>{{ viewMeta[view].description }}</small>
         </button>
@@ -653,7 +654,7 @@ function message(error: unknown) {
             <input v-model="selectedDiffs" type="checkbox" :value="index" />
             <span>Turn {{ index + 1 }}</span>
           </label>
-          <ConsolePatchDiff :patch="diff.patch" class="session-inspector__patch" />
+          <ConsolePatchDiff v-for="(patch, patchIndex) in diff.patches" :key="patchIndex" :patch="patch" class="session-inspector__patch" />
         </section>
       </div>
     </div>

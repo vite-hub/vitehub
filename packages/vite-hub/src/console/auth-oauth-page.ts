@@ -1,3 +1,5 @@
+import { consoleDocumentMetadata } from "./document-metadata.ts"
+
 /**
  * The page where an MCP client's sign-in lands. Better Auth's OAuth provider sends both its login and its consent step
  * here with a signed query. Signed out, the person signs in with the Console provider and the provider resumes the
@@ -87,7 +89,7 @@ export function consoleAuthOAuthPage(provider: string, authBase: string, console
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="robots" content="noindex, nofollow">
+    <meta name="robots" content="noindex, nofollow">${consoleDocumentMetadata}
     <title>Connect an agent · ViteHub Console</title>
     <style>
       :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
@@ -116,7 +118,7 @@ export function consoleAuthOAuthPage(provider: string, authBase: string, console
   return new Response(page, {
     headers: {
       "cache-control": "no-store",
-      "content-security-policy": `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+      "content-security-policy": `default-src 'none'; img-src 'self' data:; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
       "content-type": "text/html; charset=utf-8",
       "referrer-policy": "no-referrer",
       "x-content-type-options": "nosniff",

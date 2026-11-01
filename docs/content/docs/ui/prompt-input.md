@@ -137,7 +137,7 @@ Renders a `<form>` with a textarea, the attachments, and the attach and submit b
 | `multiple`    | `boolean`                                      | `true`    | Allows more than one attachment. When `false`, a new file replaces the current one. |
 | `filterFiles` | `(files: readonly File[]) => readonly File[]`  |           | Filters each batch of raw files before conversion.               |
 | `placeholder` | `string`                                       |           | Placeholder text of the input.                                   |
-| `submitLabel` | `string`                                       | `"Send prompt"` | Name of the submit button while `status` is `ready`. |
+| `submitLabel` | `string`                                       | | Name of the submit button while `status` is `ready`. Falls back to `"Send prompt"`. |
 
 Other attributes go to the root `<form>`.
 

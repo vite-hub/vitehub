@@ -14,6 +14,8 @@ defineProps<{
   <!-- Local storage keeps sidebar sizes and collapsed state across reloads; the cookie storage needs Nuxt to persist. -->
   <UDashboardGroup class="vitehub-console" unit="rem" storage="local" storage-key="vitehub-console-v2">
     <ConsoleRail :active="active" :sections-base="sectionsBase" />
+    <!-- Every page has a skip target, including pages without a main landmark or heading. -->
+    <span id="vitehub-console-content" class="sr-only" tabindex="-1" data-skip-target>Page content</span>
     <slot />
     <!-- Console toasts render here, apart from the toaster of a host app. -->
     <ConsoleToaster />
@@ -22,8 +24,8 @@ defineProps<{
 
 <style>
 .vitehub-console {
-  /* Chat bubbles, code blocks, and traces from @vite-hub/ui keep their radius; the Nuxt UI base is 0.25rem. */
-  --vh-ui-radius: 0.5rem;
+  /* Sidebar and detail headers use the 44px height of the page header, so their titles and hairlines line up. */
+  --ui-header-height: 2.75rem;
   height: 100dvh;
   min-height: 0;
   overflow: hidden;
@@ -94,6 +96,17 @@ defineProps<{
   height: 2rem;
   min-width: 0;
   padding-inline: 0.5rem;
+}
+
+/*
+ * iOS Safari zooms into a focused field with text under 16px and stays zoomed. Touch screens get 16px field text even when
+ * a mouse is the primary pointer. Mouse-only devices keep the dense 14px. Unlayered, so it wins over the size utilities.
+ * The body selector also reaches the search dialog and menus, which render outside the frame.
+ */
+@media (any-pointer: coarse) {
+  body:has(.vitehub-console) :is(input, select, textarea) {
+    font-size: 1rem;
+  }
 }
 </style>
 

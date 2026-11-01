@@ -64,6 +64,8 @@ const statusWords: Record<string, Omit<ConsoleStatusValue, "label">> = {
   active: { tone: "success" },
   cancelled: { tone: "neutral" },
   canceled: { tone: "neutral" },
+  // Email deliveries. `Captured only` is a message that the development outbox kept without sending it.
+  "captured only": { tone: "neutral" },
   completed: { tone: "success" },
   disabled: { tone: "neutral" },
   enabled: { tone: "success" },
@@ -74,6 +76,8 @@ const statusWords: Record<string, Omit<ConsoleStatusValue, "label">> = {
   queued: { pending: true, tone: "neutral" },
   resolved: { tone: "success" },
   running: { pending: true, tone: "neutral" },
+  sending: { pending: true, tone: "neutral" },
+  sent: { tone: "success" },
   skipped: { tone: "neutral" },
   succeeded: { tone: "success" },
   timeout: { tone: "error" },
