@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { anthropic, chatgpt, cloudflare, cloudflareAccess, defineAiGateway, ollama, openai, openrouter, typesafe, vercel } from "../src/index.ts"
 import { languageModel } from "../src/ai-sdk.ts"
 
+import type { AiGatewayContext } from "../src/types.ts"
+
 afterEach(() => {
   vi.unstubAllEnvs()
 })
@@ -97,6 +99,77 @@ describe("languageModel()", () => {
     expect(sent(fetch, 0).headers.get("authorization")).toBe("Bearer oa-key")
     expect(sent(fetch, 1)).toMatchObject({ url: "https://proxy.example/v1/responses" })
     expect(sent(fetch, 1).headers.get("authorization")).toBe("Bearer proxy-key")
+  })
+
+  it.each(["openai-compatible", "codex"] as const)("honors x-api-key authentication for Responses through %s", async (route) => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async (_url, init) => JSON.parse(String(init?.body)).stream
+      ? new Response(`event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: await openaiResponse().json() })}\n\n`, { headers: { "content-type": "text/event-stream" } })
+      : openaiResponse())
+    const definition = { apiKey: "proxy-key", auth: "x-api-key", headers: { "x-custom": "value" }, name: "internal" } as const
+    const options = { api: "responses", fetch } as const
+    const model = route === "codex"
+      ? languageModel(defineAiGateway({ ...definition, baseURL: { codex: "https://proxy.example/v1" } }), "gpt-5", options)
+      : languageModel(defineAiGateway({ ...definition, baseURL: { "openai-compatible": "https://proxy.example/v1" } }), "gpt-5", options)
+    await expect(generateText({ model, prompt: "Hello" })).resolves.toMatchObject({ text: "Hi" })
+    await streamText({ model, prompt: "Hello" }).usage
+
+    for (const index of [0, 1]) {
+      expect(sent(fetch, index).url).toBe("https://proxy.example/v1/responses")
+      expect(sent(fetch, index).headers.get("x-api-key")).toBe("proxy-key")
+      expect(sent(fetch, index).headers.has("authorization")).toBe(false)
+      expect(sent(fetch, index).headers.get("x-custom")).toBe("value")
+    }
+  })
+
+  it.each([
+    { api: "chat", response: chatCompletion },
+    { api: "responses", response: openaiResponse },
+    { api: "messages", response: anthropicMessage },
+  ] as const)("reads $api URL capabilities without resolving gateway values", async ({ api, response }) => {
+    const apiKey = vi.fn(async (_context: AiGatewayContext) => "proxy-key")
+    const baseURL = vi.fn(async (_context: AiGatewayContext) => "https://proxy.example")
+    const header = vi.fn(async (_context: AiGatewayContext) => "value")
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => response())
+    const gateway = defineAiGateway({ apiKey, baseURL: { "claude-code": baseURL, "openai-compatible": baseURL }, headers: { "x-custom": header }, name: "internal" })
+    const model = languageModel(gateway, "model", { api, fetch })
+    const urls = await model.supportedUrls
+    if (api === "chat") expect(urls).toEqual({})
+    else {
+      expect(urls["image/*"]?.some(pattern => pattern.test("https://example.com/image.png"))).toBe(true)
+      expect(urls["application/pdf"]?.some(pattern => pattern.test("https://example.com/document.pdf"))).toBe(true)
+    }
+    for (const resolver of [apiKey, baseURL, header]) expect(resolver).not.toHaveBeenCalled()
+
+    const controller = new AbortController()
+    await generateText({ abortSignal: controller.signal, model, prompt: "Hello" })
+    for (const resolver of [apiKey, baseURL, header]) {
+      expect(resolver).toHaveBeenCalledTimes(1)
+      expect(resolver.mock.calls[0]?.[0].abortSignal).toBeInstanceOf(AbortSignal)
+    }
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it("cancels a pending credential lookup with the model request", async () => {
+    const controller = new AbortController()
+    const reason = new Error("Cancelled credential lookup")
+    let start: () => void = () => undefined
+    const started = new Promise<void>((resolve) => { start = resolve })
+    const apiKey = vi.fn(async ({ abortSignal }: AiGatewayContext) => {
+      if (!abortSignal) throw new Error("Credential lookup needs the request abort signal")
+      start()
+      await new Promise<void>((_resolve, reject) => {
+        abortSignal.addEventListener("abort", () => reject(abortSignal.reason), { once: true })
+      })
+      return "proxy-key"
+    })
+    const fetch = vi.fn<typeof globalThis.fetch>()
+    const gateway = defineAiGateway({ apiKey, baseURL: { "openai-compatible": "https://proxy.example" }, name: "internal" })
+    const request = generateText({ abortSignal: controller.signal, maxRetries: 0, model: languageModel(gateway, "model", { fetch }), prompt: "Hello" })
+    const cancelled = started.then(() => controller.abort(reason))
+    await expect(request).rejects.toBe(reason)
+    await cancelled
+    expect(apiKey).toHaveBeenCalledTimes(1)
+    expect(fetch).not.toHaveBeenCalled()
   })
 
   it.each([undefined, false, true])("preserves OpenRouter Responses store options (%s)", async (store) => {

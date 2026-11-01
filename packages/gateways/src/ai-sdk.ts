@@ -62,10 +62,9 @@ function headerRecord(route: AiGatewayModelRoute): Record<string, string> {
   return Object.fromEntries([...route.headers, ...(route.auth === "x-api-key" && route.apiKey ? [["x-api-key", route.apiKey]] : [])])
 }
 
-async function createModel(gateway: AiGateway, modelId: string, api: AiGatewayModelApi, fetch: typeof globalThis.fetch | undefined, abortSignal: AbortSignal | undefined): Promise<LanguageModelV4> {
-  const route = await resolveAiGatewayModelRoute(gateway, routeOf(gateway, api), abortSignal ? { abortSignal } : {})
+async function createModel(name: string, modelId: string, api: AiGatewayModelApi, route: AiGatewayModelRoute, fetch?: typeof globalThis.fetch): Promise<LanguageModelV4> {
   const headers = headerRecord(route)
-  const shared = { headers, name: gateway.name, ...(fetch ? { fetch } : {}) }
+  const shared = { headers, name, ...(fetch ? { fetch } : {}) }
   if (api === "chat") {
     const { createOpenAICompatible } = await load(api, async () => await import("@ai-sdk/openai-compatible"))
     return createOpenAICompatible({
@@ -77,11 +76,21 @@ async function createModel(gateway: AiGateway, modelId: string, api: AiGatewayMo
     }).chatModel(modelId)
   }
   if (!route.apiKey) {
-    throw gatewayDiagnostics.GATEWAYS_R0002({ message: `[vitehub] Gateway "${gateway.name}" needs an API key for the "${api}" model API. Pass apiKey, or use api: "chat".` })
+    throw gatewayDiagnostics.GATEWAYS_R0002({ message: `[vitehub] Gateway "${name}" needs an API key for the "${api}" model API. Pass apiKey, or use api: "chat".` })
   }
   if (api === "responses") {
     const { createOpenAI } = await load(api, async () => await import("@ai-sdk/openai"))
-    return createOpenAI({ ...shared, apiKey: route.apiKey, baseURL: route.baseURL }).responses(modelId)
+    return createOpenAI({
+      ...shared,
+      apiKey: route.apiKey,
+      baseURL: route.baseURL,
+      // The OpenAI provider always adds bearer auth; remove it for gateways that select x-api-key.
+      fetch: route.auth === "x-api-key" ? async (input, init) => {
+        const headers = new Headers(init?.headers)
+        headers.delete("authorization")
+        return await (fetch ?? globalThis.fetch)(input, { ...init, headers })
+      } : fetch,
+    }).responses(modelId)
   }
   const { createAnthropic } = await load(api, async () => await import("@ai-sdk/anthropic"))
   return createAnthropic({
@@ -121,14 +130,17 @@ export function languageModel<const TRoutes extends AiGatewayRoute, const TApis 
     throw gatewayDiagnostics.GATEWAYS_R0004({ message: `[vitehub] Gateway "${gateway.name}" does not serve the "${api}" model API. Set baseURL["${route}"] or choose another api.` })
   }
   const id = modelId.trim()
-  const model = async (abortSignal?: AbortSignal) => await createModel(gateway, id, api, options.fetch, abortSignal)
+  const model = async (abortSignal?: AbortSignal) => {
+    const resolved = await resolveAiGatewayModelRoute(gateway, route, abortSignal ? { abortSignal } : {})
+    return await createModel(gateway.name, id, api, resolved, options.fetch)
+  }
   return {
     specificationVersion: "v4",
     provider: `${gateway.name}.${api}`,
     modelId: id,
-    // Read when a request starts, so it resolves the gateway route like a model call does.
+    // URL capabilities belong to the provider, so metadata reads need no gateway credentials or resolvers.
     get supportedUrls() {
-      return model().then(resolved => resolved.supportedUrls)
+      return createModel(gateway.name, id, api, { apiKey: "unused", auth: "bearer", baseURL: "https://gateway.invalid", headers: [] }).then(resolved => resolved.supportedUrls)
     },
     doGenerate: async callOptions => await (await model(callOptions.abortSignal)).doGenerate(callOptions),
     doStream: async callOptions => await (await model(callOptions.abortSignal)).doStream(callOptions),
