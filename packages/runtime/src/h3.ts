@@ -3,6 +3,7 @@ import { createH3V1ResponseHeaders, isH3V1Event, toH3V1Request } from "@vite-hub
 import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
 import { createRuntimeContext } from "./index.ts"
 import type { CloudflareWorkerExecutionContext } from "@vite-hub/internal/runtime/cloudflare-env"
+import type { H3V1Event, H3V1NodeResponse } from "@vite-hub/internal/runtime/h3-v1-request"
 import type { EventHandlerRequest } from "h3"
 import type { StandardContext } from "standard-context"
 import type { CreatedRuntimeContext, RuntimeContextInput, RuntimeHostContext } from "./index.ts"
@@ -59,10 +60,12 @@ function detectRuntime(cloudflare: boolean): H3RuntimeName {
 }
 
 /**
- * Return true for the Request of an H3 2 event. Hosts pass their own Request classes, such as srvx's Node
- * request or a Request from another realm, so check the fields that ViteHub reads instead of the prototype.
+ * Return true for the Request of an H3 2 event. Hosts pass their own Request classes, such as a Request from
+ * another realm, so check the fields that ViteHub reads when the prototype does not match. srvx's Node request
+ * inherits from Request, and the prototype check does not run its lazy `url` and `headers` getters.
  */
 function isHostRequest(value: unknown): value is Request {
+  if (value instanceof Request) return true
   if (!isObjectLike(value)) return false
   const headers: unknown = Reflect.get(value, "headers")
   return typeof Reflect.get(value, "url") === "string"
@@ -79,6 +82,8 @@ interface PreparedResponseTarget {
   headers: Headers
   status?: number
 }
+
+type WaitUntil = NonNullable<ViteHubStandardProps["waitUntil"]>
 
 /** Map Standard Context response fields to the response that H3 sends. H3 sends the value the handler returns as the body. */
 function preparedResponse(target: PreparedResponseTarget): StandardContext.PreparedResponse {
@@ -112,26 +117,90 @@ function h3V2ClientAddress(request: Request): string | undefined {
   return typeof ip === "string" && ip ? ip : undefined
 }
 
-function createH3StandardProps(event: object): ViteHubStandardProps | undefined {
-  let readRequest: () => Request
-  let res: StandardContext.PreparedResponse
-  let clientAddress: string | undefined
-  const req: unknown = Object.hasOwn(event, "req") ? Reflect.get(event, "req") : undefined
-  if (isHostRequest(req)) {
-    const response: unknown = Reflect.get(event, "res")
-    const headers: unknown = isObjectLike(response) ? Reflect.get(response, "headers") : undefined
-    if (!isObjectLike(headers) || typeof Reflect.get(headers, "set") !== "function") return undefined
-    // SAFETY: H3 2 events expose an H3EventResponse with mutable status and a Headers object.
-    res = preparedResponse(response as PreparedResponseTarget)
-    readRequest = () => req
-    clientAddress = h3V2ClientAddress(req)
+/**
+ * The `~standard` properties of one H3 event. Each property reads the event on first access and keeps the value,
+ * because most requests never read Standard Context and ViteHub sets it on every request.
+ */
+abstract class H3StandardProps implements ViteHubStandardProps {
+  readonly vendor = "h3"
+  readonly #event: object
+  #res: StandardContext.PreparedResponse | undefined
+  #runtime: ViteHubRuntime | undefined
+  #waitUntil: WaitUntil | null | undefined
+
+  constructor(event: object) {
+    this.#event = event
   }
-  else if (isH3V1Event(event)) {
-    const response = event.node.res
-    if (!response) return undefined
-    const headers = createH3V1ResponseHeaders(response)
-    res = preparedResponse({
-      headers,
+
+  abstract get req(): Request
+
+  get res(): StandardContext.PreparedResponse {
+    return this.#res ??= this.prepareResponse()
+  }
+
+  get runtime(): ViteHubRuntime {
+    if (this.#runtime) return this.#runtime
+    const env = getCloudflareEnv(this.#event, { fallback: false })
+    const context = getCloudflareExecutionContext(this.#event)
+    const clientAddress = this.clientAddress()
+    return this.#runtime = {
+      ...(env ? { cloudflare: { env, ...(context ? { context } : {}) } } : {}),
+      ...(clientAddress ? { clientAddress } : {}),
+    }
+  }
+
+  get waitUntil(): WaitUntil | undefined {
+    if (this.#waitUntil === undefined) this.#waitUntil = resolveWaitUntil(this.#event, { preferHost: true }) ?? null
+    return this.#waitUntil ?? undefined
+  }
+
+  protected abstract prepareResponse(): StandardContext.PreparedResponse
+  protected abstract clientAddress(): string | undefined
+}
+
+class H3V2StandardProps extends H3StandardProps {
+  readonly #event: object
+  readonly #request: Request
+
+  constructor(event: object, request: Request) {
+    super(event)
+    this.#event = event
+    this.#request = request
+  }
+
+  get req(): Request {
+    return this.#request
+  }
+
+  protected prepareResponse(): StandardContext.PreparedResponse {
+    // SAFETY: H3 2 events expose an H3EventResponse with mutable status and a Headers object.
+    return preparedResponse(Reflect.get(this.#event, "res") as PreparedResponseTarget)
+  }
+
+  protected clientAddress(): string | undefined {
+    return h3V2ClientAddress(this.#request)
+  }
+}
+
+class H3V1StandardProps extends H3StandardProps {
+  readonly #event: H3V1Event
+  readonly #response: H3V1NodeResponse
+
+  constructor(event: H3V1Event, response: H3V1NodeResponse) {
+    super(event)
+    this.#event = event
+    this.#response = response
+  }
+
+  get req(): Request {
+    // H3 1 builds the Request on first read, so a route that reads the Node body stream keeps working.
+    return toH3V1Request(this.#event)
+  }
+
+  protected prepareResponse(): StandardContext.PreparedResponse {
+    const response = this.#response
+    return preparedResponse({
+      headers: createH3V1ResponseHeaders(response),
       get status() {
         return response.statusCode
       },
@@ -139,29 +208,22 @@ function createH3StandardProps(event: object): ViteHubStandardProps | undefined 
         if (value !== undefined) response.statusCode = value
       },
     })
-    readRequest = () => toH3V1Request(event)
-    clientAddress = event.node.req.socket?.remoteAddress || event.node.req.connection?.remoteAddress || undefined
   }
-  else {
-    return undefined
+
+  protected clientAddress(): string | undefined {
+    const request = this.#event.node.req
+    return request.socket?.remoteAddress || request.connection?.remoteAddress || undefined
   }
-  const env = getCloudflareEnv(event, { fallback: false })
-  const context = getCloudflareExecutionContext(event)
-  const waitUntil = resolveWaitUntil(event, { preferHost: true })
-  const runtime: ViteHubRuntime = {
-    ...(env ? { cloudflare: { env, ...(context ? { context } : {}) } } : {}),
-    ...(clientAddress ? { clientAddress } : {}),
+}
+
+function createH3StandardProps(event: object): ViteHubStandardProps | undefined {
+  const req: unknown = Object.hasOwn(event, "req") ? Reflect.get(event, "req") : undefined
+  if (isHostRequest(req)) return "res" in event ? new H3V2StandardProps(event, req) : undefined
+  if (isH3V1Event(event)) {
+    const response = event.node.res
+    return response ? new H3V1StandardProps(event, response) : undefined
   }
-  return {
-    vendor: "h3",
-    // H3 1 builds the Request on first read, so a route that reads the Node body stream keeps working.
-    get req() {
-      return readRequest()
-    },
-    res,
-    runtime,
-    ...(waitUntil ? { waitUntil } : {}),
-  }
+  return undefined
 }
 
 /**
