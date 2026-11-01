@@ -412,6 +412,8 @@ describe("route handlers in a custom Nuxt server directory", () => {
       "nuxt.config.ts": 'export default defineNuxtConfig({ serverDir: "backend" })\n',
       "backend/api/settings.get.ts": 'import { kv } from "vite-hub/kv"\nexport default async function readSettings() { return await kv.get("settings") }\n',
       "src/api/client.ts": 'import { kv } from "vite-hub/kv"\nexport default async function readSettings() { return await kv.get("settings") }\n',
+      "server/api/inactive.get.ts": 'import { kv } from "vite-hub/kv"\nexport default async function readSettings() { return await kv.get("settings") }\n',
+      "src/server/api/nested.get.ts": 'import { kv } from "vite-hub/kv"\nexport default async function readSettings() { return await kv.get("settings") }\n',
     }, "nuxt")).toEqual(["VHUB0003"])
   })
 })

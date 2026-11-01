@@ -170,7 +170,7 @@ It follows imports from `vite-hub/*` and `@vite-hub/*`, local aliases, and the h
 - assigns to a name
 - tests in a condition, negates, or compares
 - reads a property from, iterates with `for...of`, spreads, or puts in a template literal or object property
-- returns from a route handler, so the client receives the tuple with status 200. A route handler is a function passed to `defineEventHandler()`, or the default export of a file under `api/`, `routes/`, or `middleware/` of a server directory, including a custom Nuxt `serverDir`
+- returns from a route handler, so the client receives the tuple with status 200. A route handler is a function passed to `defineEventHandler()`, or the default export of a file under `api/`, `routes/`, or `middleware/` of an active server directory: `server/`, or the Nuxt `serverDir` of the app and its layers
 
 ```ts [server/api/settings.get.ts]
 import { kv } from 'vite-hub/kv'
@@ -366,7 +366,7 @@ Use `requireRateLimit()` when the request must fail with status 429. Read [Rate 
 
 `memoryRateLimitDriver()` keeps its counters in the driver object. A route handler that creates the driver creates new counters for each request, so the limit is never reached.
 
-The rule reports `memoryRateLimitDriver()` from `@vite-hub/rate-limit/drivers/memory` inside a route handler: a function passed to `defineEventHandler()`, or the default export of a file under `api/`, `routes/`, or `middleware/` of a server directory, including a custom Nuxt `serverDir`. It does not report a driver that the handler assigns to a name outside the handler, as in `limiter ??= createRateLimiter(...)`, and it does not check test files.
+The rule reports `memoryRateLimitDriver()` from `@vite-hub/rate-limit/drivers/memory` inside a route handler: a function passed to `defineEventHandler()`, or the default export of a file under `api/`, `routes/`, or `middleware/` of an active server directory: `server/`, or the Nuxt `serverDir` of the app and its layers. It does not report a driver that the handler assigns to a name outside the handler, as in `limiter ??= createRateLimiter(...)`, and it does not check test files.
 
 ```ts [server/api/search.get.ts]
 import { createRateLimiter } from 'vite-hub/rate-limit'

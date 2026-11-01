@@ -460,9 +460,9 @@ const routeDirs = ["api", "routes", "middleware"]
  */
 function isRouteFile(ctx: RuleContext): boolean {
   const path = ctx.file.relativePath
-  const serverDirs = ["server", ...viteHubInventory(ctx).serverDirs ?? []]
+  // Without an inventory, the server directory is the default `server/` at the project root.
+  const serverDirs = viteHubInventory(ctx).serverDirs ?? ["server"]
   return serverDirs.some(dir => routeDirs.some(route => path.startsWith(dir ? `${dir}/${route}/` : `${route}/`)))
-    || /(?:^|\/)server\/(?:api|routes|middleware)\//.test(path)
 }
 
 /** True when `fn` handles a request: it is passed to `defineEventHandler()`, or it is the default export of a route file. */
