@@ -486,7 +486,6 @@
     "./cms/access": {
       "types": "./dist/cms/access.d.ts",
       "import": "./dist/cms/access.js",
-      "require": "./dist/cms/access.js",
       "default": "./dist/cms/access.js"
     },
     "./cms/vite": {
@@ -623,6 +622,11 @@
       "types": "./dist/database/drizzle.d.ts",
       "import": "./dist/database/drizzle.js",
       "default": "./dist/database/drizzle.js"
+    },
+    "./deployment": {
+      "types": "./dist/deployment.d.ts",
+      "import": "./dist/deployment.js",
+      "default": "./dist/deployment.js"
     },
     "./doctor": {
       "types": "./dist/doctor.d.ts",

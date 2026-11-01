@@ -19,7 +19,7 @@ You need Node.js 24.15 or newer, Vite 8 or newer, and an ESM package with `"type
 
 ## Configure ViteHub
 
-Choose one built-in deployment preset. Application routes and feature imports stay unchanged when the target changes.
+Choose one built-in deployment preset. Application routes and feature imports stay unchanged when the target changes. When you omit `preset`, ViteHub detects it from `VITEHUB_HOSTING`, then `NITRO_PRESET` or `SERVER_PRESET`, then the build variables of Cloudflare Workers Builds (`WORKERS_CI`), Netlify (`NETLIFY`), Vercel (`NOW_BUILDER`, `VERCEL`, `VERCEL_ENV`), and Deno Deploy (`DENO_DEPLOY`, `DENO_DEPLOYMENT_ID`). Without any of them, it builds for `node`. `detectPreset()` from `vite-hub/deployment` returns the same detected preset, or `undefined`, so a config can choose host-specific options.
 
 ```ts
 // vite.config.ts
@@ -55,7 +55,7 @@ and a fresh memo cache. Without a real host lifetime API, await the
 returned `flushWaitUntil()` before responding. See the
 [Runtime Context guide](https://vitehub.dev/docs/reference/runtime-context).
 
-The public presets are `cloudflare`, `netlify`, `vercel`, `deno`, and `node`. Each resolves once to a host, runtime, Nitro output, packaging policy, and service adapters; do not also set `nitro.preset`, `NITRO_PRESET`, `SERVER_PRESET`, or `VITEHUB_HOSTING`.
+The public presets are `cloudflare`, `netlify`, `vercel`, `deno`, and `node`. Each resolves once to a host, runtime, Nitro output, packaging policy, and service adapters. The build fails when `nitro.preset`, `NITRO_PRESET`, `SERVER_PRESET`, or `VITEHUB_HOSTING` selects a different host than `preset`.
 
 ViteHub derives one deployment identity from the nearest `package.json` name, falling back to the Vite root directory name. Set `name` to pin the identity explicitly. Cloudflare Workers Builds supplies its connected Worker through `WRANGLER_CI_OVERRIDE_NAME`; the Cloudflare preset uses it after explicit `name` and fails when the two resolve to different values because the connected Worker remains the deployment target. Cloudflare uses the resolved identity for the default Worker, Blob bucket, Queue prefix, Rate Limit namespace, Sandbox, and Container names. Explicit Wrangler Worker names remain authoritative outside Workers Builds, while explicit Blob bucket, driver, and store options still win. The Workers Builds fallback derives deterministic names but does not provision the corresponding R2 bucket or Queue.
 

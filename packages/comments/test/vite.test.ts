@@ -128,7 +128,7 @@ describe("hubComments", () => {
     const plugin = hubComments()
     await configure(plugin, await project({ "server/comments.ts": "export const comments = defineComments()" }), "build", { base: "/portal/" })
     const page = transform(plugin, html)
-    expect(page).toContain("import(\"/portal/_vitehub/page/assets/loader.js?v=8\")")
+    expect(page).toContain("import(\"/portal/_vitehub/page/assets/loader.js?v=9\")")
     // A second owner, such as the Console, sees the loader and adds no other.
     expect(transform(plugin, page!)).toBeUndefined()
   })
@@ -295,7 +295,7 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
     const transform = typeof hook === "function" ? hook : hook?.handler
     if (!transform) throw new Error("Expected a Comments HTML transform")
     const tags: unknown = await Reflect.apply(transform, undefined, ["", { path: "/", filename: join(root, "index.html") }])
-    expect(tags).toContain('import("/portal/_vitehub/page/assets/loader.js?v=8")')
+    expect(tags).toContain('import("/portal/_vitehub/page/assets/loader.js?v=9")')
   })
 
   it.each([
@@ -371,7 +371,7 @@ describe("comments() without vite-hub", () => {
     const transform = plugin.transformIndexHtml
     if (!transform) throw new Error("Expected a standalone Comments HTML transform")
     const page: unknown = await Reflect.apply(typeof transform === "function" ? transform : transform.handler, {}, ["<body>Guide</body>"])
-    expect(page).toContain('import("/portal/_vitehub/page/assets/loader.js?v=8")')
+    expect(page).toContain('import("/portal/_vitehub/page/assets/loader.js?v=9")')
   }, 30_000)
 
   it("turns on without server/comments.ts, with a SQLite file in development that Git ignores", async () => {
