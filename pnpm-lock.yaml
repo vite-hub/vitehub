@@ -2914,6 +2914,9 @@ importers:
       better-auth:
         specifier: catalog:auth
         version: 1.7.7(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.11)(drizzle-orm@0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2))(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(vitest@4.1.11)(vue@3.5.44(typescript@6.0.3))
+      comark:
+        specifier: catalog:markdown-ui
+        version: 0.8.1(katex@0.18.11)(shiki@4.5.0)
       confbox:
         specifier: ^0.2.4
         version: 0.2.4

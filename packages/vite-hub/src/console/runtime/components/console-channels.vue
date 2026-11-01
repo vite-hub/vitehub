@@ -364,7 +364,7 @@ onBeforeUnmount(() => {
           </template>
         </nav>
 
-        <section class="flex min-h-0 min-w-0 flex-1 flex-col" aria-live="polite" aria-label="Conversation">
+        <section class="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Conversation">
           <UAlert
             v-if="(retention ?? selected?.retention)?.warning && (selectedThread || selected)"
             class="m-3"
