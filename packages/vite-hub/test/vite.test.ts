@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process"
 import { readFileSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -1398,6 +1399,22 @@ describe("vitehub", () => {
     })
   })
 
+  it.each(["server", "cloudflare worker", "worker's directory"])("rebases the Cloudflare config in %s for prebuilt deployment", async serverDir => {
+    const { commands } = await cloudflareCommands(
+      { preset: "cloudflare", sandboxTask: true },
+      {},
+      `/app/.output/${serverDir}`,
+    )
+    // Apply Nitro's deploy --prebuilt rewrite, then check the arguments Wrangler receives from the shell.
+    const command = commands.deploy.replace(/([\s:])\.\/(\S*)/g, "$1.output/$2")
+    const result = spawnSync("sh", ["-c", 'npx() { printf "%s\\n" "$@"; }\n' + command], { encoding: "utf8" })
+
+    expect(result.status).toBe(0)
+    expect(result.stdout.trim().split("\n")).toEqual([
+      "wrangler", "deploy", "--config", `.output/${serverDir}/wrangler.json`, "--containers-rollout=gradual",
+    ])
+  })
+
   it("deploys Cloudflare Sandbox containers through the generated Nitro command", async () => {
     const userModule = (nitro: { options: { commands: Record<string, unknown> } }) => {
       nitro.options.commands.deploy = "node ./deploy.mjs"
@@ -1409,7 +1426,7 @@ describe("vitehub", () => {
     )
 
     expect(commands).toEqual({
-      deploy: "npx wrangler deploy --config './cloudflare worker/wrangler.json' --containers-rollout=gradual",
+      deploy: "npx wrangler deploy --config ./'cloudflare worker/wrangler.json' --containers-rollout=gradual",
       preview: "node ./preview.mjs",
     })
     expect(modules[1]).toBe(userModule)

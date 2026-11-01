@@ -557,9 +557,10 @@ function deploymentNitroModule(
       // Nitro's `--cwd ./` relies on the `.wrangler/deploy` redirect in the project root, which a copied output lacks and a parent Wrangler config breaks.
       // `--cwd` into the server directory fails once that redirect exists, so name the config file.
       const configRelative = relative(nitro.options.output.dir, join(nitro.options.output.serverDir, "wrangler.json")).replaceAll("\\", "/")
+      // Keep ./ outside shell quotes so Nitro's deploy --prebuilt rewrite can rebase it.
       const config = /^[\w./-]+$/.test(configRelative)
         ? `./${configRelative}`
-        : shellQuote(`./${configRelative}`)
+        : `./${shellQuote(configRelative)}`
       nitro.options.commands.deploy = `npx wrangler deploy --config ${config}${sandboxTaskRequested ? " --containers-rollout=gradual" : ""}`
     }
     nitro.hooks.hook("compiled", async () => {
