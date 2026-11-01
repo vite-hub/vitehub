@@ -164,7 +164,7 @@ describe("Console primitive catalog", () => {
   it("parses the Comark components of a collection and drops malformed ones", () => {
     const collection = { access: { publish: true, read: true, write: true }, label: "Posts", name: "posts", path: "posts/**/*.md", schema: { type: "object" } }
     const components = [
-      { description: "A note", kind: "block", label: "Alert", name: "alert", props: { type: { default: "info", type: "string" }, open: { type: "boolean" }, size: { type: "enum" } } },
+      { description: "A note", kind: "block", label: "Alert", name: "alert", props: { type: { default: "info", type: "string" }, open: { type: "boolean" }, size: { type: "enum" }, icon: { store: "media", type: "image" }, guide: { type: "file" }, tone: { store: "media", type: "string" } } },
       { kind: "inline", name: "badge", props: {} },
       { name: "Bad Tag", kind: "block" },
       "x",
@@ -173,7 +173,7 @@ describe("Console primitive catalog", () => {
       collections: [{
         ...collection,
         components: [
-          { description: "A note", kind: "block", label: "Alert", name: "alert", props: { open: { type: "boolean" }, type: { default: "info", type: "string" } } },
+          { description: "A note", kind: "block", label: "Alert", name: "alert", props: { guide: { type: "file" }, icon: { store: "media", type: "image" }, open: { type: "boolean" }, tone: { type: "string" }, type: { default: "info", type: "string" } } },
           { kind: "inline", label: "badge", name: "badge", props: {} },
         ],
       }],

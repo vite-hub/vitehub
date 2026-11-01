@@ -1,4 +1,4 @@
-import { createViteHubPageWindow, dockViteHubPageWindows, keepViteHubPageElement } from "./page-tools-window.ts"
+import { createViteHubPageWindow, dockViteHubPageWindows } from "./page-tools-window.ts"
 import type { ViteHubPageToolsDock, ViteHubPageToolsEdge, ViteHubPageWindow, ViteHubPageWindowOptions } from "./page-tools-window.ts"
 /**
  * The browser side of the page tools. The page gets one script, the loader. It asks `<base>/_vitehub/page/session`
@@ -312,12 +312,12 @@ function mountPill(tools: ViteHubPageToolInfo[], exit: () => void, signal: Abort
     const bottom = Math.max(0, grown.y - corner.y)
     if (top || left || right || bottom) toolbar.animate([{ clipPath: `inset(${top}px ${right}px ${bottom}px ${left}px round 12px)` }, { clipPath: "inset(0 round 12px)" }], timing)
   })
-  document.body.append(pill)
+  // A router may replace the body. Keep the tools connected as siblings of it throughout the swap.
+  document.documentElement.append(pill)
   place(dock)
   // The first observation only measures: the pill must not glide in when the page loads.
   resized.observe(toolbar)
   signal.addEventListener("abort", () => resized.disconnect(), { once: true })
-  keepViteHubPageElement(pill, signal)
   return pill
 }
 

@@ -122,6 +122,35 @@ async function startEdit() {
 }
 
 describe("Comments overlay", () => {
+  it("keeps the overlay, unsent reply, listeners and polling alive through a body swap", async () => {
+    // The real loader retains the toolbar separately from the router's body.
+    document.documentElement.append(pill)
+    openThread()
+    const input = shadow.querySelector<HTMLTextAreaElement>('textarea[aria-label="Reply"]')!
+    input.value = "Unsent reply"
+    input.dispatchEvent(new Event("input"))
+    const before = document.body
+    const next = document.createElement("body")
+    next.innerHTML = '<h1 data-content-field="settings#title">Next page</h1>'
+    try {
+      before.replaceWith(next)
+      expect(room.destroy).not.toHaveBeenCalled()
+      expect(overlay.isConnected).toBe(true)
+      expect(shadow.querySelector('textarea[aria-label="Reply"]')).toBe(input)
+      expect(input.value).toBe("Unsent reply")
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(api.threads).toHaveBeenCalledTimes(2)
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }))
+      expect(shadow.querySelector(".card")).toBeNull()
+    }
+    finally {
+      // Also allow the failing regression to clean up without reconnecting an already stopped overlay.
+      if (!overlay.isConnected) overlay.remove()
+      next.replaceWith(before)
+      pill.remove()
+    }
+  })
+
   it("does not resume startup when the pill exits during the session request", async () => {
     overlay.remove()
     vi.clearAllMocks()

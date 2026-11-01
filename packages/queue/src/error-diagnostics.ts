@@ -35,7 +35,7 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     QUEUE_DEFINITION_NOT_FOUND: {
       why: ({ queue }: { queue?: string }) => queue ? `No Queue Definition has the name "${queue}".` : "No Queue Definition has the requested name.",
-      fix: "Add `server/queues/<name>.ts` with a default `defineQueue()` export, and build again. The generated server output loads the Queue Definitions, so a script that runs outside of it finds none.",
+      fix: "Add `server/queues/<name>.ts` with a default `defineQueue()` export, and build again with Queue enabled. The generated server output loads the Queue Definitions, so a script that runs outside of it, or an app built without Queue, finds none.",
     },
     QUEUE_DISABLED: {
       why: "Queue is disabled in this runtime.",

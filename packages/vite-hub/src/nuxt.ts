@@ -15,6 +15,7 @@ import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deploymen
 import { nitroOptionalPeers } from "./internal/nitro-optional-peers.ts"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
 import { normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
+import { detectPreset } from "./deployment.ts"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { isPlainObject as isRecord } from "@vite-hub/internal/object"
 import hubAuthNuxt from "@vite-hub/auth/nuxt"
@@ -926,10 +927,11 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     }])
   }
 
-  const moduleOptions = {
+  const configuredModuleOptions = {
     ...nuxt.options.vitehub,
     ...inlineOptions,
   } as ViteHubNuxtOptions
+  const moduleOptions = { ...configuredModuleOptions, preset: configuredModuleOptions.preset ?? detectPreset() ?? "node" }
   const configuredEnv = moduleOptions.env
   const envConfig = configuredEnv && typeof configuredEnv === "object"
     ? { define: configuredEnv.define, public: configuredEnv.public, server: configuredEnv.server }
@@ -953,7 +955,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   if (options.connections && !options.database) {
     throw viteHubErrorDiagnostics.VITE_HUB_R0124({ message: "[vitehub] connections in the Nuxt module requires database and a Database Definition, because grants and activity are stored in the app database." })
   }
-  const plan = resolveDeploymentPlan(options.preset)
+  const plan = resolveDeploymentPlan(moduleOptions.preset)
   const configuredOptions = options.database && nuxt.options.database && typeof nuxt.options.database === "object"
     ? {
         ...options,
@@ -990,6 +992,13 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     cloudflare.deployConfig ??= true
     const wasm = (nitro.wasm ??= {}) as Record<string, unknown>
     wasm.lazy ??= true
+    // Nitro 3 resolves the Cloudflare preset to `cloudflare-dev` in development, which runs the server in workerd.
+    // ViteHub's Cloudflare development shims bindings on Node, so keep Nitro's Node runner unless the app picks one.
+    if (nuxt.options.dev) {
+      const devServer = (nitro.devServer ??= {}) as Record<string, unknown>
+      // Copy the environment choice before Nitro's preset can fill in its own runner default.
+      devServer.runner ??= process.env.NITRO_DEV_RUNNER || "node-worker"
+    }
   }
   nuxt.options.vite ??= {}
   nuxt.options.vite.root ??= rootDir
@@ -1109,7 +1118,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   ]
   const generatedData = secondaryProjectRoots
     .map(root => relative(nuxt.options.buildDir, join(root, ".vitehub/data/**/*.d.ts")))
-  if (options.preset === "cloudflare") generatedTypes.push(relative(nuxt.options.buildDir, cloudflareTypes))
+  if (plan.preset === "cloudflare") generatedTypes.push(relative(nuxt.options.buildDir, cloudflareTypes))
   addTypeScriptDefaults(nuxt.options, generatedTypes, generatedData)
   // Code under shared/ can type-import server files, such as server/auth.ts, which use the generated declarations.
   addTypeScriptDefaults(nuxt.options, generatedTypes, generatedData, "sharedTsConfig")
@@ -1125,14 +1134,17 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       ...(options.database === true ? {} : options.database),
     }
     // Cloudflare SQLite Definitions default to D1 unless a driver is explicit.
-    const defaultD1 = options.preset === "cloudflare" && !("driver" in databaseOptions) && !usesOnlyPostgresDatabases(
+    const defaultD1 = plan.preset === "cloudflare" && !("driver" in databaseOptions) && !usesOnlyPostgresDatabases(
       resolveViteHubProjectRoot(rootDir, { projectRoot: databaseOptions.projectRoot }),
       databaseOptions.projectRoot === undefined && nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
     )
     await hubDatabaseNuxt(defaultD1 ? { driver: "d1", ...databaseOptions } : databaseOptions)(undefined, nuxt)
   }
 
-  const installedPlugins = flattenPlugins(vitehub(options as Parameters<typeof vitehub>[0]))
+  const installedPlugins = flattenPlugins(vitehub(markCmsPresetFeaturesResolved({
+    ...options,
+    ...(effectiveKV !== undefined ? { kv: effectiveKV } : {}),
+  } as Parameters<typeof vitehub>[0])))
     // Nuxt runs its own Nitro.
     .filter(plugin => !isIncludedNitroPlugin(plugin))
     .filter(plugin => !(options.database && plugin.name === "@vite-hub/database/vite"))
@@ -1558,7 +1570,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     const kv = resolvedKVFromPlugin(retainedKVPlugin, viteConfig.kv)
     if (!kv) ((config.virtual ??= {}) as Record<string, string>)["#vitehub/kv/config"] ??= disabledKVConfigModule
     if (!hasUpstashStore(kv)) alias[upstashDriverSpecifier] ??= disabledUpstashDriver
-    if (options.kv) addNitroImports(config, "vite-hub/kv", ["kv"])
+    if (effectiveKV) addNitroImports(config, "vite-hub/kv", ["kv"])
     if (options.blob) addNitroImports(config, "vite-hub/blob", ["blob"])
     if (options.database) addNitroImports(config, "vite-hub/database/drizzle", ["db", "schema"])
     installGeneratedTypeScriptCompiler(config, join(nuxt.options.buildDir, "vitehub"))

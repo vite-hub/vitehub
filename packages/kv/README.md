@@ -56,6 +56,10 @@ Providers include local `fs-lite`, Deno KV, [Cloudflare Workers KV](https://deve
 
 Deno KV accepts `kv.set(key, value, { ttl: seconds })` to expire a value. Omitting `ttl` keeps the value until it is deleted or replaced. Initialization failures do not disable a store for the life of the process. The next operation can retry initialization.
 
+## Nitro cache
+
+`@vite-hub/kv/runtime/nitro-cache` is an unstorage driver over the default store, for Nitro's `cache` mount. Its keys get the `nitro-cache:` prefix, or the `base` option. With `vitehub()`, set `cache: { driver: "kv" }` to mount it.
+
 ## Listing keys
 
 `kv.keys(prefix)` is exhaustive. Use `kv.list({ prefix, limit, cursor })` when the caller needs bounded work. `limit` must be a positive integer. A page returns `{ keys, cursor? }`; an omitted cursor means the listing is complete.

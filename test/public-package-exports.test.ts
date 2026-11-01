@@ -148,6 +148,14 @@ describe("public package export contracts", () => {
     }
   })
 
+  it("classifies the AI SDK model exports as declaration-only peer consumers", () => {
+    for (const specifier of ["@vite-hub/gateways/ai-sdk", "vite-hub/gateways/ai-sdk"]) {
+      const contract = publicPackageExportContracts.find(contract => contract.specifier === specifier)
+      expect(contract?.optionalDeclarationPeers).toEqual(["@ai-sdk/provider"])
+      expect(contract?.optionalRuntimePeers).toEqual([])
+    }
+  })
+
   it("publishes declaration dependencies where isolated consumers can resolve them", () => {
     for (const packageName of ["agent", "auth"]) {
       const manifest = readPackageManifest(packageName)

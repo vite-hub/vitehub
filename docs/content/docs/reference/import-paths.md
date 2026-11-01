@@ -19,6 +19,7 @@ composition and explicit feature subpaths for application APIs.
 | Import path | Use |
 | --- | --- |
 | `vite-hub` | Register the framework Vite Integration with `vitehub()`. |
+| `vite-hub/deployment` | `detectPreset()`: the preset that `vitehub()` detects when `preset` is omitted, for host-specific config. |
 | `vite-hub/agent/vite` | Process Agent host and generated health and Workspace routes for Vite. |
 | `vite-hub/agent` | Agent Definition, invocation, trigger, and Agent Actor APIs. |
 | `vite-hub/agent/capabilities` | Official Capability factories. |
@@ -35,6 +36,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/agent/server/github` | GitHub host access, App credentials, command execution and checkout lifecycle. |
 | `vite-hub/agent/process-host` | Attach a long-running Node process host to an Agent Definition from a preset. |
 | `vite-hub/gateways` | [AI gateways](/docs/agents/ai-gateways): routes for Codex and Claude Code model requests, and `ask()` for TypeSafe Jev questions. Re-exports `@vite-hub/gateways`. |
+| `vite-hub/gateways/ai-sdk` | [`languageModel()`](/docs/agents/ai-gateways#use-a-model-with-the-ai-sdk): an AI SDK model that sends its requests through a gateway. Re-exports `@vite-hub/gateways/ai-sdk`. |
 | `vite-hub/presets/babysitter` | Composable Babysitter repair-loop preset. |
 | `vite-hub/presets/babysitter/server` | Babysitter host runtime integration. |
 | `vite-hub/presets/labeller` | Gmail labelling preset with ordered rules, Jev fallback, and allowlisted message actions. |

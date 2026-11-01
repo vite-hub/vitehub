@@ -241,7 +241,8 @@ class CommentsOverlay extends HTMLElement {
       clearTimeout(timer)
       timer = setTimeout(schedule, 50)
     })
-    mutations.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["class", "style", "hidden"] })
+    // Follow the new page as well when its router replaces the body.
+    mutations.observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["class", "style", "hidden"] })
     this.cleanups.push(() => {
       resize.disconnect()
       mutations.disconnect()
@@ -1009,7 +1010,9 @@ const start: ViteHubPageToolModule["default"] = (context) => {
   const overlay = document.createElement("vitehub-comments")
   if (!(overlay instanceof CommentsOverlay)) return
   overlay.context = context
-  document.body.append(overlay)
+  // Like the pill and its windows, stay connected throughout a router's body swap. A detach would stop listeners,
+  // polling and Realtime, and reconnecting would initialize the toolbar's shadow root a second time.
+  document.documentElement.append(overlay)
   return () => overlay.stop()
 }
 

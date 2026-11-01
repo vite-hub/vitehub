@@ -148,6 +148,26 @@ import { defineDatabase } from 'vite-hub/database'
 export default defineDatabase({ schema: {} })
 ```
 
+## Import existing Markdown
+
+With the Blob + Database store, the Workspace keeps the only copy of each document. Markdown files that stay in the repository after you import them are a second copy. Editors change the Workspace, so the files go out of date, and an import that runs again can restore old text. Import the files once, then delete them:
+
+1. Save each file as a draft. Run the commands against the deployed app with `--url`, or against the dev server without it.
+
+   ```bash [commands/import]
+   pnpm vitehub content edit posts hello --file ./posts/hello.md --url https://example.com
+   ```
+
+2. Publish the drafts. The command lists the changes and pins their digests.
+
+   ```bash [commands/publish]
+   pnpm vitehub content publish --url https://example.com
+   ```
+
+3. Delete the files from the repository, and any code that reads them.
+
+A new environment then starts with an empty Workspace. To copy documents into it, read each one from the deployed app with `vitehub content show`, then save it in the new environment with `vitehub content edit --file`. If the repository must stay the source of the documents, use the [GitHub store](#github-store) instead.
+
 ## Migrate from manual wiring
 
 If you followed the earlier setup, the app has a Database Definition that lists `workspaceHistorySchema` and a Workspace Definition on `createBlobDatabaseWorkspaceStore()`. Keep your existing history by pointing the preset at the same Database, Blob store, and Workspace identity:

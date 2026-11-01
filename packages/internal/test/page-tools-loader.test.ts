@@ -138,7 +138,7 @@ describe("loadViteHubPageTools", () => {
     const { load, started } = modules()
     await loadViteHubPageTools({ load })
     const { element, slots, segments, exit } = pill()
-    expect(element.parentElement).toBe(document.body)
+    expect(element.parentElement).toBe(document.documentElement)
     expect(slots).toEqual(["comments", "console"])
     expect(segments).toEqual([["vitehub-tool", "comments", false], ["vitehub-tool", "console", false]])
     expect(started.map(context => context.bar)).toEqual([...element.children])
@@ -234,7 +234,7 @@ describe("loadViteHubPageTools", () => {
     expect(viteHubPageToolsEdgeAt(x, y, 1200, 676)).toBe(edge)
   })
 
-  it("puts the pill and its windows back when a router replaces <body>", async () => {
+  it("keeps the pill and its editor connected while a router replaces <body>", async () => {
     page("/?vitehub")
     session({ tools: [{ ...consoleTool, lazy: true }] })
     await loadViteHubPageTools({ load: async () => ({ default(context: ViteHubPageToolContext) {
@@ -246,15 +246,26 @@ describe("loadViteHubPageTools", () => {
     await vi.waitFor(() => expect(document.querySelector("vitehub-window")).not.toBeNull())
     const { element } = pill()
     const host = document.querySelector("vitehub-window")!
+    const editor = document.createElement("iframe")
+    editor.srcdoc = "<textarea></textarea>"
+    host.shadowRoot!.querySelector(".body")!.append(editor)
+    const browsingContext = editor.contentWindow
+    const draft = editor.contentDocument!.querySelector("textarea")!
+    draft.value = "Unsaved editor draft"
     const before = document.body
     try {
       before.replaceWith(document.createElement("body"))
-      await vi.waitFor(() => expect(element.parentElement).toBe(document.body))
-      expect(host.parentElement).toBe(document.body)
+      // An observer that restores detached hosts is too late: disconnecting reloads iframe editors.
+      expect(editor.isConnected).toBe(true)
+      expect(element.isConnected).toBe(true)
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(editor.contentWindow).toBe(browsingContext)
+      expect(editor.contentDocument!.querySelector("textarea")).toBe(draft)
+      expect(draft.value).toBe("Unsaved editor draft")
       expect(element.style.viewTransitionName).toBe("vitehub-pill")
     }
     finally { document.body.replaceWith(before) }
-    await vi.waitFor(() => expect(element.parentElement).toBe(before))
+    expect(editor.isConnected).toBe(true)
     pill().exit.click()
     expect(document.querySelector("vitehub-pill")).toBeNull()
   })

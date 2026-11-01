@@ -100,6 +100,14 @@ test -f .output/server/wrangler.json
 find .output -maxdepth 4 -type f | sort
 ```
 
+### A project Wrangler config
+
+A project `wrangler.json`, `wrangler.jsonc`, or `wrangler.toml` can declare bindings that ViteHub also writes, for example a Deploy to Cloudflare template. Nitro merges that file into the generated config by concatenating arrays. ViteHub then keeps one entry per name in `kv_namespaces`, `r2_buckets`, `ratelimits`, `hyperdrive`, `containers` (by matching `class_name` or `name`, with entries containing both linking the two forms), `durable_objects.bindings`, `migrations`, `queues`, `workflows`, `services`, `send_email`, and `analytics_engine_datasets`, at the top level and in each `env`. The Database integration does the same for `d1_databases`, see [Database hosts](/docs/database/hosts). It also removes repeated `compatibility_flags` and `secrets.required` names.
+
+ViteHub's entry wins, and the project entry fills fields it lacks, such as a KV `id`. An all-zero id, such as `00000000000000000000000000000000` or `00000000-0000-4000-8000-000000000000`, never names a resource: a real id from either side replaces it. A primary id that stays all-zero is left out for KV and D1, so Wrangler provisions the resource on deploy. Unresolved `preview_id` and `preview_database_id` placeholders are preserved to prevent remote development from falling back to production; replace them with real preview resource IDs before using remote development. Hyperdrive requires an existing resource: its unresolved placeholder is preserved, and you must replace it with a real Hyperdrive ID before deployment. When the two entries name a different resource, the build fails with `INTERNAL_B0051`. Remove the entry from the project file, or give one of them another name.
+
+Container duplicates must agree on `scheduling_policy`; omitting it means `default`. ViteHub rejects a policy change or conflicting image settings instead of combining the default policy's `image` with Durable Object-managed `images`.
+
 ### Node.js compatibility in Nuxt
 
 With Nitro's `cloudflare.nodeCompat`, which the Nuxt `cloudflare` preset turns on, the generated `wrangler.json` gets `nodejs_compat`. Nitro 2 adds `no_nodejs_compat_v2` next to it unless the config names `nodejs_compat_v2`, and that leaves out Node modules that Workspaces import. ViteHub sets `nodejs_compat_v2` while Nitro builds and writes `nodejs_compat` in its place once the file is written, after the project's `wrangler.json`, `wrangler.jsonc`, or `wrangler.toml` was merged in. Wrangler refuses the two flags together.

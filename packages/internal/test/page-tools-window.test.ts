@@ -2,7 +2,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createViteHubPageWindow, dockViteHubPageWindows } from "../src/runtime/page-tools-window.ts"
 
-afterEach(() => { dockViteHubPageWindows({ edge: "bottom", at: 50 }); document.body.replaceChildren(); localStorage.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+afterEach(() => {
+  dockViteHubPageWindows({ edge: "bottom", at: 50 })
+  for (const host of document.querySelectorAll("vitehub-window")) host.remove()
+  document.body.replaceChildren()
+  localStorage.clear()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
 
 describe("page tool window", () => {
   it("preserves layout dimensions across restores during the opening scale transition", () => {

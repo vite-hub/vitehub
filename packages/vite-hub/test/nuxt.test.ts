@@ -24,6 +24,7 @@ import { consoleOpenAccessWarning } from "../src/console/runtime/server/access.t
 import { resolveConsoleSections } from "../src/console/internal.ts"
 
 const h3RuntimeRoot = dirname(fileURLToPath(import.meta.resolve("h3/package.json")))
+const kvCacheDriver = fileURLToPath(import.meta.resolve("vite-hub/_internal/kv/runtime/nitro-cache"))
 const databaseRuntimeState = fileURLToPath(new URL("../src/_internal/database/runtime/state", import.meta.url))
 
 function fixtureDocument(id?: string) {
@@ -1115,6 +1116,38 @@ describe("ViteHub Nuxt integration", () => {
 
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain('installConsoleDevelopment("/tmp/vitehub-nuxt", false)')
     expect(production.runDevToolsCustomTabsHook()).toEqual([])
+  })
+
+  it("keeps resolved Nuxt features when applying the effective KV configuration", async () => {
+    const { vitehub } = await vi.importActual<typeof import("../src/index.ts")>("../src/index.ts")
+    mocks.vitehub.mockImplementation((options: Parameters<typeof vitehub>[0]) => vitehub(options).filter(
+      plugin => isTestRecord(plugin) && plugin.name === "vite-hub/agent-invocations",
+    ))
+    const application = createNuxt(false)
+    await viteHubNuxtModule({ agent: true, preset: "node" }, application.nuxt)
+    expect(application.nuxt.options.vite.plugins).not.toContainEqual(expect.objectContaining({ name: "vite-hub/agent-invocations" }))
+  })
+
+  it.each([false, true])("uses the effective Vite KV configuration for Nitro cache (dev: %s)", async (dev) => {
+    const { vitehub } = await vi.importActual<typeof import("../src/index.ts")>("../src/index.ts")
+    mocks.vitehub.mockImplementation((options: Parameters<typeof vitehub>[0]) => vitehub(options).filter(
+      plugin => isTestRecord(plugin) && ["vite-hub/deployment-preset", "@vite-hub/kv/vite"].includes(String(plugin.name)),
+    ))
+
+    const enabled = createNuxt(dev)
+    enabled.nuxt.options.vite.kv = { driver: "fs-lite" }
+    await viteHubNuxtModule({ cache: { driver: "kv" }, preset: "node" }, enabled.nuxt)
+    expect(enabled.nuxt.options.vite.plugins).toContainEqual(expect.objectContaining({ name: "@vite-hub/kv/vite" }))
+    const config = { ...nitroOptions(enabled.nuxt), imports: { imports: [] } }
+    await enabled.runNitroConfigHook(config)
+    expect(config.imports).toMatchObject({ imports: expect.arrayContaining([{ from: "vite-hub/kv", name: "kv" }]) })
+    const mount = { base: "nitro-cache", driver: kvCacheDriver }
+    expect(config).toMatchObject({ devStorage: { cache: mount }, storage: { cache: mount } })
+
+    const disabled = createNuxt(dev)
+    disabled.nuxt.options.vite.kv = false
+    await viteHubNuxtModule({ cache: { driver: "kv" }, kv: true, preset: "node" }, disabled.nuxt)
+    await expect(disabled.runNitroConfigHook(nitroOptions(disabled.nuxt))).rejects.toThrow("`kv` is not enabled")
   })
 
   it("uses the effective Vite KV configuration for the Nuxt Console", async () => {
@@ -2659,6 +2692,16 @@ describe("ViteHub Nuxt integration", () => {
     expect(nitroOptions(nuxt)).toMatchObject({ preset: nitroPreset })
   })
 
+  it("detects the Nitro preset from the host's build variables when preset is omitted", async () => {
+    for (const name of ["VITEHUB_HOSTING", "NITRO_PRESET", "SERVER_PRESET", "WORKERS_CI", "NETLIFY", "NOW_BUILDER", "VERCEL_ENV", "DENO_DEPLOY", "DENO_DEPLOYMENT_ID"]) vi.stubEnv(name, "")
+    vi.stubEnv("VERCEL", "1")
+    const { nuxt } = createNuxt()
+
+    await viteHubNuxtModule({}, nuxt)
+
+    expect(nitroOptions(nuxt)).toMatchObject({ preset: "vercel" })
+  })
+
   it("rejects a conflicting Nitro preset during Nuxt module setup", async () => {
     const { nuxt } = createNuxt()
     Object.assign(nuxt.options, { nitro: { preset: "vercel" } })
@@ -2674,6 +2717,35 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
 
     expect(nitroOptions(nuxt)).toMatchObject({ wasm: { lazy: true } })
+  })
+
+  // Nitro 3 maps the Cloudflare preset to `cloudflare-dev` in development, and that preset defaults to the workerd runner.
+  it("keeps Nuxt development with the Cloudflare preset on Nitro's Node runner", async () => {
+    vi.stubEnv("NITRO_DEV_RUNNER", "")
+    const development = createNuxt(true)
+    await viteHubNuxtModule({ preset: "cloudflare", realtime: true }, development.nuxt)
+    expect(nitroOptions(development.nuxt)).toMatchObject({ devServer: { runner: "node-worker" }, preset: "cloudflare-durable" })
+
+    const chosen = createNuxt(true)
+    Object.assign(chosen.nuxt.options, { nitro: { devServer: { runner: "miniflare" } } })
+    await viteHubNuxtModule({ preset: "cloudflare" }, chosen.nuxt)
+    expect(nitroOptions(chosen.nuxt)).toMatchObject({ devServer: { runner: "miniflare" } })
+
+    const production = createNuxt()
+    await viteHubNuxtModule({ preset: "cloudflare" }, production.nuxt)
+    expect(nitroOptions(production.nuxt)).not.toHaveProperty("devServer")
+
+    for (const runner of ["node-worker", "miniflare"]) {
+      vi.stubEnv("NITRO_DEV_RUNNER", runner)
+      const fromEnv = createNuxt(true)
+      await viteHubNuxtModule({ preset: "cloudflare" }, fromEnv.nuxt)
+      expect(nitroOptions(fromEnv.nuxt)).toMatchObject({ devServer: { runner } })
+
+      const explicit = createNuxt(true)
+      Object.assign(explicit.nuxt.options, { nitro: { devServer: { runner: "custom-runner" } } })
+      await viteHubNuxtModule({ preset: "cloudflare" }, explicit.nuxt)
+      expect(nitroOptions(explicit.nuxt)).toMatchObject({ devServer: { runner: "custom-runner" } })
+    }
   })
 
   it.each([undefined, false, true])("defaults Cloudflare deployment output while preserving an explicit %s setting", async (deployConfig) => {

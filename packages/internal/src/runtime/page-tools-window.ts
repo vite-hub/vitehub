@@ -87,21 +87,6 @@ export function dockViteHubPageWindows(next: ViteHubPageToolsDock): void {
   for (const host of hosts) placeHost(host)
 }
 
-/**
- * Puts an element of the page tools in the new `<body>` when a router replaces `<body>` on navigation, as Turbo and the
- * Astro view transitions router do. An element that the page removes on its own stays removed. It stops when `signal`
- * aborts.
- */
-export function keepViteHubPageElement(element: HTMLElement, signal: AbortSignal): void {
-  if (signal.aborted) return
-  const observer = new MutationObserver((records) => {
-    if (signal.aborted || element.isConnected || !document.body) return
-    if (records.some(record => [...record.removedNodes].some(node => node.contains(element)))) document.body.append(element)
-  })
-  observer.observe(document.documentElement, { childList: true })
-  signal.addEventListener("abort", () => observer.disconnect(), { once: true })
-}
-
 function icon(data: string): SVGSVGElement {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg")
   for (const [name, value] of Object.entries({ width: "16", height: "16", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "1.75", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" })) svg.setAttribute(name, value)
@@ -212,14 +197,14 @@ export function createViteHubPageWindow(options: ViteHubPageWindowOptions): Vite
   // Each window has its own name, so a page's View Transition leaves it in place instead of fading it with the page.
   host.style.viewTransitionName = `vitehub-window-${++names}`
   placeHost(host)
-  const mounted = new AbortController()
-  const destroy = () => { mounted.abort(); hosts.delete(host); resize.disconnect(); host.remove() }
+  const destroy = () => { hosts.delete(host); resize.disconnect(); host.remove() }
   if (options.signal.aborted) destroy()
   else {
     options.signal.addEventListener("abort", destroy, { once: true })
     hosts.add(host)
-    document.body.append(host)
-    keepViteHubPageElement(host, mounted.signal)
+    // Stay outside the router's replaceable body from the first mount. Reattaching a detached iframe would reload
+    // its editor and lose unsaved drafts, even if its DOM host were restored immediately after the swap.
+    document.documentElement.append(host)
   }
   return {
     body,

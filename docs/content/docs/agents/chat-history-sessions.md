@@ -103,7 +103,7 @@ message without it.
 History messages keep their text, but by default their attachments are not
 model input. Set `maxImages` to send the newest history photos again:
 
-```ts [server/agents/meals.ts]
+```ts [server/utils/meal-chat.ts]
 import { chat } from 'vite-hub/agent/capabilities'
 
 export const mealChat = chat({
