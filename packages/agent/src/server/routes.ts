@@ -761,10 +761,13 @@ function normalizeWebhookPath(path: string): string {
   return normalized.length > 1 ? normalized.replace(/\/+$/, "") : normalized
 }
 
-function webhookRegistrationPathMatches(request: Request, registration: AgentWebhookRegistrationDefinition): boolean {
-  const pathname = normalizeWebhookPath(new URL(request.url).pathname)
+function webhookRegistrationPaths(registration: AgentWebhookRegistrationDefinition): string[] {
   const paths = [registration.path, ...(Array.isArray(registration.aliases) ? registration.aliases : [])]
-  return paths.some(path => isRuntimeString(path) && pathname === normalizeWebhookPath(path))
+  return paths.filter(path => isRuntimeString(path)).map(normalizeWebhookPath)
+}
+
+function webhookRegistrationPathMatches(request: Request, registration: AgentWebhookRegistrationDefinition): boolean {
+  return webhookRegistrationPaths(registration).includes(normalizeWebhookPath(new URL(request.url).pathname))
 }
 
 async function findAgentWebhookRegistration(
@@ -10071,7 +10074,10 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       )
     })
   }
-  handler.matchesPath = async (request, handlerOptions = {}) => {
+  // The declared webhook middleware calls `matchesPath` for every request of the app. Declared paths come from the
+  // Agent Definition, not from the request, so the handler resolves them once instead of resolving every trigger per request.
+  let declaredPaths: Promise<Set<string>> | undefined
+  const resolveDeclaredPaths = async (request: Request, handlerOptions: AgentChannelWebhookRouteOptions) => {
     const context = createRuntimeContext(
       request,
       undefined,
@@ -10081,9 +10087,15 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       handlerOptions.capabilities,
       routeAgentIdentity(handlerOptions),
     )
-    return await runWithRuntimeCloudflareEnv(context, async () =>
-      (await agentWebhookRegistrations(agent, context)).some(({ registration }) => webhookRegistrationPathMatches(request, registration)),
-    )
+    const registrations = await runWithRuntimeCloudflareEnv(context, () => agentWebhookRegistrations(agent, context))
+    return new Set(registrations.flatMap(({ registration }) => webhookRegistrationPaths(registration)))
+  }
+  handler.matchesPath = async (request, handlerOptions = {}) => {
+    declaredPaths ??= resolveDeclaredPaths(request, handlerOptions).catch((error: unknown) => {
+      declaredPaths = undefined
+      throw error
+    })
+    return (await declaredPaths).has(normalizeWebhookPath(new URL(request.url).pathname))
   }
   handler.channels = async (request, handlerOptions = {}) => {
     const context = createRuntimeContext(

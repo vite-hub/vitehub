@@ -91,6 +91,7 @@ export const app = new H3()
 | `createAuthAccessHandler(routes, definition?)` | Creates a handler that matches discovered route metadata, then authenticates and runs every matching authorization rule. |
 | `withAuth(handler, definition?)` | Returns a handler that calls `handler(input, authorization)` when a session exists. Otherwise it returns an unauthorized or sign-in response. |
 | `withAuthorization(authorize, handler, definition?)` | Returns a handler that calls `handler(input, authorization)` when allowed. Otherwise it returns JSON `401` without a session, `403` when `authorize` returns `false`, or the callback's `Response`. |
+| `withAnonymousAuthorization(authorize, handler, definition?)` | Like `withAuthorization()`, but a signed-out caller also reaches `authorize`, with `session` and `user` set to `null`. `false` returns JSON `401` for a signed-out caller and `403` for a signed-in one. |
 | `requireAuth(definition?)` | Returns `(event, next)` route middleware for H3 2. It calls `next()` when a session exists. Otherwise it returns the same response as `withAuth()`. |
 | `requireAuthorization(authorize, definition?)` | Returns `(event, next)` route middleware for H3 2. It calls `next()` when allowed. Otherwise it returns the same response as `withAuthorization()`. |
 | `getAuthorization(event)` | Returns the `authorization` that `requireAuth()` or `requireAuthorization()` attached to the event. Throws `AUTH_R0017` when no Auth middleware accepted it. |
