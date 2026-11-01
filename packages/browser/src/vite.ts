@@ -58,6 +58,8 @@ export function inspectBrowserDefinitions(options: BrowserInspectionOptions): Vi
 
 const browserRegistryId = "#vitehub/browser/registry"
 const browserRuntimeId = "#vitehub/browser/runtime"
+const browserAvailabilityId = "#vitehub/browser/availability"
+const resolvedBrowserAvailabilityId = `\0${browserAvailabilityId}`
 const resolvedBrowserRegistryId = `\0${browserRegistryId}`
 const resolvedBrowserRuntimeId = `\0${browserRuntimeId}`
 const mergeNoExternal = createNoExternalAddition("@vite-hub/browser")
@@ -197,6 +199,13 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
     ].join("\n")
   }
 
+  function availabilityContents() {
+    const availability = enabled
+      ? { available: true }
+      : { available: false, reason: "This build disables Browser.", fix: "Remove `browser: false` from the Vite config." }
+    return `export default ${JSON.stringify(availability)}\n`
+  }
+
   async function refreshRegistryTypes(root: string) {
     const definitions = enabled ? discoverDefinitions(root) : []
     await writeFileIfChanged(
@@ -260,10 +269,12 @@ export function hubBrowser(options?: BrowserModuleOptions | false): BrowserViteP
     resolveId(id) {
       if (id === browserRegistryId) return resolvedBrowserRegistryId
       if (id === browserRuntimeId) return resolvedBrowserRuntimeId
+      if (id === browserAvailabilityId) return resolvedBrowserAvailabilityId
     },
     load(id) {
       if (id === resolvedBrowserRegistryId) return registryContents(resolved?.root || process.cwd())
       if (id === resolvedBrowserRuntimeId) return runtimeContents()
+      if (id === resolvedBrowserAvailabilityId) return availabilityContents()
     },
     buildStart() {
       providerOutputGenerations.capture(this, providerOutput)

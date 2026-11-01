@@ -52,6 +52,15 @@ describe("built-in deployment plans", () => {
       'The "deno" preset cannot provide sandbox',
     )
   })
+  it("says which presets provide Browser and Realtime", () => {
+    const presets = ["cloudflare", "deno", "netlify", "node", "vercel"] as const
+    expect(Object.fromEntries(presets.map(preset => [preset, resolveDeploymentPlan(preset).services.browser.supported]))).toEqual({
+      cloudflare: true, deno: false, netlify: false, node: false, vercel: false,
+    })
+    expect(Object.fromEntries(presets.map(preset => [preset, resolveDeploymentPlan(preset).services.realtime.supported]))).toEqual({
+      cloudflare: true, deno: false, netlify: false, node: true, vercel: false,
+    })
+  })
   it("keeps legacy hosting detection limited to hosted providers", () => {
     expect(
       ["cloudflare-module", "netlify", "vercel", "deno-deploy", "node-server"].map(

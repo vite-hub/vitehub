@@ -2,9 +2,10 @@ import { runtimeBinding } from "./internal/runtime-binding.ts"
 import { withBrowserTimeout } from "./internal/timeout.ts"
 import runtimeConfig from "#vitehub/browser/runtime"
 
+import { browserUnavailableError, isBrowserAvailable } from "./availability.ts"
+export { isBrowserAvailable } from "./availability.ts"
 import {
   browserProviderError,
-  browserRuntimeNotConfiguredError,
   toBrowserError,
 } from "./errors.ts"
 
@@ -54,9 +55,8 @@ function actionTimeoutMs(input: Record<string, unknown>): number {
 }
 
 async function resolveBinding(): Promise<BrowserRunBinding> {
-  if (runtimeConfig.provider !== "cloudflare") throw browserRuntimeNotConfiguredError()
   const bindingOption = runtimeConfig.binding
-  if (!bindingOption) throw browserRuntimeNotConfiguredError()
+  if (!isBrowserAvailable() || runtimeConfig.provider !== "cloudflare" || !bindingOption) throw browserUnavailableError()
   const binding = await runtimeBinding(bindingOption)
   if (!binding || typeof (binding as BrowserRunBinding).quickAction !== "function") {
     throw browserProviderError("cloudflare", `resolve Browser Run binding ${JSON.stringify(bindingOption)}`)

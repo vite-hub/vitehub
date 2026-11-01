@@ -28,6 +28,12 @@
   "type": "module",
   "sideEffects": false,
   "types": "./dist/index.d.ts",
+  "imports": {
+    "#vitehub/realtime/availability": {
+      "types": "./dist/internal/runtime/unavailable.d.ts",
+      "default": "./dist/internal/runtime/unavailable.js"
+    }
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -38,6 +44,11 @@
       "types": "./dist/client.d.ts",
       "import": "./dist/client.js",
       "default": "./dist/client.js"
+    },
+    "./internal/runtime/unavailable": {
+      "types": "./dist/internal/runtime/unavailable.d.ts",
+      "import": "./dist/internal/runtime/unavailable.js",
+      "default": "./dist/internal/runtime/unavailable.js"
     },
     "./server": {
       "types": "./dist/server.d.ts",

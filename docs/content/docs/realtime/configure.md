@@ -42,12 +42,33 @@ rooms.
 | --- | --- | --- | --- |
 | Node, Docker (one process) | `memory` | In process memory. | Only what the document adapter saved. Unsaved edits from the last idle window are lost. |
 | Cloudflare Workers | `cloudflare` | Nitro's `cloudflare-durable` instance, one room per document, Yjs updates in its SQLite storage. | The full Yjs state, its seed, and whether it was saved. A woken room saves pending edits. |
-| Vercel, Netlify, Deno Deploy | none | Not supported. | Builds fail with `REALTIME_MISSING_AUTHORITY` or `REALTIME_AUTHORITY_CONFLICT`. |
+| Vercel, Netlify, Deno Deploy | none | Not supported. | Builds that enable Realtime fail with `REALTIME_MISSING_AUTHORITY` or `REALTIME_AUTHORITY_CONFLICT`. |
 
 Serverless functions without a shared room cannot run Realtime. Polling a
 database for CRDT updates races and loads the database; WordPress removed
 HTTP-polling collaboration from 7.0 for those reasons. Use a single-writer
 flow, or a Workspace or Content lease, on hosts without an authority.
+
+## Builds without Realtime
+
+An application that deploys to more than one host can import
+`vite-hub/realtime/server` on every host. A build that does not enable
+Realtime still builds. It has no rooms, so `refreshRealtimeDocument()`
+resolves `false`. Call `isRealtimeAvailable()` to turn off features that need
+rooms:
+
+```ts [server/api/drafts/[id].post.ts]
+import { defineEventHandler } from 'h3'
+import { isRealtimeAvailable } from 'vite-hub/realtime/server'
+
+export default defineEventHandler(() => {
+  if (!isRealtimeAvailable()) return new Response('Live editing is off on this host.', { status: 404 })
+  // Open the draft for its room.
+})
+```
+
+`isRealtimeAvailable()` returns `true` in a build with a room authority, and
+on the dev server.
 
 ## Control saves
 

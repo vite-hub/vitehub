@@ -17,6 +17,7 @@ icon: i-lucide-code-2
 | `useRealtimeTiptap` from `vite-hub/realtime/vue` | Connect a Vue TipTap editor, fields, presence, saves, and resets. |
 | `connectRealtimeRoom` from `@vite-hub/realtime/client` | Join one room for [presence without an editor](#presence-without-an-editor), in any framework. |
 | `refreshRealtimeDocument` from `vite-hub/realtime/server` | Tell the open room of a document that its stored copy changed. |
+| `isRealtimeAvailable` from `vite-hub/realtime/server` | Check whether this build has a room authority. See [Builds without Realtime](/docs/realtime/configure#builds-without-realtime). |
 | `workspaceDocument` from `vite-hub/realtime/server` | The Workspace document adapter, for wrapping or composing. |
 | `createRealtimeHandler` from `vite-hub/realtime/server` | Build a handler for a manual server integration. The ViteHub integration generates this route for normal applications. |
 

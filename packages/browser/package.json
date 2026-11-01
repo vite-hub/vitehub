@@ -37,6 +37,10 @@
       "types": "./dist/internal/runtime/unconfigured.d.ts",
       "default": "./dist/internal/runtime/unconfigured.js"
     },
+    "#vitehub/browser/availability": {
+      "types": "./dist/internal/runtime/unavailable.d.ts",
+      "default": "./dist/internal/runtime/unavailable.js"
+    },
     "#vitehub/browser/chromium": {
       "types": "./dist/internal/chromium.d.ts",
       "workerd": "./dist/internal/chromium.workerd.js",
@@ -78,6 +82,11 @@
       "types": "./dist/internal/runtime/empty-registry.d.ts",
       "import": "./dist/internal/runtime/empty-registry.js",
       "default": "./dist/internal/runtime/empty-registry.js"
+    },
+    "./internal/runtime/unavailable": {
+      "types": "./dist/internal/runtime/unavailable.d.ts",
+      "import": "./dist/internal/runtime/unavailable.js",
+      "default": "./dist/internal/runtime/unavailable.js"
     },
     "./internal/runtime/unconfigured": {
       "types": "./dist/internal/runtime/unconfigured.d.ts",
