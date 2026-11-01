@@ -61,7 +61,8 @@ function writeMigrateUsage(context: ViteHubCliContext): void {
     "",
     "Refreshes ViteHub database artifacts and applies pending Drizzle migrations.",
     "It first reads the applied migrations from the database. It refuses pending",
-    "migrations that drop tables or columns or delete rows.",
+    "migrations that drop tables or columns or delete rows. D1 HTTP databases use",
+    "Wrangler's migrations table, like `wrangler d1 migrations apply`.",
     "",
     "Options:",
     "  --dry-run          Print the pending migrations and their SQL. Change nothing.",
@@ -137,13 +138,6 @@ async function runDrizzleKit(
   // Drizzle Kit resolves `out` and the SQLite URL from its working directory, and the Database writes them relative to its
   // project root. In Nuxt the Vite root is `srcDir` (`app/`), so `context.rootDir` is not the project root.
   const projectRoot = config?.rootDir ?? context.rootDir
-  // Prefer the Database root because the generated config and working directory
-  // belong to it. Fall back to the invoking Vite root for external Database roots.
-  const drizzleKitBin = resolveDrizzleKitBin([projectRoot, context.rootDir])
-  if (!drizzleKitBin) {
-    context.stderr.write(`[vitehub] Cannot find drizzle-kit in the dependencies of ${projectRoot}. Install it, for example with \`pnpm add -D drizzle-kit\`.\n`)
-    return 1
-  }
   const runs = config && config.databaseNames.length > 1
     ? config.databaseNames.map(name => ({ configFile: config.generatedDrizzleConfigFilesByDatabase[name]!, database: config.databases?.[name] }))
     : [{ configFile: config?.generatedDrizzleConfigFile ?? ".vitehub/database/drizzle.config.ts", database: config?.databases?.[config.databaseNames[0]!] }]
@@ -171,7 +165,22 @@ async function runDrizzleKit(
     if (dryRun) context.stdout.write("[vitehub] Dry run. No changes were made.\n")
     if (exitCode !== 0 || dryRun) return exitCode
   }
+  // D1 HTTP uses Wrangler's ledger, which Drizzle Kit cannot write, so ViteHub applies those migrations itself.
+  const usesD1Http = (database: ResolvedDrizzleDatabaseConfig | undefined): database is ResolvedDrizzleDatabaseConfig =>
+    feature === "migrate" && database?.dialect === "sqlite" && !!database.cloudflare?.http && database.cloudflare.databaseId !== undefined
+  // A project with only D1 HTTP databases can migrate without Drizzle Kit. Prefer the Database root because the
+  // generated config and working directory belong to it. Fall back to the invoking Vite root for external Database roots.
+  const drizzleKitBin = runs.every(run => usesD1Http(run.database)) ? "" : resolveDrizzleKitBin([projectRoot, context.rootDir])
+  if (drizzleKitBin === undefined) {
+    context.stderr.write(`[vitehub] Cannot find drizzle-kit in the dependencies of ${projectRoot}. Install it, for example with \`pnpm add -D drizzle-kit\`.\n`)
+    return 1
+  }
   for (const { configFile, database } of runs) {
+    if (usesD1Http(database)) {
+      const result = await migrateD1Database(database, projectRoot, context)
+      if (result !== 0) return result
+      continue
+    }
     if (feature === "migrate" && database) await ensureLocalSqliteDirectory(database, projectRoot, context)
     const result = await runDrizzleKitWithConfig(feature, args, context, { bin: drizzleKitBin, configFile: toConfigPath(projectRoot, configFile), projectRoot })
     if (result !== 0) return result
@@ -214,6 +223,21 @@ async function checkPendingMigrations(
     context.stderr.write(`${formatRuntimeDiagnosticError(databaseErrorDiagnostics.DATABASE_MIGRATION_DATA_LOSS({ database: plan.database, statements: losses }))}\n`)
     return 1
   }
+  return 0
+}
+
+async function migrateD1Database(database: ResolvedDrizzleDatabaseConfig, projectRoot: string, context: ViteHubCliContext): Promise<number> {
+  const { migrateD1Http } = await import("./internal/migration-plan.ts")
+  const problem = await migrateD1Http(
+    { ...database, migrationsDir: resolve(projectRoot, database.migrationsDir) },
+    { env: context.env ?? process.env, projectRoot },
+    name => context.stdout.write(`[vitehub] Database "${database.name}": applied ${name}.\n`),
+  )
+  if (problem) {
+    context.stderr.write(`[vitehub] D1 migration failed for the database "${database.name}". ${problem}\n`)
+    return 1
+  }
+  context.stdout.write(`[vitehub] Database "${database.name}": D1 migrations are up to date.\n`)
   return 0
 }
 
