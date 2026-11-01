@@ -38,8 +38,10 @@ import {
   readRealtimeStatus,
   readRealtimeYDoc,
   realtimeCodecReadsBack,
+  realtimeDocumentLayout,
   realtimeJsonEqual,
   realtimeStatusFingerprint,
+  writeRealtimeFields,
   writeRealtimeStatus,
 } from "./document.ts"
 import { realtimeMarkdownEditor } from "./editor.ts"
@@ -109,6 +111,17 @@ export const realtimePersistenceDefaults = Object.freeze({ debounce: 2_000, maxW
 
 /** Origin of updates that the server writes itself: seeds, stored-form merges, and status. */
 const serverOrigin = Symbol("vitehub.realtime.server")
+
+/** The fields that the adapter loaded, without the ones it left undefined. */
+function loadedFields(loaded: RealtimeLoadedDocument): Record<string, RealtimeFieldValue> {
+  return Object.fromEntries(Object.entries(loaded.fields ?? {}).filter(([, value]) => value !== undefined))
+}
+
+/** True when the field map holds exactly these fields, including fields whose value is null. */
+function holdsFields(map: Y.Map<unknown>, fields: Record<string, RealtimeFieldValue>): boolean {
+  const keys = Object.keys(fields)
+  return map.size === keys.length && keys.every(key => map.has(key) && realtimeJsonEqual(map.get(key), fields[key]))
+}
 
 const readOnlyDocumentMessage = "The editor cannot save this document without loss. The room is read-only."
 const readOnlyDocumentRejection = "This realtime document is read-only: the editor cannot save it without loss."
@@ -366,9 +379,8 @@ interface DocumentGuard {
 async function verifyDocument(editor: RealtimeEditor, loaded: RealtimeLoadedDocument): Promise<DocumentGuard> {
   const result = await editor.verify?.(loaded.body, { fields: loaded.fields })
   const finalNewline = loaded.body.endsWith("\n")
-  const fields = Object.fromEntries(Object.entries(loaded.fields ?? {}).filter(([, value]) => value !== undefined))
   return {
-    clean: { body: keepRealtimeFinalNewline(result?.canonical ?? loaded.body, finalNewline), fields },
+    clean: { body: keepRealtimeFinalNewline(result?.canonical ?? loaded.body, finalNewline), fields: loadedFields(loaded) },
     finalNewline,
     issues: result?.issues ?? [],
     readOnly: result?.writable === false,
@@ -889,6 +901,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       let document: Y.Doc
       let persistedUpdates = 0
       let dirty = false
+      let refreshedFields = false
       if (restores) {
         document = new Y.Doc()
         try {
@@ -906,6 +919,13 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
           }
           persistedUpdates = updates.length
           dirty = Number(stored?.dirty) === 1 || updates.some(update => update.client_update === undefined || Number(update.client_update) === 1)
+          // A schema can read the same stored file differently, such as a string that now reads as an image
+          // reference. A room without unsaved edits shows the fields as they load now.
+          const fields = document.getMap(realtimeDocumentLayout.fields)
+          if (!dirty && !holdsFields(fields, guard.clean.fields)) {
+            document.transact(() => writeRealtimeFields(fields, guard.clean.fields), serverOrigin)
+            refreshedFields = true
+          }
           assertRealtimeRoomStateQuota(document)
           // The codec may have changed since the room was persisted: show what it reports now.
           if (guard.readOnly || readRealtimeStatus(document).error === readOnlyDocumentMessage) {
@@ -948,7 +968,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
         sql,
       }
       listen(room, document)
-      if (sql && !restores) persistRoom(room)
+      if (sql && (!restores || refreshedFields)) persistRoom(room)
       if (dirty) scheduleSave(room)
       return room
     })
@@ -1246,13 +1266,37 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     }
   }
 
+  /**
+   * Shows a clean room's stored file with the fields that it loads now, when they differ from the room's: a schema can
+   * read the same file differently. The new fields become the clean baseline. A state over the room quota changes nothing.
+   */
+  function refreshFields(room: DocumentRoom, fields: Record<string, RealtimeFieldValue>): void {
+    const map = room.document.getMap(realtimeDocumentLayout.fields)
+    if (holdsFields(map, fields)) return
+    const candidate = new Y.Doc()
+    try {
+      Y.applyUpdate(candidate, Y.encodeStateAsUpdate(room.document))
+      candidate.transact(() => writeRealtimeFields(candidate.getMap(realtimeDocumentLayout.fields), fields))
+      assertRealtimeRoomStateQuota(candidate)
+    }
+    finally {
+      candidate.destroy()
+    }
+    room.document.transact(() => writeRealtimeFields(map, fields), serverOrigin)
+    room.guard = { ...room.guard, clean: { ...room.guard.clean, fields } }
+    persistRoom(room)
+  }
+
   async function refreshRoom(room: DocumentRoom): Promise<{ digest: string | null, reseeded: boolean }> {
     const revision = room.revision
     const loaded = await room.resolved.adapter.load(room.context)
     // A client may edit while the adapter is loading. Preserve that live edit
     // and let the normal save path reconcile the external change.
     if (room.dirty || room.revision !== revision) return { digest: room.digest, reseeded: false }
-    if (loaded.digest === room.digest) return { digest: room.digest, reseeded: false }
+    if (loaded.digest === room.digest) {
+      refreshFields(room, loadedFields(loaded))
+      return { digest: room.digest, reseeded: false }
+    }
     const reseeded = await reseedRoom(room, "source-changed", loaded, true)
     return { digest: room.digest, reseeded }
   }
