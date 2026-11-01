@@ -635,8 +635,13 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         ].join("\n"), "utf8"),
         writeFile(join(appDir, "package.json"), JSON.stringify({
           dependencies: { h3: "2.0.1-rc.33", nitro: "3.0.260903-beta", vite: "8.2.2", "vite-hub": specs["vite-hub"] },
+          devDependencies: { "@types/node": "24.19.1", typescript: "6.0.3" },
           private: true,
           type: "module",
+        }, null, 2), "utf8"),
+        writeFile(join(appDir, "tsconfig.json"), JSON.stringify({
+          compilerOptions: { module: "ESNext", moduleResolution: "Bundler", target: "ESNext", noEmit: true, strict: true, skipLibCheck: false, types: ["node"] },
+          include: ["vite.config.ts"],
         }, null, 2), "utf8"),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(requiredSpecs), "utf8"),
       ])
@@ -645,11 +650,23 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       const installed = await readdir(join(appDir, "node_modules/.pnpm"))
       const featurePackages = ["@vite-hub+agent@", "@vite-hub+auth@", "@vite-hub+realtime@", "@vite-hub+shell@", "@vite-hub+ui@", "better-auth@", "@tiptap+core@", "drizzle-orm@", "drizzle-kit@", "@libsql+client@", "ssh2@", "shiki@", "workflow@", "just-bash@", "effect@"]
       expect(installed.filter(entry => featurePackages.some(prefix => entry.startsWith(prefix)))).toEqual([])
+      await run("pnpm", ["exec", "tsc", "--noEmit"], appDir)
       await run("pnpm", ["exec", "vite", "build"], appDir)
       expect(existsSync(join(appDir, ".output/server/index.mjs"))).toBe(true)
 
+      await writeFile(join(appDir, "vite.config.ts"), config(", console: { auth: false }"), "utf8")
+      await run("pnpm", ["exec", "vite", "build"], appDir)
+
       await writeFile(join(appDir, "vite.config.ts"), config(", agent: true"), "utf8")
       await expect(run("pnpm", ["exec", "vite", "build"], appDir)).rejects.toThrow("Install the missing packages in your app with: pnpm add @vite-hub/agent")
+
+      await writeFile(join(appDir, "vite.config.ts"), config(""), "utf8")
+      await writeFile(join(appDir, "server/comments.ts"), "export const comments = {}\n", "utf8")
+      await expect(run("pnpm", ["exec", "vite", "build"], appDir)).rejects.toThrow("pnpm add @vite-hub/comments @vite-hub/database drizzle-orm")
+      await rm(join(appDir, "server/comments.ts"))
+      await writeFile(join(appDir, "server/content.cts"), 'export { content } from "./definition"\n', "utf8")
+      await writeFile(join(appDir, "server/definition.ts"), 'import { cms } from "vite-hub/cms"\nexport const content = { extends: cms }\n', "utf8")
+      await expect(run("pnpm", ["exec", "vite", "build"], appDir)).rejects.toThrow("pnpm add @vite-hub/content @vite-hub/cms @vite-hub/database drizzle-orm @vite-hub/workspace")
     }
     finally {
       await rm(root, { recursive: true, force: true })

@@ -118,6 +118,7 @@ export function addConsoleRpcHandler(
     // Other Console access modes leave the application's origin-wide OAuth discovery routes alone.
     if (registration.absolute && !oauth) continue
     if (registration.suffix === "/_vitehub/auth/manage" && !sections.includes("auth")) continue;
+    if (registration.suffix === "/_vitehub/channels/replay" && !sections.includes("agents")) continue;
     const route = registration.absolute ? registration.suffix : mountPath(base, registration.suffix)
     const conflict = !registration.middleware && retainedHandlers.find(candidate => candidate.route === route && candidate.handler !== registration.handler)
     // Discovery middleware serves Console-owned URLs first and delegates the rest to the app.

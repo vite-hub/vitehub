@@ -85,6 +85,7 @@ async function requiredPeerSpecs() {
   const vercelCatalog = await catalogDependencySpecs("vercel", ["@vercel/functions"])
   const workflowCatalog = await catalogDependencySpecs("workflow", ["@workflow/builders", "workflow"])
   return {
+    ...await catalogDependencySpecs("auth", ["better-auth", "@better-auth/oauth-provider"]),
     ...agentCatalog,
     ...browserCatalog,
     ...chatCatalog,

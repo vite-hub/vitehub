@@ -287,7 +287,7 @@ function configureConsoleNitroRoutes(
       }
     }
     for (const handler of [
-      { handler: join(consoleRuntimeRoot, "server/status.get.js"), route: consoleMountPath(mount, "/api/_vitehub/console/status"), method: "get" },
+      ...(sections.includes("agents") ? [{ handler: join(consoleRuntimeRoot, "server/status.get.js"), route: consoleMountPath(mount, "/api/_vitehub/console/status"), method: "get" }] : []),
       // The Usage section reads the Agent invocation journal, which exists only with the Agents section.
       ...(sections.includes("logs") ? [{ handler: join(consoleRuntimeRoot, "server/logs.get.js"), route: consoleMountPath(mount, "/api/_vitehub/console/logs"), method: "get" }] : []),
       ...(sections.includes("agents") && sections.includes("usage") ? [{ handler: join(consoleRuntimeRoot, "server/usage.get.js"), route: consoleMountPath(mount, "/api/_vitehub/console/usage"), method: "get" }] : []),

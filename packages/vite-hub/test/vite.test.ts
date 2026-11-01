@@ -601,6 +601,11 @@ describe("vitehub", () => {
     expect(integrationMocks.hubAuth).toHaveBeenCalledWith(false, { importBase: "vite-hub/auth" })
   })
 
+  it("keeps Cloudflare Access Console auth independent of the Auth owner", () => {
+    const plugins = vitehub({ console: { auth: { provider: "cloudflare-access" } }, preset: "cloudflare" })
+    expect(pluginNames(plugins)).not.toContain("@vite-hub/auth/vite")
+  })
+
   it("rejects production Auth policy that does not protect Console status", async () => {
     integrationMocks.resolveAuthViteConfig.mockReturnValueOnce({
       access: { routes: [{ authorize: true, route: "/_vitehub/**" }] },

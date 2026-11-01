@@ -1163,7 +1163,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     if (options.agent && !devOperationsOnly) plugins.push(consoleInvocationRootPlugin(undefined, undefined, invocationRootState))
   }
 
-  if (options.auth || consoleAuthConfig(configuredConsole)) {
+  if (options.auth || consoleSignIn) {
     plugins.push(requireOptionalOwner(ownerModules.authVite, "auth").hubAuth(
       options.auth === true ? {} : options.auth || false,
       {

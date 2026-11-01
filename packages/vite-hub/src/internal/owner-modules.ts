@@ -1,9 +1,11 @@
 import { existsSync, readFileSync } from "node:fs"
-import { resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
 
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { findContentEntry } from "@vite-hub/source/vite"
+import { parseAst } from "vite"
 
-import { importOptionalOwner, missingFeaturePackagesError, type OptionalFeature } from "./optional-owners.ts"
+import { assertFeaturePackages, importOptionalOwner, type OptionalFeature } from "./optional-owners.ts"
 
 import type { Plugin } from "vite"
 
@@ -23,12 +25,34 @@ export const ownerModules = {
 }
 
 function findServerEntry(projectRoot: string, serverDirs: readonly string[] | undefined, name: string): string | undefined {
-  for (const directory of serverDirs?.length ? serverDirs : ["server"]) {
-    for (const extension of [".ts", ".mts", ".js", ".mjs"]) {
+  for (const directory of serverDirs ?? ["server"]) {
+    for (const extension of [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"]) {
       const file = resolve(projectRoot, directory, `${name}${extension}`)
       if (existsSync(file)) return file
     }
   }
+}
+
+/** Follow the relative Content re-exports accepted by CMS discovery, without loading an optional owner. */
+function importsCmsPreset(file: string, seen = new Set<string>()): boolean {
+  if (seen.has(file)) return false
+  seen.add(file)
+  const source = readFileSync(file, "utf8")
+  const program = parseAst(source, { lang: /\.[cm]?tsx$/.test(file) ? "tsx" : /\.[cm]?jsx$/.test(file) ? "jsx" : /\.[cm]?ts$/.test(file) ? "ts" : "js" })
+  for (const statement of program.body) {
+    if (statement.type === "ImportDeclaration" && statement.importKind !== "type"
+      && ["@vite-hub/cms", "vite-hub/cms"].includes(statement.source.value)) return true
+    if (statement.type !== "ExportAllDeclaration" && statement.type !== "ExportNamedDeclaration") continue
+    if (!statement.source?.value.startsWith(".")) continue
+    if (statement.type === "ExportNamedDeclaration" && !statement.specifiers.some(specifier =>
+      specifier.exported.type === "Identifier" ? specifier.exported.name === "content" : specifier.exported.value === "content",
+    )) continue
+    const base = resolve(dirname(file), statement.source.value)
+    const extensions = [".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"]
+    const target = [base, ...extensions.map(ext => `${base}${ext}`), ...extensions.map(ext => join(base, `index${ext}`))].find(candidate => existsSync(candidate))
+    if (target && importsCmsPreset(target, seen)) return true
+  }
+  return false
 }
 
 /**
@@ -38,17 +62,17 @@ function findServerEntry(projectRoot: string, serverDirs: readonly string[] | un
 export function optionalOwnerEntriesPlugin(): Plugin {
   return {
     name: "vite-hub/optional-owner-entries",
-    configResolved(config) {
+    async configResolved(config) {
       // SAFETY: The resolved config keeps ViteHub's shared keys from the config hook.
       const viteConfig = config as typeof config & { [VITEHUB_PROJECT_ROOT]?: string, [VITEHUB_SERVER_DIRS]?: string[] }
       const projectRoot = viteConfig[VITEHUB_PROJECT_ROOT] ? resolve(viteConfig[VITEHUB_PROJECT_ROOT]) : resolveViteHubProjectRoot(config.root)
       const serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
-      const content = findServerEntry(projectRoot, serverDirs, "content")
-      const missing: OptionalFeature[] = []
-      if (!ownerModules.commentsVite && findServerEntry(projectRoot, serverDirs, "comments")) missing.push("comments")
-      if (content && !ownerModules.contentVite) missing.push("content")
-      if (content && !ownerModules.cmsVite && /["'](?:@vite-hub|vite-hub)\/cms["']/.test(readFileSync(content, "utf8"))) missing.push("cms")
-      if (missing.length) throw missingFeaturePackagesError(missing)
+      const content = await findContentEntry({ projectRoot, serverDirs: serverDirs?.slice() })
+      const features: OptionalFeature[] = []
+      if (findServerEntry(projectRoot, serverDirs, "comments")) features.push("comments", "database")
+      if (content) features.push("content")
+      if (content && importsCmsPreset(content)) features.push("cms", "database", "workspace")
+      assertFeaturePackages([...new Set(features)])
     },
   }
 }
