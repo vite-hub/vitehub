@@ -73,7 +73,7 @@ describe("default policy", () => {
     vi.stubEnv("NODE_ENV", environment)
     const call = await setup(fakeLogin(null), development)
     const { body } = await call("/session")
-    expect(body!.data.can).toEqual({ read: development, comment: development, resolve: development })
+    expect(body!.data.can).toEqual({ read: development, comment: development, resolve: development, delete: development })
     expect((await call("/threads")).response.status).toBe(development ? 200 : 403)
     const created = await call("/threads", {
       method: "POST",

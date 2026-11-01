@@ -1,5 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest"
 
+import { cmsConsoleAuthorize } from "vite-hub/cms/access"
 import { defineConsoleAuthorize } from "vite-hub/console/auth"
 import { bindConsoleAccess, installConsoleAccess, withConsoleAccess } from "../src/console/runtime/server/access.ts"
 
@@ -50,6 +51,8 @@ describe("Console access types", () => {
     defineConsoleAuthorize(({ request }) => request.headers.get("x-role") === "admin")
     defineConsoleAuthorize(() => new Response("Sign in at the host.", { status: 401 }))
     defineConsoleAuthorize(({ user }) => user?.role === "editor" ? { sections: ["content"] } : true)
+    // The CMS roles grant Console sections without a wrapper.
+    defineConsoleAuthorize(cmsConsoleAuthorize)
     // @ts-expect-error An authorize function returns a boolean, a Response, or { sections }.
     defineConsoleAuthorize(() => "admin")
     // @ts-expect-error Section ids are strings.

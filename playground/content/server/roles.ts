@@ -1,17 +1,17 @@
-/** Playground users. Each signs in at /login with the password below. */
+import type { CmsRoleName } from "vite-hub/cms/access"
+
+/** Playground users and the CMS role each gets at sign-up. Each signs in at /login with the password below. */
 export const playgroundUsers = {
   "admin@vitehub.dev": "admin",
-  "editor@vitehub.dev": "editor",
-  "writer@vitehub.dev": "writer",
-} as const
+  "editor@vitehub.dev": "publisher",
+  "writer@vitehub.dev": "editor",
+  "reviewer@vitehub.dev": "commenter",
+} as const satisfies Record<string, CmsRoleName>
 
 export const playgroundPassword = "content-playground"
 
-export type PlaygroundRole = (typeof playgroundUsers)[keyof typeof playgroundUsers]
+const roles: ReadonlyMap<string, CmsRoleName> = new Map(Object.entries(playgroundUsers))
 
-const roles: ReadonlyMap<string, PlaygroundRole> = new Map(Object.entries(playgroundUsers))
-
-export function roleOf(user: Record<string, unknown> | null | undefined): PlaygroundRole | undefined {
-  const email = user?.email
+export function playgroundRoleOf(email: unknown): CmsRoleName | undefined {
   return String(email) === email ? roles.get(email) : undefined
 }

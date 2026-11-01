@@ -648,6 +648,14 @@ Open an Agent Invocation and expand **Captured setup** to inspect the context re
 
 Invocation journals are metadata-only by default. In that mode, Captured setup includes tool names but omits instructions, descriptions, and schemas. Configure the Agent's invocation journal with `configuration: 'content'` to retain the resolved context independently of other trace content. `content: 'content'` also retains it. Large journal observations remain subject to ViteHub's trace bounds and are marked when truncated. That context can contain secrets or customer data contributed by application code, so use the same access, retention, and encryption controls as prompts and model output. See [Agent Invocations](/docs/agents/invocation-storage#store-invocation-history) for configuration details.
 
+## Inspect Skills
+
+Open **Skills** to browse the files bundled with each discovered Agent Definition. The tree includes colocated `skills/` files and Skills added with `agentWithSkills()`. Select a file to read its Markdown preview or its source. Markdown links to other bundled files open those files in the tree. The URL keeps the selected Agent and file.
+
+**Skill index** opens [ViteHub's published Skill index](https://vitehub.dev/.well-known/skills/index.json). This public index is separate from the current app's bundled Agent Skills.
+
+This view reads the current Agent Definition. It does not start an invocation or refresh a Source. Inspect Source-mounted Skills in a session's Workspace. Text previews are limited to 512 KiB; binary files remain listed but cannot be previewed.
+
 ## Inspect usage
 
 Open **Usage** in the Console sidebar to inspect provider-reported tokens and cost across the past 24 hours, 7 days, 30 days, or 90 days. The dashboard groups completed Agent Invocations by time and model. A warning appears when the bounded journal scan reaches 10,000 records or a recorded finish event is truncated, so partial totals are never presented as complete.

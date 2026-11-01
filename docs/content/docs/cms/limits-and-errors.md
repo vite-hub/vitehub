@@ -2,7 +2,7 @@
 title: CMS limits and errors
 description: Limits of the GitHub store, how to publish a document that changed on both sides, and the fix for each error code of the cms preset.
 navigation.title: Limits and errors
-navigation.order: 6
+navigation.order: 7
 icon: i-lucide-circle-alert
 ---
 

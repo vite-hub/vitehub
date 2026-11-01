@@ -1,7 +1,6 @@
 import { defineContent, documents, image, optional, seo, singleton } from "vite-hub/content"
+import { cmsContentAuthorize } from "vite-hub/cms/access"
 import { z } from "zod"
-
-import { roleOf } from "./roles"
 
 const link = z.object({ label: z.string().min(1), to: z.string().min(1), icon: z.string().optional() })
 
@@ -52,11 +51,7 @@ export const content = defineContent({
   },
   // /sitemap.xml lists published posts with their URL; /robots.txt points crawlers at it.
   seo: { sitemap: true, robots: { disallow: ["/_vitehub", "/login"] } },
-  // Admins and editors do everything. Writers save drafts but cannot publish.
-  authorize: ({ user, action }) => {
-    const role = roleOf(user)
-    if (role === "admin" || role === "editor") return true
-    if (role === "writer") return action !== "publish"
-    return false
-  },
+  // The CMS roles decide. This app keeps its own `site` Workspace instead of `extends: cms`, so it names the policy.
+  // Publishers and admins publish, editors save drafts, and commenters read them.
+  authorize: cmsContentAuthorize,
 })

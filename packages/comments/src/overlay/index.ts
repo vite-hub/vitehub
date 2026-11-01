@@ -851,7 +851,7 @@ class CommentsOverlay extends HTMLElement {
         h("div", { className: "message-head" },
           h("span", { className: "name" }, comment.author.guest ? `${comment.author.name} (guest)` : comment.author.name),
           h("time", { className: "time", datetime: comment.createdAt, title: new Date(comment.createdAt).toLocaleString() }, ago(comment.createdAt)),
-          session.user && !session.user.guest && (can.resolve || (can.comment && !comment.author.guest && comment.author.id === session.user.id)) && h("button", { className: "icon danger", title: "Delete", "aria-label": "Delete comment", onClick: () => void this.removeComment(thread, comment.id) }, icons.trash())),
+          session.user && !session.user.guest && (can.delete || (can.comment && !comment.author.guest && comment.author.id === session.user.id)) && h("button", { className: "icon danger", title: "Delete", "aria-label": "Delete comment", onClick: () => void this.removeComment(thread, comment.id) }, icons.trash())),
         renderBody(comment.body, comment.mentions)))),
       !resolved && can.comment && this.renderCompose("Reply", (body, mentions, name) => this.reply(thread, body, mentions, name)),
     )

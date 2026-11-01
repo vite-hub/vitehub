@@ -692,6 +692,10 @@ describe("framework package contract", () => {
       true,
     );
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-state.vue`)).toBe(true);
+    for (const path of ["components/console-skills.vue", "components/console-skill-tree.vue", "components/console-skill-file.vue", "skills.js"]) {
+      expect(existsSync(`${packageRoot}/dist/console/runtime/${path}`)).toBe(true);
+    }
+    expect(manifest.exports).not.toHaveProperty("./console/runtime/skills");
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-kv.vue`)).toBe(true);
     const consoleKV = readFileSync(
       `${packageRoot}/dist/console/runtime/components/console-kv.vue`,

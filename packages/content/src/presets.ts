@@ -2,6 +2,8 @@ import { assertKnownPresetOptions, isPresetOptionsRecord, readPresetSelection } 
 
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 
+import type { ContentAuthorize } from "./index.ts"
+
 const contentPresetMarker: unique symbol = Symbol.for("vitehub.content.preset")
 
 /** Options that a Content preset fills in `defineContent()`. */
@@ -10,6 +12,8 @@ export interface ContentPresetDefaults {
   workspace?: string
   /** How `publish()` reaches the published ref on a Store with pull requests. Defaults to `commit`. */
   publish?: "commit" | "pr"
+  /** The policy of `content.can()` when `defineContent()` sets no `authorize`. */
+  authorize?: ContentAuthorize
 }
 
 /**
@@ -84,6 +88,10 @@ export function resolveContentPreset(extension: unknown): ContentPresetDefaults 
   const defaults = preset.configure(merged)
   if (!isPresetOptionsRecord(defaults)) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content preset ${JSON.stringify(preset.name)} must return an options object from configure().` })
+  }
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A preset policy is a callback and may come from another realm.
+  if (defaults.authorize !== undefined && typeof defaults.authorize !== "function") {
+    throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content preset ${JSON.stringify(preset.name)} must return authorize as a function from configure().` })
   }
   return defaults
 }

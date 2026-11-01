@@ -7,10 +7,10 @@ export default defineConfig({
     tsconfig: "tsconfig.build.json",
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/],
-      neverBundle: ["@vite-hub/content", /^@vite-hub\/content\//, "@vite-hub/database", /^@vite-hub\/database\//, "@vite-hub/source", /^@vite-hub\/source\//, "@vite-hub/workspace", /^@vite-hub\/workspace\//, "nostics", "vite"],
+      neverBundle: ["better-auth", /^better-auth\//, "@vite-hub/comments", /^@vite-hub\/comments\//, "@vite-hub/content", /^@vite-hub\/content\//, "@vite-hub/database", /^@vite-hub\/database\//, "@vite-hub/source", /^@vite-hub\/source\//, "@vite-hub/workspace", /^@vite-hub\/workspace\//, "nostics", "vite"],
       onlyBundle: false,
     },
-    entry: ["src/index.ts", "src/vite.ts"],
+    entry: ["src/access.ts", "src/index.ts", "src/vite.ts"],
     exports: {
       customExports: normalizePackageExports,
       inlinedDependencies: false,
