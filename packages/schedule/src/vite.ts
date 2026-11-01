@@ -4,7 +4,7 @@ import { dirname, relative, resolve, normalize } from "node:path"
 
 import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
-import { removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
+import { providerOutputAliasSources, removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
 import { collectViteHubProviderImportAliases, createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, prepareViteHubProviderSources, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -736,7 +736,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         const retainedSources = definitions.length || workflow
           ? await retainProviderOutputSources({
               artifactDir: resolve(contributionArtifactDir, "sources"),
-              paths: [...definitions.map(definition => definition.handler), ...Object.keys(aliases), ...Object.values(aliases)],
+              paths: [...definitions.map(definition => definition.handler), ...providerOutputAliasSources(aliases, [rootDir])],
               roots: [rootDir],
             })
           : { resolve: (path: string) => path }
