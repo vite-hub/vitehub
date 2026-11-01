@@ -6,17 +6,23 @@ import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 /** Storage for Nitro's `cache` mount, used by `defineCachedFunction()` and `defineCachedEventHandler()`. */
 export type CacheOptions =
   | { driver: "cloudflare-kv-binding", binding?: string, namespaceId?: string }
+  /** The app's default KV store, on every host where `kv` is enabled. `base` prefixes the cache keys (default `nitro-cache`). */
+  | { driver: "kv", base?: string }
   | { driver: "deno-kv", base?: string }
   | { driver: "fs-lite", base?: string }
   | { driver: "vercel-runtime-cache" }
 
-type CacheDriver = CacheOptions["driver"]
+type CacheDriver = Exclude<CacheOptions["driver"], "kv">
+
+/** Unstorage driver that `{ driver: "kv" }` mounts. It runs over `kv` from `vite-hub/kv`. */
+const kvCacheDriver = "vite-hub/_internal/kv/cache"
+type KVCacheMount = { driver: typeof kvCacheDriver, base: string }
 
 export interface ResolvedCacheStorage {
   /** Nitro `storage.cache` mount for production output. */
-  storage: CacheOptions
-  /** Nitro `devStorage.cache` mount. Development keeps cache entries on the local filesystem. */
-  devStorage: { driver: "fs-lite", base: string }
+  storage: Exclude<CacheOptions, { driver: "kv" }> | KVCacheMount
+  /** Nitro `devStorage.cache` mount. Development keeps cache entries on the local filesystem, or in the app's dev KV store. */
+  devStorage: { driver: "fs-lite", base: string } | KVCacheMount
   /** Wrangler KV namespace that backs the Cloudflare mount. */
   cloudflareNamespace?: { binding: string, id?: string }
 }
@@ -56,7 +62,7 @@ function readCacheDriver(cache: true | CacheOptions, preset: DeploymentPreset): 
     return driver
   }
   if (!isPlainObject(cache) || !isCacheDriver(cache.driver)) {
-    throw viteHubErrorDiagnostics.VITE_HUB_C0004({ message: `[vitehub] \`cache.driver\` must be "cloudflare-kv-binding", "deno-kv", "fs-lite", or "vercel-runtime-cache".` })
+    throw viteHubErrorDiagnostics.VITE_HUB_C0004({ message: `[vitehub] \`cache.driver\` must be "cloudflare-kv-binding", "deno-kv", "fs-lite", "kv", or "vercel-runtime-cache".` })
   }
   if (cacheDriverPresets[cache.driver] !== preset) {
     throw viteHubErrorDiagnostics.VITE_HUB_C0003({ message: `[vitehub] \`cache.driver: "${cache.driver}"\` requires the ${cacheDriverPresets[cache.driver]} preset, but the preset is ${preset}.` })
@@ -65,7 +71,13 @@ function readCacheDriver(cache: true | CacheOptions, preset: DeploymentPreset): 
 }
 
 /** Resolve `cache` into Nitro storage mounts for one deployment preset. */
-export function resolveCacheStorage(cache: true | CacheOptions, preset: DeploymentPreset): ResolvedCacheStorage {
+export function resolveCacheStorage(cache: true | CacheOptions, preset: DeploymentPreset, kvEnabled = false): ResolvedCacheStorage {
+  // KV runs on every host, so this driver needs `kv` instead of a preset.
+  if (isPlainObject(cache) && cache.driver === "kv") {
+    if (!kvEnabled) throw viteHubErrorDiagnostics.VITE_HUB_C0003({ message: "[vitehub] `cache.driver: \"kv\"` stores Nitro's cache in KV, but `kv` is not enabled. Enable `kv` or choose another cache driver." })
+    const mount: KVCacheMount = { base: trimmed(cache.base) ?? "nitro-cache", driver: kvCacheDriver }
+    return { devStorage: mount, storage: mount }
+  }
   const driver = readCacheDriver(cache, preset)
   const explicit = cache === true ? undefined : cache
   const localBase = explicit?.driver === "fs-lite" ? trimmed(explicit.base) ?? defaultCacheBase : defaultCacheBase

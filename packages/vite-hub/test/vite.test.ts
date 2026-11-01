@@ -1290,6 +1290,14 @@ describe("vitehub", () => {
     expect(config.nitro).toHaveProperty("cloudflare.wrangler.kv_namespaces", [{ binding: "KV", id: "kv-id" }])
   })
 
+  it("mounts Nitro cache storage on the app's KV store", async () => {
+    const config = await applyDeploymentConfig({ cache: { driver: "kv" }, kv: true, preset: "cloudflare" })
+    const mount = { base: "nitro-cache", driver: "vite-hub/_internal/kv/cache" }
+
+    expect(config.nitro).toMatchObject({ devStorage: { cache: mount }, storage: { cache: mount } })
+    expect(() => vitehub({ cache: { driver: "kv" }, preset: "cloudflare" })).toThrow("`kv` is not enabled")
+  })
+
   it("stores the Node cache under dataDir", async () => {
     const config = await applyDeploymentConfig({ cache: true, dataDir: "/tmp/vitehub-data", preset: "node" })
 

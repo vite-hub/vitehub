@@ -348,7 +348,8 @@ export interface ViteHubOptions {
   /**
    * Storage for Nitro's `cache` mount, which `defineCachedFunction()` and `defineCachedEventHandler()` use.
    * `true` selects the preset's store: Workers KV binding `CACHE`, Vercel Runtime Cache, Deno KV, or `.vitehub/data/cache` on Node.
-   * Development always uses `.vitehub/data/cache`.
+   * Development uses `.vitehub/data/cache`.
+   * `{ driver: "kv" }` stores the cache in the app's default KV store under the `nitro-cache:` prefix, in development too. It requires `kv`.
    */
   cache?: boolean | CacheOptions
   channels?: boolean | ChannelsVitePluginOptions
@@ -581,7 +582,7 @@ function deploymentPlugins(
   envPlugin: EnvVitePlugin | undefined,
 ): Plugin[] {
   let deployCommandOwned = false
-  const cacheStorage = options.cache ? resolveCacheStorage(options.cache, plan.preset) : undefined
+  const cacheStorage = options.cache ? resolveCacheStorage(options.cache, plan.preset, Boolean(options.kv)) : undefined
   const resolvedBuildConfigs = new WeakMap<object, { current: ResolvedBuildConfig }>()
   let providerOutput: ReturnType<typeof useProviderOutputCatalog> | undefined
   let deploymentRoot: string | undefined

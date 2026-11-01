@@ -59,3 +59,22 @@ describe("applyCacheStorage", () => {
     }, cache)).toThrow("already uses namespace")
   })
 })
+
+describe("KV cache storage", () => {
+  it("mounts Nitro's cache on the app's KV store on any preset", () => {
+    const mount = { base: "nitro-cache", driver: "vite-hub/_internal/kv/cache" }
+    for (const preset of ["cloudflare", "netlify", "node"] as const) {
+      expect(resolveCacheStorage({ driver: "kv" }, preset, true)).toEqual({ devStorage: mount, storage: mount })
+    }
+    expect(resolveCacheStorage({ base: "pages", driver: "kv" }, "vercel", true).storage).toEqual({ base: "pages", driver: "vite-hub/_internal/kv/cache" })
+  })
+
+  it("requires kv", () => {
+    expect(() => resolveCacheStorage({ driver: "kv" }, "cloudflare")).toThrow("`kv` is not enabled")
+  })
+
+  it("keeps an app's own cache mount and adds no Wrangler namespace", () => {
+    const config = applyCacheStorage({ storage: { cache: { driver: "memory" } } }, resolveCacheStorage({ driver: "kv" }, "cloudflare", true))
+    expect(config).toEqual({ devStorage: { cache: { base: "nitro-cache", driver: "vite-hub/_internal/kv/cache" } }, storage: { cache: { driver: "memory" } } })
+  })
+})
