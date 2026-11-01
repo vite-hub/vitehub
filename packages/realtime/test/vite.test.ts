@@ -31,6 +31,18 @@ describe("hubRealtime", () => {
     expect(config.nitro).toMatchObject({ handlers: [expect.objectContaining({ route })] })
   })
 
+  it("tells server code that the build has rooms", async () => {
+    const { hubRealtime } = await import("../src/vite.ts")
+    const plugin = hubRealtime({ authority: "memory" })
+    const id = (plugin.resolveId as (id: string) => string)("#vitehub/realtime/availability")
+    expect((plugin.load as (id: string) => string)(id)).toBe("export default { available: true }\n")
+  })
+
+  it("reads the package fallback when no Realtime integration runs", async () => {
+    const { default: availability } = await import("../src/internal/runtime/unavailable.ts")
+    expect(availability).toMatchObject({ available: false, reason: "This build does not enable Realtime." })
+  })
+
   it("bundles the public Vue entry without server Node modules", async () => {
     const { build } = await import("vite")
     const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-browser-"))

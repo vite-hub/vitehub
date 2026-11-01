@@ -113,6 +113,9 @@ function applicationBaseURL(base: string | undefined): string {
   return base?.startsWith("/") && !base.startsWith("//") ? base : "/"
 }
 
+const realtimeAvailabilityId = "#vitehub/realtime/availability"
+const resolvedRealtimeAvailabilityId = `\0${realtimeAvailabilityId}`
+
 export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVitePlugin {
   const importBase = options.importBase ?? "@vite-hub/realtime"
   let inspectionRoot: string | undefined
@@ -239,6 +242,13 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       for (const plugin of contribution?.plugins ?? []) kit.addPlugin(plugin)
       Object.assign(nitro, kit.config)
       ;(config as UserConfig & { nitro?: NitroConfig }).nitro = nitro
+    },
+    resolveId(id) {
+      if (id === realtimeAvailabilityId) return resolvedRealtimeAvailabilityId
+    },
+    // A build without a room authority fails in `config()`, so every build that loads this module has one.
+    load(id) {
+      if (id === resolvedRealtimeAvailabilityId) return "export default { available: true }\n"
     },
   }
 }

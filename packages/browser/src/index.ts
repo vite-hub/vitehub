@@ -1,4 +1,5 @@
 export * from "./client.ts"
+export { isBrowserAvailable } from "./availability.ts"
 export {
   runBrowserAction,
   runBrowserContent,

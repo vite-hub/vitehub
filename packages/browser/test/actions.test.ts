@@ -1,18 +1,28 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
+  isBrowserAvailable,
   runBrowserAction,
   runBrowserContent,
 } from "../src/actions.ts"
 
+import type { BrowserAvailability } from "../src/types.ts"
+
 const runtimeConfig = vi.hoisted(() => ({ binding: "BROWSER", engine: "chromium", provider: "cloudflare" as string | undefined }))
+const availability = vi.hoisted(() => ({ current: { available: true } as BrowserAvailability }))
 vi.mock("#vitehub/browser/runtime", () => ({ default: runtimeConfig, loadCloudflarePlaywright: undefined }))
+vi.mock("#vitehub/browser/availability", () => ({
+  get default() {
+    return availability.current
+  },
+}))
 
 const runtime = globalThis as typeof globalThis & { __env__?: Record<string, unknown> }
 
 afterEach(() => {
   delete runtime.__env__
   runtimeConfig.provider = "cloudflare"
+  availability.current = { available: true }
 })
 
 describe("Browser Run actions", () => {
@@ -20,6 +30,30 @@ describe("Browser Run actions", () => {
     runtimeConfig.provider = undefined
     const response = await runBrowserAction("content", "https://example.com")
     expect(response.status).toBe(500)
+  })
+
+  it("names the preset and the fix when the build does not enable Browser", async () => {
+    availability.current = {
+      available: false,
+      preset: "vercel",
+      reason: "Vercel has no built-in Browser Provider.",
+      fix: "Deploy with the Cloudflare preset and set `browser: true` in vitehub().",
+    }
+    expect(isBrowserAvailable()).toBe(false)
+
+    const response = await runBrowserAction("content", "https://example.com")
+    expect(response.status).toBe(500)
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "BROWSER_UNAVAILABLE",
+        message: "[vitehub:browser] Browser is not available on the vercel preset. Vercel has no built-in Browser Provider. Deploy with the Cloudflare preset and set `browser: true` in vitehub().",
+        details: {
+          fix: "Deploy with the Cloudflare preset and set `browser: true` in vitehub().",
+          preset: "vercel",
+          reason: "Vercel has no built-in Browser Provider.",
+        },
+      },
+    })
   })
 
   it("runs Cloudflare Browser quick actions through the configured binding", async () => {

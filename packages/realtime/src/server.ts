@@ -67,6 +67,7 @@ import { isH3V1Event, toH3V1Request } from "@vite-hub/internal/runtime/h3-v1-req
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { realtimeDurableObjectKey } from "./durable-key.ts"
 
+export { isRealtimeAvailable } from "./availability.ts"
 export { applyRealtimeAwarenessUpdate, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness } from "./awareness.ts"
 export { RealtimeDocumentConflict, isRealtimeDocumentConflict } from "./conflict.ts"
 export { containsRealtimeState, createRealtimeYDoc, diffRealtimeYDoc, readRealtimeStatus, readRealtimeYDoc, realtimeDocumentLayout } from "./document.ts"
