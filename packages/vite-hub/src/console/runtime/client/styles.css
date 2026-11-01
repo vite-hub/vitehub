@@ -1,8 +1,5 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
-/* Geist and Geist Mono ship inside the Console bundle, so the Console looks the same on every host. */
-@import "@fontsource-variable/geist";
-@import "@fontsource-variable/geist-mono";
 @source "../components";
 @source "../../app.config.ts";
 
