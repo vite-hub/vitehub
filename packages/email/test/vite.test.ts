@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events"
 import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, posix } from "node:path"
@@ -464,6 +465,62 @@ describe("hubEmail", () => {
     }
     finally {
       await server.close()
+    }
+  })
+
+  it("drains active template refreshes and removes listeners on close", async () => {
+    const root = await createTempProject()
+    const template = join(root, "server", "emails", "welcome.md")
+    await mkdir(dirname(template), { recursive: true })
+    await writeFile(template, "Initial template")
+    const plugin = hubEmail({ driver: "resend" })
+    await plugin.api.prepareTypes({ materialize: true, projectRoot: root })
+    await resolvePlugin(plugin, root)
+    const watcher = Object.assign(new EventEmitter(), { add: vi.fn() })
+    const send = vi.fn()
+    const logError = vi.fn()
+    functionHook(plugin.configureServer, "configureServer")({
+      config: { logger: { error: logError } },
+      middlewares: { use: vi.fn() },
+      moduleGraph: { idToModuleMap: new Map(), invalidateModule: vi.fn() },
+      watcher,
+      ws: { send },
+    })
+    let signalStarted!: () => void
+    const started = new Promise<void>((resolve) => { signalStarted = resolve })
+    let resume!: () => void
+    const resumed = new Promise<void>((resolve) => { resume = resolve })
+    const bundle = esbuild.bundleEsmEntry
+    const bundler = vi.spyOn(esbuild, "bundleEsmEntry").mockImplementationOnce(async (...args) => {
+      signalStarted()
+      await resumed
+      return bundle(...args)
+    })
+    let closing: Promise<void> | undefined
+    try {
+      await writeFile(template, "Updated template")
+      watcher.emit("change", template)
+      await started
+      watcher.emit("change", template)
+      let closed = false
+      closing = Promise.resolve(functionHook(plugin.closeBundle, "closeBundle")()).then(() => { closed = true })
+      // The paused rebuild must keep the close hook pending.
+      await Promise.resolve()
+      expect(closed).toBe(false)
+      for (const event of ["add", "change", "unlink"]) expect(watcher.listenerCount(event)).toBe(0)
+      watcher.emit("change", template)
+      resume()
+      await closing
+      expect(logError).not.toHaveBeenCalled()
+      expect(send).not.toHaveBeenCalled()
+      expect(bundler).toHaveBeenCalledOnce()
+      expect(await readFile(join(root, ".vitehub", "email", "templates", "welcome.mjs"), "utf8"))
+        .toContain("Updated template")
+    }
+    finally {
+      resume()
+      await closing
+      bundler.mockRestore()
     }
   })
 
