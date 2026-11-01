@@ -216,6 +216,7 @@ function fakeRegistryRuntime(packages: ReleaseEntry[], initial = new Map<string,
   let failAudit = false
   let installFailures = 0
   let auditFailures = 0
+  let unattested: string | undefined
   let sleeps = 0
   const byTarball = new Map(packages.map(pkg => [pkg.tarball, pkg]))
   const runtime = {
@@ -243,7 +244,9 @@ function fakeRegistryRuntime(packages: ReleaseEntry[], initial = new Map<string,
           throw new Error(publishError || `publish failed for ${pkg.name}`)
         }
         const tag = args[args.indexOf("--tag") + 1]!
-        state.set(pkg.name, verifiedRegistryEntry(pkg, tag))
+        const entry = verifiedRegistryEntry(pkg, tag)
+        if (pkg.name === unattested) entry.attestations = []
+        state.set(pkg.name, entry)
         distTags.set(pkg.name, { tag, version: pkg.version })
       }
       return { stderr: "", stdout: "" }
@@ -283,6 +286,7 @@ function fakeRegistryRuntime(packages: ReleaseEntry[], initial = new Map<string,
       existing = entry
     },
     setAuditFailures: (count: number) => { auditFailures = count },
+    setUnattested: (name: string) => { unattested = name },
     setInstallFailures: (count: number) => { installFailures = count },
     setDistTag: (name: string, tag: string, version: string) => distTags.set(name, { tag, version }),
     state,
@@ -721,7 +725,7 @@ describe("release publication", () => {
     expect(registry.calls.every(call => call.args.includes("--registry=https://registry.npmjs.org/"))).toBe(true)
   })
 
-  it("publishes the whole set without waiting between packages", async () => {
+  it("publishes the whole set without waiting between packages, then verifies every package", async () => {
     const root = await temporaryDirectory("vitehub-release-no-wait-")
     const artifact = await writeArtifact(root, [
       { name: "@vite-hub/runtime" },
@@ -732,11 +736,17 @@ describe("release publication", () => {
     await publishReleaseArtifacts({ manifestPath: artifact.manifestPath, runtime: registry.runtime, sourceRef, sourceSha, tag: "latest" })
 
     expect(registry.getSleeps()).toBe(0)
-    expect(registry.events).toEqual(["audit"])
+    expect(registry.events).toEqual(["verified:@vite-hub/runtime", "verified:@vite-hub/app", "audit"])
     expect(registry.calls.filter(call => call.args[0] === "publish").map(call => call.args[1])).toEqual(artifact.manifest.packages.map(pkg => `./${pkg.tarball}`))
+
+    const unattested = fakeRegistryRuntime(artifact.manifest.packages)
+    unattested.setUnattested("@vite-hub/app")
+    await expect(publishReleaseArtifacts({ attempts: 1, manifestPath: artifact.manifestPath, runtime: unattested.runtime, sourceRef, sourceSha, tag: "latest" }))
+      .rejects.toThrow("Registry attestations are incomplete for @vite-hub/app@1.2.3")
+    expect(unattested.events).not.toContain("audit")
   })
 
-  it("verifies an already published version against the release and stops on other publish conflicts", async () => {
+  it("verifies an already published version before its dependents and stops on other publish conflicts", async () => {
     const root = await temporaryDirectory("vitehub-release-conflict-")
     const artifact = await writeArtifact(root, [
       { name: "@vite-hub/runtime" },
@@ -749,7 +759,7 @@ describe("release publication", () => {
     matching.setFailPublish(runtimePackage.name, conflict, verifiedRegistryEntry(runtimePackage))
     await publishReleaseArtifacts({ manifestPath: artifact.manifestPath, runtime: matching.runtime, sourceRef, sourceSha, tag: "latest" })
     expect(matching.calls.filter(call => call.args[0] === "publish").map(call => call.args[1])).toEqual(artifact.manifest.packages.map(pkg => `./${pkg.tarball}`))
-    expect(matching.events).toEqual([`verified:${runtimePackage.name}`, "audit"])
+    expect(matching.events).toEqual([`verified:${runtimePackage.name}`, "verified:@vite-hub/app", "audit"])
 
     const foreign = verifiedRegistryEntry(runtimePackage)
     foreign.integrity = `sha512-${Buffer.alloc(64, 1).toString("base64")}`
@@ -757,7 +767,7 @@ describe("release publication", () => {
     different.setFailPublish(runtimePackage.name, conflict, foreign)
     await expect(publishReleaseArtifacts({ attempts: 1, manifestPath: artifact.manifestPath, runtime: different.runtime, sourceRef, sourceSha, tag: "latest" }))
       .rejects.toThrow("Registry integrity mismatch")
-    expect(different.events).not.toContain("audit")
+    expect(different.calls.filter(call => call.args[0] === "publish").map(call => call.args[1])).toEqual([`./${runtimePackage.tarball}`])
 
     const missing = fakeRegistryRuntime(artifact.manifest.packages)
     missing.setFailPublish(runtimePackage.name, conflict)
@@ -778,13 +788,13 @@ describe("release publication", () => {
     delayed.setInstallFailures(2)
     await publishReleaseArtifacts({ manifestPath: artifact.manifestPath, runtime: delayed.runtime, sourceRef, sourceSha, tag: "latest" })
     expect(delayed.getSleeps()).toBe(2)
-    expect(delayed.events).toEqual(["audit"])
+    expect(delayed.events).toEqual(["verified:@vite-hub/runtime", "audit"])
 
     const unsigned = fakeRegistryRuntime(artifact.manifest.packages)
     unsigned.setAuditFailures(2)
     await publishReleaseArtifacts({ manifestPath: artifact.manifestPath, runtime: unsigned.runtime, sourceRef, sourceSha, tag: "latest" })
     expect(unsigned.getSleeps()).toBe(2)
-    expect(unsigned.events).toEqual(["audit", "audit", "audit"])
+    expect(unsigned.events).toEqual(["verified:@vite-hub/runtime", "audit", "audit", "audit"])
 
     const exhausted = fakeRegistryRuntime(artifact.manifest.packages)
     exhausted.setInstallFailures(3)
@@ -798,7 +808,7 @@ describe("release publication", () => {
     registry.setFailAudit()
     await expect(publishReleaseArtifacts({ manifestPath: audit.manifestPath, runtime: registry.runtime, sourceRef, sourceSha, tag: "latest" }))
       .rejects.toThrow("signature audit failed")
-    expect(registry.events).toEqual(["audit"])
+    expect(registry.events).toEqual(["verified:@vite-hub/runtime", "audit"])
   })
 
   it("bounds a registry request that never settles", async () => {

@@ -625,8 +625,7 @@ export async function inspectPublishedPackage(pkg, options) {
   return { state: "verified" }
 }
 
-// npm rejected this version as already published, so it must match this release before the release counts.
-async function verifyConflictingPackage(pkg, options) {
+async function waitUntilVerified(pkg, options) {
   const attempts = options.attempts || 20
   for (let attempt = 1; ; attempt++) {
     try {
@@ -645,7 +644,7 @@ async function auditPublishedSignatures(packages, runtime, options) {
   try {
     const dependencies = Object.fromEntries(packages.map(pkg => [pkg.name, pkg.version]))
     await writeFile(join(directory, "package.json"), `${JSON.stringify({ dependencies, private: true }, null, 2)}\n`)
-    // npm can take minutes to serve versions and attestations it just accepted, so retry the audit for the whole set once.
+    // Signatures and attestations can appear after the versions, so retry the audit for the whole set once.
     const attempts = options.attempts || 20
     for (let attempt = 1; ; attempt++) {
       try {
@@ -683,7 +682,7 @@ export async function publishReleaseArtifacts(options) {
     }
   }
 
-  const conflicts = []
+  const published = []
   for (const [index, pkg] of verified.manifest.packages.entries()) {
     const publishArgs = ["publish", `./${pkg.tarball}`, "--access", "public", "--tag", options.tag, "--ignore-scripts", "--no-git-checks", `--registry=${npmRegistry}`]
     if (options.dryRun) {
@@ -703,12 +702,16 @@ export async function publishReleaseArtifacts(options) {
     }
     catch (error) {
       if (!/EPUBLISHCONFLICT|cannot publish over the previously published/.test(String(error?.message))) throw error
-      options.onProgress?.(`${pkg.name}@${pkg.version} is already published; verifying it after the whole set.`)
-      conflicts.push(pkg)
+      // Dependents must not be published against a version this release did not produce.
+      options.onProgress?.(`${pkg.name}@${pkg.version} is already published; verifying it before its dependents.`)
+      await waitUntilVerified(pkg, { ...options, runtime })
+      continue
     }
+    published.push(pkg)
   }
 
-  for (const pkg of conflicts) await verifyConflictingPackage(pkg, { ...options, runtime })
+  // npm can take minutes to serve new versions, so check the whole set once instead of after each package.
+  for (const pkg of published) await waitUntilVerified(pkg, { ...options, runtime })
 
   if (!options.dryRun) await auditPublishedSignatures(verified.manifest.packages, runtime, options)
   return verified.manifest.packages.length
