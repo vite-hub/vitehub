@@ -79,7 +79,7 @@ The answer types come from the questions:
 | Preset | Codex | Claude Code | OpenAI-compatible | `ask()` | Variables |
 | --- | --- | --- | --- | --- | --- |
 | `vercel()` | `https://ai-gateway.vercel.sh/codex/v1` | `https://ai-gateway.vercel.sh/claude-code` | `https://ai-gateway.vercel.sh/v1` | `typesafe-ai/jev` at `https://ai-gateway.vercel.sh/v4/ai` | `AI_GATEWAY_API_KEY`, then `VERCEL_OIDC_TOKEN` |
-| `cloudflare()` | | | `.../<account>/<gateway>/compat` | | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_AI_GATEWAY_ID`, `CLOUDFLARE_AI_GATEWAY_TOKEN`, `CLOUDFLARE_AI_GATEWAY_API_KEY` (see [Cloudflare AI Gateway](#cloudflare-ai-gateway)) |
+| `cloudflare()` | | | `.../<account>/<gateway>/compat` | `jev-latest` through a [custom provider](#typesafe-through-cloudflare-ai-gateway) | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_AI_GATEWAY_ID`, `CLOUDFLARE_AI_GATEWAY_TOKEN`, `CLOUDFLARE_AI_GATEWAY_API_KEY`, `TYPESAFE_API_KEY`, `CLOUDFLARE_AI_GATEWAY_SLUG` (see [Cloudflare AI Gateway](#cloudflare-ai-gateway)) |
 | `openrouter()` | `https://openrouter.ai/api/v1` | `https://openrouter.ai/api` | `https://openrouter.ai/api/v1` | | `OPENROUTER_API_KEY` |
 | `litellm()` | `<url>/v1` | `<url>` | `<url>/v1` | | `LITELLM_URL`, `LITELLM_API_KEY` |
 | `cliproxy()` | `<url>/v1` | `<url>` | `<url>/v1` | | `CLIPROXY_URL`, `CLIPROXY_API_KEY` |
@@ -88,9 +88,8 @@ The answer types come from the questions:
 | `chatgpt()` | `https://api.openai.com/v1` through a ChatGPT Connection | | | | None |
 | `anthropic()` | | `https://api.anthropic.com` | | | `ANTHROPIC_API_KEY` |
 | `typesafe()` | | | | `jev-latest` at `https://api.typesafe.ai` | `TYPESAFE_API_KEY`, `TYPESAFE_DEFAULT_MODEL` |
-| `cloudflareTypesafe()` | | | | `jev-latest` through a [custom provider](#typesafe-through-cloudflare-ai-gateway) | `TYPESAFE_API_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_AI_GATEWAY_ID`, `CLOUDFLARE_AI_GATEWAY_TOKEN` (optional), `CLOUDFLARE_AI_GATEWAY_SLUG` (default `typesafe`) |
 
-The type of a preset lists the model APIs that it serves: `AiGateway<{ routes: "codex" }>` accepts only gateways with a Codex URL, so a ViteHub Codex Driver with `anthropic()` and `languageModel(typesafe(), ...)` are type errors. `vercel()`, `typesafe()`, and `cloudflareTypesafe()` return `AiGateway<{ ask: true }>`. `chatgpt()` returns a `ChatGPTGateway` descriptor for the Agent runtime. The other presets have no `ask()`, so `ask()` on them is a type error. CLIProxyAPI, LiteLLM, Ollama, OpenRouter, OpenAI, Anthropic, and the Cloudflare OpenAI-compatible endpoint forward model APIs only, not TypeSafe's `/v1/systemone`.
+The type of a preset lists the model APIs that it serves: `AiGateway<{ routes: "codex" }>` accepts only gateways with a Codex URL, so a ViteHub Codex Driver with `anthropic()` and `languageModel(typesafe(), ...)` are type errors. `vercel()`, `typesafe()`, and `cloudflare()` return `AiGateway<{ ask: true }>`. `chatgpt()` returns a `ChatGPTGateway` descriptor for the Agent runtime. The other presets have no `ask()`, so `ask()` on them is a type error. CLIProxyAPI, LiteLLM, Ollama, OpenRouter, OpenAI, Anthropic, and the Cloudflare OpenAI-compatible endpoint forward model APIs only, not TypeSafe's `/v1/systemone`.
 
 `cloudflareAccess()` returns the `CF-Access-Client-Id` and `CF-Access-Client-Secret` headers for a gateway behind Cloudflare Access, from `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`. Pass it as `headers`, for example `cliproxy({ headers: cloudflareAccess() })`.
 
@@ -107,15 +106,14 @@ Vercel keeps its credentials in separate Server Env fields: `vercel.apiKey` read
 A value that you pass replaces its variable. Pass the values when the application stores the credentials, for example one key for each tenant:
 
 ```ts
-import { cloudflare, cloudflareTypesafe, typesafe, vercel } from '@vite-hub/gateways'
+import { cloudflare, typesafe, vercel } from '@vite-hub/gateways'
 
 typesafe({ apiKey: tenant.typesafeKey })
 vercel({ apiKey: tenant.aiGatewayKey })
-cloudflare({ accountId, gatewayId, token: tenant.gatewayToken })
-cloudflareTypesafe({ apiKey: tenant.typesafeKey, accountId, gatewayId, token, slug })
+cloudflare({ accountId, gatewayId, token: tenant.gatewayToken, typesafeApiKey: tenant.typesafeKey, slug })
 ```
 
-An `apiKey` or header value can also be a function that returns the value for each request. `undefined` fails the request; it does not fall back to the variable. `cloudflare()` is the exception: its provider key is optional. `typesafe()`, `vercel()`, and `cloudflareTypesafe()` also take `model` and `fetch` for `ask()`.
+An `apiKey` or header value can also be a function that returns the value for each request. `undefined` fails the request; it does not fall back to the variable. `cloudflare()` reads two keys, `typesafeApiKey` for `ask()` and an optional `providerApiKey` for models. `typesafe()`, `vercel()`, and `cloudflare()` also take `model` and `fetch` for `ask()`.
 
 ## Cloudflare AI Gateway
 
@@ -126,14 +124,14 @@ Each request needs a gateway token, a provider key, or both:
 | Setup | Variables | Headers |
 | --- | --- | --- |
 | The gateway stores the provider keys, or uses Unified Billing | `CLOUDFLARE_AI_GATEWAY_TOKEN` | `cf-aig-authorization` |
-| Open gateway, provider key in the request | `CLOUDFLARE_AI_GATEWAY_API_KEY` | `Authorization` |
+| Open gateway, provider key in the request | `CLOUDFLARE_AI_GATEWAY_API_KEY` (or `providerApiKey`) | `Authorization` |
 | Authenticated gateway, provider key in the request | Both | Both |
 
-`CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_AI_GATEWAY_ID` are always required. A request without a token and without a key fails with `GATEWAYS_R0002` before it is sent. `cloudflare()` does not route Drivers: Codex and Claude Code need the vendor endpoints of the gateway, each with that vendor's key. To route a Driver through Cloudflare, define a gateway for it.
+`CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_AI_GATEWAY_ID` are always required. A request without a token and without a provider key fails with `GATEWAYS_R0002` before it is sent. The two keys never mix: `ask()` sends only the TypeSafe key, and model requests send only the provider key. `cloudflare({ apiKey })` throws and names both options. `cloudflare()` does not route Drivers: Codex and Claude Code need the vendor endpoints of the gateway, each with that vendor's key. To route a Driver through Cloudflare, define a gateway for it.
 
 ### TypeSafe through Cloudflare AI Gateway
 
-Cloudflare AI Gateway has no TypeSafe provider. `cloudflareTypesafe()` reaches TypeSafe through a [custom provider](https://developers.cloudflare.com/ai-gateway/configuration/custom-providers/) that you create once per Cloudflare account, and answers `ask()`. The gateway then logs each request, and its caching and rate limits apply.
+Cloudflare AI Gateway has no TypeSafe provider. `cloudflare().ask()` reaches TypeSafe through a [custom provider](https://developers.cloudflare.com/ai-gateway/configuration/custom-providers/) that you create once per Cloudflare account. It reads `TYPESAFE_API_KEY`, or `typesafeApiKey` when you pass it. The gateway then logs each request, and its caching and rate limits apply.
 
 1. In the Cloudflare dashboard, go to **Compute & AI** > **AI Gateway** and create a gateway. Its name is the gateway ID.
 2. Go to **Custom Providers** and select **Add Custom Provider**. Set the slug to `typesafe` and the base URL to `https://api.typesafe.ai`. Or use the Cloudflare API:
@@ -158,7 +156,7 @@ Cloudflare AI Gateway has no TypeSafe provider. `cloudflareTypesafe()` reaches T
    CLOUDFLARE_AI_GATEWAY_SLUG=...
    ```
 
-`cloudflareTypesafe().ask()` sends `POST https://gateway.ai.cloudflare.com/v1/<account>/<gateway>/custom-<slug>/v1/systemone` with the TypeSafe key as `Authorization` and the gateway token as `cf-aig-authorization`. TypeSafe still bills the requests.
+`cloudflare().ask()` sends `POST https://gateway.ai.cloudflare.com/v1/<account>/<gateway>/custom-<slug>/v1/systemone` with the TypeSafe key as `Authorization` and the gateway token as `cf-aig-authorization`. TypeSafe still bills the requests.
 
 ## Custom gateways
 

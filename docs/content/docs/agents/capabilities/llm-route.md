@@ -54,7 +54,7 @@ With 2 to 255 choices, the Capability asks TypeSafe Jev one `ask.choice()` quest
 The state is the Invocation `data` when a caller sets it. Otherwise it is `{ request, history? }` from the latest user text and the `history` option.
 
 The decision has `choice`, `confidence`, and `probabilities`, a map from choice key to probability. Jev decisions have no `reason`.
-The request goes through the `gateway` option, an [AI gateway](/docs/agents/ai-gateways) such as `cloudflareTypesafe()`, or through `typesafe()`, which reads `TYPESAFE_API_KEY`.
+The request goes through the `gateway` option, an [AI gateway](/docs/agents/ai-gateways) such as `cloudflare()`, or through `typesafe()`, which reads `TYPESAFE_API_KEY`.
 
 ## Requirements
 

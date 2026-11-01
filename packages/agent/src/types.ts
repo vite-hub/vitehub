@@ -2073,7 +2073,7 @@ export interface AgentAskDriver<
   credentials?: never
   execution?: never
   /**
-   * Where the questions go: `typesafe()`, `vercel()`, or `cloudflareTypesafe()` from `vite-hub/gateways`.
+   * Where the questions go: `typesafe()`, `vercel()`, or `cloudflare()` from `vite-hub/gateways`.
    * Default: `typesafe()`, which reads `TYPESAFE_API_KEY` from Server Env.
    */
   gateway?: AiGateway<{ ask: true }>

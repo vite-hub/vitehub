@@ -22,7 +22,7 @@ describe("published gateways package", () => {
         },
       })
 
-      const { ask, cloudflareTypesafe, typesafe } = await import(pathToFileURL(process.argv[1]).href)
+      const { ask, cloudflare, typesafe } = await import(pathToFileURL(process.argv[1]).href)
       const requests = []
       const fetch = async (url, init) => {
         requests.push([String(url), init.headers.Authorization, init.headers["cf-aig-authorization"]])
@@ -31,7 +31,7 @@ describe("published gateways package", () => {
       const questions = { spam: ask.if("Is it spam?") }
       process.env.TYPESAFE_API_KEY = "env-key"
       assert.deepEqual(await typesafe({ fetch }).ask("Win money", questions), { spam: true })
-      assert.deepEqual(await cloudflareTypesafe({ apiKey: "ts-key", accountId: "acc", gatewayId: "gw", token: "cf", fetch }).ask("Win money", questions), { spam: true })
+      assert.deepEqual(await cloudflare({ typesafeApiKey: "ts-key", accountId: "acc", gatewayId: "gw", token: "cf", fetch }).ask("Win money", questions), { spam: true })
       assert.deepEqual(requests, [
         ["https://api.typesafe.ai/v1/systemone", "Bearer env-key", undefined],
         ["https://gateway.ai.cloudflare.com/v1/acc/gw/custom-typesafe/v1/systemone", "Bearer ts-key", "Bearer cf"],

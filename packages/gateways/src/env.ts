@@ -12,25 +12,20 @@ export interface AiGatewayEnvField {
  * use in Server Env as `env.server.<preset>.<field>`.
  */
 /** The presets that read the environment. */
-export type AiGatewayEnvPreset = "anthropic" | "cliproxy" | "cloudflare" | "cloudflareAccess" | "cloudflareTypesafe" | "litellm" | "ollama" | "openai" | "openrouter" | "typesafe" | "vercel"
+export type AiGatewayEnvPreset = "anthropic" | "cliproxy" | "cloudflare" | "cloudflareAccess" | "litellm" | "ollama" | "openai" | "openrouter" | "typesafe" | "vercel"
 
 export const aiGatewayEnv: Readonly<Record<AiGatewayEnvPreset, Readonly<Record<string, AiGatewayEnvField>>>> = {
   anthropic: { apiKey: { names: ["ANTHROPIC_API_KEY"], secret: true } },
   cliproxy: { apiKey: { names: ["CLIPROXY_API_KEY"], secret: true }, url: { names: ["CLIPROXY_URL"] } },
   cloudflare: {
     accountId: { names: ["CLOUDFLARE_ACCOUNT_ID"] },
-    apiKey: { names: ["CLOUDFLARE_AI_GATEWAY_API_KEY"], secret: true },
     gatewayId: { names: ["CLOUDFLARE_AI_GATEWAY_ID"] },
-    token: { names: ["CLOUDFLARE_AI_GATEWAY_TOKEN"], secret: true },
-  },
-  cloudflareAccess: { clientId: { names: ["CF_ACCESS_CLIENT_ID"], secret: true }, clientSecret: { names: ["CF_ACCESS_CLIENT_SECRET"], secret: true } },
-  cloudflareTypesafe: {
-    accountId: { names: ["CLOUDFLARE_ACCOUNT_ID"] },
-    apiKey: { names: ["TYPESAFE_API_KEY"], secret: true },
-    gatewayId: { names: ["CLOUDFLARE_AI_GATEWAY_ID"] },
+    providerApiKey: { names: ["CLOUDFLARE_AI_GATEWAY_API_KEY"], secret: true },
     slug: { names: ["CLOUDFLARE_AI_GATEWAY_SLUG"] },
     token: { names: ["CLOUDFLARE_AI_GATEWAY_TOKEN"], secret: true },
+    typesafeApiKey: { names: ["TYPESAFE_API_KEY"], secret: true },
   },
+  cloudflareAccess: { clientId: { names: ["CF_ACCESS_CLIENT_ID"], secret: true }, clientSecret: { names: ["CF_ACCESS_CLIENT_SECRET"], secret: true } },
   litellm: { apiKey: { names: ["LITELLM_API_KEY"], secret: true }, url: { names: ["LITELLM_URL"] } },
   ollama: { apiKey: { names: ["OLLAMA_API_KEY"], secret: true }, url: { names: ["OLLAMA_URL"] } },
   openai: { apiKey: { names: ["OPENAI_API_KEY"], secret: true } },

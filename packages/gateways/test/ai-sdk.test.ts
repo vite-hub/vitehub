@@ -116,7 +116,7 @@ describe("languageModel()", () => {
     vi.stubEnv("CLOUDFLARE_AI_GATEWAY_API_KEY", undefined)
     const fetch = vi.fn<typeof globalThis.fetch>(async () => chatCompletion())
     await generateText({ model: languageModel(cloudflare(), "workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast", { fetch }), prompt: "Hello" })
-    await generateText({ model: languageModel(cloudflare({ apiKey: "openai-key", token: undefined }), "openai/gpt-5", { fetch }), prompt: "Hello" })
+    await generateText({ model: languageModel(cloudflare({ providerApiKey: "openai-key", token: undefined }), "openai/gpt-5", { fetch }), prompt: "Hello" })
 
     const stored = sent(fetch, 0)
     expect(stored.url).toBe("https://gateway.ai.cloudflare.com/v1/account/docs/compat/chat/completions")
@@ -126,6 +126,16 @@ describe("languageModel()", () => {
     const requestKey = sent(fetch, 1)
     expect(requestKey.headers.get("authorization")).toBe("Bearer openai-key")
     expect(requestKey.headers.has("cf-aig-authorization")).toBe(false)
+  })
+
+  it("keeps the TypeSafe key of cloudflare().ask() out of its model requests", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => chatCompletion())
+    const gateway = cloudflare({ accountId: "account", gatewayId: "docs", providerApiKey: undefined, token: "cf-token", typesafeApiKey: "ts-key" })
+    await generateText({ model: languageModel(gateway, "openai/gpt-5", { fetch }), prompt: "Hello" })
+    expect(sent(fetch).headers.has("authorization")).toBe(false)
+    expect(sent(fetch).headers.get("cf-aig-authorization")).toBe("Bearer cf-token")
+    // SAFETY: The type rejects apiKey; this checks the runtime error for JavaScript callers.
+    expect(() => cloudflare({ apiKey: "ts-key" } as never)).toThrow(expect.objectContaining({ code: "GATEWAYS_R0001", message: expect.stringContaining("typesafeApiKey") }))
   })
 
   it("fails before any request when Cloudflare has neither a token nor a provider key", async () => {

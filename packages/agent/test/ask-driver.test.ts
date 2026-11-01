@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { cliproxy, cloudflareTypesafe, vercel } from "@vite-hub/gateways"
+import { cliproxy, cloudflare, vercel } from "@vite-hub/gateways"
 
 import { llmGate, llmRoute } from "../src/capabilities.ts"
 import { createAgentInspectionMetadata, defineAgent, runAgent } from "../src/index.ts"
@@ -202,7 +202,7 @@ describe("ask Driver", () => {
     expect(vercelOptions).toMatchObject({ apiKey: "oidc-token", headers: { "ai-gateway-auth-method": "oidc" } })
 
     const viaCloudflare = defineAgent({
-      driver: { ask: { spam: ask.if("Is it spam?") }, gateway: cloudflareTypesafe({ accountId: "account", apiKey: "tenant-key", gatewayId: "finance", token: "cf-token" }) },
+      driver: { ask: { spam: ask.if("Is it spam?") }, gateway: cloudflare({ accountId: "account", typesafeApiKey: "tenant-key", gatewayId: "finance", token: "cf-token" }) },
       runtime: false,
     })
     await expect(runAgent(viaCloudflare, runtime(), { prompt: "Win money" })).resolves.toEqual({ spam: true })

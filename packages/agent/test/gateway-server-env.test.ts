@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest"
 
-import { ask, cloudflareTypesafe, vercel } from "@vite-hub/gateways"
+import { ask, cloudflare, vercel } from "@vite-hub/gateways"
 import { ViteHubError } from "@vite-hub/runtime"
 
 afterEach(() => {
@@ -38,18 +38,18 @@ it("authenticates with a provider-backed Vercel OIDC token", async () => {
 })
 
 it("shares one provider snapshot and abort signal across Cloudflare gateway fields", async () => {
-  const loadServerEnv = providerEnv("cloudflareTypesafe", {
+  const loadServerEnv = providerEnv("cloudflare", {
     accountId: "account",
-    apiKey: "provider-key",
     gatewayId: "gateway",
     slug: "jev",
     token: "gateway-token",
+    typesafeApiKey: "provider-key",
   })
   const { askJev } = await import("../src/internal/ask-runtime.ts")
   const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ answers: { accepted: { type: "noul", noul: 0.9 } } }))
   const signal = new AbortController().signal
 
-  await expect(askJev({ abortSignal: signal, gateway: cloudflareTypesafe({ fetch }) }, "state", { accepted: ask.if("Accept?") })).resolves.toEqual({ accepted: true })
+  await expect(askJev({ abortSignal: signal, gateway: cloudflare({ fetch }) }, "state", { accepted: ask.if("Accept?") })).resolves.toEqual({ accepted: true })
   expect(loadServerEnv).toHaveBeenCalledExactlyOnceWith(undefined, { signal })
   expect(fetch.mock.calls[0]?.[0]).toBe("https://gateway.ai.cloudflare.com/v1/account/gateway/custom-jev/v1/systemone")
   const headers = new Headers(fetch.mock.calls[0]?.[1]?.headers)

@@ -24,7 +24,7 @@ export type {
 } from "./ask.ts"
 export { aiGatewayEnv } from "./env.ts"
 export type { AiGatewayEnvField } from "./env.ts"
-export { anthropic, cliproxy, cloudflare, cloudflareAccess, cloudflareTypesafe, defineAiGateway, litellm, ollama, openai, openrouter, typesafe, vercel } from "./presets.ts"
+export { anthropic, cliproxy, cloudflare, cloudflareAccess, defineAiGateway, litellm, ollama, openai, openrouter, typesafe, vercel } from "./presets.ts"
 export type {
   AiAskGatewayOptions,
   AiGatewayPresetOptions,
@@ -32,7 +32,6 @@ export type {
   AiModelGateway,
   CloudflareAccessOptions,
   CloudflareGatewayOptions,
-  CloudflareTypesafeGatewayOptions,
   TypesafeGatewayOptions,
   VercelGatewayOptions,
 } from "./presets.ts"

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { ask, cliproxy, cloudflareTypesafe, defineAiGateway, typesafe, vercel } from "../src/index.ts"
+import { ask, cliproxy, cloudflare, defineAiGateway, typesafe, vercel } from "../src/index.ts"
 import { askAiGateway } from "../src/internal.ts"
 
 afterEach(() => {
@@ -108,7 +108,7 @@ describe("gateway.ask()", () => {
 
   it("asks TypeSafe through a Cloudflare AI Gateway custom provider", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => typesafeAnswer())
-    const gateway = cloudflareTypesafe({ accountId: "account", apiKey: "ts-key", fetch, gatewayId: "finance", model: "jev-1.14", token: "cf-token" })
+    const gateway = cloudflare({ accountId: "account", typesafeApiKey: "ts-key", fetch, gatewayId: "finance", model: "jev-1.14", token: "cf-token" })
     await expect(gateway.ask("Mercadona 23.10", questions)).resolves.toEqual(expected)
 
     const sent = request(fetch)
@@ -121,7 +121,7 @@ describe("gateway.ask()", () => {
   it("uses the custom provider slug and leaves out the token of an open gateway", async () => {
     vi.stubEnv("CLOUDFLARE_AI_GATEWAY_TOKEN", undefined)
     const fetch = vi.fn<typeof globalThis.fetch>(async () => typesafeAnswer())
-    await cloudflareTypesafe({ accountId: "account", apiKey: "ts-key", fetch, gatewayId: "finance", slug: "jev" }).ask("state", questions)
+    await cloudflare({ accountId: "account", typesafeApiKey: "ts-key", fetch, gatewayId: "finance", slug: "jev" }).ask("state", questions)
 
     const sent = request(fetch)
     expect(sent.url).toBe("https://gateway.ai.cloudflare.com/v1/account/finance/custom-jev/v1/systemone")
@@ -136,7 +136,7 @@ describe("gateway.ask()", () => {
     vi.stubEnv("AI_GATEWAY_API_KEY", "env-gateway-key")
     const fetch = vi.fn<typeof globalThis.fetch>(async () => typesafeAnswer())
     await typesafe({ fetch }).ask("state", questions)
-    await cloudflareTypesafe({ fetch }).ask("state", questions)
+    await cloudflare({ fetch }).ask("state", questions)
     const vercelFetch = vi.fn<typeof globalThis.fetch>(async () => vercelAnswer())
     await vercel({ fetch: vercelFetch }).ask("state", questions)
 
@@ -151,7 +151,7 @@ describe("gateway.ask()", () => {
     for (const name of ["TYPESAFE_API_KEY", "VITEHUB_TYPESAFE_API_KEY", "CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_AI_GATEWAY_ID"]) vi.stubEnv(name, undefined)
     const fetch = vi.fn<typeof globalThis.fetch>(async () => typesafeAnswer())
     await expect(typesafe({ fetch }).ask("state", questions)).rejects.toMatchObject({ code: "GATEWAYS_R0002", message: expect.stringContaining("Set TYPESAFE_API_KEY, or pass apiKey") })
-    await expect(cloudflareTypesafe({ apiKey: "ts-key", fetch, gatewayId: "finance" }).ask("state", questions)).rejects.toMatchObject({
+    await expect(cloudflare({ typesafeApiKey: "ts-key", fetch, gatewayId: "finance" }).ask("state", questions)).rejects.toMatchObject({
       code: "GATEWAYS_R0004",
       message: expect.stringContaining("Set CLOUDFLARE_ACCOUNT_ID, or pass accountId"),
     })
@@ -160,7 +160,7 @@ describe("gateway.ask()", () => {
 
   it("names the key to rotate when the provider rejects it", async () => {
     const rejected = vi.fn<typeof globalThis.fetch>(async () => Response.json({ error: "unauthorized" }, { status: 401 }))
-    const explicit = await cloudflareTypesafe({ accountId: "account", apiKey: "ts-key", fetch: rejected, gatewayId: "finance" }).ask("state", questions).catch((error: unknown) => error)
+    const explicit = await cloudflare({ accountId: "account", typesafeApiKey: "ts-key", fetch: rejected, gatewayId: "finance" }).ask("state", questions).catch((error: unknown) => error)
     expect(rejected).toHaveBeenCalledOnce()
     expect(explicit).toMatchObject({ code: "GATEWAYS_R0008", providerStatus: 401, status: 503 })
     expect(String((explicit as Error).message)).toContain("Cloudflare AI Gateway Jev provider rejected the API key with HTTP 401")

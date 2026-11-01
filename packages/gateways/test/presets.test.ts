@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { anthropic, cliproxy, cloudflare, cloudflareAccess, cloudflareTypesafe, defineAiGateway, litellm, ollama, openai, openrouter, typesafe, vercel } from "../src/index.ts"
+import { anthropic, cliproxy, cloudflare, cloudflareAccess, defineAiGateway, litellm, ollama, openai, openrouter, typesafe, vercel } from "../src/index.ts"
 import { resolveAiGatewayRoute } from "../src/internal.ts"
 
 afterEach(() => {
@@ -17,7 +17,6 @@ describe("AI gateway presets", () => {
     expect(openai().baseURL).toEqual({ "codex": "https://api.openai.com/v1", "openai-compatible": "https://api.openai.com/v1" })
     expect(anthropic().baseURL).toEqual({ "claude-code": "https://api.anthropic.com" })
     expect(typesafe().baseURL).toEqual({})
-    expect(cloudflareTypesafe().baseURL).toEqual({})
     expect(Object.keys(cloudflare().baseURL)).toEqual(["openai-compatible"])
   })
 

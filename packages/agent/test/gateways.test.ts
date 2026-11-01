@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { discoverAgentGatewayEnv } from "../src/channel-env-discovery.ts"
-import { anthropic, cliproxy, cloudflare, cloudflareAccess, cloudflareTypesafe, defineAiGateway, litellm, ollama, openai, openrouter, typesafe, vercel } from "@vite-hub/gateways"
+import { anthropic, cliproxy, cloudflare, cloudflareAccess, defineAiGateway, litellm, ollama, openai, openrouter, typesafe, vercel } from "@vite-hub/gateways"
 import { createAgentInspectionMetadata, defineAgent } from "../src/index.ts"
 import { languageModel } from "@vite-hub/gateways/ai-sdk"
 import { normalizeAgentDriver } from "../src/internal/agent-driver.ts"
@@ -193,8 +193,8 @@ describe("gateway Server Env", () => {
       await mkdir(join(root, "server", "agents", "labels"), { recursive: true })
       await writeFile(join(root, "server", "agents", "labels", "agent.ts"), [
         `import { defineAgent } from "vite-hub/agent"`,
-        `import { cloudflareTypesafe } from "vite-hub/gateways"`,
-        `const gateway = cloudflareTypesafe()`,
+        `import { cloudflare } from "vite-hub/gateways"`,
+        `const gateway = cloudflare()`,
         `export default defineAgent({ driver: { run: async ({ prompt }) => ({ output: await gateway.ask(prompt, {}) }) } })`,
       ].join("\n"))
       await writeFile(join(root, "server", "agents", "plain", "agent.ts"), [
@@ -208,16 +208,17 @@ describe("gateway Server Env", () => {
           apiKey: { names: ["CLIPROXY_API_KEY"], required: false, secret: true },
           url: { names: ["CLIPROXY_URL"], required: false, secret: false },
         },
+        cloudflare: {
+          accountId: { names: ["CLOUDFLARE_ACCOUNT_ID"], required: false, secret: false },
+          gatewayId: { names: ["CLOUDFLARE_AI_GATEWAY_ID"], required: false, secret: false },
+          providerApiKey: { names: ["CLOUDFLARE_AI_GATEWAY_API_KEY"], required: false, secret: true },
+          slug: { names: ["CLOUDFLARE_AI_GATEWAY_SLUG"], required: false, secret: false },
+          token: { names: ["CLOUDFLARE_AI_GATEWAY_TOKEN"], required: false, secret: true },
+          typesafeApiKey: { names: ["TYPESAFE_API_KEY"], required: false, secret: true },
+        },
         cloudflareAccess: {
           clientId: { names: ["CF_ACCESS_CLIENT_ID"], required: false, secret: true },
           clientSecret: { names: ["CF_ACCESS_CLIENT_SECRET"], required: false, secret: true },
-        },
-        cloudflareTypesafe: {
-          accountId: { names: ["CLOUDFLARE_ACCOUNT_ID"], required: false, secret: false },
-          apiKey: { names: ["TYPESAFE_API_KEY"], required: false, secret: true },
-          gatewayId: { names: ["CLOUDFLARE_AI_GATEWAY_ID"], required: false, secret: false },
-          slug: { names: ["CLOUDFLARE_AI_GATEWAY_SLUG"], required: false, secret: false },
-          token: { names: ["CLOUDFLARE_AI_GATEWAY_TOKEN"], required: false, secret: true },
         },
       })
     }
@@ -261,10 +262,8 @@ describe("driver.gateway", () => {
     expect(() => defineAgent({ driver: { kind: "claude-code", gateway: openai() } })).toThrow('Gateway "openai" does not serve the claude-code Driver')
     // @ts-expect-error The Codex Driver type accepts only gateways with a codex URL.
     expect(() => defineAgent({ driver: { kind: "codex", gateway: typesafe({ apiKey: "k" }) } })).toThrow('Gateway "typesafe" does not serve the codex Driver')
-    // @ts-expect-error cloudflare() serves AI SDK models only.
-    expect(() => defineAgent({ driver: { kind: "codex", gateway: cloudflare({ apiKey: "k" }) } })).toThrow('Gateway "cloudflare" does not serve the codex Driver')
-    // @ts-expect-error cloudflareTypesafe() answers Jev questions only.
-    expect(() => defineAgent({ driver: { kind: "codex", gateway: cloudflareTypesafe({ apiKey: "k" }) } })).toThrow('Gateway "cloudflareTypesafe" does not serve the codex Driver')
+    // @ts-expect-error cloudflare() serves AI SDK models and ask(), not Drivers.
+    expect(() => defineAgent({ driver: { kind: "codex", gateway: cloudflare({ typesafeApiKey: "k" }) } })).toThrow('Gateway "cloudflare" does not serve the codex Driver')
   })
 
   it("routes Driver requests through a gateway that also answers Jev questions", async () => {

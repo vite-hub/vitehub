@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { anthropic, ask, chatgpt, cliproxy, cloudflare, cloudflareTypesafe, defineAiGateway, litellm, ollama, openai, openrouter, typesafe, vercel } from "../src/index.ts"
+import { anthropic, ask, chatgpt, cliproxy, cloudflare, defineAiGateway, litellm, ollama, openai, openrouter, typesafe, vercel } from "../src/index.ts"
 
 import { languageModel } from "../src/ai-sdk.ts"
 
@@ -19,8 +19,8 @@ describe("AI gateway capabilities", () => {
   it("gives ask() only to gateways that answer Jev questions", () => {
     expectTypeOf(typesafe().ask).toEqualTypeOf<AiGatewayAsk>()
     expectTypeOf(vercel().ask).toEqualTypeOf<AiGatewayAsk>()
-    expectTypeOf(cloudflareTypesafe().ask).toEqualTypeOf<AiGatewayAsk>()
-    for (const gateway of [cliproxy(), cloudflare(), litellm(), ollama(), openrouter(), openai(), anthropic(), defineAiGateway({ apiKey: "k", baseURL: { codex: "https://proxy.example/v1" }, name: "internal" })]) {
+    expectTypeOf(cloudflare().ask).toEqualTypeOf<AiGatewayAsk>()
+    for (const gateway of [cliproxy(), litellm(), ollama(), openrouter(), openai(), anthropic(), defineAiGateway({ apiKey: "k", baseURL: { codex: "https://proxy.example/v1" }, name: "internal" })]) {
       // @ts-expect-error A model-only gateway has no ask().
       void gateway.ask("state", { spam: ask.if("Is it spam?") })
     }
@@ -52,7 +52,7 @@ describe("AI gateway capabilities", () => {
     codexGateway(anthropic())
     // @ts-expect-error openai() does not serve Claude Code.
     claudeGateway(openai())
-    // @ts-expect-error cloudflare() serves AI SDK models only.
+    // @ts-expect-error cloudflare() serves AI SDK models and ask(), not Drivers.
     codexGateway(cloudflare())
     // @ts-expect-error typesafe() serves no model API.
     codexGateway(typesafe())
@@ -70,7 +70,7 @@ describe("AI gateway capabilities", () => {
     languageModel(anthropic(), "m", { api: "chat" })
     // @ts-expect-error typesafe() serves no model API.
     languageModel(typesafe(), "m")
-    // @ts-expect-error cloudflareTypesafe() serves no model API.
-    languageModel(cloudflareTypesafe(), "m")
+    // @ts-expect-error cloudflare() takes typesafeApiKey or providerApiKey, not apiKey.
+    cloudflare({ apiKey: "k" })
   })
 })
