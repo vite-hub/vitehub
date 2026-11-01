@@ -1,7 +1,7 @@
 /**
  * Styles of the overlay. They live in its shadow root, and in the shadow root of its toolbar (`.bar`) in the page tools
  * pill, so the host page's CSS does not reach them. The overlay takes the page's font and follows its light or dark
- * scheme (`data-theme` on `.root` and `.bar`), so it reads as part of the site.
+ * scheme (`data-theme` on `.root`), so it reads as part of the site. The toolbar is part of the dark pill instead.
  */
 export const overlayStyles = `
 :host { all: initial; }
@@ -28,21 +28,11 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 button:active:not(:disabled) { transform: scale(.96); }
 button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 textarea:focus-visible, input:focus-visible { outline: none; box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px var(--accent-soft); }
-.icon svg, .tool svg { flex: none; }
+.icon svg { flex: none; }
 
 .toolbar { display: flex; align-items: center; gap: 2px; }
-.tool { height: 32px; min-width: 32px; padding: 0 12px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; color: var(--body); font-weight: 500; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.tool:hover { background: var(--hover); color: var(--text); }
-.tool[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); }
-kbd { font: 500 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); padding: 3px 5px; border-radius: 5px; box-shadow: inset 0 0 0 1px var(--ring); }
-.tool[aria-pressed="true"] kbd { color: inherit; }
-.sep { width: 1px; height: 16px; background: var(--divider); margin: 0 4px; }
-.people { display: flex; padding: 0 6px 0 4px; }
-.people .avatar { width: 24px; height: 24px; margin-left: -6px; box-shadow: 0 0 0 2px var(--surface); }
-.people .avatar:first-child { margin-left: 0; }
 .avatar { width: 24px; height: 24px; flex: none; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; color: #18181b; overflow: hidden; }
 .avatar img { width: 100%; height: 100%; object-fit: cover; outline: 1px solid rgb(0 0 0 / .1); outline-offset: -1px; border-radius: 50%; }
-.tool img.me { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; }
 
 .pin { position: fixed; transform: translate(-50%, -50%); }
 .layer .pin, .layer .pin * { pointer-events: auto; }
@@ -136,6 +126,18 @@ textarea { min-height: 38px; max-height: 160px; field-sizing: content; }
   button:active:not(:disabled) { transform: none; }
   .cursor { transition: none; }
 }
+`
+
+/** The toolbar in the pill, after `overlayStyles` and the pill's button styles. It takes the pill's font and colors. */
+export const pillBarStyles = `
+:host { font: inherit; color: inherit; color-scheme: inherit; }
+.bar { font: inherit; color: inherit; --surface: var(--vitehub-pill-surface); --muted: var(--vitehub-pill-muted); --divider: var(--vitehub-pill-line); }
+.bar button { transform: none; font-variant-numeric: tabular-nums; }
+.sep { width: 4px; flex: none; }
+.people { display: flex; padding: 0 2px; }
+.people .avatar { width: 20px; height: 20px; font-size: 9px; }
+.people .avatar + .avatar { margin-left: -6px; box-shadow: 0 0 0 2px var(--surface); }
+img.me { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; }
 `
 
 /** One rule in the host document, scoped to a class on `<html>`, so the crosshair shows over every element in comment mode. */

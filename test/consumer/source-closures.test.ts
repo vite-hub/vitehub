@@ -59,6 +59,8 @@ function workspaceConfig(overrides: Record<string, string>) {
     "  esbuild: true",
     "blockExoticSubdeps: false",
     "overrides:",
+    // Match the verified lockfile instead of selecting a freshly published tarball.
+    "  \"js-base64\": \"3.9.4\"",
     "  \"@napi-rs/wasm-runtime\": \"1.1.6\"",
     // Workflow's broad Nest peers must stay on one major when pnpm resolves the packed graph.
     "  \"@nestjs/common\": \"11.2.3\"",

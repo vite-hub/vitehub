@@ -24,8 +24,9 @@ function escapeHTML(value: string): string {
 export function consoleAuthSignInPage(provider: string, request: Request, mountBaseURL = "/"): Response {
   // Better Auth's OAuth provider sends an MCP client's login and consent steps here, with a signed query.
   const query = new URL(request.url).searchParams
-  if (query.has("sig") && query.has("client_id")) return consoleAuthOAuthPage(provider, consoleAuthPath(mountBaseURL, consoleAuthBasePath), consoleAuthPath(mountBaseURL, "/_vitehub"))
-  const buttonLabel = provider.toLowerCase() === "github" ? "Sign in with GitHub" : `Sign in with ${provider}`
+  const label = provider.toLowerCase() === "github" ? "GitHub" : provider
+  if (query.has("sig") && query.has("client_id")) return consoleAuthOAuthPage({ password: false, providers: [{ id: provider, label }] }, consoleAuthPath(mountBaseURL, consoleAuthBasePath), consoleAuthPath(mountBaseURL, "/_vitehub"))
+  const buttonLabel = `Sign in with ${label}`
   const startPath = consoleAuthPath(mountBaseURL, "/_vitehub?auth_start=1")
   const search = new URL(request.url).searchParams
   const message = search.has("denied")
@@ -54,6 +55,12 @@ function consoleSignInDocument(message: string, actions: string, status = 200): 
       h1 { margin: 0 0 .5rem; font-size: 1.5rem; font-weight: 600; }
       p { margin: 0 0 1.5rem; color: light-dark(#525252, #a3a3a3); line-height: 1.5; }
       form { margin: .75rem 0; }
+      .password { display: grid; gap: .75rem; margin-bottom: 1.25rem; }
+      label { display: grid; gap: .25rem; font-size: .875rem; font-weight: 500; }
+      input { min-height: 2.5rem; box-sizing: border-box; padding: 0 .75rem; border: 1px solid light-dark(#d4d4d4, #404040); border-radius: .5rem; background: transparent; color: inherit; font: inherit; font-size: 1rem; }
+      input:focus-visible { outline: 2px solid #3b82f6; outline-offset: 1px; }
+      .password button { justify-content: center; }
+      .password ~ form button { border: 1px solid light-dark(#d4d4d4, #404040); background: transparent; color: inherit; }
       a, button { font: inherit; border: 0; cursor: pointer; display: inline-flex; min-height: 2.5rem; align-items: center; padding: 0 1rem; border-radius: .5rem; background: light-dark(#171717, #f5f5f5); color: light-dark(#fff, #171717); font-weight: 500; text-decoration: none; }
       a:focus-visible, button:focus-visible { outline: 2px solid #3b82f6; outline-offset: 3px; }
     </style>
@@ -319,46 +326,74 @@ export function createConsoleAppAuthPages(resolveAuth: typeof getAuthForRequest)
       if (request.method !== "GET" && request.method !== "HEAD" && request.method !== "POST") {
         return new Response(null, { headers: { allow: "GET, HEAD, POST" }, status: 405 })
       }
+      const authBase = authURL.href.replace(/\/$/, "")
+      const password = context.options.emailAndPassword?.enabled === true
+      const providers = context.socialProviders.map(provider => ({ id: provider.id, label: provider.id === "github" ? "GitHub" : provider.name }))
+      // Better Auth's OAuth provider sends an MCP client's login and consent steps here, with a signed query.
+      if (request.method !== "POST" && url.searchParams.has("sig") && url.searchParams.has("client_id")) {
+        return consoleAuthOAuthPage({ password, providers }, authURL.pathname.replace(/\/$/, ""), `${mount}/_vitehub`)
+      }
       const target = consoleReturnPath(url.searchParams.get("redirect"), url, mount)
       const retry = new URL(page, url)
       retry.searchParams.set("redirect", target)
-      const actions = context.socialProviders.map((provider) => {
-        const start = new URL(retry)
-        start.searchParams.set("provider", provider.id)
-        const label = provider.id === "github" ? "GitHub" : provider.name
-        return `<form method="post" action="${escapeHTML(`${start.pathname}${start.search}`)}"${isConsoleDevelopmentBuild() ? ' target="_top"' : ""}><button type="submit">Sign in with ${escapeHTML(label)}</button></form>`
-      }).join("")
-      const render = (failed = false) => consoleSignInDocument(
-        failed ? "Sign-in failed. Try again." : actions ? "Sign in to access the ViteHub Console." : "No social sign-in provider is configured. Configure a provider in server Auth, or set console.signInPage to your app's sign-in page.",
+      const formTarget = isConsoleDevelopmentBuild() ? ' target="_top"' : ""
+      const actions = [
+        ...(password ? [`<form class="password" method="post" action="${escapeHTML(`${retry.pathname}${retry.search}`)}"${formTarget}><label>Email <input name="email" type="email" autocomplete="email" required></label><label>Password <input name="password" type="password" autocomplete="current-password" required></label><button type="submit">Sign in</button></form>`] : []),
+        ...providers.map((provider) => {
+          const start = new URL(retry)
+          start.searchParams.set("provider", provider.id)
+          return `<form method="post" action="${escapeHTML(`${start.pathname}${start.search}`)}"${formTarget}><button type="submit">Sign in with ${escapeHTML(provider.label)}</button></form>`
+        }),
+      ].join("")
+      const render = (message?: string) => consoleSignInDocument(
+        message ?? (actions ? "Sign in to access the ViteHub Console." : "No sign-in method is configured. Enable email and password or a social provider in server Auth, or set console.signInPage to your app's sign-in page."),
         actions,
         actions ? 200 : 503,
       )
-      if (request.method !== "POST") return render(url.searchParams.has("auth_error"))
-      // The Console starts OAuth with the app's own trusted origin. Cross-origin forms must not start a login.
+      const failed = "Sign-in failed. Try again."
+      if (request.method !== "POST") return render(url.searchParams.has("auth_error") ? failed : undefined)
+      // The Console starts a sign-in with the app's own trusted origin. Cross-origin forms must not start a login.
       if (request.headers.get("origin") !== url.origin || !await context.isTrustedOrigin(url.origin)) {
         return new Response("Untrusted sign-in origin.", { status: 403 })
       }
       const provider = url.searchParams.get("provider")
-      if (!context.socialProviders.some(candidate => candidate.id === provider)) return render(true)
+      if (provider === null && password) {
+        const fields = await request.formData().catch(() => undefined)
+        const email = fields?.get("email")
+        const secret = fields?.get("password")
+        if (typeof email !== "string" || typeof secret !== "string") return render(failed)
+        // The browser's headers go along, so Better Auth limits the attempts of this client, not of the server.
+        const headers = new Headers(request.headers)
+        headers.delete("content-length")
+        headers.set("content-type", "application/json")
+        headers.set("origin", url.origin)
+        const response = await auth.handler(new Request(`${authBase}/sign-in/email`, { body: JSON.stringify({ email, password: secret, rememberMe: true }), headers, method: "POST" }))
+        if (response.status === 429) return render("Too many sign-in attempts. Wait a minute, then try again.")
+        if (!response.ok) return render("Sign-in failed. Check your email and password, then try again.")
+        const signedIn = new Headers({ "cache-control": "no-store", location: target })
+        for (const cookie of response.headers.getSetCookie()) signedIn.append("set-cookie", cookie)
+        return new Response(null, { headers: signedIn, status: 303 })
+      }
+      if (!context.socialProviders.some(candidate => candidate.id === provider)) return render(failed)
       retry.searchParams.set("auth_error", "signin")
       try {
-        const response = await auth.handler(new Request(`${authURL.href.replace(/\/$/, "")}/sign-in/social`, {
+        const response = await auth.handler(new Request(`${authBase}/sign-in/social`, {
           method: "POST",
           headers: { "content-type": "application/json", origin: url.origin },
           body: JSON.stringify({ provider, callbackURL: new URL(target, url).href, errorCallbackURL: retry.href }),
         }))
-        if (!response.ok) return render(true)
+        if (!response.ok) return render(failed)
         const result = v.safeParse(v.object({ url: v.string() }), await response.json())
-        if (!result.success) return render(true)
+        if (!result.success) return render(failed)
         const destination = new URL(result.output.url)
-        if (destination.protocol !== "https:" && destination.protocol !== "http:") return render(true)
+        if (destination.protocol !== "https:" && destination.protocol !== "http:") return render(failed)
         const headers = new Headers(response.headers)
         headers.delete("content-type")
         headers.set("location", destination.href)
         headers.set("cache-control", "no-store")
         return new Response(null, { headers, status: 303 })
       }
-      catch { return render(true) }
+      catch { return render(failed) }
     },
   }
 }

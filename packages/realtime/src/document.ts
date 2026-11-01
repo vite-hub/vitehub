@@ -36,7 +36,8 @@ export function realtimeJsonEqual(left: unknown, right: unknown): boolean {
   return stableJson(left) === stableJson(right)
 }
 
-function writeFields(map: Y.Map<unknown>, fields: Record<string, RealtimeFieldValue> | undefined): void {
+/** Writes fields into a document's field map, inserting, replacing, and deleting only what differs. */
+export function writeRealtimeFields(map: Y.Map<unknown>, fields: Record<string, RealtimeFieldValue> | undefined): void {
   const next = fields ?? {}
   for (const key of map.keys()) {
     if (!Object.hasOwn(next, key)) map.delete(key)
@@ -54,7 +55,7 @@ export async function createRealtimeYDoc(editor: RealtimeEditor, snapshot: Realt
   try {
     document.transact(() => {
       prosemirrorJSONToYXmlFragment(realtimeEditorSchema(editor), content, document.getXmlFragment(realtimeDocumentLayout.body))
-      writeFields(document.getMap(realtimeDocumentLayout.fields), snapshot.fields)
+      writeRealtimeFields(document.getMap(realtimeDocumentLayout.fields), snapshot.fields)
     })
     return document
   }
@@ -118,7 +119,7 @@ export async function diffRealtimeYDoc(editor: RealtimeEditor, base: Y.Doc, targ
           mapping: new Map(),
         })
       }
-      if (fieldsChanged) writeFields(clone.getMap(realtimeDocumentLayout.fields), target.fields)
+      if (fieldsChanged) writeRealtimeFields(clone.getMap(realtimeDocumentLayout.fields), target.fields)
     })
     return Y.encodeStateAsUpdate(clone, state)
   }

@@ -249,7 +249,7 @@ ViteHub compares a `bearer` token in constant time, and the `Bearer` scheme is c
 
 `secretToken` also accepts a Server Env secret. ViteHub calls `unseal()` when it verifies the request:
 
-```ts [server/agents/ops.ts]
+```ts [server/utils/prefect-channel.ts]
 import { defineChannel } from 'vite-hub/agent/channels'
 import { useServerEnv } from '#vitehub/env/server'
 
@@ -591,7 +591,7 @@ Activity updates are ordered within one process. Across concurrent hosts, GitHub
 import { defineAgent } from 'vite-hub/agent'
 import { github } from 'vite-hub/agent/channels'
 
-export const agent = defineAgent({
+export default defineAgent({
   channels: {
     github: github({
       activity: { publicUrl: 'https://agent.example.com' },

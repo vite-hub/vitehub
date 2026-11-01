@@ -7,11 +7,13 @@ import { join, resolve } from "pathe"
 import { resolveConfigValue } from "../config-value.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { resolveLocalSqlitePath } from "../runtime/local-path.ts"
+import { applyD1Migrations, createD1Query, listD1MigrationFiles, readD1Ledger } from "./d1-migrations.ts"
 import { findDataLoss } from "./migration-sql.ts"
 
 import type postgres from "postgres"
 import type { Result } from "@vite-hub/runtime"
 import type { ResolvedDrizzleDatabaseConfig } from "../types.ts"
+import type { D1HttpTarget } from "./d1-migrations.ts"
 import type { DataLossStatement, TableColumns } from "./migration-sql.ts"
 
 /** A migration in the migrations folder that the database has not applied. */
@@ -42,25 +44,30 @@ interface JournalEntry {
   when: number
 }
 
-/** The connection that the generated Drizzle Kit config uses. Keep it in sync with `renderDbCredentials()`. */
+/** D1 HTTP uses the runtime's API or proxy target; other connections follow `renderDbCredentials()`. */
 type MigrationTarget =
-  | { kind: "d1-http", accountId?: string, databaseId?: string, token?: string }
+  | ({ kind: "d1-http" } & D1HttpTarget)
   | { kind: "libsql", authToken?: string, url: string }
   | { kind: "local", path: string }
   | { kind: "postgres", url?: string }
 
-// Drizzle Kit uses these defaults because the generated config sets no `migrations` option.
+// Drizzle Kit uses these defaults because the generated config sets no `migrations` option. D1 HTTP uses Wrangler's ledger.
 const sqliteMigrationsTable = "__drizzle_migrations"
 const postgresMigrationsTable = "\"drizzle\".\"__drizzle_migrations\""
 
 function resolveTarget(database: ResolvedDrizzleDatabaseConfig, { env, projectRoot }: MigrationPlanOptions): MigrationTarget | undefined {
   if (database.dialect === "postgresql") return { kind: "postgres", url: resolveConfigValue(database.connection?.url, env)?.trim() || undefined }
   if (database.cloudflare?.http && database.cloudflare.databaseId !== undefined) {
+    const http = database.cloudflare.http
     return {
       accountId: env.CLOUDFLARE_ACCOUNT_ID?.trim() || undefined,
       databaseId: resolveConfigValue(database.cloudflare.databaseId, env)?.trim() || undefined,
       kind: "d1-http",
       token: env.CLOUDFLARE_API_TOKEN?.trim() || undefined,
+      ...(http === true ? {} : { proxy: {
+        token: resolveConfigValue(http.authToken, env)?.trim() || undefined,
+        url: resolveConfigValue(http.url, env)?.trim() || undefined,
+      } }),
     }
   }
   const url = resolveConfigValue(database.connection?.url, env)?.trim()
@@ -78,7 +85,9 @@ function isMemorySqliteUrl(url: string): boolean {
 function describeTarget(target: MigrationTarget, projectRoot: string): string {
   switch (target.kind) {
     case "d1-http":
-      return `Cloudflare D1 ${target.databaseId ?? "(no database id)"} over HTTP`
+      return target.proxy
+        ? `D1 HTTP proxy ${withoutCredentials(target.proxy.url ?? "")}`
+        : `Cloudflare D1 ${target.databaseId ?? "(no database id)"} over HTTP`
     case "libsql":
       return `libSQL ${withoutCredentials(target.url)}`
     case "local":
@@ -99,7 +108,7 @@ function withoutCredentials(url: string): string {
 }
 
 /** Reads `created_at` of the last applied migration, the value that Drizzle compares with each journal `when`. */
-async function readLastAppliedMillis(target: MigrationTarget, options: MigrationPlanOptions): Promise<number | undefined> {
+async function readLastAppliedMillis(target: Exclude<MigrationTarget, { kind: "d1-http" }>, options: MigrationPlanOptions): Promise<number | undefined> {
   switch (target.kind) {
     case "local": {
       // A missing file has no applied migrations. Do not let libSQL create it.
@@ -108,8 +117,6 @@ async function readLastAppliedMillis(target: MigrationTarget, options: Migration
     }
     case "libsql":
       return await readSqliteLastApplied(target.url, target.authToken)
-    case "d1-http":
-      return await readD1LastApplied(target, options.fetch ?? fetch)
     case "postgres":
       return await readPostgresLastApplied(target, options.projectRoot, options.env)
   }
@@ -126,53 +133,6 @@ async function readSqliteLastApplied(url: string, authToken?: string): Promise<n
   finally {
     client.close()
   }
-}
-
-async function readD1LastApplied(target: Extract<MigrationTarget, { kind: "d1-http" }>, request: typeof fetch): Promise<number | undefined> {
-  const missing = [
-    !target.accountId && "`CLOUDFLARE_ACCOUNT_ID`",
-    !target.token && "`CLOUDFLARE_API_TOKEN`",
-    !target.databaseId && "a value for `cloudflare.databaseId`",
-  ].filter(Boolean)
-  if (missing.length) throw new Error(`Drizzle Kit applies D1 HTTP migrations with the Cloudflare API, which needs ${missing.join(" and ")}.`)
-  const url = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(target.accountId!)}/d1/database/${encodeURIComponent(target.databaseId!)}/raw`
-  const query = async (sql: string, params: unknown[] = []) => {
-    const response = await request(url, {
-      body: JSON.stringify({ params, sql }),
-      headers: { Authorization: `Bearer ${target.token}`, "Content-Type": "application/json" },
-      method: "POST",
-    })
-    const payload: unknown = await response.json().catch(() => undefined)
-    const rows = readD1Rows(payload)
-    if (!response.ok || !rows) throw new Error(`Cloudflare D1 returned HTTP ${response.status}${describeD1Errors(payload)}.`)
-    return rows
-  }
-  const table = await query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", [sqliteMigrationsTable])
-  if (!table.length) return
-  const rows = await query(`SELECT created_at FROM ${sqliteMigrationsTable} ORDER BY created_at DESC LIMIT 1`)
-  return toMillis(readRowValue(rows[0], "created_at", 0))
-}
-
-function readD1Rows(payload: unknown): unknown[] | undefined {
-  if (!isRecord(payload) || payload.success !== true || !Array.isArray(payload.result)) return
-  const first: unknown = payload.result[0]
-  if (!isRecord(first)) return
-  const rows = Array.isArray(first.results)
-    ? first.results
-    : isRecord(first.results) && Array.isArray(first.results.rows) ? first.results.rows : undefined
-  if (!rows) return
-  return Array.isArray(rows) && rows.every(row => Array.isArray(row) || isRecord(row)) ? rows : undefined
-}
-
-function readRowValue(row: unknown, key: string, index: number): unknown {
-  if (Array.isArray(row)) return row[index]
-  return isRecord(row) ? row[key] : undefined
-}
-
-function describeD1Errors(payload: unknown): string {
-  if (!isRecord(payload) || !Array.isArray(payload.errors)) return ""
-  const messages = payload.errors.map(error => isRecord(error) && typeof error.message === "string" ? error.message : "").filter(Boolean)
-  return messages.length ? `: ${messages.join("; ")}` : ""
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -250,9 +210,18 @@ function readSnapshotColumns(migrationsDir: string, idx: number): TableColumns |
   return tables
 }
 
+function readPendingMigration(migrationsDir: string, tag: string, entries: readonly JournalEntry[]): PendingMigration {
+  const sql = readFileSync(join(migrationsDir, `${tag}.sql`), "utf8")
+  const statements = sql.split("--> statement-breakpoint").map(statement => statement.trim()).filter(Boolean)
+  // A hand-written D1 migration has no journal entry, so there is no previous snapshot to compare a rebuild with.
+  const idx = entries.find(entry => entry.tag === tag)?.idx
+  const before = idx === undefined ? undefined : idx > 0 ? readSnapshotColumns(migrationsDir, idx - 1) : new Map<string, string[]>()
+  return { dataLoss: findDataLoss(statements, before), name: tag, statements }
+}
+
 /**
  * Lists the migrations that `vitehub db migrate` would apply to one database, with their statements that lose data.
- * It reads the Drizzle migrations table and changes nothing.
+ * It reads the Drizzle migrations table, or Wrangler's `d1_migrations` table for D1 HTTP, and changes nothing.
  */
 export async function readMigrationPlan(
   database: ResolvedDrizzleDatabaseConfig,
@@ -268,19 +237,42 @@ export async function readMigrationPlan(
   }
   try {
     const entries = readJournal(database.migrationsDir)
+    if (target.kind === "d1-http") {
+      const ledger = await readD1Ledger(createD1Query(target, options.fetch), database, entries)
+      const pending = listD1MigrationFiles(database.migrationsDir)
+        .filter(file => !ledger.applied.has(file))
+        .map(file => readPendingMigration(database.migrationsDir, file.slice(0, -".sql".length), entries))
+      return [undefined, { database: database.name, pending, target: describeTarget(target, options.projectRoot) }]
+    }
     const lastApplied = entries.length ? await readLastAppliedMillis(target, options) : undefined
     const pending = entries
       .filter(entry => lastApplied === undefined || lastApplied < entry.when)
-      .map((entry) => {
-        const sql = readFileSync(join(database.migrationsDir, `${entry.tag}.sql`), "utf8")
-        const statements = sql.split("--> statement-breakpoint").map(statement => statement.trim()).filter(Boolean)
-        const before = entry.idx > 0 ? readSnapshotColumns(database.migrationsDir, entry.idx - 1) : new Map<string, string[]>()
-        return { dataLoss: findDataLoss(statements, before), name: entry.tag, statements }
-      })
+      .map(entry => readPendingMigration(database.migrationsDir, entry.tag, entries))
     return [undefined, { database: database.name, pending, target: describeTarget(target, options.projectRoot) }]
   }
   catch (error) {
     const problem = error instanceof Error ? error.message : String(error)
     return [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ cause: error, database: database.name, problem }), undefined]
+  }
+}
+
+/**
+ * Applies the pending migrations of a D1 HTTP database with Wrangler's ledger, so `wrangler d1 migrations apply` and
+ * `vitehub db migrate` agree on what is applied. Returns the error message when a request fails.
+ */
+export async function migrateD1Http(
+  database: ResolvedDrizzleDatabaseConfig,
+  options: MigrationPlanOptions,
+  onApplied: (name: string) => void,
+): Promise<string | undefined> {
+  const target = resolveTarget(database, options)
+  if (target?.kind !== "d1-http") return `The database "${database.name}" does not use D1 HTTP.`
+  try {
+    const query = createD1Query(target, options.fetch)
+    const ledger = await readD1Ledger(query, database, readJournal(database.migrationsDir))
+    await applyD1Migrations(query, ledger, database.migrationsDir, onApplied)
+  }
+  catch (error) {
+    return error instanceof Error ? error.message : String(error)
   }
 }
