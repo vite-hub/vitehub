@@ -247,62 +247,6 @@ export function resolveCloudflareD1Bindings(
   return { d1Databases, unresolved }
 }
 
-/** Fields that select a database. Two declarations of one binding must agree on them. */
-const d1ResourceFields = ["database_id", "database_name", "preview_database_id"] as const
-
-/**
- * One entry per binding name. The first entry wins and later entries with the same name only fill fields it lacks,
- * so Nitro's array concatenation of a project wrangler.json never leaves Wrangler with two bindings of one name.
- * `scope` names the Wrangler environment in errors, such as ` in env.production`.
- */
-export function collapseCloudflareD1Bindings(bindings: readonly unknown[], scope = ""): unknown[] {
-  const collapsed: unknown[] = []
-  const byName = new Map<string, Record<string, unknown>>()
-  for (const binding of bindings) {
-    if (!isPlainObject(binding) || typeof binding.binding !== "string") {
-      collapsed.push(binding)
-      continue
-    }
-    const first = byName.get(binding.binding)
-    if (!first) {
-      const copy: Record<string, unknown> = { ...binding }
-      byName.set(binding.binding, copy)
-      collapsed.push(copy)
-      continue
-    }
-    for (const field of d1ResourceFields) {
-      if (first[field] !== undefined && binding[field] !== undefined && first[field] !== binding[field]) {
-        throw databaseErrorDiagnostics.DATABASE_WRANGLER_BINDING_CONFLICT({ binding: binding.binding, field, generated: String(first[field]), project: String(binding[field]), scope })
-      }
-    }
-    // ViteHub stages its migrations in its own directory, so a pattern written for another directory would not match.
-    const keepsMigrations = first.migrations_dir !== undefined
-    for (const [key, value] of Object.entries(binding)) {
-      if (keepsMigrations && (key === "migrations_dir" || key === "migrations_pattern")) continue
-      if (first[key] === undefined) first[key] = value
-    }
-  }
-  return collapsed
-}
-
-/** The Wrangler config with `d1_databases` collapsed at the top level and in each `env`, or undefined when unchanged. */
-export function collapseWranglerD1Bindings(wrangler: Record<string, unknown>): Record<string, unknown> | undefined {
-  let changed = false
-  const collapse = (target: Record<string, unknown>, scope: string): Record<string, unknown> => {
-    if (!Array.isArray(target.d1_databases)) return target
-    const d1Databases = collapseCloudflareD1Bindings(target.d1_databases, scope)
-    if (d1Databases.length === target.d1_databases.length) return target
-    changed = true
-    return { ...target, d1_databases: d1Databases }
-  }
-  const result = collapse(wrangler, "")
-  if (isPlainObject(wrangler.env)) {
-    const env = Object.fromEntries(Object.entries(wrangler.env).map(([name, config]) => [name, isPlainObject(config) ? collapse(config, ` in env.${name}`) : config]))
-    if (changed) return { ...result, env }
-  }
-  return changed ? result : undefined
-}
-
 export function mergeCloudflareD1Bindings(
   current: unknown,
   generated: CloudflareD1WranglerBinding[],

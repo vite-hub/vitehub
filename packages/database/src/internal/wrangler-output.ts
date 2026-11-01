@@ -1,23 +1,28 @@
-import { readFile, writeFile } from "node:fs/promises"
-import { resolve } from "node:path"
+import { collapseWranglerConfigFile } from "@vite-hub/internal/build/cloudflare"
+import type { WranglerEntrySpec } from "@vite-hub/internal/build/cloudflare"
 
-import { isPlainObject } from "@vite-hub/internal/object"
-
-import { collapseWranglerD1Bindings } from "./cloudflare.ts"
+import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 
 /**
- * Nitro's Cloudflare preset merges the project's wrangler config into the generated one with defu, which concatenates
- * arrays, so a D1 binding that both declare appears twice. Run this in a `compiled` hook, after the preset wrote the file.
+ * One entry per D1 binding name. ViteHub's entry comes first and wins, and the project entry only fills fields it
+ * lacks, so Nitro's array concatenation of a project wrangler.json never leaves Wrangler with two bindings of one name.
+ * A real id replaces an all-zero placeholder. Unresolved primary IDs are left out for provisioning; preview IDs stay
+ * to prevent remote development from falling back to production. ViteHub stages its migrations
+ * in its own directory, so a project `migrations_dir` or `migrations_pattern` is dropped when ViteHub sets one.
  */
-export async function collapseGeneratedWranglerD1Bindings(serverDir: string): Promise<void> {
-  const file = resolve(serverDir, "wrangler.json")
-  const text = await readFile(file, "utf8").catch((error: NodeJS.ErrnoException) => {
-    if (error.code === "ENOENT") return undefined
-    throw error
+const d1EntrySpec: WranglerEntrySpec = {
+  path: ["d1_databases"],
+  identity: "binding",
+  resource: ["database_id", "database_name", "preview_database_id"],
+  ids: ["database_id", "preview_database_id"],
+  preservePlaceholderIds: ["preview_database_id"],
+  groups: [["migrations_dir", "migrations_pattern"]],
+}
+
+/** The `compiled` hook step: collapses `d1_databases` in the wrangler.json in `serverDir`, at the top level and in each `env`. */
+export function collapseGeneratedWranglerD1Bindings(serverDir: string): Promise<void> {
+  return collapseWranglerConfigFile(serverDir, {
+    conflict: ({ field, generated, name, project, scope }) => databaseErrorDiagnostics.DATABASE_WRANGLER_BINDING_CONFLICT({ binding: name, field, generated: String(generated), project: String(project), scope }),
+    specs: [d1EntrySpec],
   })
-  if (text === undefined) return
-  const wrangler: unknown = JSON.parse(text)
-  if (!isPlainObject(wrangler)) return
-  const collapsed = collapseWranglerD1Bindings(wrangler)
-  if (collapsed) await writeFile(file, `${JSON.stringify(collapsed, null, 2)}\n`)
 }
