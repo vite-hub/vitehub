@@ -156,9 +156,12 @@ describe("loadViteHubPageTools", () => {
     await loadViteHubPageTools({ load: first.load })
     const { element } = pill()
     const mark = element.shadowRoot!.querySelector<HTMLButtonElement>("button.mark")!
+    const toolbar = element.shadowRoot!.querySelector<HTMLElement>("[role=toolbar]")!
+    toolbar.scrollLeft = 120
     expect([mark.getAttribute("aria-expanded"), mark.getAttribute("aria-label")]).toEqual(["true", "Hide ViteHub tools"])
     mark.click()
     expect(element.hasAttribute("collapsed")).toBe(true)
+    expect(toolbar.scrollLeft).toBe(0)
     expect([mark.getAttribute("aria-expanded"), mark.getAttribute("aria-label")]).toEqual(["false", "Show ViteHub tools"])
     expect(first.stopped).toEqual([])
 

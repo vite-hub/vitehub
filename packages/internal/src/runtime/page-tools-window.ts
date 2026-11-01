@@ -22,7 +22,7 @@ export interface ViteHubPageWindowOptions {
 // the pill when it opens. The pill is 38px tall, or 54px with 44px touch buttons.
 const styles = `
 :host{all:initial;--surface:light-dark(#fff,#0a0a0a);--text:light-dark(#18181b,#fafafa);--muted:light-dark(#71717a,#a1a1aa);--line:light-dark(rgb(0 0 0/8%),rgb(255 255 255/9%));--hover:light-dark(rgb(0 0 0/5%),rgb(255 255 255/7%));--focus:light-dark(#18181b,#fafafa);--dock:calc(max(16px,env(safe-area-inset-bottom)) + 46px);position:fixed;inset:0;z-index:2147483000;pointer-events:none;color:var(--text);font:400 .875rem/1.5 system-ui,sans-serif;color-scheme:light dark;transition:display 150ms allow-discrete}
-@media(any-pointer:coarse){:host{--dock:calc(max(16px,env(safe-area-inset-bottom)) + 62px)}}
+@media(any-pointer:coarse){:host{--dock:calc(max(16px,env(safe-area-inset-bottom)) + 62px)}.grip{display:none}}
 :host([hidden]){display:none}
 .window{position:absolute;left:50%;bottom:var(--dock);translate:-50% 0;width:min(600px,calc(100vw - 32px));height:min(640px,calc(100dvh - var(--dock) - 16px));min-width:300px;min-height:240px;max-width:calc(100vw - 32px);max-height:calc(100dvh - var(--dock) - 16px);display:flex;flex-direction:column;pointer-events:auto;background:var(--surface);border-radius:12px;box-shadow:0 0 0 1px light-dark(rgb(0 0 0/8%),rgb(255 255 255/10%)),0 2px 4px light-dark(rgb(0 0 0/4%),rgb(0 0 0/24%)),0 16px 40px -8px light-dark(rgb(0 0 0/18%),rgb(0 0 0/56%));outline:none;transform-origin:50% 100%;transition:opacity 200ms cubic-bezier(.23,1,.32,1),scale 200ms cubic-bezier(.23,1,.32,1)}
 @starting-style{.window{opacity:0;scale:.96}}
@@ -95,7 +95,7 @@ export function createViteHubPageWindow(options: ViteHubPageWindowOptions): Vite
       if (event.button !== 0) return
       event.preventDefault()
       grip.setPointerCapture(event.pointerId)
-      const start = panel.getBoundingClientRect()
+      const start = { width: panel.offsetWidth, height: panel.offsetHeight }
       const move = (moved: PointerEvent) => {
         if (side === "top") panel.style.height = `${Math.max(240, start.height + event.clientY - moved.clientY)}px`
         else panel.style.width = `${Math.max(300, start.width + 2 * (side === "left" ? event.clientX - moved.clientX : moved.clientX - event.clientX))}px`
@@ -118,7 +118,9 @@ export function createViteHubPageWindow(options: ViteHubPageWindowOptions): Vite
   catch { /* Storage may be disabled. The default size still works. */ }
   const resize = new ResizeObserver(() => {
     if (host.hidden || panel.classList.contains("expanded") || innerWidth <= 640) return
-    const { width, height } = panel.getBoundingClientRect()
+    // The opening scale changes visual bounds, but restored sizes must keep the untransformed layout dimensions.
+    const width = panel.offsetWidth
+    const height = panel.offsetHeight
     try { localStorage.setItem(key, JSON.stringify({ width, height })) } catch {}
   })
   resize.observe(panel)
