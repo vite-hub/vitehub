@@ -3,7 +3,9 @@ import { tmpdir } from "node:os"
 import { join, posix } from "node:path"
 import { runInNewContext } from "node:vm"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { env, resolveServerEnv, SecretEnv } from "@vite-hub/env"
+import { createRuntimeEnvRegistry } from "@vite-hub/env/vite"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { end, parseProgram, start } from "../src/ast.ts"
 import { runCodemod } from "../src/index.ts"
@@ -12,10 +14,12 @@ import { editNuxtConfig } from "../src/nuxt-safe-runtime-config/config-edit.ts"
 import { readNuxtConfig, readRuntimeConfig } from "../src/nuxt-safe-runtime-config/nuxt-config.ts"
 import { planFromJsonSchema } from "../src/nuxt-safe-runtime-config/schema.ts"
 
+import type { EnvRuntimeConfigOptions } from "@vite-hub/env"
 import type { EnvField } from "../src/nuxt-safe-runtime-config/fields.ts"
 
 const directories: string[] = []
 afterEach(async () => {
+  vi.unstubAllEnvs()
   await Promise.all(directories.splice(0).map(directory => rm(directory, { recursive: true, force: true })))
 })
 
@@ -235,6 +239,18 @@ describe("nested app boundaries", () => {
 })
 
 describe("module list safety", () => {
+  it("rejects modules inherited through a root spread without writing files", async () => {
+    const files = {
+      "nuxt.config.ts": "const base = { modules: ['@nuxt/eslint', 'nuxt-safe-runtime-config'] }\nexport default defineNuxtConfig({ ...base, safeRuntimeConfig: { envSchema: '.env.example' } })",
+      ".env.example": "NUXT_PUBLIC_TITLE=site\n",
+      "package.json": '{"dependencies":{"nuxt-safe-runtime-config":"0.3.2"}}\n',
+      "composables/title.ts": "export const title = useSafeRuntimeConfig().public.title\n",
+    }
+    const cwd = await app(files)
+    await expect(runCodemod("nuxt-safe-runtime-config", { cwd })).rejects.toThrow(/root spread.*modules.*array literal/)
+    for (const [file, code] of Object.entries(files)) expect(await readFile(join(cwd, file), "utf8")).toBe(code)
+  })
+
   it.each(["buildModules()", "activeModules", "enabled ? activeModules : []"])("rejects modules: %s without writing files", async (modules) => {
     const files = {
       "nuxt.config.ts": `const activeModules = ['@nuxt/eslint', 'nuxt-safe-runtime-config']\nconst buildModules = () => activeModules\nconst enabled = true\nexport default defineNuxtConfig({ modules: ${modules}, safeRuntimeConfig: { envSchema: '.env.example' } })`,
@@ -248,7 +264,68 @@ describe("module list safety", () => {
   })
 })
 
+describe("deployment preset safety", () => {
+  it.each(["process.env.NITRO_PRESET", "deploymentPreset", "selectPreset()"])("rejects nitro.preset: %s without writing files", async (preset) => {
+    const files = {
+      "nuxt.config.ts": `export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'], safeRuntimeConfig: { envSchema: '.env.example' }, nitro: { preset: ${preset} } })`,
+      ".env.example": "NUXT_PUBLIC_TITLE=site\n",
+      "package.json": '{"dependencies":{"nuxt-safe-runtime-config":"0.3.2"}}\n',
+      "composables/title.ts": "export const title = useSafeRuntimeConfig().public.title\n",
+    }
+    const cwd = await app(files)
+    await expect(runCodemod("nuxt-safe-runtime-config", { cwd })).rejects.toThrow(/nitro.preset.*string literal/)
+    for (const [file, code] of Object.entries(files)) expect(await readFile(join(cwd, file), "utf8")).toBe(code)
+  })
+
+  it.each([
+    "modules: ['nuxt-safe-runtime-config'], vitehub: { preset: 'cloudflare' }",
+    "modules: ['nuxt-safe-runtime-config', ['vite-hub/nuxt', { preset: 'cloudflare' }]]",
+  ])("keeps an explicit ViteHub preset with a dynamic Nitro preset: %s", async (options) => {
+    const cwd = await app({
+      "nuxt.config.ts": `export default defineNuxtConfig({ ${options}, safeRuntimeConfig: { envSchema: '.env.example' }, nitro: { preset: process.env.NITRO_PRESET } })`,
+      ".env.example": "NUXT_PUBLIC_TITLE=site\n",
+    })
+    const run = await runCodemod("nuxt-safe-runtime-config", { cwd, dryRun: true })
+    const edited = run.result.edits.find(edit => edit.path === "nuxt.config.ts")?.after
+    expect(edited).toContain("preset: 'cloudflare'")
+    expect(edited).toContain("preset: process.env.NITRO_PRESET")
+    expect(edited).not.toContain("preset: 'node'")
+  })
+})
+
 describe("schema migration safety", () => {
+  it.each([
+    ["title", true, "''"],
+    ["title", false, "''"],
+    ["title", true, "process.env.SOURCE ?? ''"],
+    ["title", false, "process.env.SOURCE ?? ''"],
+    ["apiSecret", true, "''"],
+    ["apiSecret", false, "process.env.SOURCE ?? ''"],
+  ])("keeps an empty string default for %s (required: %s, value: %s)", async (name, required, value) => {
+    const cwd = await app({ "nuxt.config.ts": `export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'], runtimeConfig: { ${name}: ${value} } })` })
+    const config = await readNuxtConfig(cwd)
+    const plan = planFromJsonSchema({
+      jsonSchema: { type: "object", required: required ? [name] : [], properties: { [name]: { type: "string", ...(value.includes("process.env") ? { default: "schema-default" } : {}) } } },
+      issues: new Map(),
+      runtimeConfig: readRuntimeConfig(config).values,
+    })
+    expect(plan.fields[0]).toMatchObject({ default: "", required })
+    const edited = editNuxtConfig({ config, env: { kind: "fields", fields: plan.fields }, migrated: new Set([name]) })
+    expect(edited.code).not.toContain("runtimeConfig")
+    const exported = parseProgram(edited.code).program.body.find(node => node.type === "ExportDefaultDeclaration")
+    if (exported?.type !== "ExportDefaultDeclaration") throw new Error("Missing migrated config")
+    const migrated: { vitehub: { env: { server: EnvRuntimeConfigOptions } } } = runInNewContext(edited.code.slice(start(exported.declaration), end(exported.declaration)), { defineNuxtConfig: (options: unknown) => options, env })
+    vi.stubEnv("NUXT_TITLE", undefined)
+    vi.stubEnv("NUXT_API_SECRET", undefined)
+    for (const source of [undefined, "", "configured"]) {
+      vi.stubEnv("SOURCE", source)
+      const registry = createRuntimeEnvRegistry({ ...migrated.vitehub.env.server }, { prefix: false })
+      const resolved = resolveServerEnv(registry)[name]
+      if (name === "apiSecret") expect(resolved).toBeInstanceOf(SecretEnv)
+      expect(resolved instanceof SecretEnv ? resolved.unseal() : resolved).toBe(value.includes("process.env") ? source ?? "" : "")
+    }
+  })
+
   it.each([
     ["__proto__"],
     ["group", "__proto__"],

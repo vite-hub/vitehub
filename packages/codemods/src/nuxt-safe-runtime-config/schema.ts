@@ -311,7 +311,7 @@ export function planFromJsonSchema(input: PlanInput): SchemaPlan {
     }
 
     let defaultValue: LiteralValue | undefined
-    if (runtimeValue?.literal !== undefined && runtimeValue.literal !== "") {
+    if (runtimeValue?.literal !== undefined) {
       defaultValue = coerceDefault(runtimeValue.literal, field)
       if (defaultValue === undefined) {
         follow(`runtimeConfig.${label} has the value ${literalText(runtimeValue.literal)}, which is not a valid ${kind}. It was not kept as a default.`, { env: field })
@@ -319,7 +319,7 @@ export function planFromJsonSchema(input: PlanInput): SchemaPlan {
     }
     else if (runtimeValue?.processEnv) {
       field.extraVariables = [runtimeValue.processEnv.name]
-      if (runtimeValue.processEnv.fallback !== undefined && runtimeValue.processEnv.fallback !== "") {
+      if (runtimeValue.processEnv.fallback !== undefined) {
         defaultValue = coerceDefault(runtimeValue.processEnv.fallback, field)
       }
       follow(`runtimeConfig.${label} read process.env.${runtimeValue.processEnv.name} when Nuxt loaded the config. Env now reads ${field.variable}, then ${runtimeValue.processEnv.name}, ${section === "public" ? "during the build" : "when the server runs"}.`, { env: field })
@@ -333,7 +333,8 @@ export function planFromJsonSchema(input: PlanInput): SchemaPlan {
         defaultValue = coerceDefault(schemaDefault, field)
       }
     }
-    if (defaultValue !== undefined && field.secret) {
+    // An empty default preserves behavior without embedding a credential in the build.
+    if (defaultValue !== undefined && defaultValue !== "" && field.secret) {
       follow(`${label} is secret, so its value ${literalText(defaultValue)} was not kept as a default. Defaults are written into the server build. Set ${field.variable} instead.`, { env: field })
       defaultValue = undefined
     }

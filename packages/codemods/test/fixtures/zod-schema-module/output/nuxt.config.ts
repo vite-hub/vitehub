@@ -20,7 +20,7 @@ export default defineNuxtConfig({
         region: env.enum(['eu', 'us'], { default: 'eu', source: env.source('NUXT_REGION') }),
         cacheTtl: env.number({ default: 60, source: env.source('NUXT_CACHE_TTL') }),
         webhook: {
-          signingSecret: env({ secret: true, source: env.source('NUXT_WEBHOOK_SIGNING_SECRET') }),
+          signingSecret: env({ default: '', secret: true, source: env.source('NUXT_WEBHOOK_SIGNING_SECRET') }),
         },
         redirectUrl: env({ required: false, source: env.source('NUXT_REDIRECT_URL') }),
       },

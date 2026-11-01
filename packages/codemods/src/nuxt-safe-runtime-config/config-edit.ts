@@ -330,6 +330,9 @@ export function editNuxtConfig(input: ConfigEditInput): ConfigEditResult {
     else if (findProperty(config.root, "modules")) {
       throw new CodemodError(`${config.fileName} sets modules to an expression. Make it an array literal, then run the codemod again.`)
     }
+    else if (config.root.properties.some(property => property.type === "SpreadElement")) {
+      throw new CodemodError(`${config.fileName} has a root spread that may supply modules. Make modules an explicit array literal, then run the codemod again.`)
+    }
     else {
       rootEntries.push(`modules: [${moduleText}]`)
     }
@@ -367,7 +370,13 @@ export function editNuxtConfig(input: ConfigEditInput): ConfigEditResult {
     imports.push(`import { envSchema } from ${quoteString("@vite-hub/env/vite", style)}${semicolon}`)
   }
 
+  const existingOptions = findProperty(config.root, "vitehub")
+  const existingPreset = existingOptions?.value.type === "ObjectExpression" ? findProperty(existingOptions.value, "preset") : undefined
+  const inlinePreset = hasInlinePreset(existingViteHub)
   const preset = nitroPreset(config)
+  if (preset.property && preset.value === undefined && !inlinePreset && !existingPreset) {
+    throw new CodemodError(`${config.fileName} sets nitro.preset to an expression. Make it a string literal or set an explicit vitehub.preset, then run the codemod again.`)
+  }
   let vitehubPreset: string | undefined = "node"
   let presetNote: string | undefined = `ViteHub needs a deployment preset, so the codemod set vitehub.preset to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.`
   if (preset.value) {
@@ -376,12 +385,11 @@ export function editNuxtConfig(input: ConfigEditInput): ConfigEditResult {
       ? undefined
       : `nitro.preset "${preset.value}" has no ViteHub deployment preset. Set vitehub.preset to "cloudflare", "deno", "netlify", "node", or "vercel" and remove nitro.preset.`
   }
-  if (hasInlinePreset(existingViteHub)) {
+  if (inlinePreset) {
     vitehubPreset = undefined
     presetNote = undefined
   }
 
-  const existingOptions = findProperty(config.root, "vitehub")
   const unit = style.indent
   const baseIndent = config.root.properties[0] ? indentAt(config.code, start(config.root.properties[0])) : unit
   if (existingOptions) {
