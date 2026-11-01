@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" fill="currentColor" shape-rendering="crispEdges" class="primitive-motion is-playing" style="--cycle: 5000ms; --scene-delay: -700ms">
+<style>
+svg { color: #59636e; --ui-bg: #ffffff; }
+@media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
+.primitive-motion {
+  overflow: visible;
+}
+.primitive-motion .line,
+.primitive-motion .job,
+.primitive-motion .command,
+.primitive-motion .budget {
+  opacity: 0.55;
+}
+.primitive-motion .soft {
+  opacity: 0.35;
+}
+.primitive-motion .ink,
+.primitive-motion .token,
+.primitive-motion .pointer {
+  opacity: 0.85;
+}
+.primitive-motion .token,
+.primitive-motion .band,
+.primitive-motion .ghost,
+.primitive-motion .q-in,
+.primitive-motion .blob-next {
+  opacity: 0;
+}
+.primitive-motion .a {
+  animation-duration: var(--cycle);
+  animation-delay: var(--scene-delay);
+  animation-iteration-count: infinite;
+  animation-fill-mode: both;
+  animation-timing-function: steps(3);
+}
+.primitive-motion:not(.is-playing) .a {
+  animation-play-state: paused;
+}
+.primitive-motion .wf-rail-1,
+.primitive-motion .wf-rail-2,
+.primitive-motion .sh-command,
+.primitive-motion .ws-file,
+.primitive-motion .cms-edit,
+.primitive-motion .blob-progress {
+  transform-box: fill-box;
+  transform-origin: left center;
+}
+.primitive-motion .cms-edit { animation-name: cms-edit; }
+.primitive-motion .cms-token { animation-name: cms-token; }
+.primitive-motion .cms-page { animation-name: cms-page; }
+@media (prefers-reduced-motion: reduce) {
+  .primitive-motion .a {
+    animation: none;
+  }
+}
+@keyframes cms-edit {
+  0%, 6% { opacity: 0.35; transform: scaleX(1); }
+  8% { opacity: 0.85; transform: scaleX(0); animation-timing-function: steps(9); }
+  30%, 70% { opacity: 0.85; transform: scaleX(1); }
+  80%, 100% { opacity: 0.35; transform: scaleX(1); }
+}
+@keyframes cms-token {
+  0%, 32% { opacity: 0; transform: translateX(0); }
+  36% { opacity: 0.85; transform: translateX(0); animation-timing-function: steps(4); }
+  48% { opacity: 0.85; transform: translateX(8px); }
+  52%, 100% { opacity: 0; transform: translateX(8px); }
+}
+@keyframes cms-page {
+  0%, 48% { opacity: 0.35; }
+  54%, 76% { opacity: 0.85; }
+  86%, 100% { opacity: 0.35; }
+}
+</style>
+<path class="line" d="M2 6h24v2h-24zM0 8h2v2h-2zM26 8h2v2h-2zM0 10h2v2h-2zM26 10h2v2h-2zM0 12h2v2h-2zM26 12h2v2h-2zM0 14h2v2h-2zM26 14h2v2h-2zM0 16h2v2h-2zM26 16h2v2h-2zM0 18h2v2h-2zM26 18h2v2h-2zM0 20h2v2h-2zM26 20h2v2h-2zM0 22h2v2h-2zM26 22h2v2h-2zM0 24h2v2h-2zM26 24h2v2h-2zM0 26h2v2h-2zM26 26h2v2h-2zM0 28h2v2h-2zM26 28h2v2h-2zM0 30h2v2h-2zM26 30h2v2h-2zM2 32h24v2h-24z"/><path class="command" d="M4 10h12v2h-12z"/><path class="soft" d="M4 16h20v2h-20zM4 22h14v2h-14z"/><path class="soft a cms-edit" d="M4 28h18v2h-18z"/><path class="line" d="M40 10h12v2h-12zM38 12h2v2h-2zM52 12h2v2h-2zM38 14h2v2h-2zM52 14h2v2h-2zM38 16h2v2h-2zM52 16h2v2h-2zM38 18h2v2h-2zM52 18h2v2h-2zM38 20h2v2h-2zM52 20h2v2h-2zM38 22h2v2h-2zM52 22h2v2h-2zM38 24h2v2h-2zM52 24h2v2h-2zM38 26h2v2h-2zM52 26h2v2h-2zM40 28h12v2h-12z"/><path class="soft a cms-page" d="M42 16h8v2h-8zM42 20h6v2h-6zM42 24h8v2h-8z"/><path class="token a cms-token" d="M28 18h4v2h-4zM28 20h4v2h-4z"/>
+</svg>

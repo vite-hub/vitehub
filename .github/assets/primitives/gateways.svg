@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" fill="currentColor" shape-rendering="crispEdges" class="primitive-motion is-playing" style="--cycle: 5600ms; --scene-delay: -3080ms">
+<style>
+svg { color: #59636e; --ui-bg: #ffffff; }
+@media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
+.primitive-motion {
+  overflow: visible;
+}
+.primitive-motion .line,
+.primitive-motion .job,
+.primitive-motion .command,
+.primitive-motion .budget {
+  opacity: 0.55;
+}
+.primitive-motion .link {
+  opacity: 0.4;
+}
+.primitive-motion .soft {
+  opacity: 0.35;
+}
+.primitive-motion .ink,
+.primitive-motion .token,
+.primitive-motion .pointer {
+  opacity: 0.85;
+}
+.primitive-motion .token,
+.primitive-motion .band,
+.primitive-motion .ghost,
+.primitive-motion .q-in,
+.primitive-motion .blob-next {
+  opacity: 0;
+}
+.primitive-motion .a {
+  animation-duration: var(--cycle);
+  animation-delay: var(--scene-delay);
+  animation-iteration-count: infinite;
+  animation-fill-mode: both;
+  animation-timing-function: steps(3);
+}
+.primitive-motion:not(.is-playing) .a {
+  animation-play-state: paused;
+}
+.primitive-motion .gw-in-1 { animation-name: gw-in-1; }
+.primitive-motion .gw-in-2 { animation-name: gw-in-2; }
+.primitive-motion .gw-out { animation-name: gw-out; }
+.primitive-motion .gw-route { animation-name: gw-route; }
+.primitive-motion .gw-model { animation-name: gw-model; }
+@media (prefers-reduced-motion: reduce) {
+  .primitive-motion .a {
+    animation: none;
+  }
+}
+@keyframes gw-in-1 {
+  0%, 4% { opacity: 0; transform: translate(0, 0); }
+  7% { opacity: 0.85; transform: translate(0, 0); animation-timing-function: steps(4); }
+  18% { opacity: 0.85; transform: translate(8px, 8px); }
+  21%, 100% { opacity: 0; transform: translate(8px, 8px); }
+}
+@keyframes gw-in-2 {
+  0%, 50% { opacity: 0; transform: translate(0, 0); }
+  53% { opacity: 0.85; transform: translate(0, 0); animation-timing-function: steps(4); }
+  64% { opacity: 0.85; transform: translate(8px, -8px); }
+  67%, 100% { opacity: 0; transform: translate(8px, -8px); }
+}
+@keyframes gw-out {
+  0%, 22% { opacity: 0; transform: translateX(0); }
+  25% { opacity: 0.85; transform: translateX(0); animation-timing-function: steps(5); }
+  36% { opacity: 0.85; transform: translateX(10px); }
+  39%, 68% { opacity: 0; transform: translateX(10px); }
+  68.1% { opacity: 0; transform: translateX(0); }
+  71% { opacity: 0.85; transform: translateX(0); animation-timing-function: steps(5); }
+  82% { opacity: 0.85; transform: translateX(10px); }
+  85%, 100% { opacity: 0; transform: translateX(10px); }
+}
+@keyframes gw-route {
+  0%, 17% { opacity: 0.35; }
+  20%, 26% { opacity: 0.85; }
+  32%, 63% { opacity: 0.35; }
+  66%, 72% { opacity: 0.85; }
+  78%, 100% { opacity: 0.35; }
+}
+@keyframes gw-model {
+  0%, 35% { opacity: 0.35; }
+  40%, 46% { opacity: 0.85; }
+  52%, 81% { opacity: 0.35; }
+  86%, 92% { opacity: 0.85; }
+  100% { opacity: 0.35; }
+}
+</style>
+<path class="line" d="M2 6h6v2h-6zM0 8h2v2h-2zM8 8h2v2h-2zM0 10h2v2h-2zM8 10h2v2h-2zM0 12h2v2h-2zM8 12h2v2h-2zM20 12h12v2h-12zM2 14h6v2h-6zM20 14h2v2h-2zM30 14h2v2h-2zM20 16h2v2h-2zM30 16h2v2h-2zM44 16h6v2h-6zM20 18h2v2h-2zM30 18h2v2h-2zM42 18h2v2h-2zM50 18h2v2h-2zM20 20h2v2h-2zM30 20h2v2h-2zM42 20h2v2h-2zM50 20h2v2h-2zM20 22h2v2h-2zM30 22h2v2h-2zM42 22h2v2h-2zM50 22h2v2h-2zM2 24h6v2h-6zM20 24h2v2h-2zM30 24h2v2h-2zM44 24h6v2h-6zM0 26h2v2h-2zM8 26h2v2h-2zM20 26h12v2h-12zM0 28h2v2h-2zM8 28h2v2h-2zM0 30h2v2h-2zM8 30h2v2h-2zM2 32h6v2h-6z"/><path class="link" d="M10 10h2v2h-2zM12 12h2v2h-2zM14 14h2v2h-2zM16 16h2v2h-2zM18 18h2v2h-2zM18 20h2v2h-2zM32 20h10v2h-10zM16 22h2v2h-2zM14 24h2v2h-2zM12 26h2v2h-2zM10 28h2v2h-2z"/><path class="soft a gw-route" d="M24 18h4v2h-4zM24 20h4v2h-4z"/><path class="soft a gw-model" d="M46 20h2v2h-2z"/><path class="token a gw-in-1" d="M8 8h4v2h-4zM8 10h4v2h-4z"/><path class="token a gw-in-2" d="M8 28h4v2h-4zM8 30h4v2h-4z"/><path class="token a gw-out" d="M30 18h4v2h-4zM30 20h4v2h-4z"/>
+</svg>

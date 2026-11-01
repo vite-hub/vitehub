@@ -30,6 +30,7 @@ svg { color: #59636e; --ui-bg: #ffffff; }
 .primitive-motion .wf-rail-2,
 .primitive-motion .sh-command,
 .primitive-motion .ws-file,
+.primitive-motion .cms-edit,
 .primitive-motion .blob-progress {
   transform-box: fill-box;
   transform-origin: left center;
