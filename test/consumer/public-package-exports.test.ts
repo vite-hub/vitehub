@@ -89,30 +89,9 @@ const packageManifestSchema = object({
   version: optional(string()),
 })
 
-import { appendFileSync } from "node:fs"
-const timingFile = process.env.CC_TIMING_FILE
-function timing(label: string, ms: number) {
-  if (timingFile) appendFileSync(timingFile, `${Date.now()}\t${label}\t${Math.round(ms)}\n`)
-}
-async function phase<T>(name: string, fn: () => Promise<T>) {
-  const start = performance.now()
-  try { return await fn() } finally { timing(`phase:${name}`, performance.now() - start) }
-}
-function runLabel(command: string, args: string[]) {
-  if (command === "corepack") return `pnpm ${args[1]}`
-  if (command === "tar") return "tar"
-  return args[0] === "--input-type=module" ? (args[2]?.includes("import.meta.resolve") ? "node resolve" : "node import") : "node bin"
-}
 async function run(command: string, args: string[], cwd: string) {
-  const start = performance.now()
-  try { return await runInner(command, args, cwd) } finally { timing(`run:${runLabel(command, args)}`, performance.now() - start) }
-}
-async function runInner(command: string, args: string[], cwd: string) {
   try {
-    const result = await processSlots(async () => {
-      const execStart = performance.now()
-      try { return await execFileAsync(command, args, { cwd, maxBuffer }) } finally { timing(`exec:${runLabel(command, args)}`, performance.now() - execStart) }
-    })
+    const result = await processSlots(() => execFileAsync(command, args, { cwd, maxBuffer }))
     return { stderr: String(result.stderr || ""), stdout: String(result.stdout || "") }
   }
   catch (error) {
@@ -333,14 +312,6 @@ async function importPackagesWithoutRootFallback(appDirs: readonly string[], inc
 }
 
 async function importPackageWithoutRootFallback(
-  appDir: string,
-  info: (typeof packageInfos)[number],
-  includeOptionalPeers: boolean,
-) {
-  const windowStart = performance.now()
-  try { await importPackageWithoutRootFallbackInner(appDir, info, includeOptionalPeers) } finally { timing(`window:${includeOptionalPeers}:${info.name}`, performance.now() - windowStart) }
-}
-async function importPackageWithoutRootFallbackInner(
   appDir: string,
   info: (typeof packageInfos)[number],
   includeOptionalPeers: boolean,
@@ -754,9 +725,7 @@ async function packageModulesDiagnostics(
     packageName: includeDependencyDiagnostics ? undefined : packageName,
     rootNames,
   }
-  const tsStart = performance.now()
   const { stdout } = await run(process.execPath, [declarationDiagnosticsScript, JSON.stringify(program)], process.cwd())
-  timing("ts:program", performance.now() - tsStart)
   // SAFETY: declaration-diagnostics.ts writes a JSON-encoded DeclarationDiagnostic array.
   return JSON.parse(stdout) as DeclarationDiagnostic[]
 }
@@ -1019,9 +988,9 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package e
 
     try {
       await Promise.all([mkdir(appDir, { recursive: true }), mkdir(packDir, { recursive: true })])
-      const specs = await phase("pack", () => packPublicPackages(packDir))
+      const specs = await packPublicPackages(packDir)
       await writeConsumer(appDir, specs)
-      await phase("main install", () => run("corepack", ["pnpm", "install", "--ignore-scripts"], appDir))
+      await run("corepack", ["pnpm", "install", "--ignore-scripts"], appDir)
 
       const consumerRoot = await realpath(appDir)
       for (const info of packageInfos) {
@@ -1039,30 +1008,28 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package e
       }
 
       await assertResolution(appDir, optionalPeerProbes, false)
-      await phase("absent peers", () => exercisePackagesWithoutOptionalPeers(root, specs))
+      await exercisePackagesWithoutOptionalPeers(root, specs)
 
-      const optionalPeerSpecs = await phase("add optional peers", () => addOptionalPeers(appDir))
+      const optionalPeerSpecs = await addOptionalPeers(appDir)
       const peerSpecs = { ...await requiredPeerSpecs(), ...optionalPeerSpecs }
       expect(Object.keys(optionalPeerSpecs)).toEqual(optionalPeers)
       await assertResolution(appDir, optionalPeerProbes, true)
-      await phase("mixed peers", async () => {
       await settled(optionalPeers.map(optionalPeer => importPackagesWithoutDeclarationPeer(root, specs, optionalPeer, peerSpecs)))
-      })
       const presentPeerContracts = publicPackageExportContracts
         .filter(contract => isJavaScriptModule(contract.target))
       const presentCloudflareContracts = presentPeerContracts.filter(contract => contract.specifier.endsWith("/cloudflare/state"))
-      const presentStart = performance.now()
       await settled([
         importSpecifiers(appDir, presentPeerContracts
           .filter(contract => !presentCloudflareContracts.includes(contract))
           .map(contract => contract.specifier)),
         importSpecifiers(appDir, presentCloudflareContracts.map(contract => contract.specifier), true),
       ])
-      timing("phase:present imports", performance.now() - presentStart)
-      const clones = Array.from({ length: Math.min(parallelism, packageInfos.length) - 1 }, (_, index) => join(root, `consumer-${index + 1}`))
-      await phase("clones", () => settled(clones.map(cloneDir => cloneConsumer(appDir, cloneDir))))
-      await phase("root fallback", () => importPackagesWithoutRootFallback([appDir, ...clones], true))
-      const binStart = performance.now()
+      const clones = Array.from(
+        { length: Math.min(parallelism, packageInfos.length) - 1 },
+        (_, index) => join(root, `consumer-${index + 1}`),
+      )
+      await settled(clones.map(cloneDir => cloneConsumer(appDir, cloneDir)))
+      await importPackagesWithoutRootFallback([appDir, ...clones], true)
       const staticContracts = publicPackageExportContracts.filter(contract => contract.kind === "static-asset")
       const resolved = await resolveSpecifiers(appDir, staticContracts.map(contract => contract.specifier))
       for (const [index, url] of resolved.entries()) {
@@ -1079,7 +1046,6 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package e
         expect(result.stdout, `${contract.packageName} ${contract.binName} should print help`).toContain(usage)
         expect(result.stderr).toBe("")
       }
-      timing("phase:static+bins", performance.now() - binStart)
     }
     finally {
       await rm(root, { recursive: true, force: true })
