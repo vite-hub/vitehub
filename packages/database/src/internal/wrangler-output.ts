@@ -6,7 +6,8 @@ import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 /**
  * One entry per D1 binding name. ViteHub's entry comes first and wins, and the project entry only fills fields it
  * lacks, so Nitro's array concatenation of a project wrangler.json never leaves Wrangler with two bindings of one name.
- * A real id replaces an all-zero placeholder, and a placeholder that stays is left out. ViteHub stages its migrations
+ * A real id replaces an all-zero placeholder. Unresolved primary IDs are left out for provisioning; preview IDs stay
+ * to prevent remote development from falling back to production. ViteHub stages its migrations
  * in its own directory, so a project `migrations_dir` or `migrations_pattern` is dropped when ViteHub sets one.
  */
 const d1EntrySpec: WranglerEntrySpec = {
@@ -14,6 +15,7 @@ const d1EntrySpec: WranglerEntrySpec = {
   identity: "binding",
   resource: ["database_id", "database_name", "preview_database_id"],
   ids: ["database_id", "preview_database_id"],
+  preservePlaceholderIds: ["preview_database_id"],
   groups: [["migrations_dir", "migrations_pattern"]],
 }
 

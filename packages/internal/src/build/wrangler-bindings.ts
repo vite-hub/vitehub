@@ -9,7 +9,7 @@ import { internalErrorDiagnostics } from "../error-diagnostics.ts"
 export interface WranglerEntrySpec {
   /** The path of the array, such as `["durable_objects", "bindings"]`. */
   path: readonly string[]
-  /** The field that names an entry, or alternative fields in priority order. */
+  /** The field that names an entry, or fields whose matching values link entries to the same resource. */
   identity: string | readonly string[]
   /** Fields that select the resource. Two entries of one name must agree on them. */
   resource: readonly string[]
@@ -17,8 +17,8 @@ export interface WranglerEntrySpec {
   defaults?: Readonly<Record<string, unknown>>
   /** Resource fields that hold an id. An all-zero id stands for a resource that does not exist yet. */
   ids?: readonly string[]
-  /** Keep unresolved placeholder IDs for resources that Wrangler cannot provision automatically. */
-  preservePlaceholderIds?: boolean
+  /** Keep all or selected unresolved placeholder IDs when removing them would be invalid or select another resource. */
+  preservePlaceholderIds?: boolean | readonly string[]
   /** Mutually exclusive resource fields. Duplicate entries cannot select different fields in one group. */
   exclusive?: readonly (readonly string[])[]
   /** Fields that the first entry keeps together: when it sets one of them, later entries fill none of them. */
@@ -40,14 +40,14 @@ export interface WranglerEntryConflict {
  * own rules and error.
  */
 export const wranglerEntrySpecs: readonly WranglerEntrySpec[] = [
-  { path: ["kv_namespaces"], identity: "binding", resource: ["id", "preview_id"], ids: ["id", "preview_id"] },
+  { path: ["kv_namespaces"], identity: "binding", resource: ["id", "preview_id"], ids: ["id", "preview_id"], preservePlaceholderIds: ["preview_id"] },
   { path: ["r2_buckets"], identity: "binding", resource: ["bucket_name", "jurisdiction", "preview_bucket_name"] },
   { path: ["ratelimits"], identity: "name", resource: ["namespace_id", "simple"] },
   { path: ["hyperdrive"], identity: "binding", resource: ["id"], ids: ["id"], preservePlaceholderIds: true },
   {
     path: ["containers"],
     identity: ["class_name", "name"],
-    resource: ["scheduling_policy", "image", "images", "image_build_context", "image_vars", "name", "instance_type", "max_instances"],
+    resource: ["scheduling_policy", "image", "images", "image_build_context", "image_vars", "class_name", "name", "instance_type", "max_instances"],
     defaults: { scheduling_policy: "default" },
     exclusive: [["image", "images"]],
   },
@@ -80,12 +80,32 @@ function defaultConflict({ field, generated, name, path, project, scope }: Wrang
 /**
  * One entry per name. Nitro's Cloudflare preset concatenates the generated arrays with the project's wrangler config,
  * so the generated entry comes first. It wins, and later entries only fill fields it lacks. A real id replaces an
- * all-zero one, and an id that stays all-zero is left out when Wrangler can provision the resource automatically.
+ * all-zero one, and unresolved placeholders are left out only where their omission permits automatic provisioning.
  */
 function collapseEntries(entries: readonly unknown[], spec: WranglerEntrySpec, scope: string, conflict: (details: WranglerEntryConflict) => Error): unknown[] {
   const collapsed: unknown[] = []
   const byName = new Map<string, Record<string, unknown>>()
   const identities = typeof spec.identity === "string" ? [spec.identity] : spec.identity
+  const aliases = new Map<string, string>()
+  function canonical(key: string): string {
+    const parent = aliases.get(key)
+    if (parent === undefined) return key
+    const root = canonical(parent)
+    aliases.set(key, root)
+    return root
+  }
+  // Discover linkage before merging so a later bridge preserves the original generated/project field order.
+  if (identities.length > 1) {
+    for (const entry of entries) {
+      if (!isPlainObject(entry)) continue
+      const keys = identities.filter(field => typeof entry[field] === "string").map(field => `${field}:${entry[field]}`)
+      for (const key of keys.slice(1)) {
+        const root = canonical(keys[0]!)
+        const alias = canonical(key)
+        if (root !== alias) aliases.set(alias, root)
+      }
+    }
+  }
   for (const entry of entries) {
     const identity = isPlainObject(entry) ? identities.find(field => typeof entry[field] === "string") : undefined
     if (!isPlainObject(entry) || identity === undefined) {
@@ -94,7 +114,7 @@ function collapseEntries(entries: readonly unknown[], spec: WranglerEntrySpec, s
     }
     const name = entry[identity] as string
     // A name-linked application and a class-linked application can use the same string for different resources.
-    const key = `${identity}:${name}`
+    const key = canonical(`${identity}:${name}`)
     const first = byName.get(key)
     if (!first) {
       const copy: Record<string, unknown> = { ...entry }
@@ -126,9 +146,10 @@ function collapseEntries(entries: readonly unknown[], spec: WranglerEntrySpec, s
       if (!kept.has(key) && first[key] === undefined) first[key] = value
     }
   }
+  const preservedIds = spec.preservePlaceholderIds === true ? spec.ids : spec.preservePlaceholderIds || []
   for (const entry of byName.values()) {
     for (const field of spec.ids ?? []) {
-      if (!spec.preservePlaceholderIds && isPlaceholderCloudflareId(entry[field])) delete entry[field]
+      if (!preservedIds?.includes(field) && isPlaceholderCloudflareId(entry[field])) delete entry[field]
     }
   }
   return collapsed

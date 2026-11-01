@@ -583,6 +583,27 @@ describe("Database Nuxt integration", () => {
       }
     })
 
+    it.each(["00000000000000000000000000000000", "00000000-0000-4000-8000-000000000000"])("preserves an unresolved D1 preview id %s instead of falling back to production", async (placeholder) => {
+      for (const [generatedPreview, projectPreview] of [[undefined, placeholder], [placeholder, undefined], [placeholder, placeholder], [placeholder, "preview-id"], ["preview-id", placeholder]]) {
+        const projectEntry = { binding: "DB", database_id: "content-id", preview_database_id: projectPreview }
+        const envEntry = { binding: "DB", database_id: "content-id", preview_database_id: generatedPreview }
+        const { compile, rootDir } = await writeWrangler(
+          { d1_databases: [projectEntry], env: { production: { d1_databases: [projectEntry] } } },
+          { env: { production: { d1_databases: [envEntry] } } },
+          { previewDatabaseId: generatedPreview },
+        )
+        const preview_database_id = [generatedPreview, projectPreview].includes("preview-id") ? "preview-id" : placeholder
+        try {
+          const wrangler = await compile()
+          expect(wrangler.d1_databases).toEqual([{ ...generated, preview_database_id }])
+          expect(wrangler.env?.production?.d1_databases).toEqual([{ ...envEntry, preview_database_id }])
+        }
+        finally {
+          await rm(rootDir, { force: true, recursive: true })
+        }
+      }
+    })
+
     it.each([
       ["database_id", { binding: "DB", database_id: "other-id" }],
       ["database_name", { binding: "DB", database_name: "other-db" }],

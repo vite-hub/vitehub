@@ -279,6 +279,23 @@ describe("collapseWranglerConfig", () => {
     })).toEqual({ kv_namespaces: [{ binding: "KV" }] })
   })
 
+  it.each(["00000000000000000000000000000000", "00000000-0000-4000-8000-000000000000"])("preserves unresolved KV preview id %s instead of falling back to production", (placeholder) => {
+    const production = { binding: "KV", id: "production-id" }
+    const preview = { ...production, preview_id: placeholder }
+    for (const kv_namespaces of [[production, preview], [preview, production], [preview, preview], [preview]]) {
+      const config = { kv_namespaces, env: { production: { kv_namespaces } } }
+      const expected = [preview]
+      expect(collapseWranglerConfig(config)).toEqual({ kv_namespaces: expected, env: { production: { kv_namespaces: expected } } })
+    }
+    const resolved = { ...production, preview_id: "preview-id" }
+    for (const kv_namespaces of [[preview, resolved], [resolved, preview]]) {
+      expect(collapseWranglerConfig({ kv_namespaces })).toEqual({ kv_namespaces: [resolved] })
+    }
+    expect(collapseWranglerConfig({ kv_namespaces: [{ ...preview, id: placeholder }] })).toEqual({
+      kv_namespaces: [{ binding: "KV", preview_id: placeholder }],
+    })
+  })
+
   it.each(["00000000000000000000000000000000", "00000000-0000-4000-8000-000000000000"])("treats Hyperdrive id %s as a placeholder", (placeholder) => {
     for (const [generated, project] of [[placeholder, "hyperdrive-id"], ["hyperdrive-id", placeholder]]) {
       expect(collapseWranglerConfig({
@@ -332,6 +349,41 @@ describe("collapseWranglerConfig", () => {
     expect(collapseWranglerConfig({ containers, env: { production: { containers } } })).toEqual({
       containers: expected, env: { production: { containers: expected } },
     })
+  })
+
+  it("reconciles Container aliases even when the linking entry comes last", () => {
+    const byClass = { class_name: "Sandbox", image: "./Dockerfile" }
+    const byName = { name: "sandbox", image_build_context: "." }
+    const bridge = { class_name: "Sandbox", name: "sandbox" }
+    const otherName = { name: "Sandbox", image: "./OtherDockerfile" }
+    const otherClass = { class_name: "sandbox", image: "./OtherDockerfile" }
+    for (const entries of [[byClass, byName, bridge], [byName, byClass, bridge], [bridge, byClass, byName], [bridge, byName, byClass], [byClass, bridge, byName], [byName, bridge, byClass]]) {
+      const containers = [entries[0], otherName, otherClass, ...entries.slice(1)]
+      const expected = [{ ...byClass, ...byName }, otherName, otherClass]
+      const config = { containers, env: { production: { containers } } }
+      const before = structuredClone(config)
+      expect(collapseWranglerConfig(config)).toEqual({ containers: expected, env: { production: { containers: expected } } })
+      expect(config).toEqual(before)
+    }
+  })
+
+  it("keeps generated field precedence when a later Container links earlier entries", () => {
+    const byClass = { class_name: "Sandbox" }
+    const byName = { name: "sandbox", ssh: { enabled: true } }
+    const later = { class_name: "Sandbox", ssh: { enabled: false } }
+    const bridge = { class_name: "Sandbox", name: "sandbox" }
+    expect(collapseWranglerConfig({ containers: [byClass, byName, later, bridge] })).toEqual({
+      containers: [{ ...bridge, ssh: { enabled: true } }],
+    })
+  })
+
+  it("rejects conflicting Container resources linked by either alias", () => {
+    const bridge = { class_name: "Sandbox", name: "sandbox", image: "./Dockerfile" }
+    for (const project of [{ name: "sandbox", image: "./OtherDockerfile" }, { ...bridge, class_name: "Other" }]) {
+      for (const containers of [[bridge, project], [project, bridge]]) {
+        expect(() => collapseWranglerConfig({ containers })).toThrow(expect.objectContaining({ code: "INTERNAL_B0051" }))
+      }
+    }
   })
 
   it.each(["class_name", "name"])("rejects container scheduling-policy changes when linked by %s", (field) => {
