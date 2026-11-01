@@ -2,8 +2,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
-import { afterEach, describe, expect, it } from "vitest"
-import { createProviderDeploymentOutputGenerationState, getProviderRuntimeModule, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, getProviderRuntimeModule, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 
 import { resolveRuntimeCloudflareConfig } from "../src/internal/cloudflare.ts"
 import { renderDatabaseConfigExpression } from "../src/internal/runtime-config-expression.ts"
@@ -159,5 +159,36 @@ describe("hosted Database runtime", () => {
     expect(getProviderRuntimeModule(catalog, "database", "vercel", generation)).toBe(join(rootDir, ".vitehub", "database", "vercel-runtime.mjs"))
     expect(getProviderRuntimeModule(catalog, "database", "vercel-definition-defaults", generation)).toBe(join(rootDir, ".vitehub", "database", "definition-defaults.mjs"))
     expect(getProviderRuntimeModule(catalog, "database", "cloudflare", generation)).toBeUndefined()
+  })
+
+  it("keeps sibling Provider Output on a host without a hosted Database runtime", async () => {
+    const rootDir = await createTempDir("vitehub-db-sibling-output-")
+    const definition = join(rootDir, "server", "databases", "config.ts")
+    await mkdir(dirname(definition), { recursive: true })
+    await Promise.all([
+      writeFile(join(rootDir, "package.json"), "{}\n"),
+      writeFile(definition, [
+        "import { defineDatabase } from '@vite-hub/database'",
+        "export default defineDatabase({ connection: { url: 'libsql://primary.example.turso.io' }, name: 'default', schema: {} })",
+        "",
+      ].join("\n")),
+    ])
+    const plugin = hubDb()
+    const config = { build: { outDir: "dist" }, command: "build", nitro: { preset: "netlify" }, plugins: [{ name: "nitro:main" }], root: rootDir }
+    // SAFETY: This test invokes hubDb's configResolved hook with the Vite fields used by this fixture.
+    await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
+    const context = { environment: {} }
+    const sibling = createProviderDeploymentOutputGenerationState()
+    const catalog = useProviderOutputCatalog(config)
+    sibling.capture(context, catalog)
+    // SAFETY: hubDb exposes buildStart as a callable Vite hook.
+    await Reflect.apply(plugin.buildStart as () => void, context, [])
+    // SAFETY: hubDb exposes buildEnd as a callable Vite hook.
+    await Reflect.apply(plugin.buildEnd as () => Promise<void>, context, [])
+    const write = vi.fn(async () => {})
+    contributeProviderDeploymentOutput(catalog, { owner: "schedule", rootDir, write }, sibling.get(context))
+    await finalizeProviderDeploymentOutputs(catalog)
+
+    expect(write).toHaveBeenCalledOnce()
   })
 })
