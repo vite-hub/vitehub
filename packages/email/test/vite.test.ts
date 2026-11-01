@@ -468,7 +468,7 @@ describe("hubEmail", () => {
     }
   })
 
-  it("drains active template refreshes and removes listeners on close", async () => {
+  it("drains active and queued template refreshes and removes listeners on close", async () => {
     const root = await createTempProject()
     const template = join(root, "server", "emails", "welcome.md")
     await mkdir(dirname(template), { recursive: true })
@@ -492,15 +492,17 @@ describe("hubEmail", () => {
     const resumed = new Promise<void>((resolve) => { resume = resolve })
     const bundle = esbuild.bundleEsmEntry
     const bundler = vi.spyOn(esbuild, "bundleEsmEntry").mockImplementationOnce(async (...args) => {
+      const result = await bundle(...args)
       signalStarted()
       await resumed
-      return bundle(...args)
+      return result
     })
     let closing: Promise<void> | undefined
     try {
       await writeFile(template, "Updated template")
       watcher.emit("change", template)
       await started
+      await writeFile(template, "Latest template")
       watcher.emit("change", template)
       let closed = false
       closing = Promise.resolve(functionHook(plugin.closeBundle, "closeBundle")()).then(() => { closed = true })
@@ -513,9 +515,9 @@ describe("hubEmail", () => {
       await closing
       expect(logError).not.toHaveBeenCalled()
       expect(send).not.toHaveBeenCalled()
-      expect(bundler).toHaveBeenCalledOnce()
       expect(await readFile(join(root, ".vitehub", "email", "templates", "welcome.mjs"), "utf8"))
-        .toContain("Updated template")
+        .toContain("Latest template")
+      expect(bundler).toHaveBeenCalledTimes(2)
     }
     finally {
       resume()

@@ -196,7 +196,7 @@ export function hubCms(options: CmsVitePluginOptions = {}): CmsVitePlugin {
               fields: [
                 { label: "Store", value: cmsStoreOf(usage.options) },
                 { label: "Workspace", value: usage.options.workspace ?? "content" },
-                { label: "Access", value: usage.authorize ? "The app's defineContent({ authorize })" : usage.options.access === "roles" ? "CMS roles of the Better Auth admin plugin (vitehub cms roles)" : "No policy (all actions denied)" },
+                { label: "Access", value: usage.authorize === "unknown" ? "Indeterminate (object spread may supply authorize)" : usage.authorize ? "The app's defineContent({ authorize })" : usage.options.access === "roles" ? "CMS roles of the Better Auth admin plugin (vitehub cms roles)" : "No policy (all actions denied)" },
               ],
               file: relativeDefinitionFile(root, usage.file),
               name: usage.options.workspace ?? "content",

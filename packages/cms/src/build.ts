@@ -16,8 +16,8 @@ export interface CmsPresetUsage {
   file: string
   /** Options from `extends: [cms, options]`. Empty for `extends: cms`. */
   options: CmsPresetOptions
-  /** Set when `defineContent()` passes its own `authorize`, which replaces the CMS roles. */
-  authorize?: true
+  /** Whether `defineContent()` passes its own `authorize`, or a spread makes its presence unknown. */
+  authorize?: true | "unknown"
 }
 
 /** The GitHub store of the `cms` preset, with defaults filled in. */
@@ -248,12 +248,19 @@ function readCmsPresetUsageInternal(source: string, file: string, projectRoot: s
   if (!selections.length) throw presetError(file, projectRoot, `imports the Content cms preset but does not select it with extends. ${usage}`)
   if (selections.length > 1) throw presetError(file, projectRoot, `selects the Content cms preset more than once. ${usage}`)
   const selection = selections[0]
-  const ownPolicy = Array.isArray(contentOptions?.properties) && contentOptions.properties.some(property => {
-    if (!isNode(property) || propertyName(property) !== "authorize") return false
+  let ownPolicy: CmsPresetUsage["authorize"]
+  for (const property of Array.isArray(contentOptions?.properties) ? contentOptions.properties : []) {
+    if (!isNode(property)) continue
+    if (property.type === "SpreadElement") {
+      ownPolicy = "unknown"
+      continue
+    }
+    if (propertyName(property) !== "authorize") continue
     const value = unwrap(property.value)
-    return !isNode(value) || value.type !== "Identifier" || value.name !== "undefined"
-  })
-  const access = ownPolicy ? { authorize: true as const } : {}
+    const absent = isNode(value) && ((value.type === "Identifier" && value.name === "undefined") || (value.type === "UnaryExpression" && value.operator === "void"))
+    ownPolicy = absent ? undefined : true
+  }
+  const access = ownPolicy ? { authorize: ownPolicy } : {}
   if (!isNode(selection) || selection.type !== "ArrayExpression") return { file, options: {}, ...access }
 
   const elements = Array.isArray(selection.elements) ? selection.elements : []

@@ -36,7 +36,6 @@
     "./access": {
       "types": "./dist/access.d.ts",
       "import": "./dist/access.js",
-      "require": "./dist/access.js",
       "default": "./dist/access.js"
     },
     "./vite": {

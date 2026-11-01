@@ -443,7 +443,9 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
         const comment = current.comments.find(candidate => candidate.id === commentId)
         if (!comment) return failure(commentsErrors.COMMENTS_NOT_FOUND({ id: commentId }))
         const [denied, allowed] = await access(event, "comment", current)
-        if (!denied && allowed.user && !allowed.user.guest && !comment.author.guest && comment.author.id === allowed.user.id) return respond(await writes.removeComment(allowed.grant, id, commentId))
+        // Removing the root removes the whole thread, so ownership must cover every affected comment.
+        const affected = current.comments[0]?.id === commentId ? current.comments : [comment]
+        if (!denied && allowed.user && !allowed.user.guest && affected.every(entry => !entry.author.guest && entry.author.id === allowed.user!.id)) return respond(await writes.removeComment(allowed.grant, id, commentId))
         // Deleting others' comments requires its own permission. Guest IDs never prove ownership.
         const [cannot, moderator] = await access(event, "delete", current)
         if (cannot) return failure(cannot)

@@ -241,6 +241,27 @@ describe("Comments API", () => {
     expect((await call("/threads?page=/pricing")).body.data).toEqual([])
   })
 
+  it.each([
+    { replyAuthor: { id: "lin", name: "Lin" }, canDelete: false, status: 403 },
+    { replyAuthor: { id: "lin", name: "Lin" }, canDelete: true, status: 200 },
+    { replyAuthor: { id: "ada", name: "Ada" }, canDelete: false, status: 200 },
+    { replyAuthor: { id: "ada", name: "Visitor", guest: true }, canDelete: false, status: 403 },
+  ])("checks ownership of every comment before deleting an owned root: %j", async ({ replyAuthor, canDelete, status }) => {
+    const { comments, call } = await setup({ options: { authorize: ({ action }) => action !== "delete" || canDelete } })
+    const [, thread] = await comments.create({ page: "/", anchor, body: "Root", author: { id: "ada", name: "Ada" } })
+    await comments.reply(thread!.id, { body: "Reply", author: replyAuthor })
+
+    const removed = await call(`/threads/${thread!.id}/comments/${thread!.comments[0]!.id}`, { method: "DELETE" })
+    expect(removed.response.status).toBe(status)
+    const [missing, remaining] = await comments.get(thread!.id)
+    if (status === 403) {
+      expect(removed.body.error?.code).toBe("COMMENTS_FORBIDDEN")
+      expect(missing).toBeUndefined()
+      expect(remaining!.comments.map(comment => comment.body)).toEqual(["Root", "Reply"])
+    }
+    else expect(missing?.code).toBe("COMMENTS_NOT_FOUND")
+  })
+
   it.each(["https://other.test/pricing", "http://site.test/other", "/pricing", "not a URL"])("rejects a context URL outside the request origin and thread page: %s", async (url) => {
     const { call } = await setup()
     const { response, body } = await call("/threads", { method: "POST", json: { page: "/pricing", anchor, context: { url }, body: "Hi" } })

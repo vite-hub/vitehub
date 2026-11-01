@@ -590,7 +590,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
           finally {
             if (!closed) server.watcher.add([...watchFiles])
           }
-        } while (refreshPending && !closed)
+        } while (refreshPending)
         if (refreshed && !closed) {
           for (const module of server.moduleGraph.idToModuleMap.values()) {
             if (module.id) {
@@ -617,7 +617,6 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       server.watcher.on("unlink", refreshForFile)
       stopWatching = async () => {
         closed = true
-        refreshPending = false
         server.watcher.off("add", refreshForFile)
         server.watcher.off("change", refreshForFile)
         server.watcher.off("unlink", refreshForFile)

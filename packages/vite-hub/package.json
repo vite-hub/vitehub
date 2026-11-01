@@ -1226,6 +1226,7 @@
     "@vueuse/core": "catalog:ui",
     "@workflow/builders": "catalog:workflow",
     "better-auth": "catalog:auth",
+    "comark": "catalog:markdown-ui",
     "confbox": "^0.2.4",
     "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database",

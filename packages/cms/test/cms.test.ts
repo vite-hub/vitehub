@@ -337,6 +337,13 @@ describe("hubCms()", () => {
     expect(undefinedPolicy.fields[0]?.fields).toContainEqual({ label: "Access", value: "No policy (all actions denied)" })
     const undefinedRolesPolicy = await inspect(presetContent.replace("extends: cms", "extends: [cms, { access: 'roles' }], authorize: (undefined)"))
     expect(undefinedRolesPolicy.fields[0]?.fields).toContainEqual({ label: "Access", value: "CMS roles of the Better Auth admin plugin (vitehub cms roles)" })
+    const voidPolicy = await inspect(presetContent.replace("extends: cms", "extends: [cms, { access: 'roles' }], authorize: void 0"))
+    expect(voidPolicy.fields[0]?.fields).toContainEqual({ label: "Access", value: "CMS roles of the Better Auth admin plugin (vitehub cms roles)" })
+    const spread = "const shared = { authorize: () => false }\n" + presetContent
+    const spreadPolicy = await inspect(spread.replace("extends: cms", "extends: [cms, { access: 'roles' }], ...shared"))
+    expect(spreadPolicy.fields[0]?.fields).toContainEqual({ label: "Access", value: "Indeterminate (object spread may supply authorize)" })
+    const overriddenSpread = await inspect(spread.replace("extends: cms", "extends: [cms, { access: 'roles' }], ...shared, authorize: undefined"))
+    expect(overriddenSpread.fields[0]?.fields).toContainEqual({ label: "Access", value: "CMS roles of the Better Auth admin plugin (vitehub cms roles)" })
     // Without the preset there is nothing to inspect, but the roles still serve cmsContentAuthorize.
     const plain = await inspect("import { defineContent } from 'vite-hub/content'\nexport const content = defineContent({ workspace: 'site' })\n")
     expect(plain.fields).toEqual([])
