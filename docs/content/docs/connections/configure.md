@@ -163,7 +163,7 @@ export default defineConnection({
 })
 ```
 
-An Agent connects with `mcp({ servers: { crm: { connection: 'crm' } } })`, without a transport URL. Server code calls one tool with `callMcpTool({ connection: 'crm' }, 'search', { query })` from `vite-hub/agent/mcp`. See [MCP](/docs/agents/capabilities/mcp#authenticate-through-a-connection).
+An Agent connects with `mcp({ servers: { crm: { connection: 'crm' } } })`, without a transport URL. Server code calls one tool with `const [error, result] = await callMcpTool({ connection: 'crm' }, 'search', { query })` from `vite-hub/agent/mcp`. It returns an `[error, value]` tuple instead of rejecting. See [MCP](/docs/agents/capabilities/mcp#authenticate-through-a-connection).
 
 ## Request policy
 
