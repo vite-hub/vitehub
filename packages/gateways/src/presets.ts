@@ -332,7 +332,7 @@ export function vercel(options?: VercelGatewayOptions): AiGateway<{ ask: true, r
   const modelCredentials: AiGatewayModelCredentialsResolver = async (context) => {
     const resolvedKey = await resolveAiGatewaySecret(explicitKey ? definition.apiKey : apiKey, context)
     const token = resolvedKey || explicitKey ? undefined : await resolveAiGatewaySecret(oidcToken, context)
-    return { apiKey: resolvedKey ?? token, headers: token ? [["ai-gateway-auth-method", "oidc"]] : [] }
+    return { apiKey: resolvedKey ?? token, headers: [["ai-gateway-auth-method", token ? "oidc" : "api-key"]] }
   }
   const route = jevRoute("vercel", {
     apiKey: explicitKey ? definition.apiKey : apiKey,

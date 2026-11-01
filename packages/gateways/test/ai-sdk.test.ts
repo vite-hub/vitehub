@@ -136,7 +136,7 @@ describe("languageModel()", () => {
     vi.stubEnv("VITEHUB_VERCEL_OIDC_TOKEN", undefined)
     vi.stubEnv("VERCEL_OIDC_TOKEN", "oidc-token")
     const fetch = vi.fn<typeof globalThis.fetch>(async () => response())
-    const gateway = vercel({ headers: { "x-custom": "value" } })
+    const gateway = vercel({ headers: { "Ai-Gateway-Auth-Method": "api-key", "x-custom": "value" } })
     await generateText({ model: languageModel(gateway, "model", { api, fetch }), prompt: "Hello" })
     expect(sent(fetch).url).toBe(`https://ai-gateway.vercel.sh${path}`)
     expect(sent(fetch).headers.get("authorization")).toBe("Bearer oidc-token")
@@ -149,11 +149,14 @@ describe("languageModel()", () => {
     vi.stubEnv("AI_GATEWAY_API_KEY", source === "env" ? "same-value" : undefined)
     vi.stubEnv("VITEHUB_VERCEL_OIDC_TOKEN", undefined)
     vi.stubEnv("VERCEL_OIDC_TOKEN", "same-value")
-    const gateway = vercel(source === "explicit" ? { apiKey: "same-value" } : source === "resolver" ? { apiKey: async () => "same-value" } : undefined)
+    const gateway = vercel({
+      ...(source === "explicit" ? { apiKey: "same-value" } : source === "resolver" ? { apiKey: async () => "same-value" } : {}),
+      headers: { "ai-gateway-auth-method": "oidc" },
+    })
     const fetch = vi.fn<typeof globalThis.fetch>(async () => chatCompletion())
     await generateText({ model: languageModel(gateway, "model", { fetch }), prompt: "Hello" })
     expect(sent(fetch).headers.get("authorization")).toBe("Bearer same-value")
-    expect(sent(fetch).headers.has("ai-gateway-auth-method")).toBe(false)
+    expect(sent(fetch).headers.get("ai-gateway-auth-method")).toBe("api-key")
   })
 
   it("refreshes the Vercel credential source and token for each model request", async () => {
@@ -161,7 +164,7 @@ describe("languageModel()", () => {
     vi.stubEnv("AI_GATEWAY_API_KEY", undefined)
     vi.stubEnv("VITEHUB_VERCEL_OIDC_TOKEN", "first-token")
     const fetch = vi.fn<typeof globalThis.fetch>(async () => chatCompletion())
-    const model = languageModel(vercel(), "model", { fetch })
+    const model = languageModel(vercel({ headers: { "AI-GATEWAY-AUTH-METHOD": "oidc" } }), "model", { fetch })
     await generateText({ model, prompt: "Hello" })
     vi.stubEnv("AI_GATEWAY_API_KEY", "api-key")
     await generateText({ model, prompt: "Hello" })
@@ -172,7 +175,7 @@ describe("languageModel()", () => {
     expect(sent(fetch, 0).headers.get("authorization")).toBe("Bearer first-token")
     expect(sent(fetch, 0).headers.get("ai-gateway-auth-method")).toBe("oidc")
     expect(sent(fetch, 1).headers.get("authorization")).toBe("Bearer api-key")
-    expect(sent(fetch, 1).headers.has("ai-gateway-auth-method")).toBe(false)
+    expect(sent(fetch, 1).headers.get("ai-gateway-auth-method")).toBe("api-key")
     expect(sent(fetch, 2).headers.get("authorization")).toBe("Bearer rotated-token")
     expect(sent(fetch, 2).headers.get("ai-gateway-auth-method")).toBe("oidc")
   })

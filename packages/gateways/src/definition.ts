@@ -201,7 +201,8 @@ export async function resolveAiGatewayModelRoute(gateway: AiGatewayDefinition, r
     // SAFETY: Only createAiGateway sets this symbol, with an AiGatewayModelCredentialsResolver.
     const { apiKey, headers } = await (credentials as AiGatewayModelCredentialsResolver)(context)
     const resolved = await resolveAiGatewayRoute({ ...gateway, apiKey }, route, context)
-    return { ...resolved, headers: [...resolved.headers, ...headers] }
+    const credentialHeaderNames = new Set(headers.map(([name]) => name.toLowerCase()))
+    return { ...resolved, headers: [...resolved.headers.filter(([name]) => !credentialHeaderNames.has(name.toLowerCase())), ...headers] }
   }
   const optional: unknown = Reflect.get(gateway, aiGatewayOptionalCredentials)
   if (!isRecord(optional)) return await resolveAiGatewayRoute(gateway, route, context)
