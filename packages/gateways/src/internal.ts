@@ -1,6 +1,6 @@
-// For ViteHub packages: Driver routing and Agent Invocations. Applications import `@vite-hub/gateways`.
-export { aiGatewayAsks, aiGatewaySupports, normalizeAiGateway, resolveAiGatewayDriverRoute, resolveAiGatewaySecret } from "./definition.ts"
-export type { AiGatewayDriverRoute } from "./definition.ts"
+// For ViteHub packages: model API routing and Agent Invocations. Applications import `@vite-hub/gateways`.
+export { aiGatewayAsks, aiGatewaySupports, normalizeAiGateway, resolveAiGatewayModelRoute, resolveAiGatewayRoute, resolveAiGatewaySecret } from "./definition.ts"
+export type { AiGatewayModelRoute, AiGatewayResolvedRoute } from "./definition.ts"
 export { aiGatewayEnvNames } from "./env.ts"
 export type { AiGatewayEnvFieldName, AiGatewayEnvPreset } from "./env.ts"
 export type { AiGatewayTraceEvent } from "./jev.ts"

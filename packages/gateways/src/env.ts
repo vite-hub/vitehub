@@ -19,10 +19,11 @@ export const aiGatewayEnv: Readonly<Record<AiGatewayEnvPreset, Readonly<Record<s
   cliproxy: { apiKey: { names: ["CLIPROXY_API_KEY"], secret: true }, url: { names: ["CLIPROXY_URL"] } },
   cloudflare: {
     accountId: { names: ["CLOUDFLARE_ACCOUNT_ID"] },
-    apiKey: { names: ["TYPESAFE_API_KEY"], secret: true },
     gatewayId: { names: ["CLOUDFLARE_AI_GATEWAY_ID"] },
+    providerApiKey: { names: ["CLOUDFLARE_AI_GATEWAY_API_KEY"], secret: true },
     slug: { names: ["CLOUDFLARE_AI_GATEWAY_SLUG"] },
     token: { names: ["CLOUDFLARE_AI_GATEWAY_TOKEN"], secret: true },
+    typesafeApiKey: { names: ["TYPESAFE_API_KEY"], secret: true },
   },
   cloudflareAccess: { clientId: { names: ["CF_ACCESS_CLIENT_ID"], secret: true }, clientSecret: { names: ["CF_ACCESS_CLIENT_SECRET"], secret: true } },
   litellm: { apiKey: { names: ["LITELLM_API_KEY"], secret: true }, url: { names: ["LITELLM_URL"] } },
