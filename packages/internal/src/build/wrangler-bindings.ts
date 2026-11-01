@@ -15,6 +15,8 @@ export interface WranglerEntrySpec {
   resource: readonly string[]
   /** Resource fields that hold an id. An all-zero id stands for a resource that does not exist yet. */
   ids?: readonly string[]
+  /** Keep unresolved placeholder IDs for resources that Wrangler cannot provision automatically. */
+  preservePlaceholderIds?: boolean
   /** Mutually exclusive resource fields. Duplicate entries cannot select different fields in one group. */
   exclusive?: readonly (readonly string[])[]
   /** Fields that the first entry keeps together: when it sets one of them, later entries fill none of them. */
@@ -39,7 +41,8 @@ export const wranglerEntrySpecs: readonly WranglerEntrySpec[] = [
   { path: ["kv_namespaces"], identity: "binding", resource: ["id", "preview_id"], ids: ["id", "preview_id"] },
   { path: ["r2_buckets"], identity: "binding", resource: ["bucket_name", "jurisdiction", "preview_bucket_name"] },
   { path: ["ratelimits"], identity: "name", resource: ["namespace_id", "simple"] },
-  { path: ["hyperdrive"], identity: "binding", resource: ["id"], ids: ["id"] },
+  { path: ["hyperdrive"], identity: "binding", resource: ["id"], ids: ["id"], preservePlaceholderIds: true },
+  { path: ["containers"], identity: "class_name", resource: ["image", "image_build_context", "name", "instance_type", "max_instances"] },
   { path: ["durable_objects", "bindings"], identity: "name", resource: ["class_name", "script_name", "environment"] },
   { path: ["migrations"], identity: "tag", resource: ["new_classes", "new_sqlite_classes", "renamed_classes", "deleted_classes", "transferred_classes"] },
   { path: ["queues", "producers"], identity: "binding", resource: ["queue"] },
@@ -69,7 +72,7 @@ function defaultConflict({ field, generated, name, path, project, scope }: Wrang
 /**
  * One entry per name. Nitro's Cloudflare preset concatenates the generated arrays with the project's wrangler config,
  * so the generated entry comes first. It wins, and later entries only fill fields it lacks. A real id replaces an
- * all-zero one, and an id that stays all-zero is left out, so Wrangler provisions the resource.
+ * all-zero one, and an id that stays all-zero is left out when Wrangler can provision the resource automatically.
  */
 function collapseEntries(entries: readonly unknown[], spec: WranglerEntrySpec, scope: string, conflict: (details: WranglerEntryConflict) => Error): unknown[] {
   const collapsed: unknown[] = []
@@ -113,7 +116,7 @@ function collapseEntries(entries: readonly unknown[], spec: WranglerEntrySpec, s
   }
   for (const entry of byName.values()) {
     for (const field of spec.ids ?? []) {
-      if (isPlaceholderCloudflareId(entry[field])) delete entry[field]
+      if (!spec.preservePlaceholderIds && isPlaceholderCloudflareId(entry[field])) delete entry[field]
     }
   }
   return collapsed

@@ -287,10 +287,38 @@ describe("collapseWranglerConfig", () => {
     }
     expect(collapseWranglerConfig({
       hyperdrive: [{ binding: "DATABASE", id: placeholder }, { binding: "DATABASE", id: placeholder }],
-    })).toEqual({ hyperdrive: [{ binding: "DATABASE" }] })
+    })).toEqual({ hyperdrive: [{ binding: "DATABASE", id: placeholder }] })
     expect(collapseWranglerConfig({
       hyperdrive: [{ binding: "DATABASE", id: placeholder }],
-    })).toEqual({ hyperdrive: [{ binding: "DATABASE" }] })
+    })).toEqual({ hyperdrive: [{ binding: "DATABASE", id: placeholder }] })
+    expect(collapseWranglerConfig({
+      env: { production: { hyperdrive: [{ binding: "DATABASE" }, { binding: "DATABASE", id: placeholder }] } },
+    })).toEqual({ env: { production: { hyperdrive: [{ binding: "DATABASE", id: placeholder }] } } })
+  })
+
+  it("collapses containers by class name at the top level and in environments", () => {
+    const generated = { class_name: "Sandbox", image: "./Dockerfile", instance_type: "lite", max_instances: 12 }
+    const project = { ...generated, image_build_context: ".", name: "sandbox" }
+    const other = { class_name: "Other", image: "./OtherDockerfile", max_instances: 1 }
+    const containers = [generated, other, project, project]
+    const expected = [project, other]
+    const config = { containers, env: { production: { containers } } }
+    expect(collapseWranglerConfig(config)).toEqual({ containers: expected, env: { production: { containers: expected } } })
+    expect(config.containers).toEqual([generated, other, project, project])
+  })
+
+  it.each([
+    { field: "image", value: "./OtherDockerfile" },
+    { field: "image_build_context", value: "./other" },
+    { field: "name", value: "other-sandbox" },
+    { field: "instance_type", value: "standard-1" },
+    { field: "max_instances", value: 1 },
+  ])("rejects conflicting container $field values", ({ field, value }) => {
+    const generated = { class_name: "Sandbox", image: "./Dockerfile", image_build_context: ".", name: "sandbox", instance_type: "lite", max_instances: 12 }
+    const project = { ...generated, [field]: value }
+    for (const containers of [[generated, project], [project, generated]]) {
+      expect(() => collapseWranglerConfig({ containers })).toThrow(expect.objectContaining({ code: "INTERNAL_B0051", message: expect.stringContaining(field) }))
+    }
   })
 
   it("collapses each Wrangler environment", () => {
