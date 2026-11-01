@@ -202,7 +202,7 @@ describe("ask Driver", () => {
     expect(vercelOptions).toMatchObject({ apiKey: "oidc-token", headers: { "ai-gateway-auth-method": "oidc" } })
 
     const viaCloudflare = defineAgent({
-      driver: { ask: { spam: ask.if("Is it spam?") }, gateway: cloudflare({ accountId: "account", apiKey: "tenant-key", gatewayId: "finance", token: "cf-token" }) },
+      driver: { ask: { spam: ask.if("Is it spam?") }, gateway: cloudflare({ accountId: "account", typesafeApiKey: "tenant-key", gatewayId: "finance", token: "cf-token" }) },
       runtime: false,
     })
     await expect(runAgent(viaCloudflare, runtime(), { prompt: "Win money" })).resolves.toEqual({ spam: true })
