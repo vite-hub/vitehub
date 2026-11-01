@@ -164,7 +164,7 @@ ViteHub finds the presets that Agent files import from `vite-hub/gateways` and d
 
 ## Cloudflare AI Gateway
 
-`cloudflare()` sends AI SDK model requests to the [OpenAI-compatible endpoint](https://developers.cloudflare.com/ai-gateway/usage/chat-completion/) of a Cloudflare AI Gateway: `https://gateway.ai.cloudflare.com/v1/<account>/<gateway>/compat/chat/completions`. Model IDs are `{provider}/{model}`, such as `openai/gpt-5` or `workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast`. The gateway logs each request, and its caching and rate limits apply.
+`cloudflare()` sends AI SDK model requests to the [OpenAI-compatible endpoint](https://developers.cloudflare.com/ai-gateway/usage/chat-completion/) of a Cloudflare AI Gateway: `https://gateway.ai.cloudflare.com/v1/<account>/<gateway>/compat/chat/completions`. This endpoint supports only `api: 'chat'`; `api: 'responses'` is rejected. Model IDs are `{provider}/{model}`, such as `openai/gpt-5` or `workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast`. The gateway logs each request, and its caching and rate limits apply.
 
 ```ts [server/api/answer.ts]
 import { generateText } from 'ai'

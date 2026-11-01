@@ -7,7 +7,7 @@ import type { AskAnswers, AskQuestions } from "./ask.ts"
 import type { AiGatewayEnvFieldName, AiGatewayEnvPreset } from "./env.ts"
 import type { JevRequestContext, JevRoute } from "./jev.ts"
 import type { AiGatewayOptionalCredentials } from "./definition.ts"
-import type { AiGateway, AiGatewayAsk, AiGatewayContext, AiGatewayDefinition, AiGatewayRoute, AiGatewaySealedSecret, AiGatewaySecret, AiGatewayUsage, AiGatewayValue } from "./types.ts"
+import type { AiGateway, AiGatewayCapabilities, AiGatewayAsk, AiGatewayContext, AiGatewayDefinition, AiGatewayRoute, AiGatewaySealedSecret, AiGatewaySecret, AiGatewayUsage, AiGatewayValue } from "./types.ts"
 
 /** Options shared by every gateway preset. */
 export interface AiGatewayPresetOptions {
@@ -128,6 +128,7 @@ interface JevAskSpec {
   optionalHeaders?: Record<string, AiGatewaySecret>
   /** The variables that hold the key, for the fix of a rejected key. Undefined when the caller passed it. */
   keyEnv?: string
+  keyOption?: string
   label: string
   model: string | ((context: AiGatewayContext) => Promise<string>)
   protocol: JevRoute["protocol"]
@@ -167,6 +168,7 @@ function jevRoute(name: string, spec: JevAskSpec): AskRouteResolver {
         ...(spec.fetch ? { fetch: spec.fetch } : {}),
         ...(Object.keys(headers).length ? { headers } : {}),
         ...(spec.keyEnv ? { keyEnv: spec.keyEnv } : {}),
+        ...(spec.keyOption ? { keyOption: spec.keyOption } : {}),
         label: spec.label,
         model: typeof spec.model === "string" ? spec.model : await spec.model(context),
         name,
@@ -200,9 +202,10 @@ function unsupportedAsk(name: string): AiGatewayAsk {
   }
 }
 
-function createAiGateway(definition: AiGatewayDefinition, route?: AskRouteResolver, optional?: AiGatewayOptionalCredentials): AiGateway {
+function createAiGateway(definition: AiGatewayDefinition, route?: AskRouteResolver, optional?: AiGatewayOptionalCredentials, modelApis?: readonly AiGatewayCapabilities["apis"][]): AiGateway {
   const routes = normalizeAiGateway(route ? Object.defineProperty({ ...definition }, aiGatewayAsks, { value: true }) : definition)
   const gateway: AiGateway = { ...routes }
+  if (modelApis) Object.defineProperty(gateway, "modelApis", { value: Object.freeze([...modelApis]) })
   if (optional) Object.defineProperty(gateway, aiGatewayOptionalCredentials, { value: Object.freeze({ ...optional, headers: Object.freeze([...optional.headers]) }) })
   // Not enumerable, so copies and `driver.gateway` keep only the Driver routes.
   Object.defineProperty(gateway, "ask", {
@@ -402,12 +405,12 @@ function cloudflareToken(options: { token?: AiGatewaySecret }, preset: "cloudfla
 /**
  * [Cloudflare AI Gateway](https://developers.cloudflare.com/ai-gateway/). Serves AI SDK models through its
  * [OpenAI-compatible endpoint](https://developers.cloudflare.com/ai-gateway/usage/chat-completion/), with
- * `{provider}/{model}` model IDs such as `workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast`. Answers Jev questions
+ * Chat Completions (`api: "chat"`) only, with `{provider}/{model}` model IDs such as `workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast`. Answers Jev questions
  * through a TypeSafe [custom provider](https://developers.cloudflare.com/ai-gateway/configuration/custom-providers/).
  * Each capability reads its own key: model requests need the gateway token, `CLOUDFLARE_AI_GATEWAY_API_KEY`, or both;
  * `ask()` needs `TYPESAFE_API_KEY`. For Codex or Claude Code through Cloudflare, use `defineAiGateway()`.
  */
-export function cloudflare(options: CloudflareGatewayOptions = {}): AiGateway<{ ask: true, routes: "openai-compatible" }> {
+export function cloudflare(options: CloudflareGatewayOptions = {}): AiGateway<{ apis: "chat", ask: true, routes: "openai-compatible" }> {
   if (Object.hasOwn(options, "apiKey")) {
     throw gatewayDiagnostics.GATEWAYS_R0001({ message: "[vitehub] cloudflare() reads two keys and has no apiKey. Pass typesafeApiKey for ask(), or providerApiKey for model requests." })
   }
@@ -440,6 +443,7 @@ export function cloudflare(options: CloudflareGatewayOptions = {}): AiGateway<{ 
     ...(options.headers ? { headers: options.headers } : {}),
     optionalHeaders: { "cf-aig-authorization": token },
     ...(explicitTypesafeKey ? {} : { keyEnv: aiGatewayVendorNames("cloudflare", "typesafeApiKey").join(" or ") }),
+    keyOption: "typesafeApiKey",
     label: "Cloudflare AI Gateway",
     model: options.model?.trim() || "jev-latest",
     protocol: "typesafe",
@@ -449,5 +453,5 @@ export function cloudflare(options: CloudflareGatewayOptions = {}): AiGateway<{ 
     apiKey: true,
     headers: ["cf-aig-authorization"],
     missing: "Gateway \"cloudflare\" needs a gateway token or a provider key for model requests. Set CLOUDFLARE_AI_GATEWAY_TOKEN for stored provider keys or Unified Billing, or CLOUDFLARE_AI_GATEWAY_API_KEY, or pass token or providerApiKey.",
-  }) as AiGateway<{ ask: true, routes: "openai-compatible" }>
+  }, ["chat"]) as AiGateway<{ apis: "chat", ask: true, routes: "openai-compatible" }>
 }

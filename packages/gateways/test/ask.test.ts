@@ -158,13 +158,16 @@ describe("gateway.ask()", () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
-  it("names the key to rotate when the provider rejects it", async () => {
-    const rejected = vi.fn<typeof globalThis.fetch>(async () => Response.json({ error: "unauthorized" }, { status: 401 }))
+  it.each([401, 403])("names the key to rotate when the provider rejects it with %i", async (status) => {
+    const rejected = vi.fn<typeof globalThis.fetch>(async () => Response.json({ error: "unauthorized" }, { status }))
     const explicit = await cloudflare({ accountId: "account", typesafeApiKey: "ts-key", fetch: rejected, gatewayId: "finance" }).ask("state", questions).catch((error: unknown) => error)
     expect(rejected).toHaveBeenCalledOnce()
-    expect(explicit).toMatchObject({ code: "GATEWAYS_R0008", providerStatus: 401, status: 503 })
-    expect(String((explicit as Error).message)).toContain("Cloudflare AI Gateway Jev provider rejected the API key with HTTP 401")
-    expect((explicit as { fix?: string }).fix).toContain("Pass a valid apiKey to the gateway")
+    expect(explicit).toMatchObject({ code: "GATEWAYS_R0008", providerStatus: status, status: 503 })
+    expect(String((explicit as Error).message)).toContain(`Cloudflare AI Gateway Jev provider rejected the API key with HTTP ${status}`)
+    expect((explicit as { fix?: string }).fix).toContain("Pass a valid typesafeApiKey to the gateway")
+
+    const otherExplicit = await typesafe({ apiKey: "ts-key", fetch: rejected }).ask("state", questions).catch((error: unknown) => error)
+    expect((otherExplicit as { fix?: string }).fix).toContain("Pass a valid apiKey to the gateway")
 
     vi.stubEnv("TYPESAFE_API_KEY", "env-ts-key")
     const fromEnv = await typesafe({ fetch: rejected }).ask("state", questions).catch((error: unknown) => error)

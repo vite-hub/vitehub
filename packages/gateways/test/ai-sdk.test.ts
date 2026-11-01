@@ -99,6 +99,33 @@ describe("languageModel()", () => {
     expect(sent(fetch, 1).headers.get("authorization")).toBe("Bearer proxy-key")
   })
 
+  it.each([undefined, false, true])("preserves OpenRouter Responses store options (%s)", async (store) => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => openaiResponse())
+    const model = languageModel(openrouter({ apiKey: "or-key" }), "openai/gpt-5", { api: "responses", fetch })
+    await generateText({ model, prompt: "Hello", providerOptions: { openai: { ...(store === undefined ? {} : { store }), parallelToolCalls: false } } })
+    expect(sent(fetch).url).toBe("https://openrouter.ai/api/v1/responses")
+    expect(sent(fetch).body).toMatchObject({ parallel_tool_calls: false })
+    if (store === undefined) expect(sent(fetch).body).not.toHaveProperty("store")
+    else expect(sent(fetch).body).toMatchObject({ store })
+  })
+
+  it.each([undefined, true])("applies OpenRouter Responses store options to streams (%s)", async (store) => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(`event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: await openaiResponse().json() })}\n\n`, { headers: { "content-type": "text/event-stream" } }))
+    const model = languageModel(openrouter({ apiKey: "or-key" }), "openai/gpt-5", { api: "responses", fetch })
+    const result = streamText({ model, prompt: "Hello", ...(store === undefined ? {} : { providerOptions: { openai: { store } } }) })
+    await result.usage
+    expect(sent(fetch).body).toMatchObject({ stream: true })
+    if (store === undefined) expect(sent(fetch).body).not.toHaveProperty("store")
+    else expect(sent(fetch).body).toMatchObject({ store })
+  })
+
+  it("rejects Cloudflare Responses before sending a request", () => {
+    const fetch = vi.fn<typeof globalThis.fetch>()
+    // @ts-expect-error Cloudflare /compat implements only Chat Completions.
+    expect(() => languageModel(cloudflare({ providerApiKey: "key" }), "openai/gpt-5", { api: "responses", fetch })).toThrow(expect.objectContaining({ code: "GATEWAYS_R0004" }))
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it("routes Vercel AI Gateway models through its OpenAI-compatible API with the OIDC fallback", async () => {
     vi.stubEnv("VITEHUB_VERCEL_API_KEY", undefined)
     vi.stubEnv("AI_GATEWAY_API_KEY", undefined)

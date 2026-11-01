@@ -36,8 +36,10 @@ export type AiGatewayDriver = "claude-code" | "codex"
  */
 export type AiGatewayRoute = AiGatewayDriver | "openai-compatible"
 
-/** What an AI gateway can do. A preset sets both, so the type rejects a Driver or a model API that it does not serve. */
+/** What an AI gateway can do. A preset sets its capabilities, so the type rejects a Driver or a model API that it does not serve. */
 export interface AiGatewayCapabilities {
+  /** AI SDK APIs supported by the preset, in addition to its URL routes. */
+  apis: "chat" | "responses" | "messages"
   /** The gateway answers TypeSafe Jev questions with `gateway.ask()`. */
   ask: boolean
   /** The model APIs in `baseURL`. */
@@ -92,6 +94,8 @@ export interface AiGatewayDefinition {
  * `defineAiGateway()`.
  */
 export type AiGateway<TCapabilities extends Partial<AiGatewayCapabilities> = Partial<AiGatewayCapabilities>> = AiGatewayDefinition & {
+  /** Optional API restriction for presets whose endpoint implements only some APIs. */
+  readonly modelApis?: readonly (TCapabilities["apis"] & AiGatewayCapabilities["apis"])[]
   readonly baseURL: Readonly<Record<TCapabilities["routes"] extends AiGatewayRoute ? TCapabilities["routes"] : never, AiGatewayValue<string>>>
 } & (
   TCapabilities["ask"] extends true ? { ask: AiGatewayAsk }

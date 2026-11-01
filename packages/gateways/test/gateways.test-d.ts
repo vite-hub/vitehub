@@ -42,6 +42,10 @@ describe("AI gateway capabilities", () => {
   })
 
   it("types the model APIs that each gateway serves", () => {
+    languageModel(cloudflare(), "openai/gpt-5", { api: "chat" })
+    // @ts-expect-error Cloudflare /compat does not implement Responses.
+    languageModel(cloudflare(), "openai/gpt-5", { api: "responses" })
+
     const codexGateway = (gateway: AiGateway<{ routes: "codex" }>) => gateway
     const claudeGateway = (gateway: AiGateway<{ routes: "claude-code" }>) => gateway
     codexGateway(openrouter())

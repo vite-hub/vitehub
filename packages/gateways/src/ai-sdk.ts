@@ -3,7 +3,7 @@ import { gatewayDiagnostics } from "./diagnostics.ts"
 
 import type { LanguageModelV4 } from "@ai-sdk/provider"
 import type { AiGatewayModelRoute } from "./definition.ts"
-import type { AiGateway, AiGatewayRoute } from "./types.ts"
+import type { AiGateway, AiGatewayCapabilities, AiGatewayRoute } from "./types.ts"
 
 /**
  * The model APIs that `languageModel()` can call, for the routes of a gateway:
@@ -102,10 +102,10 @@ async function createModel(gateway: AiGateway, modelId: string, api: AiGatewayMo
  *
  * await generateText({ model: languageModel(openrouter(), 'google/gemini-3-flash'), prompt: 'Hello' })
  */
-export function languageModel<const TRoutes extends AiGatewayRoute>(
-  gateway: AiGateway<{ routes: TRoutes }> & ServesModels<TRoutes>,
+export function languageModel<const TRoutes extends AiGatewayRoute, const TApis extends AiGatewayCapabilities["apis"] = AiGatewayCapabilities["apis"]>(
+  gateway: AiGateway<{ apis: TApis, routes: TRoutes }> & ServesModels<TRoutes>,
   modelId: string,
-  options: AiGatewayLanguageModelOptions<AiGatewayModelApi<TRoutes>> = {},
+  options: AiGatewayLanguageModelOptions<Extract<AiGatewayModelApi<TRoutes>, NoInfer<TApis>>> = {},
 ): LanguageModelV4 {
   if (typeof gateway !== "object" || gateway === null || typeof gateway.baseURL !== "object" || gateway.baseURL === null) {
     throw gatewayDiagnostics.GATEWAYS_R0001({ message: "[vitehub] languageModel(gateway, modelId) needs a gateway from a preset or defineAiGateway(). chatgpt() serves the Codex Driver only." })
@@ -114,6 +114,9 @@ export function languageModel<const TRoutes extends AiGatewayRoute>(
   const api: AiGatewayModelApi = options.api ?? defaultApi(gateway)
   if (!packages[api]) throw gatewayDiagnostics.GATEWAYS_R0001({ message: `[vitehub] languageModel() api must be "chat", "responses", or "messages".` })
   const route = routeOf(gateway, api)
+  if (gateway.modelApis && !gateway.modelApis.some(supported => supported === api)) {
+    throw gatewayDiagnostics.GATEWAYS_R0004({ message: `[vitehub] Gateway "${gateway.name}" does not serve the "${api}" model API. Choose api: ${gateway.modelApis.map(supported => `"${supported}"`).join(" or ")}.` })
+  }
   if (!aiGatewaySupports(gateway, route)) {
     throw gatewayDiagnostics.GATEWAYS_R0004({ message: `[vitehub] Gateway "${gateway.name}" does not serve the "${api}" model API. Set baseURL["${route}"] or choose another api.` })
   }

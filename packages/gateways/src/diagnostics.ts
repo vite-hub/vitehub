@@ -24,8 +24,8 @@ export const gatewayDiagnostics = /*#__PURE__*/ defineDiagnostics({
     GATEWAYS_R0007: dynamicError,
     /** The provider rejected the key with 401 or 403. */
     GATEWAYS_R0008: {
-      why: ({ provider, status }: { provider: string, status: number, env?: string }) => `[vitehub] The ${provider} Jev provider rejected the API key with HTTP ${status}. The key is missing, expired, or not allowed to call Jev.`,
-      fix: ({ env }: { provider: string, status: number, env?: string }) => env ? `Set or rotate ${env}.` : "Pass a valid apiKey to the gateway, or rotate the key.",
+      why: ({ provider, status }: { provider: string, status: number, env?: string, option?: string }) => `[vitehub] The ${provider} Jev provider rejected the API key with HTTP ${status}. The key is missing, expired, or not allowed to call Jev.`,
+      fix: ({ env, option = "apiKey" }: { provider: string, status: number, env?: string, option?: string }) => env ? `Set or rotate ${env}.` : `Pass a valid ${option} to the gateway, or rotate the key.`,
     },
     /** The provider still failed after three attempts. */
     GATEWAYS_R0009: {
