@@ -46,7 +46,8 @@ function hasRuntimeOptions(options: AuthRuntimeOptions | undefined): boolean {
 
 function hasRequestRuntimeOptions(definition: AuthDefinition): boolean {
   if (typeof definition.options === "function") return true
-  return typeof definition.options.runtime === "function" || trustsProxyHeaders(definition.options)
+  const runtime = definition.options.runtime
+  return typeof runtime === "function" || trustsProxyHeaders(definition.options) || trustsProxyHeaders(runtime)
 }
 
 function hasConfiguredPublicUrl(): boolean {
