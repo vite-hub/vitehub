@@ -5,7 +5,6 @@ import { computed, onBeforeUnmount, shallowRef, watch } from "vue"
 import type { RealtimeIssue, RealtimeUser } from "@vite-hub/realtime"
 import type { RealtimeResetEvent } from "@vite-hub/realtime/vue"
 import type { ComputedRef, Ref, ShallowRef } from "vue"
-import type { ConsoleDocumentComponent } from "../definitions"
 import type { ConsoleDocumentSessionUser } from "./documents"
 
 /** One other person in a live room, with the property they are editing, if any. */
@@ -24,11 +23,6 @@ export interface ConsoleLiveReset {
   reason: RealtimeResetEvent["reason"]
   /** The body and fields this tab held before the reset, when it had unsaved edits. */
   unsaved?: { body: string, fields: Record<string, unknown> }
-}
-
-/** The collection components as Content declares them, keyed by tag, for the shared codec. */
-function componentRecord(components: readonly ConsoleDocumentComponent[] | undefined) {
-  return Object.fromEntries((components ?? []).map(component => [component.name, { kind: component.kind, props: component.props }]))
 }
 
 function stableJson(value: unknown): string {
@@ -81,11 +75,10 @@ export function useConsoleLiveDocument(options: {
   definition: string
   /** The room `<collection>/<id>`, or undefined to stay disconnected. */
   room: () => string | undefined
-  components: () => readonly ConsoleDocumentComponent[] | undefined
   user: () => ConsoleDocumentSessionUser | null | undefined
   onReset: (reset: ConsoleLiveReset) => void
 }): ConsoleLiveDocument {
-  const editor = contentRealtimeEditor({ components: componentRecord(options.components()) })
+  const editor = contentRealtimeEditor()
   let unsavedLocal = false
   const realtime = useRealtimeTiptap(options.definition, options.room, {
     editor,

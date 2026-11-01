@@ -7,6 +7,8 @@
 
 Vue primitives for AI chat, Agent Invocations, traces, diffs, and file trees. The styled components compose [Nuxt UI](https://ui.nuxt.com/) and render [AI SDK](https://ai-sdk.dev/) message contracts; the headless entry point provides message-scrolling behavior without the styled component layer.
 
+`Markdown` accepts a string or a parsed Content page. Comark UI block components and document styles are bundled, so readers do not install Comark packages or assemble a component map. The Nuxt module auto-imports the primitive; Vite apps import it from `@vite-hub/ui/markdown`.
+
 Markdown images and image attachments use compact thumbnails with an expanded preview. The preview preserves the full aspect ratio and supports Escape, focus return, and opening the original image. Prompt attachments have a separate Remove button.
 
 ## Choose an entry point

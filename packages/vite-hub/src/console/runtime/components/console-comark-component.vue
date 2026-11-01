@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { NodeViewContent, NodeViewWrapper } from "@tiptap/vue-3";
 import { computed } from "vue";
+import { consoleComponentProp, consoleComponentWithProp } from "../client/editor";
 
 import type { NodeViewProps } from "@tiptap/vue-3";
 import type { ConsoleDocumentComponent } from "../definitions";
@@ -12,7 +13,10 @@ import type { ConsoleDocumentComponent } from "../definitions";
  */
 const props = defineProps<NodeViewProps & { definition: ConsoleDocumentComponent }>();
 
-const entries = computed(() => Object.entries(props.definition.props).map(([name, prop]) => ({ name, type: prop.type, value: props.node.attrs[name] })));
+const entries = computed(() => Object.entries(props.definition.props).map(([name, prop]) => {
+  const value = consoleComponentProp(props.node.attrs.props ?? {}, name, prop.type);
+  return { name, type: prop.type, value: value === undefined ? prop.default : value };
+}));
 const editable = computed(() => props.editor.isEditable);
 
 function display(value: unknown): string {
@@ -31,7 +35,7 @@ function update(name: string, type: string, raw: unknown): void {
       return;
     }
   }
-  props.updateAttributes({ [name]: value });
+  props.updateAttributes({ props: consoleComponentWithProp(props.node.attrs.props ?? {}, name, value) });
 }
 </script>
 

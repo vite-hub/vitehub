@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { EditorContent } from "@tiptap/vue-3"
+import { createContentEditorCodec } from "@vite-hub/content/editor"
 import { flushPromises, shallowMount } from "@vue/test-utils"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { DefineComponent } from "vue"
@@ -8,6 +9,10 @@ import ConsoleMarkdownEditor from "../src/console/runtime/components/console-mar
 
 vi.mock("../src/console/runtime/components/console-comark-component.vue", () => ({ default: { render: () => null } }))
 vi.mock("../src/console/runtime/components/console-media-dialog.vue", () => ({ default: { render: () => null } }))
+vi.mock("@vite-hub/content/editor", async importOriginal => {
+  const actual = await importOriginal<typeof import("@vite-hub/content/editor")>()
+  return { ...actual, createContentEditorCodec: vi.fn(actual.createContentEditorCodec) }
+})
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -35,10 +40,13 @@ async function mountEditor() {
   const editor = wrapper.getComponent(EditorContent).props("editor")
   if (!editor) throw new Error("Rich editor did not initialize")
   await vi.waitFor(() => expect(editor.isEditable).toBe(true))
+  const codec = vi.mocked(createContentEditorCodec).mock.results.at(-1)!.value
   vi.useFakeTimers()
   return {
     wrapper,
     editor,
+    codec,
+    serialize: () => codec.toMarkdown(editor.getJSON()),
     // Vue exposes commit to the document editor through the same component ref.
     commit: async (): Promise<void> => { await wrapper.vm.$.exposed!.commit() },
   }
@@ -46,14 +54,14 @@ async function mountEditor() {
 
 describe("Rich edit commits", () => {
   it("awaits serialization that the debounce already started before a Source switch", async () => {
-    const { wrapper, editor, commit } = await mountEditor()
+    const { wrapper, editor, codec, serialize, commit } = await mountEditor()
     const blocked = deferred<string>()
     try {
       editor.commands.insertContentAt(1, { type: "text", text: "Edited " })
-      const markdown: string = await editor.storage.comark.getMarkdown()
-      const serialize = vi.spyOn(editor.storage.comark, "getMarkdown").mockReturnValueOnce(blocked.promise)
+      const markdown = await serialize()
+      const serializing = vi.spyOn(codec, "toMarkdown").mockReturnValueOnce(blocked.promise)
       await vi.advanceTimersByTimeAsync(120)
-      expect(serialize).toHaveBeenCalledOnce()
+      expect(serializing).toHaveBeenCalledOnce()
 
       let switched = false
       const switching = commit().then(async () => {
@@ -74,12 +82,12 @@ describe("Rich edit commits", () => {
   })
 
   it("makes Rich read-only while a pending edit commits and restores editability afterward", async () => {
-    const { wrapper, editor, commit } = await mountEditor()
+    const { wrapper, editor, codec, serialize, commit } = await mountEditor()
     const blocked = deferred<string>()
     try {
       editor.commands.insertContentAt(1, { type: "text", text: "Edited " })
-      const markdown: string = await editor.storage.comark.getMarkdown()
-      vi.spyOn(editor.storage.comark, "getMarkdown").mockReturnValueOnce(blocked.promise)
+      const markdown = await serialize()
+      vi.spyOn(codec, "toMarkdown").mockReturnValueOnce(blocked.promise)
       const committing = commit()
       expect(editor.isEditable).toBe(false)
       blocked.resolve(markdown)
@@ -95,17 +103,16 @@ describe("Rich edit commits", () => {
   })
 
   it("drains an edit queued while an earlier snapshot was being serialized", async () => {
-    const { wrapper, editor, commit } = await mountEditor()
+    const { wrapper, editor, codec, serialize, commit } = await mountEditor()
     const blocked = deferred<string>()
     try {
-      const serialize = editor.storage.comark.getMarkdown.bind(editor.storage.comark)
       editor.commands.insertContentAt(1, { type: "text", text: "First " })
-      const first: string = await serialize()
-      vi.spyOn(editor.storage.comark, "getMarkdown").mockReturnValueOnce(blocked.promise)
+      const first = await serialize()
+      vi.spyOn(codec, "toMarkdown").mockReturnValueOnce(blocked.promise)
       await vi.advanceTimersByTimeAsync(120)
 
       editor.commands.insertContentAt(1, { type: "text", text: "Second " })
-      const latest: string = await serialize()
+      const latest = await serialize()
       const committing = commit()
       blocked.resolve(first)
       await committing
@@ -119,12 +126,12 @@ describe("Rich edit commits", () => {
   })
 
   it("discards an in-flight snapshot after another view replaces the model", async () => {
-    const { wrapper, editor } = await mountEditor()
+    const { wrapper, editor, codec, serialize } = await mountEditor()
     const blocked = deferred<string>()
     try {
       editor.commands.insertContentAt(1, { type: "text", text: "Edited " })
-      const markdown: string = await editor.storage.comark.getMarkdown()
-      vi.spyOn(editor.storage.comark, "getMarkdown").mockReturnValueOnce(blocked.promise)
+      const markdown = await serialize()
+      vi.spyOn(codec, "toMarkdown").mockReturnValueOnce(blocked.promise)
       await vi.advanceTimersByTimeAsync(120)
       await wrapper.setProps({ active: false, modelValue: "Source replacement\n" })
       blocked.resolve(markdown)
@@ -133,7 +140,7 @@ describe("Rich edit commits", () => {
 
       await wrapper.setProps({ active: true })
       await vi.waitFor(() => expect(editor.isEditable).toBe(true))
-      expect(await editor.storage.comark.getMarkdown()).toBe("Source replacement")
+      expect((await serialize()).trimEnd()).toBe("Source replacement")
     }
     finally {
       blocked.resolve("Original\n")

@@ -22,8 +22,9 @@ icon: i-lucide-code-2
 | `contentSource` from `vite-hub/content` | Adapt one Source and set Comark options such as `prefix` and `schema`. |
 | `defineContentHandler` from `vite-hub/content` | Adapt a Content runtime to an H3 or Nitro route in another server. |
 | `createContentClient`, `defineContentClientPlugin` from `vite-hub/content/client` | Use or extend the typed Comark Content client. |
+| `createContentEditorCodec`, `contentRealtimeEditor`, `ContentImage` from `vite-hub/content/editor` | Content's configured editor codec, Realtime adapter, and image extension. See [Live editing](/docs/content/editing-together#build-your-own-live-editor). |
 | `contentField`, `formatContentField`, `parseContentField` from `vite-hub/content/client` | Mark the element that renders a field, and read the [field address](#field-addresses) back. |
-| `comark-content/database/*`, `comark-content/plugins/*`, `comark-content/sources/*` | Comark databases, parser and search plugins, and native Comark Sources. |
+| `comark-content/database/*`, `comark-content/plugins/*`, `comark-content/sources/*` | Optional Comark databases, plugins, and native Sources. Install `comark-content` when importing these directly. |
 
 Libraries can install `@vite-hub/content` and use the matching `@vite-hub/content`, `@vite-hub/content/client`, and `@vite-hub/content/presets/cms` imports. `documents` and `optional` come from `@vite-hub/content/collections`, which needs `@vite-hub/workspace`. A read-only Content runtime does not install Workspace or Database. Without `vitehub()`, add `hubContent()` from `@vite-hub/content/vite` next to the Workspace, Database, and Blob plugins so the `cms` preset gets its Workspace, tables, and, when the app has none, its Database. Only `vitehub()` turns those plugins on for you.
 

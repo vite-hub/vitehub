@@ -1,6 +1,7 @@
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { buildArtifact, contentHub } from "comark-content"
+import comarkUi from "comark-ui/html"
 import json from "comark-content/plugins/json"
 import yaml from "comark-content/plugins/yaml"
 import { defineEventHandler } from "h3"
@@ -385,6 +386,13 @@ export function defineContent<
   const { source, sources, collections, authorize, seo: seoOptions, live = "auto", route = true, ...sharedOptions } = options
   if (live !== "auto" && live !== false) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ live }) must be 'auto' or false." })
+  }
+  const customPlugins = sharedOptions.markdown?.plugins ?? []
+  const replaced = new Set(customPlugins.filter(Boolean).map(plugin => plugin.name))
+  sharedOptions.markdown = {
+    ...sharedOptions.markdown,
+    // The Vue renderer omits these HTML-only plugins.
+    plugins: [...comarkUi({ annotate: false, diff: false, quiz: false, chips: { download: false }, badge: { download: false } }).plugins.filter(plugin => !replaced.has(plugin.name)), ...customPlugins],
   }
   const seo = normalizeSeoOptions(seoOptions)
   const presetDefaults = options.extends === undefined ? {} : resolveContentPreset(options.extends)

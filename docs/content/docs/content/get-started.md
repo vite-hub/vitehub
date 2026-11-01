@@ -8,17 +8,17 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Turn `docs/intro.md` into a parsed Content document and read it through an API route. A Source finds the Markdown file; Content parses it so the app can use its headings and body. The example also enables full-text search.
+Turn `docs/intro.md` into a parsed Content document and read it through an API route. A Source finds the Markdown file; Content parses it so the app can use its headings and body.
 
-You need Node.js 24.15 or newer, pnpm, and a Vite application. Run the commands from its root. The search plugin uses local SQLite state. Review [Content configuration](/docs/content/configure) before running the app across multiple instances.
+You need Node.js 24.15 or newer, pnpm, and a Vite application. Run the commands from its root.
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
 
-Install Comark Content with ViteHub. It is an optional peer, so ViteHub does not install it for every app.
+Install ViteHub and the server dependencies. Content includes its Comark runtime and the Comark UI parser preset.
 
 ```bash [commands/install]
-pnpm add vite-hub comark-content nitro h3
+pnpm add vite-hub nitro h3
 pnpm add -D vite
 ```
 
@@ -39,16 +39,13 @@ export default defineConfig({
 ::tutorial-step{title="Define and read Content"}
 ## Define and read Content
 
-The `docs` Source reads Markdown under the project's `docs` directory. The search plugin indexes the parsed documents in SQLite.
+The `docs` Source reads Markdown under the project's `docs` directory.
 
 ```ts [server/content.ts]
-import sqlite from 'comark-content/database/sqlite-node'
-import sqliteFullTextSearch from 'comark-content/plugins/sqlite-full-text-search'
 import { defineContent } from 'vite-hub/content'
 import { glob } from 'vite-hub/source/glob'
 
 export const content = defineContent({
-  plugins: [sqliteFullTextSearch({ database: sqlite() })],
   sources: {
     docs: glob({ cwd: 'docs', include: '**/*.md' }),
   },
@@ -74,17 +71,14 @@ export default defineEventHandler(async () => {
 })
 ```
 
-This client module is optional for the first request. It shows how a browser can use the generated Content routes. Search for `Hello` to match the file you just created.
+This optional client module reads the same document through the generated Content routes:
 
 ```ts [app/utils/content.ts]
-import searchClient from 'comark-content/plugins/sqlite-full-text-search/client'
 import { createContentClient } from 'vite-hub/content/client'
 
-export const content = createContentClient({
-  plugins: [searchClient()],
-})
+export const content = createContentClient()
 
-await content.search('Hello', { instances: ['docs'] })
+await content.get('/intro')
 ```
 
 ::
@@ -106,6 +100,8 @@ curl http://localhost:5173/api/guide
 
 The response contains the parsed `Hello from Content` document. Read
 [Server API](/docs/content/server-api) for every Content method.
+
+Render the document with [ViteHub UI Markdown](/docs/ui/markdown#content-pages), or add [full-text search](/docs/content/configure#providers).
 
 The `docs` Source is read-only: you change it by editing files in the repository. To let people or Agents edit documents at runtime, with drafts and publishing, add a [document collection](/docs/content/configure#document-collections).
 

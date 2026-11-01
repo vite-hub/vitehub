@@ -90,32 +90,36 @@
     "test": "vp run -t @vite-hub/content#build && vp test"
   },
   "dependencies": {
+    "@comark/html": "catalog:markdown-ui",
     "@standard-schema/spec": "catalog:runtime",
+    "@tiptap/core": "catalog:realtime",
+    "@tiptap/extension-image": "catalog:realtime",
+    "@tiptap/extension-list": "catalog:realtime",
+    "@tiptap/extension-table": "catalog:realtime",
+    "@tiptap/pm": "catalog:realtime",
+    "@tiptap/starter-kit": "catalog:realtime",
     "@valibot/to-json-schema": "catalog:runtime",
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
+    "comark": "catalog:markdown-ui",
+    "comark-content": "catalog:markdown-ui",
     "diff": "catalog:runtime",
     "h3": "catalog:unjs",
+    "katex": "^0.18.7",
     "nostics": "catalog:runtime",
+    "vega-canvas": "^2.0.0",
+    "vega-loader": "^5.1.3",
     "yaml": "catalog:tooling"
   },
   "devDependencies": {
     "@libsql/client": "catalog:database",
-    "@tiptap/core": "catalog:realtime",
-    "@tiptap/extension-code-block": "catalog:realtime",
-    "@tiptap/extension-image": "catalog:realtime",
-    "@tiptap/extension-table": "catalog:realtime",
-    "@tiptap/pm": "catalog:realtime",
-    "@tiptap/starter-kit": "catalog:realtime",
     "@types/node": "catalog:tooling",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
-    "comark": "catalog:markdown",
-    "comark-content": "catalog:markdown",
-    "comark-tiptap": "catalog:markdown",
+    "comark-ui": "catalog:markdown-ui",
     "drizzle-orm": "catalog:database",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
@@ -126,40 +130,13 @@
     "zod": "catalog:runtime"
   },
   "peerDependencies": {
-    "@tiptap/core": "catalog:realtime",
-    "@tiptap/extension-code-block": "catalog:realtime",
-    "@tiptap/extension-image": "catalog:realtime",
-    "@tiptap/extension-table": "catalog:realtime",
-    "@tiptap/pm": "catalog:realtime",
-    "@tiptap/starter-kit": "catalog:realtime",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
-    "comark": "catalog:markdown",
-    "comark-content": "catalog:markdown",
-    "comark-tiptap": "catalog:markdown",
     "drizzle-orm": "catalog:database",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
-    "@tiptap/core": {
-      "optional": true
-    },
-    "@tiptap/extension-code-block": {
-      "optional": true
-    },
-    "@tiptap/extension-image": {
-      "optional": true
-    },
-    "@tiptap/extension-table": {
-      "optional": true
-    },
-    "@tiptap/pm": {
-      "optional": true
-    },
-    "@tiptap/starter-kit": {
-      "optional": true
-    },
     "@vite-hub/database": {
       "optional": true
     },
@@ -167,12 +144,6 @@
       "optional": true
     },
     "@vite-hub/workspace": {
-      "optional": true
-    },
-    "comark": {
-      "optional": true
-    },
-    "comark-tiptap": {
       "optional": true
     },
     "drizzle-orm": {
