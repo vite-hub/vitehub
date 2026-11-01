@@ -38,6 +38,8 @@ export const content = defineContent({
       // The Console offers these in the body's `/` menu. The site renders them with its own Vue components.
       components: {
         alert: { description: "A highlighted note", props: { type: { type: "string", default: "info" } } },
+        // An image prop opens the Media picker and stores the served URL, such as icon="/api/_vitehub/blob/train.webp".
+        "field-note": { description: "A note with an icon", props: { title: { type: "string" }, icon: { type: "image" } } },
         badge: { kind: "inline", description: "A short inline label" },
       },
     }),

@@ -72,6 +72,18 @@ describe("Console body editor menus", () => {
     expect(consoleComponentProp(saved, "count", "number")).toBe(3)
   })
 
+  it("keeps image and file props as plain strings, even when they look like JSON", async () => {
+    const codec = createContentEditorCodec()
+    const doc = await codec.fromMarkdown('::day{art="2026" guide="guides/a.pdf"}\nDay out.\n::\n')
+    const component = doc.content?.[0]
+    const props = component?.attrs?.props ?? {}
+    expect(consoleComponentProp(props, "art", "image")).toBe("2026")
+    expect(consoleComponentProp(props, "guide", "file")).toBe("guides/a.pdf")
+    if (!component?.attrs) throw new Error("The component has no props")
+    component.attrs.props = consoleComponentWithProp(props, "art", "/media/art/hero.webp")
+    expect(await codec.toMarkdown(doc)).toBe('::day{art="/media/art/hero.webp" guide="guides/a.pdf"}\nDay out.\n::\n')
+  })
+
   it("splits the stored file into frontmatter and body", () => {
     expect(splitConsoleFrontmatter("---\ntitle: Hi\n---\n\nBody\n")).toEqual({ body: "\nBody\n", frontmatter: "---\ntitle: Hi\n---\n" })
     expect(splitConsoleFrontmatter("---\n---\nBody")).toEqual({ body: "Body", frontmatter: "---\n---\n" })

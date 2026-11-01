@@ -61,7 +61,7 @@ async function setup(workspace?: string, title: z.ZodType = z.string().min(1)) {
       posts: documents({
         path: "posts/**/*.md",
         fields: { title, date: z.coerce.date(), tags: z.array(z.string()).default([]) },
-        components: { alert: { description: "A highlighted note.", props: { type: { type: "string", default: "info" } } }, badge: { kind: "inline" } },
+        components: { alert: { description: "A highlighted note.", props: { type: { type: "string", default: "info" }, icon: { type: "image", store: "media" } } }, badge: { kind: "inline" } },
       }),
       notes: documents({ path: "notes/*.md", fields: { body: z.string().optional() } }),
     },
@@ -121,7 +121,7 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
       schema: { properties: { date: { type: "string", format: "date-time" } } },
     })
     expect(collections[0]!.components).toEqual([
-      { name: "alert", kind: "block", label: "Alert", description: "A highlighted note.", props: { type: { type: "string", default: "info" } } },
+      { name: "alert", kind: "block", label: "Alert", description: "A highlighted note.", props: { type: { type: "string", default: "info" }, icon: { type: "image", store: "media" } } },
       { name: "badge", kind: "inline", label: "Badge", props: {} },
     ])
     expect(collections[1]!.components).toBeUndefined()
