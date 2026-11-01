@@ -52,6 +52,7 @@ import { databaseDisabledPlugin } from "./database-disabled.ts"
 import { operationsCheckPlugin } from "./operations-check.ts"
 import { consoleAuthConfig, consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
 import { includedNitro } from "./nitro-plugin.ts"
+import { detectPreset } from "./deployment.ts"
 import { nitroOrderPlugins } from "./nitro-order.ts"
 import { viteHubTaskPlugin } from "./task/vite.ts"
 import { logsVitePlugin, type LogsOptions } from "./logs-vite.ts"
@@ -334,7 +335,12 @@ export interface ViteHubOptions {
   contentImportBase?: string
   /** Local storage defaults for a Node host with a persistent filesystem. Relative to the working directory. */
   dataDir?: string
-  preset: DeploymentPreset
+  /**
+   * The host to build for. When omitted, `detectPreset()` from `vite-hub/deployment` reads it from `VITEHUB_HOSTING`,
+   * `NITRO_PRESET`, `SERVER_PRESET`, or the provider variables of Cloudflare Workers Builds, Netlify, Vercel, and Deno Deploy.
+   * Without any of them, ViteHub builds for `"node"`.
+   */
+  preset?: DeploymentPreset
   name?: string
   /**
    * Public origin of the deployed application, such as `https://agents.example.com`.
@@ -967,9 +973,10 @@ function doctorPlugin(): Plugin {
 /** Builds the ViteHub plugin list for one resolved feature configuration. */
 function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (!options || typeof options !== "object") throw viteHubErrorDiagnostics.VITE_HUB_R0085({ message: "vitehub() requires a built-in deployment preset." })
-  options = withConnectionsDatabase(withDataDir({ ...options, console: resolveConsoleOptions(options.console) }))
+  const preset = options.preset ?? detectPreset() ?? "node"
+  options = withConnectionsDatabase(withDataDir({ ...options, preset, console: resolveConsoleOptions(options.console) }))
   const configuredConsole = resolveConsoleOptions(options.console)
-  const plan = resolveDeploymentPlan(options.preset)
+  const plan = resolveDeploymentPlan(preset)
   // Cloudflare has no durable local filesystem. Treat the shorthand database
   // option as the host-native D1 driver so implicit databases (for example,
   // the one enabled by Connections) are provisioned and bound like explicit

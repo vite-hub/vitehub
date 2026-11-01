@@ -16,6 +16,7 @@ import { createNitroServerKit } from "@vite-hub/internal/nitro-kit";
 import type { NitroServerKit } from "@vite-hub/internal/nitro-kit";
 
 import { discoverConnectionDefinitions } from "./discovery.ts";
+export { discoverConnectionDefinitions } from "./discovery.ts";
 import { resolveActivityRetention } from "./internal/activity-retention.ts";
 import { withConnectionsTypesLock } from "./internal/types-lock.ts";
 

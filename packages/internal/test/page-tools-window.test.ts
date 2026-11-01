@@ -2,9 +2,30 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createViteHubPageWindow } from "../src/runtime/page-tools-window.ts"
 
-afterEach(() => { document.body.replaceChildren(); localStorage.clear(); vi.restoreAllMocks() })
+afterEach(() => { document.body.replaceChildren(); localStorage.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 describe("page tool window", () => {
+  it("preserves layout dimensions across restores during the opening scale transition", () => {
+    const callbacks: (() => void)[] = []
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: () => void) { callbacks.push(callback) }
+      observe() {}
+      disconnect() {}
+    })
+    for (let load = 0; load < 2; load++) {
+      const window = createViteHubPageWindow({ id: "content", title: "Content", trigger: document.createElement("button"), signal: new AbortController().signal })
+      const panel = window.body.closest<HTMLElement>(".window")!
+      vi.spyOn(panel, "offsetWidth", "get").mockReturnValue(600)
+      vi.spyOn(panel, "offsetHeight", "get").mockReturnValue(640)
+      vi.spyOn(panel, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 576, 614.4))
+      if (load > 0) expect([panel.style.width, panel.style.height]).toEqual(["600px", "640px"])
+      window.show()
+      callbacks[load]!()
+      expect(JSON.parse(localStorage.getItem("vitehub-window:content")!)).toEqual({ width: 600, height: 640 })
+      window.destroy()
+    }
+  })
+
   it.each([false, true])("keeps the same editor and draft through expansion, minimization and reopening (Trusted Types: %s)", (trustedTypes) => {
     if (trustedTypes) vi.spyOn(ShadowRoot.prototype, "innerHTML", "set").mockImplementation(() => {
       throw new TypeError("This document requires 'TrustedHTML' assignment.")
@@ -35,5 +56,19 @@ describe("page tool window", () => {
     expect(document.activeElement).toBe(trigger)
     controller.abort()
     expect(document.querySelector("vitehub-window")).toBeNull()
+  })
+
+  it("moves focus to the window itself and takes the content's color scheme", () => {
+    const trigger = document.createElement("button")
+    document.body.append(trigger)
+    let scheme: "light" | "dark" | undefined = "dark"
+    const window = createViteHubPageWindow({ id: "content", title: "Content", trigger, signal: new AbortController().signal, colorScheme: () => scheme })
+    window.show()
+    const host = document.querySelector<HTMLElement>("vitehub-window")!
+    expect(host.shadowRoot!.activeElement).toBe(host.shadowRoot!.querySelector("[role=dialog]"))
+    expect(host.style.colorScheme).toBe("dark")
+    scheme = undefined
+    dispatchEvent(new StorageEvent("storage", { key: "vitehub-console:appearance" }))
+    expect(host.style.colorScheme).toBe("")
   })
 })

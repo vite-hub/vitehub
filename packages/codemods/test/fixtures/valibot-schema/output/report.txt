@@ -1,0 +1,33 @@
+nuxt-safe-runtime-config: migrated 10 Env declarations (2 public, 8 server) from $schema to vite-hub/nuxt.
+Dry run: no files were written.
+
+Files to change (5):
+  nuxt.config.ts
+  package.json
+  app/pages/index.vue
+  server/api/config.get.ts
+  server/api/stripe.get.ts
+
+Manual follow-ups (12):
+  1. nuxt.config.ts:18 apiSecret: Env does not keep minimum length 16. Check the value in code, or use envSchema() with a .env.example for length, range, integer, and URL checks.
+  2. nuxt.config.ts:19 runtimeConfig.databaseUrl read process.env.DATABASE_URL when Nuxt loaded the config. Env now reads NUXT_DATABASE_URL, then DATABASE_URL, when the server runs.
+  3. nuxt.config.ts:23 allowedOrigins: Env does not keep the Valibot transform action. Check the value in code, or use envSchema() with a .env.example for length, range, integer, and URL checks.
+  4. nuxt.config.ts:7 tags is a JSON array, which code-first Env declarations cannot parse. It stays in runtimeConfig without validation. Read it with useRuntimeConfig(), or declare it in a .env.example with @type=array(...) and use envSchema().
+  5. nuxt.config.ts:14 public.apiBase: Env does not keep the URL format. Check the value in code, or use envSchema() with a .env.example for length, range, integer, and URL checks.
+  6. nuxt.config.ts:11 ViteHub needs a deployment preset, so the codemod set vitehub.preset to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.
+  7. server/api/stripe.get.ts:5 useRuntimeConfig() reads maxRetries, which moved to Env and is no longer in runtimeConfig. Read it with useServerEnv() from #vitehub/env/server.
+  8. server/api/tags.get.ts:3 Reads tags, which stays in runtimeConfig. Read it with useRuntimeConfig() and rewrite the rest of this useSafeRuntimeConfig() call by hand.
+  9. server/api/config.get.ts:7 useServerEnv().apiSecret is secret, a SecretEnv<string>. Call .unseal() where this code needs the raw value.
+  10. nuxt.config.ts:19 useServerEnv().databaseUrl is secret, a SecretEnv<string>. No rewritten file reads it. Call .unseal() where code needs the raw value.
+  11. server/api/stripe.get.ts:2 useServerEnv().stripe.secretKey is secret, a SecretEnv<string>. Call .unseal() where this code needs the raw value.
+  12. eslint.config.mjs:1 Remove the nuxt-safe-runtime-config ESLint rule. Its prefer-safe-runtime-config rule has no Env equivalent.
+
+Notes:
+  - Each declaration reads its NUXT_* name with env.source(). Env reads the canonical name VITEHUB_<PATH> first, for example VITEHUB_API_SECRET before NUXT_API_SECRET.
+  - nuxt.config.ts no longer imports valibot. Remove it from package.json if nothing else uses it.
+  - Public Env values are fixed at build time. Nuxt applied NUXT_PUBLIC_* overrides when the server started; now set them when you build. Server Env values are read when the server runs.
+  - Shelve and the standalone Nitro module (nuxt-safe-runtime-config/nitro) are out of scope for this codemod.
+
+Next steps:
+  - Run `pnpm install` to install vite-hub and remove nuxt-safe-runtime-config.
+  - Run `npx nuxi prepare` to generate the Env types, then type-check the app.

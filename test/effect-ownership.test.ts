@@ -123,6 +123,9 @@ function lockOwnerForV3References(lockfile: string) {
   for (const line of lockfile.split("\n")) {
     const packageEntry = /^  (\S.*):$/.exec(line)
     if (packageEntry) owner = packageEntry[1]!
+    // The Nuxt codemod fixture's schema adapter advertises an optional Effect 3
+    // peer. Ignore that peer range, but still reject installed Effect 3 edges.
+    if (owner.startsWith("'@standard-community/standard-json@") && line.startsWith("      effect: ^3.")) continue
     if (/effect@3\.|effect:\s*[\^~]?3\./.test(line)) owners.push(owner)
   }
   return owners
@@ -209,5 +212,19 @@ describe("Effect ownership", () => {
       || owner.startsWith("uploadthing@")
       || owner.startsWith("files-sdk@")
     ))).toEqual([])
+  })
+
+  it("still detects an installed Effect 3 dependency of a schema adapter", () => {
+    expect(lockOwnerForV3References([
+      "  '@standard-community/standard-json@0.3.7':",
+      "    peerDependencies:",
+      "      effect: ^3.20.0",
+      "  '@standard-community/standard-json@0.3.7(effect@3.20.0)':",
+      "    dependencies:",
+      "      effect: 3.20.0",
+    ].join("\n"))).toEqual([
+      "'@standard-community/standard-json@0.3.7(effect@3.20.0)'",
+      "'@standard-community/standard-json@0.3.7(effect@3.20.0)'",
+    ])
   })
 })

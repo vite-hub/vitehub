@@ -242,7 +242,7 @@ export default defineAuth({
 
 The `role` field is an application example. Use the app's existing role, permission, or allowlist. A missing session returns `401`. After sign-in, the callback receives the request and signed-in `user`. Returning `false` returns `403` and offers **Switch account**. A custom `Response` controls the rejection or redirect.
 
-App Auth provides a built-in page at `/_vitehub/sign-in`. It lists the configured social providers, starts sign-in through the existing Auth endpoint, and returns to the requested Console page. Failed attempts show the provider buttons again. Expired sessions show a clickable **Sign in** action. The account menu uses the same app session and supports sign-out. No Console Auth Definition, client, or sign-in route is needed.
+App Auth provides a built-in page at `/_vitehub/sign-in`. It shows an email and password form when `emailAndPassword` is on, and lists the configured social providers. It signs in through the existing Auth endpoints and returns to the requested Console page. Failed attempts show the form and the provider buttons again. Expired sessions show a clickable **Sign in** action. The account menu uses the same app session and supports sign-out. No Console Auth Definition, client, or sign-in route is needed.
 
 ViteHub requires an authorization callback for every Console route, including `GET /api/_vitehub/console/status` and, when enabled, `GET /api/_vitehub/console/usage`. The two wildcard routes above cover them. Missing policy stops the build with `VITE_HUB_B0006`. Missing app Auth stops it with `VITE_HUB_B0005`. `console: true` never grants access to every signed-in user by itself.
 
@@ -258,7 +258,7 @@ import { defineConsoleAuthorize } from 'vite-hub/console/auth'
 export default defineConsoleAuthorize(({ user }) => user?.role === 'admin')
 ```
 
-For email, passkeys, or a custom sign-in UI, override the page:
+For two-factor authentication, passkeys, or a custom sign-in UI, override the page. The built-in page does not complete two-factor challenges:
 
 ```ts [vite.config.ts]
 console: { auth: 'app', signInPage: '/sign-in' }
@@ -419,7 +419,7 @@ All Console paths in this guide use the application base: an explicit ViteHub ap
 
 The ViteHub tools pill shows at the bottom of the app's pages when a page has the `?vitehub` query or the `vitehub-tools` cookie. Opening the Console sets that cookie for you. When the Console is on, the pill has a **Console** button that opens the Console in a floating window, next to page tools such as [Comments](/docs/comments/configure#turn-comment-mode-on-and-off).
 
-The link uses the same access check as the Console data routes, for any section. A person that the Console rejects does not get the link. An `authorize` result with at least one section, such as `{ sections: ['content'] }`, allows the link. With the development default, the Console and its link exist on the development server only. **Turn off ViteHub tools**, the **×** of the pill, clears the cookie and removes the pill.
+The link uses the same access check as the Console data routes, for any section. A person that the Console rejects does not get the link. An `authorize` result with at least one section, such as `{ sections: ['content'] }`, allows the link. With the development default, the Console and its link exist on the development server only. **Turn off ViteHub tools**, the **×** of the pill, clears the cookie and removes the pill. The ViteHub mark at the start of the pill collapses it to the mark alone, and the browser keeps it collapsed on the next pages until you select the mark again. Open windows and comment mode stay as they are.
 
 The check runs in `GET /_vitehub/page/session`. The Console serves that route and the page tools loader, so the link also works in an app without Comments. The link is only a shortcut. Every Console route checks access again.
 

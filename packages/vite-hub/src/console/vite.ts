@@ -85,7 +85,7 @@ export interface ConsoleOptions {
   /**
    * Path of the app's sign-in page, such as `/sign-in`, for `auth: "app"` or `auth: false`. A signed-out visit to a
    * Console page goes there with `redirect` set to that page, and the Console links to it when a session ends.
-   * App Auth defaults to the built-in page at `/_vitehub/sign-in`, using its configured social providers.
+   * App Auth defaults to the built-in page at `/_vitehub/sign-in`, using its email and password sign-in and its social providers.
    */
   signInPage?: string
 }

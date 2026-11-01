@@ -2692,6 +2692,16 @@ describe("ViteHub Nuxt integration", () => {
     expect(nitroOptions(nuxt)).toMatchObject({ preset: nitroPreset })
   })
 
+  it("detects the Nitro preset from the host's build variables when preset is omitted", async () => {
+    for (const name of ["VITEHUB_HOSTING", "NITRO_PRESET", "SERVER_PRESET", "WORKERS_CI", "NETLIFY", "NOW_BUILDER", "VERCEL_ENV", "DENO_DEPLOY", "DENO_DEPLOYMENT_ID"]) vi.stubEnv(name, "")
+    vi.stubEnv("VERCEL", "1")
+    const { nuxt } = createNuxt()
+
+    await viteHubNuxtModule({}, nuxt)
+
+    expect(nitroOptions(nuxt)).toMatchObject({ preset: "vercel" })
+  })
+
   it("rejects a conflicting Nitro preset during Nuxt module setup", async () => {
     const { nuxt } = createNuxt()
     Object.assign(nuxt.options, { nitro: { preset: "vercel" } })
@@ -2707,6 +2717,35 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
 
     expect(nitroOptions(nuxt)).toMatchObject({ wasm: { lazy: true } })
+  })
+
+  // Nitro 3 maps the Cloudflare preset to `cloudflare-dev` in development, and that preset defaults to the workerd runner.
+  it("keeps Nuxt development with the Cloudflare preset on Nitro's Node runner", async () => {
+    vi.stubEnv("NITRO_DEV_RUNNER", "")
+    const development = createNuxt(true)
+    await viteHubNuxtModule({ preset: "cloudflare", realtime: true }, development.nuxt)
+    expect(nitroOptions(development.nuxt)).toMatchObject({ devServer: { runner: "node-worker" }, preset: "cloudflare-durable" })
+
+    const chosen = createNuxt(true)
+    Object.assign(chosen.nuxt.options, { nitro: { devServer: { runner: "miniflare" } } })
+    await viteHubNuxtModule({ preset: "cloudflare" }, chosen.nuxt)
+    expect(nitroOptions(chosen.nuxt)).toMatchObject({ devServer: { runner: "miniflare" } })
+
+    const production = createNuxt()
+    await viteHubNuxtModule({ preset: "cloudflare" }, production.nuxt)
+    expect(nitroOptions(production.nuxt)).not.toHaveProperty("devServer")
+
+    for (const runner of ["node-worker", "miniflare"]) {
+      vi.stubEnv("NITRO_DEV_RUNNER", runner)
+      const fromEnv = createNuxt(true)
+      await viteHubNuxtModule({ preset: "cloudflare" }, fromEnv.nuxt)
+      expect(nitroOptions(fromEnv.nuxt)).toMatchObject({ devServer: { runner } })
+
+      const explicit = createNuxt(true)
+      Object.assign(explicit.nuxt.options, { nitro: { devServer: { runner: "custom-runner" } } })
+      await viteHubNuxtModule({ preset: "cloudflare" }, explicit.nuxt)
+      expect(nitroOptions(explicit.nuxt)).toMatchObject({ devServer: { runner: "custom-runner" } })
+    }
   })
 
   it.each([undefined, false, true])("defaults Cloudflare deployment output while preserving an explicit %s setting", async (deployConfig) => {

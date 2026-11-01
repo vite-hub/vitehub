@@ -74,7 +74,7 @@ describe("Nitro 2 served pages", () => {
       expect(sent.headers.get("cookie")).toBe(request.headers.get("cookie"))
       expect(response.body.status).toBe(200)
       expect(response.body.headers.get("cache-control")).toBe("private, no-store")
-      expect(await response.body.text()).toContain('src="/_vitehub/page/assets/loader.js?v=8"')
+      expect(await response.body.text()).toContain('src="/_vitehub/page/assets/loader.js?v=9"')
     }
   })
 })

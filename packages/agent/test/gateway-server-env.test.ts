@@ -40,10 +40,10 @@ it("authenticates with a provider-backed Vercel OIDC token", async () => {
 it("shares one provider snapshot and abort signal across Cloudflare gateway fields", async () => {
   const loadServerEnv = providerEnv("cloudflare", {
     accountId: "account",
-    apiKey: "provider-key",
     gatewayId: "gateway",
     slug: "jev",
     token: "gateway-token",
+    typesafeApiKey: "provider-key",
   })
   const { askJev } = await import("../src/internal/ask-runtime.ts")
   const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ answers: { accepted: { type: "noul", noul: 0.9 } } }))

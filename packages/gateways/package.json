@@ -1,14 +1,20 @@
 {
   "name": "@vite-hub/gateways",
   "version": "0.1.0",
-  "description": "One AI gateway model: route Codex and Claude Code model requests, and ask TypeSafe Jev typed questions, through TypeSafe, Vercel AI Gateway, Cloudflare AI Gateway, CLIProxyAPI, LiteLLM, Ollama, OpenRouter, OpenAI, or Anthropic.",
+  "description": "One AI gateway object for every consumer: route Codex, Claude Code, and AI SDK models, and ask TypeSafe Jev typed questions, through Vercel AI Gateway, Cloudflare AI Gateway, OpenRouter, LiteLLM, CLIProxyAPI, Ollama, OpenAI, Anthropic, or TypeSafe.",
   "keywords": [
     "ai",
     "ai-gateway",
+    "ai-sdk",
+    "anthropic",
     "cloudflare",
     "gateway",
     "jev",
+    "litellm",
     "llm",
+    "ollama",
+    "openai",
+    "openrouter",
     "typesafe",
     "typescript",
     "vercel",
@@ -36,6 +42,11 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./ai-sdk": {
+      "types": "./dist/ai-sdk.d.ts",
+      "import": "./dist/ai-sdk.js",
+      "default": "./dist/ai-sdk.js"
+    },
     "./internal": {
       "types": "./dist/internal.d.ts",
       "import": "./dist/internal.js",
@@ -53,18 +64,39 @@
     "nostics": "catalog:runtime"
   },
   "devDependencies": {
+    "@ai-sdk/anthropic": "catalog:ai",
+    "@ai-sdk/openai": "catalog:ai",
+    "@ai-sdk/openai-compatible": "catalog:ai",
+    "@ai-sdk/provider": "catalog:ai",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "advocaat": "catalog:ai",
+    "ai": "catalog:ai",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
+    "@ai-sdk/anthropic": "^4.0.0",
+    "@ai-sdk/openai": "^4.0.0",
+    "@ai-sdk/openai-compatible": "^3.0.0",
+    "@ai-sdk/provider": "^4.0.0",
     "advocaat": "catalog:ai"
   },
   "peerDependenciesMeta": {
+    "@ai-sdk/anthropic": {
+      "optional": true
+    },
+    "@ai-sdk/openai": {
+      "optional": true
+    },
+    "@ai-sdk/openai-compatible": {
+      "optional": true
+    },
+    "@ai-sdk/provider": {
+      "optional": true
+    },
     "advocaat": {
       "optional": true
     }

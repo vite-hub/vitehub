@@ -8,7 +8,7 @@ import type { ViteHubPageWindow, ViteHubPageWindowOptions } from "./page-tools-w
  * This file runs only in the browser. The package's Node program does not include it, because the DOM types conflict
  * with the Node stream types: `tsconfig.browser.json` checks it.
  */
-import { readViteHubPageSession, viteHubPageSessionUrl, viteHubPageToolsCookie, viteHubPageToolsQuery } from "./page-tools-shared.ts"
+import { readViteHubPageSession, viteHubPageSessionUrl, viteHubPageToolsCookie, viteHubPageToolsQuery, viteHubPillButtonStyles } from "./page-tools-shared.ts"
 
 import type { ViteHubPageSession, ViteHubPageToolInfo } from "./page-tools-shared.ts"
 
@@ -18,7 +18,8 @@ export interface ViteHubPageToolContext {
   /**
    * The tool's segment in the pill: a `<vitehub-tool slot="<tool id>">` element. Attach a shadow root to it and draw the
    * tool's controls there, so their CSS stays apart from the pill and from other tools. Inherited styles, such as the
-   * pill's text color, font, and `color-scheme`, reach it, so `light-dark()` follows the page. The pill hides a segment
+   * pill's text color, font, dark `color-scheme`, and `--vitehub-pill-*` colors, reach it. Use `viteHubPillButtonStyles`
+   * from `page-tools-shared` for its buttons, so every segment matches. The pill hides a segment
    * that is still empty when the default export returns. Set `bar.hidden` to hide or show it later.
    */
   bar: HTMLElement
@@ -48,28 +49,59 @@ function startOf(module: unknown): ViteHubPageToolModule["default"] | undefined 
   return start instanceof Function ? start as ViteHubPageToolModule["default"] : undefined
 }
 
-// The pill takes its colors from `color-scheme`, which the loader sets from the page, and the page's font. The tools in
-// its segments inherit both. Each visible segment ends with a short divider.
-const pillStyles = `:host{all:initial;position:fixed;left:50%;bottom:16px;translate:-50% 0;z-index:2147483001;font-size:13px;line-height:1.5;color:light-dark(#3f3f46,#e4e4e7);-webkit-font-smoothing:antialiased}
-div{max-width:calc(100vw - 24px);overflow-x:auto;--line:light-dark(#0000000f,#ffffff12);display:flex;align-items:center;gap:2px;padding:4px;border-radius:999px;background:light-dark(#fff,#1c1c1f);box-shadow:0 0 0 1px light-dark(#00000014,#ffffff1a),0 1px 2px #0000000a,0 8px 24px -6px light-dark(#00000029,#0009)}
-::slotted(*){flex-shrink:0;display:flex;align-items:center;padding-right:5px;margin-right:3px;background:linear-gradient(var(--line),var(--line)) right/1px 16px no-repeat}
+// Drop's review toolbar: dark glass with the system font on every page. The tools in its segments inherit the colors
+// and the font. Space groups the buttons: 8px between segments, 2px inside one.
+//
+// Collapsed, the glass is the ViteHub hexagon itself, at the center of the bar. The bar keeps its layout and only its
+// clip changes, so the morph never reflows and both ends open together: 12 clip points go from the bar's rectangle
+// (border-radius rounds it) to the hexagon with softened corners. The hexagon is 40x36 (the mark's 20:18) inside the
+// 38px bar, or 58x52 inside the 54px bar of touch screens. The mark moves to the center to be the hexagon's button.
+// Collapsing fades the tools out first (80ms) and closes the shape 40ms in, so it never cuts through a label.
+const pillBar = "polygon(0 0,0 0,100% 0,100% 0,100% 50%,100% 50%,100% 100%,100% 100%,0 100%,0 100%,0 50%,0 50%)"
+const pillHexagon = `polygon(calc(50% + var(--vitehub-pill-hw) * -0.235 - 1.01px) 2.72px,calc(50% + var(--vitehub-pill-hw) * -0.235 + 2px) 1px,calc(50% + var(--vitehub-pill-hw) * 0.235 - 2px) 1px,calc(50% + var(--vitehub-pill-hw) * 0.235 + 1.01px) 2.72px,calc(50% + var(--vitehub-pill-hw) * 0.5 - 1.01px) calc(var(--vitehub-pill-h) / 2 - 1.72px),calc(50% + var(--vitehub-pill-hw) * 0.5 - 1.01px) calc(var(--vitehub-pill-h) / 2 + 1.72px),calc(50% + var(--vitehub-pill-hw) * 0.235 + 1.01px) calc(var(--vitehub-pill-h) - 2.72px),calc(50% + var(--vitehub-pill-hw) * 0.235 - 2px) calc(var(--vitehub-pill-h) - 1px),calc(50% + var(--vitehub-pill-hw) * -0.235 + 2px) calc(var(--vitehub-pill-h) - 1px),calc(50% + var(--vitehub-pill-hw) * -0.235 - 1.01px) calc(var(--vitehub-pill-h) - 2.72px),calc(50% + var(--vitehub-pill-hw) * -0.5 + 1.01px) calc(var(--vitehub-pill-h) / 2 + 1.72px),calc(50% + var(--vitehub-pill-hw) * -0.5 + 1.01px) calc(var(--vitehub-pill-h) / 2 - 1.72px))`
+const pillStyles = `:host{all:initial;position:fixed;left:50%;bottom:max(16px,env(safe-area-inset-bottom));translate:-50% 0;z-index:2147483001;pointer-events:none;filter:drop-shadow(0 8px 24px rgb(0 0 0/25%));color-scheme:dark;font:500 12px/1 ui-sans-serif,system-ui,sans-serif;color:#d4d4d4;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;--vitehub-pill-text:#d4d4d4;--vitehub-pill-strong:#fafafa;--vitehub-pill-muted:#a3a3a3;--vitehub-pill-hover:rgb(255 255 255/8%);--vitehub-pill-on:#fafafa;--vitehub-pill-on-text:#0a0a0a;--vitehub-pill-line:rgb(255 255 255/12%);--vitehub-pill-surface:#111;--vitehub-pill-ease:cubic-bezier(.32,.72,0,1);--vitehub-pill-h:38px;--vitehub-pill-hw:calc((var(--vitehub-pill-h) - 2px) * 10 / 9);--vitehub-pill-morph:320ms;--vitehub-pill-fade:opacity 180ms ease-out 80ms,visibility 0s}
+:host([collapsed]){--vitehub-pill-morph:240ms;--vitehub-pill-wait:40ms;--vitehub-pill-fade:opacity 80ms ease-out,visibility 0s 80ms}
+div{position:relative;box-sizing:border-box;max-width:calc(100vw - 16px);overflow-x:auto;scrollbar-width:none;display:flex;align-items:center;gap:8px;padding:4px;border:1px solid var(--vitehub-pill-line);border-radius:12px;background:rgb(17 17 17/92%);pointer-events:auto;clip-path:${pillBar};transition:clip-path var(--vitehub-pill-morph) var(--vitehub-pill-ease) var(--vitehub-pill-wait,0s),background-color 150ms ease-out,scale 150ms ease-out}
+:host([collapsed]) div{clip-path:${pillHexagon}}
+@media(hover:hover){:host([collapsed]) div:hover{background:rgb(38 38 38/94%)}}
+:host([collapsed]) div:active{scale:.96}
+::slotted(*){flex-shrink:0;display:flex;align-items:center;gap:2px;transition:var(--vitehub-pill-fade)}
 ::slotted([hidden]){display:none!important}
-button{all:unset;flex-shrink:0;position:sticky;right:0;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;cursor:pointer;color:light-dark(#71717a,#a1a1aa)}
-button:hover{background:light-dark(#0000000d,#ffffff0f);color:light-dark(#18181b,#fafafa)}
-:focus-visible{outline:2px solid #2563eb;outline-offset:2px}`
+:host([collapsed]) ::slotted(*),:host([collapsed]) .exit{opacity:0;visibility:hidden}
+${viteHubPillButtonStyles}
+button{flex-shrink:0;padding:0}
+.exit{position:sticky;right:0;transition:background-color 150ms,color 150ms,scale 150ms,var(--vitehub-pill-fade)}
+.mark{position:sticky;left:0;z-index:1}
+.mark,.mark[aria-expanded=true]{background:none;color:var(--vitehub-pill-strong)}
+@media(hover:hover){.mark:hover{background:var(--vitehub-pill-hover)}}
+.mark svg{width:16px;height:16px;transition:opacity 180ms ease-out 80ms,scale 180ms ease-out 80ms}
+:host([collapsed]) .mark svg{opacity:0;scale:.6;transition-duration:80ms;transition-delay:0s;transition-timing-function:ease-out}
+:host([collapsed]) .mark:is(:hover,:active){background:none;scale:none}
+:host([collapsed]) .mark{position:absolute;left:50%;translate:-50% 0;transition:position 0s 80ms allow-discrete,left 0s 80ms,translate 0s 80ms}
+:host([collapsed]) .mark::before{content:"";position:absolute;top:-4px;bottom:-4px;left:50%;width:var(--vitehub-pill-hw);translate:-50% 0}
+@media(any-pointer:coarse){:host{--vitehub-pill-h:54px}}
+@media(prefers-reduced-motion:reduce){div,::slotted(*),.exit,.mark svg{transition:none}}`
 
-/** Whether the page shows its dark scheme: a `dark` class (Nuxt UI, Tailwind), `data-theme="dark"`, or `color-scheme`. */
-function pageIsDark(): boolean {
-  const root = document.documentElement
-  if (root.classList.contains("dark") || root.dataset.theme === "dark") return true
-  if (root.classList.contains("light") || root.dataset.theme === "light") return false
-  const scheme = getComputedStyle(root).colorScheme
-  return scheme === "dark" || (scheme.includes("dark") && matchMedia("(prefers-color-scheme: dark)").matches)
+/** The key in `localStorage` that keeps the pill collapsed to the ViteHub mark, on this page and the next ones. */
+const collapsedKey = "vitehub-tools-collapsed"
+
+function svgIcon(viewBox: string, path: string, attributes: Record<string, string>): SVGSVGElement {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg")
+  for (const [name, value] of Object.entries({ viewBox, "aria-hidden": "true", ...attributes })) svg.setAttribute(name, value)
+  const shape = document.createElementNS("http://www.w3.org/2000/svg", "path")
+  shape.setAttribute("d", path)
+  svg.append(shape)
+  return svg
+}
+
+function storedCollapsed(): boolean {
+  try { return localStorage.getItem(collapsedKey) === "1" }
+  catch { return false }
 }
 
 /**
- * Draws the pill: one `<vitehub-pill>` at the bottom center of the page, with a named slot per tool in session order and
- * the exit button. It follows the page's light or dark scheme until `signal` aborts.
+ * Draws the pill: one `<vitehub-pill>` at the bottom center of the page, with the ViteHub mark, a named slot per tool in
+ * session order, and the exit button. The mark collapses the pill to itself and the browser remembers it.
  */
 function mountPill(tools: ViteHubPageToolInfo[], exit: () => void, signal: AbortSignal): HTMLElement {
   const pill = document.createElement("vitehub-pill")
@@ -79,16 +111,30 @@ function mountPill(tools: ViteHubPageToolInfo[], exit: () => void, signal: Abort
   const toolbar = document.createElement("div")
   toolbar.setAttribute("role", "toolbar")
   toolbar.setAttribute("aria-label", "ViteHub tools")
+  // The ViteHub mark collapses the pill to itself. The tools keep running: their windows, pins, and modes stay.
+  const mark = document.createElement("button")
+  mark.className = "mark"
+  mark.append(svgIcon("0 0 20 18", "M19.734 8.156 15.576.844A1.66 1.66 0 0 0 14.135 0H5.819C5.226 0 4.677.32 4.38.844L.222 8.156a1.71 1.71 0 0 0 0 1.688l4.158 7.312c.297.523.846.844 1.439.844h8.316c.593 0 1.142-.32 1.438-.844l4.158-7.312c.3-.523.3-1.165.003-1.688Z", { fill: "currentColor" }))
+  const collapse = (collapsed: boolean) => {
+    if (collapsed) toolbar.scrollLeft = 0
+    pill.toggleAttribute("collapsed", collapsed)
+    mark.setAttribute("aria-expanded", String(!collapsed))
+    mark.setAttribute("aria-label", collapsed ? "Show ViteHub tools" : "Hide ViteHub tools")
+    mark.title = mark.getAttribute("aria-label")!
+  }
+  collapse(storedCollapsed())
+  mark.addEventListener("click", () => {
+    const collapsed = !pill.hasAttribute("collapsed")
+    collapse(collapsed)
+    try { collapsed ? localStorage.setItem(collapsedKey, "1") : localStorage.removeItem(collapsedKey) }
+    catch {}
+  })
   const button = document.createElement("button")
+  button.className = "exit"
   button.setAttribute("aria-label", "Turn off ViteHub tools")
   button.title = "Turn off ViteHub tools"
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg")
-  for (const [name, value] of Object.entries({ width: "15", height: "15", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "2", "stroke-linecap": "round", "aria-hidden": "true" })) svg.setAttribute(name, value)
-  const path = document.createElementNS("http://www.w3.org/2000/svg", "path")
-  path.setAttribute("d", "M18 6 6 18M6 6l12 12")
-  svg.append(path)
-  button.append(svg)
-  toolbar.append(button)
+  button.append(svgIcon("0 0 24 24", "M18 6 6 18M6 6l12 12", { width: "15", height: "15", fill: "none", stroke: "currentColor", "stroke-width": "2", "stroke-linecap": "round" }))
+  toolbar.append(mark, button)
   shadow.append(style, toolbar)
   for (const tool of tools) {
     const slot = document.createElement("slot")
@@ -96,19 +142,7 @@ function mountPill(tools: ViteHubPageToolInfo[], exit: () => void, signal: Abort
     toolbar.insertBefore(slot, button)
   }
   button.addEventListener("click", exit)
-  pill.style.fontFamily = getComputedStyle(document.body).fontFamily
-
-  const theme = () => {
-    pill.style.colorScheme = pageIsDark() ? "dark" : "light"
-  }
-  theme()
-  const observer = new MutationObserver(theme)
-  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style", "data-theme"] })
-  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", theme, { signal })
-  signal.addEventListener("abort", () => {
-    observer.disconnect()
-    pill.remove()
-  }, { once: true })
+  signal.addEventListener("abort", () => pill.remove(), { once: true })
   document.body.append(pill)
   return pill
 }
@@ -183,7 +217,7 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
     const mountLaunch = () => {
       const shadow = bar.attachShadow({ mode: "open" })
       const style = document.createElement("style")
-      style.textContent = "button{all:unset;display:block;box-sizing:border-box;font:inherit;color:inherit;border-radius:999px;padding:0 12px;min-height:36px;cursor:pointer}button:focus-visible{outline:2px solid #2563eb;outline-offset:-2px}"
+      style.textContent = viteHubPillButtonStyles
       shadow.append(style, launch)
     }
     const run = (path?: string, show = true): Promise<boolean> => {
@@ -211,7 +245,12 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
             }, tool, bar, signal: attempt.signal,
             open: show && (tool.lazy === true || tool.id === open || restored(tool.id)), exit,
             createWindow: options => {
-              const window = createViteHubPageWindow({ ...options, signal: attempt.signal, onHide: () => { remember(tool.id, false); options.onHide?.() } })
+              const window = createViteHubPageWindow({ ...options, signal: attempt.signal, onHide: () => {
+                remember(tool.id, false)
+                // Collapsed segments hide the window's trigger; the mark remains visible and operable.
+                if (pill.hasAttribute("collapsed")) pill.shadowRoot!.querySelector<HTMLButtonElement>("button.mark")!.focus({ preventScroll: true })
+                options.onHide?.()
+              } })
               const retained = { ...window, show() {
                 if (attempt.signal.aborted) return
                 for (const [id, other] of windows) if (id !== tool.id) other.hide()

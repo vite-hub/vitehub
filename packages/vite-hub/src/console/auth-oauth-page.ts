@@ -1,43 +1,56 @@
 import { consoleDocumentMetadata } from "./document-metadata.ts"
 
+/** How a person can sign in on the page: the social providers of the Auth, and its email and password sign-in. */
+export interface ConsoleSignInMethods {
+  providers: readonly { id: string, label: string }[]
+  password: boolean
+}
+
 /**
  * The page where an MCP client's sign-in lands. Better Auth's OAuth provider sends both its login and its consent step
- * here with a signed query. Signed out, the person signs in with the Console provider and the provider resumes the
- * authorization. Signed in, the person allows or denies the agent, and the page goes back to it.
+ * here with a signed query. Signed out, the person signs in and the provider resumes the authorization. Signed in, the
+ * person allows or denies the agent, and the page goes back to it.
  */
-export function consoleAuthOAuthPage(provider: string, authBase: string, consolePath: string): Response {
-  const label = provider.toLowerCase() === "github" ? "GitHub" : provider
+export function consoleAuthOAuthPage(methods: ConsoleSignInMethods, authBase: string, consolePath: string): Response {
   const nonce = crypto.randomUUID()
-  const literal = (value: string) => JSON.stringify(value).replaceAll("<", "\\u003c")
+  const literal = (value: unknown) => JSON.stringify(value).replaceAll("<", "\\u003c")
   const script = `
     const authBase = ${literal(authBase)};
-    const provider = ${literal(provider)};
+    const providers = ${literal(methods.providers)};
     const consolePath = ${literal(consolePath)};
     const params = new URLSearchParams(location.search);
     const heading = document.querySelector("h1");
     const text = document.querySelector("#text");
     const buttons = document.querySelector("#buttons");
+    const form = document.querySelector("form");
     const alertBox = document.querySelector("[role=alert]");
     // Only the parameters that the provider signed go back to it.
     const names = new Set(params.getAll("ba_param"));
     const signed = new URLSearchParams();
     for (const [key, value] of params) if (key === "sig" || key === "ba_param" || names.has(key)) signed.append(key, value);
     const oauthQuery = signed.toString();
+    async function run(action) {
+      const controls = document.querySelectorAll("button");
+      for (const control of controls) control.disabled = true;
+      alertBox.hidden = true;
+      try { await action(); } catch (error) {
+        alertBox.textContent = error instanceof Error ? error.message : "Something went wrong. Start again from your agent.";
+        alertBox.hidden = false;
+        for (const control of controls) control.disabled = false;
+      }
+    }
     function button(label, onClick, secondary) {
       const element = document.createElement("button");
       element.type = "button";
       element.textContent = label;
       if (secondary) element.className = "secondary";
-      element.addEventListener("click", async () => {
-        for (const other of buttons.querySelectorAll("button")) other.disabled = true;
-        alertBox.hidden = true;
-        try { await onClick(); } catch (error) {
-          alertBox.textContent = error instanceof Error ? error.message : "Something went wrong. Start again from your agent.";
-          alertBox.hidden = false;
-          for (const other of buttons.querySelectorAll("button")) other.disabled = false;
-        }
-      });
+      element.addEventListener("click", () => run(onClick));
       buttons.append(element);
+    }
+    function leave(data, message) {
+      const target = data.url || data.redirect_uri;
+      if (!target) throw new Error(message);
+      location.assign(target);
     }
     async function post(path, body) {
       const response = await fetch(authBase + path, {
@@ -60,11 +73,17 @@ export function consoleAuthOAuthPage(provider: string, authBase: string, console
       if (!session || !session.user) {
         heading.textContent = "Connect an agent";
         text.textContent = "Sign in to choose whether it can use this app's operations.";
-        button("Sign in with " + ${literal(label)}, async () => {
-          const data = await post("/sign-in/social", { callbackURL: consolePath, provider });
-          if (!data.url) throw new Error("Sign-in did not start. Try again.");
-          location.assign(data.url);
-        });
+        if (form) {
+          form.hidden = false;
+          form.addEventListener("submit", (event) => {
+            event.preventDefault();
+            const fields = new FormData(form);
+            run(async () => leave(await post("/sign-in/email", { email: fields.get("email"), password: fields.get("password"), rememberMe: true }), "Sign-in did not finish. Try again."));
+          });
+        }
+        for (const provider of providers) {
+          button("Sign in with " + provider.label, async () => leave(await post("/sign-in/social", { callbackURL: consolePath, provider: provider.id }), "Sign-in did not start. Try again."), Boolean(form));
+        }
         return;
       }
       const clientId = params.get("client_id") || "";
@@ -73,12 +92,7 @@ export function consoleAuthOAuthPage(provider: string, authBase: string, console
       const who = session.user.email || session.user.name || "you";
       heading.textContent = "Allow " + name + " to use the Console?";
       text.textContent = "It acts as " + who + ": it can run the operations of this app in the Console sections you may use, read or change data, and delete or publish. Anyone can register an agent under any name, so allow it only if you started this connection.";
-      const answer = accept => async () => {
-        const data = await post("/oauth2/consent", { accept });
-        const target = data.url || data.redirect_uri;
-        if (!target) throw new Error("The agent did not get an answer. Start again from your agent.");
-        location.assign(target);
-      };
+      const answer = accept => async () => leave(await post("/oauth2/consent", { accept }), "The agent did not get an answer. Start again from your agent.");
       button("Deny", answer(false), true);
       button("Allow", answer(true));
     }
@@ -97,7 +111,12 @@ export function consoleAuthOAuthPage(provider: string, authBase: string, console
       main { width: min(24rem, calc(100% - 3rem)); }
       h1 { margin: 0 0 .5rem; font-size: 1.5rem; font-weight: 600; }
       p { margin: 0 0 1.5rem; color: light-dark(#525252, #a3a3a3); line-height: 1.5; }
-      #buttons { display: flex; gap: .5rem; }
+      form { display: grid; gap: .75rem; margin: 0 0 1rem; }
+      form[hidden] { display: none; }
+      label { display: grid; gap: .25rem; font-size: .875rem; font-weight: 500; }
+      input { min-height: 2.5rem; box-sizing: border-box; padding: 0 .75rem; border: 1px solid light-dark(#d4d4d4, #404040); border-radius: .5rem; background: transparent; color: inherit; font: inherit; font-size: 1rem; }
+      input:focus-visible { outline: 2px solid #3b82f6; outline-offset: 1px; }
+      #buttons { display: flex; flex-wrap: wrap; gap: .5rem; }
       button { min-height: 2.5rem; padding: 0 1rem; border: 0; border-radius: .5rem; background: light-dark(#171717, #f5f5f5); color: light-dark(#fff, #171717); font: inherit; font-weight: 500; cursor: pointer; }
       button.secondary { background: transparent; color: inherit; outline: 1px solid light-dark(#d4d4d4, #404040); }
       button:disabled { opacity: .6; cursor: wait; }
@@ -108,7 +127,14 @@ export function consoleAuthOAuthPage(provider: string, authBase: string, console
   <body>
     <main>
       <h1>Connect an agent</h1>
-      <p id="text">One moment.</p>
+      <p id="text">One moment.</p>${methods.password
+        ? `
+      <form hidden>
+        <label>Email <input name="email" type="email" autocomplete="email" required></label>
+        <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+        <button type="submit">Sign in</button>
+      </form>`
+        : ""}
       <div id="buttons"></div>
       <p role="alert" hidden></p>
     </main>
