@@ -12,7 +12,8 @@ import { consoleAuthPath, consoleEventPath } from "./auth-path.ts"
 import { isConsoleDevelopmentBuild } from "./runtime/server/development.ts"
 import { consoleDiagnosticBody, isConsoleImpersonationRejection } from "./runtime/diagnostics.ts"
 
-export { consoleMcpNativeClients } from "./auth-oauth.ts"
+export { consoleMcpNativeClients, consoleMcpOAuth } from "./auth-oauth.ts"
+export type { ConsoleMcpOAuthOptions } from "./auth-oauth.ts"
 
 export const consoleAuthBasePath = "/api/_vitehub/console/auth"
 
