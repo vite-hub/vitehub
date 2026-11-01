@@ -247,6 +247,7 @@
     "comark": "catalog:markdown",
     "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
+    "katex": "^0.17.0",
     "nostics": "catalog:runtime",
     "proper-lockfile": "catalog:",
     "valibot": "catalog:runtime",

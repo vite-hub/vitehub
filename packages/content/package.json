@@ -101,6 +101,7 @@
     "comark-content": "catalog:markdown-ui",
     "diff": "catalog:runtime",
     "h3": "catalog:unjs",
+    "katex": "^0.18.7",
     "nostics": "catalog:runtime",
     "vega-canvas": "^2.0.0",
     "vega-loader": "^5.1.3",
