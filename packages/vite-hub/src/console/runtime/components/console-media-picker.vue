@@ -91,13 +91,33 @@ async function uploadNow(next: ConsoleMediaRequest): Promise<ConsoleMediaItem[]>
   return results.map(result => item(result.file));
 }
 
+/** The store that the library serves. Asks the client before the dialog first opens, so a store-bound field works on its first click. */
+async function servedStore(): Promise<string | undefined> {
+  if (store.value) return store.value;
+  try {
+    const info = await props.client.info();
+    access.value = info.access;
+    store.value = info.store;
+  }
+  catch (error) {
+    toast.error(`Couldn't open Media. ${consoleErrorMessage(error, "Try again.")}`);
+  }
+  return store.value;
+}
+
 /** Asks for media. Resolves to an empty list when the person cancels. */
-function pick(next: ConsoleMediaRequest): Promise<ConsoleMediaItem[]> {
+async function pick(next: ConsoleMediaRequest): Promise<ConsoleMediaItem[]> {
+  // A store-bound field picks and uploads only in the served store. When the library cannot say which store it serves,
+  // the field fails closed, so it can never keep a pathname from the wrong store.
+  if (next.store) {
+    const served = await servedStore();
+    if (!served) return [];
+    if (next.store !== served) {
+      toast.error("This field uses a different Media store.");
+      return [];
+    }
+  }
   if (next.files.length) return uploadNow(next);
-  // A store-constrained field must wait for the browser's first listing to establish
-  // the served store. Failing closed also covers a listing that could not establish
-  // an identity, so it can never pick a pathname from the wrong store.
-  if (next.store && next.store !== store.value) return Promise.resolve([]);
   settle?.([]);
   request.value = next;
   folder.value = rememberedConsoleMediaFolder(props.section);
