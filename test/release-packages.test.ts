@@ -797,6 +797,35 @@ describe("release publication", () => {
     expect(registry.getSleeps()).toBe(0)
   })
 
+  it("shares one verification deadline between a conflict and the final set", async () => {
+    const root = await temporaryDirectory("vitehub-release-release-deadline-")
+    const artifact = await writeArtifact(root, [
+      { name: "@vite-hub/runtime" },
+      { dependencies: ["@vite-hub/runtime"], name: "@vite-hub/app" },
+    ])
+    const [runtimePackage] = artifact.manifest.packages
+    const registry = fakeRegistryRuntime(artifact.manifest.packages)
+    registry.setFailPublish(runtimePackage.name, "npm error code EPUBLISHCONFLICT", verifiedRegistryEntry(runtimePackage))
+    registry.setUnattested("@vite-hub/app")
+    let now = 1_000_000
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now)
+    const runtime = {
+      ...registry.runtime,
+      fetch: async (input: string) => {
+        now += 400
+        return registry.runtime.fetch(input)
+      },
+    }
+    try {
+      await expect(publishReleaseArtifacts({ attempts: 20, verifyTimeoutMs: 1_500, manifestPath: artifact.manifestPath, runtime, sourceRef, sourceSha, tag: "latest" }))
+        .rejects.toThrow("Registry request failed for @vite-hub/app")
+    }
+    finally {
+      clock.mockRestore()
+    }
+    expect(registry.getSleeps()).toBe(0)
+  })
+
   it("verifies an already published version before its dependents and stops on other publish conflicts", async () => {
     const root = await temporaryDirectory("vitehub-release-conflict-")
     const artifact = await writeArtifact(root, [

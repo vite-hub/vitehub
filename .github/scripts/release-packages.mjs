@@ -627,10 +627,11 @@ export async function inspectPublishedPackage(pkg, options) {
   return { state: "verified" }
 }
 
-// One deadline covers the whole set, so slow propagation can't add up per package or per request.
-async function waitUntilVerified(packages, options) {
+// One deadline covers every verification in the release, so slow propagation can't add up per package, conflict or request.
+async function waitUntilVerified(packages, options, verification) {
   const attempts = options.attempts || 20
-  const deadline = Date.now() + (options.verifyTimeoutMs ?? 900_000)
+  verification.deadline ??= Date.now() + (options.verifyTimeoutMs ?? 900_000)
+  const { deadline } = verification
   let pending = packages
   for (let attempt = 1; pending.length > 0; attempt++) {
     const failures = []
@@ -692,6 +693,7 @@ export async function publishReleaseArtifacts(options) {
   }
 
   const published = []
+  const verification = {}
   for (const [index, pkg] of verified.manifest.packages.entries()) {
     const publishArgs = ["publish", `./${pkg.tarball}`, "--access", "public", "--tag", options.tag, "--ignore-scripts", "--no-git-checks", `--registry=${npmRegistry}`]
     if (options.dryRun) {
@@ -713,14 +715,14 @@ export async function publishReleaseArtifacts(options) {
       if (!/EPUBLISHCONFLICT|cannot publish over the previously published/.test(String(error?.message))) throw error
       // Dependents must not be published against a version this release did not produce.
       options.onProgress?.(`${pkg.name}@${pkg.version} is already published; verifying it before its dependents.`)
-      await waitUntilVerified([pkg], { ...options, runtime })
+      await waitUntilVerified([pkg], { ...options, runtime }, verification)
       continue
     }
     published.push(pkg)
   }
 
   // npm can take minutes to serve new versions, so check the whole set once instead of after each package.
-  await waitUntilVerified(published, { ...options, runtime })
+  await waitUntilVerified(published, { ...options, runtime }, verification)
 
   if (!options.dryRun) await auditPublishedSignatures(verified.manifest.packages, runtime, options)
   return verified.manifest.packages.length
