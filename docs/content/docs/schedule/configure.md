@@ -26,6 +26,7 @@ export default defineConfig({
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
+| `cron` | `Record<string, string>` | Each Schedule's own cron | Cron per Schedule name for this build's host. See [Run a Schedule on another cron on one host](#run-a-schedule-on-another-cron-on-one-host). |
 | `providerOutput` | `ScheduleVitePluginOptions['providerOutput']` | `auto` | Controls generated provider cron output. Values: `auto`, `standalone`, `nitro`, `false`. |
 | `projectRoot` | `string` | ViteHub project root | Resolves discovered schedule files and generated registry output from a custom project root. |
 | `runtime` | `ScheduleProcessRuntimeOptions` | No runtime driver | Explicitly installs the generated Nitro Process Runtime. Accepts `driver: 'process'`, plus optional `prefix` (default `vitehub:schedule`), `intervalMs` (default `60_000`), and `concurrency` (default `1`). |
@@ -37,6 +38,27 @@ The Process Runtime imports the discovered registry and runs each Static Schedul
 ::warning
 The Process Runtime requires exactly one long-lived process or replica. The KV run store records occurrences but does not provide distributed leader election or locking. Do not use this driver on request-scoped or serverless hosts that may stop between requests. It scans inside the Node.js process and does not create cron, systemd, or another operating-system schedule.
 ::
+
+## Run a Schedule on another cron on one host
+
+Some hosts limit how often a cron job runs. Vercel Hobby runs cron jobs at most once a day. Set `cron` in that host's build config to give a Schedule another cron there, and keep the Schedule's own cron on the other hosts:
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'vercel',
+      // server/schedules/cleanup.ts declares cron: '0 * * * *'
+      schedule: { cron: { cleanup: '0 0 * * *' } },
+    }),
+  ],
+})
+```
+
+The keys are Schedule names. The cron replaces the declared one in the generated host output: Vercel and Netlify cron jobs, Cloudflare cron triggers, and `Deno.cron`. `vitehub inspect definitions` shows it as the Schedule's `Cron`, with the `Declared cron` beside it. A name that matches no Schedule fails the build with `SCHEDULE_B0008`, and so does `cron` together with the Process Runtime, which always runs the declared cron.
 
 ## Define a static schedule
 

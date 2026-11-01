@@ -19,7 +19,7 @@ import { renderScheduleRegistryModule } from "./internal/registry-module.ts"
 
 import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import type { ScheduleWorkflowRuntime } from "./internal/provider-output.ts"
+import type { ScheduleCronOverrides, ScheduleWorkflowRuntime } from "./internal/provider-output.ts"
 import type { ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
@@ -74,6 +74,11 @@ export interface ScheduleProcessRuntimeOptions {
 }
 
 export interface ScheduleVitePluginOptions {
+  /**
+   * Cron per Schedule name for this build's host, in place of the cron that the Schedule declares. Set it in the
+   * host's build config, such as `{ cleanup: "0 0 * * *" }` for Vercel Hobby, which runs cron jobs at most once a day.
+   */
+  cron?: Readonly<Record<string, string>>
   providerOutput?: "auto" | "standalone" | "nitro" | false
   projectRoot?: string
   runtime?: ScheduleProcessRuntimeOptions
@@ -175,6 +180,32 @@ function resolveProcessRuntimeOptions(value: unknown): ScheduleProcessRuntimeOpt
   }
 }
 
+function resolveCronOverrides(
+  value: unknown,
+  definitions: DiscoveredScheduleDefinition[],
+  runtime: ScheduleProcessRuntimeOptions | undefined,
+): ScheduleCronOverrides | undefined {
+  if (value === undefined) return
+  if (!isRecord(value) || Array.isArray(value)) {
+    throw scheduleErrorDiagnostics.SCHEDULE_B0008({ message: "Schedule `cron` must map Schedule names to cron strings, such as `{ cleanup: \"0 0 * * *\" }`." })
+  }
+  const names = new Set(definitions.map(definition => definition.name))
+  const overrides: Record<string, string> = {}
+  for (const [name, cron] of Object.entries(value)) {
+    if (typeof cron !== "string" || !cron.trim()) {
+      throw scheduleErrorDiagnostics.SCHEDULE_B0008({ message: `Schedule \`cron\` gives "${name}" a value that is not a cron string.` })
+    }
+    if (!names.has(name)) {
+      throw scheduleErrorDiagnostics.SCHEDULE_B0008({ message: `Schedule \`cron\` names "${name}", but no Schedule has that name. Schedules: ${[...names].map(entry => `"${entry}"`).join(", ") || "none"}.` })
+    }
+    overrides[name] = cron
+  }
+  if (runtime && Object.keys(overrides).length) {
+    throw scheduleErrorDiagnostics.SCHEDULE_B0008({ message: "Schedule `cron` sets the cron of host cron output, but the Process Runtime runs each Schedule on the cron it declares. Change the cron in the Schedule instead." })
+  }
+  return overrides
+}
+
 function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
   return encodeProviderOutputAliases(config.resolve.alias)
 }
@@ -268,6 +299,7 @@ function mergeNitroVercelCrons(
 }
 
 interface RenderNitroSchedulePluginOptions {
+  cronOverrides: ScheduleCronOverrides
   importBase?: string
   pluginFile: string
   processRuntime?: ScheduleProcessRuntimeOptions
@@ -318,7 +350,9 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
     ...(providerWake
       ? [
           "  nitroApp.hooks.hook('cloudflare:scheduled', async (event) => {",
-          "    await executeCloudflareStaticSchedules(event, { registry: scheduleRegistry })",
+          Object.keys(options.cronOverrides).length
+            ? `    await executeCloudflareStaticSchedules(event, { cronOverrides: ${JSON.stringify(options.cronOverrides)}, registry: scheduleRegistry })`
+            : "    await executeCloudflareStaticSchedules(event, { registry: scheduleRegistry })",
           "  })",
         ]
       : []),
@@ -403,6 +437,7 @@ function renderScheduleRegistryTypes(importBase = schedulePackageName): string {
 }
 
 interface WriteNitroSchedulePluginOptions {
+  cronOverrides: ScheduleCronOverrides
   crons: string[]
   importBase?: string
   processRuntime?: ScheduleProcessRuntimeOptions
@@ -419,6 +454,7 @@ async function writeNitroSchedulePlugin(root: string, options: WriteNitroSchedul
   await mkdir(dirname(pluginFile), { recursive: true })
   const writes: Array<Promise<void>> = [
     writeFile(pluginFile, renderNitroSchedulePlugin({
+      cronOverrides: options.cronOverrides,
       importBase: options.importBase,
       pluginFile,
       processRuntime: options.processRuntime,
@@ -485,6 +521,7 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
     serverDirs: options.serverDirs,
     serverRootDir: roots.projectRoot,
   })
+  const cronOverrides = resolveCronOverrides(options.cron, definitions, processRuntime)
   const installNitroPlugin = shouldInstallNitroSchedulePlugin(definitions, options)
   const nitroPreset = isRecord(options.nitro) && typeof options.nitro.preset === "string"
     ? options.nitro.preset
@@ -500,16 +537,17 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
 
   let nitro = options.nitro
   if (vercelDefinitions.length) {
-    nitro = mergeNitroVercelCrons(nitro, vercelDefinitions, await readDefinitionCrons(vercelDefinitions))
+    nitro = mergeNitroVercelCrons(nitro, vercelDefinitions, await readDefinitionCrons(vercelDefinitions, cronOverrides))
   }
   if (!installNitroPlugin) return nitro as NitroConfig
 
   const nitroDefinitions = processRuntime && options.providerOutput !== "nitro" ? [] : selectNitroScheduleDefinitions(definitions, options)
   const crons = options.command === "build"
-    ? [...new Set((await readDefinitionCrons(nitroDefinitions)).values())]
+    ? [...new Set((await readDefinitionCrons(nitroDefinitions, cronOverrides)).values())]
     : []
   const nitroDefinitionNames = new Set(nitroDefinitions.map(definition => definition.name))
   const plugin = await writeNitroSchedulePlugin(roots.projectRoot, {
+    cronOverrides: Object.fromEntries(Object.entries(cronOverrides ?? {}).filter(([name]) => nitroDefinitionNames.has(name))),
     crons,
     importBase: (options as InternalScheduleVitePluginOptions).importBase,
     processRuntime,
@@ -668,8 +706,10 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
       const rootDir = projectRoot ?? config.root
       let artifactDir: string | undefined
       try {
-        const definitions = emitStandaloneProviderOutput ? discoverRegistrySchedules() : []
-        const crons = await readDefinitionCrons(definitions)
+        const discovered = discoverRegistrySchedules()
+        const definitions = emitStandaloneProviderOutput ? discovered : []
+        const cron = resolveCronOverrides(options.cron, discovered, resolveProcessRuntimeOptions(options.runtime))
+        const crons = await readDefinitionCrons(definitions, cron)
         const prepareWorkflow = definitions.length
           ? ((config.plugins ?? []) as WorkflowVitePlugin[])
             .find(candidate => candidate.vitehub?.workflow?.prepareScheduleRuntime)
@@ -715,6 +755,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
               bundleExternal,
               clientOutDir: resolve(config.root, config.build.outDir),
               definitions: retainedDefinitions,
+              cron,
               crons,
               rootDir,
               retainedSourcesDir: resolve(contributionArtifactDir, "sources"),
@@ -760,7 +801,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         label: "Schedules",
         list: () => {
           const roots = resolveSchedulePluginRoots(viteRoot ?? process.cwd(), options)
-          return inspectScheduleDefinitions({ plugins: resolved?.plugins, projectRoot: roots.projectRoot, rootDir: roots.viteRoot, serverDirs, serverRootDir: roots.projectRoot })
+          return inspectScheduleDefinitions({ cron: options.cron, plugins: resolved?.plugins, projectRoot: roots.projectRoot, rootDir: roots.viteRoot, serverDirs, serverRootDir: roots.projectRoot })
         },
       }],
     }),
