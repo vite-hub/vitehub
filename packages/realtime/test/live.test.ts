@@ -429,6 +429,36 @@ describe("re-seeding", () => {
     expect(client.closed).toBeUndefined()
     expect(client.doc.getMap("fields").toJSON()).toEqual({ hero: { pathname: "art/weather.webp" } })
     expect(memory.adapter.save).not.toHaveBeenCalled()
+
+    // The refreshed fields are the clean baseline: changing a field and changing it back saves nothing.
+    await pace()
+    client.doc.getMap("fields").set("hero", "edited")
+    await pace()
+    client.doc.getMap("fields").set("hero", { pathname: "art/weather.webp" })
+    await vi.advanceTimersByTimeAsync(2_000)
+    await settle()
+    expect(memory.adapter.save).not.toHaveBeenCalled()
+
+    // A field that starts to load as null is added too.
+    memory.store.set("page", { ...memory.store.get("page")!, fields: { hero: { pathname: "art/weather.webp" }, icon: null } })
+    await server.post("page", "refresh")
+    await settle()
+    expect(client.doc.getMap("fields").toJSON()).toEqual({ hero: { pathname: "art/weather.webp" }, icon: null })
+    client.close()
+  })
+
+  it("keeps a clean room unchanged when its refreshed fields exceed the room quota", async () => {
+    const memory = createMemoryAdapter({ page: { body: "Start", fields: { hero: "weather" } } })
+    const server = createTestServer(liveDefinition(memory.adapter))
+    const client = await server.connect("page")
+    await settle()
+
+    memory.store.set("page", { ...memory.store.get("page")!, fields: { hero: "x".repeat(9 * 1024 * 1024) } })
+    const refreshed = await server.post("page", "refresh")
+    expect(refreshed.ok).toBe(false)
+    await settle()
+    expect(client.doc.getMap("fields").toJSON()).toEqual({ hero: "weather" })
+    expect(memory.adapter.save).not.toHaveBeenCalled()
     client.close()
   })
 })
