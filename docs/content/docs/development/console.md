@@ -369,7 +369,7 @@ export default defineConsoleAuthorize(async ({ request }) => {
 
 ### Limit a user to some sections
 
-`authorize` works with every `auth` choice. Every Console data route calls it with the Web `Request` before it reads data. This includes the RPC route, invocation actions, Env management, Channel replay, Schedule runs, and Connections management. The page shell, the client script, and static assets do not call it, because they contain no project data. With `signInPage`, a visit to a Console page also runs the access check, to send a user without a session to sign in.
+`authorize` works with every `auth` choice. Every Console data route calls it with the Web `Request` before it reads data. This includes the RPC route, invocation actions, Env management, Channel replay, Schedule runs, and Connections management. A visit to a Console page runs the same check, so the Console opens only for people that its data routes accept. A visit without a session gets the sign-in page, or the Console's signed-out state when there is none. A rejected visit gets an **Access denied** page with status `403` and no Console. A `Response` from `authorize` is sent as it is, so return `new Response(null, { status: 404 })` to hide the Console from people who may not use it. The client script and static assets do not call `authorize`, because they contain no project data.
 
 `authorize` returns one of these values:
 
@@ -690,7 +690,7 @@ The Console does not calculate missing provider data. Token counts, model metada
 | Console data routes return `500` with "console.authorize must return" | Return `true`, `false`, a `Response`, or `{ sections: string[] }` from `authorize`. Create the `Response` with the global `Response`. An object shaped like a Response, or a Response from another Fetch implementation, is an invalid result. |
 | Agent Console startup fails on a hosted preset | Set `agent.invocations: 'database'`, or attach one durable Agent Invocations journal to every discovered Agent Definition. The local SQLite fallback requires a writable, persistent filesystem. |
 | The page returns `401` | Sign in through the Auth provider configured by the host. |
-| The page returns `403` | Check the `authorize` callback and the current user's role or permission. |
+| The page returns `403` with **Access denied** | `authorize` or the `auth` check rejected this account. Check the `authorize` callback and the current user's role or permission. |
 | A section is missing or returns `403` | `console.authorize` returned `{ sections }` without that section id. |
 
 ### Console error codes
