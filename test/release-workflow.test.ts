@@ -169,6 +169,7 @@ describe("release workflow artifact handoff", () => {
     expect(githubRelease).toContain("releases/generate-notes")
     expect(githubRelease).toContain("(( ${#notes} > 120000 ))")
     expect(githubRelease).toContain("--notes-file -")
+    expect(githubRelease).not.toContain("releases/latest")
   })
 
   it("validates and dry-runs the exact packed files before upload", () => {
