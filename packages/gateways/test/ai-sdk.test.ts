@@ -126,14 +126,63 @@ describe("languageModel()", () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
-  it("routes Vercel AI Gateway models through its OpenAI-compatible API with the OIDC fallback", async () => {
+  it.each([
+    { api: "chat", path: "/v1/chat/completions", response: chatCompletion },
+    { api: "responses", path: "/v1/responses", response: openaiResponse },
+    { api: "messages", path: "/claude-code/v1/messages", response: anthropicMessage },
+  ] as const)("preserves Vercel OIDC authentication for $api models", async ({ api, path, response }) => {
     vi.stubEnv("VITEHUB_VERCEL_API_KEY", undefined)
     vi.stubEnv("AI_GATEWAY_API_KEY", undefined)
+    vi.stubEnv("VITEHUB_VERCEL_OIDC_TOKEN", undefined)
     vi.stubEnv("VERCEL_OIDC_TOKEN", "oidc-token")
-    const fetch = vi.fn<typeof globalThis.fetch>(async () => chatCompletion())
-    await generateText({ model: languageModel(vercel(), "google/gemini-3-flash", { fetch }), prompt: "Hello" })
-    expect(sent(fetch).url).toBe("https://ai-gateway.vercel.sh/v1/chat/completions")
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => response())
+    const gateway = vercel({ headers: { "x-custom": "value" } })
+    await generateText({ model: languageModel(gateway, "model", { api, fetch }), prompt: "Hello" })
+    expect(sent(fetch).url).toBe(`https://ai-gateway.vercel.sh${path}`)
     expect(sent(fetch).headers.get("authorization")).toBe("Bearer oidc-token")
+    expect(sent(fetch).headers.get("ai-gateway-auth-method")).toBe("oidc")
+    expect(sent(fetch).headers.get("x-custom")).toBe("value")
+  })
+
+  it.each(["explicit", "resolver", "env", "vitehub"] as const)("keeps Vercel %s API keys authoritative even when they equal the OIDC token", async (source) => {
+    vi.stubEnv("VITEHUB_VERCEL_API_KEY", source === "vitehub" ? "same-value" : undefined)
+    vi.stubEnv("AI_GATEWAY_API_KEY", source === "env" ? "same-value" : undefined)
+    vi.stubEnv("VITEHUB_VERCEL_OIDC_TOKEN", undefined)
+    vi.stubEnv("VERCEL_OIDC_TOKEN", "same-value")
+    const gateway = vercel(source === "explicit" ? { apiKey: "same-value" } : source === "resolver" ? { apiKey: async () => "same-value" } : undefined)
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => chatCompletion())
+    await generateText({ model: languageModel(gateway, "model", { fetch }), prompt: "Hello" })
+    expect(sent(fetch).headers.get("authorization")).toBe("Bearer same-value")
+    expect(sent(fetch).headers.has("ai-gateway-auth-method")).toBe(false)
+  })
+
+  it("refreshes the Vercel credential source and token for each model request", async () => {
+    vi.stubEnv("VITEHUB_VERCEL_API_KEY", undefined)
+    vi.stubEnv("AI_GATEWAY_API_KEY", undefined)
+    vi.stubEnv("VITEHUB_VERCEL_OIDC_TOKEN", "first-token")
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => chatCompletion())
+    const model = languageModel(vercel(), "model", { fetch })
+    await generateText({ model, prompt: "Hello" })
+    vi.stubEnv("AI_GATEWAY_API_KEY", "api-key")
+    await generateText({ model, prompt: "Hello" })
+    vi.stubEnv("AI_GATEWAY_API_KEY", undefined)
+    vi.stubEnv("VITEHUB_VERCEL_OIDC_TOKEN", "rotated-token")
+    await generateText({ model, prompt: "Hello" })
+
+    expect(sent(fetch, 0).headers.get("authorization")).toBe("Bearer first-token")
+    expect(sent(fetch, 0).headers.get("ai-gateway-auth-method")).toBe("oidc")
+    expect(sent(fetch, 1).headers.get("authorization")).toBe("Bearer api-key")
+    expect(sent(fetch, 1).headers.has("ai-gateway-auth-method")).toBe(false)
+    expect(sent(fetch, 2).headers.get("authorization")).toBe("Bearer rotated-token")
+    expect(sent(fetch, 2).headers.get("ai-gateway-auth-method")).toBe("oidc")
+  })
+
+  it("does not fall back to OIDC when an explicit Vercel API key is empty", async () => {
+    vi.stubEnv("VERCEL_OIDC_TOKEN", "oidc-token")
+    const fetch = vi.fn<typeof globalThis.fetch>()
+    const model = languageModel(vercel({ apiKey: undefined }), "model", { fetch })
+    await expect(generateText({ maxRetries: 0, model, prompt: "Hello" })).rejects.toMatchObject({ code: "GATEWAYS_R0002" })
+    expect(fetch).not.toHaveBeenCalled()
   })
 
   it("routes Cloudflare AI Gateway models with stored provider keys, a request key, or both", async () => {

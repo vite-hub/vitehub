@@ -1,12 +1,12 @@
 import { cloudflareJevBaseURL, askJev } from "./jev.ts"
-import { aiGatewayAsks, aiGatewayOptionalCredentials, isRecord, normalizeAiGateway, resolveAiGatewaySecret } from "./definition.ts"
+import { aiGatewayAsks, aiGatewayModelCredentials, aiGatewayOptionalCredentials, isRecord, normalizeAiGateway, resolveAiGatewaySecret } from "./definition.ts"
 import { gatewayDiagnostics } from "./diagnostics.ts"
 import { aiGatewayVendorNames, readAiGatewayEnv } from "./env.ts"
 
 import type { AskAnswers, AskQuestions } from "./ask.ts"
 import type { AiGatewayEnvFieldName, AiGatewayEnvPreset } from "./env.ts"
 import type { JevRequestContext, JevRoute } from "./jev.ts"
-import type { AiGatewayOptionalCredentials } from "./definition.ts"
+import type { AiGatewayModelCredentialsResolver, AiGatewayOptionalCredentials } from "./definition.ts"
 import type { AiGateway, AiGatewayCapabilities, AiGatewayAsk, AiGatewayContext, AiGatewayDefinition, AiGatewayRoute, AiGatewaySealedSecret, AiGatewaySecret, AiGatewayUsage, AiGatewayValue } from "./types.ts"
 
 /** Options shared by every gateway preset. */
@@ -202,11 +202,12 @@ function unsupportedAsk(name: string): AiGatewayAsk {
   }
 }
 
-function createAiGateway(definition: AiGatewayDefinition, route?: AskRouteResolver, optional?: AiGatewayOptionalCredentials, modelApis?: readonly AiGatewayCapabilities["apis"][]): AiGateway {
+function createAiGateway(definition: AiGatewayDefinition, route?: AskRouteResolver, optional?: AiGatewayOptionalCredentials, modelApis?: readonly AiGatewayCapabilities["apis"][], modelCredentials?: AiGatewayModelCredentialsResolver): AiGateway {
   const routes = normalizeAiGateway(route ? Object.defineProperty({ ...definition }, aiGatewayAsks, { value: true }) : definition)
   const gateway: AiGateway = { ...routes }
   if (modelApis) Object.defineProperty(gateway, "modelApis", { value: Object.freeze([...modelApis]) })
   if (optional) Object.defineProperty(gateway, aiGatewayOptionalCredentials, { value: Object.freeze({ ...optional, headers: Object.freeze([...optional.headers]) }) })
+  if (modelCredentials) Object.defineProperty(gateway, aiGatewayModelCredentials, { value: modelCredentials })
   // Not enumerable, so copies and `driver.gateway` keep only the Driver routes.
   Object.defineProperty(gateway, "ask", {
     value: route
@@ -328,6 +329,11 @@ export function vercel(options?: VercelGatewayOptions): AiGateway<{ ask: true, r
     baseURL: { "codex": "https://ai-gateway.vercel.sh/codex/v1", "claude-code": "https://ai-gateway.vercel.sh/claude-code", "openai-compatible": "https://ai-gateway.vercel.sh/v1" },
     apiKey: async context => await resolveAiGatewaySecret(apiKey, context) ?? await resolveAiGatewaySecret(oidcToken, context),
   }, options)
+  const modelCredentials: AiGatewayModelCredentialsResolver = async (context) => {
+    const resolvedKey = await resolveAiGatewaySecret(explicitKey ? definition.apiKey : apiKey, context)
+    const token = resolvedKey || explicitKey ? undefined : await resolveAiGatewaySecret(oidcToken, context)
+    return { apiKey: resolvedKey ?? token, headers: token ? [["ai-gateway-auth-method", "oidc"]] : [] }
+  }
   const route = jevRoute("vercel", {
     apiKey: explicitKey ? definition.apiKey : apiKey,
     baseURL: async () => "https://ai-gateway.vercel.sh/v4/ai",
@@ -340,7 +346,7 @@ export function vercel(options?: VercelGatewayOptions): AiGateway<{ ask: true, r
     protocol: "vercel",
   })
   // SAFETY: createAiGateway attaches ask() for the route built above.
-  return createAiGateway(definition, route) as AiGateway<{ ask: true, routes: HostedRoutes }>
+  return createAiGateway(definition, route, undefined, undefined, modelCredentials) as AiGateway<{ ask: true, routes: HostedRoutes }>
 }
 
 /** The OpenAI API with an API key. Serves Codex and AI SDK models. Reads `OPENAI_API_KEY`. */

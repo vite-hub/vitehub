@@ -18,6 +18,14 @@ export const aiGatewayAsks: unique symbol = Symbol.for("vitehub.aiGateway.ask")
  */
 export const aiGatewayOptionalCredentials: unique symbol = Symbol.for("vitehub.aiGateway.optionalCredentials")
 
+/** Resolves model credentials together with headers that depend on their source. */
+export const aiGatewayModelCredentials: unique symbol = Symbol.for("vitehub.aiGateway.modelCredentials")
+
+export type AiGatewayModelCredentialsResolver = (context: AiGatewayContext) => Promise<{
+  apiKey?: string
+  headers: [string, string][]
+}>
+
 /** The value of `aiGatewayOptionalCredentials`. `missing` is the message when no credential resolves. */
 export interface AiGatewayOptionalCredentials {
   apiKey: boolean
@@ -188,6 +196,13 @@ export async function resolveAiGatewayRoute(gateway: AiGatewayDefinition, route:
  * its optional headers, but not without all of them.
  */
 export async function resolveAiGatewayModelRoute(gateway: AiGatewayDefinition, route: AiGatewayRoute, context: AiGatewayContext): Promise<AiGatewayModelRoute> {
+  const credentials: unknown = Reflect.get(gateway, aiGatewayModelCredentials)
+  if (typeof credentials === "function") {
+    // SAFETY: Only createAiGateway sets this symbol, with an AiGatewayModelCredentialsResolver.
+    const { apiKey, headers } = await (credentials as AiGatewayModelCredentialsResolver)(context)
+    const resolved = await resolveAiGatewayRoute({ ...gateway, apiKey }, route, context)
+    return { ...resolved, headers: [...resolved.headers, ...headers] }
+  }
   const optional: unknown = Reflect.get(gateway, aiGatewayOptionalCredentials)
   if (!isRecord(optional)) return await resolveAiGatewayRoute(gateway, route, context)
   // SAFETY: Only presets set this symbol, with an AiGatewayOptionalCredentials value.
