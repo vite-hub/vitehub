@@ -122,10 +122,23 @@ export interface DocumentComponent {
   props?: Record<string, DocumentComponentProp>
 }
 
-/** How a component prop round-trips: strings as written (`type="info"`), other types with Comark's `:` prefix. */
-export interface DocumentComponentProp {
-  type: "string" | "number" | "boolean" | "json"
-  default?: unknown
+/**
+ * How a component prop round-trips: strings as written (`type="info"`), other types with Comark's `:` prefix. `image`
+ * and `file` are strings too: editors pick them from the Media library, as for `image()` and `file()` fields.
+ */
+export type DocumentComponentProp =
+  | { type: "string" | "number" | "boolean" | "json", default?: unknown }
+  | DocumentComponentMediaProp
+
+/**
+ * A prop that holds one Media file as a string attribute, such as `icon="/media/icons/train.webp"`: the served URL of
+ * the picked file, or its Blob pathname when the store is not served.
+ */
+export interface DocumentComponentMediaProp {
+  type: "image" | "file"
+  /** Named Blob Store that the picker chooses from, as in `image({ store })`. Without it, the served store. */
+  store?: string
+  default?: string
 }
 
 export interface SingletonOptions<TFields extends ContentFields> {
@@ -272,7 +285,7 @@ function titleFieldOption(helper: string, path: string, value: unknown, fields: 
 }
 
 const componentTag = /^[a-z][a-z0-9-]*$/
-const componentPropTypes: ReadonlyArray<DocumentComponentProp["type"]> = ["string", "number", "boolean", "json"]
+const componentPropTypes: ReadonlyArray<DocumentComponentProp["type"]> = ["string", "number", "boolean", "json", "image", "file"]
 
 function isComponentPropType(value: unknown): value is DocumentComponentProp["type"] {
   return componentPropTypes.some(type => type === value)
@@ -300,9 +313,24 @@ function documentComponents(path: string, components: unknown): Record<string, D
       component.props = {}
       for (const [name, prop] of Object.entries(Object(props))) {
         const type: unknown = Reflect.get(Object(prop), "type")
-        if (!isComponentPropType(type)) throw invalidDefinition(`${where}.${tag}.props.${name}.type must be string, number, boolean, or json.`)
-        const entry: DocumentComponentProp = { type }
+        if (!isComponentPropType(type)) throw invalidDefinition(`${where}.${tag}.props.${name}.type must be string, number, boolean, json, image, or file.`)
         const fallback: unknown = Reflect.get(Object(prop), "default")
+        const store: unknown = Reflect.get(Object(prop), "store")
+        if (type === "image" || type === "file") {
+          const entry: DocumentComponentMediaProp = { type }
+          if (store !== undefined) {
+            if (String(store) !== store || !store) throw invalidDefinition(`${where}.${tag}.props.${name}.store must be a Blob Store name, such as 'media'.`)
+            entry.store = store
+          }
+          if (fallback !== undefined) {
+            if (String(fallback) !== fallback) throw invalidDefinition(`${where}.${tag}.props.${name}.default must be a string, such as a Blob pathname.`)
+            entry.default = fallback
+          }
+          component.props[name] = entry
+          continue
+        }
+        if (store !== undefined) throw invalidDefinition(`${where}.${tag}.props.${name}.store needs type 'image' or 'file'.`)
+        const entry: DocumentComponentProp = { type }
         if (fallback !== undefined) entry.default = JSON.parse(JSON.stringify(fallback))
         component.props[name] = entry
       }

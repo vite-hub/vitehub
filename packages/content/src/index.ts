@@ -125,6 +125,7 @@ export type {
   ContentFormat,
   ContentLabel,
   DocumentComponent,
+  DocumentComponentMediaProp,
   DocumentComponentProp,
   SingletonDefinition,
   SingletonOptions,
