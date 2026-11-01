@@ -764,7 +764,8 @@ export default {
     })).resolves.toBe(0)
   })
 
-  it("loads development-only Nuxt contributors during CLI discovery", async () => {
+  // Boots a real Nuxt app, which takes more than the default 5 s on a busy machine.
+  it("loads development-only Nuxt contributors during CLI discovery", { timeout: 30_000 }, async () => {
     const rootDir = await createTempDir()
     await mkdir(join(rootDir, "node_modules"))
     await symlink(resolve(import.meta.dirname, "../node_modules/nuxt"), join(rootDir, "node_modules/nuxt"), "dir")
@@ -777,6 +778,7 @@ export default {
     await writeFile(join(rootDir, "discovery-module.ts"), `
 export default function (_options, nuxt) {
   if (nuxt.options.vitehubCliDiscovery !== true) throw new Error("fixture state was consumed during CLI discovery")
+  if (nuxt.options.devtools.enabled !== false) throw new Error("Nuxt DevTools started during CLI discovery")
   if (!nuxt.options.dev) return
   nuxt.options.vite.plugins ||= []
   nuxt.options.vite.plugins.push({

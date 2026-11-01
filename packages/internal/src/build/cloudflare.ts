@@ -6,6 +6,9 @@ import { toSafeAppName } from "./user-entry.ts"
 
 import type { ProviderOutputConfigOwnership } from "./provider-output-config.ts"
 
+export { collapseWranglerConfig, collapseWranglerConfigFile, isPlaceholderCloudflareId, wranglerEntrySpecs } from "./wrangler-bindings.ts"
+export type { CollapseWranglerConfigOptions, WranglerEntryConflict, WranglerEntrySpec } from "./wrangler-bindings.ts"
+
 export const defaultCloudflareCompatibilityDate = "2026-04-20"
 export const cloudflareRuntimeExternal = "cloudflare:*"
 

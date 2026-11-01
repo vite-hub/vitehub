@@ -184,4 +184,4 @@ A Database Definition or a contributed schema module threw when it loaded. `erro
 
 ### DATABASE_WRANGLER_BINDING_CONFLICT
 
-An app on Cloudflare declares a D1 binding in its project `wrangler.json` (or `wrangler.jsonc`, `wrangler.toml`) that ViteHub also writes, and the two name a different `database_id`, `database_name`, or `preview_database_id`. Remove the binding from the project file, since ViteHub writes it, or rename one of them. When the two agree, ViteHub keeps one binding and fills fields it lacks from the project entry.
+An app on Cloudflare declares a D1 binding in its project `wrangler.json` (or `wrangler.jsonc`, `wrangler.toml`) that ViteHub also writes, and the two name a different `database_id`, `database_name`, or `preview_database_id`. An all-zero id never conflicts: the real id replaces it. Remove the binding from the project file, since ViteHub writes it, or rename one of them. When the two agree, ViteHub keeps one binding and fills fields it lacks from the project entry.
