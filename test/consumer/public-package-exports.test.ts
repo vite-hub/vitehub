@@ -47,7 +47,25 @@ const packageManifestSchema = object({
   version: optional(string()),
 })
 
+import { appendFileSync } from "node:fs"
+const timingFile = process.env.CC_TIMING_FILE
+function timing(label: string, ms: number) {
+  if (timingFile) appendFileSync(timingFile, `${Date.now()}\t${label}\t${Math.round(ms)}\n`)
+}
+async function phase<T>(name: string, fn: () => Promise<T>) {
+  const start = performance.now()
+  try { return await fn() } finally { timing(`phase:${name}`, performance.now() - start) }
+}
+function runLabel(command: string, args: string[]) {
+  if (command === "corepack") return `pnpm ${args[1]}`
+  if (command === "tar") return "tar"
+  return args[0] === "--input-type=module" ? (args[2]?.includes("import.meta.resolve") ? "node resolve" : "node import") : "node bin"
+}
 async function run(command: string, args: string[], cwd: string) {
+  const start = performance.now()
+  try { return await runInner(command, args, cwd) } finally { timing(`run:${runLabel(command, args)}`, performance.now() - start) }
+}
+async function runInner(command: string, args: string[], cwd: string) {
   try {
     const result = await execFileAsync(command, args, { cwd, maxBuffer })
     return { stderr: String(result.stderr || ""), stdout: String(result.stdout || "") }
@@ -663,8 +681,11 @@ async function packageModulesDiagnostics(
       ...declaredTypes.map(dependency => dependency.replace(/^@types\//, "")),
     ])],
   }
+  const tsStart = performance.now()
   const program = ts.createProgram(rootNames, options)
-  return declarationDiagnostics(program, includeDependencyDiagnostics ? undefined : packageName)
+  const result = declarationDiagnostics(program, includeDependencyDiagnostics ? undefined : packageName)
+  timing("ts:program", performance.now() - tsStart)
+  return result
 }
 
 async function packageTypeDependenciesFrom(runnerDir: string, packageName: string, declaredTypes: readonly string[] = []) {
@@ -953,9 +974,9 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package e
 
     try {
       await Promise.all([mkdir(appDir, { recursive: true }), mkdir(packDir, { recursive: true })])
-      const specs = await packPublicPackages(packDir)
+      const specs = await phase("pack", () => packPublicPackages(packDir))
       await writeConsumer(appDir, specs)
-      await run("corepack", ["pnpm", "install", "--ignore-scripts"], appDir)
+      await phase("main install", () => run("corepack", ["pnpm", "install", "--ignore-scripts"], appDir))
 
       const consumerRoot = await realpath(appDir)
       for (const info of packageInfos) {
@@ -973,23 +994,28 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package e
       }
 
       await assertResolution(appDir, optionalPeerProbes, false)
-      await exercisePackagesWithoutOptionalPeers(root, specs)
+      await phase("absent peers", () => exercisePackagesWithoutOptionalPeers(root, specs))
 
-      const optionalPeerSpecs = await addOptionalPeers(appDir)
+      const optionalPeerSpecs = await phase("add optional peers", () => addOptionalPeers(appDir))
       const peerSpecs = { ...await requiredPeerSpecs(), ...optionalPeerSpecs }
       expect(Object.keys(optionalPeerSpecs)).toEqual(optionalPeers)
       await assertResolution(appDir, optionalPeerProbes, true)
+      await phase("mixed peers", async () => {
       for (const optionalPeer of optionalPeers) {
         await importPackagesWithoutDeclarationPeer(root, specs, optionalPeer, peerSpecs)
       }
+      })
       const presentPeerContracts = publicPackageExportContracts
         .filter(contract => isJavaScriptModule(contract.target))
       const presentCloudflareContracts = presentPeerContracts.filter(contract => contract.specifier.endsWith("/cloudflare/state"))
+      const presentStart = performance.now()
       await importSpecifiers(appDir, presentPeerContracts
         .filter(contract => !presentCloudflareContracts.includes(contract))
         .map(contract => contract.specifier))
       await importSpecifiers(appDir, presentCloudflareContracts.map(contract => contract.specifier), true)
-      await importPackagesWithoutRootFallback(appDir, true)
+      timing("phase:present imports", performance.now() - presentStart)
+      await phase("root fallback", () => importPackagesWithoutRootFallback(appDir, true))
+      const binStart = performance.now()
       const staticContracts = publicPackageExportContracts.filter(contract => contract.kind === "static-asset")
       const resolved = await resolveSpecifiers(appDir, staticContracts.map(contract => contract.specifier))
       for (const [index, url] of resolved.entries()) {
@@ -1006,6 +1032,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package e
         expect(result.stdout, `${contract.packageName} ${contract.binName} should print help`).toContain(usage)
         expect(result.stderr).toBe("")
       }
+      timing("phase:static+bins", performance.now() - binStart)
     }
     finally {
       await rm(root, { recursive: true, force: true })
