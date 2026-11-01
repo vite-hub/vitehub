@@ -133,7 +133,8 @@ export const pillBarStyles = `
 :host { font: inherit; color: inherit; color-scheme: inherit; }
 .bar { font: inherit; color: inherit; --surface: var(--vitehub-pill-surface); --muted: var(--vitehub-pill-muted); --divider: var(--vitehub-pill-line); }
 .bar button { transform: none; font-variant-numeric: tabular-nums; }
-.sep { width: 4px; flex: none; }
+.toolbar { flex-direction: var(--vitehub-pill-flow, row); align-items: inherit; }
+.sep { width: 4px; height: 4px; flex: none; }
 .people { display: flex; padding: 0 2px; }
 .people .avatar { width: 20px; height: 20px; font-size: 9px; }
 .people .avatar + .avatar { margin-left: -6px; box-shadow: 0 0 0 2px var(--surface); }

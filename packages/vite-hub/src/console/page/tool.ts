@@ -2,7 +2,7 @@ import { contentFieldAttribute, parseContentField } from "@vite-hub/content/clie
 import { viteHubPillButtonStyles } from "@vite-hub/internal/runtime/page-tools-shared"
 import type { ViteHubPageToolModule } from "@vite-hub/internal/runtime/page-tools-loader"
 
-const styles = `:host{display:flex;gap:2px}${viteHubPillButtonStyles}`
+const styles = `:host{display:flex;flex-direction:var(--vitehub-pill-flow,row);gap:2px}${viteHubPillButtonStyles}`
 // The editor fades in once it is ready, over the window's own surface, so it never flashes a blank page. The status
 // only shows when the wait is long enough to notice.
 const windowStyles = `iframe{opacity:0;transition:opacity 150ms ease-out}iframe.ready{opacity:1}
@@ -114,30 +114,52 @@ const start: ViteHubPageToolModule["default"] = (context) => {
     const select = document.createElement("button")
     select.type = "button"
     select.textContent = "Select field"
+    select.title = "Select a field on the page to edit it. Esc cancels."
     select.setAttribute("aria-pressed", "false")
     shadow.append(select)
-    let selecting = false
-    const stop = () => { selecting = false; select.setAttribute("aria-pressed", "false"); document.documentElement.classList.remove("vitehub-select-content") }
-    select.addEventListener("click", () => {
-      selecting = !selecting
-      select.setAttribute("aria-pressed", String(selecting))
-      document.documentElement.classList.toggle("vitehub-select-content", selecting)
-    })
     const style = document.createElement("style")
     style.textContent = `.vitehub-select-content [${contentFieldAttribute}]{outline:1px dashed #3b82f6;outline-offset:3px;cursor:crosshair}.vitehub-select-content [${contentFieldAttribute}]:hover{outline-style:solid}`
     document.head.append(style)
-    document.addEventListener("click", event => {
-      if (!selecting || !(event.target instanceof Element)) return
-      const element = event.target.closest(`[${contentFieldAttribute}]`)
-      const address = element && parseContentField(element.getAttribute(contentFieldAttribute) ?? "")
-      if (!address) return
+    // Selecting moves the open window out of the way until a field is picked; a cancel brings it back. When the window
+    // was already minimized, it stays minimized, and only a picked field opens it.
+    let selecting = false
+    let restore = false
+    const stop = (picked: boolean) => {
+      if (!selecting) return
+      selecting = false
+      select.setAttribute("aria-pressed", "false")
+      document.documentElement.classList.remove("vitehub-select-content")
+      if (restore && !picked) panel.show()
+      restore = false
+    }
+    select.addEventListener("click", () => {
+      if (selecting) return stop(false)
+      selecting = true
+      select.setAttribute("aria-pressed", "true")
+      document.documentElement.classList.add("vitehub-select-content")
+      restore = button.getAttribute("aria-expanded") === "true"
+      if (restore) {
+        panel.hide()
+        select.focus({ preventScroll: true })
+      }
+    })
+    document.addEventListener("click", (event) => {
+      if (!selecting || event.composedPath().some(target => target instanceof HTMLElement && target.localName.startsWith("vitehub-"))) return
+      // A click while selecting never reaches the page, so a link that is not a field does not navigate.
       event.preventDefault()
       event.stopImmediatePropagation()
-      stop()
+      const element = event.target instanceof Element ? event.target.closest(`[${contentFieldAttribute}]`) : null
+      const address = element && parseContentField(element.getAttribute(contentFieldAttribute) ?? "")
+      if (!address) return stop(false)
+      stop(true)
       open(`/content/${encodeURIComponent(address.collection)}${address.id ? `/${address.id.split("/").map(encodeURIComponent).join("/")}` : ""}`)
     }, { capture: true, signal })
-    document.addEventListener("keydown", event => { if (event.key === "Escape") stop() }, { signal })
-    signal.addEventListener("abort", () => { stop(); style.remove() }, { once: true })
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || !selecting) return
+      event.preventDefault()
+      stop(false)
+    }, { capture: true, signal })
+    signal.addEventListener("abort", () => { stop(true); style.remove() }, { once: true })
   }
 }
 export default start

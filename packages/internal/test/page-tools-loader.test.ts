@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { loadViteHubPageTools } from "../src/runtime/page-tools-loader.ts"
+import { loadViteHubPageTools, viteHubPageToolsEdgeAt } from "../src/runtime/page-tools-loader.ts"
 import { readViteHubPageSession, viteHubPageSessionUrl } from "../src/runtime/page-tools-shared.ts"
 
 import type { ViteHubPageToolContext, ViteHubPageToolModule } from "../src/runtime/page-tools-loader.ts"
@@ -174,6 +174,91 @@ describe("loadViteHubPageTools", () => {
     expect(localStorage.getItem("vitehub-tools-collapsed")).toBeNull()
   })
 
+  it("docks where the browser remembers, before it draws, and docks windows on the same edge", async () => {
+    page("/?vitehub")
+    localStorage.setItem("vitehub-tools-dock", JSON.stringify({ edge: "right", at: 20 }))
+    session({ tools: [{ ...consoleTool, lazy: true }] })
+    await loadViteHubPageTools({ load: async () => ({ default(context: ViteHubPageToolContext) {
+      const trigger = document.createElement("button")
+      context.bar.attachShadow({ mode: "open" }).append(trigger)
+      context.createWindow({ id: "console", title: "Console", trigger }).show()
+    } }) })
+    const { element } = pill()
+    expect([element.getAttribute("edge"), element.style.getPropertyValue("--at")]).toEqual(["right", "20"])
+    lazyControl().click()
+    await vi.waitFor(() => expect(document.querySelector("vitehub-window")).not.toBeNull())
+    const host = document.querySelector<HTMLElement>("vitehub-window")!
+    expect([host.getAttribute("edge"), host.style.getPropertyValue("--at")]).toEqual(["right", "20"])
+
+    element.remove()
+    localStorage.setItem("vitehub-tools-dock", JSON.stringify({ edge: "middle", at: 500 }))
+    session({ tools: [consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    expect([pill().element.getAttribute("edge"), pill().element.style.getPropertyValue("--at")]).toEqual(["bottom", "50"])
+  })
+
+  it("docks to the edge where the mark is dragged, keeps a short press a click, and remembers the dock", async () => {
+    page("/?vitehub")
+    session({ tools: [consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    const { element } = pill()
+    const mark = element.shadowRoot!.querySelector<HTMLButtonElement>("button.mark")!
+    mark.setPointerCapture = () => {}
+    vi.spyOn(mark, "getBoundingClientRect").mockReturnValue(new DOMRect(586, 642, 28, 28))
+    const width = 1200
+    const height = 676
+    vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(width)
+    vi.spyOn(document.documentElement, "clientHeight", "get").mockReturnValue(height)
+    const press = (x: number, y: number, to: Array<[number, number]>) => {
+      mark.dispatchEvent(new PointerEvent("pointerdown", { button: 0, clientX: x, clientY: y, pointerId: 1, bubbles: true }))
+      for (const [clientX, clientY] of to) mark.dispatchEvent(new PointerEvent("pointermove", { clientX, clientY, pointerId: 1, bubbles: true }))
+      mark.dispatchEvent(new PointerEvent("lostpointercapture", { pointerId: 1 }))
+      mark.click()
+    }
+    press(width / 2, height - 20, [[width / 2 + 2, height - 20]])
+    expect(element.hasAttribute("collapsed")).toBe(true)
+    expect(localStorage.getItem("vitehub-tools-dock")).toBeNull()
+    press(width / 2, height - 20, [[width / 2, height / 2], [width - 4, height / 2]])
+    expect(element.hasAttribute("collapsed")).toBe(true)
+    expect(element.hasAttribute("dragging")).toBe(false)
+    expect([element.getAttribute("edge"), element.style.getPropertyValue("--at")]).toEqual(["right", "50"])
+    expect(JSON.parse(localStorage.getItem("vitehub-tools-dock")!)).toEqual({ edge: "right", at: 50 })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    mark.click()
+    expect(element.hasAttribute("collapsed")).toBe(false)
+  })
+
+  it.each([
+    [600, 20, "top"], [600, 656, "bottom"], [1190, 338, "right"], [10, 338, "left"], [40, 40, "top"], [40, 660, "bottom"],
+  ] as const)("picks the closest edge for a point (%d, %d)", (x, y, edge) => {
+    expect(viteHubPageToolsEdgeAt(x, y, 1200, 676)).toBe(edge)
+  })
+
+  it("puts the pill and its windows back when a router replaces <body>", async () => {
+    page("/?vitehub")
+    session({ tools: [{ ...consoleTool, lazy: true }] })
+    await loadViteHubPageTools({ load: async () => ({ default(context: ViteHubPageToolContext) {
+      const trigger = document.createElement("button")
+      context.bar.attachShadow({ mode: "open" }).append(trigger)
+      context.createWindow({ id: "console", title: "Console", trigger }).show()
+    } }) })
+    lazyControl().click()
+    await vi.waitFor(() => expect(document.querySelector("vitehub-window")).not.toBeNull())
+    const { element } = pill()
+    const host = document.querySelector("vitehub-window")!
+    const before = document.body
+    try {
+      before.replaceWith(document.createElement("body"))
+      await vi.waitFor(() => expect(element.parentElement).toBe(document.body))
+      expect(host.parentElement).toBe(document.body)
+      expect(element.style.viewTransitionName).toBe("vitehub-pill")
+    }
+    finally { document.body.replaceWith(before) }
+    await vi.waitFor(() => expect(element.parentElement).toBe(before))
+    pill().exit.click()
+    expect(document.querySelector("vitehub-pill")).toBeNull()
+  })
+
   it.each([
     [false, "minimize"],
     [false, "Escape"],
@@ -341,6 +426,39 @@ describe("lazy tools", () => {
       expect(load).toHaveBeenCalledTimes(2)
     }
     finally { style.remove(); pill().exit.click() }
+  })
+
+  it("loads a lazy tool's script when the pointer reaches its button, and shows the click at once", async () => {
+    page("/?vitehub")
+    session({ tools: [{ ...consoleTool, lazy: true }] })
+    let resolve!: (module: ViteHubPageToolModule) => void
+    const load = vi.fn(() => new Promise<ViteHubPageToolModule>((done) => { resolve = done }))
+    await loadViteHubPageTools({ load })
+    const launch = lazyControl()
+    const segment = document.querySelector("vitehub-tool")!
+    launch.dispatchEvent(new PointerEvent("pointerenter"))
+    launch.dispatchEvent(new FocusEvent("focus"))
+    expect(load).toHaveBeenCalledOnce()
+    launch.click()
+    expect(segment.getAttribute("aria-busy")).toBe("true")
+    expect(load).toHaveBeenCalledOnce()
+    resolve({ default: context => void context.bar.attachShadow({ mode: "open" }).append(document.createElement("button")) })
+    await vi.waitFor(() => expect(document.querySelector("vitehub-tool")!.hasAttribute("aria-busy")).toBe(false))
+    expect(load).toHaveBeenCalledOnce()
+    pill().exit.click()
+  })
+
+  it("loads a lazy script again on the next intent after a failed preload", async () => {
+    page("/?vitehub")
+    session({ tools: [{ ...consoleTool, lazy: true }] })
+    const load = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValue({ default() {} })
+    await loadViteHubPageTools({ load })
+    lazyControl().dispatchEvent(new PointerEvent("pointerenter"))
+    await vi.waitFor(() => expect(load).toHaveBeenCalledOnce())
+    await Promise.resolve()
+    lazyControl().dispatchEvent(new PointerEvent("pointerenter"))
+    expect(load).toHaveBeenCalledTimes(2)
+    pill().exit.click()
   })
 
   it.each([false, true])("rolls back failed startup registrations (lazy: %s)", async (lazy) => {

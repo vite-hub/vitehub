@@ -55,7 +55,7 @@ async function compose(user: CommentsSession["user"], realtime = false) {
     openTool: vi.fn(async () => false), onOpen: vi.fn(), beforeExit: vi.fn(),
   })
   const shadow = document.querySelector("vitehub-comments")!.shadowRoot!
-  await vi.waitFor(() => expect(bar.shadowRoot!.querySelector(".toolbar button")).not.toBeNull())
+  await vi.waitFor(() => expect(bar.shadowRoot!.querySelector(".toolbar button:not([aria-busy])")).not.toBeNull())
   if (realtime) await vi.waitFor(() => expect(connectRealtimeRoom).toHaveBeenCalledTimes(1))
   document.dispatchEvent(new KeyboardEvent("keydown", { key: "c", bubbles: true }))
   document.querySelector("h1")!.dispatchEvent(new MouseEvent("click", { clientX: 10, clientY: 10, bubbles: true }))

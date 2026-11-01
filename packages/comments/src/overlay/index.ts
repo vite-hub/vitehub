@@ -165,9 +165,10 @@ class CommentsOverlay extends HTMLElement {
     const bar = this.context?.bar
     if (bar) bar.tabIndex = -1
     if (bar) {
-      // Hidden until the session allows the overlay, so the pill shows no empty segment.
-      bar.hidden = true
+      // Until the session answers, the segment keeps the launch button's place and busy look, so the pill does not shrink
+      // and grow again. A session that does not allow the overlay hides the segment.
       bar.attachShadow({ mode: "open" }).append(h("style", {}, overlayStyles + viteHubPillButtonStyles + pillBarStyles), this.toolbar)
+      this.toolbar.replaceChildren(h("button", { className: "tool", disabled: true, "aria-busy": "true" }, this.context?.tool.label ?? "Comments"))
     }
     this.root.style.setProperty("--font", getComputedStyle(document.body).fontFamily)
     this.followTheme()
@@ -176,17 +177,14 @@ class CommentsOverlay extends HTMLElement {
     this.cleanups.push(() => style.remove())
 
     const [error, session] = await api.session()
-    if (!this.active) return
-    if (error) {
-      this.showToast(error.why, "error", { keep: true, action: ["Close", () => this.exit()] })
-      return
-    }
-    if (!session.can.read) {
-      this.showDenied(session)
+    if (!this.active || error || !session.can.read) {
+      if (bar) bar.hidden = true
+      if (!this.active) return
+      if (error) this.showToast(error.why, "error", { keep: true, action: ["Close", () => this.exit()] })
+      else this.showDenied(session)
       return
     }
     this.session = session
-    if (bar) bar.hidden = false
     this.listen()
     this.renderToolbar()
     await this.load()

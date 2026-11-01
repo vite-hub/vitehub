@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { createViteHubPageWindow } from "../src/runtime/page-tools-window.ts"
+import { createViteHubPageWindow, dockViteHubPageWindows } from "../src/runtime/page-tools-window.ts"
 
-afterEach(() => { document.body.replaceChildren(); localStorage.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
+afterEach(() => { dockViteHubPageWindows({ edge: "bottom", at: 50 }); document.body.replaceChildren(); localStorage.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 describe("page tool window", () => {
   it("preserves layout dimensions across restores during the opening scale transition", () => {
@@ -70,5 +70,33 @@ describe("page tool window", () => {
     scheme = undefined
     dispatchEvent(new StorageEvent("storage", { key: "vitehub-console:appearance" }))
     expect(host.style.colorScheme).toBe("")
+  })
+
+  it("opens from the edge where the pill docks, follows it, and grows from the side away from the pill", () => {
+    const signal = new AbortController().signal
+    const first = createViteHubPageWindow({ id: "content", title: "Content", trigger: document.createElement("button"), signal })
+    dockViteHubPageWindows({ edge: "right", at: 0, thickness: 120 })
+    const second = createViteHubPageWindow({ id: "console", title: "Console", trigger: document.createElement("button"), signal })
+    const hosts = [...document.querySelectorAll<HTMLElement>("vitehub-window")]
+    for (const host of hosts) expect([host.getAttribute("edge"), host.style.getPropertyValue("--at"), host.style.getPropertyValue("--thickness")]).toEqual(["right", "0", "120px"])
+    expect(new Set(hosts.map(host => host.style.viewTransitionName)).size).toBe(2)
+    const panel = second.body.closest<HTMLElement>(".window")!
+    vi.spyOn(panel, "offsetWidth", "get").mockReturnValue(600)
+    vi.spyOn(panel, "offsetHeight", "get").mockReturnValue(400)
+    const drag = (side: string, from: [number, number], to: [number, number]) => {
+      const grip = panel.querySelector<HTMLElement>(`.grip.${side}`)!
+      grip.setPointerCapture = () => {}
+      grip.dispatchEvent(new PointerEvent("pointerdown", { button: 0, clientX: from[0], clientY: from[1], pointerId: 1 }))
+      grip.dispatchEvent(new PointerEvent("pointermove", { clientX: to[0], clientY: to[1], pointerId: 1 }))
+      grip.dispatchEvent(new PointerEvent("lostpointercapture", { pointerId: 1 }))
+    }
+    // Docked right, the left grip is the far one; at the top end, the bottom grip moves only the bottom side.
+    drag("left", [500, 300], [450, 300])
+    expect(panel.style.width).toBe("650px")
+    drag("bottom", [500, 700], [500, 760])
+    expect(panel.style.height).toBe("460px")
+    first.destroy()
+    second.destroy()
+    expect(document.querySelector("vitehub-window")).toBeNull()
   })
 })
