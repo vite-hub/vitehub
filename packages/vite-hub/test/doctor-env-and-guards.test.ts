@@ -299,3 +299,44 @@ describe("vitehub/rate-limiter-at-module-scope with a cached limiter", () => {
     })).toEqual([])
   })
 })
+
+describe("second review regressions", () => {
+  it("accepts logged secrets and caught errors that share a secret's name", async () => {
+    expect(await projectCodes(unsealSecretEnv, {
+      ".vitehub/env/description.mjs": description,
+      "server/api/log.get.ts": [
+        'import { loadServerEnv } from "#vitehub/env/server"',
+        "export default defineEventHandler(async () => {",
+        "  const { github: { token } } = await loadServerEnv()",
+        "  console.log(JSON.stringify(token), `token: ${token}`)",
+        "  try { await fetch(\"https://api.github.com\") }",
+        "  catch (token) { return String(token) }",
+        "})",
+      ].join("\n"),
+    })).toEqual([])
+  })
+
+  it("accepts Server Env promises that code returns or passes on", async () => {
+    expect(await codes(awaitAsyncHelpers, {
+      "server/utils/env.ts": [
+        'import { loadServerEnv, deriveSecret } from "#vitehub/env/server"',
+        "export function load(event) { const pending = loadServerEnv(event); return pending }",
+        'export async function both(event) { const env = loadServerEnv(event); const key = deriveSecret("app"); return await Promise.all([env, key]) }',
+        "export function later(event) { const pending = loadServerEnv(event); return pending.then(env => env) }",
+      ].join("\n"),
+    })).toEqual([])
+    expect(await codes(awaitAsyncHelpers, {
+      "server/utils/env.ts": 'import { deriveSecret } from "#vitehub/env/server"\nexport function header() { const key = deriveSecret("app"); return `Bearer ${key}` }\n',
+    })).toEqual(["VHUB0006"])
+  })
+
+  it("does not treat a default-exported factory outside routes as a route handler", async () => {
+    expect(await codes(rateLimiterAtModuleScope, {
+      "server/utils/limiter.ts": [
+        'import { createRateLimiter } from "@vite-hub/rate-limit"',
+        'import { memoryRateLimitDriver } from "@vite-hub/rate-limit/drivers/memory"',
+        'export default function createLimiter() { return createRateLimiter({ driver: memoryRateLimitDriver(), limit: 20, window: "1m" }) }',
+      ].join("\n"),
+    })).toEqual([])
+  })
+})

@@ -1,8 +1,8 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
 
 import { dirname, relative, resolve } from "node:path"
 import * as v from "valibot"
-import type { ProjectInventoryContributor, RuleContext } from "vite-doctor/extension"
+import type { ProjectInfo, ProjectInventoryContributor, RuleContext } from "vite-doctor/extension"
 
 /** Name of the ViteHub Project Inventory contribution, read by rules through `viteHubInventory()`. */
 export const inventoryName = "vite-hub"
@@ -71,13 +71,35 @@ const discoverers: Record<DefinitionKind, Discover> = {
   workflow: async (root, serverDirs) => (await import("@vite-hub/workflow/vite")).discoverWorkflowDefinitions({ rootDir: root, serverDirs }),
 }
 
-/** `server/` and the `server/` directory of each Nuxt layer under `layers/`. */
-function serverDirsOf(root: string): string[] {
+function isDirectory(path: string): boolean {
+  return existsSync(path) && statSync(path).isDirectory()
+}
+
+/**
+ * The server directory of the app and of each Nuxt layer. Doctor resolves Nuxt layers, including `serverDir` and
+ * `extends`. Without them, it uses `server/` and the `server/` directory of each layer under `layers/`.
+ */
+function serverDirsOf(project: ProjectInfo): string[] {
+  const root = project.root
+  // Without the manifest of `nuxt prepare`, Doctor does not know `serverDir`, so read a literal one from the config.
+  const appServerDir = configuredServerDir(root)
+  // The same resolution as Doctor's own Nuxt runtime graph.
+  const resolved = project.nuxt?.layers.map(layer => resolve(root, layer.serverDir ?? (resolve(layer.root) === resolve(root) ? appServerDir : undefined) ?? resolve(layer.root, "server")))
+  if (resolved?.length) return [...new Set(resolved)]
   const layers = resolve(root, "layers")
-  const layerDirs = existsSync(layers)
+  const layerDirs = isDirectory(layers)
     ? readdirSync(layers, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => resolve(layers, entry.name, "server"))
     : []
-  return [resolve(root, "server"), ...layerDirs.filter(dir => existsSync(dir))]
+  return [resolve(root, appServerDir ?? "server"), ...layerDirs.filter(isDirectory)]
+}
+
+function configuredServerDir(root: string): string | undefined {
+  for (const name of ["nuxt.config.ts", "nuxt.config.mts", "nuxt.config.js", "nuxt.config.mjs"]) {
+    const file = resolve(root, name)
+    if (!existsSync(file)) continue
+    const match = /\bserverDir\s*:\s*["'`]([^"'`]+)["'`]/.exec(readFileSync(file, "utf8"))
+    return match?.[1] && resolve(root, match[1])
+  }
 }
 
 const describeSchema = v.object({
@@ -112,7 +134,7 @@ export const viteHubInventoryContributor: ProjectInventoryContributor = {
   name: inventoryName,
   async contribute(project) {
     const root = project.root
-    const serverDirs = serverDirsOf(root)
+    const serverDirs = serverDirsOf(project)
     const definitions: ViteHubInventory["definitions"] = {}
     await Promise.all(definitionKinds.map(async (kind) => {
       try {

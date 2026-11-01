@@ -350,3 +350,14 @@ describe("vitehub/comments-entry", () => {
     })).toEqual([])
   })
 })
+
+describe("second review regressions", () => {
+  it("ignores type-only Realtime imports and reads static template literals", async () => {
+    expect(await codes(realtimeCarets, {
+      "src/Plain.vue": "<script setup lang=\"ts\">\nimport type { RealtimeDefinition } from \"vite-hub/realtime\"\nimport CollaborationCaret from \"@tiptap/extension-collaboration-caret\"\n</script>\n",
+    })).toEqual([])
+    expect(await codes(commentsEntry, {
+      "server/comments.ts": "import { defineComments } from \"vite-hub/comments\"\nexport const comments = defineComments({ database: `analytics` })\n",
+    })).toEqual([])
+  })
+})

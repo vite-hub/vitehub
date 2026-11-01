@@ -52,7 +52,7 @@ In a Nuxt app, `pnpm vite-doctor . --host-extensions` also loads the extension t
 
 Some rules read the whole project, not only one file:
 
-- [`VHUB0013`](#vhub0013), [`VHUB0014`](#vhub0014), [`VHUB0015`](#vhub0015), [`VHUB0020`](#vhub0020), and [`VHUB0022`](#vhub0022) read the Definitions that each ViteHub package discovers, with the same discovery code that the build uses. They include `server/` and the `server/` directory of each Nuxt layer under `layers/`.
+- [`VHUB0013`](#vhub0013), [`VHUB0014`](#vhub0014), [`VHUB0015`](#vhub0015), [`VHUB0020`](#vhub0020), and [`VHUB0022`](#vhub0022) read the Definitions that each ViteHub package discovers, with the same discovery code that the build uses. They use the server directories of the Nuxt layers that Doctor resolves, including `serverDir` and `extends`. Run `nuxt prepare` so Doctor can read them. Without it, they use `server/`, a literal `serverDir` in `nuxt.config`, and the `server/` directory of each layer under `layers/`.
 - [`VHUB0004`](#vhub0004) and [`VHUB0007`](#vhub0007) read the generated `.vitehub/env/description.mjs` to find secret and provider values. Run the dev server or a build once to generate it. Before that, these two rules report nothing.
 
 | Code | Rule | Severity |
@@ -170,7 +170,7 @@ It follows imports from `vite-hub/*` and `@vite-hub/*`, local aliases, and the h
 - assigns to a name
 - tests in a condition, negates, or compares
 - reads a property from, iterates with `for...of`, spreads, or puts in a template literal or object property
-- returns from a route handler, so the client receives the tuple with status 200
+- returns from a route handler, so the client receives the tuple with status 200. A route handler is a function passed to `defineEventHandler()`, or the default export of a file under `server/api/`, `server/routes/`, or `server/middleware/`
 
 ```ts [server/api/settings.get.ts]
 import { kv } from 'vite-hub/kv'
@@ -201,7 +201,7 @@ The rule accepts a statement that ignores the result, such as `await kv.set(key,
 
 A secret Server Env value is a `SecretEnv`. When code converts it to a string, the result is `<redacted>`. A request then sends `Bearer <redacted>`, and a comparison with the secret is always false. ViteHub does not report this at runtime.
 
-The rule reads the secret paths from `.vitehub/env/description.mjs`, which ViteHub writes when Vite resolves the config, for example on `vite dev`, `vite build`, `nuxt dev`, or `nuxt build`. It does not run before that file exists. It checks values from `useServerEnv()` and `await loadServerEnv()` of `#vitehub/env/server`, and names destructured from them. It reports a secret in a template literal, with `+`, `==`, or `!=`, compared with `===` or `!==` to a value, as an argument of `String()`, `JSON.stringify()`, `Buffer.from()`, `encodeURIComponent()`, `btoa()`, or `encode()`, and as a value in a `headers` object.
+The rule reads the secret paths from `.vitehub/env/description.mjs`, which ViteHub writes when Vite resolves the config, for example on `vite dev`, `vite build`, `nuxt dev`, or `nuxt build`. It does not run before that file exists. It checks values from `useServerEnv()` and `await loadServerEnv()` of `#vitehub/env/server`, and names destructured from them. It follows bindings, so a parameter or `catch` variable with the same name is not a secret. It reports a secret in a template literal, with `+`, `==`, or `!=`, compared with `===` or `!==` to a value, as an argument of `String()`, `JSON.stringify()`, `Buffer.from()`, `encodeURIComponent()`, `btoa()`, or `encode()`, and as a value in a `headers` object. It does not report a secret inside `console.*()` or a logger call such as `logger.info()`, where `<redacted>` is the intended output.
 
 ```ts [server/api/issues.get.ts]
 import { useServerEnv } from '#vitehub/env/server'
@@ -281,7 +281,7 @@ The rule accepts literal values for other keys, such as `logLevel: 'info'`, and 
 
 `requireRateLimit()` and `checkRateLimit()` from `vite-hub/rate-limit` are async. Without `await`, the handler continues before the limit is checked, and a request over the limit is not stopped. `deriveSecret()` and `loadServerEnv()` from `#vitehub/env/server` return promises. Without `await`, code reads the promise, for example `[object Promise]` in a string.
 
-The rule reports a guard used as a statement or as a condition without `await`. It reports `deriveSecret()` and `loadServerEnv()` in a string, a comparison, an object value, a destructuring pattern, or a property read, and in a variable that the file never awaits.
+The rule reports a guard used as a statement or as a condition without `await`. It reports `deriveSecret()` and `loadServerEnv()` in a string, a comparison, an object value, a destructuring pattern, or a property read. It reports a variable that holds the promise when later code reads it in one of these ways. Returning the promise or passing it to `Promise.all()` or `.then()` is fine.
 
 ```ts [server/api/upload.post.ts]
 import { requireRateLimit } from 'vite-hub/rate-limit'
@@ -366,7 +366,7 @@ Use `requireRateLimit()` when the request must fail with status 429. Read [Rate 
 
 `memoryRateLimitDriver()` keeps its counters in the driver object. A route handler that creates the driver creates new counters for each request, so the limit is never reached.
 
-The rule reports `memoryRateLimitDriver()` from `@vite-hub/rate-limit/drivers/memory` inside a route handler: a default-exported function or a function passed to `defineEventHandler()`. It does not report a driver that the handler assigns to a name outside the handler, as in `limiter ??= createRateLimiter(...)`, and it does not check test files.
+The rule reports `memoryRateLimitDriver()` from `@vite-hub/rate-limit/drivers/memory` inside a route handler: a function passed to `defineEventHandler()`, or the default export of a file under `server/api/`, `server/routes/`, or `server/middleware/`. It does not report a driver that the handler assigns to a name outside the handler, as in `limiter ??= createRateLimiter(...)`, and it does not check test files.
 
 ```ts [server/api/search.get.ts]
 import { createRateLimiter } from 'vite-hub/rate-limit'
@@ -469,7 +469,7 @@ Read [Blob server API](/docs/blob/server-api#use-with-other-schema-libraries).
 
 A Runtime Helper gets a literal name that matches no Definition that ViteHub discovers. The call fails only when it runs, for example with `QUEUE_DEFINITION_NOT_FOUND`.
 
-The rule checks the first argument of `runQueue()`, `deferQueue()`, `getQueue()`, `runWorkflow()`, `deferWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `useDatabase()`, `useChannel()`, `runBrowser()`, `runSandboxTask()`, `runSchedule()`, `useConnection()`, and `useAgent()` from `vite-hub/agent/vue`. Workflow names include Agents that run as Workflows. `useDatabase('default')` is always accepted.
+The rule checks the first argument of `runQueue()`, `deferQueue()`, `getQueue()`, `runWorkflow()`, `deferWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `useDatabase()`, `useChannel()`, `runBrowser()`, `runSandboxTask()`, `runSchedule()`, `useConnection()`, and `useAgent()` from `vite-hub/agent/vue`. Workflow names include Agents that run as Workflows, and Workflows that the same file registers with `createWorkflow(name, handler)` or an Agent `runtime: workflow(name)`. `useDatabase('default')` is always accepted. The rule does not check `runSchedule(name, { registry })`, which reads its own registry, and it does not see Workflows that another file registers with `createWorkflow()`.
 
 ```ts [server/api/signup.post.ts]
 import { runQueue } from 'vite-hub/queue'
@@ -576,7 +576,7 @@ The rule does not check test files.
 
 **Do not destructure results that are not tuples.** Rule `vitehub/no-destructure-non-tuples`.
 
-Code destructures `[error, value]` from an API that does not return a tuple. These APIs return their value and throw on failure: `runWorkflow()`, `deferWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflowSignal()`, `getQueue()`, `runSchedule()`, and `runAgent(agent, context, input)` with a Runtime Context. `runSandboxTask()` and `runBrowser()` return a Web `Response`, which is not iterable.
+Code destructures `[error, value]` from an API that does not return a tuple. These APIs return their value and throw on failure: `runWorkflow()`, `deferWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `resumeWorkflowSignal()`, `getQueue()`, and `runAgent(agent, context, input)` with a Runtime Context. `runSchedule()` returns a Schedule Run record: a failed handler resolves with `status: "failed"`. `runSandboxTask()` and `runBrowser()` return a Web `Response`, which is not iterable.
 
 ```ts [server/api/onboard.post.ts]
 import { runWorkflow } from 'vite-hub/workflow'
@@ -727,7 +727,7 @@ const realtime = useRealtimeTiptap('notes', id, {
 </script>
 ```
 
-The rule checks files that import a `vite-hub/realtime` path, so an editor that ViteHub Realtime does not sync can keep the extension. Read [Carets](/docs/realtime/server-api#carets).
+The rule checks files that import a `vite-hub/realtime` path at runtime, not only types, so an editor that ViteHub Realtime does not sync can keep the extension. Read [Carets](/docs/realtime/server-api#carets).
 
 ## VHUB0025
 

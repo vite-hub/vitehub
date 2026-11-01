@@ -310,3 +310,52 @@ describe("vitehub/valid-outbound-channel", () => {
     })).toEqual([])
   })
 })
+
+describe("second review regressions", () => {
+  it("accepts locally registered Workflows and Schedules run from an explicit registry", async () => {
+    expect(await projectCodes(knownDefinitionNames, {
+      "server/workflows/onboard.ts": workflow,
+      "server/schedules/digest.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule({ cron: "0 8 * * *", manual: true, handler: async () => {} })\n',
+      "server/api/inline.post.ts": [
+        'import { createWorkflow, runWorkflow } from "vite-hub/workflow"',
+        'import { runSchedule } from "vite-hub/schedule/runtime"',
+        'createWorkflow("inline", async () => {})',
+        "export default defineEventHandler(async () => {",
+        '  await runWorkflow("inline", {})',
+        '  await runSchedule("custom", { registry })',
+        "})",
+      ].join("\n"),
+    })).toEqual([])
+  })
+
+  it("discovers Definitions in a configured Nuxt server directory", async () => {
+    expect(await projectCodes(definitionLocation, {
+      "nuxt.config.ts": 'export default defineNuxtConfig({ serverDir: "backend" })\n',
+      "backend/queues/welcome.ts": queue,
+    }, "nuxt")).toEqual([])
+  })
+
+  it("does not read a destructured Workflow Run as the steps argument", async () => {
+    expect(await projectCodes(workflowStepNames, {
+      "server/workflows/onboard/01.create-user.ts": "export default async function () {}\n",
+      "server/workflows/onboard/index.ts": [
+        'import { defineWorkflow, getWorkflowRun } from "vite-hub/workflow"',
+        "export default defineWorkflow(async ({ payload, steps }) => steps.createUser(payload))",
+        'export async function stepNames(id) { const { steps } = await getWorkflowRun("onboard", id); return steps?.map(step => step.name) }',
+      ].join("\n"),
+    })).toEqual([])
+  })
+
+  it("reads static template literals as names", async () => {
+    expect(await codes(validScheduleCron, {
+      "server/schedules/a.ts": 'import { defineSchedule } from "vite-hub/schedule"\nexport default defineSchedule({ cron: `90 * * * *`, handler: async () => {} })\n',
+    })).toEqual(["VHUB0021"])
+  })
+
+  it("names the Schedule Run status for runSchedule()", async () => {
+    const result = await codes(noDestructureNonTuples, {
+      "server/api/run.post.ts": 'import { runSchedule } from "vite-hub/schedule/runtime"\nexport default defineEventHandler(async () => { const [error, run] = await runSchedule("digest") })\n',
+    })
+    expect(result).toEqual(["VHUB0018"])
+  })
+})

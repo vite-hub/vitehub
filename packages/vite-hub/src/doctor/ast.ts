@@ -8,6 +8,7 @@ type Identifier = { type: "Identifier", name: string }
 const astNodeSchema = v.looseObject({ type: v.string() })
 const identifierSchema = v.object({ type: v.literal("Identifier"), name: v.string() })
 const stringLiteralSchema = v.object({ type: v.literal("Literal"), value: v.string() })
+const templateValueSchema = v.object({ cooked: v.string() })
 const wrapperSchema = v.object({
   type: v.picklist(["ParenthesizedExpression", "TSAsExpression", "TSNonNullExpression", "TSSatisfiesExpression", "TSTypeAssertion", "ChainExpression"]),
   expression: v.unknown(),
@@ -79,7 +80,8 @@ export function stringValue(node: unknown): string | undefined {
   if (isNodeType(target, "TemplateLiteral") && Array.isArray(target.expressions) && target.expressions.length === 0
     && Array.isArray(target.quasis) && target.quasis.length === 1) {
     const quasi = target.quasis[0]
-    if (isNode(quasi) && isNode(quasi.value) && typeof quasi.value.cooked === "string") return quasi.value.cooked
+    // A template element's `value` is `{ raw, cooked }`, which has no `type`.
+    if (isNode(quasi) && v.is(templateValueSchema, quasi.value)) return quasi.value.cooked
   }
 }
 
@@ -237,19 +239,21 @@ function buildScopes(root: unknown): WeakMap<object, Scope> {
 
   function bind(pattern: unknown, scope: Scope, binding: Binding = {}) {
     if (!isNode(pattern)) return
+    // A name inside a pattern keeps its declarator, but not the initializer, which belongs to the whole pattern.
+    const inner: Binding = binding.declaration ? { declaration: binding.declaration } : {}
     switch (pattern.type) {
       case "Identifier":
         if (isIdentifier(pattern)) scope.bindings.set(pattern.name, binding)
         break
-      case "RestElement": bind(pattern.argument, scope); break
-      case "AssignmentPattern": bind(pattern.left, scope); break
+      case "RestElement": bind(pattern.argument, scope, inner); break
+      case "AssignmentPattern": bind(pattern.left, scope, inner); break
       case "ArrayPattern":
-        if (Array.isArray(pattern.elements)) for (const element of pattern.elements) bind(element, scope)
+        if (Array.isArray(pattern.elements)) for (const element of pattern.elements) bind(element, scope, inner)
         break
       case "ObjectPattern":
         if (Array.isArray(pattern.properties)) {
           for (const property of pattern.properties) {
-            if (isNode(property)) bind(property.type === "RestElement" ? property.argument : property.value, scope)
+            if (isNode(property)) bind(property.type === "RestElement" ? property.argument : property.value, scope, inner)
           }
         }
         break
@@ -458,4 +462,16 @@ export function defaultExport(ctx: RuleContext): { node: AstNode, value: unknown
       }
     }
   }
+}
+
+const handlerFactories = new Set(["defineEventHandler", "eventHandler", "defineHandler", "defineCachedEventHandler", "defineLazyEventHandler"])
+/** Files whose default export Nitro serves as a route or middleware. */
+const routeFile = /(?:^|\/)(?:server\/)?(?:api|routes|middleware)\//
+
+/** True when `fn` handles a request: it is passed to `defineEventHandler()`, or it is the default export of a route file. */
+export function isRouteHandler(ctx: RuleContext, fn: AstNode): boolean {
+  const { parent } = semanticParent(fn)
+  if (parent?.type === "ExportDefaultDeclaration") return routeFile.test(ctx.file.relativePath)
+  const callee = parent?.type === "CallExpression" ? unwrap(parent.callee) : undefined
+  return isIdentifier(callee) && handlerFactories.has(callee.name)
 }

@@ -392,6 +392,17 @@ describe("vitehub/destructure-result-tuples beyond KV and Blob", () => {
   })
 })
 
+describe("vitehub/destructure-result-tuples outside route files", () => {
+  it("accepts a default-exported helper that returns the tuple", async () => {
+    expect(await codes(destructureResultTuples, {
+      "server/utils/read-settings.ts": 'import { kv } from "vite-hub/kv"\nexport default async function readSettings() { return await kv.get("settings") }\n',
+    })).toEqual([])
+    expect(await codes(destructureResultTuples, {
+      "server/api/settings.get.ts": 'import { kv } from "vite-hub/kv"\nexport default async function readSettings() { return await kv.get("settings") }\n',
+    })).toEqual(["VHUB0003"])
+  })
+})
+
 describe("ViteHub Project Inventory", () => {
   it("lists Definitions with the discovery of each owner package", async () => {
     const { mkdtemp, mkdir, rm, writeFile } = await import("node:fs/promises")
@@ -424,6 +435,13 @@ describe("ViteHub Project Inventory", () => {
         },
         env: { secret: ["github.token", "crm"], provider: ["crm"] },
       })
+      // A regular file named `layers` is not a layer directory.
+      const plain = join(root, "plain")
+      await mkdir(join(plain, "server/queues"), { recursive: true })
+      await writeFile(join(plain, "layers"), "not a directory\n")
+      await writeFile(join(plain, "server/queues/welcome.ts"), "export default 1\n")
+      await expect(viteHubInventoryContributor.contribute({ root: plain, framework: "vite", ssr: false, vueVersion: "", isMonorepo: false }))
+        .resolves.toMatchObject({ definitions: { queue: [{ name: "welcome", file: "server/queues/welcome.ts" }] } })
     }
     finally {
       await rm(root, { recursive: true, force: true })

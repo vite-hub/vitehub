@@ -1,7 +1,7 @@
 import { createRule } from "vite-doctor/extension"
 import type { DoctorRule } from "vite-doctor/extension"
 
-import { callArguments, chainRoot, defaultExport, enclosingFunction, isExport, isIdentifier, isNode, isNodeType, isTestFile, memberPath, objectProperties, objectValue, propertyName, resolver, semanticParent, stringValue, unwrap, walkScript } from "../ast.ts"
+import { callArguments, chainRoot, defaultExport, enclosingFunction, isExport, isIdentifier, isNode, isNodeType, isTestFile, memberPath, objectProperties, objectProperty, objectValue, propertyName, resolver, semanticParent, stringValue, unwrap, walkScript } from "../ast.ts"
 import type { AstNode, Resolver, ViteHubReference } from "../ast.ts"
 import { diagnostics } from "../diagnostics.ts"
 import { discoveredDefinition, viteHubInventory } from "../inventory.ts"
@@ -42,10 +42,13 @@ export const knownDefinitionNames: DoctorRule = createRule({
   create(ctx) {
     const r = resolver(ctx)
     const { definitions } = viteHubInventory(ctx)
-    // An Agent defined in this file can run as a Workflow with `runtime: workflow("name")`. Discovery cannot see it.
+    // Discovery cannot see a Workflow that this file registers: an Agent with `runtime: workflow("name")`,
+    // or `createWorkflow("name", handler)`.
     const localWorkflows = new Set<string>()
     walkScript(ctx.file.scriptAst, (node) => {
-      if (!isNodeType(node, "CallExpression") || !isExport(r.callee(node), ["agent"], "workflow")) return
+      if (!isNodeType(node, "CallExpression")) return
+      const callee = r.callee(node)
+      if (!isExport(callee, ["agent"], "workflow") && !isExport(callee, ["workflow"], "createWorkflow")) return
       const name = stringValue(callArguments(node)[0])
       if (name) localWorkflows.add(name)
     })
@@ -62,6 +65,8 @@ export const knownDefinitionNames: DoctorRule = createRule({
         const argument = callArguments(node)[0]
         const name = stringValue(argument)
         if (name === undefined) return
+        // `runSchedule(name, { registry })` reads its own registry, not the discovered Schedules.
+        if (entry.kind === "schedule" && objectProperty(callArguments(node)[1], "registry")) return
         const base = entry.kind === "connection" ? name.split(":")[0] ?? name : name
         if (known.includes(base) || entry.kind === "database" && name === "default") return
         ctx.report(diagnostics.VHUB0013({
@@ -266,10 +271,14 @@ export const noDestructureNonTuples: DoctorRule = createRule({
         ctx.report(diagnostics.VHUB0018({
           why: result.kind === "response"
             ? `\`${result.name}()\` returns a Web \`Response\`, not an \`[error, value]\` tuple. A \`Response\` is not iterable, so this destructuring throws.`
-            : `\`${result.name}()\` returns its value and throws on failure. It does not return an \`[error, value]\` tuple, so this destructuring throws or reads the wrong values.`,
+            : result.name === "runSchedule"
+              ? "`runSchedule()` returns a Schedule Run record, not an `[error, value]` tuple. A failed handler resolves with `status: \"failed\"`, so this destructuring throws."
+              : `\`${result.name}()\` returns its value and throws on failure. It does not return an \`[error, value]\` tuple, so this destructuring throws or reads the wrong values.`,
           fix: result.kind === "response"
             ? `Read the response: \`const response = await ${result.name}(...)\`, check \`response.ok\`, then call \`await response.json()\`.`
-            : `Assign the result directly: \`const value = await ${result.name}(...)\`. Use \`try\`/\`catch\` to handle failures.`,
+            : result.name === "runSchedule"
+              ? "Assign the run, then check it: `const run = await runSchedule(name)`, then `if (run.status === \"failed\")`."
+              : `Assign the result directly: \`const value = await ${result.name}(...)\`. Use \`try\`/\`catch\` to handle failures.`,
         }), { range: ctx.range(pattern) })
       },
     }
@@ -457,6 +466,7 @@ export const manualScheduleRun: DoctorRule = createRule({
     return {
       ScriptNode(node) {
         if (!isNodeType(node, "CallExpression") || !isExport(r.callee(node), ["schedule/runtime"], "runSchedule")) return
+        if (objectProperty(callArguments(node)[1], "registry")) return
         const argument = callArguments(node)[0]
         const name = stringValue(argument)
         const schedule = schedules.find(definition => definition.name === name)

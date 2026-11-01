@@ -102,7 +102,8 @@ export const realtimeCarets: DoctorRule = createRule({
   },
   create(ctx) {
     // Only an editor that ViteHub Realtime syncs is affected, so the rule checks files that import Realtime.
-    const usesRealtime = importsOf(ctx).some(declaration => vitehubModule(declaration.source)?.startsWith("realtime"))
+    const usesRealtime = importsOf(ctx).some(declaration => vitehubModule(declaration.source)?.startsWith("realtime")
+      && !declaration.typeOnly && declaration.specifiers.some(specifier => !specifier.typeOnly))
     if (!usesRealtime) return
     return {
       ScriptNode(node) {

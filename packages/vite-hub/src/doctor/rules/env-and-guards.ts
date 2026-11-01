@@ -2,7 +2,7 @@ import { createRule } from "vite-doctor/extension"
 import type { DoctorRule, RuleContext } from "vite-doctor/extension"
 
 import {
-  booleanValue, callArguments, chainRoot, isExport, isFunctionNode, isIdentifier, isNode, isNodeType, isTestFile, memberPath,
+  booleanValue, callArguments, chainRoot, isExport, isFunctionNode, isIdentifier, isNode, isNodeType, isRouteHandler, isTestFile, memberPath,
   objectProperties, objectProperty, objectValue, parentOf, propertyName, resolver, semanticParent, stringValue, unwrap, walkScript,
 } from "../ast.ts"
 import type { AstNode, Resolver, ViteHubReference } from "../ast.ts"
@@ -57,37 +57,10 @@ function patternBindings(pattern: unknown, into: { type: "Identifier", name: str
   return into
 }
 
-/** Names that object patterns bind from Server Env, when each name has one declaration in the file. */
-function envPatternBindings(ctx: RuleContext, envRoot: (node: unknown) => EnvPath | undefined): Map<string, EnvPath> {
-  const declarations = new Map<string, number>()
-  const found = new Map<string, EnvPath>()
-  const count = (name: string) => declarations.set(name, (declarations.get(name) ?? 0) + 1)
-  const names = (pattern: unknown) => patternBindings(pattern).map(identifier => identifier.name)
-  walkScript(ctx.file.scriptAst, (node) => {
-    if (node.type === "VariableDeclarator") {
-      const bound = names(node.id)
-      for (const name of bound) count(name)
-      if (!isNodeType(node.id, "ObjectPattern")) return
-      const root = envRoot(node.init)
-      if (!root) return
-      for (const name of bound) {
-        const path = patternPath(node.id, name)
-        if (path) found.set(name, { path: [...root.path, ...path], sync: root.sync })
-      }
-    }
-    else if (isFunctionNode(node) && Array.isArray(node.params)) {
-      for (const param of node.params) for (const name of names(param)) count(name)
-    }
-  })
-  for (const name of found.keys()) if ((declarations.get(name) ?? 0) > 1) found.delete(name)
-  return found
-}
-
 /** Resolves expressions that read Server Env: `useServerEnv()`, `await loadServerEnv()`, and names bound from them. */
 function envPaths(ctx: RuleContext): (node: unknown) => EnvPath | undefined {
   const r = resolver(ctx)
-  // `usePatterns` is false while the pattern map is built, so building it never reads itself.
-  function root(node: unknown, usePatterns: boolean, seen = new Set<unknown>()): EnvPath | undefined {
+  function root(node: unknown, seen = new Set<unknown>()): EnvPath | undefined {
     const target = unwrap(node)
     if (seen.has(target)) return
     seen.add(target)
@@ -96,19 +69,21 @@ function envPaths(ctx: RuleContext): (node: unknown) => EnvPath | undefined {
       return { path: [], sync: false }
     }
     if (isNodeType(target, "MemberExpression")) {
-      const base = root(target.object, usePatterns, seen)
+      const base = root(target.object, seen)
       const property = target.computed === true ? stringValue(target.property) : isIdentifier(target.property) ? target.property.name : undefined
       return base && property !== undefined ? { path: [...base.path, property], sync: base.sync } : undefined
     }
     if (isIdentifier(target)) {
-      const binding = r.binding(target)
-      if (binding && isNodeType(binding.declaration, "VariableDeclarator") && isIdentifier(binding.declaration.id)) return root(binding.init, usePatterns, seen)
-      if (usePatterns && binding && !binding.declaration && !binding.origin) return patterns().get(target.name)
+      // Follow the binding, not the spelling: a parameter or `catch (token)` with the same name is another value.
+      const declaration = r.binding(target)?.declaration
+      if (!isNodeType(declaration, "VariableDeclarator")) return
+      if (isIdentifier(declaration.id)) return root(declaration.init, seen)
+      const path = patternPath(declaration.id, target.name)
+      const base = path && root(declaration.init, seen)
+      return base && path ? { path: [...base.path, ...path], sync: base.sync } : undefined
     }
   }
-  let cached: Map<string, EnvPath> | undefined
-  const patterns = () => (cached ??= envPatternBindings(ctx, node => root(node, false)))
-  return node => root(node, true)
+  return node => root(node)
 }
 
 const coercingCalls = new Set(["String", "JSON.stringify", "Buffer.from", "encodeURIComponent", "btoa"])
@@ -119,6 +94,21 @@ const strictOperators = new Set(["===", "!=="])
 function isNullish(node: unknown): boolean {
   const target = unwrap(node)
   return isNodeType(target, "Literal") && target.value === null || isIdentifier(target, "undefined")
+}
+
+const logMethods = new Set(["debug", "error", "info", "log", "trace", "warn"])
+
+/** True inside the arguments of `console.*()` or a logger call such as `logger.info()`. */
+function inLogCall(node: unknown): boolean {
+  let current = parentOf(node)
+  while (current && !isFunctionNode(current)) {
+    if (current.type === "CallExpression") {
+      const path = memberPath(current.callee)
+      if (path && (path[0] === "console" || path.length > 1 && logMethods.has(path.at(-1) ?? ""))) return true
+    }
+    current = parentOf(current)
+  }
+  return false
 }
 
 export const unsealSecretEnv: DoctorRule = createRule({
@@ -135,6 +125,8 @@ export const unsealSecretEnv: DoctorRule = createRule({
     const envPath = envPaths(ctx)
 
     function check(node: unknown, use: string, strict = false) {
+      // Logs should show `<redacted>`. That is the reason `SecretEnv` redacts itself.
+      if (inLogCall(node)) return
       const found = envPath(node)
       if (!found) return
       const path = found.path.join(".")
@@ -318,12 +310,24 @@ export const noLiteralCredentials: DoctorRule = createRule({
 const promiseMethods = new Set(["then", "catch", "finally"])
 
 /** True when a variable that holds the promise is awaited somewhere in the file. */
-function isAwaitedLater(ctx: RuleContext, name: string): boolean {
-  let awaited = false
-  walkScript(ctx.file.scriptAst, (node) => {
-    if (node.type === "AwaitExpression" && isIdentifier(unwrap(node.argument), name)) awaited = true
+/** True when a promise in this position is read as its value: in a string, a comparison, a property, or a member read. */
+function readsPromiseAsValue(parent: AstNode, child: unknown): boolean {
+  return ["TemplateLiteral", "BinaryExpression"].includes(parent.type)
+    || parent.type === "Property" && parent.value === child
+    || parent.type === "MemberExpression" && parent.object === child && !(isIdentifier(parent.property) && promiseMethods.has(parent.property.name))
+}
+
+/** True when a later use of the name that holds the promise reads it as its value. Returning or passing it on is fine. */
+function misusedLater(r: Resolver, target: { type: "Identifier", name: string }): boolean {
+  const own = r.binding(target)
+  if (!own) return false
+  let misused = false
+  walkScript(r.ctx.file.scriptAst, (node) => {
+    if (misused || node === target || !isIdentifier(node, target.name) || r.binding(node) !== own) return
+    const { parent, child } = semanticParent(node)
+    if (parent && readsPromiseAsValue(parent, child)) misused = true
   })
-  return awaited
+  return misused
 }
 
 export const awaitAsyncHelpers: DoctorRule = createRule({
@@ -356,11 +360,9 @@ export const awaitAsyncHelpers: DoctorRule = createRule({
         }
         const helper = matchExport(reference, [serverEnvModule], ["deriveSecret", "loadServerEnv"])
         if (!helper) return
-        let misused = ["TemplateLiteral", "BinaryExpression"].includes(parent.type)
-          || parent.type === "Property" && parent.value === child
-          || parent.type === "MemberExpression" && parent.object === child && !(isIdentifier(parent.property) && promiseMethods.has(parent.property.name))
+        let misused = readsPromiseAsValue(parent, child)
         if (parent.type === "VariableDeclarator" && parent.init === child) {
-          misused = isNodeType(parent.id, "ObjectPattern") || isIdentifier(parent.id) && !isAwaitedLater(ctx, parent.id.name)
+          misused = isNodeType(parent.id, "ObjectPattern") || isIdentifier(parent.id) && misusedLater(r, parent.id)
         }
         if (!misused) return
         ctx.report(diagnostics.VHUB0006({
@@ -462,14 +464,6 @@ export const checkRateLimitDecision: DoctorRule = createRule({
   },
 })
 
-const handlerFactories = new Set(["defineEventHandler", "eventHandler", "defineHandler", "defineCachedEventHandler", "defineLazyEventHandler"])
-
-function isRouteHandler(fn: AstNode): boolean {
-  const { parent } = semanticParent(fn)
-  if (parent?.type === "ExportDefaultDeclaration") return true
-  const callee = parent?.type === "CallExpression" ? unwrap(parent.callee) : undefined
-  return isIdentifier(callee) && handlerFactories.has(callee.name)
-}
 
 /** True when the call result is assigned to a name that is declared outside `handler`. */
 function isAssignedOutside(r: Resolver, call: AstNode, handler: AstNode): boolean {
@@ -500,7 +494,7 @@ export const rateLimiterAtModuleScope: DoctorRule = createRule({
       ScriptNode(node) {
         if (!isNodeType(node, "CallExpression") || !isExport(r.callee(node), ["rate-limit/drivers/memory"], "memoryRateLimitDriver")) return
         let current = parentOf(node)
-        while (current && !(isFunctionNode(current) && isRouteHandler(current))) current = parentOf(current)
+        while (current && !(isFunctionNode(current) && isRouteHandler(ctx, current))) current = parentOf(current)
         // `limiter ??= createRateLimiter(...)` keeps one driver in a binding outside the handler.
         if (!current || isAssignedOutside(r, node, current)) return
         ctx.report(diagnostics.VHUB0009({

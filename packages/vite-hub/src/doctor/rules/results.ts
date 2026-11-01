@@ -1,7 +1,7 @@
 import { createRule } from "vite-doctor/extension"
 import type { DoctorRule } from "vite-doctor/extension"
 
-import { callArguments, isFunctionNode, isIdentifier, isNodeType, numberValue, objectValue, parentOf, resolver, semanticParent, stringValue, unwrap, walkScript } from "../ast.ts"
+import { callArguments, isFunctionNode, isIdentifier, isNodeType, isRouteHandler, numberValue, objectValue, parentOf, resolver, semanticParent, stringValue, unwrap, walkScript } from "../ast.ts"
 import type { AstNode, Resolver } from "../ast.ts"
 import { diagnostics } from "../diagnostics.ts"
 
@@ -70,18 +70,6 @@ function tupleCall(r: Resolver, call: AstNode): string | undefined {
   }
 }
 
-const handlerFactories = new Set(["defineEventHandler", "eventHandler", "defineHandler", "defineCachedEventHandler", "defineLazyEventHandler"])
-
-/** True when `fn` is a route handler, so its return value becomes the response. */
-function isRouteHandler(fn: AstNode): boolean {
-  const { parent } = semanticParent(fn)
-  if (parent?.type === "ExportDefaultDeclaration") return true
-  if (parent?.type === "CallExpression" && isIdentifier(unwrap(parent.callee))) {
-    const callee = unwrap(parent.callee)
-    return isIdentifier(callee) && handlerFactories.has(callee.name)
-  }
-  return false
-}
 
 function enclosingFunctionOf(node: AstNode): AstNode | undefined {
   let current = parentOf(node)
@@ -142,10 +130,10 @@ function misuseOf(r: Resolver, awaited: AstNode): Misuse | undefined {
       return parent.test === child ? "value" : undefined
     case "ReturnStatement": {
       const fn = enclosingFunctionOf(parent)
-      return fn && isRouteHandler(fn) ? "response" : undefined
+      return fn && isRouteHandler(r.ctx, fn) ? "response" : undefined
     }
     case "ArrowFunctionExpression":
-      return parent.body === child && isRouteHandler(parent) ? "response" : undefined
+      return parent.body === child && isRouteHandler(r.ctx, parent) ? "response" : undefined
   }
 }
 
