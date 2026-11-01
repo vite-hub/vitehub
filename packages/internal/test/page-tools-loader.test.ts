@@ -54,6 +54,7 @@ function lazyControl(): HTMLButtonElement {
 
 beforeEach(() => {
   sessionStorage.clear()
+  localStorage.clear()
   vi.spyOn(console, "error").mockImplementation(() => {})
 })
 
@@ -109,8 +110,8 @@ describe("loadViteHubPageTools", () => {
   })
 
   it("asks the session route below the app base of the loader", async () => {
-    expect(viteHubPageSessionUrl("http://site.test/portal/_vitehub/page/assets/loader.js?v=8")).toBe("/portal/_vitehub/page/session")
-    expect(viteHubPageSessionUrl("http://site.test/_vitehub/page/assets/loader.js?v=8")).toBe("/_vitehub/page/session")
+    expect(viteHubPageSessionUrl("http://site.test/portal/_vitehub/page/assets/loader.js?v=9")).toBe("/portal/_vitehub/page/session")
+    expect(viteHubPageSessionUrl("http://site.test/_vitehub/page/assets/loader.js?v=9")).toBe("/_vitehub/page/session")
     expect(viteHubPageSessionUrl("http://localhost:5173/src/loader.ts")).toBe("/_vitehub/page/session")
     page("/portal/?vitehub")
     const fetch = session({ tools: [] })
@@ -146,6 +147,28 @@ describe("loadViteHubPageTools", () => {
     // A second loader on the same page leaves the pill alone.
     await expect(loadViteHubPageTools({ load })).resolves.toEqual([])
     pill()
+  })
+
+  it("collapses to the ViteHub mark, keeps the tools running, and remembers it on the next page", async () => {
+    page("/?vitehub")
+    session({ tools: [comments, consoleTool] })
+    const first = modules()
+    await loadViteHubPageTools({ load: first.load })
+    const { element } = pill()
+    const mark = element.shadowRoot!.querySelector<HTMLButtonElement>("button.mark")!
+    expect([mark.getAttribute("aria-expanded"), mark.getAttribute("aria-label")]).toEqual(["true", "Hide ViteHub tools"])
+    mark.click()
+    expect(element.hasAttribute("collapsed")).toBe(true)
+    expect([mark.getAttribute("aria-expanded"), mark.getAttribute("aria-label")]).toEqual(["false", "Show ViteHub tools"])
+    expect(first.stopped).toEqual([])
+
+    element.remove()
+    session({ tools: [comments, consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    expect(pill().element.hasAttribute("collapsed")).toBe(true)
+    pill().element.shadowRoot!.querySelector<HTMLButtonElement>("button.mark")!.click()
+    expect(pill().element.hasAttribute("collapsed")).toBe(false)
+    expect(localStorage.getItem("vitehub-tools-collapsed")).toBeNull()
   })
 
   it("hides the segment of a tool that leaves it empty", async () => {

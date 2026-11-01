@@ -56,9 +56,39 @@ div{box-sizing:border-box;max-width:calc(100vw - 16px);overflow-x:auto;scrollbar
 ::slotted(*){flex-shrink:0;display:flex;align-items:center;gap:4px;padding-right:7px;margin-right:2px;background:linear-gradient(var(--vitehub-pill-line),var(--vitehub-pill-line)) right/1px 18px no-repeat}
 ::slotted([hidden]){display:none!important}
 ${viteHubPillButtonStyles}
-button{flex-shrink:0;position:sticky;right:0;padding:0}`
+button{flex-shrink:0;padding:0}
+.exit{position:sticky;right:0}
+.mark{position:sticky;left:0;z-index:1}
+.mark,.mark[aria-expanded=true]{background:none;color:var(--vitehub-pill-strong)}
+@media(hover:hover){.mark:hover{background:var(--vitehub-pill-hover)}}
+.mark svg{width:16px;height:16px}
+:host([collapsed]) :is(slot,.exit,.sep){display:none}
+.sep{flex-shrink:0;width:1px;height:18px;margin:0 2px;background:var(--vitehub-pill-line)}
+:host(:not([collapsed])) :is(slot,.exit,.sep){animation:vitehub-pill-in 150ms cubic-bezier(.23,1,.32,1)}
+@keyframes vitehub-pill-in{from{opacity:0;translate:-4px 0}}
+@media(prefers-reduced-motion:reduce){:host(:not([collapsed])) :is(slot,.exit,.sep){animation:none}}`
 
-/** Draws the pill: one `<vitehub-pill>` at the bottom center of the page, with a named slot per tool in session order and the exit button. */
+/** The key in `localStorage` that keeps the pill collapsed to the ViteHub mark, on this page and the next ones. */
+const collapsedKey = "vitehub-tools-collapsed"
+
+function svgIcon(viewBox: string, path: string, attributes: Record<string, string>): SVGSVGElement {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg")
+  for (const [name, value] of Object.entries({ viewBox, "aria-hidden": "true", ...attributes })) svg.setAttribute(name, value)
+  const shape = document.createElementNS("http://www.w3.org/2000/svg", "path")
+  shape.setAttribute("d", path)
+  svg.append(shape)
+  return svg
+}
+
+function storedCollapsed(): boolean {
+  try { return localStorage.getItem(collapsedKey) === "1" }
+  catch { return false }
+}
+
+/**
+ * Draws the pill: one `<vitehub-pill>` at the bottom center of the page, with the ViteHub mark, a named slot per tool in
+ * session order, and the exit button. The mark collapses the pill to itself and the browser remembers it.
+ */
 function mountPill(tools: ViteHubPageToolInfo[], exit: () => void, signal: AbortSignal): HTMLElement {
   const pill = document.createElement("vitehub-pill")
   const shadow = pill.attachShadow({ mode: "open" })
@@ -67,16 +97,31 @@ function mountPill(tools: ViteHubPageToolInfo[], exit: () => void, signal: Abort
   const toolbar = document.createElement("div")
   toolbar.setAttribute("role", "toolbar")
   toolbar.setAttribute("aria-label", "ViteHub tools")
+  // The ViteHub mark collapses the pill to itself. The tools keep running: their windows, pins, and modes stay.
+  const mark = document.createElement("button")
+  mark.className = "mark"
+  mark.append(svgIcon("0 0 20 18", "M19.734 8.156 15.576.844A1.66 1.66 0 0 0 14.135 0H5.819C5.226 0 4.677.32 4.38.844L.222 8.156a1.71 1.71 0 0 0 0 1.688l4.158 7.312c.297.523.846.844 1.439.844h8.316c.593 0 1.142-.32 1.438-.844l4.158-7.312c.3-.523.3-1.165.003-1.688Z", { fill: "currentColor" }))
+  const collapse = (collapsed: boolean) => {
+    pill.toggleAttribute("collapsed", collapsed)
+    mark.setAttribute("aria-expanded", String(!collapsed))
+    mark.setAttribute("aria-label", collapsed ? "Show ViteHub tools" : "Hide ViteHub tools")
+    mark.title = mark.getAttribute("aria-label")!
+  }
+  collapse(storedCollapsed())
+  mark.addEventListener("click", () => {
+    const collapsed = !pill.hasAttribute("collapsed")
+    collapse(collapsed)
+    try { collapsed ? localStorage.setItem(collapsedKey, "1") : localStorage.removeItem(collapsedKey) }
+    catch {}
+  })
   const button = document.createElement("button")
+  button.className = "exit"
   button.setAttribute("aria-label", "Turn off ViteHub tools")
   button.title = "Turn off ViteHub tools"
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg")
-  for (const [name, value] of Object.entries({ width: "15", height: "15", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "2", "stroke-linecap": "round", "aria-hidden": "true" })) svg.setAttribute(name, value)
-  const path = document.createElementNS("http://www.w3.org/2000/svg", "path")
-  path.setAttribute("d", "M18 6 6 18M6 6l12 12")
-  svg.append(path)
-  button.append(svg)
-  toolbar.append(button)
+  button.append(svgIcon("0 0 24 24", "M18 6 6 18M6 6l12 12", { width: "15", height: "15", fill: "none", stroke: "currentColor", "stroke-width": "2", "stroke-linecap": "round" }))
+  const divider = document.createElement("span")
+  divider.className = "sep"
+  toolbar.append(mark, divider, button)
   shadow.append(style, toolbar)
   for (const tool of tools) {
     const slot = document.createElement("slot")

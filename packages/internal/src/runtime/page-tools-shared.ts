@@ -22,7 +22,7 @@ export const viteHubPageSessionPath = "/_vitehub/page/session"
  * The URL of the loader script, below the app base. Its version query changes when the loader changes, so caches keep
  * it 5 minutes.
  */
-export const viteHubPageToolsLoader = "/_vitehub/page/assets/loader.js?v=8"
+export const viteHubPageToolsLoader = "/_vitehub/page/assets/loader.js?v=9"
 
 /**
  * The buttons of the pill and of each tool's segment. The pill is always the dark review toolbar of Drop, so it reads

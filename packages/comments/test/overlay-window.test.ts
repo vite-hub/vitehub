@@ -58,7 +58,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.mocked(window.confirm).mockReturnValue(true)
-  document.querySelector("vitehub-pill")?.shadowRoot?.querySelector<HTMLButtonElement>("button")?.click()
+  document.querySelector("vitehub-pill")?.shadowRoot?.querySelector<HTMLButtonElement>("button.exit")?.click()
   for (const element of document.querySelectorAll("vitehub-pill, vitehub-comments")) element.remove()
   document.documentElement.className = ""
   vi.unstubAllGlobals()
@@ -148,7 +148,7 @@ describe("the Comments page tool", () => {
     const originalReplace = history.replaceState
     const { pill, bar } = await start()
     await vi.waitFor(() => expect(request.mock.calls.some(([path]) => path.startsWith(`/api/_vitehub/comments/${stage}`))).toBe(true))
-    if (action === "exit") pill.shadowRoot!.querySelector<HTMLButtonElement>("button")!.click()
+    if (action === "exit") pill.shadowRoot!.querySelector<HTMLButtonElement>("button.exit")!.click()
     else document.querySelector("vitehub-comments")!.remove()
 
     const documentListeners = vi.spyOn(document, "addEventListener")
