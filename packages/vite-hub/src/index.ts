@@ -245,8 +245,9 @@ function configureProviderOptionalImportAliases(
   options: ViteHubOptions,
   configuredKV?: KVModuleOptions,
 ) {
-  const kv = options.kv
-    ? resolveKVViteConfig(configuredKV ?? (options.kv === true ? undefined : options.kv)).kv
+  const effectiveKV = configuredKV ?? options.kv
+  const kv = effectiveKV
+    ? resolveKVViteConfig(effectiveKV === true ? undefined : effectiveKV).kv
     : false
   if (hasUpstashStore(kv)) delete aliases[upstashDriverSpecifier]
   else aliases[upstashDriverSpecifier] = disabledUpstashDriver
@@ -1211,7 +1212,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     } as EmailVitePluginOptions))
   }
   else plugins.push(hubEmailOptionalPeerResolver())
-  if (options.kv) {
+  // The cache can enable KV through Vite's top-level config after plugin construction.
+  if (options.kv || (options.cache && options.cache !== true && options.cache.driver === "kv")) {
     plugins.push(hubKv(presetKVOptions || undefined))
   }
   else plugins.push(hubKvOptionalPeerResolver())

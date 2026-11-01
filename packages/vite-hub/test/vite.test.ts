@@ -1308,6 +1308,20 @@ describe("vitehub", () => {
     )
   })
 
+  it.each([undefined, false] as const)("installs KV for top-level cache configuration when module KV is %s", async (kv) => {
+    const plugins = vitehub({ agent: true, cache: { driver: "kv" }, kv, preset: "cloudflare" })
+    const config = { kv: { binding: "APP_KV", driver: "cloudflare-kv-binding" } satisfies KVModuleOptions }
+    await callHook(dependencyPluginByName(plugins, "vite-hub/deployment-preset").config, [config, { command: "build", mode: "production" }])
+
+    expect(config).toHaveProperty("nitro.storage.cache.driver", kvCacheDriver)
+    expect.soft(pluginNames(plugins)).toContain("@vite-hub/kv/vite")
+    expect.soft(pluginNames(plugins)).not.toContain("@vite-hub/kv/optional-peers")
+
+    const aliases = providerAliasesFromCall(integrationMocks.hubAgent.mock.calls.at(-1))
+    callHook(dependencyPluginByName(plugins, "vite-hub/dependencies").configResolved, [{ kv: { driver: "upstash" } satisfies KVModuleOptions }])
+    expect(aliases).not.toHaveProperty("@vite-hub/kv/runtime/upstash-driver")
+  })
+
   it("stores the Node cache under dataDir", async () => {
     const config = await applyDeploymentConfig({ cache: true, dataDir: "/tmp/vitehub-data", preset: "node" })
 
