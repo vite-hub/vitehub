@@ -284,6 +284,11 @@ export function planFromJsonSchema(input: PlanInput): SchemaPlan {
       return
     }
     const kind = leaf.kind === "integer" ? "number" : leaf.kind
+    if (runtimeValue?.processEnv?.operator === "||") {
+      plan.unmigrated.push(label)
+      follow(`runtimeConfig.${label} uses process.env.${runtimeValue.processEnv.name} || a fallback. It stays in runtimeConfig without validation to preserve the empty-string fallback. Migrate it by hand with an Env source that skips empty values.`, { runtimeConfig: label })
+      return
+    }
     const field: EnvField = {
       section,
       configPath,
@@ -363,6 +368,19 @@ export function planFromJsonSchema(input: PlanInput): SchemaPlan {
       continue
     }
     visit("server", [key], node, rootRequired.has(key))
+  }
+  const publicPaths = new Map<string, EnvField[]>()
+  for (const field of plan.fields.filter(field => field.section === "public")) {
+    const name = field.envPath[0]!
+    publicPaths.set(name, [...(publicPaths.get(name) ?? []), field])
+  }
+  const collisions = new Set([...publicPaths.values()].filter(fields => fields.length > 1).flat())
+  plan.fields = plan.fields.filter(field => !collisions.has(field))
+  plan.followUps = plan.followUps.filter(entry => !(entry.anchor && "env" in entry.anchor && collisions.has(entry.anchor.env)))
+  for (const field of collisions) {
+    const label = pathLabel(field)
+    plan.unmigrated.push(label)
+    follow(`${label} collides with another public field at Public Env.${field.envPath[0]}. It stays in runtimeConfig. Choose distinct Env names and migrate these fields by hand.`, { runtimeConfig: label })
   }
   return plan
 }

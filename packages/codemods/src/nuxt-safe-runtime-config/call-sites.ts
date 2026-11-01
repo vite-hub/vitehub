@@ -8,7 +8,7 @@ import { glob } from "tinyglobby"
 import { detectStyle, end, isReference, keyName, line, parseProgram, quoteString, start, walk } from "../ast.ts"
 import { pathLabel } from "./fields.ts"
 
-import type { CallExpression, File, ObjectPattern, ObjectProperty } from "@babel/types"
+import type { CallExpression, File, ImportSpecifier, ObjectPattern, ObjectProperty } from "@babel/types"
 import type { CodeStyle, Node } from "../ast.ts"
 import type { FileEdit, FollowUp } from "../types.ts"
 import type { EnvField } from "./fields.ts"
@@ -170,8 +170,35 @@ class Resolver {
 }
 
 function sameImport(program: File, source: string, name: string): boolean {
-  return program.program.body.some(statement => statement.type === "ImportDeclaration" && statement.source.value === source
-    && statement.specifiers.some(specifier => specifier.local.name === name))
+  return program.program.body.some(statement => statement.type === "ImportDeclaration" && statement.source.value === source && statement.importKind !== "type"
+    && statement.specifiers.some(specifier => specifier.type === "ImportSpecifier" && specifier.importKind !== "type"
+      && keyName(specifier.imported) === name && specifier.local.name === name))
+}
+
+/** Collect declarations conservatively across the block, including nested patterns. */
+function blockBindings(program: File): Map<string, Node[]> {
+  const bindings = new Map<string, Node[]>()
+  const add = (node: Node | null | undefined): void => {
+    if (!node) return
+    if (node.type === "Identifier") bindings.set(node.name, [...(bindings.get(node.name) ?? []), node])
+    else if (node.type === "RestElement") add(node.argument)
+    else if (node.type === "AssignmentPattern") add(node.left)
+    else if (node.type === "ArrayPattern") node.elements.forEach(add)
+    else if (node.type === "ObjectPattern") node.properties.forEach(property => add(property.type === "RestElement" ? property.argument : property.value))
+    else if (node.type === "TSParameterProperty") add(node.parameter)
+  }
+  walk(program, (node) => {
+    if (node.type === "VariableDeclarator") add(node.id)
+    else if (node.type === "ImportSpecifier" || node.type === "ImportDefaultSpecifier" || node.type === "ImportNamespaceSpecifier") add(node.local)
+    else if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression" || node.type === "ArrowFunctionExpression"
+      || node.type === "ObjectMethod" || node.type === "ClassMethod" || node.type === "ClassPrivateMethod" || node.type === "TSDeclareFunction") {
+      if ("id" in node) add(node.id)
+      node.params.forEach(add)
+    }
+    else if (node.type === "ClassDeclaration" || node.type === "ClassExpression" || node.type === "TSEnumDeclaration" || node.type === "TSImportEqualsDeclaration") add(node.id)
+    else if (node.type === "CatchClause") add(node.param)
+  })
+  return bindings
 }
 
 function bindingScope(ancestors: readonly Node[]): Node | undefined {
@@ -199,6 +226,9 @@ interface Rewrite {
 class BlockRewriter {
   readonly program: File
   private readonly style: Pick<CodeStyle, "quote" | "semicolons">
+  private readonly bindings: Map<string, Node[]>
+  private readonly safeImports = new Map<string, ImportSpecifier>()
+  private readonly rewrittenCallees = new Set<Node>()
 
   constructor(
     private readonly state: FileState,
@@ -207,6 +237,15 @@ class BlockRewriter {
   ) {
     this.program = parseProgram(block.code, { jsx: block.jsx, typescript: block.typescript })
     this.style = detectStyle(block.code, this.program)
+    this.bindings = blockBindings(this.program)
+    for (const statement of this.program.program.body) {
+      if (statement.type !== "ImportDeclaration" || statement.source.value !== "#imports" || statement.importKind === "type") continue
+      for (const specifier of statement.specifiers) {
+        if (specifier.type === "ImportSpecifier" && specifier.importKind !== "type" && keyName(specifier.imported) === "useSafeRuntimeConfig") {
+          this.safeImports.set(specifier.local.name, specifier)
+        }
+      }
+    }
   }
 
   private follow(lineNumber: number, message: string): void {
@@ -222,12 +261,30 @@ class BlockRewriter {
     const runtimeCalls: Array<{ call: CallExpression, ancestors: Node[] }> = []
     walk(this.program, (node, ancestors) => {
       if (node.type !== "CallExpression" || node.callee.type !== "Identifier") return
-      if (node.callee.name === "useSafeRuntimeConfig") safeCalls.push({ call: node, ancestors: [...ancestors] })
+      if (node.callee.name === "useSafeRuntimeConfig" || this.safeImports.has(node.callee.name)) safeCalls.push({ call: node, ancestors: [...ancestors] })
       if (node.callee.name === "useRuntimeConfig") runtimeCalls.push({ call: node, ancestors: [...ancestors] })
     })
     let needsServer = false
     let needsPublic = false
     for (const { call, ancestors } of safeCalls) {
+      if (call.callee.type !== "Identifier") continue
+      const declarations = this.bindings.get(call.callee.name) ?? []
+      const expected = this.safeImports.get(call.callee.name)
+      if (declarations.length && !(declarations.length === 1 && declarations[0] === expected?.local)) {
+        this.follow(this.lineOf(call), `${call.callee.name} has a local binding or an unrelated import. The codemod left this call unchanged; check it by hand.`)
+        this.state.remainingCalls++
+        continue
+      }
+      // Decline the whole call when either generated accessor could be shadowed.
+      const collision = ([[serverImport, "useServerEnv"], [publicImport, "usePublicEnv"]] as const).find(([source, name]) => {
+        const bindings = this.bindings.get(name) ?? []
+        return bindings.length > 0 && !(bindings.length === 1 && sameImport(this.program, source, name))
+      })
+      if (collision) {
+        this.follow(this.lineOf(call), `${collision[1]} already has a binding in this file. Rewrite this call by hand with an aliased Env import.`)
+        this.state.remainingCalls++
+        continue
+      }
       const rewrite = this.planCall(call, ancestors)
       if (!rewrite) {
         this.state.remainingCalls++
@@ -236,6 +293,7 @@ class BlockRewriter {
       for (const edit of rewrite.edits) this.state.output.overwrite(this.block.offset + edit.from, this.block.offset + edit.to, edit.text)
       needsServer ||= rewrite.needsServer
       needsPublic ||= rewrite.needsPublic
+      this.rewrittenCallees.add(call.callee)
       this.state.changed = true
     }
     for (const { call, ancestors } of runtimeCalls) this.checkRuntimeConfigCall(call, ancestors)
@@ -254,16 +312,30 @@ class BlockRewriter {
     }
     const removed = new Set<Node>()
     let replacedImport = false
-    if (!this.state.remainingCalls) {
+    if (this.rewrittenCallees.size) {
       for (const statement of imports) {
-        const kept = statement.specifiers.filter(specifier => specifier.local.name !== "useSafeRuntimeConfig")
+        const kept = statement.specifiers.filter((specifier) => {
+          if (this.safeImports.get(specifier.local.name) !== specifier) return true
+          let referenced = false
+          walk(this.program, (node, ancestors) => {
+            if (node.type === "Identifier" && node.name === specifier.local.name && isReference(node, ancestors.at(-1)) && !this.rewrittenCallees.has(node)) referenced = true
+          })
+          if (referenced) {
+            this.follow(this.lineOf(specifier), `Some references to ${specifier.local.name} remain. Replace them by hand before removing this Nuxt composable import.`)
+            this.state.remainingCalls++
+          }
+          return referenced
+        })
         if (kept.length === statement.specifiers.length) continue
         const from = this.block.offset + start(statement)
         const to = this.block.offset + end(statement)
         this.state.changed = true
         if (kept.length) {
-          const names = kept.map(specifier => this.block.code.slice(start(specifier), end(specifier)))
-          this.state.output.overwrite(from, to, `import { ${names.join(", ")} } from ${this.block.code.slice(start(statement.source), end(statement.source))}${semicolon}`)
+          const text = (specifier: Node) => this.block.code.slice(start(specifier), end(specifier))
+          const names = kept.filter(specifier => specifier.type === "ImportSpecifier").map(text)
+          const clause = kept.filter(specifier => specifier.type !== "ImportSpecifier").map(text)
+          if (names.length) clause.push(`{ ${names.join(", ")} }`)
+          this.state.output.overwrite(from, to, `import ${clause.join(", ")} from ${this.block.code.slice(start(statement.source), end(statement))}`)
           continue
         }
         removed.add(statement)
@@ -574,6 +646,11 @@ export async function rewriteCallSites(input: CallSiteInput): Promise<CallSiteRe
       template: blocks.template,
       changed: false,
       remainingCalls: 0,
+    }
+    if (blocks.blocks.length > 1 && source.includes("useSafeRuntimeConfig")) {
+      result.followUps.push({ file, message: "This Vue file has multiple script blocks that can share bindings. Rewrite its useSafeRuntimeConfig() calls by hand with aliased Env imports." })
+      result.remaining.push(file)
+      continue
     }
     for (const block of blocks.blocks) {
       if (!/useSafeRuntimeConfig|useRuntimeConfig/.test(block.code)) continue

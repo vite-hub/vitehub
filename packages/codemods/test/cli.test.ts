@@ -68,6 +68,7 @@ describe("codemods CLI", () => {
 
   it("runs as the package binary", async () => {
     const { stdout } = await execute(process.execPath, [join(packageRoot, "dist/cli.js"), "--help"])
+    expect(stdout).toContain("Usage: npx @vite-hub/codemods")
     expect(stdout).toContain("nuxt-safe-runtime-config")
     const manifest: unknown = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"))
     expect(manifest).toMatchObject({ bin: { "vitehub-codemods": "./dist/cli.js" } })

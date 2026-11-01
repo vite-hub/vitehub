@@ -1002,7 +1002,8 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package e
       for (const contract of publicPackageBinContracts) {
         const packageRoot = await realpath(join(appDir, "node_modules", ...contract.packageName.split("/")))
         const result = await run(process.execPath, [join(packageRoot, contract.target), "--help"], appDir)
-        expect(result.stdout, `${contract.packageName} ${contract.binName} should print help`).toContain("Usage: vitehub")
+        const usage = contract.packageName === "@vite-hub/codemods" ? "Usage: npx @vite-hub/codemods" : "Usage: vitehub"
+        expect(result.stdout, `${contract.packageName} ${contract.binName} should print help`).toContain(usage)
         expect(result.stderr).toBe("")
       }
     }

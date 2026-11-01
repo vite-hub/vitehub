@@ -172,7 +172,7 @@ export interface RuntimeConfigValue {
   property: ObjectProperty
   literal?: LiteralValue
   /** `process.env.NAME`, optionally with a `||` or `??` literal fallback. */
-  processEnv?: { name: string, fallback?: LiteralValue }
+  processEnv?: { name: string, fallback?: LiteralValue, operator?: "||" | "??" }
   /** Source text of a value the codemod cannot read statically. */
   expression?: string
   line: number
@@ -198,7 +198,7 @@ export function readRuntimeConfigValue(code: string, property: ObjectProperty): 
   if (node.type === "LogicalExpression" && (node.operator === "||" || node.operator === "??")) {
     const name = processEnvName(node.left)
     const fallback = literalValue(node.right)
-    if (name && fallback !== undefined) return { ...base, processEnv: { name, fallback } }
+    if (name && fallback !== undefined) return { ...base, processEnv: { name, fallback, operator: node.operator } }
   }
   return { ...base, expression: code.slice(start(node), end(node)) }
 }
