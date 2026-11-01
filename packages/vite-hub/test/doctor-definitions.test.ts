@@ -436,3 +436,14 @@ describe("Workflow payload data named steps", () => {
   })
 })
 
+describe("named Workflow handlers", () => {
+  it("checks the steps of a handler passed to defineWorkflow() by name", async () => {
+    for (const handler of ["async function onboard(ctx) { await ctx.steps.unknown() }", "const onboard = async ({ steps }) => steps.unknown()"]) {
+      expect(await projectCodes(workflowStepNames, {
+        "server/workflows/onboard/01.create-user.ts": "export default async function () {}\n",
+        "server/workflows/onboard/index.ts": ['import { defineWorkflow } from "vite-hub/workflow"', handler, "export default defineWorkflow(onboard)"].join("\n"),
+      })).toEqual(["VHUB0020"])
+    }
+  })
+})
+
