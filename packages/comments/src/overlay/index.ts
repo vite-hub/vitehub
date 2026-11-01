@@ -131,6 +131,7 @@ class CommentsOverlay extends HTMLElement {
   private readonly composeMentions = new WeakMap<HTMLTextAreaElement, CommentMention[]>()
   /** The Comments controls. They live in the tool's segment of the page tools pill, in a shadow root of their own. */
   private readonly toolbar = h("div", { className: "bar toolbar", role: "group", "aria-label": "Comments" })
+  private readonly documentStyle = h("style", { "data-vitehub-comments": true }, documentStyles)
   private session?: CommentsSession
   private page = normalizeCommentPage(location.pathname)
   private threads: PageThread[] = []
@@ -165,28 +166,25 @@ class CommentsOverlay extends HTMLElement {
     const bar = this.context?.bar
     if (bar) bar.tabIndex = -1
     if (bar) {
-      // Hidden until the session allows the overlay, so the pill shows no empty segment.
-      bar.hidden = true
+      // Until the session answers, the segment keeps the launch button's place and busy look, so the pill does not shrink
+      // and grow again. A session that does not allow the overlay hides the segment.
       bar.attachShadow({ mode: "open" }).append(h("style", {}, overlayStyles + viteHubPillButtonStyles + pillBarStyles), this.toolbar)
+      this.toolbar.replaceChildren(h("button", { className: "tool", disabled: true, "aria-busy": "true" }, this.context?.tool.label ?? "Comments"))
     }
     this.root.style.setProperty("--font", getComputedStyle(document.body).fontFamily)
     this.followTheme()
-    const style = h("style", { "data-vitehub-comments": true }, documentStyles)
-    document.head.append(style)
-    this.cleanups.push(() => style.remove())
+    this.restoreDocumentState()
+    this.cleanups.push(() => this.documentStyle.remove())
 
     const [error, session] = await api.session()
-    if (!this.active) return
-    if (error) {
-      this.showToast(error.why, "error", { keep: true, action: ["Close", () => this.exit()] })
-      return
-    }
-    if (!session.can.read) {
-      this.showDenied(session)
+    if (!this.active || error || !session.can.read) {
+      if (bar) bar.hidden = true
+      if (!this.active) return
+      if (error) this.showToast(error.why, "error", { keep: true, action: ["Close", () => this.exit()] })
+      else this.showDenied(session)
       return
     }
     this.session = session
-    if (bar) bar.hidden = false
     this.listen()
     this.renderToolbar()
     await this.load()
@@ -240,10 +238,16 @@ class CommentsOverlay extends HTMLElement {
     let timer: ReturnType<typeof setTimeout> | undefined
     const mutations = new MutationObserver((records) => {
       if (records.every(record => record.target === this || this.contains(record.target))) return
+      // A direct body/field replacement need not blur the detached editable element.
+      if (this.editing && !this.editing.element.isConnected) void this.finishEdit(true)
+      // Astro replaces html attributes; Astro and Turbo both merge the head. The retained overlay must restore its
+      // stylesheet and mode class without resetting its mode or drafts, even when the URL stays the same.
+      this.restoreDocumentState()
       clearTimeout(timer)
       timer = setTimeout(schedule, 50)
     })
-    mutations.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["class", "style", "hidden"] })
+    // Follow the new page as well when its router replaces the body.
+    mutations.observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["class", "style", "hidden"] })
     this.cleanups.push(() => {
       resize.disconnect()
       mutations.disconnect()
@@ -251,6 +255,10 @@ class CommentsOverlay extends HTMLElement {
 
     // Client navigation: Nuxt and other routers use the History API.
     const navigate = () => queueMicrotask(() => this.navigated())
+    // Finalize the inline draft before Astro or Turbo removes its field, as a normal blur would.
+    for (const event of ["astro:before-swap", "turbo:before-render"]) {
+      this.on(document, event as keyof DocumentEventMap, () => void this.finishEdit(true))
+    }
     for (const method of ["pushState", "replaceState"] as const) {
       const original = history[method]
       history[method] = function (this: History, ...args: Parameters<History["pushState"]>) {
@@ -350,11 +358,19 @@ class CommentsOverlay extends HTMLElement {
   private setMode(mode: Mode) {
     this.mode = mode
     this.hover = undefined
-    document.documentElement.classList.toggle("vitehub-comment-mode", mode === "comment")
-    document.documentElement.classList.toggle("vitehub-edit-mode", mode === "edit")
+    this.restoreDocumentState()
     if (mode !== "comment") this.draft = undefined
     this.renderToolbar()
     this.render()
+  }
+
+  private restoreDocumentState() {
+    if (this.documentStyle.parentElement !== document.head) document.head.append(this.documentStyle)
+    for (const mode of ["comment", "edit"] as const) {
+      const name = `vitehub-${mode}-mode`
+      const active = this.mode === mode
+      if (document.documentElement.classList.contains(name) !== active) document.documentElement.classList.toggle(name, active)
+    }
   }
 
   private async navigated() {
@@ -1011,7 +1027,9 @@ const start: ViteHubPageToolModule["default"] = (context) => {
   const overlay = document.createElement("vitehub-comments")
   if (!(overlay instanceof CommentsOverlay)) return
   overlay.context = context
-  document.body.append(overlay)
+  // Like the pill and its windows, stay connected throughout a router's body swap. A detach would stop listeners,
+  // polling and Realtime, and reconnecting would initialize the toolbar's shadow root a second time.
+  document.documentElement.append(overlay)
   return () => overlay.stop()
 }
 
