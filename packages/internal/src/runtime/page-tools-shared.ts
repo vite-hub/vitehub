@@ -35,7 +35,7 @@ button:where(:not(:disabled):active){scale:.96}
 button[aria-pressed=true],button[aria-expanded=true]{background:var(--vitehub-pill-on);color:var(--vitehub-pill-on-text)}
 button:focus-visible{outline:2px solid var(--vitehub-pill-on);outline-offset:1px}
 button svg{width:14px;height:14px;flex:none}
-@media(pointer:coarse){button{min-width:44px;height:44px}}
+@media(any-pointer:coarse){button{min-width:44px;height:44px}}
 @media(prefers-reduced-motion:reduce){button{transition:none}}`
 
 /** The attribute of the script that loads the page tools. A page that has it does not get a second one. */

@@ -232,7 +232,12 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
             }, tool, bar, signal: attempt.signal,
             open: show && (tool.lazy === true || tool.id === open || restored(tool.id)), exit,
             createWindow: options => {
-              const window = createViteHubPageWindow({ ...options, signal: attempt.signal, onHide: () => { remember(tool.id, false); options.onHide?.() } })
+              const window = createViteHubPageWindow({ ...options, signal: attempt.signal, onHide: () => {
+                remember(tool.id, false)
+                // Collapsed segments hide the window's trigger; the mark remains visible and operable.
+                if (pill.hasAttribute("collapsed")) pill.shadowRoot!.querySelector<HTMLButtonElement>("button.mark")!.focus({ preventScroll: true })
+                options.onHide?.()
+              } })
               const retained = { ...window, show() {
                 if (attempt.signal.aborted) return
                 for (const [id, other] of windows) if (id !== tool.id) other.hide()
