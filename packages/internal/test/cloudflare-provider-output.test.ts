@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
+import { collapseWranglerConfig, isPlaceholderCloudflareId } from "../src/build/cloudflare.ts"
 import { composeNitroCloudflareProviderOutput } from "../src/build/cloudflare-provider-output.ts"
 import { contributeCloudflareProviderOutput, createProviderOutputCatalog } from "../src/build/provider-output-catalog.ts"
 
@@ -245,5 +246,58 @@ describe("Cloudflare provider output", () => {
     expect(output.hooks).toBe(hooks)
     expect(output.rollupConfig).toBe(rollupConfig)
     expect(output).not.toHaveProperty("cloudflare.wrangler.name")
+  })
+})
+
+describe("collapseWranglerConfig", () => {
+  // Nitro's Cloudflare preset writes the generated arrays first and the project's wrangler config after them.
+  it("keeps one entry per binding, with the project's real ids over missing or all-zero ones", () => {
+    expect(collapseWranglerConfig({
+      compatibility_flags: ["nodejs_compat", "nodejs_als", "nodejs_compat"],
+      kv_namespaces: [{ binding: "KV" }, { binding: "SESSIONS", id: "00000000000000000000000000000000" }, { binding: "KV", id: "kv-id" }, { binding: "SESSIONS", id: "sessions-id" }],
+      r2_buckets: [{ binding: "BLOB", bucket_name: "assets" }, { binding: "BLOB", bucket_name: "assets", jurisdiction: "eu" }],
+      ratelimits: [{ name: "UPLOADS", namespace_id: "1", simple: { limit: 10, period: 60 } }, { name: "UPLOADS", namespace_id: "1", simple: { limit: 10, period: 60 } }],
+      durable_objects: { bindings: [{ class_name: "Room", name: "ROOM" }, { class_name: "Room", name: "ROOM" }] },
+      migrations: [{ new_sqlite_classes: ["Room"], tag: "v1" }, { new_sqlite_classes: ["Room"], tag: "v1" }],
+      queues: { producers: [{ binding: "JOBS", queue: "jobs" }, { binding: "JOBS", queue: "jobs" }] },
+      secrets: { required: ["TOKEN", "OTHER", "TOKEN"] },
+    })).toEqual({
+      compatibility_flags: ["nodejs_compat", "nodejs_als"],
+      kv_namespaces: [{ binding: "KV", id: "kv-id" }, { binding: "SESSIONS", id: "sessions-id" }],
+      r2_buckets: [{ binding: "BLOB", bucket_name: "assets", jurisdiction: "eu" }],
+      ratelimits: [{ name: "UPLOADS", namespace_id: "1", simple: { limit: 10, period: 60 } }],
+      durable_objects: { bindings: [{ class_name: "Room", name: "ROOM" }] },
+      migrations: [{ new_sqlite_classes: ["Room"], tag: "v1" }],
+      queues: { producers: [{ binding: "JOBS", queue: "jobs" }] },
+      secrets: { required: ["TOKEN", "OTHER"] },
+    })
+  })
+
+  it("leaves out an id that stays all-zero, so Wrangler provisions the resource", () => {
+    expect(collapseWranglerConfig({
+      kv_namespaces: [{ binding: "KV" }, { binding: "KV", id: "00000000000000000000000000000000" }],
+    })).toEqual({ kv_namespaces: [{ binding: "KV" }] })
+  })
+
+  it("collapses each Wrangler environment", () => {
+    expect(collapseWranglerConfig({
+      env: { production: { kv_namespaces: [{ binding: "KV" }, { binding: "KV", id: "production-id" }], secrets: { required: ["TOKEN", "TOKEN"] } } },
+    })).toEqual({
+      env: { production: { kv_namespaces: [{ binding: "KV", id: "production-id" }], secrets: { required: ["TOKEN"] } } },
+    })
+  })
+
+  it("fails when two entries of one name select different resources", () => {
+    expect(() => collapseWranglerConfig({
+      r2_buckets: [{ binding: "BLOB", bucket_name: "assets" }, { binding: "BLOB", bucket_name: "other" }],
+    })).toThrow(expect.objectContaining({ code: "INTERNAL_B0051", message: expect.stringContaining("bucket_name") }))
+    expect(() => collapseWranglerConfig({
+      env: { production: { kv_namespaces: [{ binding: "KV", id: "a" }, { binding: "KV", id: "b" }] } },
+    })).toThrow(expect.objectContaining({ message: expect.stringContaining("in env.production") }))
+  })
+
+  it("recognizes all-zero ids only", () => {
+    expect(["00000000000000000000000000000000", "00000000-0000-0000-0000-000000000000", "00000000-0000-4000-8000-000000000000"].every(isPlaceholderCloudflareId)).toBe(true)
+    expect(["", "0f00000000000000000000000000000a", "00000000-0000-4000-8000-000000000001", 0].some(isPlaceholderCloudflareId)).toBe(false)
   })
 })

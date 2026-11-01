@@ -559,6 +559,30 @@ describe("Database Nuxt integration", () => {
       }
     })
 
+    it("takes the project's real id over an all-zero ViteHub id, and ViteHub's real id over an all-zero project id", async () => {
+      const placeholder = "00000000-0000-4000-8000-000000000000"
+      for (const [databaseId, projectId] of [[placeholder, "content-id"], ["content-id", placeholder]]) {
+        const { compile, rootDir } = await writeWrangler({ d1_databases: [{ binding: "DB", database_id: projectId, database_name: "content-db" }] }, {}, { databaseId })
+        try {
+          expect((await compile()).d1_databases).toEqual([generated])
+        }
+        finally {
+          await rm(rootDir, { force: true, recursive: true })
+        }
+      }
+    })
+
+    it("leaves out an id that stays all-zero, so Wrangler provisions the database", async () => {
+      const placeholder = "00000000-0000-4000-8000-000000000000"
+      const { compile, rootDir } = await writeWrangler({ d1_databases: [{ binding: "DB", database_id: placeholder, database_name: "content-db" }] }, {}, { databaseId: placeholder })
+      try {
+        expect((await compile()).d1_databases).toEqual([{ binding: "DB", database_name: "content-db", migrations_dir: generated.migrations_dir }])
+      }
+      finally {
+        await rm(rootDir, { force: true, recursive: true })
+      }
+    })
+
     it.each([
       ["database_id", { binding: "DB", database_id: "other-id" }],
       ["database_name", { binding: "DB", database_name: "other-db" }],
