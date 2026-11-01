@@ -725,6 +725,13 @@ describe("release publication", () => {
       .rejects.toThrow("Registry did not verify @vite-hub/runtime@1.2.3 after 2 attempts")
     expect(delayed.events).not.toContain("audit")
 
+    const deadlineRoot = await temporaryDirectory("vitehub-release-propagation-deadline-")
+    const deadline = await writeArtifact(deadlineRoot, [{ name: "@vite-hub/runtime" }])
+    const slow = fakeRegistryRuntime(deadline.manifest.packages)
+    slow.setIncompleteReads("@vite-hub/runtime", 2)
+    await expect(publishReleaseArtifacts({ attempts: 72, verifyTimeoutMs: 0, manifestPath: deadline.manifestPath, runtime: slow.runtime, sourceRef, sourceSha, tag: "latest" }))
+      .rejects.toThrow("Registry did not verify @vite-hub/runtime@1.2.3 after 0 attempts")
+
     const auditRoot = await temporaryDirectory("vitehub-release-audit-failure-")
     const audit = await writeArtifact(auditRoot, [{ name: "@vite-hub/runtime" }])
     const registry = fakeRegistryRuntime(audit.manifest.packages)
