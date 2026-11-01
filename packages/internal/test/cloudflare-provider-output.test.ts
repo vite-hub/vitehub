@@ -310,14 +310,76 @@ describe("collapseWranglerConfig", () => {
   it.each([
     { field: "image", value: "./OtherDockerfile" },
     { field: "image_build_context", value: "./other" },
+    { field: "image_vars", value: { APP_ENV: "staging" } },
     { field: "name", value: "other-sandbox" },
     { field: "instance_type", value: "standard-1" },
     { field: "max_instances", value: 1 },
   ])("rejects conflicting container $field values", ({ field, value }) => {
-    const generated = { class_name: "Sandbox", image: "./Dockerfile", image_build_context: ".", name: "sandbox", instance_type: "lite", max_instances: 12 }
+    const generated = { class_name: "Sandbox", image: "./Dockerfile", image_build_context: ".", image_vars: { APP_ENV: "production" }, name: "sandbox", instance_type: "lite", max_instances: 12 }
     const project = { ...generated, [field]: value }
     for (const containers of [[generated, project], [project, generated]]) {
       expect(() => collapseWranglerConfig({ containers })).toThrow(expect.objectContaining({ code: "INTERNAL_B0051", message: expect.stringContaining(field) }))
+    }
+  })
+
+  it("collapses name-linked containers without conflating names and class names", () => {
+    const named = { name: "Sandbox", image: "./Dockerfile" }
+    const project = { ...named, image_build_context: "." }
+    const linked = { class_name: "Sandbox", image: "./OtherDockerfile" }
+    const other = { name: "Other", image: "./Dockerfile" }
+    const containers = [named, linked, other, project, linked, other]
+    const expected = [project, linked, other]
+    expect(collapseWranglerConfig({ containers, env: { production: { containers } } })).toEqual({
+      containers: expected, env: { production: { containers: expected } },
+    })
+  })
+
+  it.each(["class_name", "name"])("rejects container scheduling-policy changes when linked by %s", (field) => {
+    const identity = { [field]: "Sandbox" }
+    const managed = { ...identity, scheduling_policy: "durable_object", images: { base: { dockerfile: "./Dockerfile" } } }
+    for (const scheduling_policy of [undefined, "default"]) {
+      const generated = { ...identity, scheduling_policy, image: "./Dockerfile", instance_type: "lite" }
+      for (const containers of [[generated, managed], [managed, generated]]) {
+        for (const config of [{ containers }, { env: { production: { containers } } }]) {
+          expect(() => collapseWranglerConfig(config)).toThrow(expect.objectContaining({ code: "INTERNAL_B0051", message: expect.stringContaining("scheduling_policy") }))
+        }
+      }
+    }
+  })
+
+  it("merges compatible container policies and rejects conflicting named images", () => {
+    const generated = { class_name: "Sandbox", image: "./Dockerfile" }
+    const project = { ...generated, scheduling_policy: "default", image_vars: { APP_ENV: "production" } }
+    for (const containers of [[generated, project], [project, generated]]) {
+      expect(collapseWranglerConfig({ containers })).toEqual({ containers: [project] })
+    }
+
+    const managed = { name: "sandbox", scheduling_policy: "durable_object", images: { base: { dockerfile: "./Dockerfile" } } }
+    const configured = { ...managed, ssh: { enabled: true } }
+    expect(collapseWranglerConfig({ containers: [managed, configured, managed] })).toEqual({ containers: [configured] })
+    const other = { ...managed, images: { base: { dockerfile: "./OtherDockerfile" } } }
+    for (const containers of [[managed, other], [other, managed]]) {
+      expect(() => collapseWranglerConfig({ containers })).toThrow(expect.objectContaining({ code: "INTERNAL_B0051", message: expect.stringContaining("images") }))
+    }
+  })
+
+  it("rejects combining single and named container images in either order", () => {
+    const named = { class_name: "Sandbox", scheduling_policy: "durable_object", images: { base: { dockerfile: "./Dockerfile" } } }
+    const single = { class_name: "Sandbox", scheduling_policy: "durable_object", image: "./Dockerfile" }
+    for (const containers of [[single, named], [named, single]]) {
+      expect(() => collapseWranglerConfig({ containers })).toThrow(expect.objectContaining({ code: "INTERNAL_B0051", message: expect.stringContaining("image / images") }))
+    }
+  })
+
+  it("checks service environments while preserving compatible duplicates", () => {
+    const generated = { binding: "API", service: "api" }
+    const production = { ...generated, environment: "production" }
+    const staging = { ...generated, environment: "staging" }
+    expect(collapseWranglerConfig({ services: [generated, production, production] })).toEqual({ services: [production] })
+    for (const services of [[production, staging], [staging, production]]) {
+      for (const config of [{ services }, { env: { production: { services } } }]) {
+        expect(() => collapseWranglerConfig(config)).toThrow(expect.objectContaining({ code: "INTERNAL_B0051", message: expect.stringContaining("environment") }))
+      }
     }
   })
 

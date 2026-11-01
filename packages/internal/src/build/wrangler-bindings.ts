@@ -9,10 +9,12 @@ import { internalErrorDiagnostics } from "../error-diagnostics.ts"
 export interface WranglerEntrySpec {
   /** The path of the array, such as `["durable_objects", "bindings"]`. */
   path: readonly string[]
-  /** The field that names an entry. */
-  identity: string
+  /** The field that names an entry, or alternative fields in priority order. */
+  identity: string | readonly string[]
   /** Fields that select the resource. Two entries of one name must agree on them. */
   resource: readonly string[]
+  /** Effective resource values when a field is omitted. These are compared without adding them to the output. */
+  defaults?: Readonly<Record<string, unknown>>
   /** Resource fields that hold an id. An all-zero id stands for a resource that does not exist yet. */
   ids?: readonly string[]
   /** Keep unresolved placeholder IDs for resources that Wrangler cannot provision automatically. */
@@ -42,13 +44,19 @@ export const wranglerEntrySpecs: readonly WranglerEntrySpec[] = [
   { path: ["r2_buckets"], identity: "binding", resource: ["bucket_name", "jurisdiction", "preview_bucket_name"] },
   { path: ["ratelimits"], identity: "name", resource: ["namespace_id", "simple"] },
   { path: ["hyperdrive"], identity: "binding", resource: ["id"], ids: ["id"], preservePlaceholderIds: true },
-  { path: ["containers"], identity: "class_name", resource: ["image", "image_build_context", "name", "instance_type", "max_instances"] },
+  {
+    path: ["containers"],
+    identity: ["class_name", "name"],
+    resource: ["scheduling_policy", "image", "images", "image_build_context", "image_vars", "name", "instance_type", "max_instances"],
+    defaults: { scheduling_policy: "default" },
+    exclusive: [["image", "images"]],
+  },
   { path: ["durable_objects", "bindings"], identity: "name", resource: ["class_name", "script_name", "environment"] },
   { path: ["migrations"], identity: "tag", resource: ["new_classes", "new_sqlite_classes", "renamed_classes", "deleted_classes", "transferred_classes"] },
   { path: ["queues", "producers"], identity: "binding", resource: ["queue"] },
   { path: ["queues", "consumers"], identity: "queue", resource: [] },
   { path: ["workflows"], identity: "binding", resource: ["name", "class_name", "script_name", "jurisdiction"], exclusive: [["script_name", "jurisdiction"]] },
-  { path: ["services"], identity: "binding", resource: ["service", "entrypoint"] },
+  { path: ["services"], identity: "binding", resource: ["service", "entrypoint", "environment"] },
   { path: ["send_email"], identity: "name", resource: ["destination_address", "allowed_destination_addresses", "allowed_sender_addresses"], exclusive: [["destination_address", "allowed_destination_addresses"]] },
   { path: ["analytics_engine_datasets"], identity: "binding", resource: ["dataset"] },
 ]
@@ -77,29 +85,26 @@ function defaultConflict({ field, generated, name, path, project, scope }: Wrang
 function collapseEntries(entries: readonly unknown[], spec: WranglerEntrySpec, scope: string, conflict: (details: WranglerEntryConflict) => Error): unknown[] {
   const collapsed: unknown[] = []
   const byName = new Map<string, Record<string, unknown>>()
+  const identities = typeof spec.identity === "string" ? [spec.identity] : spec.identity
   for (const entry of entries) {
-    if (!isPlainObject(entry) || typeof entry[spec.identity] !== "string") {
+    const identity = isPlainObject(entry) ? identities.find(field => typeof entry[field] === "string") : undefined
+    if (!isPlainObject(entry) || identity === undefined) {
       collapsed.push(entry)
       continue
     }
-    const name = entry[spec.identity] as string
-    const first = byName.get(name)
+    const name = entry[identity] as string
+    // A name-linked application and a class-linked application can use the same string for different resources.
+    const key = `${identity}:${name}`
+    const first = byName.get(key)
     if (!first) {
       const copy: Record<string, unknown> = { ...entry }
-      byName.set(name, copy)
+      byName.set(key, copy)
       collapsed.push(copy)
       continue
     }
-    for (const group of spec.exclusive ?? []) {
-      const generatedField = group.find(field => first[field] !== undefined)
-      const projectField = group.find(field => entry[field] !== undefined)
-      if (generatedField && projectField && generatedField !== projectField) {
-        throw conflict({ field: group.join(" / "), generated: { [generatedField]: first[generatedField] }, name, path: spec.path.join("."), project: { [projectField]: entry[projectField] }, scope })
-      }
-    }
     for (const field of spec.resource) {
-      const generated = first[field]
-      const project = entry[field]
+      const generated = first[field] === undefined ? spec.defaults?.[field] : first[field]
+      const project = entry[field] === undefined ? spec.defaults?.[field] : entry[field]
       if (generated === undefined || project === undefined || isDeepStrictEqual(generated, project)) continue
       const isId = spec.ids?.includes(field) === true
       if (isId && isPlaceholderCloudflareId(project)) continue
@@ -108,6 +113,13 @@ function collapseEntries(entries: readonly unknown[], spec: WranglerEntrySpec, s
         continue
       }
       throw conflict({ field, generated, name, path: spec.path.join("."), project, scope })
+    }
+    for (const group of spec.exclusive ?? []) {
+      const generatedField = group.find(field => first[field] !== undefined)
+      const projectField = group.find(field => entry[field] !== undefined)
+      if (generatedField && projectField && generatedField !== projectField) {
+        throw conflict({ field: group.join(" / "), generated: { [generatedField]: first[generatedField] }, name, path: spec.path.join("."), project: { [projectField]: entry[projectField] }, scope })
+      }
     }
     const kept = new Set((spec.groups ?? []).filter(group => group.some(field => first[field] !== undefined)).flat())
     for (const [key, value] of Object.entries(entry)) {
