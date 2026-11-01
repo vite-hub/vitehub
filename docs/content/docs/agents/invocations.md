@@ -255,8 +255,8 @@ Timing events carry the available invocation, run, and trace identifiers. They c
 Attach the `otlp()` Capability to send completed invocation traces to any OTLP/HTTP JSON receiver:
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from '@vite-hub/agent'
-import { otlp } from '@vite-hub/agent/capabilities'
+import { defineAgent } from 'vite-hub/agent'
+import { otlp } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   name: 'support',

@@ -6,12 +6,13 @@ export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
     deps: {
-      // advocaat is an optional peer: ask() loads it on first use.
-      neverBundle: ["advocaat"],
+      // Optional peers: ask() loads advocaat and languageModel() loads its AI SDK provider on first use.
+      neverBundle: ["advocaat", /^@ai-sdk\//],
       alwaysBundle: [/^@vite-hub\/internal/],
       onlyBundle: false,
     },
     entry: [
+      "src/ai-sdk.ts",
       "src/index.ts",
       "src/internal.ts",
     ],

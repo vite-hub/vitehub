@@ -117,31 +117,25 @@ The authorization server is Better Auth. A Console Auth that ViteHub generates (
 
 A bearer token still runs the Console Auth `authorize` callback with the verified user, followed by `console.authorize`. With `console.auth: 'app'`, it also runs every matching app Auth access route’s `authorize` callback. It has no browser session, so these callbacks receive an empty `session` object. Tokens authenticate only the exact mounted MCP endpoint; other routes continue to require a session.
 
-For `console: { auth: 'app' }`, add them to the Auth that signs people in:
+For `console: { auth: 'app' }`, add `consoleMcpOAuth()` to the Auth that signs people in. It returns `jwt()`, `oauthProvider()`, and the registration hook, made with the Better Auth that ViteHub uses, so do not install a second `@better-auth/oauth-provider`. Give it the same resource as `console.mcp.resource`. It fixes the token issuer to that origin and Better Auth's `/api/auth` base path, or to `issuer`. Tokens then name the configured resource and issuer, also when a request comes through another host, such as a preview URL.
 
 ```ts [server/auth.ts]
-import { oauthProvider } from '@better-auth/oauth-provider'
-import { jwt } from 'better-auth/plugins'
 import { defineAuth } from 'vite-hub/auth'
-import { consoleMcpNativeClients } from 'vite-hub/console/auth'
+import { consoleMcpOAuth } from 'vite-hub/console/auth'
 
 export default defineAuth(({ requestOrigin }) => ({
   baseURL: requestOrigin,
   plugins: [
-    jwt(),
-    consoleMcpNativeClients(),
-    oauthProvider({
-      loginPage: '/sign-in',
-      consentPage: '/oauth',
-      scopes: ['openid', 'profile', 'email', 'offline_access', 'vitehub:read', 'vitehub:write'],
-      resources: [`${requestOrigin}/_vitehub/mcp`],
-      clientRegistrationDefaultResources: [`${requestOrigin}/_vitehub/mcp`],
-      allowDynamicClientRegistration: true,
-      allowUnauthenticatedClientRegistration: true,
-    }),
+    ...consoleMcpOAuth({ resource: 'https://app.example.com/_vitehub/mcp' }),
   ],
 }))
 ```
+
+Better Auth sends a signed-out person to `loginPage`, and a signed-in person to `consentPage`, which defaults to `loginPage`. By default, `loginPage` is the built-in `/_vitehub/sign-in` page next to the resource. It signs the person in with email and password, when `emailAndPassword` is on, or with the social providers of the Auth. Then it shows the client name and asks the person to allow or deny it.
+
+To use the app's own sign-in page, set `loginPage`, such as `'/sign-in'`. Apps with two-factor authentication must use a page that completes their challenge; the built-in page does not complete it. Better Auth sends the person there with a signed query: the parameters named by `ba_param`, plus `sig`. Send those parameters back unchanged, in their order, as `oauth_query` in the body of the sign-in request, such as `/api/auth/sign-in/email`. Its response has the `url` of the next step. A signed-in person comes back to the consent page: show the client name from `/api/auth/oauth2/public-client?client_id=…`, and send `{ accept, oauth_query }` to `/api/auth/oauth2/consent`. Go to the `url` of its response. Better Auth's `oauthProviderClient()` adds `oauth_query` to client requests automatically.
+
+To configure the provider yourself, add `jwt()`, `consoleMcpNativeClients()`, and `oauthProvider()` with the options that the next paragraph names. Use the Better Auth version that ViteHub uses, or their plugin types do not fit `defineAuth()`.
 
 `resources` declares the MCP resource, and `clientRegistrationDefaultResources` links dynamically registered clients to it when their registration omits a resource list. Include both in a supplied `oauthProvider()`, including with `migrate: false`. Without `resources` Better Auth issues opaque tokens, not JWTs, and the Console cannot check them. When `jwt()`, `oauthProvider()`, the resource in either list, or the two `vitehub:` scopes are missing from the Auth, the Console answers `503` with `CONSOLE_MCP_OAUTH_INCOMPLETE` and the fix on both metadata endpoints.
 

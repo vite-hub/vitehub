@@ -5,6 +5,7 @@ import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { summarizeDefinitions } from "@vite-hub/internal/inspect"
 
 import { discoverChannelDefinitions } from "./discovery.ts"
+export { discoverChannelDefinitions } from "./discovery.ts"
 
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { DiscoveredChannelDefinition } from "./types.ts"

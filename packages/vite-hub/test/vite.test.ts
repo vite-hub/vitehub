@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+const kvCacheDriver = fileURLToPath(import.meta.resolve("vite-hub/_internal/kv/runtime/nitro-cache"))
+
 vi.mock("node:fs", async importOriginal => {
   const fs = await importOriginal<typeof import("node:fs")>()
   return { ...fs, readFileSync: vi.fn(fs.readFileSync) }
@@ -1290,6 +1292,36 @@ describe("vitehub", () => {
     expect(config.nitro).toHaveProperty("cloudflare.wrangler.kv_namespaces", [{ binding: "KV", id: "kv-id" }])
   })
 
+  it("mounts Nitro cache storage on the app's KV store", async () => {
+    const config = await applyDeploymentConfig({ cache: { driver: "kv" }, kv: true, preset: "cloudflare" })
+    const mount = { base: "nitro-cache", driver: kvCacheDriver }
+
+    expect(config.nitro).toMatchObject({ devStorage: { cache: mount }, storage: { cache: mount } })
+    await expect(applyDeploymentConfig({ cache: { driver: "kv" }, preset: "cloudflare" })).rejects.toThrow("`kv` is not enabled")
+  })
+
+  it.each(["build", "serve"] as const)("validates the effective KV cache configuration during %s", async (command) => {
+    const options = { cache: { driver: "kv" as const }, kv: true, preset: "node" as const }
+    await expect(applyDeploymentConfig(options, { kv: false }, command)).rejects.toThrow("`kv` is not enabled")
+    await expect(applyDeploymentConfig({ ...options, kv: false }, { kv: { driver: "fs-lite" } }, command)).resolves.toHaveProperty(
+      "nitro.storage.cache.driver", kvCacheDriver,
+    )
+  })
+
+  it.each([undefined, false] as const)("installs KV for top-level cache configuration when module KV is %s", async (kv) => {
+    const plugins = vitehub({ agent: true, cache: { driver: "kv" }, kv, preset: "cloudflare" })
+    const config = { kv: { binding: "APP_KV", driver: "cloudflare-kv-binding" } satisfies KVModuleOptions }
+    await callHook(dependencyPluginByName(plugins, "vite-hub/deployment-preset").config, [config, { command: "build", mode: "production" }])
+
+    expect(config).toHaveProperty("nitro.storage.cache.driver", kvCacheDriver)
+    expect.soft(pluginNames(plugins)).toContain("@vite-hub/kv/vite")
+    expect.soft(pluginNames(plugins)).not.toContain("@vite-hub/kv/optional-peers")
+
+    const aliases = providerAliasesFromCall(integrationMocks.hubAgent.mock.calls.at(-1))
+    callHook(dependencyPluginByName(plugins, "vite-hub/dependencies").configResolved, [{ kv: { driver: "upstash" } satisfies KVModuleOptions }])
+    expect(aliases).not.toHaveProperty("@vite-hub/kv/runtime/upstash-driver")
+  })
+
   it("stores the Node cache under dataDir", async () => {
     const config = await applyDeploymentConfig({ cache: true, dataDir: "/tmp/vitehub-data", preset: "node" })
 
@@ -1299,9 +1331,9 @@ describe("vitehub", () => {
     })
   })
 
-  it("rejects a cache store that the preset cannot provide", () => {
-    expect(() => vitehub({ cache: true, preset: "netlify" })).toThrow("`cache: true` has no default store for the netlify preset.")
-    expect(() => vitehub({ cache: { driver: "fs-lite" }, preset: "cloudflare" })).toThrow("`cache.driver: \"fs-lite\"` requires the node preset, but the preset is cloudflare.")
+  it("rejects a cache store that the preset cannot provide", async () => {
+    await expect(applyDeploymentConfig({ cache: true, preset: "netlify" })).rejects.toThrow("`cache: true` has no default store for the netlify preset.")
+    await expect(applyDeploymentConfig({ cache: { driver: "fs-lite" }, preset: "cloudflare" })).rejects.toThrow("`cache.driver: \"fs-lite\"` requires the node preset, but the preset is cloudflare.")
   })
 
   it("preserves an explicit Cloudflare WASM loading mode", async () => {
