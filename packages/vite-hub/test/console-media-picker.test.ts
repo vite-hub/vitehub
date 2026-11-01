@@ -40,3 +40,14 @@ it("fails closed when the library cannot say which store it serves", async () =>
   const { picker } = mountPicker(async () => { throw new Error("offline") })
   await expect(picker.pick({ files: [], kind: "image", store: "media" })).resolves.toEqual([])
 })
+
+it("keeps the newest of two overlapping first clicks", async () => {
+  let resolve!: (info: ConsoleMediaInfo) => void
+  const { client, picker } = mountPicker(() => new Promise(done => { resolve = done }))
+  const older = picker.pick({ files: [], kind: "image", store: "media" })
+  const newer = picker.pick({ files: [], kind: "image", store: "media" })
+  resolve({ access, served: "/media/", store: "media" })
+  await expect(older).resolves.toEqual([])
+  expect(await settled(newer)).toBe(pending)
+  expect(client.info).toHaveBeenCalledOnce()
+})

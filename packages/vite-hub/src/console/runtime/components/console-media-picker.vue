@@ -91,26 +91,36 @@ async function uploadNow(next: ConsoleMediaRequest): Promise<ConsoleMediaItem[]>
   return results.map(result => item(result.file));
 }
 
-/** The store that the library serves. Asks the client before the dialog first opens, so a store-bound field works on its first click. */
-async function servedStore(): Promise<string | undefined> {
-  if (store.value) return store.value;
-  try {
-    const info = await props.client.info();
-    access.value = info.access;
-    store.value = info.store;
-  }
-  catch (error) {
-    toast.error(`Couldn't open Media. ${consoleErrorMessage(error, "Try again.")}`);
-  }
-  return store.value;
+let storeLookup: Promise<string | undefined> | undefined;
+/**
+ * The store that the library serves. Asks the client before the dialog first opens, so a store-bound field works on its
+ * first click. Overlapping picks share one lookup.
+ */
+function servedStore(): Promise<string | undefined> {
+  if (store.value) return Promise.resolve(store.value);
+  storeLookup ??= props.client.info()
+    .then((info) => {
+      access.value = info.access;
+      store.value = info.store;
+      return info.store;
+    }, (error: unknown) => {
+      toast.error(`Couldn't open Media. ${consoleErrorMessage(error, "Try again.")}`);
+      return undefined;
+    })
+    .finally(() => { storeLookup = undefined; });
+  return storeLookup;
 }
 
+let latestPick = 0;
 /** Asks for media. Resolves to an empty list when the person cancels. */
 async function pick(next: ConsoleMediaRequest): Promise<ConsoleMediaItem[]> {
+  const call = ++latestPick;
   // A store-bound field picks and uploads only in the served store. When the library cannot say which store it serves,
   // the field fails closed, so it can never keep a pathname from the wrong store.
   if (next.store) {
     const served = await servedStore();
+    // A newer pick started while this one waited for the store. The newest pick wins, as it does without a store.
+    if (call !== latestPick) return [];
     if (!served) return [];
     if (next.store !== served) {
       toast.error("This field uses a different Media store.");
