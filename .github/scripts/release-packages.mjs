@@ -562,7 +562,8 @@ function assertAttestationSubject(statement, pkg) {
 async function registryFetch(runtime, url, options, label) {
   try {
     const timeout = Math.min(options.requestTimeoutMs ?? 15_000, options.deadline === undefined ? Infinity : options.deadline - Date.now())
-    return await runtime.fetch(url, { signal: AbortSignal.timeout(Math.max(1, timeout)) })
+    if (timeout <= 0) fail("Registry verification deadline passed")
+    return await runtime.fetch(url, { signal: AbortSignal.timeout(timeout) })
   }
   catch (error) {
     throw new Error(`Registry request failed for ${label}`, { cause: error })

@@ -17,7 +17,7 @@ import { dirname, join, resolve } from "node:path"
 import { promisify } from "node:util"
 import { gzipSync } from "node:zlib"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   createReleaseArtifacts,
@@ -714,6 +714,39 @@ describe("release publication", () => {
 
     expect(registry.getSleeps()).toBe(2)
     expect(registry.events).toEqual(["verified:@vite-hub/runtime", "audit"])
+  })
+
+  it("caps each registry request at the time left before the verification deadline", async () => {
+    const root = await temporaryDirectory("vitehub-release-request-deadline-")
+    const artifact = await writeArtifact(root, [{ name: "@vite-hub/runtime" }])
+    const registry = fakeRegistryRuntime(artifact.manifest.packages)
+    registry.setIncompleteReads("@vite-hub/runtime", 10)
+    let now = 1_000_000
+    let published = false
+    const timeouts: number[] = []
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now)
+    const timeout = vi.spyOn(AbortSignal, "timeout")
+    const runtime = {
+      ...registry.runtime,
+      exec: async (command: string, args: string[], options?: { cwd?: string, timeout?: number }) => {
+        if (args[0] === "publish") published = true
+        return registry.runtime.exec(command, args, options)
+      },
+      fetch: async (input: string) => {
+        if (published) timeouts.push(timeout.mock.lastCall![0])
+        now += 400
+        return registry.runtime.fetch(input)
+      },
+    }
+    try {
+      await expect(publishReleaseArtifacts({ verifyTimeoutMs: 1_000, manifestPath: artifact.manifestPath, runtime, sourceRef, sourceSha, tag: "latest" }))
+        .rejects.toThrow("Registry did not verify @vite-hub/runtime@1.2.3")
+    }
+    finally {
+      clock.mockRestore()
+      timeout.mockRestore()
+    }
+    expect(timeouts).toEqual([1_000, 600, 200])
   })
 
   it("reports exhausted propagation and signature audit failures", async () => {
