@@ -10,7 +10,7 @@ import { defineAuth } from "@vite-hub/auth"
 import { createAuthForRequest } from "@vite-hub/auth/server"
 import { defineOperation } from "@vite-hub/internal/operations"
 
-import { consoleAuthSignInPage, consoleMcpNativeClients, createConsoleAuthDefinition, defineConsoleAuth, prepareConsoleAuth } from "../src/console/auth.ts"
+import { consoleAuthSignInPage, consoleMcpNativeClients, consoleMcpOAuth, createConsoleAuthDefinition, defineConsoleAuth, prepareConsoleAuth } from "../src/console/auth.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import type { ConsoleOAuthAuth } from "../src/console/runtime/server/bearer.ts"
 import consoleMcpAuthorizationServerHandler from "../src/console/runtime/server/mcp-authorization-server.ts"
@@ -274,6 +274,36 @@ describe("MCP sign-in against a real Better Auth", () => {
       await expect(web.json()).resolves.toMatchObject({ application_type: "web" })
       const explicitWeb = await register({ application_type: "web", client_name: "Explicit web", redirect_uris: ["http://localhost:53682/callback"], token_endpoint_auth_method: "none" })
       expect(explicitWeb.status).toBe(400)
+    }
+    finally {
+      database.close()
+    }
+  })
+
+  it("completes app Auth with consoleMcpOAuth(), and keeps its issuer and resource on another host", async () => {
+    const database = new DatabaseSync(":memory:")
+    // `baseURL: requestOrigin` follows the request, so a preview host would otherwise issue tokens that the Console rejects.
+    const definition = defineAuth(({ requestOrigin }) => ({ baseURL: requestOrigin, database, plugins: consoleMcpOAuth({ loginPage: "/login", resource }), secret: "test-secret-at-least-32-bytes-long" }))
+    const real = (request: Request) => createAuthForRequest(definition, request)
+    const preview = "https://preview.example.com"
+    try {
+      await (await real(new Request(resource)).$context).runMigrations()
+      // SAFETY: Better Auth's plugins add the OAuth endpoints to this instance at runtime.
+      const auth = (request: Request) => real(request) as unknown as ConsoleOAuthAuth
+      installConsoleAccess({ mode: "auth", oauth: { auth, path: "/_vitehub/mcp", resource } })
+      const metadata = await defineHandler(consoleMcpMetadataHandler).fetch(new Request(`${app}/.well-known/oauth-protected-resource`))
+      expect(metadata.status, await metadata.clone().text()).toBe(200)
+      await expect(metadata.json()).resolves.toMatchObject({ authorization_servers: [`${app}/api/auth`], resource })
+      await expect(auth(new Request(`${preview}/_vitehub/mcp`)).api.getOAuthServerConfig?.({ asResponse: false, headers: new Headers() })).resolves.toMatchObject({ issuer: `${app}/api/auth` })
+      const context = await real(new Request(`${preview}/_vitehub/mcp`)).$context
+      expect(context.getPlugin("oauth-provider")?.options).toMatchObject({ clientRegistrationDefaultResources: [resource], consentPage: "/login", loginPage: "/login", resources: [resource] })
+      const registration = await real(new Request(`${preview}/_vitehub/mcp`)).handler(new Request(`${preview}/api/auth/oauth2/register`, {
+        body: JSON.stringify({ client_name: "Claude Code", redirect_uris: ["http://localhost:53682/callback"], token_endpoint_auth_method: "none" }),
+        headers: { "content-type": "application/json", "origin": preview },
+        method: "POST",
+      }))
+      expect(registration.status, await registration.clone().text()).toBe(201)
+      await expect(registration.json()).resolves.toMatchObject({ application_type: "native" })
     }
     finally {
       database.close()
