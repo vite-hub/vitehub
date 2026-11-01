@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { installConsolePageTool } from "../src/console/runtime/server/page-tool.ts"
@@ -23,6 +23,46 @@ describe("embedded Console access", () => {
     expect(allowed.headers.get("content-security-policy")).toContain("frame-src 'self'")
     expect(allowed.headers.get("content-security-policy")).toContain("form-action 'self'")
     expect(allowed.headers.get("cache-control")).toBe("no-store")
+  })
+
+  it.each([
+    { mode: "open", signInPage: undefined },
+    { mode: "open", signInPage: "/sign-in" },
+    { mode: "auth", signInPage: undefined },
+    { mode: "auth", signInPage: "/sign-in" },
+    { mode: "cloudflare-access", signInPage: undefined },
+    { mode: "cloudflare-access", signInPage: "/sign-in" },
+  ] as const)("reuses the page grant for framing with $mode access and signInPage=$signInPage", async ({ mode, signInPage }) => {
+    const authorize = vi.fn(() => false).mockReturnValueOnce(true)
+    const check = vi.fn(async () => undefined)
+    const policy = mode === "open" ? { mode, authorize } : { mode, check, authorize }
+    installConsoleAccess({ ...policy, ...(signInPage ? { signInPage } : {}) })
+
+    const allowed = await page(event("/_vitehub?embed=1"))
+    expect(allowed.status).toBe(200)
+    expect(allowed.headers.get("x-frame-options")).toBe("SAMEORIGIN")
+    expect(allowed.headers.get("content-security-policy")).toContain("frame-ancestors 'self'")
+    expect(authorize).toHaveBeenCalledTimes(1)
+    expect(check).toHaveBeenCalledTimes(mode === "open" ? 0 : 1)
+
+    const denied = await page(event("/_vitehub?embed=1"))
+    expect(denied.status).toBe(403)
+    expect(denied.headers.get("x-frame-options")).toBe("DENY")
+    expect(authorize).toHaveBeenCalledTimes(2)
+    expect(check).toHaveBeenCalledTimes(mode === "open" ? 0 : 2)
+  })
+
+  it("keeps a signed-out embedded page unframeable without repeating authentication", async () => {
+    const check = vi.fn(async () => new Response(null, { status: 401 }))
+    const authorize = vi.fn(() => true)
+    installConsoleAccess({ mode: "auth", check, authorize })
+
+    const signedOut = await page(event("/_vitehub?embed=1"))
+    expect(signedOut.status).toBe(200)
+    expect(signedOut.headers.get("x-frame-options")).toBe("DENY")
+    expect(signedOut.headers.get("content-security-policy")).toContain("frame-ancestors 'none'")
+    expect(check).toHaveBeenCalledTimes(1)
+    expect(authorize).not.toHaveBeenCalled()
   })
 
   it("does not offer Content to a Console user whose sections exclude it", async () => {

@@ -538,8 +538,9 @@ export function consoleRealtimeAccess(section: ConsoleSectionId): ConsoleRealtim
  */
 export async function consoleAllowsRequest(event: unknown, section?: ConsoleSectionId, kind: "read" | "write" = "read"): Promise<boolean> {
   if (!(event instanceof Object)) return false
+  // The embedded page's framing decision shares its already-checked access.
   // SAFETY: the page tools session passes the H3 event of its Nitro route, which has the members the check reads.
-  const access = await checkConsoleAccess(event as ConsoleRequestEvent)
+  const access = checkedEvents.get(event) ?? rejectedEvents.get(event) ?? await checkConsoleAccess(event as ConsoleRequestEvent)
   return !isRuntimeResponse(access) && (section === undefined || (kind === "write" ? consoleAccessWrites(access, section) : consoleAccessAllows(access, section)))
 }
 
