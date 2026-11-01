@@ -408,7 +408,7 @@ jobs:
             exit 1
           fi
 
-          args=(--verify-tag --generate-notes)
+          args=(--verify-tag)
           if [[ "$prerelease" == "true" ]]; then
             args+=(--prerelease)
           fi
@@ -416,5 +416,10 @@ jobs:
           if gh release view "$release_tag" >/dev/null 2>&1; then
             echo "GitHub release $release_tag already exists."
           else
-            gh release create "$release_tag" "${args[@]}"
+            notes="$(gh api "repos/${GH_REPO}/releases/generate-notes" -f "tag_name=${release_tag}" --jq .body)"
+            # GitHub rejects release bodies over 125000 characters. Keep only GitHub's compare line, which picks the previous tag, prereleases included.
+            if (( ${#notes} > 120000 )); then
+              notes="$(grep -m1 '^\*\*Full Changelog\*\*: ' <<< "$notes" || echo "**Full Changelog**: https://github.com/${GH_REPO}/commits/${release_tag}")"
+            fi
+            printf '%s\n' "$notes" | gh release create "$release_tag" "${args[@]}" --notes-file -
           fi
