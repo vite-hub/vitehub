@@ -327,6 +327,9 @@ export function editNuxtConfig(input: ConfigEditInput): ConfigEditResult {
       if (last) editor.output.appendLeft(end(last), `, ${moduleText}`)
       else editor.output.appendLeft(end(modules) - 1, moduleText)
     }
+    else if (findProperty(config.root, "modules")) {
+      throw new CodemodError(`${config.fileName} sets modules to an expression. Make it an array literal, then run the codemod again.`)
+    }
     else {
       rootEntries.push(`modules: [${moduleText}]`)
     }

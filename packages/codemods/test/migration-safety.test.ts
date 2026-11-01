@@ -151,6 +151,30 @@ describe("call-site bindings", () => {
 })
 
 describe("nested app boundaries", () => {
+  it.each([false, true])("reports an external local layer (transitive: %s) without changing it", async (transitive) => {
+    const code = "export default defineEventHandler(event => useSafeRuntimeConfig(event).apiKey)\n"
+    const layerConfig = "export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'] })\n"
+    const layerPackage = '{"dependencies":{"nuxt-safe-runtime-config":"0.3.2"}}\n'
+    const root = await app({
+      "app/nuxt.config.ts": `export default defineNuxtConfig({ extends: ['${transitive ? "./layers/base" : "../layers/accounts"}'], modules: ['nuxt-safe-runtime-config'], safeRuntimeConfig: { envSchema: '.env.example' } })`,
+      "app/.env.example": "NUXT_API_KEY=secret\n",
+      "app/package.json": layerPackage,
+      ...(transitive ? { "app/layers/base/nuxt.config.ts": "export default defineNuxtConfig({ extends: ['../../../layers/accounts'] })" } : {}),
+      "layers/accounts/nuxt.config.ts": layerConfig,
+      "layers/accounts/package.json": layerPackage,
+      "layers/accounts/server/api/key.get.ts": code,
+    })
+    const { result } = await runCodemod("nuxt-safe-runtime-config", { cwd: join(root, "app") })
+    expect(await readFile(join(root, "layers/accounts/server/api/key.get.ts"), "utf8")).toBe(code)
+    expect(await readFile(join(root, "layers/accounts/nuxt.config.ts"), "utf8")).toBe(layerConfig)
+    expect(await readFile(join(root, "layers/accounts/package.json"), "utf8")).toBe(layerPackage)
+    expect(result.edits.every(edit => !edit.path.startsWith("../"))).toBe(true)
+    expect(result.followUps).toContainEqual(expect.objectContaining({
+      file: "../layers/accounts",
+      message: expect.stringMatching(/outside the app directory.*useSafeRuntimeConfig\(\).*module options/),
+    }))
+  })
+
   it.each([
     ["apps/child/nuxt.config.ts", "export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'] })"],
     ["services/api/nitro.config.ts", "export default defineNitroConfig({ modules: ['nuxt-safe-runtime-config/nitro'] })"],
@@ -207,6 +231,20 @@ describe("nested app boundaries", () => {
     }
     expect(await readFile(join(cwd, directory, "apps/child/server/api/title.get.ts"), "utf8")).toBe(code)
     expect(result.followUps.some(entry => entry.file === `${directory}/apps/child/nuxt.config.ts`)).toBe(true)
+  })
+})
+
+describe("module list safety", () => {
+  it.each(["buildModules()", "activeModules", "enabled ? activeModules : []"])("rejects modules: %s without writing files", async (modules) => {
+    const files = {
+      "nuxt.config.ts": `const activeModules = ['@nuxt/eslint', 'nuxt-safe-runtime-config']\nconst buildModules = () => activeModules\nconst enabled = true\nexport default defineNuxtConfig({ modules: ${modules}, safeRuntimeConfig: { envSchema: '.env.example' } })`,
+      ".env.example": "NUXT_PUBLIC_TITLE=site\n",
+      "package.json": '{"dependencies":{"nuxt-safe-runtime-config":"0.3.2"}}\n',
+      "composables/title.ts": "export const title = useSafeRuntimeConfig().public.title\n",
+    }
+    const cwd = await app(files)
+    await expect(runCodemod("nuxt-safe-runtime-config", { cwd })).rejects.toThrow(/modules.*array literal/)
+    for (const [file, code] of Object.entries(files)) expect(await readFile(join(cwd, file), "utf8")).toBe(code)
   })
 })
 

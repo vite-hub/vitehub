@@ -118,17 +118,21 @@ async function findOutOfScopeConfigs(cwd: string, rootConfig: NuxtConfigFile): P
   // Nuxt consumes immediate layers/ children automatically, and resolves each
   // configured local extends path relative to the config that declares it.
   const layers = new Set([".", ...[...nuxtDirectories].filter(directory => posix.dirname(directory) === "layers")])
+  const followUps: FollowUp[] = []
   for (const directory of layers) {
     const config = directory === "." ? rootConfig : await readNuxtConfig(join(cwd, directory))
     for (const layer of await layerExtends(config)) {
       if (!layer.startsWith(".") && !isAbsolute(layer)) continue
       const path = relative(cwd, resolve(cwd, directory, layer)).replaceAll("\\", "/")
+      if (path === ".." || path.startsWith("../")) {
+        followUps.push({ file: path, message: "This local layer is outside the app directory and was left unchanged. Migrate its useSafeRuntimeConfig() calls and nuxt-safe-runtime-config module options by hand before using the migrated app, which removes the original module and dependency." })
+        continue
+      }
       const layerDirectory = files.includes(path) ? posix.dirname(path) : path
       if (nuxtDirectories.has(layerDirectory)) layers.add(layerDirectory)
     }
   }
   const directories = new Set<string>()
-  const followUps: FollowUp[] = []
   for (const file of files.sort()) {
     if (file === rootConfig.fileName) continue
     const directory = posix.dirname(file)
