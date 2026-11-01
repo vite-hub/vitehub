@@ -167,7 +167,7 @@ export function consoleAppSignIn(event: ConsoleRequestEvent): Promise<Response> 
 /**
  * Send a signed-out visit to a Console page to the sign-in page of the installed policy. The `redirect` query parameter
  * is the Console page that the visitor asked for. Returns `undefined` when the policy has no sign-in page, the request
- * does not read a page, or the access check does not answer `401`.
+ * does not read a page, or the authentication check does not answer `401`. Responses from `console.authorize` pass through.
  */
 export async function consoleSignInRedirect(event: ConsoleRequestEvent): Promise<Response | undefined> {
   const url = consoleRequestURL(event)
@@ -181,7 +181,7 @@ export async function consoleSignInRedirect(event: ConsoleRequestEvent): Promise
   if (access.status === 403 && policy && "signIn" in policy && policy.signIn && (page.endsWith("/_vitehub/sign-in") || await isConsoleImpersonationRejection(access))) {
     return policy.signIn(event, access)
   }
-  if (access.status !== 401) return undefined
+  if (access.status !== 401 || authorizeResponses.has(access)) return undefined
   const target = new URL(page, url)
   target.searchParams.set("redirect", `${url.pathname}${url.search}`)
   return new Response(null, {
@@ -192,13 +192,14 @@ export async function consoleSignInRedirect(event: ConsoleRequestEvent): Promise
 
 /**
  * Check a visit to a Console page with the access check of the data routes. Returns `undefined` when the page may open:
- * the check accepts the request, or it answers `401` and the Console shows its signed-out state. Otherwise returns the
+ * the check accepts the request, or the authentication check answers `401` and the Console shows its signed-out state. Otherwise returns the
  * rejection. `app` is `true` when `console.authorize` returned it, so the page sends it as it is.
  */
 export async function consolePageRejection(event: ConsoleRequestEvent): Promise<{ app: boolean, response: Response } | undefined> {
   const access = await checkPageAccess(event)
   if (!isRuntimeResponse(access)) return undefined
-  return access.status === 401 ? undefined : { app: authorizeResponses.has(access), response: access }
+  const app = authorizeResponses.has(access)
+  return access.status === 401 && !app ? undefined : { app, response: access }
 }
 
 /** The access check of a page visit, once per request: the sign-in middleware and the page handler both read it. */

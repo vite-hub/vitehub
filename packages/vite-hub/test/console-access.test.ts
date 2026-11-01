@@ -650,7 +650,7 @@ describe("Realtime rooms from Console access", () => {
 
 describe("Console sign-in page", () => {
   const visit = (path: string, method = "GET"): ConsoleRequestEvent => ({ method, req: new Request(`http://vitehub.local${path}`, { headers: { accept: "text/html" }, method }) })
-  const signedOut = () => new Response(JSON.stringify({ error: "Unauthorized." }), { status: 401 })
+  const signedOut = async () => new Response(JSON.stringify({ error: "Unauthorized." }), { status: 401 })
 
   it("accepts a path on the app's origin for app Auth and open access only", () => {
     expect(resolveConsoleOptions({ auth: "app", signInPage: "/sign-in" })).toMatchObject({ signInPage: "/sign-in" })
@@ -678,7 +678,7 @@ describe("Console sign-in page", () => {
   })
 
   it("sends a signed-out page visit to the sign-in page and back", async () => {
-    installConsoleAccess({ mode: "open", authorize: signedOut, signInPage: "/sign-in?from=console" })
+    installConsoleAccess({ mode: "auth", check: signedOut, signInPage: "/sign-in?from=console" })
     const response = await consolePageHandler(visit("/_vitehub/auth?tab=users"))
     expect(response.status).toBe(302)
     expect(response.headers.get("location")).toBe("/sign-in?from=console&redirect=%2F_vitehub%2Fauth%3Ftab%3Dusers")
@@ -695,7 +695,7 @@ describe("Console sign-in page", () => {
   })
 
   it("serves the page without a sign-in link when the policy names no sign-in page", async () => {
-    installConsoleAccess({ mode: "open", authorize: signedOut })
+    installConsoleAccess({ mode: "auth", check: signedOut })
     const response = await consolePageHandler(visit("/_vitehub/auth"))
     expect(response.status).toBe(200)
     await expect(response.text()).resolves.not.toContain("vitehub-console-sign-in")
@@ -737,6 +737,25 @@ describe("Console pages and console.authorize", () => {
     const response = await consolePageHandler(visit("/_vitehub/auth"))
     expect(response.status).toBe(404)
     await expect(response.text()).resolves.toBe("Not found")
+  })
+
+  it.each([
+    { mode: "open", signInPage: undefined },
+    { mode: "open", signInPage: "/sign-in" },
+    { mode: "auth", signInPage: undefined },
+    { mode: "auth", signInPage: "/sign-in" },
+  ] as const)("preserves an authorize-returned 401 with $mode access and signInPage=$signInPage", async ({ mode, signInPage }) => {
+    const custom = new Response("Sign in at the host.", { headers: { "www-authenticate": 'Basic realm="Console"' }, status: 401 })
+    const authorize = vi.fn(() => custom)
+    const policy = mode === "auth" ? { mode, check: session, user } : { mode }
+    installConsoleAccess({ ...policy, authorize, ...(signInPage ? { signInPage } : {}) })
+    const response = await consolePageHandler(visit("/_vitehub/auth"))
+    expect(response.status).toBe(401)
+    expect(response).toBe(custom)
+    expect(response.headers.get("www-authenticate")).toBe('Basic realm="Console"')
+    expect(response.headers.get("location")).toBeNull()
+    await expect(response.text()).resolves.toBe("Sign in at the host.")
+    expect(authorize).toHaveBeenCalledTimes(1)
   })
 
   it("keeps the signed-out state when the check answers 401 and there is no sign-in page", async () => {
