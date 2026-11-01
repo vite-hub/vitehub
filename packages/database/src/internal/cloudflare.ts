@@ -1,5 +1,3 @@
-import { collapseWranglerConfigFile } from "@vite-hub/internal/build/cloudflare"
-import type { WranglerEntrySpec } from "@vite-hub/internal/build/cloudflare"
 import { isPlainObject } from "@vite-hub/internal/object"
 
 import { resolveConfigValue, withConfigValueFallback } from "../config-value.ts"
@@ -247,28 +245,6 @@ export function resolveCloudflareD1Bindings(
   }
 
   return { d1Databases, unresolved }
-}
-
-/**
- * One entry per D1 binding name. ViteHub's entry comes first and wins, and the project entry only fills fields it
- * lacks, so Nitro's array concatenation of a project wrangler.json never leaves Wrangler with two bindings of one name.
- * A real id replaces an all-zero placeholder, and a placeholder that stays is left out. ViteHub stages its migrations
- * in its own directory, so a project `migrations_dir` or `migrations_pattern` is dropped when ViteHub sets one.
- */
-const d1EntrySpec: WranglerEntrySpec = {
-  path: ["d1_databases"],
-  identity: "binding",
-  resource: ["database_id", "database_name", "preview_database_id"],
-  ids: ["database_id", "preview_database_id"],
-  groups: [["migrations_dir", "migrations_pattern"]],
-}
-
-/** The `compiled` hook step: collapses `d1_databases` in the wrangler.json in `serverDir`, at the top level and in each `env`. */
-export function collapseGeneratedWranglerD1Bindings(serverDir: string): Promise<void> {
-  return collapseWranglerConfigFile(serverDir, {
-    conflict: ({ field, generated, name, project, scope }) => databaseErrorDiagnostics.DATABASE_WRANGLER_BINDING_CONFLICT({ binding: name, field, generated: String(generated), project: String(project), scope }),
-    specs: [d1EntrySpec],
-  })
 }
 
 export function mergeCloudflareD1Bindings(

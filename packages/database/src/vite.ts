@@ -13,7 +13,8 @@ import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/buil
 
 import { createDbCliContributor } from "./cli.ts"
 import { collectDatabaseContributions } from "./contributions.ts"
-import { cloudflareOptions, collapseGeneratedWranglerD1Bindings, mergeCloudflareD1Bindings, mergeCloudflareHyperdriveBindings, resolveCloudflareD1Bindings, resolveCloudflareHyperdriveBindings } from "./internal/cloudflare.ts"
+import { cloudflareOptions, mergeCloudflareD1Bindings, mergeCloudflareHyperdriveBindings, resolveCloudflareD1Bindings, resolveCloudflareHyperdriveBindings } from "./internal/cloudflare.ts"
+import { collapseGeneratedWranglerD1Bindings } from "./internal/wrangler-output.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { renderDatabaseConfigExpression, renderPostgresDatabaseExpression, usesD1ReadReplication, usesPostgres, usesSqlite } from "./internal/runtime-config-expression.ts"

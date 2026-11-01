@@ -279,6 +279,20 @@ describe("collapseWranglerConfig", () => {
     })).toEqual({ kv_namespaces: [{ binding: "KV" }] })
   })
 
+  it.each(["00000000000000000000000000000000", "00000000-0000-4000-8000-000000000000"])("treats Hyperdrive id %s as a placeholder", (placeholder) => {
+    for (const [generated, project] of [[placeholder, "hyperdrive-id"], ["hyperdrive-id", placeholder]]) {
+      expect(collapseWranglerConfig({
+        hyperdrive: [{ binding: "DATABASE", id: generated }, { binding: "DATABASE", id: project }],
+      })).toEqual({ hyperdrive: [{ binding: "DATABASE", id: "hyperdrive-id" }] })
+    }
+    expect(collapseWranglerConfig({
+      hyperdrive: [{ binding: "DATABASE", id: placeholder }, { binding: "DATABASE", id: placeholder }],
+    })).toEqual({ hyperdrive: [{ binding: "DATABASE" }] })
+    expect(collapseWranglerConfig({
+      hyperdrive: [{ binding: "DATABASE", id: placeholder }],
+    })).toEqual({ hyperdrive: [{ binding: "DATABASE" }] })
+  })
+
   it("collapses each Wrangler environment", () => {
     expect(collapseWranglerConfig({
       env: { production: { kv_namespaces: [{ binding: "KV" }, { binding: "KV", id: "production-id" }], secrets: { required: ["TOKEN", "TOKEN"] } } },
@@ -294,6 +308,53 @@ describe("collapseWranglerConfig", () => {
     expect(() => collapseWranglerConfig({
       env: { production: { kv_namespaces: [{ binding: "KV", id: "a" }, { binding: "KV", id: "b" }] } },
     })).toThrow(expect.objectContaining({ message: expect.stringContaining("in env.production") }))
+  })
+
+  it.each([
+    { field: "environment", config: { durable_objects: { bindings: [{ name: "ROOM", class_name: "Room", script_name: "rooms", environment: "production" }, { name: "ROOM", class_name: "Room", script_name: "rooms", environment: "staging" }] } } },
+    { field: "transferred_classes", config: { migrations: [{ tag: "v1", transferred_classes: [{ from: "OldRoom", from_script: "rooms", to: "Room" }] }, { tag: "v1", transferred_classes: [{ from: "OtherRoom", from_script: "rooms", to: "Room" }] }] } },
+    { field: "jurisdiction", config: { workflows: [{ binding: "TASKS", name: "tasks", class_name: "Tasks", jurisdiction: "eu" }, { binding: "TASKS", name: "tasks", class_name: "Tasks", jurisdiction: "us" }] } },
+    { field: "allowed_destination_addresses", config: { send_email: [{ name: "EMAIL", allowed_destination_addresses: ["first@example.com"] }, { name: "EMAIL", allowed_destination_addresses: ["second@example.com"] }] } },
+    { field: "allowed_sender_addresses", config: { send_email: [{ name: "EMAIL", allowed_sender_addresses: ["first@example.com"] }, { name: "EMAIL", allowed_sender_addresses: ["second@example.com"] }] } },
+  ])("rejects conflicting $field resource values", ({ config, field }) => {
+    expect(() => collapseWranglerConfig(config)).toThrow(expect.objectContaining({ code: "INTERNAL_B0051", message: expect.stringContaining(field) }))
+  })
+
+  it("fills missing resource fields and collapses identical resource policies", () => {
+    const room = { name: "ROOM", class_name: "Room", script_name: "rooms", environment: "production" }
+    const migration = { tag: "v1", transferred_classes: [{ from: "OldRoom", from_script: "rooms", to: "Room" }] }
+    const workflow = { binding: "TASKS", name: "tasks", class_name: "Tasks", jurisdiction: "eu" }
+    const email = { name: "EMAIL", allowed_destination_addresses: ["recipient@example.com"], allowed_sender_addresses: ["sender@example.com"] }
+    expect(collapseWranglerConfig({
+      durable_objects: { bindings: [{ name: "ROOM", class_name: "Room" }, room, room] },
+      migrations: [{ tag: "v1" }, migration, migration],
+      workflows: [{ binding: "TASKS", name: "tasks", class_name: "Tasks" }, workflow, workflow],
+      send_email: [{ name: "EMAIL", allowed_sender_addresses: ["sender@example.com"] }, email, email],
+    })).toEqual({
+      durable_objects: { bindings: [room] },
+      migrations: [migration],
+      workflows: [workflow],
+      send_email: [email],
+    })
+  })
+
+  it("rejects mutually exclusive email destination restrictions in either order", () => {
+    const address = { name: "EMAIL", destination_address: "recipient@example.com" }
+    const allowlist = { name: "EMAIL", allowed_destination_addresses: ["recipient@example.com"] }
+    for (const entries of [[address, allowlist], [allowlist, address]]) {
+      expect(() => collapseWranglerConfig({ send_email: entries })).toThrow(expect.objectContaining({ code: "INTERNAL_B0051" }))
+    }
+    expect(collapseWranglerConfig({
+      send_email: [address, { name: "EMAIL", allowed_sender_addresses: ["sender@example.com"] }, address],
+    })).toEqual({ send_email: [{ ...address, allowed_sender_addresses: ["sender@example.com"] }] })
+  })
+
+  it("rejects combining an external Workflow with a local jurisdiction in either order", () => {
+    const external = { binding: "TASKS", name: "tasks", class_name: "Tasks", script_name: "external-worker" }
+    const local = { binding: "TASKS", name: "tasks", class_name: "Tasks", jurisdiction: "eu" }
+    for (const entries of [[external, local], [local, external]]) {
+      expect(() => collapseWranglerConfig({ workflows: entries })).toThrow(expect.objectContaining({ code: "INTERNAL_B0051" }))
+    }
   })
 
   it("recognizes all-zero ids only", () => {

@@ -15,6 +15,8 @@ export interface WranglerEntrySpec {
   resource: readonly string[]
   /** Resource fields that hold an id. An all-zero id stands for a resource that does not exist yet. */
   ids?: readonly string[]
+  /** Mutually exclusive resource fields. Duplicate entries cannot select different fields in one group. */
+  exclusive?: readonly (readonly string[])[]
   /** Fields that the first entry keeps together: when it sets one of them, later entries fill none of them. */
   groups?: readonly (readonly string[])[]
 }
@@ -37,14 +39,14 @@ export const wranglerEntrySpecs: readonly WranglerEntrySpec[] = [
   { path: ["kv_namespaces"], identity: "binding", resource: ["id", "preview_id"], ids: ["id", "preview_id"] },
   { path: ["r2_buckets"], identity: "binding", resource: ["bucket_name", "jurisdiction", "preview_bucket_name"] },
   { path: ["ratelimits"], identity: "name", resource: ["namespace_id", "simple"] },
-  { path: ["hyperdrive"], identity: "binding", resource: ["id"] },
-  { path: ["durable_objects", "bindings"], identity: "name", resource: ["class_name", "script_name"] },
-  { path: ["migrations"], identity: "tag", resource: ["new_classes", "new_sqlite_classes", "renamed_classes", "deleted_classes"] },
+  { path: ["hyperdrive"], identity: "binding", resource: ["id"], ids: ["id"] },
+  { path: ["durable_objects", "bindings"], identity: "name", resource: ["class_name", "script_name", "environment"] },
+  { path: ["migrations"], identity: "tag", resource: ["new_classes", "new_sqlite_classes", "renamed_classes", "deleted_classes", "transferred_classes"] },
   { path: ["queues", "producers"], identity: "binding", resource: ["queue"] },
   { path: ["queues", "consumers"], identity: "queue", resource: [] },
-  { path: ["workflows"], identity: "binding", resource: ["name", "class_name", "script_name"] },
+  { path: ["workflows"], identity: "binding", resource: ["name", "class_name", "script_name", "jurisdiction"], exclusive: [["script_name", "jurisdiction"]] },
   { path: ["services"], identity: "binding", resource: ["service", "entrypoint"] },
-  { path: ["send_email"], identity: "name", resource: ["destination_address"] },
+  { path: ["send_email"], identity: "name", resource: ["destination_address", "allowed_destination_addresses", "allowed_sender_addresses"], exclusive: [["destination_address", "allowed_destination_addresses"]] },
   { path: ["analytics_engine_datasets"], identity: "binding", resource: ["dataset"] },
 ]
 
@@ -84,6 +86,13 @@ function collapseEntries(entries: readonly unknown[], spec: WranglerEntrySpec, s
       byName.set(name, copy)
       collapsed.push(copy)
       continue
+    }
+    for (const group of spec.exclusive ?? []) {
+      const generatedField = group.find(field => first[field] !== undefined)
+      const projectField = group.find(field => entry[field] !== undefined)
+      if (generatedField && projectField && generatedField !== projectField) {
+        throw conflict({ field: group.join(" / "), generated: { [generatedField]: first[generatedField] }, name, path: spec.path.join("."), project: { [projectField]: entry[projectField] }, scope })
+      }
     }
     for (const field of spec.resource) {
       const generated = first[field]
