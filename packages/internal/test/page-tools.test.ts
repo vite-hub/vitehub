@@ -239,6 +239,18 @@ describe("installViteHubPageTools on Nitro 3", () => {
     expect(response.headers.get("cache-control")).toBeNull()
   })
 
+  it("answers the session for a Nuxt 5 event, an H3 2 event with a legacy node bridge", async () => {
+    const app = nitro3App()
+    registerViteHubPageTool(app, comments)
+    installViteHubPageTools(app)
+    const request = new Request("http://site.test/_vitehub/page/session", { headers: { cookie: "person=ada" } })
+    await app.fetch(request)
+    const event = { req: request, node: { req: { url: "/_vitehub/page/session", method: "GET", headers: { cookie: "person=ada" } } } }
+    const response = await viteHubPageSessionHandler(event)
+    expect(response.status).toBe(200)
+    expect((await response.json()).tools.map((tool: { id: string }) => tool.id)).toEqual(["comments"])
+  })
+
   it("never adds the loader to Console or API routes", async () => {
     const app = nitro3App()
     registerViteHubPageTool(app, comments)
