@@ -44,7 +44,7 @@ const start: ViteHubPageToolModule["default"] = (context) => {
       frame.src = url.href
       requested = undefined
       loading = document.createElement("div")
-      loading.style.cssText = "position:absolute;inset:0;display:grid;place-content:center;gap:12px;padding:24px;background:light-dark(#fff,#000)"
+      loading.style.cssText = "position:absolute;inset:0;display:grid;place-content:center;gap:12px;padding:24px;background:var(--surface)"
       const status = document.createElement("p")
       status.setAttribute("role", "status")
       status.textContent = `Loading ${tool.label}…`
