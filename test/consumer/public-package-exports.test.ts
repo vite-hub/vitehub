@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
-import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises"
+import { copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { availableParallelism, tmpdir } from "node:os"
 import { dirname, join, relative, resolve, sep } from "node:path"
@@ -25,7 +25,17 @@ const optionalPeers = ["@nuxt/ui", "@upstash/redis", "evalite", "evlog", "openwo
 const optionalPeerProbes = optionalPeers
 // Every fixture and export runs in its own child process. Independent fixtures
 // run side by side, bounded by the CPU count so CI runners are not overloaded.
-const processSlots = createLimit(availableParallelism())
+const parallelism = availableParallelism()
+const processSlots = createLimit(parallelism)
+// Start the packages with the most exports first, so the largest package does
+// not run alone at the end.
+const packagesByExportCount = [...packageInfos].sort((left, right) =>
+  exportCount(right.packageName) - exportCount(left.packageName),
+)
+
+function exportCount(packageName: string) {
+  return publicPackageExportContracts.filter(contract => contract.packageName === packageName).length
+}
 
 function createLimit(limit: number) {
   let active = 0
@@ -99,7 +109,10 @@ async function run(command: string, args: string[], cwd: string) {
 }
 async function runInner(command: string, args: string[], cwd: string) {
   try {
-    const result = await processSlots(() => execFileAsync(command, args, { cwd, maxBuffer }))
+    const result = await processSlots(async () => {
+      const execStart = performance.now()
+      try { return await execFileAsync(command, args, { cwd, maxBuffer }) } finally { timing(`exec:${runLabel(command, args)}`, performance.now() - execStart) }
+    })
     return { stderr: String(result.stderr || ""), stdout: String(result.stdout || "") }
   }
   catch (error) {
@@ -308,73 +321,83 @@ async function importSpecifiers(appDir: string, specifiers: readonly string[], w
   }))
 }
 
-async function importPackagesWithoutRootFallback(
-  appDir: string,
-  includeOptionalPeers: boolean,
-  includePackage: (packageName: string) => boolean = () => true,
-) {
-  const includedPackages = packageInfos.filter(info => includePackage(info.packageName))
-  const packageRoots = new Map(await Promise.all(includedPackages.map(async info => [
-    info.packageName,
-    await realpath(join(appDir, "node_modules", ...info.packageName.split("/"))),
-  ] as const)))
+// Each consumer hides root dependencies for one package at a time, so the
+// packages are spread over several identical consumers.
+async function importPackagesWithoutRootFallback(appDirs: readonly string[], includeOptionalPeers: boolean) {
+  const pending = [...packagesByExportCount]
+  await settled(appDirs.map(async (appDir) => {
+    for (let info = pending.shift(); info; info = pending.shift()) {
+      await importPackageWithoutRootFallback(appDir, info, includeOptionalPeers)
+    }
+  }))
+}
 
-  for (const info of includedPackages) {
-    const packageRoot = packageRoots.get(info.packageName)
-    if (!packageRoot) throw new Error(`Missing installed package root for ${info.packageName}`)
-    const manifest = await readManifest(join(packageRoot, "package.json"))
-    const requiredPeers = Object.keys(manifest.peerDependencies || {}).filter(name =>
-      !manifest.peerDependenciesMeta?.[name]?.optional,
-    )
-    // Keep the package's published runtime closure available while root
-    // dependencies are hidden. Isolated package links resolve dependencies
-    // through the consumer root, so removing these entries makes pnpm fetch
-    // first-party packages from the registry instead of the packed tarballs.
-    const runtimeDependencies = [
-      ...Object.keys(manifest.dependencies || {}),
-      ...Object.keys(manifest.optionalDependencies || {}),
-    ]
-    const declaredTypeDependencies = packageTypeDependencies(manifest)
-    await withoutRootDependencies(appDir, new Set([
-      info.packageName,
-      ...(info.packageName === "@vite-hub/auth" ? [] : ["@types/node"]),
-      ...runtimeDependencies,
-      ...declaredTypeDependencies,
-      ...requiredPeers,
-      ...(includeOptionalPeers ? Object.keys(manifest.peerDependencies || {}) : []),
-    ]), async () => {
-      const runnerDir = join(appDir, ".isolated", info.name)
-      const packageNameParts = info.packageName.split("/")
-      const linkDir = join(runnerDir, "node_modules", ...packageNameParts.slice(0, -1))
-      await rm(runnerDir, { recursive: true, force: true })
-      await mkdir(linkDir, { recursive: true })
-      const packageDirName = packageNameParts.at(-1)
-      if (!packageDirName) throw new Error(`Invalid package name: ${info.packageName}`)
-      await symlink(packageRoot, join(linkDir, packageDirName), "dir")
-      const packageRequire = createRequire(join(packageRoot, "package.json"))
-      for (const dependency of declaredTypeDependencies) {
-        const dependencyParts = dependency.split("/")
-        const dependencyDirName = dependencyParts.at(-1)
-        if (!dependencyDirName) throw new Error(`Invalid dependency name: ${dependency}`)
-        const dependencyLinkDir = join(runnerDir, "node_modules", ...dependencyParts.slice(0, -1))
-        const dependencyRoot = dirname(packageRequire.resolve(`${dependency}/package.json`))
-        await mkdir(dependencyLinkDir, { recursive: true })
-        await symlink(dependencyRoot, join(dependencyLinkDir, dependencyDirName), "dir")
-      }
-      const importableContracts = publicPackageExportContracts
-        .filter(contract => contract.packageName === info.packageName
-          && isJavaScriptModule(contract.target)
-          && (includeOptionalPeers || contract.optionalRuntimePeers.length === 0))
-      const cloudflareContracts = importableContracts.filter(contract => contract.specifier.endsWith("/cloudflare/state"))
-      await settled([
-        importSpecifiers(runnerDir, importableContracts
-          .filter(contract => !cloudflareContracts.includes(contract))
-          .map(contract => contract.specifier)),
-        importSpecifiers(runnerDir, cloudflareContracts.map(contract => contract.specifier), true),
-      ])
-      await typecheckPackageExports(info.packageName, runnerDir, includeOptionalPeers)
-    })
-  }
+async function importPackageWithoutRootFallback(
+  appDir: string,
+  info: (typeof packageInfos)[number],
+  includeOptionalPeers: boolean,
+) {
+  const windowStart = performance.now()
+  try { await importPackageWithoutRootFallbackInner(appDir, info, includeOptionalPeers) } finally { timing(`window:${includeOptionalPeers}:${info.name}`, performance.now() - windowStart) }
+}
+async function importPackageWithoutRootFallbackInner(
+  appDir: string,
+  info: (typeof packageInfos)[number],
+  includeOptionalPeers: boolean,
+) {
+  const packageRoot = await realpath(join(appDir, "node_modules", ...info.packageName.split("/")))
+  const manifest = await readManifest(join(packageRoot, "package.json"))
+  const requiredPeers = Object.keys(manifest.peerDependencies || {}).filter(name =>
+    !manifest.peerDependenciesMeta?.[name]?.optional,
+  )
+  // Keep the package's published runtime closure available while root
+  // dependencies are hidden. Isolated package links resolve dependencies
+  // through the consumer root, so removing these entries makes pnpm fetch
+  // first-party packages from the registry instead of the packed tarballs.
+  const runtimeDependencies = [
+    ...Object.keys(manifest.dependencies || {}),
+    ...Object.keys(manifest.optionalDependencies || {}),
+  ]
+  const declaredTypeDependencies = packageTypeDependencies(manifest)
+  await withoutRootDependencies(appDir, new Set([
+    info.packageName,
+    ...(info.packageName === "@vite-hub/auth" ? [] : ["@types/node"]),
+    ...runtimeDependencies,
+    ...declaredTypeDependencies,
+    ...requiredPeers,
+    ...(includeOptionalPeers ? Object.keys(manifest.peerDependencies || {}) : []),
+  ]), async () => {
+    const runnerDir = join(appDir, ".isolated", info.name)
+    const packageNameParts = info.packageName.split("/")
+    const linkDir = join(runnerDir, "node_modules", ...packageNameParts.slice(0, -1))
+    await rm(runnerDir, { recursive: true, force: true })
+    await mkdir(linkDir, { recursive: true })
+    const packageDirName = packageNameParts.at(-1)
+    if (!packageDirName) throw new Error(`Invalid package name: ${info.packageName}`)
+    await symlink(packageRoot, join(linkDir, packageDirName), "dir")
+    const packageRequire = createRequire(join(packageRoot, "package.json"))
+    for (const dependency of declaredTypeDependencies) {
+      const dependencyParts = dependency.split("/")
+      const dependencyDirName = dependencyParts.at(-1)
+      if (!dependencyDirName) throw new Error(`Invalid dependency name: ${dependency}`)
+      const dependencyLinkDir = join(runnerDir, "node_modules", ...dependencyParts.slice(0, -1))
+      const dependencyRoot = dirname(packageRequire.resolve(`${dependency}/package.json`))
+      await mkdir(dependencyLinkDir, { recursive: true })
+      await symlink(dependencyRoot, join(dependencyLinkDir, dependencyDirName), "dir")
+    }
+    const importableContracts = publicPackageExportContracts
+      .filter(contract => contract.packageName === info.packageName
+        && isJavaScriptModule(contract.target)
+        && (includeOptionalPeers || contract.optionalRuntimePeers.length === 0))
+    const cloudflareContracts = importableContracts.filter(contract => contract.specifier.endsWith("/cloudflare/state"))
+    await settled([
+      importSpecifiers(runnerDir, importableContracts
+        .filter(contract => !cloudflareContracts.includes(contract))
+        .map(contract => contract.specifier)),
+      importSpecifiers(runnerDir, cloudflareContracts.map(contract => contract.specifier), true),
+      typecheckPackageExports(info.packageName, runnerDir, includeOptionalPeers),
+    ])
+  })
 }
 
 function packageTypeDependencies(manifest: { dependencies?: Record<string, string> }) {
@@ -463,7 +486,7 @@ function declarationPeerAbsentRuntimeContracts(omittedPeer: string) {
 async function exercisePackagesWithoutOptionalPeers(root: string, specs: Record<string, string>) {
   const requiredPeerVersions = await requiredPeerSpecs()
 
-  await settled(packageInfos.map(async (info) => {
+  await settled(packagesByExportCount.map(async (info) => {
     const appDir = join(root, "absent-peers", info.name)
     const sourceManifest = await readManifest(join(repoRoot, "packages", info.name, "package.json"))
     const requiredPeers = Object.keys(sourceManifest.peerDependencies || {}).filter(name =>
@@ -531,8 +554,17 @@ async function exercisePackagesWithoutOptionalPeers(root: string, specs: Record<
       writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs), "utf8"),
     ])
     await run("corepack", ["pnpm", "install", "--ignore-scripts"], appDir)
-    await importPackagesWithoutRootFallback(appDir, false, packageName => packageName === info.packageName)
+    await importPackageWithoutRootFallback(appDir, info, false)
   }))
+}
+
+// The copy installs from the consumer's lockfile, so it has the same layout.
+async function cloneConsumer(appDir: string, cloneDir: string) {
+  await mkdir(cloneDir)
+  await Promise.all([".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"].map(file =>
+    copyFile(join(appDir, file), join(cloneDir, file)),
+  ))
+  await run("corepack", ["pnpm", "install", "--frozen-lockfile", "--offline", "--ignore-scripts"], cloneDir)
 }
 
 async function withoutRootDependencies(appDir: string, allowed: Set<string>, runIsolated: () => Promise<void>) {
@@ -1040,7 +1072,9 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package e
         importSpecifiers(appDir, presentCloudflareContracts.map(contract => contract.specifier), true),
       ])
       timing("phase:present imports", performance.now() - presentStart)
-      await phase("root fallback", () => importPackagesWithoutRootFallback(appDir, true))
+      const clones = Array.from({ length: Math.min(parallelism, packageInfos.length) - 1 }, (_, index) => join(root, `consumer-${index + 1}`))
+      await phase("clones", () => settled(clones.map(cloneDir => cloneConsumer(appDir, cloneDir))))
+      await phase("root fallback", () => importPackagesWithoutRootFallback([appDir, ...clones], true))
       const binStart = performance.now()
       const staticContracts = publicPackageExportContracts.filter(contract => contract.kind === "static-asset")
       const resolved = await resolveSpecifiers(appDir, staticContracts.map(contract => contract.specifier))
