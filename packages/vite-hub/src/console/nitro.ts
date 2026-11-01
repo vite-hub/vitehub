@@ -44,14 +44,14 @@ export function addConsolePageHandlers(
     { baseURL: mountPath(base, "/_vitehub/.well-known/skills"), dir: skills, fallthrough: false },
     ...(nitro.publicAssets ?? []).filter(asset => asset.dir !== assets && asset.dir !== skills),
   ]
-  addConsolePageToolRoutes(nitro, consoleRuntimeRoot, base)
+  addConsolePageToolRoutes(nitro, consoleRuntimeRoot, viteHubBasePath(base))
 }
 
 /**
  * Serves the page tools session `GET <mount>/_vitehub/page/session` and the loader at `<mount>/_vitehub/page/assets`, so
  * the `console` page tool works in an app without Comments. When Comments added them first, they stay as they are.
- * `mount` is the route prefix from `viteHubPageToolsBase()`. Nuxt passes none: Nitro serves the routes below
- * `app.baseURL`.
+ * `mount` is the route prefix from `viteHubPageToolsBase()`, or the Nuxt `app.baseURL` without its trailing slash,
+ * like the other Console routes.
  */
 export function addConsolePageToolRoutes(
   nitro: { handlers?: Array<{ handler: string; route: string }>, publicAssets?: NitroPublicAsset[] },

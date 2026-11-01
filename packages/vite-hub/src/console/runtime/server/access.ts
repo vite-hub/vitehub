@@ -73,8 +73,11 @@ const openWarningKey: unique symbol = Symbol.for("vitehub.console.access.open-wa
 const scope = globalThis as typeof globalThis & { [policyKey]?: ConsoleAccessPolicy, [openWarningKey]?: true }
 const consoleAccessGrant = defineGrant("vitehub.console.access", (mode: ConsoleAccessMode) => mode)
 const checkedEvents = new WeakMap<object, ConsoleAccess>()
+const rejectedEvents = new WeakMap<object, Response>()
 const routeScopes = new WeakMap<object, ConsoleRouteScope>()
 const deferredUsers = new WeakMap<ConsoleAccess, () => Promise<ConsoleUser | undefined>>()
+// Responses that `console.authorize` returned, so a page visit gets them as they are.
+const authorizeResponses = new WeakSet<Response>()
 const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "local", "open"])
 
 export const consoleOpenAccessWarning = "[vitehub] console: { auth: false } has no sign-in. Anyone who can reach /_vitehub can use the Console. Set console.auth to \"app\" or a Console Auth config, or set console.authorize."
@@ -164,30 +167,47 @@ export function consoleAppSignIn(event: ConsoleRequestEvent): Promise<Response> 
 /**
  * Send a signed-out visit to a Console page to the sign-in page of the installed policy. The `redirect` query parameter
  * is the Console page that the visitor asked for. Returns `undefined` when the policy has no sign-in page, the request
- * does not read a page, or the access check does not answer `401`.
+ * does not read a page, or the authentication check does not answer `401`. Responses from `console.authorize` pass through.
  */
 export async function consoleSignInRedirect(event: ConsoleRequestEvent): Promise<Response | undefined> {
   const url = consoleRequestURL(event)
   const page = consoleSignInPage(url.pathname)
   const method = (event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET").toUpperCase()
   if (!page || (method !== "GET" && method !== "HEAD")) return undefined
-  const access = checkedEvents.get(event) ?? await checkConsoleAccess(event)
-  if (!isRuntimeResponse(access)) {
-    checkedEvents.set(event, access)
-    return undefined
-  }
+  const access = await checkPageAccess(event)
+  if (!isRuntimeResponse(access)) return undefined
   const policy = scope[policyKey]
   // An impersonation session gets the page that leads back to the administrator's session, whatever the sign-in page.
   if (access.status === 403 && policy && "signIn" in policy && policy.signIn && (page.endsWith("/_vitehub/sign-in") || await isConsoleImpersonationRejection(access))) {
     return policy.signIn(event, access)
   }
-  if (access.status !== 401) return undefined
+  if (access.status !== 401 || authorizeResponses.has(access)) return undefined
   const target = new URL(page, url)
   target.searchParams.set("redirect", `${url.pathname}${url.search}`)
   return new Response(null, {
     headers: { "cache-control": "no-store", location: `${target.pathname}${target.search}${target.hash}`, "x-robots-tag": "noindex, nofollow" },
     status: 302,
   })
+}
+
+/**
+ * Check a visit to a Console page with the access check of the data routes. Returns `undefined` when the page may open:
+ * the check accepts the request, or the authentication check answers `401` and the Console shows its signed-out state. Otherwise returns the
+ * rejection. `app` is `true` when `console.authorize` returned it, so the page sends it as it is.
+ */
+export async function consolePageRejection(event: ConsoleRequestEvent): Promise<{ app: boolean, response: Response } | undefined> {
+  const access = await checkPageAccess(event)
+  if (!isRuntimeResponse(access)) return undefined
+  const app = authorizeResponses.has(access)
+  return access.status === 401 && !app ? undefined : { app, response: access }
+}
+
+/** The access check of a page visit, once per request: the sign-in middleware and the page handler both read it. */
+async function checkPageAccess(event: ConsoleRequestEvent): Promise<ConsoleAccess | Response> {
+  const access = checkedEvents.get(event) ?? rejectedEvents.get(event) ?? await checkConsoleAccess(event)
+  if (isRuntimeResponse(access)) rejectedEvents.set(event, access)
+  else checkedEvents.set(event, access)
+  return access
 }
 
 /** Build the standard Fetch request passed to Console authorization and runtime contexts. */
@@ -344,7 +364,10 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
   let sections: ConsoleAccess["sections"] = "all"
   if (policy.mode !== "local" && policy.authorize) {
     const result: unknown = await policy.authorize(user ? { request: consoleRequest(event), user } : { request: consoleRequest(event) })
-    if (isRuntimeResponse(result)) return result
+    if (isRuntimeResponse(result)) {
+      authorizeResponses.add(result)
+      return result
+    }
     if (result === false) return rejection(403, "CONSOLE_ACCESS_DENIED")
     if (result !== true) {
       const allowed = authorizedSections(result)
@@ -515,8 +538,9 @@ export function consoleRealtimeAccess(section: ConsoleSectionId): ConsoleRealtim
  */
 export async function consoleAllowsRequest(event: unknown, section?: ConsoleSectionId, kind: "read" | "write" = "read"): Promise<boolean> {
   if (!(event instanceof Object)) return false
+  // The embedded page's framing decision shares its already-checked access.
   // SAFETY: the page tools session passes the H3 event of its Nitro route, which has the members the check reads.
-  const access = await checkConsoleAccess(event as ConsoleRequestEvent)
+  const access = checkedEvents.get(event) ?? rejectedEvents.get(event) ?? await checkConsoleAccess(event as ConsoleRequestEvent)
   return !isRuntimeResponse(access) && (section === undefined || (kind === "write" ? consoleAccessWrites(access, section) : consoleAccessAllows(access, section)))
 }
 

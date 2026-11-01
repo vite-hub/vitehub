@@ -1,4 +1,4 @@
-import type { AccessAuthorizationContext, AccessAuthorize, AccessAuthorizeResult } from "@vite-hub/runtime"
+import type { AccessAuthorizationContext, AccessAuthorize, AccessAuthorizeResult, AnonymousAccessAuthorizationContext, AnonymousAccessAuthorize } from "@vite-hub/runtime"
 import type { Auth, BetterAuthOptions, Session, User } from "better-auth"
 import type { AuthEventsConfiguration } from "./events.ts"
 import type { AuthConsoleOptions } from "./console-types.ts";
@@ -89,6 +89,16 @@ export type AuthAuthorization = Readonly<AuthAccessAuthorizationContext & {
 
 /** A server handler that runs only after an Auth guard accepts the request. */
 export type AuthGuardedHandler<TInput, TResult> = (input: TInput, authorization: AuthAuthorization) => TResult | Promise<TResult>
+
+/** The checked request of a signed-out caller that `withAnonymousAuthorization()` accepted. */
+export type AuthAnonymousAuthorization = Readonly<AnonymousAccessAuthorizationContext>
+export type AuthAnonymousAuthorize = AnonymousAccessAuthorize
+
+/** A server handler that runs after `authorize` accepts a signed-in or signed-out caller. */
+export type AuthAnonymousGuardedHandler<TInput, TResult> = (
+  input: TInput,
+  authorization: AuthAuthorization | AuthAnonymousAuthorization,
+) => TResult | Promise<TResult>
 
 /**
  * Route middleware with the `(event, next)` contract of H3 2.

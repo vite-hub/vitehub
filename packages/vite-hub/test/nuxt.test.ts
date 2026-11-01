@@ -1118,6 +1118,20 @@ describe("ViteHub Nuxt integration", () => {
     expect(production.runDevToolsCustomTabsHook()).toEqual([])
   })
 
+  // Nitro's Vercel preset turns each route into a function path, so `//_vitehub/...` became the absolute path `/_vitehub`.
+  it.each([["/", ""], ["/portal/", "/portal"]])("mounts every Console route once below Nuxt app.baseURL %s", async (baseURL, mount) => {
+    const production = createNuxt(false)
+    Object.assign(production.nuxt.options, { app: { baseURL } })
+    await viteHubNuxtModule({ console: { auth: false }, preset: "vercel" }, production.nuxt)
+
+    // SAFETY: The Console adds Nitro handler and public asset records; the assertions read their paths.
+    const { handlers, publicAssets } = nitroOptions(production.nuxt) as { handlers: Array<{ route: string }>, publicAssets: Array<{ baseURL?: string }> }
+    const paths = [...handlers.map(handler => handler.route), ...publicAssets.map(asset => asset.baseURL)]
+    expect(paths.filter(path => path?.includes("//"))).toEqual([])
+    expect(handlers).toContainEqual(expect.objectContaining({ route: `${mount}/_vitehub/page/session` }))
+    expect(publicAssets).toContainEqual(expect.objectContaining({ baseURL: `${mount}/_vitehub/page/assets` }))
+  })
+
   it("keeps resolved Nuxt features when applying the effective KV configuration", async () => {
     const { vitehub } = await vi.importActual<typeof import("../src/index.ts")>("../src/index.ts")
     mocks.vitehub.mockImplementation((options: Parameters<typeof vitehub>[0]) => vitehub(options).filter(
