@@ -1,6 +1,8 @@
 import * as v from "valibot"
 import type { RuleContext } from "vite-doctor/extension"
 
+import { viteHubInventory } from "./inventory.ts"
+
 /** A script AST node from oxc-parser. */
 export type AstNode = { type: string, [key: string]: unknown }
 type Identifier = { type: "Identifier", name: string }
@@ -121,10 +123,6 @@ export function objectValue(node: unknown, name: string): unknown {
   return objectProperty(node, name)?.value
 }
 
-export function hasSpread(node: unknown): boolean {
-  return objectProperties(node).some(property => property.type === "SpreadElement")
-}
-
 export function callArguments(node: unknown): unknown[] {
   const target = unwrap(node)
   return (isNodeType(target, "CallExpression") || isNodeType(target, "NewExpression")) && Array.isArray(target.arguments) ? target.arguments : []
@@ -177,21 +175,10 @@ export function enclosingFunction(node: unknown): AstNode | undefined {
   let current = parentOf(node)
   while (current) {
     if (isFunctionNode(current)) return current
-    // Class bodies and static blocks run when the module loads only for static members.
+    // An instance field runs when an object is created, not when the module loads.
     if (current.type === "MethodDefinition" || current.type === "PropertyDefinition" && current.static !== true) return current
     current = parentOf(current)
   }
-}
-
-export function isAwaited(node: unknown): boolean {
-  const { parent } = semanticParent(node)
-  return parent?.type === "AwaitExpression"
-}
-
-/** True when the value of `node` flows out of its expression: returned, awaited, assigned, passed, or chained. */
-export function isValueUsed(node: unknown): boolean {
-  const { parent } = semanticParent(node)
-  return Boolean(parent && parent.type !== "ExpressionStatement")
 }
 
 // Scope index.
@@ -465,13 +452,23 @@ export function defaultExport(ctx: RuleContext): { node: AstNode, value: unknown
 }
 
 const handlerFactories = new Set(["defineEventHandler", "eventHandler", "defineHandler", "defineCachedEventHandler", "defineLazyEventHandler"])
-/** Files whose default export Nitro serves as a route or middleware. */
-const routeFile = /(?:^|\/)server\/(?:api|routes|middleware)\//
+const routeDirs = ["api", "routes", "middleware"]
 
-/** True when `fn` handles a request: it is passed to `defineEventHandler()`, or it is the default export of a file under `server/api`, `server/routes`, or `server/middleware`. */
+/**
+ * True when Nitro serves the file's default export: the file is under `api/`, `routes/`, or `middleware/` of a server
+ * directory. The ViteHub Project Inventory lists the server directories, including a custom Nuxt `serverDir`.
+ */
+function isRouteFile(ctx: RuleContext): boolean {
+  const path = ctx.file.relativePath
+  const serverDirs = ["server", ...viteHubInventory(ctx).serverDirs ?? []]
+  return serverDirs.some(dir => routeDirs.some(route => path.startsWith(dir ? `${dir}/${route}/` : `${route}/`)))
+    || /(?:^|\/)server\/(?:api|routes|middleware)\//.test(path)
+}
+
+/** True when `fn` handles a request: it is passed to `defineEventHandler()`, or it is the default export of a route file. */
 export function isRouteHandler(ctx: RuleContext, fn: AstNode): boolean {
   const { parent } = semanticParent(fn)
-  if (parent?.type === "ExportDefaultDeclaration") return routeFile.test(ctx.file.relativePath)
+  if (parent?.type === "ExportDefaultDeclaration") return isRouteFile(ctx)
   const callee = parent?.type === "CallExpression" ? unwrap(parent.callee) : undefined
   return isIdentifier(callee) && handlerFactories.has(callee.name)
 }

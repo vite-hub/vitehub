@@ -22,10 +22,13 @@ const inventorySchema = v.object({
   definitions: v.record(v.string(), v.array(definitionSchema)),
   /** Server Env facts from the generated `.vitehub/env/description.mjs`. Missing before the first dev or build run. */
   env: v.optional(v.object({ secret: v.array(v.string()), provider: v.array(v.string()) })),
+  /** Server directories of the app and its Nuxt layers, relative to the project root. */
+  serverDirs: v.optional(v.array(v.string())),
 })
 export type ViteHubInventory = {
   definitions: Partial<Record<DefinitionKind, DiscoveredFile[]>>
   env?: { secret: string[], provider: string[] }
+  serverDirs?: string[]
 }
 export type DiscoveredFile = {
   name: string
@@ -167,6 +170,10 @@ export const viteHubInventoryContributor: ProjectInventoryContributor = {
     catch {
       env = undefined
     }
-    return { definitions, ...(env ? { env } : {}) } satisfies ViteHubInventory
+    return {
+      definitions,
+      serverDirs: serverDirs.map(dir => relative(root, dir).replaceAll("\\", "/")),
+      ...(env ? { env } : {}),
+    } satisfies ViteHubInventory
   },
 }

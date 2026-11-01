@@ -88,7 +88,6 @@ function hasValue(object: unknown, name: string): boolean {
   return Boolean(property && !isIdentifier(unwrap(property.value), "undefined"))
 }
 
-// VHUB0024
 
 const caretExtension = "@tiptap/extension-collaboration-caret"
 
@@ -118,7 +117,6 @@ export const realtimeCarets: DoctorRule = createRule({
   },
 })
 
-// VHUB0025
 
 const persistenceDefaults = { debounce: 2_000, maxWait: 10_000 }
 
@@ -167,7 +165,6 @@ export const realtimePersistence: DoctorRule = createRule({
   },
 })
 
-// VHUB0026
 
 const forgeClasses = new Set(["BranchMovedError", "ForgeApiError", "ForgeTimeoutError", "MergeBlockedError", "NotFoundError", "RateLimitedError"])
 
@@ -197,7 +194,6 @@ export const forgeErrorImports: DoctorRule = createRule({
   },
 })
 
-// VHUB0027
 
 const runtimeNames = new Set(["crabbox", "trusted-host", "vercel"])
 const runtimeKinds = new Set(["cloudflare", "crabbox", "trusted-host", "vercel"])
@@ -261,7 +257,6 @@ export const sandboxRuntimeOptions: DoctorRule = createRule({
   },
 })
 
-// VHUB0028
 
 export const defineAgentFromViteHub: DoctorRule = createRule({
   meta: {
@@ -289,7 +284,6 @@ export const defineAgentFromViteHub: DoctorRule = createRule({
   },
 })
 
-// VHUB0029
 
 export const rateLimitCapabilityLimiter: DoctorRule = createRule({
   meta: {
@@ -319,7 +313,6 @@ export const rateLimitCapabilityLimiter: DoctorRule = createRule({
   },
 })
 
-// VHUB0030
 
 export const noViteHubPluginInNuxt: DoctorRule = createRule({
   meta: {
@@ -344,7 +337,6 @@ export const noViteHubPluginInNuxt: DoctorRule = createRule({
   },
 })
 
-// VHUB0031
 
 function checkViteHubOptions(ctx: RuleContext, options: unknown, host: "nuxt" | "vite", where: string) {
   const target = unwrap(options)
@@ -425,7 +417,6 @@ export const validViteHubOptions: DoctorRule = createRule({
   },
 })
 
-// VHUB0032
 
 const nuxtHubImport = /^(?:hub:(?:db|kv|blob)|@nuxthub\/.+)$/
 
@@ -471,7 +462,6 @@ export const noNuxtHubLeftovers: DoctorRule = createRule({
   },
 })
 
-// VHUB0033
 
 /** Import paths that ViteHub removed, with the path that replaces each one. */
 const removedPaths = new Map([
@@ -574,7 +564,6 @@ export const noRemovedApis: DoctorRule = createRule({
   },
 })
 
-// VHUB0034
 
 export const markdownFilePath: DoctorRule = createRule({
   meta: {
@@ -601,7 +590,6 @@ export const markdownFilePath: DoctorRule = createRule({
   },
 })
 
-// VHUB0035
 
 const commentsEntryFile = /(?:^|\/)server\/comments\.m?[jt]s$/
 

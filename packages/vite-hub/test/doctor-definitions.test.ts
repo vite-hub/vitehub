@@ -374,3 +374,16 @@ describe("pullfrog review regressions", () => {
     })).toEqual(["VHUB0020", "VHUB0020", "VHUB0020"])
   })
 })
+
+describe("third review regressions", () => {
+  it("accepts a Workflow registered with the createWorkflow() object form", async () => {
+    expect(await projectCodes(knownDefinitionNames, {
+      "server/workflows/onboard.ts": workflow,
+      "server/api/inline.post.ts": [
+        'import { createWorkflow, runWorkflow } from "vite-hub/workflow"',
+        'createWorkflow({ name: "inline", handler: async () => {} })',
+        'export default defineEventHandler(async () => { await runWorkflow("inline", {}) })',
+      ].join("\n"),
+    })).toEqual([])
+  })
+})

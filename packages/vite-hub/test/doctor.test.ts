@@ -5,7 +5,7 @@ import type { DoctorPluginApi } from "vite-doctor/extension"
 
 import vitehubDoctorExtension, { destructureResultTuples, noInternalImports, noServerImportsInClient } from "../src/doctor.ts"
 import { vitehub } from "../src/index.ts"
-import { codes, doctorTestTimeout } from "./doctor-helpers.ts"
+import { codes, doctorTestTimeout, projectCodes } from "./doctor-helpers.ts"
 
 vi.setConfig({ testTimeout: doctorTestTimeout })
 
@@ -403,6 +403,16 @@ describe("vitehub/destructure-result-tuples outside route files", () => {
     expect(await codes(destructureResultTuples, {
       "src/api/client.ts": 'import { kv } from "vite-hub/kv"\nexport default async function readSettings() { return await kv.get("settings") }\n',
     })).toEqual([])
+  })
+})
+
+describe("route handlers in a custom Nuxt server directory", () => {
+  it("treats the default export under the configured serverDir as a route handler", async () => {
+    expect(await projectCodes(destructureResultTuples, {
+      "nuxt.config.ts": 'export default defineNuxtConfig({ serverDir: "backend" })\n',
+      "backend/api/settings.get.ts": 'import { kv } from "vite-hub/kv"\nexport default async function readSettings() { return await kv.get("settings") }\n',
+      "src/api/client.ts": 'import { kv } from "vite-hub/kv"\nexport default async function readSettings() { return await kv.get("settings") }\n',
+    }, "nuxt")).toEqual(["VHUB0003"])
   })
 })
 
