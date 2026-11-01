@@ -422,5 +422,5 @@ jobs:
               previous_tag="$(gh api "repos/${GH_REPO}/releases/latest" --jq .tag_name)"
               notes="**Full changelog**: https://github.com/${GH_REPO}/compare/${previous_tag}...${release_tag}"
             fi
-            gh release create "$release_tag" "${args[@]}" --notes "$notes"
+            printf '%s\n' "$notes" | gh release create "$release_tag" "${args[@]}" --notes-file -
           fi
