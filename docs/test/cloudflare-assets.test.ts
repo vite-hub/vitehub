@@ -1,14 +1,20 @@
-import { createApp, defineEventHandler, getCookie, toWebHandler } from "h3";
+import { createApp, defineEventHandler, getCookie, toWebHandler, toWebRequest } from "h3";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import staticAssets, { shouldServePrerenderedAsset } from "../server/middleware/static-assets";
 
-const fetchAsset = vi.fn(() => Promise.resolve(new Response("prerendered: hidden", {
+const fetchAsset = vi.fn<(request: Request) => Promise<Response>>(() => Promise.resolve(new Response("prerendered: hidden", {
   headers: { "Cache-Control": "public, max-age=3600", Vary: "Accept-Encoding" },
 })));
+// Matches the Workers asset binding, which is not a plain object.
+class Fetcher {
+  readonly [Symbol.toStringTag] = "Fetcher";
+  fetch = fetchAsset;
+}
 vi.stubGlobal("useRuntimeConfig", () => ({ agentDiscovery: { userAgents: ["GPTBot"] } }));
 const request = toWebHandler(createApp()
   .use(defineEventHandler((event) => {
-    event.context.cloudflare = { env: { ASSETS: { fetch: fetchAsset } } };
+    // Nitro's `cloudflare_module` preset passes the Worker request here.
+    event.context.cloudflare = { env: { ASSETS: new Fetcher() }, request: toWebRequest(event) };
   }))
   .use(staticAssets)
   .use(defineEventHandler(event => getCookie(event, "vh-tutorial-navigation") === "true" ? "rendered: open" : "rendered: hidden")));
@@ -53,11 +59,10 @@ describe("Cloudflare prerendered page middleware", () => {
     const response = await request(new Request("https://vitehub.dev/docs/kv/get-started", { headers }));
 
     expect(fetchAsset).toHaveBeenCalledOnce();
+    expect(fetchAsset.mock.calls[0]?.[0].url).toBe("https://vitehub.dev/docs/kv/get-started");
     expect(await response.text()).toBe("prerendered: hidden");
     expect(response.headers.get("cache-control")).toBe("private, no-store");
-    expect(response.headers.get("vary")).toContain("Cookie");
-    expect(response.headers.get("vary")).toContain("Accept-Encoding");
-    expect(response.headers.get("vary")).toContain("Accept");
+    expect(response.headers.get("vary")).toBe("Accept-Encoding, Accept, User-Agent, Cookie");
   });
 
   it("keeps ordinary docs prerendered when tutorial navigation was opened", async () => {
@@ -67,5 +72,13 @@ describe("Cloudflare prerendered page middleware", () => {
 
     expect(fetchAsset).toHaveBeenCalledOnce();
     expect(response.headers.get("cache-control")).toBe("public, max-age=3600");
+  });
+
+  it("does not repeat Vary values that the asset already sends", async () => {
+    fetchAsset.mockResolvedValueOnce(new Response("prerendered: home", { headers: { Vary: "Accept, User-Agent" } }));
+    const response = await request(new Request("https://vitehub.dev/", { headers: { Accept: "text/html" } }));
+
+    expect(await response.text()).toBe("prerendered: home");
+    expect(response.headers.get("vary")).toBe("Accept, User-Agent");
   });
 });
