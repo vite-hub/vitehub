@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
-import { join, relative } from "node:path"
+import { join, posix, relative } from "node:path"
 
 import { glob } from "tinyglobby"
 
@@ -100,17 +100,23 @@ async function findEslintReferences(cwd: string): Promise<FollowUp[]> {
   return followUps
 }
 
-async function findOutOfScopeConfigs(cwd: string, rootConfig: string): Promise<FollowUp[]> {
+async function findOutOfScopeConfigs(cwd: string, rootConfig: string): Promise<{ directories: string[], followUps: FollowUp[] }> {
   const files = await glob(["**/nuxt.config.{ts,mts,js,mjs,cjs}", "**/nitro.config.{ts,mts,js,mjs,cjs}"], { cwd, ignore: ["**/node_modules/**", "**/.nuxt/**", "**/.output/**"] })
+  const directories = new Set<string>()
   const followUps: FollowUp[] = []
   for (const file of files.sort()) {
     if (file === rootConfig) continue
+    const directory = posix.dirname(file)
+    if (directory !== ".") directories.add(directory)
     const text = await readFile(join(cwd, file), "utf8")
     if (text.includes("safeRuntimeConfig") || text.includes(moduleName)) {
       followUps.push({ file, message: `This config also uses ${moduleName}. The codemod migrates only the app nuxt.config. Migrate this file by hand, or run the codemod in its directory.` })
     }
+    else if (directory !== ".") {
+      followUps.push({ file, message: "This config owns a separate source tree. The codemod left that tree unchanged; check its runtime config reads and migrate it separately if needed." })
+    }
   }
-  return followUps
+  return { directories: [...directories], followUps }
 }
 
 async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
@@ -173,7 +179,8 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
 
   const migrated = new Set(fields.map(field => pathLabel(field)))
   const edited = editNuxtConfig({ config, env, migrated })
-  const calls = await rewriteCallSites({ cwd, fields, unmigrated })
+  const outOfScope = await findOutOfScopeConfigs(cwd, config.fileName)
+  const calls = await rewriteCallSites({ cwd, fields, unmigrated, excludedDirectories: outOfScope.directories })
   const packageResult = await editPackageJson(cwd, packageJson.version, { env: env.kind === "env-schema" })
 
   const envLine = (field: EnvField) => edited.lineOf(["vitehub", "env", field.section, ...field.envPath])
@@ -205,7 +212,6 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   }
 
   const eslint = await findEslintReferences(cwd)
-  const outOfScope = await findOutOfScopeConfigs(cwd, config.fileName)
 
   const edits: FileEdit[] = [{ path: config.fileName, before: config.code, after: edited.code }]
   if (packageResult.edit) edits.push(packageResult.edit)
@@ -224,7 +230,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   return {
     summary: `migrated ${fields.length} Env declaration${fields.length === 1 ? "" : "s"} (${publicCount} public, ${fields.length - publicCount} server) from ${sourceLabel} to vite-hub/nuxt.`,
     edits,
-    followUps: [...configFollowUps, ...calls.followUps, ...secretFollowUps, ...eslint, ...outOfScope],
+    followUps: [...configFollowUps, ...calls.followUps, ...secretFollowUps, ...eslint, ...outOfScope.followUps],
     notes,
     nextSteps: [
       `Run \`${packageResult.installCommand}\` to install ${env.kind === "env-schema" ? "vite-hub and @vite-hub/env" : "vite-hub"} and remove ${moduleName}.`,

@@ -1,11 +1,12 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, posix } from "node:path"
 import { runInNewContext } from "node:vm"
 
 import { afterEach, describe, expect, it } from "vitest"
 
 import { parseProgram } from "../src/ast.ts"
+import { runCodemod } from "../src/index.ts"
 import { rewriteCallSites } from "../src/nuxt-safe-runtime-config/call-sites.ts"
 import { editNuxtConfig } from "../src/nuxt-safe-runtime-config/config-edit.ts"
 import { readNuxtConfig, readRuntimeConfig } from "../src/nuxt-safe-runtime-config/nuxt-config.ts"
@@ -38,8 +39,7 @@ const publicField: EnvField = {
   secret: false,
 }
 
-async function rewrite(code: string) {
-  const file = "composables/title.ts"
+async function rewrite(code: string, file = "composables/title.ts") {
   const cwd = await app({ [file]: code })
   const result = await rewriteCallSites({ cwd, fields: [publicField], unmigrated: [] })
   expect(await readFile(join(cwd, file), "utf8")).toBe(code)
@@ -125,6 +125,21 @@ describe("call-site bindings", () => {
     expect(result.followUps[0]?.message).toContain("Some references")
   })
 
+  it.each([
+    ["components/Title.tsx", "<SafeConfig />"],
+    ["components/Title.jsx", "<SafeConfig.Part />"],
+    ["components/Title.vue", "<SafeConfig></SafeConfig>"],
+  ])("keeps a composable alias referenced in JSX in %s", async (file, element) => {
+    const script = `import { useSafeRuntimeConfig as SafeConfig } from '#imports'\nexport const title = SafeConfig().public.title\nexport const view = ${element}\n`
+    const code = file.endsWith(".vue") ? `<script setup lang="tsx">\n${script}</script>` : script
+    const result = await rewrite(code, file)
+    expect(result.code).toContain("import { useSafeRuntimeConfig as SafeConfig } from '#imports'")
+    expect(result.code).toContain("usePublicEnv().title")
+    expect(result.code).toContain(element)
+    expect(result.followUps[0]?.message).toContain("Some references to SafeConfig remain")
+    expect(result.remaining).toEqual([file])
+  })
+
   it("declines Vue files whose script blocks can share bindings", async () => {
     const file = "components/Title.vue"
     const code = "<script>const usePublicEnv = () => 'local'</script>\n<script setup>const title = useSafeRuntimeConfig().public.title</script>"
@@ -132,6 +147,40 @@ describe("call-site bindings", () => {
     const result = await rewriteCallSites({ cwd, fields: [publicField], unmigrated: [] })
     expect(result.edits).toEqual([])
     expect(result.followUps[0]?.message).toContain("multiple script blocks")
+  })
+})
+
+describe("nested app boundaries", () => {
+  it.each([
+    ["apps/child/nuxt.config.ts", "export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'] })"],
+    ["services/api/nitro.config.ts", "export default defineNitroConfig({ modules: ['nuxt-safe-runtime-config/nitro'] })"],
+    ["layers/base/nuxt.config.ts", "export default defineNuxtConfig({ safeRuntimeConfig: {} })"],
+    ["apps/plain/nuxt.config.ts", "export default defineNuxtConfig({})"],
+  ])("leaves the source tree owned by %s unchanged", async (configFile, config) => {
+    const directory = posix.dirname(configFile)
+    const nestedFile = `${directory}/composables/title.ts`
+    const siblingFile = `${directory}-sibling/composables/title.ts`
+    const code = "export const title = useSafeRuntimeConfig().public.title\n"
+    const nestedPackage = '{"dependencies":{"nuxt-safe-runtime-config":"0.3.2"}}\n'
+    const cwd = await app({
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'], safeRuntimeConfig: { envSchema: '.env.example' } })",
+      ".env.example": "NUXT_PUBLIC_TITLE=site\n",
+      "package.json": nestedPackage,
+      "composables/title.ts": code,
+      [configFile]: config,
+      [`${directory}/package.json`]: nestedPackage,
+      [nestedFile]: code,
+      [siblingFile]: code,
+    })
+    const { result } = await runCodemod("nuxt-safe-runtime-config", { cwd })
+    expect(await readFile(join(cwd, nestedFile), "utf8")).toBe(code)
+    expect(await readFile(join(cwd, configFile), "utf8")).toBe(config)
+    expect(await readFile(join(cwd, directory, "package.json"), "utf8")).toBe(nestedPackage)
+    expect(result.edits.some(edit => edit.path.startsWith(`${directory}/`))).toBe(false)
+    expect(result.followUps.some(entry => entry.file === configFile)).toBe(true)
+    for (const file of ["composables/title.ts", siblingFile]) {
+      expect(await readFile(join(cwd, file), "utf8")).toContain("usePublicEnv().title")
+    }
   })
 })
 

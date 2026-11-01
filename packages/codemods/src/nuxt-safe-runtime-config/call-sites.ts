@@ -21,6 +21,8 @@ export interface CallSiteInput {
   fields: readonly EnvField[]
   /** `runtimeConfig` labels that stay, such as `public.tags`. */
   unmigrated: readonly string[]
+  /** Source trees owned by other Nuxt or Nitro configs, relative to `cwd`. */
+  excludedDirectories?: readonly string[]
 }
 
 export interface SecretRead {
@@ -318,7 +320,12 @@ class BlockRewriter {
           if (this.safeImports.get(specifier.local.name) !== specifier) return true
           let referenced = false
           walk(this.program, (node, ancestors) => {
-            if (node.type === "Identifier" && node.name === specifier.local.name && isReference(node, ancestors.at(-1)) && !this.rewrittenCallees.has(node)) referenced = true
+            if ((node.type !== "Identifier" && node.type !== "JSXIdentifier") || node.name !== specifier.local.name || this.rewrittenCallees.has(node)) return
+            const parent = ancestors.at(-1)
+            if (isReference(node, parent) || (node.type === "JSXIdentifier" && (
+              ((parent?.type === "JSXOpeningElement" || parent?.type === "JSXClosingElement") && parent.name === node)
+              || (parent?.type === "JSXMemberExpression" && parent.object === node)
+            ))) referenced = true
           })
           if (referenced) {
             this.follow(this.lineOf(specifier), `Some references to ${specifier.local.name} remain. Replace them by hand before removing this Nuxt composable import.`)
@@ -624,7 +631,9 @@ const ignoredPatterns = ["**/node_modules/**", "**/.nuxt/**", "**/.output/**", "
 /** Rewrites `useSafeRuntimeConfig()` calls and reports reads that it cannot rewrite safely. */
 export async function rewriteCallSites(input: CallSiteInput): Promise<CallSiteResult> {
   const resolver = new Resolver(input.fields, input.unmigrated)
-  const files = (await glob(sourcePatterns, { cwd: input.cwd, ignore: ignoredPatterns, dot: false })).sort()
+  const files = (await glob(sourcePatterns, { cwd: input.cwd, ignore: ignoredPatterns, dot: false }))
+    .filter(file => !input.excludedDirectories?.some(directory => file.startsWith(`${directory}/`)))
+    .sort()
   const result: CallSiteResult = { edits: [], followUps: [], secretReads: [], remaining: [] }
   for (const file of files) {
     const source = await readFile(join(input.cwd, file), "utf8")

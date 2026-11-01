@@ -1,18 +1,18 @@
 nuxt-safe-runtime-config: migrated 7 Env declarations (3 public, 4 server) from envSchema (.env.example) to vite-hub/nuxt.
 Dry run: no files were written.
 
-Files to change (5):
+Files to change (4):
   nuxt.config.ts
   package.json
   app/composables/useLogLevel.ts
-  layers/base/server/api/health.get.ts
   server/api/limits.get.ts
 
-Manual follow-ups (4):
+Manual follow-ups (5):
   1. .env.example:12 NUXT_PUBLIC_POSTHOG_REPLAY_SAMPLE_RATE was mapped to public.posthog.replaySampleRate. Public Env is flat, so read it as usePublicEnv().posthogReplaySampleRate.
   2. server/api/limits.get.ts:3 useServerEnv().database.url is secret, a SecretEnv<string>. Call .unseal() where this code needs the raw value.
   3. server/api/limits.get.ts:9 useServerEnv().apiSecret is secret, a SecretEnv<string>. Call .unseal() where this code needs the raw value.
   4. eslint.config.mjs:5 Remove the nuxt-safe-runtime-config ESLint rule. Its prefer-safe-runtime-config rule has no Env equivalent.
+  5. layers/base/nuxt.config.ts This config owns a separate source tree. The codemod left that tree unchanged; check its runtime config reads and migrate it separately if needed.
 
 Notes:
   - envSchema() with prefix "NUXT_" reads the same variable names: NUXT_PUBLIC_* keys become Public Env and other NUXT_* keys become Server Env, with the same camelCase names. Each field reads its exact schema key.
