@@ -50,10 +50,10 @@ function startOf(module: unknown): ViteHubPageToolModule["default"] | undefined 
 }
 
 // Drop's review toolbar: dark glass with the system font on every page. The tools in its segments inherit the colors
-// and the font. Each visible segment ends with a short divider.
+// and the font. Space groups the buttons: 8px between segments, 2px inside one.
 const pillStyles = `:host{all:initial;position:fixed;left:50%;bottom:max(16px,env(safe-area-inset-bottom));translate:-50% 0;z-index:2147483001;color-scheme:dark;font:500 12px/1 ui-sans-serif,system-ui,sans-serif;color:#d4d4d4;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;--vitehub-pill-text:#d4d4d4;--vitehub-pill-strong:#fafafa;--vitehub-pill-muted:#a3a3a3;--vitehub-pill-hover:rgb(255 255 255/8%);--vitehub-pill-on:#fafafa;--vitehub-pill-on-text:#0a0a0a;--vitehub-pill-line:rgb(255 255 255/12%);--vitehub-pill-surface:#111}
-div{box-sizing:border-box;max-width:calc(100vw - 16px);overflow-x:auto;scrollbar-width:none;display:flex;align-items:center;gap:4px;padding:4px;border:1px solid var(--vitehub-pill-line);border-radius:12px;background:rgb(17 17 17/92%);box-shadow:0 8px 24px rgb(0 0 0/25%);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
-::slotted(*){flex-shrink:0;display:flex;align-items:center;gap:4px;padding-right:7px;margin-right:2px;background:linear-gradient(var(--vitehub-pill-line),var(--vitehub-pill-line)) right/1px 18px no-repeat}
+div{box-sizing:border-box;max-width:calc(100vw - 16px);overflow-x:auto;scrollbar-width:none;display:flex;align-items:center;gap:8px;padding:4px;border:1px solid var(--vitehub-pill-line);border-radius:12px;background:rgb(17 17 17/92%);box-shadow:0 8px 24px rgb(0 0 0/25%);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+::slotted(*){flex-shrink:0;display:flex;align-items:center;gap:2px}
 ::slotted([hidden]){display:none!important}
 ${viteHubPillButtonStyles}
 button{flex-shrink:0;padding:0}
@@ -62,11 +62,10 @@ button{flex-shrink:0;padding:0}
 .mark,.mark[aria-expanded=true]{background:none;color:var(--vitehub-pill-strong)}
 @media(hover:hover){.mark:hover{background:var(--vitehub-pill-hover)}}
 .mark svg{width:16px;height:16px}
-:host([collapsed]) :is(slot,.exit,.sep){display:none}
-.sep{flex-shrink:0;width:1px;height:18px;margin:0 2px;background:var(--vitehub-pill-line)}
-:host(:not([collapsed])) :is(slot,.exit,.sep){animation:vitehub-pill-in 150ms cubic-bezier(.23,1,.32,1)}
+:host([collapsed]) :is(slot,.exit){display:none}
+:host(:not([collapsed])) :is(slot,.exit){animation:vitehub-pill-in 150ms cubic-bezier(.23,1,.32,1)}
 @keyframes vitehub-pill-in{from{opacity:0;translate:-4px 0}}
-@media(prefers-reduced-motion:reduce){:host(:not([collapsed])) :is(slot,.exit,.sep){animation:none}}`
+@media(prefers-reduced-motion:reduce){:host(:not([collapsed])) :is(slot,.exit){animation:none}}`
 
 /** The key in `localStorage` that keeps the pill collapsed to the ViteHub mark, on this page and the next ones. */
 const collapsedKey = "vitehub-tools-collapsed"
@@ -119,9 +118,7 @@ function mountPill(tools: ViteHubPageToolInfo[], exit: () => void, signal: Abort
   button.setAttribute("aria-label", "Turn off ViteHub tools")
   button.title = "Turn off ViteHub tools"
   button.append(svgIcon("0 0 24 24", "M18 6 6 18M6 6l12 12", { width: "15", height: "15", fill: "none", stroke: "currentColor", "stroke-width": "2", "stroke-linecap": "round" }))
-  const divider = document.createElement("span")
-  divider.className = "sep"
-  toolbar.append(mark, divider, button)
+  toolbar.append(mark, button)
   shadow.append(style, toolbar)
   for (const tool of tools) {
     const slot = document.createElement("slot")

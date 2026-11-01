@@ -132,9 +132,8 @@ textarea { min-height: 38px; max-height: 160px; field-sizing: content; }
 export const pillBarStyles = `
 :host { font: inherit; color: inherit; color-scheme: inherit; }
 .bar { font: inherit; color: inherit; --surface: var(--vitehub-pill-surface); --muted: var(--vitehub-pill-muted); --divider: var(--vitehub-pill-line); }
-.toolbar { gap: 4px; }
 .bar button { transform: none; font-variant-numeric: tabular-nums; }
-.sep { width: 1px; height: 18px; background: var(--divider); margin: 0 2px; }
+.sep { width: 4px; flex: none; }
 .people { display: flex; padding: 0 2px; }
 .people .avatar { width: 20px; height: 20px; font-size: 9px; }
 .people .avatar + .avatar { margin-left: -6px; box-shadow: 0 0 0 2px var(--surface); }

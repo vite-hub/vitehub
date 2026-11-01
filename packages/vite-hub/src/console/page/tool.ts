@@ -2,7 +2,7 @@ import { contentFieldAttribute, parseContentField } from "@vite-hub/content/clie
 import { viteHubPillButtonStyles } from "@vite-hub/internal/runtime/page-tools-shared"
 import type { ViteHubPageToolModule } from "@vite-hub/internal/runtime/page-tools-loader"
 
-const styles = `:host{display:flex;gap:4px}${viteHubPillButtonStyles}`
+const styles = `:host{display:flex;gap:2px}${viteHubPillButtonStyles}`
 const start: ViteHubPageToolModule["default"] = (context) => {
   const { bar, tool, signal } = context
   const shadow = bar.attachShadow({ mode: "open" })

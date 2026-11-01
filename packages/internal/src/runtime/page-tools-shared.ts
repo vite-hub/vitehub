@@ -29,7 +29,7 @@ export const viteHubPageToolsLoader = "/_vitehub/page/assets/loader.js?v=9"
  * the same on every site. The pill sets the `--vitehub-pill-*` colors, and segments inherit them through their shadow
  * roots. A pressed or expanded button is inverted, like the active tool in Drop.
  */
-export const viteHubPillButtonStyles = `button{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:4px;min-width:28px;height:28px;padding:0 10px;border-radius:8px;font:inherit;white-space:nowrap;color:var(--vitehub-pill-text);cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition-property:background-color,color,scale;transition-duration:150ms;transition-timing-function:cubic-bezier(.23,1,.32,1)}
+export const viteHubPillButtonStyles = `button{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:4px;min-width:28px;height:28px;padding:0 8px;border-radius:8px;font:inherit;white-space:nowrap;color:var(--vitehub-pill-text);cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition-property:background-color,color,scale;transition-duration:150ms;transition-timing-function:cubic-bezier(.23,1,.32,1)}
 @media(hover:hover){button:where(:not(:disabled):hover){background:var(--vitehub-pill-hover);color:var(--vitehub-pill-strong)}}
 button:where(:not(:disabled):active){scale:.96}
 button[aria-pressed=true],button[aria-expanded=true]{background:var(--vitehub-pill-on);color:var(--vitehub-pill-on-text)}
