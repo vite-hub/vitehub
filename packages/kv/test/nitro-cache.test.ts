@@ -53,6 +53,21 @@ describe("Nitro cache on KV", () => {
     })
   })
 
+  it.each(["", ":", "/", ":://"])("keeps an empty normalized base %j inside the default prefix", async (base) => {
+    const namespace = createNamespace()
+    const storage = createStorage()
+    storage.mount("cache", createKVCacheDriver({ base }))
+
+    await runWithActiveCloudflareEnv({ KV: namespace }, async () => {
+      await kv.set("settings", { theme: "dark" })
+      await storage.setItem("cache:settings", { cached: true })
+      expect(await kv.get("settings")).toEqual([undefined, { theme: "dark" }])
+      expect(await storage.getKeys("cache")).toEqual(["cache:settings"])
+      await storage.clear("cache")
+      expect([...namespace.values.keys()]).toEqual(["settings"])
+    })
+  })
+
   it("uses a custom prefix", async () => {
     const namespace = createNamespace()
     const storage = createStorage()

@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url"
+
 import { isPlainObject } from "@vite-hub/internal/object"
 
 import type { DeploymentPreset } from "./index.ts"
@@ -15,7 +17,8 @@ export type CacheOptions =
 type CacheDriver = Exclude<CacheOptions["driver"], "kv">
 
 /** Unstorage driver that `{ driver: "kv" }` mounts. It runs over `kv` from `vite-hub/kv`. */
-const kvCacheDriver = "vite-hub/_internal/kv/runtime/nitro-cache"
+// Resolve before Nitro applies prefix aliases such as `vite-hub/_internal/kv` to a file.
+const kvCacheDriver: string = fileURLToPath(import.meta.resolve("vite-hub/_internal/kv/runtime/nitro-cache"))
 type KVCacheMount = { driver: typeof kvCacheDriver, base: string }
 
 export interface ResolvedCacheStorage {

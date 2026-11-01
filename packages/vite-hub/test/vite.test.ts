@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+const kvCacheDriver = fileURLToPath(import.meta.resolve("vite-hub/_internal/kv/runtime/nitro-cache"))
+
 vi.mock("node:fs", async importOriginal => {
   const fs = await importOriginal<typeof import("node:fs")>()
   return { ...fs, readFileSync: vi.fn(fs.readFileSync) }
@@ -1292,7 +1294,7 @@ describe("vitehub", () => {
 
   it("mounts Nitro cache storage on the app's KV store", async () => {
     const config = await applyDeploymentConfig({ cache: { driver: "kv" }, kv: true, preset: "cloudflare" })
-    const mount = { base: "nitro-cache", driver: "vite-hub/_internal/kv/runtime/nitro-cache" }
+    const mount = { base: "nitro-cache", driver: kvCacheDriver }
 
     expect(config.nitro).toMatchObject({ devStorage: { cache: mount }, storage: { cache: mount } })
     await expect(applyDeploymentConfig({ cache: { driver: "kv" }, preset: "cloudflare" })).rejects.toThrow("`kv` is not enabled")
@@ -1302,7 +1304,7 @@ describe("vitehub", () => {
     const options = { cache: { driver: "kv" as const }, kv: true, preset: "node" as const }
     await expect(applyDeploymentConfig(options, { kv: false }, command)).rejects.toThrow("`kv` is not enabled")
     await expect(applyDeploymentConfig({ ...options, kv: false }, { kv: { driver: "fs-lite" } }, command)).resolves.toHaveProperty(
-      "nitro.storage.cache.driver", "vite-hub/_internal/kv/runtime/nitro-cache",
+      "nitro.storage.cache.driver", kvCacheDriver,
     )
   })
 

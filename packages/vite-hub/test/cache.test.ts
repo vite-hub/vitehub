@@ -1,6 +1,10 @@
+import { fileURLToPath } from "node:url"
+
 import { describe, expect, it } from "vitest"
 
 import { applyCacheStorage, resolveCacheStorage } from "../src/cache.ts"
+
+const kvCacheDriver = fileURLToPath(import.meta.resolve("vite-hub/_internal/kv/runtime/nitro-cache"))
 
 describe("resolveCacheStorage", () => {
   it("applies explicit binding, namespace, and base options", () => {
@@ -62,11 +66,11 @@ describe("applyCacheStorage", () => {
 
 describe("KV cache storage", () => {
   it("mounts Nitro's cache on the app's KV store on any preset", () => {
-    const mount = { base: "nitro-cache", driver: "vite-hub/_internal/kv/runtime/nitro-cache" }
+    const mount = { base: "nitro-cache", driver: kvCacheDriver }
     for (const preset of ["cloudflare", "netlify", "node"] as const) {
       expect(resolveCacheStorage({ driver: "kv" }, preset, true)).toEqual({ devStorage: mount, storage: mount })
     }
-    expect(resolveCacheStorage({ base: "pages", driver: "kv" }, "vercel", true).storage).toEqual({ base: "pages", driver: "vite-hub/_internal/kv/runtime/nitro-cache" })
+    expect(resolveCacheStorage({ base: "pages", driver: "kv" }, "vercel", true).storage).toEqual({ base: "pages", driver: kvCacheDriver })
   })
 
   it("requires kv", () => {
@@ -75,6 +79,6 @@ describe("KV cache storage", () => {
 
   it("keeps an app's own cache mount and adds no Wrangler namespace", () => {
     const config = applyCacheStorage({ storage: { cache: { driver: "memory" } } }, resolveCacheStorage({ driver: "kv" }, "cloudflare", true))
-    expect(config).toEqual({ devStorage: { cache: { base: "nitro-cache", driver: "vite-hub/_internal/kv/runtime/nitro-cache" } }, storage: { cache: { driver: "memory" } } })
+    expect(config).toEqual({ devStorage: { cache: { base: "nitro-cache", driver: kvCacheDriver } }, storage: { cache: { driver: "memory" } } })
   })
 })

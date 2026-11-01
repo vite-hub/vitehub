@@ -17,7 +17,7 @@ async function unwrap<T>(pending: Promise<Result<T, string>>): Promise<T> {
 
 /** Unstorage driver over the app's default KV store, for Nitro's `cache` mount. */
 export default function createKVCacheDriver(options: KVCacheDriverOptions = {}): Driver<KVCacheDriverOptions> {
-  const prefix = `${normalizeKey(options.base ?? "nitro-cache")}:`
+  const prefix = `${normalizeKey(options.base ?? "nitro-cache") || "nitro-cache"}:`
   const key = (name: string | undefined) => prefix + normalizeKey(name)
   return {
     name: "vitehub-kv",

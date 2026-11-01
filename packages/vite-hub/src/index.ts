@@ -796,7 +796,9 @@ function deploymentPlugins(
             }
           }
           if (options.cache) {
-            const cacheStorage = resolveCacheStorage(options.cache, plan.preset, Boolean(config.kv ?? options.kv))
+            // SAFETY: The KV integration reads this optional top-level Vite setting too.
+            const kv = (config as typeof config & { kv?: KVModuleOptions }).kv ?? options.kv
+            const cacheStorage = resolveCacheStorage(options.cache, plan.preset, Boolean(kv))
             nitro = applyCacheStorage(nitro, cacheStorage)
           }
           ;(config as { nitro?: unknown }).nitro = nitro
