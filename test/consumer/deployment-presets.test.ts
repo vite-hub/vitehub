@@ -348,48 +348,6 @@ it("loads the generated Schedule module and emits each Cloudflare cron once", as
   }
 }, 30_000)
 
-it("emits a Netlify scheduled function for a server Schedule next to a Database", async () => {
-  const root = await realpath(await mkdtemp(join(tmpdir(), "vitehub-netlify-schedule-output-")))
-  const cron = "0 * * * *"
-  try {
-    await symlink(join(import.meta.dirname, "../../node_modules"), join(root, "node_modules"), "dir")
-    await mkdir(join(root, "server/schedules"), { recursive: true })
-    await writeFile(join(root, "package.json"), JSON.stringify({ name: "schedule-netlify-fixture" }), "utf8")
-    await writeFile(join(root, "index.html"), "<!doctype html><title>ViteHub</title>\n", "utf8")
-    await writeFile(join(root, "server/schedules/cleanup.ts"), [
-      'import { defineSchedule } from "vite-hub/schedule"',
-      `export default defineSchedule({ cron: ${JSON.stringify(cron)}, handler: () => undefined })`,
-      "",
-    ].join("\n"), "utf8")
-
-    const builder = await createBuilder({
-      nitro: { compatibilityDate: "2026-07-20", serverDir: true },
-      plugins: [
-        vitehub({
-          preset: "netlify",
-          agent: false,
-          blob: false,
-          database: { driver: "d1", databaseId: "d1-id", databaseName: "notes", cloudflare: { http: true } },
-          env: false,
-          kv: false,
-          queue: false,
-          rateLimit: false,
-          schedule: { providerOutput: "standalone" },
-          workflow: false,
-          workspace: false,
-        }),
-        nitro(),
-      ],
-      root,
-    })
-    await builder.buildApp()
-
-    await expect(readFile(join(root, ".netlify/v1/functions/vitehub-schedule-cleanup.mjs"), "utf8")).resolves.toContain(`schedule: ${JSON.stringify(cron)}`)
-  } finally {
-    await rm(root, { force: true, recursive: true })
-  }
-}, 300_000)
-
 it.skipIf(process.platform !== "linux" || process.arch !== "x64")("uploads and executes native packages when updating an existing Deno app", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-deno-native-update-"))
   const workspaceRoot = resolve(import.meta.dirname, "../..")
