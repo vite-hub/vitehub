@@ -5,7 +5,7 @@ import { runInNewContext } from "node:vm"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { parseProgram } from "../src/ast.ts"
+import { end, parseProgram, start } from "../src/ast.ts"
 import { runCodemod } from "../src/index.ts"
 import { rewriteCallSites } from "../src/nuxt-safe-runtime-config/call-sites.ts"
 import { editNuxtConfig } from "../src/nuxt-safe-runtime-config/config-edit.ts"
@@ -154,7 +154,7 @@ describe("nested app boundaries", () => {
   it.each([
     ["apps/child/nuxt.config.ts", "export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'] })"],
     ["services/api/nitro.config.ts", "export default defineNitroConfig({ modules: ['nuxt-safe-runtime-config/nitro'] })"],
-    ["layers/base/nuxt.config.ts", "export default defineNuxtConfig({ safeRuntimeConfig: {} })"],
+    ["themes/unused/nuxt.config.ts", "export default defineNuxtConfig({ safeRuntimeConfig: {} })"],
     ["apps/plain/nuxt.config.ts", "export default defineNuxtConfig({})"],
   ])("leaves the source tree owned by %s unchanged", async (configFile, config) => {
     const directory = posix.dirname(configFile)
@@ -182,9 +182,74 @@ describe("nested app boundaries", () => {
       expect(await readFile(join(cwd, file), "utf8")).toContain("usePublicEnv().title")
     }
   })
+
+  it.each([
+    ["themes/base", "extends: ['./themes/base'],", ""],
+    ["themes/tuple", "extends: [['./themes/tuple', {}]],", ""],
+    ["themes/dynamic", "extends: activeLayers,", "const activeLayers = ['./themes/dynamic']\n"],
+    ["layers/base", "", ""],
+  ])("migrates consumed layer source in %s while protecting child apps", async (directory, extendsOption, preamble) => {
+    const code = "export default defineEventHandler(() => useSafeRuntimeConfig().public.title)\n"
+    const cwd = await app({
+      "nuxt.config.ts": `${preamble}export default defineNuxtConfig({ ${extendsOption} modules: ['nuxt-safe-runtime-config'], safeRuntimeConfig: { envSchema: '.env.example' } })`,
+      ".env.example": "NUXT_PUBLIC_TITLE=site\n",
+      [`${directory}/nuxt.config.ts`]: "export default defineNuxtConfig({ extends: ['../shared'] })",
+      [`${directory}/server/api/title.get.ts`]: code,
+      [`${directory}/apps/child/nuxt.config.ts`]: "export default defineNuxtConfig({})",
+      [`${directory}/apps/child/server/api/title.get.ts`]: code,
+      [`${posix.dirname(directory)}/shared/nuxt.config.ts`]: "export default defineNuxtConfig({})",
+      [`${posix.dirname(directory)}/shared/server/api/title.get.ts`]: code,
+    })
+    const { result } = await runCodemod("nuxt-safe-runtime-config", { cwd })
+    for (const layer of [directory, `${posix.dirname(directory)}/shared`]) {
+      expect(await readFile(join(cwd, layer, "server/api/title.get.ts"), "utf8")).toContain("usePublicEnv().title")
+      expect(result.followUps.some(entry => entry.file === `${layer}/nuxt.config.ts`)).toBe(false)
+    }
+    expect(await readFile(join(cwd, directory, "apps/child/server/api/title.get.ts"), "utf8")).toBe(code)
+    expect(result.followUps.some(entry => entry.file === `${directory}/apps/child/nuxt.config.ts`)).toBe(true)
+  })
 })
 
 describe("schema migration safety", () => {
+  it.each([
+    ["__proto__"],
+    ["group", "__proto__"],
+    ["__proto__", "__vitehubProtoValue"],
+  ])("preserves prototype-like Env paths %j as own properties", async (...path) => {
+    const value = path.reduceRight((child, key) => `{ [${JSON.stringify(key)}]: ${child} }`, "'retained'")
+    const cwd = await app({ "nuxt.config.ts": `export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'], runtimeConfig: ${value}, nitro: { preset: 'node-server' } })` })
+    const config = await readNuxtConfig(cwd)
+    const schema = path.reduceRight<Record<string, unknown>>((child, key) => ({ type: "object", required: [key], properties: Object.fromEntries([[key, child]]) }), { type: "string" })
+    const plan = planFromJsonSchema({ jsonSchema: schema, issues: new Map(), runtimeConfig: readRuntimeConfig(config).values })
+    expect(plan.fields).toHaveLength(1)
+    try {
+      const edited = editNuxtConfig({ config, env: { kind: "fields", fields: plan.fields }, migrated: new Set([path.join(".")]) })
+      const exported = parseProgram(edited.code).program.body.find(node => node.type === "ExportDefaultDeclaration")
+      if (exported?.type !== "ExportDefaultDeclaration") throw new Error("Missing migrated config")
+      const env = Object.assign((options: { default: string }) => options.default, { source: (name: string) => name })
+      const migrated: { vitehub: { env: { server: unknown } } } = runInNewContext(edited.code.slice(start(exported.declaration), end(exported.declaration)), { defineNuxtConfig: (options: unknown) => options, env })
+      let current: unknown = migrated.vitehub.env.server
+      for (const segment of path) {
+        if (typeof current !== "object" || current === null) throw new Error("Missing Env group")
+        expect(Object.hasOwn(current, segment)).toBe(true)
+        current = Object.getOwnPropertyDescriptor(current, segment)?.value
+      }
+      expect(current).toBe("retained")
+      expect(Object.hasOwn(Object.prototype, "__vitehubProtoValue")).toBe(false)
+    }
+    finally {
+      Reflect.deleteProperty(Object.prototype, "__vitehubProtoValue")
+    }
+  })
+
+  it("keeps the separator when removing the last inline runtimeConfig property", async () => {
+    const cwd = await app({ "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'], runtimeConfig: { title: 'site' } })" })
+    const config = await readNuxtConfig(cwd)
+    const edited = editNuxtConfig({ config, env: { kind: "fields", fields: [] }, migrated: new Set(["title"]) })
+    expect(() => parseProgram(edited.code)).not.toThrow()
+    expect(edited.code).not.toContain("runtimeConfig")
+  })
+
   it.each(["string", "number", "boolean"])("leaves || fallbacks for %s in runtimeConfig for unset, empty and non-empty sources", async (type) => {
     const fallback = type === "string" ? "'fallback'" : type === "number" ? "7" : "true"
     const cwd = await app({ "nuxt.config.ts": `export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'], runtimeConfig: { value: process.env.SOURCE || ${fallback} } })` })

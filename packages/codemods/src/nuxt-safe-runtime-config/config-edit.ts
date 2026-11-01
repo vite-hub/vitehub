@@ -50,6 +50,7 @@ function literal(value: LiteralValue, style: CodeStyle): string {
 }
 
 function propertyKey(name: string, style: CodeStyle): string {
+  if (name === "__proto__") return `[${quoteString(name, style)}]`
   return /^[A-Za-z_$][\w$]*$/.test(name) ? name : quoteString(name, style)
 }
 
@@ -67,20 +68,20 @@ export function declarationCode(field: EnvField, envName: string, style: CodeSty
   return `${callee}(${values}{ ${options.join(", ")} })`
 }
 
-interface Tree { [key: string]: Tree | string }
+type Tree = Map<string, Tree | string>
 
 function sectionTree(fields: readonly EnvField[], envName: string, style: CodeStyle): Tree {
-  const tree: Tree = {}
+  const tree: Tree = new Map()
   for (const field of fields) {
     let node = tree
     field.envPath.forEach((segment, index) => {
       if (index === field.envPath.length - 1) {
-        node[segment] = declarationCode(field, envName, style)
+        node.set(segment, declarationCode(field, envName, style))
         return
       }
-      const child = node[segment]
-      const next: Tree = typeof child === "object" ? child : {}
-      node[segment] = next
+      const child = node.get(segment)
+      const next: Tree = child instanceof Map ? child : new Map()
+      node.set(segment, next)
       node = next
     })
   }
@@ -88,7 +89,7 @@ function sectionTree(fields: readonly EnvField[], envName: string, style: CodeSt
 }
 
 function renderTree(tree: Tree, indent: string, unit: string, style: CodeStyle): string {
-  const lines = Object.entries(tree).map(([key, value]) => typeof value === "string"
+  const lines = [...tree].map(([key, value]) => typeof value === "string"
     ? `${indent}${unit}${propertyKey(key, style)}: ${value},`
     : `${indent}${unit}${propertyKey(key, style)}: ${renderTree(value, `${indent}${unit}`, unit, style)},`)
   return `{\n${lines.join("\n")}\n${indent}}`
@@ -102,11 +103,11 @@ function envExpression(env: EnvSource, envName: string, indent: string, style: C
     if (paths.length) options.push(`paths: { ${paths.map(([key, value]) => `${propertyKey(key, style)}: ${quoteString(value, style)}`).join(", ")} }`)
     return `envSchema(new URL(${quoteString(file, style)}, import.meta.url), { ${options.join(", ")} })`
   }
-  const sections: Tree = {}
+  const sections: Tree = new Map()
   const publicFields = env.fields.filter(field => field.section === "public")
   const serverFields = env.fields.filter(field => field.section === "server")
-  if (publicFields.length) sections.public = sectionTree(publicFields, envName, style)
-  if (serverFields.length) sections.server = sectionTree(serverFields, envName, style)
+  if (publicFields.length) sections.set("public", sectionTree(publicFields, envName, style))
+  if (serverFields.length) sections.set("server", sectionTree(serverFields, envName, style))
   return renderTree(sections, indent, style.indent, style)
 }
 
@@ -186,7 +187,7 @@ class ConfigEditor {
     const indent = firstProperty ? indentAt(this.code, start(firstProperty)) : `${indentAt(this.code, start(object))}${this.style.indent}`
     const closingIndent = indentAt(this.code, closing)
     const text = entries.map(entry => `${indent}${entry},\n`).join("")
-    if (last && !/,/.test(this.code.slice(end(last), closing))) this.output.appendLeft(end(last), ",")
+    if (last && !/,/.test(this.output.slice(end(last), closing))) this.output.appendLeft(end(last), ",")
     const lineStart = this.code.lastIndexOf("\n", closing - 1) + 1
     const closingOnOwnLine = /^[ \t]*$/.test(this.code.slice(lineStart, closing))
     if (closingOnOwnLine && object.properties.length) this.output.prependRight(lineStart, text)

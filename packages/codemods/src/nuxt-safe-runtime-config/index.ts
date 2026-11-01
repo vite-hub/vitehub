@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
-import { join, posix, relative } from "node:path"
+import { isAbsolute, join, posix, relative, resolve } from "node:path"
 
 import { glob } from "tinyglobby"
 
@@ -11,7 +11,7 @@ import { rewriteCallSites } from "./call-sites.ts"
 import { editNuxtConfig } from "./config-edit.ts"
 import { planFromEnvFile, readEnvFileKeys } from "./env-file.ts"
 import { pathLabel } from "./fields.ts"
-import { findModuleEntry, loadNuxtConfig, loadSchemaModule, moduleName, readNuxtConfig, readRuntimeConfig, readStaticOptions } from "./nuxt-config.ts"
+import { findModuleEntry, literalValue, loadNuxtConfig, loadSchemaModule, moduleName, readNuxtConfig, readRuntimeConfig, readStaticOptions } from "./nuxt-config.ts"
 import { editPackageJson } from "./package-json.ts"
 import { planFromJsonSchema, schemaIssues, schemaToJsonSchema } from "./schema.ts"
 
@@ -100,19 +100,47 @@ async function findEslintReferences(cwd: string): Promise<FollowUp[]> {
   return followUps
 }
 
-async function findOutOfScopeConfigs(cwd: string, rootConfig: string): Promise<{ directories: string[], followUps: FollowUp[] }> {
+async function layerExtends(config: NuxtConfigFile): Promise<string[]> {
+  const property = findProperty(config.root, "extends")
+  if (!property) return []
+  const entries = property.value.type === "ArrayExpression" ? property.value.elements : [property.value]
+  const values = entries.map(entry => entry?.type === "ArrayExpression" ? entry.elements[0] : entry).map(entry => entry ? literalValue(entry) : undefined)
+  if (values.every((value): value is string => typeof value === "string")) return values
+  const evaluated = (await loadNuxtConfig(config.path)).extends
+  const layers = (Array.isArray(evaluated) ? evaluated : [evaluated]).map(entry => Array.isArray(entry) ? entry[0] : entry)
+  if (layers.every((value): value is string => typeof value === "string")) return layers
+  throw new CodemodError(`Cannot determine the layers extended by ${config.path}. Use static layer paths before migrating.`)
+}
+
+async function findOutOfScopeConfigs(cwd: string, rootConfig: NuxtConfigFile): Promise<{ directories: string[], followUps: FollowUp[] }> {
   const files = await glob(["**/nuxt.config.{ts,mts,js,mjs,cjs}", "**/nitro.config.{ts,mts,js,mjs,cjs}"], { cwd, ignore: ["**/node_modules/**", "**/.nuxt/**", "**/.output/**"] })
+  const nuxtDirectories = new Set(files.filter(file => posix.basename(file).startsWith("nuxt.config.")).map(file => posix.dirname(file)))
+  // Nuxt consumes immediate layers/ children automatically, and resolves each
+  // configured local extends path relative to the config that declares it.
+  const layers = new Set([".", ...[...nuxtDirectories].filter(directory => posix.dirname(directory) === "layers")])
+  for (const directory of layers) {
+    const config = directory === "." ? rootConfig : await readNuxtConfig(join(cwd, directory))
+    for (const layer of await layerExtends(config)) {
+      if (!layer.startsWith(".") && !isAbsolute(layer)) continue
+      const path = relative(cwd, resolve(cwd, directory, layer)).replaceAll("\\", "/")
+      const layerDirectory = files.includes(path) ? posix.dirname(path) : path
+      if (nuxtDirectories.has(layerDirectory)) layers.add(layerDirectory)
+    }
+  }
   const directories = new Set<string>()
   const followUps: FollowUp[] = []
   for (const file of files.sort()) {
-    if (file === rootConfig) continue
+    if (file === rootConfig.fileName) continue
     const directory = posix.dirname(file)
-    if (directory !== ".") directories.add(directory)
+    const isLayer = directory !== "." && layers.has(directory)
+    if (directory !== "." && !isLayer) directories.add(directory)
     const text = await readFile(join(cwd, file), "utf8")
     if (text.includes("safeRuntimeConfig") || text.includes(moduleName)) {
-      followUps.push({ file, message: `This config also uses ${moduleName}. The codemod migrates only the app nuxt.config. Migrate this file by hand, or run the codemod in its directory.` })
+      followUps.push({ file, message: isLayer
+        ? `This layer config also uses ${moduleName}. Its source was migrated with the app, but migrate this config's module options by hand.`
+        : `This config also uses ${moduleName}. The codemod migrates only the app nuxt.config. Migrate this file by hand, or run the codemod in its directory.` })
     }
-    else if (directory !== ".") {
+    else if (directory !== "." && !isLayer) {
       followUps.push({ file, message: "This config owns a separate source tree. The codemod left that tree unchanged; check its runtime config reads and migrate it separately if needed." })
     }
   }
@@ -179,7 +207,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
 
   const migrated = new Set(fields.map(field => pathLabel(field)))
   const edited = editNuxtConfig({ config, env, migrated })
-  const outOfScope = await findOutOfScopeConfigs(cwd, config.fileName)
+  const outOfScope = await findOutOfScopeConfigs(cwd, config)
   const calls = await rewriteCallSites({ cwd, fields, unmigrated, excludedDirectories: outOfScope.directories })
   const packageResult = await editPackageJson(cwd, packageJson.version, { env: env.kind === "env-schema" })
 

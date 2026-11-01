@@ -61,7 +61,7 @@ describe("codemods CLI", () => {
     await cp(join(fixtures, "env-schema/input"), directory, { recursive: true })
     const result = await cli(["nuxt-safe-runtime-config", directory])
     expect(result.code).toBe(0)
-    expect(result.stdout).toContain("Files changed (4):")
+    expect(result.stdout).toContain("Files changed (5):")
     expect(await readFile(join(directory, "nuxt.config.ts"), "utf8")).toBe(await readFile(join(fixtures, "env-schema/output/nuxt.config.ts"), "utf8"))
     expect(await readFile(join(directory, "server/api/limits.get.ts"), "utf8")).toBe(await readFile(join(fixtures, "env-schema/output/server/api/limits.get.ts"), "utf8"))
   })
