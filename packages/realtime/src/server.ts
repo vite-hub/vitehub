@@ -38,6 +38,7 @@ import {
   readRealtimeStatus,
   readRealtimeYDoc,
   realtimeCodecReadsBack,
+  realtimeDocumentLayout,
   realtimeJsonEqual,
   realtimeStatusFingerprint,
   writeRealtimeStatus,
@@ -109,6 +110,21 @@ export const realtimePersistenceDefaults = Object.freeze({ debounce: 2_000, maxW
 
 /** Origin of updates that the server writes itself: seeds, stored-form merges, and status. */
 const serverOrigin = Symbol("vitehub.realtime.server")
+
+/**
+ * Replaces the fields of a room that has no unsaved edits with the fields that the adapter loads now. A schema can change
+ * how it reads a stored file, such as a string that now reads as an image reference, without changing the file's digest.
+ */
+function refreshLoadedFields(document: Y.Doc, loadedFields: RealtimeLoadedDocument["fields"]): boolean {
+  const fields = document.getMap(realtimeDocumentLayout.fields)
+  const next = Object.fromEntries(Object.entries(loadedFields ?? {}).filter(([, value]) => value !== undefined))
+  if (realtimeJsonEqual(fields.toJSON(), next)) return false
+  document.transact(() => {
+    for (const key of [...fields.keys()]) if (!Object.hasOwn(next, key)) fields.delete(key)
+    for (const [key, value] of Object.entries(next)) if (!realtimeJsonEqual(fields.get(key), value)) fields.set(key, value)
+  }, serverOrigin)
+  return true
+}
 
 const readOnlyDocumentMessage = "The editor cannot save this document without loss. The room is read-only."
 const readOnlyDocumentRejection = "This realtime document is read-only: the editor cannot save it without loss."
@@ -889,6 +905,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       let document: Y.Doc
       let persistedUpdates = 0
       let dirty = false
+      let refreshedFields = false
       if (restores) {
         document = new Y.Doc()
         try {
@@ -906,6 +923,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
           }
           persistedUpdates = updates.length
           dirty = Number(stored?.dirty) === 1 || updates.some(update => update.client_update === undefined || Number(update.client_update) === 1)
+          if (!dirty) refreshedFields = refreshLoadedFields(document, loaded.fields)
           assertRealtimeRoomStateQuota(document)
           // The codec may have changed since the room was persisted: show what it reports now.
           if (guard.readOnly || readRealtimeStatus(document).error === readOnlyDocumentMessage) {
@@ -948,7 +966,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
         sql,
       }
       listen(room, document)
-      if (sql && !restores) persistRoom(room)
+      if (sql && (!restores || refreshedFields)) persistRoom(room)
       if (dirty) scheduleSave(room)
       return room
     })
@@ -1252,7 +1270,10 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     // A client may edit while the adapter is loading. Preserve that live edit
     // and let the normal save path reconcile the external change.
     if (room.dirty || room.revision !== revision) return { digest: room.digest, reseeded: false }
-    if (loaded.digest === room.digest) return { digest: room.digest, reseeded: false }
+    if (loaded.digest === room.digest) {
+      if (refreshLoadedFields(room.document, loaded.fields)) persistRoom(room)
+      return { digest: room.digest, reseeded: false }
+    }
     const reseeded = await reseedRoom(room, "source-changed", loaded, true)
     return { digest: room.digest, reseeded }
   }

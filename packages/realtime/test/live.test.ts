@@ -413,6 +413,24 @@ describe("re-seeding", () => {
     expect(paragraphs(dirty.doc)).toContain("Unsaved")
     dirty.close()
   })
+
+  it("refreshes the fields of a clean room when the same stored file loads differently", async () => {
+    const memory = createMemoryAdapter({ page: { body: "Start", fields: { hero: "weather" } } })
+    const server = createTestServer(liveDefinition(memory.adapter))
+    const client = await server.connect("page")
+    await settle()
+    expect(client.doc.getMap("fields").toJSON()).toEqual({ hero: "weather" })
+
+    // A schema change reads the same file, with the same digest, as an image reference.
+    memory.store.set("page", { ...memory.store.get("page")!, fields: { hero: { pathname: "art/weather.webp" } } })
+    const refreshed = await server.post("page", "refresh")
+    await expect(refreshed.json()).resolves.toEqual({ digest: "v1", reseeded: false })
+    await settle()
+    expect(client.closed).toBeUndefined()
+    expect(client.doc.getMap("fields").toJSON()).toEqual({ hero: { pathname: "art/weather.webp" } })
+    expect(memory.adapter.save).not.toHaveBeenCalled()
+    client.close()
+  })
 })
 
 describe("identity and authorization", () => {
@@ -663,6 +681,40 @@ describe("room authorities", () => {
     const fresh = await later.connect("page")
     await settle()
     expect(paragraphs(fresh.doc)).toEqual(["Changed elsewhere"])
+  })
+
+  it("refreshes the fields of a restored clean room and keeps the fields of a dirty one", async () => {
+    const sql = new FakeSql()
+    const memory = createMemoryAdapter({ clean: { body: "Clean", fields: { hero: "weather" } }, dirty: { body: "Dirty", fields: { hero: "weather" } } })
+    memory.adapter.save.mockRejectedValueOnce(new Error("Database unavailable"))
+    const definition = liveDefinition(memory.adapter)
+    const first = createTestServer(definition, { durable: sql })
+    const clean = await first.connect("clean")
+    await settle()
+    clean.close()
+    const dirty = await first.connect("dirty")
+    await settle()
+    await pace()
+    appendParagraph(dirty.doc, "Edit")
+    dirty.close()
+    await settle()
+    const cleanKey = realtimeRoomKey("docs", "clean")
+    const persistedBytes = () => [...new Uint8Array(sql.documents.get(cleanKey)!.update_blob as ArrayBuffer)]
+    const persisted = persistedBytes()
+    expect(sql.documents.get(realtimeRoomKey("docs", "dirty"))).toMatchObject({ dirty: 1 })
+
+    // A schema change reads both stored files, with the same digests, as image references.
+    for (const id of ["clean", "dirty"]) memory.store.set(id, { ...memory.store.get(id)!, fields: { hero: { pathname: "art/weather.webp" } } })
+    const restarted = createTestServer(definition, { durable: sql })
+    const reopened = await restarted.connect("clean")
+    const unsaved = await restarted.connect("dirty")
+    await settle()
+    expect(reopened.doc.getMap("fields").toJSON()).toEqual({ hero: { pathname: "art/weather.webp" } })
+    expect(persistedBytes()).not.toEqual(persisted)
+    expect(unsaved.doc.getMap("fields").toJSON()).toEqual({ hero: "weather" })
+    expect(paragraphs(unsaved.doc)).toEqual(["Dirty", "Edit"])
+    reopened.close()
+    unsaved.close()
   })
 
   it("accepts the intermediate Durable Object journal schema without client_update", async () => {
