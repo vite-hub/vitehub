@@ -53,7 +53,7 @@ function startOf(module: unknown): ViteHubPageToolModule["default"] | undefined 
 // and the font. Each visible segment ends with a short divider.
 const pillStyles = `:host{all:initial;position:fixed;left:50%;bottom:max(16px,env(safe-area-inset-bottom));translate:-50% 0;z-index:2147483001;color-scheme:dark;font:500 12px/1 ui-sans-serif,system-ui,sans-serif;color:#d4d4d4;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;--vitehub-pill-text:#d4d4d4;--vitehub-pill-strong:#fafafa;--vitehub-pill-muted:#a3a3a3;--vitehub-pill-hover:rgb(255 255 255/8%);--vitehub-pill-on:#fafafa;--vitehub-pill-on-text:#0a0a0a;--vitehub-pill-line:rgb(255 255 255/12%);--vitehub-pill-surface:#111}
 div{box-sizing:border-box;max-width:calc(100vw - 16px);overflow-x:auto;scrollbar-width:none;display:flex;align-items:center;gap:4px;padding:4px;border:1px solid var(--vitehub-pill-line);border-radius:12px;background:rgb(17 17 17/92%);box-shadow:0 8px 24px rgb(0 0 0/25%);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
-::slotted(*){flex-shrink:0;display:flex;align-items:center;gap:4px;padding-right:5px;background:linear-gradient(var(--vitehub-pill-line),var(--vitehub-pill-line)) right/1px 18px no-repeat}
+::slotted(*){flex-shrink:0;display:flex;align-items:center;gap:4px;padding-right:7px;margin-right:2px;background:linear-gradient(var(--vitehub-pill-line),var(--vitehub-pill-line)) right/1px 18px no-repeat}
 ::slotted([hidden]){display:none!important}
 ${viteHubPillButtonStyles}
 button{flex-shrink:0;position:sticky;right:0;padding:0}`

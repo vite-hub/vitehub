@@ -134,12 +134,10 @@ export const pillBarStyles = `
 .bar { font: inherit; color: inherit; --surface: var(--vitehub-pill-surface); --muted: var(--vitehub-pill-muted); --divider: var(--vitehub-pill-line); }
 .toolbar { gap: 4px; }
 .bar button { transform: none; font-variant-numeric: tabular-nums; }
-kbd { font: 500 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); padding: 2px 4px; border-radius: 4px; box-shadow: inset 0 0 0 1px var(--divider); }
-button[aria-pressed="true"] kbd { color: inherit; box-shadow: inset 0 0 0 1px rgb(0 0 0 / .15); }
 .sep { width: 1px; height: 18px; background: var(--divider); margin: 0 2px; }
-.people { display: flex; padding: 0 6px 0 4px; }
-.people .avatar { width: 20px; height: 20px; margin-left: -6px; font-size: 9px; box-shadow: 0 0 0 2px var(--surface); }
-.people .avatar:first-child { margin-left: 0; }
+.people { display: flex; padding: 0 2px; }
+.people .avatar { width: 20px; height: 20px; font-size: 9px; }
+.people .avatar + .avatar { margin-left: -6px; box-shadow: 0 0 0 2px var(--surface); }
 img.me { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; }
 `
 

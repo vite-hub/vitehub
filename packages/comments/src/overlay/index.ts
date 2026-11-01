@@ -50,8 +50,6 @@ const svg = (path: string) => {
   return template.content.firstChild!
 }
 const icons = {
-  comment: () => svg("<path d=\"M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z\"/>"),
-  edit: () => svg("<path d=\"M12 20h9\"/><path d=\"M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z\"/>"),
   list: () => svg("<path d=\"M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01\"/>"),
   close: () => svg("<path d=\"M18 6 6 18M6 6l12 12\"/>"),
   check: () => svg("<path d=\"M20 6 9 17l-5-5\"/>"),
@@ -595,8 +593,8 @@ class CommentsOverlay extends HTMLElement {
       h("span", { className: "avatar", title: person.name, style: `background:${person.color}` }, person.image ? h("img", { src: person.image, alt: "" }) : initials(person.name)))
     const count = `${open} open ${open === 1 ? "thread" : "threads"}`
     this.toolbar.replaceChildren(...present(
-      session.can.comment && h("button", { className: "tool", "aria-pressed": String(this.mode === "comment"), title: "Comment (C)", onClick: () => this.setMode(this.mode === "comment" ? "view" : "comment") }, icons.comment(), "Comment", h("kbd", {}, "C")),
-      session.content && session.can.comment && h("button", { className: "tool", "aria-pressed": String(this.mode === "edit"), title: "Edit text (E)", onClick: () => this.setMode(this.mode === "edit" ? "view" : "edit") }, icons.edit(), "Edit", h("kbd", {}, "E")),
+      session.can.comment && h("button", { className: "tool", "aria-pressed": String(this.mode === "comment"), title: "Comment (C)", "aria-keyshortcuts": "C", onClick: () => this.setMode(this.mode === "comment" ? "view" : "comment") }, "Comment"),
+      session.content && session.can.comment && h("button", { className: "tool", "aria-pressed": String(this.mode === "edit"), title: "Edit text (E)", "aria-keyshortcuts": "E", onClick: () => this.setMode(this.mode === "edit" ? "view" : "edit") }, "Edit"),
       h("span", { className: "sep" }),
       h("button", { className: "tool", "aria-pressed": String(this.panel), title: "Comments on this page", "aria-label": `Comments on this page, ${count}`, onClick: () => {
         if (this.panel) this.pageWindow?.hide()
