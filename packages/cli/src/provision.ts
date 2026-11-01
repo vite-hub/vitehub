@@ -160,10 +160,13 @@ async function runProvision(args: string[], context: ProvisionFeatureContext, op
   // Reject unreadable state before providers can create resources whose IDs would be lost.
   if (!parsed.dryRun) await readProvisionState(context.rootDir)
 
-  const { actions, warnings } = await planProvision(provider, context, options, parsed.json)
+  const { actions, checked, warnings } = await planProvision(provider, context, options, parsed.json)
   if (!parsed.json) {
     if (!actions.length) {
-      context.stdout.write(`provision: no ${provider} resources to create.\n`)
+      // A step that skipped for missing credentials planned nothing; that is not "nothing to create".
+      context.stdout.write(checked
+        ? `provision: no ${provider} resources to create.\n`
+        : `provision: plan not checked, missing ${PROVIDER_CREDENTIALS[provider]}. Set them to see which ${provider} resources this app needs.\n`)
       return 0
     }
     writeActions(actions, context.stdout)

@@ -577,6 +577,42 @@ describe("ViteHub CLI", () => {
     expect(stdout.output()).toContain("create\ttest-resource\tdemo")
   })
 
+  it("dry-run without credentials says the plan was not checked", async () => {
+    const rootDir = await createTempDir()
+    const apply = vi.fn(async () => ({}))
+    const stdout = stream()
+    const plugin = {
+      vitehub: {
+        cli: async () => ({
+          namespaces: [],
+          provision: [{
+            id: "test:cloudflare",
+            provider: "cloudflare",
+            plan: async (context: { markPlanUnchecked?: () => void, logger: { warn: (message: string) => void } }) => {
+              context.logger.warn("test: skipping, missing CLOUDFLARE_ACCOUNT_ID/CLOUDFLARE_API_TOKEN.")
+              context.markPlanUnchecked?.()
+              return []
+            },
+          }],
+        }),
+      },
+    }
+
+    const exitCode = await runViteHubCli({
+      args: ["provision", "run", "--provider", "cloudflare", "--dry-run"],
+      cwd: rootDir,
+      env: {},
+      loadConfig: async () => ({ plugins: [plugin], root: rootDir }),
+      stderr: stream(),
+      stdout,
+    })
+
+    expect(exitCode).toBe(0)
+    expect(apply).not.toHaveBeenCalled()
+    expect(stdout.output()).toContain("provision: plan not checked, missing")
+    expect(stdout.output()).not.toContain("no cloudflare resources to create")
+  })
+
   it.each([
     ["run", "--dry-run"],
     ["status"],
