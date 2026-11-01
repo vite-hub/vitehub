@@ -55,7 +55,7 @@ export interface JevRoute {
   /** Shown in diagnostics, such as "Cloudflare AI Gateway". */
   label: string
   model?: string
-  /** The gateway name in usage records and traces, such as `cloudflare`. */
+  /** The gateway name in usage records and traces, such as `cloudflareTypesafe`. */
   name: string
   protocol: "typesafe" | "vercel"
 }

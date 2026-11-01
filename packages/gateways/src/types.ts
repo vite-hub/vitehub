@@ -28,10 +28,20 @@ export type AiGatewaySecret = AiGatewayValue<string | AiGatewaySealedSecret | un
 /** The provider Drivers that a gateway can serve. */
 export type AiGatewayDriver = "claude-code" | "codex"
 
-/** What an AI gateway does besides routing the model requests of provider Drivers. */
+/**
+ * The model APIs that a gateway can serve, keyed in `baseURL`:
+ * - `codex`: OpenAI Responses for the Codex Driver, at `<url>/responses`.
+ * - `claude-code`: Anthropic Messages for the Claude Code Driver and AI SDK models, at `<url>/v1/messages`.
+ * - `openai-compatible`: OpenAI Chat Completions and Responses for AI SDK models, at `<url>/chat/completions` and `<url>/responses`.
+ */
+export type AiGatewayRoute = AiGatewayDriver | "openai-compatible"
+
+/** What an AI gateway can do. A preset sets both, so the type rejects a Driver or a model API that it does not serve. */
 export interface AiGatewayCapabilities {
   /** The gateway answers TypeSafe Jev questions with `gateway.ask()`. */
   ask: boolean
+  /** The model APIs in `baseURL`. */
+  routes: AiGatewayRoute
 }
 
 /** A record of one request's model, provider, and token counts. */
@@ -54,16 +64,17 @@ export interface AiGatewayAskOptions {
  */
 export type AiGatewayAsk = <const Q extends AskQuestions>(state: unknown, questions: Q, options?: AiGatewayAskOptions) => Promise<AskAnswers<Q>>
 
-/** How a provider Driver reaches an AI gateway: a base URL per Driver, the key, and extra headers. */
+/** How a provider Driver or an AI SDK model reaches an AI gateway: a base URL per model API, the key, and extra headers. */
 export interface AiGatewayDefinition {
   /** Name shown in inspection and diagnostics. */
   name: string
   /**
-   * Base URL for each Driver. Codex sends OpenAI Responses requests to `<url>/responses`.
+   * Base URL for each model API. Codex sends OpenAI Responses requests to `<url>/responses`.
    * Claude Code sends Anthropic Messages requests to `<url>/v1/messages`.
-   * A Driver without an entry cannot use this gateway.
+   * AI SDK models send OpenAI Chat Completions requests to `<openai-compatible url>/chat/completions`.
+   * A Driver or model API without an entry cannot use this gateway.
    */
-  baseURL: Partial<Record<AiGatewayDriver, AiGatewayValue<string>>>
+  baseURL: Partial<Record<AiGatewayRoute, AiGatewayValue<string>>>
   /** API key. When it is not set, the first non-empty variable in `apiKeyEnv` is read. */
   apiKey?: AiGatewaySecret
   /** Process environment variables that supply the API key, in lookup order. */
@@ -75,10 +86,14 @@ export interface AiGatewayDefinition {
 }
 
 /**
- * An AI gateway: where the model requests of provider Drivers go and, when `TCapabilities` has `ask: true`, where
- * TypeSafe Jev questions go (`gateway.ask()`). Build one with a preset or with `defineAiGateway()`.
+ * An AI gateway: where the model requests of provider Drivers and AI SDK models go and, when `TCapabilities` has
+ * `ask: true`, where TypeSafe Jev questions go (`gateway.ask()`). `TCapabilities["routes"]` lists the model APIs in
+ * `baseURL`, so `AiGateway<{ routes: "codex" }>` accepts only gateways that serve Codex. Build one with a preset or with
+ * `defineAiGateway()`.
  */
-export type AiGateway<TCapabilities extends Partial<AiGatewayCapabilities> = Partial<AiGatewayCapabilities>> = AiGatewayDefinition & (
+export type AiGateway<TCapabilities extends Partial<AiGatewayCapabilities> = Partial<AiGatewayCapabilities>> = AiGatewayDefinition & {
+  readonly baseURL: Readonly<Record<TCapabilities["routes"] extends AiGatewayRoute ? TCapabilities["routes"] : never, AiGatewayValue<string>>>
+} & (
   TCapabilities["ask"] extends true ? { ask: AiGatewayAsk }
     : TCapabilities["ask"] extends false ? { ask?: never }
       : { ask?: AiGatewayAsk }

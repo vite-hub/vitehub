@@ -1937,6 +1937,8 @@ export type CodexReasoningSummary = "auto" | "concise" | "detailed" | "none"
 export interface CodexDriverOptions<TOutput = unknown> extends AgentProviderDriverOptions<AgentRuntimeConfig, TOutput> {
   credentialProfile?: string
   credentials?: AgentProviderCredentialResolver
+  /** A gateway with a `codex` URL, such as `cliproxy()` or `openrouter()`, or `chatgpt()`. */
+  gateway?: AiGateway<{ routes: "codex" }> | ChatGPTGateway
   /** Advanced Codex runtime settings passed to the provider runtime. */
   providerSettings?: Record<string, unknown>
   reasoningEffort?: CodexReasoningEffort
@@ -1949,7 +1951,10 @@ export interface CodexDriverOptions<TOutput = unknown> extends AgentProviderDriv
    */
   retention?: AgentRetentionPolicy
 }
-export type ClaudeCodeDriverOptions<TOutput = unknown> = AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>
+export interface ClaudeCodeDriverOptions<TOutput = unknown> extends Omit<AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>, "gateway"> {
+  /** A gateway with a `claude-code` URL, such as `cliproxy()` or `anthropic()`. */
+  gateway?: AiGateway<{ routes: "claude-code" }>
+}
 
 export type BuiltInAgentDriverName = "claude-code" | "codex"
 
@@ -2068,7 +2073,7 @@ export interface AgentAskDriver<
   credentials?: never
   execution?: never
   /**
-   * Where the questions go: `typesafe()`, `vercel()`, or `cloudflare()` from `vite-hub/gateways`.
+   * Where the questions go: `typesafe()`, `vercel()`, or `cloudflareTypesafe()` from `vite-hub/gateways`.
    * Default: `typesafe()`, which reads `TYPESAFE_API_KEY` from Server Env.
    */
   gateway?: AiGateway<{ ask: true }>

@@ -84,11 +84,11 @@ export type NormalizedAgentDriver<
   }
 )
 
-/** A `driver.ask` gateway must answer Jev questions: `typesafe()`, `vercel()`, or `cloudflare()`. */
+/** A `driver.ask` gateway must answer Jev questions: `typesafe()`, `vercel()`, or `cloudflareTypesafe()`. */
 function askGateway(value: unknown): AiGateway<{ ask: true }> {
   if (!isPlainRecord(value) || Reflect.get(value, aiGatewayAsks) !== true) {
     const name = isPlainRecord(value) && typeof value.name === "string" ? ` "${value.name}"` : ""
-    throw agentDiagnostics.AGENT_R1013({ message: `[vitehub] defineAgent({ driver: { ask, gateway } }) needs a gateway that answers Jev questions. Gateway${name} does not. Use typesafe(), vercel(), or cloudflare() from vite-hub/gateways.` })
+    throw agentDiagnostics.AGENT_R1013({ message: `[vitehub] defineAgent({ driver: { ask, gateway } }) needs a gateway that answers Jev questions. Gateway${name} does not. Use typesafe(), vercel(), or cloudflareTypesafe() from vite-hub/gateways.` })
   }
   // SAFETY: Only the ask presets of @vite-hub/gateways set aiGatewayAsks, and they return AiGateway<{ ask: true }>.
   return value as unknown as AiGateway<{ ask: true }>

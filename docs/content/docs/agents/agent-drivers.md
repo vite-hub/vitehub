@@ -351,13 +351,13 @@ The Driver asks through the [`typesafe()` AI gateway](/docs/agents/ai-gateways),
 ```ts [server/agents/labeller.ts]
 import { defineAgent } from 'vite-hub/agent'
 import { ask } from 'vite-hub/gateways'
-import { cloudflare } from 'vite-hub/gateways'
+import { cloudflareTypesafe } from 'vite-hub/gateways'
 
 export default defineAgent({
   driver: {
     ask: { spam: ask.if('Is it spam?') },
     // Reads TYPESAFE_API_KEY, CLOUDFLARE_ACCOUNT_ID, and CLOUDFLARE_AI_GATEWAY_ID.
-    gateway: cloudflare(),
+    gateway: cloudflareTypesafe(),
   },
 })
 ```

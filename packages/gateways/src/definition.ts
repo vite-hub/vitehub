@@ -1,6 +1,6 @@
 import { gatewayDiagnostics } from "./diagnostics.ts"
 
-import type { AiGatewayContext, AiGatewayDefinition, AiGatewayDriver, AiGatewaySecret, AiGatewayValue } from "./types.ts"
+import type { AiGatewayContext, AiGatewayDefinition, AiGatewayRoute, AiGatewaySecret, AiGatewayValue } from "./types.ts"
 
 const gatewayKeys = new Set(["apiKey", "apiKeyEnv", "auth", "baseURL", "headers", "name"])
 const headerName = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/
@@ -8,9 +8,24 @@ const environmentName = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 /**
  * Marks an AI gateway that answers Jev questions. A symbol key, so key checks and copies skip it. Such a gateway may
- * have no Driver base URL.
+ * have no model API base URL.
  */
 export const aiGatewayAsks: unique symbol = Symbol.for("vitehub.aiGateway.ask")
+
+/**
+ * Credentials that the model requests of a gateway may leave out, such as the provider key of a Cloudflare AI Gateway
+ * that stores provider keys. A symbol key, so key checks and copies skip it. Driver routes still need every value.
+ */
+export const aiGatewayOptionalCredentials: unique symbol = Symbol.for("vitehub.aiGateway.optionalCredentials")
+
+/** The value of `aiGatewayOptionalCredentials`. `missing` is the message when no credential resolves. */
+export interface AiGatewayOptionalCredentials {
+  apiKey: boolean
+  headers: readonly string[]
+  missing: string
+}
+
+const routes: readonly AiGatewayRoute[] = ["codex", "claude-code", "openai-compatible"]
 
 export function isRecord(value: unknown): value is Record<PropertyKey, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -24,9 +39,9 @@ function invalid(message: string): never {
   throw gatewayDiagnostics.GATEWAYS_R0001({ message: `[vitehub] ${message}` })
 }
 
-function validBaseURL(name: string, driver: string, url: unknown, fail: (message: string) => never): string {
+function validBaseURL(name: string, route: string, url: unknown, fail: (message: string) => never): string {
   if (typeof url !== "string" || !URL.canParse(url) || !/^https?:$/.test(new URL(url).protocol)) {
-    fail(`Gateway "${name}" baseURL.${driver} must be an http or https URL.`)
+    fail(`Gateway "${name}" baseURL["${route}"] must be an http or https URL.`)
   }
   return url.replace(/\/+$/, "")
 }
@@ -39,26 +54,27 @@ function isSecretInput(value: unknown): boolean {
 // request rather than fall back to another credential.
 const missingSecret = () => undefined
 
-/** Validate a gateway definition and return a frozen copy with its Driver routes. */
+/** Validate a gateway definition and return a frozen copy with its model API routes. */
 export function normalizeAiGateway(value: unknown): AiGatewayDefinition {
   if (!isRecord(value)) invalid("A gateway must be an object.")
   const unknown = Object.keys(value).filter(key => !gatewayKeys.has(key))
   if (unknown.length) invalid(`A gateway does not support: ${unknown.join(", ")}.`)
   if (typeof value.name !== "string" || !value.name.trim()) invalid("A gateway name must be a non-empty string.")
   const name = value.name.trim()
-  if (!isRecord(value.baseURL)) invalid(`Gateway "${name}" baseURL must be an object keyed by Driver.`)
+  if (!isRecord(value.baseURL)) invalid(`Gateway "${name}" baseURL must be an object keyed by model API.`)
   const baseURL: AiGatewayDefinition["baseURL"] = {}
-  for (const [driver, url] of Object.entries(value.baseURL)) {
-    if (driver !== "codex" && driver !== "claude-code") invalid(`Gateway "${name}" baseURL has an unknown Driver "${driver}". Use "codex" or "claude-code".`)
+  for (const [key, url] of Object.entries(value.baseURL)) {
+    const route = routes.find(item => item === key)
+    if (!route) invalid(`Gateway "${name}" baseURL has an unknown model API "${key}". Use ${routes.map(item => `"${item}"`).join(", ")}.`)
     if (url === undefined) continue
     if (isResolver(url)) {
       // SAFETY: The resolver shape is checked above; its URL is validated when it resolves.
-      baseURL[driver] = url as AiGatewayValue<string>
+      baseURL[route] = url as AiGatewayValue<string>
       continue
     }
-    baseURL[driver] = validBaseURL(name, driver, url, invalid)
+    baseURL[route] = validBaseURL(name, route, url, invalid)
   }
-  if (!Object.keys(baseURL).length && Reflect.get(value, aiGatewayAsks) !== true) invalid(`Gateway "${name}" must set a baseURL for "codex" or "claude-code".`)
+  if (!Object.keys(baseURL).length && Reflect.get(value, aiGatewayAsks) !== true) invalid(`Gateway "${name}" must set a baseURL for ${routes.map(item => `"${item}"`).join(", ")}.`)
   if (value.auth !== undefined && value.auth !== "bearer" && value.auth !== "x-api-key") invalid(`Gateway "${name}" auth must be "bearer" or "x-api-key".`)
   if (value.apiKey !== undefined && !isSecretInput(value.apiKey)) invalid(`Gateway "${name}" apiKey must be a string, sealed secret, or resolver.`)
   if (value.apiKeyEnv !== undefined && (!Array.isArray(value.apiKeyEnv) || !value.apiKeyEnv.every(item => typeof item === "string" && environmentName.test(item)))) {
@@ -108,23 +124,28 @@ export async function resolveAiGatewaySecret(value: AiGatewaySecret, context: Ai
   return typeof secret === "string" && secret.trim() ? secret.trim() : undefined
 }
 
-/** One Driver route of a gateway, with its key and headers resolved. */
-export interface AiGatewayDriverRoute {
+/** One model API route of a gateway, with its key and headers resolved. */
+export interface AiGatewayResolvedRoute {
   apiKey: string
   auth: "bearer" | "x-api-key"
   baseURL: string
   headers: [string, string][]
 }
 
-/** Whether a gateway has a base URL for the Driver. */
-export function aiGatewaySupports(gateway: AiGatewayDefinition, driver: AiGatewayDriver): boolean {
-  return Boolean(gateway.baseURL[driver])
+/** A model route whose gateway may send requests without a key. See `aiGatewayOptionalCredentials`. */
+export interface AiGatewayModelRoute extends Omit<AiGatewayResolvedRoute, "apiKey"> {
+  apiKey?: string
 }
 
-async function resolveApiKey(gateway: AiGatewayDefinition, context: AiGatewayContext): Promise<string> {
+/** Whether a gateway has a base URL for the model API. */
+export function aiGatewaySupports(gateway: AiGatewayDefinition, route: AiGatewayRoute): boolean {
+  return Boolean(gateway.baseURL[route])
+}
+
+async function resolveApiKey(gateway: AiGatewayDefinition, context: AiGatewayContext, optional = false): Promise<string | undefined> {
   if (gateway.apiKey !== undefined) {
     const apiKey = await resolveAiGatewaySecret(gateway.apiKey, context)
-    if (apiKey) return apiKey
+    if (apiKey || optional) return apiKey
     throw gatewayDiagnostics.GATEWAYS_R0002({ message: `[vitehub] Gateway "${gateway.name}" apiKey resolved to an empty value.` })
   }
   for (const name of gateway.apiKeyEnv || []) {
@@ -134,10 +155,11 @@ async function resolveApiKey(gateway: AiGatewayDefinition, context: AiGatewayCon
   throw gatewayDiagnostics.GATEWAYS_R0002({ message: `[vitehub] Gateway "${gateway.name}" needs an API key. Set ${(gateway.apiKeyEnv || []).join(" or ")}, or pass apiKey.` })
 }
 
-async function resolveHeaders(gateway: AiGatewayDefinition, context: AiGatewayContext): Promise<[string, string][]> {
+async function resolveHeaders(gateway: AiGatewayDefinition, context: AiGatewayContext, optional: readonly string[] = []): Promise<[string, string][]> {
   const headers: [string, string][] = []
   for (const [name, input] of Object.entries(gateway.headers || {})) {
     const value = await resolveAiGatewaySecret(input, context)
+    if (!value && optional.includes(name)) continue
     // Codex drops a header whose variable is unset, so a missing value would surface later as a 401 or 403 from the gateway.
     if (!value) throw gatewayDiagnostics.GATEWAYS_R0003({ message: `[vitehub] Gateway "${gateway.name}" header "${name}" resolved to an empty value.` })
     if (/[\r\n]/.test(value)) throw gatewayDiagnostics.GATEWAYS_R0003({ message: `[vitehub] Gateway "${gateway.name}" header "${name}" must not contain line breaks.` })
@@ -146,13 +168,35 @@ async function resolveHeaders(gateway: AiGatewayDefinition, context: AiGatewayCo
   return headers
 }
 
-/** Resolve the base URL, key, and headers of one Driver route. The caller checks `aiGatewaySupports()` first. */
-export async function resolveAiGatewayDriverRoute(gateway: AiGatewayDefinition, driver: AiGatewayDriver, context: AiGatewayContext): Promise<AiGatewayDriverRoute> {
-  const input = gateway.baseURL[driver]
-  if (input === undefined) throw gatewayDiagnostics.GATEWAYS_R0004({ message: `[vitehub] Gateway "${gateway.name}" does not serve the ${driver} Driver.` })
-  const baseURL = validBaseURL(gateway.name, driver, await resolveAiGatewayValue(input, context), (message) => {
+async function resolveBaseURL(gateway: AiGatewayDefinition, route: AiGatewayRoute, context: AiGatewayContext): Promise<string> {
+  const input = gateway.baseURL[route]
+  if (input === undefined) throw gatewayDiagnostics.GATEWAYS_R0004({ message: `[vitehub] Gateway "${gateway.name}" does not serve the "${route}" model API.` })
+  return validBaseURL(gateway.name, route, await resolveAiGatewayValue(input, context), (message) => {
     throw gatewayDiagnostics.GATEWAYS_R0004({ message: `[vitehub] ${message}` })
   })
-  const [apiKey, headers] = await Promise.all([resolveApiKey(gateway, context), resolveHeaders(gateway, context)])
-  return { apiKey, auth: gateway.auth ?? "bearer", baseURL, headers }
+}
+
+/** Resolve the base URL, key, and headers of one model API route. The caller checks `aiGatewaySupports()` first. */
+export async function resolveAiGatewayRoute(gateway: AiGatewayDefinition, route: AiGatewayRoute, context: AiGatewayContext): Promise<AiGatewayResolvedRoute> {
+  const [baseURL, apiKey, headers] = await Promise.all([resolveBaseURL(gateway, route, context), resolveApiKey(gateway, context), resolveHeaders(gateway, context)])
+  // SAFETY: resolveApiKey throws instead of returning undefined when the key is required.
+  return { apiKey: apiKey as string, auth: gateway.auth ?? "bearer", baseURL, headers }
+}
+
+/**
+ * Resolve a route for an AI SDK model. A gateway with `aiGatewayOptionalCredentials` may resolve without its key or
+ * its optional headers, but not without all of them.
+ */
+export async function resolveAiGatewayModelRoute(gateway: AiGatewayDefinition, route: AiGatewayRoute, context: AiGatewayContext): Promise<AiGatewayModelRoute> {
+  const optional: unknown = Reflect.get(gateway, aiGatewayOptionalCredentials)
+  if (!isRecord(optional)) return await resolveAiGatewayRoute(gateway, route, context)
+  // SAFETY: Only presets set this symbol, with an AiGatewayOptionalCredentials value.
+  const { apiKey: keyOptional, headers: optionalHeaders, missing } = optional as unknown as AiGatewayOptionalCredentials
+  const [baseURL, apiKey, headers] = await Promise.all([
+    resolveBaseURL(gateway, route, context),
+    resolveApiKey(gateway, context, keyOptional),
+    resolveHeaders(gateway, context, optionalHeaders),
+  ])
+  if (!apiKey && !headers.some(([name]) => optionalHeaders.includes(name))) throw gatewayDiagnostics.GATEWAYS_R0002({ message: `[vitehub] ${missing}` })
+  return { ...(apiKey ? { apiKey } : {}), auth: gateway.auth ?? "bearer", baseURL, headers }
 }

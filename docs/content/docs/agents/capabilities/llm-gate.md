@@ -72,7 +72,7 @@ It asks one `ask.choice()` question with every category. Jev accepts 2 to 255 ch
 The state is the Invocation `data` when a caller sets it. Otherwise it is `{ request, history? }` from the latest user text and the `history` option.
 
 The decision has `confidence` and `probabilities`, a map from category key to probability. Jev decisions have no `reason`.
-The request goes through the `gateway` option, an [AI gateway](/docs/agents/ai-gateways) such as `cloudflare()`, or through `typesafe()`, which reads `TYPESAFE_API_KEY`.
+The request goes through the `gateway` option, an [AI gateway](/docs/agents/ai-gateways) such as `cloudflareTypesafe()`, or through `typesafe()`, which reads `TYPESAFE_API_KEY`.
 
 ## Requirements
 

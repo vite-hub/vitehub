@@ -704,6 +704,11 @@
       "import": "./dist/gateways.js",
       "default": "./dist/gateways.js"
     },
+    "./gateways/ai-sdk": {
+      "types": "./dist/gateways/ai-sdk.d.ts",
+      "import": "./dist/gateways/ai-sdk.js",
+      "default": "./dist/gateways/ai-sdk.js"
+    },
     "./kv": {
       "types": "./dist/kv.d.ts",
       "import": "./dist/kv.js",
