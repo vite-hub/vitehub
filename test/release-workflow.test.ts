@@ -165,6 +165,9 @@ describe("release workflow artifact handoff", () => {
     expect(publishNpm).toContain("release-packages.mjs publish")
     expect(githubRelease).toContain('gh release view "$release_tag"')
     expect(githubRelease).toContain('gh release create "$release_tag"')
+    expect(githubRelease).not.toContain("--generate-notes")
+    expect(githubRelease).toContain("releases/generate-notes")
+    expect(githubRelease).toContain("(( ${#notes} > 120000 ))")
   })
 
   it("validates and dry-runs the exact packed files before upload", () => {
