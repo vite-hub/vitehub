@@ -14,11 +14,14 @@ import {
   VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite"
 import { collectViteHubProviderOutputEntries } from "@vite-hub/internal/inspect"
+import { resolveDeploymentPlan } from "@vite-hub/internal/deployment"
+import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubComments } from "@vite-hub/comments/vite"
 import { env, hubEnv } from "@vite-hub/env/vite"
 import type { KVModuleOptions } from "@vite-hub/kv"
 import { resolveKVViteConfig } from "@vite-hub/kv/vite"
 import type { QueueModuleOptions } from "@vite-hub/queue"
+import { hubRealtime } from "@vite-hub/realtime/vite"
 import type { ConfigEnv, Plugin, PluginOption, ResolvedConfig, UserConfig } from "vite"
 import { consoleOpenAccessWarning } from "../src/console/runtime/server/access.ts"
 import { resolveConsoleSections } from "../src/console/internal.ts"
@@ -115,6 +118,7 @@ import * as consoleAuthBuild from "../src/console/auth-build.ts"
 import { consoleFixtureEnvironmentVariable } from "../src/console/fixture.ts"
 import { consoleInvocationsRootIdentityRegistryKey } from "../src/console/internal.ts"
 import viteHubNuxtModule from "../src/nuxt.ts"
+import { unavailableServicesPlugin } from "../src/unavailable-services.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
 function createNuxt(dev = false, plugins: PluginOption[] = []) {
@@ -615,6 +619,81 @@ describe("ViteHub Nuxt integration", () => {
     expect(kvLoad.mock.contexts[0]).toBe(context)
     expect(blobResolveId.mock.contexts[0]).toBe(context)
     expect(blobLoad.mock.contexts[0]).toBe(context)
+  })
+
+  it.each([
+    { dev: false, enabled: true },
+    { dev: true, enabled: true },
+    { dev: false, enabled: false },
+    { dev: true, enabled: false },
+  ])("bundles service availability through Nuxt Nitro (dev: $dev, enabled: $enabled)", async ({ dev, enabled }) => {
+    const root = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-availability-"))
+    try {
+      await mkdir(resolve(root, "server/realtime"), { recursive: true })
+      await writeFile(resolve(root, "server/realtime/docs.ts"), "export default {}\n")
+      const preset = enabled ? "cloudflare" : "node"
+      mocks.vitehub.mockReturnValue([
+        // Directly composed owners must override the disabled provider after replay.
+        unavailableServicesPlugin(resolveDeploymentPlan(preset), { browser: false, realtime: false }),
+        ...enabled ? [hubBrowser(), hubRealtime()] : [],
+      ])
+      const { nuxt, runNitroConfigHook } = createNuxt(dev)
+      Object.assign(nuxt.options, {
+        rootDir: root,
+        srcDir: root,
+        serverDir: resolve(root, "server"),
+        buildDir: resolve(root, ".nuxt"),
+      })
+      const nitroConfig: Record<string, unknown> = { preset }
+      await viteHubNuxtModule({ console: false, env: false, preset }, nuxt)
+      await runNitroConfigHook(nitroConfig)
+      const { plugins } = nitroConfig.rollupConfig as { plugins: Plugin[] }
+      const result = await build({
+        bundle: true,
+        format: "esm",
+        platform: "node",
+        write: false,
+        stdin: {
+          contents: [
+            'import browser from "#vitehub/browser/availability"',
+            'import realtime from "#vitehub/realtime/availability"',
+            "export default { browser, realtime }",
+          ].join("\n"),
+          resolveDir: root,
+        },
+        plugins: [{
+          name: "nuxt-nitro-availability",
+          setup(pluginBuild) {
+            pluginBuild.onResolve({ filter: /^#vitehub\/(browser|realtime)\/availability$/ }, async (args) => {
+              for (const plugin of plugins) {
+                if (typeof plugin.resolveId !== "function") continue
+                const id = await Reflect.apply(plugin.resolveId, {}, [args.path, undefined, { ssr: true, isEntry: false }])
+                if (typeof id === "string") return { path: id, namespace: "availability" }
+              }
+            })
+            pluginBuild.onLoad({ filter: /.*/, namespace: "availability" }, async (args) => {
+              for (const plugin of plugins) {
+                if (typeof plugin.load !== "function") continue
+                const contents = await Reflect.apply(plugin.load, {}, [args.path])
+                if (typeof contents === "string") return { contents, loader: "js" }
+              }
+            })
+          },
+        }],
+      })
+      const { default: availability } = await import(`data:text/javascript,${encodeURIComponent(result.outputFiles[0]!.text)}`)
+      expect(availability).toMatchObject({ browser: { available: enabled }, realtime: { available: enabled } })
+      if (!enabled) {
+        expect(availability.browser).toMatchObject({
+          preset: "node",
+          reason: "The Node preset has no built-in Browser Provider.",
+          fix: "Deploy with the Cloudflare preset and set `browser: true` in vitehub().",
+        })
+      }
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 
   it("gives the Console's KV operations a disabled config and Upstash stub when KV is off", async () => {

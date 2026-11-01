@@ -17,6 +17,7 @@ import type { Plugin, UserConfig } from "vite"
 import type { RealtimeInspectionAuthority } from "./inspect.ts"
 import type { DiscoveredRealtimeDefinition, RealtimeModuleOptions } from "./types.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
+import unavailable from "./internal/runtime/unavailable.ts"
 
 /** Where a contributed definition runs. */
 export interface RealtimeContributionContext {
@@ -122,6 +123,7 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
   let inspectionServerDirs: string[] | undefined
   let inspectionAuthority: RealtimeInspectionAuthority = options.authority ?? "auto"
   let inspectionContributed: DiscoveredRealtimeDefinition[] = []
+  let hasRoomAuthority = false
   return {
     name: "@vite-hub/realtime/vite",
     enforce: "pre",
@@ -157,6 +159,7 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
           : authority === "auto" && provider === "cloudflare" ? "cloudflare"
             : authority === "memory" ? (!deploymentPreset || deploymentPreset === "node" ? "memory" : undefined)
               : environment?.command !== "build" ? "memory" : undefined
+      hasRoomAuthority = Boolean(available)
       const contribution = available && options.contribute
         ? await options.contribute({ authority: available, directory, projectRoot: root, serverDirs })
         : undefined
@@ -246,9 +249,10 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
     resolveId(id) {
       if (id === realtimeAvailabilityId) return resolvedRealtimeAvailabilityId
     },
-    // A build without a room authority fails in `config()`, so every build that loads this module has one.
     load(id) {
-      if (id === resolvedRealtimeAvailabilityId) return "export default { available: true }\n"
+      if (id === resolvedRealtimeAvailabilityId) {
+        return hasRoomAuthority ? "export default { available: true }\n" : `export default ${JSON.stringify(unavailable)}\n`
+      }
     },
   }
 }
