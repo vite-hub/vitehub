@@ -57,11 +57,13 @@ async function readLastApplied(client: LibsqlMigrationClient): Promise<number | 
 
 /**
  * Applies the pending migrations of each local SQLite database before the server handles requests. It uses Drizzle
- * Kit's ledger and refuses migrations that lose data, like `vitehub db migrate`. All pending migrations of one
- * database run in one transaction, so a failure keeps none of them.
+ * Kit's ledger and refuses migrations that lose data, like `vitehub db migrate`. It checks every database before the
+ * first one changes, so a refusal leaves all of them as they were. All pending migrations of one database run in one
+ * transaction, so a failure keeps none of them.
  */
 export async function migrateOnStart(databases: StartMigrationDatabase[], options: MigrateOnStartOptions = {}): Promise<void> {
   const log = options.log ?? (message => console.info(message))
+  const plans: Array<{ client: LibsqlMigrationClient, name: string, pending: StartMigration[] }> = []
   for (const database of databases) {
     const client: unknown = Reflect.get(Object(database.db), "$client")
     if (!isLibsqlClient(client) || client.protocol !== "file") {
@@ -70,11 +72,13 @@ export async function migrateOnStart(databases: StartMigrationDatabase[], option
     }
     const lastApplied = await readLastApplied(client)
     const pending = database.migrations.filter(migration => lastApplied === undefined || lastApplied < migration.when)
-    if (!pending.length) continue
     const losses = pending.flatMap(migration => migration.dataLoss.map(loss => `${migration.name}: ${loss.reason}: ${loss.statement}`))
     if (losses.length && !options.allowDataLoss) {
       throw databaseErrorDiagnostics.DATABASE_MIGRATION_DATA_LOSS({ database: database.name, statements: losses })
     }
+    if (pending.length) plans.push({ client, name: database.name, pending })
+  }
+  for (const { client, name, pending } of plans) {
     await client.migrate([
       createMigrationsTable,
       ...pending.flatMap(migration => [
@@ -82,6 +86,6 @@ export async function migrateOnStart(databases: StartMigrationDatabase[], option
         { args: [migration.hash, migration.when], sql: `INSERT INTO "${migrationsTable}" ("hash", "created_at") VALUES (?, ?)` },
       ]),
     ])
-    for (const migration of pending) log(`[vitehub] Database "${database.name}": applied ${migration.name}.`)
+    for (const migration of pending) log(`[vitehub] Database "${name}": applied ${migration.name}.`)
   }
 }

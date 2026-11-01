@@ -167,6 +167,17 @@ describe("database.migrateOnStart", () => {
     await expect(setup({ preset: "cloudflare-module" })).rejects.toMatchObject({ code: "DATABASE_MIGRATE_ON_START_UNSUPPORTED" })
   })
 
+  it("checks every database before it changes the first one", async () => {
+    const applied: string[] = []
+    const client = (name: string) => ({ execute: async () => ({ rows: [] }), migrate: async () => applied.push(name), protocol: "file" })
+    const migration = (dataLoss: Array<{ reason: string, statement: string }>) => ({ dataLoss, hash: "hash", name: "0000_init", statements: ["SELECT 1"], when: 1 })
+    await expect(migrateOnStart([
+      { db: { $client: client("default") }, migrations: [migration([])], name: "default" },
+      { db: { $client: client("orders") }, migrations: [migration([{ reason: "drops table \"orders\"", statement: "DROP TABLE orders;" }])], name: "orders" },
+    ], { log: () => {} })).rejects.toMatchObject({ code: "DATABASE_MIGRATION_DATA_LOSS" })
+    expect(applied).toEqual([])
+  })
+
   it("refuses a database that is not a local SQLite file", async () => {
     const client = { execute: async () => ({ rows: [] }), migrate: async () => [], protocol: "https" }
     await expect(migrateOnStart([{ db: { $client: client }, migrations: [], name: "remote" }])).rejects.toMatchObject({
