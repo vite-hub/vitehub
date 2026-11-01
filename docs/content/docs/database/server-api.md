@@ -21,7 +21,7 @@ All Database Definition, integration, connection, Cloudflare D1, Drizzle, and ru
 
 ## Use it at runtime
 
-Call `useDatabase()` from server code with the discovered database name. Use `default` for a Default Database. It returns the Drizzle client as `db` and the Definition schema as `schema`.
+Call `useDatabase()` from server code with the discovered database name. Use `default` for a Default Database. It returns the Drizzle client as `db` and the Definition schema as `schema`. For a name that has no Database Definition it returns `undefined`, so destructuring the result fails with a `TypeError`. Check the names with `vitehub inspect definitions --kind database`.
 
 ```ts [server/api/notes.get.ts]
 import { useDatabase } from '@vite-hub/database/drizzle'
