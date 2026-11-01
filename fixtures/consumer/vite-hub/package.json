@@ -10,11 +10,19 @@
   },
   "dependencies": {
     "@chat-adapter/telegram": "4.39.0",
+    "@vite-hub/agent": "*",
+    "@vite-hub/auth": "*",
+    "@vite-hub/database": "*",
+    "@vite-hub/schedule": "*",
+    "@vite-hub/workspace": "*",
+    "better-auth": "1.7.7",
+    "drizzle-orm": "0.45.3",
     "vite": "8.2.2",
     "vite-hub": "*"
   },
   "devDependencies": {
     "@types/node": "24.13.3",
+    "drizzle-kit": "0.31.11",
     "typescript": "6.0.3"
   },
   "optionalDependencies": {

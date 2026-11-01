@@ -1,10 +1,9 @@
 import { resolve } from "node:path"
 
-import { cmsStore } from "@vite-hub/cms/vite"
-import { usesComments } from "@vite-hub/comments/vite"
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { isIncludedNitroPlugin } from "../nitro-plugin.ts"
+import { ownerModules } from "./owner-modules.ts"
 
 import type { Plugin, PluginOption, UserConfig } from "vite"
 
@@ -15,6 +14,15 @@ interface CmsPresetFeatureOptions {
 }
 
 type CmsPresetConfig = UserConfig & { [VITEHUB_PROJECT_ROOT]?: string, [VITEHUB_SERVER_DIRS]?: string[] }
+
+// An app without the CMS or Comments package cannot select their presets.
+function cmsStore(project: { projectRoot: string, serverDirs?: readonly string[] }) {
+  return ownerModules.cmsVite?.cmsStore(project)
+}
+
+function usesComments(project: { projectRoot: string, serverDirs?: readonly string[] }) {
+  return ownerModules.commentsVite?.usesComments(project) ?? false
+}
 
 /** Options whose `cms` preset features a framework integration already resolved, for example Nuxt with a known root. */
 const resolvedFeatureOptions = new WeakSet<object>()

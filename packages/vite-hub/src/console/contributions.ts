@@ -1,15 +1,11 @@
 import { describeViteHubConsoleDocumentActions, describeViteHubConsoleRuntimeReader, describeViteHubConsoleSection, isViteHubConsoleDocumentEditorSection, isViteHubConsoleRuntimeSection, readViteHubConsoleSection, resolveViteHubConsoleSectionPages } from "@vite-hub/internal/console"
-import { authConsoleSection } from "@vite-hub/auth/console";
-import { cmsStore } from "@vite-hub/cms/vite"
-import { commentsConsoleSection } from "@vite-hub/comments/vite"
-import { contentConsoleSection } from "@vite-hub/content/vite"
 import { emailConsoleSection } from "@vite-hub/email/vite"
 import { queueConsoleSection } from "@vite-hub/queue/vite"
 import { rateLimitConsoleSection } from "@vite-hub/rate-limit/vite"
 import { sandboxTaskConsoleSection } from "@vite-hub/sandbox/task/vite"
-import { scheduleConsoleSection } from "@vite-hub/schedule/vite"
 import { workflowConsoleSection } from "@vite-hub/workflow/vite"
-import { workspaceConsoleSection } from "@vite-hub/workspace/vite"
+
+import { ownerModules } from "../internal/owner-modules.ts"
 
 import type { ViteHubConsoleDocumentSetup, ViteHubConsoleSectionContribution } from "@vite-hub/internal/console"
 import type { ConsoleContributedSection, ConsoleSectionContent } from "./runtime/definitions.ts"
@@ -101,21 +97,24 @@ function registerConsoleSection<TOptions>(
   return registered
 }
 
+const { authConsole, cmsVite, commentsVite, contentVite, scheduleVite, workspaceVite } = ownerModules
+
 /**
  * Console sections that owner packages contribute. Each owner defines the label, icon, view, and reader. This list only
- * maps the host discovery roots to the owner reader options.
+ * maps the host discovery roots to the owner reader options. Sections of owner packages that the app did not install
+ * are absent.
  */
 const registeredSections: readonly ConsoleRegisteredSection[] = [
-  registerConsoleSection(authConsoleSection, () => undefined),
-  registerConsoleSection(contentConsoleSection, context => ({
+  authConsole && registerConsoleSection(authConsole.authConsoleSection, () => undefined),
+  contentVite && registerConsoleSection(contentVite.contentConsoleSection, context => ({
     contentImportBase: context.contentImportBase,
     projectRoot: context.projectRoot,
     schedules: context.scheduleDefinitions,
     // The GitHub store of the CMS cannot schedule publishes, so the editor needs no publishDue() runner.
-    scheduling: cmsStore({ projectRoot: context.projectRoot, serverDirs: context.serverDirs }) !== "github",
+    scheduling: cmsVite?.cmsStore({ projectRoot: context.projectRoot, serverDirs: context.serverDirs }) !== "github",
     serverDirs: context.serverDirs,
   })),
-  registerConsoleSection(commentsConsoleSection, context => ({ projectRoot: context.projectRoot, serverDirs: context.serverDirs })),
+  commentsVite && registerConsoleSection(commentsVite.commentsConsoleSection, context => ({ projectRoot: context.projectRoot, serverDirs: context.serverDirs })),
   registerConsoleSection(emailConsoleSection, () => undefined),
   registerConsoleSection(rateLimitConsoleSection, context => ({
     projectRoot: context.projectRoot,
@@ -126,7 +125,7 @@ const registeredSections: readonly ConsoleRegisteredSection[] = [
     projectRoot: context.projectRoot,
     rootDir: context.sandboxTaskDiscoveryRoot ?? context.projectRoot,
   })),
-  registerConsoleSection(workspaceConsoleSection, context => ({
+  workspaceVite && registerConsoleSection(workspaceVite.workspaceConsoleSection, context => ({
     plugins: context.plugins,
     projectRoot: context.projectRoot,
     rootDir: context.discoveryRoot,
@@ -143,14 +142,14 @@ const registeredSections: readonly ConsoleRegisteredSection[] = [
     rootDir: context.queueDiscoveryRoot ?? context.discoveryRoot,
     serverDirs: context.serverDirs,
   })),
-  registerConsoleSection(scheduleConsoleSection, context => ({
+  scheduleVite && registerConsoleSection(scheduleVite.scheduleConsoleSection, context => ({
     plugins: context.plugins,
     projectRoot: context.projectRoot,
     rootDir: context.discoveryRoot,
     serverDirs: context.serverDirs,
     serverRootDir: context.scheduleDiscoveryRoot ?? context.projectRoot,
   })),
-]
+].filter(section => section !== undefined)
 
 /**
  * Iconify names that the contributed sections use. Owner packages declare these icons outside the Console icon scan, so

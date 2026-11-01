@@ -9,6 +9,7 @@
     "postinstall": "vitehub types prepare"
   },
   "dependencies": {
+    "@vite-hub/agent": "workspace:*",
     "h3": "catalog:unjs",
     "vite-hub": "workspace:*",
     "vite": "catalog:vite",

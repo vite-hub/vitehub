@@ -1189,76 +1189,41 @@
     "test": "vp run -t vite-hub#build && vp test"
   },
   "dependencies": {
-    "@better-auth/oauth-provider": "catalog:auth",
     "@cfworker/json-schema": "4.1.1",
-    "@cloudflare/sandbox": "catalog:sandbox",
     "@cloudflare/workers-types": "^5.20261016.1",
-    "@internationalized/date": "^3.12.4",
     "@json-render/core": "0.21.0",
     "@json-render/vue": "0.21.0",
-    "@libsql/client": "catalog:database",
     "@standard-schema/spec": "catalog:runtime",
-    "@tiptap/core": "catalog:realtime",
-    "@tiptap/extension-image": "catalog:realtime",
-    "@tiptap/extension-list": "catalog:realtime",
-    "@tiptap/extension-table": "catalog:realtime",
-    "@tiptap/extensions": "catalog:realtime",
-    "@tiptap/pm": "catalog:realtime",
-    "@tiptap/starter-kit": "catalog:realtime",
-    "@tiptap/vue-3": "catalog:realtime",
     "@types/node": "catalog:tooling",
     "@valibot/to-json-schema": "catalog:runtime",
-    "@vercel/sandbox": "catalog:sandbox",
-    "@vite-hub/agent": "workspace:*",
-    "@vite-hub/auth": "workspace:*",
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/browser": "workspace:*",
     "@vite-hub/channels": "workspace:*",
     "@vite-hub/cli": "workspace:*",
-    "@vite-hub/cms": "workspace:*",
-    "@vite-hub/comments": "workspace:*",
     "@vite-hub/connections": "workspace:*",
-    "@vite-hub/content": "workspace:*",
-    "@vite-hub/database": "workspace:*",
     "@vite-hub/email": "workspace:*",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/gateways": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
-    "@vite-hub/presets": "workspace:*",
     "@vite-hub/queue": "workspace:*",
     "@vite-hub/rate-limit": "workspace:*",
-    "@vite-hub/realtime": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/sandbox": "workspace:*",
-    "@vite-hub/schedule": "workspace:*",
-    "@vite-hub/shell": "workspace:*",
     "@vite-hub/source": "workspace:*",
-    "@vite-hub/ui": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
-    "@vite-hub/workspace": "workspace:*",
     "@vueuse/core": "catalog:ui",
-    "@workflow/builders": "catalog:workflow",
-    "better-auth": "catalog:auth",
-    "comark": "catalog:markdown-ui",
     "confbox": "^0.2.4",
-    "drizzle-kit": "catalog:database",
-    "drizzle-orm": "catalog:database",
     "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
     "jose": "catalog:auth",
-    "katex": "^0.18.7",
     "nitro": "catalog:unjs",
     "nostics": "catalog:runtime",
     "ocache": "catalog:runtime",
     "pkg-types": "^2.3.3",
     "semver": "^7.8.5",
-    "shiki": "^4.5.0",
-    "ssh2": "^1.17.0",
     "standard-context": "catalog:runtime",
-    "typescript": "catalog:tooling",
-    "valibot": "catalog:runtime",
-    "workflow": "catalog:workflow"
+    "valibot": "catalog:runtime"
   },
   "devDependencies": {
     "@ai-sdk/provider": "catalog:ai",
@@ -1268,6 +1233,8 @@
     "@aws-sdk/s3-request-presigner": "catalog:storage",
     "@azure/identity": "catalog:storage",
     "@azure/storage-blob": "catalog:storage",
+    "@better-auth/oauth-provider": "catalog:auth",
+    "@cloudflare/sandbox": "catalog:sandbox",
     "@fontsource-variable/geist": "catalog:ui",
     "@fontsource-variable/geist-mono": "catalog:ui",
     "@google-cloud/storage": "catalog:storage",
@@ -1276,6 +1243,7 @@
     "@iconify-json/ph": "catalog:ui",
     "@iconify/vue": "catalog:ui",
     "@internationalized/date": "^3.12.4",
+    "@libsql/client": "catalog:database",
     "@microsoft/microsoft-graph-client": "catalog:storage",
     "@nuxt/ui": "catalog:nuxt",
     "@supabase/storage-js": "catalog:storage",
@@ -1290,20 +1258,43 @@
     "@tiptap/starter-kit": "catalog:realtime",
     "@tiptap/vue-3": "catalog:realtime",
     "@tiptap/y-tiptap": "catalog:realtime",
+    "@vercel/sandbox": "catalog:sandbox",
+    "@vite-hub/agent": "workspace:*",
+    "@vite-hub/auth": "workspace:*",
+    "@vite-hub/cms": "workspace:*",
+    "@vite-hub/comments": "workspace:*",
+    "@vite-hub/content": "workspace:*",
+    "@vite-hub/database": "workspace:*",
     "@vite-hub/internal": "workspace:*",
+    "@vite-hub/presets": "workspace:*",
+    "@vite-hub/realtime": "workspace:*",
+    "@vite-hub/schedule": "workspace:*",
+    "@vite-hub/shell": "workspace:*",
+    "@vite-hub/ui": "workspace:*",
+    "@vite-hub/workspace": "workspace:*",
     "@vitejs/plugin-vue": "^6.0.9",
     "@vue/test-utils": "2.5.1",
+    "@workflow/builders": "catalog:workflow",
     "ai": "catalog:ai",
+    "better-auth": "catalog:auth",
     "box-typescript-sdk-gen": "catalog:storage",
+    "comark": "catalog:markdown-ui",
+    "drizzle-kit": "catalog:database",
+    "drizzle-orm": "catalog:database",
     "dropbox": "catalog:storage",
+    "evalite": "catalog:ai",
     "google-auth-library": "catalog:storage",
     "h3-v1": "npm:h3@^1.15.11",
     "happy-dom": "21.0.3",
+    "katex": "^0.18.7",
     "miniflare": "4.20260730.0",
     "nuxt": "catalog:nuxt",
     "publint": "catalog:tooling",
     "reka-ui": "^2.10.5",
+    "shiki": "^4.5.0",
+    "ssh2": "^1.17.0",
     "tailwindcss": "^4.3.3",
+    "typescript": "catalog:tooling",
     "uploadthing": "catalog:storage",
     "vite": "catalog:vite",
     "vite-doctor": "catalog:",
@@ -1311,6 +1302,7 @@
     "vitest": "catalog:tooling",
     "vue": "catalog:ui",
     "vue-router": "^5.4.0",
+    "workflow": "catalog:workflow",
     "yjs": "catalog:realtime"
   },
   "peerDependencies": {
@@ -1321,15 +1313,30 @@
     "@aws-sdk/s3-request-presigner": "^3.700.0",
     "@azure/identity": "catalog:storage",
     "@azure/storage-blob": "catalog:storage",
+    "@better-auth/oauth-provider": "catalog:auth",
     "@google-cloud/storage": "catalog:storage",
     "@googleapis/drive": "catalog:storage",
+    "@libsql/client": "catalog:database",
     "@microsoft/microsoft-graph-client": "catalog:storage",
     "@nuxt/ui": "^4.11.0",
     "@supabase/storage-js": "catalog:storage",
+    "@vite-hub/agent": "workspace:*",
+    "@vite-hub/auth": "workspace:*",
+    "@vite-hub/cms": "workspace:*",
+    "@vite-hub/comments": "workspace:*",
+    "@vite-hub/content": "workspace:*",
+    "@vite-hub/database": "workspace:*",
+    "@vite-hub/presets": "workspace:*",
+    "@vite-hub/realtime": "workspace:*",
+    "@vite-hub/schedule": "workspace:*",
+    "@vite-hub/shell": "workspace:*",
+    "@vite-hub/ui": "workspace:*",
+    "@vite-hub/workspace": "workspace:*",
     "ai": "catalog:ai-compat",
+    "better-auth": "catalog:auth",
     "box-typescript-sdk-gen": "catalog:storage",
+    "drizzle-orm": "catalog:database",
     "dropbox": "catalog:storage",
-    "evalite": "catalog:ai",
     "evlog": "^2.28.1",
     "google-auth-library": "catalog:storage",
     "playwright-core": "catalog:browser",
@@ -1338,7 +1345,6 @@
     "uploadthing": "catalog:storage",
     "vite": "catalog:vite-compat",
     "vite-doctor": "*",
-    "vitest": "catalog:tooling",
     "vue": "catalog:ui"
   },
   "peerDependenciesMeta": {
@@ -1363,10 +1369,16 @@
     "@azure/storage-blob": {
       "optional": true
     },
+    "@better-auth/oauth-provider": {
+      "optional": true
+    },
     "@google-cloud/storage": {
       "optional": true
     },
     "@googleapis/drive": {
+      "optional": true
+    },
+    "@libsql/client": {
       "optional": true
     },
     "@microsoft/microsoft-graph-client": {
@@ -1378,13 +1390,52 @@
     "@supabase/storage-js": {
       "optional": true
     },
+    "@vite-hub/agent": {
+      "optional": true
+    },
+    "@vite-hub/auth": {
+      "optional": true
+    },
+    "@vite-hub/cms": {
+      "optional": true
+    },
+    "@vite-hub/comments": {
+      "optional": true
+    },
+    "@vite-hub/content": {
+      "optional": true
+    },
+    "@vite-hub/database": {
+      "optional": true
+    },
+    "@vite-hub/presets": {
+      "optional": true
+    },
+    "@vite-hub/realtime": {
+      "optional": true
+    },
+    "@vite-hub/schedule": {
+      "optional": true
+    },
+    "@vite-hub/shell": {
+      "optional": true
+    },
+    "@vite-hub/ui": {
+      "optional": true
+    },
+    "@vite-hub/workspace": {
+      "optional": true
+    },
+    "better-auth": {
+      "optional": true
+    },
     "box-typescript-sdk-gen": {
       "optional": true
     },
-    "dropbox": {
+    "drizzle-orm": {
       "optional": true
     },
-    "evalite": {
+    "dropbox": {
       "optional": true
     },
     "evlog": {
@@ -1409,9 +1460,6 @@
       "optional": true
     },
     "vite-doctor": {
-      "optional": true
-    },
-    "vitest": {
       "optional": true
     },
     "vue": {

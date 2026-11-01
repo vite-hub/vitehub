@@ -1,11 +1,9 @@
-import { commentsEntryMode, commentsOperationsConsoleSection, findCommentsEntry } from "@vite-hub/comments/vite"
 import { describeViteHubConsoleSection, readViteHubConsoleSection } from "@vite-hub/internal/console"
-import { discoverAgentDefinitionEntries } from "@vite-hub/agent/vite"
 import { flattenPluginOptions } from "@vite-hub/internal/contributions"
 import { collectOperationContributions, createOperationRegistry, operationsOf } from "@vite-hub/internal/operations"
-import { inspectDatabaseDefinitions } from "@vite-hub/database/vite"
-import { collectScheduleContributions, discoverScheduleDefinitions } from "@vite-hub/schedule/vite"
 
+import { requireOptionalOwner } from "../internal/optional-owners.ts"
+import { ownerModules } from "../internal/owner-modules.ts"
 import { consoleContributedSections, consoleDocumentEditorSectionIds, discoverConsoleEntrySections } from "./contributions.ts"
 import { insertConsoleSection } from "./runtime/sections.ts"
 
@@ -77,12 +75,12 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
 }): Promise<ConsoleBuildCatalog> {
   const { projectRoot, sections, serverDirs } = options
   const agents = sections.includes("agents")
-    ? discoverAgentDefinitionEntries(options.discoveryRoot, serverDirs)
+    ? requireOptionalOwner(ownerModules.agentVite, "agent").discoverAgentDefinitionEntries(options.discoveryRoot, serverDirs)
     : []
   const content: Record<ConsoleSectionId, ConsoleSectionContent> = {}
   if (sections.includes("databases")) {
     content.databases = {
-      definitions: await inspectDatabaseDefinitions({
+      definitions: await requireOptionalOwner(ownerModules.databaseVite, "database").inspectDatabaseDefinitions({
         implicitDefault: options.databaseImplicitDefault,
         plugins: options.plugins,
         projectRoot,
@@ -98,9 +96,10 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
     if (contributed && !contributed.documents) content[section] = await contributed.read(options)
   }
   // The Schedule Definitions that run, or none when the project does not enable Schedule.
-  const schedules = sections.includes("schedules")
-    ? discoverScheduleDefinitions({
-        contributions: await collectScheduleContributions(options.plugins, {
+  const scheduleVite = sections.includes("schedules") ? requireOptionalOwner(ownerModules.scheduleVite, "schedule") : undefined
+  const schedules = scheduleVite
+    ? scheduleVite.discoverScheduleDefinitions({
+        contributions: await scheduleVite.collectScheduleContributions(options.plugins, {
           projectRoot: options.scheduleDiscoveryRoot ?? projectRoot,
           root: options.discoveryRoot,
           serverDirs,
@@ -122,11 +121,12 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
   }
   const entries = await discoverConsoleEntrySections(options)
   for (const section of entries) content[section] = await consoleContributedSections.get(section)!.read(options)
-  const commentsEntry = findCommentsEntry({ projectRoot, serverDirs })
+  const commentsVite = ownerModules.commentsVite
+  const commentsEntry = commentsVite?.findCommentsEntry({ projectRoot, serverDirs })
   const sectionOverrides: NonNullable<ConsoleBuildCatalog["sectionOverrides"]> = {}
-  if (commentsEntry && commentsEntryMode(commentsEntry) === "operations") {
-    content.comments = await readViteHubConsoleSection(commentsOperationsConsoleSection, undefined)
-    sectionOverrides.comments = describeViteHubConsoleSection(commentsOperationsConsoleSection)
+  if (commentsVite && commentsEntry && commentsVite.commentsEntryMode(commentsEntry) === "operations") {
+    content.comments = await readViteHubConsoleSection(commentsVite.commentsOperationsConsoleSection, undefined)
+    sectionOverrides.comments = describeViteHubConsoleSection(commentsVite.commentsOperationsConsoleSection)
   }
   const manualSchedules = (schedules ?? [])
     .filter(definition => definition.manual === true)

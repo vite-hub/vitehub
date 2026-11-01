@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
 
 import { dirname, relative, resolve } from "node:path"
 import * as v from "valibot"
+import { importOptionalOwner } from "../internal/optional-owners.ts"
 import type { ProjectInfo, ProjectInventoryContributor, RuleContext } from "vite-doctor/extension"
 
 /** Name of the ViteHub Project Inventory contribution, read by rules through `viteHubInventory()`. */
@@ -60,17 +61,18 @@ export function discoveredDefinition(ctx: RuleContext): { kind: DefinitionKind, 
 type Discovered = { name: string, handler: string, steps?: readonly string[], manual?: boolean }
 type Discover = (root: string, serverDirs: string[]) => Promise<readonly Discovered[]>
 
-// Each owner package owns its discovery rules. Calling them keeps Doctor in step with the build.
+// Each owner package owns its discovery rules. Calling them keeps Doctor in step with the build. An optional owner
+// package that the app did not install discovers nothing.
 const discoverers: Record<DefinitionKind, Discover> = {
-  agent: async (root, serverDirs) => (await import("@vite-hub/agent/vite")).listAgentDefinitionFiles(root, serverDirs),
+  agent: async (root, serverDirs) => (await importOptionalOwner("@vite-hub/agent", () => import("@vite-hub/agent/vite")))?.listAgentDefinitionFiles(root, serverDirs) ?? [],
   browser: async (root, serverDirs) => (await import("@vite-hub/browser/vite")).discoverBrowserDefinitions({ rootDir: root, serverDirs }),
   channel: async (root, serverDirs) => (await import("@vite-hub/channels/vite")).discoverChannelDefinitions({ rootDir: root, serverDirs }),
   connection: async (root, serverDirs) => (await import("@vite-hub/connections/vite")).discoverConnectionDefinitions({ rootDir: root, serverDirs }),
-  database: async (root, serverDirs) => (await import("@vite-hub/database/config")).discoverDatabaseDefinitions(root, { serverDirs }),
+  database: async (root, serverDirs) => (await importOptionalOwner("@vite-hub/database", () => import("@vite-hub/database/config")))?.discoverDatabaseDefinitions(root, { serverDirs }) ?? [],
   queue: async (root, serverDirs) => (await import("@vite-hub/queue/vite")).discoverQueueDefinitions({ rootDir: root, serverDirs }),
-  realtime: async (root, serverDirs) => (await import("@vite-hub/realtime/vite")).discoverRealtimeDefinitions(root, serverDirs),
+  realtime: async (root, serverDirs) => (await importOptionalOwner("@vite-hub/realtime", () => import("@vite-hub/realtime/vite")))?.discoverRealtimeDefinitions(root, serverDirs) ?? [],
   sandboxTask: async root => (await import("@vite-hub/sandbox/task/vite")).discoverSandboxTaskDefinitions({ rootDir: root }),
-  schedule: async (root, serverDirs) => (await import("@vite-hub/schedule/vite")).discoverScheduleDefinitions({ rootDir: root, serverDirs }),
+  schedule: async (root, serverDirs) => (await importOptionalOwner("@vite-hub/schedule", () => import("@vite-hub/schedule/vite")))?.discoverScheduleDefinitions({ rootDir: root, serverDirs }) ?? [],
   workflow: async (root, serverDirs) => (await import("@vite-hub/workflow/vite")).discoverWorkflowDefinitions({ rootDir: root, serverDirs }),
 }
 

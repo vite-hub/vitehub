@@ -27,8 +27,8 @@ You need Node.js 24.15 or newer, pnpm, and a Vite application that uses Vue and 
 ## Turn on Comments
 
 ```bash [commands/install]
-pnpm add vite-hub h3 zod
-pnpm add -D nitro
+pnpm add vite-hub @vite-hub/comments @vite-hub/content @vite-hub/database @vite-hub/realtime drizzle-orm h3 zod
+pnpm add -D drizzle-kit nitro
 ```
 
 Comments stores threads in a Database. Realtime shows who is on each page. The memory authority keeps the presence rooms in this server process.

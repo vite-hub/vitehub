@@ -14,8 +14,11 @@ You need Node.js 24.15 or newer, pnpm, and a Vite application. Run the commands 
 ::tutorial-step{title="Install and turn on ViteHub"}
 ## Install and turn on ViteHub
 
+The `cms` preset uses Content, Database, and Workspace, so install their packages too.
+
 ```bash [commands/install]
-pnpm add vite-hub zod
+pnpm add vite-hub @vite-hub/cms @vite-hub/content @vite-hub/database @vite-hub/workspace drizzle-orm zod
+pnpm add -D drizzle-kit
 ```
 
 Add `vitehub()` to the Vite config. The preset needs no feature settings. `console: { auth: false }` turns on the [Console](/docs/development/console) for anyone who can reach the dev server. Use it only on your own machine.
