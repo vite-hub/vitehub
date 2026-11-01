@@ -73,16 +73,16 @@ const pillStyles = `:host{all:initial;position:fixed;z-index:2147483001;pointer-
 :host([collapsed]){--margin:2px;--vitehub-pill-morph:240ms;--vitehub-pill-wait:40ms;--vitehub-pill-fade:opacity 80ms ease-out,visibility 0s 80ms}
 :host(:is([edge=top],[edge=bottom])){left:${along("0px")};--start:max(var(--margin),var(--safe-left));--end:max(var(--margin),var(--safe-right));--x:calc(var(--at) * -1%)}
 :host(:is([edge=left],[edge=right])){top:${along("0px")};--start:max(var(--margin),var(--safe-top));--end:max(var(--margin),var(--safe-bottom));--y:calc(var(--at) * -1%);--vitehub-pill-flow:column}
-:host([edge=bottom]){bottom:max(16px,env(safe-area-inset-bottom))}
-:host([edge=top]){top:max(16px,env(safe-area-inset-top))}
-:host([edge=right]){right:max(16px,env(safe-area-inset-right))}
-:host([edge=left]){left:max(16px,env(safe-area-inset-left))}
+:host([edge=bottom]){bottom:max(16px,var(--safe-bottom))}
+:host([edge=top]){top:max(16px,var(--safe-top))}
+:host([edge=right]){right:max(16px,var(--safe-right))}
+:host([edge=left]){left:max(16px,var(--safe-left))}
 :host([collapsed]:is([edge=top],[edge=bottom])){left:${along("var(--vitehub-hex-w)")};--x:-50%}
 :host([collapsed]:is([edge=left],[edge=right])){top:${along("var(--vitehub-hex-h)")};--y:-50%}
-:host([collapsed][edge=bottom]){bottom:calc(max(2px,env(safe-area-inset-bottom)) + var(--vitehub-hex-h) / 2);--y:50%}
-:host([collapsed][edge=top]){top:calc(max(2px,env(safe-area-inset-top)) + var(--vitehub-hex-h) / 2);--y:-50%}
-:host([collapsed][edge=right]){right:calc(max(2px,env(safe-area-inset-right)) + var(--vitehub-hex-w) / 2);--x:50%}
-:host([collapsed][edge=left]){left:calc(max(2px,env(safe-area-inset-left)) + var(--vitehub-hex-w) / 2);--x:-50%}
+:host([collapsed][edge=bottom]){bottom:calc(max(2px,var(--safe-bottom)) + var(--vitehub-hex-h) / 2);--y:50%}
+:host([collapsed][edge=top]){top:calc(max(2px,var(--safe-top)) + var(--vitehub-hex-h) / 2);--y:-50%}
+:host([collapsed][edge=right]){right:calc(max(2px,var(--safe-right)) + var(--vitehub-hex-w) / 2);--x:50%}
+:host([collapsed][edge=left]){left:calc(max(2px,var(--safe-left)) + var(--vitehub-hex-w) / 2);--x:-50%}
 :host{translate:var(--x,0) var(--y,0)}
 :host([dragging]){transition:none;cursor:grabbing;user-select:none;-webkit-user-select:none}
 div{position:relative;box-sizing:border-box;max-width:calc(100vw - 32px);max-height:calc(100dvh - 32px);overflow:auto;scrollbar-width:none;display:flex;flex-direction:var(--vitehub-pill-flow);align-items:center;gap:8px;padding:4px;border:1px solid var(--vitehub-pill-line);border-radius:12px;background:rgb(17 17 17/92%);pointer-events:auto;clip-path:${pillBar};transition:clip-path var(--vitehub-pill-morph) var(--vitehub-pill-ease) var(--vitehub-pill-wait,0s),background-color 150ms ease-out,scale 150ms ease-out}

@@ -1,0 +1,92 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Page tools safe-area geometry regression</title>
+<!-- Serve packages/internal with Vite, then open /test/page-tools-geometry.browser.html?vitehub
+     at desktop and mobile viewport sizes. This needs native browser layout, not happy-dom. -->
+<pre id="result">Running…</pre>
+<script type="module">
+  import { loadViteHubPageTools } from "../src/runtime/page-tools-loader.ts"
+  import { createViteHubPageWindow } from "../src/runtime/page-tools-window.ts"
+
+  function assert(condition, message) {
+    if (!condition) throw new Error(message)
+  }
+
+  const result = document.querySelector("#result")
+  const originalFetch = window.fetch
+  const dockKey = "vitehub-tools-dock"
+  const collapsedKey = "vitehub-tools-collapsed"
+  const saved = [localStorage.getItem(dockKey), localStorage.getItem(collapsedKey)]
+  const safe = { top: 60, right: 20, bottom: 30, left: 100 }
+  let exit
+  let toolWindow
+  let cases = 0
+  try {
+    localStorage.removeItem(collapsedKey)
+    // Only the session request is mocked: the actual loader, pill, window and styles render together.
+    window.fetch = async () => Response.json({ tools: [{ id: "content", label: "Content", script: "/content.js" }] })
+    for (const edge of ["top", "right", "bottom", "left"]) {
+      for (const at of [0, 50, 100]) {
+        document.cookie = "vitehub-tools=1; Path=/"
+        localStorage.setItem(dockKey, JSON.stringify({ edge, at }))
+        await loadViteHubPageTools({ load: async () => ({ default(context) {
+          exit = context.exit
+          const trigger = document.createElement("button")
+          trigger.textContent = "Content"
+          context.bar.append(trigger)
+          toolWindow = createViteHubPageWindow({ id: "geometry", title: "Content", trigger, signal: context.signal })
+        } }) })
+        const pill = document.querySelector("vitehub-pill")
+        const host = document.querySelector("vitehub-window")
+        for (const element of [pill, host]) {
+          for (const [side, value] of Object.entries(safe)) element.style.setProperty(`--safe-${side}`, `${value}px`)
+        }
+        toolWindow.show()
+        // Cancel opening motion so the test measures the final layout, not an intermediate animation frame.
+        pill.style.transition = "none"
+        const panel = host.shadowRoot.querySelector(".window")
+        panel.style.transition = "none"
+        await new Promise(requestAnimationFrame)
+        await new Promise(requestAnimationFrame)
+        const vertical = edge === "left" || edge === "right"
+        const pillBox = pill.getBoundingClientRect()
+        const bounds = (label) => {
+          const box = panel.getBoundingClientRect()
+          assert(box.left >= safe.left - 1 && box.right <= innerWidth - safe.right + 1, `${edge} ${at}% ${label}: horizontal safe bounds`)
+          assert(box.top >= safe.top - 1 && box.bottom <= innerHeight - safe.bottom + 1, `${edge} ${at}% ${label}: vertical safe bounds`)
+          const gap = edge === "top" ? box.top - pillBox.bottom : edge === "bottom" ? pillBox.top - box.bottom : edge === "left" ? box.left - pillBox.right : pillBox.left - box.right
+          assert(Math.abs(gap - 8) < 1, `${edge} ${at}% ${label}: gap ${gap}`)
+          return box
+        }
+        const measure = (label) => {
+          const box = bounds(label)
+          const pillPoint = vertical ? pillBox.top + pillBox.height * at / 100 : pillBox.left + pillBox.width * at / 100
+          const windowPoint = vertical ? box.top + box.height * at / 100 : box.left + box.width * at / 100
+          assert(Math.abs(pillPoint - windowPoint) < 1, `${edge} ${at}% ${label}: pill ${pillPoint}, window ${windowPoint}`)
+        }
+        measure("default size")
+        panel.style.width = "2000px"
+        panel.style.height = "2000px"
+        measure("resized beyond viewport")
+        host.shadowRoot.querySelector(".expand").click()
+        bounds("expanded")
+        cases++
+        toolWindow.destroy()
+        exit()
+      }
+    }
+    result.textContent = `PASS: ${cases} dock positions align at default and oversized window sizes; expanded windows stay within asymmetric safe areas`
+  } catch (error) {
+    result.textContent = `FAIL: ${error.stack}`
+    throw error
+  } finally {
+    toolWindow?.destroy()
+    exit?.()
+    window.fetch = originalFetch
+    for (const [index, key] of [dockKey, collapsedKey].entries()) {
+      if (saved[index] === null) localStorage.removeItem(key)
+      else localStorage.setItem(key, saved[index])
+    }
+  }
+</script>

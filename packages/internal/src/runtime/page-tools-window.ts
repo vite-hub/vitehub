@@ -36,21 +36,21 @@ export interface ViteHubPageToolsDock {
 // the pill when it opens. Along the edge it takes the pill's place, so a pill at the left end opens its window at the
 // left end. The pill is 38px thick, or 54px with 44px touch buttons, until the loader reports its real thickness.
 const styles = `
-:host{all:initial;--surface:light-dark(#fff,#0a0a0a);--text:light-dark(#18181b,#fafafa);--muted:light-dark(#71717a,#a1a1aa);--line:light-dark(rgb(0 0 0/8%),rgb(255 255 255/9%));--hover:light-dark(rgb(0 0 0/5%),rgb(255 255 255/7%));--focus:light-dark(#18181b,#fafafa);--at:50;--along:calc(16px + (100% - 32px) * var(--at) / 100);--shift:calc(var(--at) * -1%);--dock:calc(max(16px,env(safe-area-inset-bottom)) + var(--thickness,38px) + 8px);position:fixed;inset:0;z-index:2147483000;pointer-events:none;color:var(--text);font:400 .875rem/1.5 system-ui,sans-serif;color-scheme:light dark;transition:display 150ms allow-discrete}
-:host([edge=top]){--dock:calc(max(16px,env(safe-area-inset-top)) + var(--thickness,38px) + 8px)}
-:host([edge=right]){--dock:calc(max(16px,env(safe-area-inset-right)) + var(--thickness,38px) + 8px)}
-:host([edge=left]){--dock:calc(max(16px,env(safe-area-inset-left)) + var(--thickness,38px) + 8px)}
+:host{all:initial;--surface:light-dark(#fff,#0a0a0a);--text:light-dark(#18181b,#fafafa);--muted:light-dark(#71717a,#a1a1aa);--line:light-dark(rgb(0 0 0/8%),rgb(255 255 255/9%));--hover:light-dark(rgb(0 0 0/5%),rgb(255 255 255/7%));--focus:light-dark(#18181b,#fafafa);--safe-top:env(safe-area-inset-top,0px);--safe-right:env(safe-area-inset-right,0px);--safe-bottom:env(safe-area-inset-bottom,0px);--safe-left:env(safe-area-inset-left,0px);--at:50;--start:max(16px,var(--safe-left));--end:max(16px,var(--safe-right));--far:max(16px,var(--safe-top));--along:calc(var(--start) + (100% - var(--start) - var(--end)) * var(--at) / 100);--shift:calc(var(--at) * -1%);--dock:calc(max(16px,var(--safe-bottom)) + var(--thickness,38px) + 8px);--width:calc(100vw - var(--start) - var(--end));--height:calc(100dvh - var(--dock) - var(--far));position:fixed;inset:0;z-index:2147483000;pointer-events:none;color:var(--text);font:400 .875rem/1.5 system-ui,sans-serif;color-scheme:light dark;transition:display 150ms allow-discrete}
+:host([edge=top]){--dock:calc(max(16px,var(--safe-top)) + var(--thickness,38px) + 8px);--far:max(16px,var(--safe-bottom))}
+:host(:is([edge=left],[edge=right])){--start:max(16px,var(--safe-top));--end:max(16px,var(--safe-bottom));--width:calc(100vw - var(--dock) - var(--far));--height:calc(100dvh - var(--start) - var(--end))}
+:host([edge=right]){--dock:calc(max(16px,var(--safe-right)) + var(--thickness,38px) + 8px);--far:max(16px,var(--safe-left))}
+:host([edge=left]){--dock:calc(max(16px,var(--safe-left)) + var(--thickness,38px) + 8px);--far:max(16px,var(--safe-right))}
 @media(any-pointer:coarse){:host{--thickness:54px}.grip{display:none}}
 :host([hidden]){display:none}
-.window{position:absolute;width:min(600px,calc(100vw - 32px));height:min(640px,calc(100dvh - var(--dock) - 16px));min-width:300px;min-height:240px;max-width:calc(100vw - 32px);max-height:calc(100dvh - var(--dock) - 16px);display:flex;flex-direction:column;pointer-events:auto;background:var(--surface);border-radius:12px;box-shadow:0 0 0 1px light-dark(rgb(0 0 0/8%),rgb(255 255 255/10%)),0 2px 4px light-dark(rgb(0 0 0/4%),rgb(0 0 0/24%)),0 16px 40px -8px light-dark(rgb(0 0 0/18%),rgb(0 0 0/56%));outline:none;transition:opacity 200ms cubic-bezier(.23,1,.32,1),scale 200ms cubic-bezier(.23,1,.32,1)}
+.window{position:absolute;width:min(600px,var(--width));height:min(640px,var(--height));min-width:min(300px,var(--width));min-height:min(240px,var(--height));max-width:var(--width);max-height:var(--height);display:flex;flex-direction:column;pointer-events:auto;background:var(--surface);border-radius:12px;box-shadow:0 0 0 1px light-dark(rgb(0 0 0/8%),rgb(255 255 255/10%)),0 2px 4px light-dark(rgb(0 0 0/4%),rgb(0 0 0/24%)),0 16px 40px -8px light-dark(rgb(0 0 0/18%),rgb(0 0 0/56%));outline:none;transition:opacity 200ms cubic-bezier(.23,1,.32,1),scale 200ms cubic-bezier(.23,1,.32,1)}
 :host([edge=bottom]) .window{bottom:var(--dock);left:var(--along);translate:var(--shift) 0;transform-origin:calc(var(--at) * 1%) 100%}
 :host([edge=top]) .window{top:var(--dock);left:var(--along);translate:var(--shift) 0;transform-origin:calc(var(--at) * 1%) 0}
 :host([edge=right]) .window{right:var(--dock);top:var(--along);translate:0 var(--shift);transform-origin:100% calc(var(--at) * 1%)}
 :host([edge=left]) .window{left:var(--dock);top:var(--along);translate:0 var(--shift);transform-origin:0 calc(var(--at) * 1%)}
-:host(:is([edge=left],[edge=right])) .window{width:min(600px,calc(100vw - var(--dock) - 16px));height:min(640px,calc(100dvh - 32px));max-width:calc(100vw - var(--dock) - 16px);max-height:calc(100dvh - 32px)}
 @starting-style{.window{opacity:0;scale:.96}}
 :host([hidden]) .window{opacity:0;scale:.96;transition-duration:150ms;transition-timing-function:ease-in}
-:host([edge]) .window.expanded{inset:12px;translate:none;width:auto!important;height:auto!important;max-width:none;max-height:none}
+:host([edge]) .window.expanded{inset:max(12px,var(--safe-top)) max(12px,var(--safe-right)) max(12px,var(--safe-bottom)) max(12px,var(--safe-left));translate:none;width:auto!important;height:auto!important;max-width:none;max-height:none}
 :host([edge=bottom]) .window.expanded{bottom:var(--dock)}:host([edge=top]) .window.expanded{top:var(--dock)}:host([edge=right]) .window.expanded{right:var(--dock)}:host([edge=left]) .window.expanded{left:var(--dock)}
 .frame{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;border-radius:inherit}
 .grip{position:absolute;z-index:1;touch-action:none}
@@ -65,7 +65,7 @@ button{display:grid;place-items:center;width:32px;height:32px;border:0;border-ra
 @media(hover:hover){button:hover{background:var(--hover);color:var(--text)}}
 button:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
 .body{flex:1;min-height:0;overflow:auto;position:relative}iframe{display:block;border:0;width:100%;height:100%;background:var(--surface)}
-@media(max-width:640px){:host([edge]) .window,:host([edge]) .window.expanded{inset:0;translate:none;width:auto!important;height:auto!important;max-width:none;max-height:none;min-width:0;min-height:0;border-radius:0}:host([edge=bottom]) :is(.window,.window.expanded){bottom:var(--dock)}:host([edge=top]) :is(.window,.window.expanded){top:var(--dock)}:host([edge=right]) :is(.window,.window.expanded){right:var(--dock)}:host([edge=left]) :is(.window,.window.expanded){left:var(--dock)}.grip{display:none}button{width:44px;height:44px}.expand{display:none}}
+@media(max-width:640px){:host([edge]) .window,:host([edge]) .window.expanded{inset:var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);translate:none;width:auto!important;height:auto!important;max-width:none;max-height:none;min-width:0;min-height:0;border-radius:0}:host([edge=bottom]) :is(.window,.window.expanded){bottom:var(--dock)}:host([edge=top]) :is(.window,.window.expanded){top:var(--dock)}:host([edge=right]) :is(.window,.window.expanded){right:var(--dock)}:host([edge=left]) :is(.window,.window.expanded){left:var(--dock)}.grip{display:none}button{width:44px;height:44px}.expand{display:none}}
 @media(prefers-reduced-motion:reduce){:host,.window{transition:none}}
 @media(forced-colors:active){.window{border:1px solid CanvasText}button:focus-visible{outline-color:Highlight}}
 `
