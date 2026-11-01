@@ -242,7 +242,7 @@ export default defineAuth({
 
 The `role` field is an application example. Use the app's existing role, permission, or allowlist. A missing session returns `401`. After sign-in, the callback receives the request and signed-in `user`. Returning `false` returns `403` and offers **Switch account**. A custom `Response` controls the rejection or redirect.
 
-App Auth provides a built-in page at `/_vitehub/sign-in`. It lists the configured social providers, starts sign-in through the existing Auth endpoint, and returns to the requested Console page. Failed attempts show the provider buttons again. Expired sessions show a clickable **Sign in** action. The account menu uses the same app session and supports sign-out. No Console Auth Definition, client, or sign-in route is needed.
+App Auth provides a built-in page at `/_vitehub/sign-in`. It shows an email and password form when `emailAndPassword` is on, and lists the configured social providers. It signs in through the existing Auth endpoints and returns to the requested Console page. Failed attempts show the form and the provider buttons again. Expired sessions show a clickable **Sign in** action. The account menu uses the same app session and supports sign-out. No Console Auth Definition, client, or sign-in route is needed.
 
 ViteHub requires an authorization callback for every Console route, including `GET /api/_vitehub/console/status` and, when enabled, `GET /api/_vitehub/console/usage`. The two wildcard routes above cover them. Missing policy stops the build with `VITE_HUB_B0006`. Missing app Auth stops it with `VITE_HUB_B0005`. `console: true` never grants access to every signed-in user by itself.
 

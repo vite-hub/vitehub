@@ -50,8 +50,11 @@ export function consoleMcpNativeClients(): BetterAuthPlugin {
 export interface ConsoleMcpOAuthOptions {
   /** The absolute URL of the MCP endpoint, the same as `console.mcp.resource`: `https://app.example.com/_vitehub/mcp`. */
   resource: string
-  /** The app's sign-in page. Better Auth sends a signed-out person here with a signed query. */
-  loginPage: string
+  /**
+   * The app's sign-in page. Better Auth sends a signed-out person here with a signed query. Defaults to the Console's
+   * built-in sign-in page next to the resource, which signs in with email and password or the social providers.
+   */
+  loginPage?: string
   /** The page where a signed-in person allows or denies the client. Defaults to `loginPage`. */
   consentPage?: string
   /** The `iss` of the access tokens. Defaults to the resource origin with Better Auth's `/api/auth` base path. */
@@ -65,6 +68,7 @@ export interface ConsoleMcpOAuthOptions {
  */
 export function consoleMcpOAuth(options: ConsoleMcpOAuthOptions): BetterAuthPlugin[] {
   const issuer = (options.issuer ?? `${new URL(options.resource).origin}/api/auth`).replace(/\/+$/, "")
+  const loginPage = options.loginPage ?? new URL("sign-in", options.resource).pathname
   return [
     // By default the plugin signs a token on every session read, which the Console never uses and which fails after the secret changes.
     jwt({ disableSettingJwtHeader: true, jwt: { issuer } }),
@@ -72,8 +76,8 @@ export function consoleMcpOAuth(options: ConsoleMcpOAuthOptions): BetterAuthPlug
       allowDynamicClientRegistration: true,
       allowUnauthenticatedClientRegistration: true,
       clientRegistrationDefaultResources: [options.resource],
-      consentPage: options.consentPage ?? options.loginPage,
-      loginPage: options.loginPage,
+      consentPage: options.consentPage ?? loginPage,
+      loginPage,
       resources: [options.resource],
       scopes: ["openid", "profile", "email", "offline_access", ...consoleMcpScopes],
     }),
