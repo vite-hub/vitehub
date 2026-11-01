@@ -3,6 +3,22 @@ import { viteHubPillButtonStyles } from "@vite-hub/internal/runtime/page-tools-s
 import type { ViteHubPageToolModule } from "@vite-hub/internal/runtime/page-tools-loader"
 
 const styles = `:host{display:flex;gap:2px}${viteHubPillButtonStyles}`
+// The editor fades in once it is ready, over the window's own surface, so it never flashes a blank page. The status
+// only shows when the wait is long enough to notice.
+const windowStyles = `iframe{opacity:0;transition:opacity 150ms ease-out}iframe.ready{opacity:1}
+.loading{position:absolute;inset:0;display:grid;place-content:center;justify-items:center;gap:8px;padding:24px;text-align:center;color:var(--muted);font-size:.8125rem;opacity:0;animation:vitehub-loading 150ms ease-out 400ms forwards}
+.loading p{margin:0}.loading a{color:var(--text);text-underline-offset:3px;text-decoration-color:var(--line)}.loading a:hover{text-decoration-color:currentColor}.loading a:not(.shown){display:none}
+@keyframes vitehub-loading{to{opacity:1}}
+@media(prefers-reduced-motion:reduce){iframe,.loading{transition:none;animation:none;opacity:1}iframe:not(.ready){opacity:0}}`
+// The Console keeps its appearance in this key (see the client's appearance.ts). The page shares its storage.
+const appearanceKey = "vitehub-console:appearance"
+const appearance = () => {
+  try {
+    const value = localStorage.getItem(appearanceKey)
+    return value === "light" || value === "dark" ? value : undefined
+  }
+  catch { return undefined }
+}
 const start: ViteHubPageToolModule["default"] = (context) => {
   const { bar, tool, signal } = context
   const shadow = bar.attachShadow({ mode: "open" })
@@ -29,7 +45,7 @@ const start: ViteHubPageToolModule["default"] = (context) => {
   let requested: string | undefined
   let loading: HTMLElement | undefined
   let loadTimer: ReturnType<typeof setTimeout> | undefined
-  const panel = context.createWindow({ id: `${base}:${tool.id}`, title: tool.label, trigger: button })
+  const panel = context.createWindow({ id: `${base}:${tool.id}`, title: tool.label, trigger: button, colorScheme: appearance })
   const open = (path?: string) => {
     if (path) {
       const target = new URL(`${base}${path}`, location.origin)
@@ -43,8 +59,10 @@ const start: ViteHubPageToolModule["default"] = (context) => {
       url.searchParams.set("embed", "1")
       frame.src = url.href
       requested = undefined
+      const frameStyle = document.createElement("style")
+      frameStyle.textContent = windowStyles
       loading = document.createElement("div")
-      loading.style.cssText = "position:absolute;inset:0;display:grid;place-content:center;gap:12px;padding:24px;background:var(--surface)"
+      loading.className = "loading"
       const status = document.createElement("p")
       status.setAttribute("role", "status")
       status.textContent = `Loading ${tool.label}…`
@@ -54,8 +72,11 @@ const start: ViteHubPageToolModule["default"] = (context) => {
       link.rel = "noopener"
       link.textContent = "Open in a new tab"
       loading.append(status, link)
-      panel.body.append(frame, loading)
-      loadTimer = setTimeout(() => { status.textContent = "The editor did not load. Open it in a new tab to continue." }, 8000)
+      panel.body.append(frameStyle, frame, loading)
+      loadTimer = setTimeout(() => {
+        status.textContent = "The editor did not load. Open it in a new tab to continue."
+        link.classList.add("shown")
+      }, 8000)
     }
     else if (ready && requested) {
       frame.contentWindow?.postMessage({ type: "vitehub:navigate", path: requested }, location.origin)
@@ -71,6 +92,7 @@ const start: ViteHubPageToolModule["default"] = (context) => {
     if (data.type === "vitehub:ready") {
       ready = true
       clearTimeout(loadTimer)
+      frame?.classList.add("ready")
       loading?.remove()
       if (requested) open(requested)
     }

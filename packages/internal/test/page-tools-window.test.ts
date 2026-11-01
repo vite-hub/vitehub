@@ -36,4 +36,18 @@ describe("page tool window", () => {
     controller.abort()
     expect(document.querySelector("vitehub-window")).toBeNull()
   })
+
+  it("moves focus to the window itself and takes the content's color scheme", () => {
+    const trigger = document.createElement("button")
+    document.body.append(trigger)
+    let scheme: "light" | "dark" | undefined = "dark"
+    const window = createViteHubPageWindow({ id: "content", title: "Content", trigger, signal: new AbortController().signal, colorScheme: () => scheme })
+    window.show()
+    const host = document.querySelector<HTMLElement>("vitehub-window")!
+    expect(host.shadowRoot!.activeElement).toBe(host.shadowRoot!.querySelector("[role=dialog]"))
+    expect(host.style.colorScheme).toBe("dark")
+    scheme = undefined
+    dispatchEvent(new StorageEvent("storage", { key: "vitehub-console:appearance" }))
+    expect(host.style.colorScheme).toBe("")
+  })
 })
