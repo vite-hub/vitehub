@@ -99,6 +99,8 @@ export interface ScheduleNitroConfigOptions extends ScheduleVitePluginOptions {
 interface InternalScheduleNitroConfigOptions extends ScheduleNitroConfigOptions {
   /** Contributions that the Vite plugin already collected, so factories run once per config pass. */
   contributions?: readonly CollectedScheduleContribution[]
+  /** Set in Vite's `config` hook, where plugins added later can still contribute the Schedule that `cron` names. */
+  preliminary?: boolean
 }
 
 interface InternalScheduleVitePluginOptions extends ScheduleVitePluginOptions {
@@ -180,28 +182,33 @@ function resolveProcessRuntimeOptions(value: unknown): ScheduleProcessRuntimeOpt
   }
 }
 
+/**
+ * Checks the build's `cron` map. `definitions` is the final Schedule set, or `undefined` while plugins can still
+ * contribute Schedules. The Process Runtime owns Static Schedule wakes unless `providerOutput` is `nitro` or `standalone`.
+ */
 function resolveCronOverrides(
   value: unknown,
-  definitions: DiscoveredScheduleDefinition[],
-  runtime: ScheduleProcessRuntimeOptions | undefined,
+  definitions: DiscoveredScheduleDefinition[] | undefined,
+  options: Pick<ScheduleVitePluginOptions, "providerOutput" | "runtime">,
 ): ScheduleCronOverrides | undefined {
   if (value === undefined) return
   if (!isRecord(value) || Array.isArray(value)) {
     throw scheduleErrorDiagnostics.SCHEDULE_B0008({ message: "Schedule `cron` must map Schedule names to cron strings, such as `{ cleanup: \"0 0 * * *\" }`." })
   }
-  const names = new Set(definitions.map(definition => definition.name))
+  const names = definitions && new Set(definitions.map(definition => definition.name))
   const overrides: Record<string, string> = {}
   for (const [name, cron] of Object.entries(value)) {
     if (typeof cron !== "string" || !cron.trim()) {
       throw scheduleErrorDiagnostics.SCHEDULE_B0008({ message: `Schedule \`cron\` gives "${name}" a value that is not a cron string.` })
     }
-    if (!names.has(name)) {
+    if (names && !names.has(name)) {
       throw scheduleErrorDiagnostics.SCHEDULE_B0008({ message: `Schedule \`cron\` names "${name}", but no Schedule has that name. Schedules: ${[...names].map(entry => `"${entry}"`).join(", ") || "none"}.` })
     }
     overrides[name] = cron
   }
-  if (runtime && Object.keys(overrides).length) {
-    throw scheduleErrorDiagnostics.SCHEDULE_B0008({ message: "Schedule `cron` sets the cron of host cron output, but the Process Runtime runs each Schedule on the cron it declares. Change the cron in the Schedule instead." })
+  const processOwnsWakes = options.runtime !== undefined && options.providerOutput !== "nitro" && options.providerOutput !== "standalone"
+  if (processOwnsWakes && Object.keys(overrides).length) {
+    throw scheduleErrorDiagnostics.SCHEDULE_B0008({ message: "Schedule `cron` sets the cron of host cron output, but the Process Runtime runs each Schedule on the cron it declares. Change the cron in the Schedule, or let the host wake Schedules with `providerOutput: \"nitro\"` or `\"standalone\"`." })
   }
   return overrides
 }
@@ -521,7 +528,7 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
     serverDirs: options.serverDirs,
     serverRootDir: roots.projectRoot,
   })
-  const cronOverrides = resolveCronOverrides(options.cron, definitions, processRuntime)
+  const cronOverrides = resolveCronOverrides(options.cron, (options as InternalScheduleNitroConfigOptions).preliminary ? undefined : definitions, options)
   const installNitroPlugin = shouldInstallNitroSchedulePlugin(definitions, options)
   const nitroPreset = isRecord(options.nitro) && typeof options.nitro.preset === "string"
     ? options.nitro.preset
@@ -624,6 +631,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         contributions,
         nitroOwnsPaths: hasNitroConfigContext(config),
         nitro: (config as { nitro?: unknown }).nitro,
+        preliminary: true,
         root: config.root || process.cwd(),
         serverDirs,
       }
@@ -708,7 +716,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
       try {
         const discovered = discoverRegistrySchedules()
         const definitions = emitStandaloneProviderOutput ? discovered : []
-        const cron = resolveCronOverrides(options.cron, discovered, resolveProcessRuntimeOptions(options.runtime))
+        const cron = resolveCronOverrides(options.cron, discovered, options)
         const crons = await readDefinitionCrons(definitions, cron)
         const prepareWorkflow = definitions.length
           ? ((config.plugins ?? []) as WorkflowVitePlugin[])

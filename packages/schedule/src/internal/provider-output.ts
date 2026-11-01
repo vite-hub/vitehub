@@ -241,6 +241,12 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
     "  return unwrapScheduleDefinition(loaded)",
     "}",
     "",
+    `const cronOverrides = ${JSON.stringify(cronOverrides)}`,
+    "",
+    "function scheduleCron(name, definition) {",
+    "  return Object.hasOwn(cronOverrides, name) ? cronOverrides[name] : definition.cron",
+    "}",
+    "",
     "async function runSchedule(name, cron, scheduledAt) {",
     "  const definition = await loadScheduleDefinition(name)",
     "  if (!definition) {",
@@ -251,8 +257,6 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
     "",
     provider === "cloudflare"
       ? [
-          `const cronOverrides = ${JSON.stringify(cronOverrides)}`,
-          "",
           "export default {",
           "  async fetch() {",
           "    return new Response('ViteHub schedule provider wake endpoint')",
@@ -261,7 +265,7 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
           "    if (typeof event.cron !== 'string' || !event.cron.trim()) return",
           "    const tasks = Object.entries(scheduleRegistry).map(async ([name]) => {",
           "      const definition = await loadScheduleDefinition(name)",
-          "      if (!definition || normalizeCron(Object.hasOwn(cronOverrides, name) ? cronOverrides[name] : definition.cron) !== normalizeCron(event.cron)) return",
+          "      if (!definition || normalizeCron(scheduleCron(name, definition)) !== normalizeCron(event.cron)) return",
           "      await executeStaticSchedule({ cron: event.cron, definition, name, scheduledAt: new Date(event.scheduledTime), waitUntil: (promise) => ctx.waitUntil(promise) })",
           "    })",
           "    await Promise.all(tasks)",
@@ -295,8 +299,8 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
               ]
             : []),
           workflowRuntime
-            ? "  await runWithVercelWorkflowRuntimeEvent(req, res, () => runSchedule(name, definition.cron, new Date()))"
-            : "  await runSchedule(name, definition.cron, new Date())",
+            ? "  await runWithVercelWorkflowRuntimeEvent(req, res, () => runSchedule(name, scheduleCron(name, definition), new Date()))"
+            : "  await runSchedule(name, scheduleCron(name, definition), new Date())",
           "  res.statusCode = 204",
           "  res.end()",
           "}",
@@ -398,7 +402,7 @@ async function writeProviderEntries(
   const denoCronFile = resolve(generatedDir, denoCronFileName)
   const vercelServerFile = resolve(generatedDir, "vercel-server.mjs")
   await writeFile(cloudflareWorkerFile, renderProviderEntry(cloudflareWorkerFile, registryFile, "cloudflare", undefined, undefined, cronOverrides), "utf8")
-  await writeFile(vercelServerFile, renderProviderEntry(vercelServerFile, registryFile, "vercel"), "utf8")
+  await writeFile(vercelServerFile, renderProviderEntry(vercelServerFile, registryFile, "vercel", undefined, undefined, cronOverrides), "utf8")
 
   return { cloudflareWorkerFile, denoCronFile, definitions, generatedDir, registryFile, vercelServerFile }
 }
@@ -462,7 +466,7 @@ export async function writeVercelScheduleFunctions(options: {
     const wrapperFile = resolve(functionDir, "index.source.mjs")
     await mkdir(functionDir, { recursive: true })
     options.signal?.throwIfAborted()
-    await writeFile(wrapperFile, renderProviderEntry(wrapperFile, options.registryFile, "vercel", definition.name, options.workflow), "utf8")
+    await writeFile(wrapperFile, renderProviderEntry(wrapperFile, options.registryFile, "vercel", definition.name, options.workflow, { [definition.name]: crons.get(definition.name)! }), "utf8")
     await bundleEsmEntry(wrapperFile, functionFile, {
       alias: options.bundleAlias,
       define: options.bundleDefines,

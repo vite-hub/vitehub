@@ -58,7 +58,7 @@ export default defineConfig({
 })
 ```
 
-The keys are Schedule names. The cron replaces the declared one in the generated host output: Vercel and Netlify cron jobs, Cloudflare cron triggers, and `Deno.cron`. `vitehub inspect definitions` shows it as the Schedule's `Cron`, with the `Declared cron` beside it. A name that matches no Schedule fails the build with `SCHEDULE_B0008`, and so does `cron` together with the Process Runtime, which always runs the declared cron.
+The keys are Schedule names. The cron replaces the declared one in the generated host output: Vercel and Netlify cron jobs, Cloudflare cron triggers, and `Deno.cron`. `vitehub inspect definitions` shows it as the Schedule's `Cron`, with the `Declared cron` beside it. A name that matches no Schedule fails the build with `SCHEDULE_B0008`, and so does `cron` when the Process Runtime wakes the Static Schedules, since it always runs the declared cron. With `providerOutput: 'nitro'` or `'standalone'` the host wakes them, so `cron` applies.
 
 ## Define a static schedule
 

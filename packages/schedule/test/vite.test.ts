@@ -1064,7 +1064,7 @@ describe("Vite schedule integration", () => {
       await mkdir(join(root, "dist", "client"), { recursive: true })
       await writeFile(join(root, "server", "schedules", "cleanup.ts"), [
         "import { defineSchedule } from '@vite-hub/schedule'",
-        "export default defineSchedule({ cron: '0 * * * *', handler: () => { globalThis.cleanupRuns = (globalThis.cleanupRuns ?? 0) + 1 } })",
+        "export default defineSchedule({ cron: '0 * * * *', handler: ({ cron }) => { globalThis.cleanupRuns = (globalThis.cleanupRuns ?? 0) + 1; globalThis.cleanupCron = cron } })",
         "",
       ].join("\n"), "utf8")
       return root
@@ -1102,6 +1102,12 @@ describe("Vite schedule integration", () => {
       expect(runs()).toBe(before)
       await worker.scheduled({ cron: "0 0 * * *", scheduledTime: Date.now() }, {}, { waitUntil: vi.fn() })
       expect(runs()).toBe(before + 1)
+
+      const { default: vercelFunction } = await import(pathToFileURL(join(createDefaultVercelOutputRoot(root), "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", "index.mjs")).href)
+      const response = { end: vi.fn(), statusCode: 0 }
+      await vercelFunction({ headers: {}, url: "/api/vitehub/schedules/vercel/cleanup" }, response)
+      expect(response.statusCode).toBe(204)
+      expect((globalThis as { cleanupCron?: string }).cleanupCron).toBe("0 0 * * *")
 
       const inspector = (plugin.vitehub!.inspect as () => { definitions: Array<{ list: () => Promise<Array<{ fields: unknown[] }>> }> })().definitions[0]!
       const [summary] = await inspector.list()
@@ -1155,6 +1161,17 @@ describe("Vite schedule integration", () => {
 
       await expect(createScheduleNitroConfig({ command: "build", cron: { cleanup: "0 0 * * *" }, root, runtime: { driver: "process" } }))
         .rejects.toMatchObject({ code: "SCHEDULE_B0008" })
+    })
+
+    it("accepts the cron when host output wakes Static Schedules beside the Process Runtime", async () => {
+      const root = await createHourlyCleanup("vitehub-schedule-cron-override-process-split-")
+
+      await expect(createScheduleNitroConfig({ command: "build", cron: { cleanup: "0 0 * * *" }, providerOutput: "nitro", root, runtime: { driver: "process" } }))
+        .resolves.toMatchObject({ cloudflare: { wrangler: { triggers: { crons: ["0 0 * * *"] } } } })
+      const plugin = await buildStandalone(root, { cron: { cleanup: "0 0 * * *" }, runtime: { driver: "process" } })
+      expect(plugin).toBeDefined()
+      const vercel = JSON.parse(await readFile(join(createDefaultVercelOutputRoot(root), "config.json"), "utf8"))
+      expect(vercel.crons).toEqual([{ path: "/api/vitehub/schedules/vercel/cleanup", schedule: "0 0 * * *" }])
     })
   })
 })
