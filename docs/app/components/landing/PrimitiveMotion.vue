@@ -97,6 +97,7 @@ const markup = computed(() => renderPrimitiveScene(props.name, `vh-${id}`));
 .primitive-motion .wf-rail-2,
 .primitive-motion .sh-command,
 .primitive-motion .ws-file,
+.primitive-motion .cms-edit,
 .primitive-motion .blob-progress {
   transform-box: fill-box;
   transform-origin: left center;
@@ -672,6 +673,85 @@ const markup = computed(() => renderPrimitiveScene(props.name, `vh-${id}`));
   0%, 40% { transform: translate(0, 0); }
   52%, 80% { transform: translate(6px, -12px); }
   92%, 100% { transform: translate(0, 0); }
+}
+
+/* AI Gateways: two model requests enter the gateway, and it routes each one to the provider. */
+.primitive-motion .gw-in-1 { animation-name: gw-in-1; }
+.primitive-motion .gw-in-2 { animation-name: gw-in-2; }
+.primitive-motion .gw-out { animation-name: gw-out; }
+.primitive-motion .gw-route { animation-name: gw-route; }
+.primitive-motion .gw-model { animation-name: gw-model; }
+@keyframes gw-in-1 {
+  0%, 4% { opacity: 0; transform: translate(0, 0); }
+  7% { opacity: 0.85; transform: translate(0, 0); animation-timing-function: steps(4); }
+  18% { opacity: 0.85; transform: translate(8px, 8px); }
+  21%, 100% { opacity: 0; transform: translate(8px, 8px); }
+}
+@keyframes gw-in-2 {
+  0%, 50% { opacity: 0; transform: translate(0, 0); }
+  53% { opacity: 0.85; transform: translate(0, 0); animation-timing-function: steps(4); }
+  64% { opacity: 0.85; transform: translate(8px, -8px); }
+  67%, 100% { opacity: 0; transform: translate(8px, -8px); }
+}
+@keyframes gw-out {
+  0%, 22% { opacity: 0; transform: translateX(0); }
+  25% { opacity: 0.85; transform: translateX(0); animation-timing-function: steps(5); }
+  36% { opacity: 0.85; transform: translateX(10px); }
+  39%, 68% { opacity: 0; transform: translateX(10px); }
+  68.1% { opacity: 0; transform: translateX(0); }
+  71% { opacity: 0.85; transform: translateX(0); animation-timing-function: steps(5); }
+  82% { opacity: 0.85; transform: translateX(10px); }
+  85%, 100% { opacity: 0; transform: translateX(10px); }
+}
+@keyframes gw-route {
+  0%, 17% { opacity: 0.35; }
+  20%, 26% { opacity: 0.85; }
+  32%, 63% { opacity: 0.35; }
+  66%, 72% { opacity: 0.85; }
+  78%, 100% { opacity: 0.35; }
+}
+@keyframes gw-model {
+  0%, 35% { opacity: 0.35; }
+  40%, 46% { opacity: 0.85; }
+  52%, 81% { opacity: 0.35; }
+  86%, 92% { opacity: 0.85; }
+  100% { opacity: 0.35; }
+}
+
+/* CMS: an editor changes a line, and the change is published to the page. */
+.primitive-motion .cms-edit { animation-name: cms-edit; }
+.primitive-motion .cms-token { animation-name: cms-token; }
+.primitive-motion .cms-page { animation-name: cms-page; }
+@keyframes cms-edit {
+  0%, 6% { opacity: 0.35; transform: scaleX(1); }
+  8% { opacity: 0.85; transform: scaleX(0); animation-timing-function: steps(9); }
+  30%, 70% { opacity: 0.85; transform: scaleX(1); }
+  80%, 100% { opacity: 0.35; transform: scaleX(1); }
+}
+@keyframes cms-token {
+  0%, 32% { opacity: 0; transform: translateX(0); }
+  36% { opacity: 0.85; transform: translateX(0); animation-timing-function: steps(4); }
+  48% { opacity: 0.85; transform: translateX(8px); }
+  52%, 100% { opacity: 0; transform: translateX(8px); }
+}
+@keyframes cms-page {
+  0%, 48% { opacity: 0.35; }
+  54%, 76% { opacity: 0.85; }
+  86%, 100% { opacity: 0.35; }
+}
+
+/* Comments: a reviewer marks a line of the live page and pins a comment to it. */
+.primitive-motion .cm-mark { animation-name: cm-mark; }
+.primitive-motion .cm-bubble { animation-name: cm-bubble; }
+@keyframes cm-mark {
+  0%, 10% { opacity: 0.35; }
+  16%, 80% { opacity: 0.85; }
+  90%, 100% { opacity: 0.35; }
+}
+@keyframes cm-bubble {
+  0%, 18% { opacity: 0; transform: translateY(2px); animation-timing-function: steps(1); }
+  24%, 80% { opacity: 1; transform: translateY(0); }
+  90%, 100% { opacity: 0; transform: translateY(0); }
 }
 
 @media (prefers-reduced-motion: reduce) {

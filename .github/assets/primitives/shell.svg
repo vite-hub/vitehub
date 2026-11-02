@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" fill="currentColor" shape-rendering="crispEdges" class="primitive-motion is-playing" style="--cycle: 4400ms; --scene-delay: -1936ms">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" fill="currentColor" shape-rendering="crispEdges" class="primitive-motion is-playing" style="--cycle: 4400ms; --scene-delay: -2904ms">
 <style>
 svg { color: #59636e; --ui-bg: #ffffff; }
 @media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }
@@ -33,6 +33,7 @@ svg { color: #59636e; --ui-bg: #ffffff; }
 .primitive-motion .wf-rail-2,
 .primitive-motion .sh-command,
 .primitive-motion .ws-file,
+.primitive-motion .cms-edit,
 .primitive-motion .blob-progress {
   transform-box: fill-box;
   transform-origin: left center;

@@ -24,6 +24,8 @@ const scenes = new Map([
   ["auth", "auth"],
   ["blob", "blob"],
   ["browser", "browser"],
+  ["cms", "cms"],
+  ["comments", "comments"],
   ["connections", "connections"],
   ["content", "content"],
   ["database", "database"],
