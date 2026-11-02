@@ -5,8 +5,9 @@ function isGeneratedCheck(inline: string): boolean {
   if (at === -1) return false
   try {
     const path: unknown = JSON.parse(inline.slice(at + 7, -1))
+    const nonce = / nonce="([\w+/=-]+)"/.exec(inline.slice(0, inline.indexOf(">")))?.[1]
     return typeof path === "string" && path.endsWith(viteHubPageToolsLoader)
-      && viteHubPageToolsInlineScript(path.slice(0, -viteHubPageToolsLoader.length)) === `${inline}</script>`
+      && viteHubPageToolsInlineScript(path.slice(0, -viteHubPageToolsLoader.length), nonce) === `${inline}</script>`
   }
   catch { return false }
 }
@@ -115,7 +116,7 @@ export function pageToolsHtmlTransform(loader: string): TransformStream<Uint8Arr
         }
         if (!closing && name && /^(script|style|textarea|title|xmp|iframe|noembed|noframes|noscript|plaintext)$/.test(name)) {
           rawText = name
-          if (!templates && token === viteHubPageToolsInlineStart) {
+          if (!templates && token.replace(/ nonce="[\w+/=-]+"/, "") === viteHubPageToolsInlineStart) {
             // Retain the candidate until its closing tag is known. EOF must never discard page content.
             inline = token
             present = true
