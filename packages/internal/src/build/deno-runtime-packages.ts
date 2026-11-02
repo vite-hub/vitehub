@@ -80,16 +80,7 @@ export function denoServerPackagesPlugin(onPackages: (packages: DenoServerPackag
       const bundledPackageDirs = new Set<string>()
       const externalImports: DenoExternalImport[] = []
       for (const chunk of chunks) {
-        let factories: Set<string> | undefined
-        for (const id of chunk.moduleIds) {
-          // Alias calls have no graph edges. Parse only rendered modules whose source uses
-          // createRequire, so removed calls cannot select an unused package installation.
-          if (!this.getModuleInfo(id)?.code?.includes("createRequire")) continue
-          const code = chunk.modules[id]?.code
-          if (!code) continue
-          factories ??= collectImportedCreateRequireFactories(chunk.code)
-          externalImports.push(...collectCreateRequirePackageImports(code, id, factories))
-        }
+        externalImports.push(...collectCreateRequirePackageImports(chunk))
       }
       for (const id of new Set(chunks.flatMap(chunk => chunk.moduleIds))) {
         const bundledPackage = packageFromModuleId(id)
@@ -145,16 +136,38 @@ function createRequireBase(node: Node | undefined, id: string): string | undefin
   }
 }
 
-function collectCreateRequirePackageImports(source: string, id: string, importedFactories: Set<string>): DenoExternalImport[] {
-  const module = scanModule(source)
-  const factories = new Set([...importedFactories, ...collectCreateRequireFactories(maskInertImportText(module))])
+function collectCreateRequirePackageImports(chunk: ServerBundleChunk): DenoExternalImport[] {
+  const factories = collectImportedCreateRequireFactories(chunk.code)
+  const modules = new Map<string, ScannedModule>()
+  const renderedModules = chunk.moduleIds.flatMap((id) => {
+    const source = chunk.modules[id]?.code
+    return source ? [{ id, source }] : []
+  })
+  const readModule = (id: string, source: string): ScannedModule => {
+    let module = modules.get(id)
+    if (!module) {
+      module = scanModule(source, id)
+      modules.set(id, module)
+    }
+    return module
+  }
+  // Re-exported factories use the chunk's imported binding. Dynamic node:module
+  // imports can also introduce factories in individual rendered modules.
+  for (const { id, source } of renderedModules) {
+    if (!source.includes("createRequire")) continue
+    for (const factory of collectCreateRequireFactories(maskInertImportText(readModule(id, source)))) factories.add(factory)
+  }
+  if (factories.size === 0) return []
+
+  const factoryBindings = [...factories].map(name => name.split(".")[0]!)
+  const mentionsFactory = (source: string): boolean => factoryBindings.some(name => source.includes(name))
   const aliases = new Map<string, string>()
   const imports: DenoExternalImport[] = []
-  const factoryBase = (node: Node | undefined): string | undefined => {
+  const factoryBase = (node: Node | undefined, module: ScannedModule): string | undefined => {
     if (node?.type !== "CallExpression") return
-    const name = source.slice(node.callee.start, node.callee.end).replace(/\s/g, "")
+    const name = module.source.slice(node.callee.start, node.callee.end).replace(/\s/g, "")
     if (!factories.has(name)) return
-    const base = createRequireBase(node.arguments[0], id)
+    const base = createRequireBase(node.arguments[0], module.file)
     if (base === undefined) return
     try {
       const file = base.startsWith("file:") ? fileURLToPath(base) : base
@@ -162,18 +175,31 @@ function collectCreateRequirePackageImports(source: string, id: string, imported
     }
     catch { return }
   }
-  walk(module.program, (node) => {
-    if (node.type !== "VariableDeclarator" || node.id.type !== "Identifier") return
-    const base = factoryBase(node.init ?? undefined)
-    if (base) aliases.set(node.id.name, base)
-  })
-  walk(module.program, (node) => {
-    if (node.type !== "CallExpression") return
-    // Rolldown may inline a single-use alias as createRequire(base)("package").
-    const importer = node.callee.type === "Identifier" ? aliases.get(node.callee.name) : factoryBase(node.callee)
-    const specifier = literalString(node.arguments[0])
-    if (importer && specifier && packageNameFromSpecifier(specifier)) imports.push({ importer, required: false, specifier })
-  })
+  // Bindings are shared across the rendered chunk, but import.meta.url must use
+  // the module that constructs the require alias, even when another module calls it.
+  for (const { id, source } of renderedModules) {
+    if (!mentionsFactory(source)) continue
+    const module = readModule(id, source)
+    walk(module.program, (node) => {
+      if (node.type !== "VariableDeclarator" || node.id.type !== "Identifier") return
+      const base = factoryBase(node.init ?? undefined, module)
+      if (base) aliases.set(node.id.name, base)
+    })
+  }
+  const aliasNames = [...aliases.keys()]
+  for (const { id, source } of renderedModules) {
+    // Alias calls have no graph edges. Parse only fragments mentioning a known
+    // factory or alias, and only rendered code so removed calls cannot affect staging.
+    if (!mentionsFactory(source) && !aliasNames.some(name => source.includes(name))) continue
+    const module = readModule(id, source)
+    walk(module.program, (node) => {
+      if (node.type !== "CallExpression") return
+      // Rolldown may inline a single-use alias as createRequire(base)("package").
+      const importer = node.callee.type === "Identifier" ? aliases.get(node.callee.name) : factoryBase(node.callee, module)
+      const specifier = literalString(node.arguments[0])
+      if (importer && specifier && packageNameFromSpecifier(specifier)) imports.push({ importer, required: false, specifier })
+    })
+  }
   return imports
 }
 

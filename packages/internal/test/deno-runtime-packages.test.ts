@@ -202,6 +202,45 @@ loader /* receiver */ . /* call */ import(path)
     expect(existsSync(join(root, ".output/node_modules/unknown-base"))).toBe(false)
   })
 
+  it.each(["factory re-export", "exported require alias"])("stages createRequire calls across modules through %s", async (kind) => {
+    const root = await temporaryDirectory("vitehub-deno-cross-module-require-")
+    const entry = join(root, "consumer/index.js")
+    const factory = join(root, "factory/index.js")
+    const base = kind === "factory re-export" ? entry : factory
+    await writeJson(join(root, "package.json"), { type: "module" })
+    await writeRuntimePackage(root, "shared-runtime", { version: "1" })
+    await writeRuntimePackage(dirname(base), "shared-runtime", { version: "2" })
+    await mkdir(dirname(entry), { recursive: true })
+    await mkdir(dirname(factory), { recursive: true })
+    await writeFile(factory, kind === "factory re-export"
+      ? 'export { createRequire as makeRequire } from "node:module"\n'
+      : 'import { createRequire } from "node:module"\nexport const load = createRequire(import.meta.url)\n')
+    await writeFile(entry, [
+      kind === "factory re-export"
+        ? 'import { makeRequire } from "../factory/index.js"\nconst load = makeRequire(import.meta.url)'
+        : 'import { load } from "../factory/index.js"',
+      'export function retained() { return load("shared-runtime") }',
+      'function dead() { return load("shaken-runtime") }',
+      "",
+    ].join("\n"))
+    let packages: DenoServerPackages | undefined
+
+    await build({
+      build: { outDir: join(root, ".output/server"), rollupOptions: { output: { entryFileNames: "index.mjs" } }, ssr: entry },
+      configFile: false,
+      logLevel: "silent",
+      plugins: [denoServerPackagesPlugin((result) => { packages = result })],
+      root,
+      ssr: { noExternal: true },
+    })
+
+    expect(packages?.externalImports).toEqual([{ importer: base, required: false, specifier: "shared-runtime" }])
+    await finalize({ rootDir: root, serverPackages: packages })
+    const staged = JSON.parse(await readFile(join(root, ".output/node_modules/shared-runtime/package.json"), "utf8"))
+    expect(staged.version).toBe("2")
+    expect(existsSync(join(root, ".output/node_modules/shaken-runtime"))).toBe(false)
+  })
+
   it("ignores a tree-shaken dynamic edge to a different installation of a retained static external", async () => {
     const root = await temporaryDirectory("vitehub-deno-shaken-external-")
     const unused = join(root, "unused/index.js")
