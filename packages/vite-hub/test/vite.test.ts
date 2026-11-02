@@ -26,6 +26,10 @@ vi.mock("node:fs", async importOriginal => {
 
 const integrationMocks = vi.hoisted(() => ({
   discoverAgentDefinitionEntries: vi.fn(() => []),
+  denoServerPackagesPlugin: vi.fn((onPackages: (packages: { bundledPackageDirs: string[], externalImports: [] }) => void) => {
+    onPackages({ bundledPackageDirs: [], externalImports: [] })
+    return { name: "vitehub:deno-server-packages" }
+  }),
   discoverWorkflowDefinitions: vi.fn(() => []),
   finalizeDenoDeploymentOutput: vi.fn(),
   finalizeDeploymentPlanOutput: vi.fn(),
@@ -82,6 +86,7 @@ vi.mock("@vite-hub/agent/vite", () => ({
   hubAgent: integrationMocks.hubAgent,
 }))
 vi.mock("@vite-hub/internal/build/deno-runtime-packages", () => ({
+  denoServerPackagesPlugin: integrationMocks.denoServerPackagesPlugin,
   finalizeDenoDeploymentOutput: integrationMocks.finalizeDenoDeploymentOutput,
 }))
 vi.mock("@vite-hub/internal/build/deployment-plan-output", () => ({
@@ -718,6 +723,7 @@ describe("vitehub", () => {
       "@vite-hub/content/vite",
       "@vite-hub/cms/vite",
       "@vite-hub/comments/vite",
+      "vite-hub/optional-owner-imports",
       "vite-hub/task",
       "vite-hub/nitro-cache-bypass",
       "vite-hub/nitro-startup-chunks",
@@ -774,6 +780,7 @@ describe("vitehub", () => {
       "@vite-hub/content/vite",
       "@vite-hub/cms/vite",
       "@vite-hub/comments/vite",
+      "vite-hub/optional-owner-imports",
       "vite-hub/task",
       "vite-hub/nitro-cache-bypass",
       "vite-hub/nitro-workerd-dependencies",
@@ -1221,6 +1228,18 @@ describe("vitehub", () => {
     expect(aliases["vite-hub/ui/styles.css"]).toMatch(/packages\/vite-hub\/dist\/ui\/styles\.css$/)
     expect(aliases["vite-hub/ui"]).toMatch(/packages\/vite-hub\/dist\/ui\.js$/)
     expect(specifiers.indexOf("vite-hub/ui/styles.css")).toBeLessThan(specifiers.indexOf("vite-hub/ui"))
+  })
+
+  it("leaves facades of an absent owner package unaliased so their import names the package to install", () => {
+    vi.mocked(isPackageInstalled).withImplementation(name => name !== "@vite-hub/ui", () => {
+      const aliases = pluginAliases(dependencyPlugin())
+      expect(Object.keys(aliases).filter(specifier => /^vite-hub\/ui(?:\/|$)/.test(specifier))).toEqual([])
+      expect(aliases["vite-hub/shell"]).toMatch(/packages\/vite-hub\/dist\/shell\.js$/)
+    })
+    const imports = dependencyPluginByName(vitehub({ preset: "node" }), "vite-hub/optional-owner-imports")
+    vi.mocked(assertFeaturePackages).mockClear()
+    callHook(imports.resolveId, ["vite-hub/ui/avatar-stack", "/app/app.vue"])
+    expect(assertFeaturePackages).toHaveBeenCalledExactlyOnceWith(["ui"])
   })
 
   it("passes the unused Upstash fallback only to provider bundlers", () => {
@@ -1705,10 +1724,13 @@ describe("vitehub", () => {
     }
     callHook(output.configResolved, [{ ...resolvedConfig, nitro: nitroConfig }])
     let compiled: (() => Promise<void>) | undefined
+    const rollupConfig: { plugins?: unknown } = {}
     const nitro = {
       hooks: {
-        hook: vi.fn((name: string, callback: () => Promise<void>) => {
-          if (name === "compiled") compiled = callback
+        hook: vi.fn((name: string, callback: (...args: unknown[]) => unknown) => {
+          // SAFETY: Nitro passes the compiled hook no arguments, and this test awaits it.
+          if (name === "compiled") compiled = callback as () => Promise<void>
+          if (name === "rollup:before") callback(nitro, rollupConfig)
         }),
       },
       options: {
@@ -1725,8 +1747,10 @@ describe("vitehub", () => {
 
     await (compiled as () => Promise<void>)()
 
+    expect(rollupConfig.plugins).toEqual([{ name: "vitehub:deno-server-packages" }])
     expect(integrationMocks.finalizeDenoDeploymentOutput).toHaveBeenCalledWith(expect.objectContaining({
       conditions: ["browser", "launch"],
+      serverPackages: { bundledPackageDirs: [], externalImports: [] },
     }))
 
     integrationMocks.finalizeDenoDeploymentOutput.mockClear()
