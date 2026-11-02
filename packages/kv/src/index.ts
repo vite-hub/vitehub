@@ -9,6 +9,7 @@ export type {
   KVListPage,
   KVModuleOptions,
   KVOperation,
+  KVSetIfAbsentOptions,
   KVStorage,
   KVStoreConfig,
   ResolvedCloudflareKVStoreConfig,

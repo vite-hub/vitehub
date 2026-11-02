@@ -78,7 +78,7 @@ icon: i-lucide-database-zap
   :::
 
   :::product-feature-item{title="Counters and one-time values" icon="i-lucide-circle-plus" to="/docs/kv/server-api#use-it-at-runtime"}
-  With Upstash, `increment()` counts and `getAndDelete()` reads a value only once.
+  `setIfAbsent()` writes a single-use token only once. With Upstash, `increment()` counts and `getAndDelete()` reads a value only once.
   :::
 
   :::product-feature-item{title="Know when to use a database" icon="i-lucide-database" to="/docs/kv/hosts#production-checks"}
