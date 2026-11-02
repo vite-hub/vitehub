@@ -18,8 +18,9 @@ function libChunkName(id: string): string | null {
  * Nitro gives each package in `node_modules` its own chunk, and Rolldown puts the dependencies of a captured module in
  * the same chunk. So a package that the server loads only on demand can take a package that the server needs at
  * startup into its chunk. The Discord Chat adapter took `chat` and `ws`, and every server start loaded discord.js.
- * This group runs before the Nitro group and gives the packages that the server imports at startup their own chunks.
- * The other packages keep the Nitro chunks and load only when the server imports them.
+ * These groups run before the Nitro group. The first gives the packages that the server imports at startup their own
+ * chunks. The second does the same for a package that two chunks import, such as `chat`, which the lazy Agent routes and
+ * the lazy Discord adapter both import. The other packages keep the Nitro chunks and load only when the server imports them.
  * Nitro fixes this itself after 3.0.261029-rc (nitrojs/nitro#4967). Remove this plugin with that Nitro upgrade.
  */
 export function nitroStartupChunks(): Plugin {
@@ -36,9 +37,10 @@ export function nitroStartupChunks(): Plugin {
       const codeSplitting = cloneRecord(output.codeSplitting)
       const groups = Array.isArray(codeSplitting.groups) ? codeSplitting.groups : []
       const group = { name: libChunkName, priority: 1, tags: ["$initial"], test: nodeModules }
+      const shared = { minShareCount: 2, name: libChunkName, priority: 1, test: nodeModules }
       host.nitro = {
         ...nitro,
-        rolldownConfig: { ...rolldownConfig, output: { ...output, codeSplitting: { ...codeSplitting, groups: [...groups, group] } } },
+        rolldownConfig: { ...rolldownConfig, output: { ...output, codeSplitting: { ...codeSplitting, groups: [...groups, group, shared] } } },
       }
     },
   }
