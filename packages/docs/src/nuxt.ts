@@ -15,6 +15,7 @@ import {
   updateTemplates,
 } from "@nuxt/kit"
 
+import { setupDocsAssistant } from "./assistant-nuxt.ts"
 import { createDocsManifest } from "./manifest.ts"
 import { docsManifestPages } from "./page.ts"
 import { toRawMarkdown } from "./raw.ts"
@@ -92,6 +93,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       assistant: options.assistant ? { agent: options.assistant === true ? "docs" : options.assistant.agent ?? "docs" } : false,
     }
     nuxt.options.runtimeConfig.public.docs = config
+    setupDocsAssistant(nuxt, config)
 
     let manifest: DocsManifest = build()
     function build(): DocsManifest {

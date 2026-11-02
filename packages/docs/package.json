@@ -61,7 +61,9 @@
   "dependencies": {
     "@nuxt/kit": "4.6.2",
     "@vite-hub/content": "workspace:*",
+    "@vite-hub/rate-limit": "workspace:*",
     "@vite-hub/ui": "workspace:*",
+    "@vite-hub/workspace": "workspace:*",
     "comark": "catalog:markdown-ui",
     "comark-ui": "catalog:markdown-ui",
     "shiki": "^4.5.0",

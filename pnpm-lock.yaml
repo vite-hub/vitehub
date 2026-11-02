@@ -1791,9 +1791,15 @@ importers:
       '@vite-hub/content':
         specifier: workspace:*
         version: link:../content
+      '@vite-hub/rate-limit':
+        specifier: workspace:*
+        version: link:../rate-limit
       '@vite-hub/ui':
         specifier: workspace:*
         version: link:../ui
+      '@vite-hub/workspace':
+        specifier: workspace:*
+        version: link:../workspace
       comark:
         specifier: catalog:markdown-ui
         version: 0.8.1(katex@0.18.11)(shiki@4.5.0)
