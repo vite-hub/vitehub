@@ -1,5 +1,5 @@
 import type { Result } from "@vite-hub/runtime";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createAuthConsole, describeAuthConsoleFields } from "../src/console-runtime.ts";
 import { fixture } from "./fixtures/console.ts";
 
@@ -190,6 +190,64 @@ describe("Auth Console with real Better Auth plugins", () => {
     expect(
       (await data(api.users({ filter: "admins", search: "ada" }))).items.map((user) => user.id),
     ).toEqual([member.id]);
+  });
+
+  it("shows and filters roles that the app computes, without writing them to the database", async () => {
+    const { auth, db, operator, member } = await fixture();
+    const read = vi.fn((users: readonly { id: string; email: string }[]) =>
+      Object.fromEntries(
+        users.map((user) => [user.id, user.email === "ada@example.com" ? "admin" : "user"]),
+      ),
+    );
+    const inspect = createAuthConsole(auth, {
+      roles: { editable: false, reason: "Admins come from ADMIN_EMAILS.", read },
+    });
+    const listed = await data(inspect.users());
+    expect(Object.fromEntries(listed.items.map((user) => [user.id, user.role]))).toEqual({
+      [operator.id]: "user",
+      [member.id]: "admin",
+    });
+    expect(read).toHaveBeenCalledOnce();
+    expect((await data(inspect.user(member.id))).user.role).toBe("admin");
+    expect((await data(inspect.users({ filter: "admins" }))).items.map((user) => user.id)).toEqual([
+      member.id,
+    ]);
+    expect((await data(inspect.users({ filter: "admins", search: "operator" }))).total).toBe(0);
+    expect((await data(inspect.describe(operator.request))).actions.setRole).toEqual({
+      enabled: false,
+      reason: "Admins come from ADMIN_EMAILS.",
+    });
+    expect(db.user.find((user) => user.id === member.id)?.role).toBe("user");
+    expect(db.user.find((user) => user.id === operator.id)?.role).toBe("admin");
+  });
+
+  it("filters computed admins across more users than one database batch", async () => {
+    const { auth, db } = await fixture();
+    const createdAt = new Date();
+    for (let index = 0; index < 1100; index++)
+      db.user.push({
+        id: `bulk-${String(index).padStart(4, "0")}`,
+        name: "Synthetic",
+        email: `person${index}@example.com`,
+        role: "user",
+        createdAt,
+        updatedAt: createdAt,
+      });
+    const inspect = createAuthConsole(auth, {
+      roles: {
+        editable: false,
+        reason: "Computed.",
+        read: (users) =>
+          Object.fromEntries(
+            users.map((user) => [user.id, /^person\d*7@/.test(user.email) ? "admin" : null]),
+          ),
+      },
+    });
+    const page = await data(inspect.users({ filter: "admins", offset: 100, limit: 25 }));
+    // 110 bulk users end in 7, plus the operator, whose stored admin role stays when `read` returns null.
+    expect(page.total).toBe(111);
+    expect(page.items).toHaveLength(11);
+    expect(page.items.every((user) => user.role === "admin")).toBe(true);
   });
 
   it("returns safe typed errors for provider failures", async () => {

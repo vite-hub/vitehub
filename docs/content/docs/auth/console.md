@@ -100,6 +100,24 @@ A field policy accepts `label`, `editable`, and `reason`. `roles` and each entry
 
 The `console` option also works in a request-time Auth Definition callback. It has no Nuxt, Vite, or Console host dependency. Apps with external roles can mirror those fields into Better Auth and mark them read-only with a source note.
 
+### Computed roles
+
+When the app computes roles, for example from an environment variable, add `read` to `roles`. The Console then shows those roles and its Admins filter uses them, also for users who have not signed in since the rule changed. It writes nothing.
+
+```ts [server/auth.ts]
+console: {
+  roles: {
+    editable: false,
+    reason: 'Admins come from ADMIN_EMAILS.',
+    read: users => Object.fromEntries(users.map(user => [user.id, adminEmails.includes(user.email) ? 'admin' : 'user'])),
+  },
+},
+```
+
+`read` gets public core users and returns a role per user id, like a computed column. `null` keeps the stored role. A computed role can't be filtered in the database, so the Admins filter calls `read` for every user, 500 users at a time. Impersonation also refuses a user whose computed role is an admin role.
+
+Better Auth's admin endpoints still check the stored `user.role` of the signed-in admin. Write that role when the user signs in, for example in a `session.create.after` database hook.
+
 ## Changes and limits
 
 Ban, unban, remove, role changes, field edits, session revocation, and impersonation call Better Auth plugin APIs. They do not write through the adapter. Better Auth checks the current app session and runs its hooks. A successful action returns an actor receipt in the form `user:<id>`.
