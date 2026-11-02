@@ -112,6 +112,11 @@ export interface BlobMultipartUpload {
   uploadPart(partNumber: number, body: BlobPutBody): Promise<BlobResult<BlobMultipartPart>>
 }
 
+export interface BlobDriverStreamOptions {
+  etag?: string
+  range?: { offset: number, length: number }
+}
+
 export interface BlobDriverAdapter<TOptions> {
   /** Canonical identity for drivers that resolve pathname aliases. */
   canonicalPathname?(pathname: string): string
@@ -121,8 +126,11 @@ export interface BlobDriverAdapter<TOptions> {
   delete(pathnames: string | string[]): Promise<void>
   get(pathname: string): Promise<Blob | null>
   getArrayBuffer(pathname: string): Promise<ArrayBuffer | null>
-  /** Stream `length` bytes from `offset`, without reading the rest. `serve()` answers a `Range` request with it. */
-  getRange?(pathname: string, range: { offset: number, length: number }): Promise<ReadableStream | null>
+  /**
+   * Stream an object, or `length` bytes of it from `offset`, without reading it into memory. `serve()` uses it when the
+   * driver has it. With `etag` (the `httpEtag` that `head()` returned), returns `false` once the object has changed.
+   */
+  getStream?(pathname: string, options?: BlobDriverStreamOptions): Promise<ReadableStream | false | null>
   head(pathname: string): Promise<BlobObject | null>
   list(options?: BlobListOptions): Promise<BlobListResult>
   put(pathname: string, body: BlobPutBody, options?: BlobPutOptions): Promise<BlobObject>

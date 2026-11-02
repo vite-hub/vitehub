@@ -379,28 +379,38 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
           return new Blob([]).stream()
         }
 
-        // A driver that reads part of an object streams the range, so seeking a video doesn't load all of it.
+        // A driver that streams sends the object, or the requested range of it, without holding it in memory, so a
+        // video and every seek in it cost only the bytes sent.
         const size = meta.size
-        if (!options.transform && driver.getRange && size !== undefined && Number.isSafeInteger(size)) {
+        if (!options.transform && driver.getStream && event.req.method === "GET" && size !== undefined && Number.isSafeInteger(size)) {
           const range = selectByteRange(event, etag, size)
-          if (range && range !== "unsatisfiable") {
-            const length = range.end - range.start + 1
-            const stream = await driver.getRange(normalizedPath, { offset: range.start, length })
-            if (!stream) return
-            const snapshot = await driver.head(normalizedPath)
-            if (!snapshot || snapshot.httpEtag !== meta.httpEtag || snapshot.contentType !== meta.contentType) {
-              await stream.cancel()
-              return snapshot ? false : undefined
-            }
-            headers.set("Accept-Ranges", "bytes")
-            headers.set("Content-Range", `bytes ${range.start}-${range.end}/${size}`)
-            headers.set("Content-Length", String(length))
-            headers.set("Content-Type", meta.contentType || guessContentType(normalizedPath))
-            headers.set("X-Content-Type-Options", "nosniff")
-            for (const [name, value] of headers) event.res.headers.set(name, value)
-            event.res.status = 206
-            return stream
+          headers.set("Accept-Ranges", "bytes")
+          headers.set("Content-Type", meta.contentType || guessContentType(normalizedPath))
+          headers.set("X-Content-Type-Options", "nosniff")
+          let stream: ReadableStream
+          if (range === "unsatisfiable") {
+            headers.set("Content-Range", `bytes */${size}`)
+            headers.set("Content-Length", "0")
+            event.res.status = 416
+            stream = new Blob([]).stream()
           }
+          else {
+            const length = range ? range.end - range.start + 1 : size
+            const read = await driver.getStream(normalizedPath, {
+              etag: meta.httpEtag,
+              range: range ? { offset: range.start, length } : undefined,
+            })
+            if (read === null) return
+            if (read === false) return false
+            stream = read
+            headers.set("Content-Length", String(length))
+            if (range) {
+              headers.set("Content-Range", `bytes ${range.start}-${range.end}/${size}`)
+              event.res.status = 206
+            }
+          }
+          for (const [name, value] of headers) event.res.headers.set(name, value)
+          return stream
         }
 
         const cached = cachePath
