@@ -54,4 +54,6 @@ export const agentDb = createAgentDatabase(databases)
 // The package resolves `#vitehub/database/schema` through its own `imports` field, so an app cannot augment that
 // module for this file. The registry is the one type source.
 export const schema = virtualSchema as DefaultDatabaseEntry["schema"]
+export { chunkParameters } from "./runtime/chunk-parameters.ts"
+export type { ChunkParametersOptions } from "./runtime/chunk-parameters.ts"
 export * from "#vitehub/database/schema"
