@@ -30,7 +30,7 @@ const denoRuntimeTargets = [
 export interface DenoServerPackages {
   /** Root directories of the packages that the bundler bundled into the server. */
   bundledPackageDirs: string[]
-  /** Package imports that the bundler kept external. */
+  /** Package imports that the bundler kept external, including literal createRequire calls. */
   externalImports: DenoExternalImport[]
 }
 
@@ -57,6 +57,7 @@ interface FinalizeDenoDeploymentOutputOptions {
 }
 
 interface ServerBundleChunk {
+  dynamicImports: string[]
   imports: string[]
   moduleIds: string[]
   type: "chunk"
@@ -73,19 +74,29 @@ export function denoServerPackagesPlugin(onPackages: (packages: DenoServerPackag
     generateBundle(this: ServerModuleGraph, _options: unknown, bundle: Record<string, ServerBundleChunk | { type: "asset" }>): void {
       const chunks = Object.values(bundle).filter((output): output is ServerBundleChunk => output.type === "chunk")
       const staticImports = new Set(chunks.flatMap(chunk => chunk.imports))
+      const dynamicImports = new Set(chunks.flatMap(chunk => chunk.dynamicImports))
       const bundledPackageDirs = new Set<string>()
       const externalImports: DenoExternalImport[] = []
       for (const id of new Set(chunks.flatMap(chunk => chunk.moduleIds))) {
         const bundledPackage = packageFromModuleId(id)
         if (bundledPackage) bundledPackageDirs.add(bundledPackage.dir)
         const info = this.getModuleInfo(id)
+        // createRequire aliases have no graph edges. Only inspect source modules using that API,
+        // resolving their literal package requests from the original importer, without reading emitted files.
+        if (info?.code?.includes("createRequire")) {
+          for (const specifier of collectCreateRequirePackageSpecifiers(info.code)) {
+            externalImports.push({ importer: id, required: false, specifier })
+          }
+        }
         const imports = [
           ...(info?.importedIds ?? []).map(importedId => ({ importedId, static: true })),
           ...(info?.dynamicallyImportedIds ?? []).map(importedId => ({ importedId, static: false })),
         ]
         for (const { importedId, static: isStatic } of imports) {
+          // Module graph edges can outlive tree-shaken statements, including unused dynamic imports.
+          if (!(isStatic ? staticImports : dynamicImports).has(importedId)) continue
           if (packageNameFromSpecifier(importedId)) {
-            externalImports.push({ importer: id, required: staticImports.has(importedId), specifier: importedId })
+            externalImports.push({ importer: id, required: isStatic, specifier: importedId })
             continue
           }
           // Nitro can keep an external as its resolved file, such as `file:///app/node_modules/sharp/dist/index.mjs`.
@@ -101,6 +112,22 @@ export function denoServerPackagesPlugin(onPackages: (packages: DenoServerPackag
       onPackages({ bundledPackageDirs: [...bundledPackageDirs].sort(), externalImports })
     },
   }
+}
+
+function collectCreateRequirePackageSpecifiers(source: string): Set<string> {
+  const module = scanModule(source)
+  const aliases = collectCreateRequireAliases(maskInertImportText(module))
+  const specifiers = new Set<string>()
+  if (aliases.size === 0) return specifiers
+  walk(module.program, (node) => {
+    if (node.type !== "CallExpression" || node.callee.type !== "Identifier" || !aliases.has(node.callee.name)) return
+    const argument = node.arguments[0]
+    const specifier = argument?.type === "Literal" && typeof argument.value === "string"
+      ? argument.value
+      : argument?.type === "TemplateLiteral" && argument.expressions.length === 0 ? argument.quasis[0]?.value.cooked : undefined
+    if (specifier && packageNameFromSpecifier(specifier)) specifiers.add(specifier)
+  })
+  return specifiers
 }
 
 function packageFromModuleId(id: string): { dir: string, name: string } | undefined {

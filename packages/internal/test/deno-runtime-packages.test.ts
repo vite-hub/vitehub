@@ -98,13 +98,14 @@ describe("Deno deployment output", () => {
       'import scoped from "@scope/bundled"',
       'import "static-external/subpath"',
       'export const load = () => import("lazy-external")',
+      'const unused = () => import("shaken-external")',
       "export default [bundled, scoped]",
       "",
     ].join("\n"))
     let packages: DenoServerPackages | undefined
 
     await build({
-      build: { rollupOptions: { external: ["lazy-external", "static-external/subpath"] }, ssr: entry, write: false },
+      build: { rollupOptions: { external: ["lazy-external", "shaken-external", "static-external/subpath"] }, ssr: entry, write: false },
       configFile: false,
       logLevel: "silent",
       plugins: [denoServerPackagesPlugin((result) => { packages = result })],
@@ -135,17 +136,21 @@ loader /* receiver */ . /* call */ import(path)
     const sharp = "file:///app/node_modules/.pnpm/sharp@1/node_modules/sharp/dist/index.mjs"
     const lazy = "/app/node_modules/@scope/lazy/index.js"
     const shaken = "/app/node_modules/shaken/index.js"
+    const unusedStatic = "/app/node_modules/missing-static/index.js"
+    const unusedDynamic = "file:///app/node_modules/missing-dynamic/index.js"
     const modules = new Map([
-      [entry, { code: "", dynamicallyImportedIds: [lazy], importedIds: [sharp, shaken], isExternal: false }],
+      [entry, { code: "", dynamicallyImportedIds: [lazy, unusedDynamic], importedIds: [sharp, shaken, unusedStatic], isExternal: false }],
       [sharp, { code: null, dynamicallyImportedIds: [], importedIds: [], isExternal: true }],
       [lazy, { code: null, dynamicallyImportedIds: [], importedIds: [], isExternal: true }],
       [shaken, { code: "", dynamicallyImportedIds: [], importedIds: [], isExternal: false }],
+      [unusedStatic, { code: null, dynamicallyImportedIds: [], importedIds: [], isExternal: true }],
+      [unusedDynamic, { code: null, dynamicallyImportedIds: [], importedIds: [], isExternal: true }],
     ])
     let packages: DenoServerPackages | undefined
     const plugin = denoServerPackagesPlugin((result) => { packages = result })
 
     plugin.generateBundle.call({ getModuleInfo: id => modules.get(id) ?? null }, {}, {
-      "index.mjs": { imports: [sharp], moduleIds: [entry], type: "chunk" },
+      "index.mjs": { dynamicImports: [lazy], imports: [sharp], moduleIds: [entry], type: "chunk" },
     })
 
     expect(packages).toEqual({
@@ -155,6 +160,65 @@ loader /* receiver */ . /* call */ import(path)
         { importer: lazy, required: false, specifier: "@scope/lazy" },
       ],
     })
+  })
+
+  it("stages packages loaded through createRequire aliases in the server graph", async () => {
+    const root = await temporaryDirectory("vitehub-deno-create-require-alias-")
+    const entry = join(root, "server.js")
+    await writeJson(join(root, "package.json"), { type: "module" })
+    await writeRuntimePackage(root, "aliased-runtime")
+    await writeFile(entry, [
+      'import { createRequire as makeRequire } from "node:module"',
+      "const load = makeRequire(import.meta.url)",
+      'load("aliased-runtime")',
+      'try { load("missing-probe") } catch {}',
+      'load.resolve("resolve-only")',
+      'other.load("member-only")',
+      'const text = \'load("string-only")\'',
+      "console.log(text)",
+    ].join("\n"))
+    let packages: DenoServerPackages | undefined
+
+    await build({
+      build: { outDir: join(root, ".output/server"), rollupOptions: { output: { entryFileNames: "index.mjs" } }, ssr: entry },
+      configFile: false,
+      logLevel: "silent",
+      plugins: [denoServerPackagesPlugin((result) => { packages = result })],
+      root,
+      ssr: { noExternal: true },
+    })
+
+    expect(packages?.externalImports).toEqual([
+      { importer: entry, required: false, specifier: "aliased-runtime" },
+      { importer: entry, required: false, specifier: "missing-probe" },
+    ])
+    await finalize({ rootDir: root, serverPackages: packages })
+    await expect(readFile(join(root, ".output/node_modules/aliased-runtime/marker"), "utf8")).resolves.toBe("aliased-runtime")
+    expect(existsSync(join(root, ".output/node_modules/missing-probe"))).toBe(false)
+  })
+
+  it("ignores a tree-shaken dynamic edge to a different installation of a retained static external", async () => {
+    const root = await temporaryDirectory("vitehub-deno-shaken-external-")
+    const unused = join(root, "unused/index.js")
+    const used = join(root, "used/index.js")
+    await writeRuntimePackage(dirname(unused), "shared-external", { version: "1" })
+    await writeRuntimePackage(dirname(used), "shared-external", { version: "2" })
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), 'import "shared-external"\n')
+    const modules = new Map([
+      [unused, { code: "", dynamicallyImportedIds: ["shared-external"], importedIds: [] }],
+      [used, { code: "", dynamicallyImportedIds: [], importedIds: ["shared-external"] }],
+    ])
+    let packages: DenoServerPackages | undefined
+
+    denoServerPackagesPlugin((result) => { packages = result }).generateBundle.call({ getModuleInfo: id => modules.get(id) ?? null }, {}, {
+      "index.mjs": { dynamicImports: [], imports: ["shared-external"], moduleIds: [unused, used], type: "chunk" },
+    })
+
+    expect(packages?.externalImports).toEqual([{ importer: used, required: true, specifier: "shared-external" }])
+    await finalize({ rootDir: root, serverPackages: packages })
+    const staged = JSON.parse(await readFile(join(root, ".output/node_modules/shared-external/package.json"), "utf8"))
+    expect(staged.version).toBe("2")
   })
 
   it("stages literal imports with import attributes without resolving member calls", async () => {
