@@ -165,10 +165,16 @@ export function consoleAppSignIn(event: ConsoleRequestEvent): Promise<Response> 
   }
 }
 
-/** Whether a browser asks for a Console page. Scripts, data requests, and other fetches do not accept `text/html`. */
+/** Whether a GET or HEAD explicitly accepts a Console HTML page with nonzero quality. */
 export function isConsolePageVisit(event: ConsoleRequestEvent): boolean {
   const method = (event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET").toUpperCase()
-  return (method === "GET" || method === "HEAD") && consoleRequest(event).headers.get("accept")?.includes("text/html") === true
+  if (method !== "GET" && method !== "HEAD") return false
+  return consoleRequest(event).headers.get("accept")?.split(",").some((range) => {
+    const [type, ...parameters] = range.split(";")
+    if (type?.trim().toLowerCase() !== "text/html") return false
+    const quality = parameters.find(parameter => /^\s*q\s*=/i.test(parameter))?.split("=")[1]
+    return quality === undefined || Number(quality) > 0
+  }) === true
 }
 
 /**
