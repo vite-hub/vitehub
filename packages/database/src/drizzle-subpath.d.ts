@@ -55,7 +55,7 @@ export declare const agentDb: AgentDatabaseHandle & {
 }
 
 export interface ChunkParametersOptions {
-  /** Bound parameters that one value takes. A Drizzle table counts its columns, for a multi-row insert. Default `1`. */
+  /** Bound parameters that one value takes. A table counts columns for inserts binding at most one parameter per column; use a numeric count for SQL expressions with more bindings. Default `1`. */
   per?: number | Table
   /** Other bound parameters in the same statement, for example the value of an `eq()` beside the `inArray()`. Default `0`. */
   reserved?: number
@@ -63,5 +63,5 @@ export interface ChunkParametersOptions {
   limit?: number
 }
 
-/** Splits `values` into chunks that fit the bound parameter limit of one statement. */
+/** Splits `values` using the caller's bound parameter counts. SQL values and SQL defaults are not inspected. */
 export declare function chunkParameters<T>(values: readonly T[], options?: ChunkParametersOptions): T[][]

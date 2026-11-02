@@ -1,5 +1,5 @@
 import { createClient } from "@libsql/client"
-import { inArray } from "drizzle-orm"
+import { inArray, sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { describe, expect, it } from "vitest"
@@ -34,6 +34,27 @@ describe("chunkParameters", () => {
 
   it("counts the columns of a Drizzle table for a multi-row insert", () => {
     expect(sizes(chunkParameters(range(30), { per: files }))).toEqual([14, 14, 2])
+  })
+
+  it("uses an explicit per count for SQL expressions with multiple bindings", async () => {
+    const client = createClient({ url: ":memory:" })
+    try {
+      const db = drizzle({ client })
+      const expressions = sqliteTable("expressions", { value: text("value").notNull() })
+      await db.run("CREATE TABLE expressions (value text NOT NULL)")
+      const rows = range(100).map(value => ({ value: sql`${String(value)} || ${String(value)}` }))
+      // The table shorthand counts columns, not bindings inside SQL expressions.
+      expect(db.insert(expressions).values(chunkParameters(rows, { per: expressions })[0]!).toSQL().params).toHaveLength(200)
+      for (const chunk of chunkParameters(rows, { per: 2 })) {
+        const insert = db.insert(expressions).values(chunk)
+        expect(insert.toSQL().params).toHaveLength(100)
+        await insert
+      }
+      expect(await db.select().from(expressions)).toEqual(range(100).map(value => ({ value: `${value}${value}` })))
+    }
+    finally {
+      client.close()
+    }
   })
 
   it("throws when one value does not fit, or a count is not a whole number", () => {

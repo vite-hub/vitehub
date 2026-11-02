@@ -3,7 +3,7 @@ import { getTableColumns } from "drizzle-orm"
 import type { Table } from "drizzle-orm"
 
 export interface ChunkParametersOptions {
-  /** Bound parameters that one value takes. A Drizzle table counts its columns, for a multi-row insert. Default `1`. */
+  /** Bound parameters that one value takes. A table counts columns for inserts binding at most one parameter per column; use a numeric count for SQL expressions with more bindings. Default `1`. */
   per?: number | Table
   /** Other bound parameters in the same statement, for example the value of an `eq()` beside the `inArray()`. Default `0`. */
   reserved?: number
@@ -18,6 +18,7 @@ function assertCount(name: string, value: number, min: number) {
 /**
  * Splits `values` into chunks that fit the bound parameter limit of one statement, so each chunk can go to one
  * `inArray()` or one multi-row `insert().values()`. Each chunk has at most `(limit - reserved) / per` values.
+ * Counts come from the caller; SQL values and SQL defaults are not inspected.
  */
 export function chunkParameters<T>(values: readonly T[], options: ChunkParametersOptions = {}): T[][] {
   const per = typeof options.per === "object" ? Object.keys(getTableColumns(options.per)).length : options.per ?? 1

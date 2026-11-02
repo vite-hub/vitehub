@@ -74,7 +74,7 @@ import { chunkParameters, useDatabase } from '@vite-hub/database/drizzle'
 const { db, schema } = useDatabase('default')
 
 export async function saveFiles(rows: (typeof schema.files.$inferInsert)[]) {
-  // A multi-row insert binds one parameter for each column of each row.
+  // For rows of plain values, allow one parameter for each column of each row.
   for (const chunk of chunkParameters(rows, { per: schema.files })) await db.insert(schema.files).values(chunk)
 }
 
@@ -88,9 +88,11 @@ export async function deleteFiles(ownerId: string, ids: string[]) {
 
 | Option | Default | Use |
 | --- | --- | --- |
-| `per` | `1` | Bound parameters that one value takes. Give a Drizzle table to count its columns, for a multi-row insert. |
+| `per` | `1` | Bound parameters that one value takes. A Drizzle table counts its columns for inserts binding at most one parameter per column. |
 | `reserved` | `0` | Other bound parameters in the same statement. |
 | `limit` | `100` | The most bound parameters in one statement. 100 is the D1 limit and the lowest of the supported drivers. |
+
+The helper uses the counts you supply; it does not inspect row contents or SQL defaults. SQL expressions can bind several parameters in one column. For example, a one-column row containing `` sql`${first} || ${second}` `` binds two parameters, so use `{ per: 2 }` instead of the table shorthand. Choose a numeric `per` that covers the maximum bindings of a whole row, including SQL defaults.
 
 Each array has at most `(limit - reserved) / per` values. When one value does not fit, it throws a `RangeError`. The chunks are separate statements, so wrap them in `db.batch()` or a transaction when they must apply together.
 
