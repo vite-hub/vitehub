@@ -8,12 +8,10 @@ import { findContentEntry } from "@vite-hub/source/vite"
 import { parseAst } from "vite"
 
 import {
-  cmsDatabaseReason,
   cmsPresetStoreSync,
   cmsRequirementError,
   cmsWorkspaceExport,
   readCmsPresetUsageFile,
-  renderCmsDatabaseModule,
   renderCmsWorkspaceModule,
   resolveCmsPresetPlan,
   usesCmsPresetSync,
@@ -21,14 +19,14 @@ import {
 import { createCmsCliContributor } from "./cli.ts"
 import { cmsStoreOf } from "./options.ts"
 
-import type { DatabaseContributionContext, DatabaseContributionEntry, DatabaseContributionFactory } from "@vite-hub/database/vite"
+import type { DatabaseContributionContext, DatabaseContributionFactory } from "@vite-hub/database/vite"
 import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { WorkspaceContributionContext, WorkspaceContributionFactory } from "@vite-hub/workspace/vite"
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import type { CmsPresetPlan, CmsWorkspaceImports } from "./build.ts"
 
-export { cmsPresetModules, readCmsPresetUsage, renderCmsDatabaseModule, renderCmsWorkspaceModule, resolveCmsPresetPlan } from "./build.ts"
+export { cmsPresetModules, readCmsPresetUsage, renderCmsWorkspaceModule, resolveCmsPresetPlan } from "./build.ts"
 export type { CmsDatabaseChoices, CmsGitHubPlan, CmsPresetPlan, CmsPresetUsage, CmsWorkspaceImports } from "./build.ts"
 
 export { createCmsCliContributor } from "./cli.ts"
@@ -37,9 +35,6 @@ export const CMS_VITE_PLUGIN_NAME = "@vite-hub/cms/vite"
 
 /** Generated Workspace Definition module of the `cms` preset, relative to the project root. */
 export const cmsWorkspaceModulePath = ".vitehub/content/workspace.mjs"
-
-/** Generated Database Definition that the `cms` preset adds when the app has none, relative to the project root. */
-export const cmsDatabaseModulePath = ".vitehub/content/database.ts"
 
 /**
  * Whether `server/content.ts` selects the `cms` preset. `vitehub()` reads it while Vite filters plugins, so the
@@ -88,7 +83,6 @@ const defaultImports: CmsWorkspaceImports = {
   blobDatabase: "@vite-hub/workspace/blob-database",
   contentDatabase: "@vite-hub/content/database",
   database: "@vite-hub/database/drizzle",
-  databaseDefinition: "@vite-hub/database",
   workspace: "@vite-hub/workspace",
 }
 
@@ -148,8 +142,8 @@ function blobStoreNames(plugin: Plugin | undefined): string[] | false {
 
 /**
  * CMS build integration. When `server/content.ts` selects the `cms` preset, it contributes the preset's Workspace
- * through `vitehub.workspaces`, and the Workspace history tables through `vitehub.databases`, with the `default`
- * Database Definition when the app has none. It checks that Workspace, Database, and Blob are enabled, and restarts the
+ * through `vitehub.workspaces`, and the Workspace history tables through `vitehub.databases`. When the app has no
+ * Database Definition, the tables go to the implicit `default` Database of `@vite-hub/database`. It checks that Workspace, Database, and Blob are enabled, and restarts the
  * dev server when the selection changes. Apps without the preset are unaffected.
  */
 export function hubCms(options: CmsVitePluginOptions = {}): CmsVitePlugin {
@@ -227,11 +221,9 @@ export function hubCms(options: CmsVitePluginOptions = {}): CmsVitePlugin {
         const { collectDatabaseContributions } = await import("@vite-hub/database/vite")
         const contributed = await collectDatabaseContributions(otherPlugins, { ...context, rootDir: context.rootDir ?? root, projectRoot: context.projectRoot ?? root, plugins: otherPlugins })
         const plan = await resolvePlan({ databaseRoot: context.rootDir ?? root, projectRoot: root, serverDirs: serverDirs ?? context.serverDirs?.slice(), contributedDefinitions: contributed.definitions })
-        const module = resolve(root, cmsDatabaseModulePath)
-        if (!plan || plan.databaseReason !== "preset") await rm(module, { force: true })
         if (!plan) return []
         // The GitHub store keeps history in Git. Only editor sessions need tables.
-        const entries: DatabaseContributionEntry[] = [
+        return [
           ...(plan.store === "github"
             ? []
             : [{ database: plan.database, definition: { export: "workspaceHistorySchema", module: imports.blobDatabase }, name: "content-history", reason: "Stores the history of Content documents." }]),
@@ -239,9 +231,6 @@ export function hubCms(options: CmsVitePluginOptions = {}): CmsVitePlugin {
             ? [{ database: plan.database, definition: { export: "contentSessionsSchema", module: imports.contentDatabase }, name: "content-sessions", reason: "Stores presence and edit leases of Content documents." }]
             : []),
         ]
-        if (plan.databaseReason !== "preset") return entries
-        await writeFileIfChanged(module, renderCmsDatabaseModule(imports))
-        return [{ definition: module, name: plan.database, reason: cmsDatabaseReason(plan.file, root) }, ...entries]
       },
     },
     config: {

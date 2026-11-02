@@ -53,6 +53,13 @@ describe("discoverConnectionDefinitions", () => {
 });
 
 describe("hubConnections", () => {
+  it("asks @vite-hub/database for the default SQLite Database when it has a Database module", () => {
+    expect(hubConnections({ database: "vite-hub/database/drizzle" }).vitehub.databases()).toEqual([
+      { database: "default", dialect: "sqlite", name: "connections", reason: "Stores Connection grants, approvals, and activity." },
+    ]);
+    expect(hubConnections().vitehub.databases()).toEqual([]);
+  });
+
   it.each(["@vite-hub/connections", "vite-hub/connections"])("writes the registry and mounts the management API through %s in development", async (importBase) => {
     const root = await createTempProject();
     const definition = await writeConnection(root, "server/connections/google.ts");

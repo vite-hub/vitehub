@@ -48,7 +48,7 @@ A setting you pass wins. `blob: { stores: { media: ... } }` configures Blob. `wo
 | Piece | Value | Inspect it |
 | --- | --- | --- |
 | Workspace | `content`, on the [Blob + Database Store](/docs/workspace/configure#blob-database-store) with workspace identity `content` | `vitehub inspect definitions` and the Console Workspaces section list it as contributed by `@vite-hub/cms/vite`. The generated module is `.vitehub/content/workspace.mjs`. |
-| Database | Only when the app has no Database Definition: the `default` Database, from the generated `.vitehub/content/database.ts`. Its migrations go to `server/databases/migrations/`, where `server/databases/config.ts` would keep them. | `vitehub inspect definitions --kind database` lists it with `Contributed by: @vite-hub/cms/vite` and a `Reason` field naming the cms preset. |
+| Database | Only when the app has no Database Definition: the implicit `default` Database of the Database integration. Its migrations go to `server/databases/migrations/`, where `server/databases/config.ts` would keep them. | `vitehub inspect definitions --kind database` lists it with `Definition: Implicit` and names `@vite-hub/cms/vite` as a plugin that needs it. |
 | Database tables | `workspaceHistorySchema` from `vite-hub/workspace/blob-database` and `contentSessionsSchema` from `vite-hub/content/database`, added to the Database named `default`, or to the only Database | `vitehub inspect` and the Console Database section show a `Contributed tables` field. |
 | Features | `workspace`, `database`, and `blob` turn on when `vitehub()` leaves them unset | The `@vite-hub/workspace/vite`, `@vite-hub/database/vite`, and `@vite-hub/blob/vite` plugins are in the resolved Vite config. |
 | Blob store | `default` | Files are stored under `vitehub/workspace-history/` in that store. |
@@ -140,7 +140,7 @@ The pull request is a normal one: review it, wait for checks, and merge it with 
 
 ## Take over the Database
 
-To configure the Database yourself, for example its connection URL or Cloudflare D1 options, add `server/databases/config.ts`. The preset then stops adding its own Definition and uses yours. Your Definition keeps `server/databases/migrations/`, so existing migrations still apply.
+To configure the Database yourself, for example its connection URL or Cloudflare D1 options, add `server/databases/config.ts`. The preset's tables then go to your Definition instead of the implicit `default` Database. Your Definition keeps `server/databases/migrations/`, so existing migrations still apply.
 
 ```ts [server/databases/config.ts]
 import { defineDatabase } from 'vite-hub/database'

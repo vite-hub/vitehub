@@ -38,7 +38,7 @@ export const comments = defineComments({
 })
 ```
 
-ViteHub then adds the `vitehub_comment_threads`, `vitehub_comments`, and `vitehub_comment_scope_counters` tables to the default Database (or the only one, or `defineComments({ database: "name" })`), serves `/api/_vitehub/comments/**`, and adds a Comments section to the Console. Apply the tables with `vitehub db generate` and `vitehub db migrate`.
+ViteHub then adds the `vitehub_comment_threads`, `vitehub_comments`, and `vitehub_comment_scope_counters` tables to the default Database (or the only one, or `defineComments({ database: "name" })`; without a Database Definition, the implicit `default` Database of `@vite-hub/database`), serves `/api/_vitehub/comments/**`, and adds a Comments section to the Console. Apply the tables with `vitehub db generate` and `vitehub db migrate`.
 
 Existing databases must follow [Upgrade existing Comments](https://vitehub.dev/docs/comments/configure#upgrade-existing-comments) before applying the scoped schema. Backfill thread numbers before creating the unique index, then initialize the durable scope counters.
 

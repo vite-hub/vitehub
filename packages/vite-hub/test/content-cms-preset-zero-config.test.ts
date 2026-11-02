@@ -10,7 +10,7 @@ import { contentDefinition, createProject, path, runCli, server, serverBuild, ty
 
 // Own file, so its Workspace and Database runtime state does not mix with content-cms-preset.test.ts.
 describe("Content cms preset with only server/content.ts and vitehub({ preset })", () => {
-  it("turns on Workspace, Database, and Blob and adds the default Database", async () => {
+  it("turns on Workspace, Database, and Blob and uses the implicit default Database", async () => {
     const root = await createProject({
       "package.json": JSON.stringify({ name: "content-cms-zero-config", private: true, type: "module" }),
       "server/content.ts": contentDefinition,
@@ -34,17 +34,15 @@ describe("Content cms preset with only server/content.ts and vitehub({ preset })
       "CREATE TABLE `workspace_history_revisions`",
       "CREATE TABLE `workspace_history_workspaces`",
     ])
-    await expect(readFile(join(root, ".vitehub/content/database.ts"), "utf8")).resolves.toContain("export default defineDatabase({ schema: {} })")
+    await expect(readFile(join(root, ".vitehub/content/database.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
     const migrate = await runCli(root, zeroConfig(), ["db", "migrate"])
     expect(migrate.stderr).toBe("")
     expect(migrate.exitCode).toBe(0)
 
     const inspect = await runCli(root, zeroConfig(), ["inspect", "definitions", "--kind", "database", "--json"])
     expect(inspect.exitCode).toBe(0)
-    expect(inspect.stdout).toContain("\"Contributed by\"")
-    expect(inspect.stdout).toContain("@vite-hub/cms/vite")
-    expect(inspect.stdout).toContain("uses the Content cms preset and the app has no Database Definition")
-    expect(inspect.stdout).toContain(".vitehub/content/database.ts")
+    expect(inspect.stdout).toContain("ViteHub adds an empty default Database for plugin \\\"@vite-hub/cms/vite\\\"")
+    expect(inspect.stdout).toContain("Stores the history of Content documents.")
 
     const dev = await createServer({ ...serverBuild(root, zeroConfig()), server: { middlewareMode: true, watch: null } })
     try {

@@ -271,9 +271,21 @@ export interface ConnectionsVitePluginAPI {
   refresh: () => DiscoveredConnectionDefinition[];
 }
 
+/** A `vitehub.databases` entry without tables: Connections create their SQLite tables with their own SQL. */
+export interface ConnectionsDatabaseUse {
+  database: "default";
+  dialect: "sqlite";
+  name: "connections";
+  reason: string;
+}
+
 export type ConnectionsVitePlugin = Plugin<ConnectionsVitePluginAPI> & {
   api: ConnectionsVitePluginAPI;
-  vitehub: { cli: () => Promise<ViteHubCliContributor> };
+  vitehub: {
+    cli: () => Promise<ViteHubCliContributor>;
+    /** The Database use that `@vite-hub/database` collects: Connections keep their data in the `default` Database. */
+    databases: () => ConnectionsDatabaseUse[];
+  };
   nitro: {
     name: string;
     /** Nitro 3 has a routing table to rebuild. Nitro 2, which Nuxt 4 runs, reads `options.handlers` when it builds. */
@@ -437,6 +449,11 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
         const { createConnectionsCliContributor } = await import("./cli.ts");
         return createConnectionsCliContributor();
       },
+      // `db` of the Database module is the `default` Database. Without a Database Definition, `@vite-hub/database`
+      // adds it for this use, and `vitehub inspect` shows the reason.
+      databases: () => database
+        ? [{ database: "default", dialect: "sqlite", name: "connections", reason: "Stores Connection grants, approvals, and activity." }]
+        : [],
     },
     async config(config, environment) {
       serverDirs =

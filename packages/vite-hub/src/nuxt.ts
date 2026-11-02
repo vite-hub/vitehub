@@ -34,7 +34,6 @@ import { createConsoleCliNamespace } from "./console/cli.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./console/fixture.ts"
 import { createConsoleInvocationsIdentity, type ConsoleAuthMode } from "./console/internal.ts"
 import { importOptionalOwner, requireOptionalOwner } from "./internal/optional-owners.ts"
-import { connectionsDatabasePlugin } from "./internal/connections-database.ts"
 import { ownerModules } from "./internal/owner-modules.ts"
 import { discoverConsoleBuildCatalog } from "./console/build.ts"
 import { assertConsoleRetention, writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./console/plugin.ts"
@@ -1160,7 +1159,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const consoleFixtureSnapshot = resolvedConsoleFixture ? readConsoleFixture(resolvedConsoleFixture) : undefined
   const plugins = [
     ...installedPlugins.filter(plugin => plugin.name !== "vite-hub/deployment-output"),
-    ...(options.connections ? [connectionsDatabasePlugin(projectRoot)] : []),
     ...(nuxt.options.vitehubCliDiscovery ? [{
       name: "vite-hub/deployment-inspect",
       vitehub: {
