@@ -160,12 +160,12 @@ describe("hubConnections", () => {
     const root = await createTempProject();
     const connections = hubConnections();
     const initializedNitro = { options: { handlers: [] as Array<{ handler: string; route: string }> } };
+    // Nuxt serves Vite assets from /_nuxt/ and passes its app base separately.
+    const nuxtBase = { base: "/_nuxt/", [VITEHUB_APP_BASE_URL]: "/" };
     const config = await resolveConfig({
       root,
       configFile: false,
-      // Nuxt serves Vite assets from /_nuxt/ and passes its app base separately.
-      base: "/_nuxt/",
-      [VITEHUB_APP_BASE_URL]: "/",
+      ...nuxtBase,
       plugins: [
         { name: "nitro-context", enforce: "pre", config: config => {
           Reflect.set(config, VITEHUB_NITRO_CONFIG_CONTEXT, true);
