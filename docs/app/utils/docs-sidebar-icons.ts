@@ -48,6 +48,7 @@ export const docsIcons: Partial<DocsIcons> = {
     "i-lucide-heading": "i-ph-text-h-light",
     "i-lucide-key-round": "i-ph-key-light",
     "i-lucide-layout-template": "i-ph-squares-four-light",
+    "i-lucide-library": "i-ph-books-light",
     "i-lucide-list-checks": "i-ph-list-checks-light",
     "i-lucide-list-ordered": "i-ph-list-numbers-light",
     "i-lucide-logs": "i-ph-list-bullets-light",
@@ -119,6 +120,8 @@ export const docsIcons: Partial<DocsIcons> = {
     "content": "content",
     "database": "database",
     "development": "development",
+    // No docs icon exists in @vite-hub/ui/primitive-rail yet; the open book of Reference is the closest, and Reference is not in the rail.
+    "docs-site": "reference",
     "email": "email",
     "env": "env",
     "frameworks-hosts": "hosts",

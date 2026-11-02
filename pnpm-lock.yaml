@@ -3209,6 +3209,9 @@ importers:
       '@vite-hub/database':
         specifier: workspace:*
         version: link:../database
+      '@vite-hub/docs':
+        specifier: workspace:*
+        version: link:../docs
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
