@@ -1,3 +1,7 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
 import { describe, expect, it } from "vitest"
 import { agentEnvAccess } from "../../env/test/agent-access.ts"
 
@@ -90,6 +94,27 @@ describe("vitehub connections", () => {
     expect(await runConnectionsCli("connect", ["mail", "--url", "https://app.example.com/portal/"], context, options)).toBe(0)
     expect(requests).toEqual(["https://app.example.com/portal/_vitehub/connections"])
     expect(output.stdout).toContain("https://app.example.com/portal/_vitehub/connections/connect/mail")
+  })
+
+  it("finds the running dev server of the project without --url", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-connections-cli-"))
+    try {
+      await mkdir(join(root, ".vitehub"))
+      // A Nuxt dev server on a port other than 5173 records its URL with the app base.
+      await writeFile(join(root, ".vitehub/dev-server.json"), JSON.stringify({ root, url: "http://127.0.0.1:4741/docs/" }))
+      const requests: string[] = []
+      const context = { env: {}, rootDir: root, stderr: { write: () => true }, stdout: { write: () => true } }
+      const fetch = (async (input: Parameters<typeof globalThis.fetch>[0]) => {
+        requests.push(String(input))
+        return Response.json({ connections: [] })
+      }) as typeof globalThis.fetch
+      expect(await runConnectionsCli("list", [], context, { fetch })).toBe(0)
+      expect(await runConnectionsCli("list", [], { ...context, env: { VITEHUB_CONNECTIONS_URL: "http://127.0.0.1:3000" } }, { fetch })).toBe(0)
+      expect(requests).toEqual(["http://127.0.0.1:4741/docs/_vitehub/connections", "http://127.0.0.1:3000/_vitehub/connections"])
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("lists, approves, and revokes", async () => {

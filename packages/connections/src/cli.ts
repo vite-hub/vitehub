@@ -6,6 +6,8 @@ import { chatgptTransferSchema } from "./internal/chatgpt-transfer.ts"
 
 import * as v from "valibot"
 
+import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { defaultViteHubDevServerUrl, findViteHubDevServerUrl } from "@vite-hub/internal/cli"
 import { isViteHubSecretEqual } from "@vite-hub/internal/secret"
 
 import { isLoopbackHost } from "./api-key.ts"
@@ -14,7 +16,7 @@ import { CONNECTIONS_ROUTE } from "./route.ts"
 import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliFeature } from "@vite-hub/internal/cli"
 import type { ConnectionApproval, ConnectionInspection } from "./types.ts"
 
-type CliContext = Pick<ViteHubCliContext, "env" | "stderr" | "stdout">
+type CliContext = Pick<ViteHubCliContext, "env" | "stderr" | "stdout"> & Partial<Pick<ViteHubCliContext, "rootDir">>
 
 export interface ConnectionsCliOptions {
   fetch?: typeof fetch
@@ -41,7 +43,8 @@ class CliError extends Error {}
 
 const valueFlags = new Set(["--before", "--confirm", "--cookie", "--file", "--name", "--port", "--status", "--url"])
 
-function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
+function parse(args: string[], context: CliContext): ParsedArgs {
+  const env = context.env
   const flags = new Map<string, string | true>()
   const positionals: string[] = []
   for (let index = 0; index < args.length; index += 1) {
@@ -70,8 +73,14 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     flags,
     json: flags.has("--json"),
     positionals,
-    url: stringFlag(url) ?? (env.VITEHUB_CONNECTIONS_URL || "http://localhost:5173"),
+    url: stringFlag(url) ?? (env.VITEHUB_CONNECTIONS_URL || devServerUrl(context)),
   }
+}
+
+/** The dev server that runs in this project writes its URL, with the app base, to the project root. */
+function devServerUrl(context: CliContext): string {
+  const roots = context.rootDir ? [...new Set([context.rootDir, resolveViteHubProjectRoot(context.rootDir)])] : []
+  return findViteHubDevServerUrl(roots, context.env) ?? defaultViteHubDevServerUrl
 }
 
 function stringFlag(value: string | true | undefined): string | undefined {
@@ -461,7 +470,7 @@ function usage(): string {
     ...Object.values(commands).map(command => `  ${command.usage}`),
     "",
     "Options:",
-    "  --url <url>   App URL, including its Vite base path. Defaults to VITEHUB_CONNECTIONS_URL or http://localhost:5173.",
+    "  --url <url>   App URL, including its base path. Defaults to VITEHUB_CONNECTIONS_URL, then the running dev server of this project, then http://localhost:5173.",
     "  --cookie <value>  Console session cookie (or VITEHUB_CONNECTIONS_COOKIE) for protected apps.",
     "  --port <port> Loopback callback port for connect. The OAuth client must allow http://127.0.0.1:<port>/callback.",
     "  --json        Print JSON.",
@@ -472,7 +481,7 @@ function usage(): string {
 /** Run one Connections CLI command. */
 export async function runConnectionsCli(command: string, args: string[], context: CliContext, options: ConnectionsCliOptions = {}): Promise<number> {
   try {
-    const parsed = parse(args, context.env)
+    const parsed = parse(args, context)
     const entry = commands[command]
     if (!entry || parsed.flags.has("--help")) {
       context.stdout.write(usage())

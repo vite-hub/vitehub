@@ -76,7 +76,7 @@ Agent tools record every call, reads included. MCP protocol messages record succ
 
 ## CLI
 
-The CLI calls the management route of a running development server with the Console enabled. `--url` defaults to `VITEHUB_DEV_SERVER_URL`, then `http://localhost:5173`.
+The CLI calls the management route of a running development server with the Console enabled. `--url` defaults to `VITEHUB_CONNECTIONS_URL`, then the dev server that runs in the current project, then `VITEHUB_DEV_SERVER_URL`, then `http://localhost:5173`. The commands do not load the project, so they do not make a running dev server rebuild.
 
 | Command | Description |
 | --- | --- |
