@@ -285,7 +285,6 @@ function configureConsoleNitroRoutes(
   const kit = createNitroServerKit({ ...nitro, handlers, publicAssets: assets })
   // Without a `console` option, `vite dev` serves only the RPC, so the CLI can call operations. No page, no assets.
   if (!rpcOnly) {
-    // Crawled links include the full application base, including the prefix Nitro adds to handler routes.
     ignoreConsolePrerender(kit.config, baseURL)
     // Console Auth already redirects in its middleware, including its OAuth start request.
     if (signInPage && !consoleAuthHandlers) {

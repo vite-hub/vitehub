@@ -1,5 +1,5 @@
 import { join } from "node:path"
-import { addViteHubPageToolRoutes } from "@vite-hub/internal/build/page-tools"
+import { addViteHubPageToolRoutes, viteHubPageToolsBase } from "@vite-hub/internal/build/page-tools"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { viteHubBasePath } from "@vite-hub/internal/runtime/page-tools-shared"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
@@ -11,13 +11,17 @@ export function mountPath(base: string | undefined, path: string): string {
 type NitroHandler = { handler: string; lazy?: boolean; method?: string | string[]; middleware?: boolean; route: string }
 const configuredMcpDiscovery = "virtual:vitehub/console-mcp-discovery"
 type NitroPublicAsset = { baseURL?: string, dir: string, fallthrough?: boolean, maxAge?: number }
-type NitroPrerenderConfig = { prerender?: { ignore?: Array<string | RegExp | ((path: string) => boolean)> } }
+type NitroPrerenderConfig = { baseURL?: string, prerender?: { ignore?: Array<string | RegExp | ((path: string) => boolean)> } }
 
 /** Keep linked Console pages, which need a signed-in request, out of Nitro's prerender crawler. */
 export function ignoreConsolePrerender(nitro: NitroPrerenderConfig, base?: string): void {
   const prerender = nitro.prerender ??= {}
-  const consolePath = mountPath(base, "/_vitehub")
-  if (!prerender.ignore?.includes(consolePath)) prerender.ignore = [...prerender.ignore ?? [], consolePath]
+  const { mount } = viteHubPageToolsBase({ base, nitro })
+  // Nitro can match crawled links with its base intact or removed. Keep both forms excluded.
+  for (const prefix of [base, mount]) {
+    const consolePath = mountPath(prefix, "/_vitehub")
+    if (!prerender.ignore?.includes(consolePath)) prerender.ignore = [...prerender.ignore ?? [], consolePath]
+  }
 }
 
 /**

@@ -22,10 +22,11 @@ describe("Console pages and the prerender crawler", () => {
   })
 
   it.each([
-    { base: "/", consolePath: "/_vitehub" },
-    { base: "/docs/", consolePath: "/docs/_vitehub" },
-    { base: "/docs/", nitroBase: "/docs/", consolePath: "/docs/_vitehub" },
-  ])("excludes plain Vite Console pages from prerendering: %j", async ({ base, nitroBase, consolePath }) => {
+    { base: "/", consolePaths: ["/_vitehub"] },
+    { base: "/docs/", consolePaths: ["/docs/_vitehub"] },
+    { base: "/docs/", nitroBase: "/docs/", consolePaths: ["/docs/_vitehub", "/_vitehub"] },
+    { base: "/docs/guide/", nitroBase: "/docs/", consolePaths: ["/docs/guide/_vitehub", "/guide/_vitehub"] },
+  ])("excludes plain Vite Console pages from prerendering: %j", async ({ base, nitroBase, consolePaths }) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-prerender-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
@@ -44,11 +45,11 @@ describe("Console pages and the prerender crawler", () => {
         logger: { warn: () => undefined },
       }
       await Reflect.apply(configure, {}, [config, { command: "build", mode: "production" }])
-      expect(config.nitro.prerender).toEqual({ crawlLinks: true, ignore: [...ignore, consolePath] })
+      expect(config.nitro.prerender).toEqual({ crawlLinks: true, ignore: [...ignore, ...consolePaths] })
 
       await Reflect.apply(resolveConfig, {}, [config])
       await Reflect.apply(resolveConfig, {}, [config])
-      expect(config.nitro.prerender).toEqual({ crawlLinks: true, ignore: [...ignore, consolePath] })
+      expect(config.nitro.prerender).toEqual({ crawlLinks: true, ignore: [...ignore, ...consolePaths] })
     }
     finally {
       await rm(root, { force: true, recursive: true })
