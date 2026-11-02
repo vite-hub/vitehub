@@ -29,9 +29,6 @@ import type { DocsPage } from "./types.ts"
 
 export { DocsAssistantSetupError } from "./assistant-nuxt.ts"
 
-/** The look of the site: tokens, typography, and the shape of the shell. */
-export type DocsTheme = "vercel"
-
 export interface DocsSiteOptions {
   /** Name in titles, the rail, and llms.txt. */
   name?: string
@@ -60,8 +57,6 @@ export interface DocsModuleOptions {
   /** URL prefix whose folders are sections in the rail. Defaults to `/docs`. */
   base?: string
   site?: DocsSiteOptions
-  /** Defaults to `vercel`, the only theme today. */
-  theme?: DocsTheme
   /** Order of section categories in the rail and the catalog. Sections of other categories come after them in the rail. */
   categories?: string[]
   /** Categories that the catalog lists but the rail leaves out, such as shared reference topics. */
@@ -291,7 +286,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         `@source "${join(runtime, "app")}";`,
         `@source "${resolver.resolve("./theme.js")}";`,
         `@source "${contentDir}";`,
-        `@import "${join(runtime, "theme", `${options.theme ?? "vercel"}.css`)}";`,
+        `@import "${join(runtime, "theme/vercel.css")}";`,
         "",
       ].join("\n"),
     }).dst)

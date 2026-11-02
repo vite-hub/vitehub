@@ -108,7 +108,6 @@ Most changes are options in `nuxt.config.ts`:
 | `dir` | `content` | Folder of Markdown pages. |
 | `base` | `/docs` | URL prefix whose folders are sections. |
 | `site` | `{ name: "Docs" }` | `name`, `url` (canonical origin), `description`, `logo` (one-color SVG path), `badge` (`{ label, tooltip }`). |
-| `theme` | `vercel` | The only theme today. |
 | `categories` | `[]` | Order of section categories in the rail and the catalog. |
 | `railExclude` | `[]` | Categories that the catalog lists but the rail leaves out. |
 | `start` | None | `{ section, links }`: the section that new readers open first, and site pages listed at its top. |
@@ -141,7 +140,7 @@ Components read the site with auto-imported composables: `useDocsConfig()`, `use
 
 ### Theme
 
-`vercel` is black, white, and zinc, with Geist, square corners, hairline borders, and GitHub code colors. Text, code, and focus rings pass WCAG AA in light and dark mode. Change it in two places:
+The theme is black, white, and zinc, with Geist, square corners, hairline borders, and GitHub code colors. Text, code, and focus rings pass WCAG AA in light and dark mode. Change it in two places:
 
 - `app.config.ts` `ui` keys. Your values win over the theme. The theme wins over the Nuxt UI defaults, also when `@nuxt/ui` comes first in `modules`.
 - CSS variables in your stylesheet, such as `--vh-content-width` (prose width), `--vh-toc-width`, `--vh-panel-width`, `--font-sans`, and the Nuxt UI `--ui-*` colors.
