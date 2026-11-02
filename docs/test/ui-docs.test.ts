@@ -166,7 +166,7 @@ describe("UI documentation", () => {
     const config = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
 
     // The rail names the site and its badge from the `docs.site` options: "ViteHub navigation" and "ViteHub alpha".
-    expect(rail).toContain('<PrimitiveRail :label="`${site.name} navigation`">');
+    expect(rail).toContain('<PrimitiveRail ref="rail" :label="`${site.name} navigation`"');
     expect(rail).toContain("const brand = site.badge ? `${site.name} ${site.badge.label}` : site.name");
     expect(rail).toContain('<PrimitiveRailItem :as="NuxtLink" to="/" :label="brand" class="vh-docs-rail-brand">');
     expect(rail).toContain("<template #label>");
