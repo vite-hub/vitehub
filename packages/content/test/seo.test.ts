@@ -351,6 +351,57 @@ describe("sitemap and robots", { timeout: 30_000 }, () => {
     expect(await content.markdown("/blog/fenced.md")).toBe(`# Fenced\n\n${body.replace("](/before)", "](https://example.com/before)").replace("](/after)", "](https://example.com/after)")}\n`)
   })
 
+  it("finds public Markdown copies past unroutable resolve collisions", async () => {
+    const content = defineContent({
+      workspace: await historyWorkspace(),
+      collections: {
+        notes: documents({ path: "notes/*.md", fields: { title: z.string() } }),
+        posts: documents({ path: "posts/*.md", url: "/:id", fields: { title: z.string() } }),
+      },
+      seo: { markdown: true },
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    for (const collection of ["notes", "posts"] as const) {
+      await content.collection(collection).save("hello", { data: { title: collection }, body: collection })
+      await content.publish({ ids: ["hello"], collection })
+    }
+
+    expect(await content.resolve("/hello", { ref: "published" })).toMatchObject({ collection: "notes", id: "hello" })
+    expect(await content.markdown("/hello.md")).toBe("# posts\n\nposts\n")
+  })
+
+  it.each(["``` bad`", "```` bad`"])("rewrites links after an invalid backtick opener %j", async (opening) => {
+    const content = await site({ site: "https://example.com", markdown: true })
+    await content.collection("posts").save("invalid", { data: { title: "Invalid" }, body: `${opening}\n\n[link](/api)` })
+    await content.publish({ ids: ["invalid"], collection: "posts" })
+
+    expect(await content.markdown("/blog/invalid.md")).toBe(`# Invalid\n\n${opening}\n\n[link](https://example.com/api)\n`)
+  })
+
+  it.each([
+    ["> ", "> "],
+    ["- ", "  "],
+    ["1. ", "   "],
+    ["> - ", ">   "],
+  ])("preserves links in fences inside %j containers", async (openingPrefix, prefix) => {
+    const content = await site({ site: "https://example.com", markdown: true })
+    const body = `${openingPrefix}\`\`\`md\n${prefix}[code](/inside)\n${prefix}\`\`\`\n\nAfter [link](/after).`
+    await content.collection("posts").save("nested", { data: { title: "Nested" }, body })
+    await content.publish({ ids: ["nested"], collection: "posts" })
+
+    expect(await content.markdown("/blog/nested.md")).toBe(`# Nested\n\n${body.replace("](/after)", "](https://example.com/after)")}\n`)
+  })
+
+  it("makes reference-style links and images absolute outside code", async () => {
+    const content = await site({ site: "https://example.com", markdown: true })
+    const body = '[API][api] and ![Image][image].\n\n[api]: /api "API"\n[image]: </image.png>\n[cdn]: //cdn.test/image.png\n\n```md\n[code]: /inside\n```'
+    await content.collection("posts").save("references", { data: { title: "References" }, body })
+    await content.publish({ ids: ["references"], collection: "posts" })
+
+    expect(await content.markdown("/blog/references.md")).toBe(`# References\n\n${body.replace("/api", "https://example.com/api").replace("</image.png>", "<https://example.com/image.png>")}\n`)
+  })
+
   it("answers 404 for routes that seo does not turn on and rejects invalid options", async () => {
     const content = await site({ site: "https://example.com" })
     const app = new H3().get("/sitemap.xml", defineContentSitemapHandler(content)).get("/robots.txt", defineContentRobotsHandler(content))

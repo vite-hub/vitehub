@@ -1,3 +1,6 @@
+import { parseMarkdown } from "comark/parse"
+import type { ComarkPlugin } from "comark"
+
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type { AnyContentCollection } from "./collections-types.ts"
@@ -135,32 +138,46 @@ function stringField(data: unknown, field: string | undefined): string | undefin
 }
 
 /** Root-relative links and images, such as `](/guide)`, become absolute outside fenced code. */
-function absoluteLinks(markdown: string, site: string | undefined): string {
+async function absoluteLinks(markdown: string, site: string | undefined): Promise<string> {
   if (!site) return markdown
-  let fence: string | undefined
-  return markdown.split("\n").map((line) => {
-    if (fence) {
-      const closing = /^ {0,3}(`{3,}|~{3,})[ \t]*\r?$/.exec(line)?.[1]
-      if (closing && closing[0] === fence[0] && closing.length >= fence.length) fence = undefined
-      return line
-    }
-    const opening = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1]
-    if (opening) {
-      fence = opening
-      return line
-    }
-    return line.replace(/\]\(\/(?!\/)/g, `](${site}/`)
+  // Use the parser's source ranges so fences inside lists and blockquotes obey the same rules as the page.
+  const codeLines = new Set<number>()
+  await parseMarkdown<ComarkPlugin[]>(markdown, {
+    autoClose: false,
+    registerDefaultPlugins: false,
+    plugins: [{
+      name: "markdown-copy-code",
+      markdownItPost({ tokens }) {
+        for (const token of tokens) {
+          if ((token.type === "fence" || token.type === "code_block") && token.map) {
+            for (let line = token.map[0]; line < token.map[1]; line++) codeLines.add(line)
+          }
+        }
+      },
+    }],
+  })
+  return markdown.split("\n").map((line, index) => {
+    if (codeLines.has(index)) return line
+    return line
+      .replace(/\]\(\/(?!\/)/g, `](${site}/`)
+      .replace(/^( {0,3}\[(?:\\.|[^\]\\])+\]:[ \t]*<?)\/(?!\/)/, `$1${site}/`)
   }).join("\n")
 }
 
 const trimRoute = (route: string) => route.replace(/\/+$/, "") || "/"
 
-/** `resolve()` maps only `documents()` collections, while the sitemap also lists singletons with a `url`. */
-async function routedSingleton(collections: Iterable<AnyContentCollection>, page: string): Promise<{ collection: string, id: string } | null> {
+/** Find a public Markdown URL when `resolve()` misses a singleton or selects an ineligible collection. */
+async function routedMarkdown(collections: Iterable<AnyContentCollection>, page: string): Promise<{ collection: string, id: string } | null> {
   for (const collection of collections) {
-    if (collection.kind !== "singleton" || !collection.routable) continue
-    const [document] = (await collection.list({ ref: "published", limit: 1 })).items
-    if (document && String(document.url) === document.url && trimRoute(document.url) === trimRoute(page)) return { collection: collection.name, id: document.id }
+    if (!collection.routable || collection.format !== "markdown") continue
+    let cursor: string | undefined
+    do {
+      const result = await collection.list({ ref: "published", limit: 1_000, ...(cursor ? { cursor } : {}) })
+      for (const document of result.items) {
+        if (String(document.url) === document.url && trimRoute(document.url) === trimRoute(page)) return { collection: collection.name, id: document.id }
+      }
+      cursor = result.nextCursor ?? undefined
+    } while (cursor)
   }
   return null
 }
@@ -172,7 +189,9 @@ async function routedSingleton(collections: Iterable<AnyContentCollection>, page
 export async function contentMarkdownCopy(runtime: Pick<ContentCollectionsRuntime, "collection" | "collections" | "resolve">, path: string, site: string | undefined): Promise<string | null> {
   const page = markdownCopyPage(path)
   if (page === undefined) return null
-  const resolved = await runtime.resolve(page, { ref: "published" }) ?? await routedSingleton(runtime.collections.values(), page)
+  let resolved = await runtime.resolve(page, { ref: "published" })
+  const matchedCollection = resolved ? runtime.collection(resolved.collection) : undefined
+  if (!matchedCollection?.routable || matchedCollection.format !== "markdown") resolved = await routedMarkdown(runtime.collections.values(), page)
   if (!resolved) return null
   const collection = runtime.collection(resolved.collection)
   if (!collection.routable || collection.format !== "markdown") return null
@@ -186,5 +205,5 @@ export async function contentMarkdownCopy(runtime: Pick<ContentCollectionsRuntim
     title && !/^#\s/.test(body) ? `# ${title}` : undefined,
     description ? `> ${description.replace(/\s*\n\s*/g, " ")}` : undefined,
   ].filter(Boolean)
-  return `${[...head, absoluteLinks(body, site)].filter(Boolean).join("\n\n")}\n`
+  return `${[...head, await absoluteLinks(body, site)].filter(Boolean).join("\n\n")}\n`
 }
