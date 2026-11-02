@@ -51,6 +51,8 @@ export interface AgentWebhookQueueLease extends AgentWebhookQueueDelivery {
 export interface AgentWebhookQueueStateAdapter extends StateAdapter {
   claimWebhookDelivery(scope: string): Promise<AgentWebhookQueueLease | null>
   claimWebhookSteering(delivery: AgentWebhookQueueDelivery, leaseToken: string, leaseExpiresAt: number): Promise<boolean>
+  /** Completes the queued deliveries in one scope with this debounce key and returns them. Started deliveries keep running. */
+  cancelWebhookDeliveries?: (scope: string, debounceKey: string) => Promise<AgentWebhookQueueDelivery[]>
   completeWebhookDelivery(scope: string, deliveryId: string, leaseToken: string): Promise<boolean>
   /** Claims notification permanently; uncertain callback effects must not be replayed. */
   beginWebhookFailureNotification?: (scope: string, deliveryId: string, leaseToken: string) => Promise<boolean>

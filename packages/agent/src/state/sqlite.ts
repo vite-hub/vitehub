@@ -501,6 +501,28 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     })
   }
 
+  async cancelWebhookDeliveries(scope: string, debounceKey: string): Promise<AgentWebhookQueueDelivery[]> {
+    return await retrySqliteBusy(async () => {
+      await this.cleanupExpiredStateIfDue()
+      return await this.transaction(async (tx) => {
+        const cancelled = await execute(
+          tx,
+          `SELECT value FROM ${this.tables.webhookQueue}
+            WHERE scope = ? AND status = 'queued' AND json_extract(value, '$.debounceKey') = ?`,
+          [scope, debounceKey],
+        )
+        await execute(
+          tx,
+          `UPDATE ${this.tables.webhookQueue}
+            SET status = 'completed', value = '{}', lease_token = NULL, lease_expires_at = NULL
+            WHERE scope = ? AND status = 'queued' AND json_extract(value, '$.debounceKey') = ?`,
+          [scope, debounceKey],
+        )
+        return cancelled.flatMap(row => isRuntimeString(row.value) ? [parseAgentWebhookQueueDelivery(row.value)] : [])
+      })
+    })
+  }
+
   private async insertWebhookDelivery(tx: SqliteAgentStateExecutor, delivery: AgentWebhookQueueDelivery): Promise<boolean> {
     const debounceKey = delivery.debounceKey
     if (debounceKey) {
