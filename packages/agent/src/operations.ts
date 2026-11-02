@@ -23,6 +23,7 @@ import {
 
 import type { AnyOperation, OperationContext, OperationDefinition } from "@vite-hub/internal/operations"
 import type { ChannelsConsoleHost } from "./channels-console-host.ts"
+import type { AgentChannelStatus } from "./internal/channel-status.ts"
 import type { ChannelArchiveMedia, ChannelConversationMessage, ChannelCursor } from "./internal/channel-conversation.ts"
 import type { AgentChannelConversation, AgentChannelRetention } from "./server/routes.ts"
 
@@ -236,6 +237,32 @@ const channelsThreads = defineOperation({
   section: "channels",
 })
 
+const channelsStatus = defineOperation({
+  cli: { positional: ["agent", "channel"] },
+  description: "Show the sync health of a Channel that reads a provider cursor, such as Gmail, with the messages it retries and the messages it skipped.",
+  input: v.strictObject({ agent: text, channel: text }),
+  kind: "read",
+  name: "channels.status",
+  run: async (input, context) => {
+    // Errors name message IDs of the mailbox, so an Agent needs access to every conversation.
+    if (context.surface === "agent" && context.conversations !== "all") {
+      throw new ChannelsOperationError(403, "CHANNELS_FORBIDDEN", "An Agent can read Channel status only when its operations() capability sets `conversations: \"all\"`.", "Create the capability with `operations({ conversations: \"all\" })`.")
+    }
+    const installed = host()
+    const handler = handlerOf(installed, input.agent)
+    let status
+    try {
+      status = await handler.channelStatus(requestOf(context), input.channel, installed.options(input.agent, context.env))
+    }
+    catch (error) {
+      throw failureOf(error)
+    }
+    if (!status) throw new ChannelsOperationError(400, "CHANNELS_NO_STATUS", `Channel ${JSON.stringify(input.channel)} has no sync status.`, "Only Channels that read a provider cursor, such as Gmail, report a sync status.")
+    return { agent: input.agent, channel: input.channel, ...status }
+  },
+  section: "channels",
+})
+
 interface ChannelMessageView {
   attachments: { mimeType?: string, name?: string, size?: number, type?: string, url?: string }[]
   author: { id?: string, isBot?: boolean, name?: string }
@@ -395,7 +422,8 @@ type ChannelOperationDefinitions = readonly [
     truncated?: boolean
   }>,
   OperationDefinition<ChannelTarget & { format: "json" | "markdown", media: boolean, thread: string }, ConversationExport>,
+  OperationDefinition<ChannelTarget, ChannelTarget & AgentChannelStatus>,
 ]
 
 /** The Channel operations of `@vite-hub/agent`. The section is `channels`. */
-export const agentChannelOperations: ChannelOperationDefinitions = [channelsList, channelsThreads, channelsConversation, conversationsExport] as const satisfies readonly AnyOperation[]
+export const agentChannelOperations: ChannelOperationDefinitions = [channelsList, channelsThreads, channelsConversation, conversationsExport, channelsStatus] as const satisfies readonly AnyOperation[]
