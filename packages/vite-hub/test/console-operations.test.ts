@@ -236,7 +236,7 @@ describe("contributed operations over the Console RPC", () => {
   })
 
   it("loads the Console runtime once, on the first accepted request or agent tool", async () => {
-    const load = vi.fn(async () => { installConsoleOperations([{ operations: [greet], plugin: "fixture-plugin" }]) })
+    const load = vi.fn(async () => () => { installConsoleOperations([{ operations: [greet], plugin: "fixture-plugin" }]) })
     try {
       installConsoleAccess({ check: async () => new Response("no", { status: 401 }), mode: "auth" })
       installConsoleRuntime(load)
@@ -257,9 +257,9 @@ describe("contributed operations over the Console RPC", () => {
   })
 
   it("retries a Console runtime that failed to load", async () => {
-    const load = vi.fn<() => Promise<void>>()
+    const load = vi.fn<() => Promise<() => void>>()
       .mockRejectedValueOnce(new Error("rebuilding"))
-      .mockImplementation(async () => { installConsoleOperations([{ operations: [greet], plugin: "fixture-plugin" }]) })
+      .mockImplementation(async () => () => { installConsoleOperations([{ operations: [greet], plugin: "fixture-plugin" }]) })
     try {
       installConsoleRuntime(load)
       await expect(installedOperationRegistry()).rejects.toThrow("rebuilding")

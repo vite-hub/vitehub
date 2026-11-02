@@ -273,7 +273,9 @@ function renderConsoleNitroPlugin(
     // The first Console request or agent tool that needs the operations loads them, with every primitive they import.
     `installConsoleRuntime(async () => {`,
     ...(runtimeImports.length ? [`  const [${runtimeImports.map(entry => `{ ${entry.bindings} }`).join(", ")}] = await Promise.all([${runtimeImports.map(entry => `import(${JSON.stringify(entry.module)})`).join(", ")}])`] : []),
-    ...runtimeInstall.map(line => `  ${line}`),
+    "  return () => {",
+    ...runtimeInstall.map(line => `    ${line}`),
+    "  }",
     "})",
     `installConsoleProjectName(${JSON.stringify(projectRoot)}, ${JSON.stringify(resolveConsoleProjectNameFromRoot(projectRoot))})`,
     // The application module loads on the first document request, so the Console does not start Content at boot.
