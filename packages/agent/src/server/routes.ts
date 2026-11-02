@@ -2140,10 +2140,10 @@ async function executeQueuedWebhookDelivery(
         executionAgent !== agent ? taskAgentIdentity(executionAgent) : routeAgentIdentity(handlerOptions),
       )
       const deliveryRunContext = channelDelivery ? withAgentChannelDelivery(baseRunContext, channelDelivery) : baseRunContext
-      // A retry runs the Agent again under the same run ID, so it reopens the Invocation that an earlier attempt left failed.
+      // A shutdown requeue can keep its attempt count, so every lease may reopen an earlier failed Invocation.
       const runContext = {
         ...deliveryRunContext,
-        [queuedAgentInvocation]: { reopenFailed: delivery.attempts > 0, retryPending: delivery.attempts + 1 < maxWebhookQueueAttempts },
+        [queuedAgentInvocation]: { reopenFailed: true, retryPending: delivery.attempts + 1 < maxWebhookQueueAttempts },
       }
       await runWithRuntimeCloudflareEnv(runContext, async () => {
         const invocationStartup = startAgentInvocation(

@@ -127,6 +127,52 @@ describe.each(stores)("queued webhook retry after a failed attempt (%s store)", 
     expect(cancelled?.retryPending).toBeUndefined()
     expect(cancelled?.observations.filter(observation => observation.name === "agent.invocation.error")).toHaveLength(1)
   }, 20_000)
+
+  it("persists cancellation before a status read can let the retry reopen", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined)
+    let backing!: AgentInvocationStore
+    let reopenStarted = false
+    let releaseReopen!: () => void
+    const reopenReleased = new Promise<void>((resolve) => { releaseReopen = resolve })
+    const fixture = await setup((dir) => {
+      backing = store(dir)
+      return {
+        ...backing,
+        async update(...args: Parameters<AgentInvocationStore["update"]>) {
+          if (args[1].reopen) {
+            reopenStarted = true
+            await reopenReleased
+          }
+          return backing.update(...args)
+        },
+      }
+    })
+    cleanup = fixture.cleanup
+    try {
+      await vi.waitFor(() => expect(reopenStarted).toBe(true), { timeout: 10_000 })
+      // A remote client's status read can return after the queued retry has finished.
+      // Cancellation must reach the store before that read, while the record is still failed.
+      const remote = defineAgentInvocations({ store: {
+        ...backing,
+        async getSummary(id) {
+          const snapshot = await backing.getSummary(id)
+          if (snapshot?.status === "failed") {
+            releaseReopen()
+            await vi.waitFor(async () => expect(await backing.getSummary(id)).toMatchObject({ status: "completed" }))
+          }
+          return snapshot
+        },
+      } })
+      expect.soft(await remote.cancel(fixture.id)).toMatchObject({ outcome: "terminal", status: "cancelled" })
+      releaseReopen()
+      await vi.waitFor(async () => expect(await fixture.state.webhookDeliveries(scope)).toEqual([]), { timeout: 10_000 })
+      expect(fixture.run).toHaveBeenCalledTimes(1)
+      expect(await fixture.invocations.get(fixture.id)).toMatchObject({ status: "cancelled", cancelRequestedAt: expect.any(String) })
+    }
+    finally {
+      releaseReopen()
+    }
+  }, 20_000)
 })
 
 describe("unconfirmed retry reopening", () => {

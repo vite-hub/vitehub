@@ -3064,15 +3064,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         if (result === storeOperationTimedOut) throw new Error(`[vitehub] Agent Invocation cancellation store operation timed out after ${storeTimeoutMs} ms.`)
         return result
       }
-      const summary = await cancellationStore(() => store.getSummary(id))
-      if (!summary) return missingResult
-      if (terminalStatus(summary.status) && !(summary.status === "failed" && summary.retryPending)) {
-        return terminalResult(summary, local)
-      }
       const timestamp = new Date().toISOString()
-      // Persist the request first, so a run in another process and a later bind of this record read it.
-      let flagged: AgentInvocationRecord | undefined
-      flagged = await cancellationStore(() => store.update(id, { cancelRequestedAt: timestamp, timestamp }))
+      // Persist before reading status: a queued retry can reopen and dispatch during that read.
+      // Stores atomically cancel retryable failures and ignore requests on other terminal records.
+      const flagged = await cancellationStore(() => store.update(id, { cancelRequestedAt: timestamp, timestamp }))
       let current = await cancellationStore(() => store.getSummary(id)) ?? flagged
       if (!current) return missingResult
       if (terminalStatus(current.status)) return terminalResult(current, local)
