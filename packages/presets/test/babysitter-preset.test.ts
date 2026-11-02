@@ -39,7 +39,7 @@ vi.mock("@vite-hub/sandbox", async (importOriginal) => {
   return { ...actual, resolveSandbox };
 });
 
-import { agentWithColocatedInstructions, defineAgent, defineCapability, getAgentFromRegistry } from "@vite-hub/agent";
+import { agentWithColocatedInstructions, codexDriver, defineAgent, defineCapability, getAgentFromRegistry } from "@vite-hub/agent";
 import { babysitter, resolveBabysitterLifecycleFilter } from "../src/babysitter.ts";
 import type { BabysitterPlacement } from "../src/babysitter.ts";
 import { babysitterInstructions } from "../src/babysitter/instructions.ts";
@@ -333,7 +333,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     // SAFETY: tests pass invalid merge values on purpose to cover runtime validation.
     options: { filter: { labels: { allow: ["repair"] } }, ...(autoMerge ? { merge: "auto" as const } : {}), ...(preset.merge === undefined ? {} : { merge: preset.merge as false }), ...(preset.driver ? { driver: preset.driver as "codex" } : {}), ...(preset.mentionAllowlist ? { mentionAllowlist: preset.mentionAllowlist } : {}), ...(placement ? { placement } : {}), ...preset.options },
     ...(preset.sandbox ? { sandbox: { runtime: "trusted-host" as const, requires: ["sh"], ...(preset.sandboxCheckout ? { checkout: { remote: "https://github.com/acme/other.git", ref: "main", sha: "d".repeat(40) } } : {}) } } : {}),
-    driver: { kind: "codex", ...(preset.sandbox || preset.placement ? { providerSettings: { binaryPath: "/bin/true" } } : {}), env: { GH_TOKEN: "must-not-leak", OPENAI_API_KEY: "provider-only", ...preset.driverEnv } },
+    driver: codexDriver({ ...(preset.sandbox || preset.placement ? { providerSettings: { binaryPath: "/bin/true" } } : {}), env: { GH_TOKEN: "must-not-leak", OPENAI_API_KEY: "provider-only", ...preset.driverEnv } }),
   }), "Preserve the documented API contract.");
   const runtime = createBabysitterRuntime({
     agent: discovered ? await getAgentFromRegistry("babysitter", { babysitter: async () => ({ default: agent }) }) : agent,

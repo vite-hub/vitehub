@@ -66,6 +66,7 @@ export interface DatabaseRuntimeD1Options {
 
 export interface DatabaseIntegrationOptions {
   cli?: false | {
+    export?: false
     generate?: false
     migrate?: false
   }

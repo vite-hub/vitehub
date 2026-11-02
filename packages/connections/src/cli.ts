@@ -213,7 +213,7 @@ function describeApproval(approval: ConnectionApproval): string {
 
 /**
  * The ChatGPT gateway runs the Codex package of the app and never a `codex` command from `PATH`. Without it, the
- * first question fails with AGENT_R1025, so say it at sign-in. Only a loopback app shares this project folder.
+ * first question fails with AGENT_R1026, so say it at sign-in. Only a loopback app shares this project folder.
  */
 function warnMissingCodex(connection: ConnectionInspection, parsed: ParsedArgs, context: CliContext): void {
   if (connection.credential !== "chatgpt" || !isLoopback(appUrl(parsed))) return

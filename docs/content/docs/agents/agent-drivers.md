@@ -17,7 +17,7 @@ An Agent Driver decides how one invocation runs. Choose the execution method tha
 | Custom run | Application code runs the entire operation. |
 | Ask | A fast decision model answers a fixed set of typed questions. |
 
-Built-in `"codex"` and `"claude-code"` values are provider-backed. Application-supplied Drivers use exactly one of `{ model }`, `{ run }`, or `{ ask }`.
+`codexDriver()` and `claudeCodeDriver()` from `vite-hub/agent` create provider-backed Drivers. Application-supplied Drivers use exactly one of `{ model }`, `{ run }`, or `{ ask }`.
 
 ## Use a model-backed Driver
 
@@ -69,7 +69,7 @@ The `model` value may also be a compatible AI SDK model or an invocation-time ca
 
 ## Use a provider-backed Driver
 
-To use a signed-in user's ChatGPT Plus or Pro plan, define a [ChatGPT Connection](/docs/connections/chatgpt) and set `driver: { kind: 'codex', gateway: chatgpt() }`, importing `chatgpt` from `vite-hub/gateways`. The CLI handles loopback sign-in; Connections handles registration and refresh. This flow never falls back to an API key. It requires a POSIX Node.js host and supports Codex only. Model Drivers on the same grant are a follow-up.
+To use a signed-in user's ChatGPT Plus or Pro plan, define a [ChatGPT Connection](/docs/connections/chatgpt) and set `driver: codexDriver({ gateway: chatgpt() })`, importing `chatgpt` from `vite-hub/gateways`. The CLI handles loopback sign-in; Connections handles registration and refresh. This flow never falls back to an API key. It requires a POSIX Node.js host and supports Codex only. Model Drivers on the same grant are a follow-up.
 
 The built-in Drivers reuse T3 Code's normalized Codex and Claude Code runtime while ViteHub owns Agent Definitions, Capabilities, Workspaces, Invocations, and public lifecycle events.
 
@@ -81,20 +81,19 @@ pnpm add @anthropic-ai/claude-agent-sdk@0.3.246
 ```
 
 ```ts [server/agents/review/agent.ts]
-import { defineAgent } from 'vite-hub/agent'
+import { codexDriver, defineAgent } from 'vite-hub/agent'
 import { loadServerEnv } from '#vitehub/env/server'
 
 export default defineAgent({
-  driver: {
+  driver: codexDriver({
     credentialProfile: 'review',
     credentials: async ({ abortSignal }) => (await loadServerEnv(undefined, { signal: abortSignal })).codexAuthJson,
-    kind: 'codex',
     instructions: 'Review the exact pull request head before changing code.',
     model: 'gpt-5.5',
     permissions: 'ask',
     reasoningEffort: 'high',
     reasoningSummary: 'detailed',
-  },
+  }),
   workspace: { mode: 'write' },
 })
 ```
@@ -112,20 +111,19 @@ Provider runtime cursors resume a thread while the Agent Definition process rema
 Resolve `env` per invocation when a provider needs short-lived credentials. Use `launch` when the provider process must start through an application-owned wrapper such as a remote execution CLI:
 
 ```ts [server/agents/review/agent.ts]
-import { defineAgent } from 'vite-hub/agent'
+import { codexDriver, defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
-  driver: {
+  driver: codexDriver({
     env: async ({ abortSignal }) => ({
       SANDBOX_TOKEN: await issueSandboxToken({ signal: abortSignal }),
     }),
-    kind: 'codex',
     launch: ({ command }) => ({
       args: ['exec', '--', command],
       command: 'sandboxctl',
     }),
     permissions: 'allow-all',
-  },
+  }),
 })
 ```
 
@@ -149,13 +147,12 @@ launch: ({ command, providerCommand }) => ({
 Codex keeps every session in its Home: rollout files, `logs_N.sqlite`, `thread_history_N.sqlite`, `state_N.sqlite`, shell snapshots, and `.tmp` Git directories. Codex does not remove them, so the Home grows without a limit. Set `retention` to keep it bounded:
 
 ```ts [server/agents/review/agent.ts]
-import { defineAgent } from 'vite-hub/agent'
+import { codexDriver, defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
-  driver: {
-    kind: 'codex',
+  driver: codexDriver({
     retention: { maxAge: '14d', maxSize: '45%' },
-  },
+  }),
 })
 ```
 
@@ -179,16 +176,15 @@ vitehub agent codex-home prune --home /var/lib/app/codex --max-age 14d --max-siz
 Set `gateway` to send the provider's model requests through an LLM proxy or gateway. Use an [AI gateway](/docs/agents/ai-gateways) preset from `vite-hub/gateways`. It reads its URL and key from the environment, so the code names only the gateway:
 
 ```ts [server/agents/review/agent.ts]
-import { defineAgent } from 'vite-hub/agent'
+import { codexDriver, defineAgent } from 'vite-hub/agent'
 import { cliproxy } from 'vite-hub/gateways'
 
 export default defineAgent({
-  driver: {
-    kind: 'codex',
+  driver: codexDriver({
     model: 'gpt-5.5',
     // Reads CLIPROXY_URL and CLIPROXY_API_KEY.
     gateway: cliproxy(),
-  },
+  }),
 })
 ```
 
@@ -210,14 +206,13 @@ A gateway changes where requests go, not their protocol. The endpoint must accep
 By default, each invocation receives a new temporary working directory. Set `cwd` when the provider must run in a directory that the application prepares, such as a disposable local checkout that is also the Workspace's local store root:
 
 ```ts [server/agents/review/agent.ts]
-import { defineAgent } from 'vite-hub/agent'
+import { codexDriver, defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
-  driver: {
+  driver: codexDriver({
     cwd: '/srv/review/checkout',
-    kind: 'codex',
     permissions: 'allow-edits',
-  },
+  }),
 })
 ```
 
@@ -234,14 +229,13 @@ Each invocation that runs on this host gets its own temporary directory. ViteHub
 Set `toolchain` when the provider works on a JavaScript project that pins its own Node.js and package manager. It uses the same declaration as [`sandbox.toolchain`](/docs/agents/sandboxes#provision-nodejs-and-the-package-manager):
 
 ```ts [server/agents/review/agent.ts]
-import { defineAgent } from 'vite-hub/agent'
+import { codexDriver, defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
-  driver: {
-    kind: 'codex',
+  driver: codexDriver({
     permissions: 'allow-all',
     toolchain: 'project',
-  },
+  }),
 })
 ```
 
@@ -253,7 +247,6 @@ Threads resume with the provider's opaque cursor. ViteHub normalizes assistant t
 
 | Option | Purpose |
 | --- | --- |
-| `kind` | Required tagged provider name: `"codex"` or `"claude-code"`. |
 | `credentialProfile` | Codex-only stable credential Home name. Requires `credentials`; persists under `.vitehub/data/codex/<credentialProfile>`. |
 | `credentials` | Codex-only `auth.json` string, sealed Server Env value, or invocation-time resolver. Inspection reports that a source is configured without resolving or checking the value. |
 | `reasoningEffort` | Codex-only non-empty model-advertised effort override, such as `"low"`, `"high"`, or `"xhigh"`. Requires an explicit `model`. |
@@ -280,14 +273,14 @@ Provider Drivers do not accept model-specific Provider Tool contributions, Cloud
 Set `sandbox` on the Agent Definition to start the provider inside a [Sandbox](/docs/agents/sandboxes). The Sandbox supplies the working tree, private Home, environment, and boot checks for each invocation:
 
 ```ts [server/agents/review/agent.ts]
-import { defineAgent } from 'vite-hub/agent'
+import { codexDriver, defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
   sandbox: {
     runtime: 'trusted-host',
     requires: ['git'],
   },
-  driver: { kind: 'codex', permissions: 'allow-all' },
+  driver: codexDriver({ permissions: 'allow-all' }),
 })
 ```
 
@@ -295,9 +288,9 @@ The provider runtime stays in the ViteHub process. Only the provider command run
 
 ### Cloudflare Workers
 
-Provider Drivers start local Codex or Claude Code processes, so they cannot run in a Cloudflare Worker. Worker builds exclude the provider Driver runtime and `@t3tools/provider-runtime`: `@vite-hub/agent` resolves its provider module to a Worker module through the `workerd` and `worker` package conditions. Apps that use only `{ model }` or `{ run }` Drivers do not bundle Node-only provider code.
+Provider Drivers start local Codex or Claude Code processes, so they cannot run in a Cloudflare Worker. Worker builds exclude the provider Driver runtime and `@t3tools/provider-runtime`: `@vite-hub/agent` resolves its provider module to a Worker module through the `workerd` and `worker` package conditions. Apps that use only `{ model }`, `{ run }`, or `{ ask }` Drivers do not bundle the provider runtime on any host.
 
-A Worker build fails with `AGENT_B0019` when a server module selects a provider Driver with `driver: 'codex'`, `driver: 'claude-code'`, `{ kind: 'codex' }`, `codexDriver()`, `claudeCodeDriver()`, or a first-party preset that uses Codex. The same check covers a provider Driver passed to the `title()` or `progressSummary()` Capability, including imported aliases and namespace calls. ViteHub checks parsed module syntax, so it ignores comments, strings, regular expressions, type-only imports, and unrelated objects. Computed or indirect selections are not resolved and fail at invocation time with `AGENT_R0928`. Deploy Agents that use provider Drivers to a Node.js host.
+Only `codexDriver()` and `claudeCodeDriver()` import the provider runtime, so the build sees every provider Driver, including one from a variable, a preset, a layer, or the `title()` and `progressSummary()` Capabilities. A Worker build fails with `AGENT_B0019` when its output contains a provider Driver. During development, a Worker invocation that selects one fails with `AGENT_R0928`. Deploy Agents that use provider Drivers to a Node.js host.
 
 ## Adaptive process capacity
 

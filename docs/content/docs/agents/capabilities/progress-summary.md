@@ -15,17 +15,16 @@ It adds no model-facing tool. A separate generator writes the status: an indepen
 Import the Capability from `vite-hub/agent/capabilities` and give it the independent Agent Driver that writes progress:
 
 ```ts [server/agents/support.ts]
-import { defineAgent } from 'vite-hub/agent'
+import { codexDriver, defineAgent } from 'vite-hub/agent'
 import { progressSummary } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: primaryDriver,
   capabilities: [
     progressSummary({
-      driver: {
-        kind: 'codex',
+      driver: codexDriver({
         model: 'gpt-5.6-luna',
-      },
+      }),
     }),
   ],
 })

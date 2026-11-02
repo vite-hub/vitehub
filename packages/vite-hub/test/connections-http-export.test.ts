@@ -11,9 +11,9 @@ it("defines a ChatGPT Connection and Agent through the published distribution", 
     const { defineConnection } = await import("vite-hub/connections")
     const { chatgpt: provider } = await import("vite-hub/connections/chatgpt")
     const { chatgpt } = await import("vite-hub/gateways")
-    const { defineAgent } = await import("vite-hub/agent")
+    const { codexDriver, defineAgent } = await import("vite-hub/agent")
     const connection = defineConnection({ provider: provider({ appName: "Consumer app" }), access: { "agent:assistant": { read: true } } })
-    const agent = defineAgent({ driver: { kind: "codex", gateway: chatgpt() } })
+    const agent = defineAgent({ driver: codexDriver({ gateway: chatgpt() }) })
     console.log(JSON.stringify({ provider: connection.provider.kind, gateway: chatgpt(), agent: typeof agent }))
   `
   const { stdout, stderr } = await promisify(execFile)(process.execPath, ["--input-type=module", "-e", source], { cwd: frameworkRoot, timeout: 15000 })
