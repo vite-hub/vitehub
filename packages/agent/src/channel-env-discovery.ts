@@ -179,8 +179,18 @@ export function discoverBuiltInChannelUses(
       else if (!channelModule && clause[b] === "defineAgent") agentFactories.add(local)
     }
   }
-  const declarations = moduleObjectDeclarations(tokens, lineBreaks, typescript)
   const shadowBindings = new Map([...bindings, ...[...namespaces].map(name => [name, name] as const)])
+  // Remember each module-level const alias's declaration so local shadows still win.
+  const bareBindings = new Map(bindings)
+  const bareShadowBindings = new Map(shadowBindings)
+  const aliasBindings = new Map<string, number>()
+  const declarations = moduleObjectDeclarations(tokens, lineBreaks, typescript, (name, start, binding, statementEnd) => {
+    const reference = channelFactoryReference(tokens, start, bareBindings, namespaces, known, typescript, statementEnd)
+    if (!reference || reference.call || isShadowedAt(tokens, reference.index, tokens[reference.index]!, bareShadowBindings, lineBreaks, aliasBindings.get(tokens[reference.index]!))) return
+    bareBindings.set(name, reference.kind)
+    bareShadowBindings.set(name, reference.kind)
+    aliasBindings.set(name, binding)
+  })
   const agentBindings = new Map([...agentFactories].map(name => [name, "defineAgent"]))
   const agentShadowBindings = new Map([...agentBindings, ...[...agentNamespaces].map(name => [name, name] as const)])
   const agentNames = new Set(["defineAgent"])
@@ -226,8 +236,8 @@ export function discoverBuiltInChannelUses(
       if (option !== "channels" || channels === undefined) return
       visitObjectProperties(tokens, channels, (_key, value) => {
         if (value === undefined) return
-        const reference = channelFactoryReference(tokens, value, bindings, namespaces, known, typescript)
-        if (reference && isShadowedAt(tokens, reference.index, tokens[reference.index]!, shadowBindings, lineBreaks)) return
+        const reference = channelFactoryReference(tokens, value, bareBindings, namespaces, known, typescript)
+        if (reference && isShadowedAt(tokens, reference.index, tokens[reference.index]!, bareShadowBindings, lineBreaks, aliasBindings.get(tokens[reference.index]!))) return
         // A factory call is found by the call scan. Runtime calls a bare factory without options
         // and uses the kind it returns, whatever the key is.
         if (reference?.call) return
@@ -249,12 +259,13 @@ function channelFactoryReference(
   namespaces: ReadonlySet<string>,
   known: ReadonlySet<string>,
   typescript: boolean,
+  statementEnd?: (index: number) => boolean,
 ): { call: boolean, kind: string, index: number, end: number } | undefined {
   index = skipOptionAssertions(tokens, index, typescript)
   if (tokens[index] === "(") {
     const reference = channelFactoryReference(tokens, index + 1, bindings, namespaces, known, typescript)
     const close = closingDelimiter(tokens, index)
-    return reference && isValueEnd(tokens, reference.end, new Set([")"])) && isValueEnd(tokens, close + 1, new Set([",", "}", ")"]))
+    return reference && isValueEnd(tokens, reference.end, new Set([")"])) && isValueEnd(tokens, close + 1, new Set([",", "}", ")", ";"]), statementEnd)
       ? { ...reference, end: close + 1 } : undefined
   }
   let kind = bindings.get(tokens[index]!)
@@ -277,7 +288,7 @@ function channelFactoryReference(
     next = skipTypeArguments(tokens, next)
   }
   const call = tokens[next] === "("
-  return kind && (call || isValueEnd(tokens, next, new Set([",", "}", ")"]))) ? { call, kind, index, end: call ? closingDelimiter(tokens, next) + 1 : next } : undefined
+  return kind && (call || isValueEnd(tokens, next, new Set([",", "}", ")", ";"]), statementEnd)) ? { call, kind, index, end: call ? closingDelimiter(tokens, next) + 1 : next } : undefined
 }
 
 // A method key belongs directly to an object, class, or interface body. Function
@@ -505,9 +516,9 @@ function localObject(tokens: string[], index: number, declarations: ReadonlyMap<
   return declaration !== undefined && tokens[declaration] === "{" && isValueEnd(tokens, index + 1, new Set([",", "}", ")"])) ? declaration : undefined
 }
 
-function isShadowedAt(tokens: string[], index: number, name: string, bindings: ReadonlyMap<string, string>, lineBreaks: ReadonlySet<number>): boolean {
+function isShadowedAt(tokens: string[], index: number, name: string, bindings: ReadonlyMap<string, string>, lineBreaks: ReadonlySet<number>, ignoredBinding?: number): boolean {
   if (!bindings.has(name)) return false
-  if (hasLocalBinding(tokens, index, name, lineBreaks)) return true
+  if (hasLocalBinding(tokens, index, name, lineBreaks, ignoredBinding)) return true
   const closes = new Map<number, number>()
   const stack: number[] = []
   for (let i = 0; i < tokens.length; i++) {
@@ -677,7 +688,7 @@ function statementEnd(tokens: string[], start: number, closes: ReadonlyMap<numbe
 
 // Lexical declarations shadow the import throughout their block. `var` belongs
 // to the enclosing function, including declarations inside a nested block.
-function hasLocalBinding(tokens: string[], index: number, name: string, lineBreaks: ReadonlySet<number>): boolean {
+function hasLocalBinding(tokens: string[], index: number, name: string, lineBreaks: ReadonlySet<number>, ignoredBinding?: number): boolean {
   const closes = new Map<number, number>()
   const stack: number[] = []
   for (let i = 0; i < tokens.length; i++) {
@@ -744,7 +755,7 @@ function hasLocalBinding(tokens: string[], index: number, name: string, lineBrea
     // Walk declarators without mistaking identifiers in initializers for bindings.
     for (let binding = i + 1; binding < tokens.length;) {
       const end = closes.get(binding)
-      if (bindingPatternHasName(tokens, binding, name, closes)) return true
+      if (binding !== ignoredBinding && bindingPatternHasName(tokens, binding, name, closes)) return true
       let next = (end ?? binding) + 1
       while (next < tokens.length && !["=", ",", ";", "in", "of", ")", "}"].includes(tokens[next]!)) next++
       if (tokens[next] === "=") {
@@ -781,8 +792,8 @@ function bindingPatternHasName(tokens: string[], start: number, name: string, cl
   return false
 }
 
-// Map module-level const object initializers to the index of their opening brace.
-function moduleObjectDeclarations(tokens: string[], lineBreaks: ReadonlySet<number>, typescript: boolean): Map<string, number> {
+// Map module-level const objects to their opening brace and visit other const initializers.
+function moduleObjectDeclarations(tokens: string[], lineBreaks: ReadonlySet<number>, typescript: boolean, visitInitializer?: (name: string, start: number, binding: number, statementEnd: (index: number) => boolean) => void): Map<string, number> {
   const declarations = new Map<string, number>()
   // A newline before an identifier ends the initializer unless it continues
   // an assertion or a binary expression. Operators can continue across lines.
@@ -803,6 +814,7 @@ function moduleObjectDeclarations(tokens: string[], lineBreaks: ReadonlySet<numb
       }
       if (tokens[equals] === "=") {
         const start = skipOptionAssertions(tokens, equals + 1, typescript)
+        visitInitializer?.(tokens[i + 1]!, start, i + 1, statementEnd)
         const object = localObject(tokens, start, declarations, typescript)
         const end = ["{", "("].includes(tokens[start]!) ? closingDelimiter(tokens, start) + 1 : start + 1
         if (object !== undefined && isValueEnd(tokens, end, new Set([",", ";"]), statementEnd)) declarations.set(tokens[i + 1]!, object)

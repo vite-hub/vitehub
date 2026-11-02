@@ -28,6 +28,25 @@ async function discover(agent: string, files: Record<string, string> = {}) {
 const imports = 'import { defineAgent } from "vite-hub/agent"; import { github, telegram, webChat } from "vite-hub/agent/channels";'
 
 it.each([
+  ["", "github"],
+  ["", "(github)"],
+  ["", "github<Runtime>"],
+  ["const support = github;", "support"],
+  ["const first = github; const support = first;", "support"],
+  ['import { github as support } from "vite-hub/agent/channels";', "support"],
+  ['import * as channels from "vite-hub/agent/channels";', "channels.github"],
+  ['import * as channels from "vite-hub/agent/channels";', 'channels["github"]'],
+  ['import * as channels from "vite-hub/agent/channels"; const support = channels.github;', "support"],
+  ['import * as channels from "vite-hub/agent/channels"; const { github: support } = channels;', "support"],
+  ["", "telegram"],
+  ["", "webChat"],
+])("keeps bare first-party factories stateless: %s %s", async (declaration, channel) => {
+  const definition = await discover(`${imports} ${declaration} export default defineAgent({ channels: { repo: ${channel} } })`)
+  expect(definition).toBeDefined()
+  expect(definition?.workspace).toBeUndefined()
+})
+
+it.each([
   "import.meta.url",
   "function () { return format() }",
   "class { #portal; get value() { return this.#portal } }",
