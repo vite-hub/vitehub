@@ -2,30 +2,69 @@ import * as v from 'valibot'
 import { parseEvidence, parsePullRequest, type GitHubReviewThread, type GitHubEvidence, type GitHubDelivery, type GitHubPullRequestRecord } from './types.ts'
 import { createHash } from 'node:crypto'
 import { type Claim, type PullRequestInbox, type Snapshot } from './store.ts'
-import { listReviewThreads, repoRef, type GitHubProvider } from '@vite-hub/forge'
+import { repoRef, type GitHubProvider } from '@vite-hub/forge'
 
 export type ReadGitHubSnapshot = (path: string, projection?: string) => Promise<unknown[]>
 export type ReadThreads = (repository: string, number: number, signal?: AbortSignal) => Promise<GitHubReviewThread[]>
 export type ReadGraphql = (query: string, variables: Record<string, string | number | null>) => Promise<unknown>
 
-/** Read review conversations through the Forge GitHub gap helper. */
+/** Read review conversations through forges `threads.reviewThreads()`. */
 export async function readForgePullRequestThreads(provider: GitHubProvider, repository: string, number: number, signal?: AbortSignal): Promise<GitHubReviewThread[]> {
   const repo = repoRef(provider, repository)
   const ref = { forge: provider.forge, instance: provider.instance, repo, kind: 'pull_request' as const, number: String(number) }
-  const threads = await listReviewThreads(provider, ref, { signal })
-  return threads.map(thread => ({
-    id: thread.id, node_id: thread.id, isResolved: thread.resolved, isOutdated: thread.outdated,
-    ...(thread.path === undefined ? {} : { path: thread.path }),
-    ...(thread.line === undefined ? {} : { line: thread.line }),
-    ...(thread.originalLine === undefined ? {} : { originalLine: thread.originalLine }),
-    ...(thread.startLine === undefined ? {} : { startLine: thread.startLine }),
-    ...(thread.originalStartLine === undefined ? {} : { originalStartLine: thread.originalStartLine }),
-    comments: thread.comments.map(comment => ({ id: comment.restId ?? comment.id, node_id: comment.id })),
-    resolutionSource: 'forge',
-  }))
+  const threads: GitHubReviewThread[] = []
+  for await (const thread of provider.threads.reviewThreads(ref, { perPage: 100, signal })) {
+    // forges 0.3.1 omits nested pagination. A full page may hide human feedback.
+    const comments = thread.comments.length >= 100 || thread.comments.some(comment => !comment.ref)
+      ? await readThreadComments(async (query, variables) => {
+        const response = await provider.request<unknown>('POST', '/graphql', {
+          body: { query, variables, operationName: 'GitHubPullRequestThreadComments' }, signal,
+        })
+        return reviewThreadData(response.data)
+      }, thread.id)
+      : thread.comments.flatMap(comment => comment.ref ? [{ id: comment.ref.id }] : [])
+    threads.push({
+      id: thread.id, node_id: thread.id, isResolved: thread.resolved, isOutdated: thread.outdated,
+      ...(thread.path === undefined ? {} : { path: thread.path }),
+      ...(thread.line === undefined ? {} : { line: thread.line }),
+      ...(thread.startLine === undefined ? {} : { startLine: thread.startLine }),
+      comments,
+      resolutionSource: 'forge',
+    })
+  }
+  return threads
 }
 const index = (items: GitHubEvidence[]) => Object.fromEntries(items.map(item => [String(item.id), item]))
+const pageInfo = v.object({ hasNextPage: v.boolean(), endCursor: v.nullish(v.string()) })
+const commentConnection = v.object({ nodes: v.array(v.object({ id: v.string(), databaseId: v.nullish(v.number()) })), pageInfo })
 const envelope = v.object({ data: v.optional(v.unknown()), errors: v.optional(v.array(v.object({ message: v.string() }))) })
+
+function reviewThreadData(raw: unknown): unknown {
+  const response = v.parse(envelope, raw)
+  if (response.errors?.length) throw new Error(`GitHub review thread query failed: ${response.errors.map(error => error.message).join('; ')}`)
+  return response.data ?? raw
+}
+function nextCursor(connection: { pageInfo: v.InferOutput<typeof pageInfo> }, seen: Set<string>): string | null {
+  if (!connection.pageInfo.hasNextPage) return null
+  const cursor = connection.pageInfo.endCursor
+  if (!cursor || seen.has(cursor)) throw new Error('Invalid review thread pagination cursor')
+  seen.add(cursor); return cursor
+}
+async function readThreadComments(request: ReadGraphql, id: string) {
+  const comments: v.InferOutput<typeof commentConnection>['nodes'] = []
+  const pages = new Set<string>()
+  let after: string | null = null
+  do {
+    const more = v.parse(v.object({ node: v.object({ comments: commentConnection }) }), await request(`query GitHubPullRequestThreadComments($id:ID!,$after:String) {
+      node(id:$id) { ... on PullRequestReviewThread { comments(first:100,after:$after) {
+        nodes { id databaseId } pageInfo { hasNextPage endCursor }
+      } } }
+    }`, { id, after }))
+    after = nextCursor(more.node.comments, pages)
+    comments.push(...more.node.comments.nodes)
+  } while (after)
+  return comments
+}
 
 /** REST snapshots fill webhook gaps without asking an LLM to poll GitHub. */
 export async function readSnapshot(read: ReadGitHubSnapshot, repository: string, number: number, readThreads?: ReadThreads, activityAuthors: readonly string[] = [], signal?: AbortSignal): Promise<import('./store.ts').SnapshotPatch & { pr: GitHubPullRequestRecord }> {

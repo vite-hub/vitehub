@@ -3229,8 +3229,11 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const serverProjectModule = definitionServerDirs.some(directory =>
         normalizedId.startsWith(`${resolve(directory).replace(/\\/g, "/")}/`),
       )
+      // Configured server directories can belong to installed Nuxt layers and still need project transforms.
+      // Skip other installed packages to avoid parsing dependencies on the first dev request.
       const projectModule = typescriptModule
-        && (normalizedId.startsWith(`${resolve(resolved.root).replace(/\\/g, "/")}/`) || serverProjectModule)
+        && (serverProjectModule
+          || (!normalizedId.includes("/node_modules/") && normalizedId.startsWith(`${resolve(resolved.root).replace(/\\/g, "/")}/`)))
       if (
         projectModule
         && !normalizedId.includes("/node_modules/")

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 
-import { createConsoleAppAuthAccess } from "../src/console/auth.ts"
+import { createConsoleAppAuthAccess } from "../src/console/auth-pages.ts"
 import { handleCloudflareAccessConsoleRequest, verifyCloudflareAccessConsoleRequest } from "../src/console/auth-cloudflare-access.ts"
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"

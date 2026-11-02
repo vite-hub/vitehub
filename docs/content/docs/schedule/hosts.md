@@ -15,7 +15,7 @@ When a Static Schedule handler throws, ViteHub logs `[vitehub:schedule] Schedule
 | Mode | Output | Nuance |
 | --- | --- | --- |
 | `auto` | Selects the appropriate generated output for the active build context. | Default mode for Vite projects. |
-| `standalone` | Writes standalone provider output outside Nitro. | Use when ViteHub owns provider output directly. |
+| `standalone` | Writes the wake output of the build's host outside Nitro. | Use when ViteHub owns provider output directly. To get the output of another host, build with that host. |
 | `nitro` | Writes Nitro Cloudflare module and plugin output. | Use when Nitro owns Cloudflare cron wiring. |
 | `false` | Disables generated provider output. | Runtime helpers still work when you wire execution yourself. |
 
@@ -23,8 +23,11 @@ When a Static Schedule handler throws, ViteHub logs `[vitehub:schedule] Schedule
 | --- | --- |
 | Cloudflare | Cron trigger output and Cloudflare schedule runtime entry wiring. |
 | Vercel | Vercel cron-compatible output for static schedules. |
+| Netlify | One Netlify scheduled function per static schedule. |
 | Deno | `Deno.cron` output loaded by generated Deno Agent server output. |
-| Node or Docker | The Process Runtime (`runtime: { driver: 'process' }`) runs each Definition in the long-lived process. |
+| Node or Docker | No host output. The Process Runtime (`runtime: { driver: 'process' }`) runs each Definition in the long-lived process. |
+
+Schedule writes the output of one host per build. With Nitro, the host is the preset that Nitro resolves. Without Nitro, it comes from `nitro.preset` in the Vite config, then `NITRO_PRESET`, `SERVER_PRESET`, and `VITEHUB_HOSTING`. A build also removes the Schedule output that an earlier build wrote for another host. When no host is known, the build writes the output of every host above.
 
 ::warning
 Provider Wake output requires a static five-field UTC cron string compatible with generated provider output. A Static Schedule that sets a `timeZone` other than `UTC` fails the build when the build generates provider output.

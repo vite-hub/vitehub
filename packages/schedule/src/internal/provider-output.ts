@@ -18,6 +18,7 @@ import { discoverScheduleDefinitions } from "../discovery.ts"
 import { getVercelSchedulePath } from "../integrations/vercel.ts"
 
 import type { Plugin } from "esbuild"
+import type { DeploymentPreset } from "@vite-hub/internal/deployment"
 import type { DiscoveredScheduleDefinition } from "../types.ts"
 import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -80,6 +81,8 @@ interface GenerateProviderOutputsOptions {
   cron?: ScheduleCronOverrides
   crons?: Map<string, string>
   definitions?: DiscoveredScheduleDefinition[]
+  /** The host this build targets. Schedule writes wake output only for it, and for every host when it is `undefined`. */
+  host?: DeploymentPreset
   rootDir: string
   runtimeImport?: string
   retainedSourcesDir?: string
@@ -916,8 +919,10 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
     options.signal?.throwIfAborted()
     const discoveredCrons = options.crons ?? await readDefinitionCrons(artifacts.definitions, options.cron)
     const crons = new Map(artifacts.definitions.map(definition => [definition.name, discoveredCrons.get(definition.name)!]))
+    // Other hosts get the same cleanup as a build without Schedules, so their stale Schedule output goes away.
+    const hostDefinitions = (host: DeploymentPreset) => options.host === undefined || options.host === host ? artifacts.definitions : []
     options.signal?.throwIfAborted()
-    if (artifacts.definitions.length > 0) {
+    if (hostDefinitions("deno").length > 0) {
       const stagedDenoCronInputFile = `${artifacts.denoCronFile}.vitehub-input-tmp.mjs`
       const stagedDenoCronFile = `${artifacts.denoCronFile}.vitehub-tmp`
       try {
@@ -941,7 +946,12 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
           rm(stagedDenoCronFile, { force: true }),
         ])
       }
-      options.signal?.throwIfAborted()
+    }
+    else {
+      await rm(artifacts.denoCronFile, { force: true })
+    }
+    options.signal?.throwIfAborted()
+    if (hostDefinitions("cloudflare").length > 0) {
       await writeCloudflareScheduleOutput({
         bundleAlias: options.bundleAlias,
         bundleDefines: options.bundleDefines,
@@ -955,13 +965,14 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
       })
     }
     else {
+      await cleanCloudflareScheduleOutput(options.rootDir, cloudflareStateFile, previousCloudflareStateFile)
+    }
+    if (artifacts.definitions.length === 0) {
       options.signal?.throwIfAborted()
       await Promise.all([
         rm(artifacts.cloudflareWorkerFile, { force: true }),
-        rm(artifacts.denoCronFile, { force: true }),
         rm(artifacts.registryFile, { force: true }),
         rm(artifacts.vercelServerFile, { force: true }),
-        cleanCloudflareScheduleOutput(options.rootDir, cloudflareStateFile, previousCloudflareStateFile),
       ])
     }
     options.signal?.throwIfAborted()
@@ -969,7 +980,7 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
       bundleAlias: options.bundleAlias,
       bundleDefines: options.bundleDefines,
       bundleExternal: options.bundleExternal,
-      definitions: artifacts.definitions,
+      definitions: hostDefinitions("vercel"),
       outputRoot: createDefaultVercelOutputRoot(options.rootDir),
       registryFile: artifacts.registryFile,
       rootDir: options.rootDir,
@@ -984,7 +995,7 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
       bundleExternal: options.bundleExternal,
       crons,
       sourceRootDir: options.sourceRootDir,
-      definitions: artifacts.definitions,
+      definitions: hostDefinitions("netlify"),
       outputRoot: createDefaultNetlifyOutputRoot(options.rootDir),
       registryFile: artifacts.registryFile,
       rootDir: options.rootDir,

@@ -38,7 +38,7 @@ import { createAgentInvocationContextStore } from "../invocation-context.ts"
 import { withAgentInvocationResponseOwner } from "../internal/agent-invocation-response-owner.ts"
 import { sameInlineInvoker } from "../internal/inline-invoker.ts"
 import { isResponse } from "../internal/response.ts"
-import { agentInvocationId, bindAgentInvocations, recoverInterruptedAgentInvocations, runInvocationReference } from "../invocations.ts"
+import { agentInvocationId, bindAgentInvocations, queuedAgentInvocation, recoverInterruptedAgentInvocations, runInvocationReference } from "../invocations.ts"
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 import { isAgentInvocationCancellationError } from "../internal/invocation-cancellation.ts"
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
@@ -2146,7 +2146,12 @@ async function executeQueuedWebhookDelivery(
         handlerOptions.capabilities,
         executionAgent !== agent ? taskAgentIdentity(executionAgent) : routeAgentIdentity(handlerOptions),
       )
-      const runContext = channelDelivery ? withAgentChannelDelivery(baseRunContext, channelDelivery) : baseRunContext
+      const deliveryRunContext = channelDelivery ? withAgentChannelDelivery(baseRunContext, channelDelivery) : baseRunContext
+      // A shutdown requeue can keep its attempt count, so every lease may reopen an earlier failed Invocation.
+      const runContext = {
+        ...deliveryRunContext,
+        [queuedAgentInvocation]: { reopenFailed: true, retryPending: delivery.attempts + 1 < maxWebhookQueueAttempts },
+      }
       await runWithRuntimeCloudflareEnv(runContext, async () => {
         const invocationStartup = startAgentInvocation(
           // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.

@@ -16080,7 +16080,8 @@ describe("server helpers", () => {
         handler(chatWebhookRequest(91_141), "telegram", runtime),
       ])
       await vi.waitFor(() => expect(inputs).toHaveLength(1))
-      expect(inputs[0]?.messages?.map((message) => message.id)).toEqual(["91140", "91141"])
+      // Concurrent webhook requests can reach the queue in either order.
+      expect(inputs[0]?.messages?.map((message) => message.id).sort()).toEqual(["91140", "91141"])
 
       // Chat SDK releases its lock after the Workflow handoff, so a later burst reaches the steer queue.
       await Promise.all([
@@ -16093,7 +16094,7 @@ describe("server helpers", () => {
       pending = undefined
       releasePending()
       await vi.waitFor(() => expect(inputs).toHaveLength(2))
-      expect(inputs[1]?.messages?.map((message) => message.id)).toEqual(["91142", "91143"])
+      expect(inputs[1]?.messages?.map((message) => message.id).sort()).toEqual(["91142", "91143"])
     } finally {
       pending = undefined
       releasePending()

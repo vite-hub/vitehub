@@ -1,7 +1,8 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { cmsConsoleAuthorize } from "vite-hub/cms/access"
-import { defineConsoleAuthorize } from "vite-hub/console/auth"
+import { getAuthForRequest } from "@vite-hub/auth/server"
+import { createConsoleAppAuthPages, defineConsoleAuthorize } from "vite-hub/console/auth"
 import { bindConsoleAccess, installConsoleAccess, withConsoleAccess } from "../src/console/runtime/server/access.ts"
 
 import type { ConsoleAccess } from "../src/console/runtime/server/access.ts"
@@ -11,6 +12,11 @@ declare const event: ConsoleRequestEvent
 declare const access: ConsoleAccess
 
 describe("Console access types", () => {
+  it("accepts synchronous and lazy app Auth resolvers", () => {
+    createConsoleAppAuthPages(getAuthForRequest)
+    createConsoleAppAuthPages(async (...input) => getAuthForRequest(...input))
+  })
+
   it("type checks", () => {
     const route = withConsoleAccess(async (_event: ConsoleRequestEvent, checked) => checked.mode, { section: "kv" })
     expectTypeOf(route).returns.toEqualTypeOf<Promise<ConsoleAccess["mode"] | Response>>()

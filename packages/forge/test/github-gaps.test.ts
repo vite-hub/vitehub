@@ -2,7 +2,7 @@ import { fixtureFetch } from "forges/testing"
 import type { Fixture } from "forges/testing"
 import { describe, expect, it } from "vitest"
 
-import { forgeProvider, getReviewThread, githubBranchRuleDetails, listReviewThreads, repoRef, retargetPullRequest } from "../src/index.ts"
+import { forgeProvider, githubBranchRuleDetails, repoRef, retargetPullRequest } from "../src/index.ts"
 
 const api = "https://api.github.com"
 const rule = (context = "CI", integration_id: number | null = 42) => ({
@@ -86,41 +86,8 @@ describe("githubBranchRuleDetails()", () => {
   })
 })
 
-describe("review threads", () => {
+describe("retargetPullRequest()", () => {
   const thread = (provider: Awaited<ReturnType<typeof github>>["provider"]) => ({ ...repoRef(provider, "acme/app"), repo: repoRef(provider, "acme/app"), kind: "pull_request" as const, number: "12" })
-
-  it("lists every conversation and every comment identity", async () => {
-    const graphql = (operationName: string, variables: Record<string, unknown>, data: unknown): Fixture => ({
-      request: { method: "POST", url: `${api}/graphql`, operationName, variables },
-      response: { status: 200, body: { data } },
-    })
-    const page = (hasNextPage: boolean, endCursor: string | null) => ({ hasNextPage, endCursor })
-    const node = (id: string, comments: unknown[], next: boolean) => ({
-      id, isResolved: false, isOutdated: false, path: "src/a.ts", line: 3, originalLine: 3, startLine: null, originalStartLine: null,
-      comments: { nodes: comments, pageInfo: page(next, next ? "c1" : null) },
-    })
-    const { provider, fixture } = await github([
-      graphql("ForgeReviewThreads", { owner: "acme", name: "app", number: 12, after: null }, { repository: { pullRequest: { reviewThreads: { nodes: [node("T1", [{ id: "C1", databaseId: 1 }], true)], pageInfo: page(true, "t1") } } } }),
-      graphql("ForgeReviewThreads", { owner: "acme", name: "app", number: 12, after: "t1" }, { repository: { pullRequest: { reviewThreads: { nodes: [node("T2", [], false)], pageInfo: page(false, null) } } } }),
-      graphql("ForgeReviewThreadComments", { id: "T1", after: "c1" }, { node: { comments: { nodes: [{ id: "C2", databaseId: null }], pageInfo: page(false, null) } } }),
-    ])
-    const threads = await listReviewThreads(provider, thread(provider))
-    expect(threads.map(item => ({ id: item.id, comments: item.comments, line: item.line, path: item.path }))).toEqual([
-      { id: "T1", comments: [{ id: "C1", restId: "1" }, { id: "C2" }], line: 3, path: "src/a.ts" },
-      { id: "T2", comments: [], line: 3, path: "src/a.ts" },
-    ])
-    expect(threads[0]?.raw).not.toHaveProperty("comments")
-    expect(fixture.calls).toHaveLength(3)
-  })
-
-  it("looks up the pull request of one conversation", async () => {
-    const { provider } = await github([
-      { request: { method: "POST", url: `${api}/graphql`, operationName: "ForgeReviewThread", variables: { id: "T1" } }, response: { status: 200, body: { data: { node: { id: "T1", isResolved: true, pullRequest: { id: "PR_1" } } } } } },
-      { request: { method: "POST", url: `${api}/graphql`, operationName: "ForgeReviewThread", variables: { id: "X" } }, response: { status: 200, body: { data: { node: {} } } } },
-    ])
-    await expect(getReviewThread(provider, "T1")).resolves.toEqual({ id: "T1", resolved: true, pullRequestId: "PR_1" })
-    await expect(getReviewThread(provider, "X")).resolves.toBeUndefined()
-  })
 
   it("changes the base branch of a pull request", async () => {
     const { provider, fixture } = await github([{ request: { method: "PATCH", url: `${api}/repos/acme/app/pulls/12` }, response: { status: 200, body: {} } }])

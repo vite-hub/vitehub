@@ -915,6 +915,48 @@ describe("schedule provider output", () => {
     expect(JSON.parse(await readFile(configFile, "utf8")).triggers.crons).toEqual(["0 1 * * *"])
   })
 
+  it.each(["cloudflare", "deno", "netlify", "vercel"] as const)("bundles only the %s host output and removes the Schedule output of other hosts", async (host) => {
+    const rootDir = await createTempProject(`vitehub-schedule-output-${host}-host-`)
+    const outputs = {
+      cloudflare: join(createDefaultCloudflareOutputRoot(rootDir), "index.js"),
+      deno: join(rootDir, ".vitehub", "schedule", "deno-cron.mjs"),
+      netlify: join(createDefaultNetlifyOutputRoot(rootDir), "functions", "vitehub-schedule-cleanup.mjs"),
+      vercel: join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", "index.mjs"),
+    }
+    await generateProviderOutputs({ clientOutDir: "dist/client", rootDir })
+    for (const file of Object.values(outputs)) expect(existsSync(file)).toBe(true)
+    const bundle = vi.spyOn(esbuild, "bundleEsmEntry")
+
+    try {
+      await generateProviderOutputs({ clientOutDir: "dist/client", host, rootDir })
+      expect(bundle).toHaveBeenCalledOnce()
+    }
+    finally {
+      bundle.mockRestore()
+    }
+
+    for (const [outputHost, file] of Object.entries(outputs)) expect(existsSync(file), outputHost).toBe(outputHost === host)
+    expect(existsSync(join(rootDir, ".vercel", "output", "config.json"))).toBe(host === "vercel")
+  })
+
+  it("writes no Schedule wake output for a Node build", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-output-node-host-")
+    const bundle = vi.spyOn(esbuild, "bundleEsmEntry")
+
+    try {
+      await generateProviderOutputs({ clientOutDir: "dist/client", host: "node", rootDir })
+      expect(bundle).not.toHaveBeenCalled()
+    }
+    finally {
+      bundle.mockRestore()
+    }
+
+    expect(existsSync(createDefaultCloudflareOutputRoot(rootDir))).toBe(false)
+    expect(existsSync(createDefaultNetlifyOutputRoot(rootDir))).toBe(false)
+    expect(existsSync(join(rootDir, ".vercel"))).toBe(false)
+    expect(existsSync(join(rootDir, ".vitehub", "schedule", "deno-cron.mjs"))).toBe(false)
+  })
+
   it("preserves a peer Cloudflare worker when removing stale Schedule output", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-peer-worker-")
     const cloudflareWorker = join(createDefaultCloudflareOutputRoot(rootDir), "index.js")

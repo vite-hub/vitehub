@@ -408,6 +408,11 @@
       "import": "./dist/auth/presets.js",
       "default": "./dist/auth/presets.js"
     },
+    "./auth/runtime/server": {
+      "types": "./dist/auth/runtime/server.d.ts",
+      "import": "./dist/auth/runtime/server.js",
+      "default": "./dist/auth/runtime/server.js"
+    },
     "./auth/server": {
       "types": "./dist/auth/server.d.ts",
       "import": "./dist/auth/server.js",
