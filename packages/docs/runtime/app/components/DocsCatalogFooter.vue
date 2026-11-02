@@ -18,7 +18,8 @@ function isCurrent(section: DocsSection) {
 </script>
 
 <template>
-  <!-- Sections join the catalog through their `category`. A site without categories has no catalog. -->
+  <!-- The rail and the sidebar already mark the current page, so the catalog marks the current section as the current
+       item of its list. Sections join the catalog through their `category`. A site without categories has no catalog. -->
   <footer v-if="groups.length" class="vh-product-footer" :aria-label="`Explore ${site.name} documentation`">
     <h2 class="vh-product-footer-title">Explore {{ site.name }}</h2>
 
@@ -31,7 +32,7 @@ function isCurrent(section: DocsSection) {
               :to="section.path"
               class="vh-product-footer-link"
               :class="{ 'is-current': isCurrent(section) }"
-              :aria-current="isCurrent(section) ? 'page' : undefined"
+              :aria-current="isCurrent(section) ? 'true' : undefined"
             >
               <UIcon :name="icons.section(section)" class="mt-[0.1875rem] size-4 shrink-0" />
               <span class="min-w-0">{{ section.title }}</span>
@@ -92,8 +93,17 @@ function isCurrent(section: DocsSection) {
   transition: color 150ms ease;
 }
 
-.vh-product-footer-link:hover {
-  color: var(--ui-text-highlighted);
+@media (hover: hover) {
+  .vh-product-footer-link:hover {
+    color: var(--ui-text-highlighted);
+  }
+}
+
+/* 44px rows for fingers. The list has no gaps, so the rows grow instead of using hidden tap areas. */
+@media (pointer: coarse) {
+  .vh-product-footer-link {
+    padding-block: 0.6875rem;
+  }
 }
 
 .vh-product-footer-link.is-current {

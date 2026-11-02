@@ -306,11 +306,12 @@ html.dark .shiki span {
   }
 }
 
-/* Touch screens have no Escape key, so the close button keeps its icon. */
+/* Touch screens have no Escape key, so the close button keeps its icon. It has no fill, so a 44px box looks the same. */
 @media (pointer: coarse) {
   .vh-docs-search-modal button[aria-label="Close"] {
-    width: 2.25rem;
-    height: 2.25rem;
+    width: 2.75rem;
+    height: 2.75rem;
+    justify-content: center;
     border: 0;
   }
 
@@ -365,7 +366,7 @@ html.dark .shiki span {
 
   .vh-docs-search-modal button[aria-label="Close"] {
     width: auto;
-    height: 2.25rem;
+    height: 2.75rem;
     padding-inline: 0.5rem;
     border: 0;
     color: var(--ui-text-highlighted);

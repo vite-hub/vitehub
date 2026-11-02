@@ -63,30 +63,62 @@ const items = computed(() => {
 </script>
 
 <template>
-  <UFieldGroup v-if="links" size="sm">
-    <UButton
-      :label="copied ? 'Copied' : 'Copy page'"
-      :icon="copied ? 'i-lucide-check' : 'i-lucide-copy'"
-      :loading="copying"
-      color="neutral"
-      variant="soft"
-      aria-label="Copy page as Markdown"
-      :ui="{ leadingIcon: 'text-neutral size-3.5' }"
-      @click="copyPage"
-    />
-
-    <UDropdownMenu
-      size="sm"
-      :items="items"
-      :content="{ align: 'end', side: 'bottom', sideOffset: 8 }"
-    >
+  <!-- `contents` keeps the group a direct flex item of the page header. The live region sits outside the group,
+       because the group rounds its first and last child. -->
+  <div v-if="links" class="contents">
+    <UFieldGroup size="sm">
       <UButton
-        icon="i-lucide-chevron-down"
+        :icon="copied ? 'i-lucide-check' : 'i-lucide-copy'"
+        :loading="copying"
         color="neutral"
         variant="soft"
-        aria-label="More page actions"
-        class="border-l border-muted"
-      />
-    </UDropdownMenu>
-  </UFieldGroup>
+        aria-label="Copy page as Markdown"
+        class="vh-page-action"
+        :ui="{ leadingIcon: 'text-neutral size-3.5' }"
+        @click="copyPage"
+      >
+        <!-- Both labels share one grid cell, so "Copied" does not change the width or move the menu button. -->
+        <span class="grid">
+          <span class="[grid-area:1/1]" :class="{ invisible: copied }">Copy page</span>
+          <span class="[grid-area:1/1]" :class="{ invisible: !copied }">Copied</span>
+        </span>
+      </UButton>
+
+      <UDropdownMenu
+        size="sm"
+        :items="items"
+        :content="{ align: 'end', side: 'bottom', sideOffset: 8 }"
+        :ui="{ item: 'pointer-coarse:min-h-11 pointer-coarse:items-center' }"
+      >
+        <UButton
+          icon="i-lucide-chevron-down"
+          color="neutral"
+          variant="soft"
+          aria-label="More page actions"
+          class="vh-page-action vh-page-action-more border-l border-muted"
+        />
+      </UDropdownMenu>
+    </UFieldGroup>
+    <span class="sr-only" aria-live="polite">{{ copied ? "Page copied as Markdown" : "" }}</span>
+  </div>
 </template>
+
+<style scoped>
+/* On touch screens the 28px buttons take taps from a 44px area. The visible buttons keep their size. */
+@media (pointer: coarse) {
+  .vh-page-action {
+    position: relative;
+  }
+
+  .vh-page-action::before {
+    position: absolute;
+    inset: -8px 0;
+    content: "";
+  }
+
+  /* The menu button is 29px wide, and nothing sits to its right. */
+  .vh-page-action-more::before {
+    inset: -8px -15px -8px 0;
+  }
+}
+</style>
