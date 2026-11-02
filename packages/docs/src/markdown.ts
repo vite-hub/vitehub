@@ -10,6 +10,8 @@ import diff from "shiki/dist/langs/diff.mjs"
 import html from "shiki/dist/langs/html.mjs"
 import markdownLanguage from "shiki/dist/langs/markdown.mjs"
 import mdc from "shiki/dist/langs/mdc.mjs"
+import githubDark from "shiki/dist/themes/github-dark-default.mjs"
+import githubLight from "shiki/dist/themes/github-light-default.mjs"
 
 import type { ComarkPlugin, MarkdownDocument, Node as ComarkNode } from "comark"
 import type { DocsSearchSection, DocsTocLink } from "./types.ts"
@@ -27,6 +29,8 @@ export interface DocsParserOptions {
 
 // Bash, JSON, JavaScript, TypeScript, Vue, and YAML are built in. Other code stays plain text.
 const languages = [css, diff, html, markdownLanguage, mdc]
+// Every token of the GitHub default themes is 4.5:1 or more on the code background. Comark's Material themes were 2.3:1 in light mode.
+const themes = { light: githubLight, dark: githubDark }
 
 /**
  * Parse Markdown with components (`::name`), GitHub alerts, task lists, highlighted code, and a heading outline.
@@ -34,7 +38,7 @@ const languages = [css, diff, html, markdownLanguage, mdc]
  */
 export function createDocsParser(options: DocsParserOptions = {}): (markdown: string) => Promise<DocsDocument> {
   const extra = options.plugins ?? []
-  const builtIn = [alert(), taskList(), components(), attributes(), shiki({ languages }), toc({ depth: 3, searchDepth: 2 })]
+  const builtIn = [alert(), taskList(), components(), attributes(), shiki({ languages, themes, registerDefaultThemes: false }), toc({ depth: 3, searchDepth: 2 })]
   const parse = createMarkdownParser({ plugins: [...builtIn.filter(plugin => !extra.some(added => added.name === plugin.name)), ...extra] })
   return async (markdown) => {
     const document = await parse(markdown)

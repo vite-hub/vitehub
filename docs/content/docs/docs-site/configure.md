@@ -167,7 +167,7 @@ export default defineNuxtConfig({
 
 ## Theme
 
-`theme: 'vercel'` is the default and the only theme today. It uses Geist, black, white, and zinc, square corners, and hairline borders. Change it in two places:
+`theme: 'vercel'` is the default and the only theme today. It uses Geist, black, white, and zinc, square corners, hairline borders, and GitHub code colors. Text, code, and focus rings pass WCAG AA in light and dark mode. Change it in two places:
 
 - `app.config.ts`: Nuxt UI `ui` keys. Your values win over the theme. The theme wins over the Nuxt UI defaults, also when `@nuxt/ui` comes first in `modules`.
 - CSS variables in a stylesheet of your app:

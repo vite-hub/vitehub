@@ -18,6 +18,11 @@
   --vh-paper: #fafafa;
 }
 
+/* Nuxt UI dims text with zinc-400, 2.5:1 on white. Zinc-500 is 4.6:1 or more on the page and muted backgrounds. */
+:root:not(.dark) {
+  --ui-text-dimmed: #71717a;
+}
+
 :root.light {
   color-scheme: light;
 }
@@ -33,7 +38,8 @@
   --ui-border-muted: #18181b;
   --ui-border-accented: #3f3f46;
   --ui-border-inverted: var(--vh-paper);
-  --ui-text-dimmed: #71717a;
+  /* 5.2:1 on the muted background, where zinc-500 is 3.7:1. */
+  --ui-text-dimmed: #8a8a93;
   --ui-text-muted: #a1a1aa;
   --ui-text-toned: #d4d4d8;
   --ui-text: #e4e4e7;
@@ -47,6 +53,30 @@ html {
 
 body {
   background: var(--ui-bg);
+}
+
+/*
+ * One focus ring for every control. Nuxt UI draws a 3px outline at 25% alpha, about 2:1 against the page. The
+ * theme is unlayered, so this rule wins over the outline utilities of Nuxt UI.
+ */
+:where(a, button, input[type="checkbox"], input[type="radio"], select, summary, [role="menuitem"], [role="option"], [role="tab"], [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: 2px solid var(--ui-text-highlighted);
+  outline-offset: 2px;
+}
+
+/* Menu items and tabs fill a box that clips its overflow, so their ring sits inside. */
+:where([role="menuitem"], [role="option"], [role="tab"]):focus-visible {
+  outline-offset: -2px;
+}
+
+/*
+ * Nuxt UI also rings the `::before` of a focused link, the code in it, or the card and list around it. The ring
+ * above is enough, so those second rings go.
+ */
+:where([class*="focus-visible:before:outline"]):focus-visible::before,
+:where(a:focus-visible > code),
+:where([class*="has-focus-visible:outline"]):has(:is(a, button, [role="menuitem"], [role="option"], [role="tab"]):focus-visible) {
+  outline: none;
 }
 
 ::selection {
