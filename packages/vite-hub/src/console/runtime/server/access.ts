@@ -5,6 +5,7 @@ import { consoleMountBase } from "../console-route.ts"
 import { consoleDiagnosticBody, isConsoleImpersonationRejection, type ConsoleDiagnosticCode } from "../diagnostics.ts"
 import { markBearerRejection, mcpChallenge, resolveConsoleOAuth, verifyConsoleBearer, type ConsoleOAuthConfig, type ConsoleOAuthState } from "./bearer.ts"
 import { consoleRequestError, consoleRequestURL, isConsoleDevelopmentRuntime, type ConsoleRequestEvent } from "./request.ts"
+import { loadConsoleRuntime } from "./runtime.ts"
 
 import type { OperationContext } from "@vite-hub/internal/operations"
 import type { ConsoleAuthorize, ConsoleUser } from "../../auth-types.ts"
@@ -545,8 +546,8 @@ export async function consoleAllowsRequest(event: unknown, section?: ConsoleSect
 }
 
 /**
- * Wraps a Console server handler so it runs only after the installed access policy accepts the request.
- * Otherwise the wrapper returns the rejection `Response`. Without an installed policy, it returns `500`.
+ * Wraps a Console server handler so it runs only after the installed access policy accepts the request, and after the
+ * Console runtime has loaded. Otherwise the wrapper returns the rejection `Response`. Without an installed policy, it returns `500`.
  */
 export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
   handler: ConsoleGuardedHandler<TEvent, TResult>,
@@ -578,6 +579,8 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
         checkedEvents.set(event, access)
       }
     }
+    // Only an accepted request loads the Console runtime, so a rejected one costs no more than the check.
+    await loadConsoleRuntime()
     return handler(event, access)
   }
   routeScopes.set(route, declared)

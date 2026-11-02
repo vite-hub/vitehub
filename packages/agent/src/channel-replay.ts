@@ -371,8 +371,9 @@ export async function replayChannel<TRuntimeConfig extends AgentRuntimeConfig = 
       if (!page.nextCursor || !page.items.length) break
       cursor = page.nextCursor
     }
-    const started = result.items.filter(item => item.status === "completed" || item.status === "started" || item.status === "queued" || item.reason === "handled")
-    if (!options.dryRun) await clearSkippedChannelItems(resolved, agentName, channel, runtime, started.map(item => item.key))
+    const handled = result.items.filter(item => item.status === "completed" || item.status === "started" || item.status === "queued" || item.reason === "handled"
+      || (item.reason === "existing" && item.invocationStatus === "completed"))
+    if (!options.dryRun) await clearSkippedChannelItems(resolved, agentName, channel, runtime, handled.map(item => item.key))
     return result
   }
   finally {
