@@ -140,6 +140,21 @@ When Nitro's deployment config generation is enabled (the default), ViteHub writ
 
 When config generation and Sandbox are enabled, ViteHub writes an explicit gradual Container rollout into `.output/nitro.json`. This deploys the Worker and its Container application through the same generated contract. A direct Wrangler command with `--containers-rollout=none` bypasses ViteHub's deployment command and can leave a newly scoped Sandbox binding without a Container application to run.
 
+### Upload secrets from a file
+
+A new Worker has no secrets yet, so `wrangler secret put` cannot set the values that `secrets.required` asks for. To upload them on a deploy from your terminal, name a `.env` or JSON file:
+
+```ts [vite.config.ts]
+vitehub({
+  preset: 'cloudflare',
+  cloudflare: { secretsFile: '.env' },
+})
+```
+
+In Nuxt, set the same `cloudflare` key under `vitehub` in `nuxt.config.ts`.
+
+When the file exists at build time, ViteHub adds `--secrets-file` with its path to the deploy command in `.output/nitro.json`. `nitro deploy --prebuilt` then uploads every key in the file as a Worker secret. Wrangler keeps secrets that the file does not name. The path is relative to the project root, and the command finds it from the project root or from `.output`. ViteHub only checks that the file exists. It never reads or copies the values. A build without the file, such as a Workers Builds or Deploy to Cloudflare build, writes the command without the flag, and the secrets you set in the dashboard stay in use. Do not build with a local secrets file and deploy that `.output` from another machine. The option needs Wrangler 4.74 or later. An app's own `nitro.commands.deploy` replaces it, and it has no effect with `nitro.cloudflare.deployConfig: false`.
+
 ### Rate Limiting bindings
 
 With `vitehub({ preset: 'cloudflare', rateLimit: true })`, ViteHub selects the Cloudflare provider and uses the application name as the namespace. Each handler-local `requireRateLimit()` policy contributes one `ratelimits` entry to Nitro's Wrangler config. Do not repeat those bindings in `nitro.cloudflare.wrangler`.

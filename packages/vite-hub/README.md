@@ -116,7 +116,9 @@ The preset tells ViteHub which integrations and Provider Output to generate. Dep
 
 Nuxt's Cloudflare preset enables Nitro deployment configuration by default and
 writes `.output/server/wrangler.json`. Set `nitro.cloudflare.deployConfig: false`
-only when you manage that configuration yourself.
+only when you manage that configuration yourself. With `cloudflare: { secretsFile: ".env" }`,
+`nitro deploy --prebuilt` also uploads that file's values as Worker secrets when the file exists at build time.
+See [Upload secrets from a file](https://vitehub.dev/docs/frameworks-hosts/cloudflare#upload-secrets-from-a-file).
 
 A successful build proves that ViteHub discovered the configured definitions and wrote the selected output. It does not prove that remote resources exist, credentials are valid, deployment succeeded, or a hosted provider completed a live operation. Follow the selected [host guide](https://vitehub.dev/docs/frameworks-hosts) for provisioning, environment variables, deployment commands, and current proof.
 
