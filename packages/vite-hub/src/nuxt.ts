@@ -1,4 +1,4 @@
-import { consoleD1Binding, consoleDatabaseUrl, resolveConsoleJournal, withDataDir, type ConsoleJournal } from "./storage-config.ts"
+import { consoleD1Binding, consoleDatabaseUrl, resolveConsoleJournal, withConnectionsDatabase, withDataDir, type ConsoleJournal } from "./storage-config.ts"
 import { readFileSync } from "node:fs"
 import { readFile, writeFile } from "node:fs/promises"
 import { findPackageJSON } from "node:module"
@@ -34,6 +34,7 @@ import { createConsoleCliNamespace } from "./console/cli.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./console/fixture.ts"
 import { createConsoleInvocationsIdentity, type ConsoleAuthMode } from "./console/internal.ts"
 import { importOptionalOwner, requireOptionalOwner } from "./internal/optional-owners.ts"
+import { connectionsDatabasePlugin } from "./internal/connections-database.ts"
 import { ownerModules } from "./internal/owner-modules.ts"
 import { discoverConsoleBuildCatalog } from "./console/build.ts"
 import { assertConsoleRetention, writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./console/plugin.ts"
@@ -952,18 +953,14 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const rootDir = nuxt.options.rootDir || process.cwd()
   const projectRoot = resolveViteHubProjectRoot(rootDir)
   // The `cms` preset turns on Workspace, Database, and Blob. Nuxt knows the root here, so resolve it once.
-  const options = markCmsPresetFeaturesResolved(withDataDir(resolveCmsPresetFeatures({
+  const options = markCmsPresetFeaturesResolved(withConnectionsDatabase(withDataDir(resolveCmsPresetFeatures({
     ...moduleOptions,
     console: resolveConsoleOptions(moduleOptions.console),
     env: envOptions,
-  } as Parameters<typeof vitehub>[0], { projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) })))
+  } as Parameters<typeof vitehub>[0], { projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) }))))
   const consoleOptions = resolveConsoleOptions(options.console)
   if (options.connections && nuxt.options.dev === false) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0012({ message: "[vitehub] connections is not supported by the Nuxt module yet. Use the Vite plugin." })
-  }
-  // Only the Vite plugin enables the implicit default Database for Connections.
-  if (options.connections && !options.database) {
-    throw viteHubErrorDiagnostics.VITE_HUB_R0124({ message: "[vitehub] connections in the Nuxt module requires database and a Database Definition, because grants and activity are stored in the app database." })
   }
   const plan = resolveDeploymentPlan(moduleOptions.preset)
   const configuredOptions = options.database && nuxt.options.database && typeof nuxt.options.database === "object"
@@ -1163,6 +1160,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const consoleFixtureSnapshot = resolvedConsoleFixture ? readConsoleFixture(resolvedConsoleFixture) : undefined
   const plugins = [
     ...installedPlugins.filter(plugin => plugin.name !== "vite-hub/deployment-output"),
+    ...(options.connections ? [connectionsDatabasePlugin(projectRoot)] : []),
     ...(nuxt.options.vitehubCliDiscovery ? [{
       name: "vite-hub/deployment-inspect",
       vitehub: {

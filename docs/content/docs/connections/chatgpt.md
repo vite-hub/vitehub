@@ -32,6 +32,12 @@ export default defineAgent({
 })
 ```
 
+Install Codex in the app. The gateway runs this package and never a `codex` command from `PATH`. `vitehub connections connect` and `inspect` warn when it is missing:
+
+```sh
+pnpm add @openai/codex
+```
+
 `chatgpt()` selects the `chatgpt` Connection. Use `chatgpt({ connection: 'personal' })` for another named Connection. The provider requires an explicit access map. Give each saved account or workspace its own Connection name. A returning sign-in must match the account already bound to that Connection.
 
 Library consumers can use `@vite-hub/connections/chatgpt` and `@vite-hub/gateways`. Gateways live in `vite-hub/gateways`, not `vite-hub/agent/gateways`.
@@ -41,12 +47,30 @@ Library consumers can use `@vite-hub/connections/chatgpt` and `@vite-hub/gateway
 Start the local app, then run from its directory:
 
 ```sh
-pnpm vitehub connections connect chatgpt --url http://127.0.0.1:3000
-pnpm vitehub connections inspect chatgpt --url http://127.0.0.1:3000
-pnpm vitehub connections models chatgpt --url http://127.0.0.1:3000
+pnpm vitehub connections connect chatgpt
+pnpm vitehub connections inspect chatgpt
+pnpm vitehub connections models chatgpt
 ```
 
+The CLI finds the dev server that runs in the project folder. Pass `--url` for another app, for example `--url http://127.0.0.1:3000`.
+
 The CLI opens the system browser and listens on `127.0.0.1`. If the browser does not open, use the printed URL. ViteHub validates state, PKCE, nonce and the ID token's signature, issuer, audience, expiry and account. It stores the issued `oaiapp_…` client ID and reuses it on later sign-ins. No client secret is needed.
+
+The link works one time, for 10 minutes. The CLI prints when it expires and waits until then.
+
+### Sign in on a server without a browser
+
+The browser returns to `127.0.0.1` on its own computer. When the app runs on a server, choose a port with `--port` and forward it from the computer with the browser:
+
+```sh
+# On the server
+pnpm vitehub connections connect chatgpt --port 4799
+
+# On the computer with the browser
+ssh -N -L 4799:127.0.0.1:4799 user@server
+```
+
+Then open the printed URL on the computer with the browser. If only the server can reach the other computer, run `ssh -N -R 4799:127.0.0.1:4799 user@laptop` on the server instead. Over SSH, or when no browser opens, the CLI prints the port to forward.
 
 Inspection shows the account email, granted and missing scopes, plan status, token expiry, client ID and host ID. It never prints access, refresh or ID tokens. The Console shows the same plan details and directs sign-in to the CLI. A website redirect cannot grant plan usage.
 
@@ -55,7 +79,7 @@ The model command requests the account's current model catalog and keeps `visibi
 Sign out with:
 
 ```sh
-pnpm vitehub connections revoke chatgpt --confirm chatgpt --url http://127.0.0.1:3000
+pnpm vitehub connections revoke chatgpt --confirm chatgpt
 ```
 
 Revocation sends the refresh token and client ID to OpenAI. It keeps the account registration and host ID for the next sign-in. A failed revocation leaves the grant available for retry and reports the failure.
