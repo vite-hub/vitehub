@@ -9291,6 +9291,34 @@ describe("agent message protocol", () => {
     expect(execute).not.toHaveBeenCalled()
   })
 
+  it("starts a UI error with the code of a diagnostic that has a fix", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const { agentDiagnostics } = await import("../src/agent-diagnostics.ts")
+    const failing = (error: Error) => defineAgent({
+      driver: { run: () => (async function* () {
+        yield { error, type: "error" }
+      })() },
+    })
+    const read = async (error: Error) => {
+      // SAFETY: A ui-message-stream output is a ReadableStream of UI message chunks.
+      const stream = await streamAgent(failing(error), { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+      const chunks: unknown[] = []
+      const reader = stream.getReader()
+      while (true) {
+        const next = await reader.read().catch(() => ({ done: true, value: undefined }))
+        if (next.done) break
+        chunks.push(next.value)
+      }
+      return chunks.find(chunk => (chunk as { type?: string }).type === "error")
+    }
+    await expect(read(agentDiagnostics.AGENT_R1016({ connection: "chatgpt", problem: "sign-in" }))).resolves.toEqual({
+      errorText: "AGENT_R1016: The ChatGPT Connection cannot provide plan access (sign-in).",
+      type: "error",
+    })
+    // A wrapper of another layer's message has no fix of its own.
+    await expect(read(agentDiagnostics.AGENT_R0857({ message: "provider failed" }))).resolves.toEqual({ errorText: "provider failed", type: "error" })
+  })
+
   it("emits a provisional title before a terminal UI error", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const generated = deferred<string>()

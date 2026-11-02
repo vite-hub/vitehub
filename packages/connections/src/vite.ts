@@ -9,6 +9,7 @@ import {
   hasNitroConfigContext,
   isServerEnvironment,
   resolveViteHubProjectRoot,
+  VITEHUB_APP_BASE_URL,
   VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite";
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog";
@@ -268,7 +269,8 @@ export type ConnectionsVitePlugin = Plugin<ConnectionsVitePluginAPI> & {
   vitehub: { cli: () => Promise<ViteHubCliContributor> };
   nitro: {
     name: string;
-    setup: (nitro: { options: { handlers: NitroServerHandler[] }; routing: { sync: () => void } }) => void;
+    /** Nitro 3 has a routing table to rebuild. Nitro 2, which Nuxt 4 runs, reads `options.handlers` when it builds. */
+    setup: (nitro: { options: { handlers: NitroServerHandler[] }; routing?: { sync: () => void } }) => void;
   };
 };
 
@@ -325,8 +327,9 @@ function addManagementHandlers(kit: NitroServerKit, handler: string, route: stri
   kit.addHandler({ handler, method: "get", route: `${route}/callback` });
 }
 
-function connectionManagementRoute(base: unknown): string {
-  return `${connectionMountBase(base)}/_vitehub/connections`
+/** Nuxt serves Vite assets from `/_nuxt/`, so its Vite `base` is not the app base. `vite-hub/nuxt` passes the app base. */
+function connectionManagementRoute(config: object): string {
+  return `${connectionMountBase(Reflect.get(config, VITEHUB_APP_BASE_URL) ?? Reflect.get(config, "base"))}/_vitehub/connections`
 }
 
 function isConnectionDefinitionFile(
@@ -520,10 +523,10 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
             "",
           ].join("\n"),
         );
-        const managementRoute = connectionManagementRoute(Reflect.get(config, "base"));
+        const managementRoute = connectionManagementRoute(config);
         await writeManagementHandler(managementRoute);
         refreshManagement = async (config) => {
-          const route = connectionManagementRoute(config.base);
+          const route = connectionManagementRoute(config);
           const updateHandlers = (value: unknown) => {
             const kit = createNitroServerKit(value);
             if (Array.isArray(kit.config.handlers)) {
@@ -538,7 +541,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
           // Nitro initializes during config hooks, before Vite resolves its final base.
           if (nitroInstance) {
             Object.assign(nitroInstance.options, updateHandlers(nitroInstance.options));
-            nitroInstance.routing.sync();
+            nitroInstance.routing?.sync();
           }
           await writeManagementHandler(route);
         };

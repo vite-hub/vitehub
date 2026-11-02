@@ -350,6 +350,17 @@ export function uiMessageStreamFromResponse(response: Response & { body: Readabl
   })]) as ReadableStream<unknown>
 }
 
+/**
+ * The error chunk text. A diagnostic with a documented fix, such as `AGENT_R1016`, starts with its code, so a client can
+ * show that fix. Diagnostics that only wrap another layer's message keep the message as it is.
+ */
+function uiMessageStreamErrorText(error: unknown): string {
+  if (!(error instanceof Error)) return "Agent stream failed."
+  const code: unknown = Reflect.get(error, "code")
+  const fix: unknown = Reflect.get(error, "fix")
+  return hasRuntimeType(code, "string") && hasRuntimeType(fix, "string") && !error.message.startsWith(code) ? `${code}: ${error.message}` : error.message
+}
+
 function createAgentUIMessageStream(options: {
   execute: (context: { writer: AgentUIMessageStreamWriter }) => MaybePromise<void>
 }): ReadableStream<unknown> {
@@ -368,10 +379,7 @@ function createAgentUIMessageStream(options: {
       void Promise.resolve(options.execute({ writer }))
         .catch((error) => {
           try {
-            controller.enqueue({
-              errorText: error instanceof Error ? error.message : "Agent stream failed.",
-              type: "error",
-            })
+            controller.enqueue({ errorText: uiMessageStreamErrorText(error), type: "error" })
           }
           catch {}
         })

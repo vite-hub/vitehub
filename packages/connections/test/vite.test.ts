@@ -5,7 +5,7 @@ import { Readable } from "node:stream";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite";
+import { VITEHUB_APP_BASE_URL, VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite";
 import { mergeConfig, resolveConfig } from "vite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -154,6 +154,36 @@ describe("hubConnections", () => {
     const handler = await readFile(nitro.handlers[1]!.handler, "utf8");
     expect(handler).toContain('basePath: "/portal/_vitehub/connections"');
     expect(handler).not.toContain("/early/");
+  });
+
+  it("updates the handlers of a Nitro 2 instance at the Nuxt app base, not the assets base", async () => {
+    const root = await createTempProject();
+    const connections = hubConnections();
+    const initializedNitro = { options: { handlers: [] as Array<{ handler: string; route: string }> } };
+    // Nuxt serves Vite assets from /_nuxt/ and passes its app base separately.
+    const nuxtBase = { base: "/_nuxt/", [VITEHUB_APP_BASE_URL]: "/" };
+    const config = await resolveConfig({
+      root,
+      configFile: false,
+      ...nuxtBase,
+      plugins: [
+        { name: "nitro-context", enforce: "pre", config: config => {
+          Reflect.set(config, VITEHUB_NITRO_CONFIG_CONTEXT, true);
+          Reflect.set(config, "nitro", { handlers: [] });
+        } },
+        connections,
+        { name: "initialize-nitro", config: config => {
+          initializedNitro.options = structuredClone(Reflect.get(config, "nitro"));
+          connections.nitro.setup(initializedNitro);
+        } },
+      ],
+    }, "serve", "development");
+    expect(initializedNitro.options.handlers).toEqual(Reflect.get(config, "nitro").handlers);
+    expect(initializedNitro.options.handlers.map(handler => handler.route)).toEqual([
+      "/_vitehub/connections",
+      "/_vitehub/connections/connect/**",
+      "/_vitehub/connections/callback",
+    ]);
   });
 
   it("requires authenticated management configuration in production", async () => {

@@ -14,6 +14,7 @@ import {
 } from "@nuxt/kit"
 import { defu } from "defu"
 
+import { setupDocsAssistant } from "./assistant-nuxt.ts"
 import { createDocsManifest } from "./manifest.ts"
 import { docsManifestPages, docsPageIcon, docsRailIcon, docsSectionIcon, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { toRawMarkdown } from "./raw.ts"
@@ -162,6 +163,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     const config = publicConfig(options)
     nuxt.options.runtimeConfig.public.docs = config
     const moduleOptions: DocsNuxtOptions = nuxt.options
+    setupDocsAssistant(nuxt, config)
 
     let manifest = createDocsManifest({ dir: contentDir, base: config.base })
     /** Writes the agent copy of every page. `nuxi build` empties the build folder after the modules load, so it runs before the build. */
