@@ -38,7 +38,7 @@ import { createAgentInvocationContextStore } from "../invocation-context.ts"
 import { withAgentInvocationResponseOwner } from "../internal/agent-invocation-response-owner.ts"
 import { sameInlineInvoker } from "../internal/inline-invoker.ts"
 import { isResponse } from "../internal/response.ts"
-import { agentInvocationId, bindAgentInvocations, recoverInterruptedAgentInvocations, retryAgentInvocation, runInvocationReference } from "../invocations.ts"
+import { agentInvocationId, bindAgentInvocations, queuedAgentInvocation, recoverInterruptedAgentInvocations, runInvocationReference } from "../invocations.ts"
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 import { isAgentInvocationCancellationError } from "../internal/invocation-cancellation.ts"
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
@@ -2141,7 +2141,10 @@ async function executeQueuedWebhookDelivery(
       )
       const deliveryRunContext = channelDelivery ? withAgentChannelDelivery(baseRunContext, channelDelivery) : baseRunContext
       // A retry runs the Agent again under the same run ID, so it reopens the Invocation that an earlier attempt left failed.
-      const runContext = delivery.attempts > 0 ? { ...deliveryRunContext, [retryAgentInvocation]: true } : deliveryRunContext
+      const runContext = {
+        ...deliveryRunContext,
+        [queuedAgentInvocation]: { reopenFailed: delivery.attempts > 0, retryPending: delivery.attempts + 1 < maxWebhookQueueAttempts },
+      }
       await runWithRuntimeCloudflareEnv(runContext, async () => {
         const invocationStartup = startAgentInvocation(
           // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.

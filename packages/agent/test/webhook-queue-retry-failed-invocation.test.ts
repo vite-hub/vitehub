@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineAgent } from "../src/index.ts"
+import { bindAgentInvocations } from "../src/invocations.ts"
 import { createLibsqlAgentInvocationStore } from "../src/invocations/sqlite.ts"
 import { agentInvocationId, applyAgentInvocationStoreUpdate, createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
@@ -101,7 +102,68 @@ describe.each(stores)("queued webhook retry after a failed attempt (%s store)", 
     const failed = await fixture.invocations.get(fixture.id)
     expect(failed).toMatchObject({ error: { message: "GitHub is unavailable (attempt 3)." }, status: "failed" })
     expect(failed?.observations.filter(observation => observation.name === "agent.invocation.error")).toHaveLength(3)
+    expect(await fixture.invocations.cancel(fixture.id)).toMatchObject({ outcome: "terminal", status: "failed" })
   }, 20_000)
+
+  it("durably cancels while the failed delivery waits for its retry", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined)
+    let sharedStore!: AgentInvocationStore
+    const fixture = await setup(dir => (sharedStore = store(dir)))
+    cleanup = fixture.cleanup
+
+    await vi.waitFor(async () => {
+      expect(await fixture.invocations.get(fixture.id)).toMatchObject({ status: "failed" })
+      expect(await fixture.state.queuedWebhookDeliveries(scope)).toHaveLength(1)
+    }, { timeout: 10_000 })
+    // A separate journal client must persist the cancellation without a local execution owner.
+    const cancellation = await defineAgentInvocations({ store: sharedStore }).cancel(fixture.id)
+    await vi.waitFor(async () => expect(await fixture.state.webhookDeliveries(scope)).toEqual([]), { timeout: 10_000 })
+    expect.soft(cancellation).toMatchObject({ outcome: "terminal", status: "cancelled" })
+    expect.soft(fixture.run).toHaveBeenCalledTimes(1)
+    const cancelled = await fixture.invocations.get(fixture.id)
+    expect(cancelled).toMatchObject({ status: "cancelled", cancelRequestedAt: expect.any(String), cancelledAt: expect.any(String) })
+    expect(cancelled?.error).toBeUndefined()
+    expect(cancelled?.failedAt).toBeUndefined()
+    expect(cancelled?.retryPending).toBeUndefined()
+    expect(cancelled?.observations.filter(observation => observation.name === "agent.invocation.error")).toHaveLength(1)
+  }, 20_000)
+})
+
+describe("unconfirmed retry reopening", () => {
+  it.each(["best-effort", "strict"] as const)("waits for a late reopen before allowing %s dispatch", async (enforcement) => {
+    const memory = createMemoryAgentInvocationStore()
+    const id = await agentInvocationId(runId, "review")
+    const timestamp = new Date().toISOString()
+    await memory.create({ id, status: "pending", observations: [], createdAt: timestamp, updatedAt: timestamp, traceId: runId })
+    await memory.update(id, { status: "failed", error: { name: "Error", message: "first attempt" }, timestamp })
+    let release!: () => void
+    const released = new Promise<void>((resolve) => { release = resolve })
+    const update = vi.fn(async (...args: Parameters<AgentInvocationStore["update"]>) => {
+      if (args[1].reopen) await released
+      return memory.update(...args)
+    })
+    const invocations = defineAgentInvocations({ store: { ...memory, update }, storeTimeoutMs: 10, enforcement })
+    const journal = await bindAgentInvocations(invocations, { run: { runId }, runtime: "unknown", memo: vi.fn(), waitUntil: vi.fn() }, { agentName: "review", reopenFailed: true })
+    if (!journal) throw new Error("Expected an Invocation journal.")
+    try {
+      expect.soft(journal.reusedTerminal).toBe(false)
+      expect.soft(await journal.running()).toBe(false)
+      expect.soft(journal.startsUnconfirmed()).toBe(false)
+      expect.soft(journal.dispatchAllowed()).toBe(false)
+      expect.soft(journal.driverStarted()).toBe(false)
+      release()
+      await vi.waitFor(async () => expect(await journal.running()).toBe(true))
+      expect(journal.reusedTerminal).toBe(false)
+      expect(journal.dispatchAllowed()).toBe(true)
+      expect(update.mock.calls.filter(([, input]) => input.reopen)).toHaveLength(1)
+      await journal.finish("completed")
+      expect(await invocations.get(id)).toMatchObject({ status: "completed" })
+    }
+    finally {
+      release()
+      await journal.finish("failed")
+    }
+  })
 })
 
 describe("reopening a stored Invocation", () => {

@@ -125,6 +125,8 @@ export interface AgentInvocationRecord {
   cursor: string
   error?: RuntimeDiagnosticError
   failedAt?: string
+  /** A failed queued attempt has another retry and can still be cancelled. */
+  retryPending?: boolean
   id: string
   /**
    * What the Invocation did, in order. Every Driver records `agent.invocation.start` (with `input.prompt`,
@@ -194,7 +196,7 @@ export interface AgentInvocationStoreUpdateInput {
   cancelWarningPending?: boolean
   /** Execution owner for the pending custom Driver marker. */
   cancelWarningOwnerId?: string
-  /** Requests cancellation. Stores ignore it on terminal records. */
+  /** Requests cancellation. A failed record with retryPending becomes cancelled; other terminal records ignore it. */
   cancelRequestedAt?: string
   capabilityIds?: readonly string[]
   channelId?: string
@@ -205,6 +207,8 @@ export interface AgentInvocationStoreUpdateInput {
   observationsTruncated?: boolean
   /** Returns a `failed` record to `pending` for another attempt of the same run. Other records ignore it. */
   reopen?: true
+  /** Whether a failed queued attempt has another retry. Cleared when the record is reopened. */
+  retryPending?: boolean
   status?: AgentInvocationRecordStatus
   timestamp: string
 }
@@ -375,6 +379,8 @@ interface AgentInvocationBindOptions {
   terminalTakeover?: boolean
   /** Reopens the record when an earlier attempt of the same run left it `failed`. */
   reopenFailed?: boolean
+  /** The webhook queue has another attempt available after this one. */
+  retryPending?: boolean
   requireNew?: boolean
   /** Binds only an existing record; queue cleanup must not recreate deleted records. */
   existingOnly?: boolean
@@ -395,8 +401,8 @@ interface BoundAgentInvocations extends AgentInvocations {
 }
 
 export const exclusiveAgentInvocation: unique symbol = Symbol("vitehub.exclusiveAgentInvocation")
-/** Marks a queued retry attempt. It may reopen the Invocation that its earlier attempt left `failed`. */
-export const retryAgentInvocation: unique symbol = Symbol("vitehub.retryAgentInvocation")
+/** Marks a queued attempt and whether earlier/later attempts can reuse this Invocation. */
+export const queuedAgentInvocation: unique symbol = Symbol("vitehub.queuedAgentInvocation")
 export const inheritedAgentInvocationClaim: unique symbol = Symbol("vitehub.inheritedAgentInvocationClaim")
 export const pendingAgentInvocationAnnotation = "vitehub.invocation.executionPending"
 export const workflowDispatchAttemptedAnnotation = "vitehub.invocation.workflowDispatchAttempted"
@@ -1736,9 +1742,19 @@ export function applyAgentInvocationStoreUpdate(
       timestamp: input.timestamp,
     }
   }
+  if (input.cancelRequestedAt && record.status === "failed" && record.retryPending) {
+    const { error: _error, failedAt: _failedAt, retryPending: _retryPending, cancelNotEnforcedBy: _cancelNotEnforcedBy, ...cancelled } = record
+    return {
+      ...cancelled,
+      status: "cancelled",
+      cancelRequestedAt: record.cancelRequestedAt ?? input.cancelRequestedAt,
+      cancelledAt: input.timestamp,
+      updatedAt: input.timestamp > record.updatedAt ? input.timestamp : record.updatedAt,
+    }
+  }
   if (input.reopen) {
     if (record.status !== "failed") return record
-    const { error: _error, failedAt: _failedAt, ...reopened } = record
+    const { error: _error, failedAt: _failedAt, retryPending: _retryPending, ...reopened } = record
     return { ...reopened, status: "pending", updatedAt: input.timestamp > record.updatedAt ? input.timestamp : record.updatedAt }
   }
   if (terminalStatus(record.status) && input.observation && !recoverableOutcomeObservation(input.observation)) return record
@@ -1825,6 +1841,8 @@ export function applyAgentInvocationStoreUpdate(
     status,
     updatedAt: input.timestamp > record.updatedAt ? input.timestamp : record.updatedAt,
   }
+  if (input.retryPending && status === "failed") updated.retryPending = true
+  else if (input.status || Object.hasOwn(input, "retryPending")) delete updated.retryPending
   for (const field of ["channelId", "origin", "threadId"] as const) {
     if (!Object.hasOwn(input, field)) continue
     const value = input[field]
@@ -2175,6 +2193,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let finished = false
       let boundToTerminalRecord = false
       let reopenFailed = false
+      let reopenTask: Promise<AgentInvocationRecord | undefined> | undefined
       let finishing = false
       let terminalWriteCommitted = false
       let ownsRecord = false
@@ -2359,10 +2378,20 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         claimUnavailable = claim !== true && claim !== false
         ownsRecord = claim === true
         if (ownsRecord && reopenFailed) {
+          reopenTask ??= Promise.resolve().then(() => store.update(recordId, { reopen: true, timestamp: new Date().toISOString() }, claimId))
+          const reopened = await boundedStore(() => reopenTask!)
+          if (!reopened || reopened === storeOperationTimedOut) {
+            // A timed-out write may still commit. Keep it and reconcile on the next renewal;
+            // until then neither best-effort nor strict execution may dispatch.
+            if (reopened !== storeOperationTimedOut) reopenTask = undefined
+            startHeartbeat()
+            return false
+          }
+          reopenTask = undefined
           reopenFailed = false
-          const reopened = await boundedStore(() => store.update(recordId, { reopen: true, timestamp: new Date().toISOString() }, claimId))
+          readCancellationRequest(reopened)
           // A store that keeps the record failed runs this attempt as a reuse of the terminal record.
-          if (!reopened || reopened === storeOperationTimedOut || reopened.status !== "pending") {
+          if (terminalStatus(reopened.status)) {
             finished = true
             boundToTerminalRecord = true
             await boundedStore(() => store.release(recordId, claimId))
@@ -2764,6 +2793,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
             ...(terminalOutcome ? { observation: terminalOutcome } : {}),
             cancelNotEnforcedBy: cancelNotEnforcedBy ?? null,
             cancelWarningPending: false,
+            retryPending: outcome.status === "failed" && bindOptions.retryPending === true,
             ...outcome,
             timestamp: new Date().toISOString(),
           }
@@ -2777,6 +2807,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
                 ...(failure ? { error: failure } : {}),
                 cancelNotEnforcedBy: cancelNotEnforcedBy ?? null,
                 cancelWarningPending: false,
+                retryPending: finishInput.retryPending,
                 ...outcome,
                 timestamp: finishInput.timestamp,
               }, bindOptions.terminalTakeover)
@@ -2870,7 +2901,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
           // execution still runs its lifecycle hooks and Driver. Treat that
           // case as ready; a strict active record whose update failed must
           // remain blocked until the recovery retry succeeds.
-          if (latest && latest !== storeOperationTimedOut && terminalStatus(latest.status) && !latest.cancelRequestedAt) return true
+          if (!reopenFailed && latest && latest !== storeOperationTimedOut && terminalStatus(latest.status) && !latest.cancelRequestedAt) return true
           if (strict && cancellationDriver?.enforced === false && !cancellationWarningPrepared && latest && latest !== storeOperationTimedOut && !terminalStatus(latest.status)) {
             throw agentDiagnostics.AGENT_R0973({ message: "[vitehub] Initial custom Driver cancellation state could not be persisted." })
           }
@@ -2892,19 +2923,19 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         startsUnconfirmed() {
           // Only a store answer stops a best-effort run: another owner holds the claim, or a cancellation request was read.
           const conflict = claimConflict || (!ownsRecord && !claimUnavailable)
-          if (strict || conflict || cancellation.signal.aborted) return false
+          if (reopenFailed || strict || conflict || cancellation.signal.aborted) return false
           warnUnconfirmed("running state")
           return true
         },
         dispatchAllowed() {
-          if (cancellation.signal.aborted || claimConflict) return false
+          if (reopenFailed || cancellation.signal.aborted || claimConflict) return false
           return !strict || ownsRecord
         },
         driverStarted() {
           // Keep the final ownership check adjacent to the dispatch marker.
           // A renewal can confirm a claim loss after the caller's check but
           // before this boundary is reached; do not start the Driver then.
-          if (cancellation.signal.aborted || claimConflict) return false
+          if (reopenFailed || cancellation.signal.aborted || claimConflict) return false
           if (finished || finishing || driverDispatched) return true
           driverDispatched = true
           if (!cancellationDriver || cancellationDriver.enforced) return true
@@ -3035,7 +3066,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       }
       const summary = await cancellationStore(() => store.getSummary(id))
       if (!summary) return missingResult
-      if (terminalStatus(summary.status)) {
+      if (terminalStatus(summary.status) && !(summary.status === "failed" && summary.retryPending)) {
         return terminalResult(summary, local)
       }
       const timestamp = new Date().toISOString()
