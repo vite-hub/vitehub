@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { agentWithSkills, defineAgent } from "@vite-hub/agent"
+import { agentWithSkills, codexDriver, defineAgent } from "@vite-hub/agent"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 import { withColocatedAgentSkills } from "@vite-hub/agent/server/internal"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
@@ -12,7 +12,7 @@ import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 // Two-, four-, and three-byte UTF-8 sequences. The lone surrogate encodes as U+FFFD.
 const unicodeContent = "é🙂\ud800"
 function install() {
-  const base = withColocatedAgentSkills(defineAgent({ driver: "codex", runtime: false, workspace: {} }), {
+  const base = withColocatedAgentSkills(defineAgent({ driver: codexDriver(), runtime: false, workspace: {} }), {
     reference: { content: "# Evidence\n", workspacePath: ".agents/skills/review/references/evidence.md" },
     binary: { content: new Uint8Array([0xff, 0]), workspacePath: ".agents/skills/review/logo.png" },
     large: { content: "x".repeat(512 * 1024 + 1), workspacePath: ".agents/skills/review/large.txt" },
@@ -21,7 +21,7 @@ function install() {
   const definition = agentWithSkills(base, { review: "# Review\n\nRead the evidence.\n" })
   const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
   installConsoleInvocationFallback(invocations, process.cwd())
-  installConsoleAgentDefinitions([{ definition, fallbackName: "reviewer" }, { definition: defineAgent({ driver: "codex", runtime: false }), fallbackName: "empty" }], {
+  installConsoleAgentDefinitions([{ definition, fallbackName: "reviewer" }, { definition: defineAgent({ driver: codexDriver(), runtime: false }), fallbackName: "empty" }], {
     invocations,
   })
 }

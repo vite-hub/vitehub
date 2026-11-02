@@ -97,11 +97,15 @@ function splitFrontmatter(source: string): { body: string, frontmatter: Frontmat
   };
 }
 
-function absoluteUrl(value: string, origin: string) {
-  return value.startsWith("/") && !value.startsWith("//") ? `${origin}${value}` : value;
+type RawLinkBase = { siteUrl: string; pagePath?: string };
+
+function absoluteUrl(value: string, links: RawLinkBase) {
+  if (!links.siteUrl || value.startsWith("//") || /^[a-z][a-z\d+.-]*:/i.test(value)) return value;
+  if (value.startsWith("/")) return `${links.siteUrl}${value}`;
+  return links.pagePath ? new URL(value, `${links.siteUrl}${links.pagePath}`).href : value;
 }
 
-function rewriteInlineMarkdownLinks(line: string, origin: string, protectedHtmlMarker?: string) {
+function rewriteInlineMarkdownLinks(line: string, links: RawLinkBase, protectedHtmlMarker?: string) {
   let cursor = 0;
   let output = "";
 
@@ -159,7 +163,7 @@ function rewriteInlineMarkdownLinks(line: string, origin: string, protectedHtmlM
     if (targetEnd === targetStart || linkClosing === null) continue;
 
     const destinationStart = targetStart + (angleDestination ? 1 : 0);
-    output += line.slice(cursor, destinationStart) + absoluteUrl(line.slice(destinationStart, targetEnd), origin);
+    output += line.slice(cursor, destinationStart) + absoluteUrl(line.slice(destinationStart, targetEnd), links);
     cursor = targetEnd;
     opening = linkClosing;
   }
@@ -191,8 +195,8 @@ function inlineLinkClosing(line: string, suffixStart: number) {
   return line[cursor] === ")" ? cursor : null;
 }
 
-function rewriteMarkdownLinks(line: string, origin: string, protectedHtmlMarker?: string) {
-  return rewriteInlineMarkdownLinks(line, origin, protectedHtmlMarker);
+function rewriteMarkdownLinks(line: string, links: RawLinkBase, protectedHtmlMarker?: string) {
+  return rewriteInlineMarkdownLinks(line, links, protectedHtmlMarker);
 }
 
 function referenceContainer(line: string) {
@@ -266,7 +270,7 @@ function parseReferenceDestination(value: string) {
   return { angle: false, destination: value.slice(0, end), suffix: value.slice(end) };
 }
 
-function rewriteReferenceDefinitions(source: string, origin: string) {
+function rewriteReferenceDefinitions(source: string, links: RawLinkBase) {
   const lines = source.split("\n");
 
   for (let index = 0; index < lines.length; index += 1) {
@@ -293,12 +297,12 @@ function rewriteReferenceDefinitions(source: string, origin: string) {
     }
 
     const parsed = parseReferenceDestination(destinationAndTitle);
-    if (!parsed?.destination.startsWith("/") || parsed.destination.startsWith("//")) continue;
+    if (!parsed) continue;
 
     if (!validReferenceSuffix(parsed.suffix)) continue;
     lines[destinationLine] = parsed.angle
-      ? `${destinationPrefix}<${absoluteUrl(parsed.destination, origin)}>${parsed.suffix}`
-      : `${destinationPrefix}${absoluteUrl(parsed.destination, origin)}${parsed.suffix}`;
+      ? `${destinationPrefix}<${absoluteUrl(parsed.destination, links)}>${parsed.suffix}`
+      : `${destinationPrefix}${absoluteUrl(parsed.destination, links)}${parsed.suffix}`;
   }
 
   return lines.join("\n");
@@ -412,7 +416,7 @@ function protectCodeSpans(source: string) {
   };
 }
 
-function rewriteInlineLinks(source: string, origin: string) {
+function rewriteInlineLinks(source: string, links: RawLinkBase) {
   const codeSpans = protectCodeSpans(source);
   let protectedSource = codeSpans.protectedSource;
   const htmlTags: string[] = [];
@@ -425,7 +429,7 @@ function rewriteInlineLinks(source: string, origin: string) {
       : `${htmlPlaceholderPrefix}${htmlTags.push(tag) - 1}__`,
   );
 
-  return codeSpans.restore(rewriteMarkdownLinks(protectedSource, origin, htmlPlaceholderPrefix).replace(
+  return codeSpans.restore(rewriteMarkdownLinks(protectedSource, links, htmlPlaceholderPrefix).replace(
     new RegExp(`${htmlPlaceholderPrefix}(\\d+)__`, "g"),
     (_match, index: string) => htmlTags[Number(index)]!,
   ));
@@ -490,7 +494,7 @@ function activeListIndent(line: string, state: MarkdownListState) {
   return indentationColumns(line.slice(quotePrefix.length)) >= state.indent ? state.indent : null;
 }
 
-function rewriteLinks(source: string, origin: string) {
+function rewriteLinks(source: string, links: RawLinkBase) {
   const output: string[] = [];
   let outsideFence = "";
   let fence: Fence | null = null;
@@ -505,7 +509,7 @@ function rewriteLinks(source: string, origin: string) {
   const protectedLines: string[] = [];
   const rewriteOutside = () => {
     const codeSpans = protectCodeSpans(outsideFence);
-    return codeSpans.restore(rewriteReferenceDefinitions(rewriteInlineLinks(codeSpans.protectedSource, origin), origin)).replace(
+    return codeSpans.restore(rewriteReferenceDefinitions(rewriteInlineLinks(codeSpans.protectedSource, links), links)).replace(
       new RegExp(`${String.fromCodePoint(0)}INDENT(\\d+)${String.fromCodePoint(0)}`, "g"),
       (_match, index: string) => protectedLines[Number(index)]!,
     );
@@ -675,7 +679,7 @@ function listIndentAtOffset(source: string, offset: number) {
   return activeListIndent(source.slice(offset).split("\n", 1)[0]!, state);
 }
 
-function cardList(source: string, origin: string) {
+function cardList(source: string, links: RawLinkBase) {
   return source.replace(/^([ \t]*)::u-page-grid[^\n]*\n([\s\S]*?)^\1::\s*$/gm, (grid, indent: string, cards: string, offset: number) => {
     const listIndent = listIndentAtOffset(source, offset);
     const codeIndent = (listIndent ?? 0) + 4;
@@ -690,14 +694,14 @@ function cardList(source: string, origin: string) {
       const to = fields.to?.trim() || null;
       const description = fields.description?.trim() || null;
       if (!title) continue;
-      const label = to ? `[${title}](${absoluteUrl(to, origin)})` : title;
+      const label = to ? `[${title}](${absoluteUrl(to, links)})` : title;
       items.push(`${indent}- ${label}${description ? ` — ${description}` : ""}`);
     }
     return items.length > 0 ? `${items.join("\n")}\n` : "";
   });
 }
 
-function cardListsOutsideFences(source: string, origin: string) {
+function cardListsOutsideFences(source: string, links: RawLinkBase) {
   const output: string[] = [];
   let outsideFence = "";
   let fence: Fence | null = null;
@@ -737,7 +741,7 @@ function cardListsOutsideFences(source: string, origin: string) {
     const quoteDepth = leadingQuoteDepth(referenceContainer(line));
     const typeSevenHtml = nextHtmlEnd ? isTypeSevenHtml(htmlLine, nextHtmlEnd) : false;
     if (!fence && nextHtmlEnd && !(typeSevenHtml && paragraphOpen && quoteDepth <= paragraphQuoteDepth)) {
-      output.push(cardList(outsideFence, origin), lineWithEnding);
+      output.push(cardList(outsideFence, links), lineWithEnding);
       outsideFence = "";
       if (htmlBlockContinues(nextHtmlEnd, htmlLine)) {
         const htmlContainer = markdownContainer(line);
@@ -750,7 +754,7 @@ function cardListsOutsideFences(source: string, origin: string) {
     }
 
     if (!fence && parsedFence) {
-      output.push(cardList(outsideFence, origin), lineWithEnding);
+      output.push(cardList(outsideFence, links), lineWithEnding);
       outsideFence = "";
       fence = {
         length: parsedFence.run.length,
@@ -793,7 +797,7 @@ function cardListsOutsideFences(source: string, origin: string) {
     if (directive) directives.push(presentationDirectives.has((directive[1] || "").toLowerCase()));
   }
 
-  output.push(cardList(outsideFence, origin));
+  output.push(cardList(outsideFence, links));
   return output.join("");
 }
 
@@ -835,7 +839,7 @@ function directiveLabel(name: string, attributes: string | undefined) {
   return "";
 }
 
-function stripPresentationDirectives(source: string, includeAgentOnly: boolean, origin: string) {
+function stripPresentationDirectives(source: string, includeAgentOnly: boolean, links: RawLinkBase) {
   const output: string[] = [];
   const directives: boolean[] = [];
   // One entry per open directive: true when its content is left out of the output.
@@ -956,12 +960,14 @@ function stripPresentationDirectives(source: string, includeAgentOnly: boolean, 
     emit(deindented);
   }
 
-  return rewriteLinks(output.join("\n"), origin);
+  return rewriteLinks(output.join("\n"), links);
 }
 
 export type RawMarkdownOptions = {
   /** Origin that site-relative links point to, such as `https://vitehub.dev`. Empty keeps them relative. */
   siteUrl?: string;
+  /** Rendered page path, such as `/docs/guide/install`, used to resolve document-relative links. */
+  pagePath?: string;
   /** Keep `::agent-only` content. Defaults to `true`. */
   includeAgentOnly?: boolean;
 };
@@ -970,8 +976,8 @@ export type RawMarkdownOptions = {
 export function toRawMarkdown(source: string, options: RawMarkdownOptions = {}): string {
   const { body, frontmatter } = splitFrontmatter(source);
   const title = typeof frontmatter.title === "string" ? frontmatter.title.trim() : undefined;
-  const origin = options.siteUrl?.replace(/\/+$/, "") ?? "";
-  const content = stripPresentationDirectives(cardListsOutsideFences(body, origin), options.includeAgentOnly ?? true, origin)
+  const links: RawLinkBase = { siteUrl: options.siteUrl?.replace(/\/+$/, "") ?? "", pagePath: options.pagePath };
+  const content = stripPresentationDirectives(cardListsOutsideFences(body, links), options.includeAgentOnly ?? true, links)
     .replace(/^\n+|\n+$/g, "");
   const startsWithH1 = /^[ \t]{0,3}#(?:[ \t]+|$)/.test(content)
     || /^[^\n]+\n[ \t]{0,3}=+[ \t]*(?:\n|$)/.test(content);

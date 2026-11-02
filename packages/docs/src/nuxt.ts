@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs"
-import { dirname, join, resolve } from "node:path"
+import { dirname, join, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import {
@@ -192,13 +192,13 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
 
     let manifest = createDocsManifest({ dir: contentDir, base: config.base })
     /** Writes the agent copy of every page. `nuxi build` empties the build folder after the modules load, so it runs before the build. */
-    async function writeRaw() {
+    async function writeRaw(snapshot = manifest) {
       rmSync(rawDir, { force: true, recursive: true })
-      for (const page of docsManifestPages(manifest)) {
+      for (const page of docsManifestPages(snapshot)) {
         const target = join(rawDir, docsRawFile(page.path))
         mkdirSync(dirname(target), { recursive: true })
         const source = readFileSync(join(contentDir, page.file), "utf8")
-        writeFileSync(target, toRawMarkdown(options.rawMarkdown ? await options.rawMarkdown(source, page) : source, { siteUrl: `${config.site.url}${config.appBase.replace(/\/+$/, "")}` }))
+        writeFileSync(target, toRawMarkdown(options.rawMarkdown ? await options.rawMarkdown(source, page) : source, { siteUrl: `${config.site.url}${config.appBase.replace(/\/+$/, "")}`, pagePath: page.path }))
       }
     }
     nuxt.hook("build:before", writeRaw)
@@ -274,30 +274,45 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     }).dst
 
     // Nuxt watches the app folder, and the content folder usually sits beside it, so the module watches it in development.
-    if (nuxt.options.dev && existsSync(contentDir)) {
+    if (nuxt.options.dev) {
+      // Watch the nearest existing parent until the configured content directory is created.
+      let watchDir = contentDir
+      while (!existsSync(watchDir) && dirname(watchDir) !== watchDir) watchDir = dirname(watchDir)
       let timer: ReturnType<typeof setTimeout> | undefined
-      const watcher = watch(contentDir, { recursive: true }, (_event, file) => {
-        if (!file || !/(\.md|\.navigation\.yml)$/.test(file)) return
+      let regeneration = Promise.resolve()
+      let closed = false
+      const logError = (error: unknown) => useLogger("@vite-hub/docs").error(error)
+      const watcher = watch(watchDir, { recursive: true }, (event, file) => {
+        if (file) {
+          const changedPath = resolve(watchDir, file)
+          if (changedPath !== contentDir && !changedPath.startsWith(`${contentDir}${sep}`) && !contentDir.startsWith(`${changedPath}${sep}`)) return
+          if (event === "change" && !/(\.md|\.navigation\.yml)$/.test(file)) return
+        }
         clearTimeout(timer)
-        timer = setTimeout(async () => {
-          try {
-            const next = createDocsManifest({ dir: contentDir, base: config.base })
-            const changed = JSON.stringify(next) !== JSON.stringify(manifest)
-            manifest = next
-            await writeRaw()
-            // A body edit shows on the next page load, because pages parse on each request in development. Titles,
-            // order, and new pages live in the manifest that the app and the server load once, so they restart.
-            if (changed) await nuxt.callHook("restart")
-          }
-          catch (error) {
-            // A half-typed frontmatter must not stop the server. The site keeps the last valid pages until the file is fixed.
-            useLogger("@vite-hub/docs").error(error)
-          }
+        timer = setTimeout(() => {
+          // A transform may be asynchronous. Each run must finish before another can replace its raw output.
+          regeneration = regeneration.then(async () => {
+            if (closed) return
+            try {
+              const next = createDocsManifest({ dir: contentDir, base: config.base })
+              const changed = JSON.stringify(next) !== JSON.stringify(manifest)
+              await writeRaw(next)
+              manifest = next
+              // Do not await restart here: Nuxt closes the watcher and drains this run before restarting.
+              if (changed && !closed) void Promise.resolve(nuxt.callHook("restart")).catch(logError)
+            }
+            catch (error) {
+              // A half-typed frontmatter must not stop the server. The site keeps the last valid pages until the file is fixed.
+              logError(error)
+            }
+          })
         }, 100)
       })
-      nuxt.hook("close", () => {
+      nuxt.hook("close", async () => {
+        closed = true
         clearTimeout(timer)
         watcher.close()
+        await regeneration
       })
     }
 

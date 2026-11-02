@@ -62,7 +62,7 @@ When the current input has attachments, the `blob_edit` description lists their 
 Declare the directories where a Provider-backed Agent may write public artifacts. The Agent uses its normal filesystem workflow, then references a generated file in its final answer.
 
 ```ts [server/agents/review.ts]
-import { defineAgent } from 'vite-hub/agent'
+import { codexDriver, defineAgent } from 'vite-hub/agent'
 import { blob } from 'vite-hub/agent/capabilities'
 import { github } from 'vite-hub/agent/channels'
 
@@ -73,7 +73,7 @@ export default defineAgent({
   channels: {
     github: github({ pullRequest: true }),
   },
-  driver: 'codex',
+  driver: codexDriver(),
   workspace: { commit: true, mode: 'write' },
 })
 ```

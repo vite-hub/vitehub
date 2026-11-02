@@ -98,6 +98,22 @@ describe("collectDatabaseContributions", () => {
     })
   })
 
+  it("deduplicates one plugin object but rejects conflicting uses from its factory", async () => {
+    const use = { name: "same", database: "one", dialect: "sqlite" as const }
+    const plugin = { name: "feature/vite", vitehub: { databases: () => [use] } }
+    await expect(collectDatabaseContributions([plugin, plugin], context)).resolves.toMatchObject({ uses: [{ ...use, plugin: "feature/vite" }] })
+    plugin.vitehub.databases = () => [use, { ...use, database: "two" }]
+    await expect(collectDatabaseContributions([plugin], context)).rejects.toMatchObject({ code: "DATABASE_INVALID_CONTRIBUTION" })
+  })
+
+  it.each([false, true])("rejects a table and a use sharing a name (same plugin: %s)", async (samePlugin) => {
+    const use = { name: historyContribution.name }
+    const plugins = samePlugin
+      ? [{ name: "feature/vite", vitehub: { databases: [historyContribution, use] } }]
+      : [{ name: "tables/vite", vitehub: { databases: [historyContribution] } }, { name: "use/vite", vitehub: { databases: [use] } }]
+    await expect(collectDatabaseContributions(plugins, context)).rejects.toMatchObject({ code: "DATABASE_INVALID_CONTRIBUTION", message: expect.stringContaining(historyContribution.name) })
+  })
+
   it("separates Database Definition contributions from table contributions", async () => {
     const definition = { definition: "/app/.vitehub/content/database.ts", name: "default", reason: "Needed by the preset." }
     const plugin = { name: "content/vite", vitehub: { databases: [definition, historyContribution] } }
