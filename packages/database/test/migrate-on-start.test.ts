@@ -11,6 +11,7 @@ import { build } from "esbuild"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { readMigrationPlan } from "../src/internal/migration-plan.ts"
+import { findDataLoss } from "../src/internal/migration-sql.ts"
 import { hubDb } from "../src/nuxt.ts"
 import { migrateOnStart } from "../src/runtime/migrate-on-start.ts"
 import { hubDb as hubDbVite } from "../src/vite.ts"
@@ -292,6 +293,46 @@ describe("database.migrateOnStart", () => {
     const allowed = await buildNodeServer(root, { connection: { url }, migrateOnStart: { allowDataLoss: true } })
     expect((await allowed.start()).stdout).toContain('[vitehub] Database "default": applied 0002_drop_legacy.')
     expect(await readLedger(url)).toEqual([init.when, seed.when, dropLegacy.when])
+  })
+
+  it("applies a drop of a table that the same start creates, without allowDataLoss", { timeout: 60_000 }, async () => {
+    const root = await createProject()
+    const migrationsDir = await writeMigrations(root, [init, seed, dropLegacy])
+    const url = `file:${join(root, "data/app.sqlite")}`
+    const started = await (await buildNodeServer(root, { connection: { url }, migrateOnStart: true })).start()
+    expect(started.stdout).toContain('[vitehub] Database "default": applied 0002_drop_legacy.')
+    expect(await readLedger(url)).toEqual([init.when, seed.when, dropLegacy.when])
+
+    // `vitehub db migrate --dry-run` reads the same run on a new file and finds no data loss either.
+    const database = { connection: { url: `file:${join(root, "data/new.sqlite")}` }, dialect: "sqlite", drizzle: {}, generatedSchemaFile: "", migrationsDir, mode: "default", name: "default", orm: "drizzle" } satisfies ResolvedDrizzleDatabaseConfig
+    const [error, plan] = await readMigrationPlan(database, { env: {}, projectRoot: root })
+    expect(error).toBeUndefined()
+    expect(plan?.pending.map(migration => [migration.name, migration.dataLoss])).toEqual([[init.tag, []], [seed.tag, []], [dropLegacy.tag, []]])
+  })
+
+  it("refuses to drop a table that a pending rebuild filled with older rows", async () => {
+    const root = await createProject()
+    const url = `file:${join(root, "app.sqlite")}`
+    const client = createClient({ url })
+    const migration = (tag: string, when: number, statements: string[]) => ({ dataLoss: findDataLoss(statements, new Map([["legacy", ["id"]]])), hash: tag, name: tag, statements, when })
+    const rebuildLegacy = migration("0001_rebuild_legacy", seed.when, [
+      "CREATE TABLE `__new_legacy` (`id` integer PRIMARY KEY);",
+      "INSERT INTO `__new_legacy`(\"id\") SELECT \"id\" FROM `legacy`;",
+      "DROP TABLE `legacy`;",
+      "ALTER TABLE `__new_legacy` RENAME TO `legacy`;",
+    ])
+    const migrations = [migration(init.tag, init.when, init.sql.split("--> statement-breakpoint")), rebuildLegacy, migration(dropLegacy.tag, dropLegacy.when, [dropLegacy.sql])]
+    try {
+      await migrateOnStart([{ db: drizzle({ client }), migrations: migrations.slice(0, 1), name: "default" }], { log: () => {} })
+      await expect(migrateOnStart([{ db: drizzle({ client }), migrations, name: "default" }], { log: () => {} })).rejects.toMatchObject({
+        code: "DATABASE_MIGRATION_DATA_LOSS",
+        message: expect.stringContaining("0002_drop_legacy: drops table \"legacy\""),
+      })
+      expect(await readLedger(url)).toEqual([init.when])
+    }
+    finally {
+      client.close()
+    }
   })
 
   it("adds the plugin only to production Node builds of the Vite integration", async () => {

@@ -98,7 +98,7 @@ ViteHub cannot read which migrations the database has applied. `error.why` has t
 
 ### DATABASE_MIGRATION_DATA_LOSS
 
-A pending migration drops a table, a column, or a schema, deletes every row of a table, or rebuilds a SQLite table without one of its columns. `error.why` names each migration and statement. Run `vitehub db migrate --dry-run` to read the SQL. To keep the data, change the schema or edit the migration. To accept the loss, back up the data and run `vitehub db migrate --allow-data-loss`.
+A pending migration drops a table, a column, or a schema, deletes every row of a table, or rebuilds a SQLite table without one of its columns. A table that an earlier pending migration created or dropped does not count, because it has no rows from before the run. `error.why` names each migration and statement. Run `vitehub db migrate --dry-run` to read the SQL. To keep the data, change the schema or edit the migration. To accept the loss, back up the data and run `vitehub db migrate --allow-data-loss`.
 
 With `migrateOnStart`, the server throws this error when it starts and does not handle requests. To accept the loss, back up the data and set `migrateOnStart: { allowDataLoss: true }`.
 

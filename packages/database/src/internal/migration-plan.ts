@@ -9,6 +9,7 @@ import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 import { resolveLocalSqlitePath } from "../runtime/local-path.ts"
 import { applyD1Migrations, createD1Query, listD1MigrationFiles, readD1Ledger } from "./d1-migrations.ts"
 import { readJournal, readPendingMigration } from "./migration-journal.ts"
+import { withoutNewTableDataLoss } from "./migration-sql.ts"
 
 import type postgres from "postgres"
 import type { Result } from "@vite-hub/runtime"
@@ -184,13 +185,13 @@ export async function readMigrationPlan(
       const pending = listD1MigrationFiles(database.migrationsDir)
         .filter(file => !ledger.applied.has(file))
         .map(file => readPendingMigration(database.migrationsDir, file.slice(0, -".sql".length), entries))
-      return [undefined, { database: database.name, pending, target: describeTarget(target, options.projectRoot) }]
+      return [undefined, { database: database.name, pending: withoutNewTableDataLoss(pending), target: describeTarget(target, options.projectRoot) }]
     }
     const lastApplied = entries.length ? await readLastAppliedMillis(target, options) : undefined
     const pending = entries
       .filter(entry => lastApplied === undefined || lastApplied < entry.when)
       .map(entry => readPendingMigration(database.migrationsDir, entry.tag, entries))
-    return [undefined, { database: database.name, pending, target: describeTarget(target, options.projectRoot) }]
+    return [undefined, { database: database.name, pending: withoutNewTableDataLoss(pending), target: describeTarget(target, options.projectRoot) }]
   }
   catch (error) {
     const problem = error instanceof Error ? error.message : String(error)
