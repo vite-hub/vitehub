@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 
 import { createTraceEventLog } from "@vite-hub/runtime"
+import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { cleanupGmailChannel, gmail, gmailLabelPalette, pollGmailChannel, syncGmailChannel } from "../src/channels.ts"
 import { installChannelsConsoleHost } from "../src/channels-console-host.ts"
 import { defineAgent, runAgentTrigger, workflow } from "../src/index.ts"
@@ -1281,6 +1282,54 @@ describe("gmail() Channel", () => {
     expect(seen).toHaveLength(1)
     expect(seen[0]).toMatchObject({ capabilities: runtime.capabilities, cloudflare: runtime.cloudflare, runtime: "vite", runtimeConfig: runtime.runtimeConfig })
     expect(runtime.waitUntil).toHaveBeenCalled()
+  })
+
+  it("reads ambient Cloudflare bindings when a Schedule polls without an explicit runtime", async () => {
+    const google = await createGoogle()
+    const inbox = gmail({ fetch: google.fetch })
+    const env = { GMAIL_CLIENT_ID: "client-id", GMAIL_CLIENT_SECRET: "client-secret", GMAIL_REFRESH_TOKEN: "refresh-token" }
+    const seen: AgentRuntimeContext[] = []
+    const agent = defineAgent({
+      channels: { gmail: inbox }, driver: { run: () => "ok" },
+      hooks: { "agent:finish": ({ runtime }) => { seen.push(runtime) } },
+    })
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-gmail-poll-cloudflare-"))
+    const state = createLibsqlAgentState({ url: `file:${join(directory, "state.db")}` })
+    durableWebhookFixtures.push({ directory, state })
+    installChannelsConsoleHost({
+      agents: { poller: agent }, handlers: { poller: createChannelWebhookRouteHandler(agent) },
+      options: (_name, env) => ({ agentName: "poller", cloudflare: env ? { env } : undefined, webhookState: () => state }),
+    })
+    await runWithActiveCloudflareEnv(env, () => pollGmailChannel(inbox))
+    google.history.set("300", { historyId: "305", ids: ["m1"] })
+    await runWithActiveCloudflareEnv(env, () => pollGmailChannel(inbox))
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toMatchObject({ runtime: "cloudflare-agents", cloudflare: { env } })
+  })
+
+  it("polls every Agent sharing a Channel before reporting dispatch failures", async () => {
+    stubGmailEnv()
+    const google = await createGoogle()
+    const inbox = gmail({ fetch: google.fetch })
+    const run = vi.fn(() => "ok")
+    const agents = {
+      failing: defineAgent({ channels: { gmail: inbox }, driver: { run: () => { throw new Error("Invocation failed") } } }),
+      healthy: defineAgent({ channels: { gmail: inbox }, driver: { run } }),
+    }
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-gmail-poll-agents-"))
+    const state = createLibsqlAgentState({ url: `file:${join(directory, "state.db")}` })
+    durableWebhookFixtures.push({ directory, state })
+    installChannelsConsoleHost({
+      agents,
+      handlers: { failing: createChannelWebhookRouteHandler(agents.failing), healthy: createChannelWebhookRouteHandler(agents.healthy) },
+      options: name => ({ agentName: name, webhookState: () => state }),
+    })
+    await pollGmailChannel(inbox)
+    google.history.set("300", { historyId: "305", ids: ["m1"] })
+    await expect(pollGmailChannel(inbox)).rejects.toThrow("Gmail message dispatch failed")
+    expect(run).toHaveBeenCalledTimes(1)
+    await expect(pollGmailChannel(inbox)).rejects.toThrow("Gmail message dispatch failed")
+    expect(run).toHaveBeenCalledTimes(1)
   })
 
   it("rejects a poll with failed Invocations and retries its checkpoint on the next poll", async () => {

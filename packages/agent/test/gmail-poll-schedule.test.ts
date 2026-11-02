@@ -72,6 +72,56 @@ it("polls from an isolated generated Netlify Schedule without loading a server p
   }
 }, 30_000)
 
+it("installs the Deno polling host before importing cron registrations", async () => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-gmail-poll-deno-"))
+  const packageRoot = resolve(import.meta.dirname, "..")
+  const output = join(packageRoot, "dist", `gmail-poll-deno-${Date.now()}.mjs`)
+  try {
+    await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
+    await mkdir(join(root, "server/agents"), { recursive: true })
+    await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
+    await writeFile(join(root, "server/inbox.ts"), [
+      "import { gmail } from '@vite-hub/agent/channels'",
+      "export const inbox = gmail({ client: async ({ path }) => {",
+      "  if (path !== 'profile') throw new Error('Unexpected Gmail request: ' + path)",
+      "  globalThis.gmailPollCalls = (globalThis.gmailPollCalls || 0) + 1",
+      "  return { emailAddress: 'max@example.com', historyId: '300' }",
+      "} })",
+    ].join("\n"))
+    await writeFile(join(root, "server/agents/poller.ts"), [
+      "import { defineAgent } from '@vite-hub/agent'",
+      "import { inbox } from '../inbox'",
+      "export default defineAgent({ runtime: false, channels: { gmail: inbox }, driver: { run: () => 'ok' } })",
+    ].join("\n"))
+    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), [
+      "import { pollGmailChannel } from '@vite-hub/agent/channels'",
+      "import { inbox } from '../../server/inbox'",
+      "Deno.cron('mail', '*/5 * * * *', () => pollGmailChannel(inbox))",
+      "await globalThis.gmailPollCron()",
+    ].join("\n"))
+    const plugin = hubAgent({ runtime: "deno", providers: { state: { provider: "libsql", url: `file:${join(root, "state.db")}` } } })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root, command: "build", plugins: [], resolve: { alias: [] } })
+    const manifest = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"))
+    await build({
+      entryPoints: [join(root, ".vitehub/agent/deno-server.ts")], outfile: output, bundle: true, platform: "node", format: "esm", packages: "external", tsconfigRaw: { compilerOptions: {} },
+      plugins: [{ name: "generated-agent-runtime", setup(builder) {
+        builder.onResolve({ filter: /^#vitehub\/agent\/registry$/ }, () => ({ path: join(root, ".vitehub/agent/registry.mjs") }))
+        builder.onResolve({ filter: /^@vite-hub\/agent(?:\/|$)/ }, args => ({ path: join(packageRoot, manifest.exports[args.path === "@vite-hub/agent" ? "." : `.${args.path.slice("@vite-hub/agent".length)}`].import) }))
+      } }],
+    })
+    const result = await promisify(execFile)(process.execPath, ["--input-type=module", "-e", [
+      "globalThis.Deno = { args: [], cron: (_name, _cron, callback) => { globalThis.gmailPollCron = callback }, serve: () => ({ finished: Promise.resolve() }) }",
+      "await import(process.argv[1])",
+      "console.log(globalThis.gmailPollCalls)",
+    ].join("\n"), pathToFileURL(output).href])
+    expect(result.stdout.trim().split("\n").at(-1)).toBe("1")
+  }
+  finally {
+    await rm(output, { force: true })
+    await rm(root, { recursive: true, force: true })
+  }
+}, 30_000)
+
 it("bundles the Channel host from the retained Netlify Agent registry", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-gmail-poll-netlify-output-"))
   try {

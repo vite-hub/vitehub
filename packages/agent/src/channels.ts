@@ -11,6 +11,7 @@ export { channelEnv, channelEnvValue } from "./channel-env.ts"
 export { channelMessageContextKey } from "./internal/channel-delivery-handlers.ts"
 import { createHash, randomUUID } from "node:crypto"
 import { ForgeResponseError, forgeErrorStatus, forgeProvider, githubAppCredentials, readGitHubAppPrivateKey } from "@vite-hub/forge"
+import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import type { ForgeKind } from "@vite-hub/forge"
 import { AgentHttpError } from "./http-error.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
@@ -4262,10 +4263,19 @@ export async function pollGmailChannel(channel: AgentChannelDefinition, options:
     throw agentDiagnostics.AGENT_R0940({ message: "[vitehub] pollGmailChannel() needs the Agent webhook routes of this app in the same process, with durable Agent State: libSQL with VITEHUB_AGENT_STATE_URL or Cloudflare Durable Objects." })
   }
   let polled = 0
+  const failures: unknown[] = []
+  const env = options.runtime?.cloudflare?.env ?? getActiveCloudflareEnv()
   for (const [name, handler] of Object.entries(host.handlers)) {
     const request = new Request("http://vitehub.local/_vitehub/channels/poll")
-    polled += (await handler.poll(request, channel, { ...host.options(name, options.runtime?.cloudflare?.env), runtimeContext: options.runtime })).length
+    try {
+      polled += (await handler.poll(request, channel, { ...host.options(name, env), runtimeContext: options.runtime })).length
+    }
+    catch (error) {
+      failures.push(error)
+    }
   }
+  if (failures.length === 1) throw failures[0]
+  if (failures.length) throw new AggregateError(failures, "[vitehub] Gmail Channel polling failed for multiple Agents.")
   if (!polled) throw agentDiagnostics.AGENT_R0940({ message: "[vitehub] pollGmailChannel() found no Agent that uses this Channel." })
 }
 
