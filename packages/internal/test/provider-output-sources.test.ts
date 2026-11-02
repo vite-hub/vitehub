@@ -963,6 +963,32 @@ it.each(["installed", "pnpm", "linked"])("snapshots descendants of explicitly re
   await expect(readFile(retained.resolve(entry), "utf8")).resolves.toContain('"captured"')
 })
 
+it.each([false, true])("prefers explicitly retained dependency directories over importing roots (directory first: %s)", async (directoryFirst) => {
+  const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-competing-roots-"))
+  tempDirs.push(workspace)
+  const roots = [join(workspace, "app-one"), join(workspace, "app-two")]
+  const packageDir = join(workspace, "packages", "fixture-package")
+  const entry = join(packageDir, "dist", "index.js")
+  const handlers = roots.map(root => join(root, "handler.js"))
+  await Promise.all([...roots, dirname(entry)].map(directory => mkdir(directory, { recursive: true })))
+  await Promise.all([
+    ...roots.map(root => writeFile(join(root, "package.json"), '{"type":"module"}\n')),
+    ...handlers.map(handler => writeFile(handler, `export { value } from ${JSON.stringify(entry)}\n`)),
+    writeFile(join(packageDir, "package.json"), '{"name":"fixture-package","type":"module"}\n'),
+    writeFile(entry, 'export const value = "captured"\n'),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(workspace, "sources"),
+    paths: directoryFirst ? [packageDir, ...handlers] : [...handlers, packageDir],
+    roots,
+  })
+  await rm(packageDir, { recursive: true })
+
+  expect(retained.resolve(entry)).toBe(join(retained.resolve(packageDir), relative(packageDir, entry)))
+  await expect(readFile(retained.resolve(entry), "utf8")).resolves.toContain('"captured"')
+})
+
 it("preserves installed package dependency resolution", async () => {
   const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-package-"))
   tempDirs.push(workspace)

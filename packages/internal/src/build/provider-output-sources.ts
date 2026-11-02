@@ -1188,15 +1188,16 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
     resolve(path) {
       if (!isAbsolute(path)) return path
       const resolvedPath = resolve(path)
-      const retainedPath = retainedPaths.get(resolvedPath)
-      if (retainedPath) return retainedPath
       const requestedDirectory = requestedDirectories.find(directory => pathContains(directory, resolvedPath))
       const requestedRoot = sourceRootByPath.get(resolvedPath)
         ?? (requestedDirectory ? sourceRootByPath.get(requestedDirectory) : undefined)
+      // Explicit sources keep their own layout even when another root also traced them.
+      if (requestedRoot) return resolve(retainedRoots.get(requestedRoot)!, relative(requestedRoot, resolvedPath))
+      const retainedPath = retainedPaths.get(resolvedPath)
+      if (retainedPath) return retainedPath
       // Retained roots link their dependencies instead of copying them. An unrequested dependency stays in place.
-      if (!requestedRoot && isDependencySource(resolvedPath)) return path
-      const root = requestedRoot
-        ?? roots.filter(candidate => pathContains(candidate, resolvedPath)).sort((left, right) => right.length - left.length)[0]
+      if (isDependencySource(resolvedPath)) return path
+      const root = roots.filter(candidate => pathContains(candidate, resolvedPath)).sort((left, right) => right.length - left.length)[0]
       return root ? resolve(retainedRoots.get(root)!, relative(root, resolvedPath)) : path
     },
   }
