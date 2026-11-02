@@ -59,7 +59,7 @@ function sharedMemoryDatabase(definition: AuthDefinition): NonNullable<BetterAut
   const tables = state.memoryDatabases.get(definition) ?? {}
   state.memoryDatabases.set(definition, tables)
   return (options: BetterAuthOptions) => {
-    for (const table of Object.keys(getAuthTables(options))) tables[table] ??= []
+    for (const { modelName } of Object.values(getAuthTables(options))) tables[modelName] ??= []
     return memoryAdapter(tables)(options)
   }
 }

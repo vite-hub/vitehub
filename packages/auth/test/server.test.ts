@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { organization } from "better-auth/plugins"
 
 import { defineAuth } from "../src/index.ts"
 import { createAuthRequestRuntimeOptions, createBetterAuthOptions, getAuth, getAuthForDefinition, handleAuthRequest, requireAuthAccessRoutes, resetAuth, setAuthRuntimeEnvResolver, withAuth } from "../src/server.ts"
@@ -230,6 +231,41 @@ describe("server auth helpers", () => {
     expect(session?.user.email).toBe("memory@example.com")
     expect((await request("sign-in/email", { email: "memory@example.com", password: "wrong-password" })).status).toBe(401)
     expect(await getAuthForDefinition(defineAuth({ appName: "Other" })).api.getSession({ headers: new Headers({ cookie }), query: { disableCookieCache: true } })).toBeNull()
+  })
+
+  it("shares configured core and plugin model names across requests without a database", async () => {
+    const definition = defineAuth({
+      emailAndPassword: { enabled: true },
+      user: { modelName: "users" },
+      account: { modelName: "accounts" },
+      session: { modelName: "sessions" },
+      verification: { modelName: "verifications" },
+      plugins: [organization({
+        schema: {
+          organization: { modelName: "organizations" },
+          member: { modelName: "members" },
+          invitation: { modelName: "invitations" },
+        },
+      })],
+    })
+    const origin = "http://localhost:3000"
+    const request = (path: string, body: object, cookie = "") => handleAuthRequest(definition, new Request(`${origin}/api/auth/${path}`, {
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json", cookie, origin },
+      method: "POST",
+    }))
+
+    expect((await request("sign-up/email", { email: "models@example.com", name: "Models", password: "passwordpassword" })).status).toBe(200)
+    const signIn = await request("sign-in/email", { email: "models@example.com", password: "passwordpassword" })
+    expect(signIn.status).toBe(200)
+    const cookie = signIn.headers.getSetCookie().map(value => value.split(";")[0]).join("; ")
+    const session = await getAuthForDefinition(definition).api.getSession({ headers: new Headers({ cookie }), query: { disableCookieCache: true } })
+    expect(session?.user.email).toBe("models@example.com")
+
+    expect((await request("organization/create", { name: "Models", slug: "models" }, cookie)).status).toBe(200)
+    const organizations = await handleAuthRequest(definition, new Request(`${origin}/api/auth/organization/list`, { headers: { cookie } }))
+    expect(organizations.status).toBe(200)
+    expect(await organizations.json()).toMatchObject([{ name: "Models", slug: "models" }])
   })
 
   it("does not reuse cached Auth state for a different Auth Definition", () => {
