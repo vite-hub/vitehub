@@ -31,12 +31,12 @@ let nextChatId = 1_000
 let nextUpdateId = 1
 let nextBotMessageId = 200_000
 
-function promptModel(prompts: Prompt[]) {
+function promptModel(prompts: Prompt[], answer: (prompt: Prompt) => string = () => "Saved") {
   return {
     async doGenerate(options: { prompt: Prompt }) {
       prompts.push(options.prompt)
       return {
-        content: [{ text: "Saved", type: "text" }],
+        content: [{ text: answer(options.prompt), type: "text" }],
         finishReason: { raw: "stop", unified: "stop" },
         usage: {
           inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
@@ -45,8 +45,24 @@ function promptModel(prompts: Prompt[]) {
         warnings: [],
       }
     },
-    async doStream() {
-      throw new Error("Unexpected streaming model call")
+    async doStream(options: { prompt: Prompt }) {
+      prompts.push(options.prompt)
+      const parts = [
+        { type: "stream-start", warnings: [] },
+        { id: "text-1", type: "text-start" },
+        // One character per chunk, so a header line arrives in many pieces.
+        ...[...answer(options.prompt)].map(delta => ({ delta, id: "text-1", type: "text-delta" })),
+        { id: "text-1", type: "text-end" },
+        {
+          finishReason: { raw: "stop", unified: "stop" },
+          type: "finish",
+          usage: {
+            inputTokens: { cacheRead: 0, cacheWrite: 0, noCache: 1, total: 1 },
+            outputTokens: { reasoning: 0, text: 1, total: 1 },
+          },
+        },
+      ]
+      return { stream: new ReadableStream({ start(controller) { for (const part of parts) controller.enqueue(part); controller.close() } }) }
     },
     modelId: "chat-message-context-test",
     provider: "test",
@@ -55,11 +71,12 @@ function promptModel(prompts: Prompt[]) {
   }
 }
 
-function telegramHarness(messages: MessageOptions = {}) {
+function telegramHarness(messages: MessageOptions = {}, answer?: (prompt: Prompt) => string) {
   const prompts: Prompt[] = []
   const downloads: string[] = []
+  const replies: string[] = []
   const chat = { id: nextChatId++, type: "private" }
-  const model = promptModel(prompts)
+  const model = promptModel(prompts, answer)
   const channel: AgentChannelDefinition = telegram({
     allowedUserIds: [42],
     botToken: "test-token",
@@ -89,8 +106,12 @@ function telegramHarness(messages: MessageOptions = {}) {
     }
     if (url.includes("/file/bot")) return new Response(new Uint8Array([1, 2, 3]), { headers: { "content-type": "image/jpeg" } })
     if (url.includes("/sendChatAction")) return Response.json({ ok: true, result: true })
-    if (url.includes("/sendMessage") || url.includes("/sendRichMessage")) {
+    if (url.includes("/sendMessage") || url.includes("/sendRichMessage") || url.includes("/editMessage") || url.includes("/editRichMessage")) {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      const rich = body.rich_message as { markdown?: string } | undefined
+      // A streamed reply edits the message that it sent first.
+      if (url.includes("/edit")) replies.pop()
+      replies.push(String(rich?.markdown ?? body.text))
       return Response.json({
         ok: true,
         result: { chat, date: at(18, 7), from: bot, message_id: nextBotMessageId++, text: body.text },
@@ -116,7 +137,7 @@ function telegramHarness(messages: MessageOptions = {}) {
     await Promise.all(tasks)
   }
 
-  return { chat, downloads, prompts, send }
+  return { chat, downloads, prompts, replies, send }
 }
 
 const recentHistory = { maxAgeMs: 30 * 60 * 1_000, maxImages: 3, maxMessages: 20, source: "thread" } as const
@@ -190,6 +211,32 @@ describe("chat trigger message context", () => {
       "Both!",
     ])
     expect(JSON.stringify(harness.prompts[0])).not.toMatch(/reply_to_message|"kind"|"modelText"/)
+  })
+
+  it("removes the header and reply line that the model copies into its answer", async () => {
+    // The model starts its answer with the lines it read before the user message.
+    const echo = (answer: string) => (prompt: Prompt) => {
+      const lines = turns(prompt).at(-1)!.text.split("\n")
+      return [...lines.filter(line => line.startsWith("[") || line.startsWith("↪")), answer].join("\n")
+    }
+    const replyTo = { chat: {}, date: at(18, 7), from: bot, message_id: 109315, text: "Should I log the nachos?" }
+
+    for (const options of [{ delivery: "manual" }, { delivery: "automatic", stream: false }, { delivery: "automatic", stream: true }] as const) {
+      const harness = telegramHarness({ ...options, timeZone: "Europe/Stockholm" }, echo("Logged both."))
+      await harness.send({ date: at(21, 6, 12), message_id: 109331, reply_to_message: { ...replyTo, chat: harness.chat }, text: "Both!" })
+
+      expect(turns(harness.prompts[0]!).at(-1)!.text).toContain("↪ replying to your msg 109315")
+      expect(harness.replies).toEqual(["Logged both."])
+    }
+  })
+
+  it("keeps an answer that only looks like a header", async () => {
+    const answer = "[Tue 2026-10-13] Lunch: 300 kcal\n↪ replying to everyone"
+    const harness = telegramHarness({ timeZone: "Europe/Stockholm" }, () => answer)
+
+    await harness.send({ date: at(21, 6, 12), message_id: 109332, text: "lunch" })
+
+    expect(harness.replies).toEqual([answer])
   })
 
   it("keeps history photos out of model input and uses UTC when the options are absent", async () => {
