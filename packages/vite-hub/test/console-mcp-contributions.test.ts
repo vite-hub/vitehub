@@ -84,7 +84,7 @@ describe("MCP owner contributions", () => {
     const config = { handlers: [...handlers] }
     addConsoleRpcHandler(config, "/runtime", "/portal/", [], true)
     for (const handler of handlers) expect(config.handlers).toContainEqual(handler)
-    expect(config.handlers.filter(handler => handler.route.endsWith("/**") && handler.route.startsWith("/.well-known/"))).toEqual(handlers)
+    expect(config.handlers.filter(handler => handler.route?.endsWith("/**") && handler.route.startsWith("/.well-known/"))).toEqual(handlers)
     expect(config.handlers[0]?.handler).toBe("/runtime/server/mcp-discovery.js")
   })
 
@@ -97,7 +97,10 @@ describe("MCP owner contributions", () => {
       addConsoleRpcHandler(config, "/runtime", base, [], true)
       expect(config.handlers).toContainEqual(application)
       expect(config.handlers.filter(handler => handler.route === route)).toEqual([application])
-      expect(config.handlers[0]).toMatchObject({ middleware: true, route: "/**" })
+      expect(config.handlers[0]).toMatchObject({ middleware: true })
+      // Nitro 2 mounts a middleware at `app.baseURL + (route || "/")` and runs it for paths with that prefix. A `/**`
+      // route is a prefix that no request has, so the discovery middleware must have no route.
+      expect(config.handlers[0]?.route).toBeUndefined()
       const source = config.virtual?.[config.handlers[0]!.handler]
       if (typeof source !== "string") throw new TypeError("Missing configured discovery middleware")
       // Load the generated wrapper against its source entry, without requiring a distribution build.

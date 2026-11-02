@@ -206,13 +206,13 @@ it.each([
     }],
   })
   await import(pathToFileURL(modulePath).href)
-  const config: { handlers: Array<{ handler: string; route: string; method?: string; middleware?: boolean }> } = {
+  const config: { handlers: Array<{ handler: string; route?: string; method?: string; middleware?: boolean }> } = {
     handlers: [{ handler: "app-auth", middleware: true, route: "/**" }],
   }
   addConsoleRpcHandler(config, "/runtime", `${mount}/`, [], true)
   const handler = async (event: object) => {
     // Nitro runs global middleware before routed middleware, regardless of their registration order.
-    for (const registration of config.handlers.filter(candidate => candidate.middleware && candidate.route === "/**" && !candidate.method)) {
+    for (const registration of config.handlers.filter(candidate => candidate.middleware && (candidate.route === undefined || candidate.route === "/**") && !candidate.method)) {
       const response = registration.handler === "app-auth"
         ? await middleware(event as never)
         : await Reflect.apply(consoleMcpDiscoveryHandler, undefined, [event])
