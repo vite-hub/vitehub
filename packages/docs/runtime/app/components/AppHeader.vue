@@ -1,13 +1,21 @@
 <script setup lang="ts">
+import { docsHomePath } from "#docs/navigation"
+
 const route = useRoute()
 const { base, github, site, start } = useDocsConfig()
-// Docs routes and the start links use the docs shell. There the brand opens the docs base, like a docs site logo,
+const docsHome = docsHomePath(useDocsManifest())
+// Docs routes and the start links use the docs shell. There the brand opens the docs home, like a docs site logo,
 // and the menu shows the docs sidebar. Elsewhere the brand opens the home page.
 // On wide screens the docs sidebar carries the brand, the links, and the controls, so the header hides.
-const isDocsRoute = useDocsShell()
+// The error page has no docs sidebar, so it keeps the header and its way home.
+const shell = useDocsShell()
+const error = useError()
+const isDocsRoute = computed(() => shell.value && !error.value)
+const menuOpen = ref(false)
 
+// A site without docs pages has no "Docs" link.
 const navLinks = [
-  { label: "Docs", to: base },
+  ...docsHome ? [{ label: "Docs", to: docsHome }] : [],
   ...(start?.links ?? []).filter(link => link.to !== base).map(link => ({ label: link.label, to: link.to })),
 ]
 
@@ -23,13 +31,14 @@ function isActiveLink(to: string) {
   return route.path === to || route.path.startsWith(`${to}/`)
 }
 
-// Touch screens get taller header icon buttons. The 44px header and a 320px row still fit.
-const touchIconButton = "pointer-coarse:h-10 pointer-coarse:w-9 pointer-coarse:justify-center"
+// Touch screens get 44px header icon buttons. Below 360px they are 40px wide, so the brand and four buttons fit a 320px row.
+const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-10 pointer-coarse:justify-center"
 </script>
 
 <template>
   <div class="sticky top-0 z-50" :class="{ 'lg:hidden': isDocsRoute }">
     <UHeader
+      v-model:open="menuOpen"
       :ui="{
         // Docs pages pin the rail to the left edge, so the header spans the full width.
         container: isDocsRoute ? 'max-w-none' : undefined,
@@ -39,14 +48,15 @@ const touchIconButton = "pointer-coarse:h-10 pointer-coarse:w-9 pointer-coarse:j
       }"
     >
       <template #left>
+        <!-- The menu repeats this slot and focuses the brand first. Its tooltip would take the first Escape, so it is off there. -->
         <UTooltip
           :text="site.badge?.tooltip ?? undefined"
-          :disabled="!site.badge?.tooltip"
+          :disabled="!site.badge?.tooltip || menuOpen"
           :content="{ side: 'bottom', sideOffset: 8 }"
           ignore-non-keyboard-focus
           :ui="{ content: 'h-auto max-w-64 whitespace-normal px-3 py-2 text-left leading-5' }"
         >
-          <ULink :to="isDocsRoute ? base : '/'" class="vh-brand" :aria-label="site.badge ? `${site.name} ${site.badge.label}` : site.name">
+          <ULink :to="isDocsRoute && docsHome ? docsHome : '/'" class="vh-brand" :aria-label="site.badge ? `${site.name} ${site.badge.label}` : site.name">
             <span v-if="site.logo" class="vh-brand-mark" :style="{ '--vh-docs-logo': `url(${site.logo})` }" aria-hidden="true" />
             <span class="vh-brand-name">
               <span>{{ site.name }}</span>
@@ -83,7 +93,7 @@ const touchIconButton = "pointer-coarse:h-10 pointer-coarse:w-9 pointer-coarse:j
           collapsed
           :kbds="[]"
           :ui="{
-            base: '!w-8 shrink-0 justify-center rounded-md border-0 !p-1.5 text-default hover:bg-elevated pointer-coarse:!h-10 pointer-coarse:!w-9 lg:hidden',
+            base: '!w-8 shrink-0 justify-center rounded-md border-0 !p-1.5 text-default hover:bg-elevated pointer-coarse:!size-11 max-[22.5rem]:pointer-coarse:!w-10 lg:hidden',
             label: 'sr-only',
             trailing: 'hidden',
           }"
@@ -121,10 +131,10 @@ const touchIconButton = "pointer-coarse:h-10 pointer-coarse:w-9 pointer-coarse:j
               color="neutral"
               variant="ghost"
               size="sm"
-              class="pointer-coarse:h-10"
+              class="pointer-coarse:h-11"
             />
           </nav>
-          <DocsSidebars class="vh-docs-menu-sidebars" panel />
+          <DocsSidebars class="vh-docs-menu-sidebars" panel labeled />
         </div>
         <nav v-else-if="!isDocsRoute" class="grid gap-1">
           <UButton
@@ -167,7 +177,8 @@ const touchIconButton = "pointer-coarse:h-10 pointer-coarse:w-9 pointer-coarse:j
 }
 
 /* The header already shows the brand above the menu. */
-.vh-docs-menu-sidebars :deep(.vh-docs-rail-brand) {
+.vh-docs-menu-sidebars :deep(.vh-docs-rail-brand),
+.vh-docs-menu-sidebars :deep(.vh-docs-panel-brand) {
   display: none;
 }
 
@@ -186,6 +197,19 @@ const touchIconButton = "pointer-coarse:h-10 pointer-coarse:w-9 pointer-coarse:j
   font-size: 0.875rem;
   font-weight: 650;
   letter-spacing: 0;
+}
+
+/* On touch screens the brand text is about 20px tall. An invisible area makes the tap target 44px without moving the header. */
+@media (pointer: coarse) {
+  .vh-brand {
+    position: relative;
+  }
+
+  .vh-brand::after {
+    position: absolute;
+    inset: -0.75rem -0.25rem;
+    content: "";
+  }
 }
 
 /* Like the docs rail, the mark is a mask filled with the text color, so it follows light and dark mode without a frame. */

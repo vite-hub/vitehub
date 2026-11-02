@@ -24,8 +24,8 @@ content/
         index.md            /docs/guide/deploy
 ```
 
-- Each folder in `content/docs/` is a section: one entry in the rail and one page list in the sidebar.
-- `index.md` is the page of its folder. `content/docs/index.md` is the page at `/docs`. Without it, `/docs` is not found.
+- Each folder in `content/docs/` is a section: one entry in the rail and one page list in the sidebar. A site with three sections or fewer, or with no section icons, has no rail. Its sidebar lists every section with its pages.
+- `index.md` is the page of its folder. `content/docs/index.md` is the page at `/docs`. Without it, `/docs` is not found, and the Docs links open the first section.
 - Files outside `content/docs/`, such as `about.md`, are plain articles under the site header, without the sidebar.
 - `dir` changes the content folder, and `base` changes the `/docs` prefix.
 

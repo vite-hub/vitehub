@@ -70,6 +70,27 @@ export function docsSectionForPath(manifest: DocsManifest, path: string): DocsSe
   return manifest.sections.find(section => normalized === section.path || normalized.startsWith(`${section.path}/`)) ?? null
 }
 
+/** The page that a section link opens: its Overview, else its first listed page. A section without `index.md` has no page at its own path. */
+export function docsSectionHome(section: DocsSection): string {
+  return (section.pages.find(page => page.path === section.path) ?? section.pages.find(page => page.navigation) ?? section.pages[0])?.path ?? section.path
+}
+
+/** The page that a "Docs" link opens: the docs base page, else the first section. `null` when the site has no docs pages. */
+export function docsHomePath(manifest: DocsManifest): string | null {
+  if (manifest.root) return manifest.root.path
+  const first = manifest.sections[0]
+  return first ? docsSectionHome(first) : null
+}
+
+/**
+ * Whether the sidebar is one page list without the icon rail. A rail of three or fewer sections, or of sections
+ * without their own icons, shows the same fallback icon several times and carries no information.
+ */
+export function docsSingleList(manifest: DocsManifest, icons: Pick<DocsIcons, "rail" | "sections">): boolean {
+  if (manifest.sections.length <= 3) return true
+  return !manifest.sections.some(section => section.icon || icons.rail[section.id] || icons.sections[section.id])
+}
+
 /** Sections grouped by category, in the order of `categories`. Sections of other categories are left out. */
 export function docsCatalog(manifest: DocsManifest, categories: readonly string[]): DocsCatalogGroup[] {
   return categories
