@@ -141,10 +141,10 @@ async function createDeploymentRuntimeFixture(
   await mkdir(join(supportRoot, "workspace"), { recursive: true })
   await mkdir(join(supportRoot, "skills", "review"), { recursive: true })
   await writeFile(join(supportRoot, "agent.ts"), [
-    "import { defineAgent } from '@vite-hub/agent'",
+    "import { codexDriver, defineAgent } from '@vite-hub/agent'",
     "export default defineAgent({",
     "  description: 'support',",
-    providerDriver ? "  driver: 'codex'," : "  driver: { model: {} },",
+    providerDriver ? "  driver: codexDriver()," : "  driver: { model: {} },",
     ...(declaredWorkspaceName ? [`  name: ${JSON.stringify(declaredWorkspaceName)},`] : []),
     "  runtime: false,",
     "  workspace: {",

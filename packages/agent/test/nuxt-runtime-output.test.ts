@@ -97,10 +97,10 @@ it("packages optional Agent runtimes into immutable Nuxt output", { timeout: 180
     await writeFile(join(root, "pnpm-workspace.yaml"), "packages:\n  - .\n\nblockExoticSubdeps: false\n", "utf8")
     await writeFile(join(root, "app.vue"), "<template><div>ViteHub runtime proof</div></template>\n", "utf8")
     await writeFile(join(root, "server", "api", "proof.get.ts"), `
-import { defineAgent, runAgentInline } from "@vite-hub/agent"
+import { codexDriver, defineAgent, runAgentInline } from "@vite-hub/agent"
 import { gmail, mcp } from "@vite-hub/agent/capabilities"
 
-const agent = defineAgent({ driver: { env: { PATH: "" }, kind: "codex" }, runtime: false })
+const agent = defineAgent({ driver: codexDriver({ env: { PATH: "" } }), runtime: false })
 const optionalServer = false as boolean
 const gmailCapability = gmail({ connection: "google" })
 const capability = mcp({

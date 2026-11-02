@@ -111,7 +111,7 @@ A preset can expose typed options with the same `defineAgent()` function:
 export const notetaker = defineAgent({
   options: { format: "concise" as "concise" | "detailed", labels: ["notes"] },
   configure: ({ format }) => defineAgent({
-    driver: { kind: "codex", instructions: `Write ${format} notes.` },
+    driver: codexDriver({ instructions: `Write ${format} notes.` }),
   }),
 })
 ```
@@ -138,7 +138,7 @@ const notes = defineAgent({
   configKey: 'notetaker',
   options: { format: 'concise' as 'concise' | 'detailed' },
   configure: ({ format }) => defineAgent({
-    driver: { kind: 'codex', instructions: `Write ${format} notes.` },
+    driver: codexDriver({ instructions: `Write ${format} notes.` }),
   }),
 })
 

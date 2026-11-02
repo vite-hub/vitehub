@@ -39,7 +39,7 @@ export const agentStory = {
   positioning: "An Agent is one more file in your server. It deploys with your app and uses the same storage as your routes.",
   tutorialPath: "/docs/getting-started/first-agent",
   code: [
-    'import { defineAgent } from "vite-hub/agent"',
+    'import { codexDriver, defineAgent } from "vite-hub/agent"',
     'import { browser, kv } from "vite-hub/agent/capabilities"',
     'import { github } from "vite-hub/agent/channels"',
     "",
@@ -48,7 +48,7 @@ export const agentStory = {
     "  channels: {",
     '    github: github({ pullRequest: { reconcile: { events: ["opened"] } } }),',
     "  },",
-    '  driver: "codex",',
+    '  driver: codexDriver(),',
     '  workspace: { mode: "write" },',
     '  capabilities: [browser(), kv({ mode: "write" })],',
     "})",
