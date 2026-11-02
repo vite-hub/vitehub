@@ -59,6 +59,8 @@ import { defineDatabase } from 'vite-hub/database'
 export default defineDatabase({ schema: {} })
 ```
 
+The Agent and the Connection are files of your app, like every other Agent and Connection, so the ViteHub CLI and the Console show them. The Connection grants the Agent use of your ChatGPT plan, and that grant stays in your code. `docs.assistant` adds the panel and checks this setup.
+
 Connections encrypts the grant with `VITEHUB_CONNECTIONS_KEY`. Set it to 32 random bytes in `.env`, and keep it across restarts:
 
 ```bash [commands/connections-key]
@@ -111,7 +113,7 @@ export default defineAgent({
     // Replaces the default limit: 10 questions per hour for each client address behind your proxy.
     docsRateLimit({ limit: 10, identity: 'ip', trustedIpHeaders: ['x-forwarded-for'] }),
   ],
-  // Pages in another folder
+  // Pages in another folder, when `docs.dir` is not `content`
   workspace: { sources: { pages: glob({ cwd: 'docs', include: ['**/*.md'], keyCache: false }) } },
 })
 ```

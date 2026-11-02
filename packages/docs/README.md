@@ -201,9 +201,18 @@ export default defineConnection({
 })
 ```
 
+```ts
+// server/databases/config.ts: Connections keeps the grant in the app Database. Skip it when the app has one.
+import { defineDatabase } from "vite-hub/database"
+
+export default defineDatabase({ schema: {} })
+```
+
+The Agent and the Connection are app files on purpose. ViteHub discovers Agents and Connections from `server/`, so the ViteHub CLI and the Console show them like every other Agent and Connection. The Connection grants the Agent use of your ChatGPT plan, and a grant of that kind stays in your code, where you can read it. `docs.assistant` only adds the panel and checks this setup.
+
 Set `VITEHUB_CONNECTIONS_KEY` to 32 random bytes in `.env`, start the app, and sign in once with `pnpm vitehub connections connect chatgpt --url http://localhost:3000`. Every page then shows an **Ask** button. `⌘I` (`Ctrl+I` on Windows and Linux) opens and closes the panel, and `Esc` closes it. On wide screens the panel is a column beside the page that you resize from its left edge. On narrow screens it is a sheet. `useDocsAssistant().toggle()` opens the panel from your own control.
 
-The preset reads `content/**/*.md` from a read-only Workspace, answers in the `web` Chat Channel at `/api/_vitehub/agents/docs/chat`, and gets the path of the open page. It allows 30 questions per hour for the whole site, 2 answers at a time, and 8 waiting. Change any part with `defineAgent({ extends: docsAssistant, ... })`, for example `driver: { instructions }`, `driver: { gateway: openai(), model }` for an API key, or `docsRateLimit({ limit, identity })`. Set `docs: { assistant: { agent: "support" } }` to use an Agent with another name.
+The preset reads `content/**/*.md` from a read-only Workspace, answers in the `web` Chat Channel at `/api/_vitehub/agents/docs/chat`, and gets the path of the open page. It allows 30 questions per hour for the whole site, 2 answers at a time, and 8 waiting. Change any part with `defineAgent({ extends: docsAssistant, ... })`, for example `driver: { instructions }`, `driver: { gateway: openai(), model }` for an API key, or `docsRateLimit({ limit, identity })`. Set `docs: { assistant: { agent: "support" } }` to use an Agent with another name. The preset reads `content/` also when `dir` names another folder; then set `workspace: { sources: { pages: glob({ cwd: dir, include: ["**/*.md"], keyCache: false }) } }`.
 
 Limits:
 
