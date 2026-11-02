@@ -715,7 +715,8 @@ export function createAuthConsole(
         select: [...publicUserFields, "role"],
         offset,
         limit: 500,
-        sortBy: { field: "id", direction: "asc" },
+        // Email is required and unique; Mongo's adapter sorts logical `id` on a missing field.
+        sortBy: { field: "email", direction: "asc" },
       });
       for (const [id, role] of await rolesOf(rows)) if (isAdmin(admin, id, role)) result.add(id);
       if (rows.length < 500) return result;

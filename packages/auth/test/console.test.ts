@@ -221,7 +221,7 @@ describe("Auth Console with real Better Auth plugins", () => {
     expect(db.user.find((user) => user.id === operator.id)?.role).toBe("admin");
   });
 
-  it("filters computed admins across more users than one database batch", async () => {
+  it.each(["memory", "mongodb"])("filters computed admins across multiple %s batches", async (adapter) => {
     const { auth, db } = await fixture();
     const createdAt = new Date();
     for (let index = 0; index < 1100; index++)
@@ -233,14 +233,36 @@ describe("Auth Console with real Better Auth plugins", () => {
         createdAt,
         updatedAt: createdAt,
       });
-    const inspect = createAuthConsole(auth, {
+    const ctx = await auth.$context;
+    const read = vi.fn((users: readonly { id: string; email: string }[]) =>
+      Object.fromEntries(
+        users.map((user) => [user.id, /^person\d*7@/.test(user.email) ? "admin" : null]),
+      ),
+    );
+    const inspect = createAuthConsole({
+      api: auth.api,
+      $context: Promise.resolve({
+        options: ctx.options,
+        adapter: {
+          ...ctx.adapter,
+          findMany<T>(query: Parameters<typeof ctx.adapter.findMany>[0]) {
+            if (adapter !== "mongodb" || query.model !== "user" || query.where)
+              return ctx.adapter.findMany<T>(query);
+            // Mongo sorts logical `id` on a missing field instead of physical `_id`.
+            // Reverse tied rows between requests to expose overlapping offset batches.
+            db.user.reverse();
+            return ctx.adapter.findMany<T>({
+              ...query,
+              sortBy: query.sortBy?.field === "id" ? undefined : query.sortBy,
+            });
+          },
+        },
+      }),
+    }, {
       roles: {
         editable: false,
         reason: "Computed.",
-        read: (users) =>
-          Object.fromEntries(
-            users.map((user) => [user.id, /^person\d*7@/.test(user.email) ? "admin" : null]),
-          ),
+        read,
       },
     });
     const page = await data(inspect.users({ filter: "admins", offset: 100, limit: 25 }));
@@ -248,6 +270,8 @@ describe("Auth Console with real Better Auth plugins", () => {
     expect(page.total).toBe(111);
     expect(page.items).toHaveLength(11);
     expect(page.items.every((user) => user.role === "admin")).toBe(true);
+    const scannedIds = read.mock.calls.slice(0, 3).flatMap(([users]) => users.map((user) => user.id));
+    expect(scannedIds.sort()).toEqual(db.user.map((user) => user.id).sort());
   });
 
   it("returns safe typed errors for provider failures", async () => {
