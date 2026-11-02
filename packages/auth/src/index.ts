@@ -58,4 +58,5 @@ export type {
   AuthConsoleColumn,
   AuthConsoleFieldPolicy,
   AuthConsolePolicy,
+  AuthConsoleRoles,
 } from "./console-types.ts";
