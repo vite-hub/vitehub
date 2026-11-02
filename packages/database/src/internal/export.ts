@@ -1,5 +1,5 @@
 import { createWriteStream, existsSync } from "node:fs"
-import { mkdir, open, rename, rm } from "node:fs/promises"
+import { link, mkdir, mkdtemp, open, rm } from "node:fs/promises"
 import { Readable } from "node:stream"
 import { pipeline } from "node:stream/promises"
 import { setTimeout as sleep } from "node:timers/promises"
@@ -87,8 +87,8 @@ export async function exportDatabase(database: ResolvedDrizzleDatabaseConfig, op
   }
   if (existsSync(options.output)) throw new Error(`The output file exists: ${options.output}`)
   await mkdir(dirname(options.output), { recursive: true })
-  const partial = join(dirname(options.output), `.${basename(options.output)}.partial`)
-  await rm(partial, { force: true })
+  const partialDirectory = await mkdtemp(join(dirname(options.output), `.${basename(options.output)}.partial-`))
+  const partial = join(partialDirectory, basename(options.output))
   try {
     switch (target.kind) {
       case "local":
@@ -109,11 +109,17 @@ export async function exportDatabase(database: ResolvedDrizzleDatabaseConfig, op
         await exportPostgres(target, partial, options)
         break
     }
-    await rename(partial, options.output)
+    // Linking publishes the completed file atomically and refuses an existing destination.
+    try {
+      await link(partial, options.output)
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error(`The output file exists: ${options.output}`)
+      throw error
+    }
   }
-  catch (error) {
-    await rm(partial, { force: true })
-    throw error
+  finally {
+    await rm(partialDirectory, { force: true, recursive: true })
   }
   return target
 }
@@ -172,22 +178,35 @@ async function writeSqliteDump(query: D1Query, file: string): Promise<void> {
 }
 
 async function writeRows(query: D1Query, table: string, kind: { type: string, withoutRowid: boolean } | undefined, write: (text: string) => Promise<void>) {
-  const columns = (await query(`PRAGMA table_info(${quoteIdentifier(table)})`)).map(row => String(field(row, "name", 1)))
+  const info = await query(`PRAGMA table_info(${quoteIdentifier(table)})`)
+  const columns = info.map(row => String(field(row, "name", 1)))
   if (!columns.length) return
-  const values = columns.map((column, index) => `quote(${quoteIdentifier(column)}) AS c${index}`).join(", ")
+  const rowid = kind && !kind.withoutRowid ? ["_rowid_", "rowid", "oid"].find(name => !columns.some(column => column.toLowerCase() === name)) : undefined
+  if (rowid) {
+    const primaryKey = info.filter(row => Number(field(row, "pk", 5)) > 0)
+    // INTEGER PRIMARY KEY aliases rowid, except when SQLite creates a separate PK index (e.g. PRIMARY KEY DESC).
+    const aliasesRowid = primaryKey.length === 1 && String(field(primaryKey[0], "type", 2)).toUpperCase() === "INTEGER"
+      && !(await query(`PRAGMA index_list(${quoteIdentifier(table)})`)).some(row => field(row, "origin", 3) === "pk")
+    if (!aliasesRowid) columns.unshift(rowid)
+  }
+  const values = columns.map((column, index) => {
+    const name = quoteIdentifier(column)
+    // SQLite quote() truncates TEXT at NUL; hex preserves every stored byte.
+    return `CASE WHEN typeof(${name}) = 'text' AND instr(${name}, char(0)) > 0 THEN 'CAST(X''' || hex(${name}) || ''' AS TEXT)' ELSE quote(${name}) END AS c${index}`
+  }).join(", ")
   const insert = `INSERT INTO ${quoteIdentifier(table)} (${columns.map(quoteIdentifier).join(",")}) VALUES(`
   const writePage = async (rows: unknown[], offset: number) => {
     for (const row of rows) await write(`${insert}${columns.map((_, index) => field(row, `c${index}`, index + offset)).join(",")});\n`)
   }
   // Read rowid tables in pages, so a large remote table does not arrive in one response.
-  const pages = kind?.type === "table" && !kind.withoutRowid && !columns.some(column => /^(?:rowid|_rowid_|oid)$/i.test(column))
+  const pages = kind?.type === "table" && rowid
   if (!pages) {
     await writePage(await query(`SELECT ${values} FROM ${quoteIdentifier(table)}`), 0)
     return
   }
   let after: string | undefined
   for (;;) {
-    const rows = await query(`SELECT quote(_rowid_) AS k, ${values} FROM ${quoteIdentifier(table)}${after === undefined ? "" : ` WHERE _rowid_ > ${after}`} ORDER BY _rowid_ LIMIT ${pageSize}`)
+    const rows = await query(`SELECT quote(${quoteIdentifier(rowid)}) AS k, ${values} FROM ${quoteIdentifier(table)}${after === undefined ? "" : ` WHERE ${quoteIdentifier(rowid)} > ${after}`} ORDER BY ${quoteIdentifier(rowid)} LIMIT ${pageSize}`)
     await writePage(rows, 1)
     if (rows.length < pageSize) return
     after = String(field(rows.at(-1), "k", 0))
@@ -247,7 +266,8 @@ async function exportD1(target: Extract<ExportTarget, { kind: "d1" }>, file: str
   }
   let bookmark: string | undefined
   let signedUrl: string | undefined
-  while (!signedUrl) {
+  const maxPolls = 600
+  for (let attempt = 0; attempt < maxPolls; attempt++) {
     const poll = await api(`/d1/database/${encodeURIComponent(databaseId)}/export`, {
       body: { current_bookmark: bookmark, dump_options: { no_data: false, no_schema: false }, output_format: "polling" },
       method: "POST",
@@ -258,9 +278,11 @@ async function exportD1(target: Extract<ExportTarget, { kind: "d1" }>, file: str
       if (!signedUrl) throw new Error("Cloudflare D1 export completed without a download URL.")
       break
     }
-    bookmark = poll?.at_bookmark
-    await sleep(1000)
+    if (typeof poll?.at_bookmark !== "string" || !poll.at_bookmark.trim()) throw new Error("Cloudflare D1 export returned a continuation without a bookmark.")
+    bookmark = poll.at_bookmark
+    if (attempt < maxPolls - 1) await sleep(1000)
   }
+  if (!signedUrl) throw new Error(`Cloudflare D1 export did not complete after ${maxPolls} polls.`)
   // The signed URL authorizes the download by itself. Do not send the API token to it.
   const download = await request(signedUrl)
   if (!download.ok || !download.body) throw new Error(`The D1 export download returned HTTP ${download.status}.`)

@@ -10,6 +10,8 @@ import { createRuntimeEnvConfigValue } from "../src/config-value.ts"
 
 import type { ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../src/types.ts"
 
+vi.mock("node:timers/promises", () => ({ setTimeout: vi.fn(async () => {}) }))
+
 const tempDirs: string[] = []
 
 afterEach(async () => {
@@ -24,9 +26,13 @@ CREATE VIEW titles AS SELECT title FROM notes;
 CREATE TABLE audit (note_id INTEGER);
 CREATE TRIGGER notes_audit AFTER INSERT ON notes BEGIN INSERT INTO audit (note_id) VALUES (new.id); END;
 INSERT INTO notes (title, score, data) VALUES ('it''s "quoted"', 1.0, x'00ff'), ('line
-break', NULL, NULL);
+break' || char(0) || 'after', NULL, NULL);
 WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 1200) INSERT INTO notes (title, score) SELECT 'note ' || i, i / 4.0 FROM n;
 INSERT INTO tags VALUES ('b', 2), ('a', 1);
+CREATE TABLE documents (title TEXT);
+WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 1200) INSERT INTO documents (rowid, title) SELECT i * 2, 'document ' || i FROM n;
+CREATE VIRTUAL TABLE search USING fts5(title);
+INSERT INTO search (rowid, title) VALUES (42, 'searchable');
 `
 
 async function seedDatabase(file: string) {
@@ -49,8 +55,10 @@ async function readAll(url: string) {
     }
     return {
       audit: await read("SELECT count(*) FROM audit"),
-      notes: await read("SELECT id, title, score, typeof(score), data FROM notes ORDER BY id"),
+      documents: await read("SELECT rowid, title FROM documents ORDER BY rowid"),
+      notes: await read("SELECT id, title, hex(title), score, typeof(score), data FROM notes ORDER BY id"),
       schema: await read("SELECT type, name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY name"),
+      search: await read("SELECT rowid, title FROM search WHERE search MATCH 'searchable'"),
       sequence: await read("SELECT name, seq FROM sqlite_sequence"),
       tags: await read("SELECT name, note_id FROM tags ORDER BY name"),
     }
@@ -130,6 +138,55 @@ describe("vitehub db export", () => {
     expect(again.stderr).toContain("The output file exists")
   })
 
+  it("preserves an output file created while the export is running", async () => {
+    const project = await createProject({ default: { dialect: "postgresql" } })
+    const output = join(project.rootDir, "backup.sql")
+    const spawn = vi.fn(async (_command: string, args: string[]) => {
+      await writeFile(args[args.indexOf("--file") + 1]!, "new dump")
+      await writeFile(output, "existing backup")
+      return { exitCode: 0 }
+    })
+    const result = await project.run(["--remote", "--output", "backup.sql"], { spawn })
+    expect(result).toMatchObject({ exitCode: 1, stderr: expect.stringContaining("The output file exists") })
+    await expect(readFile(output, "utf8")).resolves.toBe("existing backup")
+    await expect(readdir(project.rootDir)).resolves.toEqual(["backup.sql"])
+  })
+
+  it("keeps concurrent exporters' partial files separate and publishes only one dump", async () => {
+    const project = await createProject({ default: { dialect: "postgresql" } })
+    let markStarted!: () => void
+    let finishFirst!: () => void
+    const firstStarted = new Promise<void>((resolve) => { markStarted = resolve })
+    const firstCanFinish = new Promise<void>((resolve) => { finishFirst = resolve })
+    let firstPartial: string | undefined
+    const first = project.run(["--remote", "--output", "backup.sql"], { spawn: async (_command: string, args: string[]) => {
+      firstPartial = args[args.indexOf("--file") + 1]!
+      await writeFile(firstPartial, "first dump")
+      markStarted()
+      await firstCanFinish
+      return { exitCode: 0 }
+    } })
+    await firstStarted
+    try {
+      const second = await project.run(["--remote", "--output", "backup.sql"], { spawn: async (_command: string, args: string[]) => {
+        const partial = args[args.indexOf("--file") + 1]!
+        expect(partial).not.toBe(firstPartial)
+        await writeFile(partial, "second dump")
+        return { exitCode: 0 }
+      } })
+      expect(second).toMatchObject({ exitCode: 0, stderr: "" })
+      await expect(readFile(firstPartial!, "utf8")).resolves.toBe("first dump")
+      await expect(readFile(join(project.rootDir, "backup.sql"), "utf8")).resolves.toBe("second dump")
+    }
+    finally {
+      finishFirst()
+      await first
+    }
+    await expect(first).resolves.toMatchObject({ exitCode: 1, stderr: expect.stringContaining("The output file exists") })
+    await expect(readFile(join(project.rootDir, "backup.sql"), "utf8")).resolves.toBe("second dump")
+    await expect(readdir(project.rootDir)).resolves.toEqual(["backup.sql"])
+  })
+
   it("asks for --remote before it reads a remote database, and refuses --remote for a local file", async () => {
     const remote = await createProject({ default: { connection: { authToken: "libsql-secret", url: "libsql://user:pass@db.example.com" } } })
     const result = await remote.run()
@@ -207,6 +264,32 @@ describe("vitehub db export", () => {
     await expect(readdir(join(project.rootDir, ".vitehub/exports/database"))).resolves.toEqual([])
   })
 
+  it.each([{}, { status: "active" }, { at_bookmark: "", status: "active" }])("rejects a D1 continuation without a bookmark: %j", async (poll) => {
+    const project = await createProject({ default: { cloudflare: { binding: "DB", databaseId: "db-uuid", migrationsDir: "migrations" } } })
+    const request = vi.fn(async () => {
+      if (request.mock.calls.length > 1) throw new Error("Malformed polling continued")
+      return Response.json({ result: poll, success: true })
+    })
+    const result = await project.run(["--remote", "--output", "d1.sql"], { env: { CLOUDFLARE_ACCOUNT_ID: "account-1", CLOUDFLARE_API_TOKEN: "token" }, fetch: request as typeof fetch })
+    expect(result).toMatchObject({ exitCode: 1, stderr: expect.stringContaining("Cloudflare D1 export returned a continuation without a bookmark") })
+    expect(result.stderr).toContain("DATABASE_EXPORT_FAILED")
+    expect(request).toHaveBeenCalledTimes(1)
+    await expect(readdir(project.rootDir)).resolves.toEqual([])
+  })
+
+  it("stops D1 polling when the export never completes", async () => {
+    const project = await createProject({ default: { cloudflare: { binding: "DB", databaseId: "db-uuid", migrationsDir: "migrations" } } })
+    const request = vi.fn(async () => {
+      if (request.mock.calls.length > 600) throw new Error("Polling exceeded the limit")
+      return Response.json({ result: { at_bookmark: "bookmark", status: "active" }, success: true })
+    })
+    const result = await project.run(["--remote", "--output", "d1.sql"], { env: { CLOUDFLARE_ACCOUNT_ID: "account-1", CLOUDFLARE_API_TOKEN: "token" }, fetch: request as typeof fetch })
+    expect(result).toMatchObject({ exitCode: 1, stderr: expect.stringContaining("Cloudflare D1 export did not complete after 600 polls") })
+    expect(result.stderr).toContain("DATABASE_EXPORT_FAILED")
+    expect(request).toHaveBeenCalledTimes(600)
+    await expect(readdir(project.rootDir)).resolves.toEqual([])
+  })
+
   it("dumps D1 through an object-form cloudflare.http proxy", async () => {
     const project = await createProject({ default: { cloudflare: { binding: "DB", http: { authToken: "proxy-secret", url: "https://proxy.example.com/raw" }, migrationsDir: "migrations" } } })
     const source = join(project.rootDir, "proxy.db")
@@ -239,7 +322,7 @@ describe("vitehub db export", () => {
     expect(result).toMatchObject({ exitCode: 0, stderr: "", stdout: "[vitehub] Database \"default\" (Postgres postgres://db.example.com:5432/app): exported to pg.sql.\n" })
     const [command, args, options] = spawn.mock.calls[0] as unknown as [string, string[], { env: NodeJS.ProcessEnv }]
     expect(command).toBe("pg_dump")
-    expect(args).toEqual(["--no-owner", "--no-privileges", "--file", join(project.rootDir, ".pg.sql.partial"), "--dbname", "postgres://app@db.example.com:5432/app?sslmode=require"])
+    expect(args).toEqual(["--no-owner", "--no-privileges", "--file", expect.stringContaining(join(project.rootDir, ".pg.sql.partial-")), "--dbname", "postgres://app@db.example.com:5432/app?sslmode=require"])
     expect(options.env.PGPASSWORD).toBe("p@ss")
     await expect(readFile(join(project.rootDir, "pg.sql"), "utf8")).resolves.toBe("-- PostgreSQL database dump\n")
 
