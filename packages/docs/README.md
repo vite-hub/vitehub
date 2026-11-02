@@ -135,7 +135,7 @@ The shell is a set of Nuxt components. Create a component with the same name in 
 | `DocsCatalogFooter` | The catalog at the end of an Overview. |
 | `DocsCodePanel`, `DocsCodePre` | The tutorial code panel and code blocks. |
 
-Markdown blocks are components in `components/content/`. The package has `::tutorial-step`, `::product-features` with `:::product-feature-item`, and `::agent-only`. Add your own in `app/components/content/`, for example `ProductHero.vue` for `::product-hero`. An app `app.vue`, `error.vue`, `layouts/docs.vue`, `layouts/default.vue`, or catch-all page also replaces the package one.
+Markdown blocks are components in `components/content/`. The package has `::tutorial-step`, `::product-features` with `:::product-feature-item`, and `::agent-only`. Add your own in `app/components/content/`, for example `ProductHero.vue` for `::product-hero`. An app `app.vue`, `error.vue`, `layouts/docs.vue`, `layouts/default.vue`, or catch-all page also replaces the package one. A catch-all page replaces the docs page only when it answers every docs page, such as `pages/[...slug].vue`. One in another folder, such as `pages/blog/[...slug].vue`, does not.
 
 Components read the site with auto-imported composables: `useDocsConfig()`, `useDocsManifest()`, `useDocsPage()`, `useDocsSection()`, `useDocsIcons()`, and `useDocsAssistant()`.
 

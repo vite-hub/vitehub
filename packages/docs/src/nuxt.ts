@@ -20,6 +20,7 @@ import { setupDocsAssistant } from "./assistant-nuxt.ts"
 import { createDocsManifest } from "./manifest.ts"
 import { docsManifestPages, docsPageIcon, docsRailIcon, docsSectionIcon, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { toRawMarkdown } from "./raw.ts"
+import { coversDocsPages } from "./page.ts"
 import { vercelTheme } from "./theme.ts"
 
 import type { DocsPage } from "./types.ts"
@@ -320,7 +321,9 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     })
     addRouteMiddleware({ name: "docs-layout", path: join(runtime, "app/middleware/docs-layout.ts"), global: true })
     extendPages((pages) => {
-      if (pages.some(page => page.path.includes(":slug(.*)*") || page.path.includes("(.*)"))) return
+      // A catch-all of the app, such as `pages/[...slug].vue`, can replace the docs page. One that leaves docs pages
+      // out, such as `pages/blog/[...slug].vue`, does not, and the docs route registers beside it.
+      if (coversDocsPages(pages, docsManifestPages(manifest).map(page => page.path))) return
       pages.push({ name: "docs-page", path: "/:slug(.*)*", file: join(runtime, "app/pages/docs-page.vue") })
     })
     nuxt.hook("app:resolve", (app) => {

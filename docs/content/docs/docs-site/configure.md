@@ -230,7 +230,7 @@ const { github } = useDocsConfig()
 | `DocsPageHeaderLinks` | Copy page, View as Markdown, Open in ChatGPT or Claude, and the MCP links. |
 | `DocsCatalogFooter` | The catalog at the end of an Overview. |
 
-The app can also replace `app.vue`, `error.vue`, the `docs` and `default` layouts, and the catch-all page. The module adds its own only when the app has none.
+The app can also replace `app.vue`, `error.vue`, the `docs` and `default` layouts, and the catch-all page. The module adds its own only when the app has none. A catch-all page replaces the docs page only when it answers every docs page, such as `pages/[...slug].vue`. A catch-all in another folder, such as `pages/blog/[...slug].vue`, does not.
 
 Components read the site with auto-imported composables:
 
