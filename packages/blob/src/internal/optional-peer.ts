@@ -11,7 +11,7 @@ export async function importOptionalPeer<T>(load: () => Promise<T>, id: string, 
   }
 }
 
-function isMissingPeerError(error: unknown, id: string) {
+export function isMissingPeerError(error: unknown, id: string): boolean {
   if (!(error instanceof Error)) return false
   return (error as NodeJS.ErrnoException).code === "ERR_MODULE_NOT_FOUND"
     || (error as NodeJS.ErrnoException).code === "MODULE_NOT_FOUND"
