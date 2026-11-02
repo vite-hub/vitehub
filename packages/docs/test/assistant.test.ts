@@ -115,5 +115,8 @@ describe("docsAssistantProblem", () => {
     expect(docsAssistantProblem("AGENT_R1018", origin)).toMatchObject({ code: "AGENT_R1018", title: "ChatGPT plan not eligible" })
     expect(docsAssistantProblem("RATE_LIMIT_REJECTED", origin)).toMatchObject({ code: "RATE_LIMIT_REJECTED", title: "Too many questions" })
     expect(docsAssistantProblem("socket hang up", origin)).toMatchObject({ code: "unknown", detail: "socket hang up" })
+    expect(docsAssistantProblem(new Error('{"code":"PROVIDER_UNAVAILABLE","error":"AGENT_R1025: The ChatGPT gateway cannot find Codex in this app."}'), origin)).toMatchObject({ code: "AGENT_R1025", title: "Install Codex", command: "pnpm add @openai/codex" })
+    expect(docsAssistantProblem('{"code":"PROVIDER_UNAVAILABLE","error":"AGENT_R1016: The ChatGPT Connection cannot provide plan access (sign-in)."}', origin)).toMatchObject({ code: "AGENT_R1016", title: "Connect ChatGPT" })
+    expect(docsAssistantProblem('{"code":"INTERNAL","error":"Agent request failed."}', origin)).toMatchObject({ code: "unknown", detail: "Agent request failed." })
   })
 })

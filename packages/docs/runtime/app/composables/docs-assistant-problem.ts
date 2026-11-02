@@ -15,7 +15,7 @@ const codePattern = /\b(AGENT_R\d{4}|AGENT_BUDGET_EXCEEDED|RATE_LIMIT_(?:REJECTE
  * command instead of a generic failure. `origin` is the site origin that the CLI connects to.
  */
 export function docsAssistantProblem(error: Error | string, origin: string): DocsAssistantProblem {
-  const message = typeof error === "string" ? error : error.message
+  const message = errorText(typeof error === "string" ? error : error.message)
   const code = codePattern.exec(message)?.[1] ?? "unknown"
   switch (code) {
     case "AGENT_R1016": {
@@ -27,6 +27,13 @@ export function docsAssistantProblem(error: Error | string, origin: string): Doc
         command: `pnpm vitehub connections connect ${connection} --url ${origin}`,
       }
     }
+    case "AGENT_R1025":
+      return {
+        code,
+        title: "Install Codex",
+        detail: "The assistant runs Codex, and the app cannot find it. Install it in the app folder, restart the app, then ask again.",
+        command: "pnpm add @openai/codex",
+      }
     case "AGENT_R1017":
       return { code, title: "ChatGPT plan limit reached", detail: "The site owner's ChatGPT plan reached its usage limit. Try again after it resets." }
     case "AGENT_R1018":
@@ -35,5 +42,18 @@ export function docsAssistantProblem(error: Error | string, origin: string): Doc
       return { code, title: "Too many questions", detail: "The assistant reached its limit of questions for now. Try again later." }
     default:
       return { code, title: "The assistant could not answer", detail: message || "Try again." }
+  }
+}
+
+/** A failed chat request carries the response body, such as `{"code":"PROVIDER_UNAVAILABLE","error":"AGENT_R1016: ..."}`. */
+function errorText(message: string): string {
+  if (!message.startsWith("{")) return message
+  try {
+    const body: unknown = JSON.parse(message)
+    const text: unknown = body && typeof body === "object" ? Reflect.get(body, "error") : undefined
+    return typeof text === "string" ? text : message
+  }
+  catch {
+    return message
   }
 }

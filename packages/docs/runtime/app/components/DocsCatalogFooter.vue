@@ -18,7 +18,8 @@ function isCurrent(section: DocsSection) {
 </script>
 
 <template>
-  <footer class="vh-product-footer" :aria-label="`Explore ${site.name} documentation`">
+  <!-- Sections join the catalog through their `category`. A site without categories has no catalog. -->
+  <footer v-if="groups.length" class="vh-product-footer" :aria-label="`Explore ${site.name} documentation`">
     <h2 class="vh-product-footer-title">Explore {{ site.name }}</h2>
 
     <div class="vh-product-footer-grid">
