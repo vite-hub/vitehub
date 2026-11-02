@@ -201,10 +201,15 @@ function selectRecord(name: string | undefined, history: "push" | "replace" = "p
 }
 
 function selectDefinition(name: string): void {
-  selectedName.value = name;
   sidebarOpen.value = false;
   if (route.query[selectionQuery.value] !== name) {
-    void router.push({ query: { ...route.query, [selectionQuery.value]: name } });
+    const query = { ...route.query, [selectionQuery.value]: name };
+    // A new Rate Limit starts without a counter; history entries keep their own keys.
+    if (section.value === "rate-limits") delete query.key;
+    void router.push({ query });
+  } else {
+    // Commit the selection with its URL so the counter reads the destination's key.
+    selectedName.value = name;
   }
 }
 

@@ -132,6 +132,7 @@ export function useConsoleQuery<P extends ConsoleQueryParams>(
   const refs: Record<string, Ref<unknown>> = Object.fromEntries(Object.keys(params).map(name => [name, ref(initial[name])]))
   // Writes in flight. The URL catches up with the refs when they finish, so it does not reset the refs before that.
   let writing = 0
+  let restoring = false
   let disposed = false
 
   function values(): Record<string, unknown> {
@@ -143,17 +144,22 @@ export function useConsoleQuery<P extends ConsoleQueryParams>(
     if (disposed || writing || !isActive()) return
     const next = readConsoleQuery(params, route.query)
     const changed: string[] = []
-    for (const [name, value] of Object.entries(refs)) {
-      const param = params[name]!
-      if (written(param, value.value) === written(param, next[name])) continue
-      value.value = next[name]
-      changed.push(name)
+    restoring = true
+    try {
+      for (const [name, value] of Object.entries(refs)) {
+        const param = params[name]!
+        if (written(param, value.value) === written(param, next[name])) continue
+        value.value = next[name]
+        changed.push(name)
+      }
+    } finally {
+      restoring = false
     }
     if (changed.length) options.onRestore?.(changed)
   }
 
   watch(Object.values(refs), () => {
-    if (disposed || !isActive()) return
+    if (disposed || restoring || !isActive()) return
     const state = values()
     const pending = pendingWrites.get(router)
     const base = pending?.query ?? route.query

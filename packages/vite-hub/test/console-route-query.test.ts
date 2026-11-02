@@ -45,8 +45,9 @@ describe("Console query parameters", () => {
   })
 })
 
-async function mount(path: string, options: { onRestore?: (names: string[]) => void } = {}) {
+async function mount(path: string, options: { onRestore?: (names: string[]) => void } = {}, previous?: string) {
   const router = createRouter({ history: createMemoryHistory(), routes: [{ component: {}, name: "page", path: "/page" }, { component: {}, name: "other", path: "/other" }] })
+  if (previous) await router.push(previous)
   await router.push(path)
   const push = vi.spyOn(router, "push")
   const replace = vi.spyOn(router, "replace")
@@ -119,6 +120,28 @@ describe("useConsoleQuery", () => {
     expect(push).not.toHaveBeenCalled()
     expect(replace).not.toHaveBeenCalled()
     app.unmount()
+  })
+
+  it("restores multiple fields with Back and Forward without writing intermediate queries", async () => {
+    const onRestore = vi.fn()
+    const { app, push, replace, router, state } = await mount(
+      "/page?offset=50&q=bob&row=r2", { onRestore }, "/page?offset=25&q=alice&row=r1",
+    )
+    try {
+      router.back()
+      await vi.waitFor(() => expect([state.offset.value, state.q.value, state.row.value]).toEqual([25, "alice", "r1"]))
+      expect(router.currentRoute.value.query).toEqual({ offset: "25", q: "alice", row: "r1" })
+      expect(onRestore).toHaveBeenLastCalledWith(["offset", "q", "row"])
+      expect(push).not.toHaveBeenCalled()
+      expect(replace).not.toHaveBeenCalled()
+      router.forward()
+      await vi.waitFor(() => expect([state.offset.value, state.q.value, state.row.value]).toEqual([50, "bob", "r2"]))
+      expect(router.currentRoute.value.query).toEqual({ offset: "50", q: "bob", row: "r2" })
+      expect(push).not.toHaveBeenCalled()
+      expect(replace).not.toHaveBeenCalled()
+    } finally {
+      app.unmount()
+    }
   })
 
   it("keeps the changes of two parts of a page that write in the same tick", async () => {

@@ -20,13 +20,7 @@ const props = defineProps<{
 
 const toast = useConsoleToast();
 // The key that was read lives in the URL, so a reload or a shared link reads the same counter again.
-const { key: readKey } = useConsoleQuery({ key: querySelection({ history: "replace" }) }, {
-  onRestore() {
-    key.value = readKey.value ?? "";
-    if (key.value) void peek();
-    else clearResult();
-  },
-});
+const { key: readKey } = useConsoleQuery({ key: querySelection({ history: "replace" }) });
 const key = ref(readKey.value ?? "");
 const peeked = ref<ConsoleRateLimitPeek>();
 // Inspection may redact the echoed key. Keep the successful request's identity for mutations.
@@ -101,17 +95,21 @@ async function confirmReset(): Promise<void> {
 
 function clearResult(): void {
   request?.abort();
+  request = undefined;
   loading.value = false;
   peeked.value = undefined;
   peekedKey.value = undefined;
   error.value = undefined;
 }
 
-// A counter belongs to its Rate Limit, so another selection starts empty.
-watch(() => props.name, () => {
+// Wait for both the catalog's selection and the restored key before reading the destination counter.
+watch([() => props.name, readKey], ([name, current], [previousName]) => {
+  // A successful peek writes its key to the URL; it already has the result.
+  if (name === previousName && current !== undefined && current === peekedKey.value) return;
   clearResult();
-  readKey.value = undefined;
-});
+  key.value = current ?? "";
+  if (key.value) void peek();
+}, { flush: "post" });
 onMounted(() => {
   if (key.value) void peek();
 });
