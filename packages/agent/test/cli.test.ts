@@ -825,6 +825,27 @@ describe("agent CLI", () => {
     expect((await run([])).stderr).toContain("requires --url <https-origin> or vitehub({ publicUrl })")
   })
 
+  it.each([false, true])("ignores an HTTP publicUrl for account-only synchronization (apply: %s)", async (apply) => {
+    const stderr = stream()
+    const plan = vi.fn(async () => ({ action: "create" as const, current: {}, desired: { topic: "mail" } }))
+    const applyPlan = vi.fn(async () => ({ topic: "mail" }))
+    const fetch = vi.fn()
+    const exitCode = await runAgentChannelSyncCli(["--stage", "production", ...apply ? ["--apply"] : []], {
+      cwd: "/repo", env: {}, publicUrl: "http://localhost:3000", rootDir: "/repo", stderr, stdout: stream(),
+    }, {
+      fetch,
+      loadTargets: async () => [{
+        agent: "support", channel: "gmail", mode: "account", provider: "gmail",
+        sync: { apply: applyPlan, mode: "account", plan },
+      }],
+    })
+    expect(stderr.output()).toBe("")
+    expect(exitCode).toBe(0)
+    expect(plan).toHaveBeenCalledWith(expect.objectContaining({ desiredUrl: undefined }))
+    expect(applyPlan).toHaveBeenCalledTimes(apply ? 1 : 0)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it("downloads Channel history from vitehub({ publicUrl }) without --url", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-channel-history-public-url-"))
     const urls: string[] = []

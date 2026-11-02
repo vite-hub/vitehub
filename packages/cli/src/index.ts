@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url"
 
 import { collectViteHubCliContribution, getStableStdoutWrite, withStdoutOnStderr } from "@vite-hub/internal/cli"
 import { reservedOperationNamespaces } from "@vite-hub/internal/operations"
+import { withViteStageEnvironment } from "@vite-hub/internal/vite-stage"
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { resolve } from "pathe"
 
@@ -72,8 +73,8 @@ export interface RunViteHubCliOptions {
   runtimeFeatureGuard?: (namespace: string, feature: string, cwd: string) => boolean | Promise<boolean>
   /** Replaces `fetch` in commands that call a running app. */
   fetch?: typeof fetch
-  loadConfig?: (rootDir: string, command: ConfigEnv["command"]) => Promise<ViteHubCliLoadedConfig>
-  loadNuxtViteConfig?: (rootDir: string, command: ConfigEnv["command"]) => Promise<{ plugins: readonly unknown[], root?: string } | undefined>
+  loadConfig?: (rootDir: string, command: ConfigEnv["command"], mode?: string) => Promise<ViteHubCliLoadedConfig>
+  loadNuxtViteConfig?: (rootDir: string, command: ConfigEnv["command"], mode?: string) => Promise<{ plugins: readonly unknown[], root?: string } | undefined>
   spawn?: ViteHubCliSpawn
   stderr?: ViteHubCliStreams["stderr"]
   stdout?: ViteHubCliStreams["stdout"]
@@ -84,7 +85,7 @@ export interface RunViteHubCliEntrypointOptions extends Omit<RunViteHubCliOption
   stdout?: ViteHubCliEntrypointStream
 }
 
-async function loadNuxtViteConfig(rootDir: string, command: ConfigEnv["command"]): Promise<{ plugins: readonly unknown[], root?: string } | undefined> {
+async function loadNuxtViteConfig(rootDir: string, command: ConfigEnv["command"], mode?: string): Promise<{ plugins: readonly unknown[], root?: string } | undefined> {
   const hasNuxtConfig = ["nuxt.config.ts", "nuxt.config.mts", "nuxt.config.cts", "nuxt.config.js", "nuxt.config.mjs", "nuxt.config.cjs"]
     .some(file => existsSync(resolve(rootDir, file)))
   if (!hasNuxtConfig) return
@@ -100,7 +101,7 @@ async function loadNuxtViteConfig(rootDir: string, command: ConfigEnv["command"]
   const nuxt = await loadNuxt({
     cwd: rootDir,
     dev: command === "serve",
-    overrides: { devtools: { enabled: false }, vitehubCliDiscovery: true },
+    overrides: { devtools: { enabled: false }, ...(mode ? { vite: { mode } } : {}), vitehubCliDiscovery: true },
     ready: true,
   } as Parameters<typeof loadNuxt>[0])
   try {
@@ -114,7 +115,7 @@ async function loadNuxtViteConfig(rootDir: string, command: ConfigEnv["command"]
         : nuxt.options.rootDir || rootDir,
       vitehubCliDiscovery: true,
     }
-    const config = await resolveConfig(inlineConfig, command, command === "build" ? "production" : "development")
+    const config = await resolveConfig(inlineConfig, command, mode ?? (command === "build" ? "production" : "development"))
     return {
       plugins: config.plugins,
       root: config.root,
@@ -144,13 +145,14 @@ function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnO
   })
 }
 
-async function loadViteConfig(rootDir: string, command: ConfigEnv["command"]): Promise<ViteHubCliLoadedConfig> {
+async function loadViteConfig(rootDir: string, command: ConfigEnv["command"], mode?: string): Promise<ViteHubCliLoadedConfig> {
   const { resolveConfig } = await import("vite")
   const inlineConfig: InlineConfig & { vitehubCliDiscovery: true } = {
     root: rootDir,
+    ...(mode ? { mode } : {}),
     vitehubCliDiscovery: true,
   }
-  return await resolveConfig(inlineConfig, command, command === "build" ? "production" : "development")
+  return await resolveConfig(inlineConfig, command, mode ?? (command === "build" ? "production" : "development"))
 }
 
 /** Keeps at least two spaces between a help name and its description. */
@@ -226,11 +228,17 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   }
 
   const command = args[0] === "inspect" && args[1] === "provider-output" ? "build" : "serve"
-  const { contribution, operations, plugins, rootDir } = await withStdoutOnStderr(async () => {
-    const config = await (options.loadConfig || loadViteConfig)(cwd, command)
+  // Channel definitions and their default public URL must use the same stage, including config-time loadEnv().
+  const stageIndex = args[0] === "channels" && (args[1] === "sync" || args[1] === "history") ? args.lastIndexOf("--stage") : -1
+  const stageValue = stageIndex === -1 ? undefined : args[stageIndex + 1]
+  const stage = stageValue && !stageValue.startsWith("-") ? stageValue : undefined
+  const loadProject = () => withStdoutOnStderr(async () => {
+    const loadConfig = options.loadConfig || loadViteConfig
+    const loadNuxtConfig = options.loadNuxtViteConfig || loadNuxtViteConfig
+    const config = await (stage ? loadConfig(cwd, command, stage) : loadConfig(cwd, command))
     const nuxtConfig = config.vitehubConfigResolved
       ? undefined
-      : await (options.loadNuxtViteConfig || loadNuxtViteConfig)(cwd, command)
+      : await (stage ? loadNuxtConfig(cwd, command, stage) : loadNuxtConfig(cwd, command))
     const plugins = nuxtConfig?.plugins ?? config.plugins
     return {
       contribution: await collectViteHubCliContribution(plugins),
@@ -239,6 +247,7 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
       rootDir: resolve(nuxtConfig?.root || config.root || cwd),
     }
   }, stderr)
+  const { contribution, operations, plugins, rootDir } = await (stage ? withViteStageEnvironment(env, loadProject) : loadProject())
   const namespaces = [
     ...mergeOperationNamespaces(contribution.namespaces, createOperationNamespaces(operations)).filter(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name)),
     createInspectNamespace(plugins, operations),

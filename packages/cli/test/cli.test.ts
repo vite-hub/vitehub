@@ -110,6 +110,46 @@ describe("ViteHub CLI", () => {
     expect(run).toHaveBeenCalledWith([], expect.objectContaining({ publicUrl: "https://app.example.com" }))
   })
 
+  it.each(["sync", "history"])("discovers the public URL in the selected stage for channels %s", async (feature) => {
+    const rootDir = await createTempDir()
+    await symlink(resolve(import.meta.dirname, "../node_modules"), join(rootDir, "node_modules"), "dir")
+    await writeFile(join(rootDir, ".env.development"), "VITEHUB_TEST_PUBLIC_URL=https://development.example.com\n")
+    await writeFile(join(rootDir, ".env.production"), "VITEHUB_TEST_PUBLIC_URL=https://production.example.com\n")
+    await writeFile(join(rootDir, "vite.config.mjs"), `
+import { loadEnv } from "vite"
+export default ({ mode }) => ({
+  plugins: [{
+    name: "stage-contributor",
+    vitehub: { cli: {
+      publicUrl: loadEnv(mode, ${JSON.stringify(rootDir)}, "").VITEHUB_TEST_PUBLIC_URL,
+      namespaces: [{ name: "channels", features: ["sync", "history"].map(name => ({
+        name,
+        run(args, context) {
+          context.stdout.write(JSON.stringify({ mode, publicUrl: context.publicUrl }))
+          return 0
+        },
+      })) }],
+    } },
+  }],
+})
+`)
+    const previous = process.env.VITEHUB_TEST_PUBLIC_URL
+    for (const override of [undefined, "https://override.example.com"]) {
+      const stdout = stream()
+      const stderr = stream()
+      expect(await runViteHubCli({
+        args: ["channels", feature, "--stage", "production"],
+        cwd: rootDir,
+        env: { ...process.env, VITEHUB_TEST_PUBLIC_URL: override },
+        stderr,
+        stdout,
+      })).toBe(0)
+      expect(stderr.output()).toBe("")
+      expect(JSON.parse(stdout.output())).toEqual({ mode: "production", publicUrl: override ?? "https://production.example.com" })
+      expect(process.env.VITEHUB_TEST_PUBLIC_URL).toBe(previous)
+    }
+  })
+
   it.each(["--version", "-v"])("prints the packaged version for %s without loading project config", async (flag) => {
     const stdout = stream()
     const stderr = stream()
@@ -784,7 +824,7 @@ export default {
   })
 
   // Boots a real Nuxt app, which takes more than the default 5 s on a busy machine.
-  it("loads development-only Nuxt contributors during CLI discovery", { timeout: 30_000 }, async () => {
+  it.each([undefined, "production"])("loads development-only Nuxt contributors during CLI discovery (stage: %s)", { timeout: 30_000 }, async (stage) => {
     const rootDir = await createTempDir()
     await mkdir(join(rootDir, "node_modules"))
     await symlink(resolve(import.meta.dirname, "../node_modules/nuxt"), join(rootDir, "node_modules/nuxt"), "dir")
@@ -800,22 +840,28 @@ export default function (_options, nuxt) {
   if (nuxt.options.devtools.enabled !== false) throw new Error("Nuxt DevTools started during CLI discovery")
   if (!nuxt.options.dev) return
   nuxt.options.vite.plugins ||= []
-  nuxt.options.vite.plugins.push({
+  const plugin = {
     name: "fixture-discovery-test",
+    config(_config, { mode }) {
+      plugin.vitehub.cli.publicUrl = "https://" + mode + ".example.com"
+    },
     vitehub: {
       cli: {
-        namespaces: [{ features: [{ name: "run", run: () => 0 }], name: "test" }],
+        namespaces: [{ features: [{ name: "sync", run: (_args, context) => { context.stdout.write(context.publicUrl); return 0 } }], name: "channels" }],
       },
     },
-  })
+  }
+  nuxt.options.vite.plugins.push(plugin)
 }
 `)
 
+    const stdout = stream()
     await expect(runViteHubCli({
-      args: ["test", "run"],
+      args: ["channels", "sync", ...stage ? ["--stage", stage] : []],
       cwd: rootDir,
-      stdout: stream(),
+      stdout,
     })).resolves.toBe(0)
+    expect(stdout.output()).toBe(`https://${stage ?? "development"}.example.com`)
   })
 
   it("fails closed when provision credentials are missing", async () => {
