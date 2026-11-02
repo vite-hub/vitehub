@@ -27,7 +27,8 @@ export interface ConsoleRequestEvent {
     }
   }
   req?: {
-    body?: ReadableStream<Uint8Array> | null
+    // H3 v1 returns `event.node.req` as `event.req`. On Nitro 2 Workers its body is the whole body, already read.
+    body?: ReadableStream<Uint8Array> | Uint8Array | string | null
     context?: { clientAddress?: string, [key: string]: unknown }
     ip?: string
     headers?: ConsoleHeaders
@@ -93,6 +94,11 @@ export async function consoleRequestText(fetchBody: ReadableStream<Uint8Array>, 
 
 export async function consoleRequestJSON(event: ConsoleRequestEvent, maximumBytes: number = maximumConsoleRequestBodyBytes): Promise<unknown> {
   const fetchBody = event.req?.body
+  if (typeof fetchBody === "string" || fetchBody instanceof Uint8Array) {
+    const bytes = typeof fetchBody === "string" ? stringByteLength(fetchBody) : fetchBody.byteLength
+    if (bytes > maximumBytes) throw consoleRequestError(413, "Console request body exceeds the byte limit.")
+    return JSON.parse(typeof fetchBody === "string" ? fetchBody : new TextDecoder().decode(fetchBody))
+  }
   if (fetchBody) return JSON.parse(await consoleRequestText(fetchBody, maximumBytes))
   if (event.req?.json) {
     const body = await event.req.json()

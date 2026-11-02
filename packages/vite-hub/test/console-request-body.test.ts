@@ -31,6 +31,13 @@ const adapters = {
       },
     } } }
   },
+  // Nitro 2 on Workers: H3 v1 `event.req` is the Node request shim, whose body is already read.
+  nitro2Bytes(body: string): ConsoleRequestEvent {
+    return { req: { body: encoder.encode(body) } }
+  },
+  nitro2Text(body: string): ConsoleRequestEvent {
+    return { req: { body } }
+  },
   decoded(body: string): ConsoleRequestEvent {
     return { req: { json: async () => JSON.parse(body) } }
   },
