@@ -191,7 +191,7 @@ export async function readMigrationPlan(
     const pending = entries
       .filter(entry => lastApplied === undefined || lastApplied < entry.when)
       .map(entry => readPendingMigration(database.migrationsDir, entry.tag, entries))
-    return [undefined, { database: database.name, pending: withoutNewTableDataLoss(pending), target: describeTarget(target, options.projectRoot) }]
+    return [undefined, { database: database.name, pending: withoutNewTableDataLoss(pending, database.dialect), target: describeTarget(target, options.projectRoot) }]
   }
   catch (error) {
     const problem = error instanceof Error ? error.message : String(error)

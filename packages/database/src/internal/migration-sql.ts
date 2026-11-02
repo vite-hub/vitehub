@@ -1,3 +1,5 @@
+import type { DatabaseDialect } from "../types.ts"
+
 /** A statement in a pending migration that removes data. */
 export interface DataLossStatement {
   reason: string
@@ -11,6 +13,7 @@ export type TableColumns = ReadonlyMap<string, readonly string[]>
 
 const identifier = String.raw`(?:"(?:[^"]|"")+"|\x60(?:[^\x60]|\x60\x60)+\x60|\[[^\]]+\]|[\w$]+)`
 const qualifiedName = String.raw`(?:${identifier}\s*\.\s*)?${identifier}`
+const schemaQualifiedTable = new RegExp(String.raw`^${identifier}\.${identifier}$`)
 
 /** Splits SQL into statements at semicolons outside of quotes and comments. Comments are removed. */
 export function splitSqlStatements(sql: string): string[] {
@@ -69,7 +72,11 @@ export function splitSqlStatements(sql: string): string[] {
 
 /** Names a table the same way in every statement: unquoted parts in lower case, quoted parts as written. */
 function tableKey(name: string): string {
-  return [...name.matchAll(new RegExp(identifier, "g"))].map(([part]) => /^["`[]/.test(part) ? unquote(part) : part.toLowerCase()).join(".")
+  return [...name.matchAll(new RegExp(identifier, "g"))].map(([part]) => {
+    const value = /^["`[]/.test(part) ? unquote(part) : part.toLowerCase()
+    // Keep separators inside quoted names distinct from schema separators.
+    return /^[\w$]+$/.test(value) ? value : `"${value.replaceAll('"', '""')}"`
+  }).join(".")
 }
 
 /** Removes the quotes and the schema of a table or column name. */
@@ -155,8 +162,12 @@ function classifyStatement(statement: string, rebuilds: ReadonlyMap<string, Rebu
   }
   if ((match = statement.match(alterDrop))) return { reason: `drops column "${unquote(match[2]!)}" from "${unquote(match[1]!)}"`, tables: [tableKey(match[1]!)] }
   if ((match = statement.match(truncate))) {
-    const names = [...match[1]!.matchAll(new RegExp(truncateTarget, "gi"))].map(target => target[1]!)
-    return { reason: names.map(name => `deletes every row of "${unquote(name)}"`).join("; "), tables: names.map(tableKey) }
+    const targets = [...match[1]!.matchAll(new RegExp(truncateTarget, "gi"))]
+    const names = targets.map(target => target[1]!)
+    // CASCADE adds referencing tables; without ONLY PostgreSQL also truncates descendants.
+    const explicitOnly = targets.every(target => /^ONLY\b/i.test(target[0]))
+      && !hasKeywordOutsideQuotes(statement.slice(match[0].length), "CASCADE")
+    return { reason: names.map(name => `deletes every row of "${unquote(name)}"`).join("; "), tables: explicitOnly ? names.map(tableKey) : [] }
   }
   if ((match = statement.match(deleteFrom)) && !hasKeywordOutsideQuotes(statement, "WHERE")) return { reason: `deletes every row of "${unquote(match[1]!)}"`, tables: [tableKey(match[1]!)] }
   if ((match = statement.match(dropSchema))) return { reason: `drops schema "${unquote(match[1]!)}"`, tables: [] }
@@ -232,6 +243,7 @@ function readTables(statement: string): string[] | undefined {
 }
 
 interface NewTables {
+  dialect: DatabaseDialect
   /** Tables that hold only rows written by this run, or that this run dropped. */
   noOlderRows: Set<string>
   /** Tables that a trigger writes into. A later write to another table can copy older rows into them. */
@@ -269,7 +281,14 @@ function trackNewTables(statement: string, tables: NewTables) {
   }
   const readsOnlyNewRows = (query = statement) => readTables(query)?.every(table => noOlderRows.has(table)) ?? false
   const add = (table: string) => {
+    // An unqualified PostgreSQL name can resolve to a different table after a drop or rename.
+    if (tables.dialect === "postgresql" && !schemaQualifiedTable.test(table)) return
     if (!tables.fedByTrigger.has(table)) noOlderRows.add(table)
+  }
+  const forget = (table: string) => {
+    // An unqualified target may refer to any tracked schema's table.
+    if (tables.dialect === "postgresql" && !schemaQualifiedTable.test(table)) noOlderRows.clear()
+    else noOlderRows.delete(table)
   }
   let match = statement.match(createTable)
   if (match) {
@@ -277,7 +296,7 @@ function trackNewTables(statement: string, tables: NewTables) {
     if (!match[1]) {
       const table = tableKey(match[2]!)
       if (readsOnlyNewRows(statement.slice(match[0].length))) add(table)
-      else noOlderRows.delete(table)
+      else forget(table)
     }
     return
   }
@@ -285,7 +304,7 @@ function trackNewTables(statement: string, tables: NewTables) {
     const from = tableKey(match[1]!)
     const to = tableKey(match[2]!)
     if (noOlderRows.has(from)) add(to)
-    else noOlderRows.delete(to)
+    else forget(to)
     add(from)
     return
   }
@@ -294,11 +313,12 @@ function trackNewTables(statement: string, tables: NewTables) {
     return
   }
   if ((match = statement.match(writeInto))) {
-    if (!readsOnlyNewRows()) noOlderRows.delete(tableKey(match[1]!))
+    if (!readsOnlyNewRows()) forget(tableKey(match[1]!))
     return
   }
-  // Attaching a partition can expose older rows through this table and any of its partition ancestors.
-  if (/^ALTER\s+TABLE\b/i.test(statement) && hasKeywordOutsideQuotes(statement, "ATTACH")) noOlderRows.clear()
+  // Partitions and inheritance can expose older rows through a new table and its ancestors.
+  if (/^ALTER\s+TABLE\b/i.test(statement)
+    && (hasKeywordOutsideQuotes(statement, "ATTACH") || hasKeywordOutsideQuotes(statement, "INHERIT"))) noOlderRows.clear()
   // A `WITH` query, a function, or another statement that ViteHub does not read could copy older rows anywhere.
   if (!keepsRows.test(statement)) noOlderRows.clear()
 }
@@ -306,10 +326,11 @@ function trackNewTables(statement: string, tables: NewTables) {
 /**
  * Removes the data loss on tables that an earlier statement of the same run created or dropped, because those tables
  * hold no rows from before the run. `migrations` are the pending migrations in the order they run. A table that gets
- * rows copied from an older table, like a SQLite rebuild of an existing table, keeps its data loss.
+ * rows copied from an older table, like a SQLite rebuild of an existing table, keeps its data loss. PostgreSQL names
+ * must be schema-qualified because the search path can resolve the same unqualified name to different tables.
  */
-export function withoutNewTableDataLoss<T extends DataLossMigration>(migrations: readonly T[]): T[] {
-  const tables: NewTables = { fedByTrigger: new Set(), inTrigger: false, noOlderRows: new Set() }
+export function withoutNewTableDataLoss<T extends DataLossMigration>(migrations: readonly T[], dialect: DatabaseDialect = "sqlite"): T[] {
+  const tables: NewTables = { dialect, fedByTrigger: new Set(), inTrigger: false, noOlderRows: new Set() }
   return migrations.map((migration) => {
     const losses = [...migration.dataLoss]
     const dataLoss: DataLossStatement[] = []

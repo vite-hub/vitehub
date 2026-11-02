@@ -71,6 +71,11 @@ describe("migration data loss", () => {
       return withoutNewTableDataLoss(run).flatMap(migration => migration.dataLoss.map(loss => loss.reason))
     }
 
+    function runPostgresLosses(...migrations: string[][]) {
+      const run = migrations.map(statements => ({ dataLoss: findDataLoss(statements, new Map()), statements }))
+      return withoutNewTableDataLoss(run, "postgresql").flatMap(migration => migration.dataLoss.map(loss => loss.reason))
+    }
+
     const createNotes = ["CREATE TABLE `notes` (`id` integer PRIMARY KEY NOT NULL, `body` text);"]
 
     it("accepts data loss on tables that an earlier migration of the run created", () => {
@@ -117,21 +122,95 @@ describe("migration data loss", () => {
     })
 
     it.each([
-      "TRUNCATE TABLE notes, users;",
+      "TRUNCATE TABLE ONLY notes, ONLY users;",
       "TRUNCATE ONLY notes, ONLY users;",
-      "TRUNCATE TABLE notes *, users * RESTART IDENTITY;",
+      "TRUNCATE TABLE ONLY notes, ONLY users RESTART IDENTITY;",
     ])("checks every target of %s", (statement) => {
       expect(runLosses(createNotes, [statement])).toEqual(["deletes every row of \"notes\"; deletes every row of \"users\""])
       expect(runLosses([...createNotes, "CREATE TABLE users (id integer);"], [statement])).toEqual([])
     })
 
     it("records qualified TRUNCATE targets separately", () => {
-      const statement = "TRUNCATE TABLE ONLY \"public\".\"notes\", \"public\".\"users\" *;"
+      const statement = "TRUNCATE TABLE ONLY \"public\".\"notes\", ONLY \"public\".\"users\";"
       expect(findDataLoss([statement])).toEqual([{
         reason: "deletes every row of \"notes\"; deletes every row of \"users\"",
         statement,
         tables: ["public.notes", "public.users"],
       }])
+    })
+
+    it.each(["notes", '"notes"'])("retains unqualified PostgreSQL losses on %s across search_path schemas", (name) => {
+      // The first drop can expose an older table of the same name in a later search_path schema.
+      expect(runPostgresLosses(
+        [`CREATE TABLE ${name} (id integer);`],
+        [`DROP TABLE ${name};`, `DROP TABLE ${name};`],
+      )).toEqual(['drops table "notes"', 'drops table "notes"'])
+    })
+
+    it("accepts PostgreSQL losses with a stable schema-qualified identity", () => {
+      expect(runPostgresLosses(
+        ['CREATE TABLE "public"."notes" (id integer);'],
+        ["TRUNCATE ONLY public.notes RESTRICT;", "DROP TABLE public.notes;", "DROP TABLE IF EXISTS public.notes;"],
+      )).toEqual([])
+    })
+
+    it("does not confuse a PostgreSQL table name containing a dot with a qualified name", () => {
+      expect(runPostgresLosses(
+        ['CREATE TABLE "public.notes" (id integer);'],
+        ['DROP TABLE "public.notes";', 'DROP TABLE "public.notes";'],
+      )).toEqual(['drops table "public.notes"', 'drops table "public.notes"'])
+    })
+
+    it("retains a qualified PostgreSQL copy when its unqualified source can resolve elsewhere", () => {
+      expect(runPostgresLosses(
+        ["CREATE TABLE public.notes (id integer);", "CREATE TABLE public.copy AS TABLE notes;"],
+        ["DROP TABLE public.copy;"],
+      )).toEqual(['drops table "copy"'])
+    })
+
+    it.each([
+      "INSERT INTO notes SELECT * FROM public.users;",
+      "UPDATE notes SET id = (SELECT max(id) FROM public.users);",
+    ])("invalidates qualified PostgreSQL tables after an unqualified write: %s", (statement) => {
+      expect(runPostgresLosses(["CREATE TABLE public.notes (id integer);"], [statement, "DROP TABLE public.notes;"])).toEqual(['drops table "notes"'])
+    })
+
+    it("invalidates a qualified PostgreSQL name after renaming an older table to it", () => {
+      expect(runPostgresLosses(
+        ["CREATE TABLE public.notes (id integer);", "DROP TABLE public.notes;"],
+        ["ALTER TABLE public.users RENAME TO notes;"],
+        ["DROP TABLE public.notes;"],
+      )).toEqual(['drops table "notes"'])
+    })
+
+    it.each([
+      "TRUNCATE public.fresh CASCADE;",
+      "TRUNCATE TABLE ONLY public.fresh RESTART IDENTITY CASCADE;",
+      "TRUNCATE public.fresh;",
+      "TRUNCATE TABLE public.fresh * RESTRICT;",
+      "TRUNCATE TABLE ONLY public.fresh, public.other;",
+    ])("retains implicit PostgreSQL targets of %s", (statement) => {
+      const losses = runPostgresLosses(
+        ["CREATE TABLE public.fresh (id integer PRIMARY KEY);", "INSERT INTO public.fresh VALUES (1);", "CREATE TABLE public.other (id integer);"],
+        ["ALTER TABLE public.existing ADD CONSTRAINT fresh_fk FOREIGN KEY (id) REFERENCES public.fresh (id);"],
+        [statement],
+      )
+      expect(losses).toEqual([statement.includes("public.other")
+        ? 'deletes every row of "fresh"; deletes every row of "other"'
+        : 'deletes every row of "fresh"'])
+      expect(findDataLoss([statement])[0]?.tables).toEqual([])
+    })
+
+    it("does not treat a quoted TRUNCATE target as a CASCADE clause", () => {
+      expect(runPostgresLosses(['CREATE TABLE public."cascade" (id integer);'], ['TRUNCATE ONLY public."cascade";'])).toEqual([])
+    })
+
+    it.each(["TRUNCATE public.fresh;", "DELETE FROM public.fresh;"])("retains %s after adding a pre-existing descendant", (statement) => {
+      expect(runPostgresLosses(
+        ["CREATE TABLE public.fresh (id integer);"],
+        ["ALTER TABLE public.existing INHERIT public.fresh;"],
+        [statement],
+      )).toEqual(['deletes every row of "fresh"'])
     })
 
     it("flags truncation after attaching a pre-existing partition", () => {
