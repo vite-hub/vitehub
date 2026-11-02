@@ -5,7 +5,7 @@ import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origi
 import { resolvePublicUrl } from "@vite-hub/runtime"
 import { resolveAuthMountPath } from "./application-path.ts"
 import { createAdminEmailsPlugin, readAdminEmails, withAdminEmails } from "./admin-emails.ts"
-import { assertAuthDatabaseIdStrategy, authDatabaseName, authDatabasePlacementError } from "./database-options.ts"
+import { assertAuthDatabaseIdStrategy, assertAuthDatabaseUserFields, authDatabaseName, authDatabasePlacementError } from "./database-options.ts"
 import { applyAuthPreset } from "./preset-options.ts"
 import { deriveAuthSecret } from "./secret.ts"
 import { validateAuthEvents } from "./events-config.ts"
@@ -86,7 +86,10 @@ function stripViteHubOptions(
     ...(!isAuthDatabaseMetadata(database) ? { database } : {}),
     ...(!isAuthSecondaryStorageMetadata(secondaryStorage) ? { secondaryStorage } : {}),
   }
-  if (authDatabaseName(database) !== undefined) assertAuthDatabaseIdStrategy(rest.advanced?.database?.generateId)
+  if (authDatabaseName(database) !== undefined) {
+    assertAuthDatabaseIdStrategy(rest.advanced?.database?.generateId)
+    assertAuthDatabaseUserFields(rest.user?.additionalFields)
+  }
   validateAuthEvents(events)
   const sessionRefresh = withSessionRefresh(rest, Boolean(storage.database || storage.secondaryStorage))
   // `stateless()` keeps everything in cookies and must stay without a database.

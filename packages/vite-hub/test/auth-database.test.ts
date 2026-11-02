@@ -60,6 +60,10 @@ describe("authDatabase()", () => {
     expect(() => authDatabase()({ advanced: { database: { generateId } } })).toThrow(/text IDs/)
   })
 
+  it("rejects user fields absent from the migrated table before opening the Database", () => {
+    expect(() => authDatabase()({ user: { additionalFields: { plan: { type: "string" } } } })).toThrow(/user.additionalFields/)
+  })
+
   it("runs Better Auth, admin(), and Console MCP OAuth on the contributed tables", async () => {
     const definition = defineAuth({
       database: authDatabase(),

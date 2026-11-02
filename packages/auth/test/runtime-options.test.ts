@@ -25,6 +25,21 @@ describe("Auth option resolution", () => {
     expect(() => resolveAuthOptions(definition).providerOptions).toThrow(/text IDs/)
   })
 
+  it("rejects effective user fields missing from the owned schema", () => {
+    const database = Object.assign(() => { throw new Error("Adapter must not run") }, { vitehubDatabase: "default" })
+    const user = { additionalFields: { plan: { type: "string" as const } } }
+    for (const definition of [
+      defineAuth({ database, user }),
+      defineAuth(() => ({ database, user })),
+      defineAuth({ database, runtime: () => ({ user }) }),
+    ]) {
+      expect(() => resolveAuthOptions(definition).providerOptions).toThrow(/user.additionalFields/)
+    }
+    expect(() => resolveAuthOptions(defineAuth({ database }), { runtimeOptions: { user } }).providerOptions).toThrow(/user.additionalFields/)
+    expect(resolveAuthOptions(defineAuth({ user })).providerOptions.user).toEqual(user)
+    expect(resolveAuthOptions(defineAuth({ database, user: { additionalFields: {} } })).providerOptions.database).toBe(database)
+  })
+
   it("resolves one snapshot and projects provider options without repeating callbacks", () => {
     const request = new Request("https://auth.example.com/api/auth")
     const event = { req: request }

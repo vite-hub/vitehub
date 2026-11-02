@@ -49,6 +49,8 @@ Activity returns event IDs, types, times, and actor and subject names and IDs. I
 
 Better Auth `user.additionalFields` become columns and profile fields. Fields with `returned: false` stay private. All fields start read-only. Opt in to editing each field under `console.fields`.
 
+Use a Better Auth adapter and schema that include those columns. [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database) owns a fixed `user` table and rejects `user.additionalFields` with `AUTH_C0055`.
+
 ```ts [server/auth.ts]
 import { defineAuth } from 'vite-hub/auth'
 import { admin, organization } from 'better-auth/plugins'

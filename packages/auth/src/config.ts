@@ -15,7 +15,7 @@ import type {
   ResolvedAuthViteConfig,
 } from "./types.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
-import { assertAuthDatabaseIdStrategy, authDatabasePlacementError } from "./database-options.ts"
+import { assertAuthDatabaseIdStrategy, authDatabasePlacementError, authDatabaseUserFieldsError } from "./database-options.ts"
 
 interface DefinitionObjectBody {
   body: ObjectExpression
@@ -96,6 +96,12 @@ function assertAuthDatabasePlacement(options: Expression, body: ObjectExpression
   const runtime = readObjectPropertyValue(body, "runtime")
   const runtimeBody = runtime && (objectLiteral(runtime) ?? readReturnedObject(runtime))
   if (hasObjectProperty(runtimeBody, "database")) throw authDatabasePlacementError()
+  for (const options of [body, runtimeBody]) {
+    const user = objectLiteral(readObjectPropertyValue(options, "user"))
+    const additionalFields = readObjectPropertyValue(user, "additionalFields")
+    const fields = objectLiteral(additionalFields)
+    if (additionalFields && (!fields || fields.properties.length)) throw authDatabaseUserFieldsError()
+  }
   const advanced = objectLiteral(readObjectPropertyValue(body, "advanced"))
   const database = objectLiteral(readObjectPropertyValue(advanced, "database"))
   const generateId = readObjectPropertyValue(database, "generateId")
@@ -112,7 +118,7 @@ function readObjectEntries(body: ObjectExpression | undefined): Array<{ key: str
 }
 
 function readObjectPropertyValue(body: ObjectExpression | undefined, property: string): Expression | undefined {
-  return readObjectEntries(body).find(entry => entry.key === property)?.value
+  return readObjectEntries(body).findLast(entry => entry.key === property)?.value
 }
 
 function hasObjectProperty(body: ObjectExpression | undefined, property: string): boolean {

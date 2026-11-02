@@ -14,6 +14,15 @@ export function assertAuthDatabaseIdStrategy(generateId: unknown): void {
   }
 }
 
+/** The contributed user table cannot persist application-defined profile columns. */
+export function assertAuthDatabaseUserFields(additionalFields: object | undefined): void {
+  if (additionalFields && Object.keys(additionalFields).length) throw authDatabaseUserFieldsError()
+}
+
+export function authDatabaseUserFieldsError(): Error {
+  return authErrorDiagnostics.AUTH_C0055({ message: "`authDatabase()` owns a fixed user table and does not support `user.additionalFields`. Use another Better Auth adapter with a schema that includes your profile fields; extending the owned `user` table through a Database contribution is not supported." })
+}
+
 export function authDatabasePlacementError(): Error {
   return authErrorDiagnostics.AUTH_C0054({ message: "`authDatabase()` needs one statically invariant Database: call it inline as `defineAuth()`'s `database`, in an object or a callback's single unconditional returned object. Do not select it in branches or override the Database through `runtime` or runtime options." })
 }

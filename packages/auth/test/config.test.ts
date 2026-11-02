@@ -458,6 +458,8 @@ describe("resolveAuthViteConfig", () => {
     "({ env }) => { if (env.other) return { database: otherAdapter }; return { database: authDatabase() } }",
     "{ database: authDatabase(), runtime: { database: authDatabase('other') } }",
     "{ runtime: () => ({ database: authDatabase('other') }) }",
+    "{ database: authDatabase('schema'), database: otherAdapter }",
+    "{ database: authDatabase('schema'), 'database': otherAdapter }",
   ])("rejects ambiguous owned Database placement: %s", async (options) => {
     const rootDir = await createTempProject()
     await writeAuthSource(rootDir, "server/auth.ts", [
@@ -466,6 +468,30 @@ describe("resolveAuthViteConfig", () => {
       `export default defineAuth(${options})`,
     ])
     expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/statically invariant Database/)
+  })
+
+  it("uses the last duplicate database property when it owns the tables", async () => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.js", [
+      "import { defineAuth } from 'vite-hub/auth'",
+      "import { authDatabase } from 'vite-hub/auth/database'",
+      "export default defineAuth({ database: otherAdapter, database: authDatabase('content') })",
+    ])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toEqual({ database: "content" })
+  })
+
+  it.each([
+    "{ database: authDatabase(), user: { additionalFields: { plan: { type: 'string' } } } }",
+    "() => ({ database: authDatabase(), user: { additionalFields: { plan: { type: 'string' } } } })",
+    "{ database: authDatabase(), user: { additionalFields: profileFields } }",
+  ])("rejects user fields missing from the owned schema before table discovery: %s", async (options) => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from 'vite-hub/auth'",
+      "import { authDatabase } from 'vite-hub/auth/database'",
+      `export default defineAuth(${options})`,
+    ])
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/user.additionalFields/)
   })
 
   it.each(["'serial'", "'uuid'", "false"])("rejects ID strategies incompatible with owned text IDs: %s", async (strategy) => {
