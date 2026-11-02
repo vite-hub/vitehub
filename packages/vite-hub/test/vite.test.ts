@@ -718,6 +718,7 @@ describe("vitehub", () => {
       "@vite-hub/content/vite",
       "@vite-hub/cms/vite",
       "@vite-hub/comments/vite",
+      "vite-hub/optional-owner-imports",
       "vite-hub/task",
       "vite-hub/nitro-cache-bypass",
       "vite-hub/nitro-startup-chunks",
@@ -774,6 +775,7 @@ describe("vitehub", () => {
       "@vite-hub/content/vite",
       "@vite-hub/cms/vite",
       "@vite-hub/comments/vite",
+      "vite-hub/optional-owner-imports",
       "vite-hub/task",
       "vite-hub/nitro-cache-bypass",
       "vite-hub/nitro-workerd-dependencies",
@@ -1221,6 +1223,18 @@ describe("vitehub", () => {
     expect(aliases["vite-hub/ui/styles.css"]).toMatch(/packages\/vite-hub\/dist\/ui\/styles\.css$/)
     expect(aliases["vite-hub/ui"]).toMatch(/packages\/vite-hub\/dist\/ui\.js$/)
     expect(specifiers.indexOf("vite-hub/ui/styles.css")).toBeLessThan(specifiers.indexOf("vite-hub/ui"))
+  })
+
+  it("leaves facades of an absent owner package unaliased so their import names the package to install", () => {
+    vi.mocked(isPackageInstalled).withImplementation(name => name !== "@vite-hub/ui", () => {
+      const aliases = pluginAliases(dependencyPlugin())
+      expect(Object.keys(aliases).filter(specifier => /^vite-hub\/ui(?:\/|$)/.test(specifier))).toEqual([])
+      expect(aliases["vite-hub/shell"]).toMatch(/packages\/vite-hub\/dist\/shell\.js$/)
+    })
+    const imports = dependencyPluginByName(vitehub({ preset: "node" }), "vite-hub/optional-owner-imports")
+    vi.mocked(assertFeaturePackages).mockClear()
+    callHook(imports.resolveId, ["vite-hub/ui/avatar-stack", "/app/app.vue"])
+    expect(assertFeaturePackages).toHaveBeenCalledExactlyOnceWith(["ui"])
   })
 
   it("passes the unused Upstash fallback only to provider bundlers", () => {

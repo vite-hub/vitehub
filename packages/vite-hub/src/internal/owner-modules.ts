@@ -76,3 +76,29 @@ export function optionalOwnerEntriesPlugin(): Plugin {
     },
   }
 }
+
+const ownerFacade = /^vite-hub\/(ui|presets|shell)(?:\/|$)/
+
+/** The feature of a `vite-hub` subpath that re-exports `@vite-hub/ui`, `@vite-hub/presets`, or `@vite-hub/shell`. */
+export function ownerFacadeFeature(specifier: string): "presets" | "shell" | "ui" | undefined {
+  const feature = ownerFacade.exec(specifier)?.[1]
+  return feature === "ui" || feature === "presets" || feature === "shell" ? feature : undefined
+}
+
+/**
+ * `vite-hub/ui`, `vite-hub/presets/*`, and `vite-hub/shell` re-export optional owner packages. This plugin fails an
+ * import of one of them with the install command when the app did not install its package.
+ */
+export function optionalOwnerImportsPlugin(): Plugin {
+  return {
+    name: "vite-hub/optional-owner-imports",
+    enforce: "pre",
+    resolveId: {
+      filter: { id: ownerFacade },
+      handler(source) {
+        const feature = ownerFacadeFeature(source)
+        if (feature) assertFeaturePackages([feature])
+      },
+    },
+  }
+}
