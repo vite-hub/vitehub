@@ -8,7 +8,7 @@ import type { ViteHubPageToolsDock, ViteHubPageToolsEdge, ViteHubPageWindow, Vit
  * This file runs only in the browser. The package's Node program does not include it, because the DOM types conflict
  * with the Node stream types: `tsconfig.browser.json` checks it.
  */
-import { readViteHubPageSession, viteHubPageSessionUrl, viteHubPageToolsCookie, viteHubPageToolsQuery, viteHubPillButtonStyles } from "./page-tools-shared.ts"
+import { readViteHubPageSession, viteHubPageSessionUrl, viteHubPageToolsHintCookie, viteHubPageToolsQuery, viteHubPageToolsWanted, viteHubPillButtonStyles } from "./page-tools-shared.ts"
 
 import type { ViteHubPageSession, ViteHubPageToolInfo } from "./page-tools-shared.ts"
 
@@ -33,8 +33,8 @@ export interface ViteHubPageToolContext {
   onOpen(handler: (path?: string) => void): void
   beforeExit(check: () => boolean): void
   /**
-   * Turns the page tools off for this browser: clears the hint cookie and the query, stops every tool, and removes the
-   * pill. The pill's exit button calls it, so a tool does not draw its own.
+   * Turns the page tools off for this browser: sets the hint cookie to `0`, removes the query, stops every tool, and
+   * removes the pill. The pill's exit button calls it, so a tool does not draw its own.
    */
   exit(): void
 }
@@ -344,13 +344,13 @@ export interface LoadViteHubPageToolsOptions {
 
 /**
  * Asks the session route which tools this visitor may use, draws the pill, then starts each tool with its segment.
- * Without an allowed tool it does nothing more: the session route already cleared the hint cookie. The pill remains
+ * Without an allowed tool it does nothing more: the session route already set the hint cookie to `0`. The pill remains
  * while a tool is mounted or available to launch or retry. Returns those available tools.
  */
 export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions = {}): Promise<ViteHubPageToolInfo[]> {
   // Vite pages load this external module under CSP; visitors without a hint make no session request.
   const query = new URLSearchParams(location.search)
-  if (!query.has(viteHubPageToolsQuery) && !document.cookie.split(";").some(part => part.trim() === `${viteHubPageToolsCookie}=1`)) return []
+  if (!viteHubPageToolsWanted(location.search, document.cookie)) return []
   const load = options.load ?? ((script: string) => import(/* @vite-ignore */ script))
   let session: ViteHubPageSession
   try {
@@ -372,7 +372,8 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
   const exit = () => {
     if ([...exitChecks].some(check => !check())) return
     for (const tool of session.tools) remember(tool.id, false)
-    document.cookie = `${viteHubPageToolsCookie}=; Path=/; Max-Age=0; SameSite=Lax`
+    // `0`, not a cleared cookie: a signed-in person would otherwise get the pill again on the next page.
+    document.cookie = viteHubPageToolsHintCookie(false)
     const url = new URL(location.href)
     if (url.searchParams.has(viteHubPageToolsQuery)) {
       url.searchParams.delete(viteHubPageToolsQuery)

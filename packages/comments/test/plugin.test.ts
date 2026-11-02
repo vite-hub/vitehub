@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { respondViteHubPageSession } from "@vite-hub/internal/runtime/page-tools"
+import { viteHubPageToolsInlineScript } from "@vite-hub/internal/runtime/page-tools-shared"
 
 import { commentsApiRoute } from "../src/page.ts"
 import { commentsConsoleSession } from "../src/runtime/console-session.ts"
@@ -10,7 +11,7 @@ import { defineComments } from "../src/index.ts"
 import type { CommentsUser, DefineCommentsOptions } from "../src/types.ts"
 import type { CommentsGitHubLogin } from "../src/runtime/github-login.ts"
 
-const loaderTag = (mount: string) => `<script type="module" src="${mount}/_vitehub/page/assets/loader.js?v=10" data-vitehub-page-tools></script>`
+const loaderTag = (mount: string) => `<script type="module" src="${mount}/_vitehub/page/assets/loader.js?v=11" data-vitehub-page-tools></script>`
 
 /** Installs Comments with a session that reads the person from a `person` cookie. */
 function install(nitroApp: unknown, options: DefineCommentsOptions = {}, overlay = "/o.js"): void {
@@ -73,7 +74,7 @@ describe("Comments page tool", () => {
       cookie: "vitehub-tools=1; Path=/; Max-Age=2592000; SameSite=Lax",
       body: { tools: [{ id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "/o.js", lazy: true }] },
     })
-    expect(await pageSession(app, "person=ben")).toEqual({ cookie: "vitehub-tools=; Path=/; Max-Age=0; SameSite=Lax", body: { tools: [] } })
+    expect(await pageSession(app, "person=ben")).toEqual({ cookie: "vitehub-tools=0; Path=/; Max-Age=2592000; SameSite=Lax", body: { tools: [] } })
     // Without authorize, anonymous people may not read.
     install(app)
     expect((await pageSession(app, "")).body).toEqual({ tools: [] })
@@ -105,8 +106,9 @@ describe("Comments page tool", () => {
     const page = async (path: string, cookie = "") => (await nitroApp.fetch(new Request(`http://site.test${path}`, { headers: { cookie } }))).text()
     expect(await page(`${mount}/?vitehub`)).toBe(`<html><body>Page${loaderTag(mount)}</body></html>`)
     expect(await page(`${mount}/`, "vitehub-tools=1")).toBe(`<html><body>Page${loaderTag(mount)}</body></html>`)
-    expect(await page(`${mount}/`)).toBe("<html><body>Page</body></html>")
-    expect(await page(`${mount}/?comments`, "vitehub-comments=1")).toBe("<html><body>Page</body></html>")
+    const bootstrap = `<html><body>Page${viteHubPageToolsInlineScript(mount)}</body></html>`
+    expect(await page(`${mount}/`)).toBe(bootstrap)
+    expect(await page(`${mount}/?comments`, "vitehub-comments=1")).toBe(bootstrap)
     for (const path of ["/_vitehub/content", "/api/x"]) {
       expect(await page(`${mount}${path}?vitehub`, "vitehub-tools=1")).toBe("<html><body>Page</body></html>")
     }
@@ -127,7 +129,7 @@ describe("Comments page tool", () => {
       render!(html, { event: { node: { req, res: { setHeader: (name: string, value: string) => { headers[name] = value }, getHeader: () => "script-src 'nonce-n1'" } } } })
       return html.bodyAppend
     }
-    expect(page(`${mount}/`)).toEqual([])
+    expect(page(`${mount}/`)).toEqual([viteHubPageToolsInlineScript(mount, "n1")])
     expect(headers).toEqual({})
     expect(page(`${mount}/?vitehub`)).toEqual([loaderTag(mount).replace(" data-vitehub", ' nonce="n1" data-vitehub')])
     expect(headers).toEqual({ "cache-control": "private, no-store" })

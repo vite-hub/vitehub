@@ -73,6 +73,8 @@ describe("loadViteHubPageTools", () => {
     ["", "session=ada;vitehub-tools=1", 1],
     ["", "", 0],
     ["?other=1", "vitehub-tools=0", 0],
+    ["", "vitehub_session=1", 1],
+    ["", "vitehub_session=1; vitehub-tools=0", 0],
   ])("requests a session only with a hint (query %j, cookie %j)", async (search, cookie, calls) => {
     history.replaceState(null, "", `/${search}`)
     vi.spyOn(document, "cookie", "get").mockReturnValue(cookie)
@@ -370,7 +372,7 @@ describe("loadViteHubPageTools", () => {
     expect(stopped).toEqual(["comments", "console"])
     expect(started.every(context => context.signal.aborted)).toBe(true)
     expect(document.querySelector("vitehub-pill")).toBeNull()
-    expect(document.cookie).not.toContain("vitehub-tools=1")
+    expect(document.cookie).toContain("vitehub-tools=0")
     expect(location.pathname + location.search).toBe("/guide?tab=2")
   })
 
