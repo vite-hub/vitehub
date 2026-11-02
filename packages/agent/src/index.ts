@@ -6,6 +6,7 @@ import { withForgeAccess } from "./internal/forge-access.ts"
 import type { AgentPresetConfig, AgentPresetOptions, ConfiguredAgentDefinition } from "./agent-presets.ts"
 export type { AgentPresetConfig, AgentPresetOptions, ConfiguredAgentDefinition } from "./agent-presets.ts"
 import { invocationUsageWithAuxiliaryCalls } from "./internal/auxiliary-usage.ts"
+import { hasChatMessageHeaders, stripEchoedChatMessageMetadata } from "./internal/chat-message-header.ts"
 import { agentLayerMetadata, agentLayerParents, createConfiguredAgentDefinition, rememberAgentLayerOptions, resolveAgentLayerOptions } from "./agent-layers.ts"
 import { readDiscoveredAgentName } from "./internal/discovered-agent-name.ts"
 import { agentHostCapabilities } from "./internal/host-capabilities.ts"
@@ -6766,7 +6767,7 @@ async function finishAgentInvocation<
         },
         ...(result !== undefined ? { result } : {}),
         runtime: context.runtimeContext,
-        ...(text !== undefined ? { text } : {}),
+        ...(text !== undefined ? { text: hasChatMessageHeaders(context.input.messages) ? stripEchoedChatMessageMetadata(text) : text } : {}),
         toolResults: [...context.toolResults],
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
       const provisionalEvent = provisionalFinishEvent(context, eventBase)
