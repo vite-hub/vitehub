@@ -83,7 +83,7 @@ import { registerMessageChannelDeferredReplyTrace, setChatFinalReplyText, setCha
 import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdatedContextKey, agentInvocationRunId, agentInvocationWorkflowBinding, createAgentInvocationContextStore } from "./invocation-context.ts"
 import { agentInvocationCallerAbortSignal, copyAgentInvocationCallerAbortSignal, markAgentInvocationCallerAbortSignal } from "./internal/invocation-input.ts"
 import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
-import { AgentInvocationClaimConflict, bindAgentInvocations, exclusiveAgentInvocation, inheritedAgentInvocationClaim, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations, type AgentInvocationJournal, type AgentInvocationWorkflowBinding } from "./invocations.ts"
+import { AgentInvocationClaimConflict, bindAgentInvocations, exclusiveAgentInvocation, inheritedAgentInvocationClaim, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations, queuedAgentInvocation, type AgentInvocationJournal, type AgentInvocationWorkflowBinding } from "./invocations.ts"
 import { type AgentMessagePhase, type Message, blobArrayBuffer, createMessage, isArrayBufferValue, isAttachmentBlob, isAttachmentPart, isUint8ArrayValue, materializeMessageAttachmentData } from "./messages.ts"
 import {
   createFallbackAgentInvoker,
@@ -8468,6 +8468,8 @@ async function executeAgentInvocation<
   const exclusive = (context as AgentRuntimeContext & { [exclusiveAgentInvocation]?: boolean })[exclusiveAgentInvocation] === true
   // SAFETY: Only the trusted Workflow worker installs this private claim token.
   const inheritedClaim = (context as AgentRuntimeContext & { [inheritedAgentInvocationClaim]?: string })[inheritedAgentInvocationClaim]
+  // SAFETY: The webhook queue installs this private attempt metadata on its runtime context.
+  const queuedAttempt = (context as AgentRuntimeContext & { [queuedAgentInvocation]?: { reopenFailed: boolean, retryPending: boolean } })[queuedAgentInvocation]
   // SAFETY: hasAgentDefinition validated the object before this internal contract assertion.
   let activity = exclusive || inheritedClaim ? undefined : createActiveAgentActivity(definition as AgentDefinition<TRuntimeConfig> | undefined, context)
   await activity?.update("queued")
@@ -8497,6 +8499,7 @@ async function executeAgentInvocation<
         // Channel replay depends on the journal claim to prevent duplicate runs.
         ...(exclusive || inheritedClaim ? { enforcement: "strict" } : {}),
         ...(inheritedClaim ? { replaceClaimToken: inheritedClaim } : {}),
+        ...(queuedAttempt ? { reopenFailed: queuedAttempt.reopenFailed, retryPending: queuedAttempt.retryPending } : {}),
       })
       : undefined
     if ((exclusive || inheritedClaim) && invocationJournal?.claimStatus !== "owned") {
