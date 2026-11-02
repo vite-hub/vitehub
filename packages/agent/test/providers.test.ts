@@ -4159,7 +4159,7 @@ describe("server helpers", () => {
     await expect(response.text()).resolves.toBe('data: {"type":"text-delta","text":"data: [DONE]"}\n\ndata: [DONE]\n\n')
   })
 
-  it("propagates partial UI message chat Response read failures", async () => {
+  it("ends a partial UI message chat Response that fails with an error frame", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
@@ -4208,7 +4208,8 @@ describe("server helpers", () => {
       { agentName: "support" },
     )
 
-    await expect(response.text()).rejects.toThrow("upstream failed")
+    // H3 1, which Nuxt 4 runs, never ends a Node response whose body fails.
+    await expect(response.text()).resolves.toBe('data: {"type":"text-delta","text":"partial"}\n\ndata: {"errorText":"upstream failed","type":"error"}\n\ndata: [DONE]\n\n')
   })
 
   it("serves default webChat routes with channel-owned trusted input mapping", async () => {
