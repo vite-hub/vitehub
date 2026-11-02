@@ -36,6 +36,30 @@ afterAll(async () => {
 })
 
 describe("authDatabase()", () => {
+  it("inserts custom string IDs and matching references into the migrated tables", async () => {
+    let nextId = 0
+    const definition = defineAuth({
+      advanced: { database: { generateId: () => `custom-${++nextId}` } },
+      database: authDatabase(),
+      emailAndPassword: { enabled: true },
+    })
+    const response = await createAuthForRequest(definition, new Request(app)).handler(new Request(`${app}/api/auth/sign-up/email`, {
+      body: JSON.stringify({ email: "custom@example.com", name: "Custom", password: "correct-horse-battery" }),
+      headers: { "content-type": "application/json", origin: app },
+      method: "POST",
+    }))
+    expect(response.status, await response.clone().text()).toBe(200)
+    const { user } = await response.json() as { user: { id: string } }
+    expect(user.id).toMatch(/^custom-/)
+    expect((await client.execute({ sql: "select user_id from account where user_id = ?", args: [user.id] })).rows).toEqual([{ user_id: user.id }])
+    expect((await client.execute({ sql: "select user_id from session where user_id = ?", args: [user.id] })).rows).toEqual([{ user_id: user.id }])
+    await client.execute({ sql: "delete from user where id = ?", args: [user.id] })
+  })
+
+  it.each(["serial", "uuid", false] as const)("rejects incompatible ID strategy %s before opening the Database", (generateId) => {
+    expect(() => authDatabase()({ advanced: { database: { generateId } } })).toThrow(/text IDs/)
+  })
+
   it("runs Better Auth, admin(), and Console MCP OAuth on the contributed tables", async () => {
     const definition = defineAuth({
       database: authDatabase(),

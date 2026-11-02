@@ -6,6 +6,7 @@ import { findViteHubNitroDevEnvironment } from "@vite-hub/internal/dev-endpoint"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { summarizeDefinitions } from "@vite-hub/internal/inspect"
+import { flattenPluginOptions } from "@vite-hub/internal/contributions"
 
 import { resolveAuthViteConfig } from "./config.ts"
 import { discoverAuthDefinitions } from "./discovery.ts"
@@ -55,6 +56,7 @@ export interface AuthVitePluginAPI {
 export interface AuthDatabaseContributionContext extends ContributionContext {
   /** The root that Database Definitions are discovered from. */
   rootDir: string
+  plugins?: readonly unknown[]
 }
 
 /** The Better Auth tables that Auth adds to the Database that `authDatabase()` names. */
@@ -80,7 +82,11 @@ export type AuthVitePlugin = Plugin & {
  */
 async function readTargetDialect(context: AuthDatabaseContributionContext, database: string): Promise<"postgresql" | "sqlite"> {
   const { discoverDatabaseDefinitions, readDatabaseDefinitionDialect } = await import("@vite-hub/database/config")
-  const target = discoverDatabaseDefinitions(context.rootDir, { serverDirs: context.serverDirs?.slice() }).find(definition => definition.name === database)
+  const { collectDatabaseContributions } = await import("@vite-hub/database/vite")
+  // Forward the filtered list too: sibling factories can recursively collect contributions.
+  const plugins = (await flattenPluginOptions(context.plugins)).filter(plugin => Reflect.get(plugin, "name") !== AUTH_VITE_PLUGIN_NAME)
+  const contributions = await collectDatabaseContributions(plugins, { ...context, plugins })
+  const target = discoverDatabaseDefinitions(context.rootDir, { contributions, serverDirs: context.serverDirs?.slice() }).find(definition => definition.name === database)
   return target ? readDatabaseDefinitionDialect(target.handler) : "sqlite"
 }
 

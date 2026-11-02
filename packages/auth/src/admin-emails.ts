@@ -2,7 +2,7 @@ import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
-import type { BetterAuthPlugin } from "better-auth"
+import type { BetterAuthOptions, BetterAuthPlugin } from "better-auth"
 
 /** The variable that lists the emails whose new accounts get the admin role. */
 export const adminEmailsVariable = "VITEHUB_ADMIN_EMAILS"
@@ -29,7 +29,7 @@ function firstAdminRole(admin: BetterAuthPlugin): string {
  * Gives the first admin role of Better Auth's `admin()` plugin to each account that is created with one of `emails`:
  * an email and password sign-up, or the first sign-in with a social provider. Existing accounts keep their role.
  */
-export function createAdminEmailsPlugin(emails: readonly string[], plugins: readonly BetterAuthPlugin[]): BetterAuthPlugin {
+export function createAdminEmailsPlugin(emails: readonly string[], plugins: readonly BetterAuthPlugin[]): BetterAuthPlugin & { options: { emails: readonly string[], role: string } } {
   const admin = plugins.find(plugin => plugin.id === "admin")
   if (!admin) {
     throw authErrorDiagnostics.AUTH_C0051({ message: `\`${adminEmailsVariable}\` gives new accounts the admin role, which Better Auth's \`admin()\` plugin stores in \`user.role\`. Add \`admin()\` from \`better-auth/plugins\` to the \`plugins\` of \`defineAuth()\`, or unset \`${adminEmailsVariable}\`.` })
@@ -50,5 +50,28 @@ export function createAdminEmailsPlugin(emails: readonly string[], plugins: read
         },
       },
     }),
+  }
+}
+
+/** The app hook runs last; retain its data and cancellation while applying the final admin role. */
+export function withAdminEmails(hooks: BetterAuthOptions["databaseHooks"], plugin: ReturnType<typeof createAdminEmailsPlugin>): BetterAuthOptions["databaseHooks"] {
+  const before = hooks?.user?.create?.before
+  if (!before) return hooks
+  return {
+    ...hooks,
+    user: {
+      ...hooks.user,
+      create: {
+        ...hooks.user?.create,
+        async before(user, context) {
+          const result = await before(user, context)
+          if (result === false) return false
+          const data = { ...user, ...(typeof result === "object" && result ? result.data : {}) }
+          return plugin.options.emails.includes(data.email.toLowerCase())
+            ? { data: { ...data, role: plugin.options.role } }
+            : result
+        },
+      },
+    },
   }
 }

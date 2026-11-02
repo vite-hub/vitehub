@@ -453,6 +453,31 @@ describe("resolveAuthViteConfig", () => {
 
     expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/secondaryStorage.store is required/)
   })
+  it.each([
+    "({ env }) => { if (env.other) return { database: authDatabase('other') }; return { database: authDatabase() } }",
+    "({ env }) => { if (env.other) return { database: otherAdapter }; return { database: authDatabase() } }",
+    "{ database: authDatabase(), runtime: { database: authDatabase('other') } }",
+    "{ runtime: () => ({ database: authDatabase('other') }) }",
+  ])("rejects ambiguous owned Database placement: %s", async (options) => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from 'vite-hub/auth'",
+      "import { authDatabase } from 'vite-hub/auth/database'",
+      `export default defineAuth(${options})`,
+    ])
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/statically invariant Database/)
+  })
+
+  it.each(["'serial'", "'uuid'", "false"])("rejects ID strategies incompatible with owned text IDs: %s", async (strategy) => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from 'vite-hub/auth'",
+      "import { authDatabase } from 'vite-hub/auth/database'",
+      `export default defineAuth({ database: authDatabase(), advanced: { database: { generateId: ${strategy} } } })`,
+    ])
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/text IDs/)
+  })
+
   it("finds authDatabase() and the Database that gets the Auth tables", async () => {
     const rootDir = await createTempProject()
     await writeAuthSource(rootDir, "server/auth.ts", [

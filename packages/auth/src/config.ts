@@ -15,6 +15,7 @@ import type {
   ResolvedAuthViteConfig,
 } from "./types.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
+import { assertAuthDatabaseIdStrategy, authDatabasePlacementError } from "./database-options.ts"
 
 interface DefinitionObjectBody {
   body: ObjectExpression
@@ -66,9 +67,39 @@ function readDefinitionObjectBody(file: string): DefinitionObjectBody | undefine
   const argument = call.arguments[0]
   if (argument === undefined || argument.type === "SpreadElement") return
   const options = unwrapExpression(argument)
-  if (options.type === "ObjectExpression") return { authDatabase, body: options, callback: false }
+  if (options.type === "ObjectExpression") {
+    assertAuthDatabasePlacement(options, options, authDatabase)
+    return { authDatabase, body: options, callback: false }
+  }
   const returned = readReturnedObject(options)
+  assertAuthDatabasePlacement(options, returned, authDatabase)
   return returned === undefined ? undefined : { authDatabase, body: returned, callback: true }
+}
+
+/** Owned tables must have the same target in every request and in the build-time contribution. */
+function assertAuthDatabasePlacement(options: Expression, body: ObjectExpression | undefined, names: ReadonlySet<string>): void {
+  const calls: CallExpression[] = []
+  walk(options, (node) => {
+    if (node.type === "CallExpression" && node.callee.type === "Identifier" && names.has(node.callee.name)) calls.push(node)
+  })
+  if (!calls.length) return
+  if (calls.length !== 1 || calls[0] !== readAuthDatabaseCall(body, names)) throw authDatabasePlacementError()
+  if (options.type === "ArrowFunctionExpression" && options.body.type === "BlockStatement") {
+    let returns = 0
+    walk(options.body, (node) => {
+      if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression" || node.type === "ArrowFunctionExpression") return false
+      if (node.type === "ReturnStatement") returns++
+    })
+    const unconditional = options.body.body.some(statement => statement.type === "ReturnStatement" && statement.argument && unwrapExpression(statement.argument) === body)
+    if (returns !== 1 || !unconditional) throw authDatabasePlacementError()
+  }
+  const runtime = readObjectPropertyValue(body, "runtime")
+  const runtimeBody = runtime && (objectLiteral(runtime) ?? readReturnedObject(runtime))
+  if (hasObjectProperty(runtimeBody, "database")) throw authDatabasePlacementError()
+  const advanced = objectLiteral(readObjectPropertyValue(body, "advanced"))
+  const database = objectLiteral(readObjectPropertyValue(advanced, "database"))
+  const generateId = readObjectPropertyValue(database, "generateId")
+  if (generateId) assertAuthDatabaseIdStrategy(staticValue(generateId))
 }
 
 /** Object entries. `key` is empty for spread and computed keys. `value` is undefined for methods and accessors. */

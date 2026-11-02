@@ -213,6 +213,8 @@ pnpm vitehub db migrate
 ```
 
 - `authDatabase()` uses the `default` Database. Pass a name, such as `authDatabase('content')`, for a Named Database. Write the call inline in `defineAuth()`, in the object or in the object that the callback returns, so that the Vite integration can read it.
+- Keep one unconditional Database target. A callback must return one object with the inline call; branches and `runtime.database` cannot select another target. Other runtime options still work.
+- The owned tables use text IDs and text references. Use Better Auth's default ID generator or a custom function returning strings. `advanced.database.generateId` values `serial`, `uuid`, and `false` require another adapter and a schema that you own; `authDatabase()` rejects them with `AUTH_C0053`.
 - The tables are the Better Auth core tables (`user`, `session`, `account`, `verification`), the fields of the [`admin()`](https://www.better-auth.com/docs/plugins/admin) plugin (`user.role`, bans, and `session.impersonatedBy`), and the `jwks` and `oauth*` tables that [Console MCP OAuth](/docs/development/mcp#set-up-oauth) needs. Column names follow the Better Auth CLI.
 - The tables use the dialect of the target Database: SQLite, libSQL, and Cloudflare D1, or Postgres. Without a Database Definition, the Database integration adds the implicit `default` Database for them.
 - `vitehub inspect definitions --kind database` lists the `auth` tables with `@vite-hub/auth/vite` as their plugin. The tables are also in `useDatabase(name).schema`, so server code can read them.
@@ -230,6 +232,8 @@ VITEHUB_ADMIN_EMAILS=you@example.com pnpm dev
 ```
 
 On Cloudflare, store it as a Worker variable or secret, for example `pnpm exec wrangler secret put VITEHUB_ADMIN_EMAILS`. The role is the first entry of `admin({ adminRoles })`, `admin` by default. Without `admin()` in `plugins`, Auth fails with `AUTH_C0051`.
+
+The assignment runs after an application's `databaseHooks.user.create.before` hook, preserving its other fields and any cancellation. A hook's returned role cannot demote a new account with a listed email.
 
 The first account that signs up with a listed email gets the role. With email and password sign-up and no email verification, sign up right after the deploy, before anyone else knows the URL, or set `emailAndPassword.requireEmailVerification: true`, so that only the owner of the email can sign in to the account.
 

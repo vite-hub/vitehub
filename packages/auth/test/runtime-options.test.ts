@@ -7,6 +7,24 @@ import { resolveAuthOptions } from "../src/runtime-options.ts"
 import type { AuthRuntimeContext } from "../src/types.ts"
 
 describe("Auth option resolution", () => {
+  it("rejects runtime overrides of an owned Database target", () => {
+    const database = Object.assign(() => { throw new Error("Adapter must not run") }, { vitehubDatabase: "default" })
+    const other = Object.assign(() => { throw new Error("Adapter must not run") }, { vitehubDatabase: "other" })
+    for (const runtime of [{ database: other }, () => ({ database: other })]) {
+      const definition = defineAuth({ database, runtime })
+      expect(() => resolveAuthOptions(definition).providerOptions).toThrow(/statically invariant Database/)
+    }
+    const definition = defineAuth({ database })
+    expect(() => resolveAuthOptions(definition, { runtimeOptions: { database: other } }).providerOptions).toThrow(/statically invariant Database/)
+    expect(resolveAuthOptions(defineAuth({ database, runtime: { secret: "runtime-secret" } })).providerOptions.database).toBe(database)
+  })
+
+  it.each(["serial", "uuid", false] as const)("rejects runtime ID strategy %s for owned text IDs", (generateId) => {
+    const database = Object.assign(() => { throw new Error("Adapter must not run") }, { vitehubDatabase: "default" })
+    const definition = defineAuth({ database, runtime: () => ({ advanced: { database: { generateId } } }) })
+    expect(() => resolveAuthOptions(definition).providerOptions).toThrow(/text IDs/)
+  })
+
   it("resolves one snapshot and projects provider options without repeating callbacks", () => {
     const request = new Request("https://auth.example.com/api/auth")
     const event = { req: request }

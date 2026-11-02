@@ -13,12 +13,16 @@ afterEach(() => {
   resetAuth()
 })
 
-async function signUp(definition: Parameters<typeof createAuthForRequest>[0], email: string) {
-  const response = await createAuthForRequest(definition, new Request(origin)).handler(new Request(`${origin}/api/auth/sign-up/email`, {
+async function signUpResponse(definition: Parameters<typeof createAuthForRequest>[0], email: string) {
+  return await createAuthForRequest(definition, new Request(origin)).handler(new Request(`${origin}/api/auth/sign-up/email`, {
     body: JSON.stringify({ email, name: email, password: "correct-horse-battery" }),
     headers: { "content-type": "application/json", origin },
     method: "POST",
   }))
+}
+
+async function signUp(definition: Parameters<typeof createAuthForRequest>[0], email: string) {
+  const response = await signUpResponse(definition, email)
   expect(response.status).toBe(200)
   const body: unknown = await response.json()
   return (body as { user: { role?: string } }).user
@@ -38,6 +42,39 @@ describe("VITEHUB_ADMIN_EMAILS", () => {
     const ac = createAccessControl({ user: ["list"] })
     const definition = defineAuth({ emailAndPassword: { enabled: true }, plugins: [admin({ ac, adminRoles: ["owner"], roles: { owner: ac.newRole({ user: ["list"] }), user: ac.newRole({}) } })] })
     expect((await signUp(definition, "owner@example.com")).role).toBe("owner")
+  })
+
+  it("keeps the admin assignment after an application user-create hook", async () => {
+    vi.stubEnv("VITEHUB_ADMIN_EMAILS", "owner@example.com")
+    const before = vi.fn(async () => ({ data: { role: "user", name: "From app hook" } }))
+    const definition = defineAuth({
+      databaseHooks: { user: { create: { before } } },
+      emailAndPassword: { enabled: true },
+      plugins: [admin()],
+    })
+    expect(await signUp(definition, "owner@example.com")).toMatchObject({ role: "admin", name: "From app hook" })
+    expect((await signUp(definition, "guest@example.com")).role).toBe("user")
+    expect(before).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([true, undefined])("keeps the admin assignment when the application hook returns %s", async (result) => {
+    vi.stubEnv("VITEHUB_ADMIN_EMAILS", "owner@example.com")
+    const definition = defineAuth({
+      databaseHooks: { user: { create: { before: async () => result } } },
+      emailAndPassword: { enabled: true },
+      plugins: [admin()],
+    })
+    expect((await signUp(definition, "owner@example.com")).role).toBe("admin")
+  })
+
+  it("preserves application cancellation of an admin sign-up", async () => {
+    vi.stubEnv("VITEHUB_ADMIN_EMAILS", "owner@example.com")
+    const definition = defineAuth({
+      databaseHooks: { user: { create: { before: async () => false } } },
+      emailAndPassword: { enabled: true },
+      plugins: [admin()],
+    })
+    expect((await signUpResponse(definition, "owner@example.com")).ok).toBe(false)
   })
 
   it("shows the rule in the Auth Console", async () => {

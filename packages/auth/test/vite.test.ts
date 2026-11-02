@@ -714,6 +714,35 @@ describe("Auth tables in the app Database", () => {
     expect((await contributions(root)).tables).toMatchObject([{ database: "accounts", definition: { export: "authPostgresSchema" }, dialect: "postgresql" }])
   })
 
+  it("uses the dialect of a sibling plugin's Database Definition", async () => {
+    const root = await createTempProject()
+    await writeAuthDatabase(root, "authDatabase('accounts')")
+    const definition = join(root, "accounts.ts")
+    await writeFile(definition, "export default defineDatabase({ name: 'accounts', dialect: 'postgresql', schema: {} })\n")
+    const { collectDatabaseContributions } = await import("@vite-hub/database/vite")
+    const { discoverDatabaseDefinitions, resolveDBViteConfig } = await import("@vite-hub/database/config")
+    const collected = await collectDatabaseContributions([
+      hubAuth(),
+      { name: "accounts-owner", vitehub: { databases: [{ name: "accounts", definition }] } },
+    ], { projectRoot: root, root, rootDir: root })
+    expect(collected.tables).toMatchObject([{ database: "accounts", dialect: "postgresql", definition: { export: "authPostgresSchema" } }])
+    expect(discoverDatabaseDefinitions(root, { contributions: collected }).map(entry => entry.name)).toEqual(["accounts"])
+    expect(() => resolveDBViteConfig(undefined, root, { contributions: collected })).not.toThrow()
+  })
+
+  it("uses the dialect contributed for the implicit default Database", async () => {
+    const root = await createTempProject()
+    await writeAuthDatabase(root, "authDatabase()")
+    const { collectDatabaseContributions } = await import("@vite-hub/database/vite")
+    const { resolveDBViteConfig } = await import("@vite-hub/database/config")
+    const collected = await collectDatabaseContributions([
+      hubAuth(),
+      { name: "postgres-owner", vitehub: { databases: [{ name: "postgres-data", dialect: "postgresql" }] } },
+    ], { projectRoot: root, root, rootDir: root })
+    expect(collected.tables).toMatchObject([{ database: "default", dialect: "postgresql", definition: { export: "authPostgresSchema" } }])
+    expect(() => resolveDBViteConfig(undefined, root, { contributions: collected })).not.toThrow()
+  })
+
   it("adds no tables without authDatabase()", async () => {
     const root = await createTempProject()
     await writeAuth(root)
