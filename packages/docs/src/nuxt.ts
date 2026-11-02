@@ -213,7 +213,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // A page outside the manifest has no Markdown twin, so by default only the manifest pages negotiate.
     if (!agentDiscoveryOptions.routes?.length) {
       const standalone = manifest.pages.map(page => page.path).filter(path => path !== "/")
-      agentDiscoveryOptions.routes = ["/", config.base, `${config.base}/**`, ...standalone]
+      agentDiscoveryOptions.routes = [...new Set(["/", config.base, `${config.base.replace(/\/+$/, "")}/**`, ...standalone])]
     }
     moduleOptions.agentDiscovery = agentDiscoveryOptions
 

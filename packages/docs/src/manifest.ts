@@ -55,7 +55,7 @@ function readSection(dir: string, base: string, id: string, index: number): Docs
   const pages = listMarkdown(sectionDir)
     .map(file => {
       const pageId = idOf(relative(sectionDir, file))
-      return readPage(dir, file, pageId, pageId === "index" ? `${base}/${id}` : `${base}/${id}/${pageId}`)
+      return readPage(dir, file, pageId, pageId === "index" ? joinPath(base, id) : joinPath(base, id, pageId))
     })
     .sort((left, right) => {
       if (left.id === "index") return -1
@@ -67,7 +67,7 @@ function readSection(dir: string, base: string, id: string, index: number): Docs
   const overview = pages.find(page => page.id === "index")
   return {
     id,
-    path: `${base}/${id}`,
+    path: joinPath(base, id),
     title: navigation.title ?? overview?.sourceTitle ?? titleCase(id),
     description: overview?.description ?? null,
     icon: navigation.icon ?? overview?.icon ?? null,
@@ -110,6 +110,11 @@ function idOf(file: string): string {
 function pathOf(file: string): string {
   const id = idOf(file)
   return id === "index" ? "/" : `/${id}`
+}
+
+/** With the base `/`, the section `guide` is `/guide`, not `//guide`. */
+function joinPath(base: string, ...segments: string[]): string {
+  return `${base.replace(/\/+$/, "")}/${segments.join("/")}`
 }
 
 function normalizeBase(base: string): string {
