@@ -6,6 +6,7 @@ import {
   addComponent,
   addComponentsDir,
   addImportsDir,
+  addPlugin,
   addRouteMiddleware,
   addServerHandler,
   addTemplate,
@@ -195,6 +196,21 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     moduleOptions.runtimeConfig.public.mdc ??= { headings: { anchorLinks: { h1: false, h2: true, h3: true, h4: true, h5: false, h6: false } } }
     moduleOptions.appConfig.ui = docsAppConfigUi(vercelTheme(config.site.name), moduleOptions.appConfig.ui, moduleOptions._layers.map(layer => layer.config.appConfig?.ui))
 
+    // The error page replaces `app.vue`, so the head that every page needs is part of the app's head config.
+    const head = nuxt.options.app.head
+    const meta = head.meta ??= []
+    const viewport = meta.find(tag => tag.name === "viewport")
+    // Content may use the area around a notch, and `100dvh` shrinks when the phone keyboard opens. A viewport that
+    // the app set itself stays.
+    if (!viewport?.content || viewport.content === "width=device-width, initial-scale=1") {
+      if (viewport) meta.splice(meta.indexOf(viewport), 1)
+      meta.push({ name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" })
+    }
+    meta.push({ name: "color-scheme", content: "light dark" })
+    head.htmlAttrs = { lang: "en", dir: "ltr", ...head.htmlAttrs }
+    // `app.vue` sets the full title template. The error page uses this one: "Page not found · ViteHub".
+    head.titleTemplate ??= `%s · ${config.site.name}`
+
     moduleOptions.llms = defu(moduleOptions.llms, {
       domain: config.site.url,
       title: config.site.name,
@@ -319,6 +335,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         app.layouts[name] ??= { file: join(runtime, `app/layouts/${name}.vue`), name }
       }
     })
+    addPlugin({ src: join(runtime, "app/plugins/theme-color.ts"), mode: "all" })
     addRouteMiddleware({ name: "docs-layout", path: join(runtime, "app/middleware/docs-layout.ts"), global: true })
     extendPages((pages) => {
       // A catch-all of the app, such as `pages/[...slug].vue`, can replace the docs page. One that leaves docs pages
