@@ -929,6 +929,7 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
 }> {
   const artifactDir = resolve(options.artifactDir)
   const paths = [...new Set((options.paths ?? []).filter(isAbsolute).map(path => resolve(path)).filter(existsSync))]
+  const requestedDirectories = paths.filter(path => statSync(path).isDirectory()).sort((left, right) => right.length - left.length)
   const configuredRoots = [...new Set(options.roots.map(root => resolve(root)).filter(existsSync))]
   const sourceRootByPath = new Map<string, string>()
   const packageRoots = new Set<string>()
@@ -1189,7 +1190,9 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
       const resolvedPath = resolve(path)
       const retainedPath = retainedPaths.get(resolvedPath)
       if (retainedPath) return retainedPath
+      const requestedDirectory = requestedDirectories.find(directory => pathContains(directory, resolvedPath))
       const requestedRoot = sourceRootByPath.get(resolvedPath)
+        ?? (requestedDirectory ? sourceRootByPath.get(requestedDirectory) : undefined)
       // Retained roots link their dependencies instead of copying them. An unrequested dependency stays in place.
       if (!requestedRoot && isDependencySource(resolvedPath)) return path
       const root = requestedRoot
