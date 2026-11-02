@@ -15,7 +15,7 @@ import { collectScheduleContributions } from "./contributions.ts"
 import { discoverScheduleDefinitions, isServerScheduleDefinition } from "./discovery.ts"
 import { inspectScheduleDefinitions } from "./inspect.ts"
 import { getVercelSchedulePath } from "./integrations/vercel.ts"
-import { generateProviderOutputsWithinLock, readDefinitionCrons, readRuntimeDefinitionCrons, schedulePackageName } from "./internal/provider-output.ts"
+import { generateProviderOutputsWithinLock, netlifyScheduleFunctionNames, readDefinitionCrons, readRuntimeDefinitionCrons, schedulePackageName } from "./internal/provider-output.ts"
 import { renderScheduleRegistryModule } from "./internal/registry-module.ts"
 
 import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
@@ -51,7 +51,8 @@ const RESOLVED_SCHEDULE_REGISTRY_ID = "\0#vitehub/schedule/registry"
 const generatedNitroSchedulePlugin = ".vitehub/nitro/schedule/plugin.ts"
 const generatedNitroProviderRegistry = ".vitehub/nitro/schedule/provider-registry.js"
 const generatedNitroStaticRegistry = ".vitehub/nitro/schedule/static-registry.js"
-const generatedNitroCloudflareModule = "./.vitehub/nitro/schedule/module.mjs"
+const generatedNitroScheduleModule = "./.vitehub/nitro/schedule/module.mjs"
+const generatedNitroNetlifyEntry = ".vitehub/nitro/schedule/netlify-entry.mjs"
 const mergeNoExternal = createNoExternalMerger(schedulePackageName)
 
 // The Nitro dev handler imports the registry in Nitro's own environment graph, so invalidate it there too.
@@ -264,7 +265,7 @@ function mergeNitroScheduleConfig(value: unknown, options: { crons: string[], mo
   if (!options.providerWake) return configured
   configured.modules = [
     ...(Array.isArray(configured.modules)
-      ? configured.modules.filter(module => !isGeneratedNitroRegistration(module, generatedNitroCloudflareModule))
+      ? configured.modules.filter(module => !isGeneratedNitroRegistration(module, generatedNitroScheduleModule))
       : []),
     options.module,
   ]
@@ -412,9 +413,51 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
   ].join("\n")
 }
 
-function renderNitroCloudflareModule(crons: string[]): string {
-  return [
+interface NitroNetlifySchedule {
+  cron: string
+  functionName: string
+  name: string
+}
+
+interface RenderNitroScheduleModuleOptions {
+  crons: string[]
+  netlify: {
+    entryFile: string
+    registryFile: string
+    runtimeImport: string
+    schedules: NitroNetlifySchedule[]
+  }
+}
+
+/**
+ * On Cloudflare, adds the cron triggers. On Netlify, Nitro has no cron, so each Schedule gets a scheduled function
+ * that runs it in Nitro's own server bundle: the plugins, aliases, and bindings of the app are the same as for requests.
+ */
+function renderNitroScheduleModule(options: RenderNitroScheduleModuleOptions): string {
+  const { netlify } = options
+  const crons = Object.fromEntries(netlify.schedules.map(schedule => [schedule.name, schedule.cron]))
+  const netlifyEntryRuntime = [
+    `import scheduleRegistry from ${JSON.stringify(netlify.registryFile)}`,
+    `import { executeStaticSchedule, missingScheduleDefinitionError, unwrapScheduleDefinition } from ${JSON.stringify(netlify.runtimeImport)}`,
+    "",
     `const crons = ${JSON.stringify(crons)}`,
+    "",
+    "export async function runViteHubNetlifySchedule(name) {",
+    "  const loader = scheduleRegistry[name]",
+    "  const definition = loader ? unwrapScheduleDefinition(await loader()) : undefined",
+    "  if (!definition) throw missingScheduleDefinitionError(name)",
+    "  await executeStaticSchedule({ cron: crons[name], definition, name, scheduledAt: new Date() })",
+    "}",
+    "",
+  ].join("\n")
+  return [
+    "import { cp, rm, writeFile } from 'node:fs/promises'",
+    "import { join } from 'node:path'",
+    "",
+    `const crons = ${JSON.stringify(options.crons)}`,
+    `const netlifySchedules = ${JSON.stringify(netlify.schedules)}`,
+    `const netlifyEntryFile = ${JSON.stringify(netlify.entryFile)}`,
+    `const netlifyEntryRuntime = ${JSON.stringify(netlifyEntryRuntime)}`,
     "",
     "function dedupeCloudflareCrons(nitro) {",
     "  const wrangler = nitro.options.cloudflare?.wrangler",
@@ -422,13 +465,39 @@ function renderNitroCloudflareModule(crons: string[]): string {
     "  wrangler.triggers.crons = [...new Set(wrangler.triggers.crons.filter((cron) => typeof cron === 'string'))]",
     "}",
     "",
-    "export default function vitehubScheduleModule(nitro) {",
+    "async function writeNetlifyScheduleFunctions(nitro) {",
+    "  const { dir, serverDir } = nitro.options.output",
+    "  for (const { cron, functionName, name } of netlifySchedules) {",
+    "    const functionDir = join(dir, functionName)",
+    "    await rm(functionDir, { force: true, recursive: true })",
+    "    // Netlify deploys each function directory alone, so each one gets its own copy of the server bundle.",
+    "    await cp(serverDir, functionDir, { filter: source => source !== join(serverDir, 'server.mjs'), recursive: true })",
+    "    await writeFile(join(functionDir, `${functionName}.mjs`), [",
+    "      \"import { runViteHubNetlifySchedule } from './main.mjs'\",",
+    "      '',",
+    "      'export default async function vitehubNetlifySchedule() {',",
+    "      `  await runViteHubNetlifySchedule(${JSON.stringify(name)})`,",
+    "      '  return new Response(null, { status: 204 })',",
+    "      '}',",
+    "      '',",
+    "      `export const config = ${JSON.stringify({ includedFiles: ['**'], nodeBundler: 'none', schedule: cron })}`,",
+    "      '',",
+    "    ].join('\\n'))",
+    "  }",
+    "}",
+    "",
+    "export default async function vitehubScheduleModule(nitro) {",
     "  nitro.options.cloudflare ??= {}",
     "  nitro.options.cloudflare.wrangler ??= {}",
     "  nitro.options.cloudflare.wrangler.triggers ??= {}",
     "  const existingCrons = Array.isArray(nitro.options.cloudflare.wrangler.triggers.crons) ? nitro.options.cloudflare.wrangler.triggers.crons : []",
     "  nitro.options.cloudflare.wrangler.triggers.crons = [...new Set([...existingCrons, ...crons])]",
     "  nitro.hooks.hook('build:before', dedupeCloudflareCrons)",
+    "  if (nitro.options.preset !== 'netlify' || !netlifySchedules.length) return",
+    "  // The server bundle keeps Nitro's entry and also exports the Schedule runner for the scheduled functions.",
+    "  await writeFile(netlifyEntryFile, `export { default } from ${JSON.stringify(nitro.options.entry)}\\n${netlifyEntryRuntime}`)",
+    "  nitro.options.entry = netlifyEntryFile",
+    "  nitro.hooks.hook('compiled', writeNetlifyScheduleFunctions)",
     "}",
     "",
   ].join("\n")
@@ -448,6 +517,7 @@ interface WriteNitroSchedulePluginOptions {
   cronOverrides: ScheduleCronOverrides
   crons: string[]
   importBase?: string
+  netlifySchedules: NitroNetlifySchedule[]
   processRuntime?: ScheduleProcessRuntimeOptions
   providerDefinitions: DiscoveredScheduleDefinition[]
   staticDefinitions: DiscoveredScheduleDefinition[]
@@ -456,7 +526,7 @@ interface WriteNitroSchedulePluginOptions {
 
 async function writeNitroSchedulePlugin(root: string, options: WriteNitroSchedulePluginOptions): Promise<string> {
   const pluginFile = resolve(root, generatedNitroSchedulePlugin)
-  const moduleFile = resolve(root, generatedNitroCloudflareModule)
+  const moduleFile = resolve(root, generatedNitroScheduleModule)
   const providerRegistryFile = resolve(root, generatedNitroProviderRegistry)
   const staticRegistryFile = resolve(root, generatedNitroStaticRegistry)
   await mkdir(dirname(pluginFile), { recursive: true })
@@ -480,7 +550,15 @@ async function writeNitroSchedulePlugin(root: string, options: WriteNitroSchedul
     await mkdir(dirname(providerRegistryFile), { recursive: true })
     writes.push(writeFile(providerRegistryFile, createRuntimeRegistryContents(providerRegistryFile, options.providerDefinitions), "utf8"))
     writes.push(writeFile(providerRegistryFile.replace(/\.js$/, ".d.ts"), renderScheduleRegistryTypes(options.importBase), "utf8"))
-    writes.push(writeFile(moduleFile, renderNitroCloudflareModule(options.crons), "utf8"))
+    writes.push(writeFile(moduleFile, renderNitroScheduleModule({
+      crons: options.crons,
+      netlify: {
+        entryFile: resolve(root, generatedNitroNetlifyEntry),
+        registryFile: providerRegistryFile,
+        runtimeImport: options.runtimeImport ?? `${options.importBase ?? schedulePackageName}/runtime/static`,
+        schedules: options.netlifySchedules,
+      },
+    }), "utf8"))
   }
   await Promise.all(writes)
   return generatedNitroSchedulePlugin
@@ -550,14 +628,20 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
   if (!installNitroPlugin) return nitro as NitroConfig
 
   const nitroDefinitions = processRuntime && options.providerOutput !== "nitro" ? [] : selectNitroScheduleDefinitions(definitions, options)
-  const crons = options.command === "build"
-    ? [...new Set((await readDefinitionCrons(nitroDefinitions, cronOverrides)).values())]
-    : []
+  const nitroCrons = options.command === "build" ? await readDefinitionCrons(nitroDefinitions, cronOverrides) : new Map<string, string>()
+  const crons = [...new Set(nitroCrons.values())]
+  // Nitro may resolve the Netlify preset itself, so only another known preset skips the Netlify functions.
+  const netlifyFunctionNames = !nitroPreset || nitroPreset === "netlify" ? netlifyScheduleFunctionNames(nitroDefinitions) : new Map<string, string>()
+  const netlifySchedules = [...nitroCrons].flatMap(([name, cron]) => {
+    const functionName = netlifyFunctionNames.get(name)
+    return functionName ? [{ cron, functionName, name }] : []
+  })
   const nitroDefinitionNames = new Set(nitroDefinitions.map(definition => definition.name))
   const plugin = await writeNitroSchedulePlugin(roots.projectRoot, {
     cronOverrides: Object.fromEntries(Object.entries(cronOverrides ?? {}).filter(([name]) => nitroDefinitionNames.has(name))),
     crons,
     importBase: (options as InternalScheduleVitePluginOptions).importBase,
+    netlifySchedules,
     processRuntime,
     providerDefinitions: nitroDefinitions,
     staticDefinitions: definitions.filter(definition =>
@@ -569,8 +653,8 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
   return mergeNitroScheduleConfig(nitro, {
     crons,
     module: options.nitroOwnsPaths
-      ? resolve(roots.projectRoot, generatedNitroCloudflareModule)
-      : generatedNitroCloudflareModule,
+      ? resolve(roots.projectRoot, generatedNitroScheduleModule)
+      : generatedNitroScheduleModule,
     plugin: options.nitroOwnsPaths
       ? resolve(roots.projectRoot, plugin)
       : plugin,
