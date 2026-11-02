@@ -310,7 +310,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           if (migrateOnStart) assertMigrateOnStartSupported(runtime, provider)
           if (!runtimeProvider) {
             // Nuxt CLI clears buildDir after nitro:config, before compiling the generated runtime.
-            const localRuntime = await installNitroLocalDatabaseRuntime(config, root, provisionRoot, resolve(root, ".vitehub"), runtimeOptions, serverDirs, d1, contributions)
+            const localRuntime = await installNitroLocalDatabaseRuntime(config, root, provisionRoot, resolve(root, ".vitehub"), runtimeOptions, serverDirs, d1, contributions, migrateOnStart ? runtime : undefined)
             if (migrateOnStart && localRuntime) await installNitroMigrateOnStart(config, root, localRuntime, migrateOnStart)
           }
           if (provider === "cloudflare" && runtime) {
@@ -431,6 +431,7 @@ async function installNitroLocalDatabaseRuntime(
   serverDirs?: string[],
   d1?: ResolvedDatabaseNuxtD1Options,
   contributions: CollectedDatabaseContributions = { definitions: [], tables: [] },
+  resolvedRuntime?: ResolvedDBViteConfig,
 ) {
   const file = resolve(generatedRoot, generatedNitroLocalDatabaseRuntime)
   const alias = isRecord(config.alias) ? config.alias : undefined
@@ -440,7 +441,7 @@ async function installNitroLocalDatabaseRuntime(
     return
   }
 
-  const runtime = resolveDBViteConfig(options, root, { contributions, provisionRoot, serverDirs })
+  const runtime = resolvedRuntime ?? resolveDBViteConfig(options, root, { contributions, provisionRoot, serverDirs })
   assertDistinctNuxtD1Bindings(runtime, d1, config)
   if (!runtime?.definitions.length) {
     await rm(file, { force: true })

@@ -78,7 +78,12 @@ export async function migrateOnStart(databases: StartMigrationDatabase[], option
     }
     if (pending.length) plans.push({ client, name: database.name, pending })
   }
-  for (const { client, name, pending } of plans) {
+  for (const plan of plans) {
+    const { client, name } = plan
+    // Definitions can share a file, so an earlier plan may have advanced this client's ledger.
+    const lastApplied = await readLastApplied(client)
+    const pending = plan.pending.filter(migration => lastApplied === undefined || lastApplied < migration.when)
+    if (!pending.length) continue
     await client.migrate([
       createMigrationsTable,
       ...pending.flatMap(migration => [

@@ -57,13 +57,13 @@ async function writeMigrations(root: string, migrations: Array<{ sql: string, ta
 }
 
 /** Runs the Nuxt module for a production Node build and bundles a server whose entry imports Nitro's plugins first. */
-async function buildNodeServer(root: string, options: DatabaseNuxtIntegrationOptions) {
+async function buildNodeServer(root: string, options: DatabaseNuxtIntegrationOptions, plugins: unknown[] = []) {
   const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
   await hubDb(options)(undefined, {
     hook: (event: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
       if (event === "nitro:config") hooks.push(callback)
     },
-    options: { buildDir: join(root, ".nuxt"), dev: false, nitro: { preset: "node-server" }, rootDir: root, vite: {} },
+    options: { buildDir: join(root, ".nuxt"), dev: false, nitro: { preset: "node-server" }, rootDir: root, vite: { plugins } },
   })
   const config: Record<string, unknown> & { alias: Record<string, string>, plugins?: string[] } = { alias: {} }
   for (const hook of hooks) await hook(config)
@@ -133,6 +133,59 @@ describe("database.migrateOnStart", () => {
     }
     finally {
       client.close()
+    }
+  })
+
+  it("migrates the implicit default Database with contributed tables before serving requests", { timeout: 60_000 }, async () => {
+    const root = await createProject()
+    await rm(join(root, "server/databases/config.ts"))
+    const tables = join(root, "tables.mjs")
+    await writeFile(tables, [
+      'import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"',
+      'export const usersSchema = { users: sqliteTable("users", { id: integer("id").primaryKey(), name: text("name").notNull() }) }',
+    ].join("\n"))
+    await writeMigrations(root, [init, seed])
+    const url = `file:${join(root, "data/app.sqlite")}`
+    const server = await buildNodeServer(root, { connection: { url }, migrateOnStart: true }, [{
+      name: "users-owner",
+      vitehub: { databases: [{ definition: { export: "usersSchema", module: tables }, name: "users" }] },
+    }])
+    expect(server.config.plugins).toEqual([join(root, ".vitehub/nitro/database/migrate-on-start.mjs")])
+    expect((await server.start()).stdout.trim().split("\n").at(-1)).toBe(JSON.stringify([{ id: 7, name: "Ada" }]))
+    expect((await server.start()).stdout.trim()).toBe(JSON.stringify([{ id: 7, name: "Ada" }]))
+    expect(await readLedger(url)).toEqual([init.when, seed.when])
+  })
+
+  it("does not replay migrations when Definitions share a local SQLite file", async () => {
+    const root = await createProject()
+    const url = `file:${join(root, "shared.sqlite")}`
+    const first = createClient({ url })
+    const second = createClient({ url })
+    const migrations = [init, seed].map(migration => ({
+      dataLoss: [], hash: migration.tag, name: migration.tag, statements: migration.sql.split("--> statement-breakpoint"), when: migration.when,
+    }))
+    const extra = { dataLoss: [], hash: "extra", name: "0002_extra", statements: ["INSERT INTO users (id, name) VALUES (8, 'Grace')"], when: dropLegacy.when }
+    const databases = [
+      { db: drizzle({ client: first }), migrations, name: "default" },
+      { db: drizzle({ client: second }), migrations: [...migrations, extra], name: "shared" },
+    ]
+    const applied: string[] = []
+    try {
+      await migrateOnStart(databases, { log: message => applied.push(message) })
+      expect(applied).toEqual([
+        '[vitehub] Database "default": applied 0000_init.',
+        '[vitehub] Database "default": applied 0001_seed.',
+        '[vitehub] Database "shared": applied 0002_extra.',
+      ])
+      expect((await second.execute("SELECT id, name FROM users ORDER BY id")).rows.map(row => [row[0], row[1]])).toEqual([[7, "Ada"], [8, "Grace"]])
+      expect(await readLedger(url)).toEqual([init.when, seed.when, extra.when])
+      await migrateOnStart(databases, { log: message => applied.push(message) })
+      expect(applied).toHaveLength(3)
+      expect(await readLedger(url)).toEqual([init.when, seed.when, extra.when])
+    }
+    finally {
+      first.close()
+      second.close()
     }
   })
 
