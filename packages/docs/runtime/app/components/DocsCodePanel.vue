@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useClipboard } from "@vueuse/core"
 import { buildFileTree } from "../utils/file-tree"
 
 // The sticky code panel beside a tutorial. It reads the code blocks of the article body in order.
@@ -16,6 +17,10 @@ const blocks = shallowRef<Block[]>([])
 const reached = ref(0)
 const selectedPath = ref<string>()
 const code = useTemplateRef<HTMLElement>("code")
+const panel = useTemplateRef<HTMLElement>("panel")
+const codeId = useId()
+// Only a deliberate choice is announced. The file that changes while the reader scrolls stays quiet.
+const announcement = ref("")
 
 function filenameFor(pre: HTMLPreElement): string {
   return (pre.dataset.filename ?? pre.dataset.codeFilename ?? "").trim()
@@ -63,14 +68,42 @@ watch([selected, code], ([file, container]) => {
 let frame = 0
 let rescanTimer = 0
 let observer: MutationObserver | undefined
+// The panel sticks below the header, but at the top of the page the banner pushes it down. Its height is the
+// viewport below its top edge, so the file tree under the code stays in view at every scroll position.
+let panelTop = -1
+function fitPanel() {
+  const element = panel.value
+  if (!element) return
+  const top = Math.max(0, Math.round(element.getBoundingClientRect().top))
+  if (top === panelTop) return
+  panelTop = top
+  element.style.setProperty("--vh-code-panel-top", `${top}px`)
+}
+
 function onScroll() {
   cancelAnimationFrame(frame)
-  frame = requestAnimationFrame(updateReached)
+  frame = requestAnimationFrame(() => {
+    updateReached()
+    fitPanel()
+  })
+}
+
+function selectFile(path: string | undefined) {
+  selectedPath.value = path
+  if (path) announcement.value = `Showing ${path}`
 }
 
 function selectBlock(index: number) {
   reached.value = Math.max(reached.value, index)
-  selectedPath.value = blocks.value[index]?.path
+  selectFile(blocks.value[index]?.path)
+}
+
+const { copy, copied } = useClipboard({ copiedDuring: 1500 })
+async function copyFile() {
+  const file = selected.value
+  if (!file) return
+  await copy(file.pre.textContent ?? "")
+  announcement.value = `Copied ${file.path}`
 }
 
 // Each source block gets a class for the wide-screen styles and a click on its name bar.
@@ -86,20 +119,21 @@ function markSources(list: Block[]) {
     const bar = [...block.wrapper.children].find(
       (child) => child !== block.pre && !child.matches("button"),
     ) as HTMLElement | undefined
-    // Keep the original filename bar as text. Add a native button so keyboard
-    // and pointer readers use the same action without changing rendered prose.
+    // Keep the original filename bar as text. Add a native button for keyboard readers. A click anywhere on the bar,
+    // the button included, opens the file, so the whole bar that highlights on hover works.
     const trigger = document.createElement("button")
     trigger.type = "button"
     trigger.className = "vh-code-panel-trigger"
     trigger.textContent = "View file"
     trigger.setAttribute("aria-label", `View ${block.path} in the file panel`)
+    trigger.setAttribute("aria-controls", codeId)
     const onClick = () => selectBlock(index)
     block.wrapper.classList.add("vh-code-panel-source")
-    trigger.addEventListener("click", onClick)
+    bar?.addEventListener("click", onClick)
     bar?.append(trigger)
     releases.push(() => {
       block.wrapper.classList.remove("vh-code-panel-source", "is-active")
-      trigger.removeEventListener("click", onClick)
+      bar?.removeEventListener("click", onClick)
       trigger.remove()
     })
   })
@@ -137,9 +171,18 @@ watch(selectedPath, (path) => {
   for (const block of blocks.value) block.wrapper.classList.toggle("is-active", block.path === path)
 }, { flush: "post" })
 
-onMounted(() => window.addEventListener("scroll", onScroll, { passive: true }))
+watch(panel, () => {
+  panelTop = -1
+  fitPanel()
+}, { flush: "post" })
+
+onMounted(() => {
+  window.addEventListener("scroll", onScroll, { passive: true })
+  window.addEventListener("resize", onScroll, { passive: true })
+})
 onBeforeUnmount(() => {
   window.removeEventListener("scroll", onScroll)
+  window.removeEventListener("resize", onScroll)
   cancelAnimationFrame(frame)
   window.clearTimeout(rescanTimer)
   observer?.disconnect()
@@ -148,7 +191,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <aside v-if="blocks.length" class="vh-code-panel" aria-label="Files in this tutorial">
+  <aside v-if="blocks.length" ref="panel" class="vh-code-panel" aria-label="Files in this tutorial">
     <nav class="vh-code-panel-tree" aria-label="Files so far">
       <template v-for="row in rows" :key="row.path">
         <div v-if="row.kind === 'folder'" class="vh-code-panel-row is-folder" :style="{ '--depth': row.depth }">
@@ -163,7 +206,7 @@ onBeforeUnmount(() => {
           :style="{ '--depth': row.depth }"
           :aria-current="row.path === selectedPath ? 'true' : undefined"
           :aria-label="row.path"
-          @click="selectedPath = row.path"
+          @click="selectFile(row.path)"
         >
           <UIcon name="i-lucide-file" class="size-3.5 shrink-0" aria-hidden="true" />
           <span>{{ row.name }}</span>
@@ -172,8 +215,21 @@ onBeforeUnmount(() => {
     </nav>
 
     <div class="vh-code-panel-file">
-      <p class="vh-code-panel-path">{{ selected?.path }}</p>
-      <div ref="code" class="vh-code-panel-code" />
+      <div class="vh-code-panel-path">
+        <p :id="`${codeId}-path`" class="vh-code-panel-path-name">{{ selected?.path }}</p>
+        <UButton
+          v-if="selected"
+          :icon="copied ? 'i-lucide-check' : 'i-lucide-copy'"
+          color="neutral"
+          variant="ghost"
+          size="xs"
+          :aria-label="copied ? 'Copied' : `Copy ${selected.path}`"
+          class="vh-code-panel-copy"
+          @click="copyFile"
+        />
+      </div>
+      <div :id="codeId" ref="code" class="vh-code-panel-code" role="region" :aria-labelledby="`${codeId}-path`" tabindex="0" />
+      <p class="sr-only" role="status">{{ announcement }}</p>
     </div>
   </aside>
 </template>
@@ -185,7 +241,7 @@ onBeforeUnmount(() => {
   position: sticky;
   top: var(--ui-header-height);
   display: none;
-  height: calc(100dvh - var(--ui-header-height));
+  height: calc(100dvh - var(--vh-code-panel-top, var(--ui-header-height)));
   grid-template-rows: minmax(0, 1fr) auto;
   grid-template-areas: "file" "tree";
   border-left: 1px solid var(--ui-border);
@@ -263,12 +319,23 @@ onBeforeUnmount(() => {
   min-height: 2.75rem;
   flex: none;
   align-items: center;
-  margin: 0;
+  gap: 0.5rem;
   border-bottom: 1px solid var(--ui-border);
-  padding-inline: 1rem;
+  padding-inline: 1rem 0.5rem;
+}
+
+.vh-code-panel-path-name {
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  overflow-wrap: anywhere;
   color: var(--ui-text-dimmed);
   font-family: var(--font-mono);
   font-size: 0.75rem;
+}
+
+.vh-code-panel-copy {
+  flex: none;
 }
 
 .vh-code-panel-code {
@@ -277,6 +344,11 @@ onBeforeUnmount(() => {
   overflow: auto;
   overscroll-behavior: contain;
   padding: 1rem;
+}
+
+.vh-code-panel-code:focus-visible {
+  outline: 2px solid var(--ui-text-highlighted);
+  outline-offset: -2px;
 }
 
 .vh-code-panel-code :deep(pre) {
@@ -307,6 +379,7 @@ onBeforeUnmount(() => {
 
   .vh-code-panel-source > :first-child {
     border-bottom-width: 1px;
+    cursor: pointer;
     transition:
       background-color 150ms ease,
       color 150ms ease;
@@ -323,8 +396,11 @@ onBeforeUnmount(() => {
     cursor: pointer;
   }
 
-  .vh-code-panel-trigger:hover {
-    background: var(--ui-bg-elevated);
+  @media (hover: hover) {
+    .vh-code-panel-source > :first-child:hover {
+      background: color-mix(in srgb, var(--ui-text-highlighted) 5%, var(--ui-bg));
+      color: var(--ui-text-highlighted);
+    }
   }
 
   .vh-code-panel-trigger:focus-visible {
@@ -332,7 +408,6 @@ onBeforeUnmount(() => {
     outline-offset: 2px;
   }
 
-  .vh-code-panel-source > :first-child:hover,
   .vh-code-panel-source.is-active > :first-child {
     background: color-mix(in srgb, var(--ui-text-highlighted) 5%, var(--ui-bg));
     color: var(--ui-text-highlighted);
