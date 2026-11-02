@@ -21,7 +21,9 @@ type ResolvedDBViteConfigProvider = (options: { strict: boolean }) => MaybePromi
 type MaybePromise<T> = Promise<T> | T
 
 interface ViteHubCliContext {
+  cwd?: string
   env?: NodeJS.ProcessEnv
+  fetch?: typeof fetch
   rootDir: string
   spawn: (command: string, args: string[], options?: { cwd?: string, env?: NodeJS.ProcessEnv, stderr?: "inherit" | "pipe", stdout?: "inherit" | "pipe" }) => Promise<{ exitCode: number | null }>
   stderr: { write: (chunk: string | Uint8Array) => unknown }
@@ -70,6 +72,100 @@ function writeMigrateUsage(context: ViteHubCliContext): void {
     "  -h, --help         Show this help.",
     "",
   ].join("\n"))
+}
+
+function writeExportUsage(context: ViteHubCliContext): void {
+  context.stdout.write([
+    `Usage: ${exportUsage}`,
+    "",
+    "Writes a SQL dump of each database, or of the one that `--database` names.",
+    "Without `--remote`, it reads the local SQLite file that `vitehub db migrate` uses.",
+    "SQLite, libSQL, and D1 dumps use the format of `wrangler d1 export`.",
+    "",
+    "Options:",
+    "  --remote           Read the remote database: Cloudflare D1 with CLOUDFLARE_ACCOUNT_ID",
+    "                     and CLOUDFLARE_API_TOKEN, D1 HTTP, remote libSQL, or Postgres with pg_dump.",
+    "  --stage <name>     Load Vite env files for this mode. Variables from the current",
+    "                     process take precedence.",
+    "  --database <name>  Export only this database.",
+    "  --output <file>    SQL file to write. Defaults to",
+    "                     .vitehub/exports/database/<name>-<local|remote>-<time>.sql.",
+    "  -h, --help         Show this help.",
+    "",
+  ].join("\n"))
+}
+
+const exportUsage = "vitehub db export [--remote] [--stage <name>] [--database <name>] [--output <file>]"
+
+interface ExportArgs {
+  database?: string
+  output?: string
+  remote: boolean
+  stage?: string
+}
+
+function parseExportArgs(args: string[]): ExportArgs | string {
+  const parsed: ExportArgs = { remote: false }
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]!
+    if (arg === "--remote") {
+      parsed.remote = true
+      continue
+    }
+    const option = (["--database", "--output", "--stage"] as const).find(name => arg === name || arg.startsWith(`${name}=`))
+    if (!option) return `Unknown option: ${arg}`
+    const value = arg === option ? args[++index] : arg.slice(option.length + 1)
+    if (!value || value.startsWith("-")) return `${option} requires a value.`
+    parsed[option.slice(2) as "database" | "output" | "stage"] = value
+  }
+  return parsed
+}
+
+async function runExport(args: string[], context: ViteHubCliContext, getConfig?: ResolvedDBViteConfigProvider): Promise<number> {
+  const parsed = parseExportArgs(args)
+  if (typeof parsed === "string") {
+    context.stderr.write(`[vitehub] ${parsed}\n`)
+    writeExportUsage(context)
+    return 1
+  }
+  const config = await getConfig?.({ strict: false })
+  if (!config?.databaseNames.length) {
+    context.stderr.write("[vitehub] ViteHub has no resolved Database config. Run the command in a project that uses `hubDb()`.\n")
+    return 1
+  }
+  const names = parsed.database ? [parsed.database] : config.databaseNames
+  if (parsed.database && !config.databases[parsed.database]) {
+    context.stderr.write(`${formatRuntimeDiagnosticError(databaseErrorDiagnostics.DATABASE_NOT_FOUND({ database: parsed.database }))}\n`)
+    return 1
+  }
+  if (parsed.output && names.length > 1) {
+    context.stderr.write(`[vitehub] --output writes one database. Add --database <name> to pick one of: ${names.join(", ")}.\n`)
+    return 1
+  }
+  const projectRoot = config.rootDir
+  const cwd = context.cwd ?? process.cwd()
+  let env = context.env ?? process.env
+  if (parsed.stage) {
+    const { loadEnv } = await import("vite")
+    env = { ...loadEnv(parsed.stage, projectRoot, ""), ...env }
+  }
+  const { describeExportTarget, exportDatabase } = await import("./internal/export.ts")
+  const time = new Date().toISOString().replaceAll(":", "").replaceAll(".", "")
+  for (const name of names) {
+    const output = parsed.output
+      ? resolve(cwd, parsed.output)
+      : resolve(projectRoot, ".vitehub/exports/database", `${name}-${parsed.remote ? "remote" : "local"}-${time}.sql`)
+    try {
+      const target = await exportDatabase(config.databases[name]!, { env, fetch: context.fetch, output, projectRoot, remote: parsed.remote, spawn: context.spawn })
+      context.stdout.write(`[vitehub] Database "${name}" (${describeExportTarget(target, projectRoot)}): exported to ${relative(cwd, output) || output}.\n`)
+    }
+    catch (error) {
+      const problem = error instanceof Error ? error.message : String(error)
+      context.stderr.write(`${formatRuntimeDiagnosticError(databaseErrorDiagnostics.DATABASE_EXPORT_FAILED({ cause: error, database: name, problem }))}\n`)
+      return 1
+    }
+  }
+  return 0
 }
 
 const migrateFlags = new Set(["--allow-data-loss", "--dry-run"])
@@ -326,6 +422,21 @@ export function createDbCliContributor(
         return await runDrizzleKit("migrate", args, context, getConfig)
       },
       usage: "vitehub db migrate [--dry-run] [--allow-data-loss]",
+    })
+  }
+
+  if (options?.export !== false) {
+    features.push({
+      description: "Export databases to SQL dump files.",
+      name: "export",
+      run: async (args, context) => {
+        if (args.includes("-h") || args.includes("--help")) {
+          writeExportUsage(context)
+          return 0
+        }
+        return await runExport(args, context, getConfig)
+      },
+      usage: exportUsage,
     })
   }
 
