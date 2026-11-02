@@ -121,6 +121,8 @@ export interface BlobDriverAdapter<TOptions> {
   delete(pathnames: string | string[]): Promise<void>
   get(pathname: string): Promise<Blob | null>
   getArrayBuffer(pathname: string): Promise<ArrayBuffer | null>
+  /** Stream `length` bytes from `offset`, without reading the rest. `serve()` answers a `Range` request with it. */
+  getRange?(pathname: string, range: { offset: number, length: number }): Promise<ReadableStream | null>
   head(pathname: string): Promise<BlobObject | null>
   list(options?: BlobListOptions): Promise<BlobListResult>
   put(pathname: string, body: BlobPutBody, options?: BlobPutOptions): Promise<BlobObject>

@@ -35,7 +35,7 @@ interface R2PutOptionsLike {
 interface R2BucketLike {
   createMultipartUpload(key: string, options?: R2PutOptionsLike): Promise<R2MultipartUploadLike>
   delete(key: string): Promise<void>
-  get(key: string): Promise<R2ObjectLike | null>
+  get(key: string, options?: { range?: { offset: number, length: number } }): Promise<R2ObjectLike | null>
   head(key: string): Promise<R2ObjectLike | null>
   list(options?: { cursor?: string, delimiter?: string, include?: string[], limit?: number, prefix?: string }): Promise<{ cursor?: string, delimitedPrefixes?: string[], objects: R2ObjectLike[], truncated?: boolean }>
   put(key: string, value: BlobPutBody, options?: R2PutOptionsLike): Promise<R2ObjectLike>
@@ -158,6 +158,11 @@ export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): Blob
     async getArrayBuffer(pathname) {
       const object = await getBucket(options).get(pathname)
       return object ? await readArrayBuffer(object) : null
+    },
+    async getRange(pathname, range) {
+      const object = await getBucket(options).get(pathname, { range })
+      if (!object) return null
+      return object.body ?? new Blob([await readArrayBuffer(object)]).stream()
     },
     async head(pathname) {
       const object = await getBucket(options).head(pathname)

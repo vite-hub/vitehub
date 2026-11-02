@@ -84,6 +84,12 @@ export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): Blob
     delete: pathnames => activeDriver().delete(pathnames),
     get: pathname => activeDriver().get(pathname),
     getArrayBuffer: pathname => activeDriver().getArrayBuffer(pathname),
+    // The HTTP API still reads the whole object, then slices it.
+    async getRange(pathname, range) {
+      if (getOptionalBucket(options)) return nativeDriver.getRange!(pathname, range)
+      const body = await activeDriver().get(pathname)
+      return body ? body.slice(range.offset, range.offset + range.length).stream() : null
+    },
     head: pathname => activeDriver().head(pathname),
     list: options => activeDriver().list(options),
     put: (pathname, body, options) => activeDriver().put(pathname, body, options),

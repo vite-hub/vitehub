@@ -7,7 +7,9 @@ import { pathToFileURL } from "node:url"
 import { H3, H3Event } from "h3"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import { createDriver as createR2Driver } from "../src/drivers/cloudflare.ts"
 import { createDriver } from "../src/drivers/fs.ts"
+import { clearActiveCloudflareEnv, setActiveCloudflareEnv } from "../src/runtime/state.ts"
 import { createBlobStorage } from "../src/storage.ts"
 import type { BlobStorage } from "../src/types.ts"
 
@@ -758,5 +760,64 @@ describe("Blob byte ranges", () => {
     expect(text).toBe(content.toUpperCase())
     expect(request.res.headers.get("accept-ranges")).toBeNull()
     expect(request.res.headers.get("content-range")).toBeNull()
+  })
+})
+
+describe("Blob byte ranges on an R2 binding", () => {
+  const content = new TextEncoder().encode("0123456789abcdefghij")
+  const reads: Array<{ offset: number, length: number } | "whole"> = []
+  const object = { httpEtag: "\"v1\"", httpMetadata: { contentType: "video/mp4" }, key: "media/video.mp4", size: content.byteLength, uploaded: new Date(0) }
+  const bucket = {
+    async get(key: string, options?: { range?: { offset: number, length: number } }) {
+      if (key !== object.key) return null
+      const range = options?.range
+      reads.push(range ?? "whole")
+      const bytes = range ? content.slice(range.offset, range.offset + range.length) : content
+      return { ...object, body: new Blob([bytes]).stream() }
+    },
+    async head(key: string) {
+      return key === object.key ? object : null
+    },
+  }
+
+  beforeEach(() => {
+    reads.length = 0
+    setActiveCloudflareEnv({ BLOB: bucket })
+  })
+
+  afterEach(() => {
+    clearActiveCloudflareEnv()
+  })
+
+  async function serve(headers?: Record<string, string>) {
+    const storage = createBlobStorage(createR2Driver({ binding: "BLOB", driver: "cloudflare-r2" }))
+    const event = new H3Event(new Request("https://example.test/video", { headers }))
+    const [error, body] = await storage.serve(event, "media/video.mp4")
+    expect(error).toBeNull()
+    return { event, text: await new Response(body).text() }
+  }
+
+  it("reads only the requested bytes from R2", async () => {
+    const { event, text } = await serve({ range: "bytes=15-" })
+    expect(event.res.status).toBe(206)
+    expect(text).toBe("fghij")
+    expect(event.res.headers.get("content-range")).toBe("bytes 15-19/20")
+    expect(event.res.headers.get("content-length")).toBe("5")
+    expect(event.res.headers.get("content-type")).toBe("video/mp4")
+    expect(event.res.headers.get("accept-ranges")).toBe("bytes")
+    expect(reads).toEqual([{ offset: 15, length: 5 }])
+  })
+
+  it("reads suffix ranges as an offset from the size in the metadata", async () => {
+    const { text } = await serve({ range: "bytes=-3" })
+    expect(text).toBe("hij")
+    expect(reads).toEqual([{ offset: 17, length: 3 }])
+  })
+
+  it("reads the whole object without a Range header", async () => {
+    const { event, text } = await serve()
+    expect(event.res.status).not.toBe(206)
+    expect(text).toBe("0123456789abcdefghij")
+    expect(reads).toEqual(["whole"])
   })
 })
