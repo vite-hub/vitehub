@@ -26,6 +26,10 @@ vi.mock("node:fs", async importOriginal => {
 
 const integrationMocks = vi.hoisted(() => ({
   discoverAgentDefinitionEntries: vi.fn(() => []),
+  denoServerPackagesPlugin: vi.fn((onPackages: (packages: { bundledPackageDirs: string[], externalImports: [] }) => void) => {
+    onPackages({ bundledPackageDirs: [], externalImports: [] })
+    return { name: "vitehub:deno-server-packages" }
+  }),
   discoverWorkflowDefinitions: vi.fn(() => []),
   finalizeDenoDeploymentOutput: vi.fn(),
   finalizeDeploymentPlanOutput: vi.fn(),
@@ -82,6 +86,7 @@ vi.mock("@vite-hub/agent/vite", () => ({
   hubAgent: integrationMocks.hubAgent,
 }))
 vi.mock("@vite-hub/internal/build/deno-runtime-packages", () => ({
+  denoServerPackagesPlugin: integrationMocks.denoServerPackagesPlugin,
   finalizeDenoDeploymentOutput: integrationMocks.finalizeDenoDeploymentOutput,
 }))
 vi.mock("@vite-hub/internal/build/deployment-plan-output", () => ({
@@ -1705,10 +1710,13 @@ describe("vitehub", () => {
     }
     callHook(output.configResolved, [{ ...resolvedConfig, nitro: nitroConfig }])
     let compiled: (() => Promise<void>) | undefined
+    const rollupConfig: { plugins?: unknown } = {}
     const nitro = {
       hooks: {
-        hook: vi.fn((name: string, callback: () => Promise<void>) => {
-          if (name === "compiled") compiled = callback
+        hook: vi.fn((name: string, callback: (...args: unknown[]) => unknown) => {
+          // SAFETY: Nitro passes the compiled hook no arguments, and this test awaits it.
+          if (name === "compiled") compiled = callback as () => Promise<void>
+          if (name === "rollup:before") callback(nitro, rollupConfig)
         }),
       },
       options: {
@@ -1725,8 +1733,10 @@ describe("vitehub", () => {
 
     await (compiled as () => Promise<void>)()
 
+    expect(rollupConfig.plugins).toEqual([{ name: "vitehub:deno-server-packages" }])
     expect(integrationMocks.finalizeDenoDeploymentOutput).toHaveBeenCalledWith(expect.objectContaining({
       conditions: ["browser", "launch"],
+      serverPackages: { bundledPackageDirs: [], externalImports: [] },
     }))
 
     integrationMocks.finalizeDenoDeploymentOutput.mockClear()
