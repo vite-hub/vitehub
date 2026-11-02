@@ -588,6 +588,16 @@ function afterApplicationConfig<T extends Plugin>(plugin: T): T {
   return plugin
 }
 
+/** A Node server has no host cron. Its Schedules run only in the Process Runtime or when the app wakes them itself. */
+function assertNodeScheduleWake(schedule: ViteHubOptions["schedule"]): void {
+  if (!schedule) return
+  if (schedule !== true) {
+    if (schedule.providerOutput === false) return
+    if (schedule.runtime !== undefined && schedule.providerOutput !== "nitro" && schedule.providerOutput !== "standalone") return
+  }
+  throw viteHubErrorDiagnostics.VITE_HUB_R0137({ message: "[vitehub] The \"node\" preset has no host cron, so this build would never run its Schedules. Set schedule: { runtime: { driver: \"process\" }, providerOutput: \"auto\" } to run them in the server process, or schedule: { providerOutput: false } to wake them yourself." })
+}
+
 function deploymentPlugins(
   plan: DeploymentPlan,
   requestedServices: DeploymentService[],
@@ -679,6 +689,8 @@ function deploymentPlugins(
             preset: plan.preset,
           }
           for (const service of requestedServices) assertDeploymentService(plan, service)
+          // The dev server keeps manual runs working without a wake owner.
+          if (building && plan.preset === "node") assertNodeScheduleWake(options.schedule)
           const identity = resolveDeploymentIdentity(
             typeof config.root === "string" ? config.root : undefined,
             options.name,

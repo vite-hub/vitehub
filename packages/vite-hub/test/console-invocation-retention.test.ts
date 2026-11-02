@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { runInNewContext } from "node:vm"
 import { createClient } from "@libsql/client"
 import { createLibsqlAgentInvocationStore } from "@vite-hub/agent/invocations/sqlite"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createConsoleInvocations, getConsoleUsageIndex, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
@@ -35,6 +35,11 @@ const finished = (id: string, updatedAt: string, status: AgentInvocationStoreCre
 let directory: string
 let url: string
 const clients: Client[] = []
+
+beforeAll(async () => {
+  // Keep cold module loading outside the journal's one-second store operation timeout.
+  await import("../src/console/runtime/server/invocations-database.ts")
+})
 
 beforeEach(async () => {
   vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "")

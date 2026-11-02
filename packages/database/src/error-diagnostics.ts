@@ -105,6 +105,12 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Build with the Node preset and a `file:` connection URL, or remove `migrateOnStart` and run `vitehub db migrate` from the deployment instead.",
     },
 
+    // Export errors. `vitehub db export` prints them and exits with code 1.
+    DATABASE_EXPORT_FAILED: {
+      why: ({ database, problem }: { database: string, problem: string }) => `ViteHub cannot export the database "${database}". ${problem}`,
+      fix: "Read the problem in `why`. Without `--remote`, `vitehub db export` reads the local SQLite file. With `--remote`, it needs `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` for D1, `connection.url` and `connection.authToken` for libSQL, the proxy `url` and `authToken` for object-form `cloudflare.http`, or `connection.url` or the PG* variables and `pg_dump` for Postgres.",
+    },
+
     // Definition errors. `defineDatabase()` throws them.
     DATABASE_INVALID_CASING: {
       why: "`defineDatabase().drizzle.casing` must be `snake_case` or `camelCase`.",
