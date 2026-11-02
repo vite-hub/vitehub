@@ -40,6 +40,7 @@ export default defineConfig({
       "src/runtime/definition-hosted.ts",
       "src/runtime/definition-local.ts",
       "src/runtime/hosted.ts",
+      "src/runtime/migrate-on-start.ts",
       "src/runtime/postgres.ts",
       "src/runtime/request-stats.ts",
       "src/runtime/state.ts",

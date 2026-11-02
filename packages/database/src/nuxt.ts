@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { resolveNuxtServerDirs, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 import { resolveRuntimeModule } from "@vite-hub/internal/build/paths"
-import { resolveHost } from "@vite-hub/internal/hosting"
+import { resolveHost, resolveHostPreset } from "@vite-hub/internal/hosting"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { isPlainObject as isRecord } from "@vite-hub/internal/object"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
@@ -22,6 +22,7 @@ import { resolveSourceImport } from "./internal/source-dependencies.ts"
 import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDefinitionSchemas, mergeLoadedSchemas } from "./internal/schema-tables.ts"
 import { collectDatabaseContributions, describeDatabaseContribution } from "./contributions.ts"
 import { usesD1HttpOnly, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
+import { assertMigrateOnStartSupported, migrateOnStartPluginFile, renderMigrateOnStartPlugin, resolveMigrateOnStart, type MigrateOnStartSettings } from "./internal/migrate-on-start.ts"
 import { resolveConfigValue, withConfigValueFallback } from "./config-value.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { hubDb as hubDbVite } from "./vite.ts"
@@ -305,9 +306,15 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           if (runtime && (runtimeProvider === "cloudflare" || runtimeProvider === "vercel")) {
             await writeHostedDatabaseRuntimeModules(resolve(root, ".vitehub/database"), runtime, [runtimeProvider])
           }
+          const migrateOnStart = resolveMigrateOnStart(resolvedOptions)
+          if (migrateOnStart) {
+            const host = { hosting: nuxtOptions.nitro?.preset, nitro: config }
+            assertMigrateOnStartSupported(runtime, resolveHost(host) ?? resolveHostPreset(host))
+          }
           if (!runtimeProvider) {
             // Nuxt CLI clears buildDir after nitro:config, before compiling the generated runtime.
-            await installNitroLocalDatabaseRuntime(config, root, provisionRoot, resolve(root, ".vitehub"), runtimeOptions, serverDirs, d1, contributions)
+            const localRuntime = await installNitroLocalDatabaseRuntime(config, root, provisionRoot, resolve(root, ".vitehub"), runtimeOptions, serverDirs, d1, contributions, migrateOnStart ? runtime : undefined)
+            if (migrateOnStart && localRuntime) await installNitroMigrateOnStart(config, root, localRuntime, migrateOnStart)
           }
           if (provider === "cloudflare" && runtime) {
             mergeNitroConfigHyperdriveBindings(config, resolveCloudflareHyperdriveBindings(runtime))
@@ -427,6 +434,7 @@ async function installNitroLocalDatabaseRuntime(
   serverDirs?: string[],
   d1?: ResolvedDatabaseNuxtD1Options,
   contributions: CollectedDatabaseContributions = { definitions: [], tables: [] },
+  resolvedRuntime?: ResolvedDBViteConfig,
 ) {
   const file = resolve(generatedRoot, generatedNitroLocalDatabaseRuntime)
   const alias = isRecord(config.alias) ? config.alias : undefined
@@ -436,7 +444,7 @@ async function installNitroLocalDatabaseRuntime(
     return
   }
 
-  const runtime = resolveDBViteConfig(options, root, { contributions, provisionRoot, serverDirs })
+  const runtime = resolvedRuntime ?? resolveDBViteConfig(options, root, { contributions, provisionRoot, serverDirs })
   assertDistinctNuxtD1Bindings(runtime, d1, config)
   if (!runtime?.definitions.length) {
     await rm(file, { force: true })
@@ -719,6 +727,20 @@ async function installNitroRequestStats(config: Record<string, unknown>, root: s
     "export default (event: unknown, next?: () => unknown) => typeof next === 'function' ? runWithDatabaseRequestStats(event, next) : undefined",
     "",
   ].join("\n"))
+}
+
+/** Applies pending migrations when the Node server starts. `@vite-hub/database/drizzle` is the local runtime alias here. */
+async function installNitroMigrateOnStart(config: Record<string, unknown>, root: string, runtime: ResolvedDBViteConfig, settings: MigrateOnStartSettings) {
+  const file = resolve(root, migrateOnStartPluginFile)
+  await writeFileIfChanged(file, renderMigrateOnStartPlugin(runtime, {
+    ...settings,
+    drizzleImport: databaseDrizzleImport,
+    host: undefined,
+    runtimeImport: pathToFileURL(resolve(databaseRuntimeDir, "migrate-on-start.js")).href,
+  }))
+  const kit = createNitroServerKit(config)
+  kit.addPlugin(file)
+  config.plugins = kit.config.plugins
 }
 
 function installNitroCloudflareMigrations(config: Record<string, unknown>, sourceDir: string, targetDir = generatedNitroMigrationsDir) {
