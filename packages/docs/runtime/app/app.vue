@@ -5,8 +5,6 @@ const route = useRoute()
 const { site } = useDocsConfig()
 
 useHead({
-  htmlAttrs: { lang: "en", dir: "ltr" },
-  meta: [{ name: "viewport", content: "width=device-width, initial-scale=1" }],
   // One title pattern for every page: "KV configuration · ViteHub". A title that already names the site stays as written.
   titleTemplate: title => !title ? site.name : title.includes(site.name) ? title : `${title} · ${site.name}`,
   // One canonical URL per page: the configured origin, no trailing slash, and no query.

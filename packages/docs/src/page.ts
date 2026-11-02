@@ -65,3 +65,25 @@ export function docsPagePath(file: string): string {
   const id = file.replaceAll("\\", "/").replace(/\.md$/, "").replace(/(^|\/)index$/, "")
   return `/${id}`
 }
+
+/** A route path with its parent paths, as Nuxt lists pages: a child path without a leading slash is relative. */
+export interface DocsRoute {
+  path: string
+  children?: DocsRoute[]
+}
+
+/**
+ * Whether the app's catch-all pages answer every docs page, so the module does not add its own. `pages/[...slug].vue`
+ * answers every path. `pages/docs/[...slug].vue` answers the pages under `/docs`, and `pages/blog/[...slug].vue` none.
+ */
+export function coversDocsPages(routes: DocsRoute[], pagePaths: string[]): boolean {
+  const prefixes = routePaths(routes).flatMap(path => /^(.*?)\/:\w+\(\.\*\)\*?$/.exec(path)?.[1] ?? [])
+  return prefixes.length > 0 && pagePaths.every(path => prefixes.some(prefix => path === prefix || path.startsWith(`${prefix}/`)))
+}
+
+function routePaths(routes: DocsRoute[], parent = ""): string[] {
+  return routes.flatMap((route) => {
+    const path = route.path.startsWith("/") ? route.path : `${parent}/${route.path}`
+    return [path, ...routePaths(route.children ?? [], path)]
+  })
+}

@@ -35,10 +35,12 @@ function copyCode() {
       color="neutral"
       variant="ghost"
       size="xs"
-      :aria-label="copied ? 'Copied' : 'Copy code'"
+      aria-label="Copy code"
       class="vh-code-copy"
       @click="copyCode"
     />
+    <!-- The icon confirms the copy in place. Screen readers hear it here, once. -->
+    <span class="sr-only" aria-live="polite">{{ copied ? "Code copied" : "" }}</span>
   </div>
 </template>
 
@@ -97,7 +99,6 @@ function copyCode() {
 @media (hover: hover) and (pointer: fine) {
   .vh-code-copy {
     opacity: 0;
-    transition: opacity 150ms ease;
   }
 
   .code-block-wrapper:hover > .vh-code-copy,
@@ -113,6 +114,13 @@ function copyCode() {
     width: 2.25rem;
     height: 2.25rem;
     justify-content: center;
+  }
+
+  /* A 44px tap area around the 36px button. */
+  .vh-code-copy::before {
+    position: absolute;
+    inset: -4px;
+    content: "";
   }
 
   .code-block-wrapper:not(.has-filename) > .vh-code-copy {

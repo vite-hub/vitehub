@@ -58,6 +58,15 @@ describe("docs parser", () => {
     expect(pre?.[1]).toMatchObject({ language: "ts", filename: "server/api/kv.ts" })
   })
 
+  it("highlights code with the GitHub themes for light and dark mode", async () => {
+    const { nodes } = await parse(source)
+    const pre = find(nodes, "pre")
+
+    expect(String(pre?.[1].class)).toContain("github-light-default")
+    expect(JSON.stringify(pre)).toContain("--shiki-dark:")
+    expect(JSON.stringify(pre)).not.toMatch(/material-theme/)
+  })
+
   it("builds the outline from h2 and h3 headings", async () => {
     const { toc } = await parse(source)
 

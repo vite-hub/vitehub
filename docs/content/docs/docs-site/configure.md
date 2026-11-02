@@ -167,9 +167,9 @@ export default defineNuxtConfig({
 
 ## Theme
 
-`theme: 'vercel'` is the default and the only theme today. It uses Geist, black, white, and zinc, square corners, and hairline borders. Change it in two places:
+`theme: 'vercel'` is the default and the only theme today. It uses Geist, black, white, and zinc, square corners, hairline borders, and GitHub code colors. Text, code, and focus rings pass WCAG AA in light and dark mode. Change it in two places:
 
-- `app.config.ts`: Nuxt UI `ui` keys. Your values win over the theme.
+- `app.config.ts`: Nuxt UI `ui` keys. Your values win over the theme. The theme wins over the Nuxt UI defaults, also when `@nuxt/ui` comes first in `modules`.
 - CSS variables in a stylesheet of your app:
 
 ```css [app/assets/main.css]
@@ -230,7 +230,7 @@ const { github } = useDocsConfig()
 | `DocsPageHeaderLinks` | Copy page, View as Markdown, Open in ChatGPT or Claude, and the MCP links. |
 | `DocsCatalogFooter` | The catalog at the end of an Overview. |
 
-The app can also replace `app.vue`, `error.vue`, the `docs` and `default` layouts, and the catch-all page. The module adds its own only when the app has none.
+The app can also replace `app.vue`, `error.vue`, the `docs` and `default` layouts, and the catch-all page. The module adds its own only when the app has none. A catch-all page replaces the docs page only when it answers every docs page, such as `pages/[...slug].vue`. A catch-all in another folder, such as `pages/blog/[...slug].vue`, does not.
 
 Components read the site with auto-imported composables:
 

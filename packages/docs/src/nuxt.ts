@@ -6,6 +6,7 @@ import {
   addComponent,
   addComponentsDir,
   addImportsDir,
+  addPlugin,
   addRouteMiddleware,
   addServerHandler,
   addTemplate,
@@ -20,7 +21,8 @@ import { setupDocsAssistant } from "./assistant-nuxt.ts"
 import { createDocsManifest } from "./manifest.ts"
 import { docsManifestPages, docsPageIcon, docsRailIcon, docsSectionIcon, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { toRawMarkdown } from "./raw.ts"
-import { vercelTheme } from "./theme.ts"
+import { coversDocsPages } from "./page.ts"
+import { docsAppConfigUi, vercelTheme, type DocsThemeUi } from "./theme.ts"
 
 import type { DocsPage } from "./types.ts"
 
@@ -130,7 +132,8 @@ interface LlmsOptions {
 /** Options of the modules that the docs module installs. Their own option types load only with their runtime. */
 interface DocsNuxtOptions {
   rootDir: string
-  appConfig: { ui?: Record<string, unknown> }
+  appConfig: { ui?: DocsThemeUi }
+  _layers: ReadonlyArray<{ config: { appConfig?: { ui?: DocsThemeUi } } }>
   runtimeConfig: { public: { mdc?: unknown } }
   docs?: DocsModuleOptions
   agentDiscovery?: AgentDiscoveryOptions
@@ -191,8 +194,22 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
 
     // Nuxt UI prose headings read the heading anchor settings of @nuxtjs/mdc, which this site does not install.
     moduleOptions.runtimeConfig.public.mdc ??= { headings: { anchorLinks: { h1: false, h2: true, h3: true, h4: true, h5: false, h6: false } } }
-    // The app config of the app wins over the theme. Nuxt UI adds its defaults after the theme.
-    moduleOptions.appConfig.ui = defu(moduleOptions.appConfig.ui, vercelTheme(config.site.name))
+    moduleOptions.appConfig.ui = docsAppConfigUi(vercelTheme(config.site.name), moduleOptions.appConfig.ui, moduleOptions._layers.map(layer => layer.config.appConfig?.ui))
+
+    // The error page replaces `app.vue`, so the head that every page needs is part of the app's head config.
+    const head = nuxt.options.app.head
+    const meta = head.meta ??= []
+    const viewport = meta.find(tag => tag.name === "viewport")
+    // Content may use the area around a notch, and `100dvh` shrinks when the phone keyboard opens. A viewport that
+    // the app set itself stays.
+    if (!viewport?.content || viewport.content === "width=device-width, initial-scale=1") {
+      if (viewport) meta.splice(meta.indexOf(viewport), 1)
+      meta.push({ name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" })
+    }
+    meta.push({ name: "color-scheme", content: "light dark" })
+    head.htmlAttrs = { lang: "en", dir: "ltr", ...head.htmlAttrs }
+    // `app.vue` sets the full title template. The error page uses this one: "Page not found · ViteHub".
+    head.titleTemplate ??= `%s · ${config.site.name}`
 
     moduleOptions.llms = defu(moduleOptions.llms, {
       domain: config.site.url,
@@ -212,7 +229,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // A page outside the manifest has no Markdown twin, so by default only the manifest pages negotiate.
     if (!agentDiscoveryOptions.routes?.length) {
       const standalone = manifest.pages.map(page => page.path).filter(path => path !== "/")
-      agentDiscoveryOptions.routes = ["/", config.base, `${config.base}/**`, ...standalone]
+      agentDiscoveryOptions.routes = [...new Set(["/", config.base, `${config.base.replace(/\/+$/, "")}/**`, ...standalone])]
     }
     moduleOptions.agentDiscovery = agentDiscoveryOptions
 
@@ -318,9 +335,12 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         app.layouts[name] ??= { file: join(runtime, `app/layouts/${name}.vue`), name }
       }
     })
+    addPlugin({ src: join(runtime, "app/plugins/theme-color.ts"), mode: "all" })
     addRouteMiddleware({ name: "docs-layout", path: join(runtime, "app/middleware/docs-layout.ts"), global: true })
     extendPages((pages) => {
-      if (pages.some(page => page.path.includes(":slug(.*)*") || page.path.includes("(.*)"))) return
+      // A catch-all of the app, such as `pages/[...slug].vue`, can replace the docs page. One that leaves docs pages
+      // out, such as `pages/blog/[...slug].vue`, does not, and the docs route registers beside it.
+      if (coversDocsPages(pages, docsManifestPages(manifest).map(page => page.path))) return
       pages.push({ name: "docs-page", path: "/:slug(.*)*", file: join(runtime, "app/pages/docs-page.vue") })
     })
     nuxt.hook("app:resolve", (app) => {

@@ -22,10 +22,10 @@ function withContent(files: Record<string, string>, run: (dir: string) => void):
   }
 }
 
-function manifestOf(files: Record<string, string>): DocsManifest {
+function manifestOf(files: Record<string, string>, base = "/docs"): DocsManifest {
   let manifest: DocsManifest | undefined
   withContent(files, (dir) => {
-    manifest = createDocsManifest({ dir, base: "/docs" })
+    manifest = createDocsManifest({ dir, base })
   })
   return manifest!
 }
@@ -66,6 +66,18 @@ describe("createDocsManifest", () => {
       ["/about", "about.md"],
       ["/contact", "contact.md"],
     ])
+  })
+
+  it("joins section and page paths without a double slash when the base is the site root", () => {
+    const manifest = manifestOf({
+      "index.md": "---\ntitle: Home\n---\n",
+      "guide/index.md": "---\ntitle: Guide\n---\n",
+      "guide/install.md": "---\ntitle: Install\n---\n",
+    }, "/")
+
+    expect(manifest.root?.path).toBe("/")
+    expect(manifest.sections.map(section => section.path)).toEqual(["/guide"])
+    expect(manifest.sections[0]?.pages.map(page => page.path)).toEqual(["/guide", "/guide/install"])
   })
 
   it("stops on frontmatter that does not match the schema", () => {

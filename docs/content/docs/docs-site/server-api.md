@@ -81,7 +81,7 @@ Dotted keys, such as `navigation.order: 2`, are the same as nested keys. `naviga
 
 | Route | From | Content |
 | --- | --- | --- |
-| Every page path | The catch-all page | The rendered page. Not added when the app has its own catch-all page. |
+| Every page path | The catch-all page | The rendered page. Not added when a catch-all page of the app answers every docs page, such as `pages/[...slug].vue`. |
 | `/api/_docs/page/<page>.json` | The module | The parsed page, its section, and the previous and next pages. `/api/_docs/page/index.json` is the home page. |
 | `/api/_docs/search.json` | The module | The search index: one entry per `h2` and `h3`. |
 | `/raw/<page>.md` | The module | The agent copy of a page. `/raw/index.md` is the home page. |
