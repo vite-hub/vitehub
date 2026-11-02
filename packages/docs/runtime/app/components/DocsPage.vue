@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { docsAppPath, docsRawPath, findDocsPage, normalizeDocsPath } from "#docs/navigation"
+import { docsAppPath, docsRawPath, normalizeDocsPath } from "#docs/navigation"
 
 import type { DocsPageResponse } from "@vite-hub/docs"
 
@@ -7,10 +7,7 @@ const route = useRoute()
 const manifest = useDocsManifest()
 const { site, appBase } = useDocsConfig()
 const path = normalizeDocsPath(route.path)
-// The server asks the page route even for a path outside the manifest, because a Content preview can show a new page
-// that exists only as a draft. Client navigation to such a path fails without a request.
-if (import.meta.client && !useNuxtApp().isHydrating && !findDocsPage(manifest, path)) throw createError({ statusCode: 404, statusMessage: "Page not found", fatal: true })
-
+// A Content preview can show a new draft outside the build-time manifest. Let the page request decide whether it exists.
 const { data } = await useFetch<DocsPageResponse>(docsAppPath(`/api/_docs/page${path === "/" ? "/index" : path}.json`, appBase), { key: `docs:${path}` })
 if (!data.value) throw createError({ statusCode: 404, statusMessage: "Page not found", fatal: true })
 const response = data.value

@@ -1,8 +1,16 @@
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
+import { runInNewContext } from "node:vm"
 
 import { H3 } from "h3"
+import { ModuleKind, ScriptTarget, transpileModule } from "typescript"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import * as vue from "vue"
+import { compileScript, parse } from "vue/compiler-sfc"
+import { renderToString } from "vue/server-renderer"
+
+import { createDocsManifest } from "../src/manifest.ts"
+import * as navigation from "../src/navigation.ts"
 
 import type { DocsContentDocument, DocsContentRuntime } from "../src/draft.ts"
 import type { DocsPageResponse } from "../src/page.ts"
@@ -42,6 +50,41 @@ async function request(path: string): Promise<{ status: number, cacheControl: st
 
 function text(response: DocsPageResponse): string {
   return JSON.stringify(response.document.nodes)
+}
+
+// Exercise the component's client-navigation branch with the real page endpoint, without building a Nuxt app.
+const componentSource = readFileSync(resolve(import.meta.dirname, "../runtime/app/components/DocsPage.vue"), "utf8")
+const componentScript = transpileModule(compileScript(parse(componentSource).descriptor, { id: "docs-page" }).content.replaceAll("import.meta.client", "true"), {
+  compilerOptions: { module: ModuleKind.CommonJS, target: ScriptTarget.ESNext },
+}).outputText
+
+async function navigate(path: string) {
+  const manifest = await createDocsManifest({ dir: fixtures, base: "/docs" })
+  const mounted = new H3().get("/portal/api/_docs/page/**", page)
+  const useFetch = vi.fn(async (url: string) => {
+    const response = await mounted.fetch(new Request(`https://docs.example.com${url}`))
+    return { data: vue.ref(response.ok ? await response.json() : null) }
+  })
+  const useSeoMeta = vi.fn()
+  const exports: { default?: vue.Component } = {}
+  runInNewContext(componentScript, {
+    exports,
+    require: (id: string) => {
+      if (id === "vue") return vue
+      if (id === "#docs/navigation") return navigation
+      throw new Error(`Unexpected component import: ${id}`)
+    },
+    useRoute: () => ({ path }),
+    useDocsManifest: () => manifest,
+    useDocsConfig: () => ({ site: { url: "https://docs.example.com" }, appBase: "/portal/" }),
+    useNuxtApp: () => ({ isHydrating: false }),
+    useFetch,
+    createError: (error: object) => Object.assign(new Error("Page not found"), error),
+    useHead: vi.fn(),
+    useSeoMeta,
+  })
+  const component = { ...exports.default, render: () => null }
+  return { useFetch, useSeoMeta, render: () => renderToString(vue.createSSRApp(component)) }
 }
 
 const editedKv: DocsContentDocument = {
@@ -107,6 +150,24 @@ describe("page route with Content drafts", () => {
 
     state.frame = undefined
     expect((await request("/docs/kv/new-page")).status).toBe(404)
+  })
+
+  it("loads a draft-only page during client navigation", async () => {
+    state.active = true
+    state.drafts.set("docs/kv/new-page", { id: "docs/kv/new-page", url: "/docs/kv/new-page", data: { title: "New page" }, body: "Only a draft.\n" })
+    const { useFetch, useSeoMeta, render } = await navigate("/docs/kv/new-page")
+
+    await expect(render()).resolves.toBeDefined()
+    expect(useFetch).toHaveBeenCalledWith("/portal/api/_docs/page/docs/kv/new-page.json", { key: "docs:/docs/kv/new-page" })
+    expect(get).toHaveBeenCalledWith("docs/kv/new-page")
+    expect(useSeoMeta).toHaveBeenCalledWith(expect.objectContaining({ title: "New page" }))
+  })
+
+  it("returns a fatal 404 after requesting a missing page during client navigation", async () => {
+    const { useFetch, render } = await navigate("/docs/kv/missing-page")
+
+    await expect(render()).rejects.toMatchObject({ statusCode: 404, fatal: true })
+    expect(useFetch).toHaveBeenCalledOnce()
   })
 
   it("keeps the published title while a draft's fields do not validate", async () => {
