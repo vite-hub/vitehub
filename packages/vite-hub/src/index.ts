@@ -1155,6 +1155,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       scheduleDiscoveryRoot: options.schedule && options.schedule !== true ? options.schedule.projectRoot : undefined,
       workspaceDiscoveryRoot: options.workspace && options.workspace !== true ? options.workspace.projectRoot : undefined,
       invocationRootState,
+      operationSections: devOperationsOnly ? consoleSections : undefined,
       // The dev-only RPC lists no sections, so it starts no Agent journal or other Console state.
       sections: devOperationsOnly ? [] : consoleSections,
     })

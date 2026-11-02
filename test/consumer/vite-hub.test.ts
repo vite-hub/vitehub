@@ -634,7 +634,8 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         ].join("\n"), "utf8"),
         writeFile(join(appDir, "package.json"), JSON.stringify({
           dependencies: { h3: "2.0.1-rc.33", nitro: "3.0.260903-beta", vite: "8.2.2", "vite-hub": specs["vite-hub"] },
-          devDependencies: { "@types/node": "24.19.1", typescript: "6.0.3" },
+          // AI SDK 7's provider declarations need app-visible types with pnpm's hoisting disabled.
+          devDependencies: { "@types/json-schema": "7.0.15", "@types/node": "24.19.1", typescript: "6.0.3" },
           private: true,
           type: "module",
         }, null, 2), "utf8"),

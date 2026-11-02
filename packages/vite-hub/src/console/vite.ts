@@ -162,6 +162,8 @@ export interface ConsoleVitePluginOptions {
   /** Whether the KV section is on for this `kv` config. */
   resolveKV?: (kv: unknown) => boolean
   invocationRootState?: ConsoleInvocationRootState
+  /** Enabled operation owners when the development RPC has no navigation sections. */
+  operationSections?: readonly ConsoleSectionId[]
   sections?: readonly ConsoleSectionId[]
   scheduleDiscoveryRoot?: string
   workspaceDiscoveryRoot?: string
@@ -560,7 +562,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
     name: "vite-hub/console",
     devtools: consoleViteDevTools,
     transform(code) {
-      const transformed = transformConsoleOperationFeatures(code, sections)
+      const transformed = transformConsoleOperationFeatures(code, options.operationSections ?? sections)
       return transformed === undefined ? undefined : { code: transformed, map: null }
     },
     async config(config, environment) {
