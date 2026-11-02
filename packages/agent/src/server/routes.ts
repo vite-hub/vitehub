@@ -231,8 +231,11 @@ export function setAgentChannelDeliveryWorkflowStateResolver(resolver: AgentChan
 
 export interface AgentChannelWebhookRouteHandler {
   (request: Request, webhook?: string, options?: AgentChannelWebhookRouteOptions): Promise<Response>
-  /** Match a declared path without reading the request body or accepting a delivery. */
-  matchesPath(request: Request, options?: AgentChannelWebhookRouteOptions): Promise<boolean>
+  /**
+   * Resolve the declared webhook paths once and return a test for a request pathname. A caller can then decide from
+   * the pathname alone, without a Request, the request body, or a delivery.
+   */
+  declaredPathMatcher(request: Request, options?: AgentChannelWebhookRouteOptions): Promise<(pathname: string) => boolean>
   /** The Channels of the Agent that receive webhooks, with how long each keeps its history. For a trusted caller, such as the Console. */
   channels(request: Request, options?: AgentChannelWebhookRouteOptions): Promise<AgentChannelInfo[]>
   /**
@@ -10074,8 +10077,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       )
     })
   }
-  // The declared webhook middleware calls `matchesPath` for every request of the app. Declared paths come from the
-  // Agent Definition, not from the request, so the handler resolves them once instead of resolving every trigger per request.
+  // Declared paths come from the Agent Definition, not from the request, so the handler resolves them once.
   let declaredPaths: Promise<Set<string>> | undefined
   const resolveDeclaredPaths = async (request: Request, handlerOptions: AgentChannelWebhookRouteOptions) => {
     const context = createRuntimeContext(
@@ -10090,12 +10092,13 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
     const registrations = await runWithRuntimeCloudflareEnv(context, () => agentWebhookRegistrations(agent, context))
     return new Set(registrations.flatMap(({ registration }) => webhookRegistrationPaths(registration)))
   }
-  handler.matchesPath = async (request, handlerOptions = {}) => {
+  handler.declaredPathMatcher = async (request, handlerOptions = {}) => {
     declaredPaths ??= resolveDeclaredPaths(request, handlerOptions).catch((error: unknown) => {
       declaredPaths = undefined
       throw error
     })
-    return (await declaredPaths).has(normalizeWebhookPath(new URL(request.url).pathname))
+    const paths = await declaredPaths
+    return pathname => paths.has(normalizeWebhookPath(pathname))
   }
   handler.channels = async (request, handlerOptions = {}) => {
     const context = createRuntimeContext(

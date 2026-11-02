@@ -25,24 +25,25 @@ function hookAgent() {
   return { handler: createChannelWebhookRouteHandler(agent as never), reads }
 }
 
-describe("webhook handler matchesPath()", () => {
-  it("matches declared paths and aliases and reads the Agent once for every request", async () => {
+describe("webhook handler declaredPathMatcher()", () => {
+  it("matches declared paths and aliases and reads the Agent once for every matcher", async () => {
     const { handler, reads } = hookAgent()
-    const matches = (path: string) => handler.matchesPath(new Request(`http://app.test${path}`))
+    const matches = await handler.declaredPathMatcher(new Request("http://app.test/hello"))
 
-    await expect(matches("/hook")).resolves.toBe(true)
-    await expect(matches("/hook/?x=1")).resolves.toBe(true)
-    await expect(matches("/old-hook")).resolves.toBe(true)
-    await expect(matches("/hello")).resolves.toBe(false)
-    await expect(matches("/hook/more")).resolves.toBe(false)
+    expect(matches("/hook")).toBe(true)
+    expect(matches("/hook/")).toBe(true)
+    expect(matches("/old-hook")).toBe(true)
+    expect(matches("/hello")).toBe(false)
+    expect(matches("/hook/more")).toBe(false)
+    expect((await handler.declaredPathMatcher(new Request("http://app.test/other")))("/hook")).toBe(true)
     expect(reads.count).toBe(1)
   })
 
   it("resolves the paths again after a failed resolution", async () => {
     const { handler, reads } = hookAgent()
     reads.fail = true
-    await expect(handler.matchesPath(new Request("http://app.test/hook"))).rejects.toThrow("channels are not ready")
+    await expect(handler.declaredPathMatcher(new Request("http://app.test/hook"))).rejects.toThrow("channels are not ready")
     reads.fail = false
-    await expect(handler.matchesPath(new Request("http://app.test/hook"))).resolves.toBe(true)
+    expect((await handler.declaredPathMatcher(new Request("http://app.test/hook")))("/hook")).toBe(true)
   })
 })
