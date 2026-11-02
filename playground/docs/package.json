@@ -1,0 +1,39 @@
+{
+  "name": "playground-docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prepare-key": "node prepare.mjs",
+    "dev": "nuxt dev --host 127.0.0.1 --port 4731",
+    "vitehub": "node ../../packages/vite-hub/dist/bin.js"
+  },
+  "dependencies": {
+    "@ai-sdk/vue": "4.0.130",
+    "@iconify-json/lucide": "1.2.139",
+    "@iconify-json/ph": "1.2.2",
+    "@nuxt/ui": "4.11.3",
+    "@vite-hub/agent": "workspace:*",
+    "@vite-hub/connections": "workspace:*",
+    "@vite-hub/docs": "workspace:*",
+    "@vite-hub/gateways": "workspace:*",
+    "@vite-hub/runtime": "workspace:*",
+    "@vite-hub/shell": "workspace:*",
+    "@vite-hub/source": "workspace:*",
+    "@vite-hub/ui": "workspace:*",
+    "ai": "7.0.130",
+    "h3": "1.15.11",
+    "nuxt": "4.5.2",
+    "tailwindcss": "4.3.3",
+    "vite-hub": "workspace:*",
+    "vue": "3.5.44",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.1",
+    "typescript": "6.0.3",
+    "vue-tsc": "3.3.12"
+  },
+  "engines": {
+    "node": ">=24.15.0"
+  }
+}
