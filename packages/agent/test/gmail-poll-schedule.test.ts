@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -84,6 +84,47 @@ it("bundles the Channel host from the retained Netlify Agent registry", async ()
     await (plugin.buildEnd as () => Promise<void>)()
     await (plugin.closeBundle as { handler: () => Promise<void> }).handler()
     await expect(readFile(join(root, ".netlify/v1/functions/vitehub-agent.mjs"), "utf8")).resolves.not.toHaveLength(0)
+  }
+  finally {
+    vi.unstubAllEnvs()
+    await rm(root, { recursive: true, force: true })
+  }
+}, 30_000)
+
+it("installs configured workspace dependency loaders in the retained polling host", async () => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-gmail-poll-loaders-"))
+  try {
+    vi.stubEnv("VITEHUB_HOSTING", "netlify")
+    await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
+    await mkdir(join(root, "server/agents"), { recursive: true })
+    await writeFile(join(root, "server/agents/poller.ts"), "export default {}\n")
+    // SAFETY: Framework integrations supply these internal import options to hubAgent.
+    const plugin = hubAgent({
+      providers: { state: { provider: "libsql", url: "libsql://state.example.com" } },
+      workspaceDependencyRuntimeImports: {
+        sandboxTask: "vite-hub/sandbox/task",
+        sandboxTaskRuntimeState: "vite-hub/_internal/sandbox/task/runtime/state",
+        shellWorkspace: "vite-hub/shell/workspace",
+      },
+    } as never)
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root, command: "build", plugins: [], build: { outDir: "dist" }, resolve: { alias: [] } })
+    await (plugin.buildEnd as () => Promise<void>)()
+    const generations = join(root, ".vitehub/agent-generations")
+    const directories = [generations]
+    const handlers: string[] = []
+    for (const directory of directories) {
+      for (const entry of await readdir(directory, { withFileTypes: true })) {
+        const path = join(directory, entry.name)
+        if (entry.isDirectory() && entry.name !== "node_modules") directories.push(path)
+        if (entry.isFile() && path.replaceAll("\\", "/").endsWith("/.vitehub/agent/chat-webhook-route.ts")) handlers.push(path)
+      }
+    }
+    expect(handlers).toHaveLength(1)
+    const handler = await readFile(handlers[0]!, "utf8")
+    expect(handler).toContain("vitehubSetWorkspaceDependencyRuntimeLoaders({")
+    expect(handler).toContain('sandboxTask: () => import("vite-hub/sandbox/task")')
+    expect(handler).toContain('sandboxTaskRuntimeState: () => import("vite-hub/_internal/sandbox/task/runtime/state")')
+    expect(handler).toContain('shellWorkspace: () => import("vite-hub/shell/workspace")')
   }
   finally {
     vi.unstubAllEnvs()

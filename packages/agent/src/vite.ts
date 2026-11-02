@@ -3669,6 +3669,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
               libsqlState: resolveLibsqlAgentState(normalized, config),
               runtimeCapabilities: build?.runtimeCapabilities ?? standaloneRuntimeCapabilities,
               workflowImportBase: getWorkflowImportBase(buildAgent, frameworkOptions),
+              workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(buildAgent, frameworkOptions),
               workspaceImportBase: getWorkspaceImportBase(buildAgent, frameworkOptions),
               webhookRoute: normalized.routes.webhooks,
             }), "utf8")

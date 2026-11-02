@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 
 import { createTraceEventLog } from "@vite-hub/runtime"
-import { cleanupGmailChannel, gmail, pollGmailChannel, syncGmailChannel } from "../src/channels.ts"
+import { cleanupGmailChannel, gmail, gmailLabelPalette, pollGmailChannel, syncGmailChannel } from "../src/channels.ts"
 import { installChannelsConsoleHost } from "../src/channels-console-host.ts"
 import { defineAgent, runAgentTrigger, workflow } from "../src/index.ts"
 import { inspectMessageChannelInstructions } from "../src/internal/channels.ts"
@@ -137,7 +137,14 @@ async function createGoogle(options: { emailAddress?: string, inlineAttachment?:
     const path = url.pathname.replace("/gmail/v1/users/me/", "")
     const body = init?.body ? JSON.parse(String(init.body)) : undefined
     calls.push({ body, method, path, query: url.searchParams })
-    if (method === "GET" && path === "labels") return Response.json({ labels })
+    if (method === "GET" && path === "labels") {
+      // Gmail's list projection omits color; only labels.get returns it.
+      return Response.json({ labels: labels.map(({ id, labelListVisibility, messageListVisibility, name, type }) => ({ id, labelListVisibility, messageListVisibility, name, type })) })
+    }
+    if (method === "GET" && path.startsWith("labels/")) {
+      const label = labels.find(candidate => candidate.id === decodeURIComponent(path.slice("labels/".length)))
+      return label ? Response.json(label) : Response.json({ error: { code: 404, message: "Not Found" } }, { status: 404 })
+    }
     if (method === "POST" && path === "labels") {
       const label = { ...body, id: `Label_${labels.length + 1}`, type: "user" }
       labels.push(label)
@@ -1753,6 +1760,117 @@ describe("gmail() Channel", () => {
       changes: [`Start or renew the Gmail watch on ${topic}`],
     })
     await expect(syncGmailChannel(channel, { apply: true })).resolves.toMatchObject({ applied: true, result: { labels: { created: [], updated: [] } } })
+  })
+
+  it("reconciles label visibility and hides unmanaged labels only when the Channel opts in", async () => {
+    stubGmailEnv()
+    const google = await createGoogle()
+    google.labels.push(
+      { id: "Label_5", labelListVisibility: "labelShow", messageListVisibility: "show", name: "GitHub", type: "user" },
+      { id: "Label_6", labelListVisibility: "labelShow", messageListVisibility: "show", name: "Old project", type: "user" },
+      { id: "Label_7", labelListVisibility: "labelHide", messageListVisibility: "show", name: "Archive", type: "user" },
+    )
+    const labels = {
+      "GitHub/Bots": { color: { backgroundColor: "#CCCCCC", textColor: "#000000" }, labelListVisibility: "labelShowIfUnread" as const },
+      "Work": { color: { backgroundColor: "#000000", textColor: "#ffffff" }, messageListVisibility: "hide" as const },
+    }
+
+    const managedOnly = gmail({ fetch: google.fetch, labels })
+    expect((await syncGmailChannel(managedOnly)).changes).toEqual([
+      "Create label \"GitHub/Bots\"",
+      "Update label \"Work\"",
+      `Start or renew the Gmail watch on ${topic}`,
+    ])
+
+    const channel = gmail({ fetch: google.fetch, hideUnmanagedLabels: true, labels })
+    const plan = await syncGmailChannel(channel)
+    // Hidden labels and the parent of a declared nested label stay as they are.
+    expect(plan.changes).toEqual([
+      "Create label \"GitHub/Bots\"",
+      "Update label \"Work\"",
+      "Hide unmanaged label \"Old project\" from the label list",
+      `Start or renew the Gmail watch on ${topic}`,
+    ])
+    expect(google.writes()).toEqual([])
+
+    await expect(syncGmailChannel(channel, { apply: true })).resolves.toMatchObject({
+      applied: true,
+      result: { labels: { created: ["GitHub/Bots"], hidden: ["Old project"], updated: ["Work"] } },
+    })
+    expect(google.writes()).toEqual(["POST labels", "PATCH labels/Label_1", "PATCH labels/Label_6", "POST watch"])
+    expect(google.labels.find(label => label.name === "GitHub/Bots")).toMatchObject({
+      color: { backgroundColor: "#cccccc", textColor: "#000000" },
+      labelListVisibility: "labelShowIfUnread",
+      messageListVisibility: "show",
+    })
+    expect(google.labels.find(label => label.name === "Work")).toMatchObject({ labelListVisibility: "labelShow", messageListVisibility: "hide" })
+    expect(google.calls.find(call => call.method === "PATCH" && call.path === "labels/Label_6")?.body).toEqual({ labelListVisibility: "labelHide" })
+    expect(google.labels.find(label => label.name === "GitHub")).toMatchObject({ labelListVisibility: "labelShow" })
+
+    // Gmail reports lowercase colors, so uppercase declarations do not cause repeated updates.
+    expect((await syncGmailChannel(channel)).changes).toEqual([`Start or renew the Gmail watch on ${topic}`])
+  })
+
+  it("reads full state only for declared colored labels and does not patch matching colors again", async () => {
+    stubGmailEnv()
+    const google = await createGoogle()
+    google.labels.push({ color: { backgroundColor: "#fad165", textColor: "#000000" }, id: "Label_5", name: "Receipts", type: "user" })
+    const channel = gmail({
+      fetch: google.fetch,
+      labels: { Receipts: {}, Work: { color: { backgroundColor: "#000000", textColor: "#FFFFFF" } } },
+    })
+
+    expect((await syncGmailChannel(channel)).changes).toEqual([`Start or renew the Gmail watch on ${topic}`])
+    expect(google.writes()).toEqual([])
+    expect(google.calls.filter(call => call.path.startsWith("labels/")).map(call => `${call.method} ${call.path}`)).toEqual(["GET labels/Label_1"])
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await expect(syncGmailChannel(channel, { apply: true })).resolves.toMatchObject({ result: { labels: { created: [], updated: [] } } })
+    }
+    expect(google.writes()).toEqual(["POST watch", "POST watch"])
+    expect(google.labels.find(label => label.name === "Receipts")?.color).toEqual({ backgroundColor: "#fad165", textColor: "#000000" })
+  })
+
+  it("keeps a declared __proto__ label managed through sync and first use", async () => {
+    stubGmailEnv()
+    const google = await createGoogle()
+    const channel = gmail({ fetch: google.fetch, hideUnmanagedLabels: true, labels: { ["__proto__"]: { description: "Prototype mail" }, Work: {} } })
+    expect((await syncGmailChannel(channel)).changes).toEqual(["Create label \"__proto__\"", `Start or renew the Gmail watch on ${topic}`])
+    expect(google.writes()).toEqual([])
+    expect(inspectMessageChannelInstructions({ gmail: channel })[0]).toContain("- __proto__: Prototype mail")
+
+    const agent = defineAgent({
+      channels: { gmail: channel },
+      driver: { run: () => "" },
+      hooks: {
+        async "agent:finish"(event) {
+          if (event.message?.channel === "gmail") await event.message.label("__proto__")
+        },
+      },
+    })
+    expect((await replayChannel(agent, "gmail", { force: true, limit: 1 })).items[0]).toMatchObject({ status: "completed" })
+    expect(google.labels.find(label => label.name === "__proto__")).toMatchObject({ labelListVisibility: "labelShow" })
+    await expect(syncGmailChannel(channel, { apply: true })).resolves.toMatchObject({ result: { labels: { created: [], hidden: [], updated: [] } } })
+
+    // SAFETY: Gmail synchronization reads only Server Env and process environment from the callback context.
+    const sync = await getAgentChannelSyncDefinition(channel)!.resolve({} as never, channel)
+    const plan = await sync!.plan({ fetch: google.fetch, force: false })
+    expect(plan.desired.labels).toHaveProperty("__proto__", { description: "Prototype mail" })
+    expect(plan.current.labels).toHaveProperty("__proto__", { id: "Label_5", labelListVisibility: "labelShow", messageListVisibility: "show" })
+    expect(Object.keys(plan.current.labels!)).toEqual(["__proto__", "Work"])
+  })
+
+  it("rejects label colors and visibility that Gmail does not accept when the Channel is defined", () => {
+    expect(gmailLabelPalette).toHaveLength(102)
+    expect(() => gmail({ labels: { Work: { color: { backgroundColor: "#4a86e9", textColor: "#ffffff" } } } }))
+      .toThrow(/gmail\(\) label "Work" color backgroundColor "#4a86e9" is not in Gmail's label palette/)
+    expect(() => gmail({ labels: { Work: { color: { backgroundColor: "#4a86e8", textColor: "white" } } } }))
+      .toThrow(/label "Work" color textColor "white" is not in Gmail's label palette/)
+    // SAFETY: The cast models an untyped configuration value.
+    expect(() => gmail({ labels: { Work: { labelListVisibility: "hidden" as never } } })).toThrow(/labelListVisibility must be/)
+    // SAFETY: The cast models an untyped configuration value.
+    expect(() => gmail({ labels: { Work: { messageListVisibility: "labelHide" as never } } })).toThrow(/messageListVisibility must be/)
+    // SAFETY: The cast models an untyped configuration value.
+    expect(() => gmail({ hideUnmanagedLabels: "yes" as never })).toThrow(/hideUnmanagedLabels must be a boolean/)
   })
 
   it("reads Gmail settings from Server Env before the documented environment variables", () => {
