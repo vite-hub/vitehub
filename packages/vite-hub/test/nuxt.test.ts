@@ -940,6 +940,34 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
+  it("gives Nuxt Connections the default Database when the app has no Database Definition", async () => {
+    const application = createNuxt(true)
+    const definition = "/tmp/vitehub-nuxt/custom-server/databases/config.ts"
+    const generated = "/tmp/vitehub-nuxt/.vitehub/connections/database.ts"
+    await rm(definition, { force: true })
+    try {
+      await viteHubNuxtModule({ preset: "node", connections: true, console: { auth: false } }, application.nuxt)
+      const { collectDatabaseContributions } = await import("@vite-hub/database/vite")
+      const collect = () => collectDatabaseContributions(application.nuxt.options.vite.plugins, {
+        projectRoot: "/tmp/vitehub-nuxt",
+        root: "/tmp/vitehub-nuxt/app",
+        rootDir: "/tmp/vitehub-nuxt",
+        serverDirs: ["/tmp/vitehub-nuxt/custom-server"],
+      })
+      expect((await collect()).definitions).toEqual([expect.objectContaining({ definition: generated, name: "default", plugin: "vite-hub/connections-database" })])
+      await expect(readFile(generated, "utf8")).resolves.toContain("export default defineDatabase({ schema: {} })")
+
+      await mkdir(dirname(definition), { recursive: true })
+      await writeFile(definition, "export default defineDatabase({ schema: {} })\n")
+      expect((await collect()).definitions).toEqual([])
+      await expect(readFile(generated, "utf8")).rejects.toThrow()
+    }
+    finally {
+      await rm(definition, { force: true })
+      await application.runCloseHook()
+    }
+  })
+
   it.each(["/", "/portal/"])("publishes the Nuxt dev server with base %s, and removes the file on close", async (baseURL) => {
     const file = "/tmp/vitehub-nuxt/.vitehub/dev-server.json"
     await rm(file, { force: true })

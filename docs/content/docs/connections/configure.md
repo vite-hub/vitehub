@@ -248,7 +248,7 @@ The preset allows every method on the provider's `mcp` endpoint without approval
 | `encryptionKey` | `env({ secret: true, optional: true, source: env.source('VITEHUB_CONNECTIONS_KEY') })` | Secret Env declaration for the key. It cannot use `env.provider()` or a default. |
 | `projectRoot` | Vite root | Where ViteHub discovers `server/connections/`. |
 
-`vitehub({ connections })` enables `database` when it is unset. Without a Database Definition, Connections use the empty Default Database. `database: false` fails with `VITE_HUB_R0124`. The Nuxt module does not support Connections yet.
+`vitehub({ connections })` and `vite-hub/nuxt` enable `database` when it is unset. Without a Database Definition, Connections use the empty `default` Database, and `vitehub inspect` shows why it exists. `database: false` fails with `VITE_HUB_R0124`. The Nuxt module supports Connections in `nuxt dev` only: `nuxt build` fails with `VITE_HUB_B0012`.
 
 ## Activity retention
 
