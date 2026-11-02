@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { validateAgentCapabilityComposition, workspaceRetirementPathsSymbol } from "../src/capability-runtime.ts"
 import { gmail } from "../src/capabilities.ts"
-import { createAgentInspectionMetadata, defineAgent } from "../src/index.ts"
+import { codexDriver, createAgentInspectionMetadata, defineAgent } from "../src/index.ts"
 import { agentInvocationTraceIdContextKey } from "../src/trace.ts"
 
 import type { AgentCapabilityDefinition, AgentToolDefinition } from "../src/types.ts"
@@ -124,7 +124,7 @@ describe("gmail capability", () => {
 
     // Model Drivers can use Gmail because the Connection runs on the server.
     expect(() => validateAgentCapabilityComposition([draft], { driverKind: "model", hasWorkspace: false })).not.toThrow()
-    const inspected = createAgentInspectionMetadata(defineAgent({ capabilities: [draft], driver: "codex", workspace: { mode: "write" } }))
+    const inspected = createAgentInspectionMetadata(defineAgent({ capabilities: [draft], driver: codexDriver(), workspace: { mode: "write" } }))
     expect(inspected.tools).toContainEqual(expect.objectContaining({
       commands: ["gmail_search", "gmail_draft"],
       description: "Search, read, or draft Gmail messages through the \"work-google\" Connection.",

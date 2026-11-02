@@ -1166,15 +1166,20 @@ async function writeContentArtifact(
     "",
   ].join("\n"))
   else await rm(output, { force: true })
+  const handlers: GeneratedSourceHandler[] = []
   // A Nitro plugin: scopes each request that carries the Content preview cookie to drafts and out of Nitro's cache.
-  await writeFileIfChanged(preview, [
-    `import { defineContentPreviewPlugin } from ${importBase}`,
-    `import { content } from ${contentModule}`,
-    "",
-    "export default defineContentPreviewPlugin(content)",
-    "",
-  ].join("\n"))
-  const handlers: GeneratedSourceHandler[] = [{ handler: preview, plugin: true }]
+  // Previews need collections. Without them the plugin would only load the Content runtime at server startup.
+  if (features.collections) {
+    await writeFileIfChanged(preview, [
+      `import { defineContentPreviewPlugin } from ${importBase}`,
+      `import { content } from ${contentModule}`,
+      "",
+      "export default defineContentPreviewPlugin(content)",
+      "",
+    ].join("\n"))
+    handlers.push({ handler: preview, plugin: true })
+  }
+  else await rm(preview, { force: true })
   if (features.route) handlers.push({ handler: output, route: "/api/content/**" })
   // `defineContent({ seo: { sitemap, robots, markdown } })` adds the site-wide SEO routes. Markdown copies sit at
   // every page URL plus `.md`, which no Nitro route pattern matches, so they are middleware.

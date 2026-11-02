@@ -24,11 +24,11 @@ export default defineConnection({
 ```
 
 ```ts [server/agents/assistant.ts]
-import { defineAgent } from 'vite-hub/agent'
+import { codexDriver, defineAgent } from 'vite-hub/agent'
 import { chatgpt } from 'vite-hub/gateways'
 
 export default defineAgent({
-  driver: { kind: 'codex', gateway: chatgpt() },
+  driver: codexDriver({ gateway: chatgpt() }),
 })
 ```
 
