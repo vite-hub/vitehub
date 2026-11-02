@@ -7,7 +7,7 @@ import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
 import { providerOutputAliasSources, removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
-import { collectViteHubProviderImportAliases, createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, prepareViteHubProviderSources, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { collectViteHubProviderImportAliases, createNoExternalMerger, createProviderOutputEnvironmentOwner, hasNitroConfigContext, isServerEnvironment, prepareViteHubProviderSources, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 
 import { collectScheduleContributions } from "./contributions.ts"
@@ -584,6 +584,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
   let projectRoot: string | undefined
   let providerOutput: ProviderOutputCatalog | undefined
   const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
+  const providerOutputEnvironment = createProviderOutputEnvironmentOwner(SCHEDULE_VITE_PLUGIN_NAME)
   let standaloneProviderSource: DiscoveredScheduleDefinition["source"] | undefined
   let serverDirs: string[] | undefined
   let viteRoot: string | undefined
@@ -699,10 +700,13 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         return createRegistryContents()
       }
     },
+    buildApp: providerOutputEnvironment.buildApp,
     buildStart() {
+      if (providerOutputEnvironment.defers(this)) return
       providerOutputGenerations.capture(this, providerOutput)
     },
     async buildEnd(error) {
+      if (providerOutputEnvironment.defers(this)) return
       if (error) {
         await providerOutputGenerations.reset(this, providerOutput, error)
         return
@@ -786,12 +790,14 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
       }
     },
     async renderError(error) {
+      if (providerOutputEnvironment.defers(this)) return
       await providerOutputGenerations.reset(this, providerOutput, error)
     },
     closeBundle: {
       order: "post",
       sequential: true,
       async handler() {
+        if (providerOutputEnvironment.defers(this)) return
         if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
         await finalizeProviderDeploymentOutputs(providerOutput)
       },
@@ -800,6 +806,8 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
 
   // SAFETY: The implementation above supplies Vite's plugin hooks plus ViteHub's intentionally loose public hook index.
   const inspectable = plugin as ScheduleVitePlugin
+  // Nitro installs this module, which tells the plugin whether Nitro builds a server environment.
+  inspectable.nitro = providerOutputEnvironment.nitro
   inspectable.vitehub = {
     // The Console, `vitehub schedule`, and agents run these. The app imports them through `vite-hub`.
     operations: [{ export: "scheduleOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).scheduleOperations, module: "@vite-hub/schedule/operations" }],
