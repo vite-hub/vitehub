@@ -88,7 +88,7 @@ describe("Console invocation journal retention", () => {
     for (const value of [() => 1, Symbol("retention")]) {
       const retention: AgentRetentionPolicy = {}
       Reflect.set(retention, limit, value)
-      expect(() => createConsoleInvocations(directory, undefined, url, retention)).toThrow(`SQLite Agent Invocation ${limit} must be a positive`)
+      await expect(createConsoleInvocations(directory, undefined, url, retention).list()).rejects.toThrow(`SQLite Agent Invocation ${limit} must be a positive`)
       await expect(generatedPlugin(retention)).rejects.toThrow(`console.retention ${limit} must be a positive`)
     }
   })
@@ -97,7 +97,7 @@ describe("Console invocation journal retention", () => {
     const retention: AgentRetentionPolicy = {}
     Reflect.set(retention, limit, null)
 
-    expect(() => createConsoleInvocations(directory, undefined, url, retention)).toThrow(`SQLite Agent Invocation ${limit} must be a positive`)
+    await expect(createConsoleInvocations(directory, undefined, url, retention).list()).rejects.toThrow(`SQLite Agent Invocation ${limit} must be a positive`)
     await expect(generatedPlugin(retention)).rejects.toThrow(`console.retention ${limit} must be a positive`)
   })
 

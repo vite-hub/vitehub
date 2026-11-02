@@ -42,9 +42,11 @@ it.each([
       }],
     })
     const imports = Object.values(result.metafile.outputs).flatMap(output => output.imports.map(dependency => dependency.path))
-    for (const owner of ["@vite-hub/agent", "@libsql/client", "drizzle-orm"]) {
+    for (const owner of ["@vite-hub/agent", "drizzle-orm"]) {
       expect(imports.some(dependency => dependency === owner || dependency.startsWith(`${owner}/`)), `${entry}: ${owner}`).toBe(enabled)
     }
+    // The Console journal loads libSQL when it opens, so the RPC handler never imports it.
+    expect(imports, `${entry}: @libsql/client`).not.toContain("@libsql/client")
     expect(result.outputFiles[0]!.text).toContain('"agents.list"')
     expect(result.outputFiles[0]!.text).toContain('"databases.browse"')
   }
