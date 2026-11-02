@@ -10,6 +10,7 @@ import type {
   AgentHostIdentity,
   AgentInput,
   AgentRunMetadata,
+  AgentRuntimeContext,
   AgentRuntimeConfig,
   AgentRuntimeName,
   AgentWaitUntil,
@@ -65,16 +66,18 @@ export function createRuntimeContext(
   runtimeOverride?: AgentRuntimeName,
   capabilities?: ViteAgentRouteRuntimeContext["capabilities"],
   agentIdentity?: AgentHostIdentity,
+  runtimeContext?: AgentRuntimeContext,
 ): ViteAgentRouteRuntimeContext {
-  const runtime = cloudflare ? "cloudflare-agents" : runtimeOverride || detectRuntime()
+  const runtime = runtimeContext?.runtime ?? (cloudflare ? "cloudflare-agents" : runtimeOverride || detectRuntime())
   return createHostRuntimeContext({
     ...(capabilities ? { capabilities } : {}),
-    ...(agentIdentity ? { agentIdentity } : {}),
     ...(cloudflare ? { cloudflare } : {}),
-    request,
+    ...runtimeContext,
+    ...(agentIdentity ? { agentIdentity } : {}),
+    request: runtimeContext?.request ?? request,
     ...(run ? { run } : {}),
     runtime,
-    runtimeConfig: {},
+    runtimeConfig: runtimeContext?.runtimeConfig ?? {},
     ...(runtime === "vercel" && waitUntil ? { vercel: { waitUntil } } : {}),
     ...(waitUntil ? { waitUntil } : {}),
   })
