@@ -63,6 +63,7 @@ async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
       delete: async pathnames => (await activeDriver()).delete(pathnames),
       get: async pathname => (await activeDriver()).get(pathname),
       getArrayBuffer: async pathname => (await activeDriver()).getArrayBuffer(pathname),
+      getStream: async (pathname, options) => (await activeDriver()).getStream!(pathname, options),
       head: async pathname => (await activeDriver()).head(pathname),
       list: async options => (await activeDriver()).list(options),
       put: async (pathname, body, options) => (await activeDriver()).put(pathname, body, options),

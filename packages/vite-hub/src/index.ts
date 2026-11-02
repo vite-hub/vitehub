@@ -329,6 +329,16 @@ export interface ViteHubAgentOptions extends AgentModuleOptions {
   invocations?: AgentInvocationsDefault
 }
 
+/** Cloudflare options of `vitehub()`. */
+export interface ViteHubCloudflareOptions {
+  /**
+   * A `.env` or JSON file, relative to the project root, whose values `nitro deploy --prebuilt` uploads as Worker secrets.
+   * ViteHub adds `--secrets-file` to the generated deploy command only when the file exists at build time.
+   * It never reads the file.
+   */
+  secretsFile?: string
+}
+
 export interface ViteHubOptions {
   /** Module specifier used by the application's `defineContent` import. */
   contentImportBase?: string
@@ -359,6 +369,8 @@ export interface ViteHubOptions {
    */
   cache?: boolean | CacheOptions
   channels?: boolean | ChannelsVitePluginOptions
+  /** Options for the `cloudflare` preset. Other presets ignore them. */
+  cloudflare?: ViteHubCloudflareOptions
   /** App-owned OAuth and API key Connections in `server/connections/`. They store grants in the default Database and enable `database` when it is unset. */
   connections?: boolean | ConnectionsVitePluginOptions
   /** The ViteHub Console at `/_vitehub`. Off by default. `true` reuses app Auth and its server access policy. Explicit options: `{ auth: false }`, `{ auth: "app" }`, or a Console Auth config. */
@@ -528,6 +540,12 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`
 }
 
+/** A path relative to the output directory, starting with `./` outside shell quotes so Nitro's deploy --prebuilt rewrite can rebase it. */
+function outputRelativeArgument(outputDir: string, file: string): string {
+  const path = relative(outputDir, file).replaceAll("\\", "/")
+  return /^[\w./-]+$/.test(path) ? `./${path}` : `./${shellQuote(path)}`
+}
+
 type ResolvedBuildConfig = {
   alias: ViteAlias[]
   conditions: string[]
@@ -543,6 +561,7 @@ function deploymentNitroModule(
   services: DeploymentServicesManifest,
   identity: DeploymentIdentity,
   sandboxTaskRequested: boolean,
+  secretsFilePath: string | undefined,
   isDeployCommandOwned: () => boolean,
   resolvedBuildConfig: () => ResolvedBuildConfig,
 ) {
@@ -554,12 +573,11 @@ function deploymentNitroModule(
     if (plan.preset === "cloudflare" && nitro.options.cloudflare?.deployConfig !== false && !isDeployCommandOwned()) {
       // Nitro's `--cwd ./` relies on the `.wrangler/deploy` redirect in the project root, which a copied output lacks and a parent Wrangler config breaks.
       // `--cwd` into the server directory fails once that redirect exists, so name the config file.
-      const configRelative = relative(nitro.options.output.dir, join(nitro.options.output.serverDir, "wrangler.json")).replaceAll("\\", "/")
-      // Keep ./ outside shell quotes so Nitro's deploy --prebuilt rewrite can rebase it.
-      const config = /^[\w./-]+$/.test(configRelative)
-        ? `./${configRelative}`
-        : `./${shellQuote(configRelative)}`
-      nitro.options.commands.deploy = `npx wrangler deploy --config ${config}${sandboxTaskRequested ? " --containers-rollout=gradual" : ""}`
+      const config = outputRelativeArgument(nitro.options.output.dir, join(nitro.options.output.serverDir, "wrangler.json"))
+      // A Workers Builds or Deploy button build has no local secrets file, so its command must not name one.
+      const secretsFile = secretsFilePath && resolve(nitro.options.rootDir, secretsFilePath)
+      const secrets = secretsFile && existsSync(secretsFile) ? ` --secrets-file ${outputRelativeArgument(nitro.options.output.dir, secretsFile)}` : ""
+      nitro.options.commands.deploy = `npx wrangler deploy --config ${config}${secrets}${sandboxTaskRequested ? " --containers-rollout=gradual" : ""}`
     }
     nitro.hooks.hook("compiled", async () => {
       const outputDir = nitro.options.output.dir
@@ -582,6 +600,16 @@ function afterApplicationConfig<T extends Plugin>(plugin: T): T {
     ? { handler: hook, order: "post" }
     : { ...hook, order: "post" }
   return plugin
+}
+
+/** A Node server has no host cron. Its Schedules run only in the Process Runtime or when the app wakes them itself. */
+function assertNodeScheduleWake(schedule: ViteHubOptions["schedule"]): void {
+  if (!schedule) return
+  if (schedule !== true) {
+    if (schedule.providerOutput === false) return
+    if (schedule.runtime !== undefined && schedule.providerOutput !== "nitro" && schedule.providerOutput !== "standalone") return
+  }
+  throw viteHubErrorDiagnostics.VITE_HUB_R0137({ message: "[vitehub] The \"node\" preset has no host cron, so this build would never run its Schedules. Set schedule: { runtime: { driver: \"process\" }, providerOutput: \"auto\" } to run them in the server process, or schedule: { providerOutput: false } to wake them yourself." })
 }
 
 function deploymentPlugins(
@@ -675,6 +703,8 @@ function deploymentPlugins(
             preset: plan.preset,
           }
           for (const service of requestedServices) assertDeploymentService(plan, service)
+          // The dev server keeps manual runs working without a wake owner.
+          if (building && plan.preset === "node") assertNodeScheduleWake(options.schedule)
           const identity = resolveDeploymentIdentity(
             typeof config.root === "string" ? config.root : undefined,
             options.name,
@@ -774,7 +804,7 @@ function deploymentPlugins(
                 preserveSymlinks: false,
               },
             }
-            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), () => deployCommandOwned, () => buildConfigRef.current)
+            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), options.cloudflare?.secretsFile, () => deployCommandOwned, () => buildConfigRef.current)
             resolvedBuildConfigs.set(module, buildConfigRef)
             nitro.modules = [
               module,

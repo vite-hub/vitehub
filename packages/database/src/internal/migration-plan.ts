@@ -86,7 +86,7 @@ function describeTarget(target: MigrationTarget, projectRoot: string): string {
   }
 }
 
-function withoutCredentials(url: string): string {
+export function withoutCredentials(url: string): string {
   try {
     const parsed = new URL(url)
     return `${parsed.protocol}//${parsed.host}${parsed.pathname === "/" ? "" : parsed.pathname}`

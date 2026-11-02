@@ -13,6 +13,19 @@ describe("toRawMarkdown", () => {
     expect(toRawMarkdown("[Get started](/docs/kv/get-started)", { siteUrl: "https://example.com/" })).toBe("[Get started](https://example.com/docs/kv/get-started)\n")
   })
 
+  it("resolves document-relative links against the rendered page in a mounted app", () => {
+    const raw = convert('[Next](./next) ![Image](../assets/a.png) [Bare](next?q=1#part) [Root](/docs/start) [Anchor](#part) [Mail](mailto:a@example.com) [CDN](//cdn.example.com/a)\n\n[ref]: ../guide "Guide"', { siteUrl: "https://example.com/portal", pagePath: "/docs/start/current" })
+    expect(raw).toContain("[Next](https://example.com/portal/docs/start/next)")
+    expect(raw).toContain("![Image](https://example.com/portal/docs/assets/a.png)")
+    expect(raw).toContain("[Bare](https://example.com/portal/docs/start/next?q=1#part)")
+    expect(raw).toContain("[Root](https://example.com/portal/docs/start)")
+    expect(raw).toContain("[Anchor](https://example.com/portal/docs/start/current#part)")
+    expect(raw).toContain('[ref]: https://example.com/portal/docs/guide "Guide"')
+    expect(raw).toContain("[Mail](mailto:a@example.com)")
+    expect(raw).toContain("[CDN](//cdn.example.com/a)")
+    expect(convert("[Next](./next)", { siteUrl: "" })).toBe("[Next](./next)\n")
+  })
+
   it("preserves semantic indentation at document boundaries", () => {
     expect(convert("---\ntitle: Boundary\n---\n    first\n    second")).toBe("# Boundary\n\n    first\n    second\n")
     expect(convert("    first\n    second\n")).toBe("    first\n    second\n")

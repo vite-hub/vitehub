@@ -96,6 +96,17 @@ Before it applies anything, `vitehub db migrate` reads Drizzle's migrations tabl
 
 The check connects to the migration target: the local SQLite file, remote libSQL, D1 HTTP with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` (or the object-form `cloudflare.http` proxy's resolved `url` and `authToken`), or Postgres with the `postgres` package. When it cannot read the migrations table, it fails with `DATABASE_MIGRATION_CHECK_FAILED` and does not guess. A D1 HTTP database without Wrangler's table but with `__drizzle_migrations` keeps the migrations that Drizzle Kit applied: the first `vitehub db migrate` writes them to Wrangler's table. Wrangler applies the migrations of a native D1 binding, so that path has no check.
 
+`vitehub db export` writes a SQL dump of each database without a build. It reads the local SQLite file by default. `--remote` reads remote libSQL, Cloudflare D1 through the D1 export API (like `wrangler d1 export --remote`), an object-form `cloudflare.http` proxy, or Postgres through `pg_dump`. `--stage <name>` loads that mode's Vite env files, `--database <name>` picks one database, and `--output <file>` sets the file. SQLite-family dumps use Wrangler's format, so `wrangler d1 execute --file` and `sqlite3` can restore them. Failures print `DATABASE_EXPORT_FAILED`.
+
+Local SQLite, libSQL, and object-form D1 proxy exports reject contentless FTS5 tables (`content=''`) to avoid losing their search indexes. Use a SQLite backup that preserves FTS shadow tables for these databases.
+
+Object-form D1 proxies read tables without a usable rowid pagination key in one query to avoid skipping or duplicating rows during concurrent writes. If the query exceeds the proxy's response limit, the export fails without publishing a dump; use the native D1 export API instead. A native D1 binding with a configured remote libSQL `connection.url` exports libSQL instead.
+
+```sh
+pnpm vitehub db export                             # local SQLite to .vitehub/exports/database/
+pnpm vitehub db export --remote --stage production # the deployed database
+```
+
 A self-hosted Node build can apply migrations itself with `database: { migrateOnStart: true }`. The build writes each database's migrations into a Nitro plugin. When the server starts, the plugin applies the pending ones to the local SQLite file in one transaction, before the server handles a request. It uses Drizzle Kit's ledger and refuses data loss like `vitehub db migrate`, unless `migrateOnStart: { allowDataLoss: true }`. Another host, Postgres, D1 over HTTP, and remote libSQL fail with `DATABASE_MIGRATE_ON_START_UNSUPPORTED`. Definitions sharing a file must have ledger entries matching every migration at or below its latest applied timestamp; otherwise startup refuses all changes with that error. Run one server process per database file.
 
 ## Contributed tables

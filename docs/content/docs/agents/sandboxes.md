@@ -34,7 +34,7 @@ pnpm add @vite-hub/agent @vite-hub/sandbox
 This Agent gives Codex a private Home and checks the required CLIs before the invocation starts:
 
 ```ts [server/agents/review/agent.ts]
-import { defineAgent } from '@vite-hub/agent'
+import { codexDriver, defineAgent } from '@vite-hub/agent'
 
 export default defineAgent({
   sandbox: {
@@ -42,7 +42,7 @@ export default defineAgent({
     requires: ['git'],
     toolchain: 'project',
   },
-  driver: { kind: 'codex' },
+  driver: codexDriver(),
 })
 ```
 
@@ -81,7 +81,7 @@ These limits cover session `exec` and `spawn`, including the provider's native t
 Sandbox callbacks receive the Agent invocation context. Resolve repository facts from trusted invocation data when every run must inspect an exact commit.
 
 ```ts [server/agents/review/agent.ts]
-import { defineAgent } from '@vite-hub/agent'
+import { codexDriver, defineAgent } from '@vite-hub/agent'
 
 interface PullRequest {
   ref: string
@@ -112,7 +112,7 @@ export default defineAgent({
       { name: 'GitHub CLI', command: 'gh', args: ['auth', 'status'] },
     ],
   },
-  driver: { kind: 'codex' },
+  driver: codexDriver(),
 })
 ```
 
@@ -141,7 +141,7 @@ Provider CLIs that start through `#!/usr/bin/env node` also run on the provision
 Keep secret values outside the repository. Resolve them into Sandbox `env`, Home files, or a first-use seed for writable state. The provider reads its credentials from the Sandbox Home, for example `.codex/auth.json`.
 
 ```ts [server/agents/review/agent.ts]
-import { defineAgent } from '@vite-hub/agent'
+import { codexDriver, defineAgent } from '@vite-hub/agent'
 import { useServerEnv } from '#vitehub/env/server'
 
 export default defineAgent({
@@ -170,7 +170,7 @@ export default defineAgent({
       },
     },
   },
-  driver: { kind: 'codex' },
+  driver: codexDriver(),
 })
 ```
 

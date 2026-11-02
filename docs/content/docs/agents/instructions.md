@@ -101,16 +101,15 @@ A parent Agent can reserve one slot for the instructions of each child. Put
 exactly one `{{{ instructions }}}` marker in `template`, outside code:
 
 ```ts [server/agents/reviewer/agent.ts]
-import { defineAgent } from 'vite-hub/agent'
+import { codexDriver, defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
-  driver: {
-    kind: 'codex',
+  driver: codexDriver({
     instructions: {
       template: 'Inspect the request.\n\n{{{ instructions }}}\n\nExplain the result.',
       content: 'Use concise language.',
     },
-  },
+  }),
 })
 ```
 
