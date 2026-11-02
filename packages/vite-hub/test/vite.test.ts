@@ -129,7 +129,7 @@ import { resolveConfig, type Plugin, type PluginOption } from "vite"
 import type { ConsoleViteDevTools } from "../src/console/devtools.ts"
 import { contributeProviderDeploymentOutput, useProviderOutputCatalog } from "../../internal/src/build/deployment-output.ts"
 import frameworkPackageManifest from "../package.json" with { type: "json" }
-import { vitehub } from "../src/index.ts"
+import { vitehub, type ViteHubOptions } from "../src/index.ts"
 import { isIncludedNitroPlugin } from "../src/nitro-plugin.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
@@ -1401,6 +1401,7 @@ describe("vitehub", () => {
     options: Parameters<typeof vitehub>[0],
     config: Record<string, unknown>,
     serverDir = "/app/.output/server",
+    rootDir = "/app",
   ) {
     const plugins = vitehub(options)
     const preset = dependencyPluginByName(plugins, "vite-hub/deployment-preset")
@@ -1415,9 +1416,9 @@ describe("vitehub", () => {
       options: {
         cloudflare: nitroConfig.cloudflare,
         commands: { deploy: "npx wrangler --cwd ./ deploy", preview: "npx wrangler --cwd ./ dev", ...nitroConfig.commands },
-        output: { dir: "/app/.output", serverDir },
+        output: { dir: join(rootDir, ".output"), serverDir },
         preset: "cloudflare_module",
-        rootDir: "/app",
+        rootDir,
       },
     }
     // SAFETY: The deployment preset prepends its Nitro module to the module list.
@@ -1464,6 +1465,40 @@ describe("vitehub", () => {
     expect(result.stdout.trim().split("\n")).toEqual([
       "wrangler", "deploy", "--config", `.output/${serverDir}/wrangler.json`, "--containers-rollout=gradual",
     ])
+  })
+
+  it.each([".env", "config/prod secrets.env"])("uploads the Cloudflare secrets file %s through the prebuilt deploy command", async secretsFile => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-secrets-file-"))
+    try {
+      await mkdir(join(root, "config"))
+      await writeFile(join(root, secretsFile), "API_TOKEN=secret\n")
+      const { commands } = await cloudflareCommands(
+        { cloudflare: { secretsFile }, preset: "cloudflare", sandboxTask: true },
+        {},
+        join(root, ".output/server"),
+        root,
+      )
+      // Apply Nitro's deploy --prebuilt rewrite, then run the command from the project root as Nitro does.
+      const command = commands.deploy.replace(/([\s:])\.\/(\S*)/g, "$1.output/$2")
+      const result = spawnSync("sh", ["-c", 'npx() { printf "%s\\n" "$@"; }\n' + command], { cwd: root, encoding: "utf8" })
+
+      expect(result.status).toBe(0)
+      expect(result.stdout.trim().split("\n")).toEqual([
+        "wrangler", "deploy", "--config", ".output/server/wrangler.json", "--secrets-file", `.output/../${secretsFile}`, "--containers-rollout=gradual",
+      ])
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("leaves the secrets file out of the Cloudflare deploy command when the file is missing at build time", async () => {
+    const { commands } = await cloudflareCommands(
+      { cloudflare: { secretsFile: ".env" }, preset: "cloudflare" },
+      {},
+    )
+
+    expect(commands.deploy).toBe("npx wrangler deploy --config ./server/wrangler.json")
   })
 
   it("deploys Cloudflare Sandbox containers through the generated Nitro command", async () => {
@@ -2004,10 +2039,29 @@ describe("vitehub", () => {
     const unsupported = vitehub({ preset: "deno", queue: true }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
     expect(() => callHook(unsupported.config, [{}, { command: "build", mode: "production" }])).toThrow("cannot provide queue")
 
+    const nodePreset = (schedule: ViteHubOptions["schedule"]) =>
+      // SAFETY: The explicit Node preset installs the named deployment plugin.
+      vitehub({ preset: "node", schedule }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
+    expect(() => callHook(nodePreset(true).config, [{}, { command: "build", mode: "production" }])).toThrow("would never run its Schedules")
+    expect(() => callHook(nodePreset({ providerOutput: "auto" }).config, [{}, { command: "build", mode: "production" }])).toThrow("would never run its Schedules")
+    expect(() => callHook(nodePreset(true).config, [{}, { command: "serve", mode: "development" }])).not.toThrow()
+    expect(() => callHook(nodePreset({ runtime: { driver: "process" } }).config, [{}, { command: "build", mode: "production" }])).not.toThrow()
+    expect(() => callHook(nodePreset({ runtime: { driver: "process" }, providerOutput: "auto" }).config, [{}, { command: "build", mode: "production" }])).not.toThrow()
+    expect(() => callHook(nodePreset({ runtime: { driver: "process" }, providerOutput: false }).config, [{}, { command: "build", mode: "production" }])).not.toThrow()
+    expect(() => callHook(nodePreset({ providerOutput: false }).config, [{}, { command: "build", mode: "production" }])).not.toThrow()
+
     // SAFETY: The explicit Vercel preset installs the named deployment plugin.
     const conflicting = vitehub({ preset: "vercel" }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
     expect(() => callHook(conflicting.config, [{ nitro: { preset: "netlify" } }, { command: "build", mode: "production" }])).toThrow("conflicts with nitro.preset")
     expect(() => callHook(conflicting.config, [{ nitro: { preset: "vercel-edge" } }, { command: "build", mode: "production" }])).toThrow("conflicts with nitro.preset")
+  })
+
+  it.each(["nitro", "standalone"] as const)("rejects Node Schedule Provider Output %s even with the Process Runtime", providerOutput => {
+    // SAFETY: The explicit Node preset installs the named deployment plugin.
+    const plugin = vitehub({ preset: "node", schedule: { providerOutput, runtime: { driver: "process" } } })
+      .find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
+    expect(() => callHook(plugin.config, [{}, { command: "build", mode: "production" }])).toThrow(expect.objectContaining({ name: "VITE_HUB_R0137" }))
+    expect(() => callHook(plugin.config, [{}, { command: "serve", mode: "development" }])).not.toThrow()
   })
 
   it("composes Browser for Cloudflare and rejects unsupported presets", () => {

@@ -1,4 +1,4 @@
-import { defineAgent, type WorkspaceAgentDefinition } from "@vite-hub/agent"
+import { codexDriver, defineAgent, type WorkspaceAgentDefinition } from "@vite-hub/agent"
 import type { AgentSourceProvenance } from "@vite-hub/agent"
 
 function sourceProvenanceInstructions(provenance: readonly AgentSourceProvenance[]): string | undefined {
@@ -9,12 +9,11 @@ function sourceProvenanceInstructions(provenance: readonly AgentSourceProvenance
 
 /** Read mounted Sources and cite files at their verified GitHub revision. */
 const workspace: WorkspaceAgentDefinition = defineAgent({
-  driver: {
-    kind: "codex",
+  driver: codexDriver({
     instructions: {
       template: ({ sourceProvenance }) => [sourceProvenanceInstructions(sourceProvenance || []), "{{{ instructions }}}"].filter(Boolean).join("\n\n"),
     },
-  },
+  }),
   workspace: { mode: "read" },
 })
 

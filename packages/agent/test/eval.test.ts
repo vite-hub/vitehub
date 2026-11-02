@@ -564,16 +564,12 @@ describe("agent eval", () => {
     })
   })
 
-  it.each([
-    ["provider name", "codex"],
-    ["tagged provider", { kind: "codex" }],
-  ])("applies string model variants to the %s form", async (_name, driver) => {
-    const { defineAgent } = await import("../src/index.ts")
+  it("applies string model variants to a provider Driver", async () => {
+    const { codexDriver, defineAgent } = await import("../src/index.ts")
     const { defineEval } = await import("../src/eval.ts")
 
     defineEval({
-      // SAFETY: The parameterized fixture contains only the two supported Codex Driver forms listed above.
-      agent: defineAgent({ driver: driver as never }),
+      agent: defineAgent({ driver: codexDriver() }),
       name: "support",
       scenarios: [{ input: { prompt: "hello" }, name: "hello" }],
       variants: [{ instructions: "Variant instructions.", model: "o4-mini", name: "variant" }],
@@ -588,11 +584,11 @@ describe("agent eval", () => {
     ["gateway descriptor", { apiKey: "variant-secret", id: "o4-mini" }],
     ["LanguageModel", { doGenerate() {}, doStream() {}, modelId: "o4-mini", provider: "openai" }],
   ])("rejects ambiguous provider %s variants without losing their semantics", async (_name, model) => {
-    const { defineAgent } = await import("../src/index.ts")
+    const { codexDriver, defineAgent } = await import("../src/index.ts")
     const { defineEval } = await import("../src/eval.ts")
 
     defineEval({
-      agent: defineAgent({ driver: "codex" }),
+      agent: defineAgent({ driver: codexDriver() }),
       name: "support",
       scenarios: [{ input: { prompt: "hello" }, name: "hello" }],
       // SAFETY: These deliberately ambiguous model fixtures exercise the runtime rejection path.

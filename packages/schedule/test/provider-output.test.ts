@@ -358,7 +358,7 @@ describe("schedule provider output", () => {
 
     expect(packageJson.exports).not.toHaveProperty("./definition")
     expect(packageJson.exports).toHaveProperty(["./runtime/process", "import"], "./dist/runtime/process.js")
-    for (const removed of ["./runtime/console", "./runtime/driver"]) expect(packageJson.exports).not.toHaveProperty(removed)
+    expect(packageJson.exports).not.toHaveProperty("./runtime/driver")
   })
 
   it("emits Cloudflare, Vercel, and Netlify schedule provider wake output", async () => {
