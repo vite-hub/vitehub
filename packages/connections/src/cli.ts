@@ -24,6 +24,8 @@ export interface ConnectionsCliOptions {
   stdin?: AsyncIterable<string | Uint8Array> & { isTTY?: boolean }
   /** Seconds to wait for the loopback callback. Defaults to 300. */
   timeout?: number
+  /** Seconds to wait for each answer of the app. Defaults to 30. */
+  requestTimeout?: number
 }
 
 interface ParsedArgs {
@@ -136,7 +138,9 @@ const activityResponse = v.looseObject({ activity: v.array(v.looseObject({
 async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, body: Record<string, unknown>, schema: v.BaseSchema<unknown, T, v.BaseIssue<unknown>>, redirect?: RequestInit["redirect"]): Promise<T> {
   const base = appUrl(parsed)
   const endpoint = managementUrl(base)
+  const seconds = options.requestTimeout ?? 30
   let response: Response
+  let text: string
   try {
     const init: RequestInit = {
       body: JSON.stringify(body),
@@ -146,14 +150,19 @@ async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, bo
         ...(parsed.cookie ? { cookie: parsed.cookie } : {}),
       },
       method: "POST",
+      signal: AbortSignal.timeout(seconds * 1_000),
     }
     if (redirect) init.redirect = redirect
     response = await (options.fetch ?? fetch)(endpoint, init)
+    text = await response.text()
   }
-  catch {
+  catch (error) {
+    // A dev server that rebuilds can accept a request and never answer it.
+    if (error instanceof DOMException && error.name === "TimeoutError") {
+      throw new CliError(`${endpoint.origin} did not answer in ${seconds} seconds. If the server is restarting, wait until it is ready, then run the command again.`)
+    }
     throw new CliError(`Could not reach ${endpoint.origin}. Start the development server, or pass --url.`)
   }
-  const text = await response.text()
   let value: unknown
   try {
     value = JSON.parse(text)

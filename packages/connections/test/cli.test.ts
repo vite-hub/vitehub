@@ -160,6 +160,21 @@ describe("vitehub connections", () => {
     expect(output.stdout).toBe("")
   })
 
+  it("stops waiting for an app that never answers", async () => {
+    const output = { stderr: "", stdout: "" }
+    const context = {
+      env: {},
+      stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) },
+      stdout: { write: (chunk: string | Uint8Array) => (output.stdout += String(chunk)) },
+    }
+    // A dev server that rebuilds Nitro can accept the request and never answer.
+    const fetch = (async (_input: Parameters<typeof globalThis.fetch>[0], init?: RequestInit) => await new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason))
+    })) as typeof globalThis.fetch
+    expect(await runConnectionsCli("list", ["--url", "http://127.0.0.1:4741"], context, { fetch, openBrowser: false, requestTimeout: 0.05 })).toBe(1)
+    expect(output.stderr).toBe("http://127.0.0.1:4741 did not answer in 0.05 seconds. If the server is restarting, wait until it is ready, then run the command again.\n")
+  })
+
   it("reports errors and unknown options", async () => {
     const harness = cli()
     expect(await harness.run("inspect", ["missing"])).toBe(1)
