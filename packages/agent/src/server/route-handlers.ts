@@ -123,6 +123,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       conversation: async (...input: Parameters<AgentChannelWebhookRouteHandler["conversation"]>) => await (await load()).conversation(...input),
       declaredPathMatcher: createDeclaredWebhookPathMatcher(agent),
       deliveries: async (...input: Parameters<AgentChannelWebhookRouteHandler["deliveries"]>) => await (await load()).deliveries(...input),
+      poll: async (...input: Parameters<AgentChannelWebhookRouteHandler["poll"]>) => await (await load()).poll(...input),
       resume: (...input: Parameters<AgentChannelWebhookRouteHandler["resume"]>) => {
         const stop = load().then(handler => handler.resume(...input))
         stop.catch((error: unknown) => console.error("[vitehub] Webhook queue resume failed.", error))
