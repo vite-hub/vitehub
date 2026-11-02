@@ -11,6 +11,14 @@ export function mountPath(base: string | undefined, path: string): string {
 type NitroHandler = { handler: string; lazy?: boolean; method?: string | string[]; middleware?: boolean; route: string }
 const configuredMcpDiscovery = "virtual:vitehub/console-mcp-discovery"
 type NitroPublicAsset = { baseURL?: string, dir: string, fallthrough?: boolean, maxAge?: number }
+type NitroPrerenderConfig = { prerender?: { ignore?: Array<string | RegExp | ((path: string) => boolean)> } }
+
+/** Keep linked Console pages, which need a signed-in request, out of Nitro's prerender crawler. */
+export function ignoreConsolePrerender(nitro: NitroPrerenderConfig, base?: string): void {
+  const prerender = nitro.prerender ??= {}
+  const consolePath = mountPath(base, "/_vitehub")
+  if (!prerender.ignore?.includes(consolePath)) prerender.ignore = [...prerender.ignore ?? [], consolePath]
+}
 
 /**
  * Serves the standalone Console: its HTML page at `/_vitehub/**`, its hashed script, style, and font assets at
@@ -19,7 +27,7 @@ type NitroPublicAsset = { baseURL?: string, dir: string, fallthrough?: boolean, 
  * adds the application base to these routes.
  */
 export function addConsolePageHandlers(
-  nitro: { handlers?: NitroHandler[], prerender?: { ignore?: Array<string | RegExp | ((path: string) => boolean)> }, publicAssets?: NitroPublicAsset[] },
+  nitro: NitroPrerenderConfig & { handlers?: NitroHandler[], publicAssets?: NitroPublicAsset[] },
   consoleRuntimeRoot: string,
   base?: string,
   signInPage?: string,
@@ -37,11 +45,7 @@ export function addConsolePageHandlers(
   }
   for (const suffix of ["/_vitehub", "/_vitehub/**"]) handlers.push({ handler: page, lazy: true, route: mountPath(base, suffix) })
   nitro.handlers = handlers
-  // The Console pages need a signed-in request. A page that links to them, such as a docs page about the Console, must
-  // not make the prerender crawler fetch them and fail the build.
-  const prerender = nitro.prerender ??= {}
-  const consolePath = mountPath(base, "/_vitehub")
-  if (!prerender.ignore?.includes(consolePath)) prerender.ignore = [...prerender.ignore ?? [], consolePath]
+  ignoreConsolePrerender(nitro, base)
   nitro.publicAssets = [
     // Every Console asset name contains a content hash.
     { baseURL: mountPath(base, "/_vitehub/assets"), dir: assets, fallthrough: false, maxAge: 60 * 60 * 24 * 365 },
