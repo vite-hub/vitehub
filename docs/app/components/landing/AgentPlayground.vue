@@ -64,7 +64,7 @@ const projects: ExampleProject[] = [
         path: "server/agents/review/agent.ts",
         label: "agent.ts",
         content: `import githubTools from "@github-tools/eve-extension"
-import { defineAgent } from "@vite-hub/agent"
+import { codexDriver, defineAgent } from "@vite-hub/agent"
 import { github } from "@vite-hub/agent/channels"
 import {
   browser,
@@ -72,7 +72,7 @@ import {
 } from "@vite-hub/agent/capabilities"
 
 export default defineAgent({
-  driver: "codex",
+  driver: codexDriver(),
   workspace: {
     name: "repository",
     mode: "write",
@@ -127,7 +127,7 @@ description: Review one pull request end to end.
       {
         path: "server/agents/nuxt/agent.ts",
         label: "agent.ts",
-        content: `import { defineAgent } from "@vite-hub/agent"
+        content: `import { codexDriver, defineAgent } from "@vite-hub/agent"
 import {
   mcp,
   rateLimit,
@@ -145,7 +145,7 @@ const messages = createRateLimiter({
 })
 
 export default defineAgent({
-  driver: "codex",
+  driver: codexDriver(),
   capabilities: [
     rateLimit({ limiter: messages }),
     mcp({
@@ -197,7 +197,7 @@ description: Answer one Nuxt question from official sources.
       {
         path: "server/agents/research/agent.ts",
         label: "agent.ts",
-        content: `import { defineAgent, workflow } from "@vite-hub/agent"
+        content: `import { claudeCodeDriver, defineAgent, workflow } from "@vite-hub/agent"
 import { webChat } from "@vite-hub/agent/channels"
 import {
   browser,
@@ -208,7 +208,7 @@ import {
 } from "@vite-hub/agent/capabilities"
 
 export default defineAgent({
-  driver: "claude-code",
+  driver: claudeCodeDriver(),
   runtime: workflow("agent"),
   workspace: {
     name: "research",
@@ -318,8 +318,8 @@ const agentPropertyOrder: readonly AgentPropertyKey[] = [
 const highlightLanguageSchema = v.string()
 
 const driverOptions = [
-  { code: '"codex"', icon: "i-simple-icons-openai", key: "codex", label: "Codex provider" },
-  { code: "{ kind: 'claude-code', permissions: 'ask' }", icon: "i-simple-icons-anthropic", key: "claude", label: "Claude Code provider" },
+  { code: "codexDriver()", icon: "i-simple-icons-openai", key: "codex", label: "Codex provider" },
+  { code: "claudeCodeDriver({ permissions: 'ask' })", icon: "i-simple-icons-anthropic", key: "claude", label: "Claude Code provider" },
   { code: "{ model: 'openai/gpt-5.1-mini' }", icon: "i-simple-icons-vercel", key: "model", label: "Bare model" },
   { code: "{ run: customAgent }", icon: "i-lucide-braces", key: "custom", label: "Custom runner" },
 ] satisfies PlaygroundOption[]

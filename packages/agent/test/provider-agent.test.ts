@@ -2932,7 +2932,7 @@ cli_auth_credentials_store = "keyring"
   });
 
   it("keeps provider session state for the lifetime of an Agent Definition", async () => {
-    const agent = defineAgent({ driver: "codex", runtime: false })
+    const agent = defineAgent({ driver: codexDriver(), runtime: false })
 
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await expect(agent.resolve(context("thread-definition") as never)).resolves.toBe(
@@ -4036,7 +4036,7 @@ cli_auth_credentials_store = "keyring"
     { name: "an opaque cursor", started: undefined, resumed: true },
   ])("chooses the prompt and usage from the resumed provider thread ($name)", async ({ started, resumed }) => {
     const threadId = `thread-resume-check-${started ?? "opaque"}`
-    const cursor = (nativeId: string) => ({ providerThread: { id: `provider-${nativeId}`, nativeThreadRef: { driver: "codex", nativeId, strength: "strong" } }, version: 2 })
+    const cursor = (nativeId: string) => ({ providerThread: { id: `provider-${nativeId}`, nativeThreadRef: { driver: codexDriver(), nativeId, strength: "strong" } }, version: 2 })
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
       turnResumeCursor: started === undefined ? "opaque-cursor" : cursor("native-a"),
     })

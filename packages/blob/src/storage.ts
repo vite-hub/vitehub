@@ -379,6 +379,40 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
           return new Blob([]).stream()
         }
 
+        // A driver that streams sends the object, or the requested range of it, without holding it in memory, so a
+        // video and every seek in it cost only the bytes sent.
+        const size = meta.size
+        if (!options.transform && driver.getStream && event.req.method === "GET" && size !== undefined && Number.isSafeInteger(size)) {
+          const range = selectByteRange(event, etag, size)
+          headers.set("Accept-Ranges", "bytes")
+          headers.set("Content-Type", meta.contentType || guessContentType(normalizedPath))
+          headers.set("X-Content-Type-Options", "nosniff")
+          let stream: ReadableStream
+          if (range === "unsatisfiable") {
+            headers.set("Content-Range", `bytes */${size}`)
+            headers.set("Content-Length", "0")
+            event.res.status = 416
+            stream = new Blob([]).stream()
+          }
+          else {
+            const length = range ? range.end - range.start + 1 : size
+            const read = await driver.getStream(normalizedPath, {
+              etag: meta.httpEtag,
+              range: range ? { offset: range.start, length } : undefined,
+            })
+            if (read === null) return
+            if (read === false) return false
+            stream = read
+            headers.set("Content-Length", String(length))
+            if (range) {
+              headers.set("Content-Range", `bytes ${range.start}-${range.end}/${size}`)
+              event.res.status = 206
+            }
+          }
+          for (const [name, value] of headers) event.res.headers.set(name, value)
+          return stream
+        }
+
         const cached = cachePath
           ? await driver.get(cachePath).catch((error) => {
             console.error("[vitehub/blob] Transform cache read failed", error)

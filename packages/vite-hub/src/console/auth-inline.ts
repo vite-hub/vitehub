@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 
-import { defineAuth } from "@vite-hub/auth"
+import { defineAuth, isGitHubOrgMember } from "@vite-hub/auth"
 import { readViteHubSecret, viteHubSecretMinimumLength, viteHubSecretSalt } from "@vite-hub/internal/secret"
 import type { AuthResolvedDefinitionOptions } from "@vite-hub/auth"
 
@@ -65,8 +65,8 @@ async function githubOrgUserInfo(orgs: readonly string[], allowedEmails: Readonl
   if (!accessToken) return null
   const profile = await githubGet("/user", accessToken)
   if (!isGitHubProfile(profile)) return null
-  const memberships = await Promise.all(orgs.map(org => githubGet(`/user/memberships/orgs/${org}`, accessToken)))
-  if (!memberships.some(membership => isRecord(membership) && membership.state === "active")) return null
+  const memberships = await Promise.all(orgs.map(org => isGitHubOrgMember(accessToken, org)))
+  if (!memberships.includes(true)) return null
   let email: string | undefined
   for (let page = 1; ; page++) {
     const emails = await githubGet(`/user/emails?per_page=100&page=${page}`, accessToken)

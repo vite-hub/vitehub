@@ -54,6 +54,7 @@ describe("Console section contributions", () => {
     expect(consoleRuntimeReaderModule("@vite-hub/email/runtime/console")).toBe("vite-hub/_internal/email/runtime/console")
     expect(describeConsoleRuntimeReaders(["agents", "email", "queues", "schedules"])).toEqual([
       { export: "readEmailOutboxConsoleRecords", module: "vite-hub/_internal/email/runtime/console", section: "email" },
+      { export: "readScheduleConsoleRecords", module: "vite-hub/_internal/schedule/runtime/console", section: "schedules" },
     ])
     for (const reader of describeConsoleRuntimeReaders([...consoleContributedSections.keys()])) {
       expect(Object.hasOwn(manifest.exports, reader.module.replace(/^vite-hub\//, "./")), reader.module).toBe(true)

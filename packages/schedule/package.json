@@ -52,6 +52,11 @@
       "import": "./dist/runtime.js",
       "default": "./dist/runtime.js"
     },
+    "./runtime/console": {
+      "types": "./dist/runtime/console.d.ts",
+      "import": "./dist/runtime/console.js",
+      "default": "./dist/runtime/console.js"
+    },
     "./runtime/kv": {
       "types": "./dist/runtime/kv.d.ts",
       "import": "./dist/runtime/kv.js",

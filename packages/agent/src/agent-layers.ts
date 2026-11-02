@@ -142,8 +142,6 @@ function merge(parent: unknown, child: unknown, path: string): unknown {
     return child
   }
   if (path === "driver") {
-    if (hasRuntimeType(parent, "string")) parent = { kind: parent }
-    if (hasRuntimeType(child, "string")) child = { kind: child }
     if (record(child)) child = inheritRequirements(parent, child)
     if (record(child) && record(parent) && !("kind" in parent) && !("kind" in child)
       && "model" in parent && hasRuntimeType(child.model, "object") && !("run" in child)) {
