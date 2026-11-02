@@ -57,7 +57,7 @@ describe("docs product navigation", () => {
     // Every section has a known category, so the rail has one group per category that it keeps.
     expect(rail.map(group => group[0]?.category)).toEqual(categories.filter(category => !railExclude.includes(category)));
     expect(rail.find(group => group[0]?.category === "Agents")?.map(candidate => candidate.id)).toEqual(["agents"]);
-    expect(rail.find(group => group[0]?.category === "UI")?.map(candidate => candidate.id)).toEqual(["ui"]);
+    expect(rail.find(group => group[0]?.category === "UI")?.map(candidate => candidate.id)).toEqual(["ui", "docs-site"]);
   });
 
   it("files every section under one catalog category", () => {
@@ -73,7 +73,7 @@ describe("docs product navigation", () => {
       .sort();
     expect(productIds).toEqual(serverPrimitiveSections);
     expect(catalog.find(group => group.category === "Agents")?.sections.map(candidate => candidate.id)).toEqual(["agents"]);
-    expect(catalog.find(group => group.category === "UI")?.sections.map(candidate => candidate.id)).toEqual(["ui"]);
+    expect(catalog.find(group => group.category === "UI")?.sections.map(candidate => candidate.id)).toEqual(["ui", "docs-site"]);
   });
 
   it("orders every Server Primitive section by the product page template", () => {
@@ -173,7 +173,7 @@ describe("docs product navigation", () => {
   });
 
   it("renders the catalog and every product Overview as a landing page", () => {
-    const landingSections = ["agents", ...serverPrimitiveSections];
+    const landingSections = ["agents", "docs-site", ...serverPrimitiveSections];
     expect(docsManifest.root?.layout).toBe("landing");
     for (const candidate of docsManifest.sections) {
       const overview = candidate.pages.find(page => page.id === "index");
