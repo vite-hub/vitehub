@@ -7,7 +7,9 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 
 import { createTraceEventLog } from "@vite-hub/runtime"
-import { cleanupGmailChannel, gmail, syncGmailChannel } from "../src/channels.ts"
+import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { cleanupGmailChannel, gmail, gmailLabelPalette, pollGmailChannel, syncGmailChannel } from "../src/channels.ts"
+import { installChannelsConsoleHost } from "../src/channels-console-host.ts"
 import { defineAgent, runAgentTrigger, workflow } from "../src/index.ts"
 import { inspectMessageChannelInstructions } from "../src/internal/channels.ts"
 import { getAgentChannelSyncDefinition } from "../src/internal/channel-sync.ts"
@@ -19,6 +21,8 @@ import { channelMessageRunId, createMemoryAgentInvocationStore, defineAgentInvoc
 import type { Lock, StateAdapter } from "chat"
 import type { GmailClient } from "../src/internal/gmail-channel.ts"
 import type { AgentRuntimeContext } from "../src/types.ts"
+
+vi.mock("#vitehub/env/server", () => ({ useServerEnv: (event?: unknown) => event ?? {} }))
 
 const audience = "https://mail.example.com/api/_vitehub/agents/labeller/webhooks/gmail"
 const serviceAccount = "gmail-push@example.iam.gserviceaccount.com"
@@ -134,7 +138,14 @@ async function createGoogle(options: { emailAddress?: string, inlineAttachment?:
     const path = url.pathname.replace("/gmail/v1/users/me/", "")
     const body = init?.body ? JSON.parse(String(init.body)) : undefined
     calls.push({ body, method, path, query: url.searchParams })
-    if (method === "GET" && path === "labels") return Response.json({ labels })
+    if (method === "GET" && path === "labels") {
+      // Gmail's list projection omits color; only labels.get returns it.
+      return Response.json({ labels: labels.map(({ id, labelListVisibility, messageListVisibility, name, type }) => ({ id, labelListVisibility, messageListVisibility, name, type })) })
+    }
+    if (method === "GET" && path.startsWith("labels/")) {
+      const label = labels.find(candidate => candidate.id === decodeURIComponent(path.slice("labels/".length)))
+      return label ? Response.json(label) : Response.json({ error: { code: 404, message: "Not Found" } }, { status: 404 })
+    }
     if (method === "POST" && path === "labels") {
       const label = { ...body, id: `Label_${labels.length + 1}`, type: "user" }
       labels.push(label)
@@ -785,6 +796,49 @@ describe("gmail() Channel", () => {
     finally { await state.disconnect() }
   })
 
+  it("rejects an overlapping poll while a push owns the mailbox lease and retains failed messages for retry", async () => {
+    const state = createLibsqlAgentState({ url: ":memory:" })
+    await state.connect()
+    let release!: () => void
+    let started!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const entered = new Promise<void>(resolve => { started = resolve })
+    const google = await createGoogle()
+    google.history.set("100", { historyId: "105", ids: ["m1"] })
+    const dispatch = vi.fn(async () => {
+      started()
+      await gate
+      return { failed: 1, items: [], nextCursor: null, processed: 0, skipped: 0 }
+    })
+    const sync = {
+      bodyLimit: 1000,
+      client: gmailClientFromSettings({ clientId: "client", clientSecret: "secret", refreshToken: "refresh-token" }, google.fetch),
+      dispatch,
+      notificationHistoryId: "105",
+      state: { keyPrefix: "mail:", state },
+    }
+    await state.set("mail:history-id", "100")
+    const push = syncGmailMailbox(sync)
+    try {
+      await entered
+      await expect(syncGmailMailbox({ ...sync, throwOnDispatchFailure: true })).rejects.toThrow("already running")
+      release()
+      await push
+      expect(await state.get("mail:history-id")).toBe("100")
+      expect(await state.get("mail:sync-progress")).toMatchObject({ retryIds: ["m1"] })
+      const retry = vi.fn(async () => ({ failed: 0, items: [], nextCursor: null, processed: 1, skipped: 0 }))
+      await syncGmailMailbox({ ...sync, dispatch: retry, throwOnDispatchFailure: true })
+      expect(retry).toHaveBeenCalledOnce()
+      expect(await state.get("mail:history-id")).toBe("105")
+      expect(await state.get("mail:sync-progress")).toBeNull()
+    }
+    finally {
+      release()
+      await push
+      await state.disconnect()
+    }
+  })
+
   it.each(["history", "dispatch"] as const)("drains overlapping notifications after a %s exception", async failureKind => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-gmail-pending-error-"))
     const url = `file:${join(root, "state.db")}`
@@ -1138,6 +1192,167 @@ describe("gmail() Channel", () => {
     // The first sync with a topic starts the watch; later syncs keep it until it is due.
     expect(google.writes().filter(write => write === "POST watch")).toHaveLength(1)
     expect(google.calls.filter(call => call.path === "history").map(call => call.query.get("labelId"))).toEqual([null, null, null])
+  })
+
+  it("polls the mailbox from a Schedule without Pub/Sub and shares the cursor with push", async () => {
+    vi.stubEnv("GMAIL_CLIENT_ID", "client-id")
+    vi.stubEnv("GMAIL_CLIENT_SECRET", "client-secret")
+    vi.stubEnv("GMAIL_REFRESH_TOKEN", "refresh-token")
+    const google = await createGoogle()
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const prompts: string[] = []
+    const inbox = gmail({ fetch: google.fetch })
+    const agent = defineAgent({
+      channels: { gmail: inbox },
+      driver: { run: ({ input }) => { prompts.push(String(input.prompt)); return "ok" } },
+      invocations,
+      name: "poller",
+    })
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-gmail-poll-"))
+    const state = createLibsqlAgentState({ url: `file:${join(directory, "state.db")}` })
+    durableWebhookFixtures.push({ directory, state })
+    const handler = createChannelWebhookRouteHandler(agent)
+    installChannelsConsoleHost({ agents: { poller: agent }, handlers: { poller: handler }, options: () => ({ agentName: "poller", webhookState: () => state }) })
+    const push = async (historyId: string) => {
+      const tasks: Promise<unknown>[] = []
+      const response = await handler(new Request(audience, {
+        body: JSON.stringify({ message: { data: base64Url(JSON.stringify({ emailAddress: "max@example.com", historyId: Number(historyId) })), messageId: `poll-${historyId}` }, subscription }),
+        headers: { authorization: `Bearer ${await google.token()}`, "content-type": "application/json" }, method: "POST",
+      }), "gmail", { agentName: "poller", waitUntil: task => void tasks.push(task), webhookState: () => state })
+      await Promise.all(tasks)
+      return response
+    }
+
+    // Without Pub/Sub settings, the push route still rejects requests.
+    expect((await push("300")).status).toBe(503)
+
+    // The first poll stores the current history ID as the cursor, like the first push.
+    await pollGmailChannel(inbox)
+    expect(prompts).toEqual([])
+    expect(google.calls.filter(call => call.path === "history")).toHaveLength(0)
+
+    google.history.set("300", { historyId: "305", ids: ["m1", "m2"] })
+    await pollGmailChannel(inbox)
+    expect(prompts).toHaveLength(2)
+    await expect(invocations.getByRunId(channelMessageRunId("gmail", "m1"), "poller")).resolves.toMatchObject({ status: "completed" })
+    await pollGmailChannel(inbox)
+    expect(prompts).toHaveLength(2)
+    expect(google.calls.filter(call => call.path === "history").map(call => call.query.get("startHistoryId"))).toEqual(["300", "305"])
+
+    // Push continues from the cursor of the poll and skips messages that the poll handled.
+    stubGmailEnv()
+    google.history.set("305", { historyId: "310", ids: ["m2", "m3"] })
+    expect((await push("310")).status).toBe(204)
+    expect(prompts).toHaveLength(3)
+    expect(prompts[2]).toContain("Subject: Offer")
+    await pollGmailChannel(inbox)
+    expect(prompts).toHaveLength(3)
+    expect(google.calls.filter(call => call.path === "history").map(call => call.query.get("startHistoryId"))).toEqual(["300", "305", "305", "310"])
+
+    await expect(pollGmailChannel(gmail({ fetch: google.fetch }))).rejects.toThrow("found no Agent that uses this Channel")
+  })
+
+  it("preserves the polling runtime and reads Gmail credentials from its Server Env event", async () => {
+    const google = await createGoogle()
+    const inbox = gmail({ fetch: google.fetch })
+    const event = { gmail: { clientId: "client-id", clientSecret: "client-secret", refreshToken: "refresh-token" } }
+    const runtime: AgentRuntimeContext = {
+      capabilities: { polling: true },
+      cloudflare: { context: { scheduled: true }, env: {} },
+      event,
+      memo: (_key, create) => create(),
+      request: new Request("https://mail.example.com/schedule"),
+      runtime: "vite",
+      runtimeConfig: { polling: true },
+      waitUntil: vi.fn(),
+    }
+    const seen: AgentRuntimeContext[] = []
+    const agent = defineAgent({
+      channels: { gmail: inbox },
+      driver: { run: () => "ok" },
+      hooks: { "agent:finish": ({ runtime }) => { seen.push(runtime); runtime.waitUntil(Promise.resolve()) } },
+    })
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-gmail-poll-runtime-"))
+    const state = createLibsqlAgentState({ url: `file:${join(directory, "state.db")}` })
+    durableWebhookFixtures.push({ directory, state })
+    installChannelsConsoleHost({ agents: { poller: agent }, handlers: { poller: createChannelWebhookRouteHandler(agent) }, options: () => ({ agentName: "poller", webhookState: () => state }) })
+    await pollGmailChannel(inbox, { runtime })
+    google.history.set("300", { historyId: "305", ids: ["m1"] })
+    await pollGmailChannel(inbox, { runtime })
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toMatchObject({ capabilities: runtime.capabilities, cloudflare: runtime.cloudflare, runtime: "vite", runtimeConfig: runtime.runtimeConfig })
+    expect(runtime.waitUntil).toHaveBeenCalled()
+  })
+
+  it("reads ambient Cloudflare bindings when a Schedule polls without an explicit runtime", async () => {
+    const google = await createGoogle()
+    const inbox = gmail({ fetch: google.fetch })
+    const env = { GMAIL_CLIENT_ID: "client-id", GMAIL_CLIENT_SECRET: "client-secret", GMAIL_REFRESH_TOKEN: "refresh-token" }
+    const seen: AgentRuntimeContext[] = []
+    const agent = defineAgent({
+      channels: { gmail: inbox }, driver: { run: () => "ok" },
+      hooks: { "agent:finish": ({ runtime }) => { seen.push(runtime) } },
+    })
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-gmail-poll-cloudflare-"))
+    const state = createLibsqlAgentState({ url: `file:${join(directory, "state.db")}` })
+    durableWebhookFixtures.push({ directory, state })
+    installChannelsConsoleHost({
+      agents: { poller: agent }, handlers: { poller: createChannelWebhookRouteHandler(agent) },
+      options: (_name, env) => ({ agentName: "poller", cloudflare: env ? { env } : undefined, webhookState: () => state }),
+    })
+    await runWithActiveCloudflareEnv(env, () => pollGmailChannel(inbox))
+    google.history.set("300", { historyId: "305", ids: ["m1"] })
+    await runWithActiveCloudflareEnv(env, () => pollGmailChannel(inbox))
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toMatchObject({ runtime: "cloudflare-agents", cloudflare: { env } })
+  })
+
+  it("polls every Agent sharing a Channel before reporting dispatch failures", async () => {
+    stubGmailEnv()
+    const google = await createGoogle()
+    const inbox = gmail({ fetch: google.fetch })
+    const run = vi.fn(() => "ok")
+    const agents = {
+      failing: defineAgent({ channels: { gmail: inbox }, driver: { run: () => { throw new Error("Invocation failed") } } }),
+      healthy: defineAgent({ channels: { gmail: inbox }, driver: { run } }),
+    }
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-gmail-poll-agents-"))
+    const state = createLibsqlAgentState({ url: `file:${join(directory, "state.db")}` })
+    durableWebhookFixtures.push({ directory, state })
+    installChannelsConsoleHost({
+      agents,
+      handlers: { failing: createChannelWebhookRouteHandler(agents.failing), healthy: createChannelWebhookRouteHandler(agents.healthy) },
+      options: name => ({ agentName: name, webhookState: () => state }),
+    })
+    await pollGmailChannel(inbox)
+    google.history.set("300", { historyId: "305", ids: ["m1"] })
+    await expect(pollGmailChannel(inbox)).rejects.toThrow("Gmail message dispatch failed")
+    expect(run).toHaveBeenCalledTimes(1)
+    await expect(pollGmailChannel(inbox)).rejects.toThrow("Gmail message dispatch failed")
+    expect(run).toHaveBeenCalledTimes(1)
+  })
+
+  it("rejects a poll with failed Invocations and retries its checkpoint on the next poll", async () => {
+    stubGmailEnv()
+    const google = await createGoogle()
+    const inbox = gmail({ fetch: google.fetch })
+    let fail = true
+    const run = vi.fn(() => { if (fail) throw new Error("Invocation failed"); return "ok" })
+    const agent = defineAgent({ channels: { gmail: inbox }, driver: { run } })
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-gmail-poll-retry-"))
+    const state = createLibsqlAgentState({ url: `file:${join(directory, "state.db")}` })
+    durableWebhookFixtures.push({ directory, state })
+    installChannelsConsoleHost({ agents: { poller: agent }, handlers: { poller: createChannelWebhookRouteHandler(agent) }, options: () => ({ agentName: "poller", webhookState: () => state }) })
+    await pollGmailChannel(inbox)
+    google.history.set("300", { historyId: "305", ids: ["m1"] })
+    await expect(pollGmailChannel(inbox)).rejects.toThrow("Gmail message dispatch failed")
+    expect(run).toHaveBeenCalledTimes(1)
+    fail = false
+    await pollGmailChannel(inbox)
+    expect(run).toHaveBeenCalledTimes(2)
+    await pollGmailChannel(inbox)
+    expect(run).toHaveBeenCalledTimes(2)
+    expect(google.calls.filter(call => call.path === "history").map(call => call.query.get("startHistoryId"))).toEqual(["300", "305", "305"])
   })
 
   it.each(["history", "recovery"] as const)("journals %s messages before listing the next page and retries without duplicate Invocations", async mode => {
@@ -1594,6 +1809,117 @@ describe("gmail() Channel", () => {
       changes: [`Start or renew the Gmail watch on ${topic}`],
     })
     await expect(syncGmailChannel(channel, { apply: true })).resolves.toMatchObject({ applied: true, result: { labels: { created: [], updated: [] } } })
+  })
+
+  it("reconciles label visibility and hides unmanaged labels only when the Channel opts in", async () => {
+    stubGmailEnv()
+    const google = await createGoogle()
+    google.labels.push(
+      { id: "Label_5", labelListVisibility: "labelShow", messageListVisibility: "show", name: "GitHub", type: "user" },
+      { id: "Label_6", labelListVisibility: "labelShow", messageListVisibility: "show", name: "Old project", type: "user" },
+      { id: "Label_7", labelListVisibility: "labelHide", messageListVisibility: "show", name: "Archive", type: "user" },
+    )
+    const labels = {
+      "GitHub/Bots": { color: { backgroundColor: "#CCCCCC", textColor: "#000000" }, labelListVisibility: "labelShowIfUnread" as const },
+      "Work": { color: { backgroundColor: "#000000", textColor: "#ffffff" }, messageListVisibility: "hide" as const },
+    }
+
+    const managedOnly = gmail({ fetch: google.fetch, labels })
+    expect((await syncGmailChannel(managedOnly)).changes).toEqual([
+      "Create label \"GitHub/Bots\"",
+      "Update label \"Work\"",
+      `Start or renew the Gmail watch on ${topic}`,
+    ])
+
+    const channel = gmail({ fetch: google.fetch, hideUnmanagedLabels: true, labels })
+    const plan = await syncGmailChannel(channel)
+    // Hidden labels and the parent of a declared nested label stay as they are.
+    expect(plan.changes).toEqual([
+      "Create label \"GitHub/Bots\"",
+      "Update label \"Work\"",
+      "Hide unmanaged label \"Old project\" from the label list",
+      `Start or renew the Gmail watch on ${topic}`,
+    ])
+    expect(google.writes()).toEqual([])
+
+    await expect(syncGmailChannel(channel, { apply: true })).resolves.toMatchObject({
+      applied: true,
+      result: { labels: { created: ["GitHub/Bots"], hidden: ["Old project"], updated: ["Work"] } },
+    })
+    expect(google.writes()).toEqual(["POST labels", "PATCH labels/Label_1", "PATCH labels/Label_6", "POST watch"])
+    expect(google.labels.find(label => label.name === "GitHub/Bots")).toMatchObject({
+      color: { backgroundColor: "#cccccc", textColor: "#000000" },
+      labelListVisibility: "labelShowIfUnread",
+      messageListVisibility: "show",
+    })
+    expect(google.labels.find(label => label.name === "Work")).toMatchObject({ labelListVisibility: "labelShow", messageListVisibility: "hide" })
+    expect(google.calls.find(call => call.method === "PATCH" && call.path === "labels/Label_6")?.body).toEqual({ labelListVisibility: "labelHide" })
+    expect(google.labels.find(label => label.name === "GitHub")).toMatchObject({ labelListVisibility: "labelShow" })
+
+    // Gmail reports lowercase colors, so uppercase declarations do not cause repeated updates.
+    expect((await syncGmailChannel(channel)).changes).toEqual([`Start or renew the Gmail watch on ${topic}`])
+  })
+
+  it("reads full state only for declared colored labels and does not patch matching colors again", async () => {
+    stubGmailEnv()
+    const google = await createGoogle()
+    google.labels.push({ color: { backgroundColor: "#fad165", textColor: "#000000" }, id: "Label_5", name: "Receipts", type: "user" })
+    const channel = gmail({
+      fetch: google.fetch,
+      labels: { Receipts: {}, Work: { color: { backgroundColor: "#000000", textColor: "#FFFFFF" } } },
+    })
+
+    expect((await syncGmailChannel(channel)).changes).toEqual([`Start or renew the Gmail watch on ${topic}`])
+    expect(google.writes()).toEqual([])
+    expect(google.calls.filter(call => call.path.startsWith("labels/")).map(call => `${call.method} ${call.path}`)).toEqual(["GET labels/Label_1"])
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await expect(syncGmailChannel(channel, { apply: true })).resolves.toMatchObject({ result: { labels: { created: [], updated: [] } } })
+    }
+    expect(google.writes()).toEqual(["POST watch", "POST watch"])
+    expect(google.labels.find(label => label.name === "Receipts")?.color).toEqual({ backgroundColor: "#fad165", textColor: "#000000" })
+  })
+
+  it("keeps a declared __proto__ label managed through sync and first use", async () => {
+    stubGmailEnv()
+    const google = await createGoogle()
+    const channel = gmail({ fetch: google.fetch, hideUnmanagedLabels: true, labels: { ["__proto__"]: { description: "Prototype mail" }, Work: {} } })
+    expect((await syncGmailChannel(channel)).changes).toEqual(["Create label \"__proto__\"", `Start or renew the Gmail watch on ${topic}`])
+    expect(google.writes()).toEqual([])
+    expect(inspectMessageChannelInstructions({ gmail: channel })[0]).toContain("- __proto__: Prototype mail")
+
+    const agent = defineAgent({
+      channels: { gmail: channel },
+      driver: { run: () => "" },
+      hooks: {
+        async "agent:finish"(event) {
+          if (event.message?.channel === "gmail") await event.message.label("__proto__")
+        },
+      },
+    })
+    expect((await replayChannel(agent, "gmail", { force: true, limit: 1 })).items[0]).toMatchObject({ status: "completed" })
+    expect(google.labels.find(label => label.name === "__proto__")).toMatchObject({ labelListVisibility: "labelShow" })
+    await expect(syncGmailChannel(channel, { apply: true })).resolves.toMatchObject({ result: { labels: { created: [], hidden: [], updated: [] } } })
+
+    // SAFETY: Gmail synchronization reads only Server Env and process environment from the callback context.
+    const sync = await getAgentChannelSyncDefinition(channel)!.resolve({} as never, channel)
+    const plan = await sync!.plan({ fetch: google.fetch, force: false })
+    expect(plan.desired.labels).toHaveProperty("__proto__", { description: "Prototype mail" })
+    expect(plan.current.labels).toHaveProperty("__proto__", { id: "Label_5", labelListVisibility: "labelShow", messageListVisibility: "show" })
+    expect(Object.keys(plan.current.labels!)).toEqual(["__proto__", "Work"])
+  })
+
+  it("rejects label colors and visibility that Gmail does not accept when the Channel is defined", () => {
+    expect(gmailLabelPalette).toHaveLength(102)
+    expect(() => gmail({ labels: { Work: { color: { backgroundColor: "#4a86e9", textColor: "#ffffff" } } } }))
+      .toThrow(/gmail\(\) label "Work" color backgroundColor "#4a86e9" is not in Gmail's label palette/)
+    expect(() => gmail({ labels: { Work: { color: { backgroundColor: "#4a86e8", textColor: "white" } } } }))
+      .toThrow(/label "Work" color textColor "white" is not in Gmail's label palette/)
+    // SAFETY: The cast models an untyped configuration value.
+    expect(() => gmail({ labels: { Work: { labelListVisibility: "hidden" as never } } })).toThrow(/labelListVisibility must be/)
+    // SAFETY: The cast models an untyped configuration value.
+    expect(() => gmail({ labels: { Work: { messageListVisibility: "labelHide" as never } } })).toThrow(/messageListVisibility must be/)
+    // SAFETY: The cast models an untyped configuration value.
+    expect(() => gmail({ hideUnmanagedLabels: "yes" as never })).toThrow(/hideUnmanagedLabels must be a boolean/)
   })
 
   it("reads Gmail settings from Server Env before the documented environment variables", () => {

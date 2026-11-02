@@ -29,7 +29,7 @@ import { describeDeploymentPlanOutput, finalizeDeploymentPlanOutput } from "@vit
 import { denoServerPackagesPlugin, finalizeDenoDeploymentOutput, type DenoServerPackages } from "@vite-hub/internal/build/deno-runtime-packages"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
 import { nitroWorkerdDependencies } from "@vite-hub/internal/build/nitro-workerd-dependencies"
-import { createNoExternalAddition, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
 import { viteHubTypesPlugin } from "./internal/types.ts"
@@ -40,6 +40,7 @@ import { disabledUpstashDriver, hasUpstashStore, upstashDriverSpecifier } from "
 import { consoleConnectionsActorId } from "./console/auth-build.ts"
 import { agentChannelEnvPlugin } from "./agent-channel-env.ts"
 import { agentInvocationsVitePlugin } from "./agent-invocations-vite.ts"
+import { devDefinesVitePlugin } from "./dev-defines-vite.ts"
 import { errorLogVitePlugin } from "./error-log-vite.ts"
 import { standardContextVitePlugin } from "./standard-context-vite.ts"
 import { databaseDisabledPlugin } from "./database-disabled.ts"
@@ -593,6 +594,16 @@ function afterApplicationConfig<T extends Plugin>(plugin: T): T {
   return plugin
 }
 
+/** A Node server has no host cron. Its Schedules run only in the Process Runtime or when the app wakes them itself. */
+function assertNodeScheduleWake(schedule: ViteHubOptions["schedule"]): void {
+  if (!schedule) return
+  if (schedule !== true) {
+    if (schedule.providerOutput === false) return
+    if (schedule.runtime !== undefined && schedule.providerOutput !== "nitro" && schedule.providerOutput !== "standalone") return
+  }
+  throw viteHubErrorDiagnostics.VITE_HUB_R0137({ message: "[vitehub] The \"node\" preset has no host cron, so this build would never run its Schedules. Set schedule: { runtime: { driver: \"process\" }, providerOutput: \"auto\" } to run them in the server process, or schedule: { providerOutput: false } to wake them yourself." })
+}
+
 function deploymentPlugins(
   plan: DeploymentPlan,
   requestedServices: DeploymentService[],
@@ -684,6 +695,8 @@ function deploymentPlugins(
             preset: plan.preset,
           }
           for (const service of requestedServices) assertDeploymentService(plan, service)
+          // The dev server keeps manual runs working without a wake owner.
+          if (building && plan.preset === "node") assertNodeScheduleWake(options.schedule)
           const identity = resolveDeploymentIdentity(
             typeof config.root === "string" ? config.root : undefined,
             options.name,
@@ -958,9 +971,10 @@ function publicUrlPlugin(publicUrl: ViteHubOptions["publicUrl"]): Plugin {
       const define = JSON.stringify(resolved)
       return { define: { __VITEHUB_PUBLIC_URL__: define } }
     },
-    configEnvironment(name, config) {
+    configEnvironment(name, config, env) {
       // The shared URL helper reads the public URL and app base defines, so server code must inline it.
-      if (!isServerEnvironment(name, config)) return
+      // In `vite dev`, Nitro loads it with Node, and the dev defines plugin sets the same values as globals.
+      if (!isServerEnvironment(name, config) || loadsViteHubPackagesNatively(name, env)) return
       const noExternal = addRuntimeNoExternal(config.resolve?.noExternal)
       if (noExternal) return { resolve: { noExternal } }
     },
@@ -1075,6 +1089,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   plugins.push(...deploymentPlugins(plan, requestedServices, blobEnabled, manifestServices, options, envPlugin))
   plugins.push(publicUrlPlugin(options.publicUrl))
+  plugins.push(devDefinesVitePlugin())
   plugins.push(standardContextVitePlugin())
   const providerImportAliases: Record<string, string> = {}
   const configuredKV = options.kv && options.kv !== true ? options.kv : undefined
@@ -1207,6 +1222,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       ...agentOptions,
       cloudflareStateImport: `${generatedImportBase}/agent/cloudflare/state`,
       importBase: `${generatedImportBase}/agent`,
+      kvImport: `${generatedImportBase}/kv`,
       processDiscordGateway: plan.preset === "node",
       providerImportAliases,
       runtimeCapabilityImports: {

@@ -12,7 +12,7 @@ vi.mock("vite-hub/source/client", async () => {
 // Nuxt UI composables import `#imports`, which only the Nuxt UI build plugin provides.
 vi.mock("@nuxt/ui/composables", () => ({ defineShortcuts: vi.fn() }))
 
-import Search from "../src/console/runtime/components/console-search.vue"
+import Search from "../src/console/runtime/components/console-search-palette.vue"
 
 const renderer = createRenderer({
   createComment: () => ({}), createElement: () => ({}), createText: () => ({}),

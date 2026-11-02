@@ -209,10 +209,11 @@
   "devDependencies": {
     "@azure/identity": "catalog:storage",
     "@azure/storage-blob": "catalog:storage",
+    "@cf-wasm/photon": "0.4.0",
     "@types/node": "catalog:tooling",
+    "@vercel/blob": "catalog:storage",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/netlify-blobs-runtime": "npm:@netlify/blobs@11.1.4",
-    "@vercel/blob": "catalog:storage",
     "files-sdk": "catalog:storage",
     "ofetch": "catalog:unjs",
     "publint": "catalog:tooling",
@@ -230,6 +231,7 @@
     "@aws-sdk/s3-request-presigner": "^3.700.0",
     "@azure/identity": "catalog:storage",
     "@azure/storage-blob": "catalog:storage",
+    "@cf-wasm/photon": "^0.4.0",
     "@google-cloud/storage": "catalog:storage",
     "@googleapis/drive": "catalog:storage",
     "@microsoft/microsoft-graph-client": "catalog:storage",
@@ -259,6 +261,9 @@
       "optional": true
     },
     "@azure/storage-blob": {
+      "optional": true
+    },
+    "@cf-wasm/photon": {
       "optional": true
     },
     "@google-cloud/storage": {

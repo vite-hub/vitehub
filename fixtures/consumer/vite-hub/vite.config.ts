@@ -28,7 +28,7 @@ export default defineConfig({
     },
     queue: preset === "vercel" || preset === "cloudflare",
     rateLimit: preset === "node",
-    schedule: true,
+    schedule: preset === "node" ? { runtime: { driver: "process" } } : true,
     ...(providerSandboxClosure
       ? {
           sandboxTask: preset === "vercel" || preset === "cloudflare",

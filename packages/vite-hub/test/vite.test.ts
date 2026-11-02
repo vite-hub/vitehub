@@ -134,7 +134,7 @@ import { resolveConfig, type Plugin, type PluginOption } from "vite"
 import type { ConsoleViteDevTools } from "../src/console/devtools.ts"
 import { contributeProviderDeploymentOutput, useProviderOutputCatalog } from "../../internal/src/build/deployment-output.ts"
 import frameworkPackageManifest from "../package.json" with { type: "json" }
-import { vitehub } from "../src/index.ts"
+import { vitehub, type ViteHubOptions } from "../src/index.ts"
 import { isIncludedNitroPlugin } from "../src/nitro-plugin.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
@@ -753,6 +753,7 @@ describe("vitehub", () => {
       "vite-hub/deployment-preset",
       "vite-hub/deployment-output",
       "vite-hub/public-url",
+      "vite-hub/dev-defines",
       "vite-hub/standard-context",
       "vite-hub/unavailable-services",
       "vite-hub/dependencies",
@@ -807,6 +808,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith({
       cloudflareStateImport: "vite-hub/_internal/agent/cloudflare/state",
       importBase: "vite-hub/_internal/agent",
+      kvImport: "vite-hub/_internal/kv",
       processDiscordGateway: true,
       providerImportAliases: {
         "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-upstash\.js$/),
@@ -2012,10 +2014,29 @@ describe("vitehub", () => {
     const unsupported = vitehub({ preset: "deno", queue: true }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
     expect(() => callHook(unsupported.config, [{}, { command: "build", mode: "production" }])).toThrow("cannot provide queue")
 
+    const nodePreset = (schedule: ViteHubOptions["schedule"]) =>
+      // SAFETY: The explicit Node preset installs the named deployment plugin.
+      vitehub({ preset: "node", schedule }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
+    expect(() => callHook(nodePreset(true).config, [{}, { command: "build", mode: "production" }])).toThrow("would never run its Schedules")
+    expect(() => callHook(nodePreset({ providerOutput: "auto" }).config, [{}, { command: "build", mode: "production" }])).toThrow("would never run its Schedules")
+    expect(() => callHook(nodePreset(true).config, [{}, { command: "serve", mode: "development" }])).not.toThrow()
+    expect(() => callHook(nodePreset({ runtime: { driver: "process" } }).config, [{}, { command: "build", mode: "production" }])).not.toThrow()
+    expect(() => callHook(nodePreset({ runtime: { driver: "process" }, providerOutput: "auto" }).config, [{}, { command: "build", mode: "production" }])).not.toThrow()
+    expect(() => callHook(nodePreset({ runtime: { driver: "process" }, providerOutput: false }).config, [{}, { command: "build", mode: "production" }])).not.toThrow()
+    expect(() => callHook(nodePreset({ providerOutput: false }).config, [{}, { command: "build", mode: "production" }])).not.toThrow()
+
     // SAFETY: The explicit Vercel preset installs the named deployment plugin.
     const conflicting = vitehub({ preset: "vercel" }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
     expect(() => callHook(conflicting.config, [{ nitro: { preset: "netlify" } }, { command: "build", mode: "production" }])).toThrow("conflicts with nitro.preset")
     expect(() => callHook(conflicting.config, [{ nitro: { preset: "vercel-edge" } }, { command: "build", mode: "production" }])).toThrow("conflicts with nitro.preset")
+  })
+
+  it.each(["nitro", "standalone"] as const)("rejects Node Schedule Provider Output %s even with the Process Runtime", providerOutput => {
+    // SAFETY: The explicit Node preset installs the named deployment plugin.
+    const plugin = vitehub({ preset: "node", schedule: { providerOutput, runtime: { driver: "process" } } })
+      .find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
+    expect(() => callHook(plugin.config, [{}, { command: "build", mode: "production" }])).toThrow(expect.objectContaining({ name: "VITE_HUB_R0137" }))
+    expect(() => callHook(plugin.config, [{}, { command: "serve", mode: "development" }])).not.toThrow()
   })
 
   it("composes Browser for Cloudflare and rejects unsupported presets", () => {

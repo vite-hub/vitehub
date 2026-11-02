@@ -3,6 +3,7 @@
 // the declared webhook middleware runs for every request.
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { setAgentChannelDeliveryWorkflowOwnershipResolver, setAgentChannelDeliveryWorkflowResolver } from "../internal/channel-delivery.ts"
+import { startingChannelTaskQueue } from "../channel-tasks.ts"
 import { isRuntimeObject } from "../internal/runtime-value.ts"
 import { createDeclaredWebhookPathMatcher } from "./route-runtime.ts"
 
@@ -123,9 +124,11 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       conversation: async (...input: Parameters<AgentChannelWebhookRouteHandler["conversation"]>) => await (await load()).conversation(...input),
       declaredPathMatcher: createDeclaredWebhookPathMatcher(agent),
       deliveries: async (...input: Parameters<AgentChannelWebhookRouteHandler["deliveries"]>) => await (await load()).deliveries(...input),
+      poll: async (...input: Parameters<AgentChannelWebhookRouteHandler["poll"]>) => await (await load()).poll(...input),
       resume: (...input: Parameters<AgentChannelWebhookRouteHandler["resume"]>) => {
         const stop = load().then(handler => handler.resume(...input))
         stop.catch((error: unknown) => console.error("[vitehub] Webhook queue resume failed.", error))
+        startingChannelTaskQueue(stop)
         return async () => await (await stop.catch(() => undefined))?.()
       },
       threads: async (...input: Parameters<AgentChannelWebhookRouteHandler["threads"]>) => await (await load()).threads(...input),
