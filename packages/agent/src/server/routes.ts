@@ -45,7 +45,7 @@ import { agentChannelHistoryHeader } from "../internal/channel-history.ts"
 import { agentChannelSyncProviderHeader } from "../internal/channel-sync.ts"
 import { attachmentStringBytes, blobArrayBuffer, blobSize, blobType, isArrayBufferValue, isAttachmentBlob, isAttachmentData, isAttachmentPart, isUint8ArrayValue } from "../messages.ts"
 import { agentInvokerLabel, hasResolvedAgentInvokerInput, resolveInputAgentInvoker, resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
-import { createAgentUIMessageStreamResponse } from "../stream-output.ts"
+import { createAgentUIMessageStreamResponse, isUIMessageStreamResponse, uiMessageStreamFromResponse } from "../stream-output.ts"
 import {
   bindAgentChannelTriggerQueue,
   bindAgentChannelTriggerState,
@@ -423,63 +423,6 @@ function readableStreamFromResult(value: unknown): ReadableStream<unknown> {
   if (value instanceof Response && value.body) return value.body
   if (isResponseLike(value)) return value.body
   throw agentDiagnostics.AGENT_R0769({ message: "[vitehub] Agent chat trigger expected a UI message stream." })
-}
-
-function isUiMessageStreamResponse(response: Response): boolean {
-  return response.headers.get("x-vercel-ai-ui-message-stream") === "v1"
-}
-
-function withCleanUiMessageStreamResponse(response: Response): Response {
-  if (!response.body || !isUiMessageStreamResponse(response)) return response
-
-  const doneFrame = new TextEncoder().encode("data: [DONE]\n\n")
-  const decoder = new TextDecoder()
-  const reader = response.body.getReader()
-  let tail = ""
-  let reportedError = false
-  const headers = new Headers([...response.headers.entries()])
-  headers.delete("content-encoding")
-  headers.delete("content-length")
-
-  function enqueueDone(controller: ReadableStreamDefaultController<Uint8Array>) {
-    if (!/(^|\r?\n)data: \[DONE]\r?\n\r?\n$/.test(tail)) {
-      controller.enqueue(doneFrame)
-    }
-  }
-
-  return new Response(
-    new ReadableStream<Uint8Array>({
-      async pull(controller) {
-        try {
-          const result = await reader.read()
-          if (result.done) {
-            enqueueDone(controller)
-            controller.close()
-            return
-          }
-
-          const text = `${tail}${decoder.decode(result.value, { stream: true })}`
-          if (/"type":"error"/.test(text)) reportedError = true
-          tail = text.slice(-128)
-          controller.enqueue(result.value)
-        } catch (error) {
-          // The client already has the error frame. End the response instead of breaking it: H3 1, which Nuxt 4
-          // runs, never ends a Node response whose body stream errors, so the request stayed open.
-          if (!reportedError) return controller.error(error)
-          enqueueDone(controller)
-          controller.close()
-        }
-      },
-      async cancel(reason) {
-        await reader.cancel(reason)
-      },
-    }),
-    {
-      headers,
-      status: response.status,
-      statusText: response.statusText,
-    },
-  )
 }
 
 function createJsonErrorResponse(status: number, message: string): Response {
@@ -882,14 +825,24 @@ function observeChatThread(thread: Thread, delivery: AgentChannelDeliveryTracker
   })
 }
 
-async function observeChannelDeliveryResponse(response: Response, delivery: AgentChannelDeliveryTracker, runId?: string): Promise<Response> {
-  const terminalType = response.ok ? "completed" : response.status >= 500 ? "failed" : "rejected"
-  if (!response.body) {
-    await settleChannelDeliveryInvocation(delivery, "completed", terminalType, { runId })
-    return response
-  }
-  const reader = response.body.getReader()
+function channelDeliveryTerminalType(response: Pick<Response, "ok" | "status">): "completed" | "failed" | "rejected" {
+  return response.ok ? "completed" : response.status >= 500 ? "failed" : "rejected"
+}
+
+/**
+ * Records the delivery's outcome when `stream` ends. A delivery fails when the stream fails, is cancelled, or has a
+ * chunk that `failure` reports.
+ */
+function observeChannelDeliveryStream<T>(
+  stream: ReadableStream<T>,
+  delivery: AgentChannelDeliveryTracker,
+  terminalType: "completed" | "failed" | "rejected",
+  runId?: string,
+  failure?: (chunk: T) => string | undefined,
+): ReadableStream<T> {
+  const reader = stream.getReader()
   let finished = false
+  let reported: string | undefined
   const complete = async () => {
     if (finished) return
     finished = true
@@ -903,30 +856,39 @@ async function observeChannelDeliveryResponse(response: Response, delivery: Agen
       runId,
     })
   }
-  return new Response(
-    new ReadableStream({
-      async pull(controller) {
-        try {
-          const next = await reader.read()
-          if (next.done) {
-            await complete()
-            controller.close()
-          } else controller.enqueue(next.value)
-        } catch (error) {
-          await fail(error)
-          controller.error(error)
+  return new ReadableStream<T>({
+    async pull(controller) {
+      try {
+        const next = await reader.read()
+        if (next.done) {
+          await (reported === undefined ? complete() : fail(reported))
+          controller.close()
+        } else {
+          reported ??= failure?.(next.value)
+          controller.enqueue(next.value)
         }
-      },
-      async cancel(reason) {
-        try {
-          await reader.cancel(reason)
-        } finally {
-          await fail(reason || agentDiagnostics.AGENT_R0771({ message: "Channel response stream was cancelled." }))
-        }
-      },
-    }),
-    response,
-  )
+      } catch (error) {
+        await fail(error)
+        controller.error(error)
+      }
+    },
+    async cancel(reason) {
+      try {
+        await reader.cancel(reason)
+      } finally {
+        await fail(reason || agentDiagnostics.AGENT_R0771({ message: "Channel response stream was cancelled." }))
+      }
+    },
+  })
+}
+
+async function observeChannelDeliveryResponse(response: Response, delivery: AgentChannelDeliveryTracker, runId?: string): Promise<Response> {
+  const terminalType = channelDeliveryTerminalType(response)
+  if (!response.body) {
+    await settleChannelDeliveryInvocation(delivery, "completed", terminalType, { runId })
+    return response
+  }
+  return new Response(observeChannelDeliveryStream(response.body, delivery, terminalType, runId), response)
 }
 
 function githubInstallationId(payload: unknown): number | undefined {
@@ -8808,11 +8770,26 @@ function mergeAgentChannelChatRouteInput(
   }
 }
 
-async function toAgentChatFetchResponse(result: unknown): Promise<Response> {
-  if (result instanceof Response || isResponseLike(result)) {
-    return withCleanUiMessageStreamResponse(result)
-  }
-  return withCleanUiMessageStreamResponse(createAgentUIMessageStreamResponse({ stream: readableStreamFromResult(result) }))
+/** The `errorText` of an AI SDK UI message `error` part. */
+function uiMessageErrorText(part: unknown): string | undefined {
+  if (!isRecord(part) || part.type !== "error") return
+  return isRuntimeString(part.errorText) ? part.errorText : "Agent stream failed."
+}
+
+async function toAgentChatFetchResponse(result: unknown, delivery: AgentChannelDeliveryTracker, runId?: string): Promise<Response> {
+  const response = result instanceof Response || isResponseLike(result) ? result : undefined
+  if (response && !isUIMessageStreamResponse(response)) return await observeChannelDeliveryResponse(response, delivery, runId)
+  // Encode the parts again. The encoder ends a failed stream with an error frame and `[DONE]`, so the response ends.
+  const headers = new Headers(response?.headers)
+  headers.delete("content-encoding")
+  headers.delete("content-length")
+  const parts = response ? uiMessageStreamFromResponse(response) : readableStreamFromResult(result)
+  return createAgentUIMessageStreamResponse({
+    headers,
+    status: response?.status,
+    statusText: response?.statusText,
+    stream: observeChannelDeliveryStream(parts, delivery, channelDeliveryTerminalType(response ?? { ok: true, status: 200 }), runId, uiMessageErrorText),
+  })
 }
 
 function withAgentChatInvocationId(response: Response, invocationId: string): Response {
@@ -9063,7 +9040,7 @@ export function createChannelChatRouteHandler(
           }),
       )
       if (approvalCustody) result = approvalCustody.observe(result)
-      let response = await observeChannelDeliveryResponse(await toAgentChatFetchResponse(result), delivery, triggerInput.run?.runId)
+      let response = await toAgentChatFetchResponse(result, delivery, triggerInput.run?.runId)
       if (triggerInput.run?.runId) {
         response = withAgentChatInvocationId(response, await agentInvocationId(triggerInput.run.runId, agentName))
       }

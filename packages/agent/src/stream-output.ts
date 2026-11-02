@@ -1,6 +1,7 @@
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { usageRecordFromStreamChunk } from "./agent-output.ts"
+import { diagnosticErrorText } from "./agent-error.ts"
 import { isResponse } from "./internal/response.ts"
 
 import type { AgentUIMessageStreamProjection, AgentUsageRecord, MaybePromise } from "./types.ts"
@@ -358,7 +359,7 @@ function uiMessageStreamErrorText(error: unknown): string {
   if (!(error instanceof Error)) return "Agent stream failed."
   const code: unknown = Reflect.get(error, "code")
   const fix: unknown = Reflect.get(error, "fix")
-  return hasRuntimeType(code, "string") && hasRuntimeType(fix, "string") && !error.message.startsWith(code) ? `${code}: ${error.message}` : error.message
+  return hasRuntimeType(code, "string") && hasRuntimeType(fix, "string") ? diagnosticErrorText(code, error.message) : error.message
 }
 
 function createAgentUIMessageStream(options: {
@@ -393,6 +394,36 @@ function createAgentUIMessageStream(options: {
   })
 }
 
+/**
+ * Encodes UI message parts as SSE frames that end with `[DONE]`. When the parts fail, the body ends with an error frame
+ * instead of failing: H3 1, which Nuxt 4 runs, never ends a Node response whose body fails.
+ */
+export function encodeUIMessageStream(parts: ReadableStream<unknown>): ReadableStream<string> {
+  const reader = parts.getReader()
+  let lastPartIsError = false
+  return new ReadableStream<string>({
+    async pull(controller) {
+      try {
+        const result = await reader.read()
+        if (!result.done) {
+          controller.enqueue(`data: ${JSON.stringify(result.value)}\n\n`)
+          lastPartIsError = isRuntimeRecord(result.value) && result.value.type === "error"
+          return
+        }
+      }
+      catch (error) {
+        await reader.cancel(error).catch(() => {})
+        if (!lastPartIsError) controller.enqueue(`data: ${JSON.stringify({ errorText: uiMessageStreamErrorText(error), type: "error" })}\n\n`)
+      }
+      controller.enqueue("data: [DONE]\n\n")
+      controller.close()
+    },
+    async cancel(reason) {
+      await reader.cancel(reason)
+    },
+  })
+}
+
 export function createAgentUIMessageStreamResponse(options: {
   headers?: ConstructorParameters<typeof Headers>[0]
   status?: number
@@ -403,17 +434,8 @@ export function createAgentUIMessageStreamResponse(options: {
   for (const [key, value] of Object.entries(uiMessageStreamHeaders)) {
     if (!headers.has(key)) headers.set(key, value)
   }
-  const encoder = new TextEncoder()
-  const stream = options.stream.pipeThrough(new TransformStream<unknown, Uint8Array>({
-    flush(controller) {
-      controller.enqueue(encoder.encode("data: [DONE]\n\n"))
-    },
-    transform(part, controller) {
-      controller.enqueue(encoder.encode(`data: ${JSON.stringify(part)}\n\n`))
-    },
-  }))
   // SAFETY: Constructing a Response with a ReadableStream always creates a non-null body.
-  return new Response(stream, {
+  return new Response(encodeUIMessageStream(options.stream).pipeThrough(new TextEncoderStream()), {
     headers,
     status: options.status,
     statusText: options.statusText,

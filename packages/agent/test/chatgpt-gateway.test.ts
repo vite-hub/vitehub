@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { chatgpt } from "@vite-hub/gateways"
+import { agentDiagnostics } from "../src/agent-diagnostics.ts"
+import { toAgentPublicError } from "../src/agent-error.ts"
 import { defineAgent } from "../src/index.ts"
 import { chatgptCodexGateway, chatgptCodexLaunchArgs, chatgptProviderError } from "../src/internal/chatgpt-gateway.ts"
 import { normalizeAgentDriver } from "../src/internal/agent-driver.ts"
@@ -50,4 +52,12 @@ describe("ChatGPT recovery diagnostics", () => {
     expect(JSON.stringify(error)).toContain(recovery)
     expect(JSON.stringify(error)).not.toContain("test-secret-do-not-echo")
   })
+})
+
+it.each([
+  ["AGENT_R1017", "PROVIDER_QUOTA_EXHAUSTED", "AGENT_R1017: The ChatGPT plan usage limit was reached."],
+  ["AGENT_R1018", "PROVIDER_UNAVAILABLE", "AGENT_R1018: This ChatGPT account is not eligible for plan usage."],
+] as const)("reports %s as %s with its code", (code, publicCode, message) => {
+  // A quota stops workflow retries and shows the chat quota message. The code lets a client show the documented fix.
+  expect(toAgentPublicError(agentDiagnostics[code](), "http")).toEqual({ code: publicCode, error: message })
 })

@@ -367,11 +367,16 @@ const chatgptGatewayDiagnosticCodes = new Set([
   "AGENT_R1021", "AGENT_R1022", "AGENT_R1023", "AGENT_R1024", "AGENT_R1025",
 ])
 
+/** A diagnostic message that starts with its code, so a client can find the documented fix. */
+export function diagnosticErrorText(code: string, message: string): string {
+  return message.startsWith(code) ? message : `${code}: ${message}`
+}
+
 export function chatgptGatewayDiagnostic(error: unknown): string | undefined {
   const code = readAgentErrorProperty(error, "code")
   const message = readAgentErrorProperty(error, "message")
   if (!hasRuntimeType(code, "string") || !chatgptGatewayDiagnosticCodes.has(code) || !hasRuntimeType(message, "string")) return
-  return message.startsWith(code) ? message : `${code}: ${message}`
+  return diagnosticErrorText(code, message)
 }
 
 export function toAgentPublicError(error: unknown, context: AgentPublicErrorContext): AgentPublicError {
@@ -379,7 +384,8 @@ export function toAgentPublicError(error: unknown, context: AgentPublicErrorCont
     const providerError = aiSdkProviderPublicError(error)
     if (providerError) return providerError
     const chatgptError = chatgptGatewayDiagnostic(error)
-    if (chatgptError) return publicError("PROVIDER_UNAVAILABLE", chatgptError)
+    // AGENT_R1017 is the plan usage limit. Like other exhausted quotas, a retry cannot succeed before the limit resets.
+    if (chatgptError) return publicError(readAgentErrorProperty(error, "code") === "AGENT_R1017" ? "PROVIDER_QUOTA_EXHAUSTED" : "PROVIDER_UNAVAILABLE", chatgptError)
     // Only provider runtime diagnostics may opt into text-based quota classification.
     // Other internal failures can mention quotas without being provider failures.
     if (readAgentErrorProperty(error, "code") === "AGENT_R0726") {

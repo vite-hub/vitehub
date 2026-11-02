@@ -993,6 +993,19 @@ describe("ViteHub Nuxt integration", () => {
     expect(discovery.listenHooks).toHaveLength(0)
   })
 
+  it("leaves the dev server's Console plugin alone during CLI discovery", async () => {
+    const plugin = "/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs"
+    await rm(plugin, { force: true })
+    const discovery = createNuxt(true)
+    discovery.nuxt.options.vitehubCliDiscovery = true
+    await viteHubNuxtModule({ preset: "node", agent: true, console: { auth: false, authorize: hostManagedAuthorize } }, discovery.nuxt)
+    await discovery.runNitroConfigHook({})
+
+    // CLI discovery resolves no Console access, so a plugin that it wrote would differ and rebuild the dev server.
+    await expect(readFile(plugin, "utf8")).rejects.toThrow()
+    await discovery.runCloseHook()
+  })
+
   it.each([true, false])("carries the Node data directory into the Nuxt Console bootstrap (dev: %s)", async (dev) => {
     const application = createNuxt(dev)
     await viteHubNuxtModule({
