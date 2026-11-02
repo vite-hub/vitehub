@@ -50,7 +50,22 @@ function isUnreadableCandidate(error: unknown): boolean {
     && /permission denied|operation not permitted/i.test(failure.message)
 }
 
+// The CommonJS resolver also searches NODE_PATH, which pnpm bin shims set to the hidden
+// node_modules/.pnpm/node_modules store of packages the app did not install. The server
+// imports provider packages as ES modules, which never search NODE_PATH, so match that lookup.
+function isInstalledPackage(name: string, resolveFrom: string): boolean {
+  try {
+    findPackageJSON(name, resolveFrom)
+    return true
+  }
+  catch (error) {
+    if (!isPackageResolutionMiss(error)) throw error
+    return false
+  }
+}
+
 function resolvePackageJson(name: string, resolveFrom: string): string | undefined {
+  if (!isInstalledPackage(name, resolveFrom)) return
   const resolver = createRequire(resolveFrom)
   try {
     return resolver.resolve(`${name}/package.json`)

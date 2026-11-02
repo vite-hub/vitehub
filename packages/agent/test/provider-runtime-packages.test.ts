@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import Module, { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -122,6 +123,32 @@ describe("Provider runtime packages", () => {
     expect(resolveInstalledProviderExecutable("codex", { resolveFrom })).toBeUndefined()
     expect(resolveInstalledProviderExecutable("claude-code", { resolveFrom })).toBeUndefined()
     expect(resolveProviderRuntimePackages({ rootDir })).toEqual([])
+  })
+
+  it("ignores provider packages that only NODE_PATH reaches", async () => {
+    // pnpm bin shims point NODE_PATH at node_modules/.pnpm/node_modules, which holds packages the app did not install.
+    const target = "@anthropic-ai/claude-agent-sdk-linux-x64"
+    const store = await createProject({ claude: true, claudeTarget: target, codex: true, codexTarget: "@openai/codex-linux-x64" })
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-runtime-"))
+    tempDirs.push(rootDir)
+    await writeFile(join(rootDir, "package.json"), "{}\n")
+    // SAFETY: Module._initPaths is the CommonJS loader hook that rereads NODE_PATH.
+    const loader = Module as typeof Module & { _initPaths: () => void }
+    const nodePath = process.env.NODE_PATH
+    process.env.NODE_PATH = join(store.rootDir, "node_modules")
+    loader._initPaths()
+    try {
+      expect(createRequire(join(rootDir, "package.json")).resolve("@anthropic-ai/claude-agent-sdk")).toBe(join(store.claudePackageDir, "sdk.mjs"))
+      expect(resolveProviderRuntimePackages({ arch: "x64", libc: "glibc", platform: "linux", rootDir })).toEqual([])
+      expect(resolveInstalledProviderExecutable("claude-code", {
+        arch: "x64", libc: "glibc", platform: "linux", resolveFrom: join(rootDir, "package.json"),
+      })).toBeUndefined()
+    }
+    finally {
+      if (nodePath === undefined) delete process.env.NODE_PATH
+      else process.env.NODE_PATH = nodePath
+      loader._initPaths()
+    }
   })
 
   it("keeps host command fallbacks on Windows", async () => {
