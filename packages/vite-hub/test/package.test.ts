@@ -173,6 +173,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/sandbox/task/runtime/provider-loader",
   "@vite-hub/sandbox/task/runtime/state",
   "@vite-hub/schedule/operations",
+  "@vite-hub/schedule/runtime/console",
   "@vite-hub/schedule/runtime/state",
   "@vite-hub/schedule/runtime/static",
   "@vite-hub/workflow/operations",

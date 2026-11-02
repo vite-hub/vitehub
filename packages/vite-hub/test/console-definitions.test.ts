@@ -246,6 +246,35 @@ describe("Console definition inspection", () => {
     })
   })
 
+  it("updates the cells and fields of a build-time record from its runtime record", async () => {
+    installConsoleDefinitions("/project", {
+      schedules: {
+        kind: "record-table",
+        records: [{
+          cells: { manual: "No", schedule: "brief", timing: "15 6 * * 1-5 (Not a static string)" },
+          fields: [{ label: "Kind", value: "Static schedule" }, { label: "Time zone", value: "Not a static string" }, { label: "File", value: "server/schedules/brief.ts" }],
+          id: "definition:brief",
+        }],
+      },
+    }, [], {
+      schedules: () => [{
+        cells: { schedule: "brief", timing: "15 6 * * 1-5 (Europe/Madrid)" },
+        fields: [{ label: "Cron", value: "15 6 * * 1-5" }, { label: "Time zone", value: "Europe/Madrid" }],
+        id: "definition:brief",
+      }],
+    })
+
+    expect(await definitionsHandler(event("?section=schedules"))).toEqual({
+      kind: "record-table",
+      records: [{
+        cells: { manual: "No", schedule: "brief", timing: "15 6 * * 1-5 (Europe/Madrid)" },
+        fields: [{ label: "Kind", value: "Static schedule" }, { label: "Time zone", value: "Europe/Madrid" }, { label: "File", value: "server/schedules/brief.ts" }, { label: "Cron", value: "15 6 * * 1-5" }],
+        id: "definition:brief",
+      }],
+      section: "schedules",
+    })
+  })
+
   it("hides request-time reader errors", async () => {
     installConsoleDefinitions("/project", { schedules: { kind: "record-table", records: [] } }, [], {
       schedules: async () => {

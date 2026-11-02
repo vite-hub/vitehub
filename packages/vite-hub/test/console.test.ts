@@ -1282,7 +1282,9 @@ describe("Agent invocation console", () => {
       expect(generated).toContain(`from "vite-hub/console/definitions"`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["schedules"])`)
-      expect(generated).not.toContain("vitehubConsoleRuntimeReader")
+      // The runtime reader reads the Definitions that the Process Runtime loaded. It does not import a handler itself.
+      expect(generated).toContain(`import { readScheduleConsoleRecords as vitehubConsoleRuntimeReader0 } from "vite-hub/_internal/schedule/runtime/console"`)
+      expect(generated).not.toContain("() => import(")
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"schedules":{"kind":"record-table","records":[{"cells":{"manual":"Yes","schedule":"daily","timing":"0 0 1 * 1"},"fields":[{"label":"Kind","value":"Static schedule"},{"label":"Cron","value":"0 0 1 * 1"},{"label":"Time zone","value":"UTC"},{"label":"Manual","value":"Enabled"},{"label":"File","value":"server/schedules/daily.ts"},{"label":"Source","value":"server-schedules"},`)
       expect(generated).toContain(`{"label":"File","value":"server/schedules/dynamic.ts"},{"label":"Source","value":"server-schedules"}`)
       expect(generated).not.toContain(`"Cron","value":"0 10 * * *"`)
