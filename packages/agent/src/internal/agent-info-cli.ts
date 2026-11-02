@@ -1,6 +1,7 @@
 import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 import { isAbsolute, relative, resolve, sep } from "node:path"
 
+import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { defaultViteHubDevServerUrl, findViteHubDevServerUrl } from "@vite-hub/internal/cli"
 import { isExecutionAuthority, type ExecutionAuthority } from "@vite-hub/runtime"
 
@@ -82,8 +83,9 @@ function parseInfoArgs(args: string[], context: Pick<AgentInfoCliContext, "env" 
   const parsed: ParsedInfoArgs = {
     help: false,
     json: false,
-    // A Nuxt or Vite dev server records its URL in the project, so a port other than 5173 needs no --url.
-    url: findViteHubDevServerUrl([context.rootDir], context.env) ?? defaultViteHubDevServerUrl,
+    // A Nuxt or Vite dev server records its URL in the project root, so a port other than 5173 needs no --url.
+    // Nuxt's Vite root is the `app/` folder below it.
+    url: findViteHubDevServerUrl([...new Set([context.rootDir, resolveViteHubProjectRoot(context.rootDir)])], context.env) ?? defaultViteHubDevServerUrl,
   }
 
   for (let index = 0; index < args.length; index++) {
