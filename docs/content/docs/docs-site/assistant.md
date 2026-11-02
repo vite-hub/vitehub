@@ -71,7 +71,7 @@ Start the app, then sign in once from the app folder:
 pnpm vitehub connections connect chatgpt --url http://localhost:3000
 ```
 
-Every page now shows an **Ask** button at the bottom right. `⌘I` opens it too. The panel shows the conversation. When the grant is missing, it shows the sign-in command. When the plan limit is reached or the account is not eligible, it says so.
+Every page now shows an **Ask** button at the bottom right. `⌘I` (`Ctrl+I` on Windows and Linux) opens and closes the panel, and `Esc` closes it. From `lg` up, the panel is a column beside the page: drag its left edge to change the width, and double-click the edge to reset it. The browser keeps the width in a cookie. On narrower screens the panel is a sheet over the page. The panel shows the conversation. When the grant is missing, it shows the sign-in command. When the plan limit is reached or the account is not eligible, it says so.
 
 To open the panel from your own control, call `useDocsAssistant().toggle()`.
 
