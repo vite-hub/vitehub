@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { docsHomePath, docsSectionHome } from "#docs/navigation"
+import { docsAppPath, docsHomePath, docsSectionHome } from "#docs/navigation"
 
 import type { NuxtError } from "#app"
 
@@ -72,9 +72,9 @@ useSeoMeta({
 
         <p class="mt-10 text-sm text-muted">
           For coding agents:
-          <NuxtLink class="underline underline-offset-4 hover:text-highlighted" to="/llms.txt" external>llms.txt</NuxtLink>
+          <NuxtLink class="underline underline-offset-4 hover:text-highlighted" :to="docsAppPath('/llms.txt', config.appBase)" external>llms.txt</NuxtLink>
           and the
-          <NuxtLink class="underline underline-offset-4 hover:text-highlighted" to="/sitemap.xml" external>Sitemap</NuxtLink>.
+          <NuxtLink class="underline underline-offset-4 hover:text-highlighted" :to="docsAppPath('/sitemap.xml', config.appBase)" external>Sitemap</NuxtLink>.
         </p>
       </section>
     </main>

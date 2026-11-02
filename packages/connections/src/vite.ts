@@ -9,6 +9,8 @@ import {
   createNoExternalAddition,
   hasNitroConfigContext,
   isServerEnvironment,
+  loadsViteHubPackagesNatively,
+  renderNativePackageInstallPlugin,
   resolveViteHubProjectRoot,
   VITEHUB_APP_BASE_URL,
   VITEHUB_SERVER_DIRS,
@@ -486,6 +488,16 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
             ];
       nitro.alias = { ...alias, [CONNECTIONS_REGISTRY_ID]: nitroRegistryFile };
       nitro.externals = { ...externals, inline };
+      if (environment.command === "serve") {
+        // Node loads this package in `vite dev`, so a plugin hands it the generated registry.
+        const registryPlugin = resolve(generatedDir, "registry-dev-plugin.ts");
+        await writeFileIfChanged(registryPlugin, renderNativePackageInstallPlugin([
+          { from: `${importBase}/server`, install: "installConnectionsRegistry", module: "./registry.ts" },
+        ]));
+        const kit = createNitroServerKit(nitro);
+        kit.addPlugin(registryPlugin, "start");
+        Object.assign(nitro, kit.config);
+      }
 
       if (environment.command === "serve" || options.management) {
         const actorModule =
@@ -566,8 +578,8 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
       refresh();
       await refreshGeneratedFiles();
     },
-    configEnvironment(name, config) {
-      if (!isServerEnvironment(name, config)) return;
+    configEnvironment(name, config, env) {
+      if (!isServerEnvironment(name, config) || loadsViteHubPackagesNatively(name, env)) return;
       return {
         resolve: { noExternal: noExternalAddition(config.resolve?.noExternal) },
       };

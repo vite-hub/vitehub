@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { agentEnvAccess } from "../../env/test/agent-access.ts"
 
 import { createConnectionsCliContributor, runConnectionsCli } from "../src/cli.ts"
@@ -71,6 +71,44 @@ describe("vitehub connections", () => {
     const until = expiresAt.toTimeString().slice(0, 5)
     expect(output.stderr).toContain(`The link works one time, until ${until} (0 minutes).\nWaiting for http://127.0.0.1:47991/callback ...\n`)
     expect(output.stderr).toContain(`The browser did not return to http://127.0.0.1:47991/callback before ${until}, when the link expired. Run \`vitehub connections connect chatgpt\` again.\n`)
+  })
+
+  it("allows OAuth completion to finish after the provider's 30-second deadline", async () => {
+    // Scale seconds to milliseconds to exercise the full request deadline without a slow test.
+    const timeout = AbortSignal.timeout.bind(AbortSignal)
+    const deadlines = vi.spyOn(AbortSignal, "timeout").mockImplementation(ms => timeout(ms / 1_000))
+    const test = createTestRuntime()
+    const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => test.runtime })
+    const output = { stderr: "", stdout: "" }
+    const context = {
+      env: {},
+      stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) },
+      stdout: { write: (chunk: string | Uint8Array) => (output.stdout += String(chunk)) },
+    }
+    const request = (async (input, init) => {
+      const response = await handler(new Request(input, init))
+      if (JSON.parse(String(init?.body)).action === "complete") {
+        // The grant is durable, but the app's final response arrives after 30 seconds.
+        await new Promise(resolve => setTimeout(resolve, 31))
+        init?.signal?.throwIfAborted()
+      }
+      return response
+    }) as typeof fetch
+    try {
+      const done = runConnectionsCli("connect", ["mail", "--json"], context, { fetch: request, openBrowser: false, timeout: 5 })
+      await waitFor(() => output.stderr.includes("Waiting for"))
+      const authorization = new URL(output.stderr.match(/https:\/\/auth\.example\.com\/\S+/)![0])
+      test.provider.tokenResponses.push({ body: { access_token: ACCESS_TOKEN, expires_in: 3600, id_token: "account-1", refresh_token: REFRESH_TOKEN, scope: "mail.modify" } })
+      const callback = new URL(authorization.searchParams.get("redirect_uri")!)
+      callback.searchParams.set("code", "code-1")
+      callback.searchParams.set("state", authorization.searchParams.get("state")!)
+      expect((await fetch(callback)).status).toBe(200)
+      expect(await done, output.stderr).toBe(0)
+      expect(JSON.parse(output.stdout)).toMatchObject({ status: "connected" })
+    }
+    finally {
+      deadlines.mockRestore()
+    }
   })
 
   it("explains the port to forward when the browser runs on another computer", async () => {

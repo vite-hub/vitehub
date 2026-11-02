@@ -96,6 +96,30 @@ describe("hubConnections", () => {
     expect(inline.some(entry => typeof entry === "string" && nitroMatches(entry))).toBe(true);
   });
 
+  it("hands the registry to the package that Node loads in vite dev", async () => {
+    for (const command of ["serve", "build"] as const) {
+      const root = await createTempProject();
+      const plugin = hubConnections({ importBase: "vite-hub/connections" });
+      const config = { nitro: {}, root, [VITEHUB_NITRO_CONFIG_CONTEXT]: true };
+      await (plugin.config as unknown as ConfigHook)(config, { command, mode: "development" });
+      const registryPlugin = join(root, ".vitehub/nitro/connections/registry-dev-plugin.ts");
+      const plugins = (config.nitro as { plugins?: string[] }).plugins ?? [];
+      const configEnvironment = plugin.configEnvironment as (name: string, environment: { consumer: string }, env: { command: string }) => unknown;
+      if (command === "serve") {
+        expect(plugins).toEqual([registryPlugin]);
+        await expect(readFile(registryPlugin, "utf8")).resolves.toContain([
+          'import { installConnectionsRegistry as viteHubInstall0 } from "vite-hub/connections/server"',
+          'import * as viteHubModule0 from "./registry.ts"',
+        ].join("\n"));
+        expect(configEnvironment("nitro", { consumer: "server" }, { command })).toBeUndefined();
+      }
+      else {
+        expect(plugins).toEqual([]);
+        expect(configEnvironment("nitro", { consumer: "server" }, { command })).toEqual({ resolve: { noExternal: ["@vite-hub/connections"] } });
+      }
+    }
+  });
+
   it("writes the resolved activity retention into the registry", async () => {
     const registryFor = async (activityRetention?: { maxAgeMs?: number, maxRecords?: number } | false) => {
       const root = await createTempProject();
