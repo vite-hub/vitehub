@@ -284,7 +284,7 @@ pnpm vitehub channels status labeller gmail --url https://mail.example.com
 | `retrying` | Messages that the next sync retries, with `id`, `attempts`, and the last `error`. |
 | `skipped` | The last 100 skipped messages, newest first, with `id`, `attempts`, the last `error`, and `skippedAt`. |
 
-Errors are redacted and capped at 500 characters. They contain no message body. The `channels.status` [operation](/docs/agents/channels#operations-and-commands) returns the same data through Console RPC and MCP.
+Errors contain no message body and are redacted and capped at 500 characters. Invocation failures use a generic error because driver errors can include email content. The `channels.status` [operation](/docs/agents/channels#operations-and-commands) returns the same data through Console RPC and MCP.
 
 To retry a skipped message, replay it. A replay that starts its Invocation removes it from `skipped`:
 

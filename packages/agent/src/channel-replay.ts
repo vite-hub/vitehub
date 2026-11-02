@@ -4,7 +4,7 @@ import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { agentErrorMessage } from "./agent-error.ts"
 import { channelsConsoleHost } from "./channels-console-host.ts"
 import { isResolvedAgentTriggerHandledInvocation, reserveAgentChannelItem, runAgent } from "./index.ts"
-import { AgentInvocationClaimConflict, exclusiveAgentInvocation, inheritedAgentInvocationClaim, type AgentInvocationJournal, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations } from "./invocations.ts"
+import { AgentInvocationClaimConflict, exclusiveAgentInvocation, inheritedAgentInvocationClaim, type AgentInvocationJournal, type AgentInvocationRecordStatus, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations } from "./invocations.ts"
 import { agentInvocationName } from "./internal/agent-invocation-name.ts"
 import { channelMessageRunId } from "./internal/channel-run-id.ts"
 import { getAgentChannelStatusDefinition, type AgentChannelStatusDefinition } from "./internal/channel-status.ts"
@@ -55,6 +55,8 @@ export interface ReplayChannelItem {
   error?: string
   /** The Invocation run ID. */
   id: string
+  /** Journal status when the item was skipped because its Invocation already exists. */
+  invocationStatus?: AgentInvocationRecordStatus
   key: string
   /**
    * Why the item was skipped: an existing Invocation, the trigger answered without an Invocation, the delivery was
@@ -230,7 +232,7 @@ async function runChannelItem<TRuntimeConfig extends AgentRuntimeConfig>(
     if (!legacy.channelId && Object.keys(agentChannelOptions(run.agent)).some(channel => channel !== run.channel && legacyId.startsWith(`${legacyPrefix}:${channel}:`))) {
       return { error: "Cannot identify the owning Channel of the legacy replay Invocation. Use force to replay this item explicitly.", id: stableId, key, status: "failed" }
     }
-    return { id: stableId, key, reason: "existing", status: "skipped" }
+    return { id: stableId, invocationStatus: legacy.status, key, reason: "existing", status: "skipped" }
   }
   let existing: Awaited<ReturnType<NonNullable<typeof run.invocations>["getByRunId"]>> | undefined
   try {
@@ -240,7 +242,7 @@ async function runChannelItem<TRuntimeConfig extends AgentRuntimeConfig>(
     return { error: agentErrorMessage(error), id: stableId, key, status: "failed" }
   }
   if (existing && !((existing.status === "pending" || existing.status === "running") && existing.annotations?.[pendingAgentInvocationAnnotation] === true)) {
-    return { id: stableId, key, reason: "existing", status: "skipped" }
+    return { id: stableId, invocationStatus: existing.status, key, reason: "existing", status: "skipped" }
   }
   // A forced run needs a new ID because the stable one already has an Invocation.
   const id = run.force ? `${stableId}:${crypto.randomUUID()}` : stableId
@@ -287,7 +289,7 @@ async function runChannelItem<TRuntimeConfig extends AgentRuntimeConfig>(
     if (error instanceof AgentInvocationClaimConflict) {
       const conflicting = await run.invocations?.getByRunId(id, run.agentName)
       if (conflicting && !(conflicting.status === "pending" && conflicting.annotations?.[pendingAgentInvocationAnnotation] === true)) {
-        return { id, key, reason: "existing", status: "skipped" }
+        return { id, invocationStatus: conflicting.status, key, reason: "existing", status: "skipped" }
       }
     }
     return { error: agentErrorMessage(error), id, key, status: "failed" }

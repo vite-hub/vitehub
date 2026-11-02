@@ -647,7 +647,7 @@ describe("gmail() Channel", () => {
       expect(await state.get("mail:history-id")).toBe("100")
       const retrying = await readGmailChannelStatus(binding)
       expect(retrying).toMatchObject({ failures: 2, retrying: [{ attempts: 1, id: "m1" }], status: "failing" })
-      expect(retrying.retrying[0]!.error).toContain("The model failed.")
+      expect(retrying.retrying[0]!.error).toBe("The Invocation failed.")
       expect(retrying.retrying[0]!.error).not.toContain("sk-secret")
       await syncGmailMailbox(sync)
       expect(dispatch).toHaveBeenCalledTimes(2)
@@ -1486,6 +1486,58 @@ describe("gmail() Channel", () => {
     await expect(replayChannel(agent, "gmail", { cursor: "1", query: { ids: ["m1", "m3"] } })).resolves.toMatchObject({ items: [{ key: "m3", status: "completed" }], nextCursor: null })
     await expect(replayChannel(agent, "gmail", { cursor: "2", query: { ids: ["m1", "m3"] } })).rejects.toMatchObject({ code: "AGENT_R0936" })
     errors.mockRestore()
+  })
+
+  it("keeps failed journaled Invocations visible until a forced replay succeeds", async () => {
+    stubGmailEnv()
+    const google = await createGoogle()
+    let fail = true
+    const driver = vi.fn(({ input }: { input: { prompt?: unknown } }) => {
+      if (fail) throw new Error(String(input.prompt))
+      return "ok"
+    })
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const agent = defineAgent({
+      channels: { gmail: gmail({ fetch: google.fetch, maxAttempts: 3 }) },
+      driver: { run: driver },
+      invocations,
+      name: "labeller",
+    })
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-gmail-failed-status-"))
+    const state = createLibsqlAgentState({ url: `file:${join(directory, "state.db")}` })
+    durableWebhookFixtures.push({ directory, state })
+    const handler = createChannelWebhookRouteHandler(agent)
+    const routeOptions = { agentName: "labeller", webhookState: () => state }
+    const binding = await handler.channelState(new Request(audience), "gmail", routeOptions)
+    installChannelsConsoleHost({ agents: { labeller: agent }, handlers: { labeller: handler }, options: () => routeOptions })
+    const push = async (historyId: string) => {
+      const tasks: Promise<unknown>[] = []
+      const response = await handler(new Request(audience, {
+        body: JSON.stringify({ message: { data: base64Url(JSON.stringify({ emailAddress: "max@example.com", historyId })), messageId: `failure-${historyId}` }, subscription }),
+        headers: { authorization: `Bearer ${await google.token()}`, "content-type": "application/json" },
+        method: "POST",
+      }), "gmail", { ...routeOptions, waitUntil: task => void tasks.push(task) })
+      expect(response.status).toBe(204)
+      await Promise.all(tasks)
+    }
+    await push("100")
+    google.history.set("100", { historyId: "105", ids: ["m1"] })
+    await push("105")
+    await expect(invocations.getByRunId(channelMessageRunId("gmail", "m1"), "labeller")).resolves.toMatchObject({ status: "failed" })
+    await expect(readGmailChannelStatus(binding)).resolves.toMatchObject({ retrying: [{ attempts: 1, error: "The Invocation failed.", id: "m1" }] })
+    await push("105")
+    await expect(readGmailChannelStatus(binding)).resolves.toMatchObject({ retrying: [{ attempts: 2, id: "m1" }], status: "failing" })
+    expect(JSON.stringify(await state.get(`${binding.keyPrefix}sync-progress`))).not.toContain("Invoice")
+    await push("105")
+    expect(driver).toHaveBeenCalledTimes(1)
+    await expect(readGmailChannelStatus(binding)).resolves.toMatchObject({ retrying: [], skipped: [{ attempts: 3, error: "The Invocation failed.", id: "m1" }], status: "ok" })
+    expect(await state.get(`${binding.keyPrefix}history-id`)).toBe("105")
+    // Existing failed Invocations still deduplicate ordinary replay, and only a successful forced replay clears the entry.
+    await expect(replayChannel(agent, "gmail", { query: { ids: ["m1"] } })).resolves.toMatchObject({ processed: 0, skipped: 1 })
+    expect((await readGmailChannelStatus(binding)).skipped).toHaveLength(1)
+    fail = false
+    await expect(replayChannel(agent, "gmail", { force: true, query: { ids: ["m1"] } })).resolves.toMatchObject({ processed: 1 })
+    expect((await readGmailChannelStatus(binding)).skipped).toEqual([])
   })
 
   it.each([false, true])("retries unjournaled dispatch failures and recovers every expired-history page: %s", async (expired) => {

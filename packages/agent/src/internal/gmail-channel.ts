@@ -959,7 +959,7 @@ function mailboxState(binding: AgentChannelStateBinding): AtomicAgentStateLockAd
   return requireAtomicAgentStateLock(atomic.forCacheLocks?.() ?? atomic)
 }
 
-/** Redacted and capped error text. Gmail and Invocation errors do not contain message bodies. */
+/** Redacted and capped provider or sync error text. */
 function failureText(error: unknown): string {
   return redactCredentialText(error instanceof Error ? error.message : String(error)).slice(0, maxErrorLength)
 }
@@ -1125,7 +1125,9 @@ async function syncMailboxOnce(sync: GmailMailboxSync, cursorKey: string, renew:
           await renew()
           const dispatched = await sync.dispatch([message])
           log("messages.dispatched", { failed: dispatched.failed, processed: dispatched.processed, skipped: dispatched.skipped })
-          if (dispatched.failed > 0) failure = failureText(dispatched.items.find(item => item.status === "failed")?.error ?? "The Invocation could not start.")
+          // A terminal journal entry deduplicates dispatch without recovering the failed message.
+          // Driver errors may echo the email, so keep them out of Channel State and status.
+          if (dispatched.failed > 0 || dispatched.items.some(item => item.reason === "existing" && item.invocationStatus === "failed")) failure = "The Invocation failed."
         }
         await settle(id, failure, true)
       }
