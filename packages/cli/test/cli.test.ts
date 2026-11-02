@@ -91,6 +91,25 @@ describe("ViteHub CLI", () => {
     expect(stdout.output()).toBe("")
   })
 
+  it("passes the contributed public URL to commands", async () => {
+    const run = vi.fn()
+    const exitCode = await runViteHubCli({
+      args: ["channels", "sync"],
+      loadConfig: async () => ({
+        plugins: [
+          { name: "vite-hub/public-url", vitehub: { cli: () => ({ namespaces: [], publicUrl: "https://app.example.com" }) } },
+          { name: "agent", vitehub: { cli: { namespaces: [{ features: [{ name: "sync", run }], name: "channels" }] } } },
+        ],
+        root: "/repo",
+      }),
+      stderr: stream(),
+      stdout: stream(),
+    })
+
+    expect(exitCode).toBe(0)
+    expect(run).toHaveBeenCalledWith([], expect.objectContaining({ publicUrl: "https://app.example.com" }))
+  })
+
   it.each(["--version", "-v"])("prints the packaged version for %s without loading project config", async (flag) => {
     const stdout = stream()
     const stderr = stream()

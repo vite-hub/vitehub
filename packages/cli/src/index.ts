@@ -250,6 +250,7 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
     cwd,
     env,
     ...(options.fetch ? { fetch: options.fetch } : {}),
+    ...(contribution.publicUrl ? { publicUrl: contribution.publicUrl } : {}),
     rootDir,
     spawn,
     stderr,

@@ -16,6 +16,8 @@ import { hasRuntimeType } from "./runtime-type.ts"
 interface ChannelSyncCliContext {
   cwd: string
   env: NodeJS.ProcessEnv
+  /** The default `--url`, from `vitehub({ publicUrl })`. */
+  publicUrl?: string
   rootDir: string
   stderr: { write: (chunk: string | Uint8Array) => unknown }
   stdout: { write: (chunk: string | Uint8Array) => unknown }
@@ -126,15 +128,16 @@ function writeChannelSyncUsage(context: ChannelSyncCliContext): void {
       "       vitehub channels sync --stage <name> --channel <id> [--apply]",
       "",
       "Inspect and synchronize provider-owned Channel webhooks and account resources for one deployed stage.",
-      "The command is a dry run unless --apply is present. --url is required only for webhook Channels.",
+      "The command is a dry run unless --apply is present. Webhook Channels need --url or vitehub({ publicUrl }).",
       "",
       "Options:",
       "  --stage <name>             Load stage-specific Vite environment files.",
-      "  --url <https-origin>       Public origin of the deployed application. Not used by account Channels such as Gmail.",
+      "  --url <https-origin>       Public origin of the deployed application. Defaults to vitehub({ publicUrl }).",
+      "                             Not used by account Channels such as Gmail.",
       "  --agent <name>             Limit synchronization to one Agent.",
       "  --channel <id>             Limit synchronization to one Channel.",
       "  --apply                    Apply the complete validated plan.",
-      "  --confirm-origin <origin>  Confirm the exact deployment origin for --apply.",
+      "  --confirm-origin <origin>  Confirm the exact --url origin for --apply. Not needed for vitehub({ publicUrl }).",
       "  --allow-delete             Permit a planned provider webhook deletion.",
       "  --force                    Reapply registrations whose URL already matches.",
       "  --dry-run                  Explicitly select the default read-only mode.",
@@ -441,14 +444,14 @@ export async function runAgentChannelSyncCli(
     if (!parsed.stage) throw agentDiagnostics.AGENT_R0547({ message: "channels sync requires --stage <name>." })
     if (parsed.apply && parsed.dryRun)
       throw agentDiagnostics.AGENT_R0549({ message: "--apply and --dry-run cannot be used together." })
-    const origin = parsed.origin ? normalizeOrigin(parsed.origin, "--url") : undefined
-    if (parsed.apply && origin) {
-      if (!parsed.confirmOrigin)
-        throw agentDiagnostics.AGENT_R0550({ message: "--apply requires --confirm-origin <https-origin>." })
-      const confirmedOrigin = normalizeOrigin(parsed.confirmOrigin, "--confirm-origin")
-      if (confirmedOrigin !== origin)
-        throw agentDiagnostics.AGENT_R0551({ message: "--confirm-origin must exactly match --url." })
-    }
+    // A typed --url needs --confirm-origin for --apply. The configured public URL is already a deliberate choice.
+    const origin = parsed.origin
+      ? normalizeOrigin(parsed.origin, "--url")
+      : context.publicUrl ? normalizeOrigin(context.publicUrl, "vitehub({ publicUrl })") : undefined
+    if (parsed.apply && parsed.origin && !parsed.confirmOrigin)
+      throw agentDiagnostics.AGENT_R0550({ message: "--apply requires --confirm-origin <https-origin>." })
+    if (parsed.apply && origin && parsed.confirmOrigin && normalizeOrigin(parsed.confirmOrigin, "--confirm-origin") !== origin)
+      throw agentDiagnostics.AGENT_R0551({ message: parsed.origin ? "--confirm-origin must exactly match --url." : "--confirm-origin must exactly match vitehub({ publicUrl })." })
 
     const loadTargets = options.loadTargets || loadChannelSyncTargets
     const allTargets = await loadTargets({
@@ -469,7 +472,7 @@ export async function runAgentChannelSyncCli(
     // Webhook registration and removal depend on the deployment origin. Account resources do not.
     const originTarget = targets.find(target => target.sync.mode !== "account")
     if (originTarget && !origin) {
-      throw agentDiagnostics.AGENT_R0548({ message: `channels sync requires --url <https-origin> for ${originTarget.provider} Channel ${originTarget.agent}/${originTarget.channel}.` })
+      throw agentDiagnostics.AGENT_R0548({ message: `channels sync requires --url <https-origin> or vitehub({ publicUrl }) for ${originTarget.provider} Channel ${originTarget.agent}/${originTarget.channel}.` })
     }
 
     const providerResources = new Map<unknown, LoadedChannelSyncTarget>()

@@ -45,6 +45,13 @@ describe("vitehub({ publicUrl })", () => {
     }
   })
 
+  it("gives the CLI one public origin as the default --url of deployed-app commands", async () => {
+    const cli = (plugin: Plugin) => (plugin as Plugin & { vitehub?: { cli?: () => { publicUrl?: string } } }).vitehub?.cli?.()
+    expect(cli(publicUrlPlugin("https://agents.example.com/"))).toEqual({ namespaces: [], publicUrl: "https://agents.example.com" })
+    expect(cli(publicUrlPlugin(() => "https://agents.example.com"))).toBeUndefined()
+    expect(cli(publicUrlPlugin(undefined))).toBeUndefined()
+  })
+
   it("keeps an existing noExternal: true for server environments", () => {
     // SAFETY: The hook reads only the environment consumer and resolve options, which this fixture supplies.
     const hook = publicUrlPlugin(undefined).configEnvironment as (name: string, config: { consumer: string, resolve?: { noExternal?: true | string[] } }) => { resolve: { noExternal: unknown } } | undefined

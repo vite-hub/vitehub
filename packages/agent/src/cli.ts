@@ -1336,7 +1336,7 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
             run: async (args, context) => await runAgentChannelHistoryCli(args, context, {
               rootDir: options?.rootDir,
             }),
-            usage: "vitehub channels history --stage <name> --url <https-origin> --output <directory> [--thread <id>]",
+            usage: "vitehub channels history --stage <name> [--url <https-origin>] --output <directory> [--thread <id>]",
           },
           {
             description: "Send past Channel messages from a Channel history through its trigger.",
