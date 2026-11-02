@@ -183,7 +183,7 @@ export function injectPageToolsLoader(response: Response, base = "", policyHeade
  * without the hint, with the response policy's nonce when present. The bootstrap is the same for every visitor, so the
  * page keeps its cache policy. Body validators are removed because they describe the upstream HTML. A page that
  * already has a page tools script, such as a prerendered page, gets no second one. Other responses return unchanged,
- * including compressed HTML and pages explicitly declared with a non-UTF-8 charset.
+ * including compressed HTML and pages without an explicit UTF-8 charset.
  */
 function injectPageToolsBootstrap(response: Response, base = "", policyHeaders: Headers = response.headers): Response {
   return transformPage(response, viteHubPageToolsInlineScript(base, scriptNonce(policyHeaders)), false)
@@ -195,6 +195,9 @@ const pageConditions = ["if-none-match", "if-modified-since"]
 
 function withoutPageConditions(request: Request): Request {
   if (request.method !== "GET" && request.method !== "HEAD") return request
+  // Browser navigations explicitly accept HTML. Resource requests with other or wildcard Accept values must
+  // retain their validators: their paths alone cannot tell us whether the response will be transformed.
+  if (!request.headers.get("accept")?.split(",").some(type => /^\s*text\/html(?:\s*;|\s*$)/i.test(type))) return request
   if (!pageConditions.some(name => request.headers.has(name))) return request
   const headers = new Headers(request.headers)
   for (const name of pageConditions) headers.delete(name)
@@ -211,7 +214,8 @@ function transformPage(response: Response, tag: string, personal: boolean): Resp
   const encoding = response.headers.get("content-encoding")
   if (encoding && encoding.toLowerCase() !== "identity") return response
   const charset = htmlCharset(type)
-  if (charset && !/^utf-?8$/i.test(charset)) return response
+  // A missing HTTP charset can select a legacy encoding through HTML metadata or browser fallback sniffing.
+  if (!/^utf-?8$/i.test(charset ?? "")) return response
   const headers = new Headers(response.headers)
   for (const name of pageBodyHeaders) headers.delete(name)
   if (personal) headers.set("cache-control", "private, no-store")
@@ -281,7 +285,7 @@ export function installViteHubPageTools(nitroApp: unknown, options: ViteHubPageT
     Reflect.set(nitroApp, "fetch", async (request: Request, ...rest: unknown[]) => {
       const base = state().bases.get(nitroApp) ?? ""
       const addition = request instanceof Request ? pageAddition(nitroApp, request, base) : undefined
-      // An upstream 304 could reuse a page cached before this bootstrap was deployed.
+      // An upstream 304 on a document request could reuse a page cached before this bootstrap was deployed.
       if (addition) request = withoutPageConditions(request)
       // Nitro 3 preserves the Web request as event.req. Each request carries its own app binding.
       if (request instanceof Request) state().apps.set(request, nitroApp)
@@ -302,7 +306,9 @@ export function installViteHubPageTools(nitroApp: unknown, options: ViteHubPageT
     if (!request || !pageAddition(nitroApp, request, base)) return
     const method = event.web?.request?.method ?? event.node?.req?.method?.toUpperCase() ?? "GET"
     if (method !== "GET" && method !== "HEAD") return
-    if (event.web?.request) event.web.request = withoutPageConditions(event.web.request)
+    const unconditional = withoutPageConditions(request)
+    if (unconditional === request) return
+    if (event.web?.request) event.web.request = unconditional
     const headers = event.node?.req?.headers
     if (headers) for (const name of pageConditions) delete headers[name]
   }])

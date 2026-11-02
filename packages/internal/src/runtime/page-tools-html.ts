@@ -1,11 +1,15 @@
 import { viteHubPageToolsInlineScript, viteHubPageToolsInlineStart, viteHubPageToolsLoader, viteHubPageToolsMarker } from "./page-tools-shared.ts"
 
+function tagNonce(script: string): string | undefined {
+  return / nonce="([\w+/=-]+)"/.exec(script.slice(0, script.indexOf(">")))?.[1]
+}
+
 function isGeneratedCheck(inline: string): boolean {
   const at = inline.indexOf("import(")
   if (at === -1) return false
   try {
     const path: unknown = JSON.parse(inline.slice(at + 7, -1))
-    const nonce = / nonce="([\w+/=-]+)"/.exec(inline.slice(0, inline.indexOf(">")))?.[1]
+    const nonce = tagNonce(inline)
     return typeof path === "string" && path.endsWith(viteHubPageToolsLoader)
       && viteHubPageToolsInlineScript(path.slice(0, -viteHubPageToolsLoader.length), nonce) === `${inline}</script>`
   }
@@ -72,7 +76,12 @@ export function pageToolsHtmlTransform(loader: string): TransformStream<Uint8Arr
           const finish = tagEnd(pending)
           if (finish === -1) return
           if (inline) {
-            emit(isGeneratedCheck(inline) ? loader : inline + pending.slice(0, finish))
+            if (isGeneratedCheck(inline)) {
+              // A meta CSP may still require the prerendered nonce when no response nonce supersedes it.
+              const nonce = tagNonce(inline)
+              emit(nonce && !tagNonce(loader) ? loader.replace(` ${viteHubPageToolsMarker}`, ` nonce="${nonce}" ${viteHubPageToolsMarker}`) : loader)
+            }
+            else emit(inline + pending.slice(0, finish))
             inline = ""
             present = true
           }
