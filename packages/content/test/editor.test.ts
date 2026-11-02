@@ -22,14 +22,14 @@ const verdicts: Record<string, "exact" | "canonical" | "readonly"> = {
   "cases/list-markers.md": "readonly",
   "cases/marks-code-link.md": "exact",
   "cases/mdc-block-explicit-default.md": "exact",
-  "cases/mdc-block-html-attrs.md": "canonical",
+  "cases/mdc-block-html-attrs.md": "exact",
   "cases/mdc-block-multi-child.md": "exact",
   "cases/mdc-block-no-props.md": "exact",
   "cases/mdc-block-props.md": "exact",
   "cases/mdc-block-yaml-props.md": "canonical",
   "cases/mdc-inline-attrs.md": "exact",
   "cases/mdc-inline.md": "exact",
-  "cases/mdc-nested.md": "canonical",
+  "cases/mdc-nested.md": "exact",
   "cases/mdc-slots.md": "exact",
   "cases/mdc-span-attrs.md": "exact",
   "cases/mdc-unknown-block.md": "exact",
@@ -74,8 +74,8 @@ async function fixtures(): Promise<Array<[string, string]>> {
 describe("contentRealtimeEditor", () => {
   const editor = contentRealtimeEditor()
 
-  it("keeps a body read-only when the base parser would drop a footnote definition", async () => {
-    await expect(editor.verify!("Text[^a].\n\n[^a]: footnote.\n", {})).resolves.toMatchObject({ writable: false })
+  it("keeps a footnote reference and its definition as written", async () => {
+    await expect(editor.verify!("Text[^a].\n\n[^a]: footnote.\n", {})).resolves.toEqual({ writable: true })
   })
 
   it("verifies every fixture: kept as written, kept in its own form, or read-only without changing the body", async () => {

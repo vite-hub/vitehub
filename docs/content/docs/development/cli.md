@@ -109,6 +109,7 @@ Available namespaces:
 | `vitehub email preview` | Available | Email Package | Render a `server/emails` template without sending it. Needs no server. |
 | `vitehub db generate` | Available | Database Package | Refresh generated Database artifacts and generate Drizzle migrations. |
 | `vitehub db migrate` | Available | Database Package | Refresh generated Database artifacts and apply Drizzle migrations. |
+| `vitehub db export` | Available | Database Package | Write a SQL dump of the local SQLite file, or of the deployed database with `--remote`. |
 | `vitehub db tables` | Available | ViteHub Framework | List the tables of a database with their columns and relationships, from the running app or a deployment. |
 | `vitehub db rows` | Available | ViteHub Framework | Read one page of rows of a table, sorted or searched, from the running app or a deployment. |
 | `vitehub kv list` | Available | KV Package | List the keys of one KV store, one page at a time. |
@@ -359,6 +360,24 @@ pnpm vitehub db migrate
 ```
 
 `db generate` forwards Drizzle Kit arguments, supports `--name <name>` for a migration name, and uses `--custom` to create an empty custom migration. `db migrate` accepts forwarded Drizzle Kit migration arguments.
+
+## Export a Database
+
+`db export` writes a SQL dump of each database without a build. It reads the local SQLite file by default. `--remote` reads Cloudflare D1 through the Cloudflare API, D1 HTTP, remote libSQL, or Postgres through `pg_dump`.
+
+```bash [Terminal]
+pnpm vitehub db export
+pnpm vitehub db export --remote --stage production --output backups/database.sql
+```
+
+| Option | Description |
+| --- | --- |
+| `--remote` | Read the remote database. A database that is not a local file needs it. |
+| `--stage <name>` | Load the Vite env files of this mode. Variables from the current process take precedence. |
+| `--database <name>` | Export only this database. |
+| `--output <file>` | Write this file. Defaults to `.vitehub/exports/database/<name>-<local\|remote>-<time>.sql`. |
+
+See [Export a database](/docs/database/configure#export-a-database) for each driver and the dump format.
 
 ## Browse Database tables
 
