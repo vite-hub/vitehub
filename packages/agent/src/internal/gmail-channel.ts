@@ -1183,13 +1183,15 @@ async function planLabels(client: GmailClient, declared: Record<string, GmailLab
   const labels = await listLabels(client, true)
   const create: string[] = []
   const update: { id: string, name: string }[] = []
-  const current: Record<string, unknown> = {}
+  const current: Record<string, unknown> = Object.create(null)
   for (const [name, settings] of Object.entries(declared)) {
-    const label = labels.find(candidate => candidate.name === name)
+    let label = labels.find(candidate => candidate.name === name)
     if (!label) {
       create.push(name)
       continue
     }
+    // labels.list omits color; fetch full state only when the declaration manages it.
+    if (settings.color) label = await gmailRequest(client, labelSchema, { method: "GET", path: `labels/${encodeURIComponent(label.id)}` })
     current[name] = {
       ...(label.color ? { color: label.color } : {}),
       id: label.id,

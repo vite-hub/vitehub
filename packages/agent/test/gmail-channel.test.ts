@@ -134,7 +134,14 @@ async function createGoogle(options: { emailAddress?: string, inlineAttachment?:
     const path = url.pathname.replace("/gmail/v1/users/me/", "")
     const body = init?.body ? JSON.parse(String(init.body)) : undefined
     calls.push({ body, method, path, query: url.searchParams })
-    if (method === "GET" && path === "labels") return Response.json({ labels })
+    if (method === "GET" && path === "labels") {
+      // Gmail's list projection omits color; only labels.get returns it.
+      return Response.json({ labels: labels.map(({ id, labelListVisibility, messageListVisibility, name, type }) => ({ id, labelListVisibility, messageListVisibility, name, type })) })
+    }
+    if (method === "GET" && path.startsWith("labels/")) {
+      const label = labels.find(candidate => candidate.id === decodeURIComponent(path.slice("labels/".length)))
+      return label ? Response.json(label) : Response.json({ error: { code: 404, message: "Not Found" } }, { status: 404 })
+    }
     if (method === "POST" && path === "labels") {
       const label = { ...body, id: `Label_${labels.length + 1}`, type: "user" }
       labels.push(label)
@@ -1643,6 +1650,54 @@ describe("gmail() Channel", () => {
 
     // Gmail reports lowercase colors, so uppercase declarations do not cause repeated updates.
     expect((await syncGmailChannel(channel)).changes).toEqual([`Start or renew the Gmail watch on ${topic}`])
+  })
+
+  it("reads full state only for declared colored labels and does not patch matching colors again", async () => {
+    stubGmailEnv()
+    const google = await createGoogle()
+    google.labels.push({ color: { backgroundColor: "#fad165", textColor: "#000000" }, id: "Label_5", name: "Receipts", type: "user" })
+    const channel = gmail({
+      fetch: google.fetch,
+      labels: { Receipts: {}, Work: { color: { backgroundColor: "#000000", textColor: "#FFFFFF" } } },
+    })
+
+    expect((await syncGmailChannel(channel)).changes).toEqual([`Start or renew the Gmail watch on ${topic}`])
+    expect(google.writes()).toEqual([])
+    expect(google.calls.filter(call => call.path.startsWith("labels/")).map(call => `${call.method} ${call.path}`)).toEqual(["GET labels/Label_1"])
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await expect(syncGmailChannel(channel, { apply: true })).resolves.toMatchObject({ result: { labels: { created: [], updated: [] } } })
+    }
+    expect(google.writes()).toEqual(["POST watch", "POST watch"])
+    expect(google.labels.find(label => label.name === "Receipts")?.color).toEqual({ backgroundColor: "#fad165", textColor: "#000000" })
+  })
+
+  it("keeps a declared __proto__ label managed through sync and first use", async () => {
+    stubGmailEnv()
+    const google = await createGoogle()
+    const channel = gmail({ fetch: google.fetch, hideUnmanagedLabels: true, labels: { ["__proto__"]: { description: "Prototype mail" }, Work: {} } })
+    expect((await syncGmailChannel(channel)).changes).toEqual(["Create label \"__proto__\"", `Start or renew the Gmail watch on ${topic}`])
+    expect(google.writes()).toEqual([])
+    expect(inspectMessageChannelInstructions({ gmail: channel })[0]).toContain("- __proto__: Prototype mail")
+
+    const agent = defineAgent({
+      channels: { gmail: channel },
+      driver: { run: () => "" },
+      hooks: {
+        async "agent:finish"(event) {
+          if (event.message?.channel === "gmail") await event.message.label("__proto__")
+        },
+      },
+    })
+    expect((await replayChannel(agent, "gmail", { force: true, limit: 1 })).items[0]).toMatchObject({ status: "completed" })
+    expect(google.labels.find(label => label.name === "__proto__")).toMatchObject({ labelListVisibility: "labelShow" })
+    await expect(syncGmailChannel(channel, { apply: true })).resolves.toMatchObject({ result: { labels: { created: [], hidden: [], updated: [] } } })
+
+    // SAFETY: Gmail synchronization reads only Server Env and process environment from the callback context.
+    const sync = await getAgentChannelSyncDefinition(channel)!.resolve({} as never, channel)
+    const plan = await sync!.plan({ fetch: google.fetch, force: false })
+    expect(plan.desired.labels).toHaveProperty("__proto__", { description: "Prototype mail" })
+    expect(plan.current.labels).toHaveProperty("__proto__", { id: "Label_5", labelListVisibility: "labelShow", messageListVisibility: "show" })
+    expect(Object.keys(plan.current.labels!)).toEqual(["__proto__", "Work"])
   })
 
   it("rejects label colors and visibility that Gmail does not accept when the Channel is defined", () => {

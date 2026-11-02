@@ -4017,7 +4017,7 @@ function gmailOptionLabels<TRuntimeConfig extends AgentRuntimeConfig>(options: G
   if (options.hideUnmanagedLabels !== undefined && !hasRuntimeType(options.hideUnmanagedLabels, "boolean")) {
     throw invalid("hideUnmanagedLabels must be a boolean.")
   }
-  const labels: Record<string, GmailLabelSettings> = {}
+  const labels: Record<string, GmailLabelSettings> = Object.create(null)
   for (const [name, label] of Object.entries(options.labels || {})) {
     if (!name.trim()) throw invalid("labels must have non-empty names.")
     if (!isRecord(label)) throw invalid(`label "${name}" must be an object.`)
