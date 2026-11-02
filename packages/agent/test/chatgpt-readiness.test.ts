@@ -62,3 +62,24 @@ it("asks to install Codex when the app cannot resolve @openai/codex", async () =
   expect(test.prepare).not.toHaveBeenCalled()
   expect(test.useChatGPTCredential).not.toHaveBeenCalled()
 })
+
+it("asks to install Codex when Codex is gone at launch", async () => {
+  const agent = defineAgent({ name: "docs", runtime: false, driver: { kind: "codex", gateway: chatgpt() } })
+  const host = {
+    runtime: "vite" as const, memo: <T>(_key: string, create: () => T) => create(), waitUntil: () => undefined,
+    capabilities: {
+      connections: {
+        runtime: () => ({ inspect: async () => ({ status: "connected", chatgpt: { hostId: "urn:uuid:host", plan: "enabled" } }) }),
+        // Readiness found Codex. It is removed before the Driver resolves the executable that it launches.
+        useChatGPTCredential: async (_name: string, _options: unknown, use: (credential: unknown) => Promise<unknown>) => {
+          codex.executable = undefined
+          return await use({ accessToken: "token" })
+        },
+      },
+    },
+  }
+  await expect(runAgent(agent, host, { prompt: "How do I install it?" })).rejects.toMatchObject({
+    code: "AGENT_R1025",
+    fix: expect.stringContaining("@openai/codex"),
+  })
+})
