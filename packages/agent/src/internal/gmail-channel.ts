@@ -673,7 +673,7 @@ export async function cleanupGmailMailbox(client: GmailClient, rules: Readonly<R
   const results: GmailCleanupRuleResult[] = []
   for (const [rule, value] of Object.entries(rules)) {
     const query = gmailCleanupQuery(value)
-    const { ids } = await listGmailMessageIds(client, { limit: cleanupLimit, query })
+    const { ids } = await listGmailMessageIds(client, { includeSpamTrash: true, limit: cleanupLimit, query })
     for (let start = 0; apply && start < ids.length; start += messageFetchConcurrency) {
       await Promise.all(ids.slice(start, start + messageFetchConcurrency).map(async (id) => {
         try { await trashGmailMessage(client, id) }

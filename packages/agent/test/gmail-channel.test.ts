@@ -1621,7 +1621,7 @@ describe("gmail() Channel", () => {
     expect(instructions).not.toContain("Newsletters")
   })
 
-  it("lists cleanup matches, then trashes them only with apply", async () => {
+  it("lists cleanup matches including Spam, then trashes them only with apply", async () => {
     const requests: string[] = []
     const queries: unknown[] = []
     const channel = gmail({
@@ -1629,7 +1629,7 @@ describe("gmail() Channel", () => {
         requests.push(`${request.method} ${request.path}`)
         if (request.path === "messages") {
           queries.push(request.query)
-          return { messages: [{ id: "m1" }, { id: "gone" }] }
+          return { messages: [{ id: "m1" }, { id: "gone" }, ...(request.query?.includeSpamTrash === "true" ? [{ id: "spam" }] : [])] }
         }
         if (request.path === "messages/gone/trash") throw Object.assign(new Error("Not Found"), { status: 404 })
         return {}
@@ -1640,14 +1640,14 @@ describe("gmail() Channel", () => {
 
     await expect(cleanupGmailChannel(channel, { rules })).resolves.toEqual({
       applied: false,
-      rules: [{ messageIds: ["m1", "gone"], query, rule: "promotions" }],
+      rules: [{ messageIds: ["m1", "gone", "spam"], query, rule: "promotions" }],
     })
     expect(requests).toEqual(["GET messages"])
-    expect(queries).toEqual([{ includeSpamTrash: undefined, labelIds: undefined, maxResults: 500, pageToken: undefined, q: query }])
+    expect(queries).toEqual([{ includeSpamTrash: "true", labelIds: undefined, maxResults: 500, pageToken: undefined, q: query }])
 
     requests.length = 0
     await expect(cleanupGmailChannel(channel, { apply: true, rules })).resolves.toMatchObject({ applied: true })
-    expect(requests).toEqual(["GET messages", "POST messages/m1/trash", "POST messages/gone/trash"])
+    expect(requests).toEqual(["GET messages", "POST messages/m1/trash", "POST messages/gone/trash", "POST messages/spam/trash"])
   })
 
   it("rejects invalid cleanup rules before calling Gmail", async () => {
