@@ -96,6 +96,52 @@ describe("migration data loss", () => {
       expect(runLosses(createNotes, ["DROP SCHEMA `main`;"])).toEqual(["drops schema \"main\""])
     })
 
+    it.each([
+      "TABLE users",
+      "TABLE ONLY \"public\".\"users\"",
+      "TABLE notes UNION ALL TABLE users",
+    ])("flags a copy of older rows with %s", (query) => {
+      expect(runLosses(createNotes, [`CREATE TABLE copy AS ${query};`, "DROP TABLE copy;"])).toEqual(["drops table \"copy\""])
+      expect(runLosses(
+        [...createNotes, "CREATE TABLE copy (id integer);", "DROP TABLE copy;"],
+        [`CREATE TABLE copy AS ${query};`, "DROP TABLE copy;"],
+      )).toEqual(["drops table \"copy\""])
+    })
+
+    it("accepts a TABLE query that only copies rows from a table created by the run", () => {
+      expect(runLosses(createNotes, ["CREATE TABLE copy AS TABLE notes;", "DROP TABLE copy;"])).toEqual([])
+    })
+
+    it("flags older rows copied by INSERT with a TABLE query", () => {
+      expect(runLosses(createNotes, ["INSERT INTO notes TABLE users;", "DROP TABLE notes;"])).toEqual(["drops table \"notes\""])
+    })
+
+    it.each([
+      "TRUNCATE TABLE notes, users;",
+      "TRUNCATE ONLY notes, ONLY users;",
+      "TRUNCATE TABLE notes *, users * RESTART IDENTITY;",
+    ])("checks every target of %s", (statement) => {
+      expect(runLosses(createNotes, [statement])).toEqual(["deletes every row of \"notes\"; deletes every row of \"users\""])
+      expect(runLosses([...createNotes, "CREATE TABLE users (id integer);"], [statement])).toEqual([])
+    })
+
+    it("records qualified TRUNCATE targets separately", () => {
+      const statement = "TRUNCATE TABLE ONLY \"public\".\"notes\", \"public\".\"users\" *;"
+      expect(findDataLoss([statement])).toEqual([{
+        reason: "deletes every row of \"notes\"; deletes every row of \"users\"",
+        statement,
+        tables: ["public.notes", "public.users"],
+      }])
+    })
+
+    it("flags truncation after attaching a pre-existing partition", () => {
+      expect(runLosses(
+        ["CREATE TABLE fresh (id integer) PARTITION BY RANGE (id);"],
+        ["ALTER TABLE fresh ATTACH PARTITION existing FOR VALUES FROM (0) TO (100);"],
+        ["TRUNCATE TABLE fresh;"],
+      )).toEqual(["deletes every row of \"fresh\""])
+    })
+
     it("flags data loss on a new table that holds rows of an older table", () => {
       expect(runLosses(rebuild, ["DROP TABLE `notes`;"])).toEqual([
         "rebuilds table \"notes\", and ViteHub cannot confirm that the copy keeps every column",

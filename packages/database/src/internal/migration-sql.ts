@@ -87,7 +87,8 @@ function listNames(list: string): string[] {
 const dropTable = new RegExp(String.raw`^DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?(${qualifiedName}(?:\s*,\s*${qualifiedName})*)`, "i")
 // Postgres allows `ALTER TABLE t DROP c` without COLUMN. Other DROP forms of ALTER TABLE keep the rows.
 const alterDrop = new RegExp(String.raw`^ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(${qualifiedName})\s+DROP\s+(?!CONSTRAINT\b|DEFAULT\b|NOT\s+NULL\b|EXPRESSION\b|IDENTITY\b)(?:COLUMN\s+)?(?:IF\s+EXISTS\s+)?(${identifier})`, "i")
-const truncate = new RegExp(String.raw`^TRUNCATE\s+(?:TABLE\s+)?(?:ONLY\s+)?(${qualifiedName})`, "i")
+const truncateTarget = String.raw`(?:ONLY\s+)?(${qualifiedName})(?:\s*\*)?`
+const truncate = new RegExp(String.raw`^TRUNCATE\s+(?:TABLE\s+)?(${truncateTarget}(?:\s*,\s*${truncateTarget})*)`, "i")
 const deleteFrom = new RegExp(String.raw`^DELETE\s+FROM\s+(${qualifiedName})`, "i")
 const dropSchema = new RegExp(String.raw`^DROP\s+SCHEMA\s+(?:IF\s+EXISTS\s+)?(${identifier})`, "i")
 const renameTable = new RegExp(String.raw`^ALTER\s+TABLE\s+(${qualifiedName})\s+RENAME\s+TO\s+(${qualifiedName})`, "i")
@@ -153,7 +154,10 @@ function classifyStatement(statement: string, rebuilds: ReadonlyMap<string, Rebu
     return losses.length ? { reason: losses.map(loss => loss.reason).join("; "), tables: losses.map(loss => loss.table) } : undefined
   }
   if ((match = statement.match(alterDrop))) return { reason: `drops column "${unquote(match[2]!)}" from "${unquote(match[1]!)}"`, tables: [tableKey(match[1]!)] }
-  if ((match = statement.match(truncate))) return { reason: `deletes every row of "${unquote(match[1]!)}"`, tables: [tableKey(match[1]!)] }
+  if ((match = statement.match(truncate))) {
+    const names = [...match[1]!.matchAll(new RegExp(truncateTarget, "gi"))].map(target => target[1]!)
+    return { reason: names.map(name => `deletes every row of "${unquote(name)}"`).join("; "), tables: names.map(tableKey) }
+  }
   if ((match = statement.match(deleteFrom)) && !hasKeywordOutsideQuotes(statement, "WHERE")) return { reason: `deletes every row of "${unquote(match[1]!)}"`, tables: [tableKey(match[1]!)] }
   if ((match = statement.match(dropSchema))) return { reason: `drops schema "${unquote(match[1]!)}"`, tables: [] }
   return undefined
@@ -204,15 +208,15 @@ const renameTo = new RegExp(String.raw`^ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ON
 const writeInto = new RegExp(String.raw`^(?:(?:INSERT|REPLACE)(?:\s+OR\s+\w+)?\s+INTO|UPDATE(?:\s+OR\s+\w+)?(?:\s+ONLY)?)\s+(${qualifiedName})`, "i")
 // Statements that cannot put rows of one table into another.
 const keepsRows = /^(?:ALTER\s+TABLE|CREATE\s+(?:UNIQUE\s+)?INDEX|DROP\s+(?:INDEX|VIEW|TRIGGER|TYPE|SEQUENCE|SCHEMA)|CREATE\s+(?:TYPE|SCHEMA|SEQUENCE|EXTENSION)|DELETE|TRUNCATE|PRAGMA|COMMENT\s+ON|SELECT)\b/i
-const sourceTable = new RegExp(String.raw`^\s+(${qualifiedName})(?:\s+(?:AS\s+)?${identifier})?(\s*,)?`, "i")
+const sourceTable = new RegExp(String.raw`^\s+(?:ONLY\s+)?(${qualifiedName})(?:\s+(?:AS\s+)?${identifier})?(\s*,)?`, "i")
 
 /**
- * Lists the tables that a statement reads after `FROM` and `JOIN`, or `undefined` when it cannot tell, for example
- * with a comma join.
+ * Lists the tables read after `FROM`, `JOIN`, or a PostgreSQL `TABLE` query, or `undefined` when it cannot tell,
+ * for example with a comma join. A `CREATE TABLE` prefix must be removed before calling this.
  */
 function readTables(statement: string): string[] | undefined {
   const tables: string[] = []
-  for (const keyword of ["FROM", "JOIN"]) {
+  for (const keyword of ["FROM", "JOIN", "TABLE"]) {
     for (const index of keywordIndexes(statement, keyword)) {
       const match = statement.slice(index + keyword.length).match(sourceTable)
       // A subquery in parentheses names its own tables after its own FROM.
@@ -263,17 +267,18 @@ function trackNewTables(statement: string, tables: NewTables) {
     tables.inTrigger = true
     return
   }
-  const readsOnlyNewRows = () => {
-    if (!keywordIndexes(statement, "SELECT").length && !keywordIndexes(statement, "FROM").length) return true
-    return readTables(statement)?.every(table => noOlderRows.has(table)) ?? false
-  }
+  const readsOnlyNewRows = (query = statement) => readTables(query)?.every(table => noOlderRows.has(table)) ?? false
   const add = (table: string) => {
     if (!tables.fedByTrigger.has(table)) noOlderRows.add(table)
   }
   let match = statement.match(createTable)
   if (match) {
     // With IF NOT EXISTS, an older table keeps its rows. A table that this run dropped is new again.
-    if (!match[1] && readsOnlyNewRows()) add(tableKey(match[2]!))
+    if (!match[1]) {
+      const table = tableKey(match[2]!)
+      if (readsOnlyNewRows(statement.slice(match[0].length))) add(table)
+      else noOlderRows.delete(table)
+    }
     return
   }
   if ((match = statement.match(renameTo))) {
@@ -292,6 +297,8 @@ function trackNewTables(statement: string, tables: NewTables) {
     if (!readsOnlyNewRows()) noOlderRows.delete(tableKey(match[1]!))
     return
   }
+  // Attaching a partition can expose older rows through this table and any of its partition ancestors.
+  if (/^ALTER\s+TABLE\b/i.test(statement) && hasKeywordOutsideQuotes(statement, "ATTACH")) noOlderRows.clear()
   // A `WITH` query, a function, or another statement that ViteHub does not read could copy older rows anywhere.
   if (!keepsRows.test(statement)) noOlderRows.clear()
 }
