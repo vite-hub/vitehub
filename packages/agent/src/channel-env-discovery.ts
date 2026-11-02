@@ -100,8 +100,8 @@ function visitObjectProperties(tokens: string[], start: number, visit: (key: str
         if (/^[A-Za-z_$][\w$]*$/.test(token) || isStringToken(token)) {
           const key = isStringToken(token) ? stringTokenValue(token) : token
           if (key === undefined) return false
-          // A shorthand property `{ telegram }` is its own value.
-          const shorthand = !isStringToken(token) && [",", "}"].includes(tokens[i + 1]!)
+          // A shorthand property or defaulted binding is its own value.
+          const shorthand = !isStringToken(token) && [",", "}", "="].includes(tokens[i + 1]!)
           const parameters = objectMethodParameters(tokens, i)
           visit(key, tokens[i + 1] === ":" ? i + 2 : shorthand ? i : undefined, parameters !== undefined && !["get", "set"].includes(tokens[propertyStart - 1]!))
           expectKey = false
@@ -179,19 +179,18 @@ export function discoverBuiltInChannelUses(
       else if (!channelModule && clause[b] === "defineAgent") agentFactories.add(local)
     }
   }
-  const shadowBindings = new Map([...bindings, ...[...namespaces].map(name => [name, name] as const)])
   // Remember each module-level const alias's declaration so local shadows still win.
-  const bareBindings = new Map(bindings)
-  const bareShadowBindings = new Map(shadowBindings)
+  const factoryBindings = new Map(bindings)
+  const factoryShadowBindings = new Map([...bindings, ...[...namespaces].map(name => [name, name] as const)])
   const aliasBindings = new Map<string, number>()
   const namespaceBindings = new Map([...namespaces].map(name => [name, name]))
   const declarations = moduleObjectDeclarations(tokens, lineBreaks, typescript, (binding, start, statementEnd) => {
     const destructured = tokens[binding] === "{"
-    const reference = channelFactoryReference(tokens, start, destructured ? namespaceBindings : bareBindings, namespaces, known, typescript, statementEnd)
-    if (!reference || reference.call || isShadowedAt(tokens, reference.index, tokens[reference.index]!, bareShadowBindings, lineBreaks, aliasBindings.get(tokens[reference.index]!))) return
+    const reference = channelFactoryReference(tokens, start, destructured ? namespaceBindings : factoryBindings, namespaces, known, typescript, statementEnd)
+    if (!reference || reference.call || isShadowedAt(tokens, reference.index, tokens[reference.index]!, factoryShadowBindings, lineBreaks, aliasBindings.get(tokens[reference.index]!))) return
     const register = (name: string, kind: string) => {
-      bareBindings.set(name, kind)
-      bareShadowBindings.set(name, kind)
+      factoryBindings.set(name, kind)
+      factoryShadowBindings.set(name, kind)
       aliasBindings.set(name, binding)
     }
     if (!destructured) register(tokens[binding]!, reference.kind)
@@ -206,7 +205,7 @@ export function discoverBuiltInChannelUses(
   const uses: Array<DiscoveredChannelUse & { index: number }> = []
   for (let i = 0; i < tokens.length; i++) {
     if (tokens[i - 1] === "." || tokens[i - 1] === "as") continue
-    const factory = !isShadowedAt(tokens, i, tokens[i]!, shadowBindings, lineBreaks) && factoryCall(tokens, i, bindings, namespaces, known, lineBreaks, typescript, options.modules === undefined)
+    const factory = !isShadowedAt(tokens, i, tokens[i]!, factoryShadowBindings, lineBreaks, aliasBindings.get(tokens[i]!)) && factoryCall(tokens, i, factoryBindings, namespaces, known, lineBreaks, typescript, options.modules === undefined)
     if (factory) {
       const start = skipOptionAssertions(tokens, factory.open + 1, typescript)
       let optionKeys = staticOptionKeys(tokens, start, ")", typescript, factory.name)
@@ -245,8 +244,8 @@ export function discoverBuiltInChannelUses(
       if (option !== "channels" || channels === undefined) return
       visitObjectProperties(tokens, channels, (_key, value) => {
         if (value === undefined) return
-        const reference = channelFactoryReference(tokens, value, bareBindings, namespaces, known, typescript)
-        if (reference && isShadowedAt(tokens, reference.index, tokens[reference.index]!, bareShadowBindings, lineBreaks, aliasBindings.get(tokens[reference.index]!))) return
+        const reference = channelFactoryReference(tokens, value, factoryBindings, namespaces, known, typescript)
+        if (reference && isShadowedAt(tokens, reference.index, tokens[reference.index]!, factoryShadowBindings, lineBreaks, aliasBindings.get(tokens[reference.index]!))) return
         // A factory call is found by the call scan. Runtime calls a bare factory without options
         // and uses the kind it returns, whatever the key is.
         if (reference?.call) return
