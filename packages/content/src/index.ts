@@ -22,7 +22,7 @@ import { collectionPathsOverlap, documentsRuntimeOf, isContentCollectionDefiniti
 import { resolveContentPreset } from "./presets.ts"
 import type { ContentPresetSelection } from "./presets.ts"
 import { createContentPreview } from "./preview.ts"
-import { contentSitemapEntries, normalizeSeoOptions, renderContentRobots, renderContentSitemap, siteOrigin } from "./sitemap.ts"
+import { contentMarkdownCopy, contentSitemapEntries, normalizeSeoOptions, renderContentRobots, renderContentSitemap, siteOrigin } from "./sitemap.ts"
 import type {
   AnyContentCollection,
   ContentCollection,
@@ -286,7 +286,8 @@ export type DefineContentOptions<
   live?: "auto" | false
   /**
    * Site-wide SEO routes. `sitemap: true` serves `/sitemap.xml` from the published documents of collections with a
-   * `url`; `robots: true` serves `/robots.txt`. ViteHub generates the routes when this call sets them.
+   * `url`; `robots: true` serves `/robots.txt`; `markdown: true` serves each of those Markdown documents at its URL plus
+   * `.md`. ViteHub generates the routes when this call sets them.
    */
   seo?: DefineContentSeoOptions
 }
@@ -363,6 +364,12 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
   sitemap(options?: ContentSitemapOptions): Promise<ContentSitemapEntry[]>
   /** The robots.txt text for `defineContent({ seo: { robots } })`. */
   robots(options?: ContentSitemapOptions): string
+  /**
+   * The Markdown copy that a path such as `/blog/hello.md` names: the published document at `/blog/hello`, under its
+   * title and description, with root-relative links made absolute when `site` is known. Null when no published
+   * Markdown document has that URL.
+   */
+  markdown(path: string, options?: ContentSitemapOptions): Promise<string | null>
 }
 
 /** Named-source operations retained across the Comark instance API migration. */
@@ -553,6 +560,8 @@ export function defineContent<
     hasPolicy: policy !== undefined,
     sitemap: async (sitemapOptions?: ContentSitemapOptions) =>
       documentsRuntime ? await contentSitemapEntries([...documentsRuntime.collections.values()], siteFor(sitemapOptions)) : [],
+    markdown: async (path: string, markdownOptions?: ContentSitemapOptions) =>
+      documentsRuntime ? await contentMarkdownCopy(documentsRuntime, path, siteFor(markdownOptions)) : null,
     robots: (sitemapOptions?: ContentSitemapOptions) => {
       const robots = seo?.robots
       return renderContentRobots({
@@ -664,7 +673,7 @@ export function defineContentHandler(
   }) as ContentHandler
 }
 
-type SeoRuntime = Pick<ContentDocumentsRuntime, "robots" | "seo" | "sitemap">
+type SeoRuntime = Pick<ContentDocumentsRuntime, "markdown" | "robots" | "seo" | "sitemap">
 
 /**
  * Serve `/sitemap.xml` from `content.sitemap()`. URLs use `defineContent({ seo: { site } })`, or the request origin.
@@ -692,6 +701,27 @@ export function defineContentRobotsHandler(content: SeoRuntime): ContentHandler 
     if (robots === undefined || robots === false) return new Response("Not Found", { status: 404 })
     return new Response(content.robots({ site: content.seo?.site ?? requestUrl(event).origin }), {
       headers: { "content-type": "text/plain; charset=utf-8" },
+    })
+  }) as ContentHandler
+}
+
+/**
+ * Serve `<url>.md` from `content.markdown()` as middleware: Nitro routes cannot match a suffix, so a request for any
+ * other path, or for a page without a published Markdown document, passes through. ViteHub generates it when
+ * `defineContent({ seo: { markdown: true } })`.
+ */
+export function defineContentMarkdownHandler(content: SeoRuntime): ContentHandler {
+  // SAFETY: ContentHandler preserves the callable and fetch contracts exposed by H3's handler.
+  return defineEventHandler(async (event: H3Event) => {
+    if (content.seo?.markdown !== true) return
+    const method = event.method || event.node?.req.method || "GET"
+    if (method !== "GET" && method !== "HEAD") return
+    const url = requestUrl(event)
+    if (!url.pathname.endsWith(".md")) return
+    const markdown = await content.markdown(url.pathname, { site: content.seo.site ?? url.origin })
+    if (markdown === null) return
+    return new Response(method === "HEAD" ? null : markdown, {
+      headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=0, must-revalidate" },
     })
   }) as ContentHandler
 }

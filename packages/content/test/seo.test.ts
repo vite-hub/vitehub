@@ -18,7 +18,7 @@ import { image } from "../../blob/src/reference.ts"
 import { contentHead as clientContentHead } from "../src/client.ts"
 import { createContentConsoleActions } from "../src/runtime/console.ts"
 import { documents, singleton } from "../src/collections.ts"
-import { contentHead, defineContent, defineContentRobotsHandler, defineContentSitemapHandler, renderContentSitemap, seo } from "../src/index.ts"
+import { contentHead, defineContent, defineContentMarkdownHandler, defineContentRobotsHandler, defineContentSitemapHandler, renderContentSitemap, seo } from "../src/index.ts"
 
 import type { ContentSeo, DefineContentSeoOptions } from "../src/index.ts"
 
@@ -279,11 +279,44 @@ describe("sitemap and robots", { timeout: 30_000 }, () => {
     expect(await (await app.request("https://shop.test/robots.txt")).text()).toBe("User-agent: *\nDisallow: /admin\nDisallow: /_vitehub\n\nSitemap: https://shop.test/sitemap.xml\n")
   })
 
+  it("serves each published Markdown document at its URL plus .md", async () => {
+    const content = await site({ site: "https://example.com", markdown: true })
+    const posts = content.collection("posts")
+    await posts.save("guide", {
+      data: { title: "Guide", seo: { title: "Start here", description: "How to start." } },
+      body: "Read [the API](/api) and [hello](https://other.test/x).\n\n```md\n[kept](/api)\n```\n",
+    })
+    await posts.save("headed", { data: { title: "Headed" }, body: "# Own heading\n\nText." })
+    await content.publish({ ids: ["guide", "headed"], collection: "posts" })
+
+    expect(await content.markdown("/blog/guide.md")).toBe(
+      "# Start here\n\n> How to start.\n\nRead [the API](https://example.com/api) and [hello](https://other.test/x).\n\n```md\n[kept](/api)\n```\n",
+    )
+    expect(await content.markdown("/blog/headed.md")).toBe("# Own heading\n\nText.\n")
+    expect(await content.markdown("/index.md")).toBe("# Home\n")
+    // Unpublished documents, JSON documents, and paths without .md have no copy.
+    expect(await content.markdown("/blog/<draft&>.md")).toBeNull()
+    expect(await content.markdown("/blog/missing.md")).toBeNull()
+    expect(await content.markdown("/blog/guide")).toBeNull()
+
+    // Middleware: it answers .md copies and passes every other request through.
+    const app = new H3().use(defineContentMarkdownHandler(content)).all("/**", () => "page")
+    const copy = await app.request("https://example.com/blog/guide.md")
+    expect(copy.headers.get("content-type")).toBe("text/markdown; charset=utf-8")
+    expect(await copy.text()).toContain("# Start here")
+    expect(await (await app.request("https://example.com/blog/guide")).text()).toBe("page")
+    expect(await (await app.request("https://example.com/blog/missing.md")).text()).toBe("page")
+    expect(await (await app.request("https://example.com/blog/guide.md", { method: "POST" })).text()).toBe("page")
+  })
+
   it("answers 404 for routes that seo does not turn on and rejects invalid options", async () => {
     const content = await site({ site: "https://example.com" })
     const app = new H3().get("/sitemap.xml", defineContentSitemapHandler(content)).get("/robots.txt", defineContentRobotsHandler(content))
     expect((await app.request("/sitemap.xml")).status).toBe(404)
     expect((await app.request("/robots.txt")).status).toBe(404)
+    const markdown = new H3().use(defineContentMarkdownHandler(content)).all("/**", () => "page")
+    expect(await (await markdown.request("/blog/hello.md")).text()).toBe("page")
+    expect(() => defineContent({ source: { async items() { return [] } }, seo: { markdown: "yes" as unknown as boolean } })).toThrow(/markdown must be true or false/)
     expect(() => defineContent({ source: { async items() { return [] } }, seo: { site: "example.com" } })).toThrow(/absolute http\(s\) URL/)
     // Disallowed paths start with /.
     expect(() => defineContent({ source: { async items() { return [] } }, seo: { robots: { disallow: ["admin"] } } })).toThrow(/disallow/)
