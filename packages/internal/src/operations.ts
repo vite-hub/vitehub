@@ -368,13 +368,23 @@ export function createOperationRegistry(sources: Iterable<{ operations: readonly
 
 /** Where a registry is installed for code that has no import path to it, such as agent capabilities. */
 const registryKey: unique symbol = Symbol.for("vitehub.operations.registry")
-const scope = globalThis as typeof globalThis & { [registryKey]?: OperationRegistry }
+const registryLoaderKey: unique symbol = Symbol.for("vitehub.operations.registry-loader")
+const scope = globalThis as typeof globalThis & { [registryKey]?: OperationRegistry, [registryLoaderKey]?: () => Promise<void> }
 
 export function installOperationRegistry(registry: OperationRegistry): void {
   scope[registryKey] = registry
 }
 
-export function installedOperationRegistry(): OperationRegistry | undefined {
+/**
+ * Install the function that installs the registry on first use. The Console installs its operations only when the
+ * first Console request or agent tool needs them, so the app does not load every primitive's operations at start.
+ */
+export function installOperationRegistryLoader(load: (() => Promise<void>) | undefined): void {
+  scope[registryLoaderKey] = load
+}
+
+export async function installedOperationRegistry(): Promise<OperationRegistry | undefined> {
+  await scope[registryLoaderKey]?.()
   return scope[registryKey]
 }
 
