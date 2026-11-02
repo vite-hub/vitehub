@@ -214,12 +214,11 @@ function createDependencySourceCheck(roots: readonly string[]): (path: string) =
   }
   return (path) => {
     let directory = path
-    while (!existsSync(resolve(directory, "package.json"))) {
+    while (!isNamedPackage(directory)) {
       const parent = dirname(directory)
       if (parent === directory) return false
       directory = parent
     }
-    if (!isNamedPackage(directory)) return false
     const root = roots.find(root => pathContains(root, directory))
     if (root) return relative(root, directory).split(sep).includes("node_modules")
     return !roots.some(root => pathContains(directory, root))

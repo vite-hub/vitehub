@@ -187,7 +187,7 @@ it("preserves the first alias when absolute keys share a retained path", () => {
   expect(aliases["/retained/src/__vitehub_alias_prefix__0"]).toBe("/retained/first/")
 })
 
-it("retains project alias targets and reads dependency alias targets in place", async () => {
+it.each([false, true])("retains project alias targets and reads dependency alias targets in place (nested manifests: %s)", async (nestedManifests) => {
   const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-dependency-alias-"))
   tempDirs.push(workspace)
   const rootDir = join(workspace, "app")
@@ -203,6 +203,9 @@ it("retains project alias targets and reads dependency alias targets in place", 
     writeFile(join(linked, "../../package.json"), '{"name":"vite-hub"}\n'),
     writeFile(linked, 'export const runtime = "linked"\n'),
   ])
+  if (nestedManifests) {
+    await Promise.all([generated, installed, linked].map(path => writeFile(join(dirname(path), "package.json"), '{"type":"module"}\n')))
+  }
   const aliases = {
     "#vitehub/agent/registry": generated,
     "@vite-hub/agent": installed,
@@ -210,6 +213,7 @@ it("retains project alias targets and reads dependency alias targets in place", 
   }
 
   const sources = providerOutputAliasSources(aliases, [rootDir])
+  expect(sources).toEqual([generated])
   const retained = await retainProviderOutputSources({
     artifactDir: join(rootDir, ".vitehub", "schedule-generations", "one", "sources"),
     paths: sources,
@@ -217,7 +221,6 @@ it("retains project alias targets and reads dependency alias targets in place", 
   })
   await writeFile(generated, 'export const registry = "next generation"\n')
 
-  expect(sources).toEqual([generated])
   const retainedAliases = retainProviderOutputAliases(aliases, retained)
   await expect(readFile(retainedAliases["#vitehub/agent/registry"]!, "utf8")).resolves.toContain('"generated"')
   expect(retainedAliases["@vite-hub/agent"]).toBe(installed)
