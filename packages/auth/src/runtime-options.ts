@@ -1,4 +1,6 @@
+import { memoryAdapter } from "better-auth/adapters/memory"
 import { createAuthMiddleware } from "better-auth/api"
+import { getAuthTables } from "better-auth/db"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { resolvePublicUrl } from "@vite-hub/runtime"
 import { resolveAuthMountPath } from "./application-path.ts"
@@ -7,10 +9,12 @@ import { deriveAuthSecret } from "./secret.ts"
 import { validateAuthEvents } from "./events-config.ts"
 import { createAuthEventsPlugin } from "./event-plugin.ts"
 import { createImpersonationPlugin, withImpersonationExpiry } from "./impersonation-plugin.ts"
+import { getAuthRuntimeState } from "./runtime-state.ts"
 import { createSessionRefreshPlugin } from "./session-refresh.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
 
+import type { BetterAuthOptions } from "better-auth"
 import type {
   AuthBetterAuthRuntimeOptions,
   AuthDefinition,
@@ -45,7 +49,23 @@ function isAuthSecondaryStorageMetadata(value: unknown): boolean {
     )
 }
 
+/**
+ * Without a database, Better Auth keeps users and sessions in the memory of one instance. Auth creates an instance per
+ * request, so the instances of one Auth Definition share these tables. A restart still removes them.
+ */
+function sharedMemoryDatabase(definition: AuthDefinition): NonNullable<BetterAuthOptions["database"]> {
+  const state = getAuthRuntimeState()
+  state.memoryDatabases ??= new WeakMap()
+  const tables = state.memoryDatabases.get(definition) ?? {}
+  state.memoryDatabases.set(definition, tables)
+  return (options: BetterAuthOptions) => {
+    for (const table of Object.keys(getAuthTables(options))) tables[table] ??= []
+    return memoryAdapter(tables)(options)
+  }
+}
+
 function stripViteHubOptions(
+  definition: AuthDefinition,
   options: AuthRuntimeOptions & Record<string, unknown>,
 ): AuthBetterAuthRuntimeOptions {
   const {
@@ -65,6 +85,8 @@ function stripViteHubOptions(
   }
   validateAuthEvents(events)
   const sessionRefresh = withSessionRefresh(rest, Boolean(storage.database || storage.secondaryStorage))
+  // `stateless()` keeps everything in cookies and must stay without a database.
+  if (!storage.database && options.preset === undefined) storage.database = sharedMemoryDatabase(definition)
   const declaredPlugins = sessionRefresh.plugins ?? rest.plugins ?? []
   // Bounds the admin plugin's impersonation sessions, which the app or the Console can start.
   const impersonation = declaredPlugins.some(plugin => plugin.id === "admin")
@@ -197,7 +219,7 @@ export function resolveAuthOptions(
   const resolveSnapshot = () => snapshot ??= callback ? requestRuntimeOptions : { ...declared, ...requestRuntimeOptions }
   return {
     get options() { return resolveSnapshot() },
-    get providerOptions() { return withDerivedSecret(stripViteHubOptions(resolveSnapshot()), input.event ?? request) },
+    get providerOptions() { return withDerivedSecret(stripViteHubOptions(definition, resolveSnapshot()), input.event ?? request) },
     requestRuntimeOptions,
   }
 }

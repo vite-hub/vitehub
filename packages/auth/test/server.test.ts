@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineAuth } from "../src/index.ts"
-import { createAuthRequestRuntimeOptions, createBetterAuthOptions, getAuth, getAuthForDefinition, requireAuthAccessRoutes, resetAuth, setAuthRuntimeEnvResolver, withAuth } from "../src/server.ts"
+import { createAuthRequestRuntimeOptions, createBetterAuthOptions, getAuth, getAuthForDefinition, handleAuthRequest, requireAuthAccessRoutes, resetAuth, setAuthRuntimeEnvResolver, withAuth } from "../src/server.ts"
 
 describe("server auth helpers", () => {
   afterEach(() => {
@@ -209,6 +209,29 @@ describe("server auth helpers", () => {
     expect(session?.user.email).toMatch(/^auth-\d+@example\.com$/)
   })
 
+  it("signs in a user who signed up in an earlier request without a database", async () => {
+    const definition = defineAuth({
+      appName: "ViteHub",
+      emailAndPassword: { enabled: true },
+    })
+    const origin = "http://localhost:3000"
+    const request = (path: string, body: object) => handleAuthRequest(definition, new Request(`${origin}/api/auth/${path}`, {
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json", origin },
+      method: "POST",
+    }))
+
+    expect((await request("sign-up/email", { email: "memory@example.com", name: "Memory", password: "passwordpassword" })).status).toBe(200)
+    const signIn = await request("sign-in/email", { email: "memory@example.com", password: "passwordpassword" })
+    const cookie = signIn.headers.getSetCookie().map(value => value.split(";")[0]).join("; ")
+    const session = await getAuthForDefinition(definition).api.getSession({ headers: new Headers({ cookie }), query: { disableCookieCache: true } })
+
+    expect(signIn.status).toBe(200)
+    expect(session?.user.email).toBe("memory@example.com")
+    expect((await request("sign-in/email", { email: "memory@example.com", password: "wrong-password" })).status).toBe(401)
+    expect(await getAuthForDefinition(defineAuth({ appName: "Other" })).api.getSession({ headers: new Headers({ cookie }), query: { disableCookieCache: true } })).toBeNull()
+  })
+
   it("does not reuse cached Auth state for a different Auth Definition", () => {
     const first = getAuthForDefinition(defineAuth({ appName: "First" }))
     const second = getAuthForDefinition(defineAuth({ appName: "Second" }))
@@ -251,7 +274,7 @@ describe("server auth helpers", () => {
     expect(response?.status).toBe(302)
     expect(response?.headers.get("location")).toContain("https://github.com/login/oauth/authorize")
     expect(response?.headers.get("location")).toContain("client_id=github-client")
-    expect(response?.headers.get("set-cookie")).toContain("better-auth.oauth_state=")
+    expect(response?.headers.get("set-cookie")).toContain("better-auth.state=")
     expect(runtime).toHaveBeenCalledOnce()
   })
 

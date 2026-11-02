@@ -54,7 +54,7 @@ curl -i http://localhost:5173/api/auth/sign-up/email \
 
 Successful output has status `200`, a `better-auth.session_token` cookie, and the new user's email. `hubAuth()` discovers `server/auth.ts`, exposes `/api/auth/**`, and generates the Nitro route handler for production builds.
 
-This default proves discovery and the session route locally. It is not durable storage. Configure a concrete Better Auth database adapter before relying on sessions across restarts or replicas, or use the `stateless()` preset for social sign-in without a database.
+This default proves discovery and the session route locally. Without a database adapter, all requests in one server process share one in-memory store, so a user who signs up can sign in until the process restarts. It is not durable storage. Configure a concrete Better Auth database adapter before relying on sessions across restarts or replicas, or use the `stateless()` preset for social sign-in without a database.
 
 ## Sessions without a database
 
