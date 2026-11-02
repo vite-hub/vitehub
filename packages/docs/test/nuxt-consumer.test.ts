@@ -1,7 +1,8 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
+import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { pathToFileURL } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { loadNuxt } from "nuxt"
 import { expect, it } from "vitest"
@@ -51,3 +52,15 @@ it("sets up the default MCP and discovery resources in a path-mounted Nuxt consu
     await rm(root, { recursive: true, force: true })
   }
 }, 30_000)
+
+it("ships the MCP tools as JavaScript that Nitro can parse from node_modules", async () => {
+  // Nitro compiles TypeScript only outside node_modules, so an installed app parses these files as they are.
+  const { parseAst } = createRequire(fileURLToPath(import.meta.resolve("nitropack")))("rollup/parseAst") as { parseAst: (code: string) => unknown }
+  const dir = join(import.meta.dirname, "../dist/runtime/mcp")
+  const files = (await readdir(dir)).sort()
+  expect(files).toEqual(["get-page.js", "list-pages.js"])
+  for (const file of files) {
+    const source = await readFile(join(dir, file), "utf8")
+    expect(() => parseAst(source), file).not.toThrow()
+  }
+})
