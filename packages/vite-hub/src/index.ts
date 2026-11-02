@@ -30,6 +30,7 @@ import { denoServerPackagesPlugin, finalizeDenoDeploymentOutput, type DenoServer
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
 import { nitroWorkerdDependencies } from "@vite-hub/internal/build/nitro-workerd-dependencies"
 import { createNoExternalAddition, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
+import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
 import { viteHubTypesPlugin } from "./internal/types.ts"
@@ -50,6 +51,7 @@ import { consoleAuthConfig, consoleInvocationRootPlugin, consoleVitePlugin, reso
 import { includedNitro } from "./nitro-plugin.ts"
 import { nitroStartupChunks } from "./internal/nitro-startup-chunks.ts"
 import { cloudflareExportConditions, detectPreset } from "./deployment.ts"
+import { cloudflareCustomDomainConfig, readProjectWranglerConfig } from "./cloudflare-custom-domain.ts"
 import { nitroOrderPlugins } from "./nitro-order.ts"
 import { viteHubTaskPlugin } from "./task/vite.ts"
 import { logsVitePlugin, type LogsOptions } from "./logs-vite.ts"
@@ -360,6 +362,9 @@ export interface ViteHubOptions {
    * Public origin of the deployed application, such as `https://agents.example.com`.
    * Console links, GitHub activity links, telemetry session links, the Auth base URL, and Connections OAuth callbacks use it.
    * A function receives each discovered Agent name. Builds only; `vite dev` uses the request origin.
+   * Server code reads it with `resolvePublicUrl()` from `vite-hub/runtime`. A string is also the default `--url` of
+   * `vitehub channels sync` and `channels history`, and on the `cloudflare` preset it adds the custom-domain route
+   * unless the app configures Worker routing.
    */
   publicUrl?: string | ((agentName: string) => string)
   agent?: boolean | ViteHubAgentOptions
@@ -773,6 +778,11 @@ function deploymentPlugins(
             const wrangler = cloneRecord(cloudflare.wrangler)
             if (typeof wrangler.name !== "string") wrangler.name = cloudflareResourceScope(name)
             if (options.logs && wrangler.observability === undefined) wrangler.observability = { enabled: true }
+            if (building && typeof options.publicUrl === "string") {
+              // Nitro reads the project wrangler file from its root, which is the Vite root.
+              const project = readProjectWranglerConfig(resolve(config.root ?? process.cwd()))
+              Object.assign(wrangler, cloudflareCustomDomainConfig(normalizePublicUrl(options.publicUrl), wrangler, project))
+            }
             if (options.realtime) {
               const durableObjects = cloneRecord(wrangler.durable_objects)
               const bindings = Array.isArray(durableObjects.bindings) ? durableObjects.bindings : []
@@ -980,9 +990,11 @@ function normalizePublicUrl(value: string): string {
 
 const addRuntimeNoExternal = createNoExternalAddition("@vite-hub/runtime")
 
-function publicUrlPlugin(publicUrl: ViteHubOptions["publicUrl"]): Plugin {
+function publicUrlPlugin(publicUrl: ViteHubOptions["publicUrl"]): Plugin & ViteHubCliContributingPlugin {
   return {
     name: "vite-hub/public-url",
+    // `channels sync` and `channels history` use one public origin as their default `--url`.
+    ...(typeof publicUrl === "string" ? { vitehub: { cli: () => ({ namespaces: [], publicUrl: normalizePublicUrl(publicUrl) }) } } : {}),
     config(config, { command }) {
       if (publicUrl === undefined || command !== "build") return
       let resolved: PublicUrlConfig

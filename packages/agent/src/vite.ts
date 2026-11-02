@@ -3318,6 +3318,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         const { createAgentCliContributor } = await import(/* @vite-ignore */ "./cli.js")
         if (agent === false || agent?.cli === false) return createAgentCliContributor(false)
         return createAgentCliContributor({
+          envDir: resolved?.envDir,
           eval: agent?.eval,
           rootDir: resolved?.root ?? process.cwd(),
           serverDirs,
