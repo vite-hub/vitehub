@@ -5,7 +5,11 @@ import components from "comark/plugins/components"
 import shiki from "comark/plugins/shiki"
 import taskList from "comark/plugins/task-list"
 import toc from "comark/plugins/toc"
-import comarkUi from "comark-ui/vue"
+import css from "shiki/dist/langs/css.mjs"
+import diff from "shiki/dist/langs/diff.mjs"
+import html from "shiki/dist/langs/html.mjs"
+import markdownLanguage from "shiki/dist/langs/markdown.mjs"
+import mdc from "shiki/dist/langs/mdc.mjs"
 
 import type { ComarkPlugin, MarkdownDocument, Node as ComarkNode } from "comark"
 import type { DocsSearchSection, DocsTocLink } from "./types.ts"
@@ -21,18 +25,34 @@ export interface DocsParserOptions {
   plugins?: ComarkPlugin[]
 }
 
-// Same blocks as the `Markdown` component of @vite-hub/ui, without math: `$` is common in docs prose and shell code.
-const preset = comarkUi({ chips: { download: false }, badge: { download: false }, icon: { fetch: false }, diagrams: { draw: false }, github: { html: false } })
+// Bash, JSON, JavaScript, TypeScript, Vue, and YAML are built in. Other code stays plain text.
+const languages = [css, diff, html, markdownLanguage, mdc]
 
-/** Parse Markdown with the blocks the docs theme renders, highlighted code, and a heading outline. */
+/**
+ * Parse Markdown with components (`::name`), GitHub alerts, task lists, highlighted code, and a heading outline.
+ * The theme renders the nodes with Nuxt UI prose components, so the parser adds no blocks of its own.
+ */
 export function createDocsParser(options: DocsParserOptions = {}): (markdown: string) => Promise<DocsDocument> {
   const extra = options.plugins ?? []
-  const builtIn = [alert(), taskList(), components(), attributes(), ...preset.plugins.filter(plugin => plugin.name !== "math"), shiki(), toc({ depth: 3, searchDepth: 2 })]
+  const builtIn = [alert(), taskList(), components(), attributes(), shiki({ languages }), toc({ depth: 3, searchDepth: 2 })]
   const parse = createMarkdownParser({ plugins: [...builtIn.filter(plugin => !extra.some(added => added.name === plugin.name)), ...extra] })
   return async (markdown) => {
     const document = await parse(markdown)
-    return { nodes: document.nodes, toc: tocOf(document) }
+    return { nodes: unwrapListParagraphs(document.nodes), toc: tocOf(document) }
   }
+}
+
+/**
+ * A list item holds its text directly, also in a loose list with blank lines between items. The prose theme spaces
+ * list items itself, and a paragraph margin inside each item doubled that space.
+ */
+function unwrapListParagraphs(nodes: ComarkNode[], inListItem = false): ComarkNode[] {
+  return nodes.flatMap((node): ComarkNode[] => {
+    if (typeof node === "string" || node[0] === null) return [node]
+    const [tag, props, ...children] = node
+    const unwrapped = unwrapListParagraphs(children, tag === "li")
+    return inListItem && tag === "p" ? unwrapped : [[tag, props, ...unwrapped]]
+  })
 }
 
 function tocOf(document: MarkdownDocument): DocsTocLink[] {

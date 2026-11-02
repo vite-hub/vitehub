@@ -19,6 +19,8 @@ export interface DocsPage {
   layout: DocsLayout
   tutorial?: "project" | "quickstart"
   codePanel?: boolean
+  /** Search result title and description, when they differ from the page heading. */
+  seo?: { title?: string, description?: string }
   /** Whether the navigation sidebar shows on this page. */
   sidebar: boolean
   /** Whether the "On this page" outline shows on this page. */

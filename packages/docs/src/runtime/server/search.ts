@@ -2,7 +2,7 @@ import { defineEventHandler, useStorage } from "#imports"
 
 import type { EventHandler, EventHandlerRequest } from "h3"
 import manifest from "#docs/manifest"
-import { docsManifestPages } from "../../page.ts"
+import { docsManifestPages } from "../../navigation.ts"
 import { createDocsParser, docsSearchSections } from "../../markdown.ts"
 
 import type { DocsSearchSection } from "../../types.ts"

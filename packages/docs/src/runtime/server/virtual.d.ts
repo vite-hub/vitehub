@@ -9,7 +9,7 @@ declare module "#docs/manifest" {
 declare module "#imports" {
   import type { H3Event } from "h3"
 
-  export { createError, defineEventHandler, getRouterParam, setHeader } from "h3"
+  export { createError, defineEventHandler, getRequestURL, getRouterParam, setHeader } from "h3"
   export function useStorage(base: string): { getItem<T>(key: string): Promise<T | null> }
   export function useRuntimeConfig(event?: H3Event): { public: Record<string, unknown> }
 }

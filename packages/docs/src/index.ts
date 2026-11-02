@@ -3,4 +3,22 @@ export type { DocsLayout, DocsPageFrontmatter, DocsPageNavigation, DocsSectionFi
 export type { DocsManifest, DocsPage, DocsSearchSection, DocsSection, DocsTocLink } from "./types.ts"
 export type { DocsDocument } from "./markdown.ts"
 export type { DocsPageLink, DocsPageResponse } from "./page.ts"
-export type { DocsModuleOptions, DocsPublicConfig, DocsSiteOptions, DocsTheme } from "./nuxt.ts"
+export type { DocsModuleOptions, DocsPublicConfig, DocsSiteOptions, DocsStartOptions, DocsTheme } from "./nuxt.ts"
+export {
+  docsCatalog,
+  docsManifestPages,
+  docsMarkdownLinks,
+  docsMcpInstallLinks,
+  docsPageIcon,
+  docsRailGroups,
+  docsRailIcon,
+  docsRawPath,
+  docsRelatedSections,
+  docsSectionForPath,
+  docsSectionIcon,
+  docsSidebarGroups,
+  docsTutorialNavigationCookie,
+  findDocsPage,
+  normalizeDocsPath,
+} from "./navigation.ts"
+export type { DocsCatalogGroup, DocsIcons, DocsLink, DocsMarkdownLinks, DocsSidebarGroup } from "./navigation.ts"

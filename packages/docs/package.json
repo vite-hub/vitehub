@@ -40,6 +40,11 @@
       "import": "./dist/assistant.js",
       "default": "./dist/assistant.js"
     },
+    "./navigation": {
+      "types": "./dist/navigation.d.ts",
+      "import": "./dist/navigation.js",
+      "default": "./dist/navigation.js"
+    },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
       "import": "./dist/nuxt.js",
@@ -59,14 +64,21 @@
     "test": "vp run -t @vite-hub/docs#build && vp test"
   },
   "dependencies": {
+    "@comark/vue": "0.8.1",
     "@nuxt/kit": "4.6.2",
+    "@nuxtjs/mcp-toolkit": "^0.22.0",
     "@vite-hub/content": "workspace:*",
     "@vite-hub/ui": "workspace:*",
+    "@vueuse/core": "catalog:ui",
     "comark": "catalog:markdown-ui",
     "comark-ui": "catalog:markdown-ui",
+    "defu": "catalog:unjs",
+    "nuxt-agent-discovery": "^0.7.0",
+    "nuxt-llms": "^0.2.0",
     "shiki": "^4.5.0",
     "valibot": "catalog:runtime",
-    "yaml": "catalog:tooling"
+    "yaml": "catalog:tooling",
+    "zod": "catalog:runtime"
   },
   "devDependencies": {
     "@nuxt/ui": "catalog:nuxt",
@@ -75,6 +87,7 @@
     "@vite-hub/gateways": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "h3": "catalog:unjs",
+    "nitropack": "catalog:unjs",
     "nuxt": "catalog:nuxt",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",

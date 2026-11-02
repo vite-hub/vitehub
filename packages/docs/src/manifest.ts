@@ -96,6 +96,7 @@ function readPage(dir: string, file: string, id: string, path: string): DocsPage
     layout,
     ...(frontmatter.tutorial ? { tutorial: frontmatter.tutorial } : {}),
     ...(frontmatter.codePanel ? { codePanel: true } : {}),
+    ...(frontmatter.seo ? { seo: frontmatter.seo } : {}),
     sidebar: frontmatter.sidebar ?? true,
     toc: frontmatter.toc ?? layout !== "landing",
     kind: navigation?.kind ?? null,
