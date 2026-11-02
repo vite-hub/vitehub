@@ -4,6 +4,7 @@ import { join, relative } from "node:path"
 import { parse as parseYaml } from "yaml"
 import { parseFrontmatter } from "comark/parse"
 
+import { normalizeDocsBase } from "./navigation.ts"
 import { docsPageOf, docsPagePath } from "./page.ts"
 import { docsFrontmatter, docsPageSchema, docsSectionSchema } from "./schema.ts"
 
@@ -28,7 +29,7 @@ export class DocsContentError extends Error {
 
 /** Read the whole content directory and compute sections, pages, and their order. */
 export function createDocsManifest(options: DocsManifestOptions): DocsManifest {
-  const base = normalizeBase(options.base)
+  const base = normalizeDocsBase(options.base)
   const baseDir = join(options.dir, base)
   const rootFile = join(baseDir, "index.md")
   const sections = existsSync(baseDir)
@@ -110,11 +111,6 @@ function idOf(file: string): string {
 /** With the base `/`, the section `guide` is `/guide`, not `//guide`. */
 function joinPath(base: string, ...segments: string[]): string {
   return `${base.replace(/\/+$/, "")}/${segments.join("/")}`
-}
-
-function normalizeBase(base: string): string {
-  const trimmed = base.replace(/\/+$/, "")
-  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`
 }
 
 function titleCase(input: string): string {

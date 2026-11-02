@@ -21,6 +21,7 @@ export {
   docsSidebarGroups,
   docsTutorialNavigationCookie,
   findDocsPage,
+  normalizeDocsBase,
   normalizeDocsPath,
 } from "./navigation.ts"
 export type { DocsCatalogGroup, DocsIcons, DocsLink, DocsMarkdownLinks, DocsSidebarGroup } from "./navigation.ts"

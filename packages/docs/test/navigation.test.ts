@@ -20,6 +20,7 @@ import {
   docsSectionIcon,
   docsSidebarGroups,
   findDocsPage,
+  normalizeDocsBase,
   normalizeDocsPath,
   type DocsIcons,
   isDocsPath,
@@ -63,6 +64,11 @@ describe("docs paths", () => {
     expect(isDocsPath("/docs/kv", "/docs")).toBe(true)
     expect(isDocsPath("/docsearch", "/docs")).toBe(false)
     expect(isDocsPath("/guide", "/")).toBe(true)
+  })
+
+  it("writes the docs base one way, as the manifest and the routes read it", () => {
+    for (const base of ["/docs", "/docs/", "docs", "docs/"]) expect(normalizeDocsBase(base)).toBe("/docs")
+    expect(normalizeDocsBase("/")).toBe("/")
   })
 
   it("resolves trailing slashes and `/index` to the same page", () => {

@@ -20,7 +20,7 @@ import { defu } from "defu"
 
 import { setupDocsAssistant } from "./assistant-nuxt.ts"
 import { createDocsManifest } from "./manifest.ts"
-import { docsManifestPages, docsPageIcon, docsRailIcon, docsRawFile, docsSectionIcon, type DocsIcons, type DocsLink } from "./navigation.ts"
+import { docsManifestPages, docsPageIcon, docsRailIcon, docsRawFile, docsSectionIcon, normalizeDocsBase, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { toRawMarkdown } from "./raw.ts"
 import { coversDocsPages } from "./page.ts"
 import { docsAppConfigUi, vercelTheme, type DocsThemeUi } from "./theme.ts"
@@ -409,7 +409,7 @@ function publicConfig(options: DocsModuleOptions): DocsPublicConfig {
   const url = (site.url ?? "").replace(/\/+$/, "")
   const dir = options.dir ?? "content"
   return {
-    base: options.base ?? "/docs",
+    base: normalizeDocsBase(options.base ?? "/docs"),
     site: {
       name: site.name ?? "Docs",
       url,

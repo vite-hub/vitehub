@@ -53,6 +53,12 @@ export function normalizeDocsPath(path: string): string {
   return path.replace(/\/index$/, "").replace(/(.)\/+$/, "$1") || "/"
 }
 
+/** A docs base with one leading slash and no trailing slash: `docs/` is `/docs`, and `/` stays `/`. */
+export function normalizeDocsBase(base: string): string {
+  const trimmed = base.replace(/\/+$/, "")
+  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`
+}
+
 /** Whether a path is the docs base or a page under it. Every path is under a base of `/`. */
 export function isDocsPath(path: string, base: string): boolean {
   return base === "/" || path === base || path.startsWith(`${base}/`)
