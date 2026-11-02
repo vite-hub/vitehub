@@ -1,4 +1,4 @@
-import { createRequire, findPackageJSON } from "node:module"
+import Module, { createRequire, findPackageJSON } from "node:module"
 import { dirname, join } from "node:path"
 
 import type { NodeRuntimePackage } from "@vite-hub/internal/build/vercel-runtime-packages"
@@ -50,10 +50,36 @@ function isUnreadableCandidate(error: unknown): boolean {
     && /permission denied|operation not permitted/i.test(failure.message)
 }
 
+// The CommonJS resolver also searches NODE_PATH, which pnpm bin shims set to the hidden
+// node_modules/.pnpm/node_modules store of packages the app did not install. Keep
+// customized resolvers, but exclude results that only the global search paths provide.
+function isInstalledPackage(name: string, resolveFrom: string, packageJsonPath: string): boolean {
+  try {
+    findPackageJSON(name, resolveFrom)
+    return true
+  }
+  catch (error) {
+    if (!isPackageResolutionMiss(error)) throw error
+  }
+  const resolver = createRequire(resolveFrom)
+  // SAFETY: Node exposes the initialized CommonJS global search paths on Module.
+  const { globalPaths } = Module as typeof Module & { globalPaths: string[] }
+  for (const path of globalPaths) {
+    try {
+      if (resolver.resolve(join(path, name, "package.json")) === packageJsonPath) return false
+    }
+    catch (error) {
+      if (!isPackageResolutionMiss(error)) throw error
+    }
+  }
+  return true
+}
+
 function resolvePackageJson(name: string, resolveFrom: string): string | undefined {
   const resolver = createRequire(resolveFrom)
+  let packageJsonPath: string | undefined
   try {
-    return resolver.resolve(`${name}/package.json`)
+    packageJsonPath = resolver.resolve(`${name}/package.json`)
   }
   catch (error) {
     // SAFETY: Node module resolution failures expose their stable error code through ErrnoException.
@@ -62,12 +88,15 @@ function resolvePackageJson(name: string, resolveFrom: string): string | undefin
       return
     }
   }
-  try {
-    return findPackageJSON(".", resolver.resolve(name))
+  if (!packageJsonPath) {
+    try {
+      packageJsonPath = findPackageJSON(".", resolver.resolve(name))
+    }
+    catch (error) {
+      if (!isPackageResolutionMiss(error)) throw error
+    }
   }
-  catch (error) {
-    if (!isPackageResolutionMiss(error)) throw error
-  }
+  if (packageJsonPath && isInstalledPackage(name, resolveFrom, packageJsonPath)) return packageJsonPath
 }
 
 function currentLinuxLibc(): RuntimeLibc {
