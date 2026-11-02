@@ -9,7 +9,7 @@ import { useChatGPTCredential } from "../../connections/src/internal/agent-crede
 import { createConnectionsRuntime } from "../../connections/src/runtime.ts"
 import { createChatGPTFake } from "../../connections/test/chatgpt-fake.ts"
 import { createStore } from "../../connections/test/helpers.ts"
-import { defineAgent, defineCapability, runAgent } from "../src/index.ts"
+import { codexDriver, defineAgent, defineCapability, runAgent } from "../src/index.ts"
 import type { AgentRunInput } from "../src/types.ts"
 
 const cleanup: Array<() => Promise<void>> = []
@@ -47,11 +47,11 @@ async function fixture(options: { expiresIn?: number } = {}) {
   const agent = defineAgent({
     name: "assistant", runtime: false,
     capabilities: [defineCapability({ id: "siwc-test", tools: { siwc_echo: { name: "siwc_echo", description: "Echo a value.", inputSchema: v.object({ text: v.string() }), execute: async ({ text }) => { calls.push(text); return text } } } })],
-    driver: { kind: "codex", gateway: chatgptGateway(), model: "gpt-6.1-sol", cwd: root,
+    driver: codexDriver({ gateway: chatgptGateway(), model: "gpt-6.1-sol", cwd: root,
       permissions: "allow-edits-unattended",
       env: { CODEX_HOME: home, HOME: root, XDG_CONFIG_HOME: root },
       instructions: "Reply with a short greeting.",
-    },
+    }),
   })
   const host = {
     runtime: "vite" as const, memo: <T>(_key: string, create: () => T) => create(), waitUntil: () => undefined,

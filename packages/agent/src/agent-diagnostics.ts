@@ -1444,7 +1444,7 @@ const agentDiagnosticHandles = defineDiagnostics({
       fix: "Use a separate Agent plugin instance per build or preserve the resolved build options in each environment config.",
     },
     AGENT_B0019: {
-      why: ({ files }: { files: string[] }) => `[vitehub] Provider Agent Drivers ("codex" and "claude-code") cannot run in a Cloudflare Worker. Used in ${files.join(", ")}.`,
+      why: "[vitehub] Provider Agent Drivers (codexDriver() and claudeCodeDriver()) cannot run in a Cloudflare Worker. A server module in this Worker build calls one.",
       fix: "Use a { model } or { run } Driver in Worker builds, or deploy Agents that use provider Drivers to a Node.js host.",
     },
     AGENT_R0939: {

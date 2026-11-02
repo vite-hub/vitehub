@@ -472,7 +472,7 @@ async function commentReactionEffect() {}
 
 it("inspects a first-party Channel imported from a relative module", async () => {
   const definition = await discover(
-    'import { defineAgent } from "vite-hub/agent"\nimport portalGithub from "../../portal.github.ts"\nexport default defineAgent({ sandbox: { runtime: { kind: "crabbox" } }, channels: { github: portalGithub }, driver: { kind: "codex" } })\n',
+    'import { codexDriver, defineAgent } from "vite-hub/agent"\nimport portalGithub from "../../portal.github.ts"\nexport default defineAgent({ sandbox: { runtime: { kind: "crabbox" } }, channels: { github: portalGithub }, driver: codexDriver() })\n',
     { "portal.github.ts": portalChannel },
   )
   expect(definition?.workspace).toBeUndefined()

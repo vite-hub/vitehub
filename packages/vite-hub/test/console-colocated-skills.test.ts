@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { expect, it, vi } from "vitest"
-import { defineAgent } from "@vite-hub/agent"
+import { codexDriver, defineAgent } from "@vite-hub/agent"
 import { agentWithColocatedSkills } from "@vite-hub/agent/runtime/workflow"
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
 
@@ -25,7 +25,7 @@ it("loads colocated Skills into the production Console definition", async () => 
     const skillsRuntime = await import(skillsImport)
     expect(skillsRuntime.agentWithColocatedSkills).toBeTypeOf("function")
     const install = vi.fn()
-    const definition = defineAgent({ driver: "codex", runtime: false, workspace: {} })
+    const definition = defineAgent({ driver: codexDriver(), runtime: false, workspace: {} })
     const execute = new Function("installConsoleSections", "installConsoleOperations", "installConsoleProjectName", "installConsoleBuild", "installConsoleDevelopment", "installConsoleAgentDefinitions", "agentWithColocatedSkills", "vitehubConsoleAgent0", generated.replace(/^import .+$/gm, "").replace("export default function", "function"))
     const installOperations = vi.fn()
     execute(() => {}, installOperations, () => {}, () => {}, () => {}, install, agentWithColocatedSkills, { default: definition })

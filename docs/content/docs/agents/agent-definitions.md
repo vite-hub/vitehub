@@ -29,7 +29,7 @@ export default defineAgent({
 
 Configure [model credentials](/docs/agents/agent-drivers#use-a-model-backed-driver) before running it. For a first result without a model or API key, follow [First Agent](/docs/getting-started/first-agent).
 
-A Driver selects one execution path: a model, a custom `run` function, typed `ask` questions, or a coding provider. The built-in `driver: 'codex'` and `driver: 'claude-code'` shorthands use `permissions: 'ask'`; provider actions request approval. Read [Agent Drivers](/docs/agents/agent-drivers) for provider setup and tagged options such as `{ kind: 'codex', model: 'gpt-5.5' }`.
+A Driver selects one execution path: a model, a custom `run` function, typed `ask` questions, or a coding provider. Create a provider Driver with `codexDriver()` or `claudeCodeDriver()` from `vite-hub/agent`. Both use `permissions: 'ask'` by default, so provider actions request approval. Read [Agent Drivers](/docs/agents/agent-drivers) for provider setup and options such as `codexDriver({ model: 'gpt-5.5' })`.
 
 Continue with [Run an Agent](/docs/agents/invocations#run-an-agent) to call this definition, or [Build a chat app](/docs/agents/build-a-chat-app) to connect a model to a browser UI.
 
