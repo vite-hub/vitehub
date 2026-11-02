@@ -1487,43 +1487,47 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         const consoleAlias = (config.alias ??= {}) as Record<string, string>
         consoleAlias[consoleConnectionsActorId] = await writeConsoleConnectionsActor(viteRoot)
       }
-      const consoleCatalog = await discoverConsoleBuildCatalog({
-        contentImportBase: options.contentImportBase ?? "vite-hub/content",
-        databaseDiscoveryRoot: hasReplayedDatabaseDiscoveryRoot
-          ? replayedDatabaseDiscoveryRoot
-          : configuredDatabaseDiscoveryRoot,
-        discoveryRoot: viteRoot,
-        plugins: nuxt.options.vite?.plugins,
-        projectRoot,
-        queueDiscoveryRoot: rootDir,
-        rateLimitDiscoveryRoot: configuredProjectRoot(viteRoot, replayConfig.rateLimit ?? nuxt.options.vite?.rateLimit ?? options.rateLimit),
-        rateLimitScanDirs: configuredScanDirs(replayConfig.rateLimit ?? nuxt.options.vite?.rateLimit ?? options.rateLimit),
-        sections: consoleSections,
-        scheduleDiscoveryRoot: configuredProjectRoot(viteRoot, options.schedule),
-        serverDirs: resolveNuxtServerDirs(nuxt.options),
-        workspaceDiscoveryRoot: configuredProjectRoot(viteRoot, replayConfig.workspace ?? nuxt.options.vite?.workspace ?? options.workspace),
-        workflowDiscoveryRoot: rootDir,
-      })
-      await writeConsoleNitroPlugin(
-        generatedConsolePluginPath ?? resolveGeneratedConsolePlugin(projectRoot, resolvedConsoleFixture, consoleInvocationRootState),
-        projectRoot,
-        consoleSections,
-        consoleCatalog.agents,
-        consoleCatalog,
-        consoleBlobStores,
-        resolvedConsoleFixture,
-        consoleInvocationRootState.binding,
-        consoleInvokeEnabled && !resolvedConsoleFixture,
-        consoleOptions.observations,
-        () => !consoleInvocationRootState.closed,
-        replayedConsoleJournal,
-        registeredConsoleAuthMode(consoleAuthConfig(consoleOptions), Boolean(nuxt.options.dev)),
-        consoleOptions.retention,
-        consoleAccess,
-        runtimeCapabilityImports,
-        nuxt.options.dev === true,
-        nuxt.options.app?.baseURL,
-      )
+      // CLI discovery resolves no Console access, so its plugin would differ from the running dev server's and make
+      // that server rebuild. The Vite Console plugin skips this write in CLI discovery too.
+      if (!nuxt.options.vitehubCliDiscovery) {
+        const consoleCatalog = await discoverConsoleBuildCatalog({
+          contentImportBase: options.contentImportBase ?? "vite-hub/content",
+          databaseDiscoveryRoot: hasReplayedDatabaseDiscoveryRoot
+            ? replayedDatabaseDiscoveryRoot
+            : configuredDatabaseDiscoveryRoot,
+          discoveryRoot: viteRoot,
+          plugins: nuxt.options.vite?.plugins,
+          projectRoot,
+          queueDiscoveryRoot: rootDir,
+          rateLimitDiscoveryRoot: configuredProjectRoot(viteRoot, replayConfig.rateLimit ?? nuxt.options.vite?.rateLimit ?? options.rateLimit),
+          rateLimitScanDirs: configuredScanDirs(replayConfig.rateLimit ?? nuxt.options.vite?.rateLimit ?? options.rateLimit),
+          sections: consoleSections,
+          scheduleDiscoveryRoot: configuredProjectRoot(viteRoot, options.schedule),
+          serverDirs: resolveNuxtServerDirs(nuxt.options),
+          workspaceDiscoveryRoot: configuredProjectRoot(viteRoot, replayConfig.workspace ?? nuxt.options.vite?.workspace ?? options.workspace),
+          workflowDiscoveryRoot: rootDir,
+        })
+        await writeConsoleNitroPlugin(
+          generatedConsolePluginPath ?? resolveGeneratedConsolePlugin(projectRoot, resolvedConsoleFixture, consoleInvocationRootState),
+          projectRoot,
+          consoleSections,
+          consoleCatalog.agents,
+          consoleCatalog,
+          consoleBlobStores,
+          resolvedConsoleFixture,
+          consoleInvocationRootState.binding,
+          consoleInvokeEnabled && !resolvedConsoleFixture,
+          consoleOptions.observations,
+          () => !consoleInvocationRootState.closed,
+          replayedConsoleJournal,
+          registeredConsoleAuthMode(consoleAuthConfig(consoleOptions), Boolean(nuxt.options.dev)),
+          consoleOptions.retention,
+          consoleAccess,
+          runtimeCapabilityImports,
+          nuxt.options.dev === true,
+          nuxt.options.app?.baseURL,
+        )
+      }
     }
     Object.assign(config, mergeGeneratedSourceNitroConfig(config, generatedSourceHandlers))
     const externals = isRecord(config.externals) ? config.externals : {}
