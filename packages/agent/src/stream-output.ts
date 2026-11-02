@@ -738,9 +738,16 @@ async function writeEventsToUiMessageStream(
   } = {},
 ) {
   const messageId = crypto.randomUUID()
-  let textStarted = false
+  // One text part per source message, ended by a tool call, so parts keep the order in which they ran.
+  let textId: string | undefined
+  let textSource: unknown
+  let textParts = 0
   let finished = false
   const hiddenTextIds = new Set<string>()
+  const endText = () => {
+    if (textId) writer.write({ type: "text-end", id: textId })
+    textId = undefined
+  }
   writer.write({ type: "start", messageId })
   for await (const event of events) {
     const usageRecord = usageRecordFromStreamChunk(event, events)
@@ -766,14 +773,19 @@ async function writeEventsToUiMessageStream(
     if (type === "text-delta") {
       const text = event.text ?? event.delta
       if (!hasRuntimeType(text, "string") || !text) continue
-      if (!textStarted) {
-        writer.write({ type: "text-start", id: messageId })
-        textStarted = true
+      const source = event.messageId ?? event.id
+      if (textId && source !== textSource) endText()
+      if (!textId) {
+        textId = textParts ? `${messageId}:${textParts}` : messageId
+        textParts++
+        textSource = source
+        writer.write({ type: "text-start", id: textId })
       }
-      writer.write({ type: "text-delta", id: messageId, delta: text })
+      writer.write({ type: "text-delta", id: textId, delta: text })
       continue
     }
     if (type === "tool-call") {
+      endText()
       writer.write({ type: "tool-input-available", toolCallId: event.id, toolName: event.name, input: event.input })
       continue
     }
@@ -803,7 +815,7 @@ async function writeEventsToUiMessageStream(
         : agentDiagnostics.AGENT_R0857({ message: hasRuntimeType(event.error, "string") ? event.error : hasRuntimeType(event.message, "string") ? event.message : "Agent stream failed." })
     }
   }
-  if (textStarted) writer.write({ type: "text-end", id: messageId })
+  endText()
   writer.write({ type: "finish", finishReason: finished ? "stop" : "unknown" })
 }
 
