@@ -462,7 +462,7 @@ function renderNitroScheduleModule(options: RenderNitroScheduleModuleOptions): s
   ].join("\n")
   return [
     "import { cp, rm, writeFile } from 'node:fs/promises'",
-    "import { join } from 'node:path'",
+    "import { basename, dirname, join } from 'node:path'",
     "",
     `const crons = ${JSON.stringify(options.crons)}`,
     `const netlifySchedules = ${JSON.stringify(netlifySchedules)}`,
@@ -478,8 +478,10 @@ function renderNitroScheduleModule(options: RenderNitroScheduleModuleOptions): s
     "",
     "async function writeNetlifyScheduleFunctions(nitro) {",
     "  const { dir, serverDir } = nitro.options.output",
+    "  // Older Nitro writes private server output; Netlify discovers only its public functions sibling.",
+    "  const functionsDir = basename(dir) === 'functions-internal' ? join(dirname(dir), 'functions') : dir",
     "  for (const { cron, functionName, name } of netlifySchedules) {",
-    "    const functionDir = join(dir, functionName)",
+    "    const functionDir = join(functionsDir, functionName)",
     "    await rm(functionDir, { force: true, recursive: true })",
     "    // Netlify deploys each function directory alone, so each one gets its own copy of the server bundle.",
     "    await cp(serverDir, functionDir, { filter: source => source !== join(serverDir, 'server.mjs'), recursive: true })",

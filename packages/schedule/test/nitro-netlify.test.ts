@@ -26,7 +26,12 @@ afterEach(async () => {
 })
 
 describe("Netlify scheduled functions in a Nitro build", () => {
-  it.each(["nitro", "vite"])("copies the final server bundle and runs after Nitro's plugins through %s", { timeout: 60_000 }, async (integration) => {
+  it.each([
+    { integration: "nitro", layout: "legacy" },
+    { integration: "vite", layout: "legacy" },
+    { integration: "nitro", layout: "frameworks-api" },
+    { integration: "vite", layout: "frameworks-api" },
+  ])("publishes the final server bundle and runs after Nitro's plugins through $integration ($layout)", { timeout: 60_000 }, async ({ integration, layout }) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-nitro-netlify-"))
     roots.push(root)
     await mkdir(join(root, "server", "schedules"), { recursive: true })
@@ -71,6 +76,8 @@ describe("Netlify scheduled functions in a Nitro build", () => {
       compatibilityDate: "2026-10-01",
       dev: false,
       logLevel: 0,
+      // Exercise the newer Frameworks API layout with the repository's pinned Nitro beta too.
+      ...(layout === "frameworks-api" ? { output: { dir: join(root, ".netlify", "v1", "functions") } } : {}),
       plugins: [join(root, "configure.mjs")],
       preset: "netlify",
       rootDir: root,
@@ -104,14 +111,16 @@ describe("Netlify scheduled functions in a Nitro build", () => {
     const nitro = instance!
 
     const functionName = "vitehub-schedule-cleanup"
-    const functionDir = join(nitro.options.output.dir, functionName)
-    expect(await readdir(nitro.options.output.dir)).toContain(functionName)
+    const functionsDir = join(root, ".netlify", ...(layout === "legacy" ? ["functions"] : ["v1", "functions"]))
+    const functionDir = join(functionsDir, functionName)
+    // Netlify discovers public functions or Frameworks API output, never functions-internal.
+    expect(await readdir(functionsDir)).toContain(functionName)
     await expect(readFile(join(nitro.options.output.serverDir, "migrations", "0001.sql"), "utf8")).resolves.toContain("CREATE TABLE")
     await expect(readFile(join(functionDir, "migrations", "0001.sql"), "utf8")).resolves.toContain("CREATE TABLE")
     // Netlify deploys each function directory alone, so load it without the app sources or the server function.
     const deployed = join(root, "deployed")
     await cp(functionDir, deployed, { recursive: true })
-    await rm(nitro.options.output.dir, { force: true, recursive: true })
+    await rm(join(root, ".netlify"), { force: true, recursive: true })
     await rm(join(root, "node_modules"))
     const scheduled = await import(pathToFileURL(join(deployed, `${functionName}.mjs`)).href) as {
       config: Record<string, unknown>
