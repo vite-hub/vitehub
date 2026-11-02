@@ -23,7 +23,7 @@ async function streamed(chunks: string[]) {
   let text = ""
   for await (const chunk of transformChannelTextStream((async function* () {
     yield* chunks
-  })(), createChatMetadataEchoFilter())) text += chunk
+  })(), createChatMetadataEchoFilter)) text += chunk
   return text
 }
 

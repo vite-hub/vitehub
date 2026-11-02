@@ -36,6 +36,44 @@ describe("Chat SDK citation delivery", () => {
     }
   });
 
+  it.each([
+    ["ci", "teturn0view0"],
+    ["cite", "turn0view0"],
+  ])("keeps a fresh parser after cancelling at %s", async (start, end) => {
+    const source = {
+      async *[Symbol.asyncIterator]() {
+        yield `Answer. ${start}`;
+        yield `${end} Done.`;
+      },
+    };
+    const formatted = formatChannelCitationStream(source);
+    const iterator = formatted[Symbol.asyncIterator]();
+    await expect(iterator.next()).resolves.toEqual({ done: false, value: "Answer. " });
+    await iterator.return?.();
+    expect(await collect(formatted)).toBe("Answer. [source link unavailable] Done.");
+  });
+
+  it("keeps citation parser state independent for concurrent iterators", async () => {
+    const source = {
+      async *[Symbol.asyncIterator]() {
+        yield "Answer. cite";
+        yield "turn0view0 Done.";
+      },
+    };
+    const formatted = formatChannelCitationStream(source);
+    const iterators = [formatted[Symbol.asyncIterator](), formatted[Symbol.asyncIterator]()];
+    for (const iterator of iterators) {
+      await expect(iterator.next()).resolves.toEqual({ done: false, value: "Answer. " });
+    }
+    for (const iterator of iterators) {
+      await expect(iterator.next()).resolves.toEqual({
+        done: false,
+        value: "[source link unavailable] Done.",
+      });
+      await expect(iterator.next()).resolves.toMatchObject({ done: true });
+    }
+  });
+
   it("closes a source whose next chunk is stalled without waiting for it", async () => {
     let completePending: ((result: IteratorResult<string>) => void) | undefined;
     let returns = 0;

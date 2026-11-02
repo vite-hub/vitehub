@@ -2997,7 +2997,7 @@ async function postChatStream(
   const originalResponse = response
   response = {
     getText: () => formatChannelCitationText(stripEchoedChatMessageMetadata(originalResponse.getText())),
-    [Symbol.asyncIterator]: () => formatChannelCitationStream(transformChannelTextStream(originalResponse, createChatMetadataEchoFilter()))[Symbol.asyncIterator](),
+    [Symbol.asyncIterator]: () => formatChannelCitationStream(transformChannelTextStream(originalResponse, createChatMetadataEchoFilter))[Symbol.asyncIterator](),
   }
   abortSignal?.throwIfAborted()
   let sent: unknown
