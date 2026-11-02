@@ -71,7 +71,6 @@
     "@vite-hub/workspace": "workspace:*",
     "@vueuse/core": "catalog:ui",
     "comark": "catalog:markdown-ui",
-    "comark-ui": "catalog:markdown-ui",
     "defu": "catalog:unjs",
     "nuxt-agent-discovery": "^0.7.0",
     "nuxt-llms": "^0.2.0",

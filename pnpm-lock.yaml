@@ -1803,9 +1803,6 @@ importers:
       comark:
         specifier: catalog:markdown-ui
         version: 0.8.1(katex@0.18.11)(shiki@4.5.0)
-      comark-ui:
-        specifier: catalog:markdown-ui
-        version: https://pkg.pr.new/comark-ui@ef627712bbba068654ba083807807ea0bedce7e5(@comark/html@0.8.1(katex@0.18.11)(shiki@4.5.0))(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/extension-image@3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4)))(@tiptap/extension-list@3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4))(@tiptap/extension-table@3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)(@tiptap/starter-kit@3.31.4)(@tiptap/vue-3@3.23.6(@floating-ui/dom@1.8.0)(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)(vue@3.5.44(typescript@6.0.3)))(@types/markdown-it@14.2.0)(comark@0.8.1(katex@0.18.11)(shiki@4.5.0))(katex@0.18.11)(markdown-it@15.0.3)(react@19.2.6)(vue@3.5.44(typescript@6.0.3))
       defu:
         specifier: catalog:unjs
         version: 6.1.7
