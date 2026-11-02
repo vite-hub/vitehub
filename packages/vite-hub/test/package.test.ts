@@ -720,7 +720,7 @@ describe("framework package contract", () => {
     expect(manifest.exports).not.toHaveProperty("./console/runtime/definitions");
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-provider.vue`)).toBe(false);
     const consoleSearch = readFileSync(
-      `${packageRoot}/dist/console/runtime/components/console-search.vue`,
+      `${packageRoot}/dist/console/runtime/components/console-search-palette.vue`,
       "utf8",
     );
     expect(consoleSearch).toContain(
