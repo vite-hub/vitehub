@@ -91,6 +91,7 @@ describe("docs Nuxt setup", () => {
         public: { agentDiscovery: { resources: [{ href: "/sitemap.md" }] } },
       },
       routeRules: { "/": { headers: { Link: '</llms.txt>; rel="describedby"' } } },
+      prerender: { routes: ["/blog"] },
     }
     for (const hook of hooks.get("nitro:config") ?? []) await hook(nitro as never)
     expect(nitro.runtimeConfig.agentDiscovery.links[0]).toEqual({ href: "/portal/llms.txt", anchor: "/portal/" })
@@ -98,10 +99,9 @@ describe("docs Nuxt setup", () => {
     expect(nitro.runtimeConfig.public.agentDiscovery.resources[0]?.href).toBe("/portal/sitemap.md")
     expect(nitro.routeRules["/"].headers.Link).toBe('</portal/llms.txt>; rel="describedby"')
     expect(options.llms.domain).toBe("https://docs.example.com/portal")
-    const routes = new Set<string>()
-    for (const hook of hooks.get("prerender:routes") ?? []) await hook({ routes } as never)
-    expect([...routes]).toEqual(expect.arrayContaining(["/docs/kv", "/api/_docs/page/docs/kv.json", "/api/_docs/search.json", "/sitemap.xml"]))
-    expect([...routes].some(path => path.startsWith("/portal"))).toBe(false)
+    const routes = nitro.prerender.routes
+    expect(routes).toEqual(expect.arrayContaining(["/blog", "/docs/kv", "/api/_docs/page/docs/kv.json", "/api/_docs/search.json", "/sitemap.xml"]))
+    expect(routes.some(path => path.startsWith("/portal"))).toBe(false)
     expect(handlers.map(handler => handler.route)).toEqual(["/api/_docs/page/**", "/api/_docs/search.json", "/sitemap.xml", "/raw/**"])
   })
 })
