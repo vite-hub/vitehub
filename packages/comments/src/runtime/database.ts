@@ -6,8 +6,8 @@ export type CommentsDatabaseRegistry = Record<string, { db: CommentsDatabase } |
 /**
  * The Database that `defineComments({ database })` names, else `default`, else the only one. The plugin calls it when
  * the server starts. On Cloudflare that is before any request, so a D1 Database can't connect yet: its db throws until
- * a request brings the binding, and only the placeholder of an app without a default Database throws
- * `DATABASE_DISABLED`. The store reads the db per query, by which time the binding is there.
+ * a request brings the binding. An app without a default Database uses a placeholder that throws
+ * `DATABASE_DISABLED` or `DATABASE_NOT_FOUND`. The store reads the db per query, by which time the binding is there.
  */
 export function selectCommentsDatabase(databases: CommentsDatabaseRegistry, name?: string): CommentsDatabase | undefined {
   if (name) return databases[name]?.db
@@ -23,6 +23,7 @@ function isPlaceholder(db: CommentsDatabase): boolean {
     return false
   }
   catch (error) {
-    return (error as { code?: unknown } | null)?.code === "DATABASE_DISABLED"
+    const code = (error as { code?: unknown } | null)?.code
+    return code === "DATABASE_DISABLED" || code === "DATABASE_NOT_FOUND"
   }
 }
