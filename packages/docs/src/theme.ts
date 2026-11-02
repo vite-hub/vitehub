@@ -1,5 +1,16 @@
+import { defu } from "defu"
+
 /** Nuxt UI app config of a theme: color aliases, icons, and slot classes per component. */
 export type DocsThemeUi = Record<string, unknown>
+
+/**
+ * The `ui` app config of the site. What the app writes in its Nuxt config wins over the theme, and the theme wins over
+ * the rest, such as the green and slate defaults that Nuxt UI adds when the app lists `@nuxt/ui` before this module.
+ * `app.config.ts` still wins over all of it at runtime.
+ */
+export function docsAppConfigUi(theme: DocsThemeUi, current: DocsThemeUi | undefined, configured: Array<DocsThemeUi | undefined>): DocsThemeUi {
+  return [...configured, theme, current].reduce<DocsThemeUi>((merged, layer) => defu(merged, layer ?? {}), {})
+}
 
 // The theme keeps the docs black, white, and zinc. Nuxt UI tints callout text, code, and links with the callout color,
 // and amber or green text on the callout background is below 4.5:1 contrast, so every callout uses body colors.

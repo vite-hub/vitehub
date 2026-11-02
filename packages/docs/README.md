@@ -143,7 +143,7 @@ Components read the site with auto-imported composables: `useDocsConfig()`, `use
 
 `vercel` is black, white, and zinc, with Geist, square corners, and hairline borders. Change it in two places:
 
-- `app.config.ts` `ui` keys. Your values win over the theme.
+- `app.config.ts` `ui` keys. Your values win over the theme. The theme wins over the Nuxt UI defaults, also when `@nuxt/ui` comes first in `modules`.
 - CSS variables in your stylesheet, such as `--vh-content-width` (prose width), `--vh-toc-width`, `--vh-panel-width`, `--font-sans`, and the Nuxt UI `--ui-*` colors.
 
 ## Agent resources

@@ -21,7 +21,7 @@ import { createDocsManifest } from "./manifest.ts"
 import { docsManifestPages, docsPageIcon, docsRailIcon, docsSectionIcon, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { toRawMarkdown } from "./raw.ts"
 import { coversDocsPages } from "./page.ts"
-import { vercelTheme } from "./theme.ts"
+import { docsAppConfigUi, vercelTheme, type DocsThemeUi } from "./theme.ts"
 
 import type { DocsPage } from "./types.ts"
 
@@ -131,7 +131,8 @@ interface LlmsOptions {
 /** Options of the modules that the docs module installs. Their own option types load only with their runtime. */
 interface DocsNuxtOptions {
   rootDir: string
-  appConfig: { ui?: Record<string, unknown> }
+  appConfig: { ui?: DocsThemeUi }
+  _layers: ReadonlyArray<{ config: { appConfig?: { ui?: DocsThemeUi } } }>
   runtimeConfig: { public: { mdc?: unknown } }
   docs?: DocsModuleOptions
   agentDiscovery?: AgentDiscoveryOptions
@@ -192,8 +193,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
 
     // Nuxt UI prose headings read the heading anchor settings of @nuxtjs/mdc, which this site does not install.
     moduleOptions.runtimeConfig.public.mdc ??= { headings: { anchorLinks: { h1: false, h2: true, h3: true, h4: true, h5: false, h6: false } } }
-    // The app config of the app wins over the theme. Nuxt UI adds its defaults after the theme.
-    moduleOptions.appConfig.ui = defu(moduleOptions.appConfig.ui, vercelTheme(config.site.name))
+    moduleOptions.appConfig.ui = docsAppConfigUi(vercelTheme(config.site.name), moduleOptions.appConfig.ui, moduleOptions._layers.map(layer => layer.config.appConfig?.ui))
 
     moduleOptions.llms = defu(moduleOptions.llms, {
       domain: config.site.url,
