@@ -21,13 +21,15 @@ export type KVRuntimeDriver = Driver & Record<string, unknown> & {
   getAndDeleteItem?: <T = unknown>(key: string) => Promise<T | null>
   incrementItem?: (key: string, ttl: number) => Promise<number>
   listKeys: (options: KVListOptions) => Promise<KVListPage>
+  /** Writes the serialized value only when the key is missing. Resolves `true` when this call wrote it. */
+  setIfAbsentItem?: (key: string, value: string, ttl?: number) => Promise<boolean>
 }
 
 const lazyOptionalDriverMethods: Record<ResolvedKVStoreConfig["driver"], Set<PropertyKey>> = {
   "cloudflare-kv-binding": new Set(),
-  "deno-kv": new Set(),
-  "fs-lite": new Set(["getItemRaw", "getMeta", "setItemRaw"]),
-  "upstash": new Set(["getAndDeleteItem", "getItems", "incrementItem"]),
+  "deno-kv": new Set(["setIfAbsentItem"]),
+  "fs-lite": new Set(["getItemRaw", "getMeta", "setIfAbsentItem", "setItemRaw"]),
+  "upstash": new Set(["getAndDeleteItem", "getItems", "incrementItem", "setIfAbsentItem"]),
 }
 
 async function createRuntimeDriver(store: ResolvedKVStoreConfig): Promise<KVRuntimeDriver> {

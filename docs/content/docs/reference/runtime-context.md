@@ -81,8 +81,10 @@ properties has a `~standard` object:
 
 H3 does not set `~standard` yet. ViteHub registers a Nitro `request` hook that
 sets it on each H3 1 and H3 2 event, and adds the property to the `H3Event` type.
-A value that the host sets stays. On H3 1, ViteHub builds the `Request` the first
-time you read `req`. H3 sends the value that the handler returns as the body, so
+A value that the host sets stays. ViteHub reads each property from the event the
+first time you read it and keeps the value for the request, so a route that does
+not read `~standard` does no extra work. On H3 1, ViteHub builds the `Request` the
+first time you read `req`. H3 sends the value that the handler returns as the body, so
 setting `res.body` throws `RUNTIME_R0016`.
 
 ```ts [server/api/whoami.get.ts]

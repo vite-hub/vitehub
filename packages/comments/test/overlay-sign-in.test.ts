@@ -17,6 +17,7 @@ const denied: CommentsSession = {
 }
 
 afterEach(() => {
+  document.querySelector("vitehub-comments")?.remove()
   document.body.replaceChildren()
   vi.restoreAllMocks()
 })

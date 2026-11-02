@@ -261,6 +261,7 @@ describe("KV Vite output", () => {
     expect(output).toContain("KV_INVALID_LIMIT")
     expect(output).toMatch(/async getAndDelete\(\)\s*{\s*return unsupported\("getAndDelete", name\);/)
     expect(output).toMatch(/async increment\(\)\s*{\s*return unsupported\("increment", name\);/)
+    expect(output).toMatch(/async setIfAbsent\(\)\s*{\s*return unsupported\("setIfAbsent", name\);/)
     expect(output).toContain("KV_CUSTOM")
   })
 

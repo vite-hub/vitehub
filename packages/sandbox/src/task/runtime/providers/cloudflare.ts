@@ -26,7 +26,7 @@ export async function resolveCloudflareTaskSandbox(options: SandboxTaskOptions, 
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0071({
       message: `Cloudflare sandbox requires the "${bindingName}" binding. Set sandbox.binding or run inside Cloudflare. `
         + "The cloudflare preset writes the binding and its Container to .output/server/wrangler.json, and the Vite or "
-        + "Nuxt dev server cannot host them: build, then run `npx wrangler --cwd .output/server dev` (needs Docker).",
+        + "Nuxt dev server cannot host them: build, then run `npx wrangler dev --config .output/server/wrangler.json` (needs Docker).",
     })
   }
 
