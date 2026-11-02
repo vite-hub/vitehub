@@ -2,7 +2,7 @@ import { useStorage } from "#imports"
 
 import type { H3Event } from "h3"
 import manifest from "#docs/manifest"
-import { docsManifestPages, findDocsPage, isDocsPath } from "../../navigation.ts"
+import { docsManifestPages, docsRawFile, findDocsPage, isDocsPath } from "../../navigation.ts"
 
 interface AgentPageEntry {
   route: string
@@ -34,7 +34,7 @@ const source: AgentContentSource = {
   async get(route) {
     const found = findDocsPage(manifest, route)
     if (!found) return null
-    const markdown = await useStorage("assets:docs-raw").getItem<string>(found.page.path === "/" ? "index.md" : `${found.page.path.slice(1)}.md`)
+    const markdown = await useStorage("assets:docs-raw").getItem<string>(docsRawFile(found.page.path))
     return markdown === null ? null : { markdown: String(markdown), title: found.page.sourceTitle, description: found.page.description ?? undefined }
   },
 }

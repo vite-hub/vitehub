@@ -20,7 +20,7 @@ import { defu } from "defu"
 
 import { setupDocsAssistant } from "./assistant-nuxt.ts"
 import { createDocsManifest } from "./manifest.ts"
-import { docsManifestPages, docsPageIcon, docsRailIcon, docsSectionIcon, type DocsIcons, type DocsLink } from "./navigation.ts"
+import { docsManifestPages, docsPageIcon, docsRailIcon, docsRawFile, docsSectionIcon, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { toRawMarkdown } from "./raw.ts"
 import { coversDocsPages } from "./page.ts"
 import { docsAppConfigUi, vercelTheme, type DocsThemeUi } from "./theme.ts"
@@ -186,7 +186,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     async function writeRaw() {
       rmSync(rawDir, { force: true, recursive: true })
       for (const page of docsManifestPages(manifest)) {
-        const target = join(rawDir, page.path === "/" ? "index.md" : `${page.path.slice(1)}.md`)
+        const target = join(rawDir, docsRawFile(page.path))
         mkdirSync(dirname(target), { recursive: true })
         const source = readFileSync(join(contentDir, page.file), "utf8")
         writeFileSync(target, toRawMarkdown(options.rawMarkdown ? await options.rawMarkdown(source, page) : source, { siteUrl: config.site.url }))

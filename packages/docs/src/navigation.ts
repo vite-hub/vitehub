@@ -160,6 +160,11 @@ export function docsRawPath(path: string): string {
   return normalized === "/" ? "/raw/index.md" : `/raw${normalized}.md`
 }
 
+/** File of the raw Markdown twin in the build's raw folder, such as `docs/kv.md`. */
+export function docsRawFile(path: string): string {
+  return docsRawPath(path).slice("/raw/".length)
+}
+
 /** Cookie that keeps the navigation open beside code panel tutorials. A host that serves prerendered HTML reads it. */
 export const docsTutorialNavigationCookie = "vh-tutorial-navigation"
 
