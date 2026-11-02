@@ -80,6 +80,8 @@ export default defineAgent({
 });
 ```
 
+Each `channels` value is a Channel definition, such as `webChat()`, or a factory that returns one. A plain options object under a built-in name, such as `telegram: { ... }`, throws `AGENT_R0425`. `defineAgent()` does not import the built-in Channels, so the server bundle contains only the Channels and chat adapters that the Agent imports.
+
 ## Typed questions
 
 `driver.ask` answers typed questions with TypeSafe Jev. Questions are sent in deterministic sequential batches when their combined request would exceed the provider budget; an empty question map skips Jev. For each question, the serialized shared state plus that question and request overhead must fit below 30,000 bytes, otherwise the Invocation fails. The answers are the Invocation output, and `runAgent()` infers their type from the questions:

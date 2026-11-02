@@ -28,6 +28,25 @@ async function discover(agent: string, files: Record<string, string> = {}) {
 const imports = 'import { defineAgent } from "vite-hub/agent"; import { github, telegram, webChat } from "vite-hub/agent/channels";'
 
 it.each([
+  ["", "github"],
+  ["", "(github)"],
+  ["", "github<Runtime>"],
+  ["const support = github;", "support"],
+  ["const first = github; const support = first;", "support"],
+  ['import { github as support } from "vite-hub/agent/channels";', "support"],
+  ['import * as channels from "vite-hub/agent/channels";', "channels.github"],
+  ['import * as channels from "vite-hub/agent/channels";', 'channels["github"]'],
+  ['import * as channels from "vite-hub/agent/channels"; const support = channels.github;', "support"],
+  ['import * as channels from "vite-hub/agent/channels"; const { github: support } = channels;', "support"],
+  ["", "telegram"],
+  ["", "webChat"],
+])("keeps bare first-party factories stateless: %s %s", async (declaration, channel) => {
+  const definition = await discover(`${imports} ${declaration} export default defineAgent({ channels: { repo: ${channel} } })`)
+  expect(definition).toBeDefined()
+  expect(definition?.workspace).toBeUndefined()
+})
+
+it.each([
   "import.meta.url",
   "function () { return format() }",
   "class { #portal; get value() { return this.#portal } }",
@@ -344,14 +363,15 @@ it.each([
 })
 
 it.each([
-  ["{ pullRequest: false }", false],
-  ["{ pullRequest: true }", true],
-  ["{ \\u0070ullRequest: true }", true],
-  ["{ pullRequest: { workspace: false } }", false],
-  ["{ pullRequest: { workspace: {} } }", true],
+  ["github({ pullRequest: false })", false],
+  ["github({ pullRequest: true })", true],
+  ["github({ \\u0070ullRequest: true })", true],
+  ["github({ pullRequest: { workspace: false } })", false],
+  ["github({ pullRequest: { workspace: {} } })", true],
+  ["{ pullRequest: true }", false],
   ['{ kind: "custom", pullRequest: true }', false],
   ['defineChannel("custom", { pullRequest: true })', false],
-])("applies GitHub ownership to built-in channel options: %s", async (options, ownsWorkspace) => {
+])("applies GitHub ownership under the github key: %s", async (options, ownsWorkspace) => {
   const source = `${imports} export default defineAgent({ channels: { github: ${options} } })`
   const definition = await discover(source)
   expect(definition?.workspace).toBe(ownsWorkspace ? "review" : undefined)

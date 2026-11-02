@@ -376,18 +376,15 @@ describe("built-in deployment preset integration", () => {
       expect(await readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).not.toContain("\"telegram\": {")
 
       for (const { source, required } of [
-        { source: `defineAgent({ channels: { telegram: undefined } })`, required: true },
         { source: `defineAgent({ channels: { telegram: telegram(undefined) } })`, required: true },
         { source: `defineAgent({ channels: { telegram: telegram(({})) } })`, required: true },
         { source: `defineAgent({ channels: { telegram: telegram((({ botToken: "token" }))) } })`, required: false },
         { source: `defineAgent({ channels: { telegram: telegram?.({ botToken: "token" }) } })`, required: false },
         { source: `defineAgent({ channels: { support: telegram<Runtime> } })`, required: true },
         { source: `defineAgent({ channels: { support: (telegram) } })`, required: true },
-        { source: `const channels = ({ telegram: {} }); defineAgent({ channels })`, required: true },
-        { source: `const channels = ({ telegram: {} }) && custom; defineAgent({ channels })`, required: false },
+        { source: `const channels = ({ support: telegram }); defineAgent({ channels })`, required: true },
+        { source: `const channels = ({ support: telegram }) && custom; defineAgent({ channels })`, required: false },
         { source: `defineAgent({ channels: { telegram: telegram({ botToken: void 0 }) } })`, required: true },
-        { source: `defineAgent({ channels: { telegram: { botToken: void 0, adapter: void 0 } } })`, required: true },
-        { source: `defineAgent({ channels: { telegram: void 0 } })`, required: true },
         { source: `defineAgent({ channels: { support: channelFactories?.["telegram"]() } })`, required: true },
         { source: `defineAgent({ channels: { support: channelFactories?.["telegram"]?.<Runtime>({ botToken: "token" }) } })`, required: false },
         { source: `function run() { telegram()\n{} }; defineAgent({ channels: {} })`, required: true },
@@ -396,10 +393,10 @@ describe("built-in deployment preset integration", () => {
         { source: `function build({ telegram: configured }: { telegram?: string }) { return telegram() }; defineAgent({ channels: { support: build({}) } })`, required: true },
         { source: `defineAgent({ channels: { telegram: telegram({ botToken: undefined as string | undefined }) } })`, required: true },
         { source: `const present = "telegram" in { telegram() {} }; type Conditional<T> = T extends { telegram(): void } ? true : false; defineAgent({ channels: {} })`, required: false },
-        { source: `const channels = { telegram: {} }; defineAgent({ channels: channels satisfies AgentChannelInputs })`, required: true },
-        { source: `const channels = { telegram: {} }; defineAgent({ channels: (channels as AgentChannelInputs) })`, required: true },
-        { source: `const channels = { telegram: {} }; defineAgent({ channels: ((channels satisfies AgentChannelInputs)) })`, required: true },
-        { source: `defineAgent({ channels: { telegram: { async botToken() { return "token" } } } })`, required: false },
+        { source: `const channels = { support: telegram }; defineAgent({ channels: channels satisfies AgentChannelInputs })`, required: true },
+        { source: `const channels = { support: telegram }; defineAgent({ channels: (channels as AgentChannelInputs) })`, required: true },
+        { source: `const channels = { support: telegram }; defineAgent({ channels: ((channels satisfies AgentChannelInputs)) })`, required: true },
+        { source: `defineAgent({ channels: { telegram: telegram({ async botToken() { return "token" } }) } })`, required: false },
       ]) {
         await writeFile(join(root, "server", "agents", "support.ts"), [
           `import { defineAgent } from "vite-hub/agent"`,
@@ -423,8 +420,9 @@ describe("built-in deployment preset integration", () => {
       await rm(join(root, "server", "agents", "support.js"))
 
       await writeFile(join(root, "server", "agents", "support.ts"), [
+        `import { telegram } from "vite-hub/agent/channels"`,
         `const defineAgent = (options) => options`,
-        `export default defineAgent({ channels: { telegram: {} } })`,
+        `export default defineAgent({ channels: { support: telegram } })`,
       ].join("\n"))
       expect(requiredSecrets(await resolve()) ?? []).not.toContain("TELEGRAM_BOT_TOKEN")
       expect(await readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).not.toContain("\"telegram\": {")

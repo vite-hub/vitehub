@@ -1093,13 +1093,21 @@ describe("agent public types", () => {
     defineAgent({
       channels: {
         portal: webChat(),
-        telegram: {
+        telegram: telegram({
           allowedUserIds: context => [context.runtime === "vite" ? 1 : 2],
           messages: { delivery: "manual", triggerHistory: "none" },
-        },
+        }),
       },
       // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
       driver: { maxRetries: 0, model: () => ({}) as never },
+    })
+
+    defineAgent({
+      channels: {
+        // @ts-expect-error A Channel is a definition from its factory, not built-in Channel settings.
+        telegram: { allowedUserIds: [1] },
+      },
+      driver: { run: () => "ok" },
     })
 
     const requiresOptions = (_options: { route: boolean }) => webChat()
