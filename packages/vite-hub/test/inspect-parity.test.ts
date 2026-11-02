@@ -145,7 +145,7 @@ describe("Definition inspection parity", () => {
 
     const config = await resolveConfig({
       logLevel: "silent",
-      plugins: [vitehub({ blob: false, console: false, env: false, preset: "node", schedule: true }), contentOwner],
+      plugins: [vitehub({ blob: false, console: false, env: false, preset: "node", schedule: { runtime: { driver: "process" } } }), contentOwner],
       root,
     }, "build")
     const inspector = (await collectViteHubDefinitionInspectors(config.plugins)).find(candidate => candidate.kind === "schedule")

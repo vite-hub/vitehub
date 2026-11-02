@@ -129,7 +129,7 @@ import { resolveConfig, type Plugin, type PluginOption } from "vite"
 import type { ConsoleViteDevTools } from "../src/console/devtools.ts"
 import { contributeProviderDeploymentOutput, useProviderOutputCatalog } from "../../internal/src/build/deployment-output.ts"
 import frameworkPackageManifest from "../package.json" with { type: "json" }
-import { vitehub } from "../src/index.ts"
+import { vitehub, type ViteHubOptions } from "../src/index.ts"
 import { isIncludedNitroPlugin } from "../src/nitro-plugin.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
@@ -2001,6 +2001,15 @@ describe("vitehub", () => {
     // SAFETY: The explicit Deno preset installs the named deployment plugin.
     const unsupported = vitehub({ preset: "deno", queue: true }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
     expect(() => callHook(unsupported.config, [{}, { command: "build", mode: "production" }])).toThrow("cannot provide queue")
+
+    const nodePreset = (schedule: ViteHubOptions["schedule"]) =>
+      // SAFETY: The explicit Node preset installs the named deployment plugin.
+      vitehub({ preset: "node", schedule }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
+    expect(() => callHook(nodePreset(true).config, [{}, { command: "build", mode: "production" }])).toThrow("would never run its Schedules")
+    expect(() => callHook(nodePreset({ providerOutput: "auto" }).config, [{}, { command: "build", mode: "production" }])).toThrow("would never run its Schedules")
+    expect(() => callHook(nodePreset(true).config, [{}, { command: "serve", mode: "development" }])).not.toThrow()
+    expect(() => callHook(nodePreset({ runtime: { driver: "process" } }).config, [{}, { command: "build", mode: "production" }])).not.toThrow()
+    expect(() => callHook(nodePreset({ providerOutput: false }).config, [{}, { command: "build", mode: "production" }])).not.toThrow()
 
     // SAFETY: The explicit Vercel preset installs the named deployment plugin.
     const conflicting = vitehub({ preset: "vercel" }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin

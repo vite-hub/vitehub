@@ -27,6 +27,8 @@ When a Static Schedule handler throws, ViteHub logs `[vitehub:schedule] Schedule
 | Deno | `Deno.cron` output loaded by generated Deno Agent server output. |
 | Node or Docker | No host output. The Process Runtime (`runtime: { driver: 'process' }`) runs each Definition in the long-lived process. |
 
+A Node server has no host cron. `vitehub({ preset: 'node', schedule: true })` fails the build with `VITE_HUB_R0137`, because nothing would run its Schedules. Set `schedule: { runtime: { driver: 'process' } }` to run them in the server process. Set `schedule: { providerOutput: false }` when your own code or an external cron starts them, for example through `/_vitehub/schedules/run`. The check runs only for builds, so `vite dev` still works with `schedule: true`.
+
 Schedule writes the output of one host per build. With Nitro, the host is the preset that Nitro resolves. Without Nitro, it comes from `nitro.preset` in the Vite config, then `NITRO_PRESET`, `SERVER_PRESET`, and `VITEHUB_HOSTING`. A build also removes the Schedule output that an earlier build wrote for another host. When no host is known, the build writes the output of every host above.
 
 ::warning
