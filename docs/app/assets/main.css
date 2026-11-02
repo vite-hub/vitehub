@@ -1,55 +1,4 @@
-:root {
-  --ui-radius: 0.125rem;
-  --ui-header-height: 44px;
-  /* The shared primitive rail is 3.5rem wide. The page panel sits next to it. The page uses the rest of the viewport. */
-  --vh-rail-width: 3.5rem;
-  --vh-panel-width: 15rem;
-  --vh-sidebar-width: calc(var(--vh-rail-width) + var(--vh-panel-width));
-  --vh-toc-width: 12rem;
-  /* The reading measure of prose. Code, tables, and examples are wider. */
-  --vh-content-width: 46rem;
-  /* DESIGN.md: Geist for product and docs UI. @nuxt/fonts serves both families. */
-  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --vh-ink: #09090b;
-  --vh-paper: #fafafa;
-}
-
-:root.light {
-  color-scheme: light;
-}
-
-:root.dark {
-  color-scheme: dark;
-  --ui-bg: var(--vh-ink);
-  --ui-bg-muted: #18181b;
-  --ui-bg-elevated: #18181b;
-  --ui-bg-accented: #27272a;
-  --ui-bg-inverted: var(--vh-paper);
-  --ui-border: #27272a;
-  --ui-border-muted: #18181b;
-  --ui-border-accented: #3f3f46;
-  --ui-border-inverted: var(--vh-paper);
-  --ui-text-dimmed: #71717a;
-  --ui-text-muted: #a1a1aa;
-  --ui-text-toned: #d4d4d8;
-  --ui-text: #e4e4e7;
-  --ui-text-highlighted: var(--vh-paper);
-  --ui-text-inverted: var(--vh-ink);
-}
-
-html {
-  background: var(--ui-bg);
-}
-
-body {
-  background: var(--ui-bg);
-}
-
-::selection {
-  background: var(--ui-text-highlighted);
-  color: var(--ui-bg);
-}
+/* ViteHub styles on top of the @vite-hub/docs theme. */
 
 @media (prefers-reduced-motion: no-preference) {
   .vh-landing-reveal {
@@ -73,57 +22,18 @@ body {
   }
 }
 
-.docs-content {
-  --tw-prose-headings: var(--ui-text-highlighted);
-}
-
-/* The page body spans the canvas. Prose keeps the reading measure. Code, tables, and examples use the full width. */
-.docs-content > [data-content-id] > :where(h2, h3, h4, p, ul, ol, blockquote):not(.not-prose),
-.docs-content .vitehub-docs-steps > :where(h3, p, ul, ol) {
-  max-width: var(--vh-content-width);
-}
-
-.docs-content h2 {
-  scroll-margin-top: calc(var(--ui-header-height, 56px) + 2rem);
-}
-
-/* The page header already spaces the body. The first block skips its top margin. A hidden duplicate h1 may come first. */
-.docs-content > [data-content-id] > :first-child,
-.docs-content > [data-content-id] > h1:first-child + * {
-  margin-top: 0;
-}
-
-.docs-content h2 + p,
-.docs-content h3 + p {
-  margin-top: 0.75rem;
-}
-
-.docs-content table {
-  font-size: 0.875rem;
-}
-
-/* Long identifiers in prose break instead of widening the page on narrow phones. */
-.docs-content :where(p, li) > code {
-  max-width: 100%;
-  overflow-wrap: break-word;
-}
-
-.docs-content th {
-  color: var(--ui-text-highlighted);
-  font-weight: 600;
-}
-
+/* The Reference page lays its package tables out as cards on phones, with each cell labeled by its column. */
 @media (max-width: 640px) {
-  .docs-reference-content table,
-  .docs-reference-content thead,
-  .docs-reference-content tbody,
-  .docs-reference-content tr,
-  .docs-reference-content th,
-  .docs-reference-content td {
+  [data-path="/docs/reference"] .docs-content table,
+  [data-path="/docs/reference"] .docs-content thead,
+  [data-path="/docs/reference"] .docs-content tbody,
+  [data-path="/docs/reference"] .docs-content tr,
+  [data-path="/docs/reference"] .docs-content th,
+  [data-path="/docs/reference"] .docs-content td {
     display: block;
   }
 
-  .docs-reference-content thead {
+  [data-path="/docs/reference"] .docs-content thead {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -131,22 +41,22 @@ body {
     clip: rect(0, 0, 0, 0);
   }
 
-  .docs-reference-content tbody tr {
+  [data-path="/docs/reference"] .docs-content tbody tr {
     border: 1px solid var(--ui-border);
     border-radius: var(--ui-radius);
     padding: 0.75rem;
   }
 
-  .docs-reference-content tbody tr + tr {
+  [data-path="/docs/reference"] .docs-content tbody tr + tr {
     margin-top: 0.75rem;
   }
 
-  .docs-reference-content td {
+  [data-path="/docs/reference"] .docs-content td {
     border: 0;
     padding: 0.375rem 0;
   }
 
-  .docs-reference-content td::before {
+  [data-path="/docs/reference"] .docs-content td::before {
     display: block;
     margin-bottom: 0.125rem;
     color: var(--ui-text-muted);
@@ -154,330 +64,24 @@ body {
     font-weight: 650;
   }
 
-  .docs-reference-content table:first-of-type td:nth-child(1)::before,
-  .docs-reference-content table:nth-of-type(2) td:nth-child(1)::before {
+  [data-path="/docs/reference"] .docs-content table:first-of-type td:nth-child(1)::before,
+  [data-path="/docs/reference"] .docs-content table:nth-of-type(2) td:nth-child(1)::before {
     content: "Package";
   }
 
-  .docs-reference-content table:first-of-type td:nth-child(2)::before {
+  [data-path="/docs/reference"] .docs-content table:first-of-type td:nth-child(2)::before {
     content: "Owns";
   }
 
-  .docs-reference-content table:first-of-type td:nth-child(3)::before {
+  [data-path="/docs/reference"] .docs-content table:first-of-type td:nth-child(3)::before {
     content: "Primary imports";
   }
 
-  .docs-reference-content table:nth-of-type(2) td:nth-child(2)::before {
+  [data-path="/docs/reference"] .docs-content table:nth-of-type(2) td:nth-child(2)::before {
     content: "Status";
   }
 
-  .docs-reference-content table:nth-of-type(2) td:nth-child(3)::before {
+  [data-path="/docs/reference"] .docs-content table:nth-of-type(2) td:nth-child(3)::before {
     content: "Purpose";
-  }
-}
-
-.docs-content .code-block-wrapper {
-  border-radius: 0.125rem;
-}
-
-/* The tabs frame the panel, so a code block inside it drops its own border and margin. */
-.docs-content [role="tabpanel"] .code-block-wrapper {
-  margin: 0;
-  border: 0;
-  border-radius: 0;
-}
-
-/* A note under the code keeps a rule above it and the same inset as the code. */
-.docs-content [role="tabpanel"] .code-block-wrapper:not(:last-child) {
-  border-bottom: 1px solid var(--ui-border);
-}
-
-.docs-content [role="tabpanel"] > * > :where(p, ul, ol) {
-  margin: 0;
-  padding: 0.75rem 1rem;
-}
-
-.docs-content [data-slot="root"].framework-tabs > [data-slot="list"] > [data-slot="trigger"]:first-of-type [data-slot="leadingIcon"] {
-  transform: scale(0.75);
-}
-
-.docs-content [data-slot="root"].framework-tabs > [data-slot="list"] > [data-slot="trigger"]:nth-of-type(3) [data-slot="leadingIcon"] {
-  transform: scale(0.85);
-  filter: grayscale(1);
-}
-
-.docs-content [role="tabpanel"] pre {
-  border-width: 0 !important;
-}
-
-.docs-content .vitehub-docs-steps {
-  margin-top: 1rem;
-  margin-bottom: 2rem;
-  padding-left: 2rem;
-}
-
-.docs-content .vitehub-docs-steps > h3 {
-  margin-top: 1.5rem;
-  margin-bottom: 0.75rem;
-  font-size: 1rem;
-  line-height: 1.5rem;
-}
-
-.docs-content .vitehub-docs-steps > h3:first-child {
-  margin-top: 0;
-}
-
-.docs-content .vitehub-docs-steps > h3::before {
-  display: inline-grid;
-  width: 1.5rem;
-  height: 1.5rem;
-  margin-left: -3rem;
-  margin-right: 0.75rem;
-  place-items: center;
-  border: 1px solid var(--ui-border);
-  border-radius: 999px;
-  background: var(--ui-bg);
-  color: var(--ui-text-muted);
-  font-size: 0.75rem;
-  font-weight: 650;
-  line-height: 1;
-  counter-increment: step;
-  content: counter(step);
-}
-
-.docs-content .vitehub-docs-steps > p {
-  margin-top: 0.5rem;
-  margin-bottom: 0.75rem;
-  color: var(--ui-text-muted);
-}
-
-.docs-content .vitehub-docs-steps .code-block-wrapper {
-  margin-top: 0.75rem;
-  margin-bottom: 1rem;
-}
-
-.vitehub-content-search-modal:has(input:placeholder-shown) [role="listbox"] {
-  display: none;
-}
-
-.vitehub-content-search-modal {
-  position: fixed !important;
-  top: 248px !important;
-  left: 50vw !important;
-  translate: -50% 0 !important;
-  width: min(640px, calc(100vw - 1rem)) !important;
-  margin: 0 !important;
-  overflow: hidden;
-  box-shadow: none !important;
-}
-
-.vitehub-content-search-modal button[aria-label="Close"] {
-  width: 2.5rem;
-  height: 2rem;
-  border: 1px solid var(--ui-border);
-  border-radius: 0;
-  color: var(--ui-text-muted);
-  font-size: 0;
-}
-
-.vitehub-content-search-modal button[aria-label="Close"] .iconify {
-  display: none;
-}
-
-.vitehub-content-search-modal button[aria-label="Close"]::before {
-  font-size: 0.75rem;
-  content: "ESC";
-}
-
-/* Group labels match the small uppercase section labels of the docs pages. */
-.vitehub-content-search-modal [role="group"] > [data-slot="label"] {
-  padding: 0.75rem 0.625rem 0.375rem;
-  color: var(--ui-text-dimmed);
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-/* A result is a path line over its heading, then the matching text, like the docs catalog cards. */
-.vitehub-content-search-modal [role="option"] {
-  align-items: flex-start;
-  gap: 0.75rem;
-  padding: 0.625rem;
-}
-
-.vitehub-content-search-modal [role="option"] [data-slot="itemLeadingIcon"] {
-  margin-top: 0.125rem;
-}
-
-.vitehub-content-search-modal [data-slot="itemLabel"] {
-  display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
-  overflow: visible;
-  white-space: normal;
-}
-
-.vh-search-path {
-  overflow: hidden;
-  color: var(--ui-text-dimmed);
-  font-size: 0.75rem;
-  line-height: 1rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.vh-search-title {
-  color: var(--ui-text-highlighted);
-  font-weight: 500;
-  line-height: 1.25rem;
-}
-
-.vitehub-content-search-modal [role="option"] [data-slot="itemDescription"] {
-  margin-top: 0.125rem;
-  font-size: 0.8125rem;
-  line-height: 1.25rem;
-}
-
-.vitehub-content-search-modal mark {
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--ui-text-highlighted) 12%, transparent);
-  color: inherit;
-}
-
-/* Keep results above the bottom edge when the viewport is short, such as a tablet or phone in landscape. */
-@media (min-width: 641px) {
-  .vitehub-content-search-modal {
-    max-height: min(70vh, calc(100dvh - 248px - 0.5rem));
-  }
-}
-
-@media (min-width: 641px) and (max-height: 37.5rem) {
-  .vitehub-content-search-modal {
-    top: 0.5rem !important;
-    max-height: calc(100dvh - 1rem);
-  }
-}
-
-/* Touch screens have no Escape key, so the close button keeps its icon. */
-@media (pointer: coarse) {
-  .vitehub-content-search-modal button[aria-label="Close"] {
-    width: 2.25rem;
-    height: 2.25rem;
-    border: 0;
-  }
-
-  /* Nuxt UI renders the icon as an `.iconify` span with a CSS mask, not as an inline SVG. */
-  .vitehub-content-search-modal button[aria-label="Close"] .iconify {
-    display: block;
-  }
-
-  .vitehub-content-search-modal button[aria-label="Close"]::before {
-    content: none;
-  }
-}
-
-/*
- * Phones open search as a full screen sheet, as native search does. Before the first letter it lists
- * the docs sections, so the sheet is never empty.
- * Do not reset `translate` here: the CSS minifier merges `translate: none` into `transform`,
- * so the base `translate: -50%` stayed and pushed the modal off the left edge.
- */
-@media (max-width: 640px) {
-  .vitehub-content-search-modal {
-    top: 0 !important;
-    width: 100vw !important;
-    /* Min and max height, because the modal's important `h-auto` utility wins over a height here. */
-    min-height: 100dvh;
-    max-height: 100dvh;
-    border: 0;
-    border-radius: 0;
-  }
-
-  .vitehub-content-search-modal > [data-slot="root"],
-  .vitehub-content-search-modal [role="listbox"] {
-    flex: 1 1 auto;
-    min-height: 0;
-  }
-
-  .vitehub-content-search-modal:has(input:placeholder-shown) [role="listbox"] {
-    display: flex;
-  }
-
-  .vitehub-content-search-modal [data-slot="input"] {
-    padding-top: env(safe-area-inset-top, 0px);
-  }
-
-  .vitehub-content-search-modal [data-slot="input"] > input {
-    padding-inline-end: 5rem;
-  }
-
-  .vitehub-content-search-modal [data-slot="viewport"] {
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-  }
-
-  .vitehub-content-search-modal button[aria-label="Close"] {
-    width: auto;
-    height: 2.25rem;
-    padding-inline: 0.5rem;
-    border: 0;
-    color: var(--ui-text-highlighted);
-  }
-
-  .vitehub-content-search-modal button[aria-label="Close"] .iconify {
-    display: none;
-  }
-
-  .vitehub-content-search-modal button[aria-label="Close"]::before {
-    font-size: 0.9375rem;
-    content: "Cancel";
-  }
-}
-
-.code-block-wrapper pre {
-  margin: 0 !important;
-  overflow-x: auto;
-  border: none !important;
-  border-radius: 0 !important;
-  padding: 1rem !important;
-  font-size: 0.8125rem;
-}
-
-.code-block-wrapper .shiki {
-  min-height: 100%;
-  background-color: transparent !important;
-}
-
-:is(.dark) .code-block-wrapper .shiki {
-  background-color: transparent !important;
-}
-
-:is(.dark) .code-block-wrapper .shiki span {
-  color: var(--shiki-default);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-}
-
-/* The footer uses the same insets as the docs landing pages. The root sets every inset; the container adds none. */
-.vh-site-footer {
-  border-top: 1px solid var(--ui-border);
-  padding: 1.5rem 1rem;
-}
-
-@media (min-width: 40rem) {
-  .vh-site-footer {
-    padding: 1rem 2rem;
-  }
-}
-
-@media (min-width: 80rem) {
-  .vh-site-footer {
-    padding-inline: 3rem;
   }
 }

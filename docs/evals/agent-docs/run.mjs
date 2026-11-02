@@ -6,8 +6,8 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { dirname, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { pathToFileURL } from "node:url";
-import { toRawMarkdown } from "../../modules/vitehub-docs/artifacts/raw-markdown.ts";
+import { toRawMarkdown } from "@vite-hub/docs/server";
+import { capabilityReferences, expandCapabilityTools } from "../../modules/vitehub-docs/capability-references.ts";
 
 const docsRoot = resolve(import.meta.dirname, "../..");
 const { values: args } = parseArgs({
@@ -38,18 +38,14 @@ function listFiles(root, filter = () => true) {
   });
 }
 
-async function capabilityReferences() {
-  const path = resolve(docsRoot, ".generated/capability-references.mjs");
-  return existsSync(path) ? (await import(pathToFileURL(path).href)).default : undefined;
-}
-
 /** Writes every docs page as `/raw` serves it: `docs/kv/index.md` becomes `docs/kv.md`. */
 function writeDocs(target, includeAgentOnly, references) {
   const contentRoot = resolve(docsRoot, "content");
   for (const path of listFiles(resolve(contentRoot, "docs"), file => file.endsWith(".md"))) {
     const destination = resolve(target, relative(contentRoot, path).replace(/\/index\.md$/, ".md"));
     mkdirSync(dirname(destination), { recursive: true });
-    writeFileSync(destination, toRawMarkdown(readFileSync(path, "utf8"), { capabilityReferences: references, includeAgentOnly }));
+    const source = expandCapabilityTools(readFileSync(path, "utf8"), references);
+    writeFileSync(destination, toRawMarkdown(source, { siteUrl: "https://vitehub.dev", includeAgentOnly }));
   }
 }
 

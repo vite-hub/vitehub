@@ -1,5 +1,6 @@
 ---
 title: Comments
+layout: landing
 navigation.title: Overview
 description: Let your team pin comments on the pages of your live site, reply, resolve, and edit Content text in place.
 navigation.order: 1

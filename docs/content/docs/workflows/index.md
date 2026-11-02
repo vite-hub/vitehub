@@ -1,5 +1,6 @@
 ---
 title: Workflows
+layout: landing
 navigation.title: Overview
 description: Run long tasks in steps, get a run id at once, and check the status and result later.
 navigation.order: 1

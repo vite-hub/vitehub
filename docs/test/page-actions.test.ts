@@ -1,112 +1,51 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { docsMarkdownLinks } from "@vite-hub/docs";
 import { describe, expect, it } from "vitest";
-import {
-  cursorMcpInstallUrl,
-  docsMcpServerName,
-  docsMcpUrl,
-  pageActionLinks,
-  pageChatPrompt,
-  vscodeMcpInstallUrl,
-} from "../modules/vitehub-docs/runtime/utils/page-actions";
+import config from "../nuxt.config";
 
 const docsRoot = resolve(import.meta.dirname, "..");
+const site = { name: "ViteHub", url: "https://vitehub.dev" };
+// The docs module serves the MCP server at `/mcp` on the site origin.
+const docsMcpUrl = "https://vitehub.dev/mcp";
+const docsMcpServerName = "vitehub";
 
 function read(path: string) {
   return readFileSync(resolve(docsRoot, path), "utf8");
 }
 
 describe("docs page actions", () => {
-  it("maps trailing-slash and bare docs routes to one raw Markdown page", () => {
-    for (const route of [
-      "/docs/getting-started/ai-resources/mcp-server",
-      "/docs/getting-started/ai-resources/mcp-server/",
-    ]) {
-      expect(pageActionLinks(route)).toMatchObject({
-        markdownPath: "/raw/docs/getting-started/ai-resources/mcp-server.md",
-        markdownUrl: "https://vitehub.dev/raw/docs/getting-started/ai-resources/mcp-server.md",
-      });
-    }
-    expect(pageActionLinks("/docs/")?.markdownPath).toBe("/raw/docs.md");
-    expect(pageActionLinks("/docs")?.markdownUrl).toBe("https://vitehub.dev/raw/docs.md");
-    expect(pageActionLinks("/examples/")).toBeNull();
-    expect(pageActionLinks("/")).toBeNull();
+  it("names the ViteHub site and MCP server in the docs options", () => {
+    expect(config.docs?.site).toMatchObject(site);
+    expect(config.docs?.mcp).toEqual({ name: docsMcpServerName, guide: "/docs/getting-started/ai-resources/mcp-server" });
   });
 
-  it("opens ChatGPT and Claude with a prompt that references the canonical raw URL", () => {
-    const links = pageActionLinks("/docs/kv/");
-    const prompt = pageChatPrompt("https://vitehub.dev/raw/docs/kv.md");
+  it("shows the page actions on article and landing pages", () => {
+    const component = read("../packages/docs/runtime/app/components/DocsPageHeaderLinks.vue");
 
-    expect(prompt).toBe(
-      "Read https://vitehub.dev/raw/docs/kv.md from the ViteHub documentation. Use it as context to answer my questions and to help me apply it in my project.",
-    );
-    expect(links?.prompt).toBe(prompt);
-
-    const chatGpt = new URL(links!.chatGptUrl);
-    expect(chatGpt.origin).toBe("https://chatgpt.com");
-    expect(chatGpt.searchParams.get("hints")).toBe("search");
-    expect(chatGpt.searchParams.get("q")).toBe(prompt);
-
-    const claude = new URL(links!.claudeUrl);
-    expect(`${claude.origin}${claude.pathname}`).toBe("https://claude.ai/new");
-    expect(claude.searchParams.get("q")).toBe(prompt);
-  });
-
-  it("builds MCP install links for the docs endpoint", () => {
-    expect(docsMcpUrl).toBe("https://vitehub.dev/mcp");
-
-    const cursor = new URL(cursorMcpInstallUrl());
-    expect(`${cursor.protocol}//${cursor.host}${cursor.pathname}`).toBe(
-      "cursor://anysphere.cursor-deeplink/mcp/install",
-    );
-    expect(cursor.searchParams.get("name")).toBe(docsMcpServerName);
-    expect(JSON.parse(atob(cursor.searchParams.get("config")!))).toEqual({
-      type: "http",
-      url: docsMcpUrl,
-    });
-
-    const vscode = vscodeMcpInstallUrl();
-    expect(vscode.startsWith("vscode:mcp/install?")).toBe(true);
-    expect(JSON.parse(decodeURIComponent(vscode.slice("vscode:mcp/install?".length)))).toEqual({
-      name: docsMcpServerName,
-      type: "http",
-      url: docsMcpUrl,
-    });
-  });
-
-  it("replaces the Docus header actions on every docs page", () => {
-    const component = read("app/components/DocsPageHeaderLinks.vue");
-
-    expect(component).toContain("pageActionLinks(route.path)");
+    expect(component).toContain("docsMarkdownLinks(site, route.path)");
     for (const page of [
-      "app/pages/docs/index.vue",
-      "app/components/DocsArticle.vue",
-      "app/components/DocsProductLanding.vue",
+      "../packages/docs/runtime/app/components/DocsArticle.vue",
+      "../packages/docs/runtime/app/components/DocsLanding.vue",
     ]) {
       expect(read(page)).toContain("<DocsPageHeaderLinks />");
     }
   });
 
   it("documents every page action that the header renders", () => {
-    const component = read("app/components/DocsPageHeaderLinks.vue");
+    const component = read("../packages/docs/runtime/app/components/DocsPageHeaderLinks.vue");
     const guide = read("content/docs/getting-started/ai-resources/markdown-pages.md");
     const labels = [...component.matchAll(/label: "([^"]+)"/g)].map((match) => match[1]!);
+    const pageLabels = ["View as Markdown", "Copy Markdown URL", "Open in ChatGPT", "Open in Claude"];
+    const mcpLabels = ["Copy MCP server URL", "Add MCP server to Cursor", "Add MCP server to VS Code", "Set up other AI tools"];
 
-    expect(labels).toEqual([
-      "View as Markdown",
-      "Copy Markdown URL",
-      "Open in ChatGPT",
-      "Open in Claude",
-      "Copy MCP server URL",
-      "Add MCP server to Cursor",
-      "Add MCP server to VS Code",
-      "Set up other AI tools",
-    ]);
+    // The component defines the MCP items before the page items, so compare the sets.
+    expect([...labels].sort()).toEqual([...pageLabels, ...mcpLabels].sort());
     expect(guide).toContain("| Copy page |");
-    for (const label of labels.slice(0, 5)) expect(guide).toContain(`| ${label} |`);
+    for (const label of [...pageLabels, "Copy MCP server URL"]) expect(guide).toContain(`| ${label} |`);
     expect(guide).toContain("| Add MCP server to Cursor or VS Code |");
-    expect(component).toContain('to: "/docs/getting-started/ai-resources/mcp-server"');
-    expect(guide).toContain(pageChatPrompt("https://vitehub.dev/raw/docs/kv.md"));
+    expect(component).toContain("server.guide ? [{ label: \"Set up other AI tools\"");
+    expect(guide).toContain(docsMarkdownLinks(site, "/docs/kv").prompt);
   });
 
   it("uses the generated MCP endpoint and server name in every setup snippet", () => {

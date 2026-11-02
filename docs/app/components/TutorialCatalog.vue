@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { docsManifest } from "~~/modules/vitehub-docs/runtime/utils/docs";
 
 const search = ref("");
 const selectedCategory = ref("All topics");
 
-const tutorials = docsManifest.sections.flatMap(section => section.pages
+const tutorials = useDocsManifest().sections.flatMap(section => section.pages
   .filter(page => page.layout === "tutorial")
   .map(page => ({
     category: section.id === "getting-started" ? "Get started" : section.category || "Reference",

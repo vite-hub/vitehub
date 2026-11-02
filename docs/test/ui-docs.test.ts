@@ -5,6 +5,9 @@ import { describe, expect, it } from "vitest";
 const docsRoot = resolve(import.meta.dirname, "..");
 const uiDocsRoot = resolve(docsRoot, "content/docs/ui");
 const examplesRoot = resolve(docsRoot, "app/components/content/examples");
+// The shared docs shell ships with @vite-hub/docs.
+const packageRoot = resolve(docsRoot, "../packages/docs");
+const packageApp = resolve(packageRoot, "runtime/app");
 const previewPattern = /^::component-preview\{name="([A-Za-z]+)"[^}]*\}$/gm;
 
 function markdownFiles(root: string): string[] {
@@ -99,15 +102,15 @@ describe("UI documentation", () => {
       "utf8",
     );
 
-    expect(preview).toContain('import highlighter from "#mdc-highlighter"');
     expect(preview).toContain('import.meta.glob("./examples/*.vue")');
     expect(preview).toContain('query: "?raw"');
     expect(preview).toContain("Live example");
     expect(preview).toContain('class="component-preview-source border-t border-default"');
     expect(preview).not.toContain('role="tablist"');
     expect(preview).not.toContain('role="tab"');
-    expect(preview).toContain('<MDC :value="sourceBlock"');
-    expect(preview).toContain(':parser-options="sourceParserOptions"');
+    // The source highlights once on the server and reaches the client in the payload.
+    expect(preview).toContain('highlightCodeLines(source, "vue")');
+    expect(preview).toContain('<ProsePre language="vue" :code="source"');
     expect(preview).toContain('@click="copy(source)"');
     expect(preview).toContain('<component :is="example" :key="resetKey" />');
     expect(preview).not.toContain("<code>{{ source }}</code>");
@@ -116,16 +119,19 @@ describe("UI documentation", () => {
   it("loads previews through the public Nuxt module", () => {
     const config = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
     const manifest = readFileSync(resolve(docsRoot, "package.json"), "utf8");
+    const docsModule = readFileSync(resolve(packageRoot, "src/nuxt.ts"), "utf8");
 
-    expect(config).toContain('"@vite-hub/ui/nuxt"');
+    // The docs module installs the UI module, so the site lists only the docs module.
+    expect(config).toContain('"@vite-hub/docs/nuxt"');
+    expect(docsModule).toContain('[dependency("@vite-hub/ui/nuxt")]: {}');
     expect(manifest).toContain('"@vite-hub/ui": "workspace:*"');
   });
 
   it("gives component pages the shared article layout and page outline", () => {
-    const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
-    const article = readFileSync(resolve(docsRoot, "app/components/DocsArticle.vue"), "utf8");
-    expect(page).toContain('<DocsArticle v-else-if="page" :page="page"');
-    expect(article).toContain('<ContentRenderer :value="page" :components="{ pre: DocsCodePre }" />');
+    const page = readFileSync(resolve(packageApp, "components/DocsPage.vue"), "utf8");
+    const article = readFileSync(resolve(packageApp, "components/DocsArticle.vue"), "utf8");
+    expect(page).toContain('<DocsArticle :response="response" />');
+    expect(article).toContain('<DocsMarkdown :document="response.document" :components="{ pre: DocsCodePre }" />');
     expect(article).toContain("UContentToc");
     expect(article).toContain('v-if="tocLinks.length"');
     expect(article).toContain('aria-label="Page outline"');
@@ -134,16 +140,16 @@ describe("UI documentation", () => {
   });
 
   it("uses the wide component layout without the desktop outline", () => {
-    const page = readFileSync(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
-    const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
+    const page = readFileSync(resolve(packageApp, "components/DocsPage.vue"), "utf8");
+    const layout = readFileSync(resolve(packageApp, "layouts/docs.vue"), "utf8");
 
-    expect(page).toContain("<DocsArticle v-else-if=\"page\"");
-    expect(layout).toContain("vh-docs-main");
+    expect(page).toContain('<DocsArticle :response="response" />');
+    expect(page).toContain("vh-docs-main");
     expect(layout).toContain("lg:!flex lg:!flex-row");
   });
 
   it("keeps only search in the panel head, without a product context link or disclosure control", () => {
-    const sidebarTop = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftTop.vue"), "utf8");
+    const sidebarTop = readFileSync(resolve(packageApp, "components/DocsAsideLeftTop.vue"), "utf8");
 
     expect(sidebarTop).toContain("<UContentSearchButton");
     expect(sidebarTop).not.toContain("vh-docs-context");
@@ -152,32 +158,34 @@ describe("UI documentation", () => {
   });
 
   it("moves the brand, the site areas, and the controls from the header into the sidebar", () => {
-    const rail = readFileSync(resolve(docsRoot, "app/components/DocsRail.vue"), "utf8");
-    const body = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftBody.vue"), "utf8");
-    const sidebars = readFileSync(resolve(docsRoot, "app/components/DocsSidebars.vue"), "utf8");
-    const footer = readFileSync(resolve(docsRoot, "app/components/DocsAsideFooter.vue"), "utf8");
-    const section = readFileSync(resolve(docsRoot, "app/composables/useDocsSection.ts"), "utf8");
-    const header = readFileSync(resolve(docsRoot, "app/components/AppHeader.vue"), "utf8");
+    const rail = readFileSync(resolve(packageApp, "components/DocsRail.vue"), "utf8");
+    const body = readFileSync(resolve(packageApp, "components/DocsAsideLeftBody.vue"), "utf8");
+    const sidebars = readFileSync(resolve(packageApp, "components/DocsSidebars.vue"), "utf8");
+    const footer = readFileSync(resolve(packageApp, "components/DocsAsideFooter.vue"), "utf8");
+    const header = readFileSync(resolve(packageApp, "components/AppHeader.vue"), "utf8");
+    const config = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
 
-    expect(rail).toContain('<PrimitiveRail label="ViteHub navigation">');
-    expect(rail).toContain('<PrimitiveRailItem :as="NuxtLink" to="/" label="ViteHub alpha" class="vh-docs-rail-brand">');
+    // The rail names the site and its badge from the `docs.site` options: "ViteHub navigation" and "ViteHub alpha".
+    expect(rail).toContain('<PrimitiveRail :label="`${site.name} navigation`">');
+    expect(rail).toContain("const brand = site.badge ? `${site.name} ${site.badge.label}` : site.name");
+    expect(rail).toContain('<PrimitiveRailItem :as="NuxtLink" to="/" :label="brand" class="vh-docs-rail-brand">');
     expect(rail).toContain("<template #label>");
-    expect(body).toContain('v-for="area in docsSiteAreas"');
-    expect(section).toContain('{ label: "Tutorials", to: "/tutorials"');
-    expect(section).toContain('{ label: "Projects", to: "/projects"');
-    expect(section).toContain('{ label: "Templates", to: "/templates"');
+    expect(body).toContain('v-for="link in startLinks"');
+    expect(config).toContain('{ label: "Tutorials", to: "/tutorials"');
+    expect(config).toContain('{ label: "Projects", to: "/projects"');
+    expect(config).toContain('{ label: "Templates", to: "/templates"');
     expect(sidebars).toContain("<DocsAsideFooter />");
     expect(footer).toContain("<UColorModeButton");
-    expect(footer).toContain("socials.discord");
+    expect(footer).toContain('v-for="link in socials"');
+    expect(config).toContain('socials: [{ label: "ViteHub on Discord"');
     // The header stays for the menu on narrow screens and hides where the sidebar shows.
-    expect(header).toContain(":class=\"{ 'lg:hidden': hidesOnWideScreens }\"");
+    expect(header).toContain(":class=\"{ 'lg:hidden': isDocsRoute }\"");
   });
 
-
   it("keeps the docs sidebar visible without disclosure toggles", () => {
-    const sidebar = readFileSync(resolve(docsRoot, "app/components/DocsAsideLeftBody.vue"), "utf8");
-    const layout = readFileSync(resolve(docsRoot, "app/layouts/docs.vue"), "utf8");
-    const sidebarPanel = readFileSync(resolve(docsRoot, "app/components/DocsSidebars.vue"), "utf8");
+    const sidebar = readFileSync(resolve(packageApp, "components/DocsAsideLeftBody.vue"), "utf8");
+    const layout = readFileSync(resolve(packageApp, "layouts/docs.vue"), "utf8");
+    const sidebarPanel = readFileSync(resolve(packageApp, "components/DocsSidebars.vue"), "utf8");
 
     expect(sidebar).toContain("flex: 1 1 0");
     expect(sidebar).toContain("min-height: 0");

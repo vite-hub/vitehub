@@ -1,5 +1,6 @@
 ---
 title: Email
+layout: landing
 navigation.title: Overview
 description: Send email from your server through Resend or Cloudflare, and write messages as Markdown templates.
 navigation.order: 1

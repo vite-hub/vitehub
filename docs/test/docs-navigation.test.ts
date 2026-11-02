@@ -1,18 +1,15 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { docsCatalog, docsRailGroups, docsSectionForPath, docsSidebarGroups, findDocsPage } from "@vite-hub/docs";
+import { createDocsManifest } from "@vite-hub/docs/server";
 import { describe, expect, it } from "vitest";
-import { docsManifest, getDocsPageByPath } from "../modules/vitehub-docs/runtime/utils/docs";
-import {
-  docsCategoryOrder,
-  docsRootSectionId,
-  getDocsCatalog,
-  getDocsRailCatalog,
-  getDocsSectionKind,
-  getDocsSectionForPath,
-  getDocsSectionSubpages,
-  getDocsSidebarGroups,
-  getUncategorizedDocsSections,
-  isDocsLandingPath,
-} from "../modules/vitehub-docs/runtime/utils/docs-navigation";
+import config from "../nuxt.config";
 import { createDocsRedirectRouteRules, docsPageRedirects } from "../modules/vitehub-docs/redirects";
+
+const docsRoot = resolve(import.meta.dirname, "..");
+const docsManifest = createDocsManifest({ dir: resolve(docsRoot, "content"), base: "/docs" });
+const categories = config.docs?.categories ?? [];
+const railExclude = config.docs?.railExclude ?? [];
 
 const serverPrimitiveSections = [
   "auth",
@@ -39,52 +36,52 @@ const serverPrimitiveSections = [
   "workspace",
 ];
 
+function section(id: string) {
+  const found = docsManifest.sections.find(candidate => candidate.id === id);
+  if (!found) throw new Error(`Missing docs section ${id}`);
+  return found;
+}
+
 describe("docs product navigation", () => {
   it("exposes UI, development, deployment, and reference without crowding the product rail", () => {
-    const catalog = getDocsCatalog(docsManifest.sections);
-    const rail = getDocsRailCatalog(docsManifest.sections);
-    expect(catalog.find(group => group.category === "Develop and deploy")?.sections.map(section => section.id))
+    const catalog = docsCatalog(docsManifest, categories);
+    const rail = docsRailGroups(docsManifest, categories, railExclude);
+    expect(railExclude).toEqual(["Develop and deploy", "Reference"]);
+    expect(catalog.find(group => group.category === "Develop and deploy")?.sections.map(candidate => candidate.id))
       .toEqual(expect.arrayContaining(["development", "frameworks-hosts", "guides"]));
-    expect(catalog.find(group => group.category === "Reference")?.sections.map(section => section.id)).toEqual(["reference", "compare"]);
-    const railSectionIds = rail.flatMap(group => group.sections.map(section => section.id));
+    expect(catalog.find(group => group.category === "Reference")?.sections.map(candidate => candidate.id)).toEqual(["reference", "compare"]);
+    const railSectionIds = rail.flat().map(candidate => candidate.id);
     for (const sectionId of ["development", "frameworks-hosts", "guides", "reference", "compare"]) {
       expect(railSectionIds).not.toContain(sectionId);
     }
-    expect(rail.map(group => group.category)).toEqual(docsCategoryOrder.filter(category => !["Develop and deploy", "Reference"].includes(category)));
-    expect(rail.find(group => group.category === "Agents")?.sections.map(section => section.id)).toEqual(["agents"]);
-    expect(rail.find(group => group.category === "UI")?.sections.map(section => section.id)).toEqual(["ui"]);
-  });
-
-  it("labels UI catalog tiles as UI components", () => {
-    const section = (id: string) => docsManifest.sections.find(candidate => candidate.id === id)!;
-    expect(getDocsSectionKind(section("ui"))).toBe("UI components");
-    expect(getDocsSectionKind(section("agents"))).toBe("Agents");
-    expect(getDocsSectionKind(section("getting-started"))).toBe("Get started");
-    expect(getDocsSectionKind(section("reference"))).toBe("Reference");
+    // Every section has a known category, so the rail has one group per category that it keeps.
+    expect(rail.map(group => group[0]?.category)).toEqual(categories.filter(category => !railExclude.includes(category)));
+    expect(rail.find(group => group[0]?.category === "Agents")?.map(candidate => candidate.id)).toEqual(["agents"]);
+    expect(rail.find(group => group[0]?.category === "UI")?.map(candidate => candidate.id)).toEqual(["ui"]);
   });
 
   it("files every section under one catalog category", () => {
-    expect(getUncategorizedDocsSections(docsManifest.sections)).toEqual([]);
+    expect(docsManifest.sections.filter(candidate => !candidate.category || !categories.includes(candidate.category)).map(candidate => candidate.id)).toEqual([]);
 
-    const catalog = getDocsCatalog(docsManifest.sections);
-    expect(catalog.map(group => group.category)).toEqual([...docsCategoryOrder]);
-    expect(catalog.find(group => group.category === "Start")?.sections.map(section => section.id)).toEqual([docsRootSectionId]);
+    const catalog = docsCatalog(docsManifest, categories);
+    expect(catalog.map(group => group.category)).toEqual(categories);
+    expect(catalog.find(group => group.category === "Start")?.sections.map(candidate => candidate.id)).toEqual([config.docs?.start?.section]);
 
     const productIds = catalog
       .filter(group => ["Data", "Compute", "Access", "Delivery", "Files"].includes(group.category))
-      .flatMap(group => group.sections.map(section => section.id))
+      .flatMap(group => group.sections.map(candidate => candidate.id))
       .sort();
     expect(productIds).toEqual(serverPrimitiveSections);
-    expect(catalog.find(group => group.category === "Agents")?.sections.map(section => section.id)).toEqual(["agents"]);
-    expect(catalog.find(group => group.category === "UI")?.sections.map(section => section.id)).toEqual(["ui"]);
+    expect(catalog.find(group => group.category === "Agents")?.sections.map(candidate => candidate.id)).toEqual(["agents"]);
+    expect(catalog.find(group => group.category === "UI")?.sections.map(candidate => candidate.id)).toEqual(["ui"]);
   });
 
   it("orders every Server Primitive section by the product page template", () => {
     const template = ["Overview", "Get started", "Configure", "Server API", "Agent capability", "Hosts", "Limits and errors"];
 
     for (const sectionId of serverPrimitiveSections) {
-      const section = docsManifest.sections.find(candidate => candidate.id === sectionId);
-      const pages = section?.pages.filter(page => page.navigation) || [];
+      const product = section(sectionId);
+      const pages = product.pages.filter(page => page.navigation);
       const titles = pages.map(page => page.title);
       const templateTitles = titles.filter(title => template.includes(title));
 
@@ -99,38 +96,43 @@ describe("docs product navigation", () => {
       const capability = pages.find(page => page.id === "agent-capability");
       if (capability) {
         expect(capability.title, sectionId).toBe("Agent capability");
-        expect(capability.sourceTitle, sectionId).toBe(`${section?.title} capability`);
+        expect(capability.sourceTitle, sectionId).toBe(`${product.title} capability`);
       }
     }
   });
 
+  it("resolves product Overviews by their section name and their sidebar label", () => {
+    expect(findDocsPage(docsManifest, "/docs/kv")?.page).toMatchObject({ sourceTitle: "KV", title: "Overview" });
+    // Framework-prefixed docs routes were removed.
+    expect(findDocsPage(docsManifest, "/docs/vite/kv")).toBeNull();
+  });
+
   it("preserves the Agents Learning path title", () => {
-    expect(getDocsPageByPath("/docs/agents/get-started")?.title).toBe("Learning path");
+    expect(findDocsPage(docsManifest, "/docs/agents/get-started")?.page.title).toBe("Learning path");
   });
 
   it("keeps Agent-only Capabilities inside the Agents section", () => {
-    const agents = docsManifest.sections.find(section => section.id === "agents");
-    const capabilities = agents?.pages.filter(page => page.id.startsWith("capabilities")) || [];
+    const capabilities = section("agents").pages.filter(page => page.id.startsWith("capabilities"));
 
     expect(capabilities.map(page => page.path)).toContain("/docs/agents/capabilities");
     expect(capabilities.map(page => page.path)).toContain("/docs/agents/capabilities/mcp");
     expect(capabilities.find(page => page.id === "capabilities")?.group).toBe("Instructions and tools");
     expect(capabilities.find(page => page.id === "capabilities/custom")?.group).toBe("Advanced");
     expect(capabilities.filter(page => !["capabilities", "capabilities/official", "capabilities/custom"].includes(page.id)).every(page => page.group === "Capabilities")).toBe(true);
-    expect(docsManifest.sections.map(section => section.id)).not.toContain("capabilities");
-    expect(docsManifest.sections.map(section => section.id)).not.toContain("server-primitives");
+    expect(docsManifest.sections.map(candidate => candidate.id)).not.toContain("capabilities");
+    expect(docsManifest.sections.map(candidate => candidate.id)).not.toContain("server-primitives");
   });
 
   it("resolves the sidebar section from the route", () => {
-    expect(getDocsSectionForPath(docsManifest.sections, "/docs/kv/agent-capability/")?.id).toBe("kv");
-    expect(getDocsSectionForPath(docsManifest.sections, "/docs/agents/capabilities/mcp")?.id).toBe("agents");
-    expect(getDocsSectionForPath(docsManifest.sections, "/docs")).toBeNull();
-    expect(getDocsSectionForPath(docsManifest.sections, "/docs/unknown")).toBeNull();
+    expect(docsSectionForPath(docsManifest, "/docs/kv/agent-capability/")?.id).toBe("kv");
+    expect(docsSectionForPath(docsManifest, "/docs/agents/capabilities/mcp")?.id).toBe("agents");
+    expect(docsSectionForPath(docsManifest, "/docs")).toBeNull();
+    expect(docsSectionForPath(docsManifest, "/docs/unknown")).toBeNull();
   });
 
   it("puts reusable UI blocks after setup", () => {
-    const ui = docsManifest.sections.find(section => section.id === "ui");
-    expect(getDocsSidebarGroups(ui!).map(group => group.label)).toEqual([
+    const groups = docsSidebarGroups(section("ui"));
+    expect(groups.map(group => group.label)).toEqual([
       "Start",
       "Blocks",
       "Parts",
@@ -139,56 +141,58 @@ describe("docs product navigation", () => {
       "Agent work",
       "Utilities",
     ]);
-    expect(getDocsSidebarGroups(ui!).find(group => group.label === "Blocks")?.pages.map(page => page.title))
+    expect(groups.find(group => group.label === "Blocks")?.pages.map(page => page.title))
       .toEqual(["Chat App", "Code Review", "Collaborative Editor"]);
   });
 
   it("groups every navigable page of a large section", () => {
     for (const sectionId of ["agents", "development", "frameworks-hosts", "reference", "ui"]) {
-      const section = docsManifest.sections.find(candidate => candidate.id === sectionId);
-      const groups = getDocsSidebarGroups(section!);
+      const groups = docsSidebarGroups(section(sectionId));
 
       expect(groups.length, sectionId).toBeGreaterThan(0);
       expect(groups.every(group => group.label && group.pages.length > 0), sectionId).toBe(true);
     }
 
-    const kv = docsManifest.sections.find(candidate => candidate.id === "kv");
-    expect(getDocsSidebarGroups(kv!).map(group => group.label)).toEqual([null]);
+    expect(docsSidebarGroups(section("kv")).map(group => group.label)).toEqual([null]);
   });
 
   it("lists each topic once inside a section", () => {
-    for (const section of docsManifest.sections) {
+    for (const candidate of docsManifest.sections) {
       // UI components are named after the feature they render.
-      if (section.id === "ui") continue;
+      if (candidate.id === "ui") continue;
       const pathsByTitle = new Map<string, string[]>();
 
-      for (const page of section.pages.filter(page => page.navigation && page.title !== "Overview")) {
+      for (const page of candidate.pages.filter(page => page.navigation && page.title !== "Overview")) {
         const title = page.title.toLowerCase();
         pathsByTitle.set(title, [...(pathsByTitle.get(title) || []), page.path]);
       }
 
       const duplicates = [...pathsByTitle].filter(([, paths]) => paths.length > 1);
-      expect(duplicates, section.id).toEqual([]);
+      expect(duplicates, candidate.id).toEqual([]);
     }
   });
 
   it("renders the catalog and every product Overview as a landing page", () => {
-    expect(isDocsLandingPath(docsManifest.sections, "/docs")).toBe(true);
-    expect(isDocsLandingPath(docsManifest.sections, "/docs/kv/")).toBe(true);
-    expect(isDocsLandingPath(docsManifest.sections, "/docs/agents")).toBe(true);
-    expect(isDocsLandingPath(docsManifest.sections, "/docs/kv/get-started")).toBe(false);
-    expect(isDocsLandingPath(docsManifest.sections, "/docs/getting-started")).toBe(false);
-    expect(isDocsLandingPath(docsManifest.sections, "/docs/reference")).toBe(false);
-    expect(isDocsLandingPath(docsManifest.sections, "/docs/ui")).toBe(false);
-
-    const kv = docsManifest.sections.find(section => section.id === "kv");
-    expect(getDocsSectionSubpages(kv!).map(page => page.title)[0]).toBe("Get started");
-    expect(getDocsSectionSubpages(kv!).some(page => page.id === "index")).toBe(false);
+    const landingSections = ["agents", ...serverPrimitiveSections];
+    expect(docsManifest.root?.layout).toBe("landing");
+    for (const candidate of docsManifest.sections) {
+      const overview = candidate.pages.find(page => page.id === "index");
+      expect(overview?.layout, candidate.id).toBe(landingSections.includes(candidate.id) ? "landing" : "article");
+    }
+    // The frontmatter sets the layout, so the raw Markdown and the Console editor see it too.
+    for (const sectionId of landingSections) {
+      expect(readFileSync(resolve(docsRoot, `content/docs/${sectionId}/index.md`), "utf8"), sectionId).toMatch(/^---\n[\s\S]*?^layout: landing$[\s\S]*?^---$/m);
+    }
+    expect(findDocsPage(docsManifest, "/docs/kv/get-started")?.page.layout).not.toBe("landing");
   });
 
   it("keeps commas in frontmatter titles", () => {
-    expect(getDocsPageByPath("/docs/agents/runtime-policy")?.title)
+    expect(findDocsPage(docsManifest, "/docs/agents/runtime-policy")?.page.title)
       .toBe("Runtime policy, approvals, and traces");
+  });
+
+  it("lists the trust pages outside the docs base", () => {
+    expect(docsManifest.pages.map(page => page.path)).toEqual(expect.arrayContaining(["/", "/about", "/contact", "/privacy"]));
   });
 
   it("redirects each removed page, its trailing-slash form, and its raw Markdown copy to a published page", () => {
@@ -199,8 +203,8 @@ describe("docs product navigation", () => {
     expect(docsPageRedirects["/docs/capabilities/mcp"]).toBe("/docs/agents/capabilities/mcp");
 
     for (const [from, to] of Object.entries(docsPageRedirects)) {
-      expect(getDocsPageByPath(from), from).toBeNull();
-      expect(getDocsPageByPath(to), to).not.toBeNull();
+      expect(findDocsPage(docsManifest, from), from).toBeNull();
+      expect(findDocsPage(docsManifest, to), to).not.toBeNull();
       expect(routeRules[from]).toEqual({ redirect: { statusCode: 301, to } });
       expect(routeRules[`${from}/`]).toEqual({ redirect: { statusCode: 301, to } });
       expect(routeRules[`/raw${from}.md`]).toEqual({ redirect: { statusCode: 301, to: `/raw${to}.md` } });

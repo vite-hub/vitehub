@@ -1,9 +1,19 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { relative, resolve } from "node:path";
-import { rawMarkdownUrl } from "../runtime/utils/llms-links";
-import { toRawMarkdown } from "./raw-markdown";
+import { docsRawPath } from "@vite-hub/docs";
+import { toRawMarkdown } from "@vite-hub/docs/server";
 
 const siteOrigin = "https://vitehub.dev";
+
+/** The raw Markdown URL of a vitehub.dev docs page. Other links stay as they are. */
+function rawMarkdownUrl(href: string) {
+  const url = new URL(href, siteOrigin);
+  const path = url.pathname.replace(/\/+$/, "") || "/";
+  const sourceBacked = path === "/docs" || path.startsWith("/docs/") || ["/about", "/contact", "/privacy"].includes(path);
+  if (url.origin !== siteOrigin || !sourceBacked) return href;
+  url.pathname = docsRawPath(path);
+  return url.toString();
+}
 
 export type SkillReference = {
   /** File name under `skills/vitehub/references/primitives/`, without `.md`. */
@@ -65,7 +75,7 @@ export function skillBlocks(source: string) {
 
 function rawPageUrl(docsRoot: string, absolutePath: string) {
   const path = relative(resolve(docsRoot, "content"), absolutePath).replace(/\\/g, "/").replace(/(?:\/index)?\.md$/, "");
-  return rawMarkdownUrl(`/${path}`, siteOrigin);
+  return rawMarkdownUrl(`/${path}`);
 }
 
 /** Skill references built from `::agent-only{skill="..."}` blocks, so the skill and the docs page share one source. */
@@ -75,9 +85,9 @@ export function createSkillReferences(docsRoot: string): SkillReference[] {
     const source = readFileSync(absolutePath, "utf8");
     const title = frontmatterTitle(source);
     for (const block of skillBlocks(source)) {
-      const body = toRawMarkdown(block.content).replace(
+      const body = toRawMarkdown(block.content, { siteUrl: siteOrigin }).replace(
         /\]\((https:\/\/vitehub\.dev\/[^)\s]+)\)/g,
-        (_match, href: string) => `](${rawMarkdownUrl(href, siteOrigin)})`,
+        (_match, href: string) => `](${rawMarkdownUrl(href)})`,
       );
       const sourcePath = relative(docsRoot, absolutePath).replace(/\\/g, "/");
       references.push({

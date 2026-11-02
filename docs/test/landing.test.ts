@@ -225,7 +225,7 @@ describe("landing page", () => {
     expect(installCommand).toContain("transition: none;");
   });
 
-  it("wires landing-page metadata through Docus", async () => {
+  it("wires landing-page metadata through Nuxt SEO and Schema.org", async () => {
     const source = await readFile(new URL("../app/pages/index.vue", import.meta.url), "utf8");
 
     expect(source).toContain("<LandingHero />");
@@ -235,8 +235,10 @@ describe("landing page", () => {
     expect(source.indexOf("<LandingAgentStory />")).toBeLessThan(source.indexOf("<LandingClosing />"));
     expect(source).not.toContain("<LandingSharedApi />");
     expect(source).not.toContain("<LandingNuxtHubMigration />");
-    expect(source).toContain("useSeo({");
-    expect(source).toContain('type: "website"');
+    expect(source).toContain("useSeoMeta({");
+    expect(source).toContain('ogType: "website"');
+    expect(source).toContain('ogUrl: "https://vitehub.dev"');
+    expect(source).toContain("useSchemaOrg([\n  defineWebSite({");
     expect(source).not.toContain("defineOgImage");
     expect(source).toContain("deploy it across supported Vite hosts");
     expect(source).not.toContain("titleTemplate");

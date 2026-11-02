@@ -1,5 +1,6 @@
 ---
 title: Source
+layout: landing
 navigation.title: Overview
 description: Read files and data from your project, a GitHub repository, or your own code without changing them, and serve lists as paged API routes.
 navigation.order: 1

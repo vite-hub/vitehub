@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { examples, type Example } from "../app/data/examples";
+import config from "../nuxt.config";
 
 const docsRoot = resolve(import.meta.dirname, "..");
 
@@ -11,13 +12,12 @@ describe("examples catalog", () => {
     expect(existsSync(resolve(docsRoot, "app/pages/projects.vue"))).toBe(true);
     expect(existsSync(resolve(docsRoot, "app/pages/templates.vue"))).toBe(true);
 
-    const header = readFileSync(resolve(docsRoot, "app/components/AppHeader.vue"), "utf8");
-    expect(header).toContain('{ label: "Projects", to: "/projects" }');
-    expect(header).toContain('{ label: "Templates", to: "/templates" }');
-
-    const sitemap = readFileSync(resolve(docsRoot, "server/api/__sitemap__/urls.ts"), "utf8");
-    expect(sitemap).toContain('{ path: "/projects" }');
-    expect(sitemap).toContain('{ path: "/templates" }');
+    // The header lists the start links, and the sitemap lists the app pages outside the content folder.
+    expect(config.docs?.start?.links).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: "Projects", to: "/projects" }),
+      expect.objectContaining({ label: "Templates", to: "/templates" }),
+    ]));
+    expect(config.docs?.sitemap).toEqual(expect.arrayContaining(["/examples", "/projects", "/templates"]));
   });
 
   it("publishes available examples while retaining future candidates", () => {

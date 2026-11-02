@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { useIntersectionObserver } from "@vueuse/core";
-import { docsManifest } from "~~/modules/vitehub-docs/runtime/utils/docs";
-import { getDocsCatalog } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
+import { docsCatalog } from "@vite-hub/docs";
 
 type CatalogTile = {
   description: string | null;
@@ -44,14 +43,16 @@ const scenes = new Map([
   ["workflows", "workflow"],
 ]);
 
+const icons = useDocsIcons();
+const groups = docsCatalog(useDocsManifest(), useDocsConfig().categories);
 const rows = computed<CatalogRow[]>(() => {
-  return getDocsCatalog(docsManifest.sections)
+  return groups
     .filter(group => group.category !== "Start")
     .map((group) => ({
       category: group.category,
       tiles: group.sections.map(section => ({
           description: section.description,
-          icon: sidebarSectionIcon(section),
+          icon: icons.section(section),
           key: section.id,
           scene: scenes.get(section.id) ?? null,
           title: section.title,
@@ -79,7 +80,7 @@ function offset(index: number) {
 </script>
 
 <template>
-  <div ref="catalog" class="not-prose vh-docs-catalog">
+  <div ref="catalog" class="not-prose vh-docs-wide vh-docs-catalog">
     <section v-for="row in rows" :key="row.category" class="vh-docs-catalog-row">
       <h2 class="vh-docs-catalog-heading">{{ row.category === "Start" ? "Get started" : row.category }}</h2>
       <ul class="vh-docs-catalog-grid" role="list">
