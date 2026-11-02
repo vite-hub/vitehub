@@ -240,7 +240,7 @@ export const content = defineContent({
 })
 ```
 
-`docsCollection({ path?, label? })` is a `documents()` collection over `content/**/*.md` with the page frontmatter as fields, and each document URL is its page URL. With `repo`, a save commits to a draft branch and a publish opens a pull request, so the site shows the change after it merges and builds. In the Console preview pane the page route renders the draft, uncached. See [Edit in the Console](https://vitehub.dev/docs/docs-site/configure#edit-in-the-console).
+`docsCollection({ path?, label? })` is a `documents()` collection over `content/**/*.md` with the page frontmatter as fields, and each document URL is its page URL. With `repo`, a save commits to a draft branch and a publish opens a pull request, so the site shows the change after it merges and builds. In the Console preview pane the page route renders the draft, uncached. Leave out the Content `seo` option: the docs module serves the sitemap and the Markdown copies, and Content's `.md` copies would compete with them in another format. See [Edit in the Console](https://vitehub.dev/docs/docs-site/configure#edit-in-the-console).
 
 ## Errors
 

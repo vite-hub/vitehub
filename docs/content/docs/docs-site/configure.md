@@ -327,7 +327,7 @@ export const content = defineContent({
 })
 ```
 
-Open `/_vitehub/content` and select **Docs**. The build reads this file without running it, so keep `defineContent({ extends, collections })` as written and give the `cms` options as string literals.
+Open `/_vitehub/content` and select **Docs**. The build reads this file without running it, so keep `defineContent({ extends, collections })` as written and give the `cms` options as string literals. Leave out the Content `seo` option: the docs module already serves the sitemap and the Markdown copy of each page, and Content's `.md` copies would compete with them in another format.
 
 `docsCollection()` is a `documents()` collection over the pages:
 
