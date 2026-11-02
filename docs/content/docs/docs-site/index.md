@@ -62,6 +62,10 @@ icon: i-lucide-library
   Each page has a Markdown copy at `/raw`. llms.txt, a sitemap, and an MCP server come with no setup.
   :::
 
+  :::product-feature-item{title="Edit pages in the Console" icon="i-lucide-pencil" to="/docs/docs-site/configure#edit-in-the-console"}
+  The CMS edits, previews, and publishes pages, with a pull request per publish.
+  :::
+
   :::product-feature-item{title="A docs assistant on your ChatGPT plan" icon="i-lucide-message-square-text" to="/docs/docs-site/assistant"}
   A ViteHub Agent answers reader questions from your pages and links them. No API key.
   :::

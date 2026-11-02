@@ -28,7 +28,7 @@ Invalid docs frontmatter in content/docs/guide/install.md: layout: Invalid type:
 
 **Why:** a required field is missing, such as `title`, or a field has a wrong value or type.
 
-**Fix:** correct the field that the message names. The [frontmatter reference](/docs/docs-site/server-api#frontmatter) lists every field and its values. In development, the server restarts and does not answer until you fix the file.
+**Fix:** correct the field that the message names. The [frontmatter reference](/docs/docs-site/server-api#frontmatter) lists every field and its values. In development, the terminal shows the error and the site keeps the last valid pages until you fix the file.
 
 ### DocsAssistantSetupError
 

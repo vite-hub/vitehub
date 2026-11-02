@@ -63,7 +63,7 @@ The module reads the folder at build time. In development it watches the folder:
 | `navigation` | Listed | `false` keeps the page out of the sidebar. Or `{ title, order, group, kind }`. |
 | `seo` | None | `{ title, description }` for search results when they must differ from the page. |
 
-Dotted keys work too, such as `navigation.order: 2`. A wrong field stops the build with `DocsContentError`. In development, the server restarts and does not answer until you fix the file.
+Dotted keys work too, such as `navigation.order: 2`. A wrong field stops the build with `DocsContentError`. In development, the terminal shows the error and the site keeps the last valid pages until you fix the file.
 
 `.navigation.yml` in a section folder:
 
