@@ -1,5 +1,4 @@
 import { resolvePublicUrl } from "@vite-hub/runtime"
-import { createLocalJWKSet, jwtVerify } from "jose"
 
 import type { JSONWebKeySet } from "jose"
 import type { ConsoleUser } from "../../auth.ts"
@@ -32,7 +31,7 @@ export interface ConsoleOAuthAuth {
 /** How the Console signs MCP clients in. Generated output installs it with the access policy. */
 export interface ConsoleOAuthConfig {
   /** The Better Auth instance of the Auth that signs people in, built for the given request. */
-  auth: (request: Request, event: ConsoleRequestEvent) => ConsoleOAuthAuth
+  auth: (request: Request, event: ConsoleRequestEvent) => ConsoleOAuthAuth | Promise<ConsoleOAuthAuth>
   /** Console Auth authorization for a verified token identity, without a browser session. */
   authorize?: (context: { request: Request, user: ConsoleUser }) => boolean | Response | Promise<boolean | Response>
   /** Issuer of the access tokens. Absolute. Without it, the issuer of the Auth: its `jwt.issuer`, else its `baseURL`. */
@@ -115,7 +114,7 @@ async function trustedOrigin(config: ConsoleOAuthConfig, event: ConsoleRequestEv
   const configured = resolvePublicUrl()
   if (configured) return new URL(configured).origin
   // An Auth that sets its own `baseURL` answers the same for any request. One that follows the request would answer the probe's origin.
-  const declared = new URL((await config.auth(new Request(`${probeOrigin}/`), event).$context).baseURL || probeOrigin)
+  const declared = new URL((await (await config.auth(new Request(`${probeOrigin}/`), event)).$context).baseURL || probeOrigin)
   if (declared.origin !== probeOrigin) return declared.origin
   // The development server has no fixed origin, and its keys are read in-process, so a forged Host gains nothing.
   return development ? new URL(request.url).origin : undefined
@@ -133,7 +132,7 @@ async function buildState(config: ConsoleOAuthConfig, event: ConsoleRequestEvent
     }
     const resource = config.resource ?? `${origin}${config.path}`
     // The Auth is built for the trusted origin, so a baseURL that follows the request still gets the configured origin.
-    const auth = config.auth(new Request(`${origin}${config.path}`), event)
+    const auth = await config.auth(new Request(`${origin}${config.path}`), event)
     const context = await auth.$context
     const missing = missingOAuthSetup(context, resource)
     if (missing.length) {
@@ -233,6 +232,8 @@ export async function verifyConsoleBearer(request: Request, event: ConsoleReques
     const jwks = jwksOf(await state.auth.api.getJwks())
     const algorithms = [...new Set((jwks?.keys ?? []).flatMap(key => typeof key.alg === "string" ? [key.alg] : []))]
     if (!jwks || !algorithms.length) return { ok: false, state }
+    // Only an MCP request with a token needs jose, so the server starts without it.
+    const { createLocalJWKSet, jwtVerify } = await import("jose")
     const { payload } = await jwtVerify(token, createLocalJWKSet(jwks), {
       algorithms,
       audience: state.resource,
