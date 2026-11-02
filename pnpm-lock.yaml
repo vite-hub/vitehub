@@ -2547,6 +2547,9 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      miniflare:
+        specifier: 4.20260730.0
+        version: 4.20260730.0
       ofetch:
         specifier: catalog:unjs
         version: 1.5.1

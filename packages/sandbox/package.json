@@ -132,6 +132,7 @@
     "@types/ssh2": "^1.15.6",
     "@vercel/sandbox": "catalog:sandbox",
     "@vite-hub/internal": "workspace:*",
+    "miniflare": "4.20260730.0",
     "ofetch": "catalog:unjs",
     "publint": "catalog:tooling",
     "rollup": "catalog:tooling",

@@ -106,6 +106,10 @@ export function resolveRuntimeProvider(provider?: SandboxTaskDefinitionProviderO
   })
 }
 
+export function unsupportedHostedSandboxTaskProviderError(provider: unknown): Error {
+  return sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0076({ message: `[vitehub] Unsupported sandbox provider for this hosted build: ${String(provider)}` })
+}
+
 export function assertSandboxTaskDefinitionOptions(local: SandboxTaskDefinitionOptions) {
   const invalidKeys = Object.keys(local).filter(key => !allowedDefinitionKeys.has(key))
   if (invalidKeys.length > 0)
