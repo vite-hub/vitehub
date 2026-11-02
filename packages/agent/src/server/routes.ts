@@ -460,6 +460,7 @@ function withCleanUiMessageStreamResponse(response: Response): Response {
   const decoder = new TextDecoder()
   const reader = response.body.getReader()
   let tail = ""
+  let reportedError = false
   const headers = new Headers([...response.headers.entries()])
   headers.delete("content-encoding")
   headers.delete("content-length")
@@ -481,10 +482,16 @@ function withCleanUiMessageStreamResponse(response: Response): Response {
             return
           }
 
-          tail = `${tail}${decoder.decode(result.value, { stream: true })}`.slice(-128)
+          const text = `${tail}${decoder.decode(result.value, { stream: true })}`
+          if (/"type":"error"/.test(text)) reportedError = true
+          tail = text.slice(-128)
           controller.enqueue(result.value)
         } catch (error) {
-          controller.error(error)
+          // The client already has the error frame. End the response instead of breaking it: H3 1, which Nuxt 4
+          // runs, never ends a Node response whose body stream errors, so the request stayed open.
+          if (!reportedError) return controller.error(error)
+          enqueueDone(controller)
+          controller.close()
         }
       },
       async cancel(reason) {
@@ -8954,7 +8961,7 @@ async function toAgentChatFetchResponse(result: unknown): Promise<Response> {
   if (result instanceof Response || isResponseLike(result)) {
     return withCleanUiMessageStreamResponse(result)
   }
-  return createAgentUIMessageStreamResponse({ stream: readableStreamFromResult(result) })
+  return withCleanUiMessageStreamResponse(createAgentUIMessageStreamResponse({ stream: readableStreamFromResult(result) }))
 }
 
 function withAgentChatInvocationId(response: Response, invocationId: string): Response {
