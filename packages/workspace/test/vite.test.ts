@@ -262,7 +262,8 @@ describe("hubWorkspace", () => {
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
     const configResolved = plugin.configResolved as (config: { root: string }) => Promise<void>
-    const configEnvironment = plugin.configEnvironment as (name: string, environment: { consumer: "client" | "server", resolve?: { dedupe?: string[], noExternal?: string[] } }) => unknown
+    const environmentHook = plugin.configEnvironment as (name: string, environment: { consumer: "client" | "server", resolve?: { dedupe?: string[], noExternal?: string[] } }, env: { command: string }) => unknown
+    const configEnvironment = (name: string, environment: { consumer: "client" | "server", resolve?: { dedupe?: string[], noExternal?: string[] } }) => environmentHook(name, environment, { command: "build" })
     const resolveId = plugin.resolveId as (id: string) => string | undefined
     const load = plugin.load as (id: string) => string | undefined
 
@@ -284,6 +285,10 @@ describe("hubWorkspace", () => {
         dedupe: ["existing", "@vite-hub/workspace"],
         noExternal: ["existing", "@vite-hub/workspace"],
       },
+    })
+    // Node loads the package in the Nitro environment of `vite dev`. The registry plugin hands it the registry.
+    expect(environmentHook("nitro", { consumer: "server" }, { command: "serve" })).toEqual({
+      resolve: { dedupe: ["@vite-hub/workspace"] },
     })
     await expect(readFile(join(root, ".vitehub", "types", "workspace.d.ts"), "utf8")).resolves.toContain('"docs": true')
 

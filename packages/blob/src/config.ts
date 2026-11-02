@@ -203,7 +203,7 @@ function normalizeServeOptions(value: BlobServeOptions | undefined): ResolvedBlo
   }
 }
 
-const imageTransformers = ["auto", "cloudflare-images", "passthrough", "sharp"]
+const imageTransformers = ["auto", "cloudflare-images", "passthrough", "photon", "sharp"]
 
 function normalizeImagesOptions(value: unknown): ResolvedBlobModuleOptions["images"] {
   if (value === undefined || value === false) return value

@@ -82,8 +82,8 @@ const pageFields: Fields<DocsPageFrontmatter> = {
   codePanel: z.boolean().optional(),
   sidebar: z.boolean().optional(),
   toc: z.boolean().optional(),
-  navigation: z.union([z.literal(false), z.object(navigationFields)]).optional(),
-  seo: z.object(seoFields).optional(),
+  navigation: z.union([z.literal(false), z.strictObject(navigationFields)]).optional(),
+  seo: z.strictObject(seoFields).optional(),
 }
 
 /**
@@ -102,9 +102,9 @@ export const docsPageFields: Fields<DocsPageFile> = {
 }
 
 /** The build validates frontmatter with this schema after `docsFrontmatter()` expanded its dotted keys. */
-export const docsPageSchema: z.ZodType<DocsPageFrontmatter> = z.object(pageFields)
+export const docsPageSchema: z.ZodType<DocsPageFrontmatter> = z.strictObject(pageFields)
 
-export const docsSectionSchema: z.ZodType<DocsSectionFile> = z.object({
+export const docsSectionSchema: z.ZodType<DocsSectionFile> = z.strictObject({
   title: z.string().optional(),
   icon: z.string().optional(),
   order: z.number().optional(),

@@ -98,6 +98,12 @@ the replied message is already in the history window, the line shows
 reply line. The header is model input only. Message `filter` hooks receive the
 message without it.
 
+Models sometimes copy these lines at the start of their answer. ViteHub removes
+header and reply lines in this format from the start of the answer before it
+reaches the user. This applies to streamed replies, to the reply that ViteHub
+posts, and to `event.text` in the `agent:finish` hook. A line that only looks
+similar, or a header later in the answer, stays.
+
 ## Send recent history photos
 
 History messages keep their text, but by default their attachments are not

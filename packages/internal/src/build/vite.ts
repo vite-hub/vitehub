@@ -111,6 +111,44 @@ export function createProviderOutputEnvironmentOwner(name: string): ProviderOutp
   }
 }
 
+/**
+ * Whether Node loads installed ViteHub packages directly in this environment, without Vite's SSR transform.
+ * This is the Nitro environment of `vite dev`. Generated Nitro plugins give these packages the registries and the
+ * `define` values that Vite gives to the code it transforms. Builds and other environments still inline the packages.
+ */
+export function loadsViteHubPackagesNatively(name: string, env: { command: string }): boolean {
+  return env.command === "serve" && name === "nitro"
+}
+
+/** A generated module, and the package export that receives it when Node loads the package in `vite dev`. */
+export interface NativePackageInstall {
+  /** The generated module, such as `./registry.mjs`. Omit it to clear a previous installation. */
+  module?: string
+  /** The package entry that exports `install`. */
+  from: string
+  /** The export that receives the module namespace. */
+  install: string
+}
+
+/**
+ * Render a Nitro plugin for `vite dev` that hands generated modules to the packages that read them.
+ * A package that Node loads resolves its `#vitehub/*` imports to its own fallback module, which keeps what the plugin
+ * installs. The install runs when Nitro evaluates the plugin, so it runs again when a reload re-evaluates a module.
+ */
+export function renderNativePackageInstallPlugin(installs: readonly NativePackageInstall[]): string {
+  return [
+    ...installs.flatMap(({ from, install, module }, index) => [
+      `import { ${install} as viteHubInstall${index} } from ${JSON.stringify(from)}`,
+      ...(module ? [`import * as viteHubModule${index} from ${JSON.stringify(module)}`] : []),
+    ]),
+    "",
+    ...installs.map(({ module }, index) => `viteHubInstall${index}(${module ? `viteHubModule${index}` : "undefined"})`),
+    "",
+    "export default function viteHubNativePackagesPlugin() {}",
+    "",
+  ].join("\n")
+}
+
 interface NitroVercelConfig {
   environments?: Record<string, { build?: { outDir?: string } }>
   nitro?: { preset?: string }

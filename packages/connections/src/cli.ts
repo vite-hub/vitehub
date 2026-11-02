@@ -28,7 +28,7 @@ export interface ConnectionsCliOptions {
   stdin?: AsyncIterable<string | Uint8Array> & { isTTY?: boolean }
   /** Seconds to wait for the loopback callback. Defaults to the time that the authorization link works, 10 minutes. */
   timeout?: number
-  /** Seconds to wait for each answer of the app. Defaults to 30. */
+  /** Seconds to wait for each answer of the app. Defaults to 30, or 120 for OAuth completion. */
   requestTimeout?: number
 }
 
@@ -149,7 +149,9 @@ const activityResponse = v.looseObject({ activity: v.array(v.looseObject({
 async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, body: Record<string, unknown>, schema: v.BaseSchema<unknown, T, v.BaseIssue<unknown>>, redirect?: RequestInit["redirect"]): Promise<T> {
   const base = appUrl(parsed)
   const endpoint = managementUrl(base)
-  const seconds = options.requestTimeout ?? 30
+  // Completion consumes one-use state before exchanging the token (up to 30 seconds), verifying identity,
+  // and persisting the grant. Leave time for that path to finish before reporting a client timeout.
+  const seconds = options.requestTimeout ?? (body.action === "complete" ? 120 : 30)
   let response: Response
   let text: string
   try {

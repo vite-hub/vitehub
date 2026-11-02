@@ -142,7 +142,7 @@ export default defineConfig({
 
 | Option | Type | Description |
 | --- | --- | --- |
-| `transformer` | `'auto' \| 'sharp' \| 'cloudflare-images' \| 'passthrough'` | Defaults to `auto`. `sharp` fails the build without sharp. `cloudflare-images` adds the Worker `images` binding. |
+| `transformer` | `'auto' \| 'sharp' \| 'photon' \| 'cloudflare-images' \| 'passthrough'` | Defaults to `auto`. `sharp` fails the build without sharp. `photon` uses `@cf-wasm/photon` on Workers and Node and fails the build without it. `cloudflare-images` adds the Worker `images` binding. |
 | `binding` | `string` | Cloudflare Images binding name. Defaults to `IMAGES`. |
 | `sizes` | `number[]` | Widths and heights that variants snap to. Defaults to 16 through 3840. |
 | `quality` | `number` | Default quality for lossy formats, 1 to 100. Defaults to 75. |

@@ -101,6 +101,27 @@ describe("createDocsManifest", () => {
     })
   })
 
+  it.each([
+    ["layuot: landing", "layuot"],
+    ["navigation:\n  titel: Guide", "titel"],
+    ["seo.descriptionn: Description", "descriptionn"],
+  ])("rejects unknown page fields: %s", (fields, key) => {
+    withContent({ "docs/guide/index.md": `---\ntitle: Guide\n${fields}\n---\n` }, (dir) => {
+      expect(() => createDocsManifest({ dir, base: "/docs" })).toThrow(DocsContentError)
+      expect(() => createDocsManifest({ dir, base: "/docs" })).toThrow(key)
+    })
+  })
+
+  it("rejects unknown section fields", () => {
+    withContent({
+      "docs/guide/index.md": "---\ntitle: Guide\n---\n",
+      "docs/guide/.navigation.yml": "titel: Guide\n",
+    }, (dir) => {
+      expect(() => createDocsManifest({ dir, base: "/docs" })).toThrow(DocsContentError)
+      expect(() => createDocsManifest({ dir, base: "/docs" })).toThrow(/\.navigation\.yml.*titel/)
+    })
+  })
+
   it("hides a page with navigation: false even when dotted keys set navigation fields", () => {
     const manifest = manifestOf({
       "docs/kv/index.md": "---\ntitle: KV\n---\n",
