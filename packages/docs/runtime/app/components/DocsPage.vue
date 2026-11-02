@@ -31,7 +31,8 @@ useSeoMeta({
 </script>
 
 <template>
-  <main v-if="isStandalone" class="mx-auto w-full max-w-3xl px-4 pb-24 pt-14 sm:px-6 sm:pt-20 lg:px-8 lg:pt-24" :data-path="page.path">
+  <!-- The layout's UMain is the page's only main landmark. -->
+  <div v-if="isStandalone" class="mx-auto w-full max-w-3xl px-4 pb-24 pt-14 sm:px-6 sm:pt-20 lg:px-8 lg:pt-24" :data-path="page.path">
     <UPageHeader
       :title="page.sourceTitle"
       :description="page.description ?? undefined"
@@ -45,7 +46,7 @@ useSeoMeta({
     <UPageBody prose class="!max-w-none !px-0 !pb-0 pt-10">
       <DocsMarkdown :document="response.document" />
     </UPageBody>
-  </main>
+  </div>
 
   <div v-else-if="page.layout === 'landing'" class="vh-docs-landing">
     <DocsLanding :response="response" :header="isRoot" />
@@ -58,10 +59,14 @@ useSeoMeta({
 </template>
 
 <style scoped>
+/* Below 40rem the article and the product landing set the only gutter, so the text keeps the width. */
 .vh-docs-main,
 .vh-docs-landing,
 .vh-docs-split {
   margin: 0 auto;
+}
+
+.vh-docs-landing {
   padding: 0 1rem;
 }
 

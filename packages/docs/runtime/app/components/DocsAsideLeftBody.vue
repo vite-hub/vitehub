@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { docsCatalog, docsRelatedSections, docsSidebarGroups, normalizeDocsPath } from "#docs/navigation"
+import { docsCatalog, docsRelatedSections, docsSectionHome, docsSidebarGroups, docsSingleList, normalizeDocsPath } from "#docs/navigation"
 
 const route = useRoute()
 const manifest = useDocsManifest()
-const { categories, start } = useDocsConfig()
+const { categories, icons: iconOptions, start } = useDocsConfig()
 const icons = useDocsIcons()
 const currentPath = computed(() => normalizeDocsPath(route.path))
 const section = useDocsSection()
@@ -13,6 +13,11 @@ const pageGroups = computed(() => section.value ? docsSidebarGroups(section.valu
 const related = computed(() => section.value ? docsRelatedSections(manifest, section.value) : [])
 // Outside every section, for example on the catalog, the sidebar lists every section by category.
 const catalog = docsCatalog(manifest, categories)
+// A small site has no rail, so the sidebar lists every section with its pages on every page.
+const single = docsSingleList(manifest, iconOptions)
+const allSections = manifest.sections.map(candidate => ({ section: candidate, groups: docsSidebarGroups(candidate) }))
+// Nuxt serializes a `null` runtime config value as "", so `start` can be a string here.
+const siteLinks = start?.links ?? []
 
 function isActive(path: string) {
   return currentPath.value === normalizeDocsPath(path)
@@ -20,7 +25,38 @@ function isActive(path: string) {
 </script>
 
 <template>
-  <nav v-if="section" class="vh-docs-sidebar-nav" :aria-label="`${section.title} pages`">
+  <nav v-if="single" class="vh-docs-sidebar-nav" aria-label="Docs pages">
+    <section v-if="siteLinks.length" class="vh-docs-sidebar-page-group vh-docs-sidebar-site-areas" aria-label="Site areas">
+      <NuxtLink
+        v-for="link in siteLinks"
+        :key="link.to"
+        :to="link.to"
+        :class="['vh-docs-sidebar-link', { 'is-active': isActive(link.to) }]"
+        :aria-current="isActive(link.to) ? 'page' : undefined"
+      >
+        <UIcon :name="link.icon ?? icons.page({ path: link.to, icon: null })" class="size-4 shrink-0" />
+        <span class="min-w-0">{{ link.label }}</span>
+      </NuxtLink>
+    </section>
+    <section v-for="entry in allSections" :key="entry.section.id" class="vh-docs-sidebar-category" :aria-label="entry.section.title">
+      <h2 class="vh-docs-sidebar-heading">{{ entry.section.title }}</h2>
+      <template v-for="pageGroup in entry.groups" :key="pageGroup.label || 'pages'">
+        <h3 v-if="pageGroup.label" class="vh-docs-sidebar-page-group-heading">{{ pageGroup.label }}</h3>
+        <NuxtLink
+          v-for="page in pageGroup.pages"
+          :key="page.path"
+          :to="page.path"
+          :class="['vh-docs-sidebar-link', { 'is-grouped': pageGroup.label, 'is-active': isActive(page.path) }]"
+          :aria-current="isActive(page.path) ? 'page' : undefined"
+        >
+          <UIcon :name="icons.page(page)" class="size-4 shrink-0" />
+          <span class="min-w-0">{{ page.title }}</span>
+        </NuxtLink>
+      </template>
+    </section>
+  </nav>
+
+  <nav v-else-if="section" class="vh-docs-sidebar-nav" :aria-label="`${section.title} pages`">
     <section v-if="startLinks.length" class="vh-docs-sidebar-page-group vh-docs-sidebar-site-areas" aria-label="Site areas">
       <NuxtLink
         v-for="link in startLinks"
@@ -68,7 +104,7 @@ function isActive(path: string) {
       <NuxtLink
         v-for="relatedSection in related"
         :key="relatedSection.id"
-        :to="relatedSection.path"
+        :to="docsSectionHome(relatedSection)"
         class="vh-docs-sidebar-link"
       >
         <UIcon :name="icons.section(relatedSection)" class="size-4 shrink-0" />
@@ -84,7 +120,7 @@ function isActive(path: string) {
       <NuxtLink
         v-for="catalogSection in group.sections"
         :key="catalogSection.id"
-        :to="catalogSection.path"
+        :to="docsSectionHome(catalogSection)"
         class="vh-docs-sidebar-link"
       >
         <UIcon :name="icons.section(catalogSection)" class="size-4 shrink-0" />
@@ -115,14 +151,15 @@ function isActive(path: string) {
   border-top: 0;
 }
 
-/* The site areas lead Get started. A rule separates them from the section pages. */
+/* The site areas lead Get started, or the whole list without a rail. A rule separates them from the section pages. */
 .vh-docs-sidebar-site-areas {
   margin-bottom: 0.5rem;
   border-bottom: 1px solid color-mix(in srgb, var(--ui-border) 65%, transparent);
   padding-bottom: 0.5rem;
 }
 
-.vh-docs-sidebar-site-areas + .vh-docs-sidebar-page-group {
+.vh-docs-sidebar-site-areas + .vh-docs-sidebar-page-group,
+.vh-docs-sidebar-site-areas + .vh-docs-sidebar-category {
   border-top: 0;
 }
 
@@ -164,10 +201,10 @@ function isActive(path: string) {
   margin-top: 0.125rem;
 }
 
-/* Touch devices keep 40px tap targets at every viewport width. */
+/* Touch devices keep 44px tap targets at every viewport width. */
 @media (pointer: coarse) {
   .vh-docs-sidebar-link {
-    min-height: 2.5rem;
+    min-height: 2.75rem;
   }
 }
 

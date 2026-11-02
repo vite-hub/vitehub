@@ -137,7 +137,7 @@ Start the development server:
 pnpm dev
 ```
 
-Open `http://localhost:3000/docs/guide/install`. The rail on the left shows the Guide section, and the sidebar lists Overview and Install Lumen. On a wide screen, the outline on the right lists Check the version. The agent-only text is not on the page. Press `⌘K` to search.
+Open `http://localhost:3000/docs/guide/install`. The sidebar on the left lists the Guide section with Overview and Install Lumen. On a wide screen, the outline on the right lists Check the version. The agent-only text is not on the page. Press `⌘K` to search.
 
 Keep the server running. In another terminal, read the page as a coding agent does:
 

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { docsHomePath, docsSectionHome } from "#docs/navigation"
+
 import type { NuxtError } from "#app"
 
 const props = defineProps<{
@@ -14,11 +16,13 @@ const description = computed(() => isNotFound.value
   : "Reload the page to try again. If it still fails, search the docs or open one of these sections.")
 
 const start = manifest.sections.find(section => section.id === config.start?.section)
+// Each link opens a real page. Without `content/docs/index.md` the docs base itself is a 404, so "Docs" opens the first section.
+const docsHome = docsHomePath(manifest)
 const sections = [
-  { label: "Docs", to: config.base },
-  ...start ? [{ label: start.title, to: start.path }] : [],
+  ...docsHome ? [{ label: "Docs", to: docsHome }] : [],
+  ...start ? [{ label: start.title, to: docsSectionHome(start) }] : [],
   ...(config.start?.links ?? []).filter(link => link.to !== config.base),
-]
+].filter((link, index, links) => links.findIndex(other => other.to === link.to) === index)
 
 // The error page replaces the app shell, so it mounts the search dialog that the header button and Ctrl K open.
 const { open: openSearch } = useContentSearch()

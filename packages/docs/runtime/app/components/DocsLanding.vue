@@ -50,9 +50,9 @@ const page = computed(() => props.response.page)
   max-width: var(--vh-content-width);
 }
 
-/* The landing has no page header or page body padding, so it sets the same insets itself. */
+/* The landing has no page header or page body padding, so it sets the same insets itself. Below 40rem the page gutter is the only one. */
 .vh-product-landing {
-  padding: 0 1rem 4rem;
+  padding: 0 0 4rem;
 }
 
 @media (min-width: 40rem) {

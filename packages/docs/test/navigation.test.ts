@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest"
 import { createDocsManifest } from "../src/manifest.ts"
 import {
   docsCatalog,
+  docsHomePath,
   docsManifestPages,
   docsMarkdownLinks,
   docsMcpInstallLinks,
@@ -14,8 +15,10 @@ import {
   docsRawPath,
   docsRelatedSections,
   docsSectionForPath,
+  docsSectionHome,
   docsSectionIcon,
   docsSidebarGroups,
+  docsSingleList,
   findDocsPage,
   normalizeDocsPath,
   type DocsIcons,
@@ -100,6 +103,49 @@ describe("docs catalog and rail", () => {
     expect(rail).toEqual([["start"], ["kv", "blob"], ["misc"]])
     // A category that the options do not list counts as unknown.
     expect(docsRailGroups(manifest, ["Start"], []).map(group => group.map(candidate => candidate.id))).toEqual([["start"], ["kv", "blob", "reference", "misc"]])
+  })
+})
+
+describe("docs home links", () => {
+  // The playground is a small site: no `content/docs/index.md`, two sections without icons, and `guides` has no Overview.
+  const small = createDocsManifest({ dir: resolve(import.meta.dirname, "../../../playground/docs/content"), base: "/docs" })
+
+  it("opens the docs base page when it exists", () => {
+    expect(docsHomePath(manifest)).toBe("/docs")
+  })
+
+  it("opens the first section when the docs base has no page, and nothing without docs pages", () => {
+    expect(small.root).toBeNull()
+    expect(docsHomePath(small)).toBe("/docs/getting-started")
+    expect(docsHomePath({ base: "/docs", root: null, sections: [], pages: [] })).toBeNull()
+  })
+
+  it("opens the first listed page of a section without an Overview", () => {
+    expect(docsSectionHome(section("kv"))).toBe("/docs/kv")
+    const guides = small.sections.find(candidate => candidate.id === "guides")
+    expect(guides && docsSectionHome(guides)).toBe("/docs/guides/configuration")
+  })
+})
+
+describe("docs single list", () => {
+  const noIcons = { rail: {}, sections: {} }
+  const small = createDocsManifest({ dir: resolve(import.meta.dirname, "../../../playground/docs/content"), base: "/docs" })
+  const vitehub = createDocsManifest({ dir: resolve(import.meta.dirname, "../../../docs/content"), base: "/docs" })
+
+  it("drops the rail for three sections or fewer", () => {
+    expect(docsSingleList(small, noIcons)).toBe(true)
+    expect(docsSingleList({ ...manifest, sections: manifest.sections.slice(0, 3) }, { rail: { kv: "kv" }, sections: {} })).toBe(true)
+  })
+
+  it("drops the rail when no section has its own icon", () => {
+    const plain = { ...manifest, sections: manifest.sections.map(candidate => ({ ...candidate, icon: null })) }
+    expect(docsSingleList(plain, noIcons)).toBe(true)
+    expect(docsSingleList(plain, { rail: { kv: "kv" }, sections: {} })).toBe(false)
+  })
+
+  it("keeps the rail of vitehub.dev", () => {
+    expect(vitehub.sections.length).toBeGreaterThan(20)
+    expect(docsSingleList(vitehub, noIcons)).toBe(false)
   })
 })
 
