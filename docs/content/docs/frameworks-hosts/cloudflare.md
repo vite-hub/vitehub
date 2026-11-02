@@ -145,10 +145,14 @@ When config generation and Sandbox are enabled, ViteHub writes an explicit gradu
 A new Worker has no secrets yet, so `wrangler secret put` cannot set the values that `secrets.required` asks for. To upload them on a deploy from your terminal, name a `.env` or JSON file:
 
 ```ts [vite.config.ts]
-vitehub({
-  preset: 'cloudflare',
-  cloudflare: { secretsFile: '.env' },
-})
+import { vitehub } from 'vite-hub'
+
+export default {
+  plugins: vitehub({
+    preset: 'cloudflare',
+    cloudflare: { secretsFile: '.env' },
+  }),
+}
 ```
 
 In Nuxt, set the same `cloudflare` key under `vitehub` in `nuxt.config.ts`.
