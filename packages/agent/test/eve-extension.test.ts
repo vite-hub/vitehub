@@ -799,11 +799,20 @@ describe("Eve extension capabilities", () => {
     expect(transformed).toBeUndefined()
   })
 
-  it("lowers Agent Definitions in configured server directories outside the root", async () => {
+  it.each(["server", "app/node_modules/@test/layer/server"])("lowers Agent Definitions in configured server directory %s", async (serverPath) => {
     const workspace = await mkdtemp(join(tmpdir(), "vitehub-eve-extension-"))
     temporaryDirectories.push(workspace)
     const root = join(workspace, "app")
-    const serverDir = join(workspace, "server")
+    const serverDir = join(workspace, serverPath)
+    const handler = join(serverDir, "agents", "reviewer", "agent.ts")
+    const source = [
+      `import { defineAgent } from "@vite-hub/agent"`,
+      `import github from "@github-tools/eve-extension"`,
+      `export default defineAgent({ capabilities: [github()], workspace: {} })`,
+    ].join("\n")
+    await mkdir(join(dirname(handler), "skills", "review"), { recursive: true })
+    await writeFile(handler, source)
+    await writeFile(join(dirname(handler), "skills", "review", "SKILL.md"), "Review the changes.")
     const plugin = hubAgent()
     ;(plugin.config as unknown as (config: Record<PropertyKey, unknown>) => void)({ [VITEHUB_SERVER_DIRS]: [serverDir] })
     await (plugin.configResolved as (config: unknown) => Promise<void>)({
@@ -814,22 +823,20 @@ describe("Eve extension capabilities", () => {
     })
     const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
       { parse: parseAst },
-      `
-        import { defineAgent } from "@vite-hub/agent"
-        import github from "@github-tools/eve-extension"
-        export default defineAgent({ capabilities: [github()] })
-      `,
-      join(serverDir, "agents", "reviewer.ts"),
+      source,
+      handler,
     )
 
     expect(transformed).toContain(`await __vitehubEveExtensionCapability("@github-tools/eve-extension", "pkg-_agithub-tools_seve-extension"`)
+    expect(transformed).toContain("vitehubWithColocatedAgentSkills(")
+    expect(transformed).toContain('"workspacePath":".agents/skills/review/SKILL.md"')
   })
 
-  it("lowers Capability modules in configured server directories outside the root", async () => {
+  it.each(["server", "app/node_modules/@test/layer/server"])("lowers Capability modules in configured server directory %s", async (serverPath) => {
     const workspace = await mkdtemp(join(tmpdir(), "vitehub-eve-extension-"))
     temporaryDirectories.push(workspace)
     const root = join(workspace, "app")
-    const serverDir = join(workspace, "server")
+    const serverDir = join(workspace, serverPath)
     const plugin = hubAgent()
     ;(plugin.config as unknown as (config: Record<PropertyKey, unknown>) => void)({ [VITEHUB_SERVER_DIRS]: [serverDir] })
     await (plugin.configResolved as (config: unknown) => Promise<void>)({
