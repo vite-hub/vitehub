@@ -22,4 +22,22 @@ describe("Agent chat route errors", () => {
     expect(text).toContain('"errorText":"AGENT_R1016: The ChatGPT Connection cannot provide plan access (sign-in).","type":"error"')
     expect(text.endsWith("data: [DONE]\n\n")).toBe(true)
   })
+
+  it("names the ChatGPT gateway diagnostic when it fails before the stream starts", async () => {
+    const handler = createChannelChatRouteHandler(
+      // SAFETY: The minimal Agent definition exercises only the route's error response.
+      defineAgent({ capabilities: [defineChatCapability()], driver: { run: () => {
+        throw agentDiagnostics.AGENT_R1016({ connection: "chatgpt", problem: "sign-in" })
+      } } }) as never,
+    )
+    const body = JSON.stringify({ id: "chat-1", messages: [{ id: "message-1", parts: [{ text: "hello", type: "text" }], role: "user" }] })
+    // SAFETY: agentName is the only route option this test needs.
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", { body, headers: { "content-type": "application/json" }, method: "POST" }), { agentName: "support" } as never)
+
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({
+      code: "PROVIDER_UNAVAILABLE",
+      error: "AGENT_R1016: The ChatGPT Connection cannot provide plan access (sign-in).",
+    })
+  })
 })
