@@ -534,6 +534,38 @@ describe("Vite schedule integration", () => {
     await expect(readFile(join(createDefaultNetlifyOutputRoot(root), "functions", "vitehub-schedule-report.mjs"), "utf8")).resolves.toContain("schedule: \"0 9 * * *\"")
   })
 
+  it("writes standalone Provider Output only for the host of Nitro's resolved preset", async () => {
+    const root = await temporaryDirectory("vitehub-schedule-nitro-preset-output-")
+    await mkdir(join(root, "server", "schedules"), { recursive: true })
+    await mkdir(join(root, "dist", "client"), { recursive: true })
+    await writeFile(join(root, "server", "schedules", "report.ts"), [
+      "import { defineSchedule } from '@vite-hub/schedule'",
+      "export default defineSchedule({ cron: '0 9 * * *', handler: () => {} })",
+      "",
+    ].join("\n"), "utf8")
+
+    const plugin = hubSchedule({ projectRoot: root, providerOutput: "standalone" })
+    const nitroModule = plugin.nitro as { setup: (nitro: { options: { preset: string } }) => void }
+    nitroModule.setup({ options: { preset: "netlify" } })
+    nitroModule.setup({ options: { preset: "nitro-prerender" } })
+    await (plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
+      { root },
+      { command: "build", mode: "production" },
+    )
+    await (plugin.configResolved as (config: Record<string, unknown>) => Promise<void>)({
+      build: { outDir: "dist/client" },
+      command: "build",
+      resolve: { alias: [] },
+      root,
+    })
+    await runProviderOutputHooks(plugin)
+
+    await expect(readFile(join(createDefaultNetlifyOutputRoot(root), "functions", "vitehub-schedule-report.mjs"), "utf8")).resolves.toContain("schedule: \"0 9 * * *\"")
+    expect(existsSync(createDefaultCloudflareOutputRoot(root))).toBe(false)
+    expect(existsSync(createDefaultVercelOutputRoot(root))).toBe(false)
+    expect(existsSync(join(root, ".vitehub", "schedule", "deno-cron.mjs"))).toBe(false)
+  })
+
   it("writes a resolvable Process Runtime registry for direct Nitro config integration", async () => {
     const root = await temporaryDirectory("vitehub-schedule-direct-nitro-process-")
     await mkdir(join(root, "server", "schedules"), { recursive: true })

@@ -8,6 +8,7 @@ import { providerOutputAliasSources, removeProviderOutputArtifactDir, retainProv
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
 import { collectViteHubProviderImportAliases, createNoExternalMerger, createProviderOutputEnvironmentOwner, hasNitroConfigContext, isServerEnvironment, prepareViteHubProviderSources, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { resolveHost } from "@vite-hub/internal/hosting"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 
 import { collectScheduleContributions } from "./contributions.ts"
@@ -585,6 +586,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
   let providerOutput: ProviderOutputCatalog | undefined
   const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
   const providerOutputEnvironment = createProviderOutputEnvironmentOwner(SCHEDULE_VITE_PLUGIN_NAME)
+  let nitroPreset: string | undefined
   let standaloneProviderSource: DiscoveredScheduleDefinition["source"] | undefined
   let serverDirs: string[] | undefined
   let viteRoot: string | undefined
@@ -771,6 +773,8 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
               crons,
               rootDir,
               retainedSourcesDir: resolve(contributionArtifactDir, "sources"),
+              // Nitro resolves the preset of the server it builds. Without Nitro, the Vite config or the environment names the host.
+              host: resolveHost({ nitro: nitroPreset ? { preset: nitroPreset } : (config as ResolvedConfig & { nitro?: unknown }).nitro }),
               runtimeImport: internalOptions.runtimeImport,
               signal,
               source: standaloneProviderSource,
@@ -806,8 +810,15 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
 
   // SAFETY: The implementation above supplies Vite's plugin hooks plus ViteHub's intentionally loose public hook index.
   const inspectable = plugin as ScheduleVitePlugin
-  // Nitro installs this module, which tells the plugin whether Nitro builds a server environment.
-  inspectable.nitro = providerOutputEnvironment.nitro
+  // Nitro installs this module, which tells the plugin whether Nitro builds a server environment and for which preset.
+  inspectable.nitro = {
+    name: SCHEDULE_VITE_PLUGIN_NAME,
+    setup(nitro: { options: { preset?: string, static?: boolean } }) {
+      // Nitro's prerenderer installs the modules again, with its own `nitro-prerender` preset, before the server build.
+      if (nitro.options.preset !== "nitro-prerender") nitroPreset = nitro.options.preset
+      providerOutputEnvironment.nitro.setup(nitro)
+    },
+  }
   inspectable.vitehub = {
     // The Console, `vitehub schedule`, and agents run these. The app imports them through `vite-hub`.
     operations: [{ export: "scheduleOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).scheduleOperations, module: "@vite-hub/schedule/operations" }],
