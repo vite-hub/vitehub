@@ -38,6 +38,8 @@ export default defineAgent({
 })
 ```
 
+Each value in `channels` is a Channel definition or a factory that returns one. Call the helper, such as `telegram({ allowedUserIds: ['123'] })`; a plain options object such as `telegram: { ... }` is rejected. The server bundle then contains only the helpers that you import, so an Agent with only `webChat()` does not ship the Discord or Teams adapters.
+
 Built-in helpers include `discord()`, `github()`, [`gitlab()` and `forgejo()`](/docs/agents/forge-channels), [`gmail()`](/docs/agents/gmail), `http()`, `slack()`, `teams()`, `telegram()`, and `webChat()`. Use `defineChannel()` for an application-owned Channel Kind.
 
 `teams()` instructs the Agent to cite sources with descriptive Markdown links to verified URLs. Chat SDK Channel delivery labels unresolved native web citations as `[source link unavailable]`, including during streaming. Codex app-server does not supply a citation-ID-to-URL map, so ViteHub cannot recover those links from the IDs. Ordinary source links remain intact.
@@ -825,10 +827,11 @@ For Telegram, ViteHub can own the verified webhook route and synchronize it afte
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
+import { telegram } from 'vite-hub/agent/channels'
 
 export default defineAgent({
   channels: {
-    telegram: { allowedUserIds: ['123'] },
+    telegram: telegram({ allowedUserIds: ['123'] }),
   },
   driver: { run: () => 'Hello from ViteHub.' },
 })

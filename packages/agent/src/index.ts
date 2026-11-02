@@ -67,18 +67,11 @@ import {
 } from "./internal/channels.ts"
 import type { MessageChannelTitleDeliveryAttempt } from "./internal/channels.ts"
 import {
-  discord as builtInDiscord,
-  github as builtInGitHub,
-  http as builtInHttp,
   channelHasCustomTitleEffect,
   messageChannelSupportsTitleEffect,
   messageChannelDeliveredReplyBody,
   messageChannelReplyBody,
   messageChannelTitleSupportContextKey,
-  slack as builtInSlack,
-  teams as builtInTeams,
-  telegram as builtInTelegram,
-  webChat as builtInWebChat,
 } from "./channels.ts"
 import { registerMessageChannelDeferredReplyTrace, setChatFinalReplyText, setChatFinishDirectReplyTrace, setChatFinishPrimaryReplyTrace } from "./internal/chat-finish-delivery.ts"
 import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdatedContextKey, agentInvocationRunId, agentInvocationWorkflowBinding, createAgentInvocationContextStore } from "./invocation-context.ts"
@@ -2099,62 +2092,23 @@ function normalizeAgentChannels<TRuntimeConfig extends AgentRuntimeConfig>(
   if (!inputs) return inputs
   let channels: AgentChannels<TRuntimeConfig> | undefined
   for (const [id, input] of Object.entries(inputs)) {
-    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-    const value = input as unknown
-    if (hasRuntimeType(value, "object") && value && "kind" in value && hasRuntimeType(value.kind, "string")) continue
-    const channel = hasRuntimeType(input, "function")
-      ? (() => {
-          const resolved = input()
-          if (resolved && hasRuntimeType(resolved, "object") && "kind" in resolved) return resolved
-          // SAFETY: Each built-in constructor validates the callback configuration selected by its channel key.
-          return id === "discord" ? builtInDiscord<TRuntimeConfig>(resolved as never)
-            // SAFETY: The constructor validates the GitHub callback configuration.
-            : id === "github" ? builtInGitHub<TRuntimeConfig>(resolved as never)
-              // SAFETY: The constructor validates the HTTP callback configuration.
-              : id === "http" ? builtInHttp<TRuntimeConfig>(resolved as never)
-                // SAFETY: The constructor validates the Slack callback configuration.
-                : id === "slack" ? builtInSlack<TRuntimeConfig>(resolved as never)
-                  // SAFETY: The constructor validates the Teams callback configuration.
-                  : id === "teams" ? builtInTeams<TRuntimeConfig>(resolved as never)
-                    // SAFETY: The constructor validates the Telegram callback configuration.
-                    : id === "telegram" ? builtInTelegram<TRuntimeConfig>(resolved as never)
-                      // SAFETY: The constructor validates the web chat callback configuration.
-                      : id === "webChat" ? builtInWebChat<TRuntimeConfig>(resolved as never)
-                        : undefined
-        })()
-      : id === "discord"
-        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-        ? builtInDiscord<TRuntimeConfig>(input as never)
-        : id === "github"
-          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-          ? builtInGitHub<TRuntimeConfig>(input as never)
-          : id === "http"
-            // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-            ? builtInHttp<TRuntimeConfig>(input as never)
-            : id === "slack"
-              // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-              ? builtInSlack<TRuntimeConfig>(input as never)
-              : id === "teams"
-                // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-                ? builtInTeams<TRuntimeConfig>(input as never)
-                : id === "telegram"
-                  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-                  ? builtInTelegram<TRuntimeConfig>(input as never)
-                  : id === "webChat"
-                    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-                    ? builtInWebChat<TRuntimeConfig>(input as never)
-                    : undefined
-    if (!channel || !hasRuntimeType(channel, "object") || !hasRuntimeType(channel.kind, "string")) {
+    if (isAgentChannelDefinition(input)) continue
+    const channel: unknown = hasRuntimeType(input, "function") ? input() : undefined
+    if (!isAgentChannelDefinition<TRuntimeConfig>(channel)) {
       throw agentDiagnostics.AGENT_R0425({ message: hasRuntimeType(input, "function")
         ? `[vitehub] Channel factory "${id}" must return an Agent Channel definition.`
-        : `[vitehub] Channel "${id}" must be an Agent Channel definition or use a built-in Channel name.` })
+        : `[vitehub] Channel "${id}" must be an Agent Channel definition. Create it with a factory from vite-hub/agent/channels, such as webChat() or telegram({ ... }).` })
     }
-    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+    // SAFETY: Factories are replaced by the definitions they return below.
     channels ||= { ...inputs } as AgentChannels<TRuntimeConfig>
     channels[id] = channel
   }
-  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+  // SAFETY: Every entry is an Agent Channel definition when no factory needed a call.
   return channels || (inputs as AgentChannels<TRuntimeConfig>)
+}
+
+function isAgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfig>(value: unknown): value is AgentChannelDefinition<TRuntimeConfig> {
+  return isRuntimeRecord(value) && hasRuntimeType(value.kind, "string")
 }
 
 function capabilitiesContributeWorkspace(capabilities: unknown): boolean {

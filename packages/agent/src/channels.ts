@@ -3728,7 +3728,7 @@ function discordChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntime
 }
 
 /** The Discord Channel for an Agent. `discord.connector()` sends outbound messages through a `defineOutboundChannel()`. */
-export const discord: typeof discordChannel & { connector: typeof discordConnector } = Object.assign(discordChannel, { connector: discordConnector })
+export const discord: typeof discordChannel & { connector: typeof discordConnector } = /* @__PURE__ */ Object.assign(discordChannel, { connector: discordConnector })
 
 export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: GitHubChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods>, pullRequest: true | (GitHubPullRequestCommentEventOptions<TRuntimeConfig> & { workspace?: true | { mount?: string } }) }): AgentChannelDefinitionOf<TRuntimeConfig, "github", TData, TMethods> & { capabilities: readonly [AgentCapabilityDefinition<TRuntimeConfig> & { workspace: NonNullable<AgentCapabilityDefinition<TRuntimeConfig>["workspace"]> }, ...AgentCapabilityDefinition<TRuntimeConfig>[]] }
 export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: GitHubChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> & { pullRequest: true | (GitHubPullRequestCommentEventOptions<TRuntimeConfig> & { workspace?: true | { mount?: string } }) }): AgentChannelDefinitionOf<TRuntimeConfig, "github", TData, TMethods> & { capabilities: readonly [AgentCapabilityDefinition<TRuntimeConfig> & { workspace: NonNullable<AgentCapabilityDefinition<TRuntimeConfig>["workspace"]> }, ...AgentCapabilityDefinition<TRuntimeConfig>[]] }
@@ -4352,7 +4352,7 @@ function slackChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
 }
 
 /** The Slack Channel for an Agent. `slack.connector({ adapter })` sends outbound messages through a `defineOutboundChannel()`. */
-export const slack: typeof slackChannel & { connector: typeof slackConnector } = Object.assign(slackChannel, { connector: slackConnector })
+export const slack: typeof slackChannel & { connector: typeof slackConnector } = /* @__PURE__ */ Object.assign(slackChannel, { connector: slackConnector })
 
 function teamsChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>
 function teamsChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem>): AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>
@@ -4361,7 +4361,7 @@ function teamsChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
 }
 
 /** The Microsoft Teams Channel for an Agent. `teams.connector()` sends outbound messages through a `defineOutboundChannel()`. */
-export const teams: typeof teamsChannel & { connector: typeof teamsConnector } = Object.assign(teamsChannel, { connector: teamsConnector })
+export const teams: typeof teamsChannel & { connector: typeof teamsConnector } = /* @__PURE__ */ Object.assign(teamsChannel, { connector: teamsConnector })
 
 function telegramChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: TelegramChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "telegram", TData, TMethods>
 function telegramChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: TelegramChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem>): AgentChannelDefinitionOf<TRuntimeConfig, "telegram", TData, TMethods>
@@ -4440,7 +4440,7 @@ function telegramChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntim
 }
 
 /** The Telegram Channel for an Agent. `telegram.connector()` sends outbound messages through a `defineOutboundChannel()`. */
-export const telegram: typeof telegramChannel & { connector: typeof telegramConnector } = Object.assign(telegramChannel, { connector: telegramConnector })
+export const telegram: typeof telegramChannel & { connector: typeof telegramConnector } = /* @__PURE__ */ Object.assign(telegramChannel, { connector: telegramConnector })
 
 export function webChat<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody, TAuth = unknown, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: AgentWebChatChannelOptions<TRuntimeConfig, TBody, TAuth, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "web-chat", TData, TMethods>
 export function webChat<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody, TAuth = unknown, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: AgentWebChatChannelOptions<TRuntimeConfig, TBody, TAuth, TData, TMethods, THistoryItem>): AgentChannelDefinitionOf<TRuntimeConfig, "web-chat", TData, TMethods>
