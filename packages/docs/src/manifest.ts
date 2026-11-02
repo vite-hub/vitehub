@@ -3,10 +3,11 @@ import { join, relative } from "node:path"
 
 import { parse as parseYaml } from "yaml"
 import { parseFrontmatter } from "comark/parse"
-import * as v from "valibot"
 
-import { docsPageSchema, docsSectionSchema, expandDottedKeys, type DocsPageFrontmatter } from "./schema.ts"
+import { docsPageOf } from "./page.ts"
+import { docsFrontmatter, docsPageSchema, docsSectionSchema } from "./schema.ts"
 
+import type { z } from "zod"
 import type { DocsManifest, DocsPage, DocsSection } from "./types.ts"
 
 export interface DocsManifestOptions {
@@ -18,8 +19,8 @@ export interface DocsManifestOptions {
 
 /** A page whose frontmatter or section file does not match the schema. The build stops on it. */
 export class DocsContentError extends Error {
-  constructor(file: string, issues: readonly v.BaseIssue<unknown>[]) {
-    const details = issues.map(issue => `${v.getDotPath(issue) ?? "(root)"}: ${issue.message}`).join("; ")
+  constructor(file: string, issues: readonly { path: readonly PropertyKey[], message: string }[]) {
+    const details = issues.map(issue => `${issue.path.map(String).join(".") || "(root)"}: ${issue.message}`).join("; ")
     super(`Invalid docs frontmatter in ${file}: ${details}`)
     this.name = "DocsContentError"
   }
@@ -79,37 +80,13 @@ function readSection(dir: string, base: string, id: string, index: number): Docs
 
 function readPage(dir: string, file: string, id: string, path: string): DocsPage {
   const { data } = parseFrontmatter(readFileSync(file, "utf8"))
-  const expanded = expandDottedKeys(data)
-  // `navigation: false` hides the page even when dotted keys such as `navigation.title` also set fields.
-  if (data.navigation === false) expanded.navigation = false
-  const frontmatter: DocsPageFrontmatter = parse(file, docsPageSchema, expanded)
-  const navigation = frontmatter.navigation === false ? undefined : frontmatter.navigation
-  const layout = frontmatter.layout ?? "article"
-  return {
-    id,
-    path: path || "/",
-    file: relative(dir, file).replaceAll("\\", "/"),
-    title: navigation?.title ?? frontmatter.title,
-    sourceTitle: frontmatter.title,
-    description: frontmatter.description ?? null,
-    icon: frontmatter.icon ?? null,
-    layout,
-    ...(frontmatter.tutorial ? { tutorial: frontmatter.tutorial } : {}),
-    ...(frontmatter.codePanel ? { codePanel: true } : {}),
-    ...(frontmatter.seo ? { seo: frontmatter.seo } : {}),
-    sidebar: frontmatter.sidebar ?? true,
-    toc: frontmatter.toc ?? layout !== "landing",
-    kind: navigation?.kind ?? null,
-    group: navigation?.group ?? null,
-    navigation: frontmatter.navigation !== false,
-    order: navigation?.order ?? Number.MAX_SAFE_INTEGER,
-  }
+  return docsPageOf(parse(file, docsPageSchema, docsFrontmatter(data)), { id, path, file: relative(dir, file).replaceAll("\\", "/") })
 }
 
-function parse<const TSchema extends v.GenericSchema>(file: string, schema: TSchema, input: unknown): v.InferOutput<TSchema> {
-  const result = v.safeParse(schema, input)
-  if (!result.success) throw new DocsContentError(file, result.issues)
-  return result.output
+function parse<TOutput>(file: string, schema: z.ZodType<TOutput>, input: unknown): TOutput {
+  const result = schema.safeParse(input)
+  if (!result.success) throw new DocsContentError(file, result.error.issues)
+  return result.data
 }
 
 function listMarkdown(dir: string): string[] {

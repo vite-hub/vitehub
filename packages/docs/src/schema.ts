@@ -1,4 +1,4 @@
-import * as v from "valibot"
+import { z } from "zod"
 
 /** How a page renders. `article` is prose with an outline, `tutorial` numbers its steps, `landing` is a wide Overview. */
 export const docsLayouts = ["article", "tutorial", "landing"] as const
@@ -17,7 +17,7 @@ export type DocsPageNavigation = false | {
   kind?: string
 }
 
-/** Frontmatter of a docs page. */
+/** Frontmatter of a docs page, after dotted keys such as `navigation.order` became nested objects. */
 export interface DocsPageFrontmatter {
   title: string
   description?: string
@@ -35,6 +35,19 @@ export interface DocsPageFrontmatter {
   seo?: { title?: string, description?: string }
 }
 
+/**
+ * Frontmatter of a docs page as the file stores it. Pages may write nested objects or dotted keys, such as
+ * `navigation.order: 2`. YAML keeps a dotted key as one key, so each one is a field of its own.
+ */
+export interface DocsPageFile extends DocsPageFrontmatter {
+  "navigation.title"?: string
+  "navigation.order"?: number
+  "navigation.group"?: string
+  "navigation.kind"?: string
+  "seo.title"?: string
+  "seo.description"?: string
+}
+
 /** `.navigation.yml` of a section folder. */
 export interface DocsSectionFile {
   title?: string
@@ -46,38 +59,57 @@ export interface DocsSectionFile {
   related?: string[]
 }
 
-type Fields<T> = { [K in keyof T]-?: v.GenericSchema<unknown, T[K]> }
+type Fields<T> = { [K in keyof T]-?: z.ZodType<T[K]> }
 
-const pageNavigation: v.GenericSchema<unknown, DocsPageNavigation> = v.union([
-  v.literal(false),
-  v.object({ title: v.optional(v.string()), order: v.optional(v.number()), group: v.optional(v.string()), kind: v.optional(v.string()) }),
-])
-
-/**
- * Frontmatter fields of a docs page, one Standard Schema per field. `docsCollection()` passes them to `documents()`,
- * so the Console editor validates the same fields that the build validates.
- */
-export const docsPageFields: Fields<DocsPageFrontmatter> = {
-  title: v.string(),
-  description: v.optional(v.string()),
-  icon: v.optional(v.string()),
-  layout: v.optional(v.picklist(docsLayouts)),
-  tutorial: v.optional(v.picklist(["project", "quickstart"])),
-  codePanel: v.optional(v.boolean()),
-  sidebar: v.optional(v.boolean()),
-  toc: v.optional(v.boolean()),
-  navigation: v.optional(pageNavigation),
-  seo: v.optional(v.object({ title: v.optional(v.string()), description: v.optional(v.string()) })),
+const navigationFields: Fields<Exclude<DocsPageNavigation, false>> = {
+  title: z.string().optional(),
+  order: z.number().optional(),
+  group: z.string().optional(),
+  kind: z.string().optional(),
 }
 
-export const docsPageSchema: v.GenericSchema<unknown, DocsPageFrontmatter> = v.object(docsPageFields)
+const seoFields: Fields<NonNullable<DocsPageFrontmatter["seo"]>> = {
+  title: z.string().optional(),
+  description: z.string().optional(),
+}
 
-export const docsSectionSchema: v.GenericSchema<unknown, DocsSectionFile> = v.object({
-  title: v.optional(v.string()),
-  icon: v.optional(v.string()),
-  order: v.optional(v.number()),
-  category: v.optional(v.string()),
-  related: v.optional(v.array(v.string())),
+const pageFields: Fields<DocsPageFrontmatter> = {
+  title: z.string(),
+  description: z.string().optional(),
+  icon: z.string().optional(),
+  layout: z.enum(docsLayouts).optional(),
+  tutorial: z.enum(["project", "quickstart"]).optional(),
+  codePanel: z.boolean().optional(),
+  sidebar: z.boolean().optional(),
+  toc: z.boolean().optional(),
+  navigation: z.union([z.literal(false), z.object(navigationFields)]).optional(),
+  seo: z.object(seoFields).optional(),
+}
+
+/**
+ * Frontmatter fields of a docs page as files store them, one Standard Schema per field. `docsCollection()` passes them
+ * to `documents()`, so the Console editor validates the same values that the build validates, and a save writes
+ * dotted keys back as dotted keys.
+ */
+export const docsPageFields: Fields<DocsPageFile> = {
+  ...pageFields,
+  "navigation.title": navigationFields.title,
+  "navigation.order": navigationFields.order,
+  "navigation.group": navigationFields.group,
+  "navigation.kind": navigationFields.kind,
+  "seo.title": seoFields.title,
+  "seo.description": seoFields.description,
+}
+
+/** The build validates frontmatter with this schema after `docsFrontmatter()` expanded its dotted keys. */
+export const docsPageSchema: z.ZodType<DocsPageFrontmatter> = z.object(pageFields)
+
+export const docsSectionSchema: z.ZodType<DocsSectionFile> = z.object({
+  title: z.string().optional(),
+  icon: z.string().optional(),
+  order: z.number().optional(),
+  category: z.string().optional(),
+  related: z.array(z.string()).optional(),
 })
 
 /** YAML keys such as `navigation.order: 2` become nested objects, as Markdown frontmatter writers expect. */
@@ -93,6 +125,16 @@ export function expandDottedKeys(input: Record<string, unknown>): Record<string,
     target[parts.at(-1)!] = value
   }
   return output
+}
+
+/**
+ * Frontmatter with its dotted keys expanded. `navigation: false` hides the page even when dotted keys such as
+ * `navigation.title` also set fields.
+ */
+export function docsFrontmatter(input: Record<string, unknown>): Record<string, unknown> {
+  const expanded = expandDottedKeys(input)
+  if (input.navigation === false) expanded.navigation = false
+  return expanded
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
