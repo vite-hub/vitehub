@@ -115,6 +115,85 @@ describe("Schedule Console runtime records", () => {
     }
   })
 
+  it("keeps the active snapshot while a replacement loads and reconciles", async () => {
+    const controller = await installProcessScheduleRuntime({
+      registry: { report: async () => defineSchedule({ cron: "0 9 * * *", handler: () => {}, timeZone: "Europe/Madrid" }) },
+      scheduleRunStore: createMemoryScheduleRunStore(),
+    })
+    const expected = await readScheduleConsoleRecords()
+    let releaseLoad!: () => void
+    const loading = new Promise<void>(resolve => { releaseLoad = resolve })
+    let releaseReconcile!: () => void
+    const reconciliation = new Promise<void>(resolve => { releaseReconcile = resolve })
+    let startedReconcile!: () => void
+    const reconciling = new Promise<void>(resolve => { startedReconcile = resolve })
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    vi.spyOn(scheduleRunStore, "listRuns").mockImplementation(async () => {
+      startedReconcile()
+      await reconciliation
+      return []
+    })
+    const installing = installProcessScheduleRuntime({
+      registry: { replacement: async () => {
+        await loading
+        return defineSchedule({ cron: "0 10 * * *", handler: () => {} })
+      } },
+      scheduleRunStore,
+    })
+    try {
+      expect(await readScheduleConsoleRecords()).toEqual(expected)
+      releaseLoad()
+      await reconciling
+      expect(await readScheduleConsoleRecords()).toEqual(expected)
+      releaseReconcile()
+      const replacement = await installing
+      expect(await readScheduleConsoleRecords()).toEqual([{
+        cells: { schedule: "replacement", timing: "0 10 * * *" },
+        fields: [{ label: "Cron", value: "0 10 * * *" }, { label: "Time zone", value: "UTC" }],
+        id: "definition:replacement",
+      }])
+      await replacement.close()
+      expect(await readScheduleConsoleRecords()).toEqual(expected)
+    }
+    finally {
+      releaseLoad()
+      releaseReconcile()
+      await (await installing).close()
+      await controller.close()
+    }
+    expect(await readScheduleConsoleRecords()).toEqual([])
+  })
+
+  it.each(["previous", "replacement"] as const)("keeps only live snapshots when closing the %s controller first", async (first) => {
+    const controller = await installProcessScheduleRuntime({
+      registry: { report: async () => defineSchedule({ cron: "0 9 * * *", handler: () => {} }) },
+      scheduleRunStore: createMemoryScheduleRunStore(),
+    })
+    const previous = await readScheduleConsoleRecords()
+    const replacement = await installProcessScheduleRuntime({
+      registry: { replacement: async () => defineSchedule({ cron: "0 10 * * *", handler: () => {} }) },
+      scheduleRunStore: createMemoryScheduleRunStore(),
+    })
+    try {
+      const expected = await readScheduleConsoleRecords()
+      if (first === "previous") {
+        await controller.close()
+        expect(await readScheduleConsoleRecords()).toEqual(expected)
+        await replacement.close()
+      }
+      else {
+        await replacement.close()
+        expect(await readScheduleConsoleRecords()).toEqual(previous)
+        await controller.close()
+      }
+      expect(await readScheduleConsoleRecords()).toEqual([])
+    }
+    finally {
+      await replacement.close()
+      await controller.close()
+    }
+  })
+
   it("keeps the build-time records when this process runs no Schedules", async () => {
     expect(await readScheduleConsoleRecords()).toEqual([])
   })
