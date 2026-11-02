@@ -379,7 +379,8 @@ export function toAgentPublicError(error: unknown, context: AgentPublicErrorCont
     const providerError = aiSdkProviderPublicError(error)
     if (providerError) return providerError
     const chatgptError = chatgptGatewayDiagnostic(error)
-    if (chatgptError) return publicError("PROVIDER_UNAVAILABLE", chatgptError)
+    // AGENT_R1017 is the plan usage limit. Like other exhausted quotas, a retry cannot succeed before the limit resets.
+    if (chatgptError) return publicError(readAgentErrorProperty(error, "code") === "AGENT_R1017" ? "PROVIDER_QUOTA_EXHAUSTED" : "PROVIDER_UNAVAILABLE", chatgptError)
     // Only provider runtime diagnostics may opt into text-based quota classification.
     // Other internal failures can mention quotas without being provider failures.
     if (readAgentErrorProperty(error, "code") === "AGENT_R0726") {
