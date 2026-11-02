@@ -8,18 +8,20 @@ import { useCookie, useRoute } from "#imports"
 
 import { docsAssistantProblem } from "../composables/docs-assistant-problem"
 import { useDocsAssistant } from "../composables/useDocsAssistant"
+import { useDocsConfig } from "../composables/docs"
 
 import type { ComponentPublicInstance } from "vue"
 
 const props = defineProps<{ agent: string }>()
 
 const { open, toggle } = useDocsAssistant()
+const { appBase } = useDocsConfig()
 const route = useRoute()
 const chat = useChat(useAgent(props.agent))
 const draft = ref("")
 const problem = computed(() => chat.error.value ? docsAssistantProblem(chat.error.value, window.location.origin) : undefined)
 // The server reads the page path from the request body and adds it to the Agent instructions.
-const requestBody = () => ({ body: { page: route.path } })
+const requestBody = () => ({ body: { page: route.path, appBase } })
 const { copy, copied } = useClipboard({ legacy: true, copiedDuring: 2000 })
 const reducedMotion = usePreferredReducedMotion()
 const headingId = useId()

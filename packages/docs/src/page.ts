@@ -83,7 +83,7 @@ export function coversDocsPages(routes: DocsRoute[], pagePaths: string[]): boole
 
 function routePaths(routes: DocsRoute[], parent = ""): string[] {
   return routes.flatMap((route) => {
-    const path = route.path.startsWith("/") ? route.path : `${parent}/${route.path}`
+    const path = route.path.startsWith("/") ? route.path : `${parent.replace(/\/+$/, "")}/${route.path}`
     return [path, ...routePaths(route.children ?? [], path)]
   })
 }

@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs"
-import { join, relative } from "node:path"
+import { dirname, join, relative } from "node:path"
 
 import { parse as parseYaml } from "yaml"
 import { parseFrontmatter } from "comark/parse"
@@ -40,7 +40,7 @@ export function createDocsManifest(options: DocsManifestOptions): DocsManifest {
         .sort((left, right) => left.order - right.order || left.title.localeCompare(right.title))
     : []
   const pages = listMarkdown(options.dir)
-    .filter(file => !isInside(file, baseDir))
+    .filter(file => !isInside(file, baseDir) || (dirname(file) === dirname(rootFile) && file !== rootFile))
     .map(file => readPage(options.dir, file, "", docsPagePath(relative(options.dir, file))))
     .sort((left, right) => left.path.localeCompare(right.path))
   return {

@@ -6,6 +6,8 @@ import { createRateLimiter } from "@vite-hub/rate-limit"
 import { memoryRateLimitDriver } from "@vite-hub/rate-limit/drivers/memory"
 import { glob } from "@vite-hub/workspace"
 
+import { docsAppPath } from "./navigation.ts"
+
 import type { AgentAdapterMetadataContext, AgentCapabilityDefinition, WorkspaceAgentDefinition } from "@vite-hub/agent"
 import type { RateLimitIdentity } from "@vite-hub/agent/capabilities"
 import type { RateLimitWindow } from "@vite-hub/rate-limit"
@@ -17,7 +19,7 @@ const docsInstructions = `You answer questions from readers of this documentatio
 
 The pages of the site are Markdown files in the \`pages\` folder of your working directory. Search and read them with read-only shell commands such as \`rg\`, \`ls\`, and \`cat\` before you answer.
 
-A page URL is its file path without \`pages\` and \`.md\`. An \`index.md\` file is the URL of its folder. For example, \`pages/docs/guide/setup.md\` is \`/docs/guide/setup\`, and \`pages/docs/guide/index.md\` is \`/docs/guide\`.
+A page URL is its file path without \`pages\` and \`.md\`. An \`index.md\` file is the URL of its folder. For example, \`pages/docs/guide/setup.md\` is \`/docs/guide/setup\`, and \`pages/docs/guide/index.md\` is \`/docs/guide\`. Apply the site's app base, when specified below, to every page link.
 
 - Answer only from these pages. Do not use what you know about the product from other sources.
 - Link each page that you used, as a Markdown link to its URL, for example [Setup](/docs/guide/setup).
@@ -38,8 +40,11 @@ export function docsPageFromBody(body: Readonly<Record<string, unknown>>): strin
 
 function currentPageInstructions({ context }: Pick<AgentAdapterMetadataContext, "context">): string | undefined {
   const page = context.get(docsPageContextKey)
-  if (typeof page !== "string" || !page) return
-  return `The reader has the page ${page} open. When the question is not clear, answer for that page first.`
+  const appBase = context.get("docsAppBase")
+  return [
+    typeof appBase === "string" && appBase !== "/" ? `Prefix every page link with ${appBase}, for example [Setup](${docsAppPath("/docs/guide/setup", appBase)}). The reader's page path below is relative to this app base.` : "",
+    typeof page === "string" && page ? `The reader has the page ${page} open. When the question is not clear, answer for that page first.` : "",
+  ].filter(Boolean).join("\n\n") || undefined
 }
 
 export interface DocsRateLimitOptions {
@@ -97,7 +102,10 @@ export const docsAssistant: WorkspaceAgentDefinition = defineAgent({
     web: webChat({
       route: {
         admission: {
-          context: ({ body }) => ({ context: { [docsPageContextKey]: docsPageFromBody(body) } }),
+          context: ({ body }) => {
+            const appBase = docsPageFromBody({ page: Reflect.get(body, "appBase") })
+            return { context: { [docsPageContextKey]: docsPageFromBody(body), ...(appBase && appBase !== "/" && !appBase.startsWith("//") ? { docsAppBase: appBase } : {}) } }
+          },
         },
       },
     }),

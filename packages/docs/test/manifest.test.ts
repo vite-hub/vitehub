@@ -5,6 +5,7 @@ import { dirname, join } from "node:path"
 import { describe, expect, it } from "vitest"
 
 import { createDocsManifest, DocsContentError } from "../src/manifest.ts"
+import { docsManifestPages, findDocsPage } from "../src/navigation.ts"
 
 import type { DocsManifest } from "../src/types.ts"
 
@@ -78,6 +79,20 @@ describe("createDocsManifest", () => {
     expect(manifest.root?.path).toBe("/")
     expect(manifest.sections.map(section => section.path)).toEqual(["/guide"])
     expect(manifest.sections[0]?.pages.map(page => page.path)).toEqual(["/guide", "/guide/install"])
+  })
+
+  it.each(["/", "/docs"])("retains direct Markdown pages under the base %s exactly once", (base) => {
+    const prefix = base === "/" ? "" : "docs/"
+    const manifest = manifestOf({
+      [`${prefix}index.md`]: "---\ntitle: Home\n---\n",
+      [`${prefix}faq.md`]: "---\ntitle: FAQ\n---\n",
+      [`${prefix}guide/index.md`]: "---\ntitle: Guide\n---\n",
+    }, base)
+    const path = base === "/" ? "/faq" : "/docs/faq"
+
+    expect(manifest.pages.map(page => page.path)).toEqual([path])
+    expect(findDocsPage(manifest, path)?.page.file).toBe(`${prefix}faq.md`)
+    expect(docsManifestPages(manifest).map(page => page.path)).toEqual([base, `${base === "/" ? "" : base}/guide`, path])
   })
 
   it("stops on frontmatter that does not match the schema", () => {

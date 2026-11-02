@@ -22,6 +22,7 @@ describe("coversDocsPages", () => {
   })
 
   it("reads nested catch-all pages with their parent path", () => {
+    expect(coversDocsPages([{ path: "/", children: [{ path: ":slug(.*)*" }] }], pages)).toBe(true)
     expect(coversDocsPages([{ path: "/docs", children: [{ path: ":slug(.*)*" }] }], ["/docs/kv"])).toBe(true)
     expect(coversDocsPages([{ path: "/blog", children: [{ path: ":slug(.*)*" }] }], ["/docs/kv"])).toBe(false)
   })

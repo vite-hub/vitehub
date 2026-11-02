@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { createDocsSearch, docsAppPath, docsSectionHome } from "#docs/navigation"
+import { createDocsSearch, docsAppPath, docsManifestPages, docsSectionHome } from "#docs/navigation"
 
 import type { DocsSearchSection } from "@vite-hub/docs"
 
@@ -14,8 +14,8 @@ const navigation = manifest.sections.map(section => ({
   children: section.pages.filter(page => page.navigation).map(page => ({ title: page.title, path: page.path, icon: icons.page(page) })),
 }))
 const links = navigation.map((item, index) => ({ label: item.title, icon: item.icon, to: docsSectionHome(manifest.sections[index]!) }))
-// The dialog shows only pages that the navigation lists, so the ranking skips the others and the limit counts real results.
-const listed = new Set(navigation.flatMap(item => item.children.map(child => child.path)))
+// Root and standalone pages are searchable too; navigation: false keeps any page out of the results.
+const listed = new Set(docsManifestPages(manifest).filter(page => page.navigation).map(page => page.path))
 
 // The index loads when the dialog first opens, so pages do not pay for it.
 const status = ref<"idle" | "loading" | "ready" | "error">("idle")

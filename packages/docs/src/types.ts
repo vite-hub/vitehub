@@ -52,7 +52,7 @@ export interface DocsManifest {
   /** The page at the base URL, such as `content/docs/index.md`. */
   root: DocsPage | null
   sections: DocsSection[]
-  /** Pages outside the base, such as `/about`. They have no section and no sidebar. */
+  /** Pages without a section: direct children of the base and pages outside it, such as `/about`. */
   pages: DocsPage[]
 }
 
