@@ -127,6 +127,7 @@ async function requiredPeerSpecs() {
   const vercelCatalog = await catalogDependencySpecs("vercel", ["@vercel/functions"])
   const workflowCatalog = await catalogDependencySpecs("workflow", ["@workflow/builders", "workflow"])
   return {
+    ...await catalogDependencySpecs("auth", ["better-auth", "@better-auth/oauth-provider"]),
     ...agentCatalog,
     ...browserCatalog,
     ...chatCatalog,
@@ -336,7 +337,7 @@ async function importPackageWithoutRootFallback(
     ...runtimeDependencies,
     ...declaredTypeDependencies,
     ...requiredPeers,
-    ...(includeOptionalPeers ? Object.keys(manifest.peerDependencies || {}) : []),
+    ...(includeOptionalPeers ? [...Object.keys(manifest.peerDependencies || {}), ...optionalContractPeers(info.packageName)] : []),
   ]), async () => {
     const runnerDir = join(appDir, ".isolated", info.name)
     const packageNameParts = info.packageName.split("/")
@@ -375,6 +376,23 @@ function packageTypeDependencies(manifest: { dependencies?: Record<string, strin
   return Object.keys(manifest.dependencies || {}).filter(name => name.startsWith("@types/"))
 }
 
+function optionalContractPeers(packageName: string) {
+  return [...new Set(publicPackageExportContracts
+    .filter(contract => contract.packageName === packageName)
+    .flatMap((contract) => {
+      // Facade pass-through exports also need the optional peers of their owner.
+      const owner = packageName === "vite-hub"
+        ? publicPackageExportContracts.find(candidate => candidate.specifier === contract.specifier.replace(/^vite-hub\//, "@vite-hub/"))
+        : undefined
+      return [
+        ...contract.optionalRuntimePeers,
+        ...contract.optionalDeclarationPeers,
+        ...(owner?.optionalRuntimePeers ?? []),
+        ...(owner?.optionalDeclarationPeers ?? []),
+      ]
+    }))]
+}
+
 async function importPackagesWithoutDeclarationPeer(
   root: string,
   specs: Record<string, string>,
@@ -392,7 +410,7 @@ async function importPackagesWithoutDeclarationPeer(
     const requiredPeers = Object.keys(sourceManifest.peerDependencies || {}).filter(name =>
       !sourceManifest.peerDependenciesMeta?.[name]?.optional,
     )
-    const declaredPeers = Object.keys(sourceManifest.peerDependencies || {})
+    const declaredPeers = [...Object.keys(sourceManifest.peerDependencies || {}), ...optionalContractPeers(packageName)]
     const sourcePeerSpecs = await resolvedPeerDependencySpecs(sourceManifest.peerDependencies || {})
     const devDependencies = mixedPeerFixtureSpecs(
       packageName,
@@ -829,6 +847,10 @@ describe("published declaration diagnostics", () => {
     )
     expect(viteHubFixtureSpecs).toMatchObject({ "@types/node": "1.0.0", "reka-ui": "2.10.3" })
     expect(viteHubFixtureSpecs).not.toHaveProperty("vite")
+  })
+
+  it("keeps feature export peers available after the facade stops declaring them", () => {
+    expect(optionalContractPeers("vite-hub")).toEqual(expect.arrayContaining(["evalite", "vitest"]))
   })
 
   it("provides install specs for Workflow's optional declaration peers", async () => {

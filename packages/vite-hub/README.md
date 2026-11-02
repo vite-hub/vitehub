@@ -15,6 +15,25 @@ Use it for a Vite or Nuxt application that needs Server Primitives, Agents, or b
 pnpm add vite-hub
 ```
 
+`vite-hub` includes Blob, KV, Queue, Env, Email, Rate Limit, Channels, Browser, Sandbox Tasks, Workflows, Source, Logs, and the Console. Other features are optional peers, so an app installs only what it enables. Add their packages before you enable them:
+
+| Feature | Add these packages |
+| --- | --- |
+| `agent` | `@vite-hub/agent` |
+| `auth` | `@vite-hub/auth better-auth` |
+| `database`, and Connections or Comments, which turn Database on | `@vite-hub/database drizzle-orm`, and `drizzle-kit` as a development dependency |
+| `realtime` | `@vite-hub/realtime` |
+| `schedule` | `@vite-hub/schedule` |
+| `workspace` | `@vite-hub/workspace`, and `@vite-hub/shell` for shell commands |
+| `server/content.ts` | `@vite-hub/content`, and `@vite-hub/cms` for the `cms` preset |
+| `server/comments.ts` | `@vite-hub/comments` |
+| Console with Agents | `@libsql/client drizzle-orm` |
+| Console sign-in with Better Auth | `@vite-hub/auth better-auth @better-auth/oauth-provider` |
+| `vite-hub/ui` | `@vite-hub/ui` |
+| `vite-hub/presets/*` | `@vite-hub/presets` |
+
+A build with an enabled feature whose package is missing fails with the `pnpm add` command to run. Provider SDKs, such as `workflow` and `@workflow/builders` for Vercel Workflow or `@vercel/sandbox` for Sandbox Tasks, stay with their feature guides.
+
 You need Node.js 24.15 or newer, Vite 8 or newer, and an ESM package with `"type": "module"` or a `vite.config.mts` file. Hosted primitives and model providers can also require credentials, network access, and billed accounts. Their feature guides list those requirements before the first provider call.
 
 ## Configure ViteHub

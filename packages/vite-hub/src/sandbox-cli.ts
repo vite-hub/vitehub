@@ -1,5 +1,7 @@
 import { parseArgs } from "node:util";
 
+import { assertFeaturePackages } from "./internal/optional-owners.ts";
+
 import type { ViteHubCliCommandNamespace, ViteHubCliContext } from "@vite-hub/internal/cli";
 
 const serveUsage =
@@ -152,6 +154,7 @@ async function check(args: string[], context: ViteHubCliContext): Promise<number
   const timeout = Number(option(values, "timeout", env) ?? 25_000);
   if (!Number.isInteger(timeout) || timeout < 1)
     throw new TypeError("[vitehub] --timeout must be a positive number of milliseconds.");
+  assertFeaturePackages(["agent"]);
   const [{ defineAgent }, { cliproxy }, { createAgentStatusReader }, { sshLaunch }] = await Promise.all([
     import("@vite-hub/agent"),
     import("@vite-hub/gateways"),

@@ -16,7 +16,7 @@ You need Node.js 24.15 or newer, pnpm, and a Vite application that uses Vue and 
 ## Configure Realtime
 
 ```bash [commands/install]
-pnpm add vite-hub @tiptap/vue-3 h3
+pnpm add vite-hub @vite-hub/realtime @vite-hub/workspace @tiptap/vue-3 h3
 pnpm add -D nitro
 ```
 

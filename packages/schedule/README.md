@@ -9,10 +9,10 @@
 
 ## Choose the package
 
-Install `vite-hub` for an application. It includes Schedule and exposes application imports under `vite-hub/schedule`.
+Install `vite-hub` and `@vite-hub/schedule` for an application. `vite-hub` exposes application imports under `vite-hub/schedule` and loads Schedule from the app.
 
 ```sh
-pnpm add vite-hub
+pnpm add vite-hub @vite-hub/schedule
 ```
 
 Enable Schedule with the framework integration and import application helpers from its feature path:

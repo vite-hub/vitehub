@@ -9,7 +9,7 @@
 
 `@vite-hub/auth` defines one server-owned Auth Definition and turns it into a Better Auth server for ViteHub apps.
 
-Most applications install `vite-hub` and enable Auth through the framework preset. Install this owner package directly when a focused Vite integration, library, or manual host needs Auth without the rest of ViteHub. Better Auth still owns providers, client plugins, adapters, and sign-in UI.
+Most applications install `vite-hub`, `@vite-hub/auth`, and `better-auth`, and enable Auth through the framework preset. Use this owner package alone when a focused Vite integration, library, or manual host needs Auth without the rest of ViteHub. Better Auth still owns providers, client plugins, adapters, and sign-in UI.
 
 ## Install
 

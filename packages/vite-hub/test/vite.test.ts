@@ -6,6 +6,16 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { assertFeaturePackages, isPackageInstalled } from "../src/internal/optional-owners.ts"
+
+vi.mock("../src/internal/optional-owners.ts", async importOriginal => {
+  const original = await importOriginal<typeof import("../src/internal/optional-owners.ts")>()
+  return {
+    ...original,
+    assertFeaturePackages: vi.fn(original.assertFeaturePackages),
+    isPackageInstalled: vi.fn(original.isPackageInstalled),
+  }
+})
 
 const kvCacheDriver = fileURLToPath(import.meta.resolve("vite-hub/_internal/kv/runtime/nitro-cache"))
 
@@ -124,7 +134,7 @@ import { isIncludedNitroPlugin } from "../src/nitro-plugin.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
 const deniedGeneratedOwnerPackageNames = new Set(["@vite-hub/cli"])
-const generatedOwnerPackageCases = Object.keys(frameworkPackageManifest.dependencies)
+const generatedOwnerPackageCases = Object.keys({ ...frameworkPackageManifest.dependencies, ...frameworkPackageManifest.peerDependencies })
   .filter(name => name.startsWith("@vite-hub/"))
   .map(name => [name, deniedGeneratedOwnerPackageNames.has(name) ? "deny" : "resolve"] as const)
 
@@ -602,6 +612,11 @@ describe("vitehub", () => {
     expect(integrationMocks.hubAuth).toHaveBeenCalledWith(false, { importBase: "vite-hub/auth" })
   })
 
+  it("keeps Cloudflare Access Console auth independent of the Auth owner", () => {
+    const plugins = vitehub({ console: { auth: { provider: "cloudflare-access" } }, preset: "cloudflare" })
+    expect(pluginNames(plugins)).not.toContain("@vite-hub/auth/vite")
+  })
+
   it("rejects production Auth policy that does not protect Console status", async () => {
     integrationMocks.resolveAuthViteConfig.mockReturnValueOnce({
       access: { routes: [{ authorize: true, route: "/_vitehub/**" }] },
@@ -924,6 +939,20 @@ describe("vitehub", () => {
       .toContain("vite-hub/error-log")
     expect(pluginNames(vitehub({ preset: "node", observability: { service: "support" } })))
       .not.toContain("vite-hub/error-log")
+  })
+
+  it("requires the Agent package for observability without Agents", () => {
+    vitehub({ preset: "node", observability: { service: "support" } })
+    expect(assertFeaturePackages).toHaveBeenLastCalledWith(["agent"])
+  })
+
+  it("omits the Workspace Shell loader when the Shell package is absent", () => {
+    vi.mocked(isPackageInstalled).withImplementation(name => name !== "@vite-hub/shell", () => {
+      vitehub({ preset: "node", agent: true })
+      expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
+        workspaceDependencyRuntimeImports: {},
+      }))
+    })
   })
 
   it("passes configured Email drivers through the canonical integration", () => {

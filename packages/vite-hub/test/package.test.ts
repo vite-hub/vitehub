@@ -58,6 +58,7 @@ interface DistributionManifest {
   bin: Record<string, string>;
   dependencies: Record<string, string>;
   exports: Record<string, string | { import: string; types?: string }>;
+  peerDependencies: Record<string, string>;
 }
 
 function parseDistributionManifest(text: string): DistributionManifest {
@@ -66,11 +67,12 @@ function parseDistributionManifest(text: string): DistributionManifest {
   const bin = Reflect.get(Object(value), "bin");
   const dependencies = Reflect.get(Object(value), "dependencies");
   const exports = Reflect.get(Object(value), "exports");
-  if (Object(bin) !== bin || Object(dependencies) !== dependencies || Object(exports) !== exports) {
+  const peerDependencies = Reflect.get(Object(value), "peerDependencies");
+  if (Object(bin) !== bin || Object(dependencies) !== dependencies || Object(exports) !== exports || Object(peerDependencies) !== peerDependencies) {
     throw new TypeError("Expected package manifest maps.");
   }
   // SAFETY: The checked package.json fields are the string maps exercised by these distribution tests.
-  return { bin, dependencies, exports } as DistributionManifest;
+  return { bin, dependencies, exports, peerDependencies } as DistributionManifest;
 }
 
 const manifest = parseDistributionManifest(
@@ -349,14 +351,15 @@ describe("framework package contract", () => {
         (target) => !(consolidatedOwnerExports.has(target) && target.startsWith(`${ownerSpecifier}/`)),
       );
       expect(ownTargets, subpath).toEqual([ownerSpecifier]);
-      expect(manifest.dependencies[ownerPackage], subpath).toBeDefined();
+      // Opt-in features keep their owner package as an optional peer.
+      expect({ ...manifest.dependencies, ...manifest.peerDependencies }[ownerPackage], subpath).toBeDefined();
     }
   });
 
   it("classifies every owner-package export", () => {
     const unclassified: string[] = [];
 
-    for (const packageName of Object.keys(manifest.dependencies).filter((name) =>
+    for (const packageName of Object.keys({ ...manifest.dependencies, ...manifest.peerDependencies }).filter((name) =>
       name.startsWith("@vite-hub/"),
     )) {
       const packageDirectory = packageName.slice("@vite-hub/".length);
@@ -397,9 +400,11 @@ describe("framework package contract", () => {
     expect(readFileSync(`${packageRoot}/${manifest.bin.vitehub}`, "utf8")).toMatch(
       /^#!\/usr\/bin\/env node/,
     );
-    expect(readFileSync(`${packageRoot}/dist/env.d.ts`, "utf8")).toContain(
-      'import "@vite-hub/env/vite"',
-    );
+    for (const file of ["index.d.ts", "env.d.ts"]) {
+      expect(readFileSync(`${packageRoot}/dist/${file}`, "utf8")).toContain(
+        'import "@vite-hub/env/vite"',
+      );
+    }
     expect(readFileSync(`${packageRoot}/dist/cloudflare-types.d.ts`, "utf8")).toContain(
       "@cloudflare/workers-types",
     );

@@ -55,6 +55,7 @@ The checkout already contains the finished files. Read and edit them as you foll
     "@iconify-json/lucide": "1.2.139",
     "@iconify-json/ph": "1.2.2",
     "@nuxt/ui": "4.11.3",
+    "@vite-hub/agent": "workspace:*",
     "@vite-hub/ui": "workspace:*",
     "ai": "7.0.130",
     "h3": "1.15.11",

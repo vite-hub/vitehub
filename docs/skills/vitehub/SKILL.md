@@ -63,7 +63,7 @@ Routing is complete when every requested behavior has one primary lane and every
 ## 3. Inspect the installed contract
 
 - Read each installed package's `package.json`, exports, relevant types, and generated declarations before writing imports or options.
-- For a fresh application, install `vite-hub` and use its root integration plus feature subpaths. Use direct owner packages only for a focused library, an unexported advanced subpath, or an installed older contract.
+- For a fresh application, install `vite-hub` and use its root integration plus feature subpaths. Opt-in features such as Agent, Auth, Database, Schedule, Workspace, Realtime, Content, and Comments also need their owner package next to `vite-hub`, as the Installation guide lists; the build error names any missing package. Use other direct owner packages only for a focused library, an unexported advanced subpath, or an installed older contract.
 - When docs, examples, and installed artifacts disagree, implement the installed artifacts and record the mismatch. Treat project examples as patterns whose imports must be revalidated.
 
 Contract inspection is complete when every planned package, import, option, generated path, and runtime entry exists in the installed graph; no syntax is inferred only from memory.

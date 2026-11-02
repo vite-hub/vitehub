@@ -756,6 +756,9 @@ importers:
       '@nuxt/ui':
         specifier: 4.11.3
         version: 4.11.3(478273123b25534db29ff0fd4157c2e8)
+      '@vite-hub/agent':
+        specifier: workspace:*
+        version: link:../../../packages/agent
       '@vite-hub/ui':
         specifier: workspace:*
         version: link:../../../packages/ui
@@ -2877,72 +2880,30 @@ importers:
 
   packages/vite-hub:
     dependencies:
-      '@better-auth/oauth-provider':
-        specifier: catalog:auth
-        version: 1.7.7(@better-auth/core@1.7.7(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(@opentelemetry/api@1.9.1)(better-call@1.4.0(zod@4.6.7))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.4))(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-auth@1.7.7(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.11)(drizzle-orm@0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2))(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(vitest@4.1.11)(vue@3.5.44(typescript@6.0.3)))(better-call@1.4.0(zod@4.6.7))
       '@cfworker/json-schema':
         specifier: 4.1.1
         version: 4.1.1
-      '@cloudflare/sandbox':
-        specifier: catalog:sandbox
-        version: 0.12.10
       '@cloudflare/workers-types':
         specifier: ^5.20261016.1
         version: 5.20261019.1
-      '@internationalized/date':
-        specifier: ^3.12.4
-        version: 3.12.4
       '@json-render/core':
         specifier: 0.21.0
         version: 0.21.0(zod@4.6.7)
       '@json-render/vue':
         specifier: 0.21.0
         version: 0.21.0(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)
-      '@libsql/client':
-        specifier: catalog:database
-        version: 0.18.0
       '@standard-schema/spec':
         specifier: catalog:runtime
         version: 1.1.0
-      '@tiptap/core':
-        specifier: catalog:realtime
-        version: 3.31.4(@tiptap/pm@3.31.4)
-      '@tiptap/extension-image':
-        specifier: catalog:realtime
-        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))
-      '@tiptap/extension-list':
-        specifier: catalog:realtime
-        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)
-      '@tiptap/extension-table':
-        specifier: catalog:realtime
-        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)
-      '@tiptap/extensions':
-        specifier: catalog:realtime
-        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)
-      '@tiptap/pm':
-        specifier: catalog:realtime
-        version: 3.31.4
-      '@tiptap/starter-kit':
-        specifier: catalog:realtime
-        version: 3.31.4
-      '@tiptap/vue-3':
-        specifier: catalog:realtime
-        version: 3.23.6(@floating-ui/dom@1.8.0)(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)(vue@3.5.44(typescript@6.0.3))
+      '@types/json-schema':
+        specifier: catalog:ai
+        version: 7.0.15
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
       '@valibot/to-json-schema':
         specifier: catalog:runtime
         version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
-      '@vercel/sandbox':
-        specifier: catalog:sandbox
-        version: 3.5.1
-      '@vite-hub/agent':
-        specifier: workspace:*
-        version: link:../agent
-      '@vite-hub/auth':
-        specifier: workspace:*
-        version: link:../auth
       '@vite-hub/blob':
         specifier: workspace:*
         version: link:../blob
@@ -2955,21 +2916,9 @@ importers:
       '@vite-hub/cli':
         specifier: workspace:*
         version: link:../cli
-      '@vite-hub/cms':
-        specifier: workspace:*
-        version: link:../cms
-      '@vite-hub/comments':
-        specifier: workspace:*
-        version: link:../comments
       '@vite-hub/connections':
         specifier: workspace:*
         version: link:../connections
-      '@vite-hub/content':
-        specifier: workspace:*
-        version: link:../content
-      '@vite-hub/database':
-        specifier: workspace:*
-        version: link:../database
       '@vite-hub/email':
         specifier: workspace:*
         version: link:../email
@@ -2985,69 +2934,33 @@ importers:
       '@vite-hub/markdown-template':
         specifier: workspace:*
         version: link:../markdown-template
-      '@vite-hub/presets':
-        specifier: workspace:*
-        version: link:../presets
       '@vite-hub/queue':
         specifier: workspace:*
         version: link:../queue
       '@vite-hub/rate-limit':
         specifier: workspace:*
         version: link:../rate-limit
-      '@vite-hub/realtime':
-        specifier: workspace:*
-        version: link:../realtime
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
       '@vite-hub/sandbox':
         specifier: workspace:*
         version: link:../sandbox
-      '@vite-hub/schedule':
-        specifier: workspace:*
-        version: link:../schedule
-      '@vite-hub/shell':
-        specifier: workspace:*
-        version: link:../shell
       '@vite-hub/source':
         specifier: workspace:*
         version: link:../source
-      '@vite-hub/ui':
-        specifier: workspace:*
-        version: link:../ui
       '@vite-hub/workflow':
         specifier: workspace:*
         version: link:../workflow
-      '@vite-hub/workspace':
-        specifier: workspace:*
-        version: link:../workspace
       '@vueuse/core':
         specifier: catalog:ui
         version: 14.4.0(vue@3.5.44(typescript@6.0.3))
-      '@workflow/builders':
-        specifier: catalog:workflow
-        version: 5.0.1(@opentelemetry/api@1.9.1)(@swc/helpers@0.5.23)(ws@8.22.0)
-      better-auth:
-        specifier: catalog:auth
-        version: 1.7.7(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.11)(drizzle-orm@0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2))(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(vitest@4.1.11)(vue@3.5.44(typescript@6.0.3))
-      comark:
-        specifier: catalog:markdown-ui
-        version: 0.8.1(katex@0.18.11)(shiki@4.5.0)
       confbox:
         specifier: ^0.2.4
         version: 0.2.4
-      drizzle-kit:
-        specifier: catalog:database
-        version: 0.31.11
-      drizzle-orm:
-        specifier: catalog:database
-        version: 0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2)
       esbuild:
         specifier: catalog:tooling
         version: 0.28.2
-      evalite:
-        specifier: catalog:ai
-        version: 1.0.0-beta.16(ai@7.0.130(zod@4.6.7))(better-sqlite3@12.9.0)
       evlog:
         specifier: ^2.28.1
         version: 2.29.0(69570657082c5586d6dac2c9b7febe5c)
@@ -3057,9 +2970,6 @@ importers:
       jose:
         specifier: catalog:auth
         version: 6.2.12
-      katex:
-        specifier: ^0.18.7
-        version: 0.18.11
       nitro:
         specifier: catalog:unjs
         version: 3.0.260903-beta
@@ -3081,27 +2991,15 @@ importers:
       semver:
         specifier: ^7.8.5
         version: 7.8.5
-      shiki:
-        specifier: ^4.5.0
-        version: 4.5.0
-      ssh2:
-        specifier: ^1.17.0
-        version: 1.17.0
       standard-context:
         specifier: catalog:runtime
         version: 0.0.4
-      typescript:
-        specifier: catalog:tooling
-        version: 6.0.3
       valibot:
         specifier: catalog:runtime
         version: 1.5.0(typescript@6.0.3)
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
-      workflow:
-        specifier: catalog:workflow
-        version: 5.0.1(@aws-sdk/credential-provider-web-identity@3.972.49)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0)
     devDependencies:
       '@ai-sdk/provider':
         specifier: catalog:ai
@@ -3124,6 +3022,12 @@ importers:
       '@azure/storage-blob':
         specifier: catalog:storage
         version: 12.34.0
+      '@better-auth/oauth-provider':
+        specifier: catalog:auth
+        version: 1.7.7(@better-auth/core@1.7.7(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(@opentelemetry/api@1.9.1)(better-call@1.4.0(zod@4.6.7))(jose@6.2.12)(kysely@0.29.6)(nanostores@1.5.4))(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-auth@1.7.7(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.11)(drizzle-orm@0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2))(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(vitest@4.1.11)(vue@3.5.44(typescript@6.0.3)))(better-call@1.4.0(zod@4.6.7))
+      '@cloudflare/sandbox':
+        specifier: catalog:sandbox
+        version: 0.12.10
       '@fontsource-variable/geist':
         specifier: catalog:ui
         version: 5.3.0
@@ -3145,6 +3049,12 @@ importers:
       '@iconify/vue':
         specifier: catalog:ui
         version: 5.0.3(vue@3.5.44(typescript@6.0.3))
+      '@internationalized/date':
+        specifier: ^3.12.4
+        version: 3.12.4
+      '@libsql/client':
+        specifier: catalog:database
+        version: 0.18.0
       '@microsoft/microsoft-graph-client':
         specifier: catalog:storage
         version: 3.0.7(@azure/identity@4.13.3)
@@ -3154,33 +3064,114 @@ importers:
       '@supabase/storage-js':
         specifier: catalog:storage
         version: 2.117.2
+      '@tiptap/core':
+        specifier: catalog:realtime
+        version: 3.31.4(@tiptap/pm@3.31.4)
       '@tiptap/extension-collaboration':
         specifier: catalog:realtime
         version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)(@tiptap/y-tiptap@3.0.9(prosemirror-model@1.25.12)(prosemirror-state@1.4.4)(prosemirror-view@1.42.6)(y-protocols@1.0.7(yjs@13.6.33))(yjs@13.6.33))(yjs@13.6.33)
       '@tiptap/extension-collaboration-caret':
         specifier: catalog:realtime
         version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)(@tiptap/y-tiptap@3.0.9(prosemirror-model@1.25.12)(prosemirror-state@1.4.4)(prosemirror-view@1.42.6)(y-protocols@1.0.7(yjs@13.6.33))(yjs@13.6.33))
+      '@tiptap/extension-image':
+        specifier: catalog:realtime
+        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))
+      '@tiptap/extension-list':
+        specifier: catalog:realtime
+        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)
+      '@tiptap/extension-table':
+        specifier: catalog:realtime
+        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)
+      '@tiptap/extensions':
+        specifier: catalog:realtime
+        version: 3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)
+      '@tiptap/pm':
+        specifier: catalog:realtime
+        version: 3.31.4
+      '@tiptap/starter-kit':
+        specifier: catalog:realtime
+        version: 3.31.4
+      '@tiptap/vue-3':
+        specifier: catalog:realtime
+        version: 3.23.6(@floating-ui/dom@1.8.0)(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)(vue@3.5.44(typescript@6.0.3))
       '@tiptap/y-tiptap':
         specifier: catalog:realtime
         version: 3.0.9(prosemirror-model@1.25.12)(prosemirror-state@1.4.4)(prosemirror-view@1.42.6)(y-protocols@1.0.7(yjs@13.6.33))(yjs@13.6.33)
+      '@vercel/sandbox':
+        specifier: catalog:sandbox
+        version: 3.5.1
+      '@vite-hub/agent':
+        specifier: workspace:*
+        version: link:../agent
+      '@vite-hub/auth':
+        specifier: workspace:*
+        version: link:../auth
+      '@vite-hub/cms':
+        specifier: workspace:*
+        version: link:../cms
+      '@vite-hub/comments':
+        specifier: workspace:*
+        version: link:../comments
+      '@vite-hub/content':
+        specifier: workspace:*
+        version: link:../content
+      '@vite-hub/database':
+        specifier: workspace:*
+        version: link:../database
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      '@vite-hub/presets':
+        specifier: workspace:*
+        version: link:../presets
+      '@vite-hub/realtime':
+        specifier: workspace:*
+        version: link:../realtime
+      '@vite-hub/schedule':
+        specifier: workspace:*
+        version: link:../schedule
+      '@vite-hub/shell':
+        specifier: workspace:*
+        version: link:../shell
+      '@vite-hub/ui':
+        specifier: workspace:*
+        version: link:../ui
+      '@vite-hub/workspace':
+        specifier: workspace:*
+        version: link:../workspace
       '@vitejs/plugin-vue':
         specifier: ^6.0.9
         version: 6.0.9(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(vue@3.5.44(typescript@6.0.3))
       '@vue/test-utils':
         specifier: 2.5.1
         version: 2.5.1(@vue/compiler-dom@3.5.44)(@vue/server-renderer@3.5.44)(vue@3.5.44(typescript@6.0.3))
+      '@workflow/builders':
+        specifier: catalog:workflow
+        version: 5.0.1(@opentelemetry/api@1.9.1)(@swc/helpers@0.5.23)(ws@8.22.0)
       ai:
         specifier: catalog:ai
         version: 7.0.130(zod@4.6.7)
+      better-auth:
+        specifier: catalog:auth
+        version: 1.7.7(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.11)(drizzle-orm@0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2))(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(vitest@4.1.11)(vue@3.5.44(typescript@6.0.3))
       box-typescript-sdk-gen:
         specifier: catalog:storage
         version: 1.19.1
+      comark:
+        specifier: catalog:markdown-ui
+        version: 0.8.1(katex@0.18.11)(shiki@4.5.0)
+      drizzle-kit:
+        specifier: catalog:database
+        version: 0.31.11
+      drizzle-orm:
+        specifier: catalog:database
+        version: 0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2)
       dropbox:
         specifier: catalog:storage
         version: 10.47.0
+      evalite:
+        specifier: catalog:ai
+        version: 1.0.0-beta.16(ai@7.0.130(zod@4.6.7))(better-sqlite3@12.9.0)
       google-auth-library:
         specifier: catalog:storage
         version: 11.3.1
@@ -3190,6 +3181,9 @@ importers:
       happy-dom:
         specifier: 21.0.3
         version: 21.0.3
+      katex:
+        specifier: ^0.18.7
+        version: 0.18.11
       miniflare:
         specifier: 4.20260730.0
         version: 4.20260730.0
@@ -3202,9 +3196,18 @@ importers:
       reka-ui:
         specifier: ^2.10.5
         version: 2.10.5(vue@3.5.44(typescript@6.0.3))
+      shiki:
+        specifier: ^4.5.0
+        version: 4.5.0
+      ssh2:
+        specifier: ^1.17.0
+        version: 1.17.0
       tailwindcss:
         specifier: ^4.3.3
         version: 4.3.3
+      typescript:
+        specifier: catalog:tooling
+        version: 6.0.3
       uploadthing:
         specifier: catalog:storage
         version: 7.7.4(express@5.2.1)(fastify@5.12.5)(h3@2.0.1-rc.33(crossws@0.4.12(srvx@1.0.5))(ocache@0.3.0))(tailwindcss@4.3.3)
@@ -3223,6 +3226,9 @@ importers:
       vue-router:
         specifier: ^5.4.0
         version: 5.4.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(@vue/compiler-sfc@3.5.44)(esbuild@0.28.2)(rolldown@1.2.12)(rollup@4.64.0)(vue@3.5.44(typescript@6.0.3))
+      workflow:
+        specifier: catalog:workflow
+        version: 5.0.1(@aws-sdk/credential-provider-web-identity@3.972.49)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0)
       yjs:
         specifier: catalog:realtime
         version: 13.6.33

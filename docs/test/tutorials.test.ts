@@ -28,15 +28,15 @@ async function expectPageToUseFixture(pagePath: string, fixture: string, labels:
 }
 
 describe("documentation tutorials", () => {
-  it("uses the framework distribution as the only direct ViteHub dependency", async () => {
-    for (const fixture of ["agents", "first-agent", "server-primitives"]) {
+  it("adds only the owner packages of opt-in features next to the framework distribution", async () => {
+    for (const [fixture, owners] of [["agents", ["@vite-hub/agent"]], ["first-agent", ["@vite-hub/agent"]], ["server-primitives", []]] as const) {
       const manifest = JSON.parse(
         await readFile(resolve(fixturesRoot, fixture, "package.json"), "utf8"),
       );
       const dependencyNames = Object.keys(manifest.dependencies || {});
 
       expect(dependencyNames).toContain("vite-hub");
-      expect(dependencyNames.filter((name) => name.startsWith("@vite-hub/"))).toEqual([]);
+      expect(dependencyNames.filter((name) => name.startsWith("@vite-hub/"))).toEqual(owners);
     }
   });
 

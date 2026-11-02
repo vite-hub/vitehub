@@ -25,6 +25,7 @@ import { consoleViteDevTools, type ConsoleViteDevTools } from "./devtools.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
 import { bindConsoleInvocationsIdentity, createConsoleInvocationsIdentity, releaseConsoleInvocationsBinding } from "./internal.ts"
 import { addConsolePageToolRoutes, addConsoleRpcHandler } from "./nitro.ts"
+import { transformConsoleOperationFeatures } from "./operation-features.ts"
 import { consoleOpenAccessWarning, isConsoleSignInPage } from "./runtime/server/access.ts"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 import { resolveConsoleJournal, type ConsoleJournal } from "../storage-config.ts"
@@ -161,6 +162,8 @@ export interface ConsoleVitePluginOptions {
   /** Whether the KV section is on for this `kv` config. */
   resolveKV?: (kv: unknown) => boolean
   invocationRootState?: ConsoleInvocationRootState
+  /** Enabled operation owners when the development RPC has no navigation sections. */
+  operationSections?: readonly ConsoleSectionId[]
   sections?: readonly ConsoleSectionId[]
   scheduleDiscoveryRoot?: string
   workspaceDiscoveryRoot?: string
@@ -217,7 +220,9 @@ export function updateConsoleInvocationRootState(
 function consoleAccessTargets(base: string | undefined, sections?: readonly ConsoleSectionId[]): Array<{ method?: string; route: string }> {
   return [
     { route: consoleMountPath(base, "/_vitehub/**") },
-    { method: "GET", route: consoleMountPath(base, "/api/_vitehub/console/status") },
+    ...(sections?.includes("agents")
+      ? [{ method: "GET", route: consoleMountPath(base, "/api/_vitehub/console/status") }]
+      : []),
     ...(sections?.includes("logs")
       ? [{ method: "GET", route: consoleMountPath(base, "/api/_vitehub/console/logs") }]
       : []),
@@ -287,7 +292,7 @@ function configureConsoleNitroRoutes(
       }
     }
     for (const handler of [
-      { handler: join(consoleRuntimeRoot, "server/status.get.js"), route: consoleMountPath(mount, "/api/_vitehub/console/status"), method: "get" },
+      ...(sections.includes("agents") ? [{ handler: join(consoleRuntimeRoot, "server/status.get.js"), route: consoleMountPath(mount, "/api/_vitehub/console/status"), method: "get" }] : []),
       // The Usage section reads the Agent invocation journal, which exists only with the Agents section.
       ...(sections.includes("logs") ? [{ handler: join(consoleRuntimeRoot, "server/logs.get.js"), route: consoleMountPath(mount, "/api/_vitehub/console/logs"), method: "get" }] : []),
       ...(sections.includes("agents") && sections.includes("usage") ? [{ handler: join(consoleRuntimeRoot, "server/usage.get.js"), route: consoleMountPath(mount, "/api/_vitehub/console/usage"), method: "get" }] : []),
@@ -556,6 +561,10 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
   const plugin: Plugin & { devtools: ConsoleViteDevTools, vitehub: NonNullable<ViteHubCliContributingPlugin["vitehub"]> & NonNullable<OperationContributingPlugin["vitehub"]> } = {
     name: "vite-hub/console",
     devtools: consoleViteDevTools,
+    transform(code) {
+      const transformed = transformConsoleOperationFeatures(code, options.operationSections ?? sections)
+      return transformed === undefined ? undefined : { code: transformed, map: null }
+    },
     async config(config, environment) {
       development = environment.command === "serve"
       if (options.connections !== undefined && !isConsoleConnectionsEnabled(options, environment.command === "serve")) {
