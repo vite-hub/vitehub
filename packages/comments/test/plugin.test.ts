@@ -99,7 +99,7 @@ describe("Comments page tool", () => {
   })
 
   it.each(["", "/portal"])("adds one loader on Nitro 3 under mount %s, never on Console or API routes", async (mount) => {
-    const nitroApp = { fetch: (_request: Request) => new Response("<html><body>Page</body></html>", { headers: { "content-type": "text/html" } }) }
+    const nitroApp = { fetch: (_request: Request) => new Response("<html><body>Page</body></html>", { headers: { "content-type": "text/html; charset=utf-8" } }) }
     const overlay = `${mount}/api/_vitehub/comments/assets/overlay.js`
     install(nitroApp, {}, overlay)
     install(nitroApp, {}, overlay)
@@ -142,22 +142,26 @@ describe("Comments page tool", () => {
     { mount: "/portal", stripBase: false },
     { mount: "/portal", stripBase: true },
   ])("adds the loader to Nitro 2 Response pages under mount $mount (base stripped: $stripBase)", async ({ mount, stripBase }) => {
-    let respond: ((event: unknown, response: { body?: unknown }) => void) | undefined
+    let respond: ((event: unknown, response: { body?: unknown }) => Promise<void>) | undefined
     install({ hooks: { hook: (name: string, handler: typeof respond) => { if (name === "beforeResponse") respond = handler } } }, {}, `${mount}/api/_vitehub/comments/assets/overlay.js`)
-    const send = (path: string, body: unknown, cookie = "") => {
+    const send = async (path: string, body: unknown, cookie = "") => {
       const response = { body }
       const req = { url: stripBase ? path.slice(mount.length) : path, originalUrl: stripBase ? path : undefined, headers: { cookie } }
-      respond!({ node: { req } }, response)
+      await respond!({ node: { req } }, response)
       return response.body
     }
-    const file = () => new Response("<html><body>Page</body></html>", { headers: { "content-type": "text/html", "cache-control": "public, max-age=3600" } })
+    const file = () => new Response("<html><body>Page</body></html>", { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=3600" } })
     const plain = file()
-    expect(send(`${mount}/guide/`, plain)).toBe(plain)
-    expect(send(`${mount}/guide/`, "<html></html>", "vitehub-tools=1")).toBe("<html></html>")
-    expect(send(`${mount}/_vitehub?vitehub`, plain)).toBe(plain)
-    expect(send(`${mount}/api/x?vitehub`, plain)).toBe(plain)
-    if (mount && !stripBase) expect(send("/outside?vitehub", plain)).toBe(plain)
-    const page = send(`${mount}/guide/`, file(), "theme=dark; vitehub-tools=1")
+    const publicPage = await send(`${mount}/guide/`, file())
+    expect(publicPage).toBeInstanceOf(Response)
+    if (!(publicPage instanceof Response)) return
+    expect(publicPage.headers.get("cache-control")).toBe("public, max-age=3600")
+    expect(await publicPage.text()).toBe(`<html><body>Page${viteHubPageToolsInlineScript(mount)}</body></html>`)
+    expect(await send(`${mount}/guide/`, "<html></html>", "vitehub-tools=1")).toBe("<html></html>")
+    expect(await send(`${mount}/_vitehub?vitehub`, plain)).toBe(plain)
+    expect(await send(`${mount}/api/x?vitehub`, plain)).toBe(plain)
+    if (mount && !stripBase) expect(await send("/outside?vitehub", plain)).toBe(plain)
+    const page = await send(`${mount}/guide/`, file(), "theme=dark; vitehub-tools=1")
     expect(page).toBeInstanceOf(Response)
     if (!(page instanceof Response)) return
     expect(page.headers.get("cache-control")).toBe("private, no-store")

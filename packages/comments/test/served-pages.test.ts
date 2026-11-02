@@ -25,7 +25,7 @@ describe("Nitro 2 served pages", () => {
     { policy: "script-src 'strict-dynamic' 'nonce-returned'", nonce: "returned" },
     { policy: "script-src 'self'", nonce: undefined },
   ])("uses the effective CSP when the Response policy is $policy", async ({ policy, nonce }) => {
-    const headers = new Headers({ "content-type": "text/html" })
+    const headers = new Headers({ "content-type": "text/html; charset=utf-8" })
     if (policy !== undefined) headers.set("content-security-policy", policy)
     const response = { body: new Response("<body>Page</body>", { headers }) }
     responseHook()({

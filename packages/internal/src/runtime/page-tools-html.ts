@@ -1,5 +1,24 @@
 import { viteHubPageToolsInlineScript, viteHubPageToolsInlineStart, viteHubPageToolsLoader, viteHubPageToolsMarker } from "./page-tools-shared.ts"
 
+/** The effective script-element directive is shared by HTTP and HTML meta policies. */
+export function scriptPolicyNonce(policy: string): string | undefined {
+  const directives = policy.split(";").map(part => part.trim())
+  // Browsers read `script-src-elem`, else `script-src`, else `default-src` for a script element.
+  const directive = ["script-src-elem", "script-src", "default-src"]
+    .map(name => directives.find(part => part.toLowerCase().startsWith(`${name} `)))
+    .find(Boolean)
+  return directive ? /'nonce-([\w+/=-]+)'/.exec(directive)?.[1] : undefined
+}
+
+function metaNonce(token: string): string | undefined {
+  const attributes = new Map<string, string>()
+  for (const match of token.slice(5, -1).matchAll(/([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g)) {
+    const name = match[1]!.toLowerCase()
+    if (!attributes.has(name)) attributes.set(name, match[2] ?? match[3] ?? match[4] ?? "")
+  }
+  return attributes.get("http-equiv")?.toLowerCase() === "content-security-policy" ? scriptPolicyNonce(attributes.get("content") ?? "") : undefined
+}
+
 function tagNonce(script: string): string | undefined {
   return / nonce="([\w+/=-]+)"/.exec(script.slice(0, script.indexOf(">")))?.[1]
 }
@@ -119,6 +138,10 @@ export function pageToolsHtmlTransform(loader: string): TransformStream<Uint8Arr
         const name = match?.[2]?.toLowerCase()
         const closing = match?.[1] === "/"
         if (name === "template") templates = Math.max(0, templates + (closing ? -1 : 1))
+        if (name === "meta" && !closing && !templates && !tagNonce(loader)) {
+          const nonce = metaNonce(token)
+          if (nonce) loader = loader.replace(` ${viteHubPageToolsMarker}`, ` nonce="${nonce}" ${viteHubPageToolsMarker}`)
+        }
         if (name === "body" && closing && !templates) {
           if (!present) emit(loader)
           done = true

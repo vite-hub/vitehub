@@ -40,7 +40,7 @@ describe("mounted page tools", () => {
       const app = new H3()
         .get(sessionRoute, viteHubPageSessionHandler)
         .get(`${asset.baseURL}/loader.js`, async () => new Response(await readFile(join(asset.dir, "loader.js"), "utf8")))
-        .get(`${mount}/guide`, () => new Response("<body>Guide</body>", { headers: { "content-type": "text/html" } }))
+        .get(`${mount}/guide`, () => new Response("<body>Guide</body>", { headers: { "content-type": "text/html; charset=utf-8" } }))
       defineCommentsPlugin({ comments: defineComments({ authorize }), database: () => undefined, overlay: "/api/_vitehub/comments/assets/overlay.js", base: mount })(app)
       const pageURL = `https://site.test${mount}/guide?vitehub`
       const html = await (await app.fetch(new Request(pageURL))).text()

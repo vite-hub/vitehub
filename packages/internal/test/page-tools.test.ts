@@ -224,6 +224,19 @@ describe("injectPageToolsLoader", () => {
 })
 
 describe("installViteHubPageTools on Nitro 3", () => {
+  it.each(["", "?vitehub"])("uses a meta-only CSP nonce for a new page tools script with %s", async (search) => {
+    const head = '<head><meta content="script-src \'nonce-meta-nonce\' \'strict-dynamic\'" HTTP-EQUIV="Content-Security-Policy"></head>'
+    const html = `${head}<body>Page</body>`
+    for (const chunks of [[html], [...html]]) {
+      const app = { fetch: (_request: Request) => streamed(chunks) }
+      registerViteHubPageTool(app, comments)
+      installViteHubPageTools(app)
+      const page = await app.fetch(new Request(`http://site.test/${search}`))
+      const tag = search ? loaderTag.replace(" data-vitehub", ' nonce="meta-nonce" data-vitehub') : viteHubPageToolsInlineScript("", "meta-nonce")
+      expect(await page.text()).toBe(`${head}<body>Page${tag}</body>`)
+    }
+  })
+
   it.each(["", "?vitehub"])("preserves byte HTML without an HTTP charset for requests with %s", async (search) => {
     const bytes = Buffer.from('<meta charset="windows-1252"><body>café</body>', "latin1")
     const original = new Response(bytes, { headers: { "content-type": "text/html", etag: "old", "cache-control": "public, max-age=60" } })
@@ -282,7 +295,7 @@ describe("installViteHubPageTools on Nitro 3", () => {
     } }
     registerViteHubPageTool(app, comments)
     installViteHubPageTools(app)
-    const request = new Request(`http://site.test/${search}`, { headers: { accept: "text/html,application/xhtml+xml,*/*;q=0.8", "if-none-match": '"page"', "if-modified-since": "Mon, 02 Nov 2026 12:00:00 GMT" } })
+    const request = new Request(`http://site.test/${search}`, { headers: { accept: "text/html;q=0.5,application/xhtml+xml,*/*;q=0.8", "if-none-match": '"page"', "if-modified-since": "Mon, 02 Nov 2026 12:00:00 GMT" } })
     const page = await app.fetch(request)
     expect(page.status).toBe(200)
     expect(await page.text()).toBe(`<body>Page${search ? loaderTag : bootstrap}</body>`)
@@ -293,7 +306,7 @@ describe("installViteHubPageTools on Nitro 3", () => {
     expect(request.headers.get("if-none-match")).toBe('"page"')
   })
 
-  it.each([undefined, "*/*", "text/css,*/*;q=0.1", "application/rss+xml"])("keeps conditional requests for non-HTML resources on ordinary paths with Accept %s", async (accept) => {
+  it.each([undefined, "*/*", "text/css,*/*;q=0.1", "application/rss+xml", "application/rss+xml, text/html;q=0", "text/html; Q=0.000, */*;q=1"])("keeps conditional requests for non-HTML resources on ordinary paths with Accept %s", async (accept) => {
     const headers = new Headers({ "if-none-match": '"resource"', "if-modified-since": "Mon, 02 Nov 2026 12:00:00 GMT" })
     if (accept) headers.set("accept", accept)
     const original = new Response(null, { status: 304, headers: { "content-type": "application/rss+xml", etag: '"resource"', "cache-control": "public, max-age=60" } })
@@ -393,6 +406,22 @@ describe("installViteHubPageTools on Nitro 3", () => {
 })
 
 describe("installViteHubPageTools on Nitro 2", () => {
+  it.each(["string", "bytes", "Response"])("uses a meta-only CSP nonce for a new page tools script in %s HTML", async (format) => {
+    for (const search of ["", "?vitehub"]) {
+      const app = nitro2App()
+      registerViteHubPageTool(app, comments)
+      installViteHubPageTools(app)
+      const respond = app.handlers.get("beforeResponse")![0] as (event: unknown, response: { body?: unknown }) => Promise<void>
+      const head = '<head><meta http-equiv="Content-Security-Policy" content="script-src \'nonce-meta-nonce\' \'strict-dynamic\'"></head>'
+      const html = `${head}<body>Page</body>`
+      const headers = new Map([["content-type", "text/html; charset=utf-8"]])
+      const response = { body: (format === "Response" ? new Response(html, { headers: Object.fromEntries(headers) }) : format === "bytes" ? new TextEncoder().encode(html) : html) as unknown }
+      await respond({ node: { req: { url: `/${search}`, headers: {} }, res: { getHeader: (name: string) => headers.get(name) } } }, response)
+      const tag = search ? loaderTag.replace(" data-vitehub", ' nonce="meta-nonce" data-vitehub') : viteHubPageToolsInlineScript("", "meta-nonce")
+      expect(response.body instanceof Response ? await response.body.text() : response.body).toBe(`${head}<body>Page${tag}</body>`)
+    }
+  })
+
   it.each(["string", "bytes", "Response"])("preserves the meta-CSP nonce when replacing a generated bootstrap in %s HTML", async (format) => {
     for (const search of ["", "?vitehub"]) {
       const app = nitro2App()
@@ -409,7 +438,7 @@ describe("installViteHubPageTools on Nitro 2", () => {
     }
   })
 
-  it.each([undefined, "*/*", "application/rss+xml"])("keeps resource validators on ordinary paths with Accept %s", async (accept) => {
+  it.each([undefined, "*/*", "application/rss+xml", "application/rss+xml, text/html;q=0", "text/html; Q=0.000, */*;q=1"])("keeps resource validators on ordinary paths with Accept %s", async (accept) => {
     const app = nitro2App()
     registerViteHubPageTool(app, comments)
     installViteHubPageTools(app)

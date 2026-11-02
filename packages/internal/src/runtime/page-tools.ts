@@ -1,5 +1,5 @@
 import { isH3V1Event, toH3V1Request } from "./h3-v1-request.ts"
-import { pageToolsHtmlTransform } from "./page-tools-html.ts"
+import { pageToolsHtmlTransform, scriptPolicyNonce } from "./page-tools-html.ts"
 import { viteHubBasePath, viteHubPageSessionPath, viteHubPageToolsAssets, viteHubPageToolsCookie, viteHubPageToolsHintCookie, viteHubPageToolsInlineScript, viteHubPageToolsLoader, viteHubPageToolsMarker, viteHubPageToolsQuery, viteHubPageToolsWanted, withViteHubBase } from "./page-tools-shared.ts"
 import { forwardedRequestOrigin } from "./request-origin.ts"
 
@@ -157,12 +157,7 @@ export async function viteHubPageSessionHandler(event: unknown): Promise<Respons
  * nuxt-security, blocks a script without it, even from the same origin.
  */
 export function scriptNonce(headers: Headers): string | undefined {
-  const directives = (headers.get("content-security-policy") ?? "").split(";").map(part => part.trim())
-  // Browsers read `script-src-elem`, else `script-src`, else `default-src` for a script element.
-  const directive = ["script-src-elem", "script-src", "default-src"]
-    .map(name => directives.find(part => part.toLowerCase().startsWith(`${name} `)))
-    .find(Boolean)
-  return directive ? /'nonce-([\w+/=-]+)'/.exec(directive)?.[1] : undefined
+  return scriptPolicyNonce(headers.get("content-security-policy") ?? "")
 }
 
 /**
@@ -197,7 +192,13 @@ function withoutPageConditions(request: Request): Request {
   if (request.method !== "GET" && request.method !== "HEAD") return request
   // Browser navigations explicitly accept HTML. Resource requests with other or wildcard Accept values must
   // retain their validators: their paths alone cannot tell us whether the response will be transformed.
-  if (!request.headers.get("accept")?.split(",").some(type => /^\s*text\/html(?:\s*;|\s*$)/i.test(type))) return request
+  const acceptsHtml = request.headers.get("accept")?.split(",").some((range) => {
+    const [type, ...parameters] = range.split(";").map(part => part.trim())
+    if (type?.toLowerCase() !== "text/html") return false
+    const quality = parameters.find(part => /^q\s*=/i.test(part))?.split("=")[1]?.trim()
+    return quality === undefined || (Number(quality) > 0 && Number(quality) <= 1)
+  })
+  if (!acceptsHtml) return request
   if (!pageConditions.some(name => request.headers.has(name))) return request
   const headers = new Headers(request.headers)
   for (const name of pageConditions) headers.delete(name)
