@@ -49,7 +49,7 @@ pnpm vitehub schedule attempts <runId>
 
 The commands use the same Schedule Run store and registry as the running server. Read [CLI](/docs/development/cli#run-and-inspect-schedules) for every command and option.
 
-The Console Schedules page lists the discovered Schedule Definitions. Definitions with `manual: true` show a run action when Console invocation is enabled.
+The Console Schedules page lists the discovered Schedule Definitions. With the process driver, it shows the cron and time zone of the loaded Definitions. Definitions with `manual: true` show a run action when Console invocation is enabled.
 
 Both surfaces redact credentials in URLs, bearer tokens, and secret assignments in error messages.
 
