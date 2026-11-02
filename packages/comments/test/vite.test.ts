@@ -276,7 +276,7 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
       definition: { export: "commentsSchema", module: "@vite-hub/comments/database" },
       name: "comments",
     })])
-    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain("const name = \"content\"")
+    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain("selectCommentsDatabase(databases, \"content\")")
   })
 
   it.each([
@@ -320,7 +320,7 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
     expect(contributions).toHaveLength(1)
     if (database === undefined) expect(contributions[0]).not.toHaveProperty("database")
     else expect(contributions[0]).toHaveProperty("database", database)
-    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain(`const name = ${JSON.stringify(database ?? null)}`)
+    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain(`selectCommentsDatabase(databases${database ? `, ${JSON.stringify(database)}` : ""})`)
   })
 
   it("contributes the presence rooms when Realtime has an authority, and says so in the API", async () => {
