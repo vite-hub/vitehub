@@ -47,8 +47,6 @@ export default defineNuxtConfig({
     defaults: false,
   },
   agentDiscovery: {
-    // Pages with a Markdown twin. On Cloudflare these also run the Worker before static assets.
-    routes: ["/", "/docs", "/docs/**", "/about", "/contact", "/privacy"],
     discovery: {
       links: [
         { href: "/openapi.json", rel: "service-desc", type: "application/vnd.oai.openapi+json", title: "OpenAPI document: every route this site serves to agents", anchor: "/" },
@@ -340,7 +338,8 @@ export default defineNuxtConfig({
     },
     prerender: {
       failOnError: true,
-      routes: ["/about", "/contact", "/openapi.json", "/privacy", "/robots.txt"],
+      // The docs module adds every content page. These are app routes.
+      routes: ["/openapi.json", "/robots.txt"],
     },
   },
   future: {
