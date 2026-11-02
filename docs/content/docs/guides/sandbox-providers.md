@@ -127,7 +127,7 @@ Plan for these limits:
 Use these two runtimes for Codex and Claude Code Agents:
 
 ```ts [server/agents/review/agent.ts]
-import { defineAgent } from 'vite-hub/agent'
+import { codexDriver, defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
   sandbox: {
@@ -135,7 +135,7 @@ export default defineAgent({
     requires: ['git'],
     toolchain: 'project',
   },
-  driver: { kind: 'codex' },
+  driver: codexDriver(),
 })
 ```
 

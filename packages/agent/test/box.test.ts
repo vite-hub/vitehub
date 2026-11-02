@@ -63,7 +63,7 @@ vi.mock("@vite-hub/sandbox", async (importOriginal) => {
   return { ...actual, resolveSandbox }
 })
 
-import { defineAgent, type AgentSandboxDefinition, type AgentRuntimeConfig } from "../src/index.ts"
+import { defineAgent, type AgentSandboxDefinition, type AgentRuntimeConfig, codexDriver } from "../src/index.ts"
 import { resolveAgentHealth } from "../src/health.ts"
 import { sandboxSharesHostNetwork, providerSandboxEnvironment, startProviderSandboxRelay, type ProviderSandboxSession } from "../src/internal/provider-box.ts"
 import { createProviderAgentAdapter } from "../src/provider-agent.ts"
@@ -239,23 +239,23 @@ function testSandbox(repository: string, requires: TestSandbox["requires"] = [])
 describe("Agent Sandbox definitions", () => {
   it("accepts a built-in provider Driver and exposes the Sandbox definition", () => {
     const sandbox = { runtime: "trusted-host" } as const
-    const agent = defineAgent({ sandbox, driver: { kind: "codex" } })
+    const agent = defineAgent({ sandbox, driver: codexDriver() })
     expect(agent.sandbox).toBe(sandbox)
   })
 
   it.each([
-    ["a Sandbox without runtime", { sandbox: {}, driver: { kind: "codex" } }, "AGENT_R0954"],
+    ["a Sandbox without runtime", { sandbox: {}, driver: codexDriver() }, "AGENT_R0954"],
     ["a custom Driver", { sandbox: { runtime: "trusted-host" }, driver: { run: () => "ok" } }, "AGENT_R0955"],
-    ["driver.launch", { sandbox: { runtime: "trusted-host" }, driver: { kind: "codex", launch: { command: "ssh" } } }, "AGENT_R0956"],
-    ["driver.credentials", { sandbox: { runtime: "trusted-host" }, driver: { credentials: () => "{}", kind: "codex" } }, "AGENT_R0957"],
-    ["an Agent Workspace", { sandbox: { runtime: "trusted-host" }, driver: { kind: "codex" }, workspace: {} }, "AGENT_R0958"],
+    ["driver.launch", { sandbox: { runtime: "trusted-host" }, driver: codexDriver({ launch: { command: "ssh" } }) }, "AGENT_R0956"],
+    ["driver.credentials", { sandbox: { runtime: "trusted-host" }, driver: codexDriver({ credentials: () => "{}" }) }, "AGENT_R0957"],
+    ["an Agent Workspace", { sandbox: { runtime: "trusted-host" }, driver: codexDriver(), workspace: {} }, "AGENT_R0958"],
   ])("rejects %s at definition time", (_name, options, code) => {
     // SAFETY: The invalid definitions exercise runtime validation for JavaScript callers.
     expect(() => defineAgent(options as never)).toThrow(expect.objectContaining({ code }))
   })
 
   it("keeps Agents without sandbox unchanged", () => {
-    const agent = defineAgent({ driver: { kind: "codex" } })
+    const agent = defineAgent({ driver: codexDriver() })
     expect(agent.sandbox).toBeUndefined()
   })
 
@@ -288,7 +288,7 @@ describe("Agent Sandbox environment", () => {
   })
 
   it("reports boxed provider inspection as unsupported", async () => {
-    const agent = defineAgent({ sandbox: { runtime: "trusted-host" }, driver: { kind: "codex" } })
+    const agent = defineAgent({ sandbox: { runtime: "trusted-host" }, driver: codexDriver() })
     expect(await agent.status?.({ runtime: "unknown", memo: vi.fn(), waitUntil: vi.fn() })).toMatchObject({
       readiness: "unsupported",
       reason: "Provider inspection inside an Agent Sandbox is not supported.",

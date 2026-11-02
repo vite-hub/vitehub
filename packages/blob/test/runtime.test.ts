@@ -738,6 +738,32 @@ describe("blob runtime", () => {
     expect(await blob.head("notes/hello.txt")).toEqual([null, null])
   })
 
+  it("serves byte ranges from the active Cloudflare binding without reading the whole object", async () => {
+    setBlobRuntimeConfig({ store: { binding: "BLOB", bucketName: "assets", driver: "cloudflare-r2" } })
+    const reads: unknown[] = []
+    const object = { httpEtag: "\"v1\"", httpMetadata: { contentType: "video/mp4" }, key: "video.mp4", size: 10, uploaded: new Date(0) }
+    setActiveCloudflareEnv({
+      BLOB: {
+        async get(_key: string, options: { range?: { offset: number, length: number } } = {}) {
+          reads.push(options)
+          const bytes = new TextEncoder().encode("0123456789")
+          const { range } = options
+          return { ...object, body: new Blob([range ? bytes.slice(range.offset, range.offset + range.length) : bytes]).stream() }
+        },
+        async head() {
+          return object
+        },
+      },
+    })
+
+    const event = new H3Event(new Request("https://example.test/video.mp4", { headers: { range: "bytes=4-6" } }))
+    const body = expectBlobSuccess(await blob.serve(event, "video.mp4"))
+
+    expect(event.res.status).toBe(206)
+    expect(await new Response(body).text()).toBe("456")
+    expect(reads).toEqual([{ onlyIf: { etagMatches: "v1" }, range: { offset: 4, length: 3 } }])
+  })
+
   it("falls back to Files SDK R2 when no Cloudflare binding exists", async () => {
     process.env.CLOUDFLARE_R2_ACCOUNT_ID = "account"
     process.env.CLOUDFLARE_R2_ACCESS_KEY_ID = "access-key"

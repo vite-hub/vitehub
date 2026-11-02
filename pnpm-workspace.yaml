@@ -71,8 +71,8 @@ catalogs:
     "@comark/html": 0.8.1
     comark: 0.8.1
     comark-content: 0.4.3
-    # Includes the editor fix in onmax/comark-ui#258; replace with its release when available.
-    comark-ui: https://pkg.pr.new/comark-ui@ef627712bbba068654ba083807807ea0bedce7e5
+    # Includes the lazy Pele load in onmax/comark-ui#331; replace with its release when available.
+    comark-ui: https://pkg.pr.new/comark-ui@0e2a4fd483dfad175645cec59619cec8d1364156
   nuxt:
     "@nuxt/ui": ^4.12.0
     "@takumi-rs/core": 2.14.0

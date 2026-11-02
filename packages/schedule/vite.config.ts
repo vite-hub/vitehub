@@ -28,6 +28,7 @@ export default defineConfig({
       "src/nuxt.ts",
       "src/operations.ts",
       "src/runtime.ts",
+      "src/runtime/console.ts",
       "src/runtime/kv.ts",
       "src/runtime/process.ts",
       "src/runtime/state.ts",

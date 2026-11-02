@@ -364,7 +364,7 @@ const providerQuotaMessage = /usage limit|quota (?:is )?(?:exhausted|exceeded)|i
  */
 const chatgptGatewayDiagnosticCodes = new Set([
   "AGENT_R1015", "AGENT_R1016", "AGENT_R1017", "AGENT_R1018", "AGENT_R1019", "AGENT_R1020",
-  "AGENT_R1021", "AGENT_R1022", "AGENT_R1023", "AGENT_R1024", "AGENT_R1025",
+  "AGENT_R1021", "AGENT_R1022", "AGENT_R1023", "AGENT_R1024", "AGENT_R1026",
 ])
 
 /** A diagnostic message that starts with its code, so a client can find the documented fix. */

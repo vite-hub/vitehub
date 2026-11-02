@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { defineAgent } from "../src/index.ts"
+import { codexDriver, defineAgent } from "../src/index.ts"
 import { agentWithSkills, colocatedAgentSkillsSymbol, decodeColocatedAgentSkills, withColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
 import { readColocatedAgentSkills, resolveColocatedAgentSkillsRoot } from "../src/vite/colocated-agent-skills.ts"
 import { workspaceAgentWithSourceRoot } from "../src/workspace-agent.ts"
@@ -122,7 +122,7 @@ describe("colocated Agent Skills", () => {
 
   it.each([
     ["model", { model: {} as never }, true],
-    ["provider", "codex" as const, false],
+    ["provider", codexDriver(), false],
   ] as const)("stores bundled Skills and instructions in a %s Driver Workspace: %s", (_kind, driver, stored) => {
     const key = "__vitehubAgentSkill:.agents/skills/review/SKILL.md"
     const skill = { content: "# Review\n", materialize: "startup" as const, mount: "" as const, workspacePath: ".agents/skills/review/SKILL.md" }
@@ -159,7 +159,7 @@ describe("colocated Agent Skills", () => {
     ]))
 
     const agent = withColocatedAgentSkills(defineAgent({
-      driver: "codex",
+      driver: codexDriver(),
       runtime: false,
       workspace: { sources: { notes: { content: "# Notes\n", materialize: "startup", workspacePath: "notes.md" } } },
     }), { [key]: skill })

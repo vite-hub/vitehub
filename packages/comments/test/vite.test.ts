@@ -76,7 +76,7 @@ describe("hubComments", () => {
     const root = await project({ "server/comments.ts": "export const comments = defineComments()", "server/content.ts": "export const content = {}" })
     const nitro = await configure(hubComments({ auth: true }), root)
     expect(nitro?.handlers).toEqual([
-      { route: "/api/_vitehub/comments/**", handler: join(root, ".vitehub/nitro/comments/handler.mjs") },
+      { route: "/api/_vitehub/comments/**", handler: join(root, ".vitehub/nitro/comments/handler.mjs"), lazy: true },
       { route: "/_vitehub/page/session", handler: join(root, ".vitehub/nitro/comments/page-session.mjs") },
     ])
     expect(nitro?.plugins).toEqual([join(root, ".vitehub/nitro/comments/plugin.mjs")])
@@ -378,7 +378,7 @@ describe("comments() without vite-hub", () => {
     const root = await project({ "package.json": "{}" })
     const nitro = await configure(standalone(), root, "serve")
     expect(nitro?.handlers).toEqual(expect.arrayContaining([
-      { route: "/api/_vitehub/comments/**", handler: join(root, ".vitehub/nitro/comments/handler.mjs") },
+      { route: "/api/_vitehub/comments/**", handler: join(root, ".vitehub/nitro/comments/handler.mjs"), lazy: true },
       { route: "/_vitehub/page/session", handler: join(root, ".vitehub/nitro/comments/page-session.mjs") },
     ]))
     expect(await readFile(join(root, ".vitehub/nitro/comments/definition.mjs"), "utf8")).toContain("export const comments = defineComments()")
