@@ -813,9 +813,8 @@ async function applyNitroConfig(
     workspace?: Parameters<typeof vitehub>[0]["workspace"]
   }
   config.root = resolve(nuxt.options.rootDir || process.cwd(), config.root || ".")
-  // Vite drops a plugin whose `apply` excludes this command. Plugins that read `config.plugins` must see the same list.
-  const applies = (plugin: Plugin) => !plugin.apply
-    || (typeof plugin.apply === "function" ? plugin.apply(config, environment) : plugin.apply === environment.command)
+  // Filter command-only plugins from both lists without re-evaluating Vite's functional `apply` selection.
+  const applies = (plugin: Plugin) => typeof plugin.apply !== "string" || plugin.apply === environment.command
   plugins = plugins.filter(applies)
   config.plugins = filterPluginOptions(config.plugins ?? [], applies) as PluginOption[]
   const restoreReplayOwnership = () => {
