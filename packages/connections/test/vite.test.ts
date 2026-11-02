@@ -5,7 +5,7 @@ import { Readable } from "node:stream";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite";
+import { VITEHUB_APP_BASE_URL, VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite";
 import { mergeConfig, resolveConfig } from "vite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -156,13 +156,16 @@ describe("hubConnections", () => {
     expect(handler).not.toContain("/early/");
   });
 
-  it("updates the handlers of a Nitro 2 instance, which has no routing table", async () => {
+  it("updates the handlers of a Nitro 2 instance at the Nuxt app base, not the assets base", async () => {
     const root = await createTempProject();
     const connections = hubConnections();
     const initializedNitro = { options: { handlers: [] as Array<{ handler: string; route: string }> } };
     const config = await resolveConfig({
       root,
       configFile: false,
+      // Nuxt serves Vite assets from /_nuxt/ and passes its app base separately.
+      base: "/_nuxt/",
+      [VITEHUB_APP_BASE_URL]: "/",
       plugins: [
         { name: "nitro-context", enforce: "pre", config: config => {
           Reflect.set(config, VITEHUB_NITRO_CONFIG_CONTEXT, true);
@@ -176,7 +179,11 @@ describe("hubConnections", () => {
       ],
     }, "serve", "development");
     expect(initializedNitro.options.handlers).toEqual(Reflect.get(config, "nitro").handlers);
-    expect(initializedNitro.options.handlers.map(handler => handler.route)).toContain("/_vitehub/connections/callback");
+    expect(initializedNitro.options.handlers.map(handler => handler.route)).toEqual([
+      "/_vitehub/connections",
+      "/_vitehub/connections/connect/**",
+      "/_vitehub/connections/callback",
+    ]);
   });
 
   it("requires authenticated management configuration in production", async () => {
