@@ -271,7 +271,10 @@ function nitroViteHubH3(generatedRoots: string[]) {
           try {
             const manifest = findPackageJSON(pathToFileURL(path), import.meta.url)
             const pkg: unknown = manifest ? JSON.parse(readFileSync(manifest, "utf8")) : undefined
-            owned = isRecord(pkg) && (pkg.name === "vite-hub" || (typeof pkg.name === "string" && pkg.name.startsWith("@vite-hub/"))
+            // A ViteHub package that lists h3 only for development, such as the `@vite-hub/docs` Nuxt module, writes
+            // its handlers for the host's Nitro through `#imports`, so they keep the host's H3.
+            const hostH3 = isRecord(pkg) && isRecord(pkg.devDependencies) && "h3" in pkg.devDependencies && !(isRecord(pkg.dependencies) && "h3" in pkg.dependencies)
+            owned = isRecord(pkg) && !hostH3 && (pkg.name === "vite-hub" || (typeof pkg.name === "string" && pkg.name.startsWith("@vite-hub/"))
               || (pkg.name === "nitro" && typeof pkg.version === "string" && pkg.version.startsWith("3."))
               || (pkg.name === "h3" && typeof pkg.version === "string" && pkg.version.startsWith("2.")))
           }
