@@ -229,6 +229,10 @@ export default defineConfig({
           to: "dist/console/runtime/components",
         },
         {
+          from: "src/console/runtime/components/console-search-palette.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
           from: "src/console/runtime/components/console-section-icon.vue",
           to: "dist/console/runtime/components",
         },
