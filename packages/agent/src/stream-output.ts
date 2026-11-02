@@ -1,6 +1,7 @@
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { usageRecordFromStreamChunk } from "./agent-output.ts"
+import { diagnosticErrorText } from "./agent-error.ts"
 import { isResponse } from "./internal/response.ts"
 
 import type { AgentUIMessageStreamProjection, AgentUsageRecord, MaybePromise } from "./types.ts"
@@ -358,7 +359,7 @@ function uiMessageStreamErrorText(error: unknown): string {
   if (!(error instanceof Error)) return "Agent stream failed."
   const code: unknown = Reflect.get(error, "code")
   const fix: unknown = Reflect.get(error, "fix")
-  return hasRuntimeType(code, "string") && hasRuntimeType(fix, "string") && !error.message.startsWith(code) ? `${code}: ${error.message}` : error.message
+  return hasRuntimeType(code, "string") && hasRuntimeType(fix, "string") ? diagnosticErrorText(code, error.message) : error.message
 }
 
 function createAgentUIMessageStream(options: {

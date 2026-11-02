@@ -367,11 +367,16 @@ const chatgptGatewayDiagnosticCodes = new Set([
   "AGENT_R1021", "AGENT_R1022", "AGENT_R1023", "AGENT_R1024", "AGENT_R1025",
 ])
 
+/** A diagnostic message that starts with its code, so a client can find the documented fix. */
+export function diagnosticErrorText(code: string, message: string): string {
+  return message.startsWith(code) ? message : `${code}: ${message}`
+}
+
 export function chatgptGatewayDiagnostic(error: unknown): string | undefined {
   const code = readAgentErrorProperty(error, "code")
   const message = readAgentErrorProperty(error, "message")
   if (!hasRuntimeType(code, "string") || !chatgptGatewayDiagnosticCodes.has(code) || !hasRuntimeType(message, "string")) return
-  return message.startsWith(code) ? message : `${code}: ${message}`
+  return diagnosticErrorText(code, message)
 }
 
 export function toAgentPublicError(error: unknown, context: AgentPublicErrorContext): AgentPublicError {
