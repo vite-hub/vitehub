@@ -1791,6 +1791,9 @@ importers:
       '@vite-hub/rate-limit':
         specifier: workspace:*
         version: link:../rate-limit
+      '@vite-hub/source':
+        specifier: workspace:*
+        version: link:../source
       '@vite-hub/ui':
         specifier: workspace:*
         version: link:../ui

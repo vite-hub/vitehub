@@ -67,6 +67,7 @@
     "@nuxtjs/mcp-toolkit": "^0.22.0",
     "@vite-hub/content": "workspace:*",
     "@vite-hub/rate-limit": "workspace:*",
+    "@vite-hub/source": "workspace:*",
     "@vite-hub/ui": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "@vueuse/core": "catalog:ui",

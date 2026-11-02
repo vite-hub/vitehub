@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -15,6 +15,7 @@ import {
   extendPages,
   useLogger,
 } from "@nuxt/kit"
+import { findContentEntry } from "@vite-hub/source/vite"
 import { defu } from "defu"
 
 import { setupDocsAssistant } from "./assistant-nuxt.ts"
@@ -248,7 +249,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     nuxt.options.alias["#docs/navigation"] = resolver.resolve("./navigation.js")
     // The page route reads drafts through the app's Content runtime, the module that ViteHub's Content routes import.
     // Without `server/content.ts` the route imports `undefined` and bundles nothing more.
-    const contentEntry = findContentEntry(nuxt.options.serverDir)
+    const contentEntry = await findContentEntry({ projectRoot: nuxt.options.rootDir, serverDirs: [nuxt.options.serverDir] })
     const contentFile = addTemplate({
       filename: "docs/content.mjs",
       write: true,
@@ -401,19 +402,6 @@ const shellIcons = [
 function iconifyName(icon: string): string | null {
   const match = /^i-([a-z0-9]+(?:-icons)?)-(.+)$/.exec(icon)
   return match ? `${match[1]}:${match[2]}` : icon.includes(":") ? icon : null
-}
-
-/** `server/content.ts` (or `.js`, `.mts`, and so on), as `findContentEntry()` of `@vite-hub/source/vite` finds it. */
-function findContentEntry(serverDir: string): string | undefined {
-  let names: string[]
-  try {
-    names = readdirSync(serverDir)
-  }
-  catch {
-    return
-  }
-  const name = names.filter(entry => /^content\.[cm]?[jt]s$/.test(entry)).sort()[0]
-  return name ? join(serverDir, name) : undefined
 }
 
 /** A module that this package depends on, by file path, so Nuxt finds it and transpiles its runtime. */
