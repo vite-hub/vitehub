@@ -1996,6 +1996,22 @@ describe("vitehub", () => {
     )
   })
 
+  // Nitro resolves without Vite's `module` condition; Better Auth's @opentelemetry/semantic-conventions then ships whole.
+  it("resolves the module export condition in Cloudflare builds", () => {
+    const settings = (preset: ViteHubOptions["preset"]) =>
+      // SAFETY: The explicit preset installs the named deployment plugin.
+      vitehub({ preset }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-settings") as Plugin
+    const nitroOf = (plugin: Plugin, config: Record<string, unknown>, command: "build" | "serve") => {
+      callHook(plugin.config, [config, { command, mode: command === "build" ? "production" : "development" }])
+      return config.nitro as { exportConditions?: string[] }
+    }
+    expect(nitroOf(settings("cloudflare"), {}, "build").exportConditions).toEqual(["module"])
+    expect(nitroOf(settings("cloudflare"), { nitro: { exportConditions: ["custom"] } }, "build").exportConditions).toEqual(["custom", "module"])
+    expect(nitroOf(settings("cloudflare"), { nitro: { exportConditions: ["!module"] } }, "build").exportConditions).toEqual(["!module"])
+    expect(nitroOf(settings("cloudflare"), {}, "serve").exportConditions).toBeUndefined()
+    expect(nitroOf(settings("vercel"), {}, "build").exportConditions).toBeUndefined()
+  })
+
   it("rejects unsupported capabilities and conflicting target selection", async () => {
     expect(() => vitehub({ preset: "deno", schedule: true })).toThrow("cannot provide Schedule")
     expect(() => vitehub({ preset: "deno", agent: { runtime: "deno" } })).toThrow("cannot deploy the Agent Deno runtime")

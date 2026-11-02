@@ -15,7 +15,7 @@ import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deploymen
 import { nitroOptionalPeers } from "./internal/nitro-optional-peers.ts"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
 import { normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
-import { detectPreset } from "./deployment.ts"
+import { cloudflareExportConditions, detectPreset } from "./deployment.ts"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { isPlainObject as isRecord } from "@vite-hub/internal/object"
 import { resolveBlobViteConfig } from "@vite-hub/blob/vite"
@@ -998,6 +998,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     cloudflare.deployConfig ??= true
     const wasm = (nitro.wasm ??= {}) as Record<string, unknown>
     wasm.lazy ??= true
+    if (!nuxt.options.dev) nitro.exportConditions = cloudflareExportConditions(nitro.exportConditions)
     // Nitro 3 resolves the Cloudflare preset to `cloudflare-dev` in development, which runs the server in workerd.
     // ViteHub's Cloudflare development shims bindings on Node, so keep Nitro's Node runner unless the app picks one.
     if (nuxt.options.dev) {

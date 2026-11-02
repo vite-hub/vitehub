@@ -49,7 +49,7 @@ import { operationsCheckPlugin } from "./operations-check.ts"
 import { consoleAuthConfig, consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
 import { includedNitro } from "./nitro-plugin.ts"
 import { nitroStartupChunks } from "./internal/nitro-startup-chunks.ts"
-import { detectPreset } from "./deployment.ts"
+import { cloudflareExportConditions, detectPreset } from "./deployment.ts"
 import { nitroOrderPlugins } from "./nitro-order.ts"
 import { viteHubTaskPlugin } from "./task/vite.ts"
 import { logsVitePlugin, type LogsOptions } from "./logs-vite.ts"
@@ -641,6 +641,7 @@ function deploymentPlugins(
           // Resource names wait until ordinary plugins have configured the root.
           const nitro = cloneRecord((config as { nitro?: unknown }).nitro)
           if (environment.command === "build" && nitro.preset === undefined) nitro.preset = nitroPreset
+          if (environment.command === "build" && plan.preset === "cloudflare") nitro.exportConditions = cloudflareExportConditions(nitro.exportConditions)
           ;(config as { nitro?: unknown }).nitro = nitro
         },
       },

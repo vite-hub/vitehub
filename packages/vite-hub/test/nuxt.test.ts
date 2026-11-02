@@ -2811,6 +2811,21 @@ describe("ViteHub Nuxt integration", () => {
     expect(nitroOptions(nuxt)).toMatchObject({ wasm: { lazy: true } })
   })
 
+  it("resolves the module export condition in Cloudflare builds only", async () => {
+    const { nuxt } = createNuxt()
+    Object.assign(nuxt.options, { nitro: { exportConditions: ["custom"] } })
+    await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+    expect(nitroOptions(nuxt)).toMatchObject({ exportConditions: ["custom", "module"] })
+
+    const development = createNuxt(true)
+    await viteHubNuxtModule({ preset: "cloudflare" }, development.nuxt)
+    expect(nitroOptions(development.nuxt)).not.toHaveProperty("exportConditions")
+
+    const { nuxt: vercelNuxt } = createNuxt()
+    await viteHubNuxtModule({ preset: "vercel" }, vercelNuxt)
+    expect(nitroOptions(vercelNuxt)).not.toHaveProperty("exportConditions")
+  })
+
   // Nitro 3 maps the Cloudflare preset to `cloudflare-dev` in development, and that preset defaults to the workerd runner.
   it("keeps Nuxt development with the Cloudflare preset on Nitro's Node runner", async () => {
     vi.stubEnv("NITRO_DEV_RUNNER", "")
