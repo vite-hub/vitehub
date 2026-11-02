@@ -237,7 +237,9 @@ export async function resolveSandboxTaskRunner<TPayload = unknown, TResult = unk
   const config = getSandboxTaskRuntimeConfig()
   const definition = await loadSandboxTaskDefinition(name)
   if (!definition)
-    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0053({ message: `[vitehub] Unknown Sandbox Task "${name}".` })
+    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0053({ message: getSandboxTaskRuntimeRegistry()
+      ? `[vitehub] Unknown Sandbox Task "${name}".`
+      : `[vitehub] Unknown Sandbox Task "${name}". Sandbox Tasks are not enabled in this build. Set \`sandboxTask: true\` on a preset that supports Sandbox.` })
   if (!hasValidSandboxTaskBundle(definition))
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0054({ message: `[vitehub] Sandbox "${name}" is invalid.` })
 
