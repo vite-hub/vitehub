@@ -76,7 +76,6 @@
     "nuxt-agent-discovery": "^0.7.0",
     "nuxt-llms": "^0.2.0",
     "shiki": "^4.5.0",
-    "valibot": "catalog:runtime",
     "yaml": "catalog:tooling",
     "zod": "catalog:runtime"
   },

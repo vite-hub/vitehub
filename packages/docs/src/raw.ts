@@ -1,14 +1,14 @@
 import { parse } from "yaml";
-import { object, optional, safeParse, string } from "valibot";
+import { z } from "zod";
 
 const frontmatterBoundary = "---";
 
 type Frontmatter = Record<string, unknown>;
-const frontmatterSchema = object({ title: optional(string()) });
-const pageCardSchema = object({
-  description: optional(string()),
-  title: optional(string()),
-  to: optional(string()),
+const frontmatterSchema = z.object({ title: z.string().optional() });
+const pageCardSchema = z.object({
+  description: z.string().optional(),
+  title: z.string().optional(),
+  to: z.string().optional(),
 });
 type Fence = {
   length: number;
@@ -88,8 +88,8 @@ function splitFrontmatter(source: string): { body: string, frontmatter: Frontmat
   const end = frontmatterBoundary.length + 1 + closing.index;
 
   const parsed: unknown = parse(normalized.slice(frontmatterBoundary.length + 1, end));
-  const result = safeParse(frontmatterSchema, parsed);
-  const frontmatter: Frontmatter = result.success ? result.output : {};
+  const result = frontmatterSchema.safeParse(parsed);
+  const frontmatter: Frontmatter = result.success ? result.data : {};
 
   return {
     body: normalized.slice(end + closing[0].length),
@@ -684,8 +684,8 @@ function cardList(source: string, origin: string) {
     const cardPattern = /^\s*:::u-page-card[^\n]*\n\s*---\n([\s\S]*?)\n\s*---\n\s*:::\s*$/gm;
     for (const match of cards.matchAll(cardPattern)) {
       const parsed: unknown = parse(match[1] || "");
-      const result = safeParse(pageCardSchema, parsed);
-      const fields = result.success ? result.output : {};
+      const result = pageCardSchema.safeParse(parsed);
+      const fields = result.success ? result.data : {};
       const title = fields.title?.trim() || null;
       const to = fields.to?.trim() || null;
       const description = fields.description?.trim() || null;
@@ -969,8 +969,7 @@ export type RawMarkdownOptions = {
 /** The page as an agent reads it: plain Markdown, links absolute, presentation blocks unwrapped, and a `# title`. */
 export function toRawMarkdown(source: string, options: RawMarkdownOptions = {}): string {
   const { body, frontmatter } = splitFrontmatter(source);
-  const titleResult = safeParse(string(), frontmatter.title);
-  const title = titleResult.success ? titleResult.output.trim() : undefined;
+  const title = typeof frontmatter.title === "string" ? frontmatter.title.trim() : undefined;
   const origin = options.siteUrl?.replace(/\/+$/, "") ?? "";
   const content = stripPresentationDirectives(cardListsOutsideFences(body, origin), options.includeAgentOnly ?? true, origin)
     .replace(/^\n+|\n+$/g, "");
