@@ -50,7 +50,7 @@ export class DocsAssistantSetupError extends Error {
  *
  * The assistant's Agent and its ChatGPT Connection are application files (`server/agents/<agent>.ts` and
  * `server/connections/chatgpt.ts`), because Agents and Connections are discovered from files. `DocsAssistant`, the panel
- * component, is registered with the other docs components and renders only when this option is on.
+ * component, is registered only when this option is on.
  */
 export function setupDocsAssistant(nuxt: Nuxt, config: { assistant: { agent: string } | false }): void {
   const assistant = config.assistant

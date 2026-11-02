@@ -3,6 +3,7 @@ import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import {
+  addComponent,
   addComponentsDir,
   addImportsDir,
   addRouteMiddleware,
@@ -162,8 +163,12 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     const rawDir = join(nuxt.options.buildDir, "docs/raw")
     const config = publicConfig(options)
     nuxt.options.runtimeConfig.public.docs = config
-    const moduleOptions: DocsNuxtOptions = nuxt.options
     setupDocsAssistant(nuxt, config)
+    if (config.assistant) {
+      // The panel calls `useChat()` from `vite-hub/nuxt`, so it is registered only when the assistant is on.
+      for (const name of ["DocsAssistant", "DocsAssistantPanel"]) addComponent({ name, filePath: join(runtime, `app/assistant/${name}.vue`) })
+    }
+    const moduleOptions: DocsNuxtOptions = nuxt.options
 
     let manifest = createDocsManifest({ dir: contentDir, base: config.base })
     /** Writes the agent copy of every page. `nuxi build` empties the build folder after the modules load, so it runs before the build. */
