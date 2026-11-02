@@ -104,7 +104,8 @@ describe("Console Schedule runs", () => {
     await writeConsoleNitroPlugin(plugin, root, ["schedules"], [], catalog, [])
     const invokeDisabled = await readFile(plugin, "utf8")
 
-    expect(invokeEnabled).toContain(`import { installConsoleDefinitions, installConsoleSchedules } from "vite-hub/console/definitions"`)
+    expect(invokeEnabled).toContain(`{ installConsoleDefinitions, installConsoleSchedules }`)
+    expect(invokeEnabled).toContain(`import("vite-hub/console/definitions")`)
     expect(invokeEnabled).toContain(`installConsoleSchedules(${JSON.stringify(root)}, { ["sync"]: () => import(${JSON.stringify(pathToFileURL(handler).href)}) })`)
     expect(invokeDisabled).toContain(`installConsoleSchedules(${JSON.stringify(root)}, {})`)
     expect(invokeDisabled).not.toContain(pathToFileURL(handler).href)
