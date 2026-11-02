@@ -42,7 +42,7 @@ afterEach(() => {
 describe("the Console page tool", () => {
   it.each(["comments-first", "console-first"])("excludes mounted Console and API pages regardless of installation order (%s)", async (order) => {
     const html = "<body>Page</body>"
-    const app = { fetch: (_request: Request) => new Response(html, { headers: { "content-type": "text/html" } }) }
+    const app = { fetch: (_request: Request) => new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } }) }
     registerViteHubPageTool(app, { id: "comments", label: "Comments", icon: "comments", script: "/comments.js", allowed: async () => true })
     if (order === "comments-first") installViteHubPageTools(app)
     installConsolePageTool(app, { base: "/portal/" })
