@@ -415,7 +415,6 @@ function renderNitroSchedulePlugin(options: RenderNitroSchedulePluginOptions): s
 
 interface NitroNetlifySchedule {
   cron: string
-  functionName: string
   name: string
 }
 
@@ -435,6 +434,17 @@ interface RenderNitroScheduleModuleOptions {
  */
 function renderNitroScheduleModule(options: RenderNitroScheduleModuleOptions): string {
   const { netlify } = options
+  let netlifyFunctionNames = new Map<string, string>()
+  let netlifyNameError: { code: string, message: string, name: string } | undefined
+  try {
+    netlifyFunctionNames = netlifyScheduleFunctionNames(netlify.schedules)
+  }
+  catch (error) {
+    if (!(error instanceof Error) || !("code" in error) || error.code !== "SCHEDULE_R0006") throw error
+    // The names are known now, but only Nitro's resolved Netlify preset may reject them.
+    netlifyNameError = { ...error, code: error.code, message: error.message, name: error.name }
+  }
+  const netlifySchedules = netlify.schedules.map(schedule => ({ ...schedule, functionName: netlifyFunctionNames.get(schedule.name) }))
   const crons = Object.fromEntries(netlify.schedules.map(schedule => [schedule.name, schedule.cron]))
   const netlifyEntryRuntime = [
     `import scheduleRegistry from ${JSON.stringify(netlify.registryFile)}`,
@@ -455,7 +465,8 @@ function renderNitroScheduleModule(options: RenderNitroScheduleModuleOptions): s
     "import { join } from 'node:path'",
     "",
     `const crons = ${JSON.stringify(options.crons)}`,
-    `const netlifySchedules = ${JSON.stringify(netlify.schedules)}`,
+    `const netlifySchedules = ${JSON.stringify(netlifySchedules)}`,
+    `const netlifyNameError = ${JSON.stringify(netlifyNameError ?? null)}`,
     `const netlifyEntryFile = ${JSON.stringify(netlify.entryFile)}`,
     `const netlifyEntryRuntime = ${JSON.stringify(netlifyEntryRuntime)}`,
     "",
@@ -493,11 +504,16 @@ function renderNitroScheduleModule(options: RenderNitroScheduleModuleOptions): s
     "  const existingCrons = Array.isArray(nitro.options.cloudflare.wrangler.triggers.crons) ? nitro.options.cloudflare.wrangler.triggers.crons : []",
     "  nitro.options.cloudflare.wrangler.triggers.crons = [...new Set([...existingCrons, ...crons])]",
     "  nitro.hooks.hook('build:before', dedupeCloudflareCrons)",
-    "  if (nitro.options.preset !== 'netlify' || !netlifySchedules.length) return",
+    "  if (nitro.options.preset !== 'netlify') return",
+    "  if (netlifyNameError) throw Object.assign(new Error(netlifyNameError.message), netlifyNameError)",
+    "  if (!netlifySchedules.length) return",
     "  // The server bundle keeps Nitro's entry and also exports the Schedule runner for the scheduled functions.",
     "  await writeFile(netlifyEntryFile, `export { default } from ${JSON.stringify(nitro.options.entry)}\\n${netlifyEntryRuntime}`)",
     "  nitro.options.entry = netlifyEntryFile",
-    "  nitro.hooks.hook('compiled', writeNetlifyScheduleFunctions)",
+    "  // Register after all modules have installed their compiled writers, including Database migrations.",
+    "  nitro.hooks.hookOnce('build:before', () => {",
+    "    nitro.hooks.hook('compiled', writeNetlifyScheduleFunctions)",
+    "  })",
     "}",
     "",
   ].join("\n")
@@ -630,12 +646,7 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
   const nitroDefinitions = processRuntime && options.providerOutput !== "nitro" ? [] : selectNitroScheduleDefinitions(definitions, options)
   const nitroCrons = options.command === "build" ? await readDefinitionCrons(nitroDefinitions, cronOverrides) : new Map<string, string>()
   const crons = [...new Set(nitroCrons.values())]
-  // Nitro may resolve the Netlify preset itself, so only another known preset skips the Netlify functions.
-  const netlifyFunctionNames = !nitroPreset || nitroPreset === "netlify" ? netlifyScheduleFunctionNames(nitroDefinitions) : new Map<string, string>()
-  const netlifySchedules = [...nitroCrons].flatMap(([name, cron]) => {
-    const functionName = netlifyFunctionNames.get(name)
-    return functionName ? [{ cron, functionName, name }] : []
-  })
+  const netlifySchedules = [...nitroCrons].map(([name, cron]) => ({ cron, name }))
   const nitroDefinitionNames = new Set(nitroDefinitions.map(definition => definition.name))
   const plugin = await writeNitroSchedulePlugin(roots.projectRoot, {
     cronOverrides: Object.fromEntries(Object.entries(cronOverrides ?? {}).filter(([name]) => nitroDefinitionNames.has(name))),
