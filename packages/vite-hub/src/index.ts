@@ -26,7 +26,7 @@ import { hubMarkdownTemplate } from "@vite-hub/markdown-template/vite"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { collapseWranglerConfigFile } from "@vite-hub/internal/build/cloudflare"
 import { describeDeploymentPlanOutput, finalizeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
-import { finalizeDenoDeploymentOutput } from "@vite-hub/internal/build/deno-runtime-packages"
+import { denoServerPackagesPlugin, finalizeDenoDeploymentOutput, type DenoServerPackages } from "@vite-hub/internal/build/deno-runtime-packages"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
 import { nitroWorkerdDependencies } from "@vite-hub/internal/build/nitro-workerd-dependencies"
 import { createNoExternalAddition, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
@@ -34,8 +34,8 @@ import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
 import { viteHubTypesPlugin } from "./internal/types.ts"
-import { assertFeaturePackages, isPackageInstalled, requireOptionalOwner } from "./internal/optional-owners.ts"
-import { optionalOwnerEntriesPlugin, ownerModules } from "./internal/owner-modules.ts"
+import { assertFeaturePackages, isPackageInstalled, optionalFeaturePackages, requireOptionalOwner } from "./internal/optional-owners.ts"
+import { optionalOwnerEntriesPlugin, optionalOwnerImportsPlugin, ownerFacadeFeature, ownerModules } from "./internal/owner-modules.ts"
 import { withCmsPresetPlugins } from "./internal/cms-preset-features.ts"
 import { disabledUpstashDriver, hasUpstashStore, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
 import { consoleConnectionsActorId } from "./console/auth-build.ts"
@@ -276,6 +276,12 @@ function frameworkDependencyResolver(
           .sort(([left], [right]) => right.length - left.length),
       )
       if (!blobEnabled) delete aliases["vite-hub/blob"]
+      // A Vite alias resolves before any plugin. Without one, the import of a facade whose package the app did not
+      // install reaches the optional owner imports plugin, which names the package to install.
+      for (const specifier of Object.keys(aliases)) {
+        const feature = ownerFacadeFeature(specifier)
+        if (feature && !optionalFeaturePackages[feature].every(isPackageInstalled)) delete aliases[specifier]
+      }
       return {
         resolve: {
           alias: aliases,
@@ -570,7 +576,10 @@ function deploymentNitroModule(
   resolvedBuildConfig: () => ResolvedBuildConfig,
 ) {
   return (nitro: {
-    hooks: { hook: (name: "compiled", callback: () => Promise<void>) => void }
+    hooks: {
+      hook: ((name: "compiled", callback: () => Promise<void>) => void)
+        & ((name: "rollup:before", callback: (nitro: unknown, config: { plugins?: unknown }) => void) => void)
+    }
     options: { cloudflare?: { deployConfig?: boolean }, commands: Record<string, unknown>, output: { dir: string, serverDir: string }, preset?: string, rootDir: string }
   }) => {
     if (deploymentPresetFromNitro(nitro.options.preset) !== plan.preset) return
@@ -583,13 +592,21 @@ function deploymentNitroModule(
       const secrets = secretsFile && existsSync(secretsFile) ? ` --secrets-file ${outputRelativeArgument(nitro.options.output.dir, secretsFile)}` : ""
       nitro.options.commands.deploy = `npx wrangler deploy --config ${config}${secrets}${sandboxTaskRequested ? " --containers-rollout=gradual" : ""}`
     }
+    let serverPackages: DenoServerPackages | undefined
+    if (plan.output.packaging === "deno-node-modules") {
+      nitro.hooks.hook("rollup:before", (_nitro, config) => {
+        const plugins = Array.isArray(config.plugins) ? config.plugins : config.plugins ? [config.plugins] : []
+        config.plugins = [...plugins, denoServerPackagesPlugin((packages) => { serverPackages = packages })]
+      })
+    }
     nitro.hooks.hook("compiled", async () => {
       const outputDir = nitro.options.output.dir
       const rootDir = nitro.options.rootDir
       // Nitro concatenates the project's Wrangler arrays with the generated ones, so a binding both declare appears twice.
       if (plan.preset === "cloudflare") await collapseWranglerConfigFile(nitro.options.output.serverDir)
       if (plan.output.packaging === "deno-node-modules") {
-        await finalizeDenoDeploymentOutput({ deploymentName: identity.name, outputDir, rootDir, ...resolvedBuildConfig() })
+        if (!serverPackages) throw viteHubErrorDiagnostics.VITE_HUB_B0017({ message: "[vitehub] The Deno server bundle did not report its runtime packages." })
+        await finalizeDenoDeploymentOutput({ deploymentName: identity.name, outputDir, rootDir, serverPackages, ...resolvedBuildConfig() })
       }
       await finalizeDeploymentPlanOutput({ identity, outputDir, plan, rootDir, services })
     })
@@ -1410,6 +1427,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }))
   if (commentsPlugin) plugins.push(commentsPlugin)
   if (!ownerModules.commentsVite || !ownerModules.contentVite || !ownerModules.cmsVite) plugins.push(optionalOwnerEntriesPlugin())
+  plugins.push(optionalOwnerImportsPlugin())
   // Nitro tasks in `server/tasks/`, listed and run with `vitehub task`.
   plugins.push(viteHubTaskPlugin())
   // Lets request-scoped checks, such as Content preview, keep a request out of Nitro's cache.

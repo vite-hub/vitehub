@@ -300,6 +300,7 @@ describe("Channel conversation operations", () => {
       ["channels.threads", "channels", "read"],
       ["channels.conversation", "channels", "read"],
       ["conversations.export", "channels", "read"],
+      ["channels.status", "channels", "read"],
     ])
   })
 

@@ -336,9 +336,21 @@ function renderNetlifyScheduleFunction(file: string, registryFile: string, sched
   ].join("\n")
 }
 
-function sanitizeNetlifyScheduleFunctionName(name: string): string {
-  const safeName = name.toLowerCase().replace(/[^a-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "")
-  return `vitehub-schedule-${safeName || "schedule"}.mjs`
+/** Names one Netlify function per Schedule, and fails when two Schedules would get the same name. */
+export function netlifyScheduleFunctionNames(definitions: readonly Pick<DiscoveredScheduleDefinition, "name">[]): Map<string, string> {
+  const names = new Map<string, string>()
+  const emitted = new Map<string, string>()
+  for (const definition of definitions) {
+    const safeName = definition.name.toLowerCase().replace(/[^a-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "")
+    const functionName = `vitehub-schedule-${safeName || "schedule"}`
+    const existingName = emitted.get(functionName)
+    if (existingName) {
+      throw scheduleErrorDiagnostics.SCHEDULE_R0006({ message: `Schedule "${definition.name}" and "${existingName}" both emit the same Netlify function file: ${functionName}.mjs` })
+    }
+    emitted.set(functionName, definition.name)
+    names.set(definition.name, functionName)
+  }
+  return names
 }
 
 function renderDenoCronEntry(file: string, registryFile: string, crons: Map<string, string>, runtimeImport = scheduleStaticRuntimeImport) {
@@ -621,15 +633,9 @@ export async function createNetlifyScheduleFunctionOutputs(options: {
 }): Promise<NetlifyScheduleFunctionOutput[]> {
   const definitions = options.definitions
   const crons = options.crons ?? await readDefinitionCrons(definitions)
-  const emitted = new Map<string, string>()
+  const functionNames = netlifyScheduleFunctionNames(definitions)
   return definitions.map((definition) => {
-    const fileName = sanitizeNetlifyScheduleFunctionName(definition.name)
-    const existingName = emitted.get(fileName)
-    if (existingName) {
-      throw scheduleErrorDiagnostics.SCHEDULE_R0006({ message: `Schedule "${definition.name}" and "${existingName}" both emit the same Netlify function file: ${fileName}` })
-    }
-    emitted.set(fileName, definition.name)
-    const file = resolve(options.functionRoot, fileName)
+    const file = resolve(options.functionRoot, `${functionNames.get(definition.name)!}.mjs`)
     return {
       cron: crons.get(definition.name)!,
       file,

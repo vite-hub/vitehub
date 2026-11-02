@@ -1,11 +1,14 @@
-import { requireAtomicAgentStateLock, type AgentStateCacheMutation } from "./state-lock.ts"
+import { requireAtomicAgentStateLock, type AgentStateCacheMutation, type AtomicAgentStateLockAdapter } from "./state-lock.ts"
 import * as v from "valibot"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { acquireChannelStateLock } from "./channel-state.ts"
+import { redactCredentialText } from "./credential-redaction.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 
 import type { ReplayChannelResult } from "../channel-replay.ts"
 import type { AgentChannelHistoryCollection, AgentChannelHistoryQuery, AgentChannelStateBinding } from "../types.ts"
+import type { AgentChannelRetryingMessage, AgentChannelSkippedMessage, AgentChannelStatus } from "./channel-status.ts"
 import type { AgentChannelSyncPlan, AgentChannelSyncProvider } from "./channel-sync.ts"
 
 const gmailApiBaseUrl = "https://gmail.googleapis.com/gmail/v1/users/me/"
@@ -19,6 +22,10 @@ const syncLockTtlMs = 10 * 60_000
 const watchRenewalMarginMs = 24 * 60 * 60_000
 const messageFetchConcurrency = 5
 export const gmailDefaultBodyLimit = 10_000
+export const gmailDefaultMaxAttempts = 5
+const maxSkippedMessages = 100
+const failingAfterSyncs = 2
+const maxErrorLength = 500
 const gmailWatchLabelIds: readonly string[] = ["INBOX"]
 
 // Gmail API: https://developers.google.com/workspace/gmail/api/reference/rest
@@ -45,6 +52,15 @@ export class GmailApiError extends Error {
     super(message)
     this.name = "GmailApiError"
     this.status = status
+  }
+}
+
+/** Token refresh failures concern the account, including transport and malformed-response errors. */
+class GmailOAuthRefreshError extends GmailApiError {
+  constructor(cause: unknown) {
+    // Transport failures have no HTTP status.
+    super(cause instanceof Error ? cause.message : String(cause), gmailErrorStatus(cause) ?? 0)
+    this.cause = cause
   }
 }
 
@@ -309,7 +325,7 @@ function accessToken(credentials: GmailOAuthCredentials, fetchImpl: typeof fetch
   const cached = accessTokens.get(cacheKey)
   if (cached && !refresh && cached.expiresAt > Date.now()) return cached.token
   // Google access tokens last one hour. Refresh a minute early.
-  const token = refreshAccessToken(credentials, fetchImpl)
+  const token = refreshAccessToken(credentials, fetchImpl).catch((error: unknown) => { throw new GmailOAuthRefreshError(error) })
   accessTokens.set(cacheKey, { expiresAt: Date.now() + 59 * 60_000, token })
   token.catch(() => {
     if (accessTokens.get(cacheKey)?.token === token) accessTokens.delete(cacheKey)
@@ -903,6 +919,8 @@ export interface GmailMailboxSync {
   client: GmailClient
   /** Starts one Invocation per message with a stable Invocation ID. */
   dispatch: (messages: GmailMessage[]) => Promise<ReplayChannelResult>
+  /** Sync attempts for one message before the Channel skips it. Defaults to `gmailDefaultMaxAttempts`. */
+  maxAttempts?: number
   /**
    * Where the cursor starts when none is stored: the history ID of the push notification, or a function that reads the
    * current one for a poll. It is read only on the first sync.
@@ -935,10 +953,105 @@ interface GmailSyncProgress {
   done: boolean
   pendingIds: string[]
   retryIds: string[]
+  /** Failed attempts of messages that are still retried. */
+  attempts?: Record<string, { attempts: number, error: string }>
 }
 
-async function syncMailboxOnce(sync: GmailMailboxSync, cursorKey: string, renew: () => Promise<void>, mutate: (mutations: readonly AgentStateCacheMutation[]) => Promise<void>): Promise<boolean> {
+interface GmailSyncHealth {
+  error: string
+  failingSince: string
+  failures: number
+}
+
+/** Mailbox State with the lease-fenced writes that the sync needs. */
+function mailboxState(binding: AgentChannelStateBinding): AtomicAgentStateLockAdapter {
+  const atomic = requireAtomicAgentStateLock(binding.state)
+  return requireAtomicAgentStateLock(atomic.forCacheLocks?.() ?? atomic)
+}
+
+/** Redacted and capped provider or sync error text. */
+function failureText(error: unknown): string {
+  return redactCredentialText(error instanceof Error ? error.message : String(error)).slice(0, maxErrorLength)
+}
+
+/** Authentication and rate limit errors concern the account, not the message, so they do not count as attempts. */
+function isMessageFailure(error: unknown): boolean {
+  if (error instanceof GmailOAuthRefreshError) return false
+  const status = gmailErrorStatus(error)
+  return status !== 401 && status !== 403 && status !== 429
+}
+
+/** Changes the skipped list under its own lock, so a replay and a sync cannot lose each other's writes. */
+async function updateSkippedMessages(
+  state: AtomicAgentStateLockAdapter,
+  keyPrefix: string,
+  update: (skipped: AgentChannelSkippedMessage[]) => AgentChannelSkippedMessage[],
+): Promise<void> {
+  const key = `${keyPrefix}sync-skipped`
+  const lock = await acquireChannelStateLock(state, `${key}:lock`)
+  try {
+    const current = await state.get<AgentChannelSkippedMessage[]>(key) ?? []
+    const next = update(current)
+    if (next === current) return
+    const mutation: AgentStateCacheMutation = next.length ? { key, type: "set", value: next } : { key, type: "delete" }
+    if (!await state.mutateWithLock(lock, [mutation])) throw new Error("Lost the lock of the Gmail skipped messages.")
+  }
+  finally {
+    await state.releaseLock(lock)
+  }
+}
+
+/** Sync health, retried messages, and skipped messages of a Gmail Channel. */
+export async function readGmailChannelStatus(binding: AgentChannelStateBinding): Promise<AgentChannelStatus> {
+  const state = mailboxState(binding)
+  const { keyPrefix } = binding
+  const [health, syncedAt, cursor, progress, skipped] = await Promise.all([
+    state.get<GmailSyncHealth>(`${keyPrefix}sync-health`),
+    state.get<string>(`${keyPrefix}synced-at`),
+    state.get<string>(`${keyPrefix}history-id`),
+    state.get<GmailSyncProgress>(`${keyPrefix}sync-progress`),
+    state.get<AgentChannelSkippedMessage[]>(`${keyPrefix}sync-skipped`),
+  ])
+  const retrying: AgentChannelRetryingMessage[] = progress?.startHistoryId === cursor
+    ? Object.entries(progress.attempts ?? {}).map(([id, attempt]) => ({ id, ...attempt }))
+    : []
+  return {
+    ...(health ? { error: health.error, failingSince: health.failingSince } : {}),
+    failures: health?.failures ?? 0,
+    retrying,
+    skipped: skipped ?? [],
+    status: (health?.failures ?? 0) >= failingAfterSyncs ? "failing" : "ok",
+    ...(syncedAt ? { syncedAt } : {}),
+  }
+}
+
+/** Removes messages from the skipped list, for example after a replay. */
+export async function clearGmailSkippedMessages(binding: AgentChannelStateBinding, ids: readonly string[]): Promise<void> {
+  const remove = new Set(ids)
+  await updateSkippedMessages(mailboxState(binding), binding.keyPrefix, skipped =>
+    skipped.some(message => remove.has(message.id)) ? skipped.filter(message => !remove.has(message.id)) : skipped)
+}
+
+async function recordSyncHealth(
+  state: AtomicAgentStateLockAdapter,
+  keyPrefix: string,
+  error: string | undefined,
+  mutate: (mutations: readonly AgentStateCacheMutation[]) => Promise<void>,
+): Promise<void> {
+  const key = `${keyPrefix}sync-health`
+  const current = await state.get<GmailSyncHealth>(key)
+  if (error === undefined) {
+    if (current) await mutate([{ key, type: "delete" }])
+    return
+  }
+  await mutate([{ key, type: "set", value: { error, failingSince: current?.failingSince ?? new Date().toISOString(), failures: (current?.failures ?? 0) + 1 } satisfies GmailSyncHealth }])
+}
+
+type MailboxSyncOutcome = "advanced" | "resumed" | "retrying"
+
+async function syncMailboxOnce(sync: GmailMailboxSync, cursorKey: string, renew: () => Promise<void>, mutate: (mutations: readonly AgentStateCacheMutation[]) => Promise<void>): Promise<MailboxSyncOutcome> {
   const { client, state } = sync
+  const maxAttempts = sync.maxAttempts ?? gmailDefaultMaxAttempts
   const progressKey = `${state.keyPrefix}sync-progress`
   // Keep the growing deduplication snapshot separate from per-message checkpoints.
   const seenKey = `${state.keyPrefix}sync-seen-ids`
@@ -952,7 +1065,7 @@ async function syncMailboxOnce(sync: GmailMailboxSync, cursorKey: string, renew:
       { key: seenKey, type: "delete" },
     ])
     log("cursor.initialized", { historyId })
-    return false
+    return "advanced"
   }
   const stored = await state.state.get<GmailSyncProgress>(progressKey)
   const resumable = stored?.startHistoryId === cursor
@@ -977,28 +1090,57 @@ async function syncMailboxOnce(sync: GmailMailboxSync, cursorKey: string, renew:
     return true
   }
 
+  /**
+   * Settles one message. A failure is retried on later syncs until the message has failed `maxAttempts` times.
+   * Then the message is recorded as skipped, so the cursor can advance past it. Returns whether it will be retried.
+   */
+  const settle = async (id: string, failure: string | undefined, dispatched: boolean): Promise<boolean> => {
+    const { [id]: previous, ...attempts } = progress.attempts ?? {}
+    const count = (previous?.attempts ?? 0) + 1
+    const retry = failure !== undefined && count < maxAttempts
+    if (failure !== undefined && !retry) {
+      await renew()
+      const skippedAt = new Date().toISOString()
+      await updateSkippedMessages(requireAtomicAgentStateLock(state.state), state.keyPrefix, skipped =>
+        [{ attempts: count, error: failure, id, skippedAt }, ...skipped.filter(message => message.id !== id)].slice(0, maxSkippedMessages))
+      log("message.skipped", { attempts: count, error: failure, id })
+    }
+    // A fetch failure keeps the message pending, so the next sync checks its Inbox label again.
+    const pending = retry && !dispatched
+    await save({
+      ...progress,
+      attempts: retry ? { ...attempts, [id]: { attempts: count, error: failure } } : attempts,
+      pendingIds: pending ? progress.pendingIds : progress.pendingIds.filter(pendingId => pendingId !== id),
+      retryIds: retry && dispatched ? [...new Set([...progress.retryIds, id])] : retry ? progress.retryIds : progress.retryIds.filter(retryId => retryId !== id),
+    })
+    return retry
+  }
   const dispatchMessageIds = async (ids: readonly string[], retrying = false): Promise<void> => {
     for (let start = 0; start < ids.length; start += messageFetchConcurrency) {
       await renew()
       const batch = ids.slice(start, start + messageFetchConcurrency)
-      const fetched = retrying
-        ? await getGmailMessages(client, batch, sync.bodyLimit)
-        : (await Promise.all(batch.map(id => getGmailInboxMessage(client, id, sync.bodyLimit)))).filter(message => message !== undefined)
-      const messages = new Map(fetched.map(message => [message.id, message]))
-      for (const id of batch) {
-        const message = messages.get(id)
-        let failed = false
+      const fetched = await Promise.allSettled(batch.map(id => retrying
+        ? getGmailMessage(client, id, sync.bodyLimit)
+        : getGmailInboxMessage(client, id, sync.bodyLimit)))
+      for (const [index, id] of batch.entries()) {
+        const result = fetched[index]!
+        if (result.status === "rejected") {
+          if (!isMessageFailure(result.reason)) throw result.reason
+          // The sync stops so that the cursor stays. Later syncs retry the message until it is skipped.
+          if (await settle(id, failureText(result.reason), false)) throw result.reason
+          continue
+        }
+        const message = result.value
+        let failure: string | undefined
         if (message && (retrying || message.labelIds.includes("INBOX"))) {
           await renew()
-          const result = await sync.dispatch([message])
-          log("messages.dispatched", { failed: result.failed, processed: result.processed, skipped: result.skipped })
-          failed = result.failed > 0
+          const dispatched = await sync.dispatch([message])
+          log("messages.dispatched", { failed: dispatched.failed, processed: dispatched.processed, skipped: dispatched.skipped })
+          // A terminal journal entry deduplicates dispatch without recovering the failed message.
+          // Driver errors may echo the email, so keep them out of Channel State and status.
+          if (dispatched.failed > 0 || dispatched.items.some(item => item.reason === "existing" && item.invocationStatus === "failed")) failure = "The Invocation failed."
         }
-        await save({
-          ...progress,
-          pendingIds: progress.pendingIds.filter(pending => pending !== id),
-          retryIds: failed ? [...new Set([...progress.retryIds, id])] : progress.retryIds.filter(retry => retry !== id),
-        })
+        await settle(id, failure, true)
       }
     }
   }
@@ -1058,17 +1200,18 @@ async function syncMailboxOnce(sync: GmailMailboxSync, cursorKey: string, renew:
   }
   if (progress.retryIds.length) {
     if (sync.throwOnDispatchFailure) throw new Error(`Gmail message dispatch failed for ${progress.retryIds.length} message(s); saved for retry.`)
-    return false
+    return "retrying"
   }
   if (progress.mode === "recovery") log("history.expired", { historyId: cursor, recovered: seen.size })
   // Completion and checkpoint cleanup commit only while this worker owns the mailbox lease.
   await renew()
   await mutate([
     { key: cursorKey, type: "set", value: progress.historyId },
+    { key: `${state.keyPrefix}synced-at`, type: "set", value: new Date().toISOString() },
     { key: progressKey, type: "delete" },
     { key: seenKey, type: "delete" },
   ])
-  return resumable
+  return resumable ? "resumed" : "advanced"
 }
 
 /**
@@ -1078,8 +1221,7 @@ async function syncMailboxOnce(sync: GmailMailboxSync, cursorKey: string, renew:
  */
 export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<void> {
   const keyPrefix = sync.state.keyPrefix
-  const atomic = requireAtomicAgentStateLock(sync.state.state)
-  const state = requireAtomicAgentStateLock(atomic.forCacheLocks?.() ?? atomic)
+  const state = mailboxState(sync.state)
   sync = { ...sync, state: { keyPrefix, state } }
   const cursorKey = `${keyPrefix}history-id`
   const lockKey = `${keyPrefix}sync`
@@ -1097,6 +1239,8 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<void> {
   const failures: unknown[] = []
   for (;;) {
     const heldLock = lock
+    const previousFailures = failures.length
+    let outcome: MailboxSyncOutcome | undefined
     let ownershipLost = false
     const renew = async () => {
       if (ownershipLost || !await state.extendLock(heldLock, syncLockTtlMs)) {
@@ -1115,17 +1259,19 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<void> {
       renewalTask = renewalTask.then(renew).catch(() => { ownershipLost = true })
     }, syncLockTtlMs / 3)
     try {
-      let resumedSnapshot = false
       do {
         await renew()
         await mutate([{ key: pendingKey, type: "delete" }])
-        resumedSnapshot = await syncMailboxOnce(sync, cursorKey, renew, mutate)
-      } while (resumedSnapshot || await state.get(pendingKey) !== null)
+        outcome = await syncMailboxOnce(sync, cursorKey, renew, mutate)
+      } while (outcome === "resumed" || await state.get(pendingKey) !== null)
     }
     catch (error) {
       failures.push(error)
     }
     finally {
+      // Persist this owner's outcome before a successor can acquire the lease, and fence a delayed write after lease loss.
+      const failure = failures.length > previousFailures ? failureText(failures.at(-1)) : outcome === "retrying" ? "Messages failed and will be retried on the next sync." : undefined
+      await recordSyncHealth(state, keyPrefix, failure, mutate).catch((error: unknown) => log("health.failed", { error: failureText(error) }))
       clearInterval(timer)
       await renewalTask
       await state.releaseLock(heldLock)
@@ -1162,6 +1308,8 @@ async function renewGmailWatchWhenDue(client: GmailClient, binding: AgentChannel
 // History Collection
 
 const historyQuerySchema = v.object({
+  /** Gmail message IDs to read instead of a search, such as the IDs that `vitehub channels status` lists as skipped. */
+  ids: v.optional(v.array(v.pipe(v.string(), v.minLength(1)))),
   /** Gmail label IDs that every message must have. */
   labelIds: v.optional(v.array(v.string())),
   /** Gmail search query, such as `in:inbox newer_than:7d`. */
@@ -1187,6 +1335,18 @@ export function gmailHistoryCollection(
     async page(options) {
       const query = v.parse(historyQuerySchema, options.query)
       const client = await resolveClient()
+      if (query.ids) {
+        // The cursor of an ID list is the offset of its next ID.
+        const ids = [...new Set(query.ids)]
+        let start = options.cursor === undefined ? 0 : Number(options.cursor)
+        if (options.cursor !== undefined && !(Number.isSafeInteger(start) && start > 0 && start < ids.length)) throw new GmailHistoryCursorError()
+        while (true) {
+          const end = Math.min(ids.length, start + Math.min(Math.max(options.limit ?? 50, 1), 100))
+          const items = await getGmailMessages(client, ids.slice(start, end), bodyLimit)
+          if (items.length || end === ids.length) return { items, nextCursor: end < ids.length ? String(end) : null }
+          start = end
+        }
+      }
       let cursor = options.cursor
       while (true) {
         let page: { ids: string[], nextPageToken?: string }
@@ -1208,9 +1368,10 @@ export function gmailHistoryCollection(
       }
     },
     async parseQuery(input: AgentChannelHistoryQuery): Promise<GmailHistoryQuery> {
-      const labelIds = input.labelIds
+      const { ids, labelIds } = input
       return v.parse(historyQuerySchema, {
         ...input,
+        ...(hasRuntimeType(ids, "string") ? { ids: [ids] } : {}),
         ...(hasRuntimeType(labelIds, "string") ? { labelIds: [labelIds] } : {}),
       })
     },
