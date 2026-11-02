@@ -263,7 +263,7 @@ describe("Rate Limits", async () => {
     mocks.peek.mockImplementation(async (_base: string, name: string, key: string) => ({ counters: [], key, name, provider: "memory", status: "unused" }))
     const router = createRouter({ history: createMemoryHistory(), routes })
     await router.push("/rate-limits?definition=login&key=alice")
-    const Counter = { ...RateLimit, render: () => null }
+    const Counter: Component = { ...RateLimit, render: () => null }
     const app = renderer.createApp({
       ...Definitions,
       // Render the real catalog's selected definition with its counter, leaving out the dashboard UI.
