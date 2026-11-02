@@ -1,8 +1,9 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { readFile } from "node:fs/promises"
 import { dirname, extname, isAbsolute, relative, resolve } from "node:path"
 
 import { createDefaultCloudflareOutputRoot, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { getViteMode } from "@vite-hub/internal/build/mode"
+import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { createNoExternalAddition, isServerEnvironment, generatedViteHubWatchIgnoredAddition, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { registerViteHubDevEndpoint } from "@vite-hub/internal/dev-endpoint"
@@ -1554,12 +1555,8 @@ async function writeNitroWorkspacePlugin(
   const pluginFile = resolve(root, generatedNitroWorkspacePlugin)
   const registryFile = resolve(root, generatedNitroWorkspaceRegistry)
   const runtimeConfig = runtimeWorkspaceConfig(config, options, cloudflareRuntime)
-  await Promise.all([
-    mkdir(dirname(pluginFile), { recursive: true }),
-    mkdir(dirname(registryFile), { recursive: true }),
-  ])
-  await writeFile(registryFile, createWorkspaceRegistryContents(registryFile, definitions, definitionOverrides), "utf8")
-  await writeFile(
+  await writeFileIfChanged(registryFile, createWorkspaceRegistryContents(registryFile, definitions, definitionOverrides))
+  await writeFileIfChanged(
     pluginFile,
     renderNitroWorkspacePlugin(
       runtimeConfig,
@@ -1568,7 +1565,6 @@ async function writeNitroWorkspacePlugin(
       cloudflareRuntime,
       importBase,
     ),
-    "utf8",
   )
 }
 
