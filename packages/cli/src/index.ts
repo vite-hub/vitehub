@@ -97,10 +97,15 @@ async function loadNuxtViteConfig(rootDir: string, command: ConfigEnv["command"]
   catch {
     throw cliErrorDiagnostics.CLI_R0001({ message: "[vitehub] Nuxt config was found, but Nuxt could not be loaded for CLI discovery." })
   }
+  if (mode) {
+    const { loadEnv } = await import("vite")
+    Object.assign(process.env, loadEnv(mode, rootDir, ""))
+  }
   // SAFETY: vitehubCliDiscovery is an internal marker consumed by ViteHub's Nuxt module during config loading.
   const nuxt = await loadNuxt({
     cwd: rootDir,
     dev: command === "serve",
+    ...(mode ? { envName: mode } : {}),
     overrides: { devtools: { enabled: false }, ...(mode ? { vite: { mode } } : {}), vitehubCliDiscovery: true },
     ready: true,
   } as Parameters<typeof loadNuxt>[0])

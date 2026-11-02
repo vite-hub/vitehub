@@ -20,7 +20,8 @@ type ResolveViteConfig = (
 type LoadNuxt = (options: {
   cwd: string
   dev: boolean
-  overrides: { devtools: { enabled: false }, vitehubCliDiscovery: true }
+  envName?: string
+  overrides: { devtools: { enabled: false }, vite?: { mode: string }, vitehubCliDiscovery: true }
   ready: true
 }) => Promise<{
   close?: () => Promise<void> | void
@@ -49,26 +50,32 @@ async function defaultResolveViteConfig(
 export async function loadViteHubCliConfig(
   rootDir: string,
   command: ConfigEnv["command"] = "serve",
+  mode?: string,
   dependencies: {
     loadNuxt?: LoadNuxt
     resolveViteConfig?: ResolveViteConfig
   } = {},
 ): Promise<Pick<ResolvedConfig, "plugins" | "root"> & { vitehubConfigResolved: true }> {
-  const mode = command === "build" ? "production" : "development"
+  const resolvedMode = mode ?? (command === "build" ? "production" : "development")
   const resolveViteConfig = dependencies.resolveViteConfig ?? defaultResolveViteConfig
   if (!hasConfig(rootDir, "nuxt")) {
     return {
       // SAFETY: vitehubCliDiscovery is an internal marker consumed by ViteHub's plugin before Vite reads the config.
-      ...await resolveViteConfig({ root: rootDir, vitehubCliDiscovery: true } as InlineConfig, command, mode),
+      ...await resolveViteConfig({ root: rootDir, vitehubCliDiscovery: true } as InlineConfig, command, resolvedMode),
       vitehubConfigResolved: true,
     }
   }
 
   const loadNuxt = dependencies.loadNuxt ?? await resolveNuxtLoader(rootDir)
+  if (mode) {
+    const { loadEnv } = await import("vite")
+    Object.assign(process.env, loadEnv(mode, rootDir, ""))
+  }
   const nuxt = await loadNuxt({
     cwd: rootDir,
     dev: command === "serve",
-    overrides: { devtools: { enabled: false }, vitehubCliDiscovery: true },
+    ...(mode ? { envName: mode } : {}),
+    overrides: { devtools: { enabled: false }, ...(mode ? { vite: { mode } } : {}), vitehubCliDiscovery: true },
     ready: true,
   })
   try {
@@ -81,7 +88,7 @@ export async function loadViteHubCliConfig(
         configFile: false,
         root: viteRoot,
         vitehubCliDiscovery: true,
-      } as InlineConfig, command, mode),
+      } as InlineConfig, command, resolvedMode),
       vitehubConfigResolved: true,
     }
   }

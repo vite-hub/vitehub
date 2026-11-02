@@ -37,10 +37,14 @@ describe("vitehub({ publicUrl }) on Cloudflare", () => {
     })
   })
 
-  it("keeps the default host for workers.dev, HTTP, and port origins, the function form, development, and other presets", async () => {
+  it("keeps the default host when custom-domain routing does not apply", async () => {
     for (const wrangler of [
       await wranglerFor("https://calories.maxi.workers.dev"),
       await wranglerFor("http://calories.example.com"),
+      await wranglerFor("https://192.0.2.1"),
+      await wranglerFor("https://[2001:db8::1]"),
+      await wranglerFor("https://localhost"),
+      await wranglerFor("https://bad_host.example.com"),
       await wranglerFor("https://calories.example.com:8443"),
       await wranglerFor(() => "https://calories.example.com"),
       await wranglerFor(undefined),

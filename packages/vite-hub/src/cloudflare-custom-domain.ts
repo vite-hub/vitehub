@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, statSync } from "node:fs"
+import { isIP } from "node:net"
 import { dirname, extname, join, resolve } from "node:path"
 import { parseJSONC, parseTOML } from "confbox"
 
@@ -31,8 +32,8 @@ function setsRouting(config: Record<string, unknown> | undefined): boolean {
 
 /**
  * The wrangler keys that serve the Worker on the custom domain of `publicUrl`: one `custom_domain` route and
- * `workers_dev: false`. Returns nothing for a workers.dev origin, an HTTP origin, or an origin with a port. Also returns
- * nothing when the app's Nitro wrangler config or project wrangler file sets `route`, `routes`, or `workers_dev`: Nitro
+ * `workers_dev: false`. Returns nothing for workers.dev, IP or non-DNS hostnames, HTTP, or origins with a port.
+ * Also returns nothing when the app's Nitro wrangler config or project wrangler file sets `route`, `routes`, or `workers_dev`: Nitro
  * merges these keys with the project file, so ViteHub leaves routing to the app as soon as the app sets one of them.
  */
 export function cloudflareCustomDomainConfig(
@@ -42,6 +43,9 @@ export function cloudflareCustomDomainConfig(
 ): { routes: [{ custom_domain: true, pattern: string }], workers_dev: false } | undefined {
   const url = new URL(publicUrl)
   if (url.protocol !== "https:" || url.port || url.hostname.endsWith(".workers.dev")) return
+  const labels = url.hostname.split(".")
+  if (isIP(url.hostname) || url.hostname.length > 253 || labels.length < 2
+    || !labels.every(label => /^[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?$/i.test(label))) return
   if (setsRouting(wrangler) || setsRouting(project)) return
   return { routes: [{ custom_domain: true, pattern: url.hostname }], workers_dev: false }
 }

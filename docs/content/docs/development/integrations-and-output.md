@@ -101,7 +101,7 @@ When `publicUrl` is one string, `vitehub channels sync` and `vitehub channels hi
 
 ### Serve a Cloudflare Worker on its custom domain
 
-On the `cloudflare` preset, a string `publicUrl` with an HTTPS host outside `workers.dev` and without a port also writes the custom domain into the generated `wrangler.json`:
+On the `cloudflare` preset, a string `publicUrl` with an HTTPS DNS hostname outside `workers.dev` and without a port also writes the custom domain into the generated `wrangler.json`. IP addresses, `localhost`, and invalid DNS hostnames leave routing unchanged:
 
 ```ts
 vitehub({

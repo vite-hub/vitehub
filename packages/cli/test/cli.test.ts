@@ -829,9 +829,12 @@ export default {
     await mkdir(join(rootDir, "node_modules"))
     await symlink(resolve(import.meta.dirname, "../node_modules/nuxt"), join(rootDir, "node_modules/nuxt"), "dir")
     await writeFile(join(rootDir, "package.json"), "{}\n")
+    await writeFile(join(rootDir, ".env.production"), "VITEHUB_TEST_NUXT_PUBLIC_URL=https://env.production.example.com\n")
     await writeFile(join(rootDir, "nuxt.config.ts"), `
 export default {
   modules: ["./discovery-module.ts"],
+  testOrigin: "https://development.example.com",
+  $production: { testOrigin: "https://production.example.com" },
 }
 `)
     await writeFile(join(rootDir, "discovery-module.ts"), `
@@ -840,14 +843,13 @@ export default function (_options, nuxt) {
   if (nuxt.options.devtools.enabled !== false) throw new Error("Nuxt DevTools started during CLI discovery")
   if (!nuxt.options.dev) return
   nuxt.options.vite.plugins ||= []
+  const fromEnv = process.env.VITEHUB_TEST_NUXT_PUBLIC_URL
   const plugin = {
     name: "fixture-discovery-test",
-    config(_config, { mode }) {
-      plugin.vitehub.cli.publicUrl = "https://" + mode + ".example.com"
-    },
     vitehub: {
       cli: {
-        namespaces: [{ features: [{ name: "sync", run: (_args, context) => { context.stdout.write(context.publicUrl); return 0 } }], name: "channels" }],
+        publicUrl: nuxt.options.testOrigin,
+        namespaces: [{ features: [{ name: "sync", run: (_args, context) => { context.stdout.write(JSON.stringify({ fromEnv, publicUrl: context.publicUrl })); return 0 } }], name: "channels" }],
       },
     },
   }
@@ -859,9 +861,13 @@ export default function (_options, nuxt) {
     await expect(runViteHubCli({
       args: ["channels", "sync", ...stage ? ["--stage", stage] : []],
       cwd: rootDir,
+      env: { ...process.env, VITEHUB_TEST_NUXT_PUBLIC_URL: undefined },
       stdout,
     })).resolves.toBe(0)
-    expect(stdout.output()).toBe(`https://${stage ?? "development"}.example.com`)
+    expect(JSON.parse(stdout.output())).toEqual({
+      fromEnv: stage ? "https://env.production.example.com" : undefined,
+      publicUrl: `https://${stage ?? "development"}.example.com`,
+    })
   })
 
   it("fails closed when provision credentials are missing", async () => {
