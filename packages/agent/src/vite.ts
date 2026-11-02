@@ -1848,6 +1848,7 @@ async function writeAgentRuntimeRegistry(
     "resetPublicUrlAgentNames()",
     `export default {${entries.length ? `\n  ${entries.join(",\n  ")}\n` : ""}}`,
     `export const metadata = {${generatedAgentIdentityEntries(definitions)}}`,
+    `export async function loadChannelsHost() { await import("./chat-webhook-route") }`,
     "",
   ].join("\n"), "utf8")
 }

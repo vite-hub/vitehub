@@ -214,6 +214,8 @@ const webhookInboxReceivedAt = Symbol("webhookInboxReceivedAt")
 
 export interface AgentChannelWebhookRouteOptions extends AgentRouteRuntimeOptions {
   agentName?: string
+  /** Explicit host context for trusted polling calls. */
+  runtimeContext?: AgentRuntimeContext
   state?: AgentChatStateResolver<ViteAgentRouteRuntimeConfig>
   webhookState?: AgentWebhookStateResolver<ViteAgentRouteRuntimeConfig>
 }
@@ -625,16 +627,18 @@ function createRuntimeContext(
   runtimeOverride?: AgentRuntimeName,
   capabilities?: ViteAgentRouteRuntimeContext["capabilities"],
   agentIdentity?: AgentHostIdentity,
+  runtimeContext?: AgentRuntimeContext,
 ): ViteAgentRouteRuntimeContext {
-  const runtime = cloudflare ? "cloudflare-agents" : runtimeOverride || detectRuntime()
+  const runtime = runtimeContext?.runtime ?? (cloudflare ? "cloudflare-agents" : runtimeOverride || detectRuntime())
   return createHostRuntimeContext({
     ...(capabilities ? { capabilities } : {}),
-    ...(agentIdentity ? { agentIdentity } : {}),
     ...(cloudflare ? { cloudflare } : {}),
-    request,
+    ...runtimeContext,
+    ...(agentIdentity ? { agentIdentity } : {}),
+    request: runtimeContext?.request ?? request,
     ...(run ? { run } : {}),
     runtime,
-    runtimeConfig: {},
+    runtimeConfig: runtimeContext?.runtimeConfig ?? {},
     ...(runtime === "vercel" && waitUntil ? { vercel: { waitUntil } } : {}),
     ...(waitUntil ? { waitUntil } : {}),
   })
@@ -10135,14 +10139,15 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       return [...channels.values()]
     })
   }
-  const channelContext = async (request: Request, handlerOptions: AgentChannelWebhookRouteOptions) => createRuntimeContext(
+  const channelContext = async (request: Request, handlerOptions: AgentChannelWebhookRouteOptions, runtimeContext?: AgentRuntimeContext) => createRuntimeContext(
     request,
     undefined,
-    await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
+    await resolveRuntimeWaitUntil(runtimeContext?.waitUntil ?? handlerOptions.waitUntil),
     handlerOptions.cloudflare,
     handlerOptions.runtime,
     handlerOptions.capabilities,
     routeAgentIdentity(handlerOptions),
+    runtimeContext,
   )
   const channelRegistration = async (context: ViteAgentRouteRuntimeContext, channel: string) => {
     const match = (await agentWebhookRegistrations(agent, context)).find(({ registration }) => (registration.channelId || registration.id || registration.provider) === channel)
@@ -10170,7 +10175,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
   handler.poll = async (request, channel, handlerOptions = {}) => {
     const channelIds = Object.entries(agentChannelOptions(agent)).flatMap(([id, candidate]) => candidate === channel ? [id] : [])
     if (!channelIds.length) return []
-    const context = await channelContext(request, handlerOptions)
+    const context = await channelContext(request, handlerOptions, handlerOptions.runtimeContext)
     try {
       await runWithRuntimeCloudflareEnv(context, async () => {
         const registrations = await agentWebhookRegistrations(agent, context)
@@ -10187,7 +10192,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
             throw new ChannelStateUnavailableError("This Channel requires durable State. Configure persistent SQLite/libSQL storage or Cloudflare Durable Objects.")
           }
           await channelState.state.connect()
-          bindAgentChannelTriggerState(request, channelId, { keyPrefix: `${channelState.keyPrefix}channel-state:`, state: channelState.state })
+          bindAgentChannelTriggerState(context.request, channelId, { keyPrefix: `${channelState.keyPrefix}channel-state:`, state: channelState.state })
           const trigger = (await resolveAgentTriggers(agent as never, context as never))[`${channelId}.poll`]
           if (!trigger) throw new ChannelUnknownError(`Channel ${JSON.stringify(channelId)} has no poll trigger.`)
           await trigger.invoke(undefined)

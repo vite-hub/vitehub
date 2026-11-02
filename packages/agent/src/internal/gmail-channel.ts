@@ -813,6 +813,8 @@ export interface GmailMailboxSync {
    */
   notificationHistoryId: string | (() => Promise<string>)
   state: AgentChannelStateBinding
+  /** Reject after saving the retry checkpoint when message Invocations fail. */
+  throwOnDispatchFailure?: boolean
   /** Pub/Sub topic of the watch. The sync renews the watch when it expires within a day. */
   topic?: string
 }
@@ -958,7 +960,10 @@ async function syncMailboxOnce(sync: GmailMailboxSync, cursorKey: string, renew:
     await dispatchMessageIds(progress.pendingIds)
     await save({ ...progress, pageToken: progress.nextPageToken, nextPageToken: undefined, pageLoaded: false, done: !progress.nextPageToken })
   }
-  if (progress.retryIds.length) return false
+  if (progress.retryIds.length) {
+    if (sync.throwOnDispatchFailure) throw new Error(`Gmail message dispatch failed for ${progress.retryIds.length} message(s); saved for retry.`)
+    return false
+  }
   if (progress.mode === "recovery") log("history.expired", { historyId: cursor, recovered: seen.size })
   // Completion and checkpoint cleanup commit only while this worker owns the mailbox lease.
   await renew()

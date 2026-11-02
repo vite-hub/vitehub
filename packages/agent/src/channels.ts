@@ -4126,6 +4126,7 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
             dispatch: dispatchReceived(context),
             notificationHistoryId: async () => await gmailMailboxHistoryId(client),
             state: context.channelState,
+            throwOnDispatchFailure: true,
             ...(settings.pubsubTopic ? { topic: settings.pubsubTopic } : {}),
           })
           return new Response(null, { status: 204 })
@@ -4231,6 +4232,9 @@ export async function pollGmailChannel(channel: AgentChannelDefinition, options:
   if (channel.kind !== "gmail" || getAgentChannelSyncDefinition(channel)?.provider !== "gmail") {
     throw agentDiagnostics.AGENT_R0940({ message: "[vitehub] pollGmailChannel() expects a Channel from gmail()." })
   }
+  // Standalone Schedule functions do not load the webhook route or its startup plugin.
+  // The generated registry loads the same handlers and durable State configuration on demand.
+  if (!channelsConsoleHost()) await (await import("#vitehub/agent/registry")).loadChannelsHost()
   const host = channelsConsoleHost()
   if (!host) {
     throw agentDiagnostics.AGENT_R0940({ message: "[vitehub] pollGmailChannel() needs the Agent webhook routes of this app in the same process, with durable Agent State: libSQL with VITEHUB_AGENT_STATE_URL or Cloudflare Durable Objects." })
@@ -4238,7 +4242,7 @@ export async function pollGmailChannel(channel: AgentChannelDefinition, options:
   let polled = 0
   for (const [name, handler] of Object.entries(host.handlers)) {
     const request = new Request("http://vitehub.local/_vitehub/channels/poll")
-    polled += (await handler.poll(request, channel, host.options(name, options.runtime?.cloudflare?.env))).length
+    polled += (await handler.poll(request, channel, { ...host.options(name, options.runtime?.cloudflare?.env), runtimeContext: options.runtime })).length
   }
   if (!polled) throw agentDiagnostics.AGENT_R0940({ message: "[vitehub] pollGmailChannel() found no Agent that uses this Channel." })
 }

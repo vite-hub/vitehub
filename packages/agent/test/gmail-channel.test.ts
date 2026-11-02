@@ -21,6 +21,8 @@ import type { Lock, StateAdapter } from "chat"
 import type { GmailClient } from "../src/internal/gmail-channel.ts"
 import type { AgentRuntimeContext } from "../src/types.ts"
 
+vi.mock("#vitehub/env/server", () => ({ useServerEnv: (event?: unknown) => event ?? {} }))
+
 const audience = "https://mail.example.com/api/_vitehub/agents/labeller/webhooks/gmail"
 const serviceAccount = "gmail-push@example.iam.gserviceaccount.com"
 const subscription = "projects/example/subscriptions/gmail-push"
@@ -1197,6 +1199,61 @@ describe("gmail() Channel", () => {
     expect(google.calls.filter(call => call.path === "history").map(call => call.query.get("startHistoryId"))).toEqual(["300", "305", "305", "310"])
 
     await expect(pollGmailChannel(gmail({ fetch: google.fetch }))).rejects.toThrow("found no Agent that uses this Channel")
+  })
+
+  it("preserves the polling runtime and reads Gmail credentials from its Server Env event", async () => {
+    const google = await createGoogle()
+    const inbox = gmail({ fetch: google.fetch })
+    const event = { gmail: { clientId: "client-id", clientSecret: "client-secret", refreshToken: "refresh-token" } }
+    const runtime: AgentRuntimeContext = {
+      capabilities: { polling: true },
+      cloudflare: { context: { scheduled: true }, env: {} },
+      event,
+      memo: (_key, create) => create(),
+      request: new Request("https://mail.example.com/schedule"),
+      runtime: "vite",
+      runtimeConfig: { polling: true },
+      waitUntil: vi.fn(),
+    }
+    const seen: AgentRuntimeContext[] = []
+    const agent = defineAgent({
+      channels: { gmail: inbox },
+      driver: { run: () => "ok" },
+      hooks: { "agent:finish": ({ runtime }) => { seen.push(runtime); runtime.waitUntil(Promise.resolve()) } },
+    })
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-gmail-poll-runtime-"))
+    const state = createLibsqlAgentState({ url: `file:${join(directory, "state.db")}` })
+    durableWebhookFixtures.push({ directory, state })
+    installChannelsConsoleHost({ agents: { poller: agent }, handlers: { poller: createChannelWebhookRouteHandler(agent) }, options: () => ({ agentName: "poller", webhookState: () => state }) })
+    await pollGmailChannel(inbox, { runtime })
+    google.history.set("300", { historyId: "305", ids: ["m1"] })
+    await pollGmailChannel(inbox, { runtime })
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toMatchObject({ capabilities: runtime.capabilities, cloudflare: runtime.cloudflare, runtime: "vite", runtimeConfig: runtime.runtimeConfig })
+    expect(runtime.waitUntil).toHaveBeenCalled()
+  })
+
+  it("rejects a poll with failed Invocations and retries its checkpoint on the next poll", async () => {
+    stubGmailEnv()
+    const google = await createGoogle()
+    const inbox = gmail({ fetch: google.fetch })
+    let fail = true
+    const run = vi.fn(() => { if (fail) throw new Error("Invocation failed"); return "ok" })
+    const agent = defineAgent({ channels: { gmail: inbox }, driver: { run } })
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-gmail-poll-retry-"))
+    const state = createLibsqlAgentState({ url: `file:${join(directory, "state.db")}` })
+    durableWebhookFixtures.push({ directory, state })
+    installChannelsConsoleHost({ agents: { poller: agent }, handlers: { poller: createChannelWebhookRouteHandler(agent) }, options: () => ({ agentName: "poller", webhookState: () => state }) })
+    await pollGmailChannel(inbox)
+    google.history.set("300", { historyId: "305", ids: ["m1"] })
+    await expect(pollGmailChannel(inbox)).rejects.toThrow("Gmail message dispatch failed")
+    expect(run).toHaveBeenCalledTimes(1)
+    fail = false
+    await pollGmailChannel(inbox)
+    expect(run).toHaveBeenCalledTimes(2)
+    await pollGmailChannel(inbox)
+    expect(run).toHaveBeenCalledTimes(2)
+    expect(google.calls.filter(call => call.path === "history").map(call => call.query.get("startHistoryId"))).toEqual(["300", "305", "305"])
   })
 
   it.each(["history", "recovery"] as const)("journals %s messages before listing the next page and retries without duplicate Invocations", async mode => {
