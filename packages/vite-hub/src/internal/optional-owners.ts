@@ -1,3 +1,8 @@
+import { readFileSync } from "node:fs"
+import { fileURLToPath } from "node:url"
+
+import { isPlainObject } from "@vite-hub/internal/object"
+
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 
 /**
@@ -56,11 +61,30 @@ export async function importOptionalOwner<T>(packageName: OptionalOwnerPackage, 
   return isPackageInstalled(packageName) ? await load() : undefined
 }
 
+/**
+ * The `pnpm add` arguments for `packages`. A pkg.pr.new preview of `vite-hub` keeps the npm version in its optional
+ * peers, so a plain name installs the npm release. The preview's own `@vite-hub/*` dependencies point at pkg.pr.new, so
+ * the other ViteHub packages get the URL of the same preview.
+ */
+export function installArguments(packages: readonly string[], manifest: unknown = readViteHubManifest()): string[] {
+  const dependencies = isPlainObject(manifest) && isPlainObject(manifest.dependencies) ? manifest.dependencies : {}
+  const preview = Object.entries(dependencies).flatMap(([name, specifier]) => {
+    if (!name.startsWith("@vite-hub/") || typeof specifier !== "string" || !specifier.startsWith("https://pkg.pr.new/")) return []
+    const [base, ref] = specifier.split(`/${name}@`)
+    return base && ref ? [{ base, ref }] : []
+  })[0]
+  return packages.map(name => preview && name.startsWith("@vite-hub/") ? `${preview.base}/${name}@${preview.ref}` : name)
+}
+
+function readViteHubManifest(): unknown {
+  return JSON.parse(readFileSync(fileURLToPath(import.meta.resolve("vite-hub/package.json")), "utf8"))
+}
+
 /** The error for enabled features whose packages the app did not install. It lists one install command for all. */
 export function missingFeaturePackagesError(features: readonly OptionalFeature[]) {
   const lines = features.map(feature => `The ${feature} feature needs ${optionalFeaturePackages[feature].join(", ")}.`)
   const missing = [...new Set(features.flatMap(feature => optionalFeaturePackages[feature]))].filter(name => !isPackageInstalled(name))
-  return viteHubErrorDiagnostics.VITE_HUB_R0136({ message: `[vitehub] ${lines.join(" ")} Install the missing packages in your app with: pnpm add ${missing.join(" ")}` })
+  return viteHubErrorDiagnostics.VITE_HUB_R0136({ message: `[vitehub] ${lines.join(" ")} Install the missing packages in your app with: pnpm add ${installArguments(missing).join(" ")}` })
 }
 
 /** Throws when an enabled feature misses one of its packages. */
