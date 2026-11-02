@@ -2553,7 +2553,7 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).toContain("async function toRequest(event: H3Event)")
       expect(webhookRoute).toContain("getRequestWebStream")
       expect(webhookRoute).toContain("const method = event.method || 'POST'")
-      expect(webhookRoute).toContain("body: method === 'GET' || method === 'HEAD' ? undefined : getRequestWebStream(event)")
+      expect(webhookRoute).toContain("body: method === 'GET' || method === 'HEAD' ? undefined : requestBody(event)")
       expect(webhookRoute).toContain("method,")
       expect(webhookRoute).not.toContain("readRawBody(event)")
       expect(await import("h3")).toHaveProperty("getRequestWebStream")
@@ -2590,6 +2590,14 @@ describe("agent Vite plugin", () => {
       ) as (event: { method: string }) => Promise<Request>
       const request = await toRequest({ method: "GET" })
       expect([...request.headers]).toEqual([["authorization", "Bearer test-token"], ["x-empty", ""]])
+      // Nitro 2, which Nuxt 4 runs, passes H3 1 events: the H3 2 helpers cannot read their Node request.
+      const nodeBody = (async function* () { yield new TextEncoder().encode('{"messages":'); yield new TextEncoder().encode("[]}") })()
+      const nodeRequest = Object.assign(nodeBody, { headers: { host: "127.0.0.1:4731", "set-cookie": ["a=1", "b=2"] }, once: () => undefined, url: "/api/_vitehub/agents/support/chat?x=1" })
+      const nodeEvent = { method: "POST", node: { req: nodeRequest }, req: nodeRequest }
+      const fromNode = await toRequest(nodeEvent as never)
+      expect(fromNode.url).toBe("http://127.0.0.1:4731/api/_vitehub/agents/support/chat?x=1")
+      expect(fromNode.headers.get("set-cookie")).toBe("a=1, b=2")
+      await expect(fromNode.text()).resolves.toBe('{"messages":[]}')
       expect(webhookRoute).not.toContain("headers: getRequestHeaders(event)")
     } finally {
       await rm(root, { force: true, recursive: true })
