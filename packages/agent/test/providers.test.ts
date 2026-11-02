@@ -2955,15 +2955,22 @@ export default defineAgent({
           shutdownDrains.push(name)
           if (name === "agent.webhook-queues") app.hooks.hook("close", () => drain({ signal: new AbortController().signal, timeoutMs: 0 }))
         }
-        const install = new Function("resumeWebhookQueues", "warmWebhookRoutes", "performance", "setTimeout", "process", "onShutdown", "webhookQueueShutdown", "drainInlineChatInvocations", `${queuePlugin.replace(/^import .*\n/gm, "").replace("export default ", "return ").replaceAll("import.meta.prerender", "false").replaceAll("import.meta.dev", "false")}`)(
+        const startDelays: number[] = []
+        let routesLoaded: (() => void) | undefined
+        const install = new Function("resumeWebhookQueues", "warmWebhookRoutes", "performance", "setTimeout", "clearTimeout", "process", "onShutdown", "webhookQueueShutdown", "drainInlineChatInvocations", "onAgentRoutesLoad", `${queuePlugin.replace(/^import .*\n/gm, "").replace("export default ", "return ").replaceAll("import.meta.prerender", "false").replaceAll("import.meta.dev", "false")}`)(
           resumeWebhookQueues,
           warmWebhookRoutes,
           { timeOrigin: Date.now() - 60_000 },
-          (callback: () => void) => { startup = callback },
+          (callback: () => void, delay: number) => {
+            startup = callback
+            startDelays.push(delay)
+          },
+          () => {},
           undefined,
           onShutdown,
           async () => {},
           async () => ({ active: 0, interrupted: 0, unsettled: 0 }),
+          (listener: () => void) => { routesLoaded = listener },
         )
         install({ hooks: { hook: (name: string, callback: () => void) => hooks.set(name, callback) } })
         hooks.get("close")?.()
@@ -2975,16 +2982,24 @@ export default defineAgent({
         expect(resumeWebhookQueues).toHaveBeenCalledWith(undefined, expect.any(Number))
         expect(warmWebhookRoutes).toHaveBeenCalledOnce()
         expect(resumeWebhookQueues.mock.calls[0]![1]).toBeLessThan(pluginStartedAt - 30_000)
+        // The queues start one second after the server starts, or at once when a request loads the Agent routes.
+        expect(startDelays).toEqual([1000, 1000])
+        routesLoaded?.()
+        expect(resumeWebhookQueues).toHaveBeenCalledOnce()
+        hooks.get("close")?.()
+        install({ hooks: { hook: (name: string, callback: () => void) => hooks.set(name, callback) } })
+        routesLoaded?.()
+        expect(resumeWebhookQueues).toHaveBeenCalledTimes(2)
         hooks.get("close")?.()
         expect(queuePlugin).toContain("stop = resumeWebhookQueues(waitUntil, recoverInterruptedBefore)")
         expect(queuePlugin).toContain("if (!stopping) stopping = stop?.()")
         expect(queuePlugin).toContain("if (stopping) waitUntil?.(stopping)")
         // ViteHub owns stop signals and the exit. The plugin only registers its drains.
-        expect(queuePlugin).toContain('import { drainInlineChatInvocations, onShutdown, webhookQueueShutdown } from "@vite-hub/agent/server/internal"')
+        expect(queuePlugin).toContain('import { drainInlineChatInvocations, onAgentRoutesLoad, onShutdown, webhookQueueShutdown } from "@vite-hub/agent/server/internal"')
         expect(queuePlugin).not.toContain("SIGTERM")
         expect(queuePlugin).not.toContain("process.exit")
         expect(queuePlugin).not.toContain("VITEHUB_SHUTDOWN_DRAIN_MS")
-        expect(shutdownDrains).toEqual(["agent.chat", "agent.webhook-queues", "agent.chat", "agent.webhook-queues"])
+        expect(shutdownDrains).toEqual(["agent.chat", "agent.webhook-queues", "agent.chat", "agent.webhook-queues", "agent.chat", "agent.webhook-queues"])
         expect(webhookRoute).toContain(
           "return await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], cloudflare, state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil: waitUntilFromEvent(event) })",
         )

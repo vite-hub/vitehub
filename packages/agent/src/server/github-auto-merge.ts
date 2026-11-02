@@ -3,7 +3,7 @@ import html from "comark/plugins/html"
 import type { ComarkPlugin, Node as MarkdownNode } from "comark"
 import * as v from "valibot"
 import { isRuntimeRecord as isRecord } from "../internal/runtime-type.ts"
-import { githubBranchRuleDetails, repoRef, type CiRunRef, type GitHubProvider, type ThreadRef } from "@vite-hub/forge"
+import { forgeBranchRules, githubBranchRuleDetails, repoRef, type CiRunRef, type GitHubProvider, type ThreadRef } from "@vite-hub/forge"
 import type { GitHubHost } from "./github-host.ts"
 import type { GitHubRepairCommit } from "./github-repair.ts"
 
@@ -305,7 +305,7 @@ export function createGitHubPullRequestOperations(
     if (!current.autoMergeAllowed) return { status: "blocked", reason: "repository-disabled" }
     const { provider, repo } = await forge()
     // Active rulesets, including organization rulesets, and classic branch protection.
-    const rules = await provider.repos.branchRules(repo, pullRequest.baseRefName, { signal })
+    const rules = await forgeBranchRules(provider, repo, pullRequest.baseRefName, { signal })
     const details = githubBranchRuleDetails(rules)
     if (!rules.requiredChecks.length && !details.requiredWorkflows) return { status: "blocked", reason: "required-checks-missing" }
     const reviews = pullRequest.latestOpinionatedReviews.nodes

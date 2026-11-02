@@ -74,7 +74,7 @@ catalogs:
     # Includes the editor fix in onmax/comark-ui#258; replace with its release when available.
     comark-ui: https://pkg.pr.new/comark-ui@ef627712bbba068654ba083807807ea0bedce7e5
   nuxt:
-    "@nuxt/ui": ^4.11.3
+    "@nuxt/ui": ^4.12.0
     "@takumi-rs/core": 2.14.0
     nuxt: ^4.5.2
     nuxt-schema-org: ^6.4.3
@@ -164,7 +164,7 @@ catalogs:
     "@iconify/vue": ^5.0.3
     "@vueuse/core": ^14.4.0
     motion-v: ^2.5.2
-    reka-ui: ^2.10.5
+    reka-ui: ^2.11.0
     vue: 3.5.44
   unjs:
     defu: ^6.1.7

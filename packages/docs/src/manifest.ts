@@ -28,7 +28,7 @@ export class DocsContentError extends Error {
 
 /** Read the whole content directory and compute sections, pages, and their order. */
 export function createDocsManifest(options: DocsManifestOptions): DocsManifest {
-  const base = normalizeBase(options.base)
+  const base = normalizeDocsBase(options.base)
   const baseDir = join(options.dir, base)
   const rootFile = join(baseDir, "index.md")
   const sections = existsSync(baseDir)
@@ -117,7 +117,7 @@ function joinPath(base: string, ...segments: string[]): string {
   return `${base.replace(/\/+$/, "")}/${segments.join("/")}`
 }
 
-function normalizeBase(base: string): string {
+export function normalizeDocsBase(base: string): string {
   const trimmed = base.replace(/\/+$/, "")
   return trimmed.startsWith("/") ? trimmed : `/${trimmed}`
 }

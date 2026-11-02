@@ -53,6 +53,13 @@ export function normalizeDocsPath(path: string): string {
   return path.replace(/\/index$/, "").replace(/(.)\/+$/, "$1") || "/"
 }
 
+/** A browser URL for an app-relative route or asset. Router links keep their app-relative paths. */
+export function docsAppPath(path: string, appBase = "/"): string {
+  if (!path.startsWith("/") || path.startsWith("//")) return path
+  const base = appBase.replace(/^\/+|\/+$/g, "")
+  return base ? `/${base}${path}` : path
+}
+
 /** Whether a path is the docs base or a page under it. Every path is under a base of `/`. */
 export function isDocsPath(path: string, base: string): boolean {
   return base === "/" || path === base || path.startsWith(`${base}/`)
@@ -175,8 +182,8 @@ export interface DocsMarkdownLinks {
 }
 
 /** Page action links of a docs page. `site.url` is the canonical origin. */
-export function docsMarkdownLinks(site: { name: string, url: string }, path: string): DocsMarkdownLinks {
-  const markdownPath = docsRawPath(path)
+export function docsMarkdownLinks(site: { name: string, url: string }, path: string, appBase = "/"): DocsMarkdownLinks {
+  const markdownPath = docsAppPath(docsRawPath(path), appBase)
   const markdownUrl = `${site.url}${markdownPath}`
   const prompt = `Read ${markdownUrl} from the ${site.name} documentation. Use it as context to answer my questions and to help me apply it in my project.`
   return {

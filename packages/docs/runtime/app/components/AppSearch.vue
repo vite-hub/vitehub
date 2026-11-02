@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { createDocsSearch, docsSectionHome } from "#docs/navigation"
+import { createDocsSearch, docsAppPath, docsSectionHome } from "#docs/navigation"
 
 import type { DocsSearchSection } from "@vite-hub/docs"
 
 // A result shows the page path over its heading. One line, "Page > Section > Heading", cut off the heading on a phone.
+const { appBase } = useDocsConfig()
 const manifest = useDocsManifest()
 const icons = useDocsIcons()
 const navigation = manifest.sections.map(section => ({
@@ -24,7 +25,7 @@ watch(open, async (value) => {
   if (!value || status.value === "loading" || status.value === "ready") return
   status.value = "loading"
   try {
-    const records = await $fetch<DocsSearchSection[]>("/api/_docs/search.json")
+    const records = await $fetch<DocsSearchSection[]>(docsAppPath("/api/_docs/search.json", appBase))
     rank = createDocsSearch(records.filter(record => listed.has(record.id.split("#")[0] ?? record.id)))
     status.value = "ready"
   }

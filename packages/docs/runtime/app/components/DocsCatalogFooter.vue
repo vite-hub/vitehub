@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // The end of every docs page: every documented area by category, with the current one marked.
-import { docsCatalog } from "#docs/navigation"
+import { docsCatalog, docsSectionHome } from "#docs/navigation"
 
 import type { DocsSection } from "@vite-hub/docs"
 
@@ -29,7 +29,7 @@ function isCurrent(section: DocsSection) {
         <ul class="vh-product-footer-list">
           <li v-for="section in group.sections" :key="section.id">
             <NuxtLink
-              :to="section.path"
+              :to="docsSectionHome(section)"
               class="vh-product-footer-link"
               :class="{ 'is-current': isCurrent(section) }"
               :aria-current="isCurrent(section) ? 'true' : undefined"

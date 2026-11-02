@@ -117,6 +117,7 @@ const generatedAgentPreparationHandler = "agent/preparation-route.ts"
 const generatedAgentReadyHandler = "agent/ready-route.ts"
 const agentReadyRoute = "/api/_vitehub/ready"
 const generatedAgentWebhookQueuePlugin = "agent/webhook-queue-plugin.ts"
+const webhookQueueStartDelayMs = 1000
 const generatedAgentProcessHosts = "agent/process-hosts.ts"
 const generatedAgentProcessHostsPlugin = "agent/process-hosts-plugin.ts"
 const generatedAgentProcessHostsDrain = "agent/process-hosts-drain.ts"
@@ -2497,15 +2498,17 @@ async function writeAgentWebhookRouteHandler(
     const internalImport = JSON.stringify(subpath(options.agentImportBase ?? agentPackageName, "server/internal"))
     await writeFile(queuePluginPath, [
       `import { resumeWebhookQueues, warmWebhookRoutes${persistent ? "" : ", waitUntilFromEvent"} } from ${JSON.stringify(`./${generatedAgentWebhookRouteHandler.split("/").at(-1)!.replace(/\.ts$/, "")}`)}`,
-      `import { ${shutdown ? "drainInlineChatInvocations, " : ""}onShutdown, webhookQueueShutdown } from ${internalImport}`,
+      `import { ${shutdown ? "drainInlineChatInvocations, " : ""}${persistent ? "onAgentRoutesLoad, " : ""}onShutdown, webhookQueueShutdown } from ${internalImport}`,
       "",
       "export default function viteHubWebhookQueuePlugin(nitroApp) {",
       "  let stop",
       "  let stopping",
       "  let closed = false",
       "  let waitUntil",
+      "  let startTimer",
       "  function shutdownWebhookQueues() {",
       "    closed = true",
+      "    clearTimeout(startTimer)",
       "    if (!stopping) stopping = stop?.()",
       "    if (stopping) waitUntil?.(stopping)",
       "    return stopping",
@@ -2517,15 +2520,21 @@ async function writeAgentWebhookRouteHandler(
       ...(persistent
         ? [
             "  const startedAt = performance.timeOrigin",
-            "  // Start after the server starts. Invocations that started before this process are",
+            "  // Start one second after the server starts, so the Agent routes do not compile while the server answers its",
+            "  // first requests, or at once when a request loads them. Invocations that started before this process are",
             "  // interrupted unless a queued delivery runs them again.",
-            "  // The warm-up builds registrations, secrets, and State now, so the first delivery does not wait for them.",
-            "  // /api/_vitehub/ready answers 503 until it finishes.",
-            "  if (!import.meta.prerender) setTimeout(() => {",
-            "    if (closed) return",
+            "  // The warm-up builds registrations, secrets, and State before the first delivery needs them.",
+            "  // /api/_vitehub/ready starts it at once and answers 503 until it finishes.",
+            "  function startNow() {",
+            "    clearTimeout(startTimer)",
+            "    if (closed || stop) return",
             "    void warmWebhookRoutes()",
             "    startWebhookQueues(startedAt)",
-            "  }, 0)",
+            "  }",
+            "  if (!import.meta.prerender) {",
+            `    startTimer = setTimeout(startNow, ${JSON.stringify(webhookQueueStartDelayMs)})`,
+            "    onAgentRoutesLoad(startNow)",
+            "  }",
             ...(shutdown
               ? [
                   "  // Inline Chat invocations post a restart notice when the drain interrupts them, and the",

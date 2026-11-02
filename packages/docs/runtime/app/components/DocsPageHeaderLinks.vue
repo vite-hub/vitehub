@@ -8,8 +8,8 @@ const toast = useToast()
 const { copy, copied } = useClipboard({ copiedDuring: 1500 })
 const { copy: copyLink } = useClipboard()
 const manifest = useDocsManifest()
-const { mcp, site } = useDocsConfig()
-const links = computed(() => findDocsPage(manifest, route.path) ? docsMarkdownLinks(site, route.path) : null)
+const { mcp, site, appBase } = useDocsConfig()
+const links = computed(() => findDocsPage(manifest, route.path) ? docsMarkdownLinks(site, route.path, appBase) : null)
 const copying = ref(false)
 
 async function copyText(text: string, title: string) {
@@ -48,7 +48,7 @@ const items = computed(() => {
 
   return [
     [
-      { label: "View as Markdown", icon: "i-simple-icons-markdown", to: page.markdownPath, target: "_blank" },
+      { label: "View as Markdown", icon: "i-simple-icons-markdown", to: page.markdownPath, target: "_blank", external: true },
       {
         label: "Copy Markdown URL",
         icon: "i-lucide-link",

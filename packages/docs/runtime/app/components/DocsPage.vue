@@ -1,17 +1,17 @@
 <script setup lang="ts">
-import { docsRawPath, findDocsPage, normalizeDocsPath } from "#docs/navigation"
+import { docsAppPath, docsRawPath, findDocsPage, normalizeDocsPath } from "#docs/navigation"
 
 import type { DocsPageResponse } from "@vite-hub/docs"
 
 const route = useRoute()
 const manifest = useDocsManifest()
-const { site } = useDocsConfig()
+const { site, appBase } = useDocsConfig()
 const path = normalizeDocsPath(route.path)
 // The server asks the page route even for a path outside the manifest, because a Content preview can show a new page
 // that exists only as a draft. Client navigation to such a path fails without a request.
 if (import.meta.client && !useNuxtApp().isHydrating && !findDocsPage(manifest, path)) throw createError({ statusCode: 404, statusMessage: "Page not found", fatal: true })
 
-const { data } = await useFetch<DocsPageResponse>(`/api/_docs/page${path === "/" ? "/index" : path}.json`, { key: `docs:${path}` })
+const { data } = await useFetch<DocsPageResponse>(docsAppPath(`/api/_docs/page${path === "/" ? "/index" : path}.json`, appBase), { key: `docs:${path}` })
 if (!data.value) throw createError({ statusCode: 404, statusMessage: "Page not found", fatal: true })
 const response = data.value
 const { page } = response
@@ -21,7 +21,7 @@ const isRoot = page.path === manifest.root?.path
 const isStandalone = !response.section && !isRoot
 
 // Agents can fetch the Markdown twin of the page instead of the HTML.
-useHead({ link: [{ rel: "alternate", type: "text/markdown", href: `${site.url}${docsRawPath(page.path)}` }] })
+useHead({ link: [{ rel: "alternate", type: "text/markdown", href: `${site.url}${docsAppPath(docsRawPath(page.path), appBase)}` }] })
 useSeoMeta({
   title: page.seo?.title ?? page.sourceTitle,
   ogTitle: page.seo?.title ?? page.sourceTitle,

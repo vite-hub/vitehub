@@ -1,8 +1,8 @@
 import { getAgentDocument } from "#agent-discovery"
-import { createError } from "#imports"
-import { useEvent } from "nitropack/runtime"
+import { createError, useEvent, useRuntimeConfig } from "#imports"
 import { defineMcpTool } from "@nuxtjs/mcp-toolkit/server"
 import { z } from "zod"
+import { docsAppPath } from "#docs/navigation"
 
 export default defineMcpTool({
   name: "get-page",
@@ -16,7 +16,9 @@ Use a path from list-pages or from a link, such as /docs/getting-started.`,
   cache: "1h",
   handler: async ({ path }) => {
     // The same bytes that `/raw/<path>.md` serves through nuxt-agent-discovery, read in the same process.
-    const document = await getAgentDocument(useEvent(), path)
+    const event = useEvent()
+    const { appBase } = useRuntimeConfig(event).public.docs
+    const document = await getAgentDocument(event, docsAppPath(path, appBase))
     if (!document || "redirect" in document) throw createError({ statusCode: 404, statusMessage: `No page at ${path}` })
     return { title: document.title, path, description: document.description, content: document.markdown, url: document.canonicalUrl }
   },

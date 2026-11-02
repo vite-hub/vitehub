@@ -18,8 +18,8 @@ import {
 import { defu } from "defu"
 
 import { setupDocsAssistant } from "./assistant-nuxt.ts"
-import { createDocsManifest } from "./manifest.ts"
-import { docsManifestPages, docsPageIcon, docsRailIcon, docsSectionIcon, type DocsIcons, type DocsLink } from "./navigation.ts"
+import { createDocsManifest, normalizeDocsBase } from "./manifest.ts"
+import { docsAppPath, docsManifestPages, docsRawPath, docsPageIcon, docsRailIcon, docsSectionIcon, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { toRawMarkdown } from "./raw.ts"
 import { coversDocsPages } from "./page.ts"
 import { docsAppConfigUi, vercelTheme, type DocsThemeUi } from "./theme.ts"
@@ -92,6 +92,7 @@ export interface DocsModuleOptions {
 
 /** Options as the client and the server read them from `runtimeConfig.public.docs`. */
 export interface DocsPublicConfig {
+  appBase: string
   base: string
   site: { name: string, url: string, description: string, logo: string | null, badge: { label: string, tooltip: string | null } | null }
   categories: string[]
@@ -107,7 +108,19 @@ export interface DocsPublicConfig {
   assistant: { agent: string } | false
 }
 
+interface DiscoveryLink {
+  href: string
+  anchor?: string
+}
+
+interface DiscoveryRuntime {
+  agentDiscovery?: { links: DiscoveryLink[] }
+  public?: { agentDiscovery?: { resources: DiscoveryLink[] } }
+}
+
 interface NitroOptions {
+  runtimeConfig?: DiscoveryRuntime
+  routeRules?: Record<string, { headers?: Record<string, string> }>
   alias?: Record<string, string>
   serverAssets?: Array<{ baseName: string, dir: string, pattern?: string }>
   publicAssets?: Array<{ baseURL?: string, dir: string, fallthrough?: boolean, maxAge?: number }>
@@ -117,6 +130,7 @@ interface NitroOptions {
 }
 
 interface AgentDiscoveryOptions {
+  siteUrl?: string
   source?: string
   siteName?: string
   routes?: Array<string | { path: string, raw?: string }>
@@ -172,7 +186,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     nuxt.options.build.transpile.push(resolver.resolve(".."))
     const contentDir = resolve(nuxt.options.rootDir, options.dir ?? "content")
     const rawDir = join(nuxt.options.buildDir, "docs/raw")
-    const config = publicConfig(options)
+    const config = publicConfig(options, nuxt.options.app.baseURL)
     nuxt.options.runtimeConfig.public.docs = config
     setupDocsAssistant(nuxt, config)
     // The panel calls `useChat()` from `vite-hub/nuxt`, so without the assistant `DocsAssistant` renders nothing.
@@ -188,7 +202,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         const target = join(rawDir, page.path === "/" ? "index.md" : `${page.path.slice(1)}.md`)
         mkdirSync(dirname(target), { recursive: true })
         const source = readFileSync(join(contentDir, page.file), "utf8")
-        writeFileSync(target, toRawMarkdown(options.rawMarkdown ? await options.rawMarkdown(source, page) : source, { siteUrl: config.site.url }))
+        writeFileSync(target, toRawMarkdown(options.rawMarkdown ? await options.rawMarkdown(source, page) : source, { siteUrl: `${config.site.url}${config.appBase.replace(/\/+$/, "")}` }))
       }
     }
     nuxt.hook("build:before", writeRaw)
@@ -213,7 +227,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     head.titleTemplate ??= `%s · ${config.site.name}`
 
     moduleOptions.llms = defu(moduleOptions.llms, {
-      domain: config.site.url,
+      domain: config.site.url ? `${config.site.url}${config.appBase.replace(/\/+$/, "")}` : "",
       title: config.site.name,
       description: config.site.description,
       full: { title: config.site.name, description: config.site.description },
@@ -221,16 +235,22 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     const discovery: AgentDiscoveryOptions = {
       source: join(runtime, "server/agent-source.js"),
       siteName: config.site.name,
+      siteUrl: config.site.url,
       discovery: {
-        links: [{ href: "/sitemap.xml", rel: "sitemap", type: "application/xml", title: "Sitemap (XML)" }],
-        mcpServerCard: config.mcp ? { endpoint: "/mcp", name: config.mcp.name } : false,
+        links: [{ href: `${config.site.url}${docsAppPath("/sitemap.xml", config.appBase)}`, rel: "sitemap", type: "application/xml", title: "Sitemap (XML)" }],
+        mcpServerCard: config.mcp ? { endpoint: `${config.site.url}${docsAppPath("/mcp", config.appBase)}`, name: config.mcp.name } : false,
       },
     }
     const agentDiscoveryOptions: AgentDiscoveryOptions = defu(moduleOptions.agentDiscovery, discovery)
     // A page outside the manifest has no Markdown twin, so by default only the manifest pages negotiate.
     if (!agentDiscoveryOptions.routes?.length) {
       const standalone = manifest.pages.map(page => page.path).filter(path => path !== "/")
-      agentDiscoveryOptions.routes = [...new Set(["/", config.base, `${config.base.replace(/\/+$/, "")}/**`, ...standalone])]
+      agentDiscoveryOptions.routes = config.appBase === "/"
+        ? [...new Set(["/", config.base, `${config.base.replace(/\/+$/, "")}/**`, ...standalone])]
+        // Discovery currently accepts only an origin as siteUrl. Give it explicit public raw destinations for both
+        // Nitro's app-relative request paths and the public paths returned by the content source.
+        : docsManifestPages(manifest).flatMap(page => [...new Set([page.path, docsAppPath(page.path, config.appBase).replace(/(.)\/$/, "$1")])]
+            .map(path => ({ path, raw: docsAppPath(docsRawPath(page.path), config.appBase) })))
     }
     moduleOptions.agentDiscovery = agentDiscoveryOptions
 
@@ -256,7 +276,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     }).dst
 
     // Nuxt watches the app folder, and the content folder usually sits beside it, so the module watches it in development.
-    if (nuxt.options.dev) {
+    if (nuxt.options.dev && existsSync(contentDir)) {
       let timer: ReturnType<typeof setTimeout> | undefined
       const watcher = watch(contentDir, { recursive: true }, (_event, file) => {
         if (!file || !/(\.md|\.navigation\.yml)$/.test(file)) return
@@ -277,7 +297,10 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
           }
         }, 100)
       })
-      nuxt.hook("close", () => watcher.close())
+      nuxt.hook("close", () => {
+        clearTimeout(timer)
+        watcher.close()
+      })
     }
 
     // Tailwind scans the app; the docs components and the Markdown pages live outside it.
@@ -349,6 +372,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       if (!app.errorComponent || app.errorComponent.includes("nuxt/dist/app/components/nuxt-error-page")) app.errorComponent = join(runtime, "app/error.vue")
     })
 
+    // Nitro mounts handlers, public assets, and prerender fetches below app.baseURL itself.
     addServerHandler({ route: "/api/_docs/page/**", handler: resolver.resolve("./runtime/server/page.js") })
     addServerHandler({ route: "/api/_docs/search.json", handler: resolver.resolve("./runtime/server/search.js") })
     addServerHandler({ route: "/sitemap.xml", handler: resolver.resolve("./runtime/server/sitemap.js") })
@@ -357,6 +381,19 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
 
     // Nuxt types `nitro:config` only when Nitro's types load.
     Reflect.apply(nuxt.hook, nuxt, ["nitro:config", (nitro: NitroOptions) => {
+      if (config.appBase !== "/") {
+        // Discovery builds its default resource registry after all modules load. Its Link headers and public resource
+        // links are browser URLs, unlike Nitro's route keys, so prefix the generated registry here too.
+        for (const link of [...nitro.runtimeConfig?.agentDiscovery?.links ?? [], ...nitro.runtimeConfig?.public?.agentDiscovery?.resources ?? []]) {
+          link.href = docsAppPath(link.href, config.appBase)
+          if (link.anchor) link.anchor = docsAppPath(link.anchor, config.appBase)
+        }
+        for (const rule of Object.values(nitro.routeRules ?? {})) {
+          for (const key of Object.keys(rule.headers ?? {})) {
+            if (key.toLowerCase() === "link") rule.headers![key] = rule.headers![key]!.replace(/<(\/[^>]+)>/g, (_match, path: string) => `<${docsAppPath(path, config.appBase)}>`)
+          }
+        }
+      }
       nitro.alias = { ...nitro.alias, "#docs/manifest": manifestFile, "#docs/content": contentFile }
       // Nitro 2 development leaves absolute modules outside the app to Node. Bundle the generated modules, so the page
       // route reads the same Content runtime as ViteHub's Content routes instead of a second copy of `server/content.ts`.
@@ -369,7 +406,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       // `docs/kv.html` beside the `docs/kv/` folder, and every linked page, as static hosts expect.
       nitro.prerender = defu(nitro.prerender, { crawlLinks: true, autoSubfolderIndex: false })
       // The MCP toolkit reads the current request through Nitro's async context.
-      if (config.mcp) nitro.experimental = defu(nitro.experimental, { asyncContext: true })
+      if (config.mcp) nitro.experimental = { ...nitro.experimental, asyncContext: true }
     }])
     nuxt.hook("prerender:routes", ({ routes }) => {
       for (const page of docsManifestPages(manifest)) {
@@ -421,17 +458,18 @@ function dependency(name: string): string {
   return fileURLToPath(import.meta.resolve(name))
 }
 
-function publicConfig(options: DocsModuleOptions): DocsPublicConfig {
+function publicConfig(options: DocsModuleOptions, appBase: string): DocsPublicConfig {
   const site = options.site ?? {}
   const url = (site.url ?? "").replace(/\/+$/, "")
   const dir = options.dir ?? "content"
   return {
-    base: options.base ?? "/docs",
+    appBase: docsAppPath("/", appBase),
+    base: normalizeDocsBase(options.base ?? "/docs"),
     site: {
       name: site.name ?? "Docs",
       url,
       description: site.description ?? "",
-      logo: site.logo ?? null,
+      logo: site.logo ? docsAppPath(site.logo, appBase) : null,
       badge: site.badge ? { label: site.badge.label, tooltip: site.badge.tooltip ?? null } : null,
     },
     categories: options.categories ?? [],
@@ -442,7 +480,7 @@ function publicConfig(options: DocsModuleOptions): DocsPublicConfig {
     sitemap: options.sitemap ?? [],
     github: options.github ? { branch: "main", dir, ...options.github, url: `https://github.com/${options.github.repo}` } : false,
     icons: { rail: {}, sections: {}, pages: {}, aliases: {}, family: "", page: "i-lucide-file-text", section: "i-lucide-folder", ...options.icons },
-    mcp: options.mcp === false ? false : { name: options.mcp?.name ?? (site.name ?? "docs").toLowerCase(), url: `${url}/mcp`, guide: options.mcp?.guide ?? null },
+    mcp: options.mcp === false ? false : { name: options.mcp?.name ?? (site.name ?? "docs").toLowerCase(), url: `${url}${docsAppPath("/mcp", appBase)}`, guide: options.mcp?.guide ?? null },
     assistant: options.assistant ? { agent: options.assistant === true ? "docs" : options.assistant.agent ?? "docs" } : false,
   }
 }

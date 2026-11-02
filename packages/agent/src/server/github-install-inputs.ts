@@ -36,7 +36,7 @@ function checkDownloadSource(value: string): void {
   } else if (/(?:^|@)git@/i.test(decoded)) throw new Error("Dependency downloads require a trusted HTTPS registry or forge.");
 }
 const booleanSettings = new Set(["auto-install-peers", "strict-peer-dependencies", "hoist", "shamefully-hoist", "link-workspace-packages", "prefer-workspace-packages", "shared-workspace-lockfile", "package-manager-strict", "legacy-peer-deps", "install-links"]);
-const patternSettings = new Set(["hoist-pattern", "public-hoist-pattern"]);
+const patternSettings = new Set(["hoist-pattern", "public-hoist-pattern", "trust-policy-exclude"]);
 const workspaceFields = new Set(["packages", "catalog", "catalogs", "catalogMode", "overrides", "peerDependencyRules", "minimumReleaseAge", "minimumReleaseAgeExclude", "packageExtensions", "patchedDependencies", "onlyBuiltDependencies", "ignoredBuiltDependencies", "neverBuiltDependencies", "allowBuilds"]);
 
 function supportedSetting(key: string, value: unknown): boolean {
@@ -44,6 +44,9 @@ function supportedSetting(key: string, value: unknown): boolean {
   if (normalized === "link-workspace-packages" && value === "deep") return true;
   if (booleanSettings.has(normalized)) return value === true || value === false || value === "true" || value === "false";
   if (normalized === "node-linker") return value === "isolated" || value === "hoisted" || value === "pnp";
+  // Trust checks only refuse packages, so the install still reads nothing outside the checkout.
+  if (normalized === "trust-policy") return value === "no-downgrade" || value === "off";
+  if (normalized === "trust-policy-ignore-after") return /^\d+$/.test(String(value));
   if (patternSettings.has(normalized)) return Array.isArray(value)
     ? value.every(item => hasRuntimeType(item, "string")) : hasRuntimeType(value, "string");
   return false;

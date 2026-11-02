@@ -12,8 +12,9 @@ export {
   drainInlineChatInvocations,
   hasChannelChatRoute,
   installAgentChannelDeliveryWorkflowResolver,
+  onAgentRoutesLoad,
   setAgentChannelDeliveryWorkflowStateResolver,
-} from "./routes.ts"
+} from "./route-handlers.ts"
 export { isViteHubBearerSecretEqual } from "@vite-hub/internal/secret"
 export { observabilityStatus } from "../internal/observability-host.ts"
 export { handleChannelReplayRequest } from "../channel-replay.ts"

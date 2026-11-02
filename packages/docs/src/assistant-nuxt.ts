@@ -1,4 +1,10 @@
-import type { Nuxt } from "nuxt/schema"
+import type {} from "nuxt/schema"
+
+/** Only the host fields used here: Nuxt and @nuxt/kit can load different compatible schema versions. */
+interface DocsAssistantNuxt {
+  options: { modules: readonly unknown[], dev: boolean }
+  hook: (name: "modules:done", callback: () => Promise<void>) => unknown
+}
 
 /** Options of the `vite-hub/nuxt` module that the assistant depends on. */
 interface ViteHubModuleOptions {
@@ -22,7 +28,7 @@ async function moduleName(module: unknown): Promise<unknown> {
 }
 
 /** Inline and `vitehub` key options of `vite-hub/nuxt`, or `undefined` when the module is not installed. */
-async function viteHubModuleOptions(nuxt: Nuxt): Promise<ViteHubModuleOptions | undefined> {
+async function viteHubModuleOptions(nuxt: DocsAssistantNuxt): Promise<ViteHubModuleOptions | undefined> {
   let installed = false
   let inline: ViteHubModuleOptions = {}
   for (const entry of nuxt.options.modules) {
@@ -52,7 +58,7 @@ export class DocsAssistantSetupError extends Error {
  * `server/connections/chatgpt.ts`), because Agents and Connections are discovered from files. `DocsAssistant`, the panel
  * component, is registered only when this option is on.
  */
-export function setupDocsAssistant(nuxt: Nuxt, config: { assistant: { agent: string } | false }): void {
+export function setupDocsAssistant(nuxt: DocsAssistantNuxt, config: { assistant: { agent: string } | false }): void {
   const assistant = config.assistant
   if (!assistant) return
   nuxt.hook("modules:done", async () => {

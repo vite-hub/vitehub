@@ -1,5 +1,5 @@
 import { listAgentPages } from "#agent-discovery"
-import { useEvent } from "nitropack/runtime"
+import { useEvent, useRuntimeConfig } from "#imports"
 import { defineMcpTool } from "@nuxtjs/mcp-toolkit/server"
 
 export default defineMcpTool({
@@ -10,7 +10,10 @@ Use it to find pages about a topic when you do not know the exact path. Then rea
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   cache: "1h",
   handler: async () => {
-    const pages = await listAgentPages(useEvent())
-    return pages.map(page => ({ title: page.title, path: page.route, description: page.description, url: page.url }))
+    const event = useEvent()
+    const { appBase } = useRuntimeConfig(event).public.docs
+    const prefix = appBase.replace(/\/+$/, "")
+    const pages = await listAgentPages(event)
+    return pages.map(page => ({ title: page.title, path: page.route.startsWith(`${prefix}/`) ? page.route.slice(prefix.length) || "/" : page.route, description: page.description, url: page.url }))
   },
 })

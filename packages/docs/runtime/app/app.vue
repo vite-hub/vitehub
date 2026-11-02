@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import { normalizeDocsPath } from "#docs/navigation"
+import { docsAppPath, normalizeDocsPath } from "#docs/navigation"
 
 const route = useRoute()
-const { site } = useDocsConfig()
+const { site, appBase } = useDocsConfig()
 
 useHead({
   // One title pattern for every page: "KV configuration · ViteHub". A title that already names the site stays as written.
   titleTemplate: title => !title ? site.name : title.includes(site.name) ? title : `${title} · ${site.name}`,
   // One canonical URL per page: the configured origin, no trailing slash, and no query.
-  link: site.url ? [{ rel: "canonical", href: () => `${site.url}${normalizeDocsPath(route.path) === "/" ? "" : normalizeDocsPath(route.path)}` }] : [],
+  link: site.url ? [{ rel: "canonical", href: () => `${site.url}${docsAppPath(normalizeDocsPath(route.path), appBase).replace(/\/+$/, "")}` }] : [],
 })
 
 useSeoMeta({

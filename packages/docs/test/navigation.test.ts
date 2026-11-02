@@ -246,3 +246,18 @@ describe("docs page actions", () => {
     expect(JSON.parse(decodeURIComponent(links.vscode.slice("vscode:mcp/install?".length)))).toEqual({ name: "fixture", type: "http", url: server.url })
   })
 })
+
+
+describe("docs URLs below an application base", () => {
+  it("prefixes fetches, canonical and alternate paths, and raw page actions exactly once", async () => {
+    const { docsAppPath, docsRawPath, docsMarkdownLinks } = await import("../src/navigation.ts")
+    expect(docsAppPath("/api/_docs/search.json", "/portal/")).toBe("/portal/api/_docs/search.json")
+    expect(docsAppPath("/docs/kv", "/portal/")).toBe("/portal/docs/kv")
+    expect(docsAppPath(docsRawPath("/docs/kv"), "/portal/")).toBe("/portal/raw/docs/kv.md")
+    expect(docsAppPath("/", "/portal/")).toBe("/portal/")
+    expect(docsAppPath("https://cdn.example.com/logo.svg", "/portal/")).toBe("https://cdn.example.com/logo.svg")
+    expect(docsMarkdownLinks({ name: "Docs", url: "https://docs.example.com" }, "/docs/kv", "/portal/")).toMatchObject({
+      markdownPath: "/portal/raw/docs/kv.md", markdownUrl: "https://docs.example.com/portal/raw/docs/kv.md",
+    })
+  })
+})
