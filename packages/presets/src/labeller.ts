@@ -38,6 +38,8 @@ export interface LabellerOptions {
   actions: Readonly<Record<string, LabellerAction>>
   bodyLimit: number
   dryRun: boolean
+  /** Hide Gmail labels that `labels` does not declare from Gmail's label list when `vitehub channels sync` applies. */
+  hideUnmanagedLabels: boolean
   minConfidence: number
   trashEnabled: boolean
   client?: GmailClient
@@ -177,7 +179,7 @@ function validateRule(name: string, rule: LabellerRule, labels: Readonly<Record<
 }
 
 function validateOptions(options: LabellerOptions): void {
-  for (const key of ["dryRun", "trashEnabled"] as const) {
+  for (const key of ["dryRun", "hideUnmanagedLabels", "trashEnabled"] as const) {
     if (!hasRuntimeType(options[key], "boolean")) throw new TypeError(`[vitehub] Labeller ${key} must be a boolean.`)
   }
   validateLabels(options.labels)
@@ -223,6 +225,7 @@ export const labeller: LabellerAgent = defineAgent({
     bodyLimit: 10_000,
     // Safe for notifications and first replays. Set false only when writes are intended.
     dryRun: true,
+    hideUnmanagedLabels: false,
     minConfidence: 0.6,
     trashEnabled: false,
     client: undefined,
@@ -236,9 +239,9 @@ export const labeller: LabellerAgent = defineAgent({
       })
     }
     validateOptions(options)
-    const { labels, rules, actions, bodyLimit, minConfidence, trashEnabled, client } = options
+    const { labels, rules, actions, bodyLimit, hideUnmanagedLabels, minConfidence, trashEnabled, client } = options
     // Push deliveries inherit the safe default; replay callers still choose dry-run per invocation.
-    const channelOptions: GmailChannelOptions = { labels, bodyLimit, client }
+    const channelOptions: GmailChannelOptions = { labels, bodyLimit, client, hideUnmanagedLabels }
     if (options.dryRun) channelOptions.dryRun = true
     const channel = gmail(channelOptions)
     return defineAgent({

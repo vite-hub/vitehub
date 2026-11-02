@@ -86,7 +86,7 @@ describe("labeller preset", () => {
     }
   })
 
-  it.each(["dryRun", "trashEnabled"])("rejects non-boolean %s policy options", (policy) => {
+  it.each(["dryRun", "hideUnmanagedLabels", "trashEnabled"])("rejects non-boolean %s policy options", (policy) => {
     for (const value of ["false", "true", 0, 1, null, {}, []]) {
       expect(() => configured({ [policy]: value })).toThrow(/must be a boolean/)
     }
@@ -111,6 +111,13 @@ describe("labeller preset", () => {
     const finish = agent.hooks?.["agent:finish"] as unknown as (event: { message: unknown, result: unknown }) => Promise<void>
     await finish({ message, result: { label: "Receipts", rule: "receipt" } })
     expect(calls).toEqual(["label:Receipts"])
+  })
+
+  it("rejects label colors outside Gmail's palette when the Agent is defined", () => {
+    expect(configured().options.hideUnmanagedLabels).toBe(false)
+    expect(() => configured({ labels: { Work: { color: { textColor: "#FFFFFF", backgroundColor: "#4A86E8" } } } })).not.toThrow()
+    expect(() => configured({ labels: { Work: { color: { textColor: "#ffffff", backgroundColor: "#123456" } } } }))
+      .toThrow(/label "Work" color backgroundColor "#123456" is not in Gmail's label palette/)
   })
 
   it("accepts trash policy declarations while keeping the gate explicit", () => {

@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 
 import { createTraceEventLog } from "@vite-hub/runtime"
-import { gmail, syncGmailChannel } from "../src/channels.ts"
+import { gmail, gmailLabelPalette, syncGmailChannel } from "../src/channels.ts"
 import { defineAgent, runAgentTrigger, workflow } from "../src/index.ts"
 import { inspectMessageChannelInstructions } from "../src/internal/channels.ts"
 import { getAgentChannelSyncDefinition } from "../src/internal/channel-sync.ts"
@@ -1594,6 +1594,69 @@ describe("gmail() Channel", () => {
       changes: [`Start or renew the Gmail watch on ${topic}`],
     })
     await expect(syncGmailChannel(channel, { apply: true })).resolves.toMatchObject({ applied: true, result: { labels: { created: [], updated: [] } } })
+  })
+
+  it("reconciles label visibility and hides unmanaged labels only when the Channel opts in", async () => {
+    stubGmailEnv()
+    const google = await createGoogle()
+    google.labels.push(
+      { id: "Label_5", labelListVisibility: "labelShow", messageListVisibility: "show", name: "GitHub", type: "user" },
+      { id: "Label_6", labelListVisibility: "labelShow", messageListVisibility: "show", name: "Old project", type: "user" },
+      { id: "Label_7", labelListVisibility: "labelHide", messageListVisibility: "show", name: "Archive", type: "user" },
+    )
+    const labels = {
+      "GitHub/Bots": { color: { backgroundColor: "#CCCCCC", textColor: "#000000" }, labelListVisibility: "labelShowIfUnread" as const },
+      "Work": { color: { backgroundColor: "#000000", textColor: "#ffffff" }, messageListVisibility: "hide" as const },
+    }
+
+    const managedOnly = gmail({ fetch: google.fetch, labels })
+    expect((await syncGmailChannel(managedOnly)).changes).toEqual([
+      "Create label \"GitHub/Bots\"",
+      "Update label \"Work\"",
+      `Start or renew the Gmail watch on ${topic}`,
+    ])
+
+    const channel = gmail({ fetch: google.fetch, hideUnmanagedLabels: true, labels })
+    const plan = await syncGmailChannel(channel)
+    // Hidden labels and the parent of a declared nested label stay as they are.
+    expect(plan.changes).toEqual([
+      "Create label \"GitHub/Bots\"",
+      "Update label \"Work\"",
+      "Hide unmanaged label \"Old project\" from the label list",
+      `Start or renew the Gmail watch on ${topic}`,
+    ])
+    expect(google.writes()).toEqual([])
+
+    await expect(syncGmailChannel(channel, { apply: true })).resolves.toMatchObject({
+      applied: true,
+      result: { labels: { created: ["GitHub/Bots"], hidden: ["Old project"], updated: ["Work"] } },
+    })
+    expect(google.writes()).toEqual(["POST labels", "PATCH labels/Label_1", "PATCH labels/Label_6", "POST watch"])
+    expect(google.labels.find(label => label.name === "GitHub/Bots")).toMatchObject({
+      color: { backgroundColor: "#cccccc", textColor: "#000000" },
+      labelListVisibility: "labelShowIfUnread",
+      messageListVisibility: "show",
+    })
+    expect(google.labels.find(label => label.name === "Work")).toMatchObject({ labelListVisibility: "labelShow", messageListVisibility: "hide" })
+    expect(google.calls.find(call => call.method === "PATCH" && call.path === "labels/Label_6")?.body).toEqual({ labelListVisibility: "labelHide" })
+    expect(google.labels.find(label => label.name === "GitHub")).toMatchObject({ labelListVisibility: "labelShow" })
+
+    // Gmail reports lowercase colors, so uppercase declarations do not cause repeated updates.
+    expect((await syncGmailChannel(channel)).changes).toEqual([`Start or renew the Gmail watch on ${topic}`])
+  })
+
+  it("rejects label colors and visibility that Gmail does not accept when the Channel is defined", () => {
+    expect(gmailLabelPalette).toHaveLength(102)
+    expect(() => gmail({ labels: { Work: { color: { backgroundColor: "#4a86e9", textColor: "#ffffff" } } } }))
+      .toThrow(/gmail\(\) label "Work" color backgroundColor "#4a86e9" is not in Gmail's label palette/)
+    expect(() => gmail({ labels: { Work: { color: { backgroundColor: "#4a86e8", textColor: "white" } } } }))
+      .toThrow(/label "Work" color textColor "white" is not in Gmail's label palette/)
+    // SAFETY: The cast models an untyped configuration value.
+    expect(() => gmail({ labels: { Work: { labelListVisibility: "hidden" as never } } })).toThrow(/labelListVisibility must be/)
+    // SAFETY: The cast models an untyped configuration value.
+    expect(() => gmail({ labels: { Work: { messageListVisibility: "labelHide" as never } } })).toThrow(/messageListVisibility must be/)
+    // SAFETY: The cast models an untyped configuration value.
+    expect(() => gmail({ hideUnmanagedLabels: "yes" as never })).toThrow(/hideUnmanagedLabels must be a boolean/)
   })
 
   it("reads Gmail settings from Server Env before the documented environment variables", () => {
