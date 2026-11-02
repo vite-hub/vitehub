@@ -215,7 +215,8 @@ async function resolveImageModule(config: ResolvedConfig, root: string, blob: Bl
   if (transformer === "photon") {
     // Use the project's resolver, including Plug'n'Play, from the generated import's location.
     const entry = await config.createResolver()("@cf-wasm/photon", resolve(root, generatedNitroBlobPlugin)).catch(() => undefined)
-    if (entry) return "photon"
+    // Vite's missing optional-peer placeholder is a resolved ID, but cannot load Photon.
+    if (entry && !entry.startsWith("__vite-optional-peer-dep:")) return "photon"
     throw blobErrorDiagnostics.BLOB_B0007({ message: "[vitehub] `blob.images.transformer` is \"photon\", but the project cannot resolve @cf-wasm/photon. Install it with: pnpm add @cf-wasm/photon" })
   }
   if (cloudflare || provider === "cloudflare") return undefined

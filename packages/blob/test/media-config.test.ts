@@ -100,6 +100,20 @@ describe("generated Nitro plugin", () => {
     await expect(generatePlugin({ driver: "fs", images: { transformer: "photon" } })).rejects.toMatchObject({ code: "BLOB_B0007" })
   })
 
+  it("reports BLOB_B0007 for an uninstalled optional Photon peer", async () => {
+    await writeFile(join(root, "package.json"), JSON.stringify({
+      name: "optional-photon-consumer",
+      peerDependencies: { "@cf-wasm/photon": "^0.4.0" },
+      peerDependenciesMeta: { "@cf-wasm/photon": { optional: true } },
+    }))
+    // A previous build's plugin makes Vite resolve from its directory and return an optional-peer placeholder.
+    await mkdir(join(root, ".vitehub/nitro/blob"), { recursive: true })
+    await writeFile(join(root, ".vitehub/nitro/blob/plugin.ts"), "export {}")
+    for (const driver of ["fs", "cloudflare-r2"] as const) {
+      await expect(generatePlugin({ driver, images: { transformer: "photon" } })).rejects.toMatchObject({ code: "BLOB_B0007" })
+    }
+  })
+
   it("parses variant queries in the serve route and answers invalid ones with 400", async () => {
     await generatePlugin({ driver: "fs", serve: true })
     const route = await readFile(join(root, ".vitehub/blob/serve-route.ts"), "utf8")
