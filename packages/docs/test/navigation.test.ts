@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest"
 import { createDocsManifest } from "../src/manifest.ts"
 import {
   docsCatalog,
+  docsHasRail,
   docsHomePath,
   docsManifestPages,
   docsMarkdownLinks,
@@ -18,7 +19,6 @@ import {
   docsSectionHome,
   docsSectionIcon,
   docsSidebarGroups,
-  docsSingleList,
   findDocsPage,
   normalizeDocsPath,
   type DocsIcons,
@@ -135,25 +135,25 @@ describe("docs home links", () => {
   })
 })
 
-describe("docs single list", () => {
+describe("docs rail", () => {
   const noIcons = { rail: {}, sections: {} }
   const small = createDocsManifest({ dir: resolve(import.meta.dirname, "../../../playground/docs/content"), base: "/docs" })
   const vitehub = createDocsManifest({ dir: resolve(import.meta.dirname, "../../../docs/content"), base: "/docs" })
 
   it("drops the rail for three sections or fewer", () => {
-    expect(docsSingleList(small, noIcons)).toBe(true)
-    expect(docsSingleList({ ...manifest, sections: manifest.sections.slice(0, 3) }, { rail: { kv: "kv" }, sections: {} })).toBe(true)
+    expect(docsHasRail(small, noIcons)).toBe(false)
+    expect(docsHasRail({ ...manifest, sections: manifest.sections.slice(0, 3) }, { rail: { kv: "kv" }, sections: {} })).toBe(false)
   })
 
   it("drops the rail when no section has its own icon", () => {
     const plain = { ...manifest, sections: manifest.sections.map(candidate => ({ ...candidate, icon: null })) }
-    expect(docsSingleList(plain, noIcons)).toBe(true)
-    expect(docsSingleList(plain, { rail: { kv: "kv" }, sections: {} })).toBe(false)
+    expect(docsHasRail(plain, noIcons)).toBe(false)
+    expect(docsHasRail(plain, { rail: { kv: "kv" }, sections: {} })).toBe(true)
   })
 
   it("keeps the rail of vitehub.dev", () => {
     expect(vitehub.sections.length).toBeGreaterThan(20)
-    expect(docsSingleList(vitehub, noIcons)).toBe(false)
+    expect(docsHasRail(vitehub, noIcons)).toBe(true)
   })
 })
 

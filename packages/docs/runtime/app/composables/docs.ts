@@ -19,7 +19,7 @@ export function useDocsConfig(): DocsPublicConfig {
 /** Whether a path is one of the site pages that `start.links` lists. They open inside the start section. */
 export function isDocsStartLink(config: DocsPublicConfig, path: string): boolean {
   const normalized = normalizeDocsPath(path)
-  return (config.start?.links ?? []).some(link => link.to !== config.base && normalizeDocsPath(link.to) === normalized) ?? false
+  return (config.start?.links ?? []).some(link => link.to !== config.base && normalizeDocsPath(link.to) === normalized)
 }
 
 /** The docs page of the current route, or `null` on other pages. */

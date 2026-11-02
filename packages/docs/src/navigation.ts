@@ -88,12 +88,12 @@ export function docsHomePath(manifest: DocsManifest): string | null {
 }
 
 /**
- * Whether the sidebar is one page list without the icon rail. A rail of three or fewer sections, or of sections
- * without their own icons, shows the same fallback icon several times and carries no information.
+ * Whether the site shows the section rail. A rail of three or fewer sections, or of sections without their own icons,
+ * shows the same fallback icon several times and carries no information, so the sidebar lists every section instead.
  */
-export function docsSingleList(manifest: DocsManifest, icons: Pick<DocsIcons, "rail" | "sections">): boolean {
-  if (manifest.sections.length <= 3) return true
-  return !manifest.sections.some(section => section.icon || icons.rail[section.id] || icons.sections[section.id])
+export function docsHasRail(manifest: DocsManifest, icons: Pick<DocsIcons, "rail" | "sections">): boolean {
+  if (manifest.sections.length <= 3) return false
+  return manifest.sections.some(section => Boolean(section.icon || icons.rail[section.id] || icons.sections[section.id]))
 }
 
 /** Sections grouped by category, in the order of `categories`. Sections of other categories are left out. */

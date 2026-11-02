@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { docsCatalog, docsRelatedSections, docsSectionHome, docsSidebarGroups, docsSingleList, normalizeDocsPath } from "#docs/navigation"
+import { docsCatalog, docsHasRail, docsRelatedSections, docsSectionHome, docsSidebarGroups, normalizeDocsPath } from "#docs/navigation"
 
 const route = useRoute()
 const manifest = useDocsManifest()
@@ -14,7 +14,7 @@ const related = computed(() => section.value ? docsRelatedSections(manifest, sec
 // Outside every section, for example on the catalog, the sidebar lists every section by category.
 const catalog = docsCatalog(manifest, categories)
 // A small site has no rail, so the sidebar lists every section with its pages on every page.
-const single = docsSingleList(manifest, iconOptions)
+const rail = docsHasRail(manifest, iconOptions)
 const allSections = manifest.sections.map(candidate => ({ section: candidate, groups: docsSidebarGroups(candidate) }))
 // Nuxt serializes a `null` runtime config value as "", so `start` can be a string here.
 const siteLinks = start?.links ?? []
@@ -25,7 +25,7 @@ function isActive(path: string) {
 </script>
 
 <template>
-  <nav v-if="single" class="vh-docs-sidebar-nav" aria-label="Docs pages">
+  <nav v-if="!rail" class="vh-docs-sidebar-nav" aria-label="Docs pages">
     <section v-if="siteLinks.length" class="vh-docs-sidebar-page-group vh-docs-sidebar-site-areas" aria-label="Site areas">
       <NuxtLink
         v-for="link in siteLinks"

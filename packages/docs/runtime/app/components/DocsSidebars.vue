@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { docsSingleList } from "#docs/navigation"
+import { docsHasRail } from "#docs/navigation"
 
 defineProps<{
   /** Shows the page panel next to the rail. Outside a section the panel lists every product. */
@@ -9,14 +9,14 @@ defineProps<{
 }>()
 
 // A small site has no rail. The panel lists every section with its pages.
-const single = docsSingleList(useDocsManifest(), useDocsConfig().icons)
+const rail = docsHasRail(useDocsManifest(), useDocsConfig().icons)
 </script>
 
 <template>
   <div class="vh-docs-sidebars">
-    <DocsRail v-if="!single" :labeled="labeled" />
-    <div v-if="panel" class="vh-docs-panel" :class="{ 'is-single': single }">
-      <DocsAsideLeftTop :brand="single" />
+    <DocsRail v-if="rail" :labeled="labeled" />
+    <div v-if="panel" class="vh-docs-panel" :class="{ 'is-single': !rail }">
+      <DocsAsideLeftTop :brand="!rail" />
       <DocsAsideLeftBody />
       <DocsAsideFooter />
     </div>
