@@ -12,6 +12,10 @@ import { collectViteHubCliContribution } from "../src/cli.ts"
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
 const repoRoot = resolve(playgroundDir, "../..")
+// The repository pins its own Vite+. A global `vp` of another version fails
+// `vp pack` after it has emptied `dist/`.
+// Launch its Node entry directly so Windows needs no shell for a .cmd shim.
+const vp = join(repoRoot, "node_modules", "vite-plus", "bin", "vp")
 const workspacePackages = ["runtime", "shell", "source", "sandbox", "workspace", "agent", "auth", "blob", "cli", "database", "env", "kv", "queue", "schedule", "workflow"] as const
 const tempDirs: string[] = []
 const execMaxBuffer = 16 * 1024 * 1024
@@ -107,14 +111,13 @@ afterAll(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
+// One run builds each package of the shared dependency graph once.
 beforeAll(async () => {
-  for (const name of workspacePackages) {
-    await execFileAsync("vp", ["run", "--filter", `@vite-hub/${name}...`, "build"], {
-      cwd: repoRoot,
-      env: process.env,
-      maxBuffer: execMaxBuffer,
-    })
-  }
+  await execFileAsync(process.execPath, [vp, "run", "--cache", ...workspacePackages.flatMap(name => ["--filter", `@vite-hub/${name}...`]), "build"], {
+    cwd: repoRoot,
+    env: process.env,
+    maxBuffer: execMaxBuffer,
+  })
 }, 240_000)
 
 describe("unified vite e2e hosted outputs", () => {
@@ -139,7 +142,7 @@ describe("unified vite e2e hosted outputs", () => {
   it("keeps the cloudflare artifact provider-pure and preserves hosted bindings", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-internal-vite-e2e-cf-")
 
-    await execFileAsync("vp", ["build"], {
+    await execFileAsync(process.execPath, [vp, "build"], {
       cwd: rootDir,
       env: {
         ...process.env,
@@ -218,7 +221,7 @@ describe("unified vite e2e hosted outputs", () => {
       },
     }, null, 2)}\n`)
 
-    await execFileAsync("vp", ["build"], {
+    await execFileAsync(process.execPath, [vp, "build"], {
       cwd: rootDir,
       env: {
         ...process.env,
@@ -253,7 +256,7 @@ describe("unified vite e2e hosted outputs", () => {
   it("keeps the vercel artifact unified while preserving queue server outputs", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-internal-vite-e2e-vercel-")
 
-    await execFileAsync("vp", ["build"], {
+    await execFileAsync(process.execPath, [vp, "build"], {
       cwd: rootDir,
       env: {
         ...process.env,
@@ -312,7 +315,7 @@ describe("unified vite e2e hosted outputs", () => {
   it("builds the env and chat playground modes", async () => {
     const envRoot = await createPlaygroundCopy("vitehub-internal-vite-env-")
 
-    await execFileAsync("vp", ["build"], {
+    await execFileAsync(process.execPath, [vp, "build"], {
       cwd: envRoot,
       env: {
         ...process.env,
@@ -327,7 +330,7 @@ describe("unified vite e2e hosted outputs", () => {
 
     const chatRoot = await createPlaygroundCopy("vitehub-internal-vite-chat-")
 
-    await execFileAsync("vp", ["build"], {
+    await execFileAsync(process.execPath, [vp, "build"], {
       cwd: chatRoot,
       env: {
         ...process.env,
@@ -344,7 +347,7 @@ describe("unified vite e2e hosted outputs", () => {
   it("writes Netlify agent HTTP function output from the chat playground", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-internal-vite-netlify-agent-")
 
-    await execFileAsync("vp", ["build"], {
+    await execFileAsync(process.execPath, [vp, "build"], {
       cwd: rootDir,
       env: {
         ...process.env,

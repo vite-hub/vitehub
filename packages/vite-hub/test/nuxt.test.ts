@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { build } from "esbuild"
+import { resolveConfig } from "vite"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
@@ -2987,6 +2988,44 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ preset: "vercel" }, vercelNuxt)
 
     expect(nitroOptions(vercelNuxt)).not.toHaveProperty("wasm")
+  })
+
+  it.each([false, true])("filters command-only plugins from replay hooks and config.plugins (dev: %s)", async (dev) => {
+    const serve: Plugin = { name: "vite-hub/serve-only", apply: "serve", config: vi.fn(() => undefined) }
+    const build: Plugin = { name: "vite-hub/build-only", apply: "build", config: vi.fn(() => undefined) }
+    const observer: Plugin = {
+      name: "vite-hub/observer",
+      config(config) {
+        expect(config.plugins).toContain(dev ? serve : build)
+        expect(config.plugins).not.toContain(dev ? build : serve)
+      },
+    }
+    mocks.vitehub.mockReturnValue([serve, build, observer])
+    const { nuxt, runNitroConfigHook } = createNuxt(dev)
+    await viteHubNuxtModule({ preset: "node" }, nuxt)
+    await runNitroConfigHook({})
+
+    expect((dev ? serve : build).config).toHaveBeenCalledOnce()
+    expect((dev ? build : serve).config).not.toHaveBeenCalled()
+  })
+
+  it.each(["installed", "existing"] as const)("preserves Vite's functional apply selection for %s replay plugins", async (source) => {
+    let calls = 0
+    const apply = vi.fn((config: UserConfig) => ++calls === 1 && config.mode === "production")
+    const hook = vi.fn((_config: UserConfig) => undefined)
+    const plugin: Plugin = { name: "vite-hub/selected", apply, config: hook }
+    const selected = await resolveConfig({ configFile: false, plugins: [plugin] }, "build", "production")
+    expect(selected.plugins).toContain(plugin)
+    hook.mockClear()
+
+    mocks.vitehub.mockReturnValue(source === "installed" ? [plugin] : [])
+    const { nuxt, runNitroConfigHook } = createNuxt(false, source === "existing" ? [plugin] : [])
+    await viteHubNuxtModule({ preset: "node" }, nuxt)
+    await runNitroConfigHook({})
+
+    expect(apply).toHaveBeenCalledTimes(1)
+    expect(hook).toHaveBeenCalledOnce()
+    expect(hook).toHaveBeenCalledWith(expect.objectContaining({ plugins: expect.arrayContaining([plugin]) }), expect.anything())
   })
 
   it("installs flattened ViteHub plugins and applies their config hooks to Nitro", async () => {
