@@ -59,10 +59,18 @@ export function formatChannelCitationText(text: string): string {
 }
 
 export function formatChannelCitationStream(stream: AsyncIterable<string>): AsyncIterable<string> {
+  return transformChannelTextStream(stream, createCitationFormatter);
+}
+
+/** Create a formatter per iterator; pass each chunk through it, then finalize it at stream end. */
+export function transformChannelTextStream(
+  stream: AsyncIterable<string>,
+  createFormat: () => (chunk: string, final?: boolean) => string,
+): AsyncIterable<string> {
   return {
     [Symbol.asyncIterator]() {
       const iterator = stream[Symbol.asyncIterator]();
-      const format = createCitationFormatter();
+      const format = createFormat();
       let closed = false;
       let pendingRead: Promise<IteratorResult<string>> | undefined;
       let cancelRead: (() => void) | undefined;
