@@ -83,7 +83,7 @@ describe("vitehub connections", () => {
     const redirect = authorization.searchParams.get("redirect_uri")!
     expect((await fetch(`${redirect}?code=code-1&state=${authorization.searchParams.get("state")}`)).status).toBe(200)
     expect(await done).toBe(1)
-    expect(harness.output.stderr).toContain("The authorization link expired or was already used. Each link works one time, for 10 minutes. (CONNECTIONS_AUTHORIZATION_EXPIRED)")
+    expect(harness.output.stderr).toContain("The authorization link expired or was already used. Each link works one time, for 10 minutes. (CONNECTIONS_AUTHORIZATION_EXPIRED)\nRun `vitehub connections connect <name>` again, or connect again from the Console, and finish the sign-in within 10 minutes.\n")
   })
 
   it.each(["list", "inspect"])("preserves public OAuth metadata in JSON %s", async (command) => {

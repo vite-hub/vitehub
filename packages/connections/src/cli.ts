@@ -180,9 +180,9 @@ async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, bo
     throw new CliError(`${endpoint.href} returned ${response.status} without a Connections response. Check that the app uses Connections and that the management API is mounted.`)
   }
   if (!response.ok) {
-    const parsedError = v.safeParse(v.object({ error: v.object({ code: v.optional(v.string()), message: v.optional(v.string()) }) }), value)
+    const parsedError = v.safeParse(v.object({ error: v.object({ code: v.optional(v.string()), fix: v.optional(v.string()), message: v.optional(v.string()) }) }), value)
     const error = parsedError.success ? parsedError.output.error : undefined
-    throw new CliError(`${error?.message ?? `Request failed with ${response.status}.`}${error?.code ? ` (${error.code})` : ""}`)
+    throw new CliError(`${error?.message ?? `Request failed with ${response.status}.`}${error?.code ? ` (${error.code})` : ""}${error?.fix ? `\n${error.fix}` : ""}`)
   }
   const result = v.safeParse(schema, value)
   if (!result.success) throw new CliError(`${endpoint.href} returned an invalid Connections response.`)
