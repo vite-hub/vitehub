@@ -23,7 +23,7 @@ describe("docs page actions", () => {
   it("shows the page actions on article and landing pages", () => {
     const component = read("../packages/docs/runtime/app/components/DocsPageHeaderLinks.vue");
 
-    expect(component).toContain("docsMarkdownLinks(site, route.path)");
+    expect(component).toContain("docsMarkdownLinks(site, route.path, appBase)");
     for (const page of [
       "../packages/docs/runtime/app/components/DocsArticle.vue",
       "../packages/docs/runtime/app/components/DocsLanding.vue",

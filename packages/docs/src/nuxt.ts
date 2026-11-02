@@ -233,7 +233,9 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       siteName: config.site.name,
       siteUrl: config.site.url,
       discovery: {
-        links: [{ href: `${config.site.url}${docsAppPath("/sitemap.xml", config.appBase)}`, rel: "sitemap", type: "application/xml", title: "Sitemap (XML)" }],
+        // At the site root nuxt-agent-discovery writes the robots.txt Sitemap line, but only for the exact link
+        // `/sitemap.xml`. Mounted below a path, the app does not own the host's robots.txt, so the link is absolute.
+        links: [{ href: config.appBase === "/" ? "/sitemap.xml" : `${config.site.url}${docsAppPath("/sitemap.xml", config.appBase)}`, rel: "sitemap", type: "application/xml", title: "Sitemap (XML)" }],
         mcpServerCard: config.mcp ? { endpoint: `${config.site.url}${docsAppPath("/mcp", config.appBase)}`, name: config.mcp.name } : false,
       },
     }
