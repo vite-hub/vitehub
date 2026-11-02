@@ -90,7 +90,8 @@ Object, so bindings come from its environment.
 `blobDocument(store, { prefix, contentType })` stores each document as one
 private Blob file at `prefix + documentId`, with the body as its content. The
 digest is the SHA-256 of the body. `contentType` defaults to
-`text/markdown; charset=utf-8`.
+`text/markdown; charset=utf-8`. A `%` in the document id stays a literal `%`
+in the Blob pathname, so `a%2Fb.md` and `a/b.md` are two files.
 
 ```ts [server/realtime/drafts.ts]
 import { blob } from 'vite-hub/blob'

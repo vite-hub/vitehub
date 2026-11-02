@@ -32,6 +32,8 @@ async function digestOf(text: string): Promise<string> {
  */
 export function blobDocument(store: RealtimeBlobStore, options: RealtimeBlobDocumentOptions = {}): RealtimeDocumentAdapter {
   const { contentType = "text/markdown; charset=utf-8", prefix = "" } = options
+  // Blob decodes a pathname once, so `a%2Fb.md` would open `a/b.md`. Escaping `%` keeps each document id its own file.
+  const pathnameOf = (documentId: string) => (prefix + documentId).replaceAll("%", "%25")
   const read = async (pathname: string) => {
     const [error, file] = await store.get(pathname)
     if (errorCode(error) === "BLOB_NOT_FOUND") return null
@@ -41,11 +43,11 @@ export function blobDocument(store: RealtimeBlobStore, options: RealtimeBlobDocu
   return {
     kind: "blob",
     async load({ documentId }) {
-      const body = await read(prefix + documentId)
+      const body = await read(pathnameOf(documentId))
       return { body: body ?? "", digest: body === null ? null : await digestOf(body) }
     },
     async save({ documentId }, { body }, { ifDigest }) {
-      const pathname = prefix + documentId
+      const pathname = pathnameOf(documentId)
       const stored = await read(pathname)
       if ((stored === null ? null : await digestOf(stored)) !== ifDigest) {
         throw new RealtimeDocumentConflict(stored === null

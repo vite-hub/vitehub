@@ -6,15 +6,16 @@ import { appendParagraph, createStubEditor, createTestServer, settle } from "./h
 
 import type { RealtimeBlobStore } from "../src/server.ts"
 
+/** Keys files by pathname the way ViteHub Blob does: decoded once. */
 function memoryBlob() {
   const files = new Map<string, { body: string, contentType: string }>()
   const store: RealtimeBlobStore = {
     async get(pathname) {
-      const file = files.get(pathname)
+      const file = files.get(decodeURIComponent(pathname))
       return [null, file ? new Blob([file.body], { type: file.contentType }) : null]
     },
     async put(pathname, body, { contentType }) {
-      files.set(pathname, { body, contentType })
+      files.set(decodeURIComponent(pathname), { body, contentType })
       return [null, { pathname }]
     },
   }
@@ -64,6 +65,17 @@ describe("blobDocument", () => {
     await store.put(context.documentId, "# New", { access: "private", contentType: "text/markdown" })
     await expect(adapter.save(context, { body: "# Room" }, { ...save, ifDigest: null }))
       .rejects.toMatchObject({ code: "REALTIME_DOCUMENT_CONFLICT" })
+  })
+
+  it("keeps a document id with an encoded slash apart from the id with a real slash", async () => {
+    const { files, store } = memoryBlob()
+    const adapter = blobDocument(store)
+    const encoded = { ...context, documentId: "a%2Fv1.md" }
+    await adapter.save(context, { body: "# Slash" }, { ...save, ifDigest: null })
+    expect(await adapter.load(encoded)).toEqual({ body: "", digest: null })
+    await adapter.save(encoded, { body: "# Percent" }, { ...save, ifDigest: null })
+    expect(files.get("a/v1.md")?.body).toBe("# Slash")
+    expect(files.get("a%2Fv1.md")?.body).toBe("# Percent")
   })
 
   it("treats BLOB_NOT_FOUND as a missing file and throws other Blob errors", async () => {
