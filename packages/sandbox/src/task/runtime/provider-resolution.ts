@@ -7,7 +7,6 @@ import type {
   SandboxTaskDefinitionProviderOptions,
 } from '../module-types'
 import type { SandboxTaskProvider } from '../module-types'
-import type { SandboxTaskRuntimeProvider } from './provider-loader'
 import { sandboxTaskErrorDiagnostics } from "../error-diagnostics.ts"
 
 type SandboxTaskEvent = {
@@ -15,10 +14,6 @@ type SandboxTaskEvent = {
     cloudflare?: { env?: Record<string, unknown> }
     _platform?: { cloudflare?: { env?: Record<string, unknown> } }
   }
-}
-
-type ProviderLoaderModule = {
-  loadSandboxTaskRuntimeProvider: (provider: SandboxTaskProvider) => Promise<SandboxTaskRuntimeProvider>
 }
 
 const allowedDefinitionKeys = new Set(['timeout', 'env'])
@@ -122,12 +117,8 @@ export async function resolveTaskSandbox(
   local: SandboxTaskDefinitionOptions,
   context: { event?: SandboxTaskEvent },
 ) {
-  // SAFETY: Both import paths resolve the provider-loader module contract.
-  const providerLoader = await import('vitehub-sandbox-task-provider-loader').catch(() => {
-    // SAFETY: The generated provider-loader alias is unavailable only outside the generated runtime; dynamic import returns the requested module shape.
-    const dynamicImport = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<ProviderLoaderModule>
-    return dynamicImport('@vite-hub/sandbox/task/runtime/provider-loader')
-  }) as ProviderLoaderModule
+  // The Sandbox Task plugin aliases this package import to the generated loader; without the plugin it resolves to the generic loader.
+  const providerLoader = await import('#vitehub-sandbox-task-provider-loader')
   const runtimeProvider = await providerLoader.loadSandboxTaskRuntimeProvider(provider)
   return await runtimeProvider.resolveTaskSandbox({
     local,

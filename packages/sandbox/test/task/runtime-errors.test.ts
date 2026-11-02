@@ -5,7 +5,7 @@ import type { SandboxExecOptions, SandboxSession } from "@vite-hub/sandbox"
 
 const providerMocks = vi.hoisted(() => ({ open: vi.fn() }))
 
-vi.mock("vitehub-sandbox-task-provider-loader", () => ({
+vi.mock("#vitehub-sandbox-task-provider-loader", () => ({
   loadSandboxTaskRuntimeProvider: async () => ({
     resolveTaskSandbox: async ({ provider }: { provider: { provider: "cloudflare" | "vercel", keepAlive?: boolean } }) => ({
       provider: provider.provider,
