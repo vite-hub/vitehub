@@ -9204,7 +9204,7 @@ async function channelTaskTarget(
   // SAFETY: The owning Agent runtime boundary creates these values with the asserted route contract.
   const triggers = await resolveAgentTriggers(agent as never, context as never)
   const declaring = Object.values(triggers).filter(trigger =>
-    trigger.id.startsWith(`${channel}.`)
+    trigger.channelId === channel
     && (triggerName === undefined || trigger.id === `${channel}.${triggerName}`)
     && trigger.tasks !== undefined && Object.hasOwn(trigger.tasks, task))
   if (declaring.length !== 1) {

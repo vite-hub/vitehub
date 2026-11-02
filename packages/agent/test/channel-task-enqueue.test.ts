@@ -18,7 +18,7 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
 })
 
-async function setup(options: { objected?: () => boolean, resume?: boolean, sharedTask?: boolean } = {}) {
+async function setup(options: { objected?: () => boolean, prefixedChannel?: boolean, resume?: boolean, sharedTask?: boolean } = {}) {
   const stateDir = await mkdtemp(join(tmpdir(), "vitehub-channel-task-"))
   const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
   const ran: { data: unknown, at: number, runId?: string, annotations?: unknown }[] = []
@@ -56,6 +56,23 @@ async function setup(options: { objected?: () => boolean, resume?: boolean, shar
         },
         webhooks: { path: "/api/airtable/webhook", secretToken: false },
       }),
+      ...(options.prefixedChannel ? {
+        "airtable.eu": defineChannel("airtable.eu", {
+          messages: false,
+          triggers: {
+            webhook: defineChannelTrigger({ invoke: () => new Response(null, { status: 200 }) }),
+            record: defineChannelTrigger({
+              webhooks: [],
+              invoke: () => new Response(null, { status: 200 }),
+              tasks: {
+                "close-duplicate": { run: (_context, { input }) => { ran.push({ at: Date.now(), data: input.data }) } },
+                "regional-only": { run: (_context, { input }) => { ran.push({ at: Date.now(), data: input.data }) } },
+              },
+            }),
+          },
+          webhooks: { path: "/api/airtable-eu/webhook", secretToken: false },
+        }),
+      } : {}),
     },
     driver: { run: () => "unexpected Agent run" },
   })
@@ -117,6 +134,25 @@ async function installGeneratedHost(resume: () => () => Promise<void>) {
 }
 
 describe("enqueueChannelTask()", () => {
+  it("selects tasks from the exact Channel when Channel IDs share a prefix", async () => {
+    const { ran } = await setup({ prefixedChannel: true })
+    const [error] = await enqueueChannelTask("airtable", "close-duplicate", { data: { channel: "airtable" } })
+    expect(error).toBeNull()
+    const [regionalError] = await enqueueChannelTask("airtable.eu", "close-duplicate", { data: { channel: "airtable.eu" } })
+    expect(regionalError).toBeNull()
+    await vi.waitFor(() => expect(ran.map(item => item.data)).toEqual(expect.arrayContaining([{ channel: "airtable" }, { channel: "airtable.eu" }])), { timeout: 5_000 })
+    expect(ran).toHaveLength(2)
+  })
+
+  it.each(["enqueue", "cancel"])("rejects %s of a task declared only by a longer Channel ID", async (operation) => {
+    await setup({ prefixedChannel: true })
+    const [error, result] = operation === "enqueue"
+      ? await enqueueChannelTask("airtable", "regional-only", { data: {} })
+      : await cancelChannelTask("airtable", "regional-only", { key: "pair" })
+    expect(error?.message).toContain('No trigger of Channel "airtable" declares task "regional-only"')
+    expect(result).toBeNull()
+  })
+
   it.each(["enqueue", "cancel"])("starts the generated persistent Nitro queue for an immediate server-code %s call", async (operation) => {
     const { ran, resume } = await setup({ resume: false })
     const delayedStart = await installGeneratedHost(resume)
