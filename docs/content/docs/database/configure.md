@@ -26,6 +26,7 @@ export default defineConfig({
 | --- | --- | --- | --- |
 | `database` | `boolean` or `DBModulePublicOptions` | disabled | Enables database discovery and generated runtime imports through `vitehub()` with `true` or an options object. `false` leaves it disabled. |
 | `database.projectRoot` | `string` | effective application root | Sets the root used for Database Definition discovery, generated artifacts, and provisioning. Relative paths resolve from the Vite root in a Vite app and from the Nuxt `rootDir` in a Nuxt app. |
+| `database.cli.export` | `false` | enabled | Disables the package-owned `db export` command. |
 | `database.cli.generate` | `false` | enabled | Disables the package-owned `db generate` command. |
 | `database.cli.migrate` | `false` | enabled | Disables the package-owned `db migrate` command. |
 | `database.connection` | `DatabaseConnectionConfig` | local SQLite | Supplies a hosted libSQL connection for Database Definitions that do not declare one. Definition connection values override matching integration values. |
@@ -130,6 +131,30 @@ It refuses pending migrations that lose data, with the rules of `vitehub db migr
 `migrateOnStart` works only for local SQLite files (`file:` URLs) in a production build with the Node preset. A build for another host, a Postgres database, or D1 over HTTP fails with `DATABASE_MIGRATE_ON_START_UNSUPPORTED`, and so does a server whose connection URL turns out to be remote libSQL. Migrate those from the deployment with `vitehub db migrate`. Development does not use it either: run `vitehub db migrate`.
 
 Run one server process for each database file. Two processes that start together on the same file can both find a migration pending, and the second then fails to start. With several processes, such as the `node-cluster` preset, migrate before you start them.
+
+## Export a database
+
+`vitehub db export` writes a SQL dump of each database. It reads the Database config like `vitehub db migrate`, so it does not build the app.
+
+```bash [commands/export]
+pnpm vitehub db export                                   # the local SQLite file
+pnpm vitehub db export --remote --stage production       # the deployed database
+pnpm vitehub db export --remote --database analytics --output backups/analytics.sql
+```
+
+Without `--output`, each database goes to `.vitehub/exports/database/<name>-<local|remote>-<time>.sql` in the Database project root. `--output` writes one file, so it needs `--database` when the app has several databases. The command does not replace a file that exists. `--stage <name>` loads the Vite env files of that mode, and variables from the current process take precedence.
+
+Without `--remote`, the command reads only the local SQLite file that `vitehub db migrate` uses. A database that is not a local file needs `--remote`, so a production export is always explicit:
+
+| Database | Export |
+| --- | --- |
+| Local SQLite, or a native D1 binding without `--remote` | Reads the file in one read transaction. |
+| Remote libSQL | Connects with `connection.url` and `connection.authToken` in one read transaction. |
+| Native D1 binding or `cloudflare.http: true` | Calls Cloudflare's D1 export API, like `wrangler d1 export --remote`, with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. It uses `cloudflare.databaseId` or the provisioned id, and finds the database by `cloudflare.databaseName` when there is no id. |
+| Object-form `cloudflare.http` | Reads the tables through the proxy `url` and `authToken`. |
+| Postgres | Runs `pg_dump` with `connection.url` or the PG* variables. The password goes in `PGPASSWORD`, not in the process arguments. `pg_dump` must be on `PATH`. |
+
+SQLite, libSQL, and D1 dumps use the format of `wrangler d1 export`: `PRAGMA defer_foreign_keys=TRUE;`, each table with its rows, then indexes, views, and triggers, without `BEGIN TRANSACTION`. Restore one with `wrangler d1 execute <database> --remote --file <dump>` or `sqlite3 app.db < dump.sql`. The command skips SQLite and D1 internal tables, except `sqlite_sequence`. It prints the target without credentials. When the export fails, it prints `DATABASE_EXPORT_FAILED`, removes the partial file, and exits with code 1.
 
 ## Tables from Nuxt layers
 

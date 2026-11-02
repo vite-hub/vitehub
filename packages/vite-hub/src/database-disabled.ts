@@ -70,6 +70,7 @@ export function databaseDisabledPlugin(runtimeImports: ReadonlyMap<string, strin
           namespaces: [{
             description: `Database is disabled. ${enableDatabase}`,
             features: [
+              { description: "Unavailable while Database is disabled.", name: "export", run },
               { description: "Unavailable while Database is disabled.", name: "generate", run },
               { description: "Unavailable while Database is disabled.", name: "migrate", run },
             ],

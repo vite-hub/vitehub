@@ -39,6 +39,7 @@ export default defineEventHandler(async () => {
 | `DATABASE_D1_INVALID_RESPONSE`, `DATABASE_D1_REQUEST_FAILED` | When a D1 HTTP query fails |
 | `DATABASE_DISABLED`, `DATABASE_INVALID_D1_HTTP_URL`, `DATABASE_MISSING_CONNECTION`, `DATABASE_MISSING_D1_HTTP_CONFIG`, `DATABASE_NOT_FOUND` | When code first uses the database |
 | `DATABASE_MIGRATION_CHECK_FAILED`, `DATABASE_MIGRATION_DATA_LOSS` | Printed by `vitehub db migrate`, which then exits with code 1 |
+| `DATABASE_EXPORT_FAILED` | Printed by `vitehub db export`, which then exits with code 1 |
 | `DATABASE_MIGRATION_DATA_LOSS`, `DATABASE_MIGRATE_ON_START_UNSUPPORTED` | With `migrateOnStart`, when the Node server starts. `DATABASE_MIGRATE_ON_START_UNSUPPORTED` also fails the build |
 | `DATABASE_INVALID_CASING`, `DATABASE_INVALID_DIALECT`, `DATABASE_INVALID_NAME`, `DATABASE_INVALID_OPTIONS`, `DATABASE_UNKNOWN_OPTION` | By `defineDatabase()`, or by the build when it reads the Definition |
 | Every other code | During discovery, the build, or `vitehub provision run` |
@@ -104,6 +105,12 @@ With `migrateOnStart`, the server throws this error when it starts and does not 
 ### DATABASE_MIGRATE_ON_START_UNSUPPORTED
 
 `migrateOnStart` applies migrations only to local SQLite files in a production Node server. The build fails with this error for another host, a Postgres database, or D1 over HTTP. The server fails to start with it when a database connects to remote libSQL, or Definitions sharing a SQLite file have an unrecorded migration at or below the latest applied timestamp. Use compatible migration histories or separate files for shared-file conflicts. For unsupported connections, build with the Node preset and a `file:` URL, or remove `migrateOnStart` and run `vitehub db migrate` from the deployment.
+
+## Export errors
+
+### DATABASE_EXPORT_FAILED
+
+`vitehub db export` cannot write the SQL dump. `error.why` has the reason, for example a missing local SQLite file, a remote database without `--remote`, missing `CLOUDFLARE_ACCOUNT_ID` or `CLOUDFLARE_API_TOKEN`, a Cloudflare API error, a missing `pg_dump`, or an output file that exists. The command writes no output file when it fails. See [Export a database](/docs/database/configure#export-a-database).
 
 ## Definition errors
 
