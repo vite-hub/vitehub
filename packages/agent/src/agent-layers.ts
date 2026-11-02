@@ -78,7 +78,7 @@ function record(value: unknown): value is Record<string, unknown> {
 }
 
 // These maps contain definitions and callbacks, not configuration to merge recursively.
-const opaqueOptions = new Set(["data", "messages.meta", "messages.state", "invocations", "runtime", "github", "driver.output", "driver.model", "driver.launch"])
+const opaqueOptions = new Set(["data", "messages.meta", "messages.state", "invocations", "runtime", "github", "driver.output", "driver.model", "driver.launch", "driver.gateway"])
 const definitionMaps = new Set(["channels", "workspace.sources", "workspace.skills", "hooks"])
 
 type RequirementsExtension = (inherited: readonly string[]) => unknown
