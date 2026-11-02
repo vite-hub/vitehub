@@ -156,6 +156,29 @@ describe("hubConnections", () => {
     expect(handler).not.toContain("/early/");
   });
 
+  it("updates the handlers of a Nitro 2 instance, which has no routing table", async () => {
+    const root = await createTempProject();
+    const connections = hubConnections();
+    const initializedNitro = { options: { handlers: [] as Array<{ handler: string; route: string }> } };
+    const config = await resolveConfig({
+      root,
+      configFile: false,
+      plugins: [
+        { name: "nitro-context", enforce: "pre", config: config => {
+          Reflect.set(config, VITEHUB_NITRO_CONFIG_CONTEXT, true);
+          Reflect.set(config, "nitro", { handlers: [] });
+        } },
+        connections,
+        { name: "initialize-nitro", config: config => {
+          initializedNitro.options = structuredClone(Reflect.get(config, "nitro"));
+          connections.nitro.setup(initializedNitro);
+        } },
+      ],
+    }, "serve", "development");
+    expect(initializedNitro.options.handlers).toEqual(Reflect.get(config, "nitro").handlers);
+    expect(initializedNitro.options.handlers.map(handler => handler.route)).toContain("/_vitehub/connections/callback");
+  });
+
   it("requires authenticated management configuration in production", async () => {
     const root = await createTempProject();
     const build = { nitro: {}, root, [VITEHUB_NITRO_CONFIG_CONTEXT]: true };

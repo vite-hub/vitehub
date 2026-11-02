@@ -268,7 +268,8 @@ export type ConnectionsVitePlugin = Plugin<ConnectionsVitePluginAPI> & {
   vitehub: { cli: () => Promise<ViteHubCliContributor> };
   nitro: {
     name: string;
-    setup: (nitro: { options: { handlers: NitroServerHandler[] }; routing: { sync: () => void } }) => void;
+    /** Nitro 3 has a routing table to rebuild. Nitro 2, which Nuxt 4 runs, reads `options.handlers` when it builds. */
+    setup: (nitro: { options: { handlers: NitroServerHandler[] }; routing?: { sync: () => void } }) => void;
   };
 };
 
@@ -538,7 +539,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
           // Nitro initializes during config hooks, before Vite resolves its final base.
           if (nitroInstance) {
             Object.assign(nitroInstance.options, updateHandlers(nitroInstance.options));
-            nitroInstance.routing.sync();
+            nitroInstance.routing?.sync();
           }
           await writeManagementHandler(route);
         };
