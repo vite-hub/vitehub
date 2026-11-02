@@ -1372,12 +1372,13 @@ describe("vitehub", () => {
     const output = dependencyPluginByName(plugins, "vite-hub/deployment-output")
     await callHook(preset.config, [config, { command: "build", mode: "production" }])
     // SAFETY: The preset config hook populated Nitro commands and modules above.
-    const nitroConfig = config.nitro as { commands?: Record<string, unknown>, modules: unknown[] }
+    const nitroConfig = config.nitro as { cloudflare?: { deployConfig?: boolean }, commands?: Record<string, unknown>, modules: unknown[] }
     callHook(output.configResolved, [{ command: "build", nitro: nitroConfig }])
     // Nitro applies the cloudflare-module preset defaults before modules run.
     const nitro = {
       hooks: { hook: vi.fn() },
       options: {
+        cloudflare: nitroConfig.cloudflare,
         commands: { deploy: "npx wrangler --cwd ./ deploy", preview: "npx wrangler --cwd ./ dev", ...nitroConfig.commands },
         output: { dir: "/app/.output", serverDir },
         preset: "cloudflare_module",
@@ -1390,11 +1391,26 @@ describe("vitehub", () => {
     return { commands: nitro.options.commands, modules: nitroConfig.modules, nitro }
   }
 
-  it("deploys Cloudflare builds with the generated Wrangler config", async () => {
-    const { commands } = await cloudflareCommands({ preset: "cloudflare" }, {})
+  it.each([undefined, true])("deploys Cloudflare builds with the generated Wrangler config when deployConfig is %s", async deployConfig => {
+    const { commands } = await cloudflareCommands(
+      { preset: "cloudflare" },
+      { nitro: { cloudflare: { deployConfig } } },
+    )
 
     expect(commands).toEqual({
       deploy: "npx wrangler deploy --config ./server/wrangler.json",
+      preview: "npx wrangler --cwd ./ dev",
+    })
+  })
+
+  it.each([false, true])("preserves Nitro's Cloudflare deploy command when deployConfig is disabled and Sandbox is %s", async sandboxTask => {
+    const { commands } = await cloudflareCommands(
+      { preset: "cloudflare", sandboxTask },
+      { nitro: { cloudflare: { deployConfig: false } } },
+    )
+
+    expect(commands).toEqual({
+      deploy: "npx wrangler --cwd ./ deploy",
       preview: "npx wrangler --cwd ./ dev",
     })
   })
