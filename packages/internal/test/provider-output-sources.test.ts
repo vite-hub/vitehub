@@ -8,7 +8,7 @@ import { dirname, join, relative } from "node:path"
 import { afterEach, expect, it } from "vitest"
 
 import { bundleEsmEntry } from "../src/build/esbuild.ts"
-import { publishProviderSourcesToDeploymentOutputs, rebasePublishedProviderSourceLinks, retainProviderOutputAliases, retainProviderOutputSources, rewriteRetainedProviderSourcePaths } from "../src/build/provider-output-sources.ts"
+import { providerOutputAliasSources, publishProviderSourcesToDeploymentOutputs, rebasePublishedProviderSourceLinks, retainProviderOutputAliases, retainProviderOutputSources, rewriteRetainedProviderSourcePaths } from "../src/build/provider-output-sources.ts"
 
 const tempDirs: string[] = []
 
@@ -185,6 +185,46 @@ it("preserves the first alias when absolute keys share a retained path", () => {
 
   expect(aliases["/retained/src"]).toBe("/retained/first")
   expect(aliases["/retained/src/__vitehub_alias_prefix__0"]).toBe("/retained/first/")
+})
+
+it.each([false, true])("retains project alias targets and reads dependency alias targets in place (nested manifests: %s)", async (nestedManifests) => {
+  const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-dependency-alias-"))
+  tempDirs.push(workspace)
+  const rootDir = join(workspace, "app")
+  const generated = join(rootDir, ".vitehub", "agent", "registry.mjs")
+  const installed = join(rootDir, "node_modules", ".pnpm", "@vite-hub+agent@1.0.0", "node_modules", "@vite-hub", "agent", "dist", "index.js")
+  const linked = join(workspace, "packages", "vite-hub", "dist", "runtime.js")
+  await Promise.all([dirname(generated), dirname(installed), dirname(linked)].map(directory => mkdir(directory, { recursive: true })))
+  await Promise.all([
+    writeFile(join(rootDir, "package.json"), '{"name":"app"}\n'),
+    writeFile(generated, 'export const registry = "generated"\n'),
+    writeFile(join(installed, "../../package.json"), '{"name":"@vite-hub/agent"}\n'),
+    writeFile(installed, 'export const agent = "installed"\n'),
+    writeFile(join(linked, "../../package.json"), '{"name":"vite-hub"}\n'),
+    writeFile(linked, 'export const runtime = "linked"\n'),
+  ])
+  if (nestedManifests) {
+    await Promise.all([generated, installed, linked].map(path => writeFile(join(dirname(path), "package.json"), '{"type":"module"}\n')))
+  }
+  const aliases = {
+    "#vitehub/agent/registry": generated,
+    "@vite-hub/agent": installed,
+    "vite-hub/runtime": linked,
+  }
+
+  const sources = providerOutputAliasSources(aliases, [rootDir])
+  expect(sources).toEqual([generated])
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "schedule-generations", "one", "sources"),
+    paths: sources,
+    roots: [rootDir],
+  })
+  await writeFile(generated, 'export const registry = "next generation"\n')
+
+  const retainedAliases = retainProviderOutputAliases(aliases, retained)
+  await expect(readFile(retainedAliases["#vitehub/agent/registry"]!, "utf8")).resolves.toContain('"generated"')
+  expect(retainedAliases["@vite-hub/agent"]).toBe(installed)
+  expect(retainedAliases["vite-hub/runtime"]).toBe(linked)
 })
 
 it("retains a generation's source-root layout and generated dependencies", async () => {
@@ -891,6 +931,62 @@ it("preserves dependencies for imports outside the nearest source closure", asyn
   })
 
   await expect(import(pathToFileURL(retained.resolve(handler)).href)).resolves.toMatchObject({ value: "retained" })
+})
+
+it.each(["installed", "pnpm", "linked"])("snapshots descendants of explicitly requested dependency directories (%s)", async (layout) => {
+  const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-dependency-directory-"))
+  tempDirs.push(workspace)
+  const rootDir = join(workspace, "app")
+  const packageDir = layout === "linked"
+    ? join(workspace, "packages", "fixture-package")
+    : layout === "pnpm"
+      ? join(rootDir, "node_modules", ".pnpm", "fixture-package@1.0.0", "node_modules", "fixture-package")
+      : join(rootDir, "node_modules", "fixture-package")
+  const entry = join(packageDir, "dist", "index.js")
+  await Promise.all([mkdir(rootDir, { recursive: true }), mkdir(dirname(entry), { recursive: true })])
+  await Promise.all([
+    writeFile(join(rootDir, "package.json"), '{"name":"app"}\n'),
+    writeFile(join(packageDir, "package.json"), '{"name":"fixture-package","type":"module"}\n'),
+    writeFile(entry, 'export const value = "captured"\n'),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [packageDir],
+    roots: [rootDir],
+  })
+  await writeFile(entry, 'export const value = "changed"\n')
+
+  await expect(readFile(retained.resolve(entry), "utf8")).resolves.toContain('"captured"')
+  expect(retained.resolve(entry)).toBe(join(retained.resolve(packageDir), "dist", "index.js"))
+  await rm(packageDir, { recursive: true })
+  await expect(readFile(retained.resolve(entry), "utf8")).resolves.toContain('"captured"')
+})
+
+it.each([false, true])("prefers explicitly retained dependency directories over importing roots (directory first: %s)", async (directoryFirst) => {
+  const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-competing-roots-"))
+  tempDirs.push(workspace)
+  const roots = [join(workspace, "app-one"), join(workspace, "app-two")]
+  const packageDir = join(workspace, "packages", "fixture-package")
+  const entry = join(packageDir, "dist", "index.js")
+  const handlers = roots.map(root => join(root, "handler.js"))
+  await Promise.all([...roots, dirname(entry)].map(directory => mkdir(directory, { recursive: true })))
+  await Promise.all([
+    ...roots.map(root => writeFile(join(root, "package.json"), '{"type":"module"}\n')),
+    ...handlers.map(handler => writeFile(handler, `export { value } from ${JSON.stringify(entry)}\n`)),
+    writeFile(join(packageDir, "package.json"), '{"name":"fixture-package","type":"module"}\n'),
+    writeFile(entry, 'export const value = "captured"\n'),
+  ])
+
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(workspace, "sources"),
+    paths: directoryFirst ? [packageDir, ...handlers] : [...handlers, packageDir],
+    roots,
+  })
+  await rm(packageDir, { recursive: true })
+
+  expect(retained.resolve(entry)).toBe(join(retained.resolve(packageDir), relative(packageDir, entry)))
+  await expect(readFile(retained.resolve(entry), "utf8")).resolves.toContain('"captured"')
 })
 
 it("preserves installed package dependency resolution", async () => {
