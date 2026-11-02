@@ -32,10 +32,11 @@ it.each([
         setup(builder) {
           builder.onLoad({ filter: /\.[jt]s$/ }, async ({ path }) => {
             const code = await readFile(path, "utf8")
+            const loader = path.endsWith(".ts") ? "ts" : "js"
             // SAFETY: The operation transform reads only its source argument.
-            const transformed = await transform.call({} as never, code, path, { ssr: true })
-            const contents = typeof transformed === "string" ? transformed : transformed?.code
-            return contents === undefined ? undefined : { contents, loader: path.endsWith(".ts") ? "ts" : "js" }
+            const transformed = await transform.call({} as never, code, path, { ssr: true, moduleType: loader })
+            const contents = typeof transformed === "string" ? transformed : transformed?.code?.toString()
+            return contents === undefined ? undefined : { contents, loader }
           })
         },
       }],
