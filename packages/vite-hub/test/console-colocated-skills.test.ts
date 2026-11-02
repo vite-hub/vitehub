@@ -26,9 +26,14 @@ it("loads colocated Skills into the production Console definition", async () => 
     expect(skillsRuntime.agentWithColocatedSkills).toBeTypeOf("function")
     const install = vi.fn()
     const definition = defineAgent({ driver: codexDriver(), runtime: false, workspace: {} })
-    const execute = new Function("installConsoleSections", "installConsoleOperations", "installConsoleProjectName", "installConsoleBuild", "installConsoleDevelopment", "installConsoleAgentDefinitions", "agentWithColocatedSkills", "vitehubConsoleAgent0", generated.replace(/^import .+$/gm, "").replace("export default function", "function"))
+    const execute = new Function("installConsoleSections", "installConsoleOperations", "installConsoleRuntime", "installConsoleProjectName", "installConsoleBuild", "installConsoleDevelopment", "installConsoleAgentDefinitions", "agentWithColocatedSkills", "vitehubConsoleAgent0", generated.replace(/^import .+$/gm, "").replace("export default function", "function"))
     const installOperations = vi.fn()
-    execute(() => {}, installOperations, () => {}, () => {}, () => {}, install, agentWithColocatedSkills, { default: definition })
+    let loadRuntime: (() => Promise<() => void>) | undefined
+    execute(() => {}, installOperations, (load: () => Promise<() => void>) => { loadRuntime = load }, () => {}, () => {}, () => {}, install, agentWithColocatedSkills, { default: definition })
+    expect(installOperations).not.toHaveBeenCalled()
+    const installRuntime = await loadRuntime?.()
+    expect(installOperations).not.toHaveBeenCalled()
+    installRuntime?.()
     expect(installOperations).toHaveBeenCalledWith([], { invoke: true })
     const installed = install.mock.calls[0]?.[0]?.[0]?.definition
     expect(installed?.[Symbol.for("vitehub.agent.colocatedSkills")]).toMatchObject({

@@ -79,9 +79,9 @@ async function authUser(context: AgentCapabilityContext): Promise<OperationUser 
 }
 
 async function operationTools(context: AgentCapabilityContext, options: { approve: OperationsApproval, conversations?: "all" | "participant", include: readonly string[], overrideLeases: boolean, registry?: OperationRegistry, user?: OperationsCapabilityOptions["user"] }): Promise<AgentToolSet> {
-  const registry = options.registry ?? installedOperationRegistry()
+  const registry = options.registry ?? await installedOperationRegistry()
   if (!registry) {
-    throw agentDiagnostics.AGENT_R1014({ message: "[vitehub] operations() found no operations. The app installs them when its server starts, with the Console plugin that `vite dev` and `console` add." })
+    throw agentDiagnostics.AGENT_R1014({ message: "[vitehub] operations() found no operations. The Console plugin that `vite dev` and `console` add installs them." })
   }
   for (const pattern of options.include) {
     if (!registry.list().some(operation => matches(pattern, operation.name))) {
