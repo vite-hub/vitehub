@@ -9,7 +9,7 @@ import { H3, H3Event } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createAuthConsole } from "../../auth/src/console-runtime.ts"
 import { consoleEventsFixture } from "../../auth/test/fixtures/console-events.ts"
-import { createConsoleAppAuthAccess, createConsoleAppAuthPages } from "../src/console/auth.ts"
+import { createConsoleAppAuthAccess, createConsoleAppAuthPages } from "../src/console/auth-pages.ts"
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import authManage from "../src/console/runtime/server/auth-manage.ts"
@@ -71,7 +71,7 @@ describe("console.impersonation configuration", () => {
       const file = join(root, "console.mjs")
       await writeConsoleNitroPlugin(file, root, [], [], { agents: [], content: {} }, [], undefined, undefined, false, undefined, () => true, undefined, false, undefined, { check: { appRoutes: routes }, mode: "auth", impersonation: true })
       const generated = await readFile(file, "utf8")
-      expect(generated).toContain("requireSession: vitehubWithAuthorization(true, () => undefined), impersonation: true })")
+      expect(generated).toContain("requireSession: vitehubRequireSession, impersonation: true })")
       expect(generated).toMatch(/installConsoleAccess\(\{ mode: "auth", .*impersonation: true \}\)/)
     }
     finally {

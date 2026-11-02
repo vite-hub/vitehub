@@ -125,7 +125,7 @@ describe("hubAuth", () => {
     expect(plugin.api.refresh()?.definition.handler).toBe(definition)
     expect(config).toMatchObject({
       nitro: { handlers: expect.arrayContaining([
-        { handler: join(root, ".vitehub/auth/route.ts"), route: "/api/auth/**" },
+        { handler: join(root, ".vitehub/auth/route.ts"), lazy: true, route: "/api/auth/**" },
         { handler: join(root, ".vitehub/auth/access-middleware.ts"), middleware: true, route: "/**" },
       ]) },
     })
@@ -160,15 +160,18 @@ describe("hubAuth", () => {
     expect(ambientTypes).toContain("interface AuthRegistry { definition: typeof import(\"../../server/auth.js\").default }")
   })
 
-  it("connects the virtual Auth server helper to ViteHub Env when available", async () => {
+  it("connects the virtual Auth Definition to ViteHub Env when available", async () => {
     const root = await createTempProject()
     await writeAuth(root)
 
     const plugin = hubAuth()
     await resolvePluginConfig(plugin, root, [{ name: "@vite-hub/env/vite" }])
 
-    expect(loadAuthServer(plugin)).toContain("setAuthRuntimeEnvResolver")
-    expect(loadAuthServer(plugin)).toContain("from \"#vitehub/env/server\"")
+    // The definition module sets the resolver, so code that imports `@vite-hub/auth/server` before the lazy Auth route gets it.
+    expect(loadAuthDefinition(plugin)).toContain("setAuthRuntimeEnvResolver(useServerEnv, definition)")
+    expect(loadAuthDefinition(plugin)).toContain("from \"@vite-hub/auth/runtime/server\"")
+    expect(loadAuthDefinition(plugin)).toContain("from \"#vitehub/env/server\"")
+    expect(loadAuthServer(plugin)).not.toContain("setAuthRuntimeEnvResolver")
     const ambientTypes = await readFile(join(root, ".vitehub", "types", "auth.d.ts"), "utf8")
     expect(ambientTypes).toContain("import type { ServerEnv } from \"#vitehub/env/server\"")
     expect(ambientTypes).toContain("interface AuthRuntimeEnv extends ServerEnv")
@@ -264,7 +267,7 @@ describe("hubAuth", () => {
     expect(nitro.cloudflare.wrangler.secrets.required).toEqual(["VITEHUB_TOKEN"])
     expect(nitro.plugins).toEqual(["/app/plugin.ts"])
     expect(createAuthNitroConfig(hubAuth(), { nitro: inlineConfig.nitro, projectRoot: root })).toEqual(nitro)
-    expect(nitro.handlers).toEqual([middleware, { handler: resolve(root, ".vitehub/auth/route.ts"), route: "/api/auth/**" }])
+    expect(nitro.handlers).toEqual([middleware, { handler: resolve(root, ".vitehub/auth/route.ts"), lazy: true, route: "/api/auth/**" }])
     expect(resolved.server.watch?.ignored).toEqual(["**/dist/**", "**/.vitehub/**"])
     expect(resolved.ssr.noExternal).toEqual(["existing", "@vite-hub/auth"])
     expect(resolved.environments.ssr?.resolve.noExternal).toEqual(["existing", "@vite-hub/auth"])
@@ -319,6 +322,7 @@ describe("hubAuth", () => {
         handlers: [
           {
             handler: resolve(root, ".vitehub/auth/route.ts"),
+            lazy: true,
             route: "/api/auth/**",
           },
           {
@@ -332,7 +336,7 @@ describe("hubAuth", () => {
 
     await resolvePluginConfig(plugin, root)
     const middleware = await readFile(join(root, ".vitehub", "auth", "access-middleware.ts"), "utf8")
-    expect(middleware).toContain('export default createAuthAccessHandler([{"route":"/app"},{"route":"/app/**"},{"route":"/api/app","authorize":true,"method":"POST"}])')
+    expect(middleware).toContain('export default createLazyAuthAccessHandler([{"route":"/app"},{"route":"/app/**"},{"route":"/api/app","authorize":true,"method":"POST"}], () => import("#vitehub/auth/server"))')
   })
 
   it("uses custom Auth base paths for generated Nitro routes", async () => {
@@ -348,6 +352,7 @@ describe("hubAuth", () => {
       nitro: {
         handlers: [{
           handler: resolve(root, ".vitehub/auth/route.ts"),
+          lazy: true,
           route: "/auth/**",
         }],
       },
@@ -376,9 +381,9 @@ describe("hubAuth", () => {
     await expect(readFile(join(root, ".vitehub", "auth", "route.ts"), "utf8")).resolves.toContain("export { default } from \"#vitehub/auth/server\"")
     const accessMiddleware = await readFile(join(root, ".vitehub", "auth", "access-middleware.ts"), "utf8")
     expect(accessMiddleware).toBe([
-      'import { createAuthAccessHandler } from "#vitehub/auth/server"',
+      'import { createLazyAuthAccessHandler } from "@vite-hub/auth/runtime/server"',
       "",
-      "export default createAuthAccessHandler([])",
+      'export default createLazyAuthAccessHandler([], () => import("#vitehub/auth/server"))',
       "",
     ].join("\n"))
   })

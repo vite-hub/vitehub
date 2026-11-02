@@ -2,7 +2,7 @@ import { fixtureFetch } from "forges/testing"
 import type { Fixture } from "forges/testing"
 import { describe, expect, it } from "vitest"
 
-import { forgeProvider, githubBranchRuleDetails, repoRef, retargetPullRequest } from "../src/index.ts"
+import { forgeBranchRules, forgeProvider, githubBranchRuleDetails, repoRef, retargetPullRequest } from "../src/index.ts"
 
 const api = "https://api.github.com"
 const rule = (context = "CI", integration_id: number | null = 42) => ({
@@ -83,6 +83,29 @@ describe("githubBranchRuleDetails()", () => {
       expect(result.requiredChecks).toEqual([{ name: "CI" }])
       expect(githubBranchRuleDetails(result).classicSource).toBe("protection-endpoint")
     }
+  })
+})
+
+describe("forgeBranchRules()", () => {
+  // GitHub's answer on a private repository whose plan has no rulesets or branch protection.
+  const planLimit = { message: "Upgrade to GitHub Pro or make this repository public to enable this feature.", status: "403" }
+  const unprotected = { name: "main", protected: false, protection: { enabled: false, required_status_checks: { enforcement_level: "off", contexts: [], checks: [] } } }
+
+  it("reads no rules on a private repository whose plan has none", async () => {
+    const { provider, repo } = await github([get(branchPath, 200, unprotected), get(rulesPath, 403, planLimit)])
+    const rules = await forgeBranchRules(provider, repo, "main")
+    expect(rules).toMatchObject({ branch: "main", requiredChecks: [], requiredApprovals: 0 })
+    expect(githubBranchRuleDetails(rules)).toEqual({ requiredWorkflows: false, classicSource: "unprotected-branch" })
+  })
+
+  it("rejects a 403 that is not the plan limit", async () => {
+    const { provider, repo } = await github([get(branchPath, 200, unprotected), get(rulesPath, 403, { message: "Resource not accessible by integration" })])
+    await expect(forgeBranchRules(provider, repo, "main")).rejects.toMatchObject({ status: 403 })
+  })
+
+  it("rejects the plan limit when the branch summary reports protection", async () => {
+    const { provider, repo } = await github([get(branchPath, 200, { ...unprotected, protected: true }), get(rulesPath, 403, planLimit)])
+    await expect(forgeBranchRules(provider, repo, "main")).rejects.toMatchObject({ status: 403 })
   })
 })
 

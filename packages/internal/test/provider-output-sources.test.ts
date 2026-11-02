@@ -963,6 +963,35 @@ it.each(["installed", "pnpm", "linked"])("snapshots descendants of explicitly re
   await expect(readFile(retained.resolve(entry), "utf8")).resolves.toContain('"captured"')
 })
 
+it.each(["installed", "pnpm"])("reads installed dependencies in place when the project root is requested (%s)", async (layout) => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-requested-root-"))
+  tempDirs.push(rootDir)
+  const packageDir = layout === "pnpm"
+    ? join(rootDir, "node_modules", ".pnpm", "vite-hub@1.0.0", "node_modules", "vite-hub")
+    : join(rootDir, "node_modules", "vite-hub")
+  const runtime = join(packageDir, "dist", "runtime.js")
+  const handler = join(rootDir, "server", "workflows", "welcome.ts")
+  await Promise.all([dirname(runtime), dirname(handler)].map(directory => mkdir(directory, { recursive: true })))
+  await Promise.all([
+    writeFile(join(rootDir, "package.json"), '{"name":"app"}\n'),
+    writeFile(join(packageDir, "package.json"), '{"name":"vite-hub","type":"module"}\n'),
+    writeFile(runtime, 'export const runtime = "installed"\n'),
+    writeFile(handler, 'export default () => "welcome"\n'),
+  ])
+  const aliases = { "vite-hub/runtime": runtime }
+
+  // Workflow requests the project root and its server directory beside the alias targets.
+  const retained = await retainProviderOutputSources({
+    artifactDir: join(rootDir, ".vitehub", "workflow-generations", "one", "sources"),
+    paths: [...providerOutputAliasSources(aliases, [rootDir]), rootDir, join(rootDir, "server"), handler],
+    roots: [rootDir],
+  })
+
+  expect(retained.resolve(handler)).toBe(join(retained.resolve(rootDir), "server", "workflows", "welcome.ts"))
+  expect(retained.resolve(runtime)).toBe(runtime)
+  expect(retainProviderOutputAliases(aliases, retained)["vite-hub/runtime"]).toBe(runtime)
+})
+
 it.each([false, true])("prefers explicitly retained dependency directories over importing roots (directory first: %s)", async (directoryFirst) => {
   const workspace = await mkdtemp(join(tmpdir(), "vitehub-provider-competing-roots-"))
   tempDirs.push(workspace)

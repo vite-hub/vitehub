@@ -66,6 +66,39 @@ export default defineAgent({
 
 The Channel adds instructions to the Agent: the email content is untrusted data, and the response does not send an email. It also lists each label that has a `description`. Gmail does not store label descriptions.
 
+## Label colors and visibility
+
+Each label in `labels` accepts these settings. `vitehub channels sync` creates and updates the labels to match.
+
+| Setting | Value |
+| --- | --- |
+| `description` | What the label means. The Channel adds it to the Agent instructions. |
+| `color` | `{ textColor, backgroundColor }`. Both values must come from Gmail's label palette. |
+| `labelListVisibility` | How the label appears in Gmail's sidebar: `labelShow` (default), `labelShowIfUnread`, or `labelHide`. |
+| `messageListVisibility` | Whether Gmail shows the label on messages in the message list: `show` (default) or `hide`. |
+
+Gmail accepts only the 102 colors of its [label palette](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.labels#color), exported as `gmailLabelPalette` from `vite-hub/agent/channels`. `gmail()` checks each color when you define the Channel. A color outside the palette fails before the application starts:
+
+```txt
+[vitehub] gmail() label "Work" color backgroundColor "#123456" is not in Gmail's label palette. Use a value from gmailLabelPalette, such as "#4a86e8".
+```
+
+Colors are not case-sensitive. A label without `color` keeps the color that it has in Gmail.
+
+To hide the labels that the Channel does not manage from Gmail's sidebar, set `hideUnmanagedLabels: true`:
+
+```ts
+gmail({
+  hideUnmanagedLabels: true,
+  labels: {
+    'GitHub/Bots': { color: { textColor: '#000000', backgroundColor: '#cccccc' } },
+    'Work': { color: { textColor: '#000000', backgroundColor: '#fad165' } },
+  },
+})
+```
+
+`channels sync` then sets `labelListVisibility: labelHide` on each user label that `labels` does not declare. It does not remove the labels from messages or delete them, and Gmail search still finds them. A parent of a declared nested label, such as `GitHub` for `GitHub/Bots`, stays visible. System labels such as `INBOX` are not changed. To show a hidden label again, declare it in `labels` or show it in Gmail.
+
 ## Message data and methods
 
 `event.message.data` is the message that started the Invocation:
@@ -188,7 +221,7 @@ pnpm vitehub channels sync --stage production --channel gmail
 pnpm vitehub channels sync --stage production --channel gmail --apply
 ```
 
-The first command prints the plan. The Gmail Channel does not need `--url`, because its resources belong to the Gmail account, not to the deployment. See [CLI channel synchronization](/docs/development/cli#synchronize-channel-webhooks).
+The first command prints the plan: labels to create, labels whose color or visibility to update, unmanaged labels to hide when `hideUnmanagedLabels` is set, and the watch. The Gmail Channel does not need `--url`, because its resources belong to the Gmail account, not to the deployment. See [CLI channel synchronization](/docs/development/cli#synchronize-channel-webhooks).
 
 Gmail permits one active watch per mailbox. `channels sync` reads the mailbox profile and rejects multiple selected Gmail Channels for that mailbox before creating labels or renewing watches, even when the Channels use different credentials.
 
@@ -241,3 +274,25 @@ pnpm vitehub channels replay --agent labeller --channel gmail --query "in:inbox 
 | `labelIds` | Label IDs that every message must have. Repeat the flag for several. |
 
 See [Replay Channel history](/docs/agents/channels#replay-channel-history) for `replayChannel()`, cursors, and `--force`.
+
+## Clean up old mail
+
+`cleanupGmailChannel()` moves labelled mail older than a number of days to Trash. Starred mail stays. Without `apply: true`, it only returns the matching message IDs. Each run moves at most 500 messages per rule, so call it from a daily [Schedule](/docs/schedule):
+
+```ts [server/schedules/cleanup.ts]
+import { defineSchedule } from 'vite-hub/schedule'
+import { cleanupGmailChannel } from 'vite-hub/agent/channels'
+import { inbox } from '../lib/inbox'
+
+export default defineSchedule({
+  cron: '0 4 * * *',
+  async handler() {
+    await cleanupGmailChannel(inbox, {
+      apply: true,
+      rules: { promotions: { label: 'Promotions', olderThan: 14 } },
+    })
+  },
+})
+```
+
+The [Labeller preset](/docs/agents/labeller#clean-up-old-mail) declares these rules in its `cleanup` option.

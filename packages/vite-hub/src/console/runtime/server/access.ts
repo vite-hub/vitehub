@@ -7,7 +7,7 @@ import { markBearerRejection, mcpChallenge, resolveConsoleOAuth, verifyConsoleBe
 import { consoleRequestError, consoleRequestURL, isConsoleDevelopmentRuntime, type ConsoleRequestEvent } from "./request.ts"
 
 import type { OperationContext } from "@vite-hub/internal/operations"
-import type { ConsoleAuthorize, ConsoleUser } from "../../auth.ts"
+import type { ConsoleAuthorize, ConsoleUser } from "../../auth-types.ts"
 import type { AgentActor } from "@vite-hub/agent"
 import type { ConsoleSectionId } from "../sections.ts"
 
