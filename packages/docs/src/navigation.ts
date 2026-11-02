@@ -1,4 +1,4 @@
-import type { DocsManifest, DocsPage, DocsSection } from "./types.ts"
+import type { DocsManifest, DocsPage, DocsSearchSection, DocsSection } from "./types.ts"
 
 /** A link that the site options add to the shell, such as a tutorials page or a community chat. */
 export interface DocsLink {
@@ -189,5 +189,115 @@ export function docsMcpInstallLinks(server: { name: string, url: string }): { cu
   return {
     cursor: `cursor://anysphere.cursor-deeplink/mcp/install?name=${encodeURIComponent(server.name)}&config=${encodeURIComponent(config)}`,
     vscode: `vscode:mcp/install?${encodeURIComponent(JSON.stringify({ name: server.name, type: "http", url: server.url }))}`,
+  }
+}
+
+/** Words of a search text: lowercase letters and digits. `KV_INVALID_TTL` has the words `kv`, `invalid`, and `ttl`. */
+function searchWords(text: string): string[] {
+  return text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean)
+}
+
+// A query word of 4 to 7 characters can have one typo, a longer word two. Shorter words must match exactly.
+function allowedTypos(word: string): number {
+  return word.length < 4 ? 0 : word.length < 8 ? 1 : 2
+}
+
+/** Edit distance with swapped neighbors as one edit, so "chatgtp" is one edit from "chatgpt". Stops early past `max`. */
+function editDistance(left: string, right: string, max: number): number {
+  if (Math.abs(left.length - right.length) > max) return max + 1
+  let before: number[] = []
+  let previous = Array.from({ length: right.length + 1 }, (_, index) => index)
+  for (let i = 1; i <= left.length; i++) {
+    const current = [i]
+    let best = i
+    for (let j = 1; j <= right.length; j++) {
+      const cost = left[i - 1] === right[j - 1] ? 0 : 1
+      let value = Math.min(previous[j]! + 1, current[j - 1]! + 1, previous[j - 1]! + cost)
+      if (i > 1 && j > 1 && left[i - 1] === right[j - 2] && left[i - 2] === right[j - 1]) value = Math.min(value, before[j - 2]! + 1)
+      current[j] = value
+      best = Math.min(best, value)
+    }
+    if (best > max) return max + 1
+    before = previous
+    previous = current
+  }
+  return previous[right.length]!
+}
+
+// How well one query word matches a list of words: 1 for the same word, less for a prefix, a typo, or a part of a word.
+function wordMatch(query: string, words: readonly string[], fuzzy: boolean): number {
+  let best = 0
+  for (const word of words) {
+    if (word === query) return 1
+    if (word.startsWith(query)) best = Math.max(best, 0.8)
+    else if (query.length >= 3 && word.includes(query)) best = Math.max(best, 0.4)
+    else if (fuzzy && best < 0.6) {
+      const typos = allowedTypos(query)
+      if (typos && editDistance(query, word, typos) <= typos) best = 0.6
+    }
+  }
+  return best
+}
+
+interface SearchEntry {
+  record: DocsSearchSection
+  order: number
+  title: string[]
+  trail: string[]
+  content: string[]
+}
+
+// A page title outranks a heading, a heading outranks the headings above it, and those outrank the text.
+const pageTitleWeight = 100
+const headingWeight = 40
+const trailWeight = 15
+const contentWeight = 5
+
+/**
+ * The search of the docs dialog. Every query word must match the record. Records whose titles match more query words
+ * come first, then the higher score: page titles over headings over text. Titles tolerate typos and prefixes, text
+ * matches whole words and prefixes. Ties keep the order of the index, which follows the navigation.
+ */
+export function createDocsSearch(records: readonly DocsSearchSection[]): (query: string, limit: number) => DocsSearchSection[] {
+  const entries: SearchEntry[] = records.map((record, order) => ({
+    record,
+    order,
+    title: searchWords(record.title),
+    trail: searchWords(record.titles.join(" ")),
+    content: [...new Set(searchWords(record.content))],
+  }))
+  return (query, limit) => {
+    const words = [...new Set(searchWords(query))]
+    if (!words.length) return []
+    const hits: { entry: SearchEntry, inTitles: number, score: number }[] = []
+    for (const entry of entries) {
+      const titleWeight = entry.record.level === 1 ? pageTitleWeight : headingWeight
+      let inTitles = 0
+      let score = 0
+      let missed = false
+      for (const word of words) {
+        const title = wordMatch(word, entry.title, true) * titleWeight
+        const trail = wordMatch(word, entry.trail, true) * trailWeight
+        const content = wordMatch(word, entry.content, false) * contentWeight
+        const best = Math.max(title, trail, content)
+        if (!best) {
+          missed = true
+          break
+        }
+        if (title || trail) inTitles++
+        score += best
+      }
+      if (missed) continue
+      // A title that is only the query, such as "KV" for "kv", is the page the reader asked for. Half a title weight keeps
+      // a heading named "Install" below the page "Installation".
+      if (entry.title.join(" ") === words.join(" ")) score += titleWeight / 2
+      hits.push({ entry, inTitles, score })
+    }
+    hits.sort((left, right) =>
+      right.inTitles - left.inTitles
+      || right.score - left.score
+      || left.entry.title.length - right.entry.title.length
+      || left.entry.order - right.entry.order)
+    return hits.slice(0, limit).map(hit => hit.entry.record)
   }
 }

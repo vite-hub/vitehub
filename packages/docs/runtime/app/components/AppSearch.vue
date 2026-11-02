@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { createDocsSearch, docsSectionHome } from "#docs/navigation"
+
 import type { DocsSearchSection } from "@vite-hub/docs"
 
 // A result shows the page path over its heading. One line, "Page > Section > Heading", cut off the heading on a phone.
@@ -10,23 +12,33 @@ const navigation = manifest.sections.map(section => ({
   icon: icons.section(section),
   children: section.pages.filter(page => page.navigation).map(page => ({ title: page.title, path: page.path, icon: icons.page(page) })),
 }))
-const links = navigation.map(item => ({ label: item.title, icon: item.icon, to: item.children[0]?.path ?? item.path }))
+const links = navigation.map((item, index) => ({ label: item.title, icon: item.icon, to: docsSectionHome(manifest.sections[index]!) }))
+// The dialog shows only pages that the navigation lists, so the ranking skips the others and the limit counts real results.
+const listed = new Set(navigation.flatMap(item => item.children.map(child => child.path)))
 
 // The index loads when the dialog first opens, so pages do not pay for it.
-const files = shallowRef<DocsSearchSection[]>()
 const status = ref<"idle" | "loading" | "ready" | "error">("idle")
+let rank: ReturnType<typeof createDocsSearch> | undefined
 const { open } = useContentSearch()
 watch(open, async (value) => {
   if (!value || status.value === "loading" || status.value === "ready") return
   status.value = "loading"
   try {
-    files.value = await $fetch<DocsSearchSection[]>("/api/_docs/search.json")
+    const records = await $fetch<DocsSearchSection[]>("/api/_docs/search.json")
+    rank = createDocsSearch(records.filter(record => listed.has(record.id.split("#")[0] ?? record.id)))
     status.value = "ready"
   }
   catch {
     status.value = "error"
   }
 })
+
+async function search(query: string, options?: { limit?: number }) {
+  return rank?.(query, options?.limit ?? 30) ?? []
+}
+
+// The section list helps before the first key press. After it, the ranked results are the whole list.
+const searchTerm = ref("")
 
 // Nuxt UI builds the prefix as "Page > Section >".
 function searchPath(prefix: string) {
@@ -35,16 +47,23 @@ function searchPath(prefix: string) {
 </script>
 
 <template>
-  <LazyUContentSearch :files="files" :links="links" :navigation="navigation">
+  <LazyUContentSearch
+    v-model:search-term="searchTerm"
+    :links="searchTerm ? [] : links"
+    :navigation="navigation"
+    :search="search"
+    :search-status="status"
+    :fuse="{ resultLimit: 30 }"
+  >
     <template #item-label="{ item }">
       <span v-if="item.prefix" class="vh-search-path">{{ searchPath(item.prefix) }}</span>
       <span class="vh-search-title">{{ item.label }}</span>
     </template>
 
-    <template #empty="{ searchTerm }">
+    <template #empty="{ searchTerm: term }">
       <span v-if="status === 'error'">Search could not load. Reload the page to try again.</span>
       <span v-else-if="status !== 'ready'">Loading the search index…</span>
-      <span v-else>No pages match “{{ searchTerm }}”.</span>
+      <span v-else>No pages match “{{ term }}”.</span>
     </template>
   </LazyUContentSearch>
 </template>

@@ -13,7 +13,7 @@ icon: i-lucide-circle-alert
 - **One content folder.** The module reads one folder, `dir`. Sections are the folders under `base`. A page cannot be in two sections.
 - **Pages are read at build time.** The manifest, the agent copies, and the routes come from the files at build time. A production site does not see a file that you add after the build. In development, a body change shows on the next page load, and a new page, title, or order restarts the app.
 - **No page at `/docs` by default.** Add `content/docs/index.md`, or `/docs` is not found. The Docs links then open the first section.
-- **Search is in the browser.** The dialog loads the whole index the first time it opens. Each `h2` and `h3` is one entry.
+- **Search is in the browser.** The dialog loads the whole index the first time it opens. Each `h2` and `h3` is one entry. Page titles rank first, then headings, then text.
 - **The docs assistant runs on Node.js only**, and on the ChatGPT plan only in the development server. See the [assistant limits](/docs/docs-site/assistant#limits) for plan use, shell access, and the rate limit.
 
 ## Errors

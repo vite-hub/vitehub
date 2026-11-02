@@ -162,7 +162,7 @@ Every page has a Markdown copy for coding agents. You get these routes with no s
 
 ## Search
 
-Search indexes every page by heading. `⌘K` opens it. The index loads the first time the dialog opens, from `/api/_docs/search.json`. `::agent-only` content is not indexed.
+Search indexes every page by heading. `⌘K` opens it. Page titles rank first, then headings, then text, and a typo still finds the page. The index loads the first time the dialog opens, from `/api/_docs/search.json`. `::agent-only` content is not indexed.
 
 ## Docs assistant
 
