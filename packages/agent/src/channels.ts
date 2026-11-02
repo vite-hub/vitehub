@@ -1367,7 +1367,7 @@ async function githubPullRequestMetadata<TRuntimeConfig extends AgentRuntimeConf
   catch (error) {
     const reason = error instanceof Error && error.message ? error.message : "unknown"
     // The pull request Workspace checks out the head SHA, so the run cannot continue without it.
-    // The thrown error names the cause, and the webhook queue retries the delivery.
+    // Only an already admitted delivery is retried by the webhook queue.
     if (githubPullRequestWorkspacePolicy(options).enabled) {
       const tokenReason = tokenError === undefined ? "" : ` (the GitHub App token request failed first: ${tokenError instanceof Error ? tokenError.message : String(tokenError)})`
       throw agentDiagnostics.AGENT_R0370({

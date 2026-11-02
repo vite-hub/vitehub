@@ -2160,7 +2160,7 @@ describe("agent channels", () => {
     online = false
     const failure = { code: "AGENT_R0370", message: expect.stringMatching(/loading acme\/app#42 failed: .*ECONNRESET.*GitHub App token request timed out/) }
     await expect(invoke(undefined)).rejects.toMatchObject(failure)
-    // A queued delivery reloads the metadata, so the queue retries this error.
+    // An already admitted delivery reloads metadata on replay; route coverage tests the queue retry.
     await expect(invoke(undefined, accepted)).rejects.toMatchObject(failure)
 
     const bestEffort = await invoke(false)
