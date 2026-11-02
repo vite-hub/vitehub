@@ -7,9 +7,10 @@ import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
+import { installConsoleRuntime } from "../src/console/runtime/server/runtime.ts"
 import { consoleOperationRegistry as installedRegistry, installConsoleOperations, installConsoleProjectRoot } from "../src/console/runtime/server/operation-contributions.ts"
 import { consoleOperationRegistry } from "../src/console/runtime/server/rpc.ts"
-import { callOperation, installedOperationRegistry, operationRootHeader, parseOperationInput, projectRootHash, runOperation } from "@vite-hub/internal/operations"
+import { callOperation, installedOperationRegistry, installOperationRegistryLoader, operationRootHeader, parseOperationInput, projectRootHash, runOperation } from "@vite-hub/internal/operations"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 
 // A plugin of the app contributes this operation, as `@vite-hub/content` contributes `content.*`.
@@ -227,11 +228,48 @@ describe("contributed operations over the Console RPC", () => {
     await expect(assertUniqueOperationNames([contribution("shadow", builtin)])).rejects.toMatchObject({ code: "INTERNAL_B0048" })
   })
 
-  it("installs the registry at startup, so agent tools need no prior RPC call", () => {
+  it("installs the registry for agent tools, which need no prior RPC call", async () => {
     const registry = installConsoleOperations([{ operations: [greet], plugin: "fixture-plugin" }])
-    expect(installedOperationRegistry()).toBe(registry)
+    expect(await installedOperationRegistry()).toBe(registry)
     expect(registry.get("fixture.greet")).toBeDefined()
     expect(registry.get("agents.list")).toBeDefined()
+  })
+
+  it("loads the Console runtime once, on the first accepted request or agent tool", async () => {
+    const load = vi.fn(async () => { installConsoleOperations([{ operations: [greet], plugin: "fixture-plugin" }]) })
+    try {
+      installConsoleAccess({ check: async () => new Response("no", { status: 401 }), mode: "auth" })
+      installConsoleRuntime(load)
+      expect((await call("fixture.greet", { name: "Ada" })).status).toBe(401)
+      expect(load).not.toHaveBeenCalled()
+
+      installConsoleAccess({ mode: "open" })
+      const [first, second] = await Promise.all([call("fixture.greet", { name: "Ada" }), call("fixture.greet", { name: "Grace" })])
+      expect(first.status).toBe(200)
+      expect(second.status).toBe(200)
+      expect((await installedOperationRegistry())?.get("fixture.greet")).toBeDefined()
+      expect(load).toHaveBeenCalledOnce()
+    }
+    finally {
+      Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.runtime"))
+      installOperationRegistryLoader(undefined)
+    }
+  })
+
+  it("retries a Console runtime that failed to load", async () => {
+    const load = vi.fn<() => Promise<void>>()
+      .mockRejectedValueOnce(new Error("rebuilding"))
+      .mockImplementation(async () => { installConsoleOperations([{ operations: [greet], plugin: "fixture-plugin" }]) })
+    try {
+      installConsoleRuntime(load)
+      await expect(installedOperationRegistry()).rejects.toThrow("rebuilding")
+      expect((await installedOperationRegistry())?.get("fixture.greet")).toBeDefined()
+      expect(load).toHaveBeenCalledTimes(2)
+    }
+    finally {
+      Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.runtime"))
+      installOperationRegistryLoader(undefined)
+    }
   })
 
   it("builds the registry once when nothing is installed", () => {

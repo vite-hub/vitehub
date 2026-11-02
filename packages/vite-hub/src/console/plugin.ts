@@ -241,52 +241,44 @@ function renderConsoleNitroPlugin(
   const definitionsEnabled = databaseEnabled || contributedSections.length > 0
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
   const fixtureSource = fixtureSnapshot ? `JSON.parse(${JSON.stringify(JSON.stringify(fixtureSnapshot))})` : undefined
+  const runtimeImports = [
+    ...operations.map((operation, index) => ({ bindings: `${operation.export}: vitehubConsoleOperations${index}`, module: operation.module })),
+    ...(blobEnabled ? [{ bindings: "installConsoleBlob", module: "vite-hub/console/blob" }, { bindings: "blob: vitehubConsoleBlob", module: "vite-hub/blob" }] : []),
+    ...(definitionsEnabled ? [{ bindings: `installConsoleDefinitions${schedulesEnabled ? ", installConsoleSchedules" : ""}`, module: "vite-hub/console/definitions" }] : []),
+    ...(definitionsEnabled ? runtimeReaders.map((reader, index) => ({ bindings: `${reader.export}: vitehubConsoleRuntimeReader${index}`, module: reader.module })) : []),
+    ...(databaseEnabled ? [{ bindings: "installConsoleDatabase", module: "vite-hub/console/database" }, { bindings: "databases: vitehubConsoleDatabases", module: "vite-hub/database/drizzle" }] : []),
+    ...(sections.includes("env") ? [{ bindings: "describeServerEnv", module: "#vitehub/env/description" }, { bindings: "installConsoleEnv", module: "vite-hub/console/env" }] : []),
+  ]
+  const runtimeInstall = [
+    ...(blobEnabled ? [`installConsoleBlob(${JSON.stringify(projectRoot)}, vitehubConsoleBlob, ${JSON.stringify(blobStores)})`] : []),
+    ...(sections.includes("env") ? [`installConsoleEnv(${JSON.stringify(projectRoot)}, describeServerEnv(), async request => { try { return await (await import("#vitehub/env/server")).manageServerEnv(request) } catch { return Response.json({ message: "Env management is unavailable." }, { status: 503, headers: { "cache-control": "no-store" } }) } }, async event => (await import("#vitehub/env/server")).inspectServerEnv(event))`] : []),
+    `installConsoleOperations([${operations.map((operation, index) => `{ operations: vitehubConsoleOperations${index}, plugin: ${JSON.stringify(operation.plugin)} }`).join(", ")}], { invoke: ${invoke} })`,
+    ...(definitionsEnabled ? [`installConsoleDefinitions(${JSON.stringify(projectRoot)}, ${JSON.stringify(catalog.content)}, ${JSON.stringify(contributedSections)}${runtimeReaders.length ? `, { ${runtimeReaders.map((reader, index) => `${JSON.stringify(reader.section)}: vitehubConsoleRuntimeReader${index}`).join(", ")} }` : ""})`] : []),
+    ...(schedulesEnabled ? [`installConsoleSchedules(${JSON.stringify(projectRoot)}, {${runnableSchedules}})`] : []),
+    ...(databaseEnabled ? [`installConsoleDatabase(${JSON.stringify(projectRoot)}, vitehubConsoleDatabases, ${JSON.stringify(catalog.content.databases?.kind === "definition-catalog" ? catalog.content.databases.definitions.map(definition => definition.name) : [])})`] : []),
+  ]
   return [
-    `import { ${access ? "installConsoleAccess, " : ""}installConsoleBuild, installConsoleDevelopment, installConsoleOperations, installConsolePageTool, installConsoleProjectName, installConsoleSections } from "vite-hub/console/sections"`,
-    ...operations.map((operation, index) => `import { ${operation.export} as vitehubConsoleOperations${index} } from ${JSON.stringify(operation.module)}`),
+    `import { ${access ? "installConsoleAccess, " : ""}installConsoleBuild, installConsoleDevelopment, installConsoleOperations, installConsolePageTool, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from "vite-hub/console/sections"`,
     ...accessCode.imports,
     ...(agentsEnabled ? runtimeCapabilities.imports : []),
-    ...(blobEnabled
-      ? [
-          `import { installConsoleBlob } from "vite-hub/console/blob"`,
-          `import { blob as vitehubConsoleBlob } from "vite-hub/blob"`,
-        ]
-      : []),
     ...(agentsEnabled
       ? [`import { installConsoleAgentDefinitions, installConsoleFixtureInvocations } from "vite-hub/console/server"`, `import { agentWithColocatedSkills } from "vite-hub/_internal/agent/runtime/workflow"`]
       : []),
-    ...(definitionsEnabled ? [`import { installConsoleDefinitions${schedulesEnabled ? ", installConsoleSchedules" : ""} } from "vite-hub/console/definitions"`] : []),
-    ...(definitionsEnabled
-      ? runtimeReaders.map((reader, index) => `import { ${reader.export} as vitehubConsoleRuntimeReader${index} } from ${JSON.stringify(reader.module)}`)
-      : []),
-    ...(databaseEnabled
-      ? [
-          `import { installConsoleDatabase } from "vite-hub/console/database"`,
-          `import { databases as vitehubConsoleDatabases } from "vite-hub/database/drizzle"`,
-        ]
-      : []),
-    ...(sections.includes("env") ? [`import { describeServerEnv } from "#vitehub/env/description"`, `import { installConsoleEnv } from "vite-hub/console/env"`] : []),
     ...(documentEditors.length ? [`import { installConsoleDocuments } from "vite-hub/console/documents"`] : []),
     ...documentEditors.map((editor, index) => `import { ${editor.export} as vitehubConsoleDocumentActions${index} } from ${JSON.stringify(editor.module)}`),
     ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
     `installConsoleDevelopment(${JSON.stringify(projectRoot)}, ${JSON.stringify(development)})`,
     ...accessCode.install,
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)}${independentAuth ? `, ${JSON.stringify(independentAuth)}` : ""})`,
-    ...(blobEnabled
-      ? [`installConsoleBlob(${JSON.stringify(projectRoot)}, vitehubConsoleBlob, ${JSON.stringify(blobStores)})`]
-      : []),
-    ...(sections.includes("env") ? [`installConsoleEnv(${JSON.stringify(projectRoot)}, describeServerEnv(), async request => { try { return await (await import("#vitehub/env/server")).manageServerEnv(request) } catch { return Response.json({ message: "Env management is unavailable." }, { status: 503, headers: { "cache-control": "no-store" } }) } }, async event => (await import("#vitehub/env/server")).inspectServerEnv(event))`] : []),
-    // Always installed, so agent tools see the operations before the first RPC call.
-    `installConsoleOperations([${operations.map((operation, index) => `{ operations: vitehubConsoleOperations${index}, plugin: ${JSON.stringify(operation.plugin)} }`).join(", ")}], { invoke: ${invoke} })`,
+    // The first Console request or agent tool that needs the operations loads them, with every primitive they import.
+    `installConsoleRuntime(async () => {`,
+    ...(runtimeImports.length ? [`  const [${runtimeImports.map(entry => `{ ${entry.bindings} }`).join(", ")}] = await Promise.all([${runtimeImports.map(entry => `import(${JSON.stringify(entry.module)})`).join(", ")}])`] : []),
+    ...runtimeInstall.map(line => `  ${line}`),
+    "})",
     `installConsoleProjectName(${JSON.stringify(projectRoot)}, ${JSON.stringify(resolveConsoleProjectNameFromRoot(projectRoot))})`,
     // The application module loads on the first document request, so the Console does not start Content at boot.
     ...(documentEditors.length
       ? [`installConsoleDocuments(${JSON.stringify(projectRoot)}, { ${documentEditors.map((editor, index) => `${JSON.stringify(editor.section)}: { actions: vitehubConsoleDocumentActions${index}, load: () => import(${JSON.stringify(pathToFileURL(editor.entry).href)}) }`).join(", ")} })`]
-      : []),
-    ...(definitionsEnabled ? [`installConsoleDefinitions(${JSON.stringify(projectRoot)}, ${JSON.stringify(catalog.content)}, ${JSON.stringify(contributedSections)}${runtimeReaders.length ? `, { ${runtimeReaders.map((reader, index) => `${JSON.stringify(reader.section)}: vitehubConsoleRuntimeReader${index}`).join(", ")} }` : ""})`] : []),
-    ...(schedulesEnabled ? [`installConsoleSchedules(${JSON.stringify(projectRoot)}, {${runnableSchedules}})`] : []),
-    ...(databaseEnabled
-      ? [`installConsoleDatabase(${JSON.stringify(projectRoot)}, vitehubConsoleDatabases, ${JSON.stringify(catalog.content.databases?.kind === "definition-catalog" ? catalog.content.databases.definitions.map(definition => definition.name) : [])})`]
       : []),
     ...(agentsEnabled
       ? fixture
