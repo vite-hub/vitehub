@@ -220,8 +220,8 @@ watch(
 watch(selectedPath, (path) => {
   if (path) {
     if (!openPaths.value.includes(path)) openPaths.value = [...openPaths.value, path];
-    tab.value = "workspace";
-    activeSurface.value = `file:${path}`;
+    // The URL can restore a view and retain its last file. Opening a file explicitly selects Workspace.
+    if (tab.value === "workspace") activeSurface.value = `file:${path}`;
     void loadFile(path);
   }
 });

@@ -25,6 +25,8 @@ interface AgentsState {
   detailsOpen: boolean
   inspectorActiveSurface: string
   inspectorOpenViews: string[]
+  inspectorOpenPaths: string[]
+  inspectorSelectedPath: string | undefined
   inspectorTab: string
   selectCapability: (id?: string) => void
   selectedCapabilityId: string | undefined
@@ -111,4 +113,58 @@ it("searches sessions by title or ID and keeps the search when another session o
   expect(search.matchesSessionSearch({ id: "ainv_2", title: "Triage" })).toBe(false)
   await state.selectInvocation({ agent: "support", id: "i2" })
   await vi.waitFor(() => expect(router.currentRoute.value.fullPath).toBe("/agents/support/invocations/i2?q=label"))
+})
+
+it.each(["open", "max"])("opens the default Details surface from details=%s", async (details) => {
+  const { state } = await mountAgents(`/agents/support/invocations/i1?details=${details}`)
+  expect(state.detailsOpen).toBe(true)
+  expect(state.inspectorTab).toBe("details")
+  expect(state.inspectorActiveSurface).toBe("view:details")
+  expect(state.inspectorOpenViews).toEqual(["details"])
+})
+
+it("restores the default Details surface when only the panel state changes", async () => {
+  const { router, state } = await mountAgents("/agents/support/invocations/i1")
+  await router.push({ query: { details: "open" } })
+  await nextTick()
+  expect(state.inspectorActiveSurface).toBe("view:details")
+})
+
+it.each(["details", "trace"])("restores %s while retaining an open file without writing another history entry", async (tab) => {
+  const view = `/agents/support/invocations/i1?details=open${tab === "details" ? "" : `&tab=${tab}`}&file=notes.md`
+  const { push, router, state } = await mountAgents(view)
+  expect(state.inspectorSelectedPath).toBe("notes.md")
+  expect(state.inspectorActiveSurface).toBe(`view:${tab}`)
+  await router.push({ query: { details: "open", tab: "workspace", file: "notes.md" } })
+  await nextTick()
+  push.mockClear()
+  router.back()
+  await vi.waitFor(() => expect(router.currentRoute.value.fullPath).toBe(view))
+  expect(state.inspectorTab).toBe(tab)
+  expect(state.inspectorActiveSurface).toBe(`view:${tab}`)
+  expect(state.inspectorOpenPaths).toContain("notes.md")
+  expect(push).not.toHaveBeenCalled()
+  router.forward()
+  await vi.waitFor(() => expect(state.inspectorActiveSurface).toBe("file:notes.md"))
+  expect(push).not.toHaveBeenCalled()
+})
+
+it("restores a previous session's file and preserves Forward navigation", async () => {
+  const first = "/agents/support/invocations/i1?details=open&tab=workspace&file=notes.md"
+  const { push, router, state } = await mountAgents(first)
+  await state.selectInvocation({ agent: "support", id: "i2" })
+  await vi.waitFor(() => expect(router.currentRoute.value.params.invocation).toBe("i2"))
+  expect(state.inspectorSelectedPath).toBeUndefined()
+  expect(state.inspectorOpenPaths).toEqual([])
+  push.mockClear()
+  router.back()
+  await vi.waitFor(() => expect(router.currentRoute.value.fullPath).toBe(first))
+  expect(state.inspectorSelectedPath).toBe("notes.md")
+  expect(state.inspectorOpenPaths).toEqual(["notes.md"])
+  expect(state.inspectorActiveSurface).toBe("file:notes.md")
+  expect(push).not.toHaveBeenCalled()
+  router.forward()
+  await vi.waitFor(() => expect(router.currentRoute.value.params.invocation).toBe("i2"))
+  expect(state.inspectorSelectedPath).toBeUndefined()
+  expect(push).not.toHaveBeenCalled()
 })

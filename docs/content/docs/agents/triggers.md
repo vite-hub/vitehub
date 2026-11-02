@@ -294,6 +294,27 @@ A task's own `prepare` replaces the trigger's `prepare`. The trigger's `prepare`
 
 Without the queue, `prepare` and the task run before the webhook is answered, and a handled `Response` is the answer. Direct calls such as `runAgentTrigger()` run them too. With `busy: 'steer'`, a delivery that starts a queued Invocation runs `prepare` on each attempt. A delivery that steers an active Invocation sends its accepted input directly and skips `prepare`. Put work needed for every delivery in `invoke`. Steering cannot select a named task. `replayChannel()` and `dispatch()` record items in the replaying Agent's journal, so they reject a task that runs another Agent.
 
+### Run a task later from server code
+
+Use `enqueueChannelTask()` to queue a declared task from server code in the same persistent Node server as the Agent webhook host, such as an Agent hook, an in-process Schedule or an API route. On persistent Nitro hosts, enqueue and cancellation start the queue on demand, including before its background startup timer fires. Standalone serverless Schedule and API entries on Netlify or Vercel run in separate processes and cannot use these APIs. The task runs at `notBefore` or after `delayMs`, through the Channel's webhook queue. Its `prepare`, `failed`, retries, restart replay and Channel delivery record work as for a queued webhook delivery. `input` is the input that `invoke` would return for the task.
+
+```ts
+import { cancelChannelTask, enqueueChannelTask } from 'vite-hub/agent/server'
+
+const [error, receipt] = await enqueueChannelTask('airtable', 'close-duplicate', { data: { closeId, survivorId } }, {
+  notBefore: nextWorkingDay(),
+  key: `duplicate-pair:${closeId}:${survivorId}`,
+  run: { annotations: { 'airtable.record': closeId } },
+})
+
+// Someone objected: drop the queued task.
+await cancelChannelTask('airtable', 'close-duplicate', { key: `duplicate-pair:${closeId}:${survivorId}` })
+```
+
+A later enqueue of the same trigger's task with the same `key` replaces a queued task that has not started. `cancelChannelTask()` drops that trigger's queued tasks with the `key` and returns how many it dropped. A task that has started keeps running. Use `prepare` to check live state when the task starts and return `ignored()` when the work is no longer needed.
+
+Tasks with the same name run one at a time. The Channel needs a declared webhook and a queue-capable state provider, such as SQLite or libSQL. When more than one trigger of the Channel declares the task, pass `trigger`. Both functions return `[error, result]`. The receipt has the queue `deliveryId`, the Invocation `runId` and the `notBefore` time.
+
 
 
 ### Report a failed webhook delivery

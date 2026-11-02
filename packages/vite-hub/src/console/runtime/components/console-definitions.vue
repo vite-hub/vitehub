@@ -246,10 +246,15 @@ function selectRecord(name: string | undefined, history: "push" | "replace" = "p
 }
 
 function selectDefinition(name: string): void {
-  selectedName.value = name;
   sidebarOpen.value = false;
   if (route.query[selectionQuery.value] !== name) {
-    void router.push({ query: { ...route.query, [selectionQuery.value]: name } });
+    const query = { ...route.query, [selectionQuery.value]: name };
+    // A new Rate Limit starts without a counter; history entries keep their own keys.
+    if (section.value === "rate-limits") delete query.key;
+    void router.push({ query });
+  } else {
+    // Commit the selection with its URL so the counter reads the destination's key.
+    selectedName.value = name;
   }
 }
 
@@ -414,6 +419,7 @@ onBeforeUnmount(() => request?.abort());
           @update:model-value="setColumnFilter(column.key, $event)"
         />
         <span v-if="recordsFiltered" class="ms-auto text-xs text-muted tabular-nums" aria-live="polite">{{ visibleRecords.length }} of {{ records.length }}</span>
+        <UButton v-if="recordsFiltered" label="Clear filters" size="sm" variant="ghost" @click="clearRecordFilters" />
       </ConsolePageToolbar>
 
       <!-- Only the load state is announced. A live region around the whole list would read every refreshed row. -->

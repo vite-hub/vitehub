@@ -7,16 +7,15 @@ import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
  * Build-time facts about an Agent module that a package declares in its package.json:
  *
  * ```json
- * { "vitehub": { "agent": { "processHost": ["./babysitter"], "providerDriver": ["./babysitter", "./workspace"] } } }
+ * { "vitehub": { "agent": { "processHost": ["./babysitter"] } } }
  * ```
  *
  * - `processHost`: the subpath attaches a process host to the Agent (see `@vite-hub/agent/process-host`).
- * - `providerDriver`: the subpath selects a provider Agent Driver, such as Codex or Claude Code.
  *
  * The Vite plugin reads these lists when an Agent module imports the subpath, so that it does not
  * need to know the package.
  */
-export type AgentModuleTrait = "processHost" | "providerDriver"
+export type AgentModuleTrait = "processHost"
 
 type AgentModuleTraits = Partial<Record<AgentModuleTrait, readonly string[]>>
 
@@ -39,7 +38,7 @@ function readTraits(manifestPath: string): AgentModuleTraits {
   const agent = isRuntimeRecord(vitehub) ? vitehub.agent : undefined
   const traits: AgentModuleTraits = {}
   if (isRuntimeRecord(agent)) {
-    for (const trait of ["processHost", "providerDriver"] as const) {
+    for (const trait of ["processHost"] as const) {
       const value = agent[trait]
       if (Array.isArray(value)) traits[trait] = value.filter(item => hasRuntimeType(item, "string"))
     }

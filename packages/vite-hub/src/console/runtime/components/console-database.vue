@@ -36,6 +36,8 @@ const props = defineProps<{
 
 const route = useRoute();
 const router = useRouter();
+const dataRouteName = "vitehub-console-databases";
+const schemaRouteName = "vitehub-console-databases-schema";
 const sidebarOpen = ref(false);
 // The filter, sort, and page live in the URL, so a reload or a shared link opens the same rows.
 const { dir: direction, offset, q: filter, sort } = useConsoleQuery({
@@ -43,6 +45,9 @@ const { dir: direction, offset, q: filter, sort } = useConsoleQuery({
   offset: queryInteger(0, { history: "push" }),
   q: queryText(),
   sort: queryText(),
+}, {
+  active: current => [dataRouteName, schemaRouteName]
+    .some(name => current.name === resolveConsoleRouteName(current.name, name)),
 });
 const appliedSearch = ref(filter.value.trim());
 const database = ref<ReturnType<typeof parseConsoleDatabase>>();
@@ -55,8 +60,6 @@ let request: AbortController | undefined;
 let filterTimer: ReturnType<typeof setTimeout> | undefined;
 const defaultSort = "__vitehub_default__";
 
-const dataRouteName = "vitehub-console-databases";
-const schemaRouteName = "vitehub-console-databases-schema";
 const routeDatabase = computed(() =>
   Array.isArray(route.params.database) ? route.params.database[0] : route.params.database,
 );

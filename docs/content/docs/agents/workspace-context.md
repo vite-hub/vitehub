@@ -113,10 +113,10 @@ Authenticate the request and pass an [Agent Actor](/docs/agents/actors) before d
 Provider Drivers receive the rendered instruction document and selected Workspace files in a temporary local working directory. Successful write-mode invocations commit through Workspace rules.
 
 ```ts [server/agents/review/agent.ts]
-import { defineAgent } from 'vite-hub/agent'
+import { codexDriver, defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
-  driver: { kind: 'codex', model: 'gpt-5.5' },
+  driver: codexDriver({ model: 'gpt-5.5' }),
   workspace: { mode: 'write' },
 })
 ```

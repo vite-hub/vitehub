@@ -97,7 +97,7 @@ const {
     .some(name => current.name === resolveConsoleRouteName(current.name, name)),
   onRestore(names) {
     if (names.includes("capability") || names.includes("triggeredBy")) scheduleInvocationListRefresh();
-    if (names.includes("tab") || names.includes("file")) showInspectorSurface();
+    if (names.includes("tab") || names.includes("file") || (names.includes("details") && detailsOpen.value)) showInspectorSurface();
   },
 });
 /** The URL query of the page as it shows now, for a route that only fills in the Agent or the first session. */
@@ -160,15 +160,16 @@ function showInspectorSurface(): void {
   const path = inspectorSelectedPath.value;
   if (path) {
     if (!inspectorOpenPaths.value.includes(path)) inspectorOpenPaths.value = [...inspectorOpenPaths.value, path];
-    inspectorTab.value = "workspace";
-    inspectorActiveSurface.value = `file:${path}`;
-    return;
+    if (inspectorTab.value === "workspace") {
+      inspectorActiveSurface.value = `file:${path}`;
+      return;
+    }
   }
   const view = inspectorTab.value;
   if (!inspectorOpenViews.value.includes(view)) inspectorOpenViews.value = [...inspectorOpenViews.value, view];
   inspectorActiveSurface.value = `view:${view}`;
 }
-if (inspectorSelectedPath.value || inspectorTab.value !== "details") showInspectorSurface();
+if (detailsOpen.value || inspectorSelectedPath.value || inspectorTab.value !== "details") showInspectorSurface();
 const inspectorWorkspaceIdentity = ref<string>();
 const selectedActivityId = ref<string>();
 const isDesktop = ref(false);
@@ -997,11 +998,8 @@ watch(selectedInvocationId, () => {
     ? `${props.hostBase}/api/invocations/${selectedInvocationId.value}`
     : undefined;
   if (identity !== inspectorWorkspaceIdentity.value) {
-    // The first session of the page keeps the file of the URL. Another session starts without open files.
-    if (inspectorWorkspaceIdentity.value !== undefined) {
-      inspectorSelectedPath.value = undefined;
-      inspectorOpenPaths.value = [];
-    }
+    // A new session's URL omits the file. Back and Forward can restore one from the destination session.
+    inspectorOpenPaths.value = inspectorSelectedPath.value ? [inspectorSelectedPath.value] : [];
     inspectorWorkspaceIdentity.value = identity;
   }
 });

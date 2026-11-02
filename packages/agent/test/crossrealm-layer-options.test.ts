@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest"
 import vm from "node:vm"
-import { defineAgent } from "../src/index.ts"
+import { codexDriver, defineAgent } from "../src/index.ts"
 
 describe("cross realm agent options", () => {
   it("clones nested cross realm records instead of preserving the source", () => {
     const nested = vm.runInNewContext("({ answer: 42 })") as { answer: number }
-    const configure = (_options: { nested: { answer: number } }) => defineAgent({ driver: "codex" })
+    const configure = (_options: { nested: { answer: number } }) => defineAgent({ driver: codexDriver() })
     const preset = defineAgent({ options: { nested }, configure })
     const inherited = defineAgent({ extends: preset })
     expect(inherited.options.nested).not.toBe(nested)
@@ -50,7 +50,7 @@ it("snapshots cross realm built-ins while preserving their data", () => {
     options: { values },
     configure: (options: { values: typeof values }) => {
       configureCalls.push(options.values)
-      return defineAgent({ driver: "codex" })
+      return defineAgent({ driver: codexDriver() })
     },
   })
   const inherited = defineAgent({ extends: preset })
@@ -97,7 +97,7 @@ it("keeps custom Buffer subclasses atomic and clones native foreign Buffers", ()
   const foreign = vm.runInNewContext("Buffer.from([3, 4])", { Buffer }) as Buffer
   const preset = defineAgent({
     options: { custom, foreign },
-    configure: (_options: { custom: Buffer; foreign: Buffer }) => defineAgent({ driver: "codex" }),
+    configure: (_options: { custom: Buffer; foreign: Buffer }) => defineAgent({ driver: codexDriver() }),
   })
   const inherited = defineAgent({ extends: preset })
   expect(inherited.options.custom).toBe(custom)
@@ -120,7 +120,7 @@ it("keeps a custom Buffer subclass named Buffer atomic", () => {
   const custom = new Buffer(new Uint8Array([1, 2]))
   const preset = defineAgent({
     options: { custom },
-    configure: (_options: { custom: Buffer }) => defineAgent({ driver: "codex" }),
+    configure: (_options: { custom: Buffer }) => defineAgent({ driver: codexDriver() }),
   })
   const inherited = defineAgent({ extends: preset })
   expect(inherited.options.custom).toBe(custom)
@@ -132,7 +132,7 @@ it("does not trust a backing store's Symbol.toStringTag", () => {
   Object.defineProperty(buffer, Symbol.toStringTag, { value: "SharedArrayBuffer" })
   const preset = defineAgent({
     options: { bytes: new Uint8Array(buffer) },
-    configure: (_options: { bytes: Uint8Array }) => defineAgent({ driver: "codex" }),
+    configure: (_options: { bytes: Uint8Array }) => defineAgent({ driver: codexDriver() }),
   })
   const inherited = defineAgent({ extends: preset })
   expect([...inherited.options.bytes]).toEqual([1, 2])

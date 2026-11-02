@@ -1,4 +1,4 @@
-import { createRenderer, nextTick, ssrContextKey } from "vue"
+import { createRenderer, h, nextTick, ssrContextKey } from "vue"
 import { createMemoryHistory, createRouter } from "vue-router"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -105,6 +105,31 @@ describe("Logs", async () => {
 describe("Databases", async () => {
   const Database = (await import("../src/console/runtime/components/console-database.vue")).default
   const routes = [{ component: {}, name: "vitehub-console-databases", path: "/databases/:database/:table" }]
+
+  it("keeps URL state active when the mounted Schema view opens Data", async () => {
+    mocks.request.mockResolvedValue({ database: "main", databases: ["main"], direction: "asc", limit: 50, offset: 0, relationships: [], rows: [], search: "", table: "users", tables: [], total: 200 })
+    const { replace, router, state } = await mountPage<{ direction: string, filter: string, offset: number, sort: string }>(
+      Database, { ...bases, databaseBase: "/database", view: "schema" }, "/databases/main/schema/diagram", [
+        ...routes, { component: {}, name: "vitehub-console-databases-schema", path: "/databases/:database/schema/diagram" },
+      ],
+    )
+    await router.push("/databases/main/users")
+    state.filter = "alice"
+    await settle(router, { q: "alice" })
+    state.sort = "id"
+    await settle(router, { q: "alice", sort: "id" })
+    state.direction = "desc"
+    await settle(router, { dir: "desc", q: "alice", sort: "id" })
+    expect(replace).toHaveBeenCalledTimes(3)
+    state.offset = 50
+    await settle(router, { dir: "desc", offset: "50", q: "alice", sort: "id" })
+    router.back()
+    await vi.waitFor(() => expect(state.offset).toBe(0))
+    router.back()
+    await vi.waitFor(() => expect([state.filter, state.sort, state.direction]).toEqual(["", "", "asc"]))
+    router.forward()
+    await vi.waitFor(() => expect([state.filter, state.sort, state.direction]).toEqual(["alice", "id", "desc"]))
+  })
 
   it("loads the filter, sort, and page of the URL and walks pages with Back", async () => {
     mocks.request.mockImplementation(async (_url: string, { query }: { query: Record<string, unknown> }) => ({
@@ -232,6 +257,50 @@ describe("Rate Limits", async () => {
   const RateLimit = (await import("../src/console/runtime/components/console-rate-limit.vue")).default
   const routes = [{ component: {}, name: "vitehub-console-rate-limits", path: "/rate-limits" }]
 
+  it("reads a restored key against its destination definition in the reused counter component", async () => {
+    const Definitions = (await import("../src/console/runtime/components/console-definitions.vue")).default
+    mocks.request.mockResolvedValue({ definitions: ["login", "signup"].map(name => ({ file: `server/rate-limits/${name}.ts`, name, source: "server/rate-limits" })), kind: "definition-catalog", section: "rate-limits" })
+    mocks.peek.mockImplementation(async (_base: string, name: string, key: string) => ({ counters: [], key, name, provider: "memory", status: "unused" }))
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    await router.push("/rate-limits?definition=login&key=alice")
+    const Counter: Component = { ...RateLimit, render: () => null }
+    const app = renderer.createApp({
+      ...Definitions,
+      // Render the real catalog's selected definition with its counter, leaving out the dashboard UI.
+      render(_ctx: unknown, _cache: unknown, _props: unknown, state: { selectedDefinition?: { name: string } }) {
+        return state.selectedDefinition ? h(Counter, { base: "/rate-limit", name: state.selectedDefinition.name }) : null
+      },
+    }, { ...bases, details: { id: "rate-limits", label: "Rate Limits", view: { kind: "definition-catalog" } } })
+    app.use(router)
+    app.provide(ssrContextKey, {})
+    const instance = app.mount({})
+    unmounts.push(() => app.unmount())
+    // SAFETY: exercise the catalog action that the selection controls call.
+    const catalog = (instance.$ as unknown as { setupState: { selectDefinition: (name: string) => void } }).setupState
+    await vi.waitFor(() => expect(mocks.peek).toHaveBeenLastCalledWith("/rate-limit", "login", "alice", expect.anything()))
+    const replace = vi.spyOn(router, "replace")
+    mocks.peek.mockClear()
+    catalog.selectDefinition("signup")
+    await settle(router, { definition: "signup" })
+    expect(mocks.peek).not.toHaveBeenCalled()
+    router.back()
+    await vi.waitFor(() => expect(mocks.peek).toHaveBeenLastCalledWith("/rate-limit", "login", "alice", expect.anything()))
+    await settle(router, { definition: "login", key: "alice" })
+    expect(mocks.peek).toHaveBeenCalledOnce()
+    expect(replace).not.toHaveBeenCalled()
+    await router.push("/rate-limits?definition=signup&key=bob")
+    await vi.waitFor(() => expect(mocks.peek).toHaveBeenLastCalledWith("/rate-limit", "signup", "bob", expect.anything()))
+    await settle(router, { definition: "signup", key: "bob" })
+    router.back()
+    await vi.waitFor(() => expect(mocks.peek).toHaveBeenLastCalledWith("/rate-limit", "login", "alice", expect.anything()))
+    await settle(router, { definition: "login", key: "alice" })
+    expect(replace).not.toHaveBeenCalled()
+    router.forward()
+    await vi.waitFor(() => expect(mocks.peek).toHaveBeenLastCalledWith("/rate-limit", "signup", "bob", expect.anything()))
+    await settle(router, { definition: "signup", key: "bob" })
+    expect(replace).not.toHaveBeenCalled()
+  })
+
   it("reads the counter of the key in the URL and writes the key it reads", async () => {
     mocks.peek.mockImplementation(async (_base: string, name: string, key: string) => ({ counters: [], key, name, provider: "memory", status: "unused" }))
     const { router, state } = await mountPage<{ key: string, peek: () => Promise<void> }>(RateLimit, { base: "/rate-limit", name: "login" }, "/rate-limits?definition=login&key=1.2.3.4", routes)
@@ -292,6 +361,19 @@ describe("Definition catalogs", async () => {
   const Definitions = (await import("../src/console/runtime/components/console-definitions.vue")).default
   const routes = [{ component: {}, name: "vitehub-console-queues", path: "/queues" }]
   const details = { id: "queues", label: "Queues", view: { kind: "definition-catalog" } }
+
+  it("clears the counter key for a new Rate Limit selection and preserves it in Back history", async () => {
+    mocks.request.mockResolvedValue({ definitions: ["login", "signup"].map(name => ({ file: `server/rate-limits/${name}.ts`, name, source: "server/rate-limits" })), kind: "definition-catalog", section: "rate-limits" })
+    const { router, state } = await mountPage<{ selectDefinition: (name: string) => void, selectedName?: string }>(
+      Definitions, { ...bases, details: { ...details, id: "rate-limits", label: "Rate Limits" } }, "/rate-limits?definition=login&key=alice", [{ component: {}, name: "vitehub-console-rate-limits", path: "/rate-limits" }],
+    )
+    await vi.waitFor(() => expect(state.selectedName).toBe("login"))
+    state.selectDefinition("signup")
+    await settle(router, { definition: "signup" })
+    router.back()
+    await vi.waitFor(() => expect(state.selectedName).toBe("login"))
+    await settle(router, { definition: "login", key: "alice" })
+  })
 
   it("adds a history entry for each selected definition", async () => {
     mocks.request.mockResolvedValue({ definitions: ["emails", "images"].map(name => ({ file: `server/queues/${name}.ts`, name, source: "server/queues" })), kind: "definition-catalog", section: "queues" })

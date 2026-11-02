@@ -125,7 +125,7 @@ describe("Record tables such as Email", () => {
 
 describe("Comments operation view", () => {
   const details = { description: "Comments.", icon: "i-lucide-message-square", id: "comments", label: "Comments", view: {
-    columns: [{ key: "subject.id", label: "Subject" }, { key: "author.name", label: "Author" }, { format: "excerpt", key: "messages.0.body", label: "Comment" }],
+    columns: [{ key: "subject.id", label: "Subject" }, { key: "author.name", label: "Author" }, { format: "excerpt", key: "messages.0.body", label: "Comment" }, { format: "datetime", key: "updatedAt", label: "Updated" }],
     filters: [{ id: "all", input: {}, label: "All" }, { id: "open", input: { status: "open" }, label: "Open" }],
     kind: "operation-view",
     notice: "",
@@ -154,6 +154,29 @@ describe("Comments operation view", () => {
     mocks.operation.mockResolvedValue([comment, { id: "2", messages: [{ body: "Other comment" }] }])
     const { state } = await mountPage<{ items: Array<{ id: string }>, visibleItems: Array<{ id: string }> }>(OperationView, { definitionsBase: "/definitions", details, sectionsBase: "/sections" }, "/comments?q=NEEDLE", routes)
     await vi.waitFor(() => expect(state.items).toHaveLength(2))
+    expect(state.visibleItems.map(item => item.id)).toEqual(["1"])
+  })
+
+  it("searches normalized whitespace beyond the displayed excerpt and keeps raw text searchable", async () => {
+    const comment = { id: "1", messages: [{ body: `${"Intro text. ".repeat(10)}First\n  second` }] }
+    mocks.operation.mockResolvedValue([comment, { id: "2", messages: [{ body: "Other comment" }] }])
+    const { router, state } = await mountPage<{ items: Array<{ id: string }>, search: string, visibleItems: Array<{ id: string }> }>(OperationView, { definitionsBase: "/definitions", details, sectionsBase: "/sections" }, "/comments?q=first%20second", routes)
+    await vi.waitFor(() => expect(state.items).toHaveLength(2))
+    expect(state.visibleItems.map(item => item.id)).toEqual(["1"])
+    state.search = "First\n  second"
+    await settle(router, { q: "First\n  second" })
+    expect(state.visibleItems.map(item => item.id)).toEqual(["1"])
+  })
+
+  it("searches both the displayed date and its source timestamp", async () => {
+    const comment = { id: "1", updatedAt: Date.UTC(2026, 0, 2, 3, 4) }
+    expect(operationCell(comment, { format: "datetime", key: "updatedAt", label: "Updated" })).toBe("2026-01-02 03:04")
+    mocks.operation.mockResolvedValue([comment, { id: "2", updatedAt: Date.UTC(2026, 0, 3) }])
+    const { router, state } = await mountPage<{ items: Array<{ id: string }>, search: string, visibleItems: Array<{ id: string }> }>(OperationView, { definitionsBase: "/definitions", details, sectionsBase: "/sections" }, "/comments?q=2026-01-02%2003%3A04", routes)
+    await vi.waitFor(() => expect(state.items).toHaveLength(2))
+    expect(state.visibleItems.map(item => item.id)).toEqual(["1"])
+    state.search = String(comment.updatedAt)
+    await settle(router, { q: String(comment.updatedAt) })
     expect(state.visibleItems.map(item => item.id)).toEqual(["1"])
   })
 })
