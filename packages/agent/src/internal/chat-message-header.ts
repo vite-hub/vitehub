@@ -40,7 +40,11 @@ export function formatChatReplyLine(reply: { author: string, media: string[], me
 const timePattern = String.raw`(?:${weekdays.join("|")}) \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} [+-]\d{2}:\d{2}`
 // A header starts with the send time, or with the message number when the time is unknown.
 const headerPattern = new RegExp(String.raw`^\[(?:${timePattern}|msg [^\s\]]+)(?:${separator}[^\]\n]*)?\][ \t]*`)
-const replyLinePattern = new RegExp(String.raw`^${replyLinePrefix}(?:your|bot|[^\n]+'s) msg \S`)
+const replyQuotePattern = String.raw`(?:: (?:"[^"\n]*"|\(shown above\)))?`
+const replyMediaPattern = String.raw`(?:${separator}(?:photo|voice|video|file)(?: [^\s"]+)? (?:attached below|\(not shown\)))*`
+// Match only the metadata fields, keeping any answer that follows on the same line.
+// Quotes are not escaped in the prompt; leave ambiguous quoted lines intact.
+const replyLinePattern = new RegExp(String.raw`^${replyLinePrefix}(?:your|bot|[^"\n]+?'s) msg [^\s:"]+(?: \((?:${weekdays.join("|")}) \d{2}:\d{2}\))?${replyQuotePattern}${replyMediaPattern}[ \t]*(?=[^"]*$)`)
 
 /**
  * Find where the answer starts after echoed header and reply lines.
@@ -59,16 +63,11 @@ function echoedMetadataEnd(text: string, final: boolean): number | undefined {
       start = next
       continue
     }
-    const header = headerPattern.exec(line)
-    if (header) {
+    const metadata = headerPattern.exec(line) ?? replyLinePattern.exec(line)
+    if (metadata) {
       removed = true
-      // The model may continue the answer on the header line.
-      if (line.slice(header[0].length).trim()) return start + header[0].length
-      start = next
-      continue
-    }
-    if (replyLinePattern.test(line)) {
-      removed = true
+      // The model may continue the answer on the metadata line.
+      if (line.slice(metadata[0].length).trim()) return start + metadata[0].length
       start = next
       continue
     }

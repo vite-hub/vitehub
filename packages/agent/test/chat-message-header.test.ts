@@ -56,6 +56,33 @@ describe("echoed chat message metadata", () => {
     expect(stripEchoedChatMessageMetadata(`${header}\n${formatChatReplyLine({ author: "Max's", media: [], messageId: "unknown" })}\nBoth.`)).toBe("Both.")
   })
 
+  it("keeps answers appended to echoed reply lines", async () => {
+    for (const line of [
+      formatChatReplyLine({ author: "your", media: [], messageId: "811", quote: "\"...\"" }),
+      replyLine,
+      formatChatReplyLine({ author: "Max's", media: ["photo AgADxyz attached below", "voice (not shown)"], messageId: "811", quote: "(shown above)" }),
+      formatChatReplyLine({ author: "bot", media: [], messageId: "811" }),
+    ]) {
+      expect(stripEchoedChatMessageMetadata(line)).toBe("")
+      expect(stripEchoedChatMessageMetadata(`${line} Both.`)).toBe("Both.")
+      expect(stripEchoedChatMessageMetadata(`${header}\n${line} Both.\nMore.`)).toBe("Both.\nMore.")
+      expect(await streamed([...`${header}\n${line} Both.`])).toBe("Both.")
+      expect(await streamed([`${line} Both.\nMore.`])).toBe("Both.\nMore.")
+    }
+  })
+
+  it("keeps reply lines when quote boundaries are ambiguous", async () => {
+    for (const line of [
+      "↪ replying to your msg 811: \"Log the \"nachos\"?\" Both.",
+      "↪ replying to your msg 811: \"Log the \"nachos\"?\" John's msg 42 is next.",
+      "↪ replying to your msg 811: \"Log it?\" Both. Say \"yes\".",
+      "↪ replying to your msg 811: \"unfinished quote Both.",
+    ]) {
+      expect(stripEchoedChatMessageMetadata(`${header}\n${line}`)).toBe(line)
+      expect(await streamed([...`${header}\n${line}`])).toBe(line)
+    }
+  })
+
   it("keeps text that only looks similar", () => {
     for (const text of [
       "[Tue 2026-11-03] Lunch: 300 kcal",

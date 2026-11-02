@@ -213,11 +213,11 @@ describe("chat trigger message context", () => {
     expect(JSON.stringify(harness.prompts[0])).not.toMatch(/reply_to_message|"kind"|"modelText"/)
   })
 
-  it("removes the header and reply line that the model copies into its answer", async () => {
+  it.each(["\n", " "])("removes the header and reply line that the model copies into its answer (separator %j)", async (separator) => {
     // The model starts its answer with the lines it read before the user message.
     const echo = (answer: string) => (prompt: Prompt) => {
       const lines = turns(prompt).at(-1)!.text.split("\n")
-      return [...lines.filter(line => line.startsWith("[") || line.startsWith("↪")), answer].join("\n")
+      return `${lines.filter(line => line.startsWith("[") || line.startsWith("↪")).join("\n")}${separator}${answer}`
     }
     const replyTo = { chat: {}, date: at(18, 7), from: bot, message_id: 109315, text: "Should I log the nachos?" }
 
