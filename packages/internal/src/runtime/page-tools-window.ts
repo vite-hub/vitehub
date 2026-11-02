@@ -16,6 +16,12 @@ export interface ViteHubPageWindowOptions {
    * loading state take it, so the frame and its content read as one surface. Without it, the window follows the system.
    */
   colorScheme?: () => "light" | "dark" | undefined
+  /**
+   * The URL of what the window shows, as a full page. The header then has an **Open in new tab** link, so a click,
+   * a middle-click, or Cmd/Ctrl-click opens it in a browser tab. The window reads it again before each use, so it
+   * follows navigation inside the window. Without it, or while it returns `undefined`, the header has no link.
+   */
+  href?: () => string | undefined
 }
 
 /** The screen edge that the pill docks to. */
@@ -43,7 +49,7 @@ const styles = `
 :host(:is([edge=left],[edge=right])){--start:max(var(--margin),var(--safe-top));--end:max(var(--margin),var(--safe-bottom));--width:calc(100vw - var(--dock) - var(--far));--height:calc(100dvh - var(--start) - var(--end))}
 :host([edge=right]){--dock:calc(max(var(--margin),var(--safe-right)) + var(--thickness,38px) + 8px);--far:max(16px,var(--safe-left))}
 :host([edge=left]){--dock:calc(max(var(--margin),var(--safe-left)) + var(--thickness,38px) + 8px);--far:max(16px,var(--safe-right))}
-@media(any-pointer:coarse){:host{--thickness:54px}.grip{display:none}}
+@media(any-pointer:coarse){:host{--thickness:54px}.grip{display:none}header :is(button,a){width:44px;height:44px}}
 :host([hidden]){display:none}
 .window{position:absolute;width:min(600px,var(--width));height:min(640px,var(--height));min-width:min(300px,var(--width));min-height:min(240px,var(--height));max-width:var(--width);max-height:var(--height);display:flex;flex-direction:column;pointer-events:auto;background:var(--surface);border-radius:12px;box-shadow:0 0 0 1px light-dark(rgb(0 0 0/8%),rgb(255 255 255/10%)),0 2px 4px light-dark(rgb(0 0 0/4%),rgb(0 0 0/24%)),0 16px 40px -8px light-dark(rgb(0 0 0/18%),rgb(0 0 0/56%));outline:none;transition:opacity 200ms cubic-bezier(.23,1,.32,1),scale 200ms cubic-bezier(.23,1,.32,1)}
 :host([edge=bottom]) .window{bottom:var(--dock);left:var(--along);translate:var(--shift) 0;transform-origin:calc(var(--at) * 1%) 100%}
@@ -63,13 +69,14 @@ const styles = `
 :host([edge=bottom]) .grip.bottom,:host([edge=top]) .grip.top,:host([edge=right]) .grip.right,:host([edge=left]) .grip.left,.expanded .grip{display:none}
 header{display:flex;align-items:center;gap:2px;min-height:44px;padding:0 6px 0 8px;border-bottom:1px solid var(--line);flex:none}
 h2{font:600 .875rem/1.5 system-ui,sans-serif;margin:0;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 8px}
-button{display:grid;place-items:center;width:32px;height:32px;border:0;border-radius:8px;background:transparent;color:var(--muted);cursor:pointer;font:inherit;transition:background-color 150ms ease-out,color 150ms ease-out}
-@media(hover:hover){button:hover{background:var(--hover);color:var(--text)}}
-button:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+header :is(button,a){display:grid;place-items:center;width:32px;height:32px;border:0;border-radius:8px;background:transparent;color:var(--muted);cursor:pointer;font:inherit;touch-action:manipulation;transition:background-color 150ms ease-out,color 150ms ease-out}
+header a[hidden]{display:none}
+@media(hover:hover){header :is(button,a):hover{background:var(--hover);color:var(--text)}}
+header :is(button,a):focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
 .body{flex:1;min-height:0;overflow:auto;position:relative}iframe{display:block;border:0;width:100%;height:100%;background:var(--surface)}
-@media(max-width:640px){:host([edge]) .window,:host([edge]) .window.expanded{inset:var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);translate:none;width:auto!important;height:auto!important;max-width:none;max-height:none;min-width:0;min-height:0;border-radius:0}:host([edge=bottom]) :is(.window,.window.expanded){bottom:var(--dock)}:host([edge=top]) :is(.window,.window.expanded){top:var(--dock)}:host([edge=right]) :is(.window,.window.expanded){right:var(--dock)}:host([edge=left]) :is(.window,.window.expanded){left:var(--dock)}:host(:is([edge=top],[edge=bottom])) .window:not(.expanded){left:var(--start);right:var(--end)}:host(:is([edge=left],[edge=right])) .window:not(.expanded){top:var(--start);bottom:var(--end)}.grip{display:none}button{width:44px;height:44px}.expand{display:none}}
+@media(max-width:640px){:host([edge]) .window,:host([edge]) .window.expanded{inset:var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);translate:none;width:auto!important;height:auto!important;max-width:none;max-height:none;min-width:0;min-height:0;border-radius:0}:host([edge=bottom]) :is(.window,.window.expanded){bottom:var(--dock)}:host([edge=top]) :is(.window,.window.expanded){top:var(--dock)}:host([edge=right]) :is(.window,.window.expanded){right:var(--dock)}:host([edge=left]) :is(.window,.window.expanded){left:var(--dock)}:host(:is([edge=top],[edge=bottom])) .window:not(.expanded){left:var(--start);right:var(--end)}:host(:is([edge=left],[edge=right])) .window:not(.expanded){top:var(--start);bottom:var(--end)}.grip{display:none}header :is(button,a){width:44px;height:44px}.expand{display:none}}
 @media(prefers-reduced-motion:reduce){:host,.window{transition:none}}
-@media(forced-colors:active){.window{border:1px solid CanvasText}button:focus-visible{outline-color:Highlight}}
+@media(forced-colors:active){.window{border:1px solid CanvasText}header :is(button,a):focus-visible{outline-color:Highlight}}
 `
 
 let dock: ViteHubPageToolsDock = { edge: "bottom", at: 50 }
@@ -137,7 +144,24 @@ export function createViteHubPageWindow(options: ViteHubPageWindowOptions): Vite
   }
   const expand = control("expand", "Expand window", "M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5")
   const hideButton = control("hide", "Minimize window", "M5 12h14")
-  header.append(title, expand, hideButton)
+  // A link, not a button, so the browser's own link actions work on it: middle-click, Cmd/Ctrl-click, and copy link.
+  const tab = document.createElement("a")
+  tab.className = "tab"
+  tab.target = "_blank"
+  tab.rel = "noopener"
+  tab.setAttribute("aria-label", "Open in new tab")
+  tab.title = "Open in new tab"
+  tab.append(icon("M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"))
+  const updateTab = () => {
+    const href = options.href?.()
+    tab.hidden = !href
+    if (href) tab.href = href
+    else tab.removeAttribute("href")
+  }
+  // Before a hover shows the URL, a click opens it, or a context menu copies it.
+  for (const type of ["pointerenter", "pointerdown", "focus", "click", "contextmenu"]) tab.addEventListener(type, updateTab)
+  updateTab()
+  header.append(title, ...options.href ? [tab] : [], expand, hideButton)
   const frame = document.createElement("div")
   frame.className = "frame"
   frame.append(header, body)
@@ -223,6 +247,7 @@ export function createViteHubPageWindow(options: ViteHubPageWindowOptions): Vite
     show() {
       if (options.signal.aborted) return
       host.style.colorScheme = options.colorScheme?.() ?? ""
+      updateTab()
       host.hidden = false
       options.trigger.setAttribute("aria-expanded", "true")
       // Focus moves into the window, not onto a control: a restored window would otherwise ring its first button.
