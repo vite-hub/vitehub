@@ -21,7 +21,7 @@ interface ContributionTargetProblem {
   choices?: readonly string[]
   database?: string
   dialect?: string
-  reason: "ambiguous" | "dialect" | "missing" | "none"
+  reason: "ambiguous" | "dialect" | "dialects" | "missing" | "none"
   source: string
   targetDialect?: string
 }
@@ -44,6 +44,8 @@ function describeContributionTarget({ choices = [], database, dialect, reason, s
       return `${source} target the Database "${database}", which has no Database Definition. Database Definitions: ${choices.length ? quoteList(choices) : "none"}.`
     case "dialect":
       return `${source} use the "${dialect}" dialect, but the Database "${database}" uses "${targetDialect}".`
+    case "dialects":
+      return `The app has no Database Definition, so ViteHub adds the default Database, but its contributions need different dialects: ${source}.`
   }
 }
 

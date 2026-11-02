@@ -41,8 +41,21 @@ export interface DatabaseDefinitionContribution {
   reason?: string
 }
 
-/** One entry of `vitehub.databases`: tables for a Database, or a whole Database Definition. */
-export type DatabaseContributionEntry = DatabaseContribution | DatabaseDefinitionContribution
+/**
+ * A package that stores data in a Database without Drizzle tables, for example because it runs its own SQL. It has
+ * no `definition`. Like tables, it targets `database`, or the default or only Database, and gets the implicit
+ * default Database when the app has no Database Definition. `vitehub inspect` shows its `reason`.
+ */
+export interface DatabaseUseContribution extends DatabaseContributionFields {
+  /** Name of the data, for example the feature that stores it. */
+  name: string
+  definition?: never
+  /** Why the package uses the Database. `vitehub inspect` shows it. */
+  reason?: string
+}
+
+/** One entry of `vitehub.databases`: tables for a Database, data without tables, or a whole Database Definition. */
+export type DatabaseContributionEntry = DatabaseContribution | DatabaseUseContribution | DatabaseDefinitionContribution
 
 /**
  * Roots that ViteHub passes to contribution factories. `root` is the Vite root, `rootDir` is the root that Database
@@ -76,16 +89,28 @@ export interface CollectedDatabaseDefinitionContribution extends DatabaseDefinit
 /** A validated contribution with its export resolved and the name of the plugin that contributed it. */
 export type CollectedDatabaseContribution = CollectedContribution & DatabaseContributionFields
 
+/** A validated use without tables, with the name of the plugin that contributed it. */
+export interface CollectedDatabaseUse extends DatabaseUseContribution {
+  plugin: string
+}
+
 /** Everything that Vite plugins contribute to the Database primitive. */
 export interface CollectedDatabaseContributions {
   /** Database Definitions, sorted by name. */
   definitions: CollectedDatabaseDefinitionContribution[]
   /** Tables for Databases that the application or a contributed Definition defines, sorted by name. */
   tables: CollectedDatabaseContribution[]
+  /** Data without tables, sorted by name. */
+  uses: CollectedDatabaseUse[]
 }
 
 /** A contribution whose target Database is resolved. */
 export interface ResolvedDatabaseContribution extends CollectedDatabaseContribution {
+  database: string
+}
+
+/** A use whose target Database is resolved. */
+export interface ResolvedDatabaseUse extends CollectedDatabaseUse {
   database: string
 }
 
@@ -126,9 +151,14 @@ function readDatabaseFields(entry: Readonly<Record<string, unknown>>, fail: (rea
   return fields
 }
 
-/** Describes a contribution as `module#export from plugin "name"` for errors and inspection. */
-export function describeDatabaseContribution(contribution: CollectedDatabaseContribution): string {
-  return `${JSON.stringify(contribution.name)} (${describeContribution(contribution)})`
+/** Describes a contribution as `"name" (module#export from plugin "plugin")` for errors and inspection. */
+export function describeDatabaseContribution(contribution: CollectedDatabaseContribution | CollectedDatabaseUse): string {
+  const { definition, plugin } = contribution
+  return `${JSON.stringify(contribution.name)} (${definition ? describeContribution({ definition, plugin }) : `from plugin ${JSON.stringify(plugin)}`})`
+}
+
+function describeTarget(contribution: CollectedDatabaseContribution | CollectedDatabaseUse): string {
+  return `${contribution.definition ? "Tables" : "Data"} ${describeDatabaseContribution(contribution)}`
 }
 
 const definitionNamePattern = /^[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*$/i
@@ -149,15 +179,34 @@ function readDefinitionContribution(entry: Record<string, unknown>, plugin: stri
   return { definition, name, plugin, ...(reason === undefined ? {} : { reason }) }
 }
 
+const useKeys: ReadonlySet<string> = new Set(["database", "dialect", "name", "reason"])
+
+// An entry with only these keys is a use. Any other key, such as a misplaced `module`, makes it a table entry, so the
+// table reader reports the missing `definition`.
+function isUseEntry(entry: unknown): entry is Record<string, unknown> {
+  return isPlainObject(entry) && Object.keys(entry).every(key => useKeys.has(key))
+}
+
+function readUseContribution(entry: Record<string, unknown>, plugin: string): CollectedDatabaseUse {
+  const fail = (reason: string): never => {
+    throw databaseErrorDiagnostics.DATABASE_INVALID_CONTRIBUTION({ problem: `[vitehub] Plugin ${JSON.stringify(plugin)} contributed an invalid Database use: ${reason}` })
+  }
+  const { name, reason } = entry
+  if (String(name) !== name || !name.trim()) return fail("`name` must be a non-empty string.")
+  if (reason !== undefined && (String(reason) !== reason || !reason)) return fail(`\`reason\` of ${JSON.stringify(name)} must be a non-empty string.`)
+  return { name, plugin, ...(reason === undefined ? {} : { reason }), ...readDatabaseFields(entry, fail) }
+}
+
 function describeDefinitionContribution(contribution: CollectedDatabaseDefinitionContribution): string {
   return `${contribution.definition} (contributed by plugin ${JSON.stringify(contribution.plugin)})`
 }
 
 /**
  * Collects `vitehub.databases` contributions from Vite plugins. An entry whose `definition` is a path string adds a
- * Database Definition; an entry with `definition: { module, export? }` adds tables. Invalid entries and two table
- * contributions with one name fail with `DATABASE_INVALID_CONTRIBUTION`. Two different Database Definitions with one
- * name fail with `DATABASE_DUPLICATE_DEFINITION`. One plugin that is registered twice adds its entries once.
+ * Database Definition; an entry with `definition: { module, export? }` adds tables; an entry without `definition`
+ * uses a Database without tables. Invalid entries and two table contributions or uses with one name fail with
+ * `DATABASE_INVALID_CONTRIBUTION`. Two different Database Definitions with one name fail with
+ * `DATABASE_DUPLICATE_DEFINITION`. One plugin that is registered twice adds its entries once.
  */
 export async function collectDatabaseContributions(
   plugins: readonly unknown[] | undefined,
@@ -167,6 +216,7 @@ export async function collectDatabaseContributions(
   // Factories see the flat plugin list, so they can read sibling plugins without unwrapping Vite plugin options.
   const factoryContext: DatabaseContributionContext = { ...context, plugins: candidates }
   const definitions = new Map<string, CollectedDatabaseDefinitionContribution>()
+  const uses = new Map<string, CollectedDatabaseUse>()
   const tablePlugins: object[] = []
   for (const candidate of candidates) {
     if (!Object.hasOwn(candidate, "vitehub")) continue
@@ -185,6 +235,15 @@ export async function collectDatabaseContributions(
     }
     const tables: unknown[] = []
     for (const entry of entries as readonly unknown[]) {
+      if (isUseEntry(entry)) {
+        const use = readUseContribution(entry, plugin)
+        const existing = uses.get(use.name)
+        if (existing && existing.plugin !== use.plugin) {
+          throw databaseErrorDiagnostics.DATABASE_INVALID_CONTRIBUTION({ problem: `[vitehub] Plugins ${JSON.stringify(existing.plugin)} and ${JSON.stringify(use.plugin)} both contributed the Database use ${JSON.stringify(use.name)}.` })
+        }
+        uses.set(use.name, use)
+        continue
+      }
       if (!isPlainObject(entry) || String(entry.definition) !== entry.definition) {
         tables.push(entry)
         continue
@@ -207,25 +266,59 @@ export async function collectDatabaseContributions(
     kind: "Database tables",
   })
   return {
-    definitions: [...definitions.values()].sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0),
+    definitions: [...definitions.values()].sort(byName),
     tables,
+    uses: [...uses.values()].sort(byName),
   }
 }
 
+function byName(left: { name: string }, right: { name: string }): number {
+  return left.name < right.name ? -1 : left.name > right.name ? 1 : 0
+}
+
+/** Whether a contribution goes to the default Database when the app has no Database Definition. */
+function targetsDefaultDatabase(contribution: DatabaseContributionFields): boolean {
+  return contribution.database === undefined || contribution.database === "default"
+}
+
 /**
- * Assigns each contribution to a Database Definition. A contribution without `database` targets the default or only
+ * Contributions that need the implicit default Database, which the app gets when it has no Database Definition: the
+ * tables and uses without `database` or with `database: "default"`.
+ */
+export function implicitDefaultDatabaseContributions(contributions: Partial<CollectedDatabaseContributions> = {}): (CollectedDatabaseContribution | CollectedDatabaseUse)[] {
+  return [...contributions.tables ?? [], ...contributions.uses ?? []].filter(targetsDefaultDatabase)
+}
+
+/**
+ * The dialect of the implicit default Database: the `dialect` that the contributions for it set, else `sqlite`. Two
+ * different dialects fail with `DATABASE_INVALID_CONTRIBUTION_TARGET`, because one Database cannot use both.
+ */
+export function resolveImplicitDefaultDialect(contributions: Partial<CollectedDatabaseContributions> = {}): DatabaseDialect {
+  const needs = implicitDefaultDatabaseContributions(contributions).filter(contribution => contribution.dialect)
+  const dialects = [...new Set(needs.map(contribution => contribution.dialect))]
+  if (dialects.length > 1) {
+    throw databaseErrorDiagnostics.DATABASE_INVALID_CONTRIBUTION_TARGET({
+      reason: "dialects",
+      source: needs.map(contribution => `${describeTarget(contribution)} use "${contribution.dialect}"`).join("; "),
+    })
+  }
+  return dialects[0] ?? "sqlite"
+}
+
+/**
+ * Assigns each table contribution or use to a Database Definition. One without `database` targets the default or only
  * Database. A missing, ambiguous, or absent target, or a target with another dialect, fails with
  * `DATABASE_INVALID_CONTRIBUTION_TARGET` and names the choices.
  */
-export function resolveDatabaseContributionTargets(
+export function resolveDatabaseContributionTargets<T extends CollectedDatabaseContribution | CollectedDatabaseUse>(
   databaseNames: readonly string[],
-  contributions: readonly CollectedDatabaseContribution[],
+  contributions: readonly T[],
   dialects: Readonly<Record<string, DatabaseDialect>> = {},
-): Record<string, ResolvedDatabaseContribution[]> {
-  const byDatabase: Record<string, ResolvedDatabaseContribution[]> = Object.create(null)
+): Record<string, (T & { database: string })[]> {
+  const byDatabase: Record<string, (T & { database: string })[]> = Object.create(null)
   const choices = [...databaseNames].sort()
   for (const contribution of contributions) {
-    const source = `Tables ${describeDatabaseContribution(contribution)}`
+    const source = describeTarget(contribution)
     let database = contribution.database
     if (database === undefined) {
       const resolution = resolveDefaultDatabase(databaseNames)

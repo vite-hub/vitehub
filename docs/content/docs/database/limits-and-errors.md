@@ -147,7 +147,7 @@ A Vite plugin contributed an invalid `vitehub.databases` entry, two plugins cont
 
 ### DATABASE_INVALID_CONTRIBUTION_TARGET
 
-Contributed tables have no Database to go to. The app has no Database Definition, has several and none is named `default`, names a missing database, or uses another dialect. Add `server/databases/config.ts` with `defineDatabase({ schema: {} })`, or set the `database` option of the contribution.
+Contributed tables or data have no Database to go to. The app has several Database Definitions and none is named `default`, the contribution names a missing database or uses another dialect, or the contributions for the implicit default Database need different dialects. Add `server/databases/config.ts` with `defineDatabase({ schema: {} })`, or set the `database` option of the contribution.
 
 ### DATABASE_INVALID_SCHEMA_EXPORT
 

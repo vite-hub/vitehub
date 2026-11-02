@@ -44,6 +44,7 @@ export type {
   CollectedDatabaseContribution,
   CollectedDatabaseContributions,
   CollectedDatabaseDefinitionContribution,
+  CollectedDatabaseUse,
   DatabaseContributingPlugin,
   DatabaseContribution,
   DatabaseContributionContext,
@@ -51,8 +52,10 @@ export type {
   DatabaseContributionFactory,
   DatabaseContributionFields,
   DatabaseDefinitionContribution,
+  DatabaseUseContribution,
   DefaultDatabaseResolution,
   ResolvedDatabaseContribution,
+  ResolvedDatabaseUse,
 } from "./contributions.ts"
 
 const DB_INTERNAL_VIRTUAL_SCHEMA_ID = "virtual:vitehub/database/schema"
@@ -243,7 +246,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: ResolvedDBViteConfig | undefined
   let serverDirs: string[] | undefined
-  let contributions: CollectedDatabaseContributions = { definitions: [], tables: [] }
+  let contributions: CollectedDatabaseContributions = { definitions: [], tables: [], uses: [] }
   let contributionFiles = new Set<string>()
   let contributionDependencyFiles = new Set<string>()
   let contributionDirectories = new Set<string>()
@@ -438,7 +441,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       resolved = config
       providerOutput = useProviderOutputCatalog(config)
       contributions = resolvedOptions() === false
-        ? { definitions: [], tables: [] }
+        ? { definitions: [], tables: [], uses: [] }
         : await collectDatabaseContributions(config.plugins, { projectRoot: resolveViteHubProjectRoot(config.root), root: config.root, rootDir: databaseRoot(), serverDirs: databaseServerDirs() })
       const require = createRequire(pathToFileURL(resolve(databaseRoot(), "package.json")))
       contributionFiles = new Set(contributions.tables.flatMap(contribution => {
