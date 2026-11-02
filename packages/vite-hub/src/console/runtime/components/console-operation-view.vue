@@ -32,11 +32,11 @@ let controller: AbortController | undefined;
 
 const filters = computed(() => view.value.filters ?? []);
 const activeFilter = computed(() => filters.value.find((filter) => filter.id === filterId.value) ?? filters.value[0]);
-/** Loaded items whose visible cells contain the search, such as the page, the author, or the comment. */
+/** Loaded items whose full column values contain the search, such as the page, the author, or the comment. */
 const visibleItems = computed(() => {
   const query = search.value.trim().toLowerCase();
   if (!query) return items.value;
-  return items.value.filter(item => view.value.columns.some(column => operationCell(item, column).toLowerCase().includes(query)));
+  return items.value.filter(item => view.value.columns.some(column => String(operationValue(item, column.key) ?? "").toLowerCase().includes(query)));
 });
 
 async function load(): Promise<void> {

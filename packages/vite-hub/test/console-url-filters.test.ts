@@ -3,6 +3,7 @@ import { createMemoryHistory, createRouter } from "vue-router"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { parseConsoleContributedSection } from "../src/console/runtime/definitions"
+import { operationCell } from "../src/console/runtime/client/operation-view"
 
 import type { Component } from "vue"
 import type { RouteRecordRaw, Router } from "vue-router"
@@ -124,7 +125,7 @@ describe("Record tables such as Email", () => {
 
 describe("Comments operation view", () => {
   const details = { description: "Comments.", icon: "i-lucide-message-square", id: "comments", label: "Comments", view: {
-    columns: [{ key: "subject.id", label: "Subject" }, { key: "author.name", label: "Author" }, { key: "body", label: "Comment" }],
+    columns: [{ key: "subject.id", label: "Subject" }, { key: "author.name", label: "Author" }, { format: "excerpt", key: "messages.0.body", label: "Comment" }],
     filters: [{ id: "all", input: {}, label: "All" }, { id: "open", input: { status: "open" }, label: "Open" }],
     kind: "operation-view",
     notice: "",
@@ -134,8 +135,8 @@ describe("Comments operation view", () => {
 
   it("searches the page, author, and text of the loaded comments", async () => {
     mocks.operation.mockResolvedValue([
-      { author: { name: "Ann" }, body: "Typo in the hero", id: "1", subject: { id: "/pricing" } },
-      { author: { name: "Bo" }, body: "Broken link", id: "2", subject: { id: "/docs" } },
+      { author: { name: "Ann" }, id: "1", messages: [{ body: "Typo in the hero" }], subject: { id: "/pricing" } },
+      { author: { name: "Bo" }, id: "2", messages: [{ body: "Broken link" }], subject: { id: "/docs" } },
     ])
     const { router, state } = await mountPage<{ search: string, visibleItems: Array<{ id: string }> }>(OperationView, { definitionsBase: "/definitions", details, sectionsBase: "/sections" }, "/comments?filter=open&q=pricing", routes)
     await vi.waitFor(() => expect(state.visibleItems.map(item => item.id)).toEqual(["1"]))
@@ -143,6 +144,17 @@ describe("Comments operation view", () => {
     state.search = "bo"
     await settle(router, { filter: "open", q: "bo" })
     expect(state.visibleItems.map(item => item.id)).toEqual(["2"])
+  })
+
+  it("searches the full comment while keeping its displayed excerpt", async () => {
+    const comment = { id: "1", messages: [{ body: `${"Intro text. ".repeat(10)}Needle after the excerpt` }] }
+    const displayed = operationCell(comment, { format: "excerpt", key: "messages.0.body", label: "Comment" })
+    expect(displayed).toHaveLength(90)
+    expect(displayed).not.toContain("Needle")
+    mocks.operation.mockResolvedValue([comment, { id: "2", messages: [{ body: "Other comment" }] }])
+    const { state } = await mountPage<{ items: Array<{ id: string }>, visibleItems: Array<{ id: string }> }>(OperationView, { definitionsBase: "/definitions", details, sectionsBase: "/sections" }, "/comments?q=NEEDLE", routes)
+    await vi.waitFor(() => expect(state.items).toHaveLength(2))
+    expect(state.visibleItems.map(item => item.id)).toEqual(["1"])
   })
 })
 
