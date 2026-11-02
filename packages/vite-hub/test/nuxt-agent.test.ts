@@ -204,3 +204,30 @@ it.each([false, true])("compiles generated Agent TypeScript when Nuxt moves buil
   expect(compiled.code).toContain("defineEventHandler")
   await expect(call("const value: string = 'dependency'", join(rootDir, "node_modules/dependency/index.ts"))).resolves.toBeUndefined()
 })
+
+it("leaves the serve-only Console out of the workflow registry of a Nuxt build", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-nuxt-agent-workflow-registry-"))
+  roots.push(rootDir)
+  const serverDir = join(rootDir, "server")
+  await mkdir(join(serverDir, "agents"), { recursive: true })
+  await writeFile(join(serverDir, "agents", "support.ts"), "export default {}\n", "utf8")
+  await writeFile(join(rootDir, "package.json"), JSON.stringify({ name: "vitehub-nuxt-agent-workflow-registry" }), "utf8")
+
+  let nitroConfigHook: ((config: Record<string, unknown>) => Promise<void>) | undefined
+  const nuxt = {
+    hook(name: string, callback: (config: Record<string, unknown>) => Promise<void>) {
+      if (name === "nitro:config") nitroConfigHook = callback
+    },
+    options: { buildDir: join(rootDir, ".nuxt"), dev: false, rootDir, serverDir, srcDir: join(rootDir, "app"), vite: { define: {} } },
+  }
+
+  // Without Console options, `vite dev` serves the operation RPC through a Console plugin that applies only to `serve`.
+  await viteHubNuxtModule({ agent: true, console: false, preset: "cloudflare" }, nuxt)
+  if (!nitroConfigHook) throw new TypeError("Expected a Nitro config hook.")
+  await nitroConfigHook({})
+
+  // The Vite build transforms this file again without the Console. Both must agree, or the registry imports twice.
+  const registry = await readFile(join(rootDir, ".vitehub/workflow/registry.mjs"), "utf8")
+  expect(registry).toContain("setAgentChannelDeliveryWorkflowStateResolver")
+  expect(registry).not.toContain("vite-hub/console/server")
+})
