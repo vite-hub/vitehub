@@ -345,6 +345,8 @@ describe("framework package contract", () => {
       "./operations",
       "./source/vite",
       "./task",
+      "./ui/nuxt",
+      "./ui/vite",
     ]);
 
     for (const { subpath, targets } of manifestForwarders) {

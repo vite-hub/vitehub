@@ -33,8 +33,8 @@ import { createNoExternalAddition, isServerEnvironment, loadsViteHubPackagesNati
 import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
 import { viteHubTypesPlugin } from "./internal/types.ts"
-import { assertFeaturePackages, isPackageInstalled, requireOptionalOwner } from "./internal/optional-owners.ts"
-import { optionalOwnerEntriesPlugin, ownerModules } from "./internal/owner-modules.ts"
+import { assertFeaturePackages, isPackageInstalled, optionalFeaturePackages, requireOptionalOwner } from "./internal/optional-owners.ts"
+import { optionalOwnerEntriesPlugin, optionalOwnerImportsPlugin, ownerFacadeFeature, ownerModules } from "./internal/owner-modules.ts"
 import { withCmsPresetPlugins } from "./internal/cms-preset-features.ts"
 import { disabledUpstashDriver, hasUpstashStore, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
 import { consoleConnectionsActorId } from "./console/auth-build.ts"
@@ -274,6 +274,12 @@ function frameworkDependencyResolver(
           .sort(([left], [right]) => right.length - left.length),
       )
       if (!blobEnabled) delete aliases["vite-hub/blob"]
+      // A Vite alias resolves before any plugin. Without one, the import of a facade whose package the app did not
+      // install reaches the optional owner imports plugin, which names the package to install.
+      for (const specifier of Object.keys(aliases)) {
+        const feature = ownerFacadeFeature(specifier)
+        if (feature && !optionalFeaturePackages[feature].every(isPackageInstalled)) delete aliases[specifier]
+      }
       return {
         resolve: {
           alias: aliases,
@@ -1409,6 +1415,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }))
   if (commentsPlugin) plugins.push(commentsPlugin)
   if (!ownerModules.commentsVite || !ownerModules.contentVite || !ownerModules.cmsVite) plugins.push(optionalOwnerEntriesPlugin())
+  plugins.push(optionalOwnerImportsPlugin())
   // Nitro tasks in `server/tasks/`, listed and run with `vitehub task`.
   plugins.push(viteHubTaskPlugin())
   // Lets request-scoped checks, such as Content preview, keep a request out of Nitro's cache.
