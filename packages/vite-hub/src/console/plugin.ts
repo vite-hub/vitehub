@@ -32,8 +32,15 @@ export const consoleRuntimeRoot: string = resolveConsoleRuntimeRoot()
 export const consolePublicRoot: string = join(consoleRuntimeRoot, "public/console")
 /** The ViteHub skill and its well-known index, which the Console serves at `/_vitehub/.well-known/skills`. */
 export const consoleSkillsRoot: string = join(consoleRuntimeRoot, "public/skills")
-function readConsoleOutput(root: string): string {
-  if (!existsSync(root)) return ""
+let consoleRuntimeDigest: string | undefined
+
+/**
+ * A digest of the packaged Console runtime, client, and assets.
+ * The package does not change while the process runs, so read its files once, not on each file change.
+ */
+function readConsoleRuntimeDigest(): string {
+  if (consoleRuntimeDigest !== undefined) return consoleRuntimeDigest
+  const hash = createHash("sha256")
   const files: string[] = []
   const visit = (directory: string): void => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -42,8 +49,10 @@ function readConsoleOutput(root: string): string {
       else if (entry.isFile()) files.push(file)
     }
   }
-  visit(root)
-  return files.sort().map(file => `${file.slice(consoleRuntimeRoot.length)}\0${readFileSync(file)}`).join("\0")
+  if (existsSync(consoleRuntimeRoot)) visit(consoleRuntimeRoot)
+  for (const file of files.sort()) hash.update(file.slice(consoleRuntimeRoot.length)).update("\0").update(readFileSync(file)).update("\0")
+  consoleRuntimeDigest = hash.digest("hex")
+  return consoleRuntimeDigest
 }
 
 /** A short id of the generated Console output and the Console client. It is the same for the same Console. */
@@ -51,15 +60,7 @@ function consoleBuildId(contents: string): string {
   return createHash("sha256")
     .update(contents)
     .update("\0")
-    .update(readConsoleOutput(consoleRuntimeRoot))
-    .update("\0")
-    .update(readConsoleOutput(consolePublicRoot))
-    .update("\0")
-    .update(readConsoleOutput(join(consoleRuntimeRoot, "server")))
-    .update("\0")
-    .update(readConsoleOutput(join(consoleRuntimeRoot, "pages")))
-    .update("\0")
-    .update(readConsoleOutput(join(consoleRuntimeRoot, "components")))
+    .update(readConsoleRuntimeDigest())
     .digest("hex")
     .slice(0, 16)
 }
