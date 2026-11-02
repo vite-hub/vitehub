@@ -1,5 +1,5 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
-import Module, { createRequire } from "node:module"
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
+import Module, { createRequire, registerHooks } from "node:module"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -132,10 +132,12 @@ describe("Provider runtime packages", () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-runtime-"))
     tempDirs.push(rootDir)
     await writeFile(join(rootDir, "package.json"), "{}\n")
+    const ambientModules = join(rootDir, "ambient-modules")
+    await symlink(join(store.rootDir, "node_modules"), ambientModules, "junction")
     // SAFETY: Module._initPaths is the CommonJS loader hook that rereads NODE_PATH.
     const loader = Module as typeof Module & { _initPaths: () => void }
     const nodePath = process.env.NODE_PATH
-    process.env.NODE_PATH = join(store.rootDir, "node_modules")
+    process.env.NODE_PATH = ambientModules
     loader._initPaths()
     try {
       expect(createRequire(join(rootDir, "package.json")).resolve("@anthropic-ai/claude-agent-sdk")).toBe(join(store.claudePackageDir, "sdk.mjs"))
@@ -143,11 +145,55 @@ describe("Provider runtime packages", () => {
       expect(resolveInstalledProviderExecutable("claude-code", {
         arch: "x64", libc: "glibc", platform: "linux", resolveFrom: join(rootDir, "package.json"),
       })).toBeUndefined()
+      // The same store becomes an app installation when linked through its node_modules.
+      await symlink(join(store.rootDir, "node_modules"), join(rootDir, "node_modules"), "junction")
+      expect(resolveProviderRuntimePackages({ arch: "x64", libc: "glibc", platform: "linux", rootDir })).toEqual([
+        { name: "@openai/codex", resolveFrom: join(rootDir, "package.json") },
+        { name: "@openai/codex-linux-x64", resolveFrom: join(store.codexPackageDir, "package.json") },
+        { includePeerDependencies: true, name: "@anthropic-ai/claude-agent-sdk", resolveFrom: join(rootDir, "package.json") },
+        { name: target, resolveFrom: join(store.claudePackageDir, "package.json") },
+      ])
+      expect(resolveInstalledProviderExecutable("claude-code", {
+        arch: "x64", libc: "glibc", platform: "linux", resolveFrom: join(rootDir, "package.json"),
+      })).toBe(join(store.rootDir, "node_modules", ...target.split("/"), "claude"))
     }
     finally {
       if (nodePath === undefined) delete process.env.NODE_PATH
       else process.env.NODE_PATH = nodePath
       loader._initPaths()
+    }
+  })
+
+  it("preserves provider packages reached through a customized resolver", async () => {
+    const claudeTarget = "@anthropic-ai/claude-agent-sdk-linux-x64"
+    const codexTarget = "@openai/codex-linux-x64"
+    const store = await createProject({ claude: true, claudeTarget, codex: true, codexTarget })
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-runtime-"))
+    tempDirs.push(rootDir)
+    const resolveFrom = join(rootDir, "package.json")
+    await writeFile(resolveFrom, "{}\n")
+    const resolver = createRequire(join(store.rootDir, "package.json"))
+    // Like PnP, this resolver makes installed packages available without an app node_modules tree.
+    const hooks = registerHooks({
+      resolve(specifier, context, nextResolve) {
+        if (context.parentURL !== pathToFileURL(resolveFrom).href) return nextResolve(specifier, context)
+        return { shortCircuit: true, url: pathToFileURL(resolver.resolve(specifier)).href }
+      },
+    })
+    try {
+      expect(resolveProviderRuntimePackages({ arch: "x64", libc: "glibc", platform: "linux", rootDir })).toEqual([
+        { name: "@openai/codex", resolveFrom },
+        { name: codexTarget, resolveFrom: join(store.codexPackageDir, "package.json") },
+        { includePeerDependencies: true, name: "@anthropic-ai/claude-agent-sdk", resolveFrom },
+        { name: claudeTarget, resolveFrom: join(store.claudePackageDir, "package.json") },
+      ])
+      expect(resolveInstalledProviderExecutable("codex", { platform: "linux", resolveFrom }))
+        .toBe(join(store.codexPackageDir, "bin", "codex.js"))
+      expect(resolveInstalledProviderExecutable("claude-code", { arch: "x64", libc: "glibc", platform: "linux", resolveFrom }))
+        .toBe(join(store.rootDir, "node_modules", ...claudeTarget.split("/"), "claude"))
+    }
+    finally {
+      hooks.deregister()
     }
   })
 
