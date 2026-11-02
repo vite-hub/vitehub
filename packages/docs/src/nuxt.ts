@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -15,11 +15,12 @@ import {
   extendPages,
   useLogger,
 } from "@nuxt/kit"
+import { findContentEntry } from "@vite-hub/source/vite"
 import { defu } from "defu"
 
 import { setupDocsAssistant } from "./assistant-nuxt.ts"
-import { createDocsManifest, normalizeDocsBase } from "./manifest.ts"
-import { docsAppPath, docsManifestPages, docsRawPath, docsPageIcon, docsRailIcon, docsSectionIcon, type DocsIcons, type DocsLink } from "./navigation.ts"
+import { createDocsManifest } from "./manifest.ts"
+import { docsAppPath, docsManifestPages, docsPageIcon, docsRailIcon, docsRawFile, docsRawPath, docsSectionIcon, normalizeDocsBase, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { toRawMarkdown } from "./raw.ts"
 import { coversDocsPages } from "./page.ts"
 import { docsAppConfigUi, vercelTheme, type DocsThemeUi } from "./theme.ts"
@@ -27,9 +28,6 @@ import { docsAppConfigUi, vercelTheme, type DocsThemeUi } from "./theme.ts"
 import type { DocsPage } from "./types.ts"
 
 export { DocsAssistantSetupError } from "./assistant-nuxt.ts"
-
-/** The look of the site: tokens, typography, and the shape of the shell. */
-export type DocsTheme = "vercel"
 
 export interface DocsSiteOptions {
   /** Name in titles, the rail, and llms.txt. */
@@ -59,8 +57,6 @@ export interface DocsModuleOptions {
   /** URL prefix whose folders are sections in the rail. Defaults to `/docs`. */
   base?: string
   site?: DocsSiteOptions
-  /** Defaults to `vercel`, the only theme today. */
-  theme?: DocsTheme
   /** Order of section categories in the rail and the catalog. Sections of other categories come after them in the rail. */
   categories?: string[]
   /** Categories that the catalog lists but the rail leaves out, such as shared reference topics. */
@@ -199,7 +195,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     async function writeRaw() {
       rmSync(rawDir, { force: true, recursive: true })
       for (const page of docsManifestPages(manifest)) {
-        const target = join(rawDir, page.path === "/" ? "index.md" : `${page.path.slice(1)}.md`)
+        const target = join(rawDir, docsRawFile(page.path))
         mkdirSync(dirname(target), { recursive: true })
         const source = readFileSync(join(contentDir, page.file), "utf8")
         writeFileSync(target, toRawMarkdown(options.rawMarkdown ? await options.rawMarkdown(source, page) : source, { siteUrl: `${config.site.url}${config.appBase.replace(/\/+$/, "")}` }))
@@ -268,7 +264,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     nuxt.options.alias["#docs/navigation"] = resolver.resolve("./navigation.js")
     // The page route reads drafts through the app's Content runtime, the module that ViteHub's Content routes import.
     // Without `server/content.ts` the route imports `undefined` and bundles nothing more.
-    const contentEntry = findContentEntry(nuxt.options.serverDir)
+    const contentEntry = await findContentEntry({ projectRoot: nuxt.options.rootDir, serverDirs: [nuxt.options.serverDir] })
     const contentFile = addTemplate({
       filename: "docs/content.mjs",
       write: true,
@@ -313,7 +309,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         `@source "${join(runtime, "app")}";`,
         `@source "${resolver.resolve("./theme.js")}";`,
         `@source "${contentDir}";`,
-        `@import "${join(runtime, "theme", `${options.theme ?? "vercel"}.css`)}";`,
+        `@import "${join(runtime, "theme/vercel.css")}";`,
         "",
       ].join("\n"),
     }).dst)
@@ -438,19 +434,6 @@ const shellIcons = [
 function iconifyName(icon: string): string | null {
   const match = /^i-([a-z0-9]+(?:-icons)?)-(.+)$/.exec(icon)
   return match ? `${match[1]}:${match[2]}` : icon.includes(":") ? icon : null
-}
-
-/** `server/content.ts` (or `.js`, `.mts`, and so on), as `findContentEntry()` of `@vite-hub/source/vite` finds it. */
-function findContentEntry(serverDir: string): string | undefined {
-  let names: string[]
-  try {
-    names = readdirSync(serverDir)
-  }
-  catch {
-    return
-  }
-  const name = names.filter(entry => /^content\.[cm]?[jt]s$/.test(entry)).sort()[0]
-  return name ? join(serverDir, name) : undefined
 }
 
 /** A module that this package depends on, by file path, so Nuxt finds it and transpiles its runtime. */

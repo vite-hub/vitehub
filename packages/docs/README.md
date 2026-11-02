@@ -108,7 +108,6 @@ Most changes are options in `nuxt.config.ts`:
 | `dir` | `content` | Folder of Markdown pages. |
 | `base` | `/docs` | URL prefix whose folders are sections. |
 | `site` | `{ name: "Docs" }` | `name`, `url` (canonical origin), `description`, `logo` (one-color SVG path), `badge` (`{ label, tooltip }`). |
-| `theme` | `vercel` | The only theme today. |
 | `categories` | `[]` | Order of section categories in the rail and the catalog. |
 | `railExclude` | `[]` | Categories that the catalog lists but the rail leaves out. |
 | `start` | None | `{ section, links }`: the section that new readers open first, and site pages listed at its top. |
@@ -141,7 +140,7 @@ Components read the site with auto-imported composables: `useDocsConfig()`, `use
 
 ### Theme
 
-`vercel` is black, white, and zinc, with Geist, square corners, hairline borders, and GitHub code colors. Text, code, and focus rings pass WCAG AA in light and dark mode. Change it in two places:
+The theme is black, white, and zinc, with Geist, square corners, hairline borders, and GitHub code colors. Text, code, and focus rings pass WCAG AA in light and dark mode. Change it in two places:
 
 - `app.config.ts` `ui` keys. Your values win over the theme. The theme wins over the Nuxt UI defaults, also when `@nuxt/ui` comes first in `modules`.
 - CSS variables in your stylesheet, such as `--vh-content-width` (prose width), `--vh-toc-width`, `--vh-panel-width`, `--font-sans`, and the Nuxt UI `--ui-*` colors.
@@ -202,9 +201,18 @@ export default defineConnection({
 })
 ```
 
+```ts
+// server/databases/config.ts: Connections keeps the grant in the app Database. Skip it when the app has one.
+import { defineDatabase } from "vite-hub/database"
+
+export default defineDatabase({ schema: {} })
+```
+
+The Agent and the Connection are app files on purpose. ViteHub discovers Agents and Connections from `server/`, so the ViteHub CLI and the Console show them like every other Agent and Connection. The Connection grants the Agent use of your ChatGPT plan, and a grant of that kind stays in your code, where you can read it. `docs.assistant` only adds the panel and checks this setup.
+
 Set `VITEHUB_CONNECTIONS_KEY` to 32 random bytes in `.env`, start the app, and sign in once with `pnpm vitehub connections connect chatgpt --url http://localhost:3000`. Every page then shows an **Ask** button. `⌘I` (`Ctrl+I` on Windows and Linux) opens and closes the panel, and `Esc` closes it. On wide screens the panel is a column beside the page that you resize from its left edge. On narrow screens it is a sheet. `useDocsAssistant().toggle()` opens the panel from your own control.
 
-The preset reads `content/**/*.md` from a read-only Workspace, answers in the `web` Chat Channel at `/api/_vitehub/agents/docs/chat`, and gets the path of the open page. It allows 30 questions per hour for the whole site, 2 answers at a time, and 8 waiting. Change any part with `defineAgent({ extends: docsAssistant, ... })`, for example `driver: { instructions }`, `driver: { gateway: openai(), model }` for an API key, or `docsRateLimit({ limit, identity })`. Set `docs: { assistant: { agent: "support" } }` to use an Agent with another name.
+The preset reads `content/**/*.md` from a read-only Workspace, answers in the `web` Chat Channel at `/api/_vitehub/agents/docs/chat`, and gets the path of the open page. It allows 30 questions per hour for the whole site, 2 answers at a time, and 8 waiting. Change any part with `defineAgent({ extends: docsAssistant, ... })`, for example `driver: { instructions }`, `driver: { gateway: openai(), model }` for an API key, or `docsRateLimit({ limit, identity })`. Set `docs: { assistant: { agent: "support" } }` to use an Agent with another name. The preset reads `content/` also when `dir` names another folder; then set `workspace: { sources: { pages: glob({ cwd: dir, include: ["**/*.md"], keyCache: false }) } }`.
 
 Limits:
 
@@ -232,7 +240,7 @@ export const content = defineContent({
 })
 ```
 
-`docsCollection({ path?, label? })` is a `documents()` collection over `content/**/*.md` with the page frontmatter as fields, and each document URL is its page URL. With `repo`, a save commits to a draft branch and a publish opens a pull request, so the site shows the change after it merges and builds. In the Console preview pane the page route renders the draft, uncached. See [Edit in the Console](https://vitehub.dev/docs/docs-site/configure#edit-in-the-console).
+`docsCollection({ path?, label? })` is a `documents()` collection over `content/**/*.md` with the page frontmatter as fields, and each document URL is its page URL. With `repo`, a save commits to a draft branch and a publish opens a pull request, so the site shows the change after it merges and builds. In the Console preview pane the page route renders the draft, uncached. Leave out the Content `seo` option: the docs module serves the sitemap and the Markdown copies, and Content's `.md` copies would compete with them in another format. See [Edit in the Console](https://vitehub.dev/docs/docs-site/configure#edit-in-the-console).
 
 ## Errors
 

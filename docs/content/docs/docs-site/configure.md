@@ -167,7 +167,7 @@ export default defineNuxtConfig({
 
 ## Theme
 
-`theme: 'vercel'` is the default and the only theme today. It uses Geist, black, white, and zinc, square corners, hairline borders, and GitHub code colors. Text, code, and focus rings pass WCAG AA in light and dark mode. Change it in two places:
+The theme uses Geist, black, white, and zinc, square corners, hairline borders, and GitHub code colors. Text, code, and focus rings pass WCAG AA in light and dark mode. Change it in two places:
 
 - `app.config.ts`: Nuxt UI `ui` keys. Your values win over the theme. The theme wins over the Nuxt UI defaults, also when `@nuxt/ui` comes first in `modules`.
 - CSS variables in a stylesheet of your app:
@@ -327,7 +327,7 @@ export const content = defineContent({
 })
 ```
 
-Open `/_vitehub/content` and select **Docs**. The build reads this file without running it, so keep `defineContent({ extends, collections })` as written and give the `cms` options as string literals.
+Open `/_vitehub/content` and select **Docs**. The build reads this file without running it, so keep `defineContent({ extends, collections })` as written and give the `cms` options as string literals. Leave out the Content `seo` option: the docs module already serves the sitemap and the Markdown copy of each page, and Content's `.md` copies would compete with them in another format.
 
 `docsCollection()` is a `documents()` collection over the pages:
 

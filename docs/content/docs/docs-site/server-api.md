@@ -10,7 +10,7 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `@vite-hub/docs/nuxt` | The Nuxt module. Add it to `modules`. Its types are `DocsModuleOptions`, `DocsSiteOptions`, `DocsStartOptions`, `DocsTheme`, and `DocsPublicConfig`. |
+| `@vite-hub/docs/nuxt` | The Nuxt module. Add it to `modules`. Its types are `DocsModuleOptions`, `DocsSiteOptions`, `DocsStartOptions`, and `DocsPublicConfig`. |
 | `@vite-hub/docs` | The frontmatter schema, the manifest types, and the navigation helpers. |
 | `@vite-hub/docs/navigation` | The navigation helpers only. The root exports them too. |
 | `@vite-hub/docs/server` | Read a content folder without Nuxt: `createDocsManifest()`, `DocsContentError`, `createDocsParser()`, `docsSearchSections()`, `toRawMarkdown()`, and `docsPageResponse()`. |
@@ -31,7 +31,6 @@ Set them under `docs` in `nuxt.config.ts`. Every option is optional.
 | `site.description` | `string` | `''` | Description of llms.txt. |
 | `site.logo` | `string` | None | Path of a one-color SVG beside the name. |
 | `site.badge` | `{ label, tooltip? }` | None | A short label after the name, such as `beta`. |
-| `theme` | `'vercel'` | `'vercel'` | The look of the site. `vercel` is the only theme. |
 | `categories` | `string[]` | `[]` | Order of section categories in the rail and the catalog. |
 | `railExclude` | `string[]` | `[]` | Categories that the catalog lists but the rail leaves out. |
 | `start` | `{ section, links? }` | None | The section that new readers open first, and site pages listed at its top. The header and the error page link to them. |

@@ -2,7 +2,7 @@ import { useRuntimeConfig, useStorage } from "#imports"
 
 import type { H3Event } from "h3"
 import manifest from "#docs/manifest"
-import { docsAppPath, docsManifestPages, findDocsPage, isDocsPath } from "../../navigation.ts"
+import { docsAppPath, docsManifestPages, docsRawFile, findDocsPage, isDocsPath } from "../../navigation.ts"
 
 import type { DocsPublicConfig } from "../../nuxt.ts"
 
@@ -41,7 +41,7 @@ const source: AgentContentSource = {
     const path = prefix && (route === prefix || route.startsWith(`${prefix}/`)) ? route.slice(prefix.length) || "/" : route
     const found = findDocsPage(manifest, path)
     if (!found) return null
-    const markdown = await useStorage("assets:docs-raw").getItem<string>(found.page.path === "/" ? "index.md" : `${found.page.path.slice(1)}.md`)
+    const markdown = await useStorage("assets:docs-raw").getItem<string>(docsRawFile(found.page.path))
     return markdown === null ? null : { markdown: String(markdown), title: found.page.sourceTitle, description: found.page.description ?? undefined }
   },
 }

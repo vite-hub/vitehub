@@ -4,7 +4,8 @@ import { join, relative } from "node:path"
 import { parse as parseYaml } from "yaml"
 import { parseFrontmatter } from "comark/parse"
 
-import { docsPageOf } from "./page.ts"
+import { normalizeDocsBase } from "./navigation.ts"
+import { docsPageOf, docsPagePath } from "./page.ts"
 import { docsFrontmatter, docsPageSchema, docsSectionSchema } from "./schema.ts"
 
 import type { z } from "zod"
@@ -40,7 +41,7 @@ export function createDocsManifest(options: DocsManifestOptions): DocsManifest {
     : []
   const pages = listMarkdown(options.dir)
     .filter(file => !isInside(file, baseDir))
-    .map(file => readPage(options.dir, file, "", pathOf(relative(options.dir, file))))
+    .map(file => readPage(options.dir, file, "", docsPagePath(relative(options.dir, file))))
     .sort((left, right) => left.path.localeCompare(right.path))
   return {
     base,
@@ -107,19 +108,9 @@ function idOf(file: string): string {
   return file.replaceAll("\\", "/").replace(/\.md$/, "").replace(/(^|\/)index$/, "") || "index"
 }
 
-function pathOf(file: string): string {
-  const id = idOf(file)
-  return id === "index" ? "/" : `/${id}`
-}
-
 /** With the base `/`, the section `guide` is `/guide`, not `//guide`. */
 function joinPath(base: string, ...segments: string[]): string {
   return `${base.replace(/\/+$/, "")}/${segments.join("/")}`
-}
-
-export function normalizeDocsBase(base: string): string {
-  const trimmed = base.replace(/\/+$/, "")
-  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`
 }
 
 function titleCase(input: string): string {

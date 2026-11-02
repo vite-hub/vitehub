@@ -60,6 +60,12 @@ export function docsAppPath(path: string, appBase = "/"): string {
   return base ? `/${base}${path}` : path
 }
 
+/** A docs base with one leading slash and no trailing slash: `docs/` is `/docs`, and `/` stays `/`. */
+export function normalizeDocsBase(base: string): string {
+  const trimmed = base.replace(/\/+$/, "")
+  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`
+}
+
 /** Whether a path is the docs base or a page under it. Every path is under a base of `/`. */
 export function isDocsPath(path: string, base: string): boolean {
   return base === "/" || path === base || path.startsWith(`${base}/`)
@@ -95,12 +101,12 @@ export function docsHomePath(manifest: DocsManifest): string | null {
 }
 
 /**
- * Whether the sidebar is one page list without the icon rail. A rail of three or fewer sections, or of sections
- * without their own icons, shows the same fallback icon several times and carries no information.
+ * Whether the site shows the section rail. A rail of three or fewer sections, or of sections without their own icons,
+ * shows the same fallback icon several times and carries no information, so the sidebar lists every section instead.
  */
-export function docsSingleList(manifest: DocsManifest, icons: Pick<DocsIcons, "rail" | "sections">): boolean {
-  if (manifest.sections.length <= 3) return true
-  return !manifest.sections.some(section => section.icon || icons.rail[section.id] || icons.sections[section.id])
+export function docsHasRail(manifest: DocsManifest, icons: Pick<DocsIcons, "rail" | "sections">): boolean {
+  if (manifest.sections.length <= 3) return false
+  return manifest.sections.some(section => Boolean(section.icon || icons.rail[section.id] || icons.sections[section.id]))
 }
 
 /** Sections grouped by category, in the order of `categories`. Sections of other categories are left out. */
@@ -165,6 +171,11 @@ export function docsRailIcon(icons: DocsIcons, section: Pick<DocsSection, "id" |
 export function docsRawPath(path: string): string {
   const normalized = normalizeDocsPath(path)
   return normalized === "/" ? "/raw/index.md" : `/raw${normalized}.md`
+}
+
+/** File of the raw Markdown twin in the build's raw folder, such as `docs/kv.md`. */
+export function docsRawFile(path: string): string {
+  return docsRawPath(path).slice("/raw/".length)
 }
 
 /** Cookie that keeps the navigation open beside code panel tutorials. A host that serves prerendered HTML reads it. */

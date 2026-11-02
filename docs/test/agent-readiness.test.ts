@@ -23,7 +23,10 @@ describe("agent-ready HTTP contracts", () => {
     // Local patch until nuxt-agent-discovery routes negotiated pages through the Cloudflare Worker.
     expect(workspace).toContain("nuxt-agent-discovery@0.7.0: patches/nuxt-agent-discovery@0.7.0.patch");
     expect(workspace).not.toContain("docus");
-    expect(source).toContain('routes: ["/", "/docs", "/docs/**", "/about", "/contact", "/privacy"]');
+    // The docs module negotiates the root, the docs base, and every page outside it, so the site lists no routes.
+    expect(Reflect.get(config, "agentDiscovery")).not.toHaveProperty("routes");
+    const manifest = createDocsManifest({ dir: resolve(docsRoot, "content"), base: "/docs" });
+    expect(manifest.pages.map(page => page.path).filter(path => path !== "/")).toEqual(trustPages.map(page => `/${page}`));
     expect(source).not.toContain("routeRules:");
     expect(source).toContain('{ href: "/openapi.json", rel: "service-desc", type: "application/vnd.oai.openapi+json"');
   });

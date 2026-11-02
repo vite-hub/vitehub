@@ -1791,6 +1791,9 @@ importers:
       '@vite-hub/rate-limit':
         specifier: workspace:*
         version: link:../rate-limit
+      '@vite-hub/source':
+        specifier: workspace:*
+        version: link:../source
       '@vite-hub/ui':
         specifier: workspace:*
         version: link:../ui
@@ -1815,9 +1818,6 @@ importers:
       shiki:
         specifier: ^4.5.0
         version: 4.5.0
-      valibot:
-        specifier: catalog:runtime
-        version: 1.5.0(typescript@6.0.3)
       yaml:
         specifier: catalog:tooling
         version: 2.9.1
