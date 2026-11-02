@@ -2993,7 +2993,14 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     })
     if (normalized && config.command === "serve") {
       const registryEntry = subpath(getAgentImportBase(agent, frameworkOptions), "server/registry")
-      await writeFile(join(generatedRoot, generatedAgentRegistryDevPlugin), renderNativePackageInstallPlugin([
+      // Standalone hubAgent() also needs the app root in Node-loaded packages. Build the global's name at runtime
+      // because Nitro's replace rewrites define names inside strings too.
+      const appRootGlobal = [
+        'const appRoot = typeof __VITEHUB_AGENT_APP_ROOT__ === "undefined" ? undefined : __VITEHUB_AGENT_APP_ROOT__',
+        'if (appRoot !== undefined) Reflect.set(globalThis, ["__VITEHUB_", "AGENT_APP_ROOT", "__"].join(""), appRoot)',
+        "",
+      ].join("\n")
+      await writeFile(join(generatedRoot, generatedAgentRegistryDevPlugin), appRootGlobal + renderNativePackageInstallPlugin([
         {
           from: registryEntry,
           install: "installAgentRegistry",

@@ -1,11 +1,12 @@
 import { execFile } from "node:child_process"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { afterEach, describe, expect, it } from "vitest"
+import { transformWithOxc } from "vite"
 
 import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 import { importOptionalKV, installAgentKV } from "../src/internal/optional-kv.ts"
@@ -55,6 +56,8 @@ describe("Agent package in vite dev", () => {
       if (command === "serve") {
         expect(plugins).toContain(registryPlugin)
         expect(await readFile(registryPlugin, "utf8")).toBe([
+          'const appRoot = typeof __VITEHUB_AGENT_APP_ROOT__ === "undefined" ? undefined : __VITEHUB_AGENT_APP_ROOT__',
+          'if (appRoot !== undefined) Reflect.set(globalThis, ["__VITEHUB_", "AGENT_APP_ROOT", "__"].join(""), appRoot)',
           'import { installAgentRegistry as viteHubInstall0 } from "@vite-hub/agent/server/registry"',
           'import * as viteHubModule0 from "./registry.mjs"',
           'import { installAgentKV as viteHubInstall1 } from "@vite-hub/agent/server/registry"',
@@ -91,6 +94,45 @@ describe("Agent package in vite dev", () => {
     }
     const { stdout } = await execFileAsync(process.execPath, ["--input-type=module", "--eval", `await import(${JSON.stringify(pathToFileURL(join(root, "first.mjs")).href)}); await import(${JSON.stringify(pathToFileURL(join(root, "second.mjs")).href)})`])
     expect(stdout).toBe("firstsecond")
+  })
+
+  it.each(["vite", "nitro"])("preserves standalone provider discovery from the app root with %s defines", async (transform) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-native-root-"))
+    const cwd = await mkdtemp(join(tmpdir(), "vitehub-agent-native-cwd-"))
+    roots.push(root, cwd)
+    const binary = join(root, "node_modules/@openai/codex/bin/codex.js")
+    await mkdir(join(root, "node_modules/@openai/codex/bin"), { recursive: true })
+    await writeFile(join(root, "package.json"), "{}")
+    await writeFile(join(root, "node_modules/@openai/codex/package.json"), JSON.stringify({ name: "@openai/codex" }))
+    await writeFile(binary, "")
+
+    const plugin = hubAgent()
+    const config = { root, nitro: {}, [VITEHUB_NITRO_CONFIG_CONTEXT]: true }
+    const result = await (plugin.config as (config: unknown, env: unknown) => Promise<{ define: Record<string, string> }>)(config, { command: "serve", mode: "development" })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root, command: "serve", plugins: [], build: { outDir: "dist" }, resolve: { alias: [] }, server: {}, createResolver: () => async () => undefined })
+    const installer = join(root, ".vitehub/agent/registry-dev-plugin.ts")
+    let source = (await readFile(installer, "utf8")).replaceAll("@vite-hub/agent/server/registry", import.meta.resolve("@vite-hub/agent/server/registry"))
+    if (transform === "vite") source = (await transformWithOxc(source, installer, { define: result.define })).code
+    else {
+      // Nitro also replaces define names inside strings, so the global's name must be constructed at runtime.
+      const nitro = config.nitro as { replace: Record<string, string> }
+      source = source.replaceAll(/\b__VITEHUB_AGENT_APP_ROOT__\b/g, nitro.replace.__VITEHUB_AGENT_APP_ROOT__!)
+    }
+    await writeFile(join(root, ".vitehub/agent/registry.mjs"), "export default {}; export const metadata = {}\n")
+    const nativeInstaller = installer.replace(".ts", ".mjs")
+    await writeFile(nativeInstaller, source)
+    const resolver = new URL("../src/internal/provider-runtime-packages.ts", import.meta.url).href
+    const { stdout } = await execFileAsync(process.execPath, ["--input-type=module", "--eval", `
+      import { resolveInstalledProviderExecutable } from ${JSON.stringify(resolver)}
+      const before = resolveInstalledProviderExecutable("codex", { platform: "linux" })
+      await import(${JSON.stringify(pathToFileURL(nativeInstaller).href)})
+      process.stdout.write(JSON.stringify({
+        before: before === ${JSON.stringify(binary)},
+        after: resolveInstalledProviderExecutable("codex", { platform: "linux" }),
+        appRoot: globalThis.__VITEHUB_AGENT_APP_ROOT__,
+      }))
+    `], { cwd })
+    expect(JSON.parse(stdout)).toEqual({ before: false, after: binary, appRoot: root })
   })
 
   it("installs the KV package that Vite resolves when the host configures KV", async () => {
