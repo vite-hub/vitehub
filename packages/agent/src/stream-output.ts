@@ -786,7 +786,7 @@ async function writeEventsToUiMessageStream(
     }
     if (type === "tool-call") {
       endText()
-      writer.write({ type: "tool-input-available", toolCallId: event.id, toolName: event.name, input: event.input })
+      writer.write({ type: "tool-input-available", toolCallId: event.id, toolName: event.name, input: event.input, ...(hasRuntimeType(event.title, "string") ? { title: event.title } : {}) })
       continue
     }
     if (type === "tool-result") {

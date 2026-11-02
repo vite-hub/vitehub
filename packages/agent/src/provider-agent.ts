@@ -2719,8 +2719,21 @@ function providerToolDetails(event: Extract<ProviderRuntimeEvent, { type: "item.
       : undefined,
     input: isCodexMcpTool ? item.arguments : isMcpTool && data?.input !== undefined ? data.input : event.payload.data,
     output: isCodexMcpTool ? item.result : isMcpTool && data?.result !== undefined ? data.result : event.payload.data ?? event.payload.detail,
-    title: isMcpTool && hasRuntimeType(title, "string") && title !== "MCP tool call" && title.trim() ? title : undefined,
+    title: isMcpTool && hasRuntimeType(title, "string") && title !== "MCP tool call" && title.trim()
+      ? title
+      : event.payload.itemType === "command_execution" ? commandTitle(data?.command) : undefined,
   }
+}
+
+// Codex wraps each command in a login shell. The inner command says what ran.
+const shellWrapper = /^(?:\/(?:usr\/)?bin\/)?(?:ba|z)?sh -l?c (?:'([\s\S]*)'|"([\s\S]*)")$/
+
+function commandTitle(command: unknown): string | undefined {
+  if (!hasRuntimeType(command, "string") || !command.trim()) return
+  const wrapped = shellWrapper.exec(command.trim())
+  if (!wrapped) return command.trim()
+  const [, single, double = ""] = wrapped
+  return single !== undefined ? single.replaceAll("'\\''", "'") : double.replaceAll(/\\(["\\$`])/g, "$1")
 }
 
 function providerToolActivity(
