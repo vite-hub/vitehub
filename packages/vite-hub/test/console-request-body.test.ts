@@ -7,15 +7,15 @@ import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.
 const encoder = new TextEncoder()
 
 const adapters = {
-  fetch(body: string): ConsoleRequestEvent {
+  fetch(body: string) {
     const bytes = encoder.encode(body)
-    return { req: { body: new ReadableStream({
+    return { req: { body: new ReadableStream<Uint8Array>({
       start(controller) {
         // One byte per chunk splits every multibyte character.
         for (const byte of bytes) controller.enqueue(new Uint8Array([byte]))
         controller.close()
       },
-    }) } }
+    }) } } satisfies ConsoleRequestEvent
   },
   nodeBytes(body: string): ConsoleRequestEvent {
     return { node: { req: {
