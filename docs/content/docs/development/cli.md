@@ -308,7 +308,7 @@ Telegram exposes the registered URL and delivery errors through `getWebhookInfo`
 
 ## Export a Channel conversation
 
-The generated operation commands `vitehub channels list`, `vitehub channels threads`, and `vitehub channels conversation` list Channels and their retention, list a Channel's threads, and read one thread's messages in order. They are available when the app contributes the corresponding Channel operations.
+The generated operation commands `vitehub channels list`, `vitehub channels threads`, and `vitehub channels conversation` list Channels and their retention, list a Channel's threads, and read one thread's messages in order. `vitehub channels status <agent> <channel>` shows the sync health and the skipped messages of a [Gmail Channel](/docs/agents/gmail#failed-messages). They are available when the app contributes the corresponding Channel operations.
 
 `conversations export` calls the `conversations.export` [operation](/docs/development/operations) of the running dev server, or of the app at `--url` with the credentials of [Run any operation](#run-any-operation). It needs no webhook secret, only Console access to the `channels` section.
 

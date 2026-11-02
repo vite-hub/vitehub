@@ -286,8 +286,8 @@ A poll runs steps 3 to 5 from a Schedule, without a notification.
 1. Pub/Sub sends a push request with a Google-signed OIDC token. The Channel verifies the signature with Google's public keys, the issuer, the audience, the expiry, and the verified service account email. It then checks the subscription name. A failed check returns `401` or `400`.
 2. The Channel acknowledges the push with `204` and continues in the background.
 3. It reads `history.list` from the stored history cursor, checks each message’s current labels with a metadata-only request, and fetches bodies for messages still in Inbox. Historical labels do not exclude a message restored to Inbox before that check. Failed dispatches remain eligible for retry after a hook removes Inbox.
-4. It starts one Invocation per message through the `received` trigger. The Invocation run ID is `channel:<channel>:<message id>`. A terminal Invocation or confirmed Workflow dispatch is skipped. An active claim prevents concurrent execution. A claim for an unconfirmed pending Invocation remains retryable and does not allow the history cursor to advance.
-5. It saves page tokens and remaining message IDs in the Channel's State Adapter as synchronization proceeds. The next push resumes unfinished work without fetching completed message bodies again. After every message has an Invocation, it stores the new history cursor and clears the saved progress in one transaction.
+4. It starts one Invocation per message through the `received` trigger. The Invocation run ID is `channel:<channel>:<message id>`. A terminal Invocation or confirmed Workflow dispatch is skipped. An active claim prevents concurrent execution. A claim for an unconfirmed pending Invocation remains retryable and keeps the history cursor until the message is [skipped](#failed-messages).
+5. It saves page tokens and remaining message IDs in the Channel's State Adapter as synchronization proceeds. The next push resumes unfinished work without fetching completed message bodies again. After every message has an Invocation or was [skipped](#failed-messages), it stores the new history cursor and clears the saved progress in one transaction.
 
 Mailbox synchronization requires a State Adapter with `mutateWithLock(lock, mutations)`. The operation must check the stored lock token and expiry and apply cache writes or deletions in one transaction. ViteHub's memory, SQLite/libsql, and Cloudflare Durable Object adapters implement this atomic contract. Gmail push routes also require persistent State and return HTTP 503 for missing or in-memory State. Use persistent SQLite/libSQL storage or Cloudflare Durable Objects. Custom adapters must implement `AtomicAgentStateLockAdapter` and declare `readonly durable: true` through `DurableAgentStateAdapter`; a separate lease check followed by `set()` or `delete()` is insufficient. Cloudflare mailbox locks use the existing cache actor, preserving stored cursors and watch state even when other thread locks are sharded.
 
@@ -301,6 +301,40 @@ The background work runs in the host's `waitUntil`. Cloudflare Workers stop it 3
 
 The Channel watches the Inbox of one mailbox. Mail that skips the Inbox through a Gmail filter does not start an Invocation.
 
+## Failed messages
+
+A message can fail on every sync: Gmail cannot return it, its body fetch times out, or its Invocation cannot start. The Channel retries it on the next `maxAttempts` syncs (default 5). Then it records the message as skipped in the Channel's State and lets the history cursor advance, so later mail is not blocked.
+
+```ts
+gmail({ maxAttempts: 3 })
+```
+
+While a message is retried, the sync stops at a failed fetch, and the history cursor stays at a failed Invocation. OAuth token refresh failures and HTTP 401, 403, and 429 errors concern the account, so they do not count as message attempts. A failed Invocation is terminal: the next sync does not run it again, and the Console shows it.
+
+`vitehub channels status` shows the sync health and the messages:
+
+```sh
+pnpm vitehub channels status labeller gmail --url https://mail.example.com
+```
+
+| Field | Value |
+| --- | --- |
+| `status` | `failing` after two failed syncs in a row, else `ok`. A sync that keeps a retried message also fails. |
+| `failures`, `failingSince`, `error` | The current failure streak and its last error. |
+| `syncedAt` | When the history cursor last advanced. |
+| `retrying` | Messages that the next sync retries, with `id`, `attempts`, and the last `error`. |
+| `skipped` | The last 100 skipped messages, newest first, with `id`, `attempts`, the last `error`, and `skippedAt`. |
+
+Errors contain no message body and are redacted and capped at 500 characters. Invocation failures use a generic error because driver errors can include email content. The `channels.status` [operation](/docs/agents/channels#operations-and-commands) returns the same data through Console RPC and MCP.
+
+To retry a skipped message, replay it. A replay that starts its Invocation removes it from `skipped`:
+
+```sh
+pnpm vitehub channels replay --agent labeller --channel gmail --ids 18f2c0a1b2c3d4e5 --url https://mail.example.com
+```
+
+Repeat `--ids` for several messages. When the last attempt left a failed Invocation, add `--force`.
+
 ## Replay past mail
 
 The Channel provides `history`: past messages from a Gmail search, in the same shape as a pushed message. Replayed and pushed messages share Invocation IDs, so a message runs once however it arrives.
@@ -313,6 +347,7 @@ pnpm vitehub channels replay --agent labeller --channel gmail --query "in:inbox 
 | --- | --- |
 | `query` | Gmail search syntax. Defaults to `in:inbox`. |
 | `labelIds` | Label IDs that every message must have. Repeat the flag for several. |
+| `ids` | Gmail message IDs to read instead of a search, such as skipped messages. Repeat the flag for several. |
 
 See [Replay Channel history](/docs/agents/channels#replay-channel-history) for `replayChannel()`, cursors, and `--force`.
 
