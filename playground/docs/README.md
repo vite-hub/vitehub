@@ -24,9 +24,11 @@ curl -s -X POST http://127.0.0.1:4731/api/_vitehub/agents/docs/chat \
   --data '{"id":"t1","page":"/docs/getting-started/install","messages":[{"id":"m1","role":"user","parts":[{"type":"text","text":"How do I install Lumen?"}]}]}'
 ```
 
-It streams `{"errorText":"AGENT_R1016: The ChatGPT Connection cannot provide plan access (sign-in).","type":"error"}`.
+It answers HTTP 503 with `{"code":"PROVIDER_UNAVAILABLE","error":"AGENT_R1016: The ChatGPT Connection cannot provide plan access (sign-in)."}`.
 
-To get answers, install `@openai/codex` in this app and sign in with `corepack pnpm vitehub connections connect chatgpt --url http://127.0.0.1:4731`, with your ChatGPT account. See `playground/chatgpt/README.md`. On this Nuxt 4 base the sign-in does not work yet: Nitro loads `@vite-hub/connections` from Node instead of the bundle, so the app sees the package's empty Connection registry, and `vitehub connections inspect chatgpt` answers `CONNECTIONS_NOT_FOUND`.
+Without `@openai/codex` in this app, the same request answers `AGENT_R1025` instead. To get answers, install `@openai/codex` in this app and sign in with `corepack pnpm vitehub connections connect chatgpt --url http://127.0.0.1:4731`, with your ChatGPT account. See `playground/chatgpt/README.md`. `corepack pnpm vitehub connections inspect chatgpt --url http://127.0.0.1:4731` shows the grant, and `corepack pnpm vitehub agent info --agent docs` inspects the Agent.
+
+`server/databases/config.ts` is the Database Definition that stores the grant. `vite-hub/nuxt` needs one for Connections; the Vite plugin creates a default Database instead.
 
 `@vite-hub/connections`, `gateways`, `runtime`, `shell`, and `source` are listed in `package.json` only because Nitro 2 leaves them external in this workspace, and Node resolves them from the app folder. `@nuxt/ui` is listed in `modules` so that Nuxt installs `@nuxt/icon` with it.
 
