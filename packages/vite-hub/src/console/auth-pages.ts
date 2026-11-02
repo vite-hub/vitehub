@@ -1,6 +1,5 @@
 // The Console sign-in pages and the app Auth access check. The Console plugin imports this module when the server starts,
 // so it must not import Better Auth. Auth instances come from the resolver that the caller passes.
-import type { getAuthForRequest } from "@vite-hub/auth/server"
 import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import * as v from "valibot"
 import { consoleAuthOAuthPage } from "./auth-oauth-page.ts"
@@ -11,7 +10,7 @@ import { consoleAuthPath, consoleEventPath } from "./auth-path.ts"
 import { isConsoleDevelopmentBuild } from "./runtime/server/development.ts"
 import { consoleDiagnosticBody, isConsoleImpersonationRejection } from "./runtime/diagnostics.ts"
 
-import type { ConsoleUser } from "./auth.ts"
+import type { ConsoleUser } from "./auth-types.ts"
 
 export const consoleAuthBasePath = "/api/_vitehub/console/auth"
 
@@ -271,8 +270,23 @@ export function consoleAuthPageResponse(request: Request, response: Response | u
   })
 }
 
+/** The part of an app Auth instance used by the Console sign-in pages. */
+export interface ConsoleAppAuthInstance extends ConsoleSessionReader {
+  handler: (request: Request) => Response | Promise<Response>
+  $context: Promise<{
+    baseURL: string
+    options: { emailAndPassword?: { enabled?: boolean } }
+    socialProviders: { id: string, name: string }[]
+    isTrustedOrigin: (origin: string) => boolean | Promise<boolean>
+  }>
+}
+
 /** Returns the app Auth instance for a request. The generated Console plugin loads it on the first Console request. */
-export type ConsoleAppAuthResolver = (...input: Parameters<typeof getAuthForRequest>) => ReturnType<typeof getAuthForRequest> | Promise<ReturnType<typeof getAuthForRequest>>
+export type ConsoleAppAuthResolver = (
+  request: Pick<Request, "headers" | "url">,
+  runtimeOptions?: { baseURL?: string },
+  event?: unknown,
+) => ConsoleAppAuthInstance | Promise<ConsoleAppAuthInstance>
 
 /** Use the app's configured social providers and session without a second Auth Definition or client. */
 export function createConsoleAppAuthPages(resolveAuth: ConsoleAppAuthResolver): {

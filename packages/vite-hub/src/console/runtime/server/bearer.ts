@@ -1,7 +1,7 @@
 import { resolvePublicUrl } from "@vite-hub/runtime"
 
 import type { JSONWebKeySet } from "jose"
-import type { ConsoleUser } from "../../auth.ts"
+import type { ConsoleUser } from "../../auth-types.ts"
 import type { ConsoleDiagnosticCode } from "../diagnostics.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
 

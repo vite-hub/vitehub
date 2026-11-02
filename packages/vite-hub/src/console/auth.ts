@@ -1,5 +1,5 @@
-import type { AccessAuthorizationContext } from "@vite-hub/runtime"
 import type { AuthAccessAuthorize, AuthDefinition, AuthDefinitionInput, AuthResolvedDefinitionOptions, AuthRuntimeConfiguration, AuthRuntimeContext, AuthSignInConfiguration } from "@vite-hub/auth"
+import type { ConsoleAuthorize } from "./auth-types.ts"
 import { createAuthForRequest } from "@vite-hub/auth/server"
 import { consoleOAuthPlugins } from "./auth-oauth.ts"
 import { consoleAuthBasePath } from "./auth-pages.ts"
@@ -7,8 +7,9 @@ import { consoleAuthPath } from "./auth-path.ts"
 
 export { consoleMcpNativeClients, consoleMcpOAuth } from "./auth-oauth.ts"
 export type { ConsoleMcpOAuthOptions } from "./auth-oauth.ts"
-export { consoleAuthBasePath, consoleAuthPageResponse, consoleAuthSignInPage, consoleImpersonationPage, readConsoleSessionUser } from "./auth-pages.ts"
-export type { ConsoleSessionReader } from "./auth-pages.ts"
+export { consoleAuthBasePath, consoleAuthPageResponse, consoleAuthSignInPage, consoleImpersonationPage, createConsoleAppAuthAccess, createConsoleAppAuthPages, readConsoleSessionUser } from "./auth-pages.ts"
+export type { ConsoleAppAuthAccessOptions, ConsoleAppAuthInstance, ConsoleAppAuthResolver, ConsoleSessionReader } from "./auth-pages.ts"
+export type { ConsoleAuthorize, ConsoleAuthorizeContext, ConsoleAuthorizeResult, ConsoleUser } from "./auth-types.ts"
 
 export interface ConsoleAuthDefinition {
   auth: AuthDefinition
@@ -98,32 +99,9 @@ export function createConsoleAuthDefinition(input: ConsoleAuthDefinition, mountB
   } as AuthDefinition<AuthDefinitionInput>
 }
 
-/** The signed-in user that the Console gives `console.authorize`. */
-export type ConsoleUser = AccessAuthorizationContext["user"]
-
-/** The request that `console.authorize` checks. */
-export interface ConsoleAuthorizeContext {
-  request: Request
-  /** The signed-in user with `auth: "app"` or a session-based Console Auth. Not set with `auth: false` or Cloudflare Access. */
-  user?: ConsoleUser
-}
-
-/**
- * What `console.authorize` returns for one request.
- * - `true` allows every Console section.
- * - `{ sections }` allows only these section ids, for example `["content"]`. `"content:read"` allows only the operations of
- *   that section that read. An empty list is `403`.
- * - `false` is `403`. A `Response` is returned as-is.
- */
-export type ConsoleAuthorizeResult = boolean | Response | { sections: readonly string[] }
-
-/** Decides whether one Console request may continue, and which Console sections it may use. */
-export type ConsoleAuthorize = (context: ConsoleAuthorizeContext) => ConsoleAuthorizeResult | Promise<ConsoleAuthorizeResult>
-
 /** Define the function that every Console data route calls. Set its file path as `console.authorize`. */
 export function defineConsoleAuthorize(authorize: ConsoleAuthorize): ConsoleAuthorize {
   // Accept callbacks created in another JavaScript realm, where `instanceof Function` fails.
   if (typeof authorize !== "function") throw new TypeError("[vitehub] defineConsoleAuthorize() requires a function.")
   return authorize
 }
-

@@ -40,7 +40,7 @@ export const userSession = useUserSession()
 
 Import `createAuthClient` from the same entry when you use a custom `basePath` or Better Auth client plugins. The client loads Better Auth the first time you call it, so creating one up front adds nothing to a page that does not sign in. `loadAuthClient(client)` returns Better Auth's own client for members such as `$store`. Pass the same `basePath` to the client and the Definition. In a Nuxt app below `app.baseURL`, the default client uses that path, such as `/app/api/auth`; a custom client must include it in `basePath`.
 
-The server starts without Better Auth. It loads with the first Auth request, the first request that an access route matches, or the first Console request. Your code loads it when it imports `@vite-hub/auth/server`. Import it in routes, not in a Nitro plugin or global middleware, so a cold start does not compile it.
+App Auth loads Better Auth with the first Auth request, the first request that an access route matches, or the first Console request with `console: { auth: "app" }`. An independent `console.auth` Definition still loads Better Auth at startup. Your code loads it when it imports `@vite-hub/auth/server`. Import it in routes, not in a Nitro plugin or global middleware, so a cold start does not compile it.
 
 Server code can read the discovered Auth instance or require a session for a request.
 
