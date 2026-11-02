@@ -13,7 +13,8 @@ import { providerOutputAliasSources, rebasePublishedProviderSourceLinks, removeP
 import { copyNodeRuntimePackages, copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { deploymentPresetFromNitro } from "@vite-hub/internal/deployment"
 import { registerViteHubNitroDevEndpoint, renderViteHubNitroDevHandler } from "@vite-hub/internal/dev-endpoint"
-import { createNoExternalAddition, hasNitroConfigContext, isServerEnvironment, generatedViteHubWatchIgnoredAddition, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, createProviderOutputEnvironmentOwner, hasNitroConfigContext, isServerEnvironment, generatedViteHubWatchIgnoredAddition, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import type { ProviderOutputEnvironmentOwner } from "@vite-hub/internal/build/vite"
 import { summarizeDefinitions } from "@vite-hub/internal/inspect"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { validateWorkspaceDevToken, workspaceDevTokenHeader, workspaceDevTokenServerId } from "@vite-hub/workspace/server"
@@ -92,7 +93,7 @@ interface AgentCliContributingPlugin {
   }
 }
 
-export type AgentVitePlugin = Plugin & AgentCliContributingPlugin
+export type AgentVitePlugin = Plugin & AgentCliContributingPlugin & Partial<Pick<ProviderOutputEnvironmentOwner, "nitro">>
 
 // `vite` is an optional peer. Load its parser on demand so this entry stays
 // importable without it.
@@ -2928,6 +2929,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
   let installsCloudflareState = false
   let providerOutput: ProviderOutputCatalog | undefined
   const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
+  const providerOutputEnvironment = createProviderOutputEnvironmentOwner("@vite-hub/agent/vite")
   const buildConfigs = new WeakMap<object, {
     agent: AgentModuleOptions | false | undefined
     config: ResolvedConfig
@@ -3546,7 +3548,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         },
       }
     },
+    buildApp: providerOutputEnvironment.buildApp,
+    nitro: providerOutputEnvironment.nitro,
     buildStart() {
+      if (providerOutputEnvironment.defers(this)) return
       const context = buildEnvironment(this)
       rejectedBuilds.delete(context)
       const environmentConfig = this?.environment?.config
@@ -3577,7 +3582,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       providerOutputGenerations.capture(this, buildConfigs.get(context)?.providerOutput ?? providerOutput)
     },
     async buildEnd(error) {
-      if (rejectedBuilds.has(buildEnvironment(this))) return
+      if (rejectedBuilds.has(buildEnvironment(this)) || providerOutputEnvironment.defers(this)) return
       const build = buildConfigs.get(buildEnvironment(this))
       if (error) {
         await providerOutputGenerations.reset(this, build?.providerOutput ?? providerOutput, error)
@@ -3689,7 +3694,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       }
     },
     async renderError(error) {
-      if (rejectedBuilds.has(buildEnvironment(this))) return
+      if (rejectedBuilds.has(buildEnvironment(this)) || providerOutputEnvironment.defers(this)) return
       const build = buildConfigs.get(buildEnvironment(this))
       await providerOutputGenerations.reset(this, build?.providerOutput ?? providerOutput, error)
     },
@@ -3699,6 +3704,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       async handler() {
         if (rejectedBuilds.has(buildEnvironment(this))) return
         await closeDiscoveryWatcher?.()
+        if (providerOutputEnvironment.defers(this)) return
         const build = buildConfigs.get(buildEnvironment(this))
         const config = build?.config ?? this?.environment?.config ?? resolved
         if (!config || config.command !== "build") return

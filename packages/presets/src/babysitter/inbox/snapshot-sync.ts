@@ -1,5 +1,5 @@
 import * as v from 'valibot'
-import { parseEvidence, parsePullRequest, parseThread, type GitHubReviewThread, type GitHubEvidence, type GitHubDelivery, type GitHubPullRequestRecord } from './types.ts'
+import { parseEvidence, parsePullRequest, type GitHubReviewThread, type GitHubEvidence, type GitHubDelivery, type GitHubPullRequestRecord } from './types.ts'
 import { createHash } from 'node:crypto'
 import { type Claim, type PullRequestInbox, type Snapshot } from './store.ts'
 import { repoRef, type GitHubProvider } from '@vite-hub/forge'
@@ -37,7 +37,6 @@ export async function readForgePullRequestThreads(provider: GitHubProvider, repo
 const index = (items: GitHubEvidence[]) => Object.fromEntries(items.map(item => [String(item.id), item]))
 const pageInfo = v.object({ hasNextPage: v.boolean(), endCursor: v.nullish(v.string()) })
 const commentConnection = v.object({ nodes: v.array(v.object({ id: v.string(), databaseId: v.nullish(v.number()) })), pageInfo })
-const threadConnection = v.object({ nodes: v.array(v.pipe(v.unknown(), v.transform(parseThread))), pageInfo })
 const envelope = v.object({ data: v.optional(v.unknown()), errors: v.optional(v.array(v.object({ message: v.string() }))) })
 
 function reviewThreadData(raw: unknown): unknown {
@@ -51,11 +50,10 @@ function nextCursor(connection: { pageInfo: v.InferOutput<typeof pageInfo> }, se
   if (!cursor || seen.has(cursor)) throw new Error('Invalid review thread pagination cursor')
   seen.add(cursor); return cursor
 }
-async function readThreadComments(request: ReadGraphql, id: string, first?: v.InferOutput<typeof commentConnection>) {
-  const comments = [...(first?.nodes ?? [])]
+async function readThreadComments(request: ReadGraphql, id: string) {
+  const comments: v.InferOutput<typeof commentConnection>['nodes'] = []
   const pages = new Set<string>()
-  let after = first ? nextCursor(first, pages) : null
-  if (first && !after) return comments
+  let after: string | null = null
   do {
     const more = v.parse(v.object({ node: v.object({ comments: commentConnection }) }), await request(`query GitHubPullRequestThreadComments($id:ID!,$after:String) {
       node(id:$id) { ... on PullRequestReviewThread { comments(first:100,after:$after) {
@@ -66,36 +64,6 @@ async function readThreadComments(request: ReadGraphql, id: string, first?: v.In
     comments.push(...more.node.comments.nodes)
   } while (after)
   return comments
-}
-
-/** Read paginated thread state and comment identities. REST intake owns comment bodies. */
-export async function readPullRequestThreads(graphql: ReadGraphql, repository: string, number: number): Promise<GitHubReviewThread[]> {
-  const [owner, name, extra] = repository.split('/')
-  if (!owner || !name || extra) throw new Error('Invalid repository for review threads')
-  const threads: GitHubReviewThread[] = []
-  const request = async (query: string, variables: Record<string, string | number | null>) => {
-    return reviewThreadData(await graphql(query, variables))
-  }
-  let after: string | null = null
-  const pages = new Set<string>()
-  do {
-    const data = v.parse(v.object({ repository: v.object({ pullRequest: v.object({ reviewThreads: threadConnection }) }) }), await request(`query GitHubPullRequestReviewThreads($owner:String!,$name:String!,$number:Int!,$after:String) {
-      repository(owner:$owner,name:$name) { pullRequest(number:$number) { reviewThreads(first:100,after:$after) {
-        nodes { id isResolved isOutdated path line originalLine startLine originalStartLine
-          comments(first:100) { nodes { id databaseId } pageInfo { hasNextPage endCursor } }
-        } pageInfo { hasNextPage endCursor }
-      } } }
-    }`, { owner, name, number, after }))
-    const connection = data.repository.pullRequest.reviewThreads
-    after = nextCursor(connection, pages)
-    for (const thread of connection.nodes) {
-      if (!thread.id || typeof thread.isResolved !== 'boolean') throw new Error('Incomplete review thread metadata')
-      const firstComments = v.parse(commentConnection, thread.comments)
-      const comments = await readThreadComments(request, thread.id, firstComments)
-      threads.push({ ...thread, comments, resolutionSource: 'graphql' })
-    }
-  } while (after)
-  return threads
 }
 
 /** REST snapshots fill webhook gaps without asking an LLM to poll GitHub. */

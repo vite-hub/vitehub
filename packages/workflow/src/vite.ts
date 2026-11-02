@@ -7,7 +7,7 @@ import { getViteMode } from "@vite-hub/internal/build/mode"
 import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
 import { contributeProviderDeploymentOutput, createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, getProviderOutputCatalog, getProviderRuntimeModule, getVercelRuntimePackages, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { providerOutputAliasSources, removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
-import { collectViteHubProviderImportAliases, createNoExternalAddition, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { collectViteHubProviderImportAliases, createNoExternalAddition, createProviderOutputEnvironmentOwner, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalizeHosting } from "@vite-hub/internal/hosting"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 
@@ -20,7 +20,7 @@ import { createCloudflareWorkflowNitroConfig, createOptionalViteDevtoolsPlugin, 
 import type { ResolvedWorkflowOptions, WorkflowModuleOptions } from "./types.ts"
 import type { ProviderDeploymentOutputGeneration, ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin as EsbuildPlugin } from "esbuild"
-import type { ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
+import type { ProviderOutputEnvironmentOwner, ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { Plugin, ResolvedConfig } from "vite"
 import { workflowErrorDiagnostics } from "./error-diagnostics.ts"
@@ -35,7 +35,7 @@ interface WorkflowNitroConfigOptions {
   transformRegistry?: (code: string, id: string) => string | Promise<string>
 }
 
-export type WorkflowVitePlugin = Plugin & {
+export type WorkflowVitePlugin = Plugin & Partial<Pick<ProviderOutputEnvironmentOwner, "nitro">> & {
   vitehub?: ViteHubInspectionPluginMetadata & {
     operations?: readonly OperationContributionEntry[]
     workflow?: {
@@ -94,6 +94,7 @@ function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
 export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: InternalWorkflowModuleOptions = {}): WorkflowVitePlugin {
   let providerOutput: ProviderOutputCatalog | undefined
   const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
+  const providerOutputEnvironment = createProviderOutputEnvironmentOwner("@vite-hub/workflow/vite")
   let resolved: ResolvedConfig | undefined
   const defaultWorkflow: WorkflowModuleOptions | undefined = internalOptions.implicitlyEnabled
     && normalizeHosting(internalOptions.hosting).includes("netlify")
@@ -126,7 +127,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     const config = context?.environment?.config ?? resolved
     const viteHubNitroContext = config && Reflect.get(config, VITEHUB_NITRO_CONFIG_CONTEXT) === true
     const ownerEnvironment = config?.environments?.nitro ? "nitro" : "ssr"
-    return Boolean(environmentName && environmentName !== ownerEnvironment && viteHubNitroContext)
+    return Boolean(environmentName && environmentName !== ownerEnvironment && viteHubNitroContext) || providerOutputEnvironment.defers(context)
   }
 
   function scheduledBuildConfig(config: ResolvedConfig, environmentName?: string): ScheduledWorkflowBuildConfig | undefined {
@@ -437,6 +438,8 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         prepareScheduleRuntime,
       },
     },
+    buildApp: providerOutputEnvironment.buildApp,
+    nitro: providerOutputEnvironment.nitro,
     buildStart() {
       if (shouldSkipProviderOutputEnvironment(this)) return
       const context = buildEnvironment(this)

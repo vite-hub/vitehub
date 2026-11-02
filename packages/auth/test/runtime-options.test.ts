@@ -25,7 +25,9 @@ describe("Auth option resolution", () => {
     expect(resolved.options).toMatchObject({ access: { routes: ["/private"] }, secret: "override" })
     expect(resolved.requestRuntimeOptions).toMatchObject({ baseURL: "https://auth.example.com", trustedOrigins: ["https://auth.example.com"] })
     expect(resolved.providerOptions).toMatchObject({ appName: "ViteHub", basePath: "/auth", secret: "override" })
-    for (const name of ["access", "runtime", "database", "secondaryStorage"]) expect(resolved.providerOptions).not.toHaveProperty(name)
+    for (const name of ["access", "runtime", "secondaryStorage"]) expect(resolved.providerOptions).not.toHaveProperty(name)
+    // Database metadata is not an adapter, so Better Auth gets the shared in-memory store.
+    expect(resolved.providerOptions.database).toBeTypeOf("function")
     expect(runtime).toHaveBeenCalledOnce()
     expect(env).toHaveBeenCalledExactlyOnceWith(event)
   })
