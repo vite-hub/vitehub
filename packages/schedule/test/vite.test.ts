@@ -534,6 +534,38 @@ describe("Vite schedule integration", () => {
     await expect(readFile(join(createDefaultNetlifyOutputRoot(root), "functions", "vitehub-schedule-report.mjs"), "utf8")).resolves.toContain("schedule: \"0 9 * * *\"")
   })
 
+  it("writes standalone Provider Output only for the host of Nitro's resolved preset", async () => {
+    const root = await temporaryDirectory("vitehub-schedule-nitro-preset-output-")
+    await mkdir(join(root, "server", "schedules"), { recursive: true })
+    await mkdir(join(root, "dist", "client"), { recursive: true })
+    await writeFile(join(root, "server", "schedules", "report.ts"), [
+      "import { defineSchedule } from '@vite-hub/schedule'",
+      "export default defineSchedule({ cron: '0 9 * * *', handler: () => {} })",
+      "",
+    ].join("\n"), "utf8")
+
+    const plugin = hubSchedule({ projectRoot: root, providerOutput: "standalone" })
+    const nitroModule = plugin.nitro as { setup: (nitro: { options: { preset: string } }) => void }
+    nitroModule.setup({ options: { preset: "netlify" } })
+    nitroModule.setup({ options: { preset: "nitro-prerender" } })
+    await (plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
+      { root },
+      { command: "build", mode: "production" },
+    )
+    await (plugin.configResolved as (config: Record<string, unknown>) => Promise<void>)({
+      build: { outDir: "dist/client" },
+      command: "build",
+      resolve: { alias: [] },
+      root,
+    })
+    await runProviderOutputHooks(plugin)
+
+    await expect(readFile(join(createDefaultNetlifyOutputRoot(root), "functions", "vitehub-schedule-report.mjs"), "utf8")).resolves.toContain("schedule: \"0 9 * * *\"")
+    expect(existsSync(createDefaultCloudflareOutputRoot(root))).toBe(false)
+    expect(existsSync(createDefaultVercelOutputRoot(root))).toBe(false)
+    expect(existsSync(join(root, ".vitehub", "schedule", "deno-cron.mjs"))).toBe(false)
+  })
+
   it("writes a resolvable Process Runtime registry for direct Nitro config integration", async () => {
     const root = await temporaryDirectory("vitehub-schedule-direct-nitro-process-")
     await mkdir(join(root, "server", "schedules"), { recursive: true })
@@ -656,12 +688,70 @@ describe("Vite schedule integration", () => {
           triggers: { crons: ["0 0 * * *", "*/15 * * * *"] },
         },
       },
-      modules: ["existing-module", join(root, ".vitehub/nitro/schedule/module.mjs")],
+      modules: [
+        "existing-module",
+        expect.objectContaining({ name: "@vite-hub/schedule/vite", setup: expect.any(Function) }),
+        join(root, ".vitehub/nitro/schedule/module.mjs"),
+      ],
       plugins: [join(root, ".vitehub/nitro/schedule/plugin.ts")],
     })
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).resolves.toContain("cloudflare:scheduled")
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.mjs"), "utf8")).resolves.toContain("\"*/15 * * * *\"")
   })
+
+  it.each(["standalone", "auto"] as const)("targets Nitro's resolved host through the direct Nuxt module with providerOutput %s", async (providerOutput) => {
+    const root = await temporaryDirectory("vitehub-schedule-nuxt-host-")
+    await writeFile(join(root, "report.schedule.ts"), [
+      "import { defineSchedule } from '@vite-hub/schedule'",
+      "export default defineSchedule({ cron: '0 9 * * *', handler: () => {} })",
+      "",
+    ].join("\n"), "utf8")
+    const { default: scheduleNuxt } = await import("../src/nuxt.ts")
+    let nitroConfigHook: ((nitroConfig: Record<string, unknown>) => void | Promise<void>) | undefined
+    const nuxt = {
+      hook(_name: "nitro:config", handler: (nitroConfig: Record<string, unknown>) => void | Promise<void>) {
+        nitroConfigHook = handler
+      },
+      options: { dev: false, rootDir: root, srcDir: root, vite: {} as { plugins?: unknown[] } },
+    }
+    scheduleNuxt({ providerOutput }, nuxt)
+    const plugin = nuxt.options.vite.plugins![0] as ReturnType<typeof hubSchedule>
+    const existingModule = { name: "existing-module", setup: vi.fn() }
+    const nitroConfig = { modules: [existingModule], preset: "netlify" }
+    await nitroConfigHook!(nitroConfig)
+    await nitroConfigHook!(nitroConfig)
+
+    // Nuxt creates Nitro before running Vite, and does not forward its preset to Vite's config.
+    const { createNitro } = await import("nitropack")
+    const nitro = await createNitro({ ...nitroConfig, compatibilityDate: "2026-10-01", logLevel: 0, rootDir: root })
+    vi.stubEnv("NITRO_PRESET", undefined)
+    vi.stubEnv("SERVER_PRESET", undefined)
+    vi.stubEnv("VITEHUB_HOSTING", "vercel")
+    try {
+      await (plugin.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => unknown)(
+        { root },
+        { command: "build", mode: "production" },
+      )
+      await (plugin.configResolved as (config: Record<string, unknown>) => Promise<void>)({
+        build: { outDir: "dist/client" },
+        command: "build",
+        resolve: { alias: [] },
+        root,
+      })
+      await runProviderOutputHooks(plugin)
+
+      await expect(readFile(join(createDefaultNetlifyOutputRoot(root), "functions", "vitehub-schedule-report.mjs"), "utf8")).resolves.toContain("schedule: \"0 9 * * *\"")
+      expect(existsSync(createDefaultCloudflareOutputRoot(root))).toBe(false)
+      expect(existsSync(createDefaultVercelOutputRoot(root))).toBe(false)
+      expect(existsSync(join(root, ".vitehub", "schedule", "deno-cron.mjs"))).toBe(false)
+      expect(nitroConfig.modules).toEqual([existingModule, plugin.nitro])
+      expect(existingModule.setup).toHaveBeenCalledOnce()
+    }
+    finally {
+      vi.unstubAllEnvs()
+      await nitro.close()
+    }
+  }, 30_000)
 
   it("discovers project server schedules when the Vite root is nested", async () => {
     const root = await temporaryDirectory("vitehub-schedule-nested-root-")
