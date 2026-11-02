@@ -183,6 +183,43 @@ describe("migration data loss", () => {
       )).toEqual(['drops table "notes"'])
     })
 
+    it("preserves the source schema when renaming a new PostgreSQL table", () => {
+      expect(runPostgresLosses(
+        ['CREATE TABLE "my.schema"."fresh" (id integer);'],
+        ['ALTER TABLE "my.schema"."fresh" RENAME TO "archived.table";'],
+        ['DROP TABLE "my.schema"."archived.table";'],
+      )).toEqual([])
+      expect(runPostgresLosses(
+        ["CREATE TABLE public.fresh (id integer);"],
+        ["ALTER TABLE public.fresh RENAME TO archived;"],
+        ["DROP TABLE public.archived;"],
+      )).toEqual([])
+    })
+
+    it("invalidates a tracked PostgreSQL destination after a schema move", () => {
+      expect(runPostgresLosses(
+        ["CREATE TABLE archive.fresh (id integer);", "DROP TABLE archive.fresh;"],
+        ["ALTER TABLE public.fresh SET SCHEMA archive;"],
+        ["DROP TABLE archive.fresh;"],
+      )).toEqual(['drops table "fresh"'])
+    })
+
+    it.each([
+      "CREATE TEMP TABLE notes (id integer);",
+      "CREATE TEMPORARY TABLE IF NOT EXISTS notes (id integer);",
+      "CREATE TABLE temp.notes (id integer);",
+    ])("retains SQLite losses after temporary tables can shadow permanent tables: %s", (statement) => {
+      expect(runLosses(
+        [statement],
+        ["DROP TABLE notes;", "DROP TABLE notes;"],
+      )).toEqual(['drops table "notes"', 'drops table "notes"'])
+      // A permanent table tracked earlier can also be shadowed by the temporary table.
+      expect(runLosses(
+        ["CREATE TABLE notes (id integer);", statement],
+        ["DROP TABLE notes;", "DROP TABLE notes;", "DROP TABLE notes;"],
+      )).toEqual(['drops table "notes"', 'drops table "notes"', 'drops table "notes"'])
+    })
+
     it.each([
       "TRUNCATE public.fresh CASCADE;",
       "TRUNCATE TABLE ONLY public.fresh RESTART IDENTITY CASCADE;",

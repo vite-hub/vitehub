@@ -216,6 +216,7 @@ export interface DataLossMigration {
 
 const createTable = new RegExp(String.raw`^CREATE\s+(?:TEMP(?:ORARY)?\s+)?TABLE\s+(IF\s+NOT\s+EXISTS\s+)?(${qualifiedName})`, "i")
 const renameTo = new RegExp(String.raw`^ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(${qualifiedName})\s+RENAME\s+TO\s+(${qualifiedName})`, "i")
+const setSchema = new RegExp(String.raw`^ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?${qualifiedName}\s+SET\s+SCHEMA\b`, "i")
 const writeInto = new RegExp(String.raw`^(?:(?:INSERT|REPLACE)(?:\s+OR\s+\w+)?\s+INTO|UPDATE(?:\s+OR\s+\w+)?(?:\s+ONLY)?)\s+(${qualifiedName})`, "i")
 // Statements that cannot put rows of one table into another.
 const keepsRows = /^(?:ALTER\s+TABLE|CREATE\s+(?:UNIQUE\s+)?INDEX|DROP\s+(?:INDEX|VIEW|TRIGGER|TYPE|SEQUENCE|SCHEMA)|CREATE\s+(?:TYPE|SCHEMA|SEQUENCE|EXTENSION)|DELETE|TRUNCATE|PRAGMA|COMMENT\s+ON|SELECT)\b/i
@@ -250,6 +251,8 @@ interface NewTables {
   fedByTrigger: Set<string>
   /** True between `CREATE TRIGGER` and its `END`, which the statement split cuts into parts. */
   inTrigger: boolean
+  /** Temporary SQLite tables make unqualified names switch schemas after a drop or rename. */
+  temporaryTableSeen: boolean
 }
 
 const createTrigger = /^CREATE\s+(?:TEMP(?:ORARY)?\s+)?TRIGGER\b/i
@@ -264,6 +267,7 @@ function feedByTrigger(statement: string, tables: NewTables) {
 /** Updates the tables that hold no rows from before this run of migrations, after a statement runs. */
 function trackNewTables(statement: string, tables: NewTables) {
   const { noOlderRows } = tables
+  if (tables.temporaryTableSeen) return
   if (tables.inTrigger) {
     if (/^END\b/i.test(statement)) tables.inTrigger = false
     else feedByTrigger(statement, tables)
@@ -292,6 +296,13 @@ function trackNewTables(statement: string, tables: NewTables) {
   }
   let match = statement.match(createTable)
   if (match) {
+    if (tables.dialect === "sqlite"
+      && (/^CREATE\s+TEMP(?:ORARY)?\s+TABLE\b/i.test(statement) || tableKey(match[2]!).toLowerCase().startsWith("temp."))) {
+      // Without resolving SQLite schemas, later names could refer to older permanent tables.
+      noOlderRows.clear()
+      tables.temporaryTableSeen = true
+      return
+    }
     // With IF NOT EXISTS, an older table keeps its rows. A table that this run dropped is new again.
     if (!match[1]) {
       const table = tableKey(match[2]!)
@@ -302,7 +313,9 @@ function trackNewTables(statement: string, tables: NewTables) {
   }
   if ((match = statement.match(renameTo))) {
     const from = tableKey(match[1]!)
-    const to = tableKey(match[2]!)
+    const target = tableKey(match[2]!)
+    const schema = from.match(new RegExp(String.raw`^(${identifier})\.`))?.[1]
+    const to = schema && !schemaQualifiedTable.test(target) ? `${schema}.${target}` : target
     if (noOlderRows.has(from)) add(to)
     else forget(to)
     add(from)
@@ -316,9 +329,9 @@ function trackNewTables(statement: string, tables: NewTables) {
     if (!readsOnlyNewRows()) forget(tableKey(match[1]!))
     return
   }
-  // Partitions and inheritance can expose older rows through a new table and its ancestors.
-  if (/^ALTER\s+TABLE\b/i.test(statement)
-    && (hasKeywordOutsideQuotes(statement, "ATTACH") || hasKeywordOutsideQuotes(statement, "INHERIT"))) noOlderRows.clear()
+  // Schema moves can replace a tracked identity; partitions and inheritance can expose older descendants.
+  if (setSchema.test(statement) || (/^ALTER\s+TABLE\b/i.test(statement)
+    && (hasKeywordOutsideQuotes(statement, "ATTACH") || hasKeywordOutsideQuotes(statement, "INHERIT")))) noOlderRows.clear()
   // A `WITH` query, a function, or another statement that ViteHub does not read could copy older rows anywhere.
   if (!keepsRows.test(statement)) noOlderRows.clear()
 }
@@ -330,7 +343,7 @@ function trackNewTables(statement: string, tables: NewTables) {
  * must be schema-qualified because the search path can resolve the same unqualified name to different tables.
  */
 export function withoutNewTableDataLoss<T extends DataLossMigration>(migrations: readonly T[], dialect: DatabaseDialect = "sqlite"): T[] {
-  const tables: NewTables = { dialect, fedByTrigger: new Set(), inTrigger: false, noOlderRows: new Set() }
+  const tables: NewTables = { dialect, fedByTrigger: new Set(), inTrigger: false, noOlderRows: new Set(), temporaryTableSeen: false }
   return migrations.map((migration) => {
     const losses = [...migration.dataLoss]
     const dataLoss: DataLossStatement[] = []
