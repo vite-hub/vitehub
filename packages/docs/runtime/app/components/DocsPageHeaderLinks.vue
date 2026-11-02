@@ -78,7 +78,7 @@ const items = computed(() => {
         @click="copyPage"
       >
         <!-- Both labels share one grid cell, so "Copied" does not change the width or move the menu button. -->
-        <span class="grid">
+        <span class="grid whitespace-nowrap">
           <span class="[grid-area:1/1]" :class="{ invisible: copied }">Copy page</span>
           <span class="[grid-area:1/1]" :class="{ invisible: !copied }">Copied</span>
         </span>
