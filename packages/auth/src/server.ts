@@ -11,6 +11,7 @@ import { throwAuthenticationProviderError } from "./errors.ts"
 import { getAuthenticationSession } from "./session.ts"
 import { getAuthRuntimeState } from "./runtime-state.ts"
 import { withSessionMarker } from "./session-marker.ts"
+import { createAuthAccessRouteMatcher } from "./runtime/server.ts"
 
 import type { AuthEventAggregates, AuthEventListInput, AuthEventPage, AuthEventStore, AuthEventWindow } from "./events.ts"
 import type { AuthAccessIdentityResolver, AuthRuntimeEnvResolver } from "./runtime-state.ts"
@@ -39,6 +40,7 @@ import type {
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
 export { resetAuth } from "./runtime-state.ts"
+export { setAuthAccessIdentityResolver, setAuthRuntimeEnvResolver } from "./runtime/server.ts"
 
 declare const __VITEHUB_PUBLIC_URL__: PublicUrlConfig | undefined
 
@@ -58,12 +60,6 @@ function hasConfiguredPublicUrl(): boolean {
 }
 
 
-
-export function setAuthRuntimeEnvResolver(resolver: AuthRuntimeEnvResolver | undefined, definition?: AuthDefinition): void {
-  const state = getAuthRuntimeState()
-  if (definition) state.envResolvers?.set(definition as object, resolver as AuthRuntimeEnvResolver)
-  else state.envResolver = resolver
-}
 
 function envResolverFor(definition: AuthDefinition): AuthRuntimeEnvResolver | undefined {
   return getAuthRuntimeState().envResolvers?.get(definition as object) ?? getAuthRuntimeState().envResolver}
@@ -887,17 +883,6 @@ export function getAuthorization(event: AuthRequestInput): AuthAuthorization {
   return authorizationGrant.verify(grant)
 }
 
-/**
- * Let a trusted server integration authenticate one exact mounted path without a browser session.
- * Resolved users still pass every matching Auth access route's authorize callback, with an empty session.
- */
-export function setAuthAccessIdentityResolver(path: string, resolver: AuthAccessIdentityResolver | undefined): void {
-  const state = getAuthRuntimeState()
-  state.accessIdentityResolvers ??= new Map()
-  if (resolver) state.accessIdentityResolvers.set(path, resolver)
-  else state.accessIdentityResolvers.delete(path)
-}
-
 // Middleware records success for an opted-in guard; that guard also lets later middleware reuse its check.
 const reusableAccessChecks = new WeakMap<object, WeakMap<AuthDefinition, Map<string, boolean>>>()
 
@@ -927,29 +912,11 @@ export function createAuthAccessHandler(
   routes: readonly ResolvedAuthAccessRoute[],
   definition?: AuthDefinition,
 ): (input: AuthRequestInput) => Promise<Response | undefined> {
-  const rules = routes.map((route, index) => ({
-    index,
-    authorize: route.authorize === true,
-    method: route.method?.toUpperCase(),
-    // Request URLs keep the application base path, so match each route below it.
-    path: (() => {
-      const recursive = route.route.endsWith("/**")
-      const resolved = resolveAuthMountPath(recursive ? route.route.slice(0, -3) : route.route)
-      return recursive ? (resolved === "/" ? "" : resolved.replace(/\/$/, "")) : resolved
-    })(),
-    recursive: route.route.endsWith("/**"),
-  }))
+  const match = createAuthAccessRouteMatcher(routes)
 
   return async (input) => {
-    const request = unwrapAuthRequest(input);
-    const pathname = new URL(request.url).pathname;
-    const method = request.method.toUpperCase();
-    const matched = rules.filter(
-      (rule) =>
-        (!rule.method || rule.method === method) &&
-        (pathname === rule.path || (rule.recursive && (rule.path === "" || pathname.startsWith(`${rule.path}/`)))),
-    );
-    if (matched.length === 0) return;
+    const matched = match(input)
+    if (matched.length === 0) return
 
     return await checkAuthAccessRequest(
       input,

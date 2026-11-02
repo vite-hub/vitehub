@@ -30,6 +30,10 @@ jobs:
       # fingerprints. The root build task always enables the cache.
       - run: vp run --no-cache --filter "./packages/*" build
 
+      # Gives the previews a version that npm does not have, so pnpm resolves
+      # ViteHub peers to the previews and not to npm releases.
+      - run: node .github/scripts/preview-packages.mjs "$GITHUB_SHA"
+
       - name: Publish preview packages
         run: |
           corepack enable pnpm

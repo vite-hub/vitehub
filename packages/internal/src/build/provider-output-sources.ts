@@ -1188,7 +1188,9 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
     resolve(path) {
       if (!isAbsolute(path)) return path
       const resolvedPath = resolve(path)
-      const requestedDirectory = requestedDirectories.find(directory => pathContains(directory, resolvedPath))
+      // A retained project directory links its dependencies instead of copying them, so it only covers project files.
+      const requestedDirectory = requestedDirectories.find(directory => pathContains(directory, resolvedPath)
+        && (isDependencySource(directory) || !isDependencySource(resolvedPath)))
       const requestedRoot = sourceRootByPath.get(resolvedPath)
         ?? (requestedDirectory ? sourceRootByPath.get(requestedDirectory) : undefined)
       // Explicit sources keep their own layout even when another root also traced them.

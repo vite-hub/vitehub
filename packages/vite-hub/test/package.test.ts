@@ -33,7 +33,7 @@ import * as frameworkAgentMcp from "vite-hub/agent/mcp";
 import * as frameworkAgentProcessRuntime from "vite-hub/agent/runtime/process";
 import * as frameworkAgentVite from "vite-hub/agent/vite";
 import * as frameworkAgentVue from "vite-hub/agent/vue";
-import { defineConsoleAuth } from "vite-hub/console/auth";
+import { createConsoleAppAuthAccess, createConsoleAppAuthPages, defineConsoleAuth } from "vite-hub/console/auth";
 import { defineConsoleAuthClient } from "vite-hub/console/auth/client";
 import { createInlineConsoleAuth } from "vite-hub/console/auth/inline";
 import * as frameworkAuthConsole from "vite-hub/_internal/auth/runtime/console";
@@ -82,6 +82,8 @@ const manifest = parseDistributionManifest(
 describe("Console Auth package exports", () => {
   it("resolves the public imports used by generated and user code", () => {
     expect(typeof defineConsoleAuth).toBe("function");
+    expect(typeof createConsoleAppAuthAccess).toBe("function");
+    expect(typeof createConsoleAppAuthPages).toBe("function");
     expect(typeof defineConsoleAuthClient).toBe("function");
     expect(typeof createInlineConsoleAuth).toBe("function");
   });
@@ -717,7 +719,7 @@ describe("framework package contract", () => {
     expect(manifest.exports).not.toHaveProperty("./console/runtime/definitions");
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-provider.vue`)).toBe(false);
     const consoleSearch = readFileSync(
-      `${packageRoot}/dist/console/runtime/components/console-search.vue`,
+      `${packageRoot}/dist/console/runtime/components/console-search-palette.vue`,
       "utf8",
     );
     expect(consoleSearch).toContain(

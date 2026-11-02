@@ -80,6 +80,7 @@ import { channelMessageRunId } from "./internal/channel-run-id.ts"
 import { postChannelReply } from "./internal/chat-reply.ts"
 import { getAgentChannelSyncDefinition } from "./internal/channel-sync.ts"
 import {
+  cleanupGmailMailbox,
   createGmailChannelSyncProvider,
   getGmailMessage,
   getGmailThread,
@@ -91,11 +92,12 @@ import {
   gmailMailboxAddress,
   gmailSettings,
   modifyGmailMessage,
+  normalizeGmailLabelSettings,
   readGmailPush,
   syncGmailMailbox,
   trashGmailMessage,
 } from "./internal/gmail-channel.ts"
-import type { GmailClient, GmailLabelSettings, GmailMessage, GmailModifyInput, GmailSettings } from "./internal/gmail-channel.ts"
+import type { GmailCleanupRule, GmailCleanupRuleResult, GmailClient, GmailLabelSettings, GmailMessage, GmailModifyInput, GmailSettings } from "./internal/gmail-channel.ts"
 import type { AgentChannelChatRouteBody, AgentChannelChatRouteHandlerOptions } from "./server.ts"
 import type { TelegramAdapterConfig } from "@chat-adapter/telegram"
 import { consoleInvocationUrl, createExecutionContext, createRuntimeContext, encodeRouteSegment, resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime"
@@ -115,8 +117,10 @@ export {
   publishWorkspaceArtifacts,
   rewriteDeliveryArtifactMarkdown,
 } from "./delivery-artifacts.ts"
-export { GmailApiError, createGmailOAuthClient, gmailEnvNames } from "./internal/gmail-channel.ts"
+export { GmailApiError, createGmailOAuthClient, gmailEnvNames, gmailLabelPalette } from "./internal/gmail-channel.ts"
 export type {
+  GmailCleanupRule,
+  GmailCleanupRuleResult,
   GmailClient,
   GmailLabelColor,
   GmailLabelSettings,
@@ -3959,8 +3963,13 @@ export interface GmailChannelOptions<TRuntimeConfig extends AgentRuntimeConfig =
   /** Instructions added to Invocations started by this Channel. */
   instructions?: AgentChannelDefinition<TRuntimeConfig>["instructions"]
   /**
-   * Labels that the Channel manages. `vitehub channels sync` creates and colors them,
-   * and message methods create a missing one on first use.
+   * Hide user labels that `labels` does not declare from Gmail's label list when `vitehub channels sync` applies.
+   * Messages keep the hidden labels, and Gmail search still finds them. Parents of declared nested labels stay visible.
+   */
+  hideUnmanagedLabels?: boolean
+  /**
+   * Labels that the Channel manages. `vitehub channels sync` creates them and sets their color and visibility,
+   * and message methods create a missing one on first use. Colors must come from `gmailLabelPalette`.
    */
   labels?: Record<string, GmailLabelSettings>
   /** Builds the Invocation prompt from a message. The default prompt lists the headers, then the body. */
@@ -4002,16 +4011,28 @@ async function gmailChannelSettings<TRuntimeConfig extends AgentRuntimeConfig>(c
   return gmailSettings(await serverEnvNamespace("gmail", context?.event), name => context ? runtimeEnv(name, context) : globalThis.process?.env?.[name])
 }
 
-function assertGmailOptions<TRuntimeConfig extends AgentRuntimeConfig>(options: GmailChannelOptions<TRuntimeConfig>): void {
+/** Validates the Channel options and returns the declared labels with lowercase colors. */
+function gmailOptionLabels<TRuntimeConfig extends AgentRuntimeConfig>(options: GmailChannelOptions<TRuntimeConfig>): Record<string, GmailLabelSettings> {
   const invalid = (detail: string) => agentDiagnostics.AGENT_R0940({ message: `[vitehub] gmail() ${detail}` })
   if (options.bodyLimit !== undefined && (!Number.isSafeInteger(options.bodyLimit) || options.bodyLimit < 1)) {
     throw invalid("bodyLimit must be a positive integer.")
   }
+  if (options.hideUnmanagedLabels !== undefined && !hasRuntimeType(options.hideUnmanagedLabels, "boolean")) {
+    throw invalid("hideUnmanagedLabels must be a boolean.")
+  }
+  const labels: Record<string, GmailLabelSettings> = Object.create(null)
   for (const [name, label] of Object.entries(options.labels || {})) {
     if (!name.trim()) throw invalid("labels must have non-empty names.")
     if (!isRecord(label)) throw invalid(`label "${name}" must be an object.`)
+    const normalized = normalizeGmailLabelSettings(name, label)
+    if (hasRuntimeType(normalized, "string")) throw invalid(normalized)
+    labels[name] = normalized
   }
+  return labels
 }
+
+// Enumerable, so copies of the Channel keep it.
+const gmailChannelClient = Symbol("vitehub.gmail.client")
 
 /**
  * Gmail Channel. A Pub/Sub push starts one Invocation per new Inbox message, hooks act on the message
@@ -4019,9 +4040,8 @@ function assertGmailOptions<TRuntimeConfig extends AgentRuntimeConfig>(options: 
  * Authentication uses a Google OAuth refresh token over `fetch`, so it runs on Node.js, Cloudflare Workers, and Vercel.
  */
 export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(options: GmailChannelOptions<TRuntimeConfig> = {}): GmailChannel<TRuntimeConfig> {
-  assertGmailOptions(options)
+  const labels = gmailOptionLabels(options)
   const bodyLimit = options.bodyLimit ?? gmailDefaultBodyLimit
-  const labels = options.labels || {}
   let verifiedMailbox: { address: string, clientId?: string, clientSecret?: string, refreshToken?: string } | undefined
   const resolveClient = async (context?: AgentCallbackContext<TRuntimeConfig>): Promise<GmailClient> =>
     options.client ?? gmailClientFromSettings(await gmailChannelSettings(context), options.fetch)
@@ -4140,6 +4160,7 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       },
     },
   })
+  Object.defineProperty(channel, gmailChannelClient, { enumerable: true, value: resolveClient })
   return withAgentChannelSyncDefinition<TRuntimeConfig, typeof channel>(defineMessageChannelInstructions(channel, gmailInstructions(labels)), {
     provider: "gmail",
     async resolve(context) {
@@ -4148,6 +4169,7 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       const mailbox = await gmailMailboxAddress(client)
       return createGmailChannelSyncProvider({
         client: fetchImpl => options.client ?? gmailClientFromSettings(settings, options.fetch ?? fetchImpl),
+        ...(options.hideUnmanagedLabels ? { hideUnmanagedLabels: true } : {}),
         labels,
         resourceKey: `gmail:${mailbox.trim().toLowerCase()}`,
         ...(settings.pubsubTopic ? { topic: settings.pubsubTopic } : {}),
@@ -4168,7 +4190,7 @@ export interface SyncGmailChannelResult {
   applied: boolean
   /** One line per planned change. */
   changes: string[]
-  /** Created and updated labels, and the renewed watch, after `apply`. */
+  /** Created, updated, and hidden labels, and the renewed watch, after `apply`. */
   result?: Record<string, unknown>
 }
 
@@ -4191,6 +4213,48 @@ export async function syncGmailChannel(channel: AgentChannelDefinition, options:
   const action = plan.action === "none" ? "none" : "update"
   if (!options.apply || action === "none") return { action, applied: false, changes: plan.changes || [] }
   return { action, applied: true, changes: plan.changes || [], result: await provider.apply(plan, globalThis.fetch) }
+}
+
+export interface CleanupGmailChannelOptions {
+  /** Move the matches to Trash. Without it, the function only lists them. */
+  apply?: boolean
+  /** Cleanup rules by name. */
+  rules: Readonly<Record<string, GmailCleanupRule>>
+  /** Runtime Context for Server Env and Cloudflare bindings. Omit it outside a host request. */
+  runtime?: AgentRuntimeContext
+}
+
+export interface CleanupGmailChannelResult {
+  applied: boolean
+  rules: GmailCleanupRuleResult[]
+}
+
+/**
+ * Moves labelled Gmail mail older than each rule's age to Trash, at most 500 messages per rule.
+ * Call it from a daily Schedule: each run continues with the matches that remain.
+ */
+export async function cleanupGmailChannel(channel: AgentChannelDefinition, options: CleanupGmailChannelOptions): Promise<CleanupGmailChannelResult> {
+  const resolveClient = (channel as { [gmailChannelClient]?: (context: AgentCallbackContext) => Promise<GmailClient> })[gmailChannelClient]
+  if (channel.kind !== "gmail" || !resolveClient) {
+    throw agentDiagnostics.AGENT_R0940({ message: "[vitehub] cleanupGmailChannel() expects a Channel from gmail()." })
+  }
+  if (!isRecord(options?.rules)) throw agentDiagnostics.AGENT_R0940({ message: "[vitehub] cleanupGmailChannel() requires a rules object." })
+  for (const [name, rule] of Object.entries(options.rules)) {
+    if (!isRecord(rule) || !hasRuntimeType(rule.label, "string") || !rule.label.trim() || /["\\\p{Cc}]/u.test(rule.label)) {
+      throw agentDiagnostics.AGENT_R0940({ message: `[vitehub] Gmail cleanup rule "${name}" needs a label name without quotes, backslashes, or control characters.` })
+    }
+    if (!Number.isSafeInteger(rule.olderThan) || rule.olderThan < 1) {
+      throw agentDiagnostics.AGENT_R0940({ message: `[vitehub] Gmail cleanup rule "${name}" needs olderThan as a positive whole number of days.` })
+    }
+  }
+  const apply = options.apply === true
+  if (!Object.keys(options.rules).length) return { applied: apply, rules: [] }
+  const runtime = options.runtime ?? (() => {
+    const created = createRuntimeContext({ runtime: "unknown" })
+    return { memo: created.memo, runtime: created.runtime, waitUntil: created.waitUntil }
+  })()
+  const client = await resolveClient(createExecutionContext(runtime))
+  return { applied: apply, rules: await cleanupGmailMailbox(client, options.rules, apply) }
 }
 
 export function http<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody, TAuth = unknown, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: AgentChannelOptions<TRuntimeConfig, TBody, TAuth, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "http", TData, TMethods>
