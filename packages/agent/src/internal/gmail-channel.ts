@@ -813,7 +813,7 @@ export interface GmailMailboxSync {
    */
   notificationHistoryId: string | (() => Promise<string>)
   state: AgentChannelStateBinding
-  /** Reject after saving the retry checkpoint when message Invocations fail. */
+  /** Reject on mailbox contention or after saving the retry checkpoint when message Invocations fail. */
   throwOnDispatchFailure?: boolean
   /** Pub/Sub topic of the watch. The sync renews the watch when it expires within a day. */
   topic?: string
@@ -993,7 +993,10 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<void> {
     await state.set(pendingKey, true)
     // The holder may have released the lock before it saw the pending mark.
     lock = await state.acquireLock(lockKey, syncLockTtlMs)
-    if (!lock) return
+    if (!lock) {
+      if (sync.throwOnDispatchFailure) throw new Error("Gmail mailbox synchronization is already running; retry polling after it completes.")
+      return
+    }
   }
   const failures: unknown[] = []
   for (;;) {

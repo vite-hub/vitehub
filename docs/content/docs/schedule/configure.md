@@ -27,7 +27,7 @@ export default defineConfig({
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `cron` | `Record<string, string>` | Each Schedule's own cron | Cron per Schedule name for this build's host. See [Run a Schedule on another cron on one host](#run-a-schedule-on-another-cron-on-one-host). |
-| `providerOutput` | `ScheduleVitePluginOptions['providerOutput']` | `auto` | Controls generated provider cron output. Values: `auto`, `standalone`, `nitro`, `false`. |
+| `providerOutput` | `ScheduleVitePluginOptions['providerOutput']` | `auto` | Controls generated provider cron output for the build's host. Values: `auto`, `standalone`, `nitro`, `false`. |
 | `projectRoot` | `string` | ViteHub project root | Resolves discovered schedule files and generated registry output from a custom project root. |
 | `runtime` | `ScheduleProcessRuntimeOptions` | No runtime driver | Explicitly installs the generated Nitro Process Runtime. Accepts `driver: 'process'`, plus optional `prefix` (default `vitehub:schedule`), `intervalMs` (default `60_000`), and `concurrency` (default `1`). |
 

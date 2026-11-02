@@ -5,7 +5,7 @@ import { join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 import { build } from "esbuild"
-import { expect, it } from "vitest"
+import { expect, it, vi } from "vitest"
 import { createNetlifyScheduleFunctionOutputs } from "../../schedule/src/internal/provider-output.ts"
 import { hubAgent } from "../src/vite.ts"
 
@@ -68,6 +68,25 @@ it("polls from an isolated generated Netlify Schedule without loading a server p
   }
   finally {
     await rm(output, { force: true })
+    await rm(root, { recursive: true, force: true })
+  }
+}, 30_000)
+
+it("bundles the Channel host from the retained Netlify Agent registry", async () => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-gmail-poll-netlify-output-"))
+  try {
+    vi.stubEnv("VITEHUB_HOSTING", "netlify")
+    await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
+    await mkdir(join(root, "server/agents"), { recursive: true })
+    await writeFile(join(root, "server/agents/poller.ts"), "export default {}\n")
+    const plugin = hubAgent({ providers: { state: { provider: "libsql", url: "libsql://state.example.com" } } })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root, command: "build", plugins: [], build: { outDir: "dist" }, resolve: { alias: [] } })
+    await (plugin.buildEnd as () => Promise<void>)()
+    await (plugin.closeBundle as { handler: () => Promise<void> }).handler()
+    await expect(readFile(join(root, ".netlify/v1/functions/vitehub-agent.mjs"), "utf8")).resolves.not.toHaveLength(0)
+  }
+  finally {
+    vi.unstubAllEnvs()
     await rm(root, { recursive: true, force: true })
   }
 }, 30_000)

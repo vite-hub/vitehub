@@ -13,7 +13,7 @@ export {
   createDiscordGatewayRouteHandler,
   createTelegramPollingRouteHandler,
   drainInlineChatInvocations,
-} from "./server/routes.ts"
+} from "./server/route-handlers.ts"
 export type { DrainInlineChatInvocationsOptions, DrainInlineChatInvocationsResult } from "./server/routes.ts"
 export { drainDeferredWebhookAdmissions } from "./server/webhook-inbox.ts"
 export type { DrainDeferredWebhookAdmissionsOptions, DrainDeferredWebhookAdmissionsResult } from "./server/webhook-inbox.ts"

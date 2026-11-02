@@ -1,4 +1,3 @@
-import { getAuth, getAuthForRequest } from "./server.ts"
 import {
   invalidAuthenticationErrorOptions,
   throwAuthenticationProviderError,
@@ -17,6 +16,11 @@ import type {
 } from "@vite-hub/agent"
 import type { AuthenticationSessionSnapshot } from "./session.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
+
+// The server module loads Better Auth. Agent routes import this module at startup, so load the server on first use.
+// One shared import also keeps Vitest module mocks in place for concurrent first calls.
+let server: Promise<typeof import("./server.ts")> | undefined
+const loadServer = () => server ??= import("./server.ts")
 
 export interface AuthenticatedUser {
   email?: string | null
@@ -110,6 +114,7 @@ export const agentAuth: AgentAuth = {
     const meta: unknown = actor?.meta
     const userId = isRecord(meta) ? readString(meta.authUserId) : undefined
     if (!userId) return null
+    const { getAuth } = await loadServer()
     let user: unknown
     try {
       user = await (await getAuth().$context).internalAdapter.findUserById(userId)
@@ -175,6 +180,7 @@ async function defaultAuthenticatedSource(
 ): Promise<AuthenticationSessionSnapshot | null | undefined> {
   if (!context.request) return undefined
 
+  const { getAuthForRequest } = await loadServer()
   const auth = getAuthForRequest(context.request)
   return await getAuthenticationSession(auth, {
     headers: context.request.headers,

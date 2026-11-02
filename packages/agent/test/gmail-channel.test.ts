@@ -788,6 +788,49 @@ describe("gmail() Channel", () => {
     finally { await state.disconnect() }
   })
 
+  it("rejects an overlapping poll while a push owns the mailbox lease and retains failed messages for retry", async () => {
+    const state = createLibsqlAgentState({ url: ":memory:" })
+    await state.connect()
+    let release!: () => void
+    let started!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const entered = new Promise<void>(resolve => { started = resolve })
+    const google = await createGoogle()
+    google.history.set("100", { historyId: "105", ids: ["m1"] })
+    const dispatch = vi.fn(async () => {
+      started()
+      await gate
+      return { failed: 1, items: [], nextCursor: null, processed: 0, skipped: 0 }
+    })
+    const sync = {
+      bodyLimit: 1000,
+      client: gmailClientFromSettings({ clientId: "client", clientSecret: "secret", refreshToken: "refresh-token" }, google.fetch),
+      dispatch,
+      notificationHistoryId: "105",
+      state: { keyPrefix: "mail:", state },
+    }
+    await state.set("mail:history-id", "100")
+    const push = syncGmailMailbox(sync)
+    try {
+      await entered
+      await expect(syncGmailMailbox({ ...sync, throwOnDispatchFailure: true })).rejects.toThrow("already running")
+      release()
+      await push
+      expect(await state.get("mail:history-id")).toBe("100")
+      expect(await state.get("mail:sync-progress")).toMatchObject({ retryIds: ["m1"] })
+      const retry = vi.fn(async () => ({ failed: 0, items: [], nextCursor: null, processed: 1, skipped: 0 }))
+      await syncGmailMailbox({ ...sync, dispatch: retry, throwOnDispatchFailure: true })
+      expect(retry).toHaveBeenCalledOnce()
+      expect(await state.get("mail:history-id")).toBe("105")
+      expect(await state.get("mail:sync-progress")).toBeNull()
+    }
+    finally {
+      release()
+      await push
+      await state.disconnect()
+    }
+  })
+
   it.each(["history", "dispatch"] as const)("drains overlapping notifications after a %s exception", async failureKind => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-gmail-pending-error-"))
     const url = `file:${join(root, "state.db")}`

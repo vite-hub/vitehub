@@ -79,3 +79,31 @@ it("keeps a package that loads on demand out of the startup chunks when it share
     await rm(root, { force: true, recursive: true, maxRetries: 3 })
   }
 }, 180_000)
+
+it("keeps a package that loads on demand out of another lazy chunk when both import a dependency", async () => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-lazy-chunks-"))
+  try {
+    await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
+    await writeFile(join(root, "package.json"), JSON.stringify({ private: true, type: "module" }))
+    await writeFile(join(root, "index.html"), "<main>ok</main>\n")
+    const vendor = join(root, "vendor/node_modules")
+    await mkdir(join(vendor, "shared"), { recursive: true })
+    await mkdir(join(vendor, "@adapter/lazy"), { recursive: true })
+    await writeFile(join(vendor, "shared/index.js"), "export const shared = \"SHARED\"\n")
+    await writeFile(join(vendor, "@adapter/lazy/index.js"), "import { shared } from \"../../shared/index.js\"\nexport const lazy = `LAZY_ONLY:${shared}`\n")
+    await mkdir(join(root, "server/routes"), { recursive: true })
+    // Like the Agent routes, which import `chat`, and the Discord adapter, which imports it too. Both load on demand.
+    await writeFile(join(root, "server/routes/chat.ts"), "import { shared } from \"../../vendor/node_modules/shared/index.js\"\nexport default () => shared\n")
+    await writeFile(join(root, "server/routes/adapter.ts"), "export default async () => (await import(\"../../vendor/node_modules/@adapter/lazy/index.js\")).lazy\n")
+
+    const builder = await createBuilder({ logLevel: "silent", plugins: [vitehub({ preset: "node" })], root })
+    await builder.buildApp()
+
+    const chat = await startupSource(join(root, ".output/server/_routes/chat.mjs"))
+    expect(chat).toContain("\"SHARED\"")
+    expect(chat).not.toContain("LAZY_ONLY")
+  }
+  finally {
+    await rm(root, { force: true, recursive: true, maxRetries: 3 })
+  }
+}, 180_000)
