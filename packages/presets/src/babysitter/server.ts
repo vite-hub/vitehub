@@ -17,7 +17,7 @@ import type { ProcessReconcilerRunContext } from "@vite-hub/runtime/node";
 import { createMessage, defineAgent, runAgent, publishAgentActivity } from "@vite-hub/agent";
 import { forgeAccessKey } from "@vite-hub/agent/server/internal";
 import { activeProviderSandbox, resolveAgentCapabilityDefinitions } from "@vite-hub/agent/server/internal";
-import type { AgentCapabilitiesResolver, AgentInput, AgentProviderCredentialContext, AgentProviderLaunchContext, ClaudeCodeDriverOptions, CodexDriverOptions } from "@vite-hub/agent";
+import type { AgentCapabilitiesResolver, AgentInput, AgentProviderCredentialContext, AgentProviderLaunchContext, ClaudeCodeDriver, CodexDriver } from "@vite-hub/agent";
 import {
   createGitHubPullRequestRun,
   createGitHubPullRequestOperations,
@@ -1552,8 +1552,8 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 );
               }
               const workerDriver = driver as
-                | (CodexDriverOptions<BabysitterPassResult> & { kind: "codex" })
-                | (ClaudeCodeDriverOptions<BabysitterPassResult> & { kind: "claude-code" });
+                | CodexDriver<unknown, BabysitterPassResult>
+                | ClaudeCodeDriver<unknown, BabysitterPassResult>;
               const activityEnabled = !!verifiedHostIdentity;
               const workerName = `${options.agentName ?? baseAgent.name ?? "babysitter"}-worker`;
               const baseSettings = getAgentLayerOptions(baseAgent);

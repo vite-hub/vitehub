@@ -50,7 +50,7 @@ it.each([
   ["aliased void Workspace stays plain", "const omitted = void 0; return defineAgent({ workspace: omitted })", false],
   ["void Workspace keeps Capability ownership", "return defineAgent({ workspace: void 0, capabilities: [storage] })", true],
   ["void name owns Workspace", "return defineAgent({ workspace: { name: void 0 } })", true],
-  ["undefined Workspace stays plain", "return defineAgent({ driver: 'codex', workspace: undefined })", false],
+  ["undefined Workspace stays plain", "return defineAgent({ driver: codexDriver(), workspace: undefined })", false],
   ["undefined Workspace keeps Capability ownership", "return defineAgent({ workspace: undefined, capabilities: [storage] })", true],
   ["later var shadows module", "return defineAgent({ capabilities: [storage] }); var storage = defineCapability({ id: 'plain' })", false],
   ["later block var shadows module", "return defineAgent({ capabilities: [storage] }); if (true) { var storage = defineCapability({ id: 'plain' }) }", false],

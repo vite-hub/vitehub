@@ -1,24 +1,25 @@
 import { describe, expect, it } from "vitest"
 import { chatgpt } from "@vite-hub/gateways"
 import { agentDiagnostics } from "../src/agent-diagnostics.ts"
+import { toHttpErrorResponse } from "../src/http-error.ts"
 import { toAgentPublicError } from "../src/agent-error.ts"
-import { defineAgent } from "../src/index.ts"
+import { claudeCodeDriver, codexDriver, defineAgent } from "../src/index.ts"
 import { chatgptCodexGateway, chatgptCodexLaunchArgs, chatgptProviderError } from "../src/internal/chatgpt-gateway.ts"
 import { normalizeAgentDriver } from "../src/internal/agent-driver.ts"
 import { execFileSync } from "node:child_process"
 
 it("describes a Connection without credentials and accepts only a local Codex Driver", () => {
   expect(chatgpt()).toEqual({ kind: "chatgpt", name: "chatgpt", connection: "chatgpt" })
-  expect(normalizeAgentDriver({ driver: { kind: "codex", gateway: chatgpt() } })).toMatchObject({ gateway: chatgpt() })
+  expect(normalizeAgentDriver({ driver: codexDriver({ gateway: chatgpt() }) })).toMatchObject({ gateway: chatgpt() })
   // @ts-expect-error The Claude Code Driver type rejects a ChatGPT plan gateway too.
-  expect(() => defineAgent({ driver: { kind: "claude-code", gateway: chatgpt() } })).toThrow("does not serve")
-  expect(() => defineAgent({ driver: { kind: "codex", gateway: chatgpt(), launch: { command: "custom" } } })).toThrow(expect.objectContaining({ code: "AGENT_R1015" }))
-  expect(() => defineAgent({ driver: { kind: "codex", gateway: chatgpt(), providerSettings: { launchArgs: "--enable image_generation" } } })).toThrow(expect.objectContaining({ code: "AGENT_R1015" }))
-  expect(() => defineAgent({ driver: { kind: "codex", gateway: chatgpt() }, sandbox: { runtime: {} } } as never)).toThrow(expect.objectContaining({ code: "AGENT_R1015" }))
+  expect(() => defineAgent({ driver: claudeCodeDriver({ gateway: chatgpt() }) })).toThrow("does not serve")
+  expect(() => defineAgent({ driver: codexDriver({ gateway: chatgpt(), launch: { command: "custom" } }) })).toThrow(expect.objectContaining({ code: "AGENT_R1015" }))
+  expect(() => defineAgent({ driver: codexDriver({ gateway: chatgpt(), providerSettings: { launchArgs: "--enable image_generation" } }) })).toThrow(expect.objectContaining({ code: "AGENT_R1015" }))
+  expect(() => defineAgent({ driver: codexDriver({ gateway: chatgpt() }), sandbox: { runtime: {} } } as never)).toThrow(expect.objectContaining({ code: "AGENT_R1015" }))
 })
 
 it.each(["binaryPath", "homePath", "shadowHomePath"])("rejects caller-owned %s for ChatGPT", (setting) => {
-  expect(() => defineAgent({ driver: { kind: "codex", gateway: chatgpt(), providerSettings: { [setting]: "/tmp/caller-owned" } } })).toThrow(expect.objectContaining({ code: "AGENT_R1015" }))
+  expect(() => defineAgent({ driver: codexDriver({ gateway: chatgpt(), providerSettings: { [setting]: "/tmp/caller-owned" } }) })).toThrow(expect.objectContaining({ code: "AGENT_R1015" }))
 })
 
 it("sets the exact Codex plan profile and keeps the token out of arguments", () => {
@@ -60,4 +61,15 @@ it.each([
 ] as const)("reports %s as %s with its code", (code, publicCode, message) => {
   // A quota stops workflow retries and shows the chat quota message. The code lets a client show the documented fix.
   expect(toAgentPublicError(agentDiagnostics[code](), "http")).toEqual({ code: publicCode, error: message })
+})
+
+it("preserves the quota diagnostic in an HTTP 429 response", async () => {
+  const response = toHttpErrorResponse(agentDiagnostics.AGENT_R1017())!
+  expect(response.status).toBe(429)
+  expect(await response.json()).toEqual({ code: "PROVIDER_QUOTA_EXHAUSTED", error: "AGENT_R1017: The ChatGPT plan usage limit was reached." })
+})
+
+it("keeps Channel task diagnostics separate from ChatGPT readiness", () => {
+  expect(agentDiagnostics.AGENT_R1025({ message: "No trigger declares this task." }).message).toBe("No trigger declares this task.")
+  expect(agentDiagnostics.AGENT_R1026().message).toContain("cannot find Codex")
 })

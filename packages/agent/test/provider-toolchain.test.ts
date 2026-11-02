@@ -13,7 +13,7 @@ vi.mock("@t3tools/provider-runtime", () => ({ createProviderRuntime, createSqlit
 vi.mock("../src/internal/provider-runtime-packages.ts", () => ({ resolveInstalledProviderExecutable: () => "/fake/codex" }))
 vi.mock("@vite-hub/sandbox/_internal/toolchain", () => ({ prepareHostToolchain }))
 
-import { defineAgent } from "../src/index.ts"
+import { codexDriver, defineAgent } from "../src/index.ts"
 import { createProviderAgentAdapter, inspectAgentProvider, localWorkspaceHost } from "../src/provider-agent.ts"
 import { executeWorkspaceCommand } from "../src/capabilities/workspace-command.ts"
 import { provideBrowserRuntimeEnvironment } from "../src/internal/browser-runtime.ts"
@@ -172,12 +172,12 @@ describe("driver.toolchain", () => {
 
   it("validates the declaration and rejects it with a Sandbox", () => {
     expect(() => defineAgent({
-      driver: { kind: "codex", permissions: "allow-all", toolchain: { node: 22 } as never },
+      driver: codexDriver({ permissions: "allow-all", toolchain: { node: 22 } as never }),
       name: "invalid-toolchain",
     })).toThrow(expect.objectContaining({ code: "AGENT_R0971" }))
     expect(() => defineAgent({
       sandbox: { runtime: "trusted-host", toolchain: "project" },
-      driver: { kind: "codex", permissions: "allow-all", toolchain: "project" },
+      driver: codexDriver({ permissions: "allow-all", toolchain: "project" }),
       name: "sandbox-toolchain",
     })).toThrow(expect.objectContaining({ code: "AGENT_R0972" }))
   })
