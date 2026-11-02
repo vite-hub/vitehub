@@ -32,6 +32,7 @@ export function nitroStartupChunks(): Plugin {
       const nitro = cloneRecord(host.nitro)
       const rolldownConfig = cloneRecord(nitro.rolldownConfig)
       const output = cloneRecord(rolldownConfig.output)
+      if (output.codeSplitting === false) return
       const codeSplitting = cloneRecord(output.codeSplitting)
       const groups = Array.isArray(codeSplitting.groups) ? codeSplitting.groups : []
       const group = { name: libChunkName, priority: 1, tags: ["$initial"], test: nodeModules }
