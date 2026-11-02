@@ -58,8 +58,9 @@ export interface AgentWebhookQueueStateAdapter extends StateAdapter {
   beginWebhookFailureNotification?: (scope: string, deliveryId: string, leaseToken: string) => Promise<boolean>
   markWebhookDeliveryFailure?: (scope: string, deliveryId: string, leaseToken: string, failure: { error: string, attempts: number, invocationStarted?: false, publicErrorCode?: "TIMEOUT" }) => Promise<boolean>
   enqueueWebhookDelivery(delivery: AgentWebhookQueueDelivery): Promise<boolean>
-  /** Atomically admits a delivery and retains the rows it replaces for Channel delivery journal settlement. */
-  enqueueWebhookDeliveryWithSuperseded?: (delivery: AgentWebhookQueueDelivery) => Promise<{ queued: boolean, superseded: AgentWebhookQueueDelivery[] }>
+  /** Completed queue rows retain their Channel identity until the superseded journal event is persisted. */
+  pendingWebhookDeliverySettlements?: (scope: string) => Promise<{ channelDeliveryId: string, deliveryId: string }[]>
+  completeWebhookDeliverySettlement?: (scope: string, deliveryId: string) => Promise<void>
   extendWebhookDeliveryLease(scope: string, deliveryId: string, leaseToken: string, ttlMs: number): Promise<boolean>
   retryWebhookDelivery(scope: string, deliveryId: string, leaseToken: string, availableAt: number, options?: { incrementAttempts?: boolean }): Promise<boolean>
   /** Lists the deliveries in one scope that are not complete, in queue order. */
@@ -168,6 +169,7 @@ export interface AgentWebhookQueue<Options> {
 
 interface AgentWebhookQueueOwnerOptions<Options> {
   execute: (execution: AgentWebhookQueueExecution<Options>) => Promise<number | undefined>
+  settleSuperseded?: (registration: AgentWebhookQueueRegistration<Options>) => Promise<void>
   resolveBackendId?: (state: AgentWebhookQueueStateAdapter) => Promise<string>
   resolveWaitUntil: (options: Options) => Promise<((task: Promise<void>) => void) | undefined>
   retryMs?: number
@@ -287,6 +289,13 @@ export function createAgentWebhookQueue<Options>(
           discovered.delete(id)
           registrations.delete(id)
           break
+        }
+        try {
+          await ownerOptions.settleSuperseded?.(registration)
+        }
+        catch (error) {
+          console.error("[vitehub] Superseded webhook journal settlement failed and will be retried.", error)
+          schedule(id, Date.now() + retryMs, waitUntil)
         }
         const delivery = await registration.state.claimWebhookDelivery(registration.scope)
         if (!delivery) {

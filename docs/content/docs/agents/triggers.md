@@ -311,7 +311,7 @@ const [error, receipt] = await enqueueChannelTask('airtable', 'close-duplicate',
 await cancelChannelTask('airtable', 'close-duplicate', { key: `duplicate-pair:${closeId}:${survivorId}` })
 ```
 
-A later enqueue of the same task with the same `key` replaces a queued task that has not started. `cancelChannelTask()` drops the queued tasks with the `key` and returns how many it dropped. A task that has started keeps running. Use `prepare` to check live state when the task starts and return `ignored()` when the work is no longer needed.
+A later enqueue of the same trigger's task with the same `key` replaces a queued task that has not started. `cancelChannelTask()` drops that trigger's queued tasks with the `key` and returns how many it dropped. A task that has started keeps running. Use `prepare` to check live state when the task starts and return `ignored()` when the work is no longer needed.
 
 Tasks with the same name run one at a time. The Channel needs a declared webhook and a queue-capable state provider, such as SQLite or libSQL. When more than one trigger of the Channel declares the task, pass `trigger`. Both functions return `[error, result]`. The receipt has the queue `deliveryId`, the Invocation `runId` and the `notBefore` time.
 

@@ -8,7 +8,7 @@ export interface EnqueueChannelTaskOptions {
   /** Milliseconds from now before the task may start. */
   delayMs?: number
   /**
-   * A later enqueue of the same task with the same key replaces a queued task that has not started.
+   * A later enqueue of the same trigger's task with the same key replaces a queued task that has not started.
    * `cancelChannelTask()` drops it. The new start time does not extend from the old one.
    */
   key?: string
@@ -169,7 +169,7 @@ export async function cancelChannelTask(
   }
 }
 
-/** The queue debounce key of a Channel task key. The task name keeps it apart from trigger debounce keys. */
-export function channelTaskDebounceKey(task: string, key: string): string {
-  return `task:${JSON.stringify([task, key])}`
+/** The queue debounce key of one trigger's Channel task key. */
+export function channelTaskDebounceKey(trigger: string, task: string, key: string): string {
+  return `task:${JSON.stringify([trigger, task, key])}`
 }

@@ -18,7 +18,7 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
 })
 
-async function setup(options: { objected?: () => boolean, resume?: boolean } = {}) {
+async function setup(options: { objected?: () => boolean, resume?: boolean, sharedTask?: boolean } = {}) {
   const stateDir = await mkdtemp(join(tmpdir(), "vitehub-channel-task-"))
   const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
   const ran: { data: unknown, at: number, runId?: string, annotations?: unknown }[] = []
@@ -44,6 +44,15 @@ async function setup(options: { objected?: () => boolean, resume?: boolean } = {
               "close:duplicate": { run: (_context, { input }) => { ran.push({ at: Date.now(), data: input.data }) } },
             },
           }),
+          ...(options.sharedTask ? {
+            other: defineChannelTrigger({
+              webhooks: [],
+              invoke: () => new Response(null, { status: 200 }),
+              tasks: {
+                "close-duplicate": { run: (_context, { input }) => { ran.push({ at: Date.now(), data: input.data }) } },
+              },
+            }),
+          } : {}),
         },
         webhooks: { path: "/api/airtable/webhook", secretToken: false },
       }),
@@ -67,8 +76,11 @@ async function setup(options: { objected?: () => boolean, resume?: boolean } = {
     failed,
     ran,
     resume,
+    state,
     async restart() {
       await stop()
+      await state.disconnect()
+      await state.connect()
       stop = createChannelWebhookRouteHandler(agent as never).resume(routeOptions)
     },
     async stop() {
@@ -152,6 +164,54 @@ describe("enqueueChannelTask()", () => {
     await expect(cancelChannelTask("airtable", "close", { key: "duplicate:123" })).resolves.toEqual([null, { cancelled: 1 }])
     expect((await deliveries()).find(item => item.sourceId === `task:${second!.deliveryId}`)?.status).toBe("queued")
     await vi.waitFor(() => expect(ran.map(item => item.data)).toEqual([{ version: 2 }]), { timeout: 5_000 })
+  })
+
+  it("isolates the same task key on different triggers during replacement and cancellation", async () => {
+    const { deliveries, ran } = await setup({ sharedTask: true })
+    const [, first] = await enqueueChannelTask("airtable", "close-duplicate", { data: { version: 1 } }, { delayMs: 500, key: "pair", trigger: "record" })
+    const [, second] = await enqueueChannelTask("airtable", "close-duplicate", { data: { version: 2 } }, { delayMs: 500, key: "pair", trigger: "other" })
+    expect((await deliveries()).find(item => item.sourceId === `task:${first!.deliveryId}`)?.status).toBe("queued")
+    await expect(cancelChannelTask("airtable", "close-duplicate", { key: "pair", trigger: "record" })).resolves.toEqual([null, { cancelled: 1 }])
+    expect((await deliveries()).find(item => item.sourceId === `task:${second!.deliveryId}`)?.status).toBe("queued")
+    await vi.waitFor(() => expect(ran.map(item => item.data)).toEqual([{ version: 2 }]), { timeout: 5_000 })
+  })
+
+  it.each([
+    ["replacement", true],
+    ["cancellation", true],
+    ["replacement", false],
+    ["cancellation", false],
+  ])("recovers %s settlement after a journal failure (restart: %s)", async (operation, reconnect) => {
+    const { deliveries, ran, restart, state } = await setup()
+    const [, first] = await enqueueChannelTask("airtable", "close-duplicate", { data: { version: 1 } }, { delayMs: 30_000, key: "pair" })
+    const append = state.appendToList.bind(state)
+    const failedWrite = vi.spyOn(state, "appendToList").mockImplementation(async (key, value, options) => {
+      if (typeof value === "object" && value !== null && "type" in value && value.type === "superseded") throw new Error("journal unavailable")
+      return await append(key, value, options)
+    })
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      if (operation === "replacement") {
+        const [error] = await enqueueChannelTask("airtable", "close-duplicate", { data: { version: 2 } }, { key: "pair" })
+        expect(error).toBeNull()
+        await vi.waitFor(() => expect(ran).toHaveLength(1), { timeout: 5_000 })
+      }
+      else {
+        await expect(cancelChannelTask("airtable", "close-duplicate", { key: "pair" })).resolves.toEqual([null, { cancelled: 1 }])
+      }
+      expect((await deliveries()).find(item => item.sourceId === `task:${first!.deliveryId}`)?.status).toBe("queued")
+      const scope = (await deliveries()).find(item => item.sourceId === `task:${first!.deliveryId}`)!.scope
+      expect(await state.pendingWebhookDeliverySettlements(scope)).toEqual([expect.objectContaining({ deliveryId: first!.deliveryId })])
+      failedWrite.mockRestore()
+      if (reconnect) await restart()
+      await vi.waitFor(async () => expect((await deliveries()).find(item => item.sourceId === `task:${first!.deliveryId}`)?.status).toBe("completed"), { timeout: 2_000 })
+      await vi.waitFor(async () => expect(await state.pendingWebhookDeliverySettlements(scope)).toEqual([]))
+      expect(ran.map(item => item.data)).toEqual(operation === "replacement" ? [{ version: 2 }] : [])
+    }
+    finally {
+      failedWrite.mockRestore()
+      errors.mockRestore()
+    }
   })
 
   it("lets prepare drop the task when live state changed", async () => {

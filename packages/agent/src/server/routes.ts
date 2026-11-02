@@ -9224,6 +9224,22 @@ async function channelTaskTarget(
   return { registration: match.registration, trigger, webhookState: { keyPrefix: webhookState.keyPrefix, state: webhookState.state } }
 }
 
+/** Acknowledge durable replacement/cancellation evidence only after the Channel journal settles. */
+async function settleSupersededChannelDeliveries(state: AgentWebhookQueueStateAdapter, scope: string, fallback: AgentWebhookQueueDelivery[] = []): Promise<void> {
+  const pending = await state.pendingWebhookDeliverySettlements?.(scope) ?? fallback
+  for (const delivery of pending) {
+    if (!delivery.channelDeliveryId) continue
+    const channelDelivery = await resumeAgentChannelDelivery(state, delivery.channelDeliveryId)
+    try {
+      await channelDelivery?.event({ type: "superseded" })
+      await state.completeWebhookDeliverySettlement?.(scope, delivery.deliveryId)
+    }
+    finally {
+      if (channelDelivery) detachAgentChannelDelivery(channelDelivery)
+    }
+  }
+}
+
 /** The `enqueueChannelTask()` and `cancelChannelTask()` operations of one Agent's webhook queue. */
 function createChannelTaskQueue(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
@@ -9271,40 +9287,31 @@ function createChannelTaskQueue(
         webhookId: registration.id || registration.provider,
         webhookState,
       })
-      const superseded: AgentWebhookQueueDelivery[] = []
       const queued = await webhookQueue.admit(
         { backendId: await resolveWebhookStateBackendId(webhookState.state), options: handlerOptions, scope: webhookState.keyPrefix, state: webhookState.state },
         {
           ...delivery,
           availableAt: options.notBefore,
-          ...(options.key === undefined ? {} : { debounceKey: channelTaskDebounceKey(task, options.key) }),
+          ...(options.key === undefined ? {} : { debounceKey: channelTaskDebounceKey(trigger.id, task, options.key) }),
         },
-        webhookState.state.enqueueWebhookDeliveryWithSuperseded
-          ? async (item) => {
-              const admitted = await webhookState.state.enqueueWebhookDeliveryWithSuperseded!(item)
-              superseded.push(...admitted.superseded)
-              return admitted.queued
-            }
-          : undefined,
+        async (item) => {
+          const admitted = await webhookState.state.enqueueWebhookDelivery(item)
+          // The queue drain retries a failed journal write from its durable settlement marker.
+          await settleSupersededChannelDeliveries(webhookState.state, webhookState.keyPrefix).catch(() => undefined)
+          return admitted
+        },
       )
-      for (const replaced of superseded) {
-        const previous = replaced.channelDeliveryId ? await resumeAgentChannelDelivery(webhookState.state, replaced.channelDeliveryId) : undefined
-        await previous?.event({ type: "superseded" }).catch(() => undefined)
-      }
       if (queued) detachAgentChannelDelivery(channelDelivery)
       await recordChannelDeliveryEvidence(channelDelivery, { type: queued ? "queued" : "duplicate", runId })
       return { deliveryId, notBefore: options.notBefore, runId }
     }),
     cancel: (channel, task, options) => withContext(async (context) => {
-      const { webhookState } = await channelTaskTarget(agent, context, handlerOptions, channel, task, options.trigger)
+      const { trigger, webhookState } = await channelTaskTarget(agent, context, handlerOptions, channel, task, options.trigger)
       if (!webhookState.state.cancelWebhookDeliveries) {
         throw agentDiagnostics.AGENT_R1025({ message: `[vitehub] Channel "${channel}" State cannot cancel queued tasks. Use durable SQLite or libSQL Agent State.` })
       }
-      const cancelled = await webhookState.state.cancelWebhookDeliveries(webhookState.keyPrefix, channelTaskDebounceKey(task, options.key))
-      for (const delivery of cancelled) {
-        const channelDelivery = delivery.channelDeliveryId ? await resumeAgentChannelDelivery(webhookState.state, delivery.channelDeliveryId) : undefined
-        await channelDelivery?.event({ type: "superseded" }).catch(() => undefined)
-      }
+      const cancelled = await webhookState.state.cancelWebhookDeliveries(webhookState.keyPrefix, channelTaskDebounceKey(trigger.id, task, options.key))
+      await settleSupersededChannelDeliveries(webhookState.state, webhookState.keyPrefix, cancelled).catch(() => undefined)
       return cancelled.length
     }),
   }
@@ -9432,6 +9439,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
     // The return type breaks the inference cycle through `webhookQueue`, which the callback passes on.
     execute: async ({ backendId, delivery, lifecycleSignal, options, state }): Promise<number | undefined> =>
       await executeQueuedWebhookDelivery(agent, state, activeInvocationScope, backendId, delivery, options, lifecycleSignal, webhookQueue),
+    settleSuperseded: async ({ scope, state }) => await settleSupersededChannelDeliveries(state, scope),
     resolveBackendId: resolveWebhookStateBackendId,
     resolveWaitUntil: async options => await resolveRuntimeWaitUntil(options.waitUntil),
     retryMs: defaultWebhookQueueRetryMs,

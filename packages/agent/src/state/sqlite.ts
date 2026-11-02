@@ -16,6 +16,9 @@ import { agentDiagnostics } from "../agent-diagnostics.ts"
 type MaybePromise<T> = T | Promise<T>
 
 const SQLITE_STATE_CLEANUP_INTERVAL_MS = 5 * 60 * 1000
+// Retain only the journal identity in completed rows, atomically with replacement or cancellation.
+const supersededWebhookValue = `CASE WHEN json_extract(value, '$.channelDeliveryId') IS NULL THEN '{}'
+  ELSE json_object('channelDeliveryId', json_extract(value, '$.channelDeliveryId')) END`
 
 export type SqliteAgentStateRow = Record<string, unknown>
 
@@ -253,7 +256,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
         tx,
         `UPDATE ${this.tables.webhookQueue} AS candidate
           SET status = CASE WHEN 1 = 1 THEN 'completed' ELSE status END,
-              value = '{}', lease_token = NULL, lease_expires_at = NULL
+              value = ${supersededWebhookValue}, lease_token = NULL, lease_expires_at = NULL
           WHERE candidate.scope = ?
             AND candidate.status IN ('running', 'steering', 'notifying')
             AND COALESCE(candidate.lease_expires_at, 0) <= ?
@@ -476,15 +479,22 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     })
   }
 
-  async enqueueWebhookDeliveryWithSuperseded(delivery: AgentWebhookQueueDelivery): Promise<{ queued: boolean, superseded: AgentWebhookQueueDelivery[] }> {
-    return await retrySqliteBusy(async () => {
-      await this.cleanupExpiredStateIfDue()
-      return await this.transaction(async (tx) => {
-        const superseded: AgentWebhookQueueDelivery[] = []
-        const queued = await this.insertWebhookDelivery(tx, delivery, superseded)
-        return { queued, superseded }
-      })
-    })
+  async pendingWebhookDeliverySettlements(scope: string): Promise<{ channelDeliveryId: string, deliveryId: string }[]> {
+    await this.cleanupExpiredStateIfDue()
+    const rows = await execute(this.driver,
+      `SELECT delivery_id, json_extract(value, '$.channelDeliveryId') AS channel_delivery_id
+        FROM ${this.tables.webhookQueue}
+        WHERE scope = ? AND status = 'completed' AND json_extract(value, '$.channelDeliveryId') IS NOT NULL
+        ORDER BY id ASC`, [scope])
+    return rows.flatMap(row => isRuntimeString(row.delivery_id) && isRuntimeString(row.channel_delivery_id)
+      ? [{ channelDeliveryId: row.channel_delivery_id, deliveryId: row.delivery_id }]
+      : [])
+  }
+
+  async completeWebhookDeliverySettlement(scope: string, deliveryId: string): Promise<void> {
+    await retrySqliteBusy(async () => await this.transaction(async tx => {
+      await execute(tx, `UPDATE ${this.tables.webhookQueue} SET value = '{}' WHERE scope = ? AND delivery_id = ? AND status = 'completed'`, [scope, deliveryId])
+    }))
   }
 
   /**
@@ -525,7 +535,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
         await execute(
           tx,
           `UPDATE ${this.tables.webhookQueue}
-            SET status = 'completed', value = '{}', lease_token = NULL, lease_expires_at = NULL
+            SET status = 'completed', value = ${supersededWebhookValue}, lease_token = NULL, lease_expires_at = NULL
             WHERE scope = ? AND status = 'queued' AND json_extract(value, '$.debounceKey') = ?`,
           [scope, debounceKey],
         )
@@ -534,27 +544,17 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     })
   }
 
-  private async insertWebhookDelivery(tx: SqliteAgentStateExecutor, delivery: AgentWebhookQueueDelivery, superseded?: AgentWebhookQueueDelivery[]): Promise<boolean> {
+  private async insertWebhookDelivery(tx: SqliteAgentStateExecutor, delivery: AgentWebhookQueueDelivery): Promise<boolean> {
     const debounceKey = delivery.debounceKey
     if (debounceKey) {
       const now = Date.now()
-      if (superseded) {
-        const replaced = await execute(
-          tx,
-          `SELECT value FROM ${this.tables.webhookQueue}
-            WHERE scope = ? AND delivery_id != ? AND json_extract(value, '$.debounceKey') = ?
-              AND (status = 'queued' OR (status IN ('running', 'steering', 'notifying') AND lease_expires_at <= ?))`,
-          [delivery.scope, delivery.deliveryId, debounceKey, now],
-        )
-        superseded.push(...replaced.flatMap(row => isRuntimeString(row.value) ? [parseAgentWebhookQueueDelivery(row.value)] : []))
-      }
       // A newer delivery permanently supersedes older deliveries with the same key.
       // Finalize queued work at admission. Active work keeps its lease; an expired
       // active lease is safe to finalize so it cannot remain orphaned forever.
       await execute(
         tx,
         `UPDATE ${this.tables.webhookQueue}
-          SET status = 'completed', value = '{}', lease_token = NULL, lease_expires_at = NULL
+          SET status = 'completed', value = ${supersededWebhookValue}, lease_token = NULL, lease_expires_at = NULL
           WHERE scope = ? AND delivery_id != ? AND json_extract(value, '$.debounceKey') = ?
             AND (status = 'queued' OR (status IN ('running', 'steering', 'notifying') AND lease_expires_at <= ?))`,
         [delivery.scope, delivery.deliveryId, debounceKey, now],
@@ -813,7 +813,7 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     const scopeRows = await execute(
       this.driver,
       `SELECT DISTINCT scope FROM ${this.tables.webhookQueue}
-        WHERE status != 'completed'
+        WHERE status != 'completed' OR json_extract(value, '$.channelDeliveryId') IS NOT NULL
         ORDER BY scope ASC`,
     )
     return scopeRows.flatMap((row) => (isRuntimeString(row.scope) ? [row.scope] : []))
