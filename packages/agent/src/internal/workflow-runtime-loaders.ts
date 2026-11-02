@@ -1,8 +1,8 @@
 import { agentDiagnostics } from "../agent-diagnostics.ts"
-// Module-level specifiers stay variables in the built package. The bundler inlines a local constant, and Vite then
-// resolves the literal import while it analyzes the module, even when the app never calls the loader.
 const workflowSpecifier = "@vite-hub/workflow"
 const workflowRuntimeStateSpecifier = "@vite-hub/workflow/runtime/state"
+// Module-level specifiers stay variables in the built output. The bundler inlines a local constant,
+// and then `vite dev` resolves the import eagerly and fails when the app disables Blob or Database.
 const blobSpecifier = "@vite-hub/blob"
 const databaseSpecifier = "@vite-hub/database/drizzle"
 

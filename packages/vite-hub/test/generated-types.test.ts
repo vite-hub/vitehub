@@ -65,7 +65,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 
 import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { hubAuth } from "@vite-hub/auth/vite"
-import { hubSource, toRuntimeModuleSpecifier, toTypeModuleSpecifier } from "@vite-hub/source/vite"
+import { hubSource, mergeGeneratedSourceNitroConfig, toRuntimeModuleSpecifier, toTypeModuleSpecifier } from "@vite-hub/source/vite"
 
 import { viteHubTypesPlugin } from "../src/internal/types.ts"
 import {
@@ -859,6 +859,41 @@ export const content = defineContent({ route: publicRoute, source: { async items
     await expect(readFile(join(root, ".vitehub/content/robots.mjs"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
     await write(`{ site: "https://example.com" }`)
     expect((await sourcePlugin().api.prepareSources({ projectRoot: root })).flatMap((handler: { route?: string }) => handler.route ?? [])).toEqual(["/api/content/**"])
+  })
+
+  it("generates Markdown copy middleware when defineContent() sets seo.markdown", async () => {
+    const { root } = await createNestedProject()
+    await Promise.all([
+      mkdir(join(root, "server"), { recursive: true }),
+      symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir"),
+    ])
+    const write = async (seo: string) => await writeFile(join(root, "server/content.ts"), [
+      `import { defineContent } from "vite-hub/content"`,
+      `export const content = defineContent({ route: false, source: { async items() { return [] } }, seo: ${seo} })`,
+      ``,
+    ].join("\n"))
+    await write(`{ markdown: true }`)
+
+    const handlers = await sourcePlugin().api.prepareSources({ projectRoot: root })
+    expect(handlers.filter((handler: { route?: string }) => handler.route !== undefined)).toEqual([
+      { handler: join(root, ".vitehub/content/markdown.mjs"), middleware: true, route: "/**" },
+    ])
+    // A route or a server middleware at /** does not conflict with it.
+    expect(mergeGeneratedSourceNitroConfig({ handlers: [{ handler: "app.mjs", route: "/**" }] }, handlers).handlers).toContainEqual(
+      expect.objectContaining({ handler: join(root, ".vitehub/content/markdown.mjs"), middleware: true, route: "/**" }),
+    )
+    const module: unknown = await import(`${pathToFileURL(join(root, ".vitehub/content/markdown.mjs")).href}?t=${Date.now()}`)
+    const middleware = Reflect.get(Object(module), "default")
+    if (!(middleware instanceof Function)) throw new TypeError("Expected a generated Markdown handler.")
+    // Without a published Markdown document at the path, the request passes through to the app.
+    const nodeRequest = new IncomingMessage(new Socket())
+    nodeRequest.url = "/guide.md"
+    nodeRequest.headers = { host: "example.test" }
+    await expect(middleware(createEvent(nodeRequest, new ServerResponse(nodeRequest)))).resolves.toBeUndefined()
+
+    await write(`{ markdown: false }`)
+    expect((await sourcePlugin().api.prepareSources({ projectRoot: root })).some((handler: { route?: string }) => handler.route === "/**")).toBe(false)
+    await expect(readFile(join(root, ".vitehub/content/markdown.mjs"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("rejects Content definitions that ViteHub cannot serve unambiguously", async () => {

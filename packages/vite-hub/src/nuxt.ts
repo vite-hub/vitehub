@@ -817,6 +817,10 @@ async function applyNitroConfig(
     workspace?: Parameters<typeof vitehub>[0]["workspace"]
   }
   config.root = resolve(nuxt.options.rootDir || process.cwd(), config.root || ".")
+  // Filter command-only plugins from both lists without re-evaluating Vite's functional `apply` selection.
+  const applies = (plugin: Plugin) => typeof plugin.apply !== "string" || plugin.apply === environment.command
+  plugins = plugins.filter(applies)
+  config.plugins = filterPluginOptions(config.plugins ?? [], applies) as PluginOption[]
   const restoreReplayOwnership = () => {
     config[VITEHUB_GENERATED_ROOT] = generatedRoot
     config[VITEHUB_NITRO_CONFIG_CONTEXT] = true

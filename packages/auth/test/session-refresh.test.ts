@@ -1,5 +1,5 @@
 import { memoryAdapter } from "better-auth/adapters/memory"
-import { APIError } from "better-auth"
+import { APIError, betterAuth } from "better-auth"
 import { describe, expect, it, vi } from "vitest"
 import { defineAuth } from "../src/index.ts"
 import { createAuth, handleAuthRequest, withAuth } from "../src/server.ts"
@@ -189,15 +189,20 @@ describe("session.onRefresh without a database", () => {
   // When this fails, Better Auth exposes a hook and ViteHub can support stateless sessions.
   it("Better Auth re-issues a stateless cookie cache without a session update hook", async () => {
     const before = vi.fn(async () => {})
-    const definition = defineAuth({
+    // Without a database adapter, ViteHub gives Better Auth an in-memory store, so call Better Auth directly.
+    const auth = betterAuth({
       databaseHooks: { session: { update: { before } } },
       emailAndPassword: { enabled: true },
-      runtime: { secret },
+      secret,
       session: { cookieCache: { enabled: true, maxAge: 300, refreshCache: { updateAge: 300 }, strategy: "jwe" } },
     })
-    const cookie = await signUp(definition)
+    const signUp = await auth.handler(new Request(`${origin}/api/auth/sign-up/email`, {
+      body: JSON.stringify({ email: "ada@example.com", name: "Ada", password: "passwordpassword" }),
+      headers: { "content-type": "application/json", origin },
+      method: "POST",
+    }))
 
-    const response = await getSession(definition, cookie)
+    const response = await auth.handler(new Request(`${origin}/api/auth/get-session`, { headers: { cookie: cookieHeader(signUp) } }))
 
     expect(response.status).toBe(200)
     expect(response.headers.getSetCookie().some(value => value.startsWith("better-auth.session_data="))).toBe(true)

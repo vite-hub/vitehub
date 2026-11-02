@@ -1326,9 +1326,13 @@ async function githubPullRequestMetadata<TRuntimeConfig extends AgentRuntimeConf
     ...(fallbackBody ? { body: fallbackBody } : {}),
   }
 
+  let tokenError: unknown
   try {
     const appOptions = app ? githubAppOptions(app) || {} : {}
-    const token = services ? undefined : await githubPullRequestMetadataToken(app, context, command.installationId, command.repository).catch(() => undefined)
+    const token = services ? undefined : await githubPullRequestMetadataToken(app, context, command.installationId, command.repository).catch((error: unknown) => {
+      tokenError = error
+      return undefined
+    })
     const webhookUrl = new URL(command.pullRequestUrl)
     const baseUrl = appOptions.apiBaseUrl ?? `${webhookUrl.origin}${webhookUrl.pathname.replace(/\/repos\/[^/]+\/[^/]+\/pulls\/\d+\/?$/, "")}`
     const provider = services ? await services.provider(context) : await forgeProvider({ forge: "github", baseUrl, token, fetch: forgeChannelFetch(appOptions.fetch || fetch), userAgent: appOptions.userAgent })
@@ -1361,10 +1365,20 @@ async function githubPullRequestMetadata<TRuntimeConfig extends AgentRuntimeConf
     }
   }
   catch (error) {
+    const reason = error instanceof Error && error.message ? error.message : "unknown"
+    // The pull request Workspace checks out the head SHA, so the run cannot continue without it.
+    // Only an already admitted delivery is retried by the webhook queue.
+    if (githubPullRequestWorkspacePolicy(options).enabled) {
+      const tokenReason = tokenError === undefined ? "" : ` (the GitHub App token request failed first: ${tokenError instanceof Error ? tokenError.message : String(tokenError)})`
+      throw agentDiagnostics.AGENT_R0370({
+        message: `[vitehub] GitHub pull request workspace requires the exact head SHA, but loading ${command.repository}#${command.issueNumber} failed: ${reason}${tokenReason}`,
+        cause: tokenError ?? error,
+      })
+    }
     return {
       ...fallback,
       metadata: {
-        unavailable: error instanceof Error && error.message ? error.message : "unknown",
+        unavailable: reason,
       },
     }
   }

@@ -1,6 +1,10 @@
+import { parseMarkdown } from "comark/parse"
+import type { ComarkPlugin } from "comark"
+
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type { AnyContentCollection } from "./collections-types.ts"
+import type { ContentCollectionsRuntime } from "./collections-runtime.ts"
 
 /** `defineContent({ seo })`: site-wide SEO routes generated from routable collections. */
 export interface DefineContentSeoOptions {
@@ -10,6 +14,11 @@ export interface DefineContentSeoOptions {
   sitemap?: boolean
   /** Serve `/robots.txt` that allows crawling and names the sitemap. `disallow` adds paths to keep out. */
   robots?: boolean | { disallow?: readonly string[] }
+  /**
+   * Serve each published Markdown document with a URL as Markdown at that URL plus `.md`, such as `/blog/hello.md`
+   * for `/blog/hello` and `/index.md` for `/`, so agents can read it and readers can paste it into a chat.
+   */
+  markdown?: boolean
 }
 
 export interface ContentSitemapEntry {
@@ -33,9 +42,10 @@ export function normalizeSeoOptions(options: unknown): DefineContentSeoOptions |
   if (options === undefined) return
   const invalid = (message: string) => contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] defineContent({ seo }) ${message}` })
   if (options === null || Object(options) !== options || Array.isArray(options)) throw invalid("must be an object such as { site, sitemap: true, robots: true }.")
-  const { site, sitemap, robots } = options as Record<string, unknown>
+  const { site, sitemap, robots, markdown } = options as Record<string, unknown>
   if (site !== undefined) siteOrigin(site, invalid)
   if (sitemap !== undefined && sitemap !== true && sitemap !== false) throw invalid("sitemap must be true or false.")
+  if (markdown !== undefined && markdown !== true && markdown !== false) throw invalid("markdown must be true or false.")
   if (robots !== undefined && robots !== true && robots !== false) {
     if (robots === null || Object(robots) !== robots || Array.isArray(robots)) throw invalid("robots must be true, false, or { disallow: ['/path'] }.")
     const disallow = Reflect.get(robots, "disallow")
@@ -112,4 +122,88 @@ export function renderContentRobots(options: { site?: string, sitemap?: boolean,
   const lines = ["User-agent: *", ...(options.disallow?.length ? options.disallow.map(path => `Disallow: ${path}`) : ["Allow: /"])]
   if (options.sitemap) lines.push("", `Sitemap: ${absolute("/sitemap.xml", options.site)}`)
   return `${lines.join("\n")}\n`
+}
+
+/** The page that a Markdown copy stands for: `/blog/hello.md` is `/blog/hello`, and `/index.md` is `/`. */
+function markdownCopyPage(path: string): string | undefined {
+  const pathname = path.split(/[?#]/, 1)[0]!
+  if (!pathname.endsWith(".md")) return
+  return pathname === "/index.md" ? "/" : pathname.slice(0, -3)
+}
+
+function stringField(data: unknown, field: string | undefined): string | undefined {
+  if (!field || data === null || Object(data) !== data) return
+  const value: unknown = Reflect.get(Object(data), field)
+  return String(value) === value && value.trim() ? value : undefined
+}
+
+/** Root-relative links and images, such as `](/guide)`, become absolute outside fenced code. */
+async function absoluteLinks(markdown: string, site: string | undefined): Promise<string> {
+  if (!site) return markdown
+  // Use the parser's source ranges so fences inside lists and blockquotes obey the same rules as the page.
+  const codeLines = new Set<number>()
+  await parseMarkdown<ComarkPlugin[]>(markdown, {
+    autoClose: false,
+    registerDefaultPlugins: false,
+    plugins: [{
+      name: "markdown-copy-code",
+      markdownItPost({ tokens }) {
+        for (const token of tokens) {
+          if ((token.type === "fence" || token.type === "code_block") && token.map) {
+            for (let line = token.map[0]; line < token.map[1]; line++) codeLines.add(line)
+          }
+        }
+      },
+    }],
+  })
+  return markdown.split("\n").map((line, index) => {
+    if (codeLines.has(index)) return line
+    return line
+      .replace(/\]\(\/(?!\/)/g, `](${site}/`)
+      .replace(/^( {0,3}\[(?:\\.|[^\]\\])+\]:[ \t]*<?)\/(?!\/)/, `$1${site}/`)
+  }).join("\n")
+}
+
+const trimRoute = (route: string) => route.replace(/\/+$/, "") || "/"
+
+/** Find a public Markdown URL when `resolve()` misses a singleton or selects an ineligible collection. */
+async function routedMarkdown(collections: Iterable<AnyContentCollection>, page: string): Promise<{ collection: string, id: string } | null> {
+  for (const collection of collections) {
+    if (!collection.routable || collection.format !== "markdown") continue
+    let cursor: string | undefined
+    do {
+      const result = await collection.list({ ref: "published", limit: 1_000, ...(cursor ? { cursor } : {}) })
+      for (const document of result.items) {
+        if (String(document.url) === document.url && trimRoute(document.url) === trimRoute(page)) return { collection: collection.name, id: document.id }
+      }
+      cursor = result.nextCursor ?? undefined
+    } while (cursor)
+  }
+  return null
+}
+
+/**
+ * The Markdown copy of the published document that a path plus `.md` names, or null. It starts with the document's
+ * title, unless the body has its own, and its description as a quote.
+ */
+export async function contentMarkdownCopy(runtime: Pick<ContentCollectionsRuntime, "collection" | "collections" | "resolve">, path: string, site: string | undefined): Promise<string | null> {
+  const page = markdownCopyPage(path)
+  if (page === undefined) return null
+  let resolved = await runtime.resolve(page, { ref: "published" })
+  const matchedCollection = resolved ? runtime.collection(resolved.collection) : undefined
+  if (!matchedCollection?.routable || matchedCollection.format !== "markdown") resolved = await routedMarkdown(runtime.collections.values(), page)
+  if (!resolved) return null
+  const collection = runtime.collection(resolved.collection)
+  if (!collection.routable || collection.format !== "markdown") return null
+  const document = await collection.get(resolved.id, { ref: "published" })
+  if (!document) return null
+  const seo: unknown = collection.seo ? document.data[collection.seo] : undefined
+  const title = stringField(seo, "title") ?? stringField(document.data, collection.titleField)
+  const description = stringField(seo, "description") ?? stringField(document.data, "description")
+  const body = document.body.trim()
+  const head = [
+    title && !/^#\s/.test(body) ? `# ${title}` : undefined,
+    description ? `> ${description.replace(/\s*\n\s*/g, " ")}` : undefined,
+  ].filter(Boolean)
+  return `${[...head, await absoluteLinks(body, site)].filter(Boolean).join("\n\n")}\n`
 }
