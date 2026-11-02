@@ -10,6 +10,8 @@ export interface ViteHubConsoleDefinitionCatalogView {
 }
 
 export interface ViteHubConsoleRecordColumn {
+  /** Set it for a column with few values, such as a status. The Console then filters the table by its values. */
+  filter?: boolean
   /** Key in `ViteHubConsoleRecord.cells`. */
   key: string
   label: string
@@ -883,7 +885,7 @@ export function describeViteHubConsoleSection<TOptions>(section: ViteHubConsoleS
     throw new TypeError(`[vitehub] Console section id ${JSON.stringify(section.id)} must be a lowercase route segment.`)
   }
   const view: ViteHubConsoleSectionView = section.view.kind === "record-table"
-    ? { columns: section.view.columns.map(column => ({ key: column.key, label: column.label })), kind: "record-table", notice: section.view.notice }
+    ? { columns: section.view.columns.map(column => column.filter === true ? { filter: true, key: column.key, label: column.label } : { key: column.key, label: column.label }), kind: "record-table", notice: section.view.notice }
     : section.view.kind === "operation-view"
       ? describeOperationView(section.view)
       : { kind: section.view.kind, notice: section.view.notice }

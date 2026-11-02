@@ -7,6 +7,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { requestConsole } from "../client/request";
+import { queryText, useConsoleQuery } from "../client/route-query";
 import { rememberConsoleSection } from "../sections";
 import ConsoleFrame from "./console-frame.vue";
 import ConsolePageHeader from "./console-page-header.vue";
@@ -114,6 +115,14 @@ const selectedAgent = computed(() => queryString(route.query.agent));
 const selectedChannel = computed(() => queryString(route.query.channel));
 const selectedThread = computed(() => queryString(route.query.thread));
 const selected = computed(() => channels.value.find(entry => entry.agent === selectedAgent.value && entry.channel === selectedChannel.value));
+// The thread search lives in the URL with the Channel and the thread, so a reload or a shared link opens the same list.
+const { q: threadSearch } = useConsoleQuery({ q: queryText() });
+/** Loaded threads whose title, participants, or id contain the search. */
+const visibleThreads = computed(() => {
+  const query = threadSearch.value.trim().toLowerCase();
+  if (!query) return threads.value;
+  return threads.value.filter(thread => [thread.title ?? "", ...thread.participants, thread.thread].join(" ").toLowerCase().includes(query));
+});
 
 function isAbort(failure: unknown): boolean {
   return failure instanceof Object && "name" in failure && failure.name === "AbortError";
@@ -220,7 +229,9 @@ async function loadMessages(append = false): Promise<void> {
 }
 
 function select(query: { agent?: string; channel?: string; thread?: string }): void {
-  void router.push({ query: { ...query } });
+  // A thread of the same Channel keeps the thread search. Another Channel starts without it.
+  const search = query.thread && query.agent === selectedAgent.value && query.channel === selectedChannel.value ? threadSearch.value.trim() : "";
+  void router.push({ query: { ...query, ...(search ? { q: search } : {}) } });
 }
 
 function when(value: string | undefined): string {
@@ -337,13 +348,24 @@ onBeforeUnmount(() => {
 
           <template v-if="selected">
             <p class="mt-3 px-2 text-xs font-medium text-muted">Threads</p>
+            <UInput
+              v-if="selected.conversations && threads.length"
+              v-model="threadSearch"
+              class="mt-1 w-full shrink-0"
+              icon="i-lucide-search"
+              size="sm"
+              placeholder="Filter threads…"
+              aria-label="Filter threads"
+              :ui="{ base: 'text-base sm:text-sm' }"
+            />
             <p v-if="!selected.conversations" class="px-2 py-1.5 text-xs text-muted">This Channel has its own history collection and no per-thread conversation.</p>
             <template v-else-if="threadsLoading && !threads.length">
               <USkeleton v-for="index in 4" :key="index" class="my-0.5 h-10 rounded-md" />
             </template>
             <template v-else-if="threads.length">
+              <p v-if="!visibleThreads.length" class="px-2 py-1.5 text-xs text-muted">No loaded thread matches “{{ threadSearch.trim() }}”.</p>
               <button
-                v-for="thread in threads"
+                v-for="thread in visibleThreads"
                 :key="thread.thread"
                 type="button"
                 class="vitehub-console__section-link shrink-0 text-start"

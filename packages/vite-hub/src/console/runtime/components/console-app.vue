@@ -35,7 +35,7 @@ import {
   resolveUsageSessionsAgent,
 } from "../console-route";
 import { isConsoleSignInRequired, isRetryableConsoleRequestError, requestConsole } from "../client/request";
-import { queryChoice, querySelection, useConsoleQuery, writeConsoleQuery } from "../client/route-query";
+import { queryChoice, querySelection, queryText, useConsoleQuery, writeConsoleQuery } from "../client/route-query";
 import { useConsoleConnectionUnavailable } from "./console-connection";
 import { rememberConsoleSection } from "../sections";
 import ConsoleFrame from "./console-frame.vue";
@@ -81,6 +81,7 @@ const sessionQuery = {
   capability: querySelection({ history: "replace" }),
   details: queryChoice(["closed", "open", "max"], "closed", { history: "push" }),
   file: querySelection(),
+  q: queryText(),
   tab: queryChoice(inspectorViewNames, "details", { history: "push" }),
   triggeredBy: querySelection({ history: "replace" }),
 };
@@ -88,6 +89,7 @@ const {
   capability: selectedCapabilityId,
   details: detailsView,
   file: inspectorSelectedPath,
+  q: sessionSearch,
   tab: inspectorTab,
   triggeredBy: selectedTriggeredBy,
 } = useConsoleQuery(sessionQuery, {
@@ -104,6 +106,7 @@ function currentSessionQuery() {
     capability: selectedCapabilityId.value,
     details: detailsView.value,
     file: inspectorSelectedPath.value,
+    q: sessionSearch.value,
     tab: inspectorTab.value,
     triggeredBy: selectedTriggeredBy.value,
   }, route.query);
@@ -112,6 +115,7 @@ function currentSessionQuery() {
 function keptSessionQuery(options: { closeDetails?: boolean } = {}) {
   return writeConsoleQuery(sessionQuery, {
     capability: selectedCapabilityId.value,
+    q: sessionSearch.value,
     triggeredBy: selectedTriggeredBy.value,
     ...(options.closeDetails ? {} : { details: detailsView.value, tab: inspectorTab.value }),
   }, {});
@@ -298,8 +302,13 @@ const invocationItems = computed<AgentInvocationListItem[]>(() =>
     status: invocation.status,
     title: agentInvocationTitle(invocation),
     updatedAt: invocation.updatedAt || invocation.startedAt || invocation.createdAt,
-  })),
+  })).filter(item => matchesSessionSearch(item)),
 );
+/** The search matches the title or the ID of a loaded session. An empty result keeps reading older pages. */
+function matchesSessionSearch(item: Pick<AgentInvocationListItem, "id" | "title">): boolean {
+  const query = sessionSearch.value.trim().toLowerCase();
+  return !query || `${item.title ?? ""} ${item.id}`.toLowerCase().includes(query);
+}
 const hasMultipleAgents = computed(() => agentNames.value.length > 1);
 const selectedAgentInvocation = computed(() =>
   resolveConsoleAgentInvocation(selectedAgentName.value, agentInvocationOptions.value),
@@ -709,6 +718,11 @@ function updateSessionFilters(value: SessionFilterItem | SessionFilterItem[]): v
 function toggleAgentList(): void {
   agentListOpen.value = !agentListOpen.value;
   rememberConsoleAgentListOpen(agentListOpen.value);
+}
+
+function clearSessionSearchAndFilters(): void {
+  sessionSearch.value = "";
+  resetSessionFilters();
 }
 
 function resetSessionFilters(): void {
@@ -1210,6 +1224,17 @@ onBeforeUnmount(() => {
             activeFilterCount === 1 ? "1 filter" : `${activeFilterCount} filters`
           }}</span>
         </h2>
+        <div v-if="list.invocations.value.length || sessionSearch" class="shrink-0 px-2 pb-1.5">
+          <UInput
+            v-model="sessionSearch"
+            class="w-full"
+            icon="i-lucide-search"
+            size="sm"
+            placeholder="Search sessions…"
+            aria-label="Search sessions by title or ID"
+            :ui="{ base: 'text-base sm:text-sm' }"
+          />
+        </div>
         <div
           v-if="(!connectionUnavailable && list.error.value) || list.loadMoreError.value"
           class="px-2"
@@ -1283,11 +1308,11 @@ onBeforeUnmount(() => {
           </template>
           <template #empty
             ><UEmpty
-              v-if="activeFilterCount"
+              v-if="activeFilterCount || sessionSearch.trim()"
               class="px-4"
               icon="i-lucide-message-square-more"
               title="No matching sessions"
-              :actions="[{ label: 'Clear filters', onClick: resetSessionFilters }]" /><ConsoleState
+              :actions="[{ label: 'Clear filters', onClick: clearSessionSearchAndFilters }]" /><ConsoleState
               v-else
               section="agents"
               icon="i-lucide-message-square-more"
