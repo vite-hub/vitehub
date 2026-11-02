@@ -35,6 +35,7 @@ interface LibsqlMigrationClient {
 
 interface StartMigrationPlan {
   client: LibsqlMigrationClient
+  databases: StartMigrationDatabase[]
   pending: Map<string, { migration: StartMigration, name: string }>
 }
 
@@ -50,14 +51,20 @@ function isLibsqlClient(value: unknown): value is LibsqlMigrationClient {
     && typeof Reflect.get(value, "protocol") === "string"
 }
 
-async function readLastApplied(client: LibsqlMigrationClient): Promise<number | undefined> {
+async function readApplied(client: LibsqlMigrationClient): Promise<{ keys: Set<string>, lastApplied: number | undefined }> {
+  const keys = new Set<string>()
+  let lastApplied: number | undefined
   const table = await client.execute({ args: [migrationsTable], sql: "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?" })
-  if (!table.rows.length) return
-  const result = await client.execute(`SELECT created_at FROM "${migrationsTable}" ORDER BY created_at DESC LIMIT 1`)
-  const value = result.rows[0]?.[0]
-  if (value === null || value === undefined) return
-  const millis = Number(value)
-  return Number.isFinite(millis) ? millis : undefined
+  if (!table.rows.length) return { keys, lastApplied }
+  const result = await client.execute(`SELECT hash, created_at FROM "${migrationsTable}"`)
+  for (const row of Array.from(result.rows)) {
+    if (row[1] === null || row[1] === undefined) continue
+    const millis = Number(row[1])
+    if (!Number.isFinite(millis)) continue
+    keys.add(`${millis}:${row[0]}`)
+    lastApplied = Math.max(lastApplied ?? millis, millis)
+  }
+  return { keys, lastApplied }
 }
 
 /**
@@ -75,26 +82,41 @@ export async function migrateOnStart(databases: StartMigrationDatabase[], option
       const target = isLibsqlClient(client) ? `libSQL over ${client.protocol}` : "a connection that is not libSQL"
       throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({ database: database.name, problem: `It uses ${target}.` })
     }
-    const lastApplied = await readLastApplied(client)
-    const pending = database.migrations.filter(migration => lastApplied === undefined || lastApplied < migration.when)
-    const losses = pending.flatMap(migration => migration.dataLoss.map(loss => `${migration.name}: ${loss.reason}: ${loss.statement}`))
-    if (losses.length && !options.allowDataLoss) {
-      throw databaseErrorDiagnostics.DATABASE_MIGRATION_DATA_LOSS({ database: database.name, statements: losses })
-    }
-    if (!pending.length) continue
     // Separate clients and URL spellings can open the same file. SQLite reports the actual main database path.
     const files = await client.execute("PRAGMA database_list")
     const file = Array.from(files.rows).find(row => row[1] === "main")?.[2]
     // In-memory databases have no file path and belong only to their client.
     const target = typeof file === "string" && file ? file : client
-    const plan = plans.get(target) ?? { client, pending: new Map<string, { migration: StartMigration, name: string }>() }
-    for (const migration of pending) {
-      const key = `${migration.when}:${migration.hash}`
-      if (!plan.pending.has(key)) plan.pending.set(key, { migration, name: database.name })
-    }
+    const plan = plans.get(target) ?? { client, databases: [], pending: new Map<string, { migration: StartMigration, name: string }>() }
+    plan.databases.push(database)
     plans.set(target, plan)
   }
+  for (const plan of plans.values()) {
+    const { keys, lastApplied } = await readApplied(plan.client)
+    for (const database of plan.databases) {
+      // Keep Drizzle's timestamp selection, but a shared ledger cannot prove another journal's history by time alone.
+      if (plan.databases.length > 1 && lastApplied !== undefined) {
+        const missing = database.migrations.find(migration => migration.when <= lastApplied && !keys.has(`${migration.when}:${migration.hash}`))
+        if (missing) {
+          throw databaseErrorDiagnostics.DATABASE_MIGRATE_ON_START_UNSUPPORTED({
+            database: database.name,
+            problem: `Its shared SQLite file has no ledger entry for migration "${missing.name}" at or below the latest applied timestamp. Use compatible migration histories or separate SQLite files.`,
+          })
+        }
+      }
+      const pending = database.migrations.filter(migration => lastApplied === undefined || lastApplied < migration.when)
+      const losses = pending.flatMap(migration => migration.dataLoss.map(loss => `${migration.name}: ${loss.reason}: ${loss.statement}`))
+      if (losses.length && !options.allowDataLoss) {
+        throw databaseErrorDiagnostics.DATABASE_MIGRATION_DATA_LOSS({ database: database.name, statements: losses })
+      }
+      for (const migration of pending) {
+        const key = `${migration.when}:${migration.hash}`
+        if (!plan.pending.has(key)) plan.pending.set(key, { migration, name: database.name })
+      }
+    }
+  }
   for (const { client, pending: migrations } of plans.values()) {
+    if (!migrations.size) continue
     const pending = [...migrations.values()].sort((a, b) => a.migration.when - b.migration.when)
     await client.migrate([
       createMigrationsTable,

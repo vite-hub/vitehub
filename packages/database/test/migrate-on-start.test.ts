@@ -226,6 +226,34 @@ describe("database.migrateOnStart", () => {
     }
   })
 
+  it.each([seed.when, dropLegacy.when])("refuses an unapplied shared-file migration at or below the ledger (%s)", async (when) => {
+    const root = await createProject()
+    const url = `file:${join(root, "shared.sqlite")}`
+    const first = createClient({ url })
+    const second = createClient({ url })
+    const migration = (name: string, timestamp: number, sql: string) => ({ dataLoss: [], hash: name, name, statements: [sql], when: timestamp })
+    const history = [migration(init.tag, init.when, "CREATE TABLE users (id integer)"), migration("late", dropLegacy.when, "INSERT INTO users VALUES (1)")]
+    try {
+      await migrateOnStart([{ db: drizzle({ client: first }), migrations: history, name: "first" }], { log: () => {} })
+      const applied: string[] = []
+      await expect(migrateOnStart([
+        { db: drizzle({ client: first }), migrations: [...history, migration("future", dropLegacy.when + 1, "INSERT INTO users VALUES (2)")], name: "first" },
+        { db: drizzle({ client: second }), migrations: [migration("divergent", when, "CREATE TABLE missing_history (id integer)")], name: "second" },
+      ], { allowDataLoss: true, log: message => applied.push(message) })).rejects.toMatchObject({
+        code: "DATABASE_MIGRATE_ON_START_UNSUPPORTED",
+        why: expect.stringContaining("divergent"),
+      })
+      expect(applied).toEqual([])
+      expect(await readLedger(url)).toEqual([init.when, dropLegacy.when])
+      expect((await first.execute("SELECT id FROM users")).rows.map(row => row[0])).toEqual([1])
+      expect((await first.execute("SELECT name FROM sqlite_master WHERE name = 'missing_history'")).rows).toEqual([])
+    }
+    finally {
+      first.close()
+      second.close()
+    }
+  })
+
   it("rolls back every Definition sharing a file when a migration fails", async () => {
     const root = await createProject()
     const url = `file:${join(root, "shared.sqlite")}`
@@ -269,7 +297,7 @@ describe("database.migrateOnStart", () => {
   it("adds the plugin only to production Node builds of the Vite integration", async () => {
     const root = await createProject()
     await writeMigrations(root, [init])
-    const setup = async (options: { dev?: boolean, preset: string }) => {
+    const setup = async (options: { dev?: boolean, preset?: string }) => {
       const plugin = hubDbVite({ migrateOnStart: true })
       await (plugin.configResolved as (config: unknown) => Promise<void>)({ plugins: [], root })
       const nitroOptions: Parameters<typeof plugin.nitro.setup>[0]["options"] = { ...options, output: { serverDir: join(root, ".output/server") } }
@@ -277,8 +305,29 @@ describe("database.migrateOnStart", () => {
       return nitroOptions.plugins
     }
     expect(await setup({ preset: "node-server" })).toEqual([join(root, ".vitehub/nitro/database/migrate-on-start.mjs")])
+    expect(await setup({})).toEqual([join(root, ".vitehub/nitro/database/migrate-on-start.mjs")])
     expect(await setup({ dev: true, preset: "node-server" })).toBeUndefined()
     await expect(setup({ preset: "cloudflare-module" })).rejects.toMatchObject({ code: "DATABASE_MIGRATE_ON_START_UNSUPPORTED" })
+    for (const preset of ["bun", "static"]) {
+      await expect(setup({ preset })).rejects.toMatchObject({ code: "DATABASE_MIGRATE_ON_START_UNSUPPORTED" })
+    }
+  })
+
+  it.each(["bun", "static"])("rejects the explicit Nuxt preset %s", async (preset) => {
+    const root = await createProject()
+    await writeMigrations(root, [init])
+    for (const source of ["nuxt", "nitro"]) {
+      const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
+      await hubDb({ migrateOnStart: true })(undefined, {
+        hook: (event: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
+          if (event === "nitro:config") hooks.push(callback)
+        },
+        options: { dev: false, nitro: { preset: source === "nuxt" ? preset : "node-server" }, rootDir: root },
+      })
+      for (const hook of hooks) {
+        await expect(hook(source === "nitro" ? { preset } : {})).rejects.toMatchObject({ code: "DATABASE_MIGRATE_ON_START_UNSUPPORTED" })
+      }
+    }
   })
 
   it("checks every database before it changes the first one", async () => {

@@ -25,7 +25,7 @@ export function resolveMigrateOnStart(options: false | Pick<DatabaseIntegrationO
 interface RenderMigrateOnStartOptions extends MigrateOnStartSettings {
   /** Module that exports `useDatabase()` in the server build. */
   drizzleImport: string
-  /** The host that the build targets, from `resolveHost()`. */
+  /** The resolved host, or the explicit preset when its host is unknown. */
   host: string | undefined
   /** Module that exports `migrateOnStart()`. */
   runtimeImport: string

@@ -5,7 +5,7 @@ import { dirname, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
+import { getHostingProvider, resolveHost, resolveHostPreset } from "@vite-hub/internal/hosting"
 import { contributeProviderRuntime, createProviderDeploymentOutputGenerationState, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalAddition, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalize } from "pathe"
@@ -358,7 +358,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     writeFileSync(plugin, renderMigrateOnStartPlugin(runtimeConfig, {
       ...settings,
       drizzleImport: resolveRuntimeModule(packageDir, "drizzle"),
-      host: resolveHost({ nitro: nitroOptions }),
+      host: resolveHost({ nitro: nitroOptions }) ?? resolveHostPreset({ nitro: nitroOptions }),
       runtimeImport: resolveRuntimeModule(packageDir, "runtime/migrate-on-start"),
     }))
     const plugins = nitroOptions.plugins ??= []
