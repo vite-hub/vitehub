@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import { createDriver } from "../src/drivers/fs.ts"
 import { createPhotonImageTransformer } from "../src/media/photon.ts"
+import { jpegOrientation, probeImage } from "../src/media/probe.ts"
 import { setBlobPhotonLoader } from "../src/runtime/state.ts"
 import { createBlobStorage } from "../src/storage.ts"
 import type { BlobImageOperation } from "../src/media/types.ts"
@@ -50,9 +51,19 @@ function expectColors(actual: number[][], expected: number[][]) {
 }
 
 describe("photon image transformer", () => {
-  it("turns a JPEG with EXIF orientation 6 upright and drops its metadata", async () => {
-    const source = await fixture("orientation-6.jpg")
+  it.each([false, true])("turns a JPEG with EXIF orientation 6 upright and drops its metadata (later XMP: %s)", async (laterXmp) => {
+    let source = await fixture("orientation-6.jpg")
+    if (laterXmp) {
+      const exifStart = source.indexOf(Buffer.from("Exif\0\0")) - 4
+      const afterExif = exifStart + 2 + source.readUInt16BE(exifStart + 2)
+      const xmp = Buffer.from("http://ns.adobe.com/xap/1.0/\0<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"/>")
+      const header = Buffer.from([0xFF, 0xE1, 0, 0])
+      header.writeUInt16BE(xmp.length + 2, 2)
+      source = Buffer.concat([source.subarray(0, afterExif), header, xmp, source.subarray(afterExif)])
+    }
     expect(await sharp(source).metadata()).toMatchObject({ height: 32, orientation: 6, width: 48 })
+    expect(jpegOrientation(source)).toBe(6)
+    expect(probeImage(source)).toMatchObject({ format: "jpeg", height: 48, width: 32 })
 
     const { output, bytes } = await transform(source, { format: "jpeg", height: 48, quality: 90, width: 32 })
     expect(output.type).toBe("image/jpeg")

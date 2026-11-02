@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { resolveConfig } from "vite"
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
@@ -51,9 +52,10 @@ describe("generated Nitro plugin", () => {
     await rm(root, { force: true, recursive: true })
   })
 
-  async function generatePlugin(options: Parameters<typeof hubBlob>[0]) {
+  async function generatePlugin(options: Parameters<typeof hubBlob>[0], alias?: Record<string, string>) {
     const plugin = hubBlob(options)
-    await (plugin.configResolved as (config: unknown) => Promise<void>)({ build: { outDir: "dist" }, command: "build", plugins: [], root } as never)
+    const config = await resolveConfig({ configFile: false, logLevel: "silent", resolve: { alias }, root }, "build")
+    await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
     return await readFile(join(root, ".vitehub/nitro/blob/plugin.ts"), "utf8")
   }
 
@@ -73,12 +75,29 @@ describe("generated Nitro plugin", () => {
     await expect(generatePlugin({ driver: "fs", images: { transformer: "photon" } })).rejects.toMatchObject({ code: "BLOB_B0007" })
     await mkdir(join(root, "node_modules/@cf-wasm/photon"), { recursive: true })
     await writeFile(join(root, "node_modules/@cf-wasm/photon/package.json"), "{\"name\":\"@cf-wasm/photon\"}")
+    await writeFile(join(root, "node_modules/@cf-wasm/photon/index.js"), "export {}")
     expect(await generatePlugin({ driver: "fs" })).not.toContain("photon")
     for (const options of [{ driver: "fs" as const }, { bucketName: "assets", driver: "cloudflare-r2" as const }]) {
       const source = await generatePlugin({ ...options, images: { transformer: "photon" } })
       expect(source).toContain("setBlobPhotonLoader(() => import('@cf-wasm/photon'))")
       expect(source).not.toContain("sharp")
     }
+  })
+
+  it("uses the active resolver when Photon is available outside node_modules", async () => {
+    const entry = join(root, ".yarn/cache/photon/index.js")
+    await mkdir(join(root, ".yarn/cache/photon"), { recursive: true })
+    await writeFile(entry, "export {}")
+    for (const driver of ["fs", "cloudflare-r2"] as const) {
+      const source = await generatePlugin({ driver, images: { transformer: "photon" } }, { "@cf-wasm/photon": entry })
+      expect(source).toContain("setBlobPhotonLoader(() => import('@cf-wasm/photon'))")
+    }
+  })
+
+  it("reports BLOB_B0007 when Photon has no resolvable entry", async () => {
+    await mkdir(join(root, "node_modules/@cf-wasm/photon"), { recursive: true })
+    await writeFile(join(root, "node_modules/@cf-wasm/photon/package.json"), JSON.stringify({ name: "@cf-wasm/photon", exports: "./missing.js" }))
+    await expect(generatePlugin({ driver: "fs", images: { transformer: "photon" } })).rejects.toMatchObject({ code: "BLOB_B0007" })
   })
 
   it("parses variant queries in the serve route and answers invalid ones with 400", async () => {

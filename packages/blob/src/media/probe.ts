@@ -67,25 +67,25 @@ function probeWebp(bytes: Uint8Array): ImageProbe | undefined {
   return undefined
 }
 
-/** Reads the EXIF orientation from an APP1 segment. Returns 1 when absent. */
-function exifOrientation(bytes: Uint8Array, start: number, end: number): number {
-  if (ascii(bytes, start, 6) !== "Exif\0\0") return 1
+/** Reads the EXIF orientation from an APP1 segment. Returns undefined when absent. */
+function exifOrientation(bytes: Uint8Array, start: number, end: number): number | undefined {
+  if (ascii(bytes, start, 6) !== "Exif\0\0") return undefined
   const tiff = start + 6
   const little = ascii(bytes, tiff, 2) === "II"
   const read16 = (offset: number) => little ? u16le(bytes, offset) : u16be(bytes, offset)
   const read32 = (offset: number) => little
     ? (bytes[offset]! | (bytes[offset + 1]! << 8) | (bytes[offset + 2]! << 16)) + bytes[offset + 3]! * 0x1000000
     : u32be(bytes, offset)
-  if (tiff + 8 > end) return 1
+  if (tiff + 8 > end) return undefined
   const ifd = tiff + read32(tiff + 4)
-  if (ifd + 2 > end) return 1
+  if (ifd + 2 > end) return undefined
   const entries = read16(ifd)
   for (let index = 0; index < entries; index++) {
     const entry = ifd + 2 + index * 12
     if (entry + 12 > end) break
     if (read16(entry) === 0x0112) return read16(entry + 8)
   }
-  return 1
+  return undefined
 }
 
 /** Reads the stored frame size and the EXIF orientation of a JPEG. */
@@ -106,7 +106,7 @@ function readJpegFrame(bytes: Uint8Array): { height: number, orientation: number
     }
     const length = u16be(bytes, offset + 2)
     if (length < 2) return undefined
-    if (marker === 0xE1) orientation = exifOrientation(bytes, offset + 4, Math.min(bytes.length, offset + 2 + length))
+    if (marker === 0xE1) orientation = exifOrientation(bytes, offset + 4, Math.min(bytes.length, offset + 2 + length)) ?? orientation
     // SOF0-SOF15 except DHT (C4), JPG (C8), and DAC (CC) carry the frame size.
     if (marker >= 0xC0 && marker <= 0xCF && marker !== 0xC4 && marker !== 0xC8 && marker !== 0xCC) {
       if (offset + 9 > bytes.length) return undefined

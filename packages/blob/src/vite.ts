@@ -196,8 +196,7 @@ function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: 
 
 type ImageModule = "photon" | "sharp"
 
-// Bundlers resolve through node_modules directories only. Node's NODE_PATH, which pnpm scripts set, would report a
-// package that the bundle cannot import.
+// Keep sharp's existing node_modules-based auto detection independent of NODE_PATH, which pnpm scripts set.
 function isPackageInstalled(root: string, name: string): boolean {
   for (let directory = resolve(root); ; directory = dirname(directory)) {
     if (existsSync(resolve(directory, "node_modules", name, "package.json"))) return true
@@ -210,11 +209,13 @@ function isPackageInstalled(root: string, name: string): boolean {
  * `@cf-wasm/photon` on every host. Workers never import sharp. `auto` imports sharp when the project can resolve it,
  * and an explicit `sharp` transformer requires it.
  */
-function resolveImageModule(root: string, blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, provider?: "cloudflare" | "vercel"): ImageModule | undefined {
+async function resolveImageModule(config: ResolvedConfig, root: string, blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, provider?: "cloudflare" | "vercel"): Promise<ImageModule | undefined> {
   if (!blob || blob.images === false) return undefined
   const transformer = blob.images?.transformer ?? "auto"
   if (transformer === "photon") {
-    if (isPackageInstalled(root, "@cf-wasm/photon")) return "photon"
+    // Use the project's resolver, including Plug'n'Play, from the generated import's location.
+    const entry = await config.createResolver()("@cf-wasm/photon", resolve(root, generatedNitroBlobPlugin)).catch(() => undefined)
+    if (entry) return "photon"
     throw blobErrorDiagnostics.BLOB_B0007({ message: "[vitehub] `blob.images.transformer` is \"photon\", but the project cannot resolve @cf-wasm/photon. Install it with: pnpm add @cf-wasm/photon" })
   }
   if (cloudflare || provider === "cloudflare") return undefined
@@ -372,11 +373,12 @@ function isAuthDefinitionPath(file: string, rootDir: string, serverDirs: string[
   })
 }
 
-async function refreshBlobGeneratedFiles(root: string, blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName, provider?: "cloudflare" | "vercel", authorizeModule?: string, development = false): Promise<void> {
+async function refreshBlobGeneratedFiles(config: ResolvedConfig, root: string, blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName, provider?: "cloudflare" | "vercel", authorizeModule?: string, development = false): Promise<void> {
   const runtimeFile = resolve(root, generatedNitroBlobRuntime)
+  const imageModule = await resolveImageModule(config, root, blob, cloudflare, provider)
   await Promise.all([
     writeFileIfChanged(runtimeFile, renderBlobRuntimeModule(runtimeFile, blob, provider)),
-    writeFileIfChanged(resolve(root, generatedNitroBlobPlugin), renderNitroBlobPlugin(blob, cloudflare, importBase, !development, resolveImageModule(root, blob, cloudflare, provider))),
+    writeFileIfChanged(resolve(root, generatedNitroBlobPlugin), renderNitroBlobPlugin(blob, cloudflare, importBase, !development, imageModule)),
     writeFileIfChanged(resolve(root, generatedNitroBlobMiddleware), renderNitroBlobMiddleware(importBase, !development)),
   ])
   const serve = blob ? blob.serve : undefined
@@ -475,6 +477,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
         contributeProviderRuntime(useProviderOutputCatalog(config), siblingRuntime)
       }
       await refreshBlobGeneratedFiles(
+        config,
         rootDir,
         runtimeConfig.blob,
         cloudflare,
