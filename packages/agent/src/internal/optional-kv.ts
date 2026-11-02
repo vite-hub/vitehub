@@ -4,7 +4,7 @@ let installedKV: typeof import("@vite-hub/kv") | undefined
  * Hands the KV module that Vite resolved to the Agent package. Node loads this package without Vite in `vite dev`,
  * so its own `@vite-hub/kv` import would miss the host's KV configuration. The `vite dev` Nitro plugin calls this.
  */
-export function installAgentKV(module: typeof import("@vite-hub/kv")): void {
+export function installAgentKV(module: typeof import("@vite-hub/kv") | undefined): void {
   installedKV = module
 }
 

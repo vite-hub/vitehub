@@ -122,8 +122,8 @@ export function loadsViteHubPackagesNatively(name: string, env: { command: strin
 
 /** A generated module, and the package export that receives it when Node loads the package in `vite dev`. */
 export interface NativePackageInstall {
-  /** The generated module, such as `./registry.mjs`. */
-  module: string
+  /** The generated module, such as `./registry.mjs`. Omit it to clear a previous installation. */
+  module?: string
   /** The package entry that exports `install`. */
   from: string
   /** The export that receives the module namespace. */
@@ -139,10 +139,10 @@ export function renderNativePackageInstallPlugin(installs: readonly NativePackag
   return [
     ...installs.flatMap(({ from, install, module }, index) => [
       `import { ${install} as viteHubInstall${index} } from ${JSON.stringify(from)}`,
-      `import * as viteHubModule${index} from ${JSON.stringify(module)}`,
+      ...(module ? [`import * as viteHubModule${index} from ${JSON.stringify(module)}`] : []),
     ]),
     "",
-    ...installs.map((_, index) => `viteHubInstall${index}(viteHubModule${index})`),
+    ...installs.map(({ module }, index) => `viteHubInstall${index}(${module ? `viteHubModule${index}` : "undefined"})`),
     "",
     "export default function viteHubNativePackagesPlugin() {}",
     "",

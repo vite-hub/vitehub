@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process"
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { afterEach, describe, expect, it } from "vitest"
@@ -57,8 +57,12 @@ describe("Agent package in vite dev", () => {
         expect(await readFile(registryPlugin, "utf8")).toBe([
           'import { installAgentRegistry as viteHubInstall0 } from "@vite-hub/agent/server/registry"',
           'import * as viteHubModule0 from "./registry.mjs"',
+          'import { installAgentKV as viteHubInstall1 } from "@vite-hub/agent/server/registry"',
+          'import { installAgentServerEnv as viteHubInstall2 } from "@vite-hub/agent/server/registry"',
           "",
           "viteHubInstall0(viteHubModule0)",
+          "viteHubInstall1(undefined)",
+          "viteHubInstall2(undefined)",
           "",
           "export default function viteHubNativePackagesPlugin() {}",
           "",
@@ -66,6 +70,27 @@ describe("Agent package in vite dev", () => {
       }
       else expect(plugins).not.toContain(registryPlugin)
     }
+  })
+
+  it("installs the native registry before existing plugin modules evaluate, on startup and reload", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-native-order-"))
+    roots.push(root)
+    const consumer = join(root, "consumer.mjs")
+    const plugin = hubAgent()
+    const config = { root, nitro: { plugins: [consumer] }, [VITEHUB_NITRO_CONFIG_CONTEXT]: true }
+    await (plugin.config as (config: unknown, env: unknown) => Promise<unknown>)(config, { command: "serve", mode: "development" })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root, command: "serve", plugins: [], build: { outDir: "dist" }, resolve: { alias: [] }, server: {}, createResolver: () => async () => undefined })
+    const installer = join(root, ".vitehub/agent/registry-dev-plugin.ts")
+    const source = (await readFile(installer, "utf8")).replaceAll("@vite-hub/agent/server/registry", import.meta.resolve("@vite-hub/agent/server/registry"))
+    await writeFile(consumer, `import { getAgentFromRegistry } from ${JSON.stringify(import.meta.resolve("@vite-hub/agent"))}\nprocess.stdout.write((await getAgentFromRegistry("echo")).description)\nexport default () => {}\n`)
+    for (const revision of ["first", "second"]) {
+      await writeFile(join(root, ".vitehub/agent/registry.mjs"), `export default { echo: async () => ({ default: { description: ${JSON.stringify(revision)} } }) }\nexport const metadata = { echo: { name: "echo" } }\n`)
+      await writeFile(installer.replace(".ts", `-${revision}.mjs`), source.replace("./registry.mjs", `./registry-${revision}.mjs`))
+      await writeFile(join(root, `.vitehub/agent/registry-${revision}.mjs`), await readFile(join(root, ".vitehub/agent/registry.mjs")))
+      await writeFile(join(root, `${revision}.mjs`), config.nitro.plugins.map(path => `import ${JSON.stringify(pathToFileURL(path === installer ? installer.replace(".ts", `-${revision}.mjs`) : path).href + `?${revision}`)}`).join("\n"))
+    }
+    const { stdout } = await execFileAsync(process.execPath, ["--input-type=module", "--eval", `await import(${JSON.stringify(pathToFileURL(join(root, "first.mjs")).href)}); await import(${JSON.stringify(pathToFileURL(join(root, "second.mjs")).href)})`])
+    expect(stdout).toBe("firstsecond")
   })
 
   it("installs the KV package that Vite resolves when the host configures KV", async () => {
@@ -84,5 +109,24 @@ describe("Agent package in vite dev", () => {
     const module = { kv: { get: async () => "installed" } } as never
     installAgentKV(module)
     expect(await importOptionalKV()).toBe(module)
+    installAgentKV(undefined)
+  })
+
+  it("hands the generated Server Env module to the native Agent and clears it when Env is removed", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-native-dev-env-"))
+    roots.push(root)
+    for (const plugins of [[{ name: "@vite-hub/env/vite" }], []]) {
+      const plugin = hubAgent()
+      await (plugin.configResolved as (config: unknown) => Promise<void>)({ root, command: "serve", plugins, build: { outDir: "dist" }, resolve: { alias: [] }, server: {}, createResolver: () => async () => undefined })
+      const source = await readFile(join(root, ".vitehub/agent/registry-dev-plugin.ts"), "utf8")
+      if (plugins.length) {
+        expect(source).toContain('import * as viteHubModule2 from "#vitehub/env/server"')
+        expect(source).toContain("viteHubInstall2(viteHubModule2)")
+      }
+      else {
+        expect(source).not.toContain('from "#vitehub/env/server"')
+        expect(source).toContain("viteHubInstall2(undefined)")
+      }
+    }
   })
 })

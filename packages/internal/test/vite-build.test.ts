@@ -32,15 +32,18 @@ describe("Vite provider builds", () => {
     const source = renderNativePackageInstallPlugin([
       { from: "@vite-hub/agent/server/registry", install: "installAgentRegistry", module: "./registry.mjs" },
       { from: "@vite-hub/agent/server/registry", install: "installAgentKV", module: "vite-hub/_internal/kv" },
+      { from: "@vite-hub/agent/server/registry", install: "installAgentServerEnv" },
     ])
     expect(source).toBe([
       'import { installAgentRegistry as viteHubInstall0 } from "@vite-hub/agent/server/registry"',
       'import * as viteHubModule0 from "./registry.mjs"',
       'import { installAgentKV as viteHubInstall1 } from "@vite-hub/agent/server/registry"',
       'import * as viteHubModule1 from "vite-hub/_internal/kv"',
+      'import { installAgentServerEnv as viteHubInstall2 } from "@vite-hub/agent/server/registry"',
       "",
       "viteHubInstall0(viteHubModule0)",
       "viteHubInstall1(viteHubModule1)",
+      "viteHubInstall2(undefined)",
       "",
       "export default function viteHubNativePackagesPlugin() {}",
       "",

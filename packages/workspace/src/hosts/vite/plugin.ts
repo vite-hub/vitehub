@@ -1400,10 +1400,10 @@ function shouldInstallNitroWorkspacePlugin(
     || (hasNitroConfig(config) && definitions.length > 0)
 }
 
-function mergeNitroWorkspaceConfig(value: unknown): NitroConfig {
+function mergeNitroWorkspaceConfig(value: unknown, dev: boolean): NitroConfig {
   const nitro: NitroConfig = isRecord(value) ? { ...value } : {}
   const kit = createNitroServerKit(nitro)
-  kit.addPlugin(generatedNitroWorkspacePlugin)
+  kit.addPlugin(generatedNitroWorkspacePlugin, dev ? "start" : "end")
   // SAFETY: The kit preserves the Nitro config object shape while adding the generated plugin.
   return kit.config as NitroConfig
 }
@@ -1533,9 +1533,10 @@ function renderNitroWorkspacePlugin(
     ...runtimeImports,
     `import registry from ${JSON.stringify(registryImport)}`,
     "",
+    "setWorkspaceRuntimeRegistry(registry)",
+    "",
     "export default function vitehubWorkspacePlugin() {",
     ...(cloudflareRuntime ? ["  setActiveCloudflareEnv(vitehubEnv)"] : []),
-    "  setWorkspaceRuntimeRegistry(registry)",
     ...runtimeSetup,
     "}",
     "",
@@ -1600,7 +1601,7 @@ export async function createWorkspaceNitroConfig(options: WorkspaceNitroConfigOp
   const runtimeConfig = shouldConfigureRuntime(workspaceOptions, normalized) ? normalized : false
   const cloudflareRuntime = cloudflareArtifactsConfigs.length > 0 || getHostingProvider(hosting) === "cloudflare"
   await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, workspaceOptions, definitions, cloudflareRuntime, WORKSPACE_PACKAGE_NAME, definitionOverrides)
-  const nitro = mergeNitroWorkspaceConfig(options.nitro)
+  const nitro = mergeNitroWorkspaceConfig(options.nitro, options.command !== "build")
   for (const config of cloudflareArtifactsConfigs) configureCloudflareArtifacts(nitro, config)
   if (cloudflareRuntime) configureCloudflareNitroRuntime(nitro)
   return nitro
@@ -1733,7 +1734,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         const usesCloudflareArtifacts = artifacts.length > 0
         const usesCloudflareRuntime = usesCloudflareArtifacts || getHostingProvider(resolvedHosting) === "cloudflare"
         await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, runtimeOptions, definitions, usesCloudflareRuntime, importBase, definitionOverrides)
-        const nitro = mergeNitroWorkspaceConfig((config as ViteConfigWithWorkspaceNitro).nitro)
+        const nitro = mergeNitroWorkspaceConfig((config as ViteConfigWithWorkspaceNitro).nitro, env?.command === "serve")
         for (const artifactConfig of artifacts) configureCloudflareArtifacts(nitro, artifactConfig)
         if (usesCloudflareRuntime) configureCloudflareNitroRuntime(nitro)
         // Replace the Nitro config in place. A returned Nitro config would repeat its arrays when Vite merges it.

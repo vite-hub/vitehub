@@ -829,10 +829,10 @@ function guardAgentDevelopmentRoutes(nitro: NitroConfig, handlers: Array<{ route
   }
 }
 
-function mergeNitroPlugins(nitro: NitroConfig, plugins: string[]): NitroConfig {
-  if (plugins.length === 0) return nitro
+function mergeNitroPlugins(nitro: NitroConfig, plugins: string[], bootstrap?: string): NitroConfig {
+  if (plugins.length === 0 && !bootstrap) return nitro
   const existingPlugins = Array.isArray(nitro.plugins) ? nitro.plugins : []
-  return { ...nitro, plugins: [...existingPlugins, ...plugins] }
+  return { ...nitro, plugins: [...(bootstrap ? [bootstrap] : []), ...existingPlugins.filter(plugin => plugin !== bootstrap), ...plugins] }
 }
 
 function installAgentProviderRuntimePackages(nitro: NitroConfig, rootDir: string): NitroConfig {
@@ -2991,9 +2991,18 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           module: moduleImportSpecifier(join(generatedRoot, generatedAgentRegistryDevPlugin), join(generatedRoot, generatedAgentRegistry)),
         },
         // A configured KV store must come from the KV package that Vite resolves with the host's KV configuration.
-        ...(config.plugins?.some(plugin => plugin.name === "@vite-hub/kv/vite")
-          ? [{ from: registryEntry, install: "installAgentKV", module: getInternalAgentOptions(agent)?.kvImport ?? frameworkOptions?.kvImport ?? "@vite-hub/kv" }]
-          : []),
+        {
+          from: registryEntry,
+          install: "installAgentKV",
+          module: config.plugins?.some(plugin => plugin.name === "@vite-hub/kv/vite")
+            ? getInternalAgentOptions(agent)?.kvImport ?? frameworkOptions?.kvImport ?? "@vite-hub/kv"
+            : undefined,
+        },
+        {
+          from: registryEntry,
+          install: "installAgentServerEnv",
+          module: config.plugins?.some(plugin => plugin.name === "@vite-hub/env/vite") ? "#vitehub/env/server" : undefined,
+        },
       ]), "utf8")
     }
     if (normalized && config.command === "serve" && normalized.runtime !== "deno") {
@@ -3470,12 +3479,12 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const mergedAgentNitro = (nitroContext ? mergeAgentNitroExternals : cloneNitroConfig)(mergeNitroPlugins(
         guardAgentDevelopmentRoutes(mergeNitroHandlers(nitro, [...nitroHandlers, ...devNitroHandlers]), devNitroHandlers),
         [
-          ...(normalizeAgentOptions(agent) && nitroContext && !cliDiscovery && environment?.command === "serve" ? [join(generatedRoot, generatedAgentRegistryDevPlugin)] : []),
           ...(installPreparation ? [join(generatedRoot, generatedAgentPreparationPlugin)] : []),
           ...(installWebhookQueue ? [join(generatedRoot, generatedAgentWebhookQueuePlugin)] : []),
           ...(installProcessDiscordGateway ? [join(generatedRoot, generatedAgentDiscordGatewayPlugin)] : []),
           ...(processHostAgents.length ? [join(generatedRoot, generatedAgentProcessHostsPlugin)] : []),
         ],
+        normalizeAgentOptions(agent) && nitroContext && !cliDiscovery && environment?.command === "serve" ? join(generatedRoot, generatedAgentRegistryDevPlugin) : undefined,
       ))
       const mergedNitro = nitroContext && hasAgentDefinitions && !denoOutput
         ? installAgentProviderRuntimePackages(mergedAgentNitro, root)
