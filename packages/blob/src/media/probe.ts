@@ -88,7 +88,8 @@ function exifOrientation(bytes: Uint8Array, start: number, end: number): number 
   return 1
 }
 
-function probeJpeg(bytes: Uint8Array): ImageProbe | undefined {
+/** Reads the stored frame size and the EXIF orientation of a JPEG. */
+function readJpegFrame(bytes: Uint8Array): { height: number, orientation: number, width: number } | undefined {
   let offset = 2
   let orientation = 1
   while (offset + 4 <= bytes.length) {
@@ -109,14 +110,26 @@ function probeJpeg(bytes: Uint8Array): ImageProbe | undefined {
     // SOF0-SOF15 except DHT (C4), JPG (C8), and DAC (CC) carry the frame size.
     if (marker >= 0xC0 && marker <= 0xCF && marker !== 0xC4 && marker !== 0xC8 && marker !== 0xCC) {
       if (offset + 9 > bytes.length) return undefined
-      const height = u16be(bytes, offset + 5)
-      const width = u16be(bytes, offset + 7)
-      return orientation >= 5 && orientation <= 8 ? result("jpeg", height, width) : result("jpeg", width, height)
+      return { height: u16be(bytes, offset + 5), orientation, width: u16be(bytes, offset + 7) }
     }
     if (marker === 0xDA) return undefined
     offset += 2 + length
   }
   return undefined
+}
+
+function probeJpeg(bytes: Uint8Array): ImageProbe | undefined {
+  const frame = readJpegFrame(bytes)
+  if (!frame) return undefined
+  const { height, orientation, width } = frame
+  return orientation >= 5 && orientation <= 8 ? result("jpeg", height, width) : result("jpeg", width, height)
+}
+
+/** EXIF orientation of a JPEG, from 1 to 8. Other images and invalid values return 1. */
+export function jpegOrientation(bytes: Uint8Array): number {
+  if (bytes[0] !== 0xFF || bytes[1] !== 0xD8) return 1
+  const orientation = readJpegFrame(bytes)?.orientation ?? 1
+  return Number.isInteger(orientation) && orientation >= 1 && orientation <= 8 ? orientation : 1
 }
 
 /** Walks ISO BMFF boxes for the largest `ispe` (primary image size) and an `irot` rotation. */

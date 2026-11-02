@@ -171,48 +171,59 @@ function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined
  * `workersModule` is false in `vite dev`. The Nitro dev runner can be Node (`node-worker`), where `cloudflare:workers`
  * does not exist. The workerd runner gives each request its bindings, so dev code reads them from the event.
  */
-function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName, workersModule = true, sharp = false): string {
+function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName, workersModule = true, imageModule?: ImageModule): string {
   const cloudflareGlobals = cloudflare && workersModule
+  const setters = [cloudflareGlobals ? "setActiveCloudflareEnv" : undefined, "setBlobRuntimeConfig", imageModule === "sharp" ? "setBlobSharpModule" : imageModule === "photon" ? "setBlobPhotonLoader" : undefined]
   return [
     cloudflareGlobals ? "import { env as vitehubEnv } from 'cloudflare:workers'" : undefined,
     cloudflare ? undefined : "import { blobConfig } from './runtime.mjs'",
     // A literal import lets Nitro bundle or trace sharp for image variants.
-    sharp ? "import * as vitehubSharp from 'sharp'" : undefined,
-    `import { ${cloudflareGlobals ? "setActiveCloudflareEnv, " : ""}setBlobRuntimeConfig${sharp ? ", setBlobSharpModule" : ""} } from '${importBase}/runtime/state'`,
+    imageModule === "sharp" ? "import * as vitehubSharp from 'sharp'" : undefined,
+    `import { ${setters.filter(Boolean).join(", ")} } from '${importBase}/runtime/state'`,
     "",
     cloudflare ? `const blobConfig = ${JSON.stringify(blob)}` : undefined,
     "",
     "export default function vitehubBlobPlugin() {",
     cloudflareGlobals ? "  setActiveCloudflareEnv(vitehubEnv)" : undefined,
-    sharp ? "  setBlobSharpModule(vitehubSharp)" : undefined,
+    imageModule === "sharp" ? "  setBlobSharpModule(vitehubSharp)" : undefined,
+    // A literal dynamic import lets Nitro bundle Photon and its WebAssembly module in a chunk that loads on the first variant.
+    imageModule === "photon" ? "  setBlobPhotonLoader(() => import('@cf-wasm/photon'))" : undefined,
     "  setBlobRuntimeConfig(blobConfig)",
     "}",
     "",
   ].filter(line => typeof line === "string").join("\n")
 }
 
+type ImageModule = "photon" | "sharp"
+
 // Bundlers resolve through node_modules directories only. Node's NODE_PATH, which pnpm scripts set, would report a
-// sharp that the bundle cannot import.
-function isSharpInstalled(root: string): boolean {
+// package that the bundle cannot import.
+function isPackageInstalled(root: string, name: string): boolean {
   for (let directory = resolve(root); ; directory = dirname(directory)) {
-    if (existsSync(resolve(directory, "node_modules/sharp/package.json"))) return true
+    if (existsSync(resolve(directory, "node_modules", name, "package.json"))) return true
     if (dirname(directory) === directory) return false
   }
 }
 
 /**
- * Whether the generated Nitro plugin imports sharp. Workers never do. `auto` imports it when the project can resolve
- * it, and an explicit `sharp` transformer requires it.
+ * The image package that the generated Nitro plugin imports. An explicit `photon` transformer requires
+ * `@cf-wasm/photon` on every host. Workers never import sharp. `auto` imports sharp when the project can resolve it,
+ * and an explicit `sharp` transformer requires it.
  */
-function resolveSharpImport(root: string, blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, provider?: "cloudflare" | "vercel"): boolean {
-  if (!blob || blob.images === false || cloudflare || provider === "cloudflare") return false
+function resolveImageModule(root: string, blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, provider?: "cloudflare" | "vercel"): ImageModule | undefined {
+  if (!blob || blob.images === false) return undefined
   const transformer = blob.images?.transformer ?? "auto"
-  if (transformer !== "auto" && transformer !== "sharp") return false
-  const installed = isSharpInstalled(root)
+  if (transformer === "photon") {
+    if (isPackageInstalled(root, "@cf-wasm/photon")) return "photon"
+    throw blobErrorDiagnostics.BLOB_B0007({ message: "[vitehub] `blob.images.transformer` is \"photon\", but the project cannot resolve @cf-wasm/photon. Install it with: pnpm add @cf-wasm/photon" })
+  }
+  if (cloudflare || provider === "cloudflare") return undefined
+  if (transformer !== "auto" && transformer !== "sharp") return undefined
+  const installed = isPackageInstalled(root, "sharp")
   if (!installed && transformer === "sharp") {
     throw blobErrorDiagnostics.BLOB_B0005({ message: "[vitehub] `blob.images.transformer` is \"sharp\", but the project cannot resolve sharp. Install it with: pnpm add sharp" })
   }
-  return installed
+  return installed ? "sharp" : undefined
 }
 
 function renderNitroBlobMiddleware(importBase = blobPackageName, workersModule = true): string {
@@ -365,7 +376,7 @@ async function refreshBlobGeneratedFiles(root: string, blob: BlobViteRuntimeConf
   const runtimeFile = resolve(root, generatedNitroBlobRuntime)
   await Promise.all([
     writeFileIfChanged(runtimeFile, renderBlobRuntimeModule(runtimeFile, blob, provider)),
-    writeFileIfChanged(resolve(root, generatedNitroBlobPlugin), renderNitroBlobPlugin(blob, cloudflare, importBase, !development, resolveSharpImport(root, blob, cloudflare, provider))),
+    writeFileIfChanged(resolve(root, generatedNitroBlobPlugin), renderNitroBlobPlugin(blob, cloudflare, importBase, !development, resolveImageModule(root, blob, cloudflare, provider))),
     writeFileIfChanged(resolve(root, generatedNitroBlobMiddleware), renderNitroBlobMiddleware(importBase, !development)),
   ])
   const serve = blob ? blob.serve : undefined

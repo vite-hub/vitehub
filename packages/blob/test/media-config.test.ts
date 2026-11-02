@@ -17,6 +17,7 @@ describe("blob.images configuration", () => {
       images: { binding: "PHOTOS", quality: 80, sizes: [320, 640], transformer: "cloudflare-images" },
     })
     expect(normalizeBlobOptions({ images: { transformer: "sharp" }, stores: { default: { driver: "fs" } } })).toMatchObject({ images: { transformer: "sharp" } })
+    expect(normalizeBlobOptions({ driver: "fs", images: { transformer: "photon" } })).toMatchObject({ images: { transformer: "photon" } })
   })
 
   it.each([
@@ -66,6 +67,18 @@ describe("generated Nitro plugin", () => {
     expect(source).toContain("setBlobSharpModule(vitehubSharp)")
     expect(await generatePlugin({ driver: "fs", images: { transformer: "passthrough" } })).not.toContain("sharp")
     expect(await generatePlugin({ driver: "fs", images: false })).not.toContain("sharp")
+  })
+
+  it("registers a lazy Photon loader on every host when the photon transformer is set", async () => {
+    await expect(generatePlugin({ driver: "fs", images: { transformer: "photon" } })).rejects.toMatchObject({ code: "BLOB_B0007" })
+    await mkdir(join(root, "node_modules/@cf-wasm/photon"), { recursive: true })
+    await writeFile(join(root, "node_modules/@cf-wasm/photon/package.json"), "{\"name\":\"@cf-wasm/photon\"}")
+    expect(await generatePlugin({ driver: "fs" })).not.toContain("photon")
+    for (const options of [{ driver: "fs" as const }, { bucketName: "assets", driver: "cloudflare-r2" as const }]) {
+      const source = await generatePlugin({ ...options, images: { transformer: "photon" } })
+      expect(source).toContain("setBlobPhotonLoader(() => import('@cf-wasm/photon'))")
+      expect(source).not.toContain("sharp")
+    }
   })
 
   it("parses variant queries in the serve route and answers invalid ones with 400", async () => {
