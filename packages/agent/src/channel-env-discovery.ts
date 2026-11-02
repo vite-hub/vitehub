@@ -184,12 +184,21 @@ export function discoverBuiltInChannelUses(
   const bareBindings = new Map(bindings)
   const bareShadowBindings = new Map(shadowBindings)
   const aliasBindings = new Map<string, number>()
-  const declarations = moduleObjectDeclarations(tokens, lineBreaks, typescript, (name, start, binding, statementEnd) => {
-    const reference = channelFactoryReference(tokens, start, bareBindings, namespaces, known, typescript, statementEnd)
+  const namespaceBindings = new Map([...namespaces].map(name => [name, name]))
+  const declarations = moduleObjectDeclarations(tokens, lineBreaks, typescript, (binding, start, statementEnd) => {
+    const destructured = tokens[binding] === "{"
+    const reference = channelFactoryReference(tokens, start, destructured ? namespaceBindings : bareBindings, namespaces, known, typescript, statementEnd)
     if (!reference || reference.call || isShadowedAt(tokens, reference.index, tokens[reference.index]!, bareShadowBindings, lineBreaks, aliasBindings.get(tokens[reference.index]!))) return
-    bareBindings.set(name, reference.kind)
-    bareShadowBindings.set(name, reference.kind)
-    aliasBindings.set(name, binding)
+    const register = (name: string, kind: string) => {
+      bareBindings.set(name, kind)
+      bareShadowBindings.set(name, kind)
+      aliasBindings.set(name, binding)
+    }
+    if (!destructured) register(tokens[binding]!, reference.kind)
+    else visitObjectProperties(tokens, binding, (kind, value) => {
+      if (!known.has(kind) || value === undefined || !/^[A-Za-z_$][\w$]*$/.test(tokens[value]!) || ![",", "}", "="].includes(tokens[value + 1]!)) return
+      register(tokens[value]!, kind)
+    })
   })
   const agentBindings = new Map([...agentFactories].map(name => [name, "defineAgent"]))
   const agentShadowBindings = new Map([...agentBindings, ...[...agentNamespaces].map(name => [name, name] as const)])
@@ -793,7 +802,7 @@ function bindingPatternHasName(tokens: string[], start: number, name: string, cl
 }
 
 // Map module-level const objects to their opening brace and visit other const initializers.
-function moduleObjectDeclarations(tokens: string[], lineBreaks: ReadonlySet<number>, typescript: boolean, visitInitializer?: (name: string, start: number, binding: number, statementEnd: (index: number) => boolean) => void): Map<string, number> {
+function moduleObjectDeclarations(tokens: string[], lineBreaks: ReadonlySet<number>, typescript: boolean, visitInitializer?: (binding: number, start: number, statementEnd: (index: number) => boolean) => void): Map<string, number> {
   const declarations = new Map<string, number>()
   // A newline before an identifier ends the initializer unless it continues
   // an assertion or a binary expression. Operators can continue across lines.
@@ -805,8 +814,10 @@ function moduleObjectDeclarations(tokens: string[], lineBreaks: ReadonlySet<numb
     const token = tokens[i]!
     if (depth === 0 && (token === ";" || (token !== "const" && statementEnd(i)))) constantDeclaration = false
     if (depth === 0 && token === "const") constantDeclaration = true
-    if (depth === 0 && constantDeclaration && ["const", ","].includes(token) && /^[A-Za-z_$][\w$]*$/.test(tokens[i + 1] ?? "")) {
-      let equals = i + 2
+    const binding = i + 1
+    const destructured = tokens[binding] === "{"
+    if (depth === 0 && constantDeclaration && ["const", ","].includes(token) && (destructured || /^[A-Za-z_$][\w$]*$/.test(tokens[binding] ?? ""))) {
+      let equals = destructured ? closingDelimiter(tokens, binding) + 1 : binding + 1
       while (tokens[equals] && !["=", ",", ";", "const", "let", "var", "declare", "export", "import"].includes(tokens[equals]!)) {
         if (["{", "(", "["].includes(tokens[equals]!)) equals = closingDelimiter(tokens, equals) + 1
         else if (typescript && tokens[equals] === "<") equals = skipTypeArguments(tokens, equals)
@@ -814,10 +825,10 @@ function moduleObjectDeclarations(tokens: string[], lineBreaks: ReadonlySet<numb
       }
       if (tokens[equals] === "=") {
         const start = skipOptionAssertions(tokens, equals + 1, typescript)
-        visitInitializer?.(tokens[i + 1]!, start, i + 1, statementEnd)
+        visitInitializer?.(binding, start, statementEnd)
         const object = localObject(tokens, start, declarations, typescript)
         const end = ["{", "("].includes(tokens[start]!) ? closingDelimiter(tokens, start) + 1 : start + 1
-        if (object !== undefined && isValueEnd(tokens, end, new Set([",", ";"]), statementEnd)) declarations.set(tokens[i + 1]!, object)
+        if (!destructured && object !== undefined && isValueEnd(tokens, end, new Set([",", ";"]), statementEnd)) declarations.set(tokens[binding]!, object)
       }
     }
     if (["{", "(", "["].includes(token)) depth++

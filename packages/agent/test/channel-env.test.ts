@@ -189,6 +189,12 @@ describe("built-in Channel discovery", () => {
     "const first = telegram, support = first",
     "const support = ((telegram<Runtime>))",
     "const support = telegram satisfies ChannelFactory",
+    "const { telegram: support } = channels",
+    "const { telegram: first } = channels; const support = first",
+    'const { ["telegram"]: support } = channels',
+    "const { telegram: support }: typeof channels = (channels)",
+    "const first = 1, { telegram: support } = channels",
+    "const { telegram: first } = channels, support = first",
   ])("finds bare Channel factory aliases: %s", declaration => {
     expect(uses(`
       import { defineAgent } from "vite-hub/agent"
@@ -197,6 +203,15 @@ describe("built-in Channel discovery", () => {
       ${declaration}
       export default defineAgent({ channels: { support } })
     `)).toEqual([{ kind: "telegram", keys: [] }])
+  })
+
+  it("preserves factory kinds in shorthand and renamed namespace bindings", () => {
+    expect(uses(`
+      import { defineAgent } from "vite-hub/agent"
+      import * as channels from "@vite-hub/agent/channels"
+      const { telegram, github: repo } = channels
+      export default defineAgent({ channels: { support: telegram, repo } })
+    `)).toEqual([{ kind: "telegram", keys: [] }, { kind: "github", keys: [] }])
   })
 
   it("ignores shadowed aliases and aliases of non-factory expressions", () => {
@@ -209,6 +224,23 @@ describe("built-in Channel discovery", () => {
       function build(support) { return defineAgent({ channels: { support } }) }
       { const support = custom; defineAgent({ channels: { support } }) }
       defineAgent({ channels: { selected, wrapped } })
+    `)).toEqual([])
+  })
+
+  it("respects shadows and requires a namespace initializer for destructured aliases", () => {
+    expect(uses(`
+      import { defineAgent } from "vite-hub/agent"
+      import * as channels from "vite-hub/agent/channels"
+      const { telegram: support } = channels
+      const { telegram: selected } = channels || custom
+      const { telegram: unrelated } = custom
+      function build(support) { return defineAgent({ channels: { support } }) }
+      { const support = custom; defineAgent({ channels: { support } }) }
+      function local(channels) {
+        const { telegram: nested } = channels
+        return defineAgent({ channels: { nested } })
+      }
+      defineAgent({ channels: { selected, unrelated } })
     `)).toEqual([])
   })
 
@@ -1077,7 +1109,7 @@ describe("built-in Channel discovery", () => {
     }
   })
 
-  it.each(["(telegram)", "((telegram))", "telegram<Runtime>", "channels?.[\"telegram\"]()", "channels?.[\"telegram\"]", "support"])("requires Telegram Env for %s", async (factory) => {
+  it.each(["(telegram)", "((telegram))", "telegram<Runtime>", "channels?.[\"telegram\"]()", "channels?.[\"telegram\"]", "support", "destructured"])("requires Telegram Env for %s", async (factory) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-channel-env-"))
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
@@ -1086,6 +1118,7 @@ describe("built-in Channel discovery", () => {
         import { telegram } from "vite-hub/agent/channels"
         import * as channels from "vite-hub/agent/channels"
         const support = telegram
+        const { telegram: destructured } = channels
         export default defineAgent({ channels: { support: ${factory} } })
       `)
       expect(discoverAgentChannelEnv({ rootDir: root }).telegram?.botToken).toEqual({
