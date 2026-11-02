@@ -4,6 +4,7 @@ import { stripTypeScriptTypes } from "node:module";
 import { Readable } from "node:stream";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { VITEHUB_APP_BASE_URL, VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite";
 import { mergeConfig, resolveConfig } from "vite";
@@ -80,6 +81,19 @@ describe("hubConnections", () => {
     await expect(readFile(nitro.handlers[0]!.handler, "utf8")).resolves.toContain(
       `from "${importBase}/server"`,
     );
+  });
+
+  it("inlines a linked @vite-hub/connections in Nitro so it reads the generated registry", async () => {
+    const root = await createTempProject();
+    const config = { nitro: {}, root, [VITEHUB_NITRO_CONFIG_CONTEXT]: true };
+    await (hubConnections().config as unknown as ConfigHook)(config, { command: "serve", mode: "development" });
+    const { inline } = (config.nitro as { externals: { inline: unknown[] } }).externals;
+    // In this workspace the package resolves outside node_modules, like any linked package. Nitro 2 matches inline
+    // strings against the path and against the part after the last `node_modules/`.
+    const file = fileURLToPath(import.meta.resolve("@vite-hub/connections/server"));
+    const nitroMatches = (pattern: string) => file.startsWith(pattern) || file.split("node_modules/").pop()!.startsWith(pattern);
+    expect(nitroMatches("@vite-hub/connections")).toBe(false);
+    expect(inline.some(entry => typeof entry === "string" && nitroMatches(entry))).toBe(true);
   });
 
   it("writes the resolved activity retention into the registry", async () => {

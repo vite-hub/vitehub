@@ -116,6 +116,7 @@ import {
 } from "./capability-runtime.ts"
 import type { AgentCapabilityRegistries, AgentFinishDeliveryReminder, CapabilityCleanupOutcome, ResolvedAgentFinishExtensionProvider, ResolvedAgentOutputExtensionProvider } from "./capability-runtime.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
+import { readProviderStatusError } from "./internal/provider-status-error.ts"
 import { isResponse } from "./internal/response.ts"
 import { cancellableAsyncIterableSource, createAgentUIMessageStreamResponse, finalizeUiMessageStreamOutput, isUIMessageStreamResponse, isUIMessageStreamResult, normalizeUiMessageStream, normalizeUIMessageStreamResponse, uiMessageStreamFromResponse, uiMessageTextDelta, withReadableStreamCleanup } from "./stream-output.ts"
 import {
@@ -4772,7 +4773,7 @@ async function createAgentInvocationContext<
       ? await resolveReadiness()
       : undefined
     if (readiness?.readiness === "unavailable" && !readiness.stale) {
-      throw agentDiagnostics.AGENT_R0726({ message: readiness.reason || "The provider is unavailable." })
+      throw readProviderStatusError(readiness) ?? agentDiagnostics.AGENT_R0726({ message: readiness.reason || "The provider is unavailable." })
     }
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const preparingCapabilities = resolveAgentCapabilities(capabilityOptions, runtimeContext, input, workspace as never, workspaceMode, {
@@ -4790,7 +4791,7 @@ async function createAgentInvocationContext<
     })
     const knownUnavailable = (capabilities: Awaited<typeof preparingCapabilities>) => resolveReadiness().then(status => {
       if (status?.readiness === "unavailable" && !status.stale) {
-        const error = agentDiagnostics.AGENT_R0726({ message: status.reason || "The provider is unavailable." })
+        const error = readProviderStatusError(status) ?? agentDiagnostics.AGENT_R0726({ message: status.reason || "The provider is unavailable." })
         // Input preparation owns resources even when provider preflight fails.
         const cleanup = capabilities.close()
         context.waitUntil?.(cleanup)

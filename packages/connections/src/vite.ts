@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto"
 import { lstat, readFile, rename, rm, writeFile } from "node:fs/promises"
-import { isAbsolute, relative, resolve } from "node:path";
+import { findPackageJSON } from "node:module";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
 import * as v from "valibot";
 
@@ -30,6 +31,12 @@ export const CONNECTIONS_REGISTRY_ID = "#vitehub/connections/registry";
 export const CONNECTIONS_VITE_PLUGIN_NAME = "@vite-hub/connections/vite";
 
 const resolvedConnectionsRegistryId = `\0${CONNECTIONS_REGISTRY_ID}`;
+/**
+ * Nitro 2 matches `@vite-hub/connections` against the import name and the resolved path after its last
+ * `node_modules/`. A linked package, such as a pnpm workspace package, resolves outside `node_modules`, so Nitro left
+ * it to Node, and Node served the empty registry fallback instead of the generated registry alias.
+ */
+const connectionsPackageRoot = `${dirname(findPackageJSON(import.meta.url)!)}${sep}`;
 const noExternalAddition = createNoExternalAddition("@vite-hub/connections");
 // Keep prior output ownership with the project so cleanup works after a restart.
 const generatedTypesManifest = ".vitehub/connections-types.json";
@@ -474,6 +481,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
                 ...(Array.isArray(externals.inline) ? externals.inline : []),
                 "vite-hub",
                 "@vite-hub/connections",
+                connectionsPackageRoot,
               ]),
             ];
       nitro.alias = { ...alias, [CONNECTIONS_REGISTRY_ID]: nitroRegistryFile };

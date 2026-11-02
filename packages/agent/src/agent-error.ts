@@ -358,10 +358,28 @@ function aiSdkProviderPublicError(error: unknown): AgentPublicError | undefined 
 // Messages that only mention one, such as probe notes, are not quota failures.
 const providerQuotaMessage = /usage limit|quota (?:is )?(?:exhausted|exceeded)|insufficient (?:quota|credits)|credit balance.*(?:low|exhausted)|spend(?:ing)?[\s_-]?(?:limit|cap)s?\b[^.]*\b(?:reached|exceeded|hit)\b|\b(?:reached|exceeded|hit)\b[^.]*\bspend(?:ing)?[\s_-]?(?:limit|cap)|(?:billing|spending) budget (?:is )?exceeded/i
 
+/**
+ * The ChatGPT gateway diagnostics. Their fix is for the site owner, such as a sign-in or a Codex install, and they
+ * carry no secrets, so a chat client can show them. A chat stream shows them in the same `CODE: message` form.
+ */
+const chatgptGatewayDiagnosticCodes = new Set([
+  "AGENT_R1015", "AGENT_R1016", "AGENT_R1017", "AGENT_R1018", "AGENT_R1019", "AGENT_R1020",
+  "AGENT_R1021", "AGENT_R1022", "AGENT_R1023", "AGENT_R1024", "AGENT_R1025",
+])
+
+export function chatgptGatewayDiagnostic(error: unknown): string | undefined {
+  const code = readAgentErrorProperty(error, "code")
+  const message = readAgentErrorProperty(error, "message")
+  if (!hasRuntimeType(code, "string") || !chatgptGatewayDiagnosticCodes.has(code) || !hasRuntimeType(message, "string")) return
+  return message.startsWith(code) ? message : `${code}: ${message}`
+}
+
 export function toAgentPublicError(error: unknown, context: AgentPublicErrorContext): AgentPublicError {
   try {
     const providerError = aiSdkProviderPublicError(error)
     if (providerError) return providerError
+    const chatgptError = chatgptGatewayDiagnostic(error)
+    if (chatgptError) return publicError("PROVIDER_UNAVAILABLE", chatgptError)
     // Only provider runtime diagnostics may opt into text-based quota classification.
     // Other internal failures can mention quotas without being provider failures.
     if (readAgentErrorProperty(error, "code") === "AGENT_R0726") {
