@@ -20,8 +20,9 @@ interface ChannelHistoryCliContext {
 }
 
 interface ChannelHistoryCliOptions {
+  envDir?: string | false
   fetch?: typeof fetch
-  loadTargets?: (input: { agent?: string, channel?: string, env: NodeJS.ProcessEnv, registration?: string, resolveDefaultThread: boolean, rootDir: string, stage: string }) => Promise<LoadedChannelTarget[]>
+  loadTargets?: (input: { agent?: string, channel?: string, env: NodeJS.ProcessEnv, envDir?: string | false, registration?: string, resolveDefaultThread: boolean, rootDir: string, stage: string }) => Promise<LoadedChannelTarget[]>
   rootDir?: string
 }
 
@@ -203,6 +204,7 @@ export async function runAgentChannelHistoryCli(
       agent: parsed.agent,
       channel: parsed.channel,
       env: context.env,
+      ...(options.envDir !== undefined ? { envDir: options.envDir } : {}),
       registration: parsed.webhook,
       resolveDefaultThread: parsed.threadId === undefined,
       rootDir: options.rootDir || context.rootDir,

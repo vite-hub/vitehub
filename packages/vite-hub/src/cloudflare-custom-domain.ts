@@ -42,7 +42,7 @@ export function cloudflareCustomDomainConfig(
   project: Record<string, unknown> | undefined,
 ): { routes: [{ custom_domain: true, pattern: string }], workers_dev: false } | undefined {
   const url = new URL(publicUrl)
-  if (url.protocol !== "https:" || url.port || url.hostname.endsWith(".workers.dev")) return
+  if (url.protocol !== "https:" || url.port || url.hostname === "workers.dev" || url.hostname.endsWith(".workers.dev")) return
   const labels = url.hostname.split(".")
   if (isIP(url.hostname) || url.hostname.length > 253 || labels.length < 2
     || !labels.every(label => /^[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?$/i.test(label))) return

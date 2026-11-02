@@ -795,21 +795,25 @@ describe("agent CLI", () => {
         cwd: "/repo", env: {}, publicUrl, rootDir: "/repo", stderr, stdout: stream(),
       }, {
         fetch: (async () => new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })) as never,
-        loadTargets: async () => [{
-          agent: "support",
-          channel: "telegram",
-          mode: "webhook",
-          provider: "telegram",
-          registration: { id: "telegram" },
-          sync: {
-            apply: async (plan) => {
-              applied.push(String(plan.desired.url))
-              return { url: plan.desired.url }
-            },
+        envDir: "/repo/config",
+        loadTargets: async (input) => {
+          expect(input.envDir).toBe("/repo/config")
+          return [{
+            agent: "support",
+            channel: "telegram",
             mode: "webhook",
-            plan: async ({ desiredUrl }) => ({ action: "create", current: { url: "" }, desired: { url: desiredUrl } }),
-          },
-        }],
+            provider: "telegram",
+            registration: { id: "telegram" },
+            sync: {
+              apply: async (plan) => {
+                applied.push(String(plan.desired.url))
+                return { url: plan.desired.url }
+              },
+              mode: "webhook",
+              plan: async ({ desiredUrl }) => ({ action: "create", current: { url: "" }, desired: { url: desiredUrl } }),
+            },
+          }]
+        },
       })
       return { exitCode, stderr: stderr.output() }
     }
@@ -854,12 +858,16 @@ describe("agent CLI", () => {
       const exitCode = await runAgentChannelHistoryCli(["--stage", "production", "--output", "export"], {
         cwd: rootDir, env: {}, publicUrl: "https://app.example.com", rootDir, stderr: stderr, stdout: stream(),
       }, {
+        envDir: false,
         fetch: async (input, init) => {
           urls.push(String(input))
           if (init?.method === "HEAD") return new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
           return Response.json({ messages: [], schemaVersion: 1, threadId: "telegram:123" })
         },
-        loadTargets: async () => [{ agent: "calories", channel: "telegram", defaultThreadId: "telegram:123", mode: "webhook", provider: "telegram", registration: { id: "telegram", secretHeader: "x-test-secret", secretToken: "secret" } }],
+        loadTargets: async (input) => {
+          expect(input.envDir).toBe(false)
+          return [{ agent: "calories", channel: "telegram", defaultThreadId: "telegram:123", mode: "webhook", provider: "telegram", registration: { id: "telegram", secretHeader: "x-test-secret", secretToken: "secret" } }]
+        },
       })
       expect(stderr.output()).toBe("")
       expect(exitCode).toBe(0)

@@ -53,8 +53,9 @@ describe("vitehub({ publicUrl })", () => {
   })
 
   it("keeps an existing noExternal: true for server environments", () => {
-    // SAFETY: The hook reads only the environment consumer and resolve options, which this fixture supplies.
-    const hook = publicUrlPlugin(undefined).configEnvironment as (name: string, config: { consumer: string, resolve?: { noExternal?: true | string[] } }) => { resolve: { noExternal: unknown } } | undefined
+    // SAFETY: The hook reads only the environment consumer, resolve options, and command, which this fixture supplies.
+    const configEnvironment = publicUrlPlugin(undefined).configEnvironment as (name: string, config: { consumer: string, resolve?: { noExternal?: true | string[] } }, env: { command: string }) => { resolve: { noExternal: unknown } } | undefined
+    const hook = (name: string, config: { consumer: string, resolve?: { noExternal?: true | string[] } }) => configEnvironment(name, config, { command: "build" })
     expect(hook("nitro", { consumer: "server", resolve: { noExternal: true } })).toBeUndefined()
     expect(hook("nitro", { consumer: "server", resolve: { noExternal: ["vite-hub"] } })?.resolve.noExternal).toEqual(["@vite-hub/runtime"])
     const existing = { consumer: "server", resolve: { noExternal: ["vite-hub", "@vite-hub/runtime"] } }
@@ -62,5 +63,12 @@ describe("vitehub({ publicUrl })", () => {
     const config = { consumer: "server", resolve: { noExternal: ["vite-hub"] } }
     expect(mergeConfig(config, hook("nitro", config) ?? {}).resolve.noExternal).toEqual(["vite-hub", "@vite-hub/runtime"])
     expect(hook("client", { consumer: "client" })).toBeUndefined()
+  })
+
+  it("lets Node load the runtime package in the Nitro environment of vite dev", () => {
+    // SAFETY: The hook reads only the environment consumer, resolve options, and command, which this fixture supplies.
+    const configEnvironment = publicUrlPlugin(undefined).configEnvironment as (name: string, config: { consumer: string }, env: { command: string }) => unknown
+    expect(configEnvironment("nitro", { consumer: "server" }, { command: "serve" })).toBeUndefined()
+    expect(configEnvironment("ssr", { consumer: "server" }, { command: "serve" })).toEqual({ resolve: { noExternal: ["@vite-hub/runtime"] } })
   })
 })

@@ -824,17 +824,28 @@ export default {
   })
 
   // Boots a real Nuxt app, which takes more than the default 5 s on a busy machine.
-  it.each([undefined, "production"])("loads development-only Nuxt contributors during CLI discovery (stage: %s)", { timeout: 30_000 }, async (stage) => {
+  it.each([
+    { stage: undefined, vite: {}, directory: undefined },
+    { stage: "production", vite: {}, directory: "." },
+    { stage: "production", vite: { root: "client" }, directory: "client" },
+    { stage: "production", vite: { root: "client", envDir: "../config" }, directory: "config" },
+    { stage: "production", vite: { envDir: false }, directory: undefined },
+  ])("loads development-only Nuxt contributors during CLI discovery ($stage, $directory)", { timeout: 30_000 }, async ({ stage, vite, directory }) => {
     const rootDir = await createTempDir()
     await mkdir(join(rootDir, "node_modules"))
     await symlink(resolve(import.meta.dirname, "../node_modules/nuxt"), join(rootDir, "node_modules/nuxt"), "dir")
     await writeFile(join(rootDir, "package.json"), "{}\n")
-    await writeFile(join(rootDir, ".env.production"), "VITEHUB_TEST_NUXT_PUBLIC_URL=https://env.production.example.com\n")
+    await writeFile(join(rootDir, ".env.production"), "VITEHUB_TEST_NUXT_PUBLIC_URL=https://wrong.example.com\n")
+    if (directory !== undefined) {
+      await mkdir(join(rootDir, directory), { recursive: true })
+      await writeFile(join(rootDir, directory, ".env.production"), "VITEHUB_TEST_NUXT_PUBLIC_URL=https://env.production.example.com\n")
+    }
     await writeFile(join(rootDir, "nuxt.config.ts"), `
 export default {
+  configuredEnv: process.env.VITEHUB_TEST_NUXT_PUBLIC_URL,
   modules: ["./discovery-module.ts"],
   testOrigin: "https://development.example.com",
-  $production: { testOrigin: "https://production.example.com" },
+  $production: { vite: ${JSON.stringify(vite)}, testOrigin: "https://production.example.com" },
 }
 `)
     await writeFile(join(rootDir, "discovery-module.ts"), `
@@ -848,8 +859,8 @@ export default function (_options, nuxt) {
     name: "fixture-discovery-test",
     vitehub: {
       cli: {
-        publicUrl: nuxt.options.testOrigin,
-        namespaces: [{ features: [{ name: "sync", run: (_args, context) => { context.stdout.write(JSON.stringify({ fromEnv, publicUrl: context.publicUrl })); return 0 } }], name: "channels" }],
+        publicUrl: nuxt.options.configuredEnv ?? nuxt.options.testOrigin,
+        namespaces: [{ features: [{ name: "sync", run: (_args, context) => { context.stdout.write(JSON.stringify({ fromConfigEnv: nuxt.options.configuredEnv, fromEnv, publicUrl: context.publicUrl })); return 0 } }], name: "channels" }],
       },
     },
   }
@@ -865,8 +876,9 @@ export default function (_options, nuxt) {
       stdout,
     })).resolves.toBe(0)
     expect(JSON.parse(stdout.output())).toEqual({
-      fromEnv: stage ? "https://env.production.example.com" : undefined,
-      publicUrl: `https://${stage ?? "development"}.example.com`,
+      fromConfigEnv: directory === undefined ? undefined : "https://env.production.example.com",
+      fromEnv: directory === undefined ? undefined : "https://env.production.example.com",
+      publicUrl: directory === undefined ? `https://${stage ?? "development"}.example.com` : "https://env.production.example.com",
     })
   })
 

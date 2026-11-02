@@ -8,6 +8,7 @@ export interface ViteStageServer {
 
 export interface ViteStageServerConfig {
   appType: "custom"
+  envDir?: string | false
   logLevel: "silent"
   mode: string
   root: string
@@ -22,6 +23,8 @@ export interface ViteStageModule<TServer extends ViteStageServer> {
 export interface ViteStageServerInput {
   /** Environment that wins over values from stage-specific env files. */
   env: NodeJS.ProcessEnv
+  /** Resolved environment directory from the project's Vite configuration. */
+  envDir?: string | false
   rootDir: string
   stage: string
   /** Stream that receives config and stage-server logs. */
@@ -53,6 +56,7 @@ async function runStageServer<TServer extends ViteStageServer, TResult>(
     // Nitro and other plugins log to stdout while the server loads its config, so keep command output clean.
     server = await withStdoutOnStderr(async () => await vite.createServer({
       appType: "custom",
+      ...(input.envDir !== undefined ? { envDir: input.envDir } : {}),
       logLevel: "silent",
       mode: input.stage,
       root: input.rootDir,

@@ -91,24 +91,32 @@ async function loadNuxtViteConfig(rootDir: string, command: ConfigEnv["command"]
   if (!hasNuxtConfig) return
 
   let loadNuxt: typeof import("nuxt/kit")["loadNuxt"]
+  let loadNuxtConfig: typeof import("nuxt/kit")["loadNuxtConfig"]
   try {
-    ({ loadNuxt } = await import("nuxt/kit"))
+    ({ loadNuxt, loadNuxtConfig } = await import("nuxt/kit"))
   }
   catch {
     throw cliErrorDiagnostics.CLI_R0001({ message: "[vitehub] Nuxt config was found, but Nuxt could not be loaded for CLI discovery." })
   }
-  if (mode) {
-    const { loadEnv } = await import("vite")
-    Object.assign(process.env, loadEnv(mode, rootDir, ""))
-  }
   // SAFETY: vitehubCliDiscovery is an internal marker consumed by ViteHub's Nuxt module during config loading.
-  const nuxt = await loadNuxt({
+  const options = {
     cwd: rootDir,
     dev: command === "serve",
     ...(mode ? { envName: mode } : {}),
     overrides: { devtools: { enabled: false }, ...(mode ? { vite: { mode } } : {}), vitehubCliDiscovery: true },
     ready: true,
-  } as Parameters<typeof loadNuxt>[0])
+  } as Parameters<typeof loadNuxt>[0]
+  if (mode) {
+    // Read stage overrides before choosing the dotenv directory, then materialize module options under that env.
+    const config = await loadNuxtConfig({ ...options, dotenv: false, overrides: { ...options.overrides, dev: options.dev } })
+    const nuxtRoot = config.rootDir || rootDir
+    const viteRoot = resolve(nuxtRoot, config.vite.root || nuxtRoot)
+    const envDir = config.vite.envDir === false ? false : resolve(viteRoot, config.vite.envDir || ".")
+    const { loadEnv } = await import("vite")
+    Object.assign(process.env, loadEnv(mode, envDir, ""))
+    options.dotenv = false
+  }
+  const nuxt = await loadNuxt(options)
   try {
     const { resolveConfig } = await import("vite")
     const viteRoot = nuxt.options.vite.root

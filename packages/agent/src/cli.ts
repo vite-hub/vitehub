@@ -64,6 +64,7 @@ interface AgentCliContributor {
 }
 
 interface AgentCliContributorOptions {
+  envDir?: string | false
   eval?: AgentEvalOptions
   rootDir?: string
   serverDirs?: string[]
@@ -1334,6 +1335,7 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
             description: "Download one deployed Channel conversation and its attachments. `channels export --format json --output <directory>` writes the same archive.",
             name: "history",
             run: async (args, context) => await runAgentChannelHistoryCli(args, context, {
+              envDir: options?.envDir,
               rootDir: options?.rootDir,
             }),
             usage: "vitehub channels history --stage <name> [--url <https-origin>] --output <directory> [--thread <id>]",
@@ -1348,6 +1350,7 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
             description: "Inspect and synchronize provider-owned Channel webhooks and account resources for a deployed stage.",
             name: "sync",
             run: async (args, context) => await runAgentChannelSyncCli(args, context, {
+              envDir: options?.envDir,
               rootDir: options?.rootDir,
             }),
             usage: "vitehub channels sync --stage <name> [--url <https-origin>] [--apply [--confirm-origin <https-origin>]]",

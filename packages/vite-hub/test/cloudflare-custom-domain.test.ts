@@ -40,6 +40,7 @@ describe("vitehub({ publicUrl }) on Cloudflare", () => {
   it("keeps the default host when custom-domain routing does not apply", async () => {
     for (const wrangler of [
       await wranglerFor("https://calories.maxi.workers.dev"),
+      await wranglerFor("https://workers.dev"),
       await wranglerFor("http://calories.example.com"),
       await wranglerFor("https://192.0.2.1"),
       await wranglerFor("https://[2001:db8::1]"),

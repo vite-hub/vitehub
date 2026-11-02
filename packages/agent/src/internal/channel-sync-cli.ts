@@ -24,6 +24,7 @@ interface ChannelSyncCliContext {
 }
 
 interface ChannelSyncCliOptions {
+  envDir?: string | false
   fetch?: typeof fetch
   loadTargets?: (input: ChannelSyncLoadInput) => Promise<LoadedChannelSyncTarget[]>
   rootDir?: string
@@ -33,6 +34,7 @@ interface ChannelSyncLoadInput {
   agent?: string
   channel?: string
   env: NodeJS.ProcessEnv
+  envDir?: string | false
   registration?: string
   resolveDefaultThread?: boolean
   rootDir: string
@@ -456,6 +458,7 @@ export async function runAgentChannelSyncCli(
       agent: parsed.agent,
       channel: parsed.channel,
       env: context.env,
+      ...(options.envDir !== undefined ? { envDir: options.envDir } : {}),
       rootDir: options.rootDir || context.rootDir,
       stage: parsed.stage,
       stderr: context.stderr,

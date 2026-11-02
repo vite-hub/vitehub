@@ -146,9 +146,18 @@ describe("ViteHub CLI config loading", () => {
     expect(close).toHaveBeenCalledOnce()
   })
 
-  it.each(["sync", "history"])("loads Nuxt's stage config and env before contributing the URL for %s", async (feature) => {
+  it.each([
+    { feature: "sync", vite: {}, directory: "." },
+    { feature: "sync", vite: { root: "client" }, directory: "client" },
+    { feature: "history", vite: { root: "client", envDir: "../config" }, directory: "config" },
+    { feature: "sync", vite: { envDir: false as const }, directory: undefined },
+  ])("loads Nuxt's stage config and env before contributing the URL ($directory, $feature)", async ({ feature, vite, directory }) => {
     const root = await createProject("nuxt")
-    await writeFile(join(root, ".env.production"), "VITEHUB_TEST_NUXT_PUBLIC_URL=https://production.example.com\n")
+    await writeFile(join(root, ".env.production"), "VITEHUB_TEST_NUXT_PUBLIC_URL=https://wrong.example.com\n")
+    if (directory !== undefined) {
+      await mkdir(join(root, directory), { recursive: true })
+      await writeFile(join(root, directory, ".env.production"), "VITEHUB_TEST_NUXT_PUBLIC_URL=https://production.example.com\n")
+    }
     const previous = process.env.VITEHUB_TEST_NUXT_PUBLIC_URL
     for (const override of [undefined, "https://override.example.com"]) {
       const close = vi.fn()
@@ -159,18 +168,19 @@ describe("ViteHub CLI config loading", () => {
           vitehub: { cli: {
             publicUrl: options.envName === "production" ? process.env.VITEHUB_TEST_NUXT_PUBLIC_URL : "https://development.example.com",
             namespaces: [{ name: "channels", features: [{ name: feature, run: (_args: string[], context: { publicUrl?: string }) => {
-              expect(context.publicUrl).toBe(override ?? "https://production.example.com")
+              expect(context.publicUrl).toBe(override ?? (directory === undefined ? undefined : "https://production.example.com"))
               return 0
             } }] }],
           } },
         }] } },
       }))
+      const loadNuxtConfig = vi.fn(async () => ({ rootDir: root, vite }))
       const resolveViteConfig = vi.fn(async config => ({ plugins: config.plugins || [], root: String(config.root) }))
       expect(await runViteHubCli({
         args: ["channels", feature, "--stage", "production"],
         cwd: root,
         env: { ...process.env, VITEHUB_TEST_NUXT_PUBLIC_URL: override },
-        loadConfig: (directory, command, mode) => loadViteHubCliConfig(directory, command, mode, { loadNuxt, resolveViteConfig }),
+        loadConfig: (directory, command, mode) => loadViteHubCliConfig(directory, command, mode, { loadNuxt, loadNuxtConfig, resolveViteConfig }),
         stderr: { write: () => true },
         stdout: { write: () => true },
       })).toBe(0)
