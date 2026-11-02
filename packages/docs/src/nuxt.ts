@@ -120,7 +120,7 @@ interface NitroOptions {
   alias?: Record<string, string>
   serverAssets?: Array<{ baseName: string, dir: string, pattern?: string }>
   publicAssets?: Array<{ baseURL?: string, dir: string, fallthrough?: boolean, maxAge?: number }>
-  prerender?: { crawlLinks?: boolean, autoSubfolderIndex?: boolean }
+  prerender?: { crawlLinks?: boolean, autoSubfolderIndex?: boolean, routes?: string[] }
   experimental?: { asyncContext?: boolean }
   externals?: { inline?: Array<string | RegExp> | boolean }
 }
@@ -377,6 +377,25 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // The raw copy is the file as written, without the frontmatter that nuxt-agent-discovery adds to its own raw route.
     addServerHandler({ route: "/raw/**", method: "get", handler: resolver.resolve("./runtime/server/raw.js") })
 
+    /**
+     * The routes that the build prerenders. Nuxt lets the client read `_payload.json` only when the Nitro config lists
+     * prerender routes. Routes from the `prerender:routes` hook come too late: the prerendered HTML then has no page
+     * data, and every static page hydrates to "Page not found".
+     */
+    function prerenderRoutes(): string[] {
+      return [
+        ...docsManifestPages(manifest).flatMap(page => [
+          page.path,
+          // Client navigation reads the parsed page, so static hosts serve it instead of parsing on each request.
+          `/api/_docs/page${page.path === "/" ? "/index" : page.path}.json`,
+        ]),
+        "/api/_docs/search.json",
+        "/sitemap.xml",
+        // nuxt-agent-discovery serves the Markdown sitemap per request. Its pages are known at build time.
+        "/sitemap.md",
+      ]
+    }
+
     // Nuxt types `nitro:config` only when Nitro's types load.
     Reflect.apply(nuxt.hook, nuxt, ["nitro:config", (nitro: NitroOptions) => {
       if (config.appBase !== "/") {
@@ -401,22 +420,12 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       nitro.serverAssets = [...nitro.serverAssets ?? [], { baseName: "docs", dir: contentDir, pattern: "**/*.md" }, { baseName: "docs-raw", dir: rawDir }]
       // A removed page has no raw file. Fall through so a redirect route rule answers it.
       nitro.publicAssets = [...nitro.publicAssets ?? [], { baseURL: "/raw", dir: rawDir, fallthrough: true, maxAge: 300 }]
-      // `docs/kv.html` beside the `docs/kv/` folder, and every linked page, as static hosts expect.
-      nitro.prerender = defu(nitro.prerender, { crawlLinks: true, autoSubfolderIndex: false })
+      // `docs/kv.html` beside the `docs/kv/` folder, and every linked page, as static hosts expect. Development
+      // prerenders nothing, and Nuxt would turn listed routes into prerender route rules there.
+      nitro.prerender = defu(nitro.prerender, { crawlLinks: true, autoSubfolderIndex: false, routes: nuxt.options.dev ? [] : prerenderRoutes() })
       // The MCP toolkit reads the current request through Nitro's async context.
       if (config.mcp) nitro.experimental = { ...nitro.experimental, asyncContext: true }
     }])
-    nuxt.hook("prerender:routes", ({ routes }) => {
-      for (const page of docsManifestPages(manifest)) {
-        routes.add(page.path)
-        // Client navigation reads the parsed page, so static hosts serve it instead of parsing on each request.
-        routes.add(`/api/_docs/page${page.path === "/" ? "/index" : page.path}.json`)
-      }
-      routes.add("/api/_docs/search.json")
-      routes.add("/sitemap.xml")
-      // nuxt-agent-discovery serves the Markdown sitemap per request. Its pages are known at build time.
-      routes.add("/sitemap.md")
-    })
   },
 })
 
