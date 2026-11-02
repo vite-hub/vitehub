@@ -325,6 +325,31 @@ describe("Eve extension capabilities", () => {
     expect(transformed).toBeUndefined()
   })
 
+  it("does not parse installed packages under the app root", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-eve-extension-"))
+    temporaryDirectories.push(root)
+    const plugin = hubAgent()
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({
+      command: "serve",
+      createResolver: () => async (specifier: string) => fileURLToPath(import.meta.resolve(specifier)),
+      plugins: [],
+      root,
+    })
+    const parse = vi.fn(parseAst)
+    const transformed = await (plugin.transform as (...args: unknown[]) => Promise<string | undefined>).call(
+      { parse },
+      [
+        `import { defineAgent } from "@vite-hub/agent"`,
+        `import github from "@github-tools/eve-extension"`,
+        `export default defineAgent({ capabilities: [github()] })`,
+      ].join("\n"),
+      join(root, "node_modules", "@test", "agents", "dist", "reviewer.js"),
+    )
+
+    expect(transformed).toBeUndefined()
+    expect(parse).not.toHaveBeenCalled()
+  })
+
   it("does not lower calls to an unrelated defineAgent binding", async () => {
     const transformed = await transformEveExtensionCapabilities(
       `
