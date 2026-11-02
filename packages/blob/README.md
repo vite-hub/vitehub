@@ -161,7 +161,7 @@ const image = responsiveImage(record!, { sizes: "100vw", art: [{ media: "(max-wi
 // image.img: { src, srcset, sizes, width, height, alt, style }, image.sources: <picture> sources
 ```
 
-The generated serve route returns variants for `?w=&h=&fit=&fmt=&q=&crop=`. Sizes snap to an allowed list and never upscale. `blob.images.transformer` picks sharp on Node (optional peer), the Cloudflare Images binding on Workers, or passthrough, which serves originals. `@vite-hub/blob/media` exports the browser-safe helpers.
+The generated serve route returns variants for `?w=&h=&fit=&fmt=&q=&crop=`. Sizes snap to an allowed list and never upscale. `blob.images.transformer` picks sharp on Node (optional peer), the Cloudflare Images binding on Workers, or passthrough, which serves originals. `transformer: "photon"` uses `@cf-wasm/photon` (optional peer), a WebAssembly image library that runs on Workers and Node without a binding. `@vite-hub/blob/media` exports the browser-safe helpers.
 
 `responsiveImage()` uses the same default size list for its `srcset` widths. If you set `blob.images.sizes`, pass that list as `responsiveImage(record, { imageSizes })` so the width descriptors match the served variants.
 

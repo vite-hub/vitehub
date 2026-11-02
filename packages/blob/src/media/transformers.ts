@@ -1,7 +1,8 @@
-// Image transformers: sharp on Node, the Cloudflare Images binding on Workers, and passthrough elsewhere.
+// Image transformers: sharp on Node, the Cloudflare Images binding or Photon on Workers, and passthrough elsewhere.
 import { getActiveCloudflareBinding } from "../runtime/state.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 import { defaultImageQuality, defaultImageSizes } from "./variant.ts"
+import { createPhotonImageTransformer } from "./photon.ts"
 import { getBlobSharpModule, sharpFromModule } from "./sharp-module.ts"
 
 import type { SharpLike } from "./sharp-module.ts"
@@ -95,16 +96,19 @@ async function loadSharp(): Promise<SharpLike | undefined> {
 }
 
 const sharpTransformer = createSharpImageTransformer()
+const photonTransformer = createPhotonImageTransformer()
 
 /**
  * Picks the transformer for one request. `auto` uses the Cloudflare Images binding when the Worker has it, then sharp
- * when it can load, then passthrough. Passthrough returns `undefined`: the serve route sends the original.
+ * when it can load, then passthrough. It never picks Photon, which must be chosen. Passthrough returns `undefined`:
+ * the serve route sends the original.
  */
 export async function selectImageTransformer(images: ResolvedBlobImages): Promise<BlobImageTransformer | undefined> {
   const { transformer } = images
   if (transformer === "passthrough") return undefined
   if (transformer === "cloudflare-images") return createCloudflareImagesTransformer(images.binding)
   if (transformer === "sharp") return sharpTransformer
+  if (transformer === "photon") return photonTransformer
   if (transformer !== "auto") return transformer
   if (getActiveCloudflareBinding(images.binding)) return createCloudflareImagesTransformer(images.binding)
   return await loadSharp() ? sharpTransformer : undefined
