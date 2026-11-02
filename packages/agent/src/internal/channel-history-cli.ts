@@ -12,14 +12,17 @@ import { decodeBase64Key } from "../trigger-runtime.ts"
 interface ChannelHistoryCliContext {
   cwd: string
   env: NodeJS.ProcessEnv
+  /** The default `--url`, from `vitehub({ publicUrl })`. */
+  publicUrl?: string
   rootDir: string
   stderr: { write: (chunk: string | Uint8Array) => unknown }
   stdout: { write: (chunk: string | Uint8Array) => unknown }
 }
 
 interface ChannelHistoryCliOptions {
+  envDir?: string | false
   fetch?: typeof fetch
-  loadTargets?: (input: { agent?: string, channel?: string, env: NodeJS.ProcessEnv, registration?: string, resolveDefaultThread: boolean, rootDir: string, stage: string }) => Promise<LoadedChannelTarget[]>
+  loadTargets?: (input: { agent?: string, channel?: string, env: NodeJS.ProcessEnv, envDir?: string | false, registration?: string, resolveDefaultThread: boolean, rootDir: string, stage: string }) => Promise<LoadedChannelTarget[]>
   rootDir?: string
 }
 
@@ -39,9 +42,10 @@ interface ParsedChannelHistoryArgs {
 
 function writeUsage(context: ChannelHistoryCliContext): void {
   context.stdout.write([
-    "Usage: vitehub channels history --stage <name> --url <https-origin> --output <directory> [--agent <name>] [--channel <id>] [--webhook <id>] [--webhook-path <path>] [--thread <id>] [--query <key=value>]... [--invocations]",
+    "Usage: vitehub channels history --stage <name> [--url <https-origin>] --output <directory> [--agent <name>] [--channel <id>] [--webhook <id>] [--webhook-path <path>] [--thread <id>] [--query <key=value>]... [--invocations]",
     "",
     "Export deployed Channel history or a conversation and its attachments.",
+    "--url defaults to vitehub({ publicUrl }).",
     "Custom history accepts optional --thread and --query filters. Chat SDK conversations require --thread unless Telegram can infer one allowed user.",
     "",
   ].join("\n"))
@@ -193,12 +197,14 @@ export async function runAgentChannelHistoryCli(
       return 0
     }
     if (!parsed.stage) throw agentDiagnostics.AGENT_R0527({ message: "channels history requires --stage <name>." })
-    if (!parsed.origin) throw agentDiagnostics.AGENT_R0528({ message: "channels history requires --url <https-origin>." })
+    const origin = parsed.origin ?? context.publicUrl
+    if (!origin) throw agentDiagnostics.AGENT_R0528({ message: "channels history requires --url <https-origin> or vitehub({ publicUrl })." })
     if (!parsed.output) throw agentDiagnostics.AGENT_R0529({ message: "channels history requires --output <directory>." })
     const targets = await (options.loadTargets || loadChannelTargets)({
       agent: parsed.agent,
       channel: parsed.channel,
       env: context.env,
+      ...(options.envDir !== undefined ? { envDir: options.envDir } : {}),
       registration: parsed.webhook,
       resolveDefaultThread: parsed.threadId === undefined,
       rootDir: options.rootDir || context.rootDir,
@@ -210,7 +216,7 @@ export async function runAgentChannelHistoryCli(
     if (!target.history && !threadId) throw agentDiagnostics.AGENT_R0531({ message: `Channel ${target.agent}/${target.channel} requires --thread <id>.` })
     const url = deployedChannelWebhookUrl(parsed.webhookPath && target.registration
       ? { ...target, registration: { ...target.registration, path: parsed.webhookPath, url: undefined } }
-      : target, normalizedOrigin(parsed.origin))
+      : target, normalizedOrigin(origin))
     if (!url) throw agentDiagnostics.AGENT_R0532({ message: `Channel ${target.agent}/${target.channel} has no deployed webhook route.` })
     const query: Record<string, string | string[]> = {}
     for (const [key, value] of parsed.query) {
