@@ -739,6 +739,8 @@ startup readiness and Kubernetes restart policy on their existing probes.
 
 ## Host lifecycle and transcript retention
 
+The generated host code creates the Chat and webhook route handlers when the server starts, but the routes module and `chat` load on the first call of a handler. The declared webhook middleware resolves declared paths without them. With libSQL or SQLite Agent State, a persistent server resumes the webhook queues and warms the routes one second after it starts, or at once when a request loads the routes.
+
 For a Nitro host, set `agent.preparation` in `vitehub()` to start Workspace preparation with the server and stop it on shutdown:
 
 ```ts
