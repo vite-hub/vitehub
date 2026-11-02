@@ -34,6 +34,7 @@ afterEach(() => {
   vi.resetAllMocks()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
 })
 
 describe("provider inspection", () => {
@@ -180,6 +181,43 @@ describe("provider inspection", () => {
       reason: "Provider status check failed: Codex App Server process exited with code 1 Launch stderr: runtime args: [REDACTED]",
     })
     expect(JSON.stringify(result)).not.toContain(runtimeSecret)
+  })
+
+  it("keeps short host environment values such as LC_ALL=C in launcher stderr", async () => {
+    vi.stubEnv("LC_ALL", "C")
+    vi.stubEnv("LANG", "C")
+    const secret = "probe-secret-value"
+    inspectProvider.mockImplementation(async options => {
+      spawnSync(options.settings.binaryPath, [], { encoding: "utf8", env: options.environment })
+      return { ...ready(), status: "error", message: "Codex App Server process exited with code 1" }
+    })
+    const result = await inspectAgentProvider({
+      provider: "codex",
+      env: { RUNNER_SECRET: secret },
+      launch: { command: "sh", args: ["-c", 'echo "CODEX_HOME locale=$LC_ALL value=$RUNNER_SECRET" >&2; exit 1'] },
+    }, context())
+    expect(result).toMatchObject({
+      reason: "Provider status check failed: Codex App Server process exited with code 1 Launch stderr: CODEX_HOME locale=C value=[REDACTED]",
+    })
+    expect(JSON.stringify(result)).not.toContain(secret)
+  })
+
+  it("redacts only Driver environment values from requirement check failures", async () => {
+    vi.stubEnv("LC_ALL", "C")
+    const secret = "requirement-check-secret"
+    vi.mocked(childProcess.spawn).mockImplementation(() => {
+      const child = Object.assign(new EventEmitter(), { stdout: new PassThrough(), stderr: new PassThrough() })
+      queueMicrotask(() => {
+        child.stderr.end(`Cannot run sh: locale C, value ${secret}`)
+        child.stderr.once("end", () => child.emit("close", 2))
+      })
+      // SAFETY: The lookup only uses these ChildProcess streams and lifecycle events.
+      return child as never
+    })
+    inspectProvider.mockResolvedValue(ready())
+
+    await expect(inspectAgentProvider({ provider: "codex", env: { RUNNER_SECRET: secret }, requirements: ["sh"] }, context()))
+      .rejects.toThrow("[vitehub] The Driver requirement check exited with 2. Cannot run sh: locale C, value [REDACTED]")
   })
 
   it("reports Driver commands that are missing where the Driver runs", async () => {

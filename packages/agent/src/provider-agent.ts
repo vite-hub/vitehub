@@ -1412,6 +1412,7 @@ async function capturedProviderRequirements(capture: ProviderRequirementCapture)
 async function missingProviderCommands(
   requirements: readonly string[],
   environment: NodeJS.ProcessEnv,
+  secretEnvironmentKeys: readonly string[],
   cwd: string,
   signal: AbortSignal | undefined,
 ): Promise<string[]> {
@@ -1431,7 +1432,7 @@ async function missingProviderCommands(
       child.once("close", (code) => {
         if (windows && code === 1) return resolve(args)
         if (code === 0) return resolve(windows ? [] : stdout.split("\n").map(line => line.trim()).filter(line => commands.includes(line)))
-        reject(new Error(`[vitehub] The Driver requirement check exited with ${code ?? "a signal"}. ${redactProviderDiagnostic(stderr.trim(), environment, Object.keys(environment))}`.trim()))
+        reject(new Error(`[vitehub] The Driver requirement check exited with ${code ?? "a signal"}. ${redactProviderDiagnostic(stderr.trim(), environment, secretEnvironmentKeys)}`.trim()))
       })
     })
   }
@@ -1537,7 +1538,8 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
       ...(options.provider === "codex" && !home ? { CODEX_HOME: process.env.CODEX_HOME } : {}),
       ...overrides,
     })
-    const launchSecretEnvironmentKeys = providerSecretEnvironmentKeys(environment, [])
+    // Host values such as LC_ALL=C are not secrets. Redacting them would mangle the status text.
+    const launchSecretEnvironmentKeys = providerSecretEnvironmentKeys(overrides, [])
     const credentialSecrets = await codexCredentialSecrets(home?.homePath)
     const launchArgs = [options.providerSettings?.launchArgs, gateway?.launchArgs, ...(home ? ['-c "cli_auth_credentials_store=\\"file\\""'] : [])].filter(Boolean).join(" ")
     const binary = options.providerSettings?.binaryPath ?? resolveInstalledProviderExecutable(options.provider)
@@ -1567,7 +1569,7 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
     }
     signal?.throwIfAborted()
     let missingCommands = options.launch === undefined
-      ? await missingProviderCommands(requirements, environment, root || process.cwd(), signal)
+      ? await missingProviderCommands(requirements, environment, launchSecretEnvironmentKeys, root || process.cwd(), signal)
       : undefined
     signal?.throwIfAborted()
     const snapshot = await inspectProvider({
