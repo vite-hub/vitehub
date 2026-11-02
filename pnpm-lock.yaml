@@ -108,8 +108,8 @@ catalogs:
       specifier: 0.7.1
       version: 0.7.1
     forges:
-      specifier: https://pkg.pr.new/danielroe/forges@40d50b2f8bdc5585becfae405e1a3b8a325f7202
-      version: 0.2.0
+      specifier: 0.3.1
+      version: 0.3.1
     proper-lockfile:
       specifier: 4.1.2
       version: 4.1.2
@@ -952,7 +952,7 @@ importers:
         version: 2.33.1(64c43bdb11a701def76d97ecfd15b7a8)
       forges:
         specifier: 'catalog:'
-        version: https://pkg.pr.new/danielroe/forges@40d50b2f8bdc5585becfae405e1a3b8a325f7202
+        version: 0.3.1
       miniflare:
         specifier: 4.20260730.0
         version: 4.20260730.0
@@ -1936,7 +1936,7 @@ importers:
         version: link:../internal
       forges:
         specifier: 'catalog:'
-        version: https://pkg.pr.new/danielroe/forges@40d50b2f8bdc5585becfae405e1a3b8a325f7202
+        version: 0.3.1
       publint:
         specifier: catalog:tooling
         version: 0.3.25
@@ -14157,9 +14157,8 @@ packages:
     resolution: {integrity: sha512-dKx12eRCVIzqCxFGplyFKJMPvLEWgmNtUrpTiJIR5u97zEhRG8ySrtboPHZXx7daLxQVrl643cTzbab2tkQjxg==}
     engines: {node: '>= 0.4'}
 
-  forges@https://pkg.pr.new/danielroe/forges@40d50b2f8bdc5585becfae405e1a3b8a325f7202:
-    resolution: {integrity: sha512-KI2u4PaVoiHb40+AHE3X2ygVIaJZP/2Qvji7g/xOi7A3iyzrYmoVgAtX0tWbt6Vnn5PutYmq0TVu0c8EtzI22A==, tarball: https://pkg.pr.new/danielroe/forges@40d50b2f8bdc5585becfae405e1a3b8a325f7202}
-    version: 0.2.0
+  forges@0.3.1:
+    resolution: {integrity: sha512-YGJa9mLMHcsVmNOGFz654fW8cgrobq1ALwYYUSmIEAJP0GbpqGg4slBuWP+W/7MY25C8PyJUafB18/d4sshA5g==}
     engines: {node: '>=22.18'}
 
   form-data-encoder@4.1.0:
@@ -33938,7 +33937,7 @@ snapshots:
     dependencies:
       is-callable: 1.2.7
 
-  forges@https://pkg.pr.new/danielroe/forges@40d50b2f8bdc5585becfae405e1a3b8a325f7202: {}
+  forges@0.3.1: {}
 
   form-data-encoder@4.1.0: {}
 
