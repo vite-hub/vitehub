@@ -153,6 +153,7 @@ describe("resolveAuthViteConfig", () => {
       rootDir,
       route: "/api/auth",
       secondaryStorage: false,
+      tables: false,
     })
   })
 
@@ -451,5 +452,37 @@ describe("resolveAuthViteConfig", () => {
     ])
 
     expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/secondaryStorage.store is required/)
+  })
+  it("finds authDatabase() and the Database that gets the Auth tables", async () => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from 'vite-hub/auth'",
+      "import { authDatabase } from 'vite-hub/auth/database'",
+      "export default defineAuth({ database: authDatabase(), emailAndPassword: { enabled: true } })",
+    ])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toEqual({ database: "default" })
+
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from '@vite-hub/auth'",
+      "import { authDatabase as appDatabase } from '@vite-hub/auth/database'",
+      "export default defineAuth(({ env }) => ({ database: appDatabase('content'), secret: env.secret }))",
+    ])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toEqual({ database: "content" })
+
+    // A function with the same name from another module is not the Auth adapter.
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from '@vite-hub/auth'",
+      "import { authDatabase } from './database'",
+      "export default defineAuth(() => ({ database: authDatabase() }))",
+    ])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toBe(false)
+
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from '@vite-hub/auth'",
+      "import { authDatabase } from '@vite-hub/auth/database'",
+      "const name = 'content'",
+      "export default defineAuth({ database: authDatabase(name) })",
+    ])
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/one inline string literal/)
   })
 })

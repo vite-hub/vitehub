@@ -1,5 +1,5 @@
 import type { AccessAuthorizationContext, AccessAuthorize, AccessAuthorizeResult, AnonymousAccessAuthorizationContext, AnonymousAccessAuthorize } from "@vite-hub/runtime"
-import type { Auth, BetterAuthOptions, Session, User } from "better-auth"
+import type { Auth, BetterAuthOptions, DBAdapter, Session, User } from "better-auth"
 import type { AuthEventsConfiguration } from "./events.ts"
 import type { AuthConsoleOptions } from "./console-types.ts";
 import type { AuthPreset } from "./presets.ts"
@@ -118,6 +118,9 @@ export interface AuthDatabaseReference {
 
 export type AuthDatabaseConfiguration = true | AuthDatabaseReference
 
+/** The Better Auth adapter of `authDatabase()`. `vitehubDatabase` names the app Database that holds the Auth tables. */
+export type AuthAppDatabase = ((options: BetterAuthOptions) => DBAdapter<BetterAuthOptions>) & { readonly vitehubDatabase: string }
+
 export interface AuthSecondaryStorageReference {
   store: string
 }
@@ -130,7 +133,8 @@ export interface AuthViteHubOptions {
   console?: AuthConsoleOptions;
   access?: AuthAccessConfiguration
   basePath?: string
-  database?: AuthDatabaseConfiguration
+  /** `authDatabase()` from `@vite-hub/auth/database` keeps users and sessions in the app Database. */
+  database?: AuthDatabaseConfiguration | AuthAppDatabase
   /** A ViteHub Auth preset, such as `stateless()` from `@vite-hub/auth/presets`. ViteHub checks it against the other options. */
   preset?: AuthPreset
   route?: false
@@ -189,6 +193,8 @@ export interface ResolvedAuthViteConfig {
   }
   basePath: string
   database: ResolvedAuthDatabaseConfiguration
+  /** The app Database that `authDatabase()` names, which gets the Better Auth tables. `false` without the call. */
+  tables: false | { database: string }
   definition: DiscoveredAuthDefinition
   rootDir: string
   route: false | string

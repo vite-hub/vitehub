@@ -121,15 +121,19 @@ For `console: { auth: 'app' }`, add `consoleMcpOAuth()` to the Auth that signs p
 
 ```ts [server/auth.ts]
 import { defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
 import { consoleMcpOAuth } from 'vite-hub/console/auth'
 
 export default defineAuth(({ requestOrigin }) => ({
   baseURL: requestOrigin,
+  database: authDatabase(),
   plugins: [
     ...consoleMcpOAuth({ resource: 'https://app.example.com/_vitehub/mcp' }),
   ],
 }))
 ```
+
+The plugins store keys, clients, and tokens in the `jwks` and `oauth*` tables. [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database) adds them to the app Database with the other Better Auth tables, so `vitehub db generate` writes their migration.
 
 Better Auth sends a signed-out person to `loginPage`, and a signed-in person to `consentPage`, which defaults to `loginPage`. By default, `loginPage` is the built-in `/_vitehub/sign-in` page next to the resource. It signs the person in with email and password, when `emailAndPassword` is on, or with the social providers of the Auth. Then it shows the client name and asks the person to allow or deny it.
 

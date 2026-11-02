@@ -403,6 +403,11 @@
       "import": "./dist/auth/agent.js",
       "default": "./dist/auth/agent.js"
     },
+    "./auth/database": {
+      "types": "./dist/auth/database.d.ts",
+      "import": "./dist/auth/database.js",
+      "default": "./dist/auth/database.js"
+    },
     "./auth/presets": {
       "types": "./dist/auth/presets.d.ts",
       "import": "./dist/auth/presets.js",
@@ -412,6 +417,11 @@
       "types": "./dist/auth/runtime/server.d.ts",
       "import": "./dist/auth/runtime/server.js",
       "default": "./dist/auth/runtime/server.js"
+    },
+    "./auth/schema": {
+      "types": "./dist/auth/schema.d.ts",
+      "import": "./dist/auth/schema.js",
+      "default": "./dist/auth/schema.js"
     },
     "./auth/server": {
       "types": "./dist/auth/server.d.ts",

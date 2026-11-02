@@ -1043,6 +1043,9 @@ importers:
       '@vite-hub/agent':
         specifier: workspace:*
         version: link:../agent
+      '@vite-hub/database':
+        specifier: workspace:*
+        version: link:../database
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal

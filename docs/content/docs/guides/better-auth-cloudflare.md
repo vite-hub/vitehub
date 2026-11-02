@@ -7,7 +7,7 @@ navigation.group: Auth
 icon: i-simple-icons-betterauth
 ---
 
-To run Better Auth on Cloudflare Workers, set `preset: 'cloudflare'` and `auth: true` in `vitehub()`, and add `server/auth.ts` with `defineAuth()`. ViteHub mounts Better Auth at `/api/auth/**` in the Worker. To keep users and sessions in Cloudflare D1, add `database: true` and pass Better Auth's Drizzle adapter the client from `useDatabase()`. For social sign-in without a database, use the `stateless()` preset.
+To run Better Auth on Cloudflare Workers, set `preset: 'cloudflare'` and `auth: true` in `vitehub()`, and add `server/auth.ts` with `defineAuth()`. ViteHub mounts Better Auth at `/api/auth/**` in the Worker. To keep users and sessions in Cloudflare D1, add `database: true` and set `database: authDatabase()` in `defineAuth()`. ViteHub adds the Better Auth tables to the D1 database and writes their migration. For social sign-in without a database, use the `stateless()` preset.
 
 ## What Better Auth, Workers, and D1 are
 
@@ -19,7 +19,7 @@ To run Better Auth on Cloudflare Workers, set `preset: 'cloudflare'` and `auth: 
 
 | Storage | Use it when | Limits |
 | --- | --- | --- |
-| Cloudflare D1 | You need email and password, sessions that you can revoke, or Better Auth plugins that add tables. | You create the database and run migrations. |
+| Cloudflare D1 | You need email and password, sessions that you can revoke, or Better Auth plugins that add tables. | You create the database and apply the migration that ViteHub generates. |
 | `stateless()` cookies | Users sign in only with social providers, and the app has no database. | You cannot revoke one session. Email and password fails with `AUTH_C0046`. |
 
 Do not deploy the default Auth setup without one of these. Its users and sessions are in memory, and a Worker loses them.
@@ -46,42 +46,33 @@ export default defineConfig({
 
 On the `cloudflare` preset, `database: true` selects the D1 driver. `vitehub()` includes the Nitro Vite plugin.
 
-### Add the Better Auth tables
-
-Better Auth needs the `user`, `session`, `account`, and `verification` tables. Write them as Drizzle SQLite tables in `server/databases/schema.ts`, with those export names. Better Auth lists every column in its [core schema](https://better-auth.com/docs/concepts/database#core-schema). Plugins such as `admin()` and `organization()` add more columns and tables. The [Drizzle adapter guide](https://better-auth.com/docs/adapters/drizzle) shows how the Better Auth CLI generates this schema.
-
-Then create the Database Definition. It names the D1 database and uses the tables as its schema:
-
-```ts [server/databases/config.ts]
-import { defineDatabase } from 'vite-hub/database'
-import * as schema from './schema'
-
-export default defineDatabase({
-  cloudflare: { databaseName: 'my-app-auth' },
-  schema,
-})
-```
-
-ViteHub discovers `server/databases/config.ts` as the `default` Database. Its D1 binding is `DB`. Read [Database configuration](/docs/database/configure) for every option.
-
 ### Connect Better Auth to the database
 
 ```ts [server/auth.ts]
-import { drizzleAdapter } from 'better-auth/adapters/drizzle'
+import { admin } from 'better-auth/plugins'
 import { defineAuth } from 'vite-hub/auth'
-import { useDatabase } from 'vite-hub/database/drizzle'
+import { authDatabase } from 'vite-hub/auth/database'
 
-export default defineAuth(() => {
-  const { db, schema } = useDatabase('default')
-  return {
-    appName: 'My app',
-    database: drizzleAdapter(db, { provider: 'sqlite', schema }),
-    emailAndPassword: { enabled: true },
-  }
+export default defineAuth({
+  appName: 'My app',
+  database: authDatabase(),
+  emailAndPassword: { enabled: true },
+  plugins: [admin()],
 })
 ```
 
-ViteHub runs this callback once for each Auth request. `useDatabase('default')` returns the Drizzle client for the D1 binding of that request. Better Auth options stay at the top level of the returned object. See [Auth configuration](/docs/auth/configure).
+`authDatabase()` is the Better Auth adapter for the `default` Database. It uses the D1 binding of each request. ViteHub also adds the Better Auth tables to that Database: `user`, `session`, `account`, and `verification`, the fields of `admin()`, and the `jwks` and `oauth*` tables of [Console MCP OAuth](/docs/development/mcp#set-up-oauth). You do not write them. Without a Database Definition, ViteHub uses the implicit `default` Database, and its D1 binding is `DB`. To name the D1 database, add `server/databases/config.ts`. The Auth tables move into it:
+
+```ts [server/databases/config.ts]
+import { defineDatabase } from 'vite-hub/database'
+
+export default defineDatabase({
+  cloudflare: { databaseName: 'my-app-auth' },
+  schema: {},
+})
+```
+
+Read [Keep users in the app Database](/docs/auth/configure#keep-users-in-the-app-database) for the tables and the options, and [Database configuration](/docs/database/configure) for every Database option.
 
 ### Generate the migration
 
@@ -90,7 +81,7 @@ pnpm vitehub db generate
 pnpm vitehub db migrate
 ```
 
-`generate` writes the SQL to `server/databases/migrations/`. `migrate` applies it to the local SQLite file that development uses.
+`generate` writes the SQL of the Better Auth tables to `server/databases/migrations/`. `migrate` applies it to the local SQLite file that development uses. `pnpm vitehub inspect definitions --kind database` lists the tables with `@vite-hub/auth/vite` as their plugin.
 
 ## How to run Better Auth locally
 
@@ -137,7 +128,15 @@ pnpm exec wrangler secret put VITEHUB_SECRET --config .output/server/wrangler.js
 
 Auth reads `VITEHUB_SECRET` from the Cloudflare bindings of each request. A configured `BETTER_AUTH_SECRET` wins over it. Without any secret, Better Auth fails in production. Read [App secret](/docs/env/app-secret) and [Cloudflare](/docs/frameworks-hosts/cloudflare).
 
-Send the same sign-up request to the Worker URL to check the deployment.
+### Get the first admin
+
+Store the email of the first admin as `VITEHUB_ADMIN_EMAILS`. The account that signs up with it gets the `admin` role of `admin()`:
+
+```bash [Terminal]
+pnpm exec wrangler secret put VITEHUB_ADMIN_EMAILS --config .output/server/wrangler.json
+```
+
+Then open `/_vitehub/sign-in` on the Worker URL and select **Create one**, or send the same sign-up request to the Worker URL. Sign up right after the deploy, or turn on `emailAndPassword.requireEmailVerification`, because the first account with that email gets the role. Read [Give the first admin role](/docs/auth/configure#give-the-first-admin-role).
 
 ## Use cookie sessions without D1
 
@@ -193,11 +192,11 @@ Read [Auth limits and errors](/docs/auth/limits-and-errors) for every error code
 
 ## Move the same Auth to another host
 
-`server/auth.ts` and the schema stay the same. Change the preset, and the Database uses the storage of the new host:
+`server/auth.ts` stays the same. Change the preset, and the Database uses the storage of the new host:
 
 | Preset | Database for Better Auth |
 | --- | --- |
 | `node` | A local SQLite file on the server disk. |
 | `vercel` | Hosted libSQL from `database.connection`, or D1 over HTTP with `cloudflare.http`. |
 
-Better Auth can also take a D1 binding directly. The Drizzle adapter path keeps one Auth file for D1, local SQLite, and libSQL. Read [Database hosts](/docs/database/hosts) for each connection.
+Better Auth can also take a D1 binding directly. `authDatabase()` keeps one Auth file for D1, local SQLite, libSQL, and Postgres. Read [Database hosts](/docs/database/hosts) for each connection.

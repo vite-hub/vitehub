@@ -4,6 +4,7 @@ import { getAuthTables } from "better-auth/db"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { resolvePublicUrl } from "@vite-hub/runtime"
 import { resolveAuthMountPath } from "./application-path.ts"
+import { createAdminEmailsPlugin, readAdminEmails } from "./admin-emails.ts"
 import { applyAuthPreset } from "./preset-options.ts"
 import { deriveAuthSecret } from "./secret.ts"
 import { validateAuthEvents } from "./events-config.ts"
@@ -67,6 +68,7 @@ function sharedMemoryDatabase(definition: AuthDefinition): NonNullable<BetterAut
 function stripViteHubOptions(
   definition: AuthDefinition,
   options: AuthRuntimeOptions & Record<string, unknown>,
+  event?: unknown,
 ): AuthBetterAuthRuntimeOptions {
   const {
     access: _access,
@@ -90,7 +92,12 @@ function stripViteHubOptions(
   const declaredPlugins = sessionRefresh.plugins ?? rest.plugins ?? []
   // Bounds the admin plugin's impersonation sessions, which the app or the Console can start.
   const impersonation = declaredPlugins.some(plugin => plugin.id === "admin")
-  const plugins = impersonation ? [...declaredPlugins, createImpersonationPlugin()] : declaredPlugins
+  const adminEmails = readAdminEmails(event)
+  const plugins = [
+    ...declaredPlugins,
+    ...(impersonation ? [createImpersonationPlugin()] : []),
+    ...(adminEmails.length ? [createAdminEmailsPlugin(adminEmails, declaredPlugins)] : []),
+  ]
   const eventPlugin = events ? createAuthEventsPlugin(events) : undefined
   if (eventPlugin && storage.secondaryStorage && !rest.session?.storeSessionInDatabase) storage.secondaryStorage = eventPlugin.wrapStorage(storage.secondaryStorage)
   const after = rest.hooks?.after ?? createAuthMiddleware(async () => {})
@@ -219,7 +226,7 @@ export function resolveAuthOptions(
   const resolveSnapshot = () => snapshot ??= callback ? requestRuntimeOptions : { ...declared, ...requestRuntimeOptions }
   return {
     get options() { return resolveSnapshot() },
-    get providerOptions() { return withDerivedSecret(stripViteHubOptions(definition, resolveSnapshot()), input.event ?? request) },
+    get providerOptions() { return withDerivedSecret(stripViteHubOptions(definition, resolveSnapshot(), input.event ?? request), input.event ?? request) },
     requestRuntimeOptions,
   }
 }

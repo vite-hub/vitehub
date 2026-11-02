@@ -2,6 +2,7 @@ import { dirname, relative, resolve } from "node:path"
 import { Readable } from "node:stream"
 
 import { createNoExternalAddition, generatedViteHubWatchIgnoredAddition, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { findViteHubNitroDevEnvironment } from "@vite-hub/internal/dev-endpoint"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { summarizeDefinitions } from "@vite-hub/internal/inspect"
@@ -17,6 +18,7 @@ export function shouldPassThroughAuthResponse(basePath: string, status: number):
 }
 
 import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
+import type { ContributionContext } from "@vite-hub/internal/contributions"
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { IncomingMessage } from "node:http"
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
@@ -49,7 +51,38 @@ export interface AuthVitePluginAPI {
   refresh: () => ResolvedAuthViteConfig | undefined
 }
 
-export type AuthVitePlugin = Plugin & { api: AuthVitePluginAPI, vitehub: ViteHubInspectionPluginMetadata & ViteHubCliPluginMetadata }
+/** The roots that the Database integration passes to `vitehub.databases`. */
+export interface AuthDatabaseContributionContext extends ContributionContext {
+  /** The root that Database Definitions are discovered from. */
+  rootDir: string
+}
+
+/** The Better Auth tables that Auth adds to the Database that `authDatabase()` names. */
+export interface AuthDatabaseContribution {
+  name: "auth"
+  database: string
+  dialect: "postgresql" | "sqlite"
+  definition: { module: string, export: "authPostgresSchema" | "authSqliteSchema" }
+  reason: string
+}
+
+export type AuthVitePlugin = Plugin & {
+  api: AuthVitePluginAPI
+  vitehub: ViteHubInspectionPluginMetadata & ViteHubCliPluginMetadata & {
+    databases: (context: AuthDatabaseContributionContext) => Promise<AuthDatabaseContribution[]>
+  }
+}
+
+/**
+ * The dialect of the Database that gets the Auth tables, read from its Definition without running it. Without a
+ * Database Definition, the Database integration adds the implicit `default` Database, which uses SQLite unless another
+ * contribution needs Postgres.
+ */
+async function readTargetDialect(context: AuthDatabaseContributionContext, database: string): Promise<"postgresql" | "sqlite"> {
+  const { discoverDatabaseDefinitions, readDatabaseDefinitionDialect } = await import("@vite-hub/database/config")
+  const target = discoverDatabaseDefinitions(context.rootDir, { serverDirs: context.serverDirs?.slice() }).find(definition => definition.name === database)
+  return target ? readDatabaseDefinitionDialect(target.handler) : "sqlite"
+}
 
 export interface AuthInspectionOptions {
   projectRoot: string
@@ -321,6 +354,23 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
     },
     vitehub: {
       cli: async () => resolvedOptions() === false ? undefined : (await import("./cli.ts")).createAuthCliContributor(),
+      async databases(context) {
+        const authOptions = resolvedOptions()
+        if (authOptions === false) return []
+        const root = context.projectRoot ?? context.root
+        const discovery = { serverDirs: context.serverDirs?.slice() ?? serverDirs }
+        const config = resolveAuthViteConfig(authOptions, root, discovery) ?? resolveAuthViteConfig(authOptions, resolveViteHubProjectRoot(root), discovery)
+        if (!config?.tables) return []
+        const { database } = config.tables
+        const dialect = await readTargetDialect(context, database)
+        return [{
+          name: "auth",
+          database,
+          dialect,
+          definition: { module: `${importBase}/schema`, export: dialect === "postgresql" ? "authPostgresSchema" : "authSqliteSchema" },
+          reason: "Stores the Better Auth users, sessions, accounts, and verifications, the admin() fields, and the Console MCP OAuth clients and tokens of authDatabase().",
+        }]
+      },
       inspect: () => {
         if (resolvedOptions() === false) return
         return {
@@ -382,6 +432,9 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
       // `instanceof RunnableDevEnvironment`. A `runner` check gives the same result with a second copy of Vite.
       // Nuxt 5 does not run the `ssr` environment here. Its Nitro server serves the Auth route.
       if (!("runner" in server.environments.ssr)) return
+      // With Nitro in this process, Nitro serves the Auth route that this plugin registers. A second Auth instance in
+      // the `ssr` environment would keep its own users and sessions, which the Console and server routes cannot see.
+      if (findViteHubNitroDevEnvironment(server)) return
       server.middlewares.use(async (request, response, next) => {
         try {
           const config = runtimeConfig ?? refreshRuntimeConfig()

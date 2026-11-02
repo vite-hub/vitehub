@@ -1626,6 +1626,7 @@ describe("Agent invocation console", () => {
       rootDir: root,
       route: "/api/auth",
       secondaryStorage: false,
+      tables: false,
     })
     try {
       const missingConsole = consoleVitePlugin({
