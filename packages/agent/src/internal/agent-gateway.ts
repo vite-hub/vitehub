@@ -1,10 +1,10 @@
-import { isChatGPTGateway, aiGatewaySupports, normalizeAiGateway, resolveAiGatewayDriverRoute } from "@vite-hub/gateways/internal"
+import { isChatGPTGateway, aiGatewaySupports, normalizeAiGateway, resolveAiGatewayRoute } from "@vite-hub/gateways/internal"
 import { resolveChatGPTGateway } from "./chatgpt-gateway.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { codexConfigArg } from "./codex-launch-args.ts"
 import { gatewayEnvValue } from "./gateway-env.ts"
 import type { AiGatewayDefinition, ChatGPTGateway } from "@vite-hub/gateways"
-import type { AiGatewayDriverRoute } from "@vite-hub/gateways/internal"
+import type { AiGatewayResolvedRoute } from "@vite-hub/gateways/internal"
 import type { ChatGPTCredential } from "@vite-hub/connections/agent"
 import type { AgentProviderCredentialContext, BuiltInAgentDriverName } from "../types.ts"
 
@@ -40,7 +40,7 @@ export function assertAgentDriverGatewaySupports(gateway: AiGatewayDefinition | 
   }
 }
 
-function codexGateway(gateway: AiGatewayDefinition, { apiKey, auth, baseURL, headers }: AiGatewayDriverRoute): ResolvedAgentDriverGateway {
+function codexGateway(gateway: AiGatewayDefinition, { apiKey, auth, baseURL, headers }: AiGatewayResolvedRoute): ResolvedAgentDriverGateway {
   const environment: Record<string, string> = { [codexApiKeyEnvironment]: apiKey }
   const headerEnvironment: Record<string, string> = {}
   if (auth === "x-api-key") headerEnvironment["x-api-key"] = codexApiKeyEnvironment
@@ -64,7 +64,7 @@ function codexGateway(gateway: AiGatewayDefinition, { apiKey, auth, baseURL, hea
   return { environment, launchArgs: args.join(" ") }
 }
 
-function claudeGateway({ apiKey, auth, baseURL, headers }: AiGatewayDriverRoute): ResolvedAgentDriverGateway {
+function claudeGateway({ apiKey, auth, baseURL, headers }: AiGatewayResolvedRoute): ResolvedAgentDriverGateway {
   return {
     environment: {
       ANTHROPIC_BASE_URL: baseURL,
@@ -86,7 +86,7 @@ export async function resolveAgentDriverGateway(
 ): Promise<ResolvedAgentDriverGateway> {
   assertAgentDriverGatewaySupports(gateway, driver)
   if (isChatGPTGateway(gateway)) return await resolveChatGPTGateway(gateway, context)
-  const route = await resolveAiGatewayDriverRoute(gateway, driver, {
+  const route = await resolveAiGatewayRoute(gateway, driver, {
     ...context,
     env: async (preset, field) => await gatewayEnvValue(preset, field, context),
   })

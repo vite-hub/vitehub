@@ -142,6 +142,7 @@ function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
     "    async keys(base, options) { return kvResult(\"keys\", name, () => resolveStorage(name).getKeys(base, options)); },",
     "    async list(options) { if (!Number.isInteger(options.limit) || options.limit <= 0) return [kvInvalidLimitError(), undefined]; return kvResult(\"list\", name, () => resolveStorage(name).listKeys(options), [\"KV_INVALID_CURSOR\"]); },",
     "    async set(key, value, options) { return kvResult(\"set\", name, async () => { await resolveStorage(name).setItem(key, value, options); }); },",
+    "    async setIfAbsent() { return unsupported(\"setIfAbsent\", name); },",
     "    store(storeName) { return createKVStorage(storeName); },",
     "  };",
     "}",

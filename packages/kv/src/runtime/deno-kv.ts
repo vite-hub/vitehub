@@ -12,7 +12,14 @@ interface DenoKVEntry<T = unknown> {
   versionstamp: string | null
 }
 
+interface DenoKVAtomicOperation {
+  check: (...checks: Array<{ key: DenoKVKey; versionstamp: string | null }>) => DenoKVAtomicOperation
+  commit: () => Promise<{ ok: boolean }>
+  set: (key: DenoKVKey, value: unknown, options?: { expireIn: number }) => DenoKVAtomicOperation
+}
+
 interface DenoKV {
+  atomic: () => DenoKVAtomicOperation
   close?: () => void
   delete: (key: DenoKVKey) => Promise<void>
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This models Deno KV's caller-typed get contract.
@@ -151,6 +158,15 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
     },
     async removeItem(key) {
       await (await open()).delete(toDenoKey(key))
+    },
+    async setIfAbsentItem(key, value, ttl) {
+      const denoKey = toDenoKey(key)
+      // A null versionstamp check commits only while the key is missing.
+      const result = await (await open()).atomic()
+        .check({ key: denoKey, versionstamp: null })
+        .set(denoKey, value, toDenoExpireIn(ttl))
+        .commit()
+      return result.ok
     },
     async setItem(key, value, writeOptions) {
       await (await open()).set(toDenoKey(key), value, toDenoExpireIn(writeOptions?.ttl))

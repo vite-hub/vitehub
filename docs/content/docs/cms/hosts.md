@@ -2,7 +2,7 @@
 title: CMS hosts
 description: Check where each store of the cms preset runs, and provision its Database and Blob resources before a hosted deploy.
 navigation.title: Hosts
-navigation.order: 5
+navigation.order: 6
 icon: i-lucide-cloud-cog
 ---
 

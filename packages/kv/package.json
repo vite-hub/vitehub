@@ -55,6 +55,11 @@
       "import": "./dist/runtime/cloudflare-kv.js",
       "default": "./dist/runtime/cloudflare-kv.js"
     },
+    "./runtime/nitro-cache": {
+      "types": "./dist/runtime/nitro-cache.d.ts",
+      "import": "./dist/runtime/nitro-cache.js",
+      "default": "./dist/runtime/nitro-cache.js"
+    },
     "./runtime/upstash-driver": {
       "types": "./dist/runtime/upstash-driver.d.ts",
       "import": "./dist/runtime/upstash-driver.js",

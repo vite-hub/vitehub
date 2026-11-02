@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, realpathSync, statSync } from "node:fs"
+import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs"
 import { cp, mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
@@ -190,6 +190,50 @@ function isTransientSourceDirectory(path: string): boolean {
 function pathContains(parent: string, child: string): boolean {
   const nested = relative(parent, child)
   return !nested || (!nested.startsWith(`..${sep}`) && nested !== ".." && !isAbsolute(nested))
+}
+
+/**
+ * Creates a check that tells whether a path belongs to a dependency: a named package installed under `node_modules`,
+ * or a named package outside the configured roots, such as a linked workspace package.
+ */
+function createDependencySourceCheck(roots: readonly string[]): (path: string) => boolean {
+  const namedPackages = new Map<string, boolean>()
+  const isNamedPackage = (directory: string): boolean => {
+    let named = namedPackages.get(directory)
+    if (named === undefined) {
+      try {
+        const manifest: unknown = JSON.parse(readFileSync(resolve(directory, "package.json"), "utf8"))
+        named = typeof manifest === "object" && manifest !== null && "name" in manifest && typeof manifest.name === "string"
+      }
+      catch {
+        named = false
+      }
+      namedPackages.set(directory, named)
+    }
+    return named
+  }
+  return (path) => {
+    let directory = path
+    while (!isNamedPackage(directory)) {
+      const parent = dirname(directory)
+      if (parent === directory) return false
+      directory = parent
+    }
+    const root = roots.find(root => pathContains(root, directory))
+    if (root) return relative(root, directory).split(sep).includes("node_modules")
+    return !roots.some(root => pathContains(directory, root))
+  }
+}
+
+/**
+ * Lists the absolute alias specifiers and targets that Provider Output must retain.
+ * A dependency stays in place: the build does not change it, and a retained copy
+ * copies, traces, and publishes the whole package again for every generation.
+ */
+export function providerOutputAliasSources(aliases: Record<string, string>, roots: readonly string[]): string[] {
+  const isDependencySource = createDependencySourceCheck(roots.map(root => resolve(root)))
+  return [...Object.keys(aliases), ...Object.values(aliases)]
+    .filter(path => isAbsolute(path) && !isDependencySource(resolve(path)))
 }
 
 function packageRoot(file: string): string {
@@ -885,6 +929,7 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
 }> {
   const artifactDir = resolve(options.artifactDir)
   const paths = [...new Set((options.paths ?? []).filter(isAbsolute).map(path => resolve(path)).filter(existsSync))]
+  const requestedDirectories = paths.filter(path => statSync(path).isDirectory()).sort((left, right) => right.length - left.length)
   const configuredRoots = [...new Set(options.roots.map(root => resolve(root)).filter(existsSync))]
   const sourceRootByPath = new Map<string, string>()
   const packageRoots = new Set<string>()
@@ -1138,14 +1183,21 @@ export async function retainProviderOutputSources(options: RetainProviderOutputS
   }))
   if (firstFailure) throw firstFailure.error
 
+  const isDependencySource = createDependencySourceCheck(configuredRoots)
   return {
     resolve(path) {
       if (!isAbsolute(path)) return path
       const resolvedPath = resolve(path)
+      const requestedDirectory = requestedDirectories.find(directory => pathContains(directory, resolvedPath))
+      const requestedRoot = sourceRootByPath.get(resolvedPath)
+        ?? (requestedDirectory ? sourceRootByPath.get(requestedDirectory) : undefined)
+      // Explicit sources keep their own layout even when another root also traced them.
+      if (requestedRoot) return resolve(retainedRoots.get(requestedRoot)!, relative(requestedRoot, resolvedPath))
       const retainedPath = retainedPaths.get(resolvedPath)
       if (retainedPath) return retainedPath
-      const root = sourceRootByPath.get(resolvedPath)
-        ?? roots.filter(candidate => pathContains(candidate, resolvedPath)).sort((left, right) => right.length - left.length)[0]
+      // Retained roots link their dependencies instead of copying them. An unrequested dependency stays in place.
+      if (isDependencySource(resolvedPath)) return path
+      const root = roots.filter(candidate => pathContains(candidate, resolvedPath)).sort((left, right) => right.length - left.length)[0]
       return root ? resolve(retainedRoots.get(root)!, relative(root, resolvedPath)) : path
     },
   }

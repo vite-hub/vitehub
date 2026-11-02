@@ -346,8 +346,11 @@ export interface ViteHubConsoleDocumentComponent {
   kind: "block" | "inline"
   label: string
   description?: string
-  /** Each prop's Comark type and the value a new component starts with. */
-  props: Record<string, { type: "string" | "number" | "boolean" | "json", default?: unknown }>
+  /**
+   * Each prop's Comark type and the value a new component starts with. `image` and `file` props hold a picked Media file
+   * as a string, from `store` when it is set.
+   */
+  props: Record<string, { type: "string" | "number" | "boolean" | "json" | "image" | "file", default?: unknown, store?: string }>
 }
 
 /**

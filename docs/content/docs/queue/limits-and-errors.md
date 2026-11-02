@@ -77,7 +77,7 @@ A discovered Queue Definition module threw when it loaded. Read `error.cause` fo
 
 ### QUEUE_DEFINITION_NOT_FOUND
 
-No discovered Queue Definition has the requested name, or a Cloudflare queue does not map to a Queue Definition. `error.why` names the queue only when the name is a safe identifier. The generated server output loads the Queue Definitions, so a script that runs outside of it finds none.
+No discovered Queue Definition has the requested name, or a Cloudflare queue does not map to a Queue Definition. `error.why` names the queue only when the name is a safe identifier. The generated server output loads the Queue Definitions, so a script that runs outside of it, or an app built without Queue, finds none. When the Vite config sets `queue: false`, `runQueue()` reports [`QUEUE_DISABLED`](#queue_disabled) instead.
 
 ### QUEUE_DISABLED
 

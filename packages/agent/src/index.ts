@@ -87,7 +87,7 @@ import { AgentInvocationClaimConflict, bindAgentInvocations, exclusiveAgentInvoc
 import { type AgentMessagePhase, type Message, blobArrayBuffer, createMessage, isArrayBufferValue, isAttachmentBlob, isAttachmentPart, isUint8ArrayValue, materializeMessageAttachmentData } from "./messages.ts"
 import {
   createFallbackAgentInvoker,
-  hasUnreplayableAgentInputContext,
+  agentInvokerInputReplayProvenance,
   hasResolvedAgentInvokerInput,
   normalizeAgentInvokerOptions,
   portableResolvedAgentInvokerInput,
@@ -811,6 +811,7 @@ interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   requestUrl?: string
   parsedMessageMeta?: ParsedAgentMessageMetaState
   resolvedInvoker?: boolean
+  resolvedInvokerReplay?: ReturnType<typeof agentInvokerInputReplayProvenance>
   run?: Partial<AgentRunMetadata>
   trace?: AgentRuntimeContext["trace"]
   runtime?: AgentRuntimeContext["runtime"]
@@ -1307,7 +1308,7 @@ async function runAgentAsWorkflow<
     // Headers and bodies may contain webhook credentials and remain process-local by design.
     ...(context.request ? { requestUrl: context.request.url } : {}),
     ...(parsedMessageMeta !== undefined ? { parsedMessageMeta } : {}),
-    ...(hasResolvedAgentInvokerInput(input) ? { resolvedInvoker: true } : {}),
+    ...(hasResolvedAgentInvokerInput(input) ? { resolvedInvoker: true, resolvedInvokerReplay: agentInvokerInputReplayProvenance(input) } : {}),
     runtime: context.runtime,
     runtimeConfig: resolvedContext.runtimeConfig,
     ...(inheritedRun ? { run: inheritedRun } : {}),
@@ -4498,7 +4499,7 @@ async function createAgentInvocationContext<
     : undefined,
 ): Promise<AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>> {
   const startedAt = Date.now()
-  const replayHasContext = hasUnreplayableAgentInputContext(input.context)
+  const replayHasContext = agentInvokerInputReplayProvenance(input).hasContext
   const replayCallerAbortSignal = agentInvocationCallerAbortSignal(input)
   // Preparation can replace or mutate input. Replay must retain the caller's input metadata.
   const replayInput = {

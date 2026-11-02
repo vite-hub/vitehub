@@ -15,11 +15,30 @@ Use it for a Vite or Nuxt application that needs Server Primitives, Agents, or b
 pnpm add vite-hub
 ```
 
+`vite-hub` includes Blob, KV, Queue, Env, Email, Rate Limit, Channels, Browser, Sandbox Tasks, Workflows, Source, Logs, and the Console. Other features are optional peers, so an app installs only what it enables. Add their packages before you enable them:
+
+| Feature | Add these packages |
+| --- | --- |
+| `agent` | `@vite-hub/agent` |
+| `auth` | `@vite-hub/auth better-auth` |
+| `database`, and Connections or Comments, which turn Database on | `@vite-hub/database drizzle-orm`, and `drizzle-kit` as a development dependency |
+| `realtime` | `@vite-hub/realtime` |
+| `schedule` | `@vite-hub/schedule` |
+| `workspace` | `@vite-hub/workspace`, and `@vite-hub/shell` for shell commands |
+| `server/content.ts` | `@vite-hub/content`, and `@vite-hub/cms` for the `cms` preset |
+| `server/comments.ts` | `@vite-hub/comments` |
+| Console with Agents | `@libsql/client drizzle-orm` |
+| Console sign-in with Better Auth | `@vite-hub/auth better-auth @better-auth/oauth-provider` |
+| `vite-hub/ui` | `@vite-hub/ui` |
+| `vite-hub/presets/*` | `@vite-hub/presets` |
+
+A build with an enabled feature whose package is missing fails with the `pnpm add` command to run. Provider SDKs, such as `workflow` and `@workflow/builders` for Vercel Workflow or `@vercel/sandbox` for Sandbox Tasks, stay with their feature guides.
+
 You need Node.js 24.15 or newer, Vite 8 or newer, and an ESM package with `"type": "module"` or a `vite.config.mts` file. Hosted primitives and model providers can also require credentials, network access, and billed accounts. Their feature guides list those requirements before the first provider call.
 
 ## Configure ViteHub
 
-Choose one built-in deployment preset. Application routes and feature imports stay unchanged when the target changes.
+Choose one built-in deployment preset. Application routes and feature imports stay unchanged when the target changes. When you omit `preset`, ViteHub detects it from `VITEHUB_HOSTING`, then `NITRO_PRESET` or `SERVER_PRESET`, then the build variables of Cloudflare Workers Builds (`WORKERS_CI`), Netlify (`NETLIFY`), Vercel (`NOW_BUILDER`, `VERCEL`, `VERCEL_ENV`), and Deno Deploy (`DENO_DEPLOY`, `DENO_DEPLOYMENT_ID`). Without any of them, it builds for `node`. `detectPreset()` from `vite-hub/deployment` returns the same detected preset, or `undefined`, so a config can choose host-specific options.
 
 ```ts
 // vite.config.ts
@@ -55,7 +74,7 @@ and a fresh memo cache. Without a real host lifetime API, await the
 returned `flushWaitUntil()` before responding. See the
 [Runtime Context guide](https://vitehub.dev/docs/reference/runtime-context).
 
-The public presets are `cloudflare`, `netlify`, `vercel`, `deno`, and `node`. Each resolves once to a host, runtime, Nitro output, packaging policy, and service adapters; do not also set `nitro.preset`, `NITRO_PRESET`, `SERVER_PRESET`, or `VITEHUB_HOSTING`.
+The public presets are `cloudflare`, `netlify`, `vercel`, `deno`, and `node`. Each resolves once to a host, runtime, Nitro output, packaging policy, and service adapters. The build fails when `nitro.preset`, `NITRO_PRESET`, `SERVER_PRESET`, or `VITEHUB_HOSTING` selects a different host than `preset`.
 
 ViteHub derives one deployment identity from the nearest `package.json` name, falling back to the Vite root directory name. Set `name` to pin the identity explicitly. Cloudflare Workers Builds supplies its connected Worker through `WRANGLER_CI_OVERRIDE_NAME`; the Cloudflare preset uses it after explicit `name` and fails when the two resolve to different values because the connected Worker remains the deployment target. Cloudflare uses the resolved identity for the default Worker, Blob bucket, Queue prefix, Rate Limit namespace, Sandbox, and Container names. Explicit Wrangler Worker names remain authoritative outside Workers Builds, while explicit Blob bucket, driver, and store options still win. The Workers Builds fallback derives deterministic names but does not provision the corresponding R2 bucket or Queue.
 
@@ -105,7 +124,7 @@ Generated files are for inspection and deployment. Application code must not imp
 
 Nitro output includes `.vitehub/nitro/error-log.mjs`. It logs each unhandled request error as `[vitehub] Unhandled error in <method> <path>` with the thrown error's message, stack, status, and cause chain, while the response stays sanitized. Without it, Cloudflare Workers log only `{"status":500,"unhandled":true,"message":"HTTPError"}`. `vitehub({ observability })` replaces it with evlog.
 
-`vitehub()` and `vite-hub/nuxt` register ViteHub rules with [Vite Doctor](https://github.com/onmax/vite-doctor) when the app runs it. The rules report internal imports, server-only imports in client code, and unchecked KV and Blob results. Read [Doctor rules](https://vitehub.dev/docs/reference/doctor-rules).
+`vitehub()` and `vite-hub/nuxt` register ViteHub rules with [Vite Doctor](https://github.com/onmax/vite-doctor) when the app runs it. The rules report misuse of every Server Primitive, for example internal or server-only imports, unchecked `[error, value]` results, secret Server Env values used as strings, unknown Definition names, and removed APIs. Read [Doctor rules](https://vitehub.dev/docs/reference/doctor-rules).
 
 ## Run tasks
 
@@ -203,6 +222,8 @@ The store uses a discovered ViteHub Database and creates its journal tables on f
 Retention defaults to 30 days and 10,000 terminal records. To change a limit, pass `createDatabaseAgentInvocationStore({ maxAge, maxRecords })` from `vite-hub/agent/invocations/database` to `defineAgentInvocations({ store })` from `vite-hub/agent/server`. Set either limit to `false` to disable it. The Console shows a configured journal but does not own its retention settings.
 
 ## Invoke Agents from the Console
+
+The Console **Skills** page shows the bundled files of each discovered Agent Definition in a searchable tree. Read Markdown previews or file source, including supporting references and scripts. Source-mounted Skills are available in the session Workspace. See [Inspect Skills](https://vitehub.dev/docs/development/console#inspect-skills).
 
 The Console **Usage** page provides session history with date, Agent, status, and search filters. Open a row to inspect that session in the existing Agents view. History keeps completed, failed, and cancelled Agent Invocations visible even when token or cost evidence is unavailable. Totals use the same filters as the history table. See [Session history and usage](https://vitehub.dev/docs/development/console#inspect-usage) for the identity, coverage, and pagination contract.
 

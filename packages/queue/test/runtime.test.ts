@@ -210,6 +210,17 @@ describe("cloudflare queue runtime", () => {
     })
   })
 
+  it("reports a disabled Queue before looking up the definition", async () => {
+    const handler = vi.fn(async () => {})
+    setQueueRuntimeConfig(false)
+    setQueueRuntimeRegistry({ welcome: async () => ({ default: { handler } }) })
+
+    await expect(runQueue("welcome", { email: "ava@example.com" })).rejects.toMatchObject({ code: "QUEUE_DISABLED" })
+    setQueueRuntimeRegistry(undefined)
+    await expect(runQueue("welcome", { email: "ava@example.com" })).rejects.toMatchObject({ code: "QUEUE_DISABLED" })
+    expect(handler).not.toHaveBeenCalled()
+  })
+
   it("acks successful messages and retries failed ones", async () => {
     const report = vi.spyOn(console, "error").mockImplementation(() => {})
     const ack = vi.fn()

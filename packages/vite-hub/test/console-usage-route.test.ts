@@ -37,7 +37,7 @@ it.each([["env", "kv"], ["usage"]] as const)("does not register the Usage endpoi
     const config = { root, vitehubCliDiscovery: true, nitro: { handlers: [] as Array<{ handler: string, route: string, method?: string }> } }
     await Reflect.apply(handler, plugin, [config, { command: "build", mode: "production" }])
     const routes = config.nitro.handlers.map(handler => handler.route)
-    expect(routes).toContain("/api/_vitehub/console/status")
+    expect(routes).not.toContain("/api/_vitehub/console/status")
     // Without an invocation journal, this handler fails with an unhandled 500.
     expect(routes).not.toContain("/api/_vitehub/console/usage")
   } finally { await rm(root, { recursive: true, force: true }) }

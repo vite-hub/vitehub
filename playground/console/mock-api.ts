@@ -22,6 +22,7 @@ import type { Plugin } from "vite"
 import databaseFixture from "./database.fixture.json" with { type: "json" }
 import fixtureDocument from "./console.fixture.json" with { type: "json" }
 import manifest from "./package.json" with { type: "json" }
+import { playgroundSkillFiles } from "./skills.ts"
 import { playgroundConsoleContributions } from "./sections.ts"
 
 const fixture = parseConsoleFixture(fixtureDocument)
@@ -45,6 +46,7 @@ const sections = [
   "env",
   "connections",
   "agents",
+  "skills",
   "usage",
   "blob",
   "databases",
@@ -573,6 +575,30 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
   if (path === "/api/_vitehub/console/sections") {
     // A fixed build id, so the Console starts its update check. A test that answers another id shows "Update ready".
     json(response, { build: "playground", contributions: playgroundConsoleContributions, projectName: manifest.name, sections })
+    return true
+  }
+
+  if (path === "/api/_vitehub/console/skills") {
+    const agent = url.searchParams.get("agent") ?? "interface-engineer"
+    const files = agent === "interface-engineer" ? playgroundSkillFiles : {}
+    const filePath = url.searchParams.get("path")
+    if (!agents.includes(agent)) {
+      response.statusCode = 404
+      response.setHeader("content-type", "text/plain; charset=utf-8")
+      response.end("Agent not found.")
+    }
+    else if (filePath !== null) {
+      const content = files[filePath]
+      // The RPC bridge shows a failed body as its message, so failures answer with text, as the real handler words them.
+      const failure = content === undefined ? [404, "This file is not bundled with this Agent."] as const : content.includes("\0") ? [415, "Binary files cannot be previewed as text."] as const : undefined
+      if (failure) {
+        response.statusCode = failure[0]
+        response.setHeader("content-type", "text/plain; charset=utf-8")
+        response.end(failure[1])
+      }
+      else json(response, { path: filePath, content, size: new TextEncoder().encode(content).byteLength })
+    }
+    else json(response, { agents, agent, files: Object.entries(files).map(([path, content]) => ({ path, size: new TextEncoder().encode(content).byteLength })) })
     return true
   }
 

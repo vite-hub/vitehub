@@ -66,7 +66,7 @@ export interface ResolvedKVModuleOptions {
   stores?: Record<string, ResolvedKVStoreConfig>
 }
 
-export type KVOperation = "clear" | "del" | "get" | "getAndDelete" | "has" | "increment" | "keys" | "list" | "set"
+export type KVOperation = "clear" | "del" | "get" | "getAndDelete" | "has" | "increment" | "keys" | "list" | "set" | "setIfAbsent"
 
 /** Codes that KV operations return in the `[error, data]` tuple. Config errors throw instead. */
 export type KVErrorCode =
@@ -82,6 +82,11 @@ export interface KVListOptions {
   /** Maximum number of keys to read. Must be a positive integer. */
   limit: number
   prefix?: string
+}
+
+export interface KVSetIfAbsentOptions {
+  /** Seconds until the key expires. `fs-lite` never expires keys, so its key stays until you delete it. */
+  ttl?: number
 }
 
 export interface KVListPage {
@@ -109,5 +114,11 @@ export interface KVStorage {
   keys(base?: string, options?: unknown): Promise<Result<string[], "KV_OPERATION_FAILED">>
   list(options: KVListOptions): Promise<Result<KVListPage, "KV_INVALID_CURSOR" | "KV_INVALID_LIMIT" | "KV_OPERATION_FAILED">>
   set<T = unknown>(key: string, value: T, options?: unknown): Promise<Result<void, "KV_OPERATION_FAILED">>
+  /**
+   * Writes the value only when the key has no value, in one atomic step.
+   * Returns `true` when this call wrote the value and `false` when the key already had one.
+   * Upstash, Deno KV, and `fs-lite` support it. Cloudflare KV is eventually consistent and returns `KV_UNSUPPORTED_OPERATION`.
+   */
+  setIfAbsent<T = unknown>(key: string, value: T, options?: KVSetIfAbsentOptions): Promise<Result<boolean, "KV_INVALID_TTL" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
   store(name: KVStoreName): KVStorage
 }

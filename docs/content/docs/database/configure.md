@@ -35,6 +35,7 @@ export default defineConfig({
 | `database.previewDatabaseId` | `DatabaseConfigValue` | none | Cloudflare D1 preview database id. |
 | `database.databaseName` | `DatabaseConfigValue` | none | Cloudflare D1 database name. |
 | `database.migrationsTable` | `string` | provider default | Cloudflare D1 migrations table. |
+| `database.migrateOnStart` | `boolean` or `{ allowDataLoss?: boolean }` | `false` | Applies pending migrations of local SQLite databases when a Node server build starts. See [Migrate when the server starts](#migrate-when-the-server-starts). |
 | `database.readReplication` | `boolean` | `false` | Reads from D1 read replicas. See [Read from D1 replicas](/docs/database/hosts#read-from-d1-replicas). |
 
 With `vitehub()`, a discovered Database Definition does not enable Database. Without the `database` option, a build or `vite dev` that imports `vite-hub/database/drizzle` fails with `VITE_HUB_B0013`, and `vitehub db generate` and `vitehub db migrate` exit with an error. Add `database: true` or an options object to enable them. A directly composed `hubDb()` also provides Database.
@@ -102,10 +103,33 @@ The check reads the same database that Drizzle Kit migrates:
 | --- | --- |
 | Local SQLite | Reads the file. A missing file has no applied migrations, and the dry run does not create it. |
 | Remote libSQL | Connects with `connection.url` and `connection.authToken`. |
-| D1 HTTP (`cloudflare.http`) | Calls the Cloudflare API with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. Without them, the check fails with `DATABASE_MIGRATION_CHECK_FAILED`. |
+| D1 HTTP (`cloudflare.http`) | Reads Wrangler's migrations table. `true` calls the Cloudflare API with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`; an object uses its resolved `url` and `authToken`. Missing credentials fail the check with `DATABASE_MIGRATION_CHECK_FAILED`. |
 | Postgres | Connects with `connection.url` or the PG* variables. It needs the `postgres` package in the app. |
 
 Wrangler applies the migrations of a native D1 binding with `wrangler d1 migrations apply`, not `vitehub db migrate`. That path does not use this check.
+
+For D1 HTTP, `vitehub db migrate` uses Wrangler's migrations table: `cloudflare.migrationsTable`, or `d1_migrations` by default, with one row for each applied `.sql` file. Wrangler and `vitehub db migrate` can then migrate the same database in turns. ViteHub sends each file with its ledger row in one request, so D1 keeps neither when the file fails. When the table does not exist yet and Drizzle Kit's `__drizzle_migrations` does, ViteHub records the migrations that Drizzle Kit applied before.
+
+## Migrate when the server starts
+
+A self-hosted Node server, for example in a Docker image, often has only `.output` and no sources or CLI to run `vitehub db migrate` with. Set `migrateOnStart` to apply the pending migrations when the server starts:
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['@vite-hub/database/nuxt'],
+  database: { migrateOnStart: true },
+})
+```
+
+The build reads each database's migrations folder and writes the migrations into a Nitro plugin, so the output does not need the folder. When the server starts, the plugin reads Drizzle Kit's `__drizzle_migrations` table and applies the pending migrations before the server handles a request. It writes the same ledger rows as `vitehub db migrate`, so either can migrate the database next. All pending migrations of a database run in one transaction, and the server logs each one it applied.
+
+Definitions that share a SQLite file share one transaction. Their pending migrations run in journal timestamp order, and matching timestamp and hash pairs run once. If a shared journal contains a migration at or below the file's latest applied timestamp without a matching timestamp and hash in the ledger, startup fails with `DATABASE_MIGRATE_ON_START_UNSUPPORTED` before any database changes. Use compatible migration histories or separate SQLite files; `allowDataLoss` does not bypass this check.
+
+It refuses pending migrations that lose data, with the rules of `vitehub db migrate`: the server does not start, and it throws `DATABASE_MIGRATION_DATA_LOSS` without changing the database. Back up the data and set `migrateOnStart: { allowDataLoss: true }` to apply them.
+
+`migrateOnStart` works only for local SQLite files (`file:` URLs) in a production build with the Node preset. A build for another host, a Postgres database, or D1 over HTTP fails with `DATABASE_MIGRATE_ON_START_UNSUPPORTED`, and so does a server whose connection URL turns out to be remote libSQL. Migrate those from the deployment with `vitehub db migrate`. Development does not use it either: run `vitehub db migrate`.
+
+Run one server process for each database file. Two processes that start together on the same file can both find a migration pending, and the second then fails to start. With several processes, such as the `node-cluster` preset, migrate before you start them.
 
 ## Tables from Nuxt layers
 
@@ -291,7 +315,7 @@ Errors: [`DATABASE_NOT_CONNECTED`](/docs/database/limits-and-errors#database_not
 | `cloudflare.http` | `true \| { url?, authToken? }` | No | Selects authenticated D1 raw HTTP access for local and hosted runtimes. `true` uses Cloudflare's API. An object selects a compatible proxy. |
 | `cloudflare.previewDatabaseId` | `DatabaseConfigValue` | No | D1 preview database id. |
 | `cloudflare.databaseName` | `DatabaseConfigValue` | No | D1 database name. |
-| `cloudflare.migrationsTable` | `string` | No | D1 migrations table. |
+| `cloudflare.migrationsTable` | `string` | No | D1 migrations table that Wrangler and `vitehub db migrate` use. Default: `d1_migrations`. |
 | `cloudflare.readReplication` | `boolean` | No | Reads from D1 read replicas. Inherits `database.readReplication`. See [Read from D1 replicas](/docs/database/hosts#read-from-d1-replicas). |
 | `drizzle.casing` | `DrizzleCasing` | No | Drizzle casing option. Values: `snake_case`, `camelCase`. Applies to queries and to migrations from `vitehub db generate`. |
 

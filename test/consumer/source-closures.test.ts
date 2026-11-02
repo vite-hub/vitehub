@@ -59,6 +59,8 @@ function workspaceConfig(overrides: Record<string, string>) {
     "  esbuild: true",
     "blockExoticSubdeps: false",
     "overrides:",
+    // Match the verified lockfile instead of selecting a freshly published tarball.
+    "  \"js-base64\": \"3.9.4\"",
     "  \"@napi-rs/wasm-runtime\": \"1.1.6\"",
     // Workflow's broad Nest peers must stay on one major when pnpm resolves the packed graph.
     "  \"@nestjs/common\": \"11.2.3\"",
@@ -116,7 +118,8 @@ describe("packed Source capability closures", () => {
           private: true,
           type: "module",
           dependencies: { "vite-hub": overrides["vite-hub"] },
-          devDependencies: { typescript: "6.0.3", wrangler: "4.112.0" },
+          // The facade also exports table(), whose documented peer is Drizzle.
+          devDependencies: { "drizzle-orm": "0.45.3", typescript: "6.0.3", wrangler: "4.112.0" },
         }, null, 2)),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(overrides)),
         writeFile(join(appDir, "tsconfig.json"), JSON.stringify({

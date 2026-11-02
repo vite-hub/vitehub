@@ -42,6 +42,7 @@ Available namespaces:
   channels    External Channel registration workflows.
   conversations  Export Channel conversations.
   content     Inspect, edit, delete, restore, publish, and schedule Content documents in the running dev server or a deployed app.
+  cms         Inspect the CMS roles and their permissions.
   db          Database development workflows.
   kv          Read and write keys of the KV stores of the app, on the dev server or on a deployed app.
   queue       List Queue Definitions and send a job to one.
@@ -94,6 +95,7 @@ Available namespaces:
 | `vitehub content scheduled` | Available | Content Package | List pending, overdue, and failed schedules. |
 | `vitehub content unschedule` | Available | Content Package | Cancel a pending schedule, or dismiss a failed one. |
 | `vitehub content sitemap` | Available | Content Package | Print the sitemap URLs of published documents. |
+| `vitehub cms roles` | Available | CMS Package | List each CMS role with the Content and Comments actions it allows. See [Roles and access](/docs/cms/access). |
 | `vitehub console dev` | Available | Console integration | Start the app's development command with deterministic Console fixture data. |
 | `vitehub connections` | Available | Connections Package | Connect OAuth accounts, set API keys, list Connections, read activity, and approve or deny writes. |
 | `vitehub env inspect` | Available | Env Package | List declared Server Env variables and their status without values. |

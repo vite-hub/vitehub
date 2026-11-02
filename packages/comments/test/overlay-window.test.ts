@@ -58,7 +58,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.mocked(window.confirm).mockReturnValue(true)
-  document.querySelector("vitehub-pill")?.shadowRoot?.querySelector<HTMLButtonElement>("button")?.click()
+  document.querySelector("vitehub-pill")?.shadowRoot?.querySelector<HTMLButtonElement>("button.exit")?.click()
   for (const element of document.querySelectorAll("vitehub-pill, vitehub-comments")) element.remove()
   document.documentElement.className = ""
   vi.unstubAllGlobals()
@@ -74,13 +74,14 @@ describe("the Comments page tool", () => {
     expect(bar.shadowRoot!.querySelector("button[title=\"Comments on this page\"]")!.getAttribute("aria-pressed")).toBe("false")
   })
 
-  it("updates the retained panel when the page theme changes", async () => {
+  it("keeps the retained panel dark, like the pill, on light and dark pages", async () => {
     site({ read: true, comment: true })
     const { panel } = await openPanel()
+    expect(panel.querySelector<HTMLElement>(".root")!.dataset.theme).toBe("dark")
     document.documentElement.classList.add("dark")
-    await vi.waitFor(() => expect(panel.querySelector<HTMLElement>(".root")!.dataset.theme).toBe("dark"))
     document.documentElement.classList.remove("dark")
-    await vi.waitFor(() => expect(panel.querySelector<HTMLElement>(".root")!.dataset.theme).toBe("light"))
+    await new Promise(resolve => setTimeout(resolve))
+    expect(panel.querySelector<HTMLElement>(".root")!.dataset.theme).toBe("dark")
   })
 
   it("updates the page label when navigating between empty pages", async () => {
@@ -147,7 +148,7 @@ describe("the Comments page tool", () => {
     const originalReplace = history.replaceState
     const { pill, bar } = await start()
     await vi.waitFor(() => expect(request.mock.calls.some(([path]) => path.startsWith(`/api/_vitehub/comments/${stage}`))).toBe(true))
-    if (action === "exit") pill.shadowRoot!.querySelector<HTMLButtonElement>("button")!.click()
+    if (action === "exit") pill.shadowRoot!.querySelector<HTMLButtonElement>("button.exit")!.click()
     else document.querySelector("vitehub-comments")!.remove()
 
     const documentListeners = vi.spyOn(document, "addEventListener")

@@ -185,6 +185,14 @@ export type BrowserDefinitionRegistry = Record<
   BrowserDefinition | (() => Promise<BrowserDefinition | { default?: BrowserDefinition }>)
 >
 
+/**
+ * Whether this build enables Browser. ViteHub generates it for each build; an unavailable build says why and how to
+ * enable Browser.
+ */
+export type BrowserAvailability =
+  | { available: true }
+  | { available: false, preset?: string, reason: string, fix: string }
+
 export interface BrowserRuntimeConfig {
   binding: string
   engine: BrowserEngine

@@ -4,7 +4,6 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
-import { normalizeRetention, readColocatedAgentSkills } from "@vite-hub/agent/vite"
 
 import type { AgentInvocationsOptions, AgentRetentionPolicy } from "@vite-hub/agent/server"
 import type { ConsoleAgentEntry, ConsoleBuildCatalog } from "./build.ts"
@@ -18,6 +17,8 @@ import { consoleRuntimeReaderModule, describeConsoleContributedSections, describ
 import { withConsoleDocumentEditorSections } from "./build.ts"
 import { consoleD1MaxSizeError } from "./retention.ts"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
+import { requireOptionalOwner } from "../internal/optional-owners.ts"
+import { ownerModules } from "../internal/owner-modules.ts"
 
 function resolveConsoleRuntimeRoot(): string {
   const root = [
@@ -73,7 +74,8 @@ function renderRetentionLimit(value: AgentRetentionPolicy[keyof AgentRetentionPo
  */
 export function assertConsoleRetention(retention: AgentRetentionPolicy | undefined, journal: ConsoleJournal | undefined): void {
   if (retention === undefined) return
-  const { maxSize } = normalizeRetention(retention, {
+  // Retention limits the Agent invocation journal.
+  const { maxSize } = requireOptionalOwner(ownerModules.agentVite, "agent").normalizeRetention(retention, {
     label: "console.retention",
     defaults: { maxAgeMs: false, maxRecords: false, maxSize: false },
     size: "any",
@@ -214,7 +216,7 @@ function renderConsoleNitroPlugin(
   const documentEditors = describeConsoleDocumentEditors(sections, catalog.documents ?? {})
   const runtimeCapabilities = renderConsoleRuntimeCapabilities(runtimeCapabilityImports)
   const definitions = agents.map((agent, index) => {
-    const skills = readColocatedAgentSkills(agent.handler)
+    const skills = requireOptionalOwner(ownerModules.agentVite, "agent").readColocatedAgentSkills(agent.handler)
     const module = `vitehubConsoleAgent${index}`
     const definition = skills
       ? `agentWithColocatedSkills(${module}.default ?? ${module}, ${JSON.stringify(skills)})`

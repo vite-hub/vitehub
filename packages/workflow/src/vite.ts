@@ -6,7 +6,7 @@ import { resolve } from "node:path"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { encodeProviderOutputAliases } from "@vite-hub/internal/build/esbuild"
 import { contributeProviderDeploymentOutput, createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, getProviderOutputCatalog, getProviderRuntimeModule, getVercelRuntimePackages, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
-import { removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
+import { providerOutputAliasSources, removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
 import { collectViteHubProviderImportAliases, createNoExternalAddition, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalizeHosting } from "@vite-hub/internal/hosting"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
@@ -197,8 +197,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
       ? await retainProviderOutputSources({
           artifactDir: resolve(artifactDir, "sources"),
           paths: [
-            ...Object.keys(aliases),
-            ...Object.values(aliases),
+            ...providerOutputAliasSources(aliases, [config.root]),
             ...providerSources.paths,
           ],
           roots: [config.root],
@@ -513,12 +512,9 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         const retainedSources = !outputs.cloudflare && !outputs.vercel ? { resolve: (path: string) => path } : await retainProviderOutputSources({
           artifactDir: resolve(artifactDir, "sources"),
           paths: [
-            ...Object.keys(importAliases),
-            ...Object.values(importAliases),
-            ...Object.keys(runtimeImportAliases.cloudflare),
-            ...Object.values(runtimeImportAliases.cloudflare),
-            ...Object.keys(runtimeImportAliases.vercel),
-            ...Object.values(runtimeImportAliases.vercel),
+            ...providerOutputAliasSources(importAliases, [config.root]),
+            ...providerOutputAliasSources(runtimeImportAliases.cloudflare, [config.root]),
+            ...providerOutputAliasSources(runtimeImportAliases.vercel, [config.root]),
             ...providerSources.paths,
           ],
           roots: [config.root],

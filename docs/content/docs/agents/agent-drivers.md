@@ -149,7 +149,7 @@ launch: ({ command, providerCommand }) => ({
 Codex keeps every session in its Home: rollout files, `logs_N.sqlite`, `thread_history_N.sqlite`, `state_N.sqlite`, shell snapshots, and `.tmp` Git directories. Codex does not remove them, so the Home grows without a limit. Set `retention` to keep it bounded:
 
 ```ts [server/agents/review/agent.ts]
-import { defineAgent } from '@vite-hub/agent'
+import { defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
   driver: {

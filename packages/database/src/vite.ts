@@ -5,7 +5,7 @@ import { dirname, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
+import { getHostingProvider, resolveHost, resolveHostPreset } from "@vite-hub/internal/hosting"
 import { contributeProviderRuntime, createProviderDeploymentOutputGenerationState, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalAddition, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalize } from "pathe"
@@ -14,11 +14,12 @@ import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/buil
 import { createDbCliContributor } from "./cli.ts"
 import { collectDatabaseContributions } from "./contributions.ts"
 import { cloudflareOptions, mergeCloudflareD1Bindings, mergeCloudflareHyperdriveBindings, resolveCloudflareD1Bindings, resolveCloudflareHyperdriveBindings } from "./internal/cloudflare.ts"
+import { collapseGeneratedWranglerD1Bindings } from "./internal/wrangler-output.ts"
 import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { removeGeneratedDatabaseTypes, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { renderDatabaseConfigExpression, renderPostgresDatabaseExpression, usesD1ReadReplication, usesPostgres, usesSqlite } from "./internal/runtime-config-expression.ts"
 import { dbPackageName, supportsHostedDatabaseRuntime, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
-import { collapseGeneratedWranglerD1Bindings } from "./internal/wrangler-output.ts"
+import { migrateOnStartPluginFile, renderMigrateOnStartPlugin, resolveMigrateOnStart } from "./internal/migrate-on-start.ts"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { inspectDatabaseDefinitions } from "./inspect.ts"
 import { createDatabaseProvisionStep } from "./provision.ts"
@@ -85,8 +86,10 @@ interface DatabaseNitroHost {
   hooks: { hook: (name: "compiled", callback: () => Promise<void>) => void }
   options: {
     cloudflare?: { wrangler?: { d1_databases?: unknown, hyperdrive?: unknown, compatibility_flags?: unknown } }
+    dev?: boolean
     handlers?: Array<{ handler: string, middleware?: boolean, route?: string }>
     output: { serverDir: string }
+    plugins?: string[]
     preset?: string
   }
 }
@@ -344,6 +347,24 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     if (!handlers.some(item => item.handler === handler)) handlers.unshift({ handler, middleware: true })
   }
 
+  // A Node server build applies pending migrations before it handles requests. In Nuxt the Database module installs it.
+  function installNitroMigrateOnStart() {
+    const database = resolvedOptions()
+    const settings = resolveMigrateOnStart(database)
+    if (!nitroOptions || !runtimeConfig || !settings || nitroOptions.dev || (database && "nuxtHostResource" in database)) return
+    const packageDir = computePackageDir(import.meta.url)
+    const plugin = resolve(databaseRoot(), migrateOnStartPluginFile)
+    mkdirSync(dirname(plugin), { recursive: true })
+    writeFileSync(plugin, renderMigrateOnStartPlugin(runtimeConfig, {
+      ...settings,
+      drizzleImport: resolveRuntimeModule(packageDir, "drizzle"),
+      host: resolveHost({ nitro: nitroOptions }) ?? resolveHostPreset({ nitro: nitroOptions }),
+      runtimeImport: resolveRuntimeModule(packageDir, "runtime/migrate-on-start"),
+    }))
+    const plugins = nitroOptions.plugins ??= []
+    if (!plugins.includes(plugin)) plugins.push(plugin)
+  }
+
   async function copyNitroMigrations(serverDir: string) {
     if (!nitroMigrations.length) return
     await rm(resolve(serverDir, NITRO_MIGRATIONS_DIR), { force: true, recursive: true })
@@ -376,6 +397,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         mergeNitroCloudflareD1Bindings()
         installNitroPostgresRequestScope()
         installNitroRequestStats()
+        installNitroMigrateOnStart()
         nitro.hooks.hook("compiled", async () => {
           await copyNitroMigrations(nitro.options.output.serverDir)
           if (nitroOptions && getHostingProvider(nitroOptions.preset) === "cloudflare") await collapseGeneratedWranglerD1Bindings(nitro.options.output.serverDir)
@@ -441,6 +463,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       mergeNitroCloudflareD1Bindings()
       installNitroPostgresRequestScope()
       installNitroRequestStats()
+      installNitroMigrateOnStart()
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {
@@ -486,15 +509,19 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       const resetRuntimeContribution = () => {
         providerOutput?.resetRuntimeContribution("database", siblingRuntimeGenerations.get(this))
       }
-      if (error || !resolved || !runtimeConfig || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
+      // Only a failed build resets the environment's generation: other plugins' Provider Output shares it.
+      if (error) {
         resetRuntimeContribution()
         await siblingRuntimeGenerations.reset(this, providerOutput, error)
+        return
+      }
+      if (!resolved || !runtimeConfig || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
+        resetRuntimeContribution()
         return
       }
       const provider = resolveHostedProvider(resolved)
       if (!provider) {
         resetRuntimeContribution()
-        await siblingRuntimeGenerations.reset(this, providerOutput)
         return
       }
       const runtimeDir = resolve(databaseRoot(), HOSTED_RUNTIME_DIR)
@@ -504,7 +531,6 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
           rm(resolve(runtimeDir, `${provider}-runtime.mjs`), { force: true }),
           rm(resolve(runtimeDir, "definition-defaults.mjs"), { force: true }),
         ])
-        await siblingRuntimeGenerations.reset(this, providerOutput)
         return
       }
       const definitionDefaults = await writeHostedDatabaseRuntimeModules(runtimeDir, runtimeConfig, [provider])

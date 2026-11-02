@@ -2,6 +2,7 @@ import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { afterAll, describe, expect, it, vi } from "vitest"
 
@@ -1054,5 +1055,123 @@ describe("Vite schedule integration", () => {
       "export default registry",
       "",
     ].join("\n"))
+  })
+
+  describe("cron per host", () => {
+    async function createHourlyCleanup(prefix: string) {
+      const root = await temporaryDirectory(prefix)
+      await mkdir(join(root, "server", "schedules"), { recursive: true })
+      await mkdir(join(root, "dist", "client"), { recursive: true })
+      await writeFile(join(root, "server", "schedules", "cleanup.ts"), [
+        "import { defineSchedule } from '@vite-hub/schedule'",
+        "export default defineSchedule({ cron: '0 * * * *', handler: ({ cron }) => { globalThis.cleanupRuns = (globalThis.cleanupRuns ?? 0) + 1; globalThis.cleanupCron = cron } })",
+        "",
+      ].join("\n"), "utf8")
+      return root
+    }
+
+    async function buildStandalone(root: string, options: Parameters<typeof hubSchedule>[0]) {
+      const plugin = hubSchedule({ projectRoot: root, providerOutput: "standalone", ...options })
+      await (plugin.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => unknown)(
+        { root },
+        { command: "build", mode: "production" },
+      )
+      await (plugin.configResolved as (config: Record<string, unknown>) => Promise<void>)({
+        build: { outDir: "dist/client" },
+        command: "build",
+        resolve: { alias: [] },
+        root,
+      })
+      await runProviderOutputHooks(plugin)
+      return plugin
+    }
+
+    it("writes the build's cron in place of the declared one in standalone output", async () => {
+      const root = await createHourlyCleanup("vitehub-schedule-cron-override-")
+      const plugin = await buildStandalone(root, { cron: { cleanup: "0 0 * * *" } })
+
+      const vercel = JSON.parse(await readFile(join(createDefaultVercelOutputRoot(root), "config.json"), "utf8"))
+      expect(vercel.crons).toEqual([{ path: "/api/vitehub/schedules/vercel/cleanup", schedule: "0 0 * * *" }])
+      await expect(readFile(join(createDefaultNetlifyOutputRoot(root), "functions", "vitehub-schedule-cleanup.mjs"), "utf8")).resolves.toContain("schedule: \"0 0 * * *\"")
+      const wrangler = JSON.parse(await readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8"))
+      expect(wrangler.triggers.crons).toEqual(["0 0 * * *"])
+      const { default: worker } = await import(pathToFileURL(join(createDefaultCloudflareOutputRoot(root), "index.js")).href)
+      const runs = () => (globalThis as { cleanupRuns?: number }).cleanupRuns ?? 0
+      const before = runs()
+      await worker.scheduled({ cron: "0 * * * *", scheduledTime: Date.now() }, {}, { waitUntil: vi.fn() })
+      expect(runs()).toBe(before)
+      await worker.scheduled({ cron: "0 0 * * *", scheduledTime: Date.now() }, {}, { waitUntil: vi.fn() })
+      expect(runs()).toBe(before + 1)
+
+      const { default: vercelFunction } = await import(pathToFileURL(join(createDefaultVercelOutputRoot(root), "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", "index.mjs")).href)
+      const response = { end: vi.fn(), statusCode: 0 }
+      await vercelFunction({ headers: {}, url: "/api/vitehub/schedules/vercel/cleanup" }, response)
+      expect(response.statusCode).toBe(204)
+      expect((globalThis as { cleanupCron?: string }).cleanupCron).toBe("0 0 * * *")
+
+      const inspector = (plugin.vitehub!.inspect as () => { definitions: Array<{ list: () => Promise<Array<{ fields: unknown[] }>> }> })().definitions[0]!
+      const [summary] = await inspector.list()
+      expect(summary!.fields).toEqual(expect.arrayContaining([
+        { label: "Cron", value: "0 0 * * *" },
+        { label: "Declared cron", value: "0 * * * *" },
+      ]))
+    })
+
+    it("writes the build's cron to Vercel's Nitro output config", async () => {
+      const root = await createHourlyCleanup("vitehub-schedule-cron-override-nitro-vercel-")
+      await rm(join(root, "server"), { force: true, recursive: true })
+      await mkdir(join(root, "src"), { recursive: true })
+      await writeFile(join(root, "src", "cleanup.schedule.ts"), "export default defineSchedule({ cron: '0 * * * *', handler: () => {} })\n", "utf8")
+
+      const nitro = await createScheduleNitroConfig({
+        command: "build",
+        cron: { cleanup: "0 0 * * *" },
+        nitro: { preset: "vercel" },
+        root,
+      })
+
+      expect(nitro).toMatchObject({
+        vercel: { config: { crons: [{ path: "/api/vitehub/schedules/vercel/cleanup", schedule: "0 0 * * *" }] } },
+      })
+    })
+
+    it("registers the build's cron with Nitro's Cloudflare wake and matches triggers to it", async () => {
+      const root = await createHourlyCleanup("vitehub-schedule-cron-override-nitro-cloudflare-")
+      const userConfig: Record<string, unknown> = { [VITEHUB_NITRO_CONFIG_CONTEXT]: true, root }
+      const plugin = hubSchedule({ cron: { cleanup: "0 0 * * *" } })
+      await (plugin.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => unknown)(
+        userConfig,
+        { command: "build", mode: "production" },
+      )
+
+      expect(userConfig).toMatchObject({ nitro: { cloudflare: { wrangler: { triggers: { crons: ["0 0 * * *"] } } } } })
+      await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8"))
+        .resolves.toContain("executeCloudflareStaticSchedules(event, { cronOverrides: {\"cleanup\":\"0 0 * * *\"}, registry: scheduleRegistry })")
+    })
+
+    it("fails the build when the cron names no Schedule", async () => {
+      const root = await createHourlyCleanup("vitehub-schedule-cron-override-unknown-")
+
+      await expect(createScheduleNitroConfig({ command: "build", cron: { cleanpu: "0 0 * * *" }, nitro: { preset: "vercel" }, root }))
+        .rejects.toMatchObject({ code: "SCHEDULE_B0008", message: expect.stringContaining("names \"cleanpu\", but no Schedule has that name. Schedules: \"cleanup\"") })
+    })
+
+    it("fails the build when the Process Runtime would ignore the cron", async () => {
+      const root = await createHourlyCleanup("vitehub-schedule-cron-override-process-")
+
+      await expect(createScheduleNitroConfig({ command: "build", cron: { cleanup: "0 0 * * *" }, root, runtime: { driver: "process" } }))
+        .rejects.toMatchObject({ code: "SCHEDULE_B0008" })
+    })
+
+    it("accepts the cron when host output wakes Static Schedules beside the Process Runtime", async () => {
+      const root = await createHourlyCleanup("vitehub-schedule-cron-override-process-split-")
+
+      await expect(createScheduleNitroConfig({ command: "build", cron: { cleanup: "0 0 * * *" }, providerOutput: "nitro", root, runtime: { driver: "process" } }))
+        .resolves.toMatchObject({ cloudflare: { wrangler: { triggers: { crons: ["0 0 * * *"] } } } })
+      const plugin = await buildStandalone(root, { cron: { cleanup: "0 0 * * *" }, runtime: { driver: "process" } })
+      expect(plugin).toBeDefined()
+      const vercel = JSON.parse(await readFile(join(createDefaultVercelOutputRoot(root), "config.json"), "utf8"))
+      expect(vercel.crons).toEqual([{ path: "/api/vitehub/schedules/vercel/cleanup", schedule: "0 0 * * *" }])
+    })
   })
 })

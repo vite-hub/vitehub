@@ -48,6 +48,7 @@ describe("Console section preferences", () => {
     expect(resolveConsoleSectionIds({ agent: true, blob: true, connections: true, database: true, kv: true, queue: true, rateLimit: true, sandboxTask: true, schedule: true, workflow: true, workspace: true })).toEqual([
       "connections",
       "agents",
+      "skills",
       "usage",
       "channels",
       "blob",
@@ -61,16 +62,17 @@ describe("Console section preferences", () => {
       "schedules",
     ])
     expect(resolveConsoleSectionIds({ connections: true })).toEqual(["connections"])
-    expect(resolveConsoleSectionIds({ agent: true })).toEqual(["agents", "usage", "channels", "workflows"])
-    expect(resolveConsoleSectionIds({ agent: true, preset: "netlify" })).toEqual(["agents", "usage", "channels"])
+    expect(resolveConsoleSectionIds({ agent: true })).toEqual(["agents", "skills", "usage", "channels", "workflows"])
+    expect(resolveConsoleSectionIds({ agent: true, preset: "netlify" })).toEqual(["agents", "skills", "usage", "channels"])
     expect(resolveConsoleSectionIds({ agent: true, preset: "netlify", workflow: { provider: "vercel" } })).toEqual([
       "agents",
+      "skills",
       "usage",
       "channels",
       "workflows",
     ])
-    expect(resolveConsoleSectionIds({ agent: true, workflow: false })).toEqual(["agents", "usage", "channels"])
-    expect(resolveConsoleSectionIds({ agent: true, queue: false, schedule: false, workflow: false })).toEqual(["agents", "usage", "channels"])
+    expect(resolveConsoleSectionIds({ agent: true, workflow: false })).toEqual(["agents", "skills", "usage", "channels"])
+    expect(resolveConsoleSectionIds({ agent: true, queue: false, schedule: false, workflow: false })).toEqual(["agents", "skills", "usage", "channels"])
     expect(resolveConsoleSectionIds({})).toEqual([])
     expect(resolveConsoleSectionIds({ env: true })).toEqual(["env"])
     expect(resolveConsoleSectionIds({ connections: true })).toEqual(["connections"])
@@ -184,6 +186,7 @@ describe("Console Go to shortcuts", () => {
       auth: "g h",
       agents: "g a",
       content: "g t",
+      skills: "g i",
       comments: "g n",
       usage: "g u",
       channels: "g v",

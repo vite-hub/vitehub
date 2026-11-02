@@ -255,7 +255,7 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
     ?? (serve.authorize ? "private, no-cache" : "public, max-age=0, s-maxage=0")
   return [
     `import { blob, parseImageVariant } from '${importBase}'`,
-    ...(serve.authorize ? [`import { withAuthorization } from ${JSON.stringify(AUTH_SERVER_ID)}`] : []),
+    ...(serve.authorize ? [`import { ${serve.anonymous ? "withAnonymousAuthorization" : "withAuthorization"} } from ${JSON.stringify(AUTH_SERVER_ID)}`] : []),
     ...(authorizeModule ? [`import { authorize } from ${JSON.stringify(authorizeModule)}`] : []),
     `import { createError, defineEventHandler, getQuery, getResponseStatus, getRouterParam, setResponseHeader${headers ? ", removeResponseHeader, setResponseHeaders" : ""} } from 'h3'`,
     "import type { H3Event } from 'h3'",
@@ -295,7 +295,9 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
     ...(serve.authorize
       ? [
           "// Authorize before the store read and before conditional request handling.",
-          `export default defineEventHandler(withAuthorization(${authorizeModule ? "authorize" : "true"}, (event: H3Event) => serveBlob(event)))`,
+          serve.anonymous
+            ? "export default defineEventHandler(withAnonymousAuthorization(authorize, (event: H3Event) => serveBlob(event)))"
+            : `export default defineEventHandler(withAuthorization(${authorizeModule ? "authorize" : "true"}, (event: H3Event) => serveBlob(event)))`,
         ]
       : ["export default defineEventHandler(serveBlob)"]),
     "",
@@ -342,6 +344,9 @@ async function resolveBlobServeAuthorizeModule(
   }
   if (serve.authorize && !hasAuthDefinition(config.plugins)) {
     throw blobErrorDiagnostics.BLOB_B0002({ message: "[vitehub] `blob.serve.authorize` requires an Auth Definition. Enable Auth and add `server/auth.ts`." })
+  }
+  if (serve.anonymous && !authorizeModule) {
+    throw blobErrorDiagnostics.BLOB_B0006({ message: "[vitehub] `blob.serve.anonymous` requires an `authorize` export in `server/blob.ts` to decide signed-out requests." })
   }
   return authorizeModule
 }

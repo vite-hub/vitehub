@@ -1,7 +1,7 @@
-import { discoverDatabaseDefinitions } from "@vite-hub/database/config"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
+import { ownerModules } from "./internal/owner-modules.ts"
 
 import type { ViteHubCliContributor, ViteHubCliFeature } from "@vite-hub/internal/cli"
 import type { Plugin } from "vite"
@@ -88,8 +88,11 @@ function hasDatabasePlugin(state: DisabledDatabaseState): boolean {
 }
 
 function hasDatabaseDefinitions(state: DisabledDatabaseState): boolean {
+  // Without the Database package, the app has no Database Definitions to ignore.
+  const databaseConfig = ownerModules.databaseConfig
+  if (!databaseConfig) return false
   try {
-    return discoverDatabaseDefinitions(state.root, { serverDirs: state.serverDirs }).length > 0
+    return databaseConfig.discoverDatabaseDefinitions(state.root, { serverDirs: state.serverDirs }).length > 0
   }
   catch {
     // Invalid Definition layouts still show that the project defines a Database.

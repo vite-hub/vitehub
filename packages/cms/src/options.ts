@@ -5,7 +5,7 @@ export const cmsNameOptions = ["blob", "database", "workspace"] as const
 export const cmsGitHubOptions = ["repo", "branch", "draftBranch", "root", "publish"] as const
 
 /** Every option of the `cms` preset. */
-export const cmsOptionKeys: readonly string[] = [...cmsNameOptions, "store", ...cmsGitHubOptions]
+export const cmsOptionKeys: readonly string[] = ["access", ...cmsNameOptions, "store", ...cmsGitHubOptions]
 
 export const cmsStores = ["blob-database", "github"] as const
 export const cmsPublishModes = ["commit", "pr"] as const
@@ -25,6 +25,7 @@ export const cmsGitHubDefaults = { branch: "main", draftBranch: "vitehub/content
 export function cmsOptionProblem(key: string, value: unknown): string | undefined {
   if (value === undefined) return
   const text = String(value) === value ? value : undefined
+  if (key === "access") return text === "roles" ? undefined : `must be "roles".`
   if ((cmsNameOptions as readonly string[]).includes(key)) {
     return text !== undefined && namePattern.test(text) ? undefined : "must be a name of letters, numbers, dots, underscores, dashes, and slashes."
   }

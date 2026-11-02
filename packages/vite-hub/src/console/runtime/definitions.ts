@@ -103,10 +103,10 @@ export interface ConsoleDocumentComponent {
   kind: "block" | "inline"
   label: string
   name: string
-  props: Record<string, { default?: unknown, type: "boolean" | "json" | "number" | "string" }>
+  props: Record<string, { default?: unknown, store?: string, type: "boolean" | "file" | "image" | "json" | "number" | "string" }>
 }
 
-const componentPropTypes = ["boolean", "json", "number", "string"] as const
+const componentPropTypes = ["boolean", "file", "image", "json", "number", "string"] as const
 
 function parseConsoleDocumentComponents(value: unknown): ConsoleDocumentComponent[] {
   if (!Array.isArray(value)) return []
@@ -117,7 +117,11 @@ function parseConsoleDocumentComponents(value: unknown): ConsoleDocumentComponen
     for (const [name, prop] of Object.entries(record(component.props) ?? {})) {
       const type = componentPropTypes.find(entry => entry === record(prop)?.type)
       if (!type) continue
-      props[name] = record(prop)?.default === undefined ? { type } : { default: record(prop)?.default, type }
+      const entry: ConsoleDocumentComponent["props"][string] = { type }
+      if (record(prop)?.default !== undefined) entry.default = record(prop)?.default
+      const store = record(prop)?.store
+      if ((type === "file" || type === "image") && text(store)) entry.store = store
+      props[name] = entry
     }
     const parsed: ConsoleDocumentComponent = {
       kind: component.kind === "inline" ? "inline" : "block",

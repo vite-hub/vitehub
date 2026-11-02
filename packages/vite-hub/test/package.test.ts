@@ -58,6 +58,7 @@ interface DistributionManifest {
   bin: Record<string, string>;
   dependencies: Record<string, string>;
   exports: Record<string, string | { import: string; types?: string }>;
+  peerDependencies: Record<string, string>;
 }
 
 function parseDistributionManifest(text: string): DistributionManifest {
@@ -66,11 +67,12 @@ function parseDistributionManifest(text: string): DistributionManifest {
   const bin = Reflect.get(Object(value), "bin");
   const dependencies = Reflect.get(Object(value), "dependencies");
   const exports = Reflect.get(Object(value), "exports");
-  if (Object(bin) !== bin || Object(dependencies) !== dependencies || Object(exports) !== exports) {
+  const peerDependencies = Reflect.get(Object(value), "peerDependencies");
+  if (Object(bin) !== bin || Object(dependencies) !== dependencies || Object(exports) !== exports || Object(peerDependencies) !== peerDependencies) {
     throw new TypeError("Expected package manifest maps.");
   }
   // SAFETY: The checked package.json fields are the string maps exercised by these distribution tests.
-  return { bin, dependencies, exports } as DistributionManifest;
+  return { bin, dependencies, exports, peerDependencies } as DistributionManifest;
 }
 
 const manifest = parseDistributionManifest(
@@ -148,6 +150,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/database/runtime/d1",
   "@vite-hub/database/runtime/default-database",
   "@vite-hub/database/runtime/hosted",
+  "@vite-hub/database/runtime/migrate-on-start",
   "@vite-hub/database/runtime/postgres",
   "@vite-hub/database/runtime/request-stats",
   "@vite-hub/database/runtime/state",
@@ -157,6 +160,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/email/operations",
   "@vite-hub/email/runtime/console",
   "@vite-hub/kv/runtime/cloudflare-kv",
+  "@vite-hub/kv/runtime/nitro-cache",
   "@vite-hub/kv/operations",
   "@vite-hub/kv/runtime/upstash-driver",
   "@vite-hub/queue/operations",
@@ -328,6 +332,7 @@ describe("framework package contract", () => {
       "./console/sections",
       "./console/server",
       "./console/ui",
+      "./deployment",
       "./doctor",
       "./logs",
       "./logs/host",
@@ -346,14 +351,15 @@ describe("framework package contract", () => {
         (target) => !(consolidatedOwnerExports.has(target) && target.startsWith(`${ownerSpecifier}/`)),
       );
       expect(ownTargets, subpath).toEqual([ownerSpecifier]);
-      expect(manifest.dependencies[ownerPackage], subpath).toBeDefined();
+      // Opt-in features keep their owner package as an optional peer.
+      expect({ ...manifest.dependencies, ...manifest.peerDependencies }[ownerPackage], subpath).toBeDefined();
     }
   });
 
   it("classifies every owner-package export", () => {
     const unclassified: string[] = [];
 
-    for (const packageName of Object.keys(manifest.dependencies).filter((name) =>
+    for (const packageName of Object.keys({ ...manifest.dependencies, ...manifest.peerDependencies }).filter((name) =>
       name.startsWith("@vite-hub/"),
     )) {
       const packageDirectory = packageName.slice("@vite-hub/".length);
@@ -394,9 +400,11 @@ describe("framework package contract", () => {
     expect(readFileSync(`${packageRoot}/${manifest.bin.vitehub}`, "utf8")).toMatch(
       /^#!\/usr\/bin\/env node/,
     );
-    expect(readFileSync(`${packageRoot}/dist/env.d.ts`, "utf8")).toContain(
-      'import "@vite-hub/env/vite"',
-    );
+    for (const file of ["index.d.ts", "env.d.ts"]) {
+      expect(readFileSync(`${packageRoot}/dist/${file}`, "utf8")).toContain(
+        'import "@vite-hub/env/vite"',
+      );
+    }
     expect(readFileSync(`${packageRoot}/dist/cloudflare-types.d.ts`, "utf8")).toContain(
       "@cloudflare/workers-types",
     );
@@ -692,6 +700,10 @@ describe("framework package contract", () => {
       true,
     );
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-state.vue`)).toBe(true);
+    for (const path of ["components/console-skills.vue", "components/console-skill-tree.vue", "components/console-skill-file.vue", "skills.js"]) {
+      expect(existsSync(`${packageRoot}/dist/console/runtime/${path}`)).toBe(true);
+    }
+    expect(manifest.exports).not.toHaveProperty("./console/runtime/skills");
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-kv.vue`)).toBe(true);
     const consoleKV = readFileSync(
       `${packageRoot}/dist/console/runtime/components/console-kv.vue`,
@@ -796,6 +808,8 @@ describe("framework package contract", () => {
     expect(consoleCss).toContain("--ui-text:oklch(37.1% 0 0)");
     // Geist ships inside the stylesheet, so the Console does not depend on fonts that the host installs.
     expect(consoleCss).toMatch(/font-family:["']?Geist Variable/);
+    // The stylesheet inlines only the Latin and Latin Extended faces of Geist and Geist Mono.
+    expect(consoleCss.match(/@font-face/g)).toHaveLength(4);
     expect(consoleCss).not.toContain("KaTeX_");
     const consoleMathCssFiles = globSync("dist/console/runtime/public/console/assets/katex-*.css", { cwd: packageRoot });
     expect(consoleMathCssFiles).toHaveLength(1);

@@ -34,9 +34,33 @@ At build time `hubCms()` reads `server/content.ts` without running it, so import
 
 `extends: [cms, { repo: "owner/name" }]` keeps documents in a Git repository. `repo` selects the GitHub store; `store: "github"` without `repo` reads `VITEHUB_WORKSPACE_GITHUB_REPOSITORY` when first used. Published content is on `branch` (default `main`) and drafts on `draftBranch` (default `vitehub/content`), created by the first save. `root` (default `""`, the repository root) is the folder that holds the collection paths. `publish: "commit"` (default) commits to `branch`, and `publish: "pr"` opens a pull request. The GitHub store needs a Database for editor sessions and no Blob store. It cannot schedule publishes, so the Console does not ask for a `content.publishDue()` runner.
 
+## Roles
+
+`@vite-hub/cms/access` (`vite-hub/cms/access`) has the CMS roles for the Better Auth `admin` plugin. It needs `better-auth`; the root entry does not import it.
+
+```ts
+// server/auth.ts
+import { admin } from "better-auth/plugins"
+import { defineAuth } from "vite-hub/auth"
+import { cmsAccess } from "vite-hub/cms/access"
+
+export default defineAuth({ plugins: [admin(cmsAccess)] })
+```
+
+| Role | Content | Comments |
+| --- | --- | --- |
+| `user` (default) | None | None |
+| `viewer` | `read` | None |
+| `commenter` | `read` | `read`, `create`, `resolve` |
+| `editor` | `read`, `write` | `read`, `create`, `resolve` |
+| `publisher` | `read`, `write`, `publish` | `read`, `create`, `resolve`, `delete` |
+| `admin` | Everything, with the Better Auth admin permissions | Everything |
+
+`user.role` holds one role, or several separated by commas. `cmsCan(user, { content: ["publish"] })` checks it without a request; a missing user or an unknown role is denied. Opt into the role policy with `extends: [cms, { access: "roles" }]` or `authorize: cmsContentAuthorize`. With `extends: cms` alone, every action stays denied, including for unrelated application roles. Your own `authorize` overrides the preset policy. `cmsCommentsAuthorize` and `cmsConsoleAuthorize` give Comments and the Console the same roles. `vitehub cms roles` prints the table.
+
 ## Inspect
 
-`usesCms({ projectRoot, serverDirs })` and `cmsStore(...)` from `@vite-hub/cms/vite` read `server/content.ts` the same way, without running it. `vitehub inspect definitions --kind database` lists the tables and the Database that the CMS contributes, with `@vite-hub/cms/vite` as the contributor.
+`usesCms({ projectRoot, serverDirs })` and `cmsStore(...)` from `@vite-hub/cms/vite` read `server/content.ts` the same way, without running it. `vitehub inspect definitions --kind database` lists the tables and the Database that the CMS contributes, with `@vite-hub/cms/vite` as the contributor. `vitehub inspect definitions --kind cms` shows the store, the Workspace, and whether access uses the CMS roles, the app's `authorize`, or no policy.
 
 ## Errors
 

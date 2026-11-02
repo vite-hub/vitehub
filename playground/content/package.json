@@ -10,6 +10,7 @@
   "dependencies": {
     "@comark/html": "catalog:markdown",
     "@libsql/client": "catalog:database",
+    "better-auth": "catalog:auth",
     "comark-content": "catalog:markdown-ui",
     "drizzle-orm": "catalog:database",
     "h3": "catalog:unjs",

@@ -1,7 +1,24 @@
 import { contentFieldAttribute, parseContentField } from "@vite-hub/content/client"
+import { viteHubPillButtonStyles } from "@vite-hub/internal/runtime/page-tools-shared"
 import type { ViteHubPageToolModule } from "@vite-hub/internal/runtime/page-tools-loader"
 
-const styles = `:host{display:flex}button{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 12px;border:0;border-radius:999px;background:transparent;color:inherit;font:500 .875rem/1.5 system-ui,sans-serif;white-space:nowrap;cursor:pointer}button:hover,button[aria-expanded=true]{background:light-dark(#f4f4f5,#27272a)}button:focus-visible{outline:2px solid #3b82f6;outline-offset:-2px}@media(pointer:coarse){button{min-height:44px}}`
+const styles = `:host{display:flex;flex-direction:var(--vitehub-pill-flow,row);gap:2px}${viteHubPillButtonStyles}`
+// The editor fades in once it is ready, over the window's own surface, so it never flashes a blank page. The status
+// only shows when the wait is long enough to notice.
+const windowStyles = `iframe{opacity:0;transition:opacity 150ms ease-out}iframe.ready{opacity:1}
+.loading{position:absolute;inset:0;display:grid;place-content:center;justify-items:center;gap:8px;padding:24px;text-align:center;color:var(--muted);font-size:.8125rem;opacity:0;animation:vitehub-loading 150ms ease-out 400ms forwards}
+.loading p{margin:0}.loading a{color:var(--text);text-underline-offset:3px;text-decoration-color:var(--line)}.loading a:hover{text-decoration-color:currentColor}.loading a:not(.shown){display:none}
+@keyframes vitehub-loading{to{opacity:1}}
+@media(prefers-reduced-motion:reduce){iframe,.loading{transition:none;animation:none;opacity:1}iframe:not(.ready){opacity:0}}`
+// The Console keeps its appearance in this key (see the client's appearance.ts). The page shares its storage.
+const appearanceKey = "vitehub-console:appearance"
+const appearance = () => {
+  try {
+    const value = localStorage.getItem(appearanceKey)
+    return value === "light" || value === "dark" ? value : undefined
+  }
+  catch { return undefined }
+}
 const start: ViteHubPageToolModule["default"] = (context) => {
   const { bar, tool, signal } = context
   const shadow = bar.attachShadow({ mode: "open" })
@@ -28,7 +45,7 @@ const start: ViteHubPageToolModule["default"] = (context) => {
   let requested: string | undefined
   let loading: HTMLElement | undefined
   let loadTimer: ReturnType<typeof setTimeout> | undefined
-  const panel = context.createWindow({ id: `${base}:${tool.id}`, title: tool.label, trigger: button })
+  const panel = context.createWindow({ id: `${base}:${tool.id}`, title: tool.label, trigger: button, colorScheme: appearance })
   const open = (path?: string) => {
     if (path) {
       const target = new URL(`${base}${path}`, location.origin)
@@ -42,8 +59,10 @@ const start: ViteHubPageToolModule["default"] = (context) => {
       url.searchParams.set("embed", "1")
       frame.src = url.href
       requested = undefined
+      const frameStyle = document.createElement("style")
+      frameStyle.textContent = windowStyles
       loading = document.createElement("div")
-      loading.style.cssText = "position:absolute;inset:0;display:grid;place-content:center;gap:12px;padding:24px;background:light-dark(#fff,#000)"
+      loading.className = "loading"
       const status = document.createElement("p")
       status.setAttribute("role", "status")
       status.textContent = `Loading ${tool.label}…`
@@ -53,8 +72,11 @@ const start: ViteHubPageToolModule["default"] = (context) => {
       link.rel = "noopener"
       link.textContent = "Open in a new tab"
       loading.append(status, link)
-      panel.body.append(frame, loading)
-      loadTimer = setTimeout(() => { status.textContent = "The editor did not load. Open it in a new tab to continue." }, 8000)
+      panel.body.append(frameStyle, frame, loading)
+      loadTimer = setTimeout(() => {
+        status.textContent = "The editor did not load. Open it in a new tab to continue."
+        link.classList.add("shown")
+      }, 8000)
     }
     else if (ready && requested) {
       frame.contentWindow?.postMessage({ type: "vitehub:navigate", path: requested }, location.origin)
@@ -70,6 +92,7 @@ const start: ViteHubPageToolModule["default"] = (context) => {
     if (data.type === "vitehub:ready") {
       ready = true
       clearTimeout(loadTimer)
+      frame?.classList.add("ready")
       loading?.remove()
       if (requested) open(requested)
     }
@@ -91,30 +114,58 @@ const start: ViteHubPageToolModule["default"] = (context) => {
     const select = document.createElement("button")
     select.type = "button"
     select.textContent = "Select field"
+    select.title = "Select a field on the page to edit it. Esc cancels."
     select.setAttribute("aria-pressed", "false")
     shadow.append(select)
-    let selecting = false
-    const stop = () => { selecting = false; select.setAttribute("aria-pressed", "false"); document.documentElement.classList.remove("vitehub-select-content") }
-    select.addEventListener("click", () => {
-      selecting = !selecting
-      select.setAttribute("aria-pressed", String(selecting))
-      document.documentElement.classList.toggle("vitehub-select-content", selecting)
-    })
     const style = document.createElement("style")
     style.textContent = `.vitehub-select-content [${contentFieldAttribute}]{outline:1px dashed #3b82f6;outline-offset:3px;cursor:crosshair}.vitehub-select-content [${contentFieldAttribute}]:hover{outline-style:solid}`
     document.head.append(style)
-    document.addEventListener("click", event => {
-      if (!selecting || !(event.target instanceof Element)) return
-      const element = event.target.closest(`[${contentFieldAttribute}]`)
-      const address = element && parseContentField(element.getAttribute(contentFieldAttribute) ?? "")
-      if (!address) return
+    // Selecting moves the open window out of the way until a field is picked; a cancel brings it back. When the window
+    // was already minimized, it stays minimized, and only a picked field opens it.
+    let selecting = false
+    let restore = false
+    // Astro and Turbo can replace the head and root classes while the Content tool stays connected.
+    const mutations = new MutationObserver(() => {
+      if (style.parentElement !== document.head) document.head.append(style)
+      if (selecting && !document.documentElement.classList.contains("vitehub-select-content")) document.documentElement.classList.add("vitehub-select-content")
+    })
+    mutations.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] })
+    const stop = (picked: boolean) => {
+      if (!selecting) return
+      selecting = false
+      select.setAttribute("aria-pressed", "false")
+      document.documentElement.classList.remove("vitehub-select-content")
+      if (restore && !picked) panel.show()
+      restore = false
+    }
+    select.addEventListener("click", () => {
+      if (selecting) return stop(false)
+      selecting = true
+      select.setAttribute("aria-pressed", "true")
+      document.documentElement.classList.add("vitehub-select-content")
+      restore = button.getAttribute("aria-expanded") === "true"
+      if (restore) {
+        panel.hide()
+        select.focus({ preventScroll: true })
+      }
+    })
+    document.addEventListener("click", (event) => {
+      if (!selecting || event.composedPath().some(target => target instanceof HTMLElement && target.localName.startsWith("vitehub-"))) return
+      // A click while selecting never reaches the page, so a link that is not a field does not navigate.
       event.preventDefault()
       event.stopImmediatePropagation()
-      stop()
+      const element = event.target instanceof Element ? event.target.closest(`[${contentFieldAttribute}]`) : null
+      const address = element && parseContentField(element.getAttribute(contentFieldAttribute) ?? "")
+      if (!address) return stop(false)
+      stop(true)
       open(`/content/${encodeURIComponent(address.collection)}${address.id ? `/${address.id.split("/").map(encodeURIComponent).join("/")}` : ""}`)
     }, { capture: true, signal })
-    document.addEventListener("keydown", event => { if (event.key === "Escape") stop() }, { signal })
-    signal.addEventListener("abort", () => { stop(); style.remove() }, { once: true })
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || !selecting) return
+      event.preventDefault()
+      stop(false)
+    }, { capture: true, signal })
+    signal.addEventListener("abort", () => { mutations.disconnect(); stop(true); style.remove() }, { once: true })
   }
 }
 export default start

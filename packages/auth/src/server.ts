@@ -6,7 +6,7 @@ import { betterAuth } from "better-auth"
 import { resolveAuthMountPath } from "./application-path.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
 import { unwrapAuthRequest } from "./request.ts"
-import { resolveAuthOptions } from "./runtime-options.ts"
+import { resolveAuthOptions, trustsProxyHeaders } from "./runtime-options.ts"
 import { throwAuthenticationProviderError } from "./errors.ts"
 import { getAuthenticationSession } from "./session.ts"
 import { getAuthRuntimeState } from "./runtime-state.ts"
@@ -16,10 +16,12 @@ import type { AuthEventAggregates, AuthEventListInput, AuthEventPage, AuthEventS
 import type { AuthAccessIdentityResolver, AuthRuntimeEnvResolver } from "./runtime-state.ts"
 import type { AccessAuthorizeOption, PublicUrlConfig } from "@vite-hub/runtime"
 import type {
-  AuthAccessAuthorize,
   AuthAccessConfiguration,
   AuthAccessAuthorizationContext,
   AuthAccessRoute,
+  AuthAnonymousAuthorization,
+  AuthAnonymousAuthorize,
+  AuthAnonymousGuardedHandler,
   AuthAuthorization,
   AuthBetterAuthRuntimeOptions,
   AuthDefinition,
@@ -46,7 +48,8 @@ function hasRuntimeOptions(options: AuthRuntimeOptions | undefined): boolean {
 
 function hasRequestRuntimeOptions(definition: AuthDefinition): boolean {
   if (typeof definition.options === "function") return true
-  return typeof definition.options.runtime === "function"
+  const runtime = definition.options.runtime
+  return typeof runtime === "function" || trustsProxyHeaders(definition.options) || trustsProxyHeaders(runtime)
 }
 
 function hasConfiguredPublicUrl(): boolean {
@@ -609,11 +612,12 @@ function hasNativePromiseBrand(value: object): boolean {
 }
 
 /**
- * Only `true` grants access. A Response of this runtime is sent as the rejection. Every other value gets `403`.
+ * Only `true` grants access. A Response of this runtime is sent as the rejection. Every other value gets `deny()`, `403` by default.
  */
-async function runAccessAuthorize(
-  authorize: AuthAccessAuthorize,
-  context: AuthAccessAuthorizationContext,
+async function runAccessAuthorize<TContext extends Pick<AuthAccessAuthorizationContext, "request">>(
+  authorize: (context: TContext) => unknown,
+  context: TContext,
+  deny: () => Response = () => createForbiddenResponse(context.request),
 ): Promise<{ response?: Response }> {
   const result: unknown = authorize(context)
   // Check for a Response before any thenable handling. A Response may expose an own `then` property, but it must
@@ -694,7 +698,7 @@ async function runAccessAuthorize(
   }
   if (resolved === true) return {}
   if (isRuntimeResponse(resolved)) return { response: sendableRuntimeResponse(resolved, context.request) }
-  return { response: createForbiddenResponse(context.request) }
+  return { response: deny() }
 }
 
 async function checkAuthRequest(
@@ -762,6 +766,35 @@ async function checkAuthorizeRequest(
   if (authorize === true) return { authorization }
   const rejection = await runAccessAuthorize(authorize, authorization)
   return rejection.response ? reject(rejection.response) : { authorization }
+}
+
+/**
+ * Like `withAuthorization()`, but a signed-out caller also reaches `authorize`, with `session` and `user` set to `null`.
+ * Use it for resources that a signed-out caller can open, such as files shared by public link.
+ * `false` returns `401` for a signed-out caller and `403` for a signed-in one. It never redirects to sign-in.
+ */
+export function withAnonymousAuthorization<TInput extends AuthRequestInput, TResult>(
+  authorize: AuthAnonymousAuthorize,
+  handler: AuthAnonymousGuardedHandler<TInput, TResult>,
+  definition?: AuthDefinition,
+): (input: TInput) => Promise<TResult | Response> {
+  if (typeof authorize !== "function") {
+    throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be a function." })
+  }
+  if (typeof handler !== "function") {
+    throw authErrorDiagnostics.AUTH_R0015({ message: "[vitehub] withAnonymousAuthorization() requires a handler function." })
+  }
+  return async (input) => {
+    const { request, session } = await readRequestSession(input, definition ?? resolveDefaultDefinition())
+    const authorization: AuthAuthorization | AuthAnonymousAuthorization = session
+      ? Object.freeze({ request, session: session.session, user: session.user })
+      : Object.freeze({ request, session: null, user: null })
+    // `false` keeps the status that withAuthorization() returns for the same caller.
+    const deny = session ? undefined : () => Response.json({ error: "Unauthorized." }, { status: 401 })
+    const rejection = await runAccessAuthorize(authorize, authorization, deny)
+    if (rejection.response) return rejection.response
+    return handler(input, authorization)
+  }
 }
 
 /**

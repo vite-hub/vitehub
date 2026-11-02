@@ -3,6 +3,7 @@ import { runViteHubCliEntrypoint } from "@vite-hub/cli"
 import { createSandboxCliNamespace } from "./sandbox-cli.ts"
 import { loadViteHubCliConfig } from "./internal/cli-config.ts"
 import { isAgentCliEnabled } from "./internal/runtime-feature-guard.ts"
+import { importOptionalOwner, requireOptionalOwner } from "./internal/optional-owners.ts"
 import { secretCliFeatures } from "@vite-hub/env/cli"
 
 import type { ViteHubCliCommandNamespace } from "@vite-hub/internal/cli"
@@ -11,7 +12,7 @@ import type { ViteHubCliCommandNamespace } from "@vite-hub/internal/cli"
 const agentRuntimeFeatures: ViteHubCliCommandNamespace = {
   features: [{
     name: "invocations",
-    run: async (args, context) => (await import("@vite-hub/agent/cli")).runAgentInvocationsCli(args, context),
+    run: async (args, context) => requireOptionalOwner(await importOptionalOwner("@vite-hub/agent", () => import("@vite-hub/agent/cli")), "agent").runAgentInvocationsCli(args, context),
   }],
   name: "agent",
 }

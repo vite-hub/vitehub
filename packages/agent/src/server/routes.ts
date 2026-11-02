@@ -231,8 +231,11 @@ export function setAgentChannelDeliveryWorkflowStateResolver(resolver: AgentChan
 
 export interface AgentChannelWebhookRouteHandler {
   (request: Request, webhook?: string, options?: AgentChannelWebhookRouteOptions): Promise<Response>
-  /** Match a declared path without reading the request body or accepting a delivery. */
-  matchesPath(request: Request, options?: AgentChannelWebhookRouteOptions): Promise<boolean>
+  /**
+   * Resolve the declared webhook paths once and return a test for a request pathname. A caller can then decide from
+   * the pathname alone, without a Request, the request body, or a delivery.
+   */
+  declaredPathMatcher(request: Request, options?: AgentChannelWebhookRouteOptions): Promise<(pathname: string) => boolean>
   /** The Channels of the Agent that receive webhooks, with how long each keeps its history. For a trusted caller, such as the Console. */
   channels(request: Request, options?: AgentChannelWebhookRouteOptions): Promise<AgentChannelInfo[]>
   /**
@@ -761,10 +764,13 @@ function normalizeWebhookPath(path: string): string {
   return normalized.length > 1 ? normalized.replace(/\/+$/, "") : normalized
 }
 
-function webhookRegistrationPathMatches(request: Request, registration: AgentWebhookRegistrationDefinition): boolean {
-  const pathname = normalizeWebhookPath(new URL(request.url).pathname)
+function webhookRegistrationPaths(registration: AgentWebhookRegistrationDefinition): string[] {
   const paths = [registration.path, ...(Array.isArray(registration.aliases) ? registration.aliases : [])]
-  return paths.some(path => isRuntimeString(path) && pathname === normalizeWebhookPath(path))
+  return paths.filter(path => isRuntimeString(path)).map(normalizeWebhookPath)
+}
+
+function webhookRegistrationPathMatches(request: Request, registration: AgentWebhookRegistrationDefinition): boolean {
+  return webhookRegistrationPaths(registration).includes(normalizeWebhookPath(new URL(request.url).pathname))
 }
 
 async function findAgentWebhookRegistration(
@@ -10071,7 +10077,9 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       )
     })
   }
-  handler.matchesPath = async (request, handlerOptions = {}) => {
+  // Declared paths come from the Agent Definition, not from the request, so the handler resolves them once.
+  let declaredPaths: Promise<Set<string>> | undefined
+  const resolveDeclaredPaths = async (request: Request, handlerOptions: AgentChannelWebhookRouteOptions) => {
     const context = createRuntimeContext(
       request,
       undefined,
@@ -10081,9 +10089,16 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       handlerOptions.capabilities,
       routeAgentIdentity(handlerOptions),
     )
-    return await runWithRuntimeCloudflareEnv(context, async () =>
-      (await agentWebhookRegistrations(agent, context)).some(({ registration }) => webhookRegistrationPathMatches(request, registration)),
-    )
+    const registrations = await runWithRuntimeCloudflareEnv(context, () => agentWebhookRegistrations(agent, context))
+    return new Set(registrations.flatMap(({ registration }) => webhookRegistrationPaths(registration)))
+  }
+  handler.declaredPathMatcher = async (request, handlerOptions = {}) => {
+    declaredPaths ??= resolveDeclaredPaths(request, handlerOptions).catch((error: unknown) => {
+      declaredPaths = undefined
+      throw error
+    })
+    const paths = await declaredPaths
+    return pathname => paths.has(normalizeWebhookPath(pathname))
   }
   handler.channels = async (request, handlerOptions = {}) => {
     const context = createRuntimeContext(

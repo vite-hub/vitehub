@@ -559,6 +559,51 @@ describe("Database Nuxt integration", () => {
       }
     })
 
+    it("takes the project's real id over an all-zero ViteHub id, and ViteHub's real id over an all-zero project id", async () => {
+      const placeholder = "00000000-0000-4000-8000-000000000000"
+      for (const [databaseId, projectId] of [[placeholder, "content-id"], ["content-id", placeholder]]) {
+        const { compile, rootDir } = await writeWrangler({ d1_databases: [{ binding: "DB", database_id: projectId, database_name: "content-db" }] }, {}, { databaseId })
+        try {
+          expect((await compile()).d1_databases).toEqual([generated])
+        }
+        finally {
+          await rm(rootDir, { force: true, recursive: true })
+        }
+      }
+    })
+
+    it("leaves out an id that stays all-zero, so Wrangler provisions the database", async () => {
+      const placeholder = "00000000-0000-4000-8000-000000000000"
+      const { compile, rootDir } = await writeWrangler({ d1_databases: [{ binding: "DB", database_id: placeholder, database_name: "content-db" }] }, {}, { databaseId: placeholder })
+      try {
+        expect((await compile()).d1_databases).toEqual([{ binding: "DB", database_name: "content-db", migrations_dir: generated.migrations_dir }])
+      }
+      finally {
+        await rm(rootDir, { force: true, recursive: true })
+      }
+    })
+
+    it.each(["00000000000000000000000000000000", "00000000-0000-4000-8000-000000000000"])("preserves an unresolved D1 preview id %s instead of falling back to production", async (placeholder) => {
+      for (const [generatedPreview, projectPreview] of [[undefined, placeholder], [placeholder, undefined], [placeholder, placeholder], [placeholder, "preview-id"], ["preview-id", placeholder]]) {
+        const projectEntry = { binding: "DB", database_id: "content-id", preview_database_id: projectPreview }
+        const envEntry = { binding: "DB", database_id: "content-id", preview_database_id: generatedPreview }
+        const { compile, rootDir } = await writeWrangler(
+          { d1_databases: [projectEntry], env: { production: { d1_databases: [projectEntry] } } },
+          { env: { production: { d1_databases: [envEntry] } } },
+          { previewDatabaseId: generatedPreview },
+        )
+        const preview_database_id = [generatedPreview, projectPreview].includes("preview-id") ? "preview-id" : placeholder
+        try {
+          const wrangler = await compile()
+          expect(wrangler.d1_databases).toEqual([{ ...generated, preview_database_id }])
+          expect(wrangler.env?.production?.d1_databases).toEqual([{ ...envEntry, preview_database_id }])
+        }
+        finally {
+          await rm(rootDir, { force: true, recursive: true })
+        }
+      }
+    })
+
     it.each([
       ["database_id", { binding: "DB", database_id: "other-id" }],
       ["database_name", { binding: "DB", database_name: "other-db" }],

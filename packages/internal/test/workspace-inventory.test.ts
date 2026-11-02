@@ -15,6 +15,7 @@ describe("workspace inventory", () => {
       "channels",
       "cli",
       "cms",
+      "codemods",
       "comments",
       "connections",
       "content",

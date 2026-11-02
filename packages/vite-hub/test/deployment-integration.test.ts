@@ -462,6 +462,52 @@ describe("built-in deployment preset integration", () => {
     }
   }, 30_000)
 
+  it("keeps one Wrangler entry per binding when the project's wrangler.json repeats generated ones", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-project-wrangler-build-"))
+    try {
+      await mkdir(join(root, "server", "routes"), { recursive: true })
+      await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
+      await writeFile(join(root, "index.html"), "<main>ok</main>\n")
+      await writeFile(join(root, "server", "routes", "index.ts"), "export default () => 'ok'\n")
+      // A Deploy to Cloudflare template: the button writes real ids over the all-zero ones.
+      await writeFile(join(root, "wrangler.json"), JSON.stringify({
+        compatibility_flags: ["nodejs_compat"],
+        kv_namespaces: [{ binding: "KV", id: "kv-id" }, { binding: "CACHE", id: "00000000000000000000000000000000" }],
+        r2_buckets: [{ binding: "BLOB", bucket_name: "assets", preview_bucket_name: "assets-preview" }],
+        secrets: { required: ["VITEHUB_TOKEN", "OTHER_TOKEN"] },
+      }))
+      const { nitro } = await import("nitro/vite" as string) as { nitro: () => unknown }
+      const builder = await createBuilder({
+        env: { server: { token: env({ secret: true, source: env.source("VITEHUB_TOKEN") }) } },
+        logLevel: "silent",
+        nitro: {
+          cloudflare: {
+            wrangler: {
+              compatibility_flags: ["nodejs_compat"],
+              kv_namespaces: [{ binding: "KV" }, { binding: "CACHE" }],
+              r2_buckets: [{ binding: "BLOB", bucket_name: "assets" }],
+            },
+          },
+        },
+        root,
+        plugins: [vitehub({ preset: "cloudflare" }), nitro() as never],
+      } as Parameters<typeof createBuilder>[0] & EnvViteUserConfig)
+      await builder.buildApp()
+
+      const wrangler: unknown = JSON.parse(await readFile(join(root, ".output", "server", "wrangler.json"), "utf8"))
+      expect(wrangler).toMatchObject({
+        compatibility_flags: ["nodejs_compat"],
+        kv_namespaces: [{ binding: "KV", id: "kv-id" }, { binding: "CACHE" }],
+        r2_buckets: [{ binding: "BLOB", bucket_name: "assets", preview_bucket_name: "assets-preview" }],
+        secrets: { required: ["VITEHUB_TOKEN", "OTHER_TOKEN"] },
+      })
+      expect(wrangler).not.toHaveProperty("kv_namespaces.1.id")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  }, 120_000)
+
   it("emits discovered D1 bindings through the Nitro Vite plugin", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-d1-bindings-build-"))
     try {

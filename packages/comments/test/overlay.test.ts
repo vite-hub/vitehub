@@ -122,6 +122,95 @@ async function startEdit() {
 }
 
 describe("Comments overlay", () => {
+  it.each(["body swap", "astro:before-swap", "turbo:before-render"])("saves the active inline edit on %s without relying on blur", async (event) => {
+    document.documentElement.append(pill)
+    const title = await startEdit()
+    title.textContent = "Edited before navigation"
+    const before = document.body
+    const next = document.createElement("body")
+    next.innerHTML = '<h1 data-content-field="settings#title">Next page</h1>'
+    try {
+      if (event !== "body swap") {
+        document.dispatchEvent(new Event(event))
+        expect(api.saveField).toHaveBeenCalledOnce()
+        expect(title.hasAttribute("data-vitehub-editing")).toBe(false)
+      }
+      before.replaceWith(next)
+      await vi.waitFor(() => expect(api.saveField).toHaveBeenCalledWith({ field: "settings#title", value: "Edited before navigation", ifDigest: "draft-digest" }))
+      expect(title.hasAttribute("data-vitehub-editing")).toBe(false)
+      expect(document.querySelector("h1")!.textContent).toBe("Next page")
+      await startEdit()
+      document.querySelector("h1")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+      expect(api.saveField).toHaveBeenCalledOnce()
+    }
+    finally {
+      next.replaceWith(before)
+      pill.remove()
+    }
+  })
+
+  it.each(["comment", "edit"])("restores %s styling after an Astro root/head/body swap and a Turbo head merge", async (mode) => {
+    document.documentElement.append(pill)
+    const selector = mode === "comment" ? '[title="Comment (C)"]' : '[title="Edit text (E)"]'
+    bar.shadowRoot!.querySelector<HTMLButtonElement>(selector)!.click()
+    const style = document.head.querySelector("style[data-vitehub-comments]")!
+    const before = document.body
+    const next = document.createElement("body")
+    next.innerHTML = '<h1 data-content-field="settings#title">Next page</h1>'
+    try {
+      // Astro copies the incoming html attributes and removes unmatched head elements before swapping the body.
+      document.documentElement.className = "next-page"
+      style.remove()
+      before.replaceWith(next)
+      await vi.waitFor(() => {
+        expect(document.documentElement.classList.contains(`vitehub-${mode}-mode`)).toBe(true)
+        expect(style.parentElement).toBe(document.head)
+      })
+      expect(document.documentElement.classList.contains("next-page")).toBe(true)
+      expect(bar.shadowRoot!.querySelector(selector)!.getAttribute("aria-pressed")).toBe("true")
+      expect(room.destroy).not.toHaveBeenCalled()
+      // Turbo can remove the stylesheet without changing the root attributes or the URL.
+      style.remove()
+      await vi.waitFor(() => expect(style.parentElement).toBe(document.head))
+      expect(document.head.querySelectorAll("style[data-vitehub-comments]")).toHaveLength(1)
+    }
+    finally {
+      overlay.remove()
+      document.documentElement.className = ""
+      next.replaceWith(before)
+      pill.remove()
+    }
+  })
+
+  it("keeps the overlay, unsent reply, listeners and polling alive through a body swap", async () => {
+    // The real loader retains the toolbar separately from the router's body.
+    document.documentElement.append(pill)
+    openThread()
+    const input = shadow.querySelector<HTMLTextAreaElement>('textarea[aria-label="Reply"]')!
+    input.value = "Unsent reply"
+    input.dispatchEvent(new Event("input"))
+    const before = document.body
+    const next = document.createElement("body")
+    next.innerHTML = '<h1 data-content-field="settings#title">Next page</h1>'
+    try {
+      before.replaceWith(next)
+      expect(room.destroy).not.toHaveBeenCalled()
+      expect(overlay.isConnected).toBe(true)
+      expect(shadow.querySelector('textarea[aria-label="Reply"]')).toBe(input)
+      expect(input.value).toBe("Unsent reply")
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(api.threads).toHaveBeenCalledTimes(2)
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }))
+      expect(shadow.querySelector(".card")).toBeNull()
+    }
+    finally {
+      // Also allow the failing regression to clean up without reconnecting an already stopped overlay.
+      if (!overlay.isConnected) overlay.remove()
+      next.replaceWith(before)
+      pill.remove()
+    }
+  })
+
   it("does not resume startup when the pill exits during the session request", async () => {
     overlay.remove()
     vi.clearAllMocks()
@@ -330,14 +419,14 @@ describe("Comments overlay", () => {
     expect(shadow.querySelector(".pin-button")).toBeNull()
   })
 
-  it.each([null, { id: "moderator", name: "Moderator" }, { id: "guest:console", name: "Guest", guest: true }])("shows deletion only to authenticated resolve-only users: %j", async (user) => {
+  it.each([null, { id: "moderator", name: "Moderator" }, { id: "guest:console", name: "Guest", guest: true }])("shows deletion only to authenticated users with delete permission: %j", async (user) => {
     const authenticated = Boolean(user && !user.guest)
     overlay.remove()
     vi.mocked(api.session).mockResolvedValue([undefined, {
       user,
-      can: { read: true, comment: !authenticated, resolve: true }, realtime: false, content: false,
+      can: { read: true, comment: !authenticated, resolve: true, delete: true }, realtime: false, content: false,
     }])
-    vi.mocked(api.threads).mockResolvedValue([undefined, [{ ...thread(), can: { comment: !authenticated, resolve: true } }]])
+    vi.mocked(api.threads).mockResolvedValue([undefined, [{ ...thread(), can: { comment: !authenticated, resolve: true, delete: true } }]])
     overlay = createOverlay()
     document.body.append(overlay)
     shadow = overlay.shadowRoot!
@@ -349,6 +438,18 @@ describe("Comments overlay", () => {
       button!.click()
       await vi.waitFor(() => expect(api.removeComment).toHaveBeenCalledWith("thread", "root"))
     }
+  })
+
+  it("hides deletion of others' comments from a resolver without delete permission", async () => {
+    overlay.remove()
+    vi.mocked(api.threads).mockResolvedValue([undefined, [{ ...thread(), createdBy: { id: "writer", name: "Writer" }, comments: [{ ...thread().comments[0]!, author: { id: "writer", name: "Writer" } }], can: { comment: true, resolve: true, delete: false } }]])
+    overlay = createOverlay()
+    document.body.append(overlay)
+    shadow = overlay.shadowRoot!
+    await vi.waitFor(() => expect(shadow.querySelector(".pin-button")).not.toBeNull())
+    openThread()
+    expect(shadow.querySelector('[aria-label="Resolve"]')).not.toBeNull()
+    expect(shadow.querySelector('[aria-label="Delete comment"]')).toBeNull()
   })
 
   it("links a saved draft to Content below the app base", async () => {

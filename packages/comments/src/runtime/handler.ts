@@ -197,12 +197,12 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
       return comments.reopen(threadId)
     },
     remove: (grant: ActionGrant, threadId: string) => {
-      spend(grant, ["resolve"], threadId)
+      spend(grant, ["delete"], threadId)
       return comments.remove(threadId)
     },
-    // Authors delete their own comments with `comment`; people who may resolve delete any with `resolve`.
+    // Authors delete their own comments with `comment`; moderators need `delete` for others' comments.
     removeComment: (grant: ActionGrant, threadId: string, commentId: string) => {
-      spend(grant, ["comment", "resolve"], threadId)
+      spend(grant, ["comment", "delete"], threadId)
       return comments.removeComment(commentId)
     },
   }
@@ -242,7 +242,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
   /** Who the overlay's person is and what they may do. The page tools session decides whether the overlay loads. */
   async function session(event: H3Event): Promise<Response> {
     const user = await resolveUser(event)
-    const [read, comment, resolve] = await Promise.all((["read", "comment", "resolve"] as const).map(action => can(event, user, action)))
+    const [read, comment, resolve, remove] = await Promise.all((["read", "comment", "resolve", "delete"] as const).map(action => can(event, user, action)))
     const github = options.githubLogin?.configured() ? options.githubLogin : undefined
     const pathname = new URL(requestOf(event).url).pathname
     const route = pathname.slice(0, pathname.indexOf(commentsRoute) + commentsRoute.length)
@@ -253,7 +253,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
       data: {
         user: user ? authorOf(user) : null,
         ...(user && user.github ? { github: user.github } : {}),
-        can: { read, comment, resolve },
+        can: { read, comment, resolve, delete: remove },
         ...(signIn ? { signIn } : {}),
         ...(signOut ? { signOut } : {}),
         realtime: options.realtime,
@@ -269,8 +269,8 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
   }
 
   async function permissions(event: H3Event, user: CommentsUser | null, thread: CommentThread) {
-    const [comment, resolve] = await Promise.all((["comment", "resolve"] as const).map(action => can(event, user, action, thread)))
-    return { ...thread, can: { comment, resolve } }
+    const [comment, resolve, remove] = await Promise.all((["comment", "resolve", "delete"] as const).map(action => can(event, user, action, thread)))
+    return { ...thread, can: { comment, resolve, delete: remove } }
   }
 
   async function respondThread(event: H3Event, user: CommentsUser | null, [error, thread]: Result<CommentThread>): Promise<Response> {
@@ -443,17 +443,19 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
         const comment = current.comments.find(candidate => candidate.id === commentId)
         if (!comment) return failure(commentsErrors.COMMENTS_NOT_FOUND({ id: commentId }))
         const [denied, allowed] = await access(event, "comment", current)
-        if (!denied && allowed.user && !allowed.user.guest && !comment.author.guest && comment.author.id === allowed.user.id) return respond(await writes.removeComment(allowed.grant, id, commentId))
-        // Resolve-only moderators may delete too. Guest IDs never prove ownership.
-        const [cannot, resolver] = await access(event, "resolve", current)
+        // Removing the root removes the whole thread, so ownership must cover every affected comment.
+        const affected = current.comments[0]?.id === commentId ? current.comments : [comment]
+        if (!denied && allowed.user && !allowed.user.guest && affected.every(entry => !entry.author.guest && entry.author.id === allowed.user!.id)) return respond(await writes.removeComment(allowed.grant, id, commentId))
+        // Deleting others' comments requires its own permission. Guest IDs never prove ownership.
+        const [cannot, moderator] = await access(event, "delete", current)
         if (cannot) return failure(cannot)
-        if (!resolver.user || resolver.user.guest) return failure(commentsErrors.COMMENTS_FORBIDDEN({ action: "resolve" }))
-        return respond(await writes.removeComment(resolver.grant, id, commentId))
+        if (!moderator.user || moderator.user.guest) return failure(commentsErrors.COMMENTS_FORBIDDEN({ action: "delete" }))
+        return respond(await writes.removeComment(moderator.grant, id, commentId))
       }
       if (method === "DELETE" && !action) {
-        const [denied, allowed] = await access(event, "resolve", current)
+        const [denied, allowed] = await access(event, "delete", current)
         if (denied) return failure(denied)
-        if (!allowed.user || allowed.user.guest) return failure(commentsErrors.COMMENTS_FORBIDDEN({ action: "resolve" }))
+        if (!allowed.user || allowed.user.guest) return failure(commentsErrors.COMMENTS_FORBIDDEN({ action: "delete" }))
         return respond(await writes.remove(allowed.grant, id))
       }
     }
