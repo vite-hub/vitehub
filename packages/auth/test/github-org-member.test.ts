@@ -82,4 +82,23 @@ describe("isGitHubOrgMember()", () => {
     stubMembership(active)
     await expect(isGitHubOrgMember("token-joins", "vite-hub", { cacheMs: 60_000 })).resolves.toBe(true)
   })
+
+  it("honors each caller's cacheMs when sharing a successful check", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    const fetch = stubMembership(active)
+
+    await expect(isGitHubOrgMember("token-mixed-ttl", "vite-hub", { cacheMs: 300_000 })).resolves.toBe(true)
+
+    vi.advanceTimersByTime(500)
+    await expect(isGitHubOrgMember("token-mixed-ttl", "vite-hub", { cacheMs: 1_000 })).resolves.toBe(true)
+    expect(fetch).toHaveBeenCalledTimes(1)
+
+    vi.advanceTimersByTime(59_500)
+    await expect(isGitHubOrgMember("token-mixed-ttl", "vite-hub", { cacheMs: 300_000 })).resolves.toBe(true)
+    expect(fetch).toHaveBeenCalledTimes(1)
+
+    fetch.mockImplementation(async () => Response.json({ state: "pending" }))
+    await expect(isGitHubOrgMember("token-mixed-ttl", "vite-hub", { cacheMs: 1_000 })).resolves.toBe(false)
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
 })
