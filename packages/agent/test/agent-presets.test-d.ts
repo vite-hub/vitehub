@@ -5,7 +5,7 @@ import type { AgentRuntimeContext, WorkspaceAgentWorkspaceConfig } from "../src/
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 
 it("infers the selected preset and rejects unknown names", () => {
-  const notes = defineAgent({ driver: "codex", workspace: {} })
+  const notes = defineAgent({ driver: codexDriver(), workspace: {} })
   const other = defineAgent({ driver: { run: () => ({ text: "other" }) } })
   const agent = defineAgent({ preset: "notes", presets: { notes, other }, driver: { model: "custom" } })
   expectTypeOf(agent.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
@@ -13,7 +13,7 @@ it("infers the selected preset and rejects unknown names", () => {
   // @ts-expect-error The selected name must exist in the local registry.
   defineAgent({ preset: "missing", presets: { notes } })
   // @ts-expect-error Presets must be Agent Definitions.
-  defineAgent({ preset: "notes", presets: { notes: { driver: "codex" } } })
+  defineAgent({ preset: "notes", presets: { notes: { driver: codexDriver() } } })
   // @ts-expect-error The composition has exactly one parent.
   defineAgent({ preset: "notes", presets: { notes }, extends: notes })
 })
@@ -23,10 +23,10 @@ it("types preset options, nested overrides and chained definitions", () => {
     options: { autoMerge: false, filter: {} as { author?: { allow?: string[] }, when?: (value: string) => boolean } },
     configure: options => {
       expectTypeOf(options.autoMerge).toEqualTypeOf<boolean>()
-      return defineAgent({ driver: "codex", workspace: {} })
+      return defineAgent({ driver: codexDriver(), workspace: {} })
     },
   })
-  const configured = defineAgent({ preset: "repair", presets: { repair: preset, plain: defineAgent({ driver: "codex" }) }, options: { autoMerge: true, filter: { author: { allow: ["me"] } } } })
+  const configured = defineAgent({ preset: "repair", presets: { repair: preset, plain: defineAgent({ driver: codexDriver() }) }, options: { autoMerge: true, filter: { author: { allow: ["me"] } } } })
   // @ts-expect-error A configured registry still rejects missing names.
   defineAgent({ preset: "missing", presets: { repair: preset }, options: {} })
   expectTypeOf(configured.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
@@ -39,11 +39,11 @@ it("types preset options, nested overrides and chained definitions", () => {
   // @ts-expect-error Callbacks retain their parameter types.
   defineAgent({ extends: child, options: { filter: { when: (value: number) => value > 0 } } })
   // @ts-expect-error A configure callback must return a definition.
-  defineAgent({ options: {}, configure: () => ({ driver: "codex" }) })
+  defineAgent({ options: {}, configure: () => ({ driver: codexDriver() }) })
 })
 
 it("preserves workspace overrides on configurable presets", () => {
-  const plain = defineAgent({ options: { enabled: true }, configure: () => defineAgent({ driver: "codex" }) })
+  const plain = defineAgent({ options: { enabled: true }, configure: () => defineAgent({ driver: codexDriver() }) })
   const workspace = defineAgent({ preset: "plain", presets: { plain }, workspace: {}, options: { enabled: false } })
   expectTypeOf(workspace.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
   expectTypeOf(workspace.options.enabled).toEqualTypeOf<boolean>()
@@ -52,7 +52,7 @@ it("preserves workspace overrides on configurable presets", () => {
 })
 
 it("does not guarantee Workspace access from optional configured preset overrides", () => {
-  const plain = defineAgent({ options: {}, configure: () => defineAgent({ driver: "codex" }) })
+  const plain = defineAgent({ options: {}, configure: () => defineAgent({ driver: codexDriver() }) })
   const workspaceCapability = defineCapability({ id: "workspace", workspace: {} })
   function checkWorkspace(workspace: WorkspaceAgentWorkspaceConfig | undefined) {
     const extended = defineAgent({ extends: plain, workspace })
@@ -86,7 +86,7 @@ it("does not guarantee Workspace access from optional configured preset override
 })
 
 it("rejects unsupported settings in every union spread member", () => {
-  const plain = defineAgent({ options: { enabled: true }, configure: () => defineAgent({ driver: "codex" }) })
+  const plain = defineAgent({ options: { enabled: true }, configure: () => defineAgent({ driver: codexDriver() }) })
   function checkSettings(settings: { workspace?: WorkspaceAgentWorkspaceConfig } | { unknownSetting: true }) {
     // @ts-expect-error A possible spread member contains an unsupported Agent setting.
     defineAgent({ extends: plain, ...settings })
@@ -107,7 +107,7 @@ it("preserves structured output from configure through selection and extension",
 })
 
 it("exposes only the outer configuration when configure returns a configured Agent", () => {
-  const inner = defineAgent({ options: { inner: true }, configure: () => defineAgent({ driver: "codex", workspace: {} }) })
+  const inner = defineAgent({ options: { inner: true }, configure: () => defineAgent({ driver: codexDriver(), workspace: {} }) })
   const outer = defineAgent({ options: { outer: true }, configure: () => defineAgent({ extends: inner }) })
   expectTypeOf(outer.options.outer).toEqualTypeOf<boolean>()
   expectTypeOf(outer.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
@@ -118,7 +118,7 @@ it("exposes only the outer configuration when configure returns a configured Age
 })
 
 it("infers Workspace access contributed to configured presets", () => {
-  const plain = defineAgent({ options: { enabled: true }, configure: () => defineAgent({ driver: "codex" }) })
+  const plain = defineAgent({ options: { enabled: true }, configure: () => defineAgent({ driver: codexDriver() }) })
   const capability = defineCapability({ id: "workspace", workspace: {} })
   const selected = defineAgent({ preset: "plain", presets: { plain }, capabilities: [capability] })
   expectTypeOf(selected.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
@@ -136,12 +136,12 @@ it("infers Workspace access contributed to configured presets", () => {
 })
 
 it("preserves built-in GitHub Workspace contributions through configured extensions", () => {
-  const plain = defineAgent({ options: { enabled: true }, configure: () => defineAgent({ driver: "codex" }) })
+  const plain = defineAgent({ options: { enabled: true }, configure: () => defineAgent({ driver: codexDriver() }) })
   const extended = defineAgent({ extends: plain, channels: { github: github({ pullRequest: true }) } })
   expectTypeOf(extended.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
   const selected = defineAgent({ preset: "plain", presets: { plain }, channels: { github: () => github({ pullRequest: {} }) } })
   expectTypeOf(selected.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
-  const configured = defineAgent({ options: {}, configure: () => defineAgent({ driver: "codex", channels: { github: github({ pullRequest: { workspace: { mount: "repo" } } }) } }) })
+  const configured = defineAgent({ options: {}, configure: () => defineAgent({ driver: codexDriver(), channels: { github: github({ pullRequest: { workspace: { mount: "repo" } } }) } }) })
   expectTypeOf(defineAgent({ extends: configured }).__vitehubWorkspaceAgent).toEqualTypeOf<true>()
   const disabled = defineAgent({ extends: extended, channels: { github: github({ pullRequest: { workspace: false } }) } })
   // @ts-expect-error Replacing the contributing Channel with disabled Workspace access removes it.
@@ -159,55 +159,55 @@ it("accepts interface options and rejects non-record roots", () => {
   const options: PresetOptions = { enabled: true }
   const preset = defineAgent({ options, configure: value => {
     expectTypeOf(value).toEqualTypeOf<PresetOptions>()
-    return defineAgent({ driver: "codex" })
+    return defineAgent({ driver: codexDriver() })
   } })
   expectTypeOf(defineAgent({ extends: preset, options: { enabled: false } }).options.enabled).toEqualTypeOf<boolean>()
   // @ts-expect-error The root options value must be a record, not an array.
-  defineAgent({ options: [], configure: () => defineAgent({ driver: "codex" }) })
+  defineAgent({ options: [], configure: () => defineAgent({ driver: codexDriver() }) })
   // @ts-expect-error Promise roots are not plain option records.
-  defineAgent({ options: Promise.resolve({ enabled: true }), configure: () => defineAgent({ driver: "codex" }) })
+  defineAgent({ options: Promise.resolve({ enabled: true }), configure: () => defineAgent({ driver: codexDriver() }) })
   // @ts-expect-error Callback values may only be nested in a record.
-  defineAgent({ options: () => true, configure: () => defineAgent({ driver: "codex" }) })
+  defineAgent({ options: () => true, configure: () => defineAgent({ driver: codexDriver() }) })
   // @ts-expect-error WeakMap roots are not plain option records.
-  defineAgent({ options: new WeakMap(), configure: () => defineAgent({ driver: "codex" }) })
+  defineAgent({ options: new WeakMap(), configure: () => defineAgent({ driver: codexDriver() }) })
   // @ts-expect-error WeakSet roots are not plain option records.
-  defineAgent({ options: new WeakSet(), configure: () => defineAgent({ driver: "codex" }) })
+  defineAgent({ options: new WeakSet(), configure: () => defineAgent({ driver: codexDriver() }) })
   // @ts-expect-error Error roots are not plain option records.
-  defineAgent({ options: new Error(), configure: () => defineAgent({ driver: "codex" }) })
+  defineAgent({ options: new Error(), configure: () => defineAgent({ driver: codexDriver() }) })
   // @ts-expect-error AbortController roots are not plain option records.
-  defineAgent({ options: new AbortController(), configure: () => defineAgent({ driver: "codex" }) })
+  defineAgent({ options: new AbortController(), configure: () => defineAgent({ driver: codexDriver() }) })
   // @ts-expect-error AbortSignal roots are not plain option records.
-  defineAgent({ options: new AbortController().signal, configure: () => defineAgent({ driver: "codex" }) })
+  defineAgent({ options: new AbortController().signal, configure: () => defineAgent({ driver: codexDriver() }) })
   // @ts-expect-error Blob roots are not plain option records.
-  defineAgent({ options: new Blob([]), configure: () => defineAgent({ driver: "codex" }) })
+  defineAgent({ options: new Blob([]), configure: () => defineAgent({ driver: codexDriver() }) })
   // @ts-expect-error File roots inherit Blob and are not plain option records.
-  defineAgent({ options: new File([], "input"), configure: () => defineAgent({ driver: "codex" }) })
+  defineAgent({ options: new File([], "input"), configure: () => defineAgent({ driver: codexDriver() }) })
   // @ts-expect-error EventTarget roots are not plain option records.
-  defineAgent({ options: new EventTarget(), configure: () => defineAgent({ driver: "codex" }) })
+  defineAgent({ options: new EventTarget(), configure: () => defineAgent({ driver: codexDriver() }) })
   defineAgent({ options: { target: new EventTarget() }, configure: value => {
     expectTypeOf(value.target).toEqualTypeOf<EventTarget>()
-    return defineAgent({ driver: "codex" })
+    return defineAgent({ driver: codexDriver() })
   } })
   // @ts-expect-error Request roots are not plain option records.
-  defineAgent({ options: new Request("https://example.com"), configure: () => defineAgent({ driver: "codex" }) })
+  defineAgent({ options: new Request("https://example.com"), configure: () => defineAgent({ driver: codexDriver() }) })
   // @ts-expect-error Response roots are not plain option records.
-  defineAgent({ options: new Response(), configure: () => defineAgent({ driver: "codex" }) })
+  defineAgent({ options: new Response(), configure: () => defineAgent({ driver: codexDriver() }) })
   // @ts-expect-error Headers roots are not plain option records.
-  defineAgent({ options: new Headers(), configure: () => defineAgent({ driver: "codex" }) })
+  defineAgent({ options: new Headers(), configure: () => defineAgent({ driver: codexDriver() }) })
   // @ts-expect-error FormData roots are not plain option records.
-  defineAgent({ options: new FormData(), configure: () => defineAgent({ driver: "codex" }) })
+  defineAgent({ options: new FormData(), configure: () => defineAgent({ driver: codexDriver() }) })
   // @ts-expect-error URLSearchParams roots are not plain option records.
-  defineAgent({ options: new URLSearchParams(), configure: () => defineAgent({ driver: "codex" }) })
+  defineAgent({ options: new URLSearchParams(), configure: () => defineAgent({ driver: codexDriver() }) })
   defineAgent({ options: { headers: new Headers(), form: new FormData(), blob: new Blob([]), request: new Request("https://example.com"), response: new Response() }, configure: value => {
     expectTypeOf(value.request).toEqualTypeOf<Request>()
     expectTypeOf(value.response).toEqualTypeOf<Response>()
     expectTypeOf(value.blob).toEqualTypeOf<Blob>()
     expectTypeOf(value.headers).toEqualTypeOf<Headers>()
     expectTypeOf(value.form).toEqualTypeOf<FormData>()
-    return defineAgent({ driver: "codex" })
+    return defineAgent({ driver: codexDriver() })
   } })
   // @ts-expect-error Built-in instances may only be nested in a record.
-  defineAgent({ options: new Date(), configure: () => defineAgent({ driver: "codex" }) })
+  defineAgent({ options: new Date(), configure: () => defineAgent({ driver: codexDriver() }) })
 })
 
 it("rejects option unions with non-record members and accepts record unions", () => {
@@ -222,27 +222,27 @@ it("rejects option unions with non-record members and accepts record unions", ()
     recordOptions: RecordOptions | { mode: string },
   ) {
     // @ts-expect-error Every union member must be a record, excluding AbortController roots.
-    defineAgent({ options: controllerOptions, configure: () => defineAgent({ driver: "codex" }) })
+    defineAgent({ options: controllerOptions, configure: () => defineAgent({ driver: codexDriver() }) })
     // @ts-expect-error Every union member must be a record, excluding Headers roots.
-    defineAgent({ options: headersOptions, configure: () => defineAgent({ driver: "codex" }) })
+    defineAgent({ options: headersOptions, configure: () => defineAgent({ driver: codexDriver() }) })
     // @ts-expect-error Every union member must be a record, excluding FormData roots.
-    defineAgent({ options: formOptions, configure: () => defineAgent({ driver: "codex" }) })
+    defineAgent({ options: formOptions, configure: () => defineAgent({ driver: codexDriver() }) })
     // @ts-expect-error Every union member must be a record, excluding Date roots.
-    defineAgent({ options: dateOptions, configure: () => defineAgent({ driver: "codex" }) })
+    defineAgent({ options: dateOptions, configure: () => defineAgent({ driver: codexDriver() }) })
     // @ts-expect-error Every union member must be a record, excluding array roots.
-    defineAgent({ options: arrayOptions, configure: () => defineAgent({ driver: "codex" }) })
+    defineAgent({ options: arrayOptions, configure: () => defineAgent({ driver: codexDriver() }) })
     // @ts-expect-error Every union member must be a record, excluding callback roots.
-    defineAgent({ options: callbackOptions, configure: () => defineAgent({ driver: "codex" }) })
+    defineAgent({ options: callbackOptions, configure: () => defineAgent({ driver: codexDriver() }) })
     defineAgent({ options: recordOptions, configure: value => {
       expectTypeOf(value).toEqualTypeOf<RecordOptions | { mode: string }>()
-      return defineAgent({ driver: "codex" })
+      return defineAgent({ driver: codexDriver() })
     } })
   }
   void checkOptions
 })
 
 it("recomputes contributed Workspace types after channel and capability replacement", () => {
-  const plain = defineAgent({ options: { enabled: true }, configure: () => defineAgent({ driver: "codex" }) })
+  const plain = defineAgent({ options: { enabled: true }, configure: () => defineAgent({ driver: codexDriver() }) })
   const workspaceCapability = defineCapability({ id: "workspace", workspace: {} })
   const replacementCapability = defineCapability({ id: "workspace", metadata: {} })
   const channel = defineAgent({ extends: plain, channels: { custom: { kind: "custom", capabilities: [workspaceCapability] } } })
@@ -261,13 +261,13 @@ it("recomputes contributed Workspace types after channel and capability replacem
   const explicit = defineAgent({ extends: channel, workspace: {} })
   const retainedExplicit = defineAgent({ extends: explicit, channels: { custom: { kind: "custom" } } })
   expectTypeOf(retainedExplicit.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
-  const baseWorkspace = defineAgent({ options: {}, configure: () => defineAgent({ driver: "codex", workspace: {} }) })
+  const baseWorkspace = defineAgent({ options: {}, configure: () => defineAgent({ driver: codexDriver(), workspace: {} }) })
   const retainedBase = defineAgent({ extends: baseWorkspace, channels: {}, capabilities: [] })
   expectTypeOf(retainedBase.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
 })
 
 it("removes Workspace contributed by a configured callback result", () => {
-  const plain = defineAgent({ options: {}, configure: () => defineAgent({ driver: "codex" }) })
+  const plain = defineAgent({ options: {}, configure: () => defineAgent({ driver: codexDriver() }) })
   const capability = defineCapability({ id: "workspace", workspace: {} })
   const preset = defineAgent({ options: { enabled: true }, configure: () => defineAgent({
     extends: plain, channels: { custom: { kind: "custom", capabilities: [capability] } },
@@ -282,7 +282,7 @@ it("recomputes Workspace contributions returned directly by configure", () => {
   const capability = defineCapability({ id: "workspace", workspace: {} })
   const replacement = defineCapability({ id: "workspace", metadata: {} })
   const capabilityPreset = defineAgent({ options: {}, configure: () => defineAgent({
-    driver: "codex", capabilities: [capability],
+    driver: codexDriver(), capabilities: [capability],
   }) })
   expectTypeOf(capabilityPreset.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
   const replacedCapability = defineAgent({ extends: capabilityPreset, capabilities: [replacement] })
@@ -296,7 +296,7 @@ it("recomputes Workspace contributions returned directly by configure", () => {
   // @ts-expect-error Custom Drivers use the same Capability replacement contract.
   void replacedCustom.__vitehubWorkspaceAgent
   const channelPreset = defineAgent({ options: {}, configure: () => defineAgent({
-    driver: "codex", channels: { custom: { kind: "custom", capabilities: [capability] } },
+    driver: codexDriver(), channels: { custom: { kind: "custom", capabilities: [capability] } },
   }) })
   expectTypeOf(channelPreset.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
   const replacedChannel = defineAgent({ preset: "channel", presets: { channel: channelPreset }, channels: { custom: { kind: "custom" } } })
@@ -305,7 +305,7 @@ it("recomputes Workspace contributions returned directly by configure", () => {
   const retained = defineAgent({ extends: channelPreset, channels: { other: { kind: "custom" } } })
   expectTypeOf(retained.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
   const explicitPreset = defineAgent({ options: {}, configure: () => defineAgent({
-    driver: "codex", workspace: {}, capabilities: [capability],
+    driver: codexDriver(), workspace: {}, capabilities: [capability],
   }) })
   const explicit = defineAgent({ extends: explicitPreset, capabilities: [replacement] })
   expectTypeOf(explicit.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
@@ -314,7 +314,7 @@ it("recomputes Workspace contributions returned directly by configure", () => {
 it("replaces the whole Capability value when either layer uses a resolver", () => {
   const workspace = defineCapability({ id: "workspace", workspace: {} })
   const plain = defineCapability({ id: "plain", metadata: {} })
-  const preset = defineAgent({ options: {}, configure: () => defineAgent({ driver: "codex", capabilities: [workspace] }) })
+  const preset = defineAgent({ options: {}, configure: () => defineAgent({ driver: codexDriver(), capabilities: [workspace] }) })
   const retained = defineAgent({ extends: preset, capabilities: [] })
   expectTypeOf(retained.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
   const replaced = defineAgent({ extends: preset, capabilities: () => [plain] })
@@ -345,7 +345,7 @@ it("requires complete method-bearing option values", () => {
     options: { client: new Client("default"), nested: { client: new Client("nested"), enabled: true }, callback: (): boolean => true },
     configure: options => {
       expectTypeOf(options.client.connect()).toEqualTypeOf<string>()
-      return defineAgent({ driver: "codex" })
+      return defineAgent({ driver: codexDriver() })
     },
   })
   defineAgent({ extends: preset, options: { client: new Client("override") } })
@@ -363,7 +363,7 @@ it("does not retain Workspace access when widened Capability IDs can overlap", (
   const id: string = "workspace"
   const workspace = defineCapability({ id, workspace: {} })
   const plain = defineCapability({ id: "workspace", metadata: {} })
-  const preset = defineAgent({ options: {}, configure: () => defineAgent({ driver: "codex", capabilities: [workspace] }) })
+  const preset = defineAgent({ options: {}, configure: () => defineAgent({ driver: codexDriver(), capabilities: [workspace] }) })
   expectTypeOf(preset.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
   const replaced = defineAgent({ extends: preset, capabilities: [plain] })
   // @ts-expect-error The literal child ID can replace the widened parent ID.
@@ -377,7 +377,7 @@ it("does not retain Workspace access when widened Capability IDs can overlap", (
   expectTypeOf(explicit.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
 
   const unionWorkspace = defineCapability({ id: id as "workspace" | "other", workspace: {} })
-  const unionPreset = defineAgent({ options: {}, configure: () => defineAgent({ driver: "codex", capabilities: [unionWorkspace] }) })
+  const unionPreset = defineAgent({ options: {}, configure: () => defineAgent({ driver: codexDriver(), capabilities: [unionWorkspace] }) })
   const unionReplaced = defineAgent({ extends: unionPreset, capabilities: [plain] })
   // @ts-expect-error A partially overlapping ID union cannot guarantee Workspace access.
   void unionReplaced.__vitehubWorkspaceAgent
@@ -389,7 +389,7 @@ it("does not retain Workspace access when widened Capability IDs can overlap", (
 it("removes Workspace access for equal branded and enum Capability IDs", () => {
   const workspace = defineCapability({ id: "workspace" as string & { brand: "parent" }, workspace: {} })
   const plain = defineCapability({ id: "workspace" as string & { brand: "child" }, metadata: {} })
-  const preset = defineAgent({ options: {}, configure: () => defineAgent({ driver: "codex", capabilities: [workspace] }) })
+  const preset = defineAgent({ options: {}, configure: () => defineAgent({ driver: codexDriver(), capabilities: [workspace] }) })
   const replaced = defineAgent({ extends: preset, capabilities: [plain] })
   // @ts-expect-error Distinct brands can have the same runtime string.
   void replaced.__vitehubWorkspaceAgent
@@ -397,7 +397,7 @@ it("removes Workspace access for equal branded and enum Capability IDs", () => {
   enum ChildId { Workspace = "workspace" }
   const enumWorkspace = defineCapability({ id: ParentId.Workspace, workspace: {} })
   const enumPlain = defineCapability({ id: ChildId.Workspace, metadata: {} })
-  const enumPreset = defineAgent({ options: {}, configure: () => defineAgent({ driver: "codex", capabilities: [enumWorkspace] }) })
+  const enumPreset = defineAgent({ options: {}, configure: () => defineAgent({ driver: codexDriver(), capabilities: [enumWorkspace] }) })
   const enumReplaced = defineAgent({ extends: enumPreset, capabilities: [enumPlain] })
   // @ts-expect-error Distinct enums can have the same runtime string.
   void enumReplaced.__vitehubWorkspaceAgent
@@ -407,7 +407,7 @@ it("retains Workspace access for disjoint branded literal Capability IDs", () =>
   const workspace = defineCapability({ id: "workspace" as "workspace" & { brand: "parent" }, workspace: {} })
   const unrelated = defineCapability({ id: "unrelated" as "unrelated" & { brand: "child" }, metadata: {} })
   const same = defineCapability({ id: "workspace" as "workspace" & { brand: "child" }, metadata: {} })
-  const preset = defineAgent({ options: {}, configure: () => defineAgent({ driver: "codex", capabilities: [workspace] }) })
+  const preset = defineAgent({ options: {}, configure: () => defineAgent({ driver: codexDriver(), capabilities: [workspace] }) })
   const retained = defineAgent({ extends: preset, capabilities: [unrelated] })
   expectTypeOf(retained.__vitehubWorkspaceAgent).toEqualTypeOf<true>()
   const replaced = defineAgent({ extends: preset, capabilities: [same] })
@@ -417,21 +417,21 @@ it("retains Workspace access for disjoint branded literal Capability IDs", () =>
 
 it("rejects stream option roots and preserves nested streams", () => {
   // @ts-expect-error ReadableStream roots are not plain option records.
-  defineAgent({ options: new ReadableStream<string>(), configure: () => defineAgent({ driver: "codex" }) })
+  defineAgent({ options: new ReadableStream<string>(), configure: () => defineAgent({ driver: codexDriver() }) })
   // @ts-expect-error WritableStream roots are not plain option records.
-  defineAgent({ options: new WritableStream<string>(), configure: () => defineAgent({ driver: "codex" }) })
+  defineAgent({ options: new WritableStream<string>(), configure: () => defineAgent({ driver: codexDriver() }) })
   // @ts-expect-error TransformStream roots are not plain option records.
-  defineAgent({ options: new TransformStream<string, number>(), configure: () => defineAgent({ driver: "codex" }) })
+  defineAgent({ options: new TransformStream<string, number>(), configure: () => defineAgent({ driver: codexDriver() }) })
   defineAgent({ options: { input: new ReadableStream<string>(), output: new WritableStream<string>(), transform: new TransformStream<string, number>() }, configure: value => {
     expectTypeOf(value.input).toEqualTypeOf<ReadableStream<string>>()
     expectTypeOf(value.output).toEqualTypeOf<WritableStream<string>>()
     expectTypeOf(value.transform).toEqualTypeOf<TransformStream<string, number>>()
-    return defineAgent({ driver: "codex" })
+    return defineAgent({ driver: codexDriver() })
   } })
 })
 
 it("types named blocks and tuples for configured presets", () => {
-  const preset = defineAgent({ configKey: "repair", options: { enabled: true, steps: ["first"] }, configure: () => defineAgent({ driver: "codex" }) })
+  const preset = defineAgent({ configKey: "repair", options: { enabled: true, steps: ["first"] }, configure: () => defineAgent({ driver: codexDriver() }) })
   expectTypeOf(preset.configKey).toEqualTypeOf<"repair">()
   const named = defineAgent({ extends: preset, repair: { enabled: false } })
   expectTypeOf(named.configKey).toEqualTypeOf<"repair">()
@@ -445,7 +445,7 @@ it("types named blocks and tuples for configured presets", () => {
 })
 
 it("rejects conflicting preset option selectors", () => {
-  const preset = defineAgent({ configKey: "repair", options: { enabled: true }, configure: () => defineAgent({ driver: "codex" }) })
+  const preset = defineAgent({ configKey: "repair", options: { enabled: true }, configure: () => defineAgent({ driver: codexDriver() }) })
   // @ts-expect-error Use named options or legacy options, not both.
   defineAgent({ extends: preset, repair: { enabled: true }, options: { enabled: false } })
   // @ts-expect-error Tuple options cannot also use legacy options.
@@ -453,8 +453,8 @@ it("rejects conflicting preset option selectors", () => {
 })
 
 it("types named blocks selected through preset registries", () => {
-  const preset = defineAgent({ configKey: "repair", options: { enabled: true, steps: ["first"] }, configure: () => defineAgent({ driver: "codex" }) })
-  const presets = { selected: preset, other: defineAgent({ driver: "codex" }) }
+  const preset = defineAgent({ configKey: "repair", options: { enabled: true, steps: ["first"] }, configure: () => defineAgent({ driver: codexDriver() }) })
+  const presets = { selected: preset, other: defineAgent({ driver: codexDriver() }) }
   const selected = defineAgent({ preset: "selected", presets, repair: { enabled: false } })
   expectTypeOf(selected.configKey).toEqualTypeOf<"repair">()
   defineAgent({ extends: selected, repair: { steps: [] } })

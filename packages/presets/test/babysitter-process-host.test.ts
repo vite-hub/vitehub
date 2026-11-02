@@ -2,13 +2,11 @@ import { createHmac } from "node:crypto"
 import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { parseAst } from "vite-plus"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { defineAgent, resolveAgentTriggerInvocation } from "@vite-hub/agent"
 import { getAgentProcessHostContribution, registerAgentProcessHostIntake } from "@vite-hub/agent/process-host"
 import { babysitter } from "../src/babysitter.ts"
 import { usesProcessHostPreset } from "../../agent/src/discovery.ts"
-import { usesProviderAgentDriver } from "../../agent/src/internal/provider-driver-usage.ts"
 
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -16,18 +14,15 @@ afterEach(() => {
 })
 
 describe("Babysitter process host", () => {
-  it("declares its process host and provider Driver subpaths for the Vite plugin", async () => {
+  it("declares its process host subpath for the Vite plugin", async () => {
     // An app that installs this package: the Agent plugin reads `vitehub.agent` from its package.json.
     const root = await mkdtemp(join(tmpdir(), "vitehub-presets-traits-"))
     try {
       await mkdir(join(root, "node_modules", "@vite-hub"), { recursive: true })
       await symlink(join(import.meta.dirname, ".."), join(root, "node_modules", "@vite-hub", "presets"), "dir")
       const file = join(root, "server", "agents", "babysitter.ts")
-      const parse = (source: string) => parseAst(source, { lang: "ts" })
       expect(usesProcessHostPreset(`import { babysitter } from "@vite-hub/presets/babysitter"`, file)).toBe(true)
       expect(usesProcessHostPreset(`import { labeller } from "@vite-hub/presets/labeller"`, file)).toBe(false)
-      expect(usesProviderAgentDriver(`import workspace from "@vite-hub/presets/workspace"`, parse, file)).toBe(true)
-      expect(usesProviderAgentDriver(`import { labeller } from "@vite-hub/presets/labeller"`, parse, file)).toBe(false)
     }
     finally {
       await rm(root, { recursive: true, force: true })
