@@ -19,6 +19,7 @@ icon: i-lucide-code-2
 | `refreshRealtimeDocument` from `vite-hub/realtime/server` | Tell the open room of a document that its stored copy changed. |
 | `isRealtimeAvailable` from `vite-hub/realtime/server` | Check whether this build has a room authority. See [Builds without Realtime](/docs/realtime/configure#builds-without-realtime). |
 | `workspaceDocument` from `vite-hub/realtime/server` | The Workspace document adapter, for wrapping or composing. |
+| `blobDocument` from `vite-hub/realtime/server` | A document adapter that stores each document as one private Blob file. See [Blob documents](#blob-documents). |
 | `createRealtimeHandler` from `vite-hub/realtime/server` | Build a handler for a manual server integration. The ViteHub integration generates this route for normal applications. |
 
 The integration generates `.vitehub/nitro/realtime/registry.mjs` and
@@ -83,6 +84,29 @@ every identified user who changed the room since the previous save.
 
 Adapters run inside the room authority. On Cloudflare that is the Durable
 Object, so bindings come from its environment.
+
+### Blob documents
+
+`blobDocument(store, { prefix, contentType })` stores each document as one
+private Blob file at `prefix + documentId`, with the body as its content. The
+digest is the SHA-256 of the body. `contentType` defaults to
+`text/markdown; charset=utf-8`.
+
+```ts [server/realtime/drafts.ts]
+import { blob } from 'vite-hub/blob'
+import { defineRealtime } from 'vite-hub/realtime'
+import { blobDocument } from 'vite-hub/realtime/server'
+
+export default defineRealtime({
+  document: blobDocument(blob, { prefix: 'drafts/' }),
+})
+```
+
+`save()` reads the stored file first and throws `RealtimeDocumentConflict`
+when it changed, was created, or was deleted after the room loaded it. Blob
+has no conditional write, so a write from outside the room between that read
+and the save's write is lost. After you change the file outside the room, call
+`refreshRealtimeDocument()` so the room loads it.
 
 ## Editor codecs
 
