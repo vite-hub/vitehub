@@ -147,7 +147,7 @@ function staticOptionKeys(tokens: string[], start: number, empty: string, typesc
 
 /**
  * Find built-in Channel factory and `.connector()` calls, such as `telegram({ ... })` imported from
- * `vite-hub/agent/channels`, and Channel shorthands such as `channels: { telegram: { ... } }`.
+ * `vite-hub/agent/channels`, and bare factory references such as `channels: { telegram }`.
  * Source is TypeScript by default. JavaScript files must disable type argument handling.
  */
 export function discoverBuiltInChannelUses(
@@ -216,7 +216,7 @@ export function discoverBuiltInChannelUses(
       })
       uses.push({ index: i, kind: factory.name, optionKeys, stringOptions })
     }
-    // Shorthands count only in the top-level `channels` option of defineAgent(), not in types or other objects.
+    // Bare factory references count only in the top-level `channels` option of defineAgent(), not in types or other objects.
     const agent = options.shorthands !== false && !isShadowedAt(tokens, i, tokens[i]!, agentShadowBindings, lineBreaks) && factoryCall(tokens, i, agentBindings, agentNamespaces, agentNames, lineBreaks, typescript)
     if (!agent) continue
     const settings = localObject(tokens, agent.open + 1, declarations, typescript)
@@ -224,27 +224,14 @@ export function discoverBuiltInChannelUses(
     visitObjectProperties(tokens, settings, (option, channelsValue) => {
       const channels = channelsValue === undefined ? undefined : localObject(tokens, channelsValue, declarations, typescript)
       if (option !== "channels" || channels === undefined) return
-      visitObjectProperties(tokens, channels, (key, value) => {
+      visitObjectProperties(tokens, channels, (_key, value) => {
         if (value === undefined) return
         const reference = channelFactoryReference(tokens, value, bindings, namespaces, known, typescript)
         if (reference && isShadowedAt(tokens, reference.index, tokens[reference.index]!, shadowBindings, lineBreaks)) return
         // A factory call is found by the call scan. Runtime calls a bare factory without options
         // and uses the kind it returns, whatever the key is.
         if (reference?.call) return
-        if (reference) {
-          uses.push({ index: value, kind: reference.kind, optionKeys: new Set() })
-          return
-        }
-        if (!known.has(key)) return
-        const options = localObject(tokens, value, declarations, typescript) ?? value
-        const optionKeys = staticOptionKeys(tokens, options, "}", typescript, key)
-        // An object with `kind` is a complete Channel definition, not built-in Channel options.
-        let complete = false
-        if (tokens[options] === "{") visitObjectProperties(tokens, options, (key, value) => {
-          const omitted = value !== undefined && isUndefinedValue(tokens, value, new Set([",", "}"]))
-          if (key === "kind" && !omitted) complete = true
-        })
-        if (!complete && !optionKeys?.has("kind")) uses.push({ index: value, kind: key, optionKeys })
+        if (reference) uses.push({ index: value, kind: reference.kind, optionKeys: new Set() })
       })
     })
   }

@@ -38,14 +38,6 @@ import type {
 import type { SandboxDefinition, SandboxToolchain } from "@vite-hub/sandbox"
 import type { channelDeliveryHandlers } from "./internal/channel-delivery-handlers.ts"
 import type { ReplayChannelResult } from "./channel-replay.ts"
-import type {
-  AgentChannelOptions,
-  AgentWebChatChannelOptions,
-  DiscordChannelOptions,
-  GitHubChannelOptions,
-  TeamsChannelOptions,
-  TelegramChannelOptions,
-} from "./channels.ts"
 
 export type {
   ExecutionBudget,
@@ -2898,25 +2890,8 @@ export type AgentChannelFactory<TRuntimeConfig extends AgentRuntimeConfig = Agen
 export type AgentChannelInput<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   AgentChannelDefinition<TRuntimeConfig> | AgentChannelFactory<TRuntimeConfig>
 
-type AgentBuiltInChannelInput<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
-  | AgentChannelInput<TRuntimeConfig>
-  | AgentChannelOptions<TRuntimeConfig>
-  | AgentWebChatChannelOptions<TRuntimeConfig>
-  | DiscordChannelOptions<TRuntimeConfig>
-  | GitHubChannelOptions<TRuntimeConfig>
-  | TeamsChannelOptions<TRuntimeConfig>
-  | TelegramChannelOptions<TRuntimeConfig>
-
 export type AgentChannelInputs<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
-  Record<string, AgentBuiltInChannelInput<TRuntimeConfig>> & {
-    discord?: AgentChannelInput<TRuntimeConfig> | DiscordChannelOptions<TRuntimeConfig>
-    github?: AgentChannelInput<TRuntimeConfig> | GitHubChannelOptions<TRuntimeConfig>
-    http?: AgentChannelInput<TRuntimeConfig> | AgentChannelOptions<TRuntimeConfig>
-    slack?: AgentChannelInput<TRuntimeConfig> | AgentChannelOptions<TRuntimeConfig>
-    teams?: AgentChannelInput<TRuntimeConfig> | TeamsChannelOptions<TRuntimeConfig>
-    telegram?: AgentChannelInput<TRuntimeConfig> | TelegramChannelOptions<TRuntimeConfig>
-    webChat?: AgentChannelInput<TRuntimeConfig> | AgentWebChatChannelOptions<TRuntimeConfig>
-  }
+  Record<string, AgentChannelInput<TRuntimeConfig>>
 
 export type AgentChannels<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   Record<string, AgentChannelDefinition<TRuntimeConfig>>

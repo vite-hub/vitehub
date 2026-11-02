@@ -344,14 +344,15 @@ it.each([
 })
 
 it.each([
-  ["{ pullRequest: false }", false],
-  ["{ pullRequest: true }", true],
-  ["{ \\u0070ullRequest: true }", true],
-  ["{ pullRequest: { workspace: false } }", false],
-  ["{ pullRequest: { workspace: {} } }", true],
+  ["github({ pullRequest: false })", false],
+  ["github({ pullRequest: true })", true],
+  ["github({ \\u0070ullRequest: true })", true],
+  ["github({ pullRequest: { workspace: false } })", false],
+  ["github({ pullRequest: { workspace: {} } })", true],
+  ["{ pullRequest: true }", false],
   ['{ kind: "custom", pullRequest: true }', false],
   ['defineChannel("custom", { pullRequest: true })', false],
-])("applies GitHub ownership to built-in channel options: %s", async (options, ownsWorkspace) => {
+])("applies GitHub ownership under the github key: %s", async (options, ownsWorkspace) => {
   const source = `${imports} export default defineAgent({ channels: { github: ${options} } })`
   const definition = await discover(source)
   expect(definition?.workspace).toBe(ownsWorkspace ? "review" : undefined)

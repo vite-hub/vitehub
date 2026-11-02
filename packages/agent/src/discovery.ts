@@ -2672,16 +2672,7 @@ function inspectAgentModule(source: string, file: string, modules: Set<string>) 
     if (opaque) throw opaqueChannelError()
     if (tokens[channelOptions] !== "{" || tokens[channelOptions - 1] === ")") throw opaqueChannelError()
     const capabilities = channelProperties.get("capabilities")
-    if (capabilities !== undefined && capabilityOwnsWorkspace(capabilities)) return true
-    const pullRequest = channelProperties.get("pullRequest")
-    if (channelId !== "github" || channelCall !== undefined || pullRequest === undefined) return false
-    const kind = channelProperties.get("kind")
-    if (kind !== undefined) {
-      const value = resolveReference(kind, new Set(), true)
-      if (/^["'`]/.test(tokens[value] ?? "")) return false
-      throw opaqueChannelError()
-    }
-    return pullRequestOwnsWorkspace(pullRequest)
+    return capabilities !== undefined && capabilityOwnsWorkspace(capabilities)
   }
 
   // Mirrors the Workspace ownership of the first-party Channel helpers:
