@@ -3620,18 +3620,39 @@ importers:
       '@vite-hub/agent':
         specifier: workspace:*
         version: link:../../packages/agent
+      '@vite-hub/blob':
+        specifier: workspace:*
+        version: link:../../packages/blob
+      '@vite-hub/cms':
+        specifier: workspace:*
+        version: link:../../packages/cms
       '@vite-hub/connections':
         specifier: workspace:*
         version: link:../../packages/connections
+      '@vite-hub/content':
+        specifier: workspace:*
+        version: link:../../packages/content
+      '@vite-hub/database':
+        specifier: workspace:*
+        version: link:../../packages/database
       '@vite-hub/docs':
         specifier: workspace:*
         version: link:../../packages/docs
+      '@vite-hub/env':
+        specifier: workspace:*
+        version: link:../../packages/env
       '@vite-hub/gateways':
         specifier: workspace:*
         version: link:../../packages/gateways
+      '@vite-hub/rate-limit':
+        specifier: workspace:*
+        version: link:../../packages/rate-limit
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../../packages/runtime
+      '@vite-hub/schedule':
+        specifier: workspace:*
+        version: link:../../packages/schedule
       '@vite-hub/shell':
         specifier: workspace:*
         version: link:../../packages/shell
@@ -3641,6 +3662,12 @@ importers:
       '@vite-hub/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@vite-hub/workflow':
+        specifier: workspace:*
+        version: link:../../packages/workflow
+      '@vite-hub/workspace':
+        specifier: workspace:*
+        version: link:../../packages/workspace
       ai:
         specifier: 7.0.130
         version: 7.0.130(zod@4.6.5)

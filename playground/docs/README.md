@@ -1,8 +1,6 @@
-# Docs assistant playground
+# Docs playground
 
-A Nuxt 4 docs site for a made-up CLI, Lumen, with the `@vite-hub/docs` assistant turned on. `server/agents/docs.ts` extends `docsAssistant` and adds one instruction. `server/connections/chatgpt.ts` holds the ChatGPT grant. The pages are in `content/`.
-
-The docs UI is ported separately, so `app/` renders only a page list, the page title, and `<DocsAssistant />`. Until that port lands, `@vite-hub/docs` has no `runtime/app/layouts/docs.vue`, and the module fails to start. Copy any layout to `packages/docs/dist/runtime/app/layouts/docs.vue` after the build to run this playground before then.
+A Nuxt 4 docs site for a made-up CLI, Lumen, on `@vite-hub/docs`, with the docs assistant and Console editing turned on. The app has no `app/` folder: the package renders every page. `server/agents/docs.ts` extends `docsAssistant` and adds one instruction. `server/connections/chatgpt.ts` holds the ChatGPT grant. `server/content.ts` lets the Console edit the pages. The pages are in `content/`.
 
 From the worktree root, build the packages, then start the app on port 4731:
 
@@ -28,7 +26,21 @@ It streams `{"errorText":"AGENT_R1016: The ChatGPT Connection cannot provide pla
 
 To get answers, install `@openai/codex` in this app and sign in with `corepack pnpm vitehub connections connect chatgpt --url http://127.0.0.1:4731`, with your ChatGPT account. See `playground/chatgpt/README.md`. On this Nuxt 4 base the sign-in does not work yet: Nitro loads `@vite-hub/connections` from Node instead of the bundle, so the app sees the package's empty Connection registry, and `vitehub connections inspect chatgpt` answers `CONNECTIONS_NOT_FOUND`.
 
-`@vite-hub/connections`, `gateways`, `runtime`, `shell`, and `source` are listed in `package.json` only because Nitro 2 leaves them external in this workspace, and Node resolves them from the app folder. `@nuxt/ui` is listed in `modules` so that Nuxt installs `@nuxt/icon` with it.
+## Edit pages in the Console
+
+`server/content.ts` adds `docsCollection()` on the Blob + Database store of the CMS, and lets everyone edit on the development server. The store starts empty. With the dev server running, create the CMS tables once and import the pages:
+
+```sh
+corepack pnpm vitehub db generate
+corepack pnpm vitehub db migrate
+for file in $(cd content && find . -name '*.md' | sed 's|^\./||'); do
+  corepack pnpm vitehub content edit docs "${file%.md}" --file "content/$file" --url http://127.0.0.1:4731
+done
+```
+
+Open <http://127.0.0.1:4731/_vitehub/content>, open a page, and select **Preview the page**. An edit shows in the preview through the docs UI before it is saved. **Publish** copies the draft to the `published` ref. The site still renders the files in `content/`.
+
+The `@vite-hub/*` packages are listed in `package.json` only because Nitro 2 leaves them external in this workspace, and Node resolves them from the app folder. `@nuxt/ui` is listed in `modules` so that Nuxt installs `@nuxt/icon` with it.
 
 Stop the server with Ctrl+C and check that the port is free:
 
