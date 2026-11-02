@@ -2,27 +2,29 @@ import * as v from 'valibot'
 import { parseEvidence, parsePullRequest, parseThread, type GitHubReviewThread, type GitHubEvidence, type GitHubDelivery, type GitHubPullRequestRecord } from './types.ts'
 import { createHash } from 'node:crypto'
 import { type Claim, type PullRequestInbox, type Snapshot } from './store.ts'
-import { listReviewThreads, repoRef, type GitHubProvider } from '@vite-hub/forge'
+import { repoRef, type GitHubProvider } from '@vite-hub/forge'
 
 export type ReadGitHubSnapshot = (path: string, projection?: string) => Promise<unknown[]>
 export type ReadThreads = (repository: string, number: number, signal?: AbortSignal) => Promise<GitHubReviewThread[]>
 export type ReadGraphql = (query: string, variables: Record<string, string | number | null>) => Promise<unknown>
 
-/** Read review conversations through the Forge GitHub gap helper. */
+/** Read review conversations through forges `threads.reviewThreads()`. */
 export async function readForgePullRequestThreads(provider: GitHubProvider, repository: string, number: number, signal?: AbortSignal): Promise<GitHubReviewThread[]> {
   const repo = repoRef(provider, repository)
   const ref = { forge: provider.forge, instance: provider.instance, repo, kind: 'pull_request' as const, number: String(number) }
-  const threads = await listReviewThreads(provider, ref, { signal })
-  return threads.map(thread => ({
-    id: thread.id, node_id: thread.id, isResolved: thread.resolved, isOutdated: thread.outdated,
-    ...(thread.path === undefined ? {} : { path: thread.path }),
-    ...(thread.line === undefined ? {} : { line: thread.line }),
-    ...(thread.originalLine === undefined ? {} : { originalLine: thread.originalLine }),
-    ...(thread.startLine === undefined ? {} : { startLine: thread.startLine }),
-    ...(thread.originalStartLine === undefined ? {} : { originalStartLine: thread.originalStartLine }),
-    comments: thread.comments.map(comment => ({ id: comment.restId ?? comment.id, node_id: comment.id })),
-    resolutionSource: 'forge',
-  }))
+  const threads: GitHubReviewThread[] = []
+  for await (const thread of provider.threads.reviewThreads(ref, { perPage: 100, signal })) {
+    threads.push({
+      id: thread.id, node_id: thread.id, isResolved: thread.resolved, isOutdated: thread.outdated,
+      ...(thread.path === undefined ? {} : { path: thread.path }),
+      ...(thread.line === undefined ? {} : { line: thread.line }),
+      ...(thread.startLine === undefined ? {} : { startLine: thread.startLine }),
+      // forges gives the REST id of each comment, the id that webhooks and REST reads use.
+      comments: thread.comments.flatMap(comment => comment.ref ? [{ id: comment.ref.id }] : []),
+      resolutionSource: 'forge',
+    })
+  }
+  return threads
 }
 const index = (items: GitHubEvidence[]) => Object.fromEntries(items.map(item => [String(item.id), item]))
 const pageInfo = v.object({ hasNextPage: v.boolean(), endCursor: v.nullish(v.string()) })
