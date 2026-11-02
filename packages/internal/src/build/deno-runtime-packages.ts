@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto"
 import { access, cp, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
 import { builtinModules, createRequire } from "node:module"
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import type { Plugin } from "esbuild"
 import { satisfies, validRange } from "semver"
@@ -35,7 +35,7 @@ export interface DenoServerPackages {
 }
 
 export interface DenoExternalImport {
-  /** The file to resolve the package from: the importing module, or the external file when the bundler kept a resolved path. */
+  /** The importing module, createRequire base, or resolved external file to resolve the package from. */
   importer: string
   /** True when a server chunk loads the package with a static `import` statement. */
   required: boolean
@@ -57,9 +57,11 @@ interface FinalizeDenoDeploymentOutputOptions {
 }
 
 interface ServerBundleChunk {
+  code: string
   dynamicImports: string[]
   imports: string[]
   moduleIds: string[]
+  modules: Record<string, { code: string | null }>
   type: "chunk"
 }
 
@@ -77,17 +79,22 @@ export function denoServerPackagesPlugin(onPackages: (packages: DenoServerPackag
       const dynamicImports = new Set(chunks.flatMap(chunk => chunk.dynamicImports))
       const bundledPackageDirs = new Set<string>()
       const externalImports: DenoExternalImport[] = []
+      for (const chunk of chunks) {
+        let factories: Set<string> | undefined
+        for (const id of chunk.moduleIds) {
+          // Alias calls have no graph edges. Parse only rendered modules whose source uses
+          // createRequire, so removed calls cannot select an unused package installation.
+          if (!this.getModuleInfo(id)?.code?.includes("createRequire")) continue
+          const code = chunk.modules[id]?.code
+          if (!code) continue
+          factories ??= collectImportedCreateRequireFactories(chunk.code)
+          externalImports.push(...collectCreateRequirePackageImports(code, id, factories))
+        }
+      }
       for (const id of new Set(chunks.flatMap(chunk => chunk.moduleIds))) {
         const bundledPackage = packageFromModuleId(id)
         if (bundledPackage) bundledPackageDirs.add(bundledPackage.dir)
         const info = this.getModuleInfo(id)
-        // createRequire aliases have no graph edges. Only inspect source modules using that API,
-        // resolving their literal package requests from the original importer, without reading emitted files.
-        if (info?.code?.includes("createRequire")) {
-          for (const specifier of collectCreateRequirePackageSpecifiers(info.code)) {
-            externalImports.push({ importer: id, required: false, specifier })
-          }
-        }
         const imports = [
           ...(info?.importedIds ?? []).map(importedId => ({ importedId, static: true })),
           ...(info?.dynamicallyImportedIds ?? []).map(importedId => ({ importedId, static: false })),
@@ -114,20 +121,60 @@ export function denoServerPackagesPlugin(onPackages: (packages: DenoServerPackag
   }
 }
 
-function collectCreateRequirePackageSpecifiers(source: string): Set<string> {
+function literalString(node: Node | undefined): string | undefined {
+  return node?.type === "Literal" && typeof node.value === "string"
+    ? node.value
+    : node?.type === "TemplateLiteral" && node.expressions.length === 0 ? node.quasis[0]?.value.cooked ?? undefined : undefined
+}
+
+/** Reads a createRequire base without running application code. Unknown bases must not fall back to the source module. */
+function createRequireBase(node: Node | undefined, id: string): string | undefined {
+  const literal = literalString(node)
+  if (literal !== undefined) return literal
+  if (node?.type === "MemberExpression" && !node.computed && node.property.type === "Identifier" && node.property.name === "url"
+    && node.object.type === "MetaProperty" && node.object.meta.name === "import") {
+    return id.startsWith("file:") ? id : isAbsolute(id) ? pathToFileURL(id).href : undefined
+  }
+  if (node?.type === "NewExpression" && node.callee.type === "Identifier" && node.callee.name === "URL") {
+    const value = literalString(node.arguments[0])
+    const base = createRequireBase(node.arguments[1], id)
+    if (value !== undefined) {
+      try { return new URL(value, base).href }
+      catch { return }
+    }
+  }
+}
+
+function collectCreateRequirePackageImports(source: string, id: string, importedFactories: Set<string>): DenoExternalImport[] {
   const module = scanModule(source)
-  const aliases = collectCreateRequireAliases(maskInertImportText(module))
-  const specifiers = new Set<string>()
-  if (aliases.size === 0) return specifiers
+  const factories = new Set([...importedFactories, ...collectCreateRequireFactories(maskInertImportText(module))])
+  const aliases = new Map<string, string>()
+  const imports: DenoExternalImport[] = []
+  const factoryBase = (node: Node | undefined): string | undefined => {
+    if (node?.type !== "CallExpression") return
+    const name = source.slice(node.callee.start, node.callee.end).replace(/\s/g, "")
+    if (!factories.has(name)) return
+    const base = createRequireBase(node.arguments[0], id)
+    if (base === undefined) return
+    try {
+      const file = base.startsWith("file:") ? fileURLToPath(base) : base
+      if (isAbsolute(file)) return file.endsWith(sep) ? join(file, "__vitehub_require__.js") : file
+    }
+    catch { return }
+  }
   walk(module.program, (node) => {
-    if (node.type !== "CallExpression" || node.callee.type !== "Identifier" || !aliases.has(node.callee.name)) return
-    const argument = node.arguments[0]
-    const specifier = argument?.type === "Literal" && typeof argument.value === "string"
-      ? argument.value
-      : argument?.type === "TemplateLiteral" && argument.expressions.length === 0 ? argument.quasis[0]?.value.cooked : undefined
-    if (specifier && packageNameFromSpecifier(specifier)) specifiers.add(specifier)
+    if (node.type !== "VariableDeclarator" || node.id.type !== "Identifier") return
+    const base = factoryBase(node.init ?? undefined)
+    if (base) aliases.set(node.id.name, base)
   })
-  return specifiers
+  walk(module.program, (node) => {
+    if (node.type !== "CallExpression") return
+    // Rolldown may inline a single-use alias as createRequire(base)("package").
+    const importer = node.callee.type === "Identifier" ? aliases.get(node.callee.name) : factoryBase(node.callee)
+    const specifier = literalString(node.arguments[0])
+    if (importer && specifier && packageNameFromSpecifier(specifier)) imports.push({ importer, required: false, specifier })
+  })
+  return imports
 }
 
 function packageFromModuleId(id: string): { dir: string, name: string } | undefined {
@@ -174,7 +221,7 @@ const identifierStart = String.raw`(?:[$_\p{ID_Start}]|\\u[\da-fA-F]{4}|\\u\{[\d
 const identifierContinue = String.raw`(?:[$\u200C\u200D\p{ID_Continue}]|\\u[\da-fA-F]{4}|\\u\{[\da-fA-F]+\})`
 const bindingIdentifier = `${identifierStart}${identifierContinue}*`
 
-function collectCreateRequireAliases(source: string): Set<string> {
+function collectImportedCreateRequireFactories(source: string): Set<string> {
   const factories = new Set<string>()
   for (const match of source.matchAll(/(?:^|[;\n])[^\S\r\n]*import\s*(?:[A-Za-z_$][\w$]*\s*,\s*)?\{([^}]*)\}\s*from\s*["'](?:node:)?module["']/gm)) {
     for (const specifier of match[1]!.split(",")) {
@@ -185,6 +232,11 @@ function collectCreateRequireAliases(source: string): Set<string> {
   for (const match of source.matchAll(/(?:^|[;\n])[^\S\r\n]*import\s+(?:[A-Za-z_$][\w$]*\s*,\s*)?(?:\*\s+as\s+)?([A-Za-z_$][\w$]*)\s+from\s*["'](?:node:)?module["']/gm)) {
     factories.add(`${match[1]}.createRequire`)
   }
+  return factories
+}
+
+function collectCreateRequireFactories(source: string): Set<string> {
+  const factories = collectImportedCreateRequireFactories(source)
   for (const match of source.matchAll(/\b(?:const|let|var)\s*\{[^}]*\bcreateRequire(?:\s*:\s*([A-Za-z_$][\w$]*))?[^}]*\}\s*=\s*(?:__require|require)\s*\(\s*["'](?:node:)?module["']\s*\)/g)) {
     factories.add(match[1] ?? "createRequire")
   }
@@ -200,6 +252,11 @@ function collectCreateRequireAliases(source: string): Set<string> {
   for (const match of source.matchAll(dynamicNamespace)) {
     factories.add(`${match[1]}.createRequire`)
   }
+  return factories
+}
+
+function collectCreateRequireAliases(source: string): Set<string> {
+  const factories = collectCreateRequireFactories(source)
   if (factories.size === 0) return new Set()
 
   const aliases = new Set<string>()

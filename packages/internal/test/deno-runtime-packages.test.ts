@@ -4,6 +4,7 @@ import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile 
 import { tmpdir } from "node:os"
 import { delimiter, dirname, join, relative, resolve } from "node:path"
 import { promisify } from "node:util"
+import { pathToFileURL } from "node:url"
 
 import { build } from "vite"
 import { afterAll, describe, expect, it } from "vitest"
@@ -150,7 +151,7 @@ loader /* receiver */ . /* call */ import(path)
     const plugin = denoServerPackagesPlugin((result) => { packages = result })
 
     plugin.generateBundle.call({ getModuleInfo: id => modules.get(id) ?? null }, {}, {
-      "index.mjs": { dynamicImports: [lazy], imports: [sharp], moduleIds: [entry], type: "chunk" },
+      "index.mjs": { code: "", dynamicImports: [lazy], imports: [sharp], moduleIds: [entry], modules: {}, type: "chunk" },
     })
 
     expect(packages).toEqual({
@@ -167,11 +168,14 @@ loader /* receiver */ . /* call */ import(path)
     const entry = join(root, "server.js")
     await writeJson(join(root, "package.json"), { type: "module" })
     await writeRuntimePackage(root, "aliased-runtime")
+    await writeRuntimePackage(root, "unknown-base")
     await writeFile(entry, [
       'import { createRequire as makeRequire } from "node:module"',
       "const load = makeRequire(import.meta.url)",
       'load("aliased-runtime")',
       'try { load("missing-probe") } catch {}',
+      'const unknown = makeRequire(globalThis.runtimeBase)',
+      'unknown("unknown-base")',
       'load.resolve("resolve-only")',
       'other.load("member-only")',
       'const text = \'load("string-only")\'',
@@ -195,6 +199,7 @@ loader /* receiver */ . /* call */ import(path)
     await finalize({ rootDir: root, serverPackages: packages })
     await expect(readFile(join(root, ".output/node_modules/aliased-runtime/marker"), "utf8")).resolves.toBe("aliased-runtime")
     expect(existsSync(join(root, ".output/node_modules/missing-probe"))).toBe(false)
+    expect(existsSync(join(root, ".output/node_modules/unknown-base"))).toBe(false)
   })
 
   it("ignores a tree-shaken dynamic edge to a different installation of a retained static external", async () => {
@@ -212,12 +217,81 @@ loader /* receiver */ . /* call */ import(path)
     let packages: DenoServerPackages | undefined
 
     denoServerPackagesPlugin((result) => { packages = result }).generateBundle.call({ getModuleInfo: id => modules.get(id) ?? null }, {}, {
-      "index.mjs": { dynamicImports: [], imports: ["shared-external"], moduleIds: [unused, used], type: "chunk" },
+      "index.mjs": { code: "", dynamicImports: [], imports: ["shared-external"], moduleIds: [unused, used], modules: {}, type: "chunk" },
     })
 
     expect(packages?.externalImports).toEqual([{ importer: used, required: true, specifier: "shared-external" }])
     await finalize({ rootDir: root, serverPackages: packages })
     const staged = JSON.parse(await readFile(join(root, ".output/node_modules/shared-external/package.json"), "utf8"))
+    expect(staged.version).toBe("2")
+  })
+
+  it.each(["path", "file URL", "relative URL"])("resolves createRequire calls from their %s base", async (kind) => {
+    const root = await temporaryDirectory("vitehub-deno-create-require-base-")
+    const entry = join(root, "server.js")
+    const base = join(root, "scope/entry.js")
+    await writeJson(join(root, "package.json"), { type: "module" })
+    await writeRuntimePackage(root, "scoped-runtime", { version: "1" })
+    await writeRuntimePackage(dirname(base), "scoped-runtime", { version: "2" })
+    const argument = kind === "path" ? JSON.stringify(base)
+      : kind === "file URL" ? JSON.stringify(pathToFileURL(base).href)
+      : 'new URL("./scope/entry.js", import.meta.url)'
+    await writeFile(entry, `import { createRequire as makeRequire } from "node:module"
+const load = makeRequire(${argument})
+console.log(load("scoped-runtime"))
+`)
+    let packages: DenoServerPackages | undefined
+
+    await build({
+      build: { outDir: join(root, ".output/server"), rollupOptions: { output: { entryFileNames: "index.mjs" } }, ssr: entry },
+      configFile: false,
+      logLevel: "silent",
+      plugins: [denoServerPackagesPlugin((result) => { packages = result })],
+      root,
+      ssr: { noExternal: true },
+    })
+
+    expect(packages?.externalImports).toEqual([{ importer: base, required: false, specifier: "scoped-runtime" }])
+    await finalize({ rootDir: root, serverPackages: packages })
+    const staged = JSON.parse(await readFile(join(root, ".output/node_modules/scoped-runtime/package.json"), "utf8"))
+    expect(staged.version).toBe("2")
+  })
+
+  it("ignores a tree-shaken createRequire call to a different installation", async () => {
+    const root = await temporaryDirectory("vitehub-deno-shaken-create-require-")
+    const entry = join(root, "server.js")
+    const unused = join(root, "unused/index.js")
+    const used = join(root, "used/index.js")
+    await writeJson(join(root, "package.json"), { type: "module" })
+    await writeRuntimePackage(dirname(unused), "shared-runtime", { version: "1" })
+    await writeRuntimePackage(dirname(used), "shared-runtime", { version: "2" })
+    await writeFile(unused, `import { createRequire } from "node:module"
+const load = createRequire(import.meta.url)
+function dead() { return load("shared-runtime") }
+export const retained = true
+`)
+    await writeFile(used, `import { createRequire } from "node:module"
+const load = createRequire(import.meta.url)
+export function retained() { return load("shared-runtime") }
+`)
+    await writeFile(entry, `import { retained } from "./unused/index.js"
+import { retained as load } from "./used/index.js"
+console.log(retained, load())
+`)
+    let packages: DenoServerPackages | undefined
+
+    await build({
+      build: { outDir: join(root, ".output/server"), rollupOptions: { output: { entryFileNames: "index.mjs" } }, ssr: entry },
+      configFile: false,
+      logLevel: "silent",
+      plugins: [denoServerPackagesPlugin((result) => { packages = result })],
+      root,
+      ssr: { noExternal: true },
+    })
+
+    expect(packages?.externalImports).toEqual([{ importer: used, required: false, specifier: "shared-runtime" }])
+    await finalize({ rootDir: root, serverPackages: packages })
+    const staged = JSON.parse(await readFile(join(root, ".output/node_modules/shared-runtime/package.json"), "utf8"))
     expect(staged.version).toBe("2")
   })
 
