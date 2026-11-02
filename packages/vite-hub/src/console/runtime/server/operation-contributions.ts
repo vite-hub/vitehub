@@ -23,7 +23,8 @@ let builtin: OperationRegistry | undefined
 
 /**
  * Install the operations of the app: the ones `vite-hub` owns and the ones that Vite plugins contribute. The generated
- * Console plugin calls this when the server starts, so agent tools see the operations before any RPC call.
+ * Console runtime calls this when it loads. Agent tools load it through `installedOperationRegistry()`, so they need no
+ * prior RPC call.
  */
 export function installConsoleOperations(contributed: readonly ConsoleOperationContribution[] = [], options: { invoke?: boolean } = {}): OperationRegistry {
   // An operation that runs app code is registered only when `console.invoke` is on. Without options, nothing is held back.

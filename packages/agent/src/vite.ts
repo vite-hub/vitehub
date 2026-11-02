@@ -1801,7 +1801,7 @@ function generatedHostedWorkspaceRuntimeSetup(
 async function writeAgentRuntimeRegistry(
   root: string,
   definitions: DiscoveredAgentDefinition[],
-  options: { agentImportBase: string, workspaceImportBase: string },
+  options: { agentImportBase: string, workspaceImportBase: string, channelsHost?: boolean },
 ): Promise<void> {
   const seen = new Set<string>()
   for (const definition of definitions) {
@@ -1841,6 +1841,7 @@ async function writeAgentRuntimeRegistry(
     "resetPublicUrlAgentNames()",
     `export default {${entries.length ? `\n  ${entries.join(",\n  ")}\n` : ""}}`,
     `export const metadata = {${generatedAgentIdentityEntries(definitions)}}`,
+    `export async function loadChannelsHost() {${options.channelsHost ? ' await import("./chat-webhook-route") ' : ""}}`,
     "",
   ].join("\n"))
 }
@@ -2250,6 +2251,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
   return [
     ...deploymentCatalog.imports,
     ...(options.libsqlState ? [`import { createLibsqlAgentState } from ${JSON.stringify(subpath(agentImportBase, "state/sqlite"))}`] : []),
+    ...(options.libsqlState ? [`import { installChannelsConsoleHost } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`] : []),
     `import { createDiscordGatewayRouteHandler, isViteHubBearerSecretEqual } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
     ...workflowRuntime.imports,
     ...workspaceDependencyRuntime.imports,
@@ -2268,6 +2270,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
     ...generatedNetlifyRuntimeHelpers(),
     "",
     ...routeCapabilities.setup,
+    ...(options.libsqlState ? generatedChannelsConsoleHost(routeCapabilities, runtimeRouteOption) : []),
     ...(options.libsqlState ? generatedWebhookQueueResumeHelper(routeCapabilities, false, runtimeRouteOption) : []),
     "const discordGatewayHandlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, createDiscordGatewayRouteHandler(agent)]))",
     `const webhookRoute = ${JSON.stringify(generatedWebhookRoute(options.webhookRoute))}`,
@@ -2641,21 +2644,23 @@ async function generateAgentDenoServer(
   return [
     ...deploymentCatalog.imports,
     ...(options.libsqlState ? [`import { createLibsqlAgentState } from ${JSON.stringify(subpath(agentImportBase, "state/sqlite"))}`] : []),
+    ...(options.libsqlState ? [`import { installChannelsConsoleHost } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`] : []),
     ...workflowRuntime.imports,
     ...workspaceDependencyRuntime.imports,
     ...routeCapabilities.imports,
     "",
     ...workflowRuntime.setup,
     ...workspaceDependencyRuntime.setup,
+    ...deploymentCatalog.setup,
+    ...(options.libsqlState ? generatedLibsqlChatStateHelper(options.libsqlState, true) : []),
+    ...routeCapabilities.setup,
+    ...(options.libsqlState ? generatedChannelsConsoleHost(routeCapabilities, ", runtime: 'deno'") : []),
+    ...(options.libsqlState ? generatedWebhookQueueResumeHelper(routeCapabilities, true) : []),
     `await import(${JSON.stringify(options.denoCronImport ?? "../schedule/deno-cron.mjs")}).catch((error) => {`,
     "  if (error instanceof TypeError && String(error.message).includes('deno-cron.mjs')) return",
     "  throw error",
     "})",
     "",
-    ...deploymentCatalog.setup,
-    ...(options.libsqlState ? generatedLibsqlChatStateHelper(options.libsqlState, true) : []),
-    ...routeCapabilities.setup,
-    ...(options.libsqlState ? generatedWebhookQueueResumeHelper(routeCapabilities, true) : []),
     "function jsonError(status, message) {",
     "  return Response.json({ error: true, status, statusText: message, message }, { status })",
     "}",
@@ -2979,6 +2984,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       : []
     await writeAgentRuntimeRegistry(generatedRoot, registryDefinitions, {
       agentImportBase: getAgentImportBase(agent, frameworkOptions),
+      channelsHost: Boolean(normalized && hasHostedAgents && normalized.runtime !== "deno"),
       workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
     })
     if (normalized && config.command === "serve") {
@@ -3666,6 +3672,11 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
               artifactDir: resolve(contributionArtifactDir, "sources"),
               paths: [
                 ...definitionSourcePaths,
+                // Standalone capabilities can import generated app modules, such as the Email definition.
+                ...(build?.runtimeCapabilities ?? standaloneRuntimeCapabilities).flatMap(capability =>
+                  typeof capability.packageName === "string" && capability.packageName.startsWith(".")
+                    ? [resolve(resolveViteHubGeneratedRoot(config), "agent", capability.packageName)]
+                    : []),
                 ...providerOutputAliasSources(providerImportAliases, [config.root]),
               ],
               roots: [config.root],
@@ -3678,10 +3689,25 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         }))
         if (retainedSources && normalized) {
           const retainedGeneratedRoot = join(retainedSources.resolve(config.root), ".vitehub")
+          const channelsHost = hostedDefinitions.length > 0 && normalized.runtime !== "deno"
           await writeAgentRuntimeRegistry(retainedGeneratedRoot, retainedDefinitions, {
             agentImportBase: getAgentImportBase(buildAgent, frameworkOptions),
+            channelsHost,
             workspaceImportBase: getWorkspaceImportBase(buildAgent, frameworkOptions),
           })
+          if (channelsHost) {
+            const handlerPath = join(retainedGeneratedRoot, generatedAgentWebhookRouteHandler)
+            await writeFile(handlerPath, await generateAgentNetlifyFunctionRouteHandler(retainedDefinitions.filter(definition => hostedDefinitions.some(hosted => hosted.name === definition.name)), handlerPath, {
+              agentImportBase: getAgentImportBase(buildAgent, frameworkOptions),
+              inspectionRoute: normalized.routes.inspection,
+              libsqlState: resolveLibsqlAgentState(normalized, config),
+              runtimeCapabilities: build?.runtimeCapabilities ?? standaloneRuntimeCapabilities,
+              workflowImportBase: getWorkflowImportBase(buildAgent, frameworkOptions),
+              workspaceDependencyRuntimeImports: getWorkspaceDependencyRuntimeImports(buildAgent, frameworkOptions),
+              workspaceImportBase: getWorkspaceImportBase(buildAgent, frameworkOptions),
+              webhookRoute: normalized.routes.webhooks,
+            }), "utf8")
+          }
         }
         const retainedProviderImportAliases = {
           ...(retainedSources ? retainProviderOutputAliases(providerImportAliases, retainedSources) : providerImportAliases),
