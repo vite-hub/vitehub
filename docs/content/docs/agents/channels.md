@@ -635,7 +635,7 @@ The runtime publishes `queued` before capacity admission, `running` after admiss
 `pullRequest: true` accepts declared slash commands on pull request comments. Add `pullRequest.reconcile` when selected pull request lifecycle events should also start an invocation. Mention commands are opt-in and application-owned, so ViteHub does not reserve a bot name.
 
 ```ts [server/agents/reviewer.ts]
-import { defineAgent } from 'vite-hub/agent'
+import { codexDriver, defineAgent } from 'vite-hub/agent'
 import { github } from 'vite-hub/agent/channels'
 
 export default defineAgent({
@@ -653,7 +653,7 @@ export default defineAgent({
       },
     }),
   },
-  driver: { kind: 'codex', permissions: 'allow-all' },
+  driver: codexDriver({ permissions: 'allow-all' }),
   workspace: { mode: 'write' },
 })
 ```
@@ -683,7 +683,7 @@ The Channel resolves one token for each repository. It uses `app.token` when you
 Git credentials come from `forgeGitCredentials()` and `forgeGitAuthHeader()` in `@vite-hub/forge`. They are in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, never in process arguments, and they reach only the pull request base and head repositories. A run without a pull request, such as a Teams or chat run, gets credentials for the repositories of the Agent's GitHub Workspace Sources, so it can clone them. A Source repository that the forge access cannot reach is left out. An Agent without GitHub Sources gets no credentials in such a run. An Agent with two github() Channels that set `app` gets no forge access.
 
 ```ts [server/agents/reviewer.ts]
-import { defineAgent } from 'vite-hub/agent'
+import { codexDriver, defineAgent } from 'vite-hub/agent'
 import { github } from 'vite-hub/agent/channels'
 
 export default defineAgent({
@@ -693,7 +693,7 @@ export default defineAgent({
       pullRequest: true,
     }),
   },
-  driver: { kind: 'codex' },
+  driver: codexDriver(),
   workspace: { mode: 'write' },
 })
 ```

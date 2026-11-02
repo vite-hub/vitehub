@@ -3159,8 +3159,8 @@ describe("defineAgent workspace option", () => {
   })
 
   it("reports no provider execution authority on processless runtimes", async () => {
-    const { defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
-    const agent = defineAgent({ driver: "codex" })
+    const { codexDriver, defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
+    const agent = defineAgent({ driver: codexDriver() })
 
     const metadata = await resolveAgentInspectionMetadata(agent, { runtime: { runtime: "deno" } })
 
@@ -3171,8 +3171,8 @@ describe("defineAgent workspace option", () => {
   })
 
   it("preserves configured provider models in Agent inspection metadata", async () => {
-    const { createAgentInspectionMetadata, defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
-    const agent = defineAgent({ driver: { kind: "codex", model: "gpt-5.6-sol" } })
+    const { codexDriver, createAgentInspectionMetadata, defineAgent, resolveAgentInspectionMetadata } = await import("../src/index.ts")
+    const agent = defineAgent({ driver: codexDriver({ model: "gpt-5.6-sol" }) })
 
     expect(createAgentInspectionMetadata(agent).config?.driver.provider?.model).toBe("gpt-5.6-sol")
     expect((await resolveAgentInspectionMetadata(agent)).config?.driver.provider?.model).toBe("gpt-5.6-sol")

@@ -1,5 +1,4 @@
 import { validateAgentStaticRoute } from "./internal/routes.ts"
-import { resolvesWorkerConditions, usesProviderAgentDriver } from "./internal/provider-driver-usage.ts"
 import { randomUUID } from "node:crypto"
 import { createRequire } from "node:module"
 import { existsSync, statSync } from "node:fs"
@@ -103,6 +102,7 @@ async function parseTypeScript(): Promise<(source: string) => ReturnType<typeof 
 }
 
 const agentPackageName = "@vite-hub/agent"
+const providerAgentWorkerStub = /\/runtime\/provider-agent-worker\.[jt]s$/
 const agentProcessHostDrainRoute = "/api/_vitehub/host/drain"
 const agentProcessHostHealthRoute = "/api/_vitehub/host/health"
 const mergeNoExternal = createNoExternalAddition(agentPackageName, "@t3tools/provider-runtime")
@@ -3246,14 +3246,6 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const projectModule = typescriptModule
         && (serverProjectModule
           || (!normalizedId.includes("/node_modules/") && normalizedId.startsWith(`${resolve(resolved.root).replace(/\\/g, "/")}/`)))
-      if (
-        projectModule
-        && !normalizedId.includes("/node_modules/")
-        && resolvesWorkerConditions(this.environment?.config.resolve.conditions)
-        && usesProviderAgentDriver(code, await parseTypeScript(), normalizedId)
-      ) {
-        throw agentDiagnostics.AGENT_B0019({ files: [relative(resolved.root, normalizedId)] })
-      }
       let transformed = code
       if (projectModule) {
         clearEveExtensionOwnership(normalizedId)
@@ -3634,6 +3626,13 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         buildConfigs.set(context, { agent, config: resolved, providerOutput, serverDirs, runtimeCapabilities: standaloneRuntimeCapabilities })
       }
       providerOutputGenerations.capture(this, buildConfigs.get(context)?.providerOutput ?? providerOutput)
+    },
+    generateBundle(_options, bundle) {
+      // Worker builds resolve the provider runtime to a stub. Only codexDriver() and claudeCodeDriver() import it,
+      // so the stub is in the output only when the Worker can reach a provider Driver.
+      const usesProviderDriver = Object.values(bundle).some(output => output.type === "chunk"
+        && output.moduleIds.some(id => providerAgentWorkerStub.test(id.replace(/\\/g, "/"))))
+      if (usesProviderDriver) throw agentDiagnostics.AGENT_B0019()
     },
     async buildEnd(error) {
       if (rejectedBuilds.has(buildEnvironment(this)) || providerOutputEnvironment.defers(this)) return

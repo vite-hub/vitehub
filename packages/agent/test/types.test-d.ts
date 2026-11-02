@@ -2,7 +2,7 @@ import { describe, expectTypeOf, it } from "vitest"
 import type { LanguageModel } from "ai"
 import type { SandboxRequirement } from "@vite-hub/sandbox"
 
-import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, runAgentInline, startAgentInvocation, type AgentActor, type AgentCallbackContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyInput, type AgentChannelDeliveryStatusInput, type AgentChannelMessage, type AgentChannelDeliveryReplyStream, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriverAdaptiveCapacityOptions, type AgentDriverCapacityOptions, type AgentDriverCapacityQueueOptions, type AgentErrorHookEvent, type AgentFinishEvent, type AgentFinishHookEvent, type AgentGatewayModel, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentMessageDeliveryKind, type AgentModelInput, type AgentModuleOptions, type AgentRunInput, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentTriggerInvokeResult, type AgentTriggerRunInvokeResult, type AgentUIMessageStreamProjection, type AgentUsageRecord, type ImagePart, type PublishedAgentDeliveryArtifact, type ResolvedAgentRuntimeContext } from "../src/index.ts"
+import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, runAgentInline, startAgentInvocation, type AgentActor, type AgentCallbackContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyInput, type AgentChannelDeliveryStatusInput, type AgentChannelMessage, type AgentChannelDeliveryReplyStream, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriverAdaptiveCapacityOptions, type AgentDriverCapacityOptions, type AgentDriverCapacityQueueOptions, type AgentErrorHookEvent, type AgentFinishEvent, type AgentFinishHookEvent, type AgentGatewayModel, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentMessageDeliveryKind, type AgentModelInput, type AgentModuleOptions, type AgentRunInput, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentTriggerInvokeResult, type AgentTriggerRunInvokeResult, type AgentUIMessageStreamProjection, type AgentUsageRecord, type ImagePart, type PublishedAgentDeliveryArtifact, type ResolvedAgentRuntimeContext, claudeCodeDriver, codexDriver } from "../src/index.ts"
 import { createProcessAgentCapacity, type ProcessAgentCapacityOptions } from "../src/runtime/process.ts"
 import { access, chat, content, email, git, gmail, inputCommands, mcp, modelsDevPricing, openapi, transcribe, usage, webSearch, workspaceShell, type AgentUsagePricing, type EmailCapabilityOptions, type EmailCapabilityToolPolicy, type ModelsDevPricingOptions, type UsageOptions } from "../src/capabilities.ts"
 import { defineChannel, github, http, pullRequest, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestFilter, type GitHubPullRequestFilterContext, type GitHubPullRequestRunContext } from "../src/channels.ts"
@@ -988,24 +988,22 @@ describe("agent public types", () => {
       driver: { model: typeOnlyModel, output: { maxAttempts: 2, schema } },
     })
     defineAgent({
-      driver: {
-        kind: "codex",
+      driver: codexDriver({
         output: {
           // @ts-expect-error Provider Drivers validate one response and do not run Model Driver correction calls.
           maxAttempts: 2,
           schema,
         },
-      },
+      }),
     })
     defineAgent({
-      driver: {
-        kind: "claude-code",
+      driver: claudeCodeDriver({
         output: {
           // @ts-expect-error Provider Drivers validate one response and do not run Model Driver correction calls.
           maxAttempts: 2,
           schema,
         },
-      },
+      }),
     })
     defineAgent({
       driver: {
@@ -2413,7 +2411,7 @@ describe("agent public types", () => {
         requires: ["git", { args: ["auth", "status"], command: "gh" }, { args: ["-c", "true"], command: "sh", name: "setup", timeout: 60_000 }],
         runtime: { kind: "crabbox", profile: "babysitter" },
       },
-      driver: { instructions: "Review the pull request.", kind: "codex" },
+      driver: codexDriver({ instructions: "Review the pull request." }),
     })
     expectTypeOf(agent.sandbox?.requires).toEqualTypeOf<readonly SandboxRequirement[] | undefined>()
 
@@ -2423,13 +2421,13 @@ describe("agent public types", () => {
         cwd: ({ worktree }) => worktree,
         runtime: "trusted-host",
       },
-      driver: { kind: "claude-code" },
+      driver: claudeCodeDriver(),
     })
 
     defineAgent({
       // @ts-expect-error an Agent Sandbox requires a runtime
       sandbox: { requires: ["git"] },
-      driver: { kind: "codex" },
+      driver: codexDriver(),
     })
   })
 
