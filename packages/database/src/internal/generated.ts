@@ -1,6 +1,7 @@
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir } from "node:fs/promises"
 
 import { createImportPath } from "@vite-hub/internal/build/paths"
+import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { dirname, isAbsolute, join, relative } from "pathe"
 
 import { renderConfigValueExpression } from "../config-value.ts"
@@ -119,7 +120,7 @@ async function writeGeneratedDrizzleSchema(config: ResolvedDBViteConfig, definit
     })),
   ]
   assertDistinctLoadedSchemas(definition.name, parts)
-  await writeFile(file, renderGeneratedDrizzleSchema(file, definition, parts, activeContributions.map(item => item.contribution)), "utf8")
+  await writeFileIfChanged(file, renderGeneratedDrizzleSchema(file, definition, parts, activeContributions.map(item => item.contribution)))
 }
 
 function renderDbCredentials(database: ResolvedDrizzleDatabaseConfig) {
@@ -242,7 +243,7 @@ function renderGeneratedDatabaseTypes(file: string, config: ResolvedDBViteConfig
 export async function removeGeneratedDatabaseTypes(rootDir: string) {
   const generatedTypesFile = join(rootDir, generatedDatabaseTypesFile)
   await mkdir(dirname(generatedTypesFile), { recursive: true })
-  await writeFile(generatedTypesFile, "export {}\n", "utf8")
+  await writeFileIfChanged(generatedTypesFile, "export {}\n")
 }
 
 /**
@@ -261,12 +262,12 @@ export async function writeGeneratedDatabaseArtifacts(config: ResolvedDBViteConf
   }))
 
   await mkdir(dirname(config.generatedDrizzleConfigFile), { recursive: true })
-  await writeFile(config.generatedDrizzleConfigFile, renderGeneratedDrizzleConfig(config.generatedDrizzleConfigFile, config), "utf8")
+  await writeFileIfChanged(config.generatedDrizzleConfigFile, renderGeneratedDrizzleConfig(config.generatedDrizzleConfigFile, config))
   await mkdir(dirname(generatedTypesFile), { recursive: true })
-  await writeFile(generatedTypesFile, renderGeneratedDatabaseTypes(generatedTypesFile, config, loadedContributions), "utf8")
+  await writeFileIfChanged(generatedTypesFile, renderGeneratedDatabaseTypes(generatedTypesFile, config, loadedContributions))
   await Promise.all(config.databaseNames.map(async (name) => {
     const file = config.generatedDrizzleConfigFilesByDatabase[name]!
     await mkdir(dirname(file), { recursive: true })
-    await writeFile(file, renderGeneratedDrizzleConfig(file, config, [name]), "utf8")
+    await writeFileIfChanged(file, renderGeneratedDrizzleConfig(file, config, [name]))
   }))
 }
