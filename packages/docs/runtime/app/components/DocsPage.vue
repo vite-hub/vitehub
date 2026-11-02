@@ -7,8 +7,9 @@ const route = useRoute()
 const manifest = useDocsManifest()
 const { site } = useDocsConfig()
 const path = normalizeDocsPath(route.path)
-const found = findDocsPage(manifest, path)
-if (!found) throw createError({ statusCode: 404, statusMessage: "Page not found", fatal: true })
+// The server asks the page route even for a path outside the manifest, because a Content preview can show a new page
+// that exists only as a draft. Client navigation to such a path fails without a request.
+if (import.meta.client && !useNuxtApp().isHydrating && !findDocsPage(manifest, path)) throw createError({ statusCode: 404, statusMessage: "Page not found", fatal: true })
 
 const { data } = await useFetch<DocsPageResponse>(`/api/_docs/page${path === "/" ? "/index" : path}.json`, { key: `docs:${path}` })
 if (!data.value) throw createError({ statusCode: 404, statusMessage: "Page not found", fatal: true })
@@ -17,7 +18,7 @@ const { page } = response
 
 const isRoot = page.path === manifest.root?.path
 // A page outside the docs base has no section. It reads as a plain article under the site header.
-const isStandalone = !found.section && !isRoot
+const isStandalone = !response.section && !isRoot
 
 // Agents can fetch the Markdown twin of the page instead of the HTML.
 useHead({ link: [{ rel: "alternate", type: "text/markdown", href: `${site.url}${docsRawPath(page.path)}` }] })

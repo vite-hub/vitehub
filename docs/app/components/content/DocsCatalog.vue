@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useIntersectionObserver } from "@vueuse/core";
-import { docsCatalog } from "@vite-hub/docs";
+import { docsCatalog } from "@vite-hub/docs/navigation";
 
 type CatalogTile = {
   description: string | null;

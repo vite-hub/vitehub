@@ -6,6 +6,13 @@ declare module "#docs/manifest" {
   export default manifest
 }
 
+/** The `content` export of the app's `server/content.ts`, or undefined when the app has none. */
+declare module "#docs/content" {
+  import type { DocsContentRuntime } from "../../draft.ts"
+
+  export const content: DocsContentRuntime | undefined
+}
+
 declare module "#imports" {
   import type { H3Event } from "h3"
 

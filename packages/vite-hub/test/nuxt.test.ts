@@ -599,6 +599,7 @@ describe("ViteHub Nuxt integration", () => {
       "vite-hub/console-operation-features",
       "vite-hub/nitro-optional-peers",
       "vite-hub/nitro-h3",
+      "vite-hub/nitro-generated-relative-imports",
       "vite-hub/nitro-file-url",
       "vite-hub/nitro-cache-bypass",
       "existing-nitro-plugin",
@@ -3169,6 +3170,7 @@ describe("ViteHub Nuxt integration", () => {
           expect.objectContaining({ name: "vite-hub/console-operation-features" }),
           expect.objectContaining({ name: "vite-hub/nitro-optional-peers" }),
           expect.objectContaining({ name: "vite-hub/nitro-h3" }),
+          expect.objectContaining({ name: "vite-hub/nitro-generated-relative-imports" }),
           expect.objectContaining({ name: "vite-hub/nitro-file-url" }),
           expect.objectContaining({ name: "vite-hub/nitro-cache-bypass" }),
         ],
@@ -4449,6 +4451,26 @@ describe("ViteHub Nuxt integration", () => {
     }
     expect(resolver.resolveId?.("h3", "/app/server/api/example.ts")).toBeUndefined()
     expect(resolver.resolveId?.("other", "/app/node_modules/vite-hub/dist/nuxt.js")).toBeUndefined()
+  })
+
+  it("leaves H3 to the host for a ViteHub Nuxt module whose handlers use the host's Nitro", async () => {
+    const directory = await mkdtemp("/tmp/vitehub-h3-host-")
+    try {
+      const root = resolve(directory, "node_modules/@vite-hub/docs")
+      const importer = resolve(root, "dist/runtime/server/page.js")
+      await mkdir(dirname(importer), { recursive: true })
+      // `#imports` becomes `h3` in the handler. On Nuxt 4 that must be H3 1, or `setHeader()` reads a missing `event.res`.
+      await writeFile(resolve(root, "package.json"), JSON.stringify({ name: "@vite-hub/docs", version: "0.1.0", devDependencies: { h3: "2.0.0" } }))
+      await writeFile(importer, "")
+      const fixture = createNuxt(false)
+      await viteHubNuxtModule({ preset: "node" }, fixture.nuxt)
+      const config: Record<string, unknown> = {}
+      await fixture.runNitroConfigHook(config)
+      const plugins = (config.rollupConfig as { plugins: Array<{ name: string, resolveId?: (id: string, importer: string) => string | undefined }> }).plugins
+      const resolver = plugins.find(plugin => plugin.name === "vite-hub/nitro-h3")!
+      expect(resolver.resolveId?.("h3", importer)).toBeUndefined()
+    }
+    finally { await rm(directory, { force: true, recursive: true }) }
   })
 
   it.each([

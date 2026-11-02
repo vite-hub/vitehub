@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs"
+import { mkdirSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -107,6 +107,7 @@ interface NitroOptions {
   publicAssets?: Array<{ baseURL?: string, dir: string, fallthrough?: boolean, maxAge?: number }>
   prerender?: { crawlLinks?: boolean, autoSubfolderIndex?: boolean }
   experimental?: { asyncContext?: boolean }
+  externals?: { inline?: Array<string | RegExp> | boolean }
 }
 
 interface AgentDiscoveryOptions {
@@ -222,6 +223,14 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     nuxt.options.alias["#docs/manifest"] = manifestFile
     addTemplate({ filename: "docs/manifest.d.mts", getContents: () => `import type { DocsManifest } from "@vite-hub/docs"\ndeclare const manifest: DocsManifest\nexport default manifest\n`, write: true })
     nuxt.options.alias["#docs/navigation"] = resolver.resolve("./navigation.js")
+    // The page route reads drafts through the app's Content runtime, the module that ViteHub's Content routes import.
+    // Without `server/content.ts` the route imports `undefined` and bundles nothing more.
+    const contentEntry = findContentEntry(nuxt.options.serverDir)
+    const contentFile = addTemplate({
+      filename: "docs/content.mjs",
+      write: true,
+      getContents: () => contentEntry ? `export { content } from ${JSON.stringify(contentEntry)}\n` : "export const content = undefined\n",
+    }).dst
 
     // Nuxt watches the app folder, and the content folder usually sits beside it, so the module watches it in development.
     if (nuxt.options.dev) {
@@ -316,7 +325,11 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
 
     // Nuxt types `nitro:config` only when Nitro's types load.
     Reflect.apply(nuxt.hook, nuxt, ["nitro:config", (nitro: NitroOptions) => {
-      nitro.alias = { ...nitro.alias, "#docs/manifest": manifestFile }
+      nitro.alias = { ...nitro.alias, "#docs/manifest": manifestFile, "#docs/content": contentFile }
+      // Nitro 2 development leaves absolute modules outside the app to Node. Bundle the generated modules, so the page
+      // route reads the same Content runtime as ViteHub's Content routes instead of a second copy of `server/content.ts`.
+      const inline = nitro.externals?.inline
+      if (inline !== true) nitro.externals = { ...nitro.externals, inline: [...Array.isArray(inline) ? inline : [], dirname(manifestFile)] }
       // Pages are read at runtime, so a host without a file system serves them too.
       nitro.serverAssets = [...nitro.serverAssets ?? [], { baseName: "docs", dir: contentDir, pattern: "**/*.md" }, { baseName: "docs-raw", dir: rawDir }]
       // A removed page has no raw file. Fall through so a redirect route rule answers it.
@@ -356,6 +369,19 @@ const shellIcons = [
 function iconifyName(icon: string): string | null {
   const match = /^i-([a-z0-9]+(?:-icons)?)-(.+)$/.exec(icon)
   return match ? `${match[1]}:${match[2]}` : icon.includes(":") ? icon : null
+}
+
+/** `server/content.ts` (or `.js`, `.mts`, and so on), as `findContentEntry()` of `@vite-hub/source/vite` finds it. */
+function findContentEntry(serverDir: string): string | undefined {
+  let names: string[]
+  try {
+    names = readdirSync(serverDir)
+  }
+  catch {
+    return
+  }
+  const name = names.filter(entry => /^content\.[cm]?[jt]s$/.test(entry)).sort()[0]
+  return name ? join(serverDir, name) : undefined
 }
 
 /** A module that this package depends on, by file path, so Nuxt finds it and transpiles its runtime. */
