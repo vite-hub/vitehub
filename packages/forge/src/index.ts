@@ -10,8 +10,6 @@ export type { ForgeCommitFilesInput, ForgeFileChange, ForgeFileMode } from "./ga
 export { forgeGitAuthHeader, forgeGitCredentials } from "./gaps/git-credentials.ts"
 export type { ForgeGitCredentials, ForgeGitCredentialsInput } from "./gaps/git-credentials.ts"
 export { retargetPullRequest } from "./gaps/retarget.ts"
-export { getReviewThread, listReviewThreads } from "./gaps/review-threads.ts"
-export type { ReviewThread, ReviewThreadOwner } from "./gaps/review-threads.ts"
 export { githubAppCredentials, readGitHubAppPrivateKey } from "./github-app.ts"
 export type { GitHubAppCredentials, GitHubAppInput } from "./github-app.ts"
 export { BranchMovedError } from "forges"

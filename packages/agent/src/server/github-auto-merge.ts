@@ -3,7 +3,7 @@ import html from "comark/plugins/html"
 import type { ComarkPlugin, Node as MarkdownNode } from "comark"
 import * as v from "valibot"
 import { isRuntimeRecord as isRecord } from "../internal/runtime-type.ts"
-import { getReviewThread, githubBranchRuleDetails, repoRef, type CiRunRef, type GitHubProvider, type ThreadRef } from "@vite-hub/forge"
+import { githubBranchRuleDetails, repoRef, type CiRunRef, type GitHubProvider, type ThreadRef } from "@vite-hub/forge"
 import type { GitHubHost } from "./github-host.ts"
 import type { GitHubRepairCommit } from "./github-repair.ts"
 
@@ -441,11 +441,14 @@ export function createGitHubPullRequestOperations(
     },
     async resolveThread(id) {
       nonempty(id, "Review thread ID")
-      const current = await snapshot()
-      const { provider } = await forge()
-      const thread = await getReviewThread(provider, id, { signal })
-      if (!thread || thread.pullRequestId !== current.pullRequest.id) throw new Error("Review thread does not belong to this pull request.")
-      if (thread.resolved) return
+      await snapshot()
+      const reader = await forge()
+      let resolved: boolean | undefined
+      for await (const thread of reader.provider.threads.reviewThreads(reader.pullRequest, { signal })) {
+        if (thread.id === id) { resolved = thread.resolved; break }
+      }
+      if (resolved === undefined) throw new Error("Review thread does not belong to this pull request.")
+      if (resolved) return
       // The thread lookup may race a push or closure. Its ownership is not evidence
       // that this pass still owns the current PR head.
       await snapshot()
