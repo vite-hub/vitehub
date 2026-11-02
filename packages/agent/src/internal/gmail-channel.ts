@@ -807,8 +807,11 @@ export interface GmailMailboxSync {
   client: GmailClient
   /** Starts one Invocation per message with a stable Invocation ID. */
   dispatch: (messages: GmailMessage[]) => Promise<ReplayChannelResult>
-  /** History ID from the push notification. The first notification starts the cursor at it. */
-  notificationHistoryId: string
+  /**
+   * Where the cursor starts when none is stored: the history ID of the push notification, or a function that reads the
+   * current one for a poll. It is read only on the first sync.
+   */
+  notificationHistoryId: string | (() => Promise<string>)
   state: AgentChannelStateBinding
   /** Pub/Sub topic of the watch. The sync renews the watch when it expires within a day. */
   topic?: string
@@ -816,6 +819,11 @@ export interface GmailMailboxSync {
 
 export async function gmailMailboxAddress(client: GmailClient): Promise<string> {
   return (await gmailRequest(client, profileSchema, { method: "GET", path: "profile" })).emailAddress
+}
+
+/** The current history ID of the mailbox. A poll starts the cursor at it, like the first push. */
+export async function gmailMailboxHistoryId(client: GmailClient): Promise<string> {
+  return (await gmailRequest(client, profileSchema, { method: "GET", path: "profile" })).historyId
 }
 
 interface GmailSyncProgress {
@@ -838,13 +846,14 @@ async function syncMailboxOnce(sync: GmailMailboxSync, cursorKey: string, renew:
   const seenKey = `${state.keyPrefix}sync-seen-ids`
   const cursor = await state.state.get<string>(cursorKey)
   if (!cursor) {
+    const historyId = hasRuntimeType(sync.notificationHistoryId, "string") ? sync.notificationHistoryId : await sync.notificationHistoryId()
     await renew()
     await mutate([
-      { key: cursorKey, type: "set", value: sync.notificationHistoryId },
+      { key: cursorKey, type: "set", value: historyId },
       { key: progressKey, type: "delete" },
       { key: seenKey, type: "delete" },
     ])
-    log("cursor.initialized", { historyId: sync.notificationHistoryId })
+    log("cursor.initialized", { historyId })
     return false
   }
   const stored = await state.state.get<GmailSyncProgress>(progressKey)

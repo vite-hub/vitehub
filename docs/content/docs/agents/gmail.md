@@ -7,7 +7,12 @@ icon: i-lucide-mail
 navigation.kind: Guides
 ---
 
-`gmail()` connects one Gmail mailbox to an Agent. Gmail sends a Pub/Sub push notification when mail arrives. The Channel verifies the push, reads the new Inbox messages, and starts one Invocation per message. Agent hooks act on the message through `event.message`.
+`gmail()` connects one Gmail mailbox to an Agent. The Channel reads the new Inbox messages and starts one Invocation per message. Agent hooks act on the message through `event.message`.
+
+The Channel reads new mail in two ways. You can use one or both:
+
+- **Poll.** A [Schedule](/docs/schedule) calls `pollGmailChannel()`, for example every five minutes. You need only a Google OAuth client. See [Poll without Pub/Sub](#poll-without-pubsub).
+- **Push.** Gmail sends a Pub/Sub push notification when mail arrives, and the Channel reads the mail right away. You also need a Pub/Sub topic, a push subscription, and a service account. See [Add instant delivery with Pub/Sub](#add-instant-delivery-with-pubsub).
 
 The Channel owns the Gmail plumbing: push authentication, the history cursor, the watch renewal, label names, and history replay. Your application writes the Agent and its hooks.
 
@@ -104,12 +109,15 @@ Methods take label names. The Channel maps names to IDs with a cached label list
 
 ## Set up Google Cloud
 
-You need a Google Cloud project, an OAuth client for the mailbox, and a Pub/Sub topic that Gmail publishes to.
+You need a Google Cloud project and an OAuth client for the mailbox. Push also needs a Pub/Sub topic that Gmail publishes to, in steps 5 and 6.
 
-1. Create a Google Cloud project and enable the **Gmail API** and the **Cloud Pub/Sub API**.
+1. Create a Google Cloud project and enable the **Gmail API**. For push, also enable the **Cloud Pub/Sub API**.
 2. Configure the **OAuth consent screen**. Add the scope `https://www.googleapis.com/auth/gmail.modify`. For a personal Gmail account, use the External user type and add yourself as a test user. Google expires refresh tokens after seven days while the app is in the Testing publishing status. Publish the app to keep the token.
 3. Create an **OAuth client ID**. Its client ID and client secret are `GMAIL_CLIENT_ID` and `GMAIL_CLIENT_SECRET`.
 4. Get a refresh token for the mailbox with the `gmail.modify` scope, for example with the [OAuth 2.0 Playground](https://developers.google.com/oauthplayground) and your own client credentials. The refresh token is `GMAIL_REFRESH_TOKEN`.
+
+To only poll, stop here. For push:
+
 5. Create the topic and let Gmail publish to it:
 
    ```sh
@@ -134,7 +142,7 @@ You need a Google Cloud project, an OAuth client for the mailbox, and a Pub/Sub 
 
 ## Configure the credentials
 
-Declare the settings in Server Env under `gmail`. Without a Server Env declaration, the Channel reads the environment variables directly.
+Declare the settings in Server Env under `gmail`. Without a Server Env declaration, the Channel reads the environment variables directly. Poll needs only the OAuth settings. The `pubsub*` settings are for push.
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -164,10 +172,12 @@ export default defineConfig({
 | `clientId` | `GMAIL_CLIENT_ID` | OAuth client ID. |
 | `clientSecret` | `GMAIL_CLIENT_SECRET` | OAuth client secret. |
 | `refreshToken` | `GMAIL_REFRESH_TOKEN` | Refresh token of the mailbox, with the `gmail.modify` scope. |
-| `pubsubTopic` | `GMAIL_PUBSUB_TOPIC` | Topic of the watch, such as `projects/my-project/topics/gmail-push`. |
-| `pubsubAudience` | `GMAIL_PUBSUB_AUDIENCE` | Audience of the push subscription's OIDC token. |
-| `pubsubServiceAccount` | `GMAIL_PUBSUB_SERVICE_ACCOUNT` | Email of the service account that signs the push requests. |
-| `pubsubSubscription` | `GMAIL_PUBSUB_SUBSCRIPTION` | Full name of the push subscription, such as `projects/my-project/subscriptions/gmail-push`. |
+| `pubsubTopic` | `GMAIL_PUBSUB_TOPIC` | Push only. Topic of the watch, such as `projects/my-project/topics/gmail-push`. |
+| `pubsubAudience` | `GMAIL_PUBSUB_AUDIENCE` | Push only. Audience of the push subscription's OIDC token. |
+| `pubsubServiceAccount` | `GMAIL_PUBSUB_SERVICE_ACCOUNT` | Push only. Email of the service account that signs the push requests. |
+| `pubsubSubscription` | `GMAIL_PUBSUB_SUBSCRIPTION` | Push only. Full name of the push subscription, such as `projects/my-project/subscriptions/gmail-push`. |
+
+The push route returns HTTP 503 until `pubsubAudience`, `pubsubServiceAccount`, and `pubsubSubscription` are set.
 
 The Channel caches access tokens in process memory. It does not write them to the State Adapter.
 
@@ -179,9 +189,34 @@ gmail({
 })
 ```
 
+## Poll without Pub/Sub
+
+Call `pollGmailChannel()` from a [Schedule](/docs/schedule). Each call reads the new Inbox messages since the stored history cursor and starts one Invocation per message:
+
+```ts [server/schedules/gmail-poll.ts]
+import { defineSchedule } from 'vite-hub/schedule'
+import { pollGmailChannel } from 'vite-hub/agent/channels'
+import { inbox } from '../lib/inbox'
+
+export default defineSchedule({
+  cron: '*/5 * * * *',
+  async handler() {
+    await pollGmailChannel(inbox)
+  },
+})
+```
+
+The first poll only stores the cursor, like the first push. Earlier mail belongs to [replay](#replay-past-mail). New mail waits until the next poll, so with this cron an Invocation starts up to five minutes after the mail arrives.
+
+`pollGmailChannel()` runs the Channel of each Agent that uses `inbox`, with the same State as the Agent's webhook route. It waits until every new message has an Invocation, and throws when the sync fails, so the Schedule reports the failure. The cursor stays, and the next poll retries the work. The function needs durable Agent State, as push does: libSQL with `VITEHUB_AGENT_STATE_URL`, or Cloudflare Durable Objects. Outside a host request, pass `runtime` for Server Env and Cloudflare bindings, as with `syncGmailChannel()`.
+
+Poll and push can run together. They share the history cursor, the mailbox lock, and the Invocation IDs, so a message runs once however it arrives. Keep the poll as a fallback when you add push: it reads the mail of a push that Pub/Sub could not deliver. When `pubsubTopic` is set, the poll also renews the watch when it is due.
+
+Create the managed labels with `channels sync`, as in the next section. Without `pubsubTopic`, it does not start a watch.
+
 ## Start the watch
 
-Deploy the application first. Then create the managed labels and start the Gmail watch on the topic:
+This section is for push. Deploy the application first. Then create the managed labels and start the Gmail watch on the topic:
 
 ```sh
 pnpm vitehub channels sync --stage production --channel gmail
@@ -207,7 +242,13 @@ export default defineSchedule({
 })
 ```
 
+## Add instant delivery with Pub/Sub
+
+To start Invocations as soon as mail arrives, do steps 5 and 6 of [Set up Google Cloud](#set-up-google-cloud), set the `pubsub*` settings, and [start the watch](#start-the-watch). The push route is the Agent's webhook route: `/api/_vitehub/agents/<agent>/webhooks/<channel>`.
+
 ## How pushes become Invocations
+
+A poll runs steps 3 to 5 from a Schedule, without a notification.
 
 1. Pub/Sub sends a push request with a Google-signed OIDC token. The Channel verifies the signature with Google's public keys, the issuer, the audience, the expiry, and the verified service account email. It then checks the subscription name. A failed check returns `401` or `400`.
 2. The Channel acknowledges the push with `204` and continues in the background.

@@ -7,7 +7,8 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 
 import { createTraceEventLog } from "@vite-hub/runtime"
-import { gmail, syncGmailChannel } from "../src/channels.ts"
+import { gmail, pollGmailChannel, syncGmailChannel } from "../src/channels.ts"
+import { installChannelsConsoleHost } from "../src/channels-console-host.ts"
 import { defineAgent, runAgentTrigger, workflow } from "../src/index.ts"
 import { inspectMessageChannelInstructions } from "../src/internal/channels.ts"
 import { getAgentChannelSyncDefinition } from "../src/internal/channel-sync.ts"
@@ -1138,6 +1139,64 @@ describe("gmail() Channel", () => {
     // The first sync with a topic starts the watch; later syncs keep it until it is due.
     expect(google.writes().filter(write => write === "POST watch")).toHaveLength(1)
     expect(google.calls.filter(call => call.path === "history").map(call => call.query.get("labelId"))).toEqual([null, null, null])
+  })
+
+  it("polls the mailbox from a Schedule without Pub/Sub and shares the cursor with push", async () => {
+    vi.stubEnv("GMAIL_CLIENT_ID", "client-id")
+    vi.stubEnv("GMAIL_CLIENT_SECRET", "client-secret")
+    vi.stubEnv("GMAIL_REFRESH_TOKEN", "refresh-token")
+    const google = await createGoogle()
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const prompts: string[] = []
+    const inbox = gmail({ fetch: google.fetch })
+    const agent = defineAgent({
+      channels: { gmail: inbox },
+      driver: { run: ({ input }) => { prompts.push(String(input.prompt)); return "ok" } },
+      invocations,
+      name: "poller",
+    })
+    const directory = await mkdtemp(join(tmpdir(), "vitehub-gmail-poll-"))
+    const state = createLibsqlAgentState({ url: `file:${join(directory, "state.db")}` })
+    durableWebhookFixtures.push({ directory, state })
+    const handler = createChannelWebhookRouteHandler(agent)
+    installChannelsConsoleHost({ agents: { poller: agent }, handlers: { poller: handler }, options: () => ({ agentName: "poller", webhookState: () => state }) })
+    const push = async (historyId: string) => {
+      const tasks: Promise<unknown>[] = []
+      const response = await handler(new Request(audience, {
+        body: JSON.stringify({ message: { data: base64Url(JSON.stringify({ emailAddress: "max@example.com", historyId: Number(historyId) })), messageId: `poll-${historyId}` }, subscription }),
+        headers: { authorization: `Bearer ${await google.token()}`, "content-type": "application/json" }, method: "POST",
+      }), "gmail", { agentName: "poller", waitUntil: task => void tasks.push(task), webhookState: () => state })
+      await Promise.all(tasks)
+      return response
+    }
+
+    // Without Pub/Sub settings, the push route still rejects requests.
+    expect((await push("300")).status).toBe(503)
+
+    // The first poll stores the current history ID as the cursor, like the first push.
+    await pollGmailChannel(inbox)
+    expect(prompts).toEqual([])
+    expect(google.calls.filter(call => call.path === "history")).toHaveLength(0)
+
+    google.history.set("300", { historyId: "305", ids: ["m1", "m2"] })
+    await pollGmailChannel(inbox)
+    expect(prompts).toHaveLength(2)
+    await expect(invocations.getByRunId(channelMessageRunId("gmail", "m1"), "poller")).resolves.toMatchObject({ status: "completed" })
+    await pollGmailChannel(inbox)
+    expect(prompts).toHaveLength(2)
+    expect(google.calls.filter(call => call.path === "history").map(call => call.query.get("startHistoryId"))).toEqual(["300", "305"])
+
+    // Push continues from the cursor of the poll and skips messages that the poll handled.
+    stubGmailEnv()
+    google.history.set("305", { historyId: "310", ids: ["m2", "m3"] })
+    expect((await push("310")).status).toBe(204)
+    expect(prompts).toHaveLength(3)
+    expect(prompts[2]).toContain("Subject: Offer")
+    await pollGmailChannel(inbox)
+    expect(prompts).toHaveLength(3)
+    expect(google.calls.filter(call => call.path === "history").map(call => call.query.get("startHistoryId"))).toEqual(["300", "305", "305", "310"])
+
+    await expect(pollGmailChannel(gmail({ fetch: google.fetch }))).rejects.toThrow("found no Agent that uses this Channel")
   })
 
   it.each(["history", "recovery"] as const)("journals %s messages before listing the next page and retries without duplicate Invocations", async mode => {
