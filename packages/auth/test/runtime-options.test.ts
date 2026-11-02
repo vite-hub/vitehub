@@ -1,3 +1,4 @@
+import { admin, username } from "better-auth/plugins"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { deriveViteHubSecret } from "@vite-hub/internal/secret"
@@ -38,6 +39,57 @@ describe("Auth option resolution", () => {
     expect(() => resolveAuthOptions(defineAuth({ database }), { runtimeOptions: { user } }).providerOptions).toThrow(/user.additionalFields/)
     expect(resolveAuthOptions(defineAuth({ user })).providerOptions.user).toEqual(user)
     expect(resolveAuthOptions(defineAuth({ database, user: { additionalFields: {} } })).providerOptions.database).toBe(database)
+  })
+
+  it.each(["session", "account", "verification"] as const)("rejects effective %s additional fields before opening the Database", (model) => {
+    const database = Object.assign(vi.fn(), { vitehubDatabase: "default" })
+    const options = { [model]: { additionalFields: { tenant: { type: "string" as const } } } }
+    for (const definition of [
+      defineAuth({ database, ...options }),
+      defineAuth(() => ({ database, ...options })),
+      defineAuth({ database, runtime: () => options }),
+    ]) {
+      expect(() => resolveAuthOptions(definition).providerOptions).toThrow(`${model}.additionalFields`)
+    }
+    expect(() => resolveAuthOptions(defineAuth({ database }), { runtimeOptions: options }).providerOptions).toThrow(`${model}.additionalFields`)
+    expect(database).not.toHaveBeenCalled()
+  })
+
+  it("rejects plugin fields absent from the owned tables before opening the Database", () => {
+    const database = Object.assign(vi.fn(), { vitehubDatabase: "default" })
+    const plugins = [username()]
+    expect(() => resolveAuthOptions(defineAuth({ database, plugins })).providerOptions).toThrow(/user.username/)
+    expect(() => resolveAuthOptions(defineAuth({ database, runtime: () => ({ plugins }) })).providerOptions).toThrow(/user.username/)
+    expect(resolveAuthOptions(defineAuth({ plugins })).providerOptions.plugins).toContain(plugins[0])
+    expect(database).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { user: { modelName: "users" } },
+    { user: { fields: { email: "email_address" } } },
+    { session: { fields: { userId: "owner" } } },
+    { account: { modelName: "accounts" } },
+    { verification: { fields: { value: "code" } } },
+  ])("rejects schema remapping for owned tables: %j", (options) => {
+    const database = Object.assign(vi.fn(), { vitehubDatabase: "default" })
+    expect(() => resolveAuthOptions(defineAuth({ database, ...options })).providerOptions).toThrow(/fixed table and field names/)
+    expect(database).not.toHaveBeenCalled()
+  })
+
+  it("rejects remapped plugin fields", () => {
+    const database = Object.assign(vi.fn(), { vitehubDatabase: "default" })
+    try {
+      const plugins = [admin({ schema: { user: { fields: { role: "admin_role" } } } })]
+      expect(() => resolveAuthOptions(defineAuth({ database, plugins })).providerOptions).toThrow(/user.role cannot map/)
+    } finally {
+      // Better Auth's schema mapping mutates its shared admin schema.
+      admin({ schema: { user: { fields: { role: "role" } } } })
+    }
+  })
+
+  it("accepts identity schema mappings and the supported admin fields", () => {
+    const database = Object.assign(vi.fn(), { vitehubDatabase: "default" })
+    expect(resolveAuthOptions(defineAuth({ database, user: { modelName: "user", fields: { email: "email" } }, plugins: [admin()] })).providerOptions.database).toBe(database)
   })
 
   it("resolves one snapshot and projects provider options without repeating callbacks", () => {

@@ -6,6 +6,7 @@ import { getTableConfig as getSqliteTableConfig } from "drizzle-orm/sqlite-core"
 import { describe, expect, it } from "vitest"
 
 import { authPostgresSchema, authSqliteSchema, authTableSpecs } from "../src/schema.ts"
+import { assertAuthDatabaseSchema } from "../src/database-schema-options.ts"
 
 import type { AuthTableField, AuthTableSpec } from "../src/schema.ts"
 
@@ -37,6 +38,13 @@ function normalized(specs: Readonly<Record<string, AuthTableSpec>>) {
 }
 
 describe("Auth tables", () => {
+  it("accepts the shipped plugins and separately contributed plugin tables", () => {
+    expect(() => assertAuthDatabaseSchema({ plugins: [admin(), jwt(), oauthProvider({ consentPage: "/sign-in", loginPage: "/sign-in" }), {
+      id: "app-table",
+      schema: { appTable: { fields: { value: { type: "string" } } } },
+    }] })).not.toThrow()
+  })
+
   it("match Better Auth's tables for admin(), jwt(), and oauthProvider()", () => {
     // A Better Auth upgrade that changes these tables fails here. Update `authTableSpecs` in src/schema.ts.
     expect(normalized(authTableSpecs)).toEqual(normalized(betterAuthTables()))

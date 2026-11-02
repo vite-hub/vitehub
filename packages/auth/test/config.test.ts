@@ -494,6 +494,21 @@ describe("resolveAuthViteConfig", () => {
     expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/user.additionalFields/)
   })
 
+  it.each(["session", "account", "verification"])("rejects %s fields missing from the owned schema before table discovery", async (model) => {
+    const rootDir = await createTempProject()
+    for (const options of [
+      `{ database: authDatabase(), ${model}: { additionalFields: { tenant: { type: 'string' } } } }`,
+      `{ database: authDatabase(), runtime: () => ({ ${model}: { additionalFields: extraFields } }) }`,
+    ]) {
+      await writeAuthSource(rootDir, "server/auth.ts", [
+        "import { defineAuth } from 'vite-hub/auth'",
+        "import { authDatabase } from 'vite-hub/auth/database'",
+        `export default defineAuth(${options})`,
+      ])
+      expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(`${model}.additionalFields`)
+    }
+  })
+
   it.each(["'serial'", "'uuid'", "false"])("rejects ID strategies incompatible with owned text IDs: %s", async (strategy) => {
     const rootDir = await createTempProject()
     await writeAuthSource(rootDir, "server/auth.ts", [

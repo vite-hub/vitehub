@@ -136,7 +136,7 @@ Store the email of the first admin as `VITEHUB_ADMIN_EMAILS`. The account that s
 pnpm exec wrangler secret put VITEHUB_ADMIN_EMAILS --config .output/server/wrangler.json
 ```
 
-Then open `/_vitehub/sign-in` on the Worker URL and select **Create one**, or send the same sign-up request to the Worker URL. Sign up right after the deploy, or turn on `emailAndPassword.requireEmailVerification`, because the first account with that email gets the role. Read [Give the first admin role](/docs/auth/configure#give-the-first-admin-role).
+Restrict access to the Worker while bootstrapping. Then open `/_vitehub/sign-in` on the Worker URL and select **Create one**, or send the same sign-up request to the Worker URL. After creating the admin account, unset `VITEHUB_ADMIN_EMAILS` before opening public sign-up. The first account with that email gets the role; email verification alone does not prevent someone else from registering it with their own password. Read [Give the first admin role](/docs/auth/configure#give-the-first-admin-role).
 
 ## Use cookie sessions without D1
 

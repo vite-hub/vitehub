@@ -15,7 +15,7 @@ import type {
   ResolvedAuthViteConfig,
 } from "./types.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
-import { assertAuthDatabaseIdStrategy, authDatabasePlacementError, authDatabaseUserFieldsError } from "./database-options.ts"
+import { assertAuthDatabaseIdStrategy, authDatabaseAdditionalFieldsError, authDatabasePlacementError } from "./database-options.ts"
 
 interface DefinitionObjectBody {
   body: ObjectExpression
@@ -97,10 +97,12 @@ function assertAuthDatabasePlacement(options: Expression, body: ObjectExpression
   const runtimeBody = runtime && (objectLiteral(runtime) ?? readReturnedObject(runtime))
   if (hasObjectProperty(runtimeBody, "database")) throw authDatabasePlacementError()
   for (const options of [body, runtimeBody]) {
-    const user = objectLiteral(readObjectPropertyValue(options, "user"))
-    const additionalFields = readObjectPropertyValue(user, "additionalFields")
-    const fields = objectLiteral(additionalFields)
-    if (additionalFields && (!fields || fields.properties.length)) throw authDatabaseUserFieldsError()
+    for (const model of ["user", "session", "account", "verification"]) {
+      const config = objectLiteral(readObjectPropertyValue(options, model))
+      const additionalFields = readObjectPropertyValue(config, "additionalFields")
+      const fields = objectLiteral(additionalFields)
+      if (additionalFields && (!fields || fields.properties.length)) throw authDatabaseAdditionalFieldsError(model)
+    }
   }
   const advanced = objectLiteral(readObjectPropertyValue(body, "advanced"))
   const database = objectLiteral(readObjectPropertyValue(advanced, "database"))

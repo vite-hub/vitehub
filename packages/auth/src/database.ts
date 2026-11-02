@@ -6,7 +6,8 @@ import { is } from "drizzle-orm"
 import { PgDatabase } from "drizzle-orm/pg-core"
 
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
-import { assertAuthDatabaseIdStrategy, assertAuthDatabaseUserFields } from "./database-options.ts"
+import { assertAuthDatabaseAdditionalFields, assertAuthDatabaseIdStrategy } from "./database-options.ts"
+import { assertAuthDatabaseSchema } from "./database-schema-options.ts"
 
 import type { AuthAppDatabase } from "./types.ts"
 
@@ -21,7 +22,8 @@ export type { AuthAppDatabase } from "./types.ts"
 export function authDatabase(name: string = "default"): AuthAppDatabase {
   const adapter = (options: Parameters<AuthAppDatabase>[0]): ReturnType<AuthAppDatabase> => {
     assertAuthDatabaseIdStrategy(options.advanced?.database?.generateId)
-    assertAuthDatabaseUserFields(options.user?.additionalFields)
+    assertAuthDatabaseAdditionalFields(options)
+    assertAuthDatabaseSchema(options)
     const entry = Object.hasOwn(databases, name) ? databases[name] : undefined
     if (!entry || !Object.hasOwn(entry.schema, "user")) {
       throw authErrorDiagnostics.AUTH_R0019({ message: `[vitehub] \`authDatabase(${JSON.stringify(name)})\` found no Better Auth tables in the ${JSON.stringify(name)} Database. Pass \`authDatabase()\` inline as the \`database\` of \`defineAuth()\` so that Auth adds them, enable the Database integration, and run \`vitehub db generate\`. \`vitehub inspect definitions --kind database\` lists the tables of each Database.` })
