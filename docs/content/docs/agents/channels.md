@@ -666,6 +666,10 @@ Review bots often post a review on every push, even when they find nothing. List
 
 Set `pullRequest.workspace.mount` to the repository path inside the Workspace. Omitting `workspace` mounts at `portal`. Both `workspace: true` and `workspace: {}` mount at the Workspace root. Set `workspace: false` to disable the pull request Workspace contribution.
 
+The pull request Workspace checks out the exact head SHA, so the Channel loads the pull request before the Invocation starts. If that request fails, the delivery fails with `AGENT_R0370` and the GitHub error, such as a connection reset, a 401, or a 404. With `workspace: false`, the pull request details are best effort: a failed request leaves them out and puts the error in `pullRequest.metadata.unavailable`.
+
+Only a delivery already admitted to the webhook queue retries automatically. An initial metadata failure happens before admission and needs redelivery; GitHub does not automatically redeliver failed webhooks. With durable webhook State and acknowledgement enabled, the inbox retains failed admissions for startup replay, but does not retry them while the process stays running. See [Answer slow webhooks early](#answer-slow-webhooks-early).
+
 When a declared GitHub Source uses the same repository and the same non-root mount, the pull request checkout replaces it for that Invocation. Reads use the pull request head SHA; the declared Source remains unchanged for other Invocations. Different repositories, overlapping parent or child mounts, and Sources contributed by other Capabilities still produce a conflict.
 
 ### Forge access for Git and Drivers

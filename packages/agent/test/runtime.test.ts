@@ -5408,7 +5408,7 @@ describe("agent message protocol", () => {
       })],
       channels: {
         github: github({
-          app: { webhookSecret: false },
+          app: { fetch: async () => Response.json({ head: { sha: "head-sha" } }), webhookSecret: false },
           pullRequest: true,
         }),
       },
