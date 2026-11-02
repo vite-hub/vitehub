@@ -17,8 +17,14 @@ export default defineAgent({
   extends: labeller,
   options: {
     labels: {
-      Work: { description: 'Colleagues and work systems' },
-      Receipts: { description: 'Purchases and invoices' },
+      Work: {
+        description: 'Colleagues and work systems',
+        color: { textColor: '#000000', backgroundColor: '#fad165' },
+      },
+      Receipts: {
+        description: 'Purchases and invoices',
+        color: { textColor: '#ffffff', backgroundColor: '#16a766' },
+      },
       Newsletters: { description: 'Mailing lists and product updates' },
     },
     rules: {
@@ -36,7 +42,22 @@ export default defineAgent({
 
 Rules are evaluated in object insertion order. A matching rule with a `label` finishes without calling Jev; messages without a matching rule use Jev to choose one declared label or `none`. Model labels require the configured `minConfidence` (default `0.6`). Unknown labels are ignored and never sent to Gmail.
 
-The preset defaults to `dryRun: true`, `minConfidence: 0.6`, and `trashEnabled: false`. Set `dryRun: false` only when the Gmail writes are intended. Enabling trash requires both `trashEnabled: true` and a rule or label action with `trash: true`.
+Labels accept the Gmail Channel's `color`, `labelListVisibility`, and `messageListVisibility` settings. Colors must come from Gmail's label palette; the preset fails when you define the Agent with another color. See [Label colors and visibility](/docs/agents/gmail#label-colors-and-visibility).
+
+## Synchronize the labels
+
+`vitehub channels sync` creates the declared labels and updates their color and visibility in Gmail. It prints the plan first and changes Gmail only with `--apply`:
+
+```sh
+vitehub channels sync --stage production --channel gmail
+vitehub channels sync --stage production --channel gmail --apply
+```
+
+Set `hideUnmanagedLabels: true` in `options` to also hide the Gmail labels that `labels` does not declare from the sidebar. Messages keep those labels.
+
+## Defaults
+
+The preset defaults to `dryRun: true`, `minConfidence: 0.6`, `hideUnmanagedLabels: false`, and `trashEnabled: false`. Set `dryRun: false` only when the Gmail writes are intended. Enabling trash requires both `trashEnabled: true` and a rule or label action with `trash: true`.
 
 ## Clean up old mail
 

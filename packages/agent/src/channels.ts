@@ -95,6 +95,7 @@ import {
   gmailSettings,
   modifyGmailMessage,
   readGmailChannelStatus,
+  normalizeGmailLabelSettings,
   readGmailPush,
   syncGmailMailbox,
   trashGmailMessage,
@@ -119,8 +120,8 @@ export {
   publishWorkspaceArtifacts,
   rewriteDeliveryArtifactMarkdown,
 } from "./delivery-artifacts.ts"
-export { GmailApiError, createGmailOAuthClient, gmailEnvNames } from "./internal/gmail-channel.ts"
 export type { AgentChannelRetryingMessage, AgentChannelSkippedMessage, AgentChannelStatus } from "./internal/channel-status.ts"
+export { GmailApiError, createGmailOAuthClient, gmailEnvNames, gmailLabelPalette } from "./internal/gmail-channel.ts"
 export type {
   GmailCleanupRule,
   GmailCleanupRuleResult,
@@ -3966,8 +3967,13 @@ export interface GmailChannelOptions<TRuntimeConfig extends AgentRuntimeConfig =
   /** Instructions added to Invocations started by this Channel. */
   instructions?: AgentChannelDefinition<TRuntimeConfig>["instructions"]
   /**
-   * Labels that the Channel manages. `vitehub channels sync` creates and colors them,
-   * and message methods create a missing one on first use.
+   * Hide user labels that `labels` does not declare from Gmail's label list when `vitehub channels sync` applies.
+   * Messages keep the hidden labels, and Gmail search still finds them. Parents of declared nested labels stay visible.
+   */
+  hideUnmanagedLabels?: boolean
+  /**
+   * Labels that the Channel manages. `vitehub channels sync` creates them and sets their color and visibility,
+   * and message methods create a missing one on first use. Colors must come from `gmailLabelPalette`.
    */
   labels?: Record<string, GmailLabelSettings>
   /**
@@ -4014,7 +4020,8 @@ async function gmailChannelSettings<TRuntimeConfig extends AgentRuntimeConfig>(c
   return gmailSettings(await serverEnvNamespace("gmail", context?.event), name => context ? runtimeEnv(name, context) : globalThis.process?.env?.[name])
 }
 
-function assertGmailOptions<TRuntimeConfig extends AgentRuntimeConfig>(options: GmailChannelOptions<TRuntimeConfig>): void {
+/** Validates the Channel options and returns the declared labels with lowercase colors. */
+function gmailOptionLabels<TRuntimeConfig extends AgentRuntimeConfig>(options: GmailChannelOptions<TRuntimeConfig>): Record<string, GmailLabelSettings> {
   const invalid = (detail: string) => agentDiagnostics.AGENT_R0940({ message: `[vitehub] gmail() ${detail}` })
   if (options.bodyLimit !== undefined && (!Number.isSafeInteger(options.bodyLimit) || options.bodyLimit < 1)) {
     throw invalid("bodyLimit must be a positive integer.")
@@ -4022,10 +4029,18 @@ function assertGmailOptions<TRuntimeConfig extends AgentRuntimeConfig>(options: 
   if (options.maxAttempts !== undefined && (!Number.isSafeInteger(options.maxAttempts) || options.maxAttempts < 1)) {
     throw invalid("maxAttempts must be a positive integer.")
   }
+  if (options.hideUnmanagedLabels !== undefined && !hasRuntimeType(options.hideUnmanagedLabels, "boolean")) {
+    throw invalid("hideUnmanagedLabels must be a boolean.")
+  }
+  const labels: Record<string, GmailLabelSettings> = Object.create(null)
   for (const [name, label] of Object.entries(options.labels || {})) {
     if (!name.trim()) throw invalid("labels must have non-empty names.")
     if (!isRecord(label)) throw invalid(`label "${name}" must be an object.`)
+    const normalized = normalizeGmailLabelSettings(name, label)
+    if (hasRuntimeType(normalized, "string")) throw invalid(normalized)
+    labels[name] = normalized
   }
+  return labels
 }
 
 // Enumerable, so copies of the Channel keep it.
@@ -4037,9 +4052,8 @@ const gmailChannelClient = Symbol("vitehub.gmail.client")
  * Authentication uses a Google OAuth refresh token over `fetch`, so it runs on Node.js, Cloudflare Workers, and Vercel.
  */
 export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(options: GmailChannelOptions<TRuntimeConfig> = {}): GmailChannel<TRuntimeConfig> {
-  assertGmailOptions(options)
+  const labels = gmailOptionLabels(options)
   const bodyLimit = options.bodyLimit ?? gmailDefaultBodyLimit
-  const labels = options.labels || {}
   let verifiedMailbox: { address: string, clientId?: string, clientSecret?: string, refreshToken?: string } | undefined
   const resolveClient = async (context?: AgentCallbackContext<TRuntimeConfig>): Promise<GmailClient> =>
     options.client ?? gmailClientFromSettings(await gmailChannelSettings(context), options.fetch)
@@ -4172,6 +4186,7 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       const mailbox = await gmailMailboxAddress(client)
       return createGmailChannelSyncProvider({
         client: fetchImpl => options.client ?? gmailClientFromSettings(settings, options.fetch ?? fetchImpl),
+        ...(options.hideUnmanagedLabels ? { hideUnmanagedLabels: true } : {}),
         labels,
         resourceKey: `gmail:${mailbox.trim().toLowerCase()}`,
         ...(settings.pubsubTopic ? { topic: settings.pubsubTopic } : {}),
@@ -4192,7 +4207,7 @@ export interface SyncGmailChannelResult {
   applied: boolean
   /** One line per planned change. */
   changes: string[]
-  /** Created and updated labels, and the renewed watch, after `apply`. */
+  /** Created, updated, and hidden labels, and the renewed watch, after `apply`. */
   result?: Record<string, unknown>
 }
 

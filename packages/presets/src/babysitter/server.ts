@@ -7,7 +7,7 @@ import { presetsBuildRevision } from "../internal/build-revision.ts";
 import { GitHubDependencyConflictError } from "@vite-hub/agent/server/github";
 import * as v from "valibot";
 import { join } from "node:path";
-import { forgeErrorStatus, MergeBlockedError, RateLimitedError, repoRef, retargetPullRequest, type ThreadRef } from "@vite-hub/forge";
+import { forgeBranchRules, forgeErrorStatus, MergeBlockedError, RateLimitedError, repoRef, retargetPullRequest, type ThreadRef } from "@vite-hub/forge";
 import { prepareGitHubRepairBase } from "@vite-hub/agent/server/github";
 import { assertGitHubDependenciesCurrent, createGitHubInstallSlots, GitHubWorkspaceInstallError, hasCurrentGitHubDependencies, installGitHubPullRequestWorkspace, isGitHubLockfileDefect } from "@vite-hub/agent/server/github";
 import { resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime";
@@ -371,7 +371,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
 
   const requiredChecks = createGitHubRequiredCheckPolicyReader(async (repository, branch) => {
     const { provider, repo } = await forge(repository);
-    return await provider.repos.branchRules(repo, branch);
+    return await forgeBranchRules(provider, repo, branch);
   });
 
   /**
