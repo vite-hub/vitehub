@@ -95,7 +95,7 @@ The answer types come from the questions. [Use an ask Driver](/docs/agents/agent
 | `anthropic()` | | `https://api.anthropic.com` | | | `ANTHROPIC_API_KEY` |
 | `typesafe()` | | | | `jev-latest` at `https://api.typesafe.ai` | `TYPESAFE_API_KEY`, `TYPESAFE_DEFAULT_MODEL` |
 
-The type of a preset lists what it serves. `AiGateway<{ routes: "codex" }>` accepts only gateways with a Codex URL, so `driver: { kind: 'codex', gateway: anthropic() }` is a type error, and so is `languageModel(typesafe(), ...)`. `vercel()`, `typesafe()`, and `cloudflare()` return `AiGateway<{ ask: true }>`. The other presets have no `ask()`, so `ask()` on them is a type error. CLIProxyAPI, LiteLLM, Ollama, OpenRouter, OpenAI, Anthropic, and the Cloudflare OpenAI-compatible endpoint forward model APIs only, not TypeSafe's `/v1/systemone`.
+The type of a preset lists what it serves. `AiGateway<{ routes: "codex" }>` accepts only gateways with a Codex URL, so `driver: codexDriver({ gateway: anthropic() })` is a type error, and so is `languageModel(typesafe(), ...)`. `vercel()`, `typesafe()`, and `cloudflare()` return `AiGateway<{ ask: true }>`. The other presets have no `ask()`, so `ask()` on them is a type error. CLIProxyAPI, LiteLLM, Ollama, OpenRouter, OpenAI, Anthropic, and the Cloudflare OpenAI-compatible endpoint forward model APIs only, not TypeSafe's `/v1/systemone`.
 
 `cloudflareAccess()` returns the `CF-Access-Client-Id` and `CF-Access-Client-Secret` headers for a gateway behind Cloudflare Access, from `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`. Pass it as `headers`, for example `cliproxy({ headers: cloudflareAccess() })`.
 
@@ -122,11 +122,11 @@ An `apiKey` or header value can also be a sealed Server Env value or a function 
 Set a gateway as `driver.gateway` to route the model requests of a provider Driver:
 
 ```ts [server/agents/review/agent.ts]
-import { defineAgent } from 'vite-hub/agent'
+import { codexDriver, defineAgent } from 'vite-hub/agent'
 import { cliproxy } from 'vite-hub/gateways'
 
 export default defineAgent({
-  driver: { kind: 'codex', model: 'gpt-5.5', gateway: cliproxy() },
+  driver: codexDriver({ model: 'gpt-5.5', gateway: cliproxy() }),
 })
 ```
 

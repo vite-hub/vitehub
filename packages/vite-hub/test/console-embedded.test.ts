@@ -5,7 +5,7 @@ import { installConsolePageTool } from "../src/console/runtime/server/page-tool.
 import page from "../src/console/runtime/server/page.get.ts"
 import session from "../src/console/runtime/server/page-session.ts"
 
-const event = (path: string) => ({ method: "GET", req: new Request(`http://localhost${path}`) })
+const event = (path: string) => ({ method: "GET", req: new Request(`http://localhost${path}`, { headers: { accept: "text/html" } }) })
 afterEach(() => {
   Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.access"))
   Reflect.deleteProperty(globalThis, Symbol.for("vitehub.page-tools"))

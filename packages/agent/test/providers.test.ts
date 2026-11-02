@@ -2949,7 +2949,7 @@ export default defineAgent({
         }
         const startDelays: number[] = []
         let routesLoaded: (() => void) | undefined
-        const install = new Function("resumeWebhookQueues", "warmWebhookRoutes", "performance", "setTimeout", "clearTimeout", "process", "onShutdown", "webhookQueueShutdown", "drainInlineChatInvocations", "onAgentRoutesLoad", `${queuePlugin.replace(/^import .*\n/gm, "").replace("export default ", "return ").replaceAll("import.meta.prerender", "false").replaceAll("import.meta.dev", "false")}`)(
+        const install = new Function("resumeWebhookQueues", "warmWebhookRoutes", "performance", "setTimeout", "clearTimeout", "process", "onShutdown", "webhookQueueShutdown", "drainInlineChatInvocations", "onAgentRoutesLoad", "registerChannelTaskQueueStarter", `${queuePlugin.replace(/^import .*\n/gm, "").replace("export default ", "return ").replaceAll("import.meta.prerender", "false").replaceAll("import.meta.dev", "false")}`)(
           resumeWebhookQueues,
           warmWebhookRoutes,
           { timeOrigin: Date.now() - 60_000 },
@@ -2963,6 +2963,7 @@ export default defineAgent({
           async () => {},
           async () => ({ active: 0, interrupted: 0, unsettled: 0 }),
           (listener: () => void) => { routesLoaded = listener },
+          () => () => {},
         )
         install({ hooks: { hook: (name: string, callback: () => void) => hooks.set(name, callback) } })
         hooks.get("close")?.()
@@ -2987,7 +2988,7 @@ export default defineAgent({
         expect(queuePlugin).toContain("if (!stopping) stopping = stop?.()")
         expect(queuePlugin).toContain("if (stopping) waitUntil?.(stopping)")
         // ViteHub owns stop signals and the exit. The plugin only registers its drains.
-        expect(queuePlugin).toContain('import { drainInlineChatInvocations, onAgentRoutesLoad, onShutdown, webhookQueueShutdown } from "@vite-hub/agent/server/internal"')
+        expect(queuePlugin).toContain('import { drainInlineChatInvocations, onAgentRoutesLoad, registerChannelTaskQueueStarter, onShutdown, webhookQueueShutdown } from "@vite-hub/agent/server/internal"')
         expect(queuePlugin).not.toContain("SIGTERM")
         expect(queuePlugin).not.toContain("process.exit")
         expect(queuePlugin).not.toContain("VITEHUB_SHUTDOWN_DRAIN_MS")
