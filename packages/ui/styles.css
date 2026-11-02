@@ -1642,6 +1642,19 @@
   [data-slot="prompt-input-spacer"] {
     flex: 1;
   }
+
+  /* On a phone the Send button sends, so it gets a 48px target around its 32px circle without a larger circle. */
+  @media (pointer: coarse) {
+    [data-slot="prompt-input-toolbar"] button {
+      position: relative;
+    }
+
+    [data-slot="prompt-input-toolbar"] button::before {
+      content: "";
+      inset: -8px;
+      position: absolute;
+    }
+  }
 }
 
 /* Collaboration: AvatarStack, ConnectionStatus, SyncStatus, and the carets of TipTap's CollaborationCaret. */

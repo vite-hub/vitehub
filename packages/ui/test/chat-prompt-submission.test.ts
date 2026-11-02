@@ -65,6 +65,17 @@ describe("PromptInput submission with Nuxt UI", () => {
   });
 
   it.each([
+    ["(pointer: fine)", "send"],
+    ["(pointer: coarse)", "enter"],
+  ])("labels the on-screen Enter key for %s as %s", async (primary, hint) => {
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query === primary }));
+    const wrapper = await renderPrompt();
+    expect(wrapper.get("textarea").attributes("enterkeyhint")).toBe(hint);
+    wrapper.unmount();
+    vi.unstubAllGlobals();
+  });
+
+  it.each([
     ["sends on a device with a fine pointer", "(pointer: fine)", true],
     ["adds a line on a touch-only device", "(pointer: coarse)", false],
   ])("Enter %s", async (_label, primary, sends) => {

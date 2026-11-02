@@ -107,11 +107,10 @@ function touchOnly(): boolean {
   return window.matchMedia("(pointer: coarse)").matches && !window.matchMedia("(any-pointer: fine)").matches
 }
 
-// PromptInput puts its attributes on the form, so the composer gets its keyboard hint here.
+// PromptInput puts its attributes on the form, so the panel finds the textarea to focus it.
 function composerRef(target: Element | ComponentPublicInstance | null) {
   const element = target && "$el" in target ? target.$el : target
   composer.value = element instanceof HTMLElement ? element.querySelector("textarea") ?? undefined : undefined
-  composer.value?.setAttribute("enterkeyhint", touchOnly() ? "enter" : "send")
 }
 
 // A focused composer opens the on-screen keyboard over half the sheet, so touch devices focus the heading instead.
@@ -269,19 +268,6 @@ async function restart() {
 <style scoped>
 .vh-assistant {
   --vh-chat-content-padding: 1rem 0.75rem 1.5rem;
-}
-
-/* Touch screens get 44px targets around the round Send, Stop, and Retry buttons without a larger circle. */
-@media (pointer: coarse) {
-  .vh-assistant :deep([data-slot="prompt-input-toolbar"] button) {
-    position: relative;
-  }
-
-  .vh-assistant :deep([data-slot="prompt-input-toolbar"] button)::before {
-    position: absolute;
-    inset: -8px;
-    content: "";
-  }
 }
 
 .vh-assistant-dock {
