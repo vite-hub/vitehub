@@ -11,6 +11,8 @@ import {
   createProviderOutputEnvironmentOwner,
   generatedViteHubWatchIgnoredAddition,
   hasNitroConfigContext,
+  loadsViteHubPackagesNatively,
+  renderNativePackageInstallPlugin,
   resolveNitroVercelFunctionName,
   resolveNuxtServerDirs,
   resolveViteHubGeneratedRoot,
@@ -20,6 +22,34 @@ import {
 } from "../src/build/vite.ts"
 
 describe("Vite provider builds", () => {
+  it("loads ViteHub packages natively only in the Nitro environment of vite dev", () => {
+    expect(loadsViteHubPackagesNatively("nitro", { command: "serve" })).toBe(true)
+    expect(loadsViteHubPackagesNatively("nitro", { command: "build" })).toBe(false)
+    expect(loadsViteHubPackagesNatively("ssr", { command: "serve" })).toBe(false)
+  })
+
+  it("renders a Nitro plugin that hands each generated module to its package", async () => {
+    const source = renderNativePackageInstallPlugin([
+      { from: "@vite-hub/agent/server/registry", install: "installAgentRegistry", module: "./registry.mjs" },
+      { from: "@vite-hub/agent/server/registry", install: "installAgentKV", module: "vite-hub/_internal/kv" },
+      { from: "@vite-hub/agent/server/registry", install: "installAgentServerEnv" },
+    ])
+    expect(source).toBe([
+      'import { installAgentRegistry as viteHubInstall0 } from "@vite-hub/agent/server/registry"',
+      'import * as viteHubModule0 from "./registry.mjs"',
+      'import { installAgentKV as viteHubInstall1 } from "@vite-hub/agent/server/registry"',
+      'import * as viteHubModule1 from "vite-hub/_internal/kv"',
+      'import { installAgentServerEnv as viteHubInstall2 } from "@vite-hub/agent/server/registry"',
+      "",
+      "viteHubInstall0(viteHubModule0)",
+      "viteHubInstall1(viteHubModule1)",
+      "viteHubInstall2(undefined)",
+      "",
+      "export default function viteHubNativePackagesPlugin() {}",
+      "",
+    ].join("\n"))
+  })
+
   it("merges a package into existing noExternal values", () => {
     const merge = createNoExternalMerger("@vite-hub/blob")
     expect(merge(undefined)).toEqual(["@vite-hub/blob"])
