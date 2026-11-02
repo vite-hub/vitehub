@@ -1,6 +1,7 @@
 import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 import { isAbsolute, relative, resolve, sep } from "node:path"
 
+import { defaultViteHubDevServerUrl, findViteHubDevServerUrl } from "@vite-hub/internal/cli"
 import { isExecutionAuthority, type ExecutionAuthority } from "@vite-hub/runtime"
 
 import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
@@ -63,7 +64,8 @@ function writeInfoUsage(context: AgentInfoCliContext): void {
     "",
     "Options:",
     "  --agent <name>  Agent to inspect. Required when multiple Agents are available.",
-    "  --url <url>     Compatible Vite Development Server URL. Defaults to http://localhost:5173.",
+    "  --url <url>     Compatible Vite Development Server URL. Defaults to the dev server running in this project,",
+    "                  then VITEHUB_DEV_SERVER_URL, then http://localhost:5173.",
     "  --json          Print structured Agent metadata.",
     "  -h, --help      Show this help.",
     "",
@@ -76,11 +78,12 @@ function readOptionValue(args: string[], index: number, flag: string): string {
   return value
 }
 
-function parseInfoArgs(args: string[], env: NodeJS.ProcessEnv): ParsedInfoArgs {
+function parseInfoArgs(args: string[], context: Pick<AgentInfoCliContext, "env" | "rootDir">): ParsedInfoArgs {
   const parsed: ParsedInfoArgs = {
     help: false,
     json: false,
-    url: env.VITEHUB_DEV_SERVER_URL || "http://localhost:5173",
+    // A Nuxt or Vite dev server records its URL in the project, so a port other than 5173 needs no --url.
+    url: findViteHubDevServerUrl([context.rootDir], context.env) ?? defaultViteHubDevServerUrl,
   }
 
   for (let index = 0; index < args.length; index++) {
@@ -239,7 +242,7 @@ export async function runAgentInfoCli<TContext extends AgentInfoCliContext>(
 ): Promise<number> {
   let parsed: ParsedInfoArgs
   try {
-    parsed = parseInfoArgs(args, context.env)
+    parsed = parseInfoArgs(args, context)
   }
   catch (error) {
     context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
