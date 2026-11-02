@@ -158,6 +158,9 @@ async function writeSqliteDump(query: D1Query, file: string): Promise<void> {
     const skipped = (table: string) => /^(?:sqlite_|_cf_)/i.test(table) || kinds.get(table)?.type === "shadow"
     for (const object of objects) {
       if (object.type !== "table" || skipped(object.name)) continue
+      if (kinds.get(object.name)?.type === "virtual" && isContentlessFts5(object.sql)) {
+        throw new Error(`Cannot export contentless FTS5 table ${quoteIdentifier(object.name)} without losing its search index. Use a SQLite backup that preserves FTS shadow tables.`)
+      }
       await write(`${object.sql};\n`)
       await writeRows(query, object.name, kinds.get(object.name), write)
     }
@@ -177,11 +180,20 @@ async function writeSqliteDump(query: D1Query, file: string): Promise<void> {
   }
 }
 
+function isContentlessFts5(sql: string): boolean {
+  // Keep quoted strings whole and discard comments before inspecting module options.
+  const tokens = (sql.match(/'(?:[^']|'')*'|"(?:[^"]|"")*"|`(?:[^`]|``)*`|\[[^\]]*\]|--[^\r\n]*|\/\*[\s\S]*?\*\/|\w+|[^\s]/g) ?? [])
+    .filter(token => !token.startsWith("--") && !token.startsWith("/*"))
+    .map(token => (/^['"`[]/.test(token) ? token.slice(1, -1) : token).toLowerCase())
+  return tokens.some((token, index) => token === "using" && tokens[index + 1] === "fts5")
+    && tokens.some((token, index) => token === "content" && tokens[index + 1] === "=" && tokens[index + 2] === "")
+}
+
 async function writeRows(query: D1Query, table: string, kind: { type: string, withoutRowid: boolean } | undefined, write: (text: string) => Promise<void>) {
-  const info = await query(`PRAGMA table_info(${quoteIdentifier(table)})`)
-  const columns = info.map(row => String(field(row, "name", 1)))
+  const info = await query(`PRAGMA table_xinfo(${quoteIdentifier(table)})`)
+  const columns = info.filter(row => Number(field(row, "hidden", 6)) === 0).map(row => String(field(row, "name", 1)))
   if (!columns.length) return
-  const rowid = kind && !kind.withoutRowid ? ["_rowid_", "rowid", "oid"].find(name => !columns.some(column => column.toLowerCase() === name)) : undefined
+  const rowid = kind && !kind.withoutRowid ? ["_rowid_", "rowid", "oid"].find(name => !info.some(row => String(field(row, "name", 1)).toLowerCase() === name)) : undefined
   if (rowid) {
     const primaryKey = info.filter(row => Number(field(row, "pk", 5)) > 0)
     // INTEGER PRIMARY KEY aliases rowid, except when SQLite creates a separate PK index (e.g. PRIMARY KEY DESC).
@@ -198,18 +210,18 @@ async function writeRows(query: D1Query, table: string, kind: { type: string, wi
   const writePage = async (rows: unknown[], offset: number) => {
     for (const row of rows) await write(`${insert}${columns.map((_, index) => field(row, `c${index}`, index + offset)).join(",")});\n`)
   }
-  // Read rowid tables in pages, so a large remote table does not arrive in one response.
-  const pages = kind?.type === "table" && rowid
-  if (!pages) {
-    await writePage(await query(`SELECT ${values} FROM ${quoteIdentifier(table)}`), 0)
-    return
-  }
+  // Use a unique rowid when available; other tables still need bounded query responses.
+  const pageRowid = kind?.type === "table" ? rowid : undefined
   let after: string | undefined
+  let offset = 0
   for (;;) {
-    const rows = await query(`SELECT quote(${quoteIdentifier(rowid)}) AS k, ${values} FROM ${quoteIdentifier(table)}${after === undefined ? "" : ` WHERE ${quoteIdentifier(rowid)} > ${after}`} ORDER BY ${quoteIdentifier(rowid)} LIMIT ${pageSize}`)
-    await writePage(rows, 1)
+    const rows = await query(pageRowid
+      ? `SELECT quote(${quoteIdentifier(pageRowid)}) AS k, ${values} FROM ${quoteIdentifier(table)}${after === undefined ? "" : ` WHERE ${quoteIdentifier(pageRowid)} > ${after}`} ORDER BY ${quoteIdentifier(pageRowid)} LIMIT ${pageSize}`
+      : `SELECT ${values} FROM ${quoteIdentifier(table)} LIMIT ${pageSize} OFFSET ${offset}`)
+    await writePage(rows, pageRowid ? 1 : 0)
     if (rows.length < pageSize) return
-    after = String(field(rows.at(-1), "k", 0))
+    if (pageRowid) after = String(field(rows.at(-1), "k", 0))
+    else offset += rows.length
   }
 }
 

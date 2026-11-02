@@ -97,6 +97,48 @@ async function createProject(databases: Record<string, Partial<ResolvedDrizzleDa
 }
 
 describe("vitehub db export", () => {
+  it.each(["_rowid_", "rowid", "oid", "_rowid_,rowid", "_rowid_,rowid,oid"])("restores over 500 rows when generated columns shadow %s", async (alias) => {
+    const project = await createProject({ default: { connection: { url: "file:source.db" } } })
+    const client = createClient({ url: `file:${join(project.rootDir, "source.db")}` })
+    const aliases = alias.split(",")
+    const readableRowid = ["_rowid_", "rowid", "oid"].find(name => !aliases.includes(name))
+    await client.executeMultiple(`
+      CREATE TABLE documents (title TEXT, ${aliases.map(name => `"${name}" INTEGER GENERATED ALWAYS AS (1) ${name === "rowid" ? "VIRTUAL" : "STORED"}`).join(",")});
+      WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 1202)
+      INSERT INTO documents (${readableRowid ? `${readableRowid}, ` : ""}title) SELECT ${readableRowid ? "i * 2, " : ""}'document ' || i FROM n;
+    `)
+    const select = `SELECT ${readableRowid ? `${readableRowid}, ` : ""}* FROM documents ORDER BY title`
+    const original = await client.execute(select)
+    const expected = original.rows.map(row => original.columns.map((_, index) => row[index]))
+    client.close()
+
+    await expect(project.run(["--output", "dump.sql"])).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+    const dump = await readFile(join(project.rootDir, "dump.sql"), "utf8")
+    const restored = createClient({ url: `file:${join(project.rootDir, "restored.db")}` })
+    try {
+      await restored.executeMultiple(`BEGIN;\n${dump}COMMIT;`)
+      const actual = await restored.execute(select)
+      expect(actual.rows.map(row => actual.columns.map((_, index) => row[index]))).toEqual(expected)
+    }
+    finally {
+      restored.close()
+    }
+  })
+
+  it.each(["content=''", 'content = ""', "content=``"])("rejects contentless FTS5 instead of losing its index: %s", async (option) => {
+    const project = await createProject({ default: { connection: { url: "file:source.db" } } })
+    const client = createClient({ url: `file:${join(project.rootDir, "source.db")}` })
+    await client.executeMultiple(`CREATE VIRTUAL TABLE search USING fts5(title, ${option}); INSERT INTO search (rowid, title) VALUES (42, 'searchable');`)
+    expect((await client.execute("SELECT rowid FROM search WHERE search MATCH 'searchable'")).rows[0]![0]).toBe(42)
+    client.close()
+
+    const result = await project.run(["--output", "dump.sql"])
+    expect(result).toMatchObject({ exitCode: 1, stderr: expect.stringContaining("DATABASE_EXPORT_FAILED") })
+    expect(result.stderr).toContain("contentless FTS5")
+    expect(result.stderr).toContain("search")
+    await expect(readdir(project.rootDir)).resolves.toEqual(["source.db"])
+  })
+
   it("dumps the local SQLite file, and the dump restores the same data", async () => {
     const project = await createProject({ default: {} })
     const source = join(project.rootDir, ".vitehub/data/database/sqlite.db")
@@ -295,10 +337,17 @@ describe("vitehub db export", () => {
     const source = join(project.rootDir, "proxy.db")
     await seedDatabase(source)
     const client = createClient({ url: `file:${source}` })
+    await client.executeMultiple(`
+      WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 1202)
+      INSERT INTO tags SELECT 'tag ' || i, 1 FROM n;
+      WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 1202)
+      INSERT INTO search (rowid, title) SELECT 42 + i, 'searchable ' || i FROM n;
+    `)
     // The mocked proxy answers like the D1 raw endpoint: rows as arrays.
     const request = vi.fn(async (_input: Parameters<typeof fetch>[0], init?: RequestInit) => {
       const { sql } = JSON.parse(String(init!.body)) as { sql: string }
       const result = await client.execute(sql)
+      if (result.rows.length > 500) throw new Error("Proxy query response exceeds the row limit")
       const rows = result.rows.map(row => Array.from(result.columns, (_, index) => row[index]))
       return Response.json({ result: [{ results: { columns: [], rows }, success: true }], success: true })
     })

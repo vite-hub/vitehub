@@ -156,6 +156,8 @@ Without `--remote`, the command reads only the local SQLite file that `vitehub d
 
 SQLite, libSQL, and D1 dumps use the format of `wrangler d1 export`: `PRAGMA defer_foreign_keys=TRUE;`, each table with its rows, then indexes, views, and triggers, without `BEGIN TRANSACTION`. Restore one with `wrangler d1 execute <database> --remote --file <dump>` or `sqlite3 app.db < dump.sql`. The command skips SQLite and D1 internal tables, except `sqlite_sequence`. It prints the target without credentials. When the export fails, it prints `DATABASE_EXPORT_FAILED`, removes the partial file, and exits with code 1.
 
+For local SQLite, libSQL, and object-form D1 proxies, contentless FTS5 tables (`content=''`) are unsupported. The command fails instead of writing a dump that loses their search indexes. Use a SQLite backup that preserves FTS shadow tables for these databases.
+
 ## Tables from Nuxt layers
 
 In a Nuxt application, ViteHub also discovers Database Definitions in the server
