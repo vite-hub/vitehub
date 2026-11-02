@@ -68,6 +68,8 @@ import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origi
 import { realtimeDurableObjectKey } from "./durable-key.ts"
 
 export { isRealtimeAvailable } from "./availability.ts"
+export { blobDocument } from "./blob-document.ts"
+export type { RealtimeBlobDocumentOptions, RealtimeBlobStore } from "./blob-document.ts"
 export { applyRealtimeAwarenessUpdate, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness } from "./awareness.ts"
 export { RealtimeDocumentConflict, isRealtimeDocumentConflict } from "./conflict.ts"
 export { containsRealtimeState, createRealtimeYDoc, diffRealtimeYDoc, readRealtimeStatus, readRealtimeYDoc, realtimeDocumentLayout } from "./document.ts"
