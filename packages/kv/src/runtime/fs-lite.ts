@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { link, mkdir, opendir, rm, stat, writeFile } from "node:fs/promises"
-import { basename, dirname, join, relative, resolve, sep } from "node:path"
+import { dirname, join, relative, resolve, sep } from "node:path"
 
 import createDriver from "unstorage/drivers/fs-lite"
 
@@ -8,6 +8,9 @@ import type { KVListOptions, ResolvedFsLiteKVStoreConfig } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { createKVContinuations } from "./continuations.ts"
+
+// unstorage's fs-lite getKeys() skips files with this name, which its atomic writes and setIfAbsentItem() stage values in.
+const temporaryFile = /^\.unstorage-tmp-[\da-z-]+$/
 
 export default function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfig): KVRuntimeDriver {
   const root = resolve(options.base)
@@ -43,8 +46,8 @@ export default function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfi
     if (await driver.hasItem(key, {})) return false
     const path = join(root, key.replace(/:/g, "/"))
     await mkdir(dirname(path), { recursive: true })
-    // The temporary file sits beside the store directory, on the same disk but outside the key listing.
-    const temporary = join(dirname(root), `.${basename(root)}-${randomUUID()}.tmp`)
+    // Beside the destination, so link() stays on one disk. Key listings skip unstorage's temporary file names.
+    const temporary = join(dirname(path), `.unstorage-tmp-${randomUUID()}`)
     await writeFile(temporary, value, "utf8")
     try {
       await link(temporary, path)
@@ -96,7 +99,7 @@ export default function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfi
             continue
           }
           // Skipped entries still consume directory traversal work.
-          yield entry.isFile() ? relative(root, path) : undefined
+          yield entry.isFile() && !temporaryFile.test(entry.name) ? relative(root, path) : undefined
         }
       }
     }

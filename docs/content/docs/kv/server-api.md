@@ -78,7 +78,7 @@ if (!claimed) throw createError({ statusCode: 409, statusMessage: 'Ticket alread
 | --- | --- |
 | `upstash` | Atomic. One `SET NX` command, with `EX` when you pass `ttl`. |
 | `deno-kv` | Atomic. One atomic commit that checks that the key is missing. Deno KV deletes an expired key some time after the TTL, so the key can stay set for longer than `ttl`. |
-| `fs-lite` | Atomic on one disk, also across processes. It writes a temporary file and links it into place, so other calls see the whole value or none. `fs-lite` never expires keys, so the key stays until you delete it. |
+| `fs-lite` | Atomic on one disk, also across processes. It writes a temporary file beside the key and links it into place, so other calls see the whole value or none. `fs-lite` never expires keys, so the key stays until you delete it. |
 | `cloudflare-kv-binding` | Returns `KV_UNSUPPORTED_OPERATION`. Workers KV is eventually consistent, so two requests can both see a missing key. Use D1 with `INSERT ... ON CONFLICT DO NOTHING`, or a Durable Object. |
 
 `increment()` applies the TTL only when it creates the counter. Deno KV accepts a new relative expiry on each write, so matching that fixed window would require a hidden deadline and cleanup. Deno KV, Cloudflare KV, and local `fs-lite` stores therefore return `KV_UNSUPPORTED_OPERATION` for both methods. Use the [Rate Limit primitive](/docs/rate-limit) when provider-managed request budgets fit the application.

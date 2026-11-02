@@ -1,6 +1,6 @@
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises"
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { basename, dirname, join } from "node:path"
+import { join } from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -48,7 +48,17 @@ describe("fs-lite", () => {
     })
 
     expect(reads.filter(Boolean)).toHaveLength(1)
-    expect(await readdir(dirname(base))).not.toContainEqual(expect.stringMatching(new RegExp(`^\\.${basename(base)}-.*\\.tmp$`)))
+    expect(await readdir(base)).toEqual(["big"])
+    await storage.dispose()
+  })
+
+  it("stages values inside the store and keeps staged files out of key listings", async () => {
+    const storage = createHostedKVStorage({ store: { driver: "fs-lite", base } })
+    await writeFile(join(base, ".unstorage-tmp-0a1b2c3d-0000-4000-8000-000000000000"), "staged")
+    await storage.setIfAbsentItem!("token", 1)
+
+    expect(await storage.getKeys()).toEqual(["token"])
+    expect(await storage.listKeys({ limit: 10 })).toEqual({ keys: ["token"] })
     await storage.dispose()
   })
 
