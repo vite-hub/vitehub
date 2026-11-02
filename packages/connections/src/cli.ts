@@ -2,6 +2,8 @@ import { createServer } from "node:http"
 import { spawn } from "node:child_process"
 import { constants } from "node:fs"
 import { open, rm } from "node:fs/promises"
+import { createRequire } from "node:module"
+import { join } from "node:path"
 import { chatgptTransferSchema } from "./internal/chatgpt-transfer.ts"
 
 import * as v from "valibot"
@@ -207,6 +209,20 @@ function describeApproval(approval: ConnectionApproval): string {
   return `${approval.id}  ${approval.status}  ${approval.name}  ${approval.action}  ${approval.actor}  ${approval.createdAt}`
 }
 
+/**
+ * The ChatGPT gateway runs the Codex package of the app and never a `codex` command from `PATH`. Without it, the
+ * first question fails with AGENT_R1025, so say it at sign-in. Only a loopback app shares this project folder.
+ */
+function warnMissingCodex(connection: ConnectionInspection, parsed: ParsedArgs, context: CliContext): void {
+  if (connection.credential !== "chatgpt" || !isLoopback(appUrl(parsed))) return
+  try {
+    createRequire(join(context.rootDir ?? process.cwd(), "package.json")).resolve("@openai/codex/bin/codex.js")
+  }
+  catch {
+    context.stderr.write("Codex is not installed in this app, so an Agent with the ChatGPT gateway cannot answer. Run `pnpm add @openai/codex`, then restart the server. The gateway does not use a codex command from PATH.\n")
+  }
+}
+
 /** Read a piped key. A key in an argument would stay in the shell history. */
 async function readKey(options: ConnectionsCliOptions): Promise<string> {
   const stdin = options.stdin ?? process.stdin
@@ -329,6 +345,7 @@ const commands: Record<string, { description: string, run: Command, usage: strin
     usage: "vitehub connections inspect <name> [--url <app>] [--json]",
     async run(parsed, context, options) {
       const { connection } = await request(parsed, options, { action: "inspect", name: requireName(parsed, "inspect") }, connectionResponse)
+      warnMissingCodex(connection, parsed, context)
       write(context, parsed, connection, () => [
         describeConnection(connection),
         `  granted scopes: ${connection.scopes.granted.join(" ") || "none"}`,
@@ -348,6 +365,7 @@ const commands: Record<string, { description: string, run: Command, usage: strin
         return
       }
       const connection = await connectLoopback(name, parsed, context, options)
+      warnMissingCodex(connection, parsed, context)
       write(context, parsed, connection, () => `Connected. ${describeConnection(connection)}`)
     },
   },

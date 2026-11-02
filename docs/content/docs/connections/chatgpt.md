@@ -32,6 +32,12 @@ export default defineAgent({
 })
 ```
 
+Install Codex in the app. The gateway runs this package and never a `codex` command from `PATH`. `vitehub connections connect` and `inspect` warn when it is missing:
+
+```sh
+pnpm add @openai/codex
+```
+
 `chatgpt()` selects the `chatgpt` Connection. Use `chatgpt({ connection: 'personal' })` for another named Connection. The provider requires an explicit access map. Give each saved account or workspace its own Connection name. A returning sign-in must match the account already bound to that Connection.
 
 Library consumers can use `@vite-hub/connections/chatgpt` and `@vite-hub/gateways`. Gateways live in `vite-hub/gateways`, not `vite-hub/agent/gateways`.
