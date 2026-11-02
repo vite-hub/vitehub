@@ -97,6 +97,7 @@ const consolidatedOwnerExports = new Set([
   "@vite-hub/blob/ensure",
   "@vite-hub/blob/reference",
   "@vite-hub/content/collections",
+  "@vite-hub/docs/navigation",
   "@vite-hub/source/drizzle",
   "@vite-hub/workspace/ai",
 ]);
@@ -123,6 +124,7 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/database/config",
   "@vite-hub/database/connect",
   "@vite-hub/database/connect/node",
+  "@vite-hub/docs/server",
   "@vite-hub/env/seal",
   "@vite-hub/kv/errors",
   "@vite-hub/realtime/client",
