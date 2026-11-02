@@ -150,13 +150,15 @@ Without `--remote`, the command reads only the local SQLite file that `vitehub d
 | --- | --- |
 | Local SQLite, or a native D1 binding without `--remote` | Reads the file in one read transaction. |
 | Remote libSQL | Connects with `connection.url` and `connection.authToken` in one read transaction. |
-| Native D1 binding or `cloudflare.http: true` | Calls Cloudflare's D1 export API, like `wrangler d1 export --remote`, with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. It uses `cloudflare.databaseId` or the provisioned id, and finds the database by `cloudflare.databaseName` when there is no id. |
+| Native D1 binding or `cloudflare.http: true` | Calls Cloudflare's D1 export API, like `wrangler d1 export --remote`, with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. It uses `cloudflare.databaseId` or the provisioned id, and finds the database by `cloudflare.databaseName` when there is no id. A native binding with a configured remote libSQL `connection.url` exports libSQL instead. |
 | Object-form `cloudflare.http` | Reads the tables through the proxy `url` and `authToken`. |
 | Postgres | Runs `pg_dump` with `connection.url` or the PG* variables. The password goes in `PGPASSWORD`, not in the process arguments. `pg_dump` must be on `PATH`. |
 
 SQLite, libSQL, and D1 dumps use the format of `wrangler d1 export`: `PRAGMA defer_foreign_keys=TRUE;`, each table with its rows, then indexes, views, and triggers, without `BEGIN TRANSACTION`. Restore one with `wrangler d1 execute <database> --remote --file <dump>` or `sqlite3 app.db < dump.sql`. The command skips SQLite and D1 internal tables, except `sqlite_sequence`. It prints the target without credentials. When the export fails, it prints `DATABASE_EXPORT_FAILED`, removes the partial file, and exits with code 1.
 
 For local SQLite, libSQL, and object-form D1 proxies, contentless FTS5 tables (`content=''`) are unsupported. The command fails instead of writing a dump that loses their search indexes. Use a SQLite backup that preserves FTS shadow tables for these databases.
+
+Object-form D1 proxies cannot share a read transaction across requests. Tables without a usable rowid pagination key, including `WITHOUT ROWID` and virtual tables, are read in one query so concurrent writes cannot shift offset pages. If that query exceeds the proxy's response limit, the export fails without publishing a dump. Use the native D1 export API for those databases.
 
 ## Tables from Nuxt layers
 

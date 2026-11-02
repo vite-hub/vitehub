@@ -40,8 +40,12 @@ function resolveExportTarget(database: ResolvedDrizzleDatabaseConfig, { env, pro
   if (cloudflare?.http && typeof cloudflare.http === "object") {
     return { kind: "d1-proxy", token: resolveConfigValue(cloudflare.http.authToken, env)?.trim() || undefined, url: resolveConfigValue(cloudflare.http.url, env)?.trim() || undefined }
   }
+  const defaultUrl = database.name === "default" ? "file:.vitehub/data/database/sqlite.db" : `file:.vitehub/data/database/${database.name}.sqlite.db`
+  const url = resolveConfigValue(database.connection?.url, env)?.trim() || defaultUrl
+  const isLibsql = /^(?:libsql:|https?:|wss?:)/i.test(url)
   // A native D1 binding reads the local SQLite file during development. `--remote` reads the deployed D1 database.
-  if (cloudflare && (cloudflare.http || remote)) {
+  // An explicitly configured remote libSQL connection takes precedence over a native binding.
+  if (cloudflare && (cloudflare.http || (remote && !isLibsql))) {
     return {
       accountId: env.CLOUDFLARE_ACCOUNT_ID?.trim() || undefined,
       databaseId: resolveConfigValue(cloudflare.databaseId, env)?.trim() || undefined,
@@ -50,9 +54,7 @@ function resolveExportTarget(database: ResolvedDrizzleDatabaseConfig, { env, pro
       token: env.CLOUDFLARE_API_TOKEN?.trim() || undefined,
     }
   }
-  const defaultUrl = database.name === "default" ? "file:.vitehub/data/database/sqlite.db" : `file:.vitehub/data/database/${database.name}.sqlite.db`
-  const url = resolveConfigValue(database.connection?.url, env)?.trim() || defaultUrl
-  if (/^(?:libsql:|https?:|wss?:)/i.test(url)) return { authToken: resolveConfigValue(database.connection?.authToken, env) || undefined, kind: "libsql", url }
+  if (isLibsql) return { authToken: resolveConfigValue(database.connection?.authToken, env) || undefined, kind: "libsql", url }
   return { kind: "local", path: url === ":memory:" ? url : resolve(projectRoot, resolveLocalSqlitePath(url)) }
 }
 
@@ -130,7 +132,7 @@ async function dumpLibsql(config: { authToken?: string, url: string }, file: str
     // One read transaction gives a consistent snapshot while the app keeps writing.
     const transaction = await client.transaction("read")
     try {
-      await writeSqliteDump(async sql => (await transaction.execute(sql)).rows, file)
+      await writeSqliteDump(async sql => (await transaction.execute(sql)).rows, file, true)
     }
     finally {
       transaction.close()
@@ -144,7 +146,7 @@ async function dumpLibsql(config: { authToken?: string, url: string }, file: str
 const pageSize = 500
 
 /** Writes a dump like `wrangler d1 export`: no transaction, foreign keys deferred, data before indexes and triggers. */
-async function writeSqliteDump(query: D1Query, file: string): Promise<void> {
+async function writeSqliteDump(query: D1Query, file: string, inTransaction = false): Promise<void> {
   const handle = await open(file, "wx")
   try {
     const write = async (text: string) => { await handle.write(text) }
@@ -162,7 +164,7 @@ async function writeSqliteDump(query: D1Query, file: string): Promise<void> {
         throw new Error(`Cannot export contentless FTS5 table ${quoteIdentifier(object.name)} without losing its search index. Use a SQLite backup that preserves FTS shadow tables.`)
       }
       await write(`${object.sql};\n`)
-      await writeRows(query, object.name, kinds.get(object.name), write)
+      await writeRows(query, object.name, kinds.get(object.name), write, inTransaction)
     }
     if (objects.some(object => object.type === "table" && object.name === "sqlite_sequence")) {
       await write("DELETE FROM sqlite_sequence;\n")
@@ -189,7 +191,7 @@ function isContentlessFts5(sql: string): boolean {
     && tokens.some((token, index) => token === "content" && tokens[index + 1] === "=" && tokens[index + 2] === "")
 }
 
-async function writeRows(query: D1Query, table: string, kind: { type: string, withoutRowid: boolean } | undefined, write: (text: string) => Promise<void>) {
+async function writeRows(query: D1Query, table: string, kind: { type: string, withoutRowid: boolean } | undefined, write: (text: string) => Promise<void>, inTransaction: boolean) {
   const info = await query(`PRAGMA table_xinfo(${quoteIdentifier(table)})`)
   const columns = info.filter(row => Number(field(row, "hidden", 6)) === 0).map(row => String(field(row, "name", 1)))
   if (!columns.length) return
@@ -203,15 +205,19 @@ async function writeRows(query: D1Query, table: string, kind: { type: string, wi
   }
   const values = columns.map((column, index) => {
     const name = quoteIdentifier(column)
-    // SQLite quote() truncates TEXT at NUL; hex preserves every stored byte.
-    return `CASE WHEN typeof(${name}) = 'text' AND instr(${name}, char(0)) > 0 THEN 'CAST(X''' || hex(${name}) || ''' AS TEXT)' ELSE quote(${name}) END AS c${index}`
+    // quote() truncates TEXT at NUL and emits invalid Inf tokens for infinite REALs.
+    return `CASE WHEN typeof(${name}) = 'text' AND instr(${name}, char(0)) > 0 THEN 'CAST(X''' || hex(${name}) || ''' AS TEXT)' WHEN typeof(${name}) = 'real' AND ${name} = 1e999 THEN '1e999' WHEN typeof(${name}) = 'real' AND ${name} = -1e999 THEN '-1e999' ELSE quote(${name}) END AS c${index}`
   }).join(", ")
   const insert = `INSERT INTO ${quoteIdentifier(table)} (${columns.map(quoteIdentifier).join(",")}) VALUES(`
   const writePage = async (rows: unknown[], offset: number) => {
     for (const row of rows) await write(`${insert}${columns.map((_, index) => field(row, `c${index}`, index + offset)).join(",")});\n`)
   }
-  // Use a unique rowid when available; other tables still need bounded query responses.
+  // Offset pages are stable only inside a read transaction. A proxy cannot share one across requests.
   const pageRowid = kind?.type === "table" ? rowid : undefined
+  if (!pageRowid && !inTransaction) {
+    await writePage(await query(`SELECT ${values} FROM ${quoteIdentifier(table)}`), 0)
+    return
+  }
   let after: string | undefined
   let offset = 0
   for (;;) {

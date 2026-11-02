@@ -100,6 +100,8 @@ The check connects to the migration target: the local SQLite file, remote libSQL
 
 Local SQLite, libSQL, and object-form D1 proxy exports reject contentless FTS5 tables (`content=''`) to avoid losing their search indexes. Use a SQLite backup that preserves FTS shadow tables for these databases.
 
+Object-form D1 proxies read tables without a usable rowid pagination key in one query to avoid skipping or duplicating rows during concurrent writes. If the query exceeds the proxy's response limit, the export fails without publishing a dump; use the native D1 export API instead. A native D1 binding with a configured remote libSQL `connection.url` exports libSQL instead.
+
 ```sh
 pnpm vitehub db export                             # local SQLite to .vitehub/exports/database/
 pnpm vitehub db export --remote --stage production # the deployed database

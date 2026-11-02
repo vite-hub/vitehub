@@ -11,6 +11,7 @@ import { createRuntimeEnvConfigValue } from "../src/config-value.ts"
 import type { ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../src/types.ts"
 
 vi.mock("node:timers/promises", () => ({ setTimeout: vi.fn(async () => {}) }))
+vi.mock("@libsql/client", { spy: true })
 
 const tempDirs: string[] = []
 
@@ -97,6 +98,85 @@ async function createProject(databases: Record<string, Partial<ResolvedDrizzleDa
 }
 
 describe("vitehub db export", () => {
+  it("restores positive and negative infinite REAL values", async () => {
+    const project = await createProject({ default: { connection: { url: "file:source.db" } } })
+    const source = createClient({ url: `file:${join(project.rootDir, "source.db")}` })
+    await source.executeMultiple("CREATE TABLE numbers (value REAL); INSERT INTO numbers VALUES (1e999), (-1e999), (1.5), (NULL);")
+    source.close()
+
+    await expect(project.run(["--output", "dump.sql"])).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+    const restored = createClient({ url: `file:${join(project.rootDir, "restored.db")}` })
+    try {
+      await restored.executeMultiple(await readFile(join(project.rootDir, "dump.sql"), "utf8"))
+      const result = await restored.execute("SELECT value, typeof(value) FROM numbers ORDER BY rowid")
+      expect(result.rows.map(row => [row[0], row[1]])).toEqual([[Infinity, "real"], [-Infinity, "real"], [1.5, "real"], [null, "null"]])
+    }
+    finally {
+      restored.close()
+    }
+  })
+
+  it("prefers a configured remote libSQL connection over a native D1 binding", async () => {
+    const project = await createProject({ default: {
+      cloudflare: { binding: "DB", databaseId: "db-uuid", migrationsDir: "migrations" },
+      connection: { authToken: "libsql-secret", url: "libsql://db.example.com" },
+    } })
+    const source = join(project.rootDir, "source.db")
+    await seedDatabase(source)
+    const client = createClient({ url: `file:${source}` })
+    const open = vi.mocked(createClient).mockReturnValueOnce(client)
+    const request = vi.fn(async () => { throw new Error("Unexpected Cloudflare request") })
+    try {
+      const result = await project.run(["--remote", "--output", "dump.sql"], { fetch: request as typeof fetch })
+      expect(result).toMatchObject({ exitCode: 0, stderr: "", stdout: expect.stringContaining("libSQL libsql://db.example.com") })
+      expect(open).toHaveBeenCalledWith({ authToken: "libsql-secret", url: "libsql://db.example.com" })
+      expect(request).not.toHaveBeenCalled()
+      await expect(readFile(join(project.rootDir, "dump.sql"), "utf8")).resolves.toContain("CREATE TABLE notes")
+    }
+    finally {
+      open.mockReset()
+      client.close()
+    }
+  })
+
+  it.each([
+    { key: "id", schema: "CREATE TABLE items (id INTEGER PRIMARY KEY, value TEXT) WITHOUT ROWID" },
+    { key: "id", schema: "CREATE TABLE items (id INTEGER PRIMARY KEY, value TEXT, _rowid_ AS (1), rowid AS (1), oid AS (1))" },
+    { key: "rowid", schema: "CREATE VIRTUAL TABLE items USING fts5(value)" },
+  ])("keeps proxy rows complete during writes without offset paging: $schema", async ({ key, schema }) => {
+    const project = await createProject({ default: { cloudflare: { binding: "DB", http: { authToken: "proxy-secret", url: "https://proxy.example.com/raw" }, migrationsDir: "migrations" } } })
+    const client = createClient({ url: `file:${join(project.rootDir, "source.db")}` })
+    let reads = 0
+    try {
+      await client.executeMultiple(`${schema};
+        WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 1202)
+        INSERT INTO items (${key}, value) SELECT i, 'value ' || i FROM n;`)
+      const expected = (await client.execute("SELECT value FROM items ORDER BY value")).rows.map(row => row[0])
+      const request = vi.fn(async (_input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+        const { sql } = JSON.parse(String(init!.body)) as { sql: string }
+        const result = await client.execute(sql)
+        if (sql.includes('FROM "items"') && ++reads === 1) {
+          await client.executeMultiple(`DELETE FROM items WHERE ${key} <= 100; INSERT INTO items (${key}, value) VALUES (2000, 'new value');`)
+        }
+        const rows = result.rows.map(row => result.columns.map((_, index) => row[index]))
+        return Response.json({ result: [{ results: { columns: [], rows }, success: true }], success: true })
+      })
+      await expect(project.run(["--remote", "--output", "dump.sql"], { fetch: request as typeof fetch })).resolves.toMatchObject({ exitCode: 0, stderr: "" })
+      const restored = createClient({ url: `file:${join(project.rootDir, "restored.db")}` })
+      try {
+        await restored.executeMultiple(`BEGIN;\n${await readFile(join(project.rootDir, "dump.sql"), "utf8")}COMMIT;`)
+        expect((await restored.execute("SELECT value FROM items ORDER BY value")).rows.map(row => row[0])).toEqual(expected)
+        expect(reads).toBe(1)
+      }
+      finally {
+        restored.close()
+      }
+    }
+    finally {
+      client.close()
+    }
+  })
+
   it.each(["_rowid_", "rowid", "oid", "_rowid_,rowid", "_rowid_,rowid,oid"])("restores over 500 rows when generated columns shadow %s", async (alias) => {
     const project = await createProject({ default: { connection: { url: "file:source.db" } } })
     const client = createClient({ url: `file:${join(project.rootDir, "source.db")}` })
@@ -332,7 +412,7 @@ describe("vitehub db export", () => {
     await expect(readdir(project.rootDir)).resolves.toEqual([])
   })
 
-  it("dumps D1 through an object-form cloudflare.http proxy", async () => {
+  it.each([false, true])("dumps D1 through an object-form cloudflare.http proxy (response limit: %s)", async (limited) => {
     const project = await createProject({ default: { cloudflare: { binding: "DB", http: { authToken: "proxy-secret", url: "https://proxy.example.com/raw" }, migrationsDir: "migrations" } } })
     const source = join(project.rootDir, "proxy.db")
     await seedDatabase(source)
@@ -347,12 +427,20 @@ describe("vitehub db export", () => {
     const request = vi.fn(async (_input: Parameters<typeof fetch>[0], init?: RequestInit) => {
       const { sql } = JSON.parse(String(init!.body)) as { sql: string }
       const result = await client.execute(sql)
-      if (result.rows.length > 500) throw new Error("Proxy query response exceeds the row limit")
+      // Rowid tables remain paged; fallback tables need a single consistent query.
+      const fallback = /FROM "(?:tags|search)"/.test(sql)
+      if (result.rows.length > 500 && (limited || !fallback)) throw new Error("Proxy query response exceeds the row limit")
       const rows = result.rows.map(row => Array.from(result.columns, (_, index) => row[index]))
       return Response.json({ result: [{ results: { columns: [], rows }, success: true }], success: true })
     })
     const result = await project.run(["--remote", "--output", "proxy.sql"], { fetch: request as typeof fetch })
     client.close()
+    if (limited) {
+      expect(result).toMatchObject({ exitCode: 1, stderr: expect.stringContaining("Proxy query response exceeds the row limit") })
+      expect(result.stderr).toContain("DATABASE_EXPORT_FAILED")
+      await expect(readdir(project.rootDir)).resolves.toEqual(["proxy.db"])
+      return
+    }
     expect(result).toMatchObject({ exitCode: 0, stderr: "", stdout: "[vitehub] Database \"default\" (D1 HTTP proxy https://proxy.example.com/raw): exported to proxy.sql.\n" })
 
     const restored = createClient({ url: `file:${join(project.rootDir, "restored.db")}` })
