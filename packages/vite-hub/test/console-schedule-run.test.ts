@@ -142,7 +142,10 @@ describe("Console Schedule runs", () => {
     await writeFile(join(root, "server/schedules/brief.ts"), "import { defineSchedule } from 'vite-hub/schedule'\nconst COPENHAGEN = 'Europe/Copenhagen'\nexport default defineSchedule({ cron: '0 14 * * 1', timeZone: COPENHAGEN, handler() {} })\n")
     const catalog = await discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot: root, sections: ["schedules"] })
     await writeConsoleNitroPlugin(plugin, root, ["schedules"], [], catalog, [])
-    expect(await readFile(plugin, "utf8")).toContain(`import { readScheduleConsoleRecords as vitehubConsoleRuntimeReader0 } from "vite-hub/_internal/schedule/runtime/console"`)
+    const generated = await readFile(plugin, "utf8")
+    expect(generated).toContain(`{ readScheduleConsoleRecords: vitehubConsoleRuntimeReader0 }`)
+    expect(generated).toContain(`import("vite-hub/_internal/schedule/runtime/console")`)
+    expect(generated).toContain(`{ "schedules": vitehubConsoleRuntimeReader0 }`)
 
     const timeZone = (): Promise<string[]> => definitionsHandler({ method: "GET", req: { method: "GET", url: "http://localhost/api/_vitehub/console/definitions?section=schedules" } })
       .then(content => content.kind === "record-table" ? content.records.map(record => `${record.cells.timing} / ${record.fields.find(field => field.label === "Time zone")?.value}`) : [])
