@@ -29,6 +29,7 @@ const contentRouteEntry = ".vitehub/content/route.mjs"
 const contentPreviewEntry = ".vitehub/content/preview.mjs"
 const contentSitemapEntry = ".vitehub/content/sitemap.mjs"
 const contentRobotsEntry = ".vitehub/content/robots.mjs"
+const contentMarkdownEntry = ".vitehub/content/markdown.mjs"
 // Auth owns this virtual module. Generated routes import it only when Auth is enabled.
 const authServerModuleId = "#vitehub/auth/server"
 const initialHostRefreshRetryDelay = 25
@@ -41,6 +42,8 @@ export type GeneratedSourceHandler = GeneratedSourceRoute | GeneratedSourcePlugi
 export interface GeneratedSourceRoute {
   handler: string
   method?: "get"
+  /** Runs for every request and passes through when it does not answer, as Content's `<url>.md` copies do. */
+  middleware?: true
   plugin?: never
   route: string
 }
@@ -136,6 +139,7 @@ async function snapshotGeneratedSourceArtifacts(projectRoot: string): Promise<Ge
     contentPreviewEntry,
     contentSitemapEntry,
     contentRobotsEntry,
+    contentMarkdownEntry,
   ]
   for (const entry of fixedEntries) {
     const path = resolve(projectRoot, entry)
@@ -169,6 +173,7 @@ async function restoreGeneratedSourceArtifacts(
     contentPreviewEntry,
     contentSitemapEntry,
     contentRobotsEntry,
+    contentMarkdownEntry,
   ]) {
     const path = resolve(projectRoot, entry)
     if (!snapshot.files.has(path)) await rm(path, { force: true })
@@ -184,7 +189,7 @@ function methodsOverlap(left: string | undefined, right: string | undefined): bo
 }
 
 function generatedRouteOwner(handler: GeneratedSourceRoute): "Collection" | "Content" {
-  return handler.route === "/api/content/**" || handler.route === "/sitemap.xml" || handler.route === "/robots.txt" ? "Content" : "Collection"
+  return handler.middleware || handler.route === "/api/content/**" || handler.route === "/sitemap.xml" || handler.route === "/robots.txt" ? "Content" : "Collection"
 }
 
 function generatedRouteDescription(handler: GeneratedSourceRoute): string {
@@ -193,7 +198,7 @@ function generatedRouteDescription(handler: GeneratedSourceRoute): string {
 
 function assertGeneratedRoutes(nitro: NitroRouteGuard, generatedHandlers: GeneratedSourceHandler[]): void {
   for (const generatedHandler of generatedHandlers) {
-    if (generatedHandler.plugin) continue
+    if (generatedHandler.plugin || generatedHandler.middleware) continue
     const duplicate = nitro.scannedHandlers.some(candidate =>
       !candidate.middleware
       && candidate.route === generatedHandler.route
@@ -234,7 +239,7 @@ export function mergeGeneratedSourceNitroConfig(
       && candidate.route === handler.route
       && candidate.method?.toLowerCase() === handler.method?.toLowerCase())
     if (exact) continue
-    const duplicate = handlers.some(candidate =>
+    const duplicate = !handler.middleware && handlers.some(candidate =>
       !candidate.middleware && candidate.route === handler.route && methodsOverlap(candidate.method, handler.method))
     if (duplicate) {
       throw sourceErrorDiagnostics.SOURCE_B0002({ message: `[vitehub] Generated ${generatedRouteOwner(handler)} route ${JSON.stringify(handler.route)} conflicts with an existing ${generatedRouteDescription(handler)}. Remove the matching server route.` })
@@ -988,6 +993,8 @@ export interface ContentEntryFeatures {
   sitemap: boolean
   /** `seo: { robots }` that is not literally false. */
   robots: boolean
+  /** `seo: { markdown }` that is not literally false. */
+  markdown: boolean
   /** `live` that is not literally false: Content edits Markdown documents live where Realtime has a room authority. */
   live: boolean
 }
@@ -1022,10 +1029,10 @@ function unwrapAst(node: unknown): unknown {
 /**
  * Read the `defineContent()` call that initializes the `content` export. Collections count as present unless the call
  * provably has no non-empty `collections` object. SEO routes count only when the call has a `seo` option: a literal
- * `sitemap` or `robots` that is not `false`, or a `seo` value that discovery cannot follow.
+ * `sitemap`, `robots`, or `markdown` that is not `false`, or a `seo` value that discovery cannot follow.
  */
 export function inspectContentModule(program: unknown, contentImportBase?: string): ContentEntryFeatures {
-  const maybe: ContentEntryFeatures = { route: true, collections: true, sitemap: false, robots: false, live: true }
+  const maybe: ContentEntryFeatures = { route: true, collections: true, sitemap: false, robots: false, markdown: false, live: true }
   const body = isAstNode(program) ? astNodes(program.body) : []
   const constants = new Map<string, unknown>()
   const defineContentNames = new Set<string>()
@@ -1097,23 +1104,23 @@ export function inspectContentModule(program: unknown, contentImportBase?: strin
     && astName(calleeNode.property) === "defineContent"
   if ((!callee || !defineContentNames.has(callee)) && !namespaceCall) return maybe
   const [argument, ...rest] = Array.isArray(call.arguments) ? call.arguments : []
-  if (argument === undefined) return { route: true, collections: false, sitemap: false, robots: false, live: true }
+  if (argument === undefined) return { route: true, collections: false, sitemap: false, robots: false, markdown: false, live: true }
   const options = rest.length ? undefined : properties(resolveNode(argument))
   // Unknown option shapes may still enable SEO at runtime (for example via a spread).
   // Keep generated handlers enabled rather than silently omitting valid routes.
-  if (!options) return { route: true, collections: true, sitemap: true, robots: true, live: true }
+  if (!options) return { route: true, collections: true, sitemap: true, robots: true, markdown: true, live: true }
 
   const route = resolveNode(options.get("route"))
   const live = unwrapAst(options.get("live"))
-  const features: ContentEntryFeatures = { route: !(isAstNode(route) && route.type === "Literal" && route.value === false), collections: false, sitemap: false, robots: false, live: !(isAstNode(live) && live.type === "Literal" && live.value === false) }
+  const features: ContentEntryFeatures = { route: !(isAstNode(route) && route.type === "Literal" && route.value === false), collections: false, sitemap: false, robots: false, markdown: false, live: !(isAstNode(live) && live.type === "Literal" && live.value === false) }
   if (options.has("collections")) {
     const value = resolveNode(options.get("collections"))
     features.collections = !isAstNode(value) || value.type !== "ObjectExpression" || (Array.isArray(value.properties) && value.properties.length > 0)
   }
   if (options.has("seo")) {
     const seo = properties(resolveNode(options.get("seo")))
-    if (!seo) return { ...features, sitemap: true, robots: true }
-    for (const key of ["sitemap", "robots"] as const) {
+    if (!seo) return { ...features, sitemap: true, robots: true, markdown: true }
+    for (const key of ["sitemap", "robots", "markdown"] as const) {
       if (!seo.has(key)) continue
       const value = unwrapAst(seo.get(key))
       features[key] = !(isAstNode(value) && value.type === "Literal" && value.value === false)
@@ -1131,7 +1138,7 @@ export async function inspectContentEntry(file: string, contentImportBase?: stri
   }
   catch {
     // The runtime reports the syntax error.
-    return { route: true, collections: true, sitemap: false, robots: false, live: true }
+    return { route: true, collections: true, sitemap: false, robots: false, markdown: false, live: true }
   }
 }
 
@@ -1143,8 +1150,9 @@ async function writeContentArtifact(
   const preview = resolve(options.projectRoot, contentPreviewEntry)
   const sitemap = resolve(options.projectRoot, contentSitemapEntry)
   const robots = resolve(options.projectRoot, contentRobotsEntry)
+  const markdown = resolve(options.projectRoot, contentMarkdownEntry)
   if (!file) {
-    await Promise.all([output, preview, sitemap, robots].map(path => rm(path, { force: true })))
+    await Promise.all([output, preview, sitemap, robots, markdown].map(path => rm(path, { force: true })))
     return []
   }
   const importBase = JSON.stringify(options.contentImportBase ?? "@vite-hub/content")
@@ -1168,10 +1176,12 @@ async function writeContentArtifact(
   ].join("\n"))
   const handlers: GeneratedSourceHandler[] = [{ handler: preview, plugin: true }]
   if (features.route) handlers.push({ handler: output, route: "/api/content/**" })
-  // `defineContent({ seo: { sitemap, robots } })` adds the site-wide SEO routes.
+  // `defineContent({ seo: { sitemap, robots, markdown } })` adds the site-wide SEO routes. Markdown copies sit at
+  // every page URL plus `.md`, which no Nitro route pattern matches, so they are middleware.
   for (const [enabled, path, helper, route] of [
     [features.sitemap, sitemap, "defineContentSitemapHandler", "/sitemap.xml"],
     [features.robots, robots, "defineContentRobotsHandler", "/robots.txt"],
+    [features.markdown, markdown, "defineContentMarkdownHandler", "/**"],
   ] as const) {
     if (!enabled) {
       await rm(path, { force: true })
@@ -1184,7 +1194,7 @@ async function writeContentArtifact(
       `export default ${helper}(content)`,
       "",
     ].join("\n"))
-    handlers.push({ handler: path, method: "get", route })
+    handlers.push(route === "/**" ? { handler: path, middleware: true, route } : { handler: path, method: "get", route })
   }
   return handlers
 }
