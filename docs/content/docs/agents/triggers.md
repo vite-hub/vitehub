@@ -298,7 +298,7 @@ Without the queue, `prepare` and the task run before the webhook is answered, an
 
 ### Report a failed webhook delivery
 
-When a Trigger result sets `webhook: { deliveryId, concurrencyLimit }` and the Agent has a state provider, ViteHub queues the webhook delivery and retries a failed execution. The Invocation runs under the delivery ID: an unset `run.runId` defaults to `deliveryId` and an unset `run.channelId` to the Channel, so every retry of one delivery is the same Invocation. A delivery gets three execution attempts. Add `failed` to the Trigger to report the failure to the provider when the queue stops retrying.
+When a Trigger result sets `webhook: { deliveryId, concurrencyLimit }` and the Agent has a state provider, ViteHub queues the webhook delivery and retries a failed execution. The Invocation runs under the delivery ID: an unset `run.runId` defaults to `deliveryId` and an unset `run.channelId` to the Channel, so every retry of one delivery is the same Invocation. When an attempt fails, the retry returns that Invocation from `failed` to `pending` and runs the Agent again. The record keeps the observations of the failed attempt, and its status, error, and `failedAt` come from the latest attempt. A `cancelled` or `completed` Invocation is not reopened. A delivery gets three execution attempts. Add `failed` to the Trigger to report the failure to the provider when the queue stops retrying.
 
 ```ts
 defineChannelTrigger({

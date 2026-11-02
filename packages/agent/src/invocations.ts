@@ -203,6 +203,8 @@ export interface AgentInvocationStoreUpdateInput {
   error?: AgentInvocationRecord["error"]
   observation?: TraceEventLogEntry
   observationsTruncated?: boolean
+  /** Returns a `failed` record to `pending` for another attempt of the same run. Other records ignore it. */
+  reopen?: true
   status?: AgentInvocationRecordStatus
   timestamp: string
 }
@@ -371,6 +373,8 @@ interface AgentInvocationBindOptions {
   /** Overrides the configured enforcement for this run. Channel replay passes `"strict"`. */
   enforcement?: AgentInvocationsOptions["enforcement"]
   terminalTakeover?: boolean
+  /** Reopens the record when an earlier attempt of the same run left it `failed`. */
+  reopenFailed?: boolean
   requireNew?: boolean
   /** Binds only an existing record; queue cleanup must not recreate deleted records. */
   existingOnly?: boolean
@@ -391,6 +395,8 @@ interface BoundAgentInvocations extends AgentInvocations {
 }
 
 export const exclusiveAgentInvocation: unique symbol = Symbol("vitehub.exclusiveAgentInvocation")
+/** Marks a queued retry attempt. It may reopen the Invocation that its earlier attempt left `failed`. */
+export const retryAgentInvocation: unique symbol = Symbol("vitehub.retryAgentInvocation")
 export const inheritedAgentInvocationClaim: unique symbol = Symbol("vitehub.inheritedAgentInvocationClaim")
 export const pendingAgentInvocationAnnotation = "vitehub.invocation.executionPending"
 export const workflowDispatchAttemptedAnnotation = "vitehub.invocation.workflowDispatchAttempted"
@@ -1730,6 +1736,11 @@ export function applyAgentInvocationStoreUpdate(
       timestamp: input.timestamp,
     }
   }
+  if (input.reopen) {
+    if (record.status !== "failed") return record
+    const { error: _error, failedAt: _failedAt, ...reopened } = record
+    return { ...reopened, status: "pending", updatedAt: input.timestamp > record.updatedAt ? input.timestamp : record.updatedAt }
+  }
   if (terminalStatus(record.status) && input.observation && !recoverableOutcomeObservation(input.observation)) return record
   if (terminalStatus(record.status) && !input.observation && !input.observationsTruncated) return record
   const incomingObservation = input.observation
@@ -2163,6 +2174,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
       let writes = Promise.resolve()
       let finished = false
       let boundToTerminalRecord = false
+      let reopenFailed = false
       let finishing = false
       let terminalWriteCommitted = false
       let ownsRecord = false
@@ -2272,7 +2284,8 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
               truncationPersisted = result.record.observationsTruncated === true
               observationSequence = Math.max(observationSequence, ...result.record.observations.map(observation => observation.sequence))
               invocationCapabilityIds(result.record).forEach(capabilityId => observedCapabilityIds.add(capabilityId))
-              finished = terminalStatus(result.record.status)
+              reopenFailed = bindOptions.reopenFailed === true && result.record.status === "failed"
+              finished = terminalStatus(result.record.status) && !reopenFailed
               boundToTerminalRecord = finished
               workflowDispatchAllowed = result.created || (result.record.status === "pending" && result.record.annotations?.[pendingAgentInvocationAnnotation] === true)
               createdNew = result.created
@@ -2345,6 +2358,19 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         }
         claimUnavailable = claim !== true && claim !== false
         ownsRecord = claim === true
+        if (ownsRecord && reopenFailed) {
+          reopenFailed = false
+          const reopened = await boundedStore(() => store.update(recordId, { reopen: true, timestamp: new Date().toISOString() }, claimId))
+          // A store that keeps the record failed runs this attempt as a reuse of the terminal record.
+          if (!reopened || reopened === storeOperationTimedOut || reopened.status !== "pending") {
+            finished = true
+            boundToTerminalRecord = true
+            await boundedStore(() => store.release(recordId, claimId))
+            ownsRecord = false
+            stopHeartbeat()
+            return false
+          }
+        }
         // Best-effort may dispatch while the running state is still being
         // retried. If that retry confirms that this claim was lost, stop the
         // active Driver instead of allowing it to overlap the replacement

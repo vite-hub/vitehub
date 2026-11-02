@@ -94,6 +94,8 @@ Use `invocations.getSummary(id)` to read metadata without observation payloads. 
 
 Custom stores must enforce `claim(id, claimId, leaseMs, { expectedClaimIds })` atomically. Unless `replaceExisting` is `true`, this form can claim an unclaimed record or replace one of the listed claim IDs. It must reject a different owner, including an expired claim. Journals rotate the claim ID for handoff and after an uncertain renewal so cleanup of a timed-out attempt cannot release a newer claim. `release(id, claimId)` must release only that claim ID. The memory, libSQL, and D1 stores enforce these rules.
 
+An update with `reopen: true` returns a `failed` record to `pending` and removes its `error` and `failedAt`. Other records stay unchanged. The webhook queue sends it when it retries a delivery whose earlier attempt failed. `applyAgentInvocationStoreUpdate()` applies it. A store that ignores it keeps the record `failed`, and the retry runs without updating the record.
+
 Pass `observationNames` to read only the observations needed for an inspection:
 
 ```ts
