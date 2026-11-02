@@ -45,7 +45,8 @@ const mobileTocUi = {
   // The page body has no top margin, so the outline keeps the space that separates it from the first heading.
   root: "xl:hidden !static !px-0 !mx-0 mb-6",
   container: "!border-s-0 !border-b !border-default !ps-0 !py-3",
-  trigger: "!py-1 text-sm font-medium text-muted",
+  // Touch screens get a 44px toggle.
+  trigger: "!py-1 pointer-coarse:min-h-11 text-sm font-medium text-muted",
   content: "!pb-2",
   link: "!text-muted hover:!text-highlighted",
 }
@@ -100,7 +101,14 @@ const mobileTocUi = {
   width: 100%;
   max-width: calc(var(--vh-content-width) + var(--vh-toc-width) + 6rem);
   margin-inline: auto;
-  padding-inline: 1.25rem;
+  padding-inline: 1rem;
+}
+
+/* Below 40rem this is the only gutter. Wider pages add the page padding around it. */
+@media (min-width: 40rem) {
+  .vh-docs-article {
+    padding-inline: 1.25rem;
+  }
 }
 
 .vh-article-body {
