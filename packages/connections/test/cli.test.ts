@@ -58,6 +58,34 @@ describe("vitehub connections", () => {
     expect(harness.output.stdout + harness.output.stderr).not.toContain(ACCESS_TOKEN)
   })
 
+  it("waits for the sign-in as long as the authorization link works", async () => {
+    const output = { stderr: "", stdout: "" }
+    const context = {
+      env: {},
+      stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) },
+      stdout: { write: (chunk: string | Uint8Array) => (output.stdout += String(chunk)) },
+    }
+    const expiresAt = new Date(Date.now() + 150)
+    const fetch = (async () => Response.json({ expiresAt: expiresAt.toISOString(), state: "state-1", url: "https://auth.example.com/authorize" })) as typeof globalThis.fetch
+    expect(await runConnectionsCli("connect", ["chatgpt", "--url", "http://127.0.0.1:4741", "--port", "47991"], context, { fetch, openBrowser: false })).toBe(1)
+    const until = expiresAt.toTimeString().slice(0, 5)
+    expect(output.stderr).toContain(`The link works one time, until ${until} (0 minutes).\nWaiting for http://127.0.0.1:47991/callback ...\n`)
+    expect(output.stderr).toContain(`The browser did not return to http://127.0.0.1:47991/callback before ${until}, when the link expired. Run \`vitehub connections connect chatgpt\` again.\n`)
+  })
+
+  it("names the fix when the authorization link expired", async () => {
+    const harness = cli()
+    const done = harness.run("connect", ["mail"])
+    await waitFor(() => harness.output.stderr.includes("Waiting for"))
+    expect(harness.output.stderr).toContain("The link works one time, until")
+    const authorization = new URL(harness.output.stderr.match(/https:\/\/auth\.example\.com\/\S+/)![0])
+    harness.test.now.value += 10 * 60_000
+    const redirect = authorization.searchParams.get("redirect_uri")!
+    expect((await fetch(`${redirect}?code=code-1&state=${authorization.searchParams.get("state")}`)).status).toBe(200)
+    expect(await done).toBe(1)
+    expect(harness.output.stderr).toContain("The authorization link expired or was already used. Each link works one time, for 10 minutes. (CONNECTIONS_AUTHORIZATION_EXPIRED)")
+  })
+
   it.each(["list", "inspect"])("preserves public OAuth metadata in JSON %s", async (command) => {
     const harness = cli(createTestRuntime(async () => defineConnection({ provider: { ...testProvider(), mcp: "https://mcp.example.com/mcp" }, scopes: [] })))
     await connect(harness.test)

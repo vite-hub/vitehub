@@ -24,7 +24,7 @@ export interface ConnectionsCliOptions {
   openBrowser?: false | ((url: string) => Promise<void>)
   /** Input for `set-key`. Defaults to `process.stdin`. */
   stdin?: AsyncIterable<string | Uint8Array> & { isTTY?: boolean }
-  /** Seconds to wait for the loopback callback. Defaults to 300. */
+  /** Seconds to wait for the loopback callback. Defaults to the time that the authorization link works, 10 minutes. */
   timeout?: number
   /** Seconds to wait for each answer of the app. Defaults to 30. */
   requestTimeout?: number
@@ -138,7 +138,7 @@ const approvalSchema = v.looseObject({
 })
 const connectionResponse = v.looseObject({ connection: inspectionSchema })
 const approvalResponse = v.looseObject({ approval: approvalSchema, result: v.optional(v.unknown()) })
-const authorizationResponse = v.looseObject({ state: v.string(), url: v.pipe(v.string(), v.url()) })
+const authorizationResponse = v.looseObject({ expiresAt: v.pipe(v.string(), v.isoTimestamp()), state: v.string(), url: v.pipe(v.string(), v.url()) })
 const activityResponse = v.looseObject({ activity: v.array(v.looseObject({
   action: v.string(), actor: v.looseObject({ id: v.string(), kind: v.string() }), id: v.string(),
   operation: v.optional(v.string()), outcome: v.string(), timestamp: v.string(),
@@ -274,14 +274,22 @@ async function connectLoopback(name: string, parsed: ParsedArgs, context: CliCon
     server.once("error", reject)
     server.listen(port(parsed), "127.0.0.1", () => resolve())
   })
-  const timeout = setTimeout(() => rejectCallback(new CliError("Timed out while waiting for the authorization callback.")), (options.timeout ?? 300) * 1_000)
+  let timeout: ReturnType<typeof setTimeout> | undefined
   try {
     const address = server.address()
     if (!address || v.is(v.string(), address)) throw new CliError("Could not start the loopback callback server.")
     const redirectUri = `http://127.0.0.1:${address.port}/callback`
     const authorization = await request(parsed, options, { action: "authorize", name, redirectUri }, authorizationResponse)
     expectedState = authorization.state
-    context.stderr.write(`Open this URL to connect "${name}":\n\n  ${authorization.url}\n\nWaiting for ${redirectUri} ...\n`)
+    // Wait as long as the server accepts the link, so a slow sign-in, such as a passkey step, can still finish.
+    const expiresAt = new Date(authorization.expiresAt)
+    const until = expiresAt.toTimeString().slice(0, 5)
+    timeout = setTimeout(
+      () => rejectCallback(new CliError(`The browser did not return to ${redirectUri} before ${until}, when the link expired. Run \`vitehub connections connect ${name}\` again.`)),
+      options.timeout === undefined ? Math.max(0, expiresAt.getTime() - Date.now()) : options.timeout * 1_000,
+    )
+    const minutes = Math.round((expiresAt.getTime() - Date.now()) / 60_000)
+    context.stderr.write(`Open this URL to connect "${name}":\n\n  ${authorization.url}\n\nThe link works one time, until ${until} (${minutes} minutes).\nWaiting for ${redirectUri} ...\n`)
     if (options.openBrowser !== false) void (options.openBrowser ?? openBrowser)(authorization.url).catch(() => undefined)
     const result = await callback
     return (await request(parsed, options, { action: "complete", ...result }, connectionResponse)).connection
