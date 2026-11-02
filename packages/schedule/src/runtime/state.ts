@@ -5,6 +5,7 @@ import { createMemoryScheduleRunStore } from "./store.ts"
 import type { ScheduleDefinitionRegistry, ScheduleRegistryDefinition, ScheduleRunStore } from "../types.ts"
 
 let runtimeRegistry: ScheduleDefinitionRegistry | undefined
+let processDefinitions: ReadonlyMap<string, ScheduleRegistryDefinition> | undefined
 let runtimeRegistryVersion = 0
 let runStore: ScheduleRunStore | undefined
 const loadedRegistryEntries = new Map<string, ScheduleRegistryDefinition | undefined>()
@@ -27,6 +28,7 @@ function isScheduleDefinition(value: unknown): value is ScheduleRegistryDefiniti
 
 export function setScheduleRuntimeRegistry(registry: ScheduleDefinitionRegistry | undefined): void {
   runtimeRegistry = registry
+  processDefinitions = undefined
   runtimeRegistryVersion++
   loadedRegistryEntries.clear()
   loadingRegistryEntries.clear()
@@ -34,6 +36,14 @@ export function setScheduleRuntimeRegistry(registry: ScheduleDefinitionRegistry 
 
 export function getScheduleRuntimeRegistry(): ScheduleDefinitionRegistry | undefined {
   return runtimeRegistry
+}
+
+export function setProcessScheduleDefinitions(definitions: ReadonlyMap<string, ScheduleRegistryDefinition> | undefined): void {
+  processDefinitions = definitions
+}
+
+export function getProcessScheduleDefinitions(): ReadonlyMap<string, ScheduleRegistryDefinition> | undefined {
+  return processDefinitions
 }
 
 export function setScheduleRunStore(store: ScheduleRunStore | undefined): void {
@@ -94,6 +104,7 @@ export async function loadScheduleDefinition(name: string): Promise<ScheduleRegi
 
 export function resetScheduleRuntime(): void {
   runtimeRegistry = undefined
+  processDefinitions = undefined
   runtimeRegistryVersion++
   runStore = undefined
   loadedRegistryEntries.clear()

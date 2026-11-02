@@ -4,7 +4,7 @@ import { createProcessWakeDriver } from "../internal/process-wake-runtime.ts"
 import { createScheduleError } from "../errors.ts"
 import { isScheduleDue } from "./due.ts"
 import { executeStaticSchedule } from "./execute.ts"
-import { getScheduleRunStore, getScheduleRuntimeRegistry, setScheduleRunStore, setScheduleRuntimeRegistry } from "./state.ts"
+import { getProcessScheduleDefinitions, getScheduleRunStore, getScheduleRuntimeRegistry, setProcessScheduleDefinitions, setScheduleRunStore, setScheduleRuntimeRegistry } from "./state.ts"
 
 import type { ProcessWakeContext } from "../internal/process-wake-runtime.ts"
 import type { ScheduleCronRecord } from "./due.ts"
@@ -88,6 +88,7 @@ function createErrorReporter(onError: ProcessScheduleRuntimeOptions["onError"]):
  */
 export async function installProcessScheduleRuntime(options: ProcessScheduleRuntimeOptions): Promise<ScheduleRuntimeController> {
   const previousRegistry = getScheduleRuntimeRegistry()
+  const previousDefinitions = getProcessScheduleDefinitions()
   const previousScheduleRunStore = getScheduleRunStore()
   const reportError = createErrorReporter(options.onError)
   const pendingWork = new Set<Promise<unknown>>()
@@ -149,9 +150,13 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
       reportError(closeError)
     }
     setScheduleRuntimeRegistry(previousRegistry)
+    setProcessScheduleDefinitions(previousDefinitions)
     setScheduleRunStore(previousScheduleRunStore)
     throw error
   }
+
+  const processDefinitions = new Map([...definitions].map(([name, entry]) => [name, entry.definition]))
+  setProcessScheduleDefinitions(processDefinitions)
 
   let closePromise: Promise<void> | undefined
   return {
@@ -166,6 +171,9 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
           await Promise.allSettled(pendingWork)
         }
         await driver.close()
+        if (getProcessScheduleDefinitions() === processDefinitions) {
+          setProcessScheduleDefinitions(undefined)
+        }
       })()
     },
   }

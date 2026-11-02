@@ -1,4 +1,4 @@
-import { getScheduleRuntimeRegistry, loadScheduleDefinition } from "./state.ts"
+import { getProcessScheduleDefinitions } from "./state.ts"
 
 import type { ViteHubConsoleRecord } from "@vite-hub/internal/console"
 
@@ -13,17 +13,14 @@ export function scheduleConsoleTiming(cron: string, timeZone: string): string {
  * Runtime: provider cron output then uses the static UTC cron that the build checked.
  */
 export async function readScheduleConsoleRecords(): Promise<ViteHubConsoleRecord[]> {
-  const registry = getScheduleRuntimeRegistry()
-  if (!registry) return []
-  const records = await Promise.all(Object.keys(registry).map(async (name): Promise<ViteHubConsoleRecord[]> => {
-    const definition = await loadScheduleDefinition(name)
-    if (!definition) return []
+  const definitions = getProcessScheduleDefinitions()
+  if (!definitions) return []
+  return [...definitions].map(([name, definition]) => {
     const timeZone = definition.timeZone ?? "UTC"
-    return [{
+    return {
       cells: { schedule: name, timing: scheduleConsoleTiming(definition.cron, timeZone) },
       fields: [{ label: "Cron", value: definition.cron }, { label: "Time zone", value: timeZone }],
       id: `definition:${name}`,
-    }]
-  }))
-  return records.flat()
+    }
+  })
 }
