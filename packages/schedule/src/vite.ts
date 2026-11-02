@@ -462,7 +462,7 @@ function renderNitroScheduleModule(options: RenderNitroScheduleModuleOptions): s
   ].join("\n")
   return [
     "import { cp, rm, writeFile } from 'node:fs/promises'",
-    "import { basename, dirname, join } from 'node:path'",
+    "import { join } from 'node:path'",
     "",
     `const crons = ${JSON.stringify(options.crons)}`,
     `const netlifySchedules = ${JSON.stringify(netlifySchedules)}`,
@@ -477,9 +477,9 @@ function renderNitroScheduleModule(options: RenderNitroScheduleModuleOptions): s
     "}",
     "",
     "async function writeNetlifyScheduleFunctions(nitro) {",
-    "  const { dir, serverDir } = nitro.options.output",
-    "  // Older Nitro writes private server output; Netlify discovers only its public functions sibling.",
-    "  const functionsDir = basename(dir) === 'functions-internal' ? join(dirname(dir), 'functions') : dir",
+    "  // Netlify Build reads generated sources from functions-internal or v1/functions, then bundles into functions.",
+    "  // Keeping schedules in Nitro's cleaned output also removes functions for deleted or renamed Schedules.",
+    "  const { dir: functionsDir, serverDir } = nitro.options.output",
     "  for (const { cron, functionName, name } of netlifySchedules) {",
     "    const functionDir = join(functionsDir, functionName)",
     "    await rm(functionDir, { force: true, recursive: true })",
