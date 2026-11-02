@@ -179,7 +179,13 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     const runtime = resolver.resolve("./runtime")
     // Nuxt transpiles the package of the module path it loaded. Through `vite-hub/docs/nuxt` that is `vite-hub`, so the
     // runtime of this package, which imports `#imports`, must be listed itself.
-    nuxt.options.build.transpile.push(resolver.resolve(".."))
+    const packageRoot = resolver.resolve("..")
+    nuxt.options.build.transpile.push(packageRoot)
+    // Nuxt auto-imports composables only outside node_modules. The shell components use them, so an app that installs
+    // this package needs its files included, or they fail with `useRoute is not defined`.
+    const transform = nuxt.options.imports.transform ??= {}
+    transform.include ??= []
+    transform.include.push(new RegExp(`^${packageRoot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/`))
     const contentDir = resolve(nuxt.options.rootDir, options.dir ?? "content")
     const rawDir = join(nuxt.options.buildDir, "docs/raw")
     const config = publicConfig(options, nuxt.options.app.baseURL)

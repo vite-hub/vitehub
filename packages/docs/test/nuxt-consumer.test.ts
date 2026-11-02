@@ -29,6 +29,9 @@ it("sets up the default MCP and discovery resources in a path-mounted Nuxt consu
     // Nuxt exposes Nitro here after modules:done and nitro:config have run.
     const nitro = (nuxt as unknown as { _nitro: Nitro })._nitro
     expect(nitro.options.baseURL).toBe("/portal/")
+    // An installed package is in node_modules, where Nuxt adds no auto-imports unless a pattern includes it.
+    const shell = join(import.meta.dirname, "../dist/runtime/app/app.vue")
+    expect(nuxt.options.imports.transform?.include?.some(pattern => pattern.test(shell))).toBe(true)
     expect(nitro.options.experimental.asyncContext).toBe(true)
     expect((await nitro.unimport?.getImports())?.some(entry => entry.name === "useEvent")).toBe(true)
     expect(nitro.options.runtimeConfig.public.docs).toMatchObject({
