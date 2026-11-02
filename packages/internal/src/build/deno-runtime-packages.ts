@@ -26,15 +26,16 @@ const denoRuntimeTargets = [
   { cpu: "x64", libc: "glibc", os: "linux" },
 ] as const
 
-/** The npm packages that the Nitro server bundle needs at runtime, read from Rolldown's module graph. */
+/** The npm packages that the Nitro server bundle needs at runtime, read from the bundler's module graph. */
 export interface DenoServerPackages {
-  /** Root directories of the packages that Rolldown bundled into the server. */
+  /** Root directories of the packages that the bundler bundled into the server. */
   bundledPackageDirs: string[]
-  /** Bare imports that Rolldown kept external, with the module that imports each one. */
+  /** Package imports that the bundler kept external. */
   externalImports: DenoExternalImport[]
 }
 
 export interface DenoExternalImport {
+  /** The file to resolve the package from: the importing module, or the external file when the bundler kept a resolved path. */
   importer: string
   /** True when a server chunk loads the package with a static `import` statement. */
   required: boolean
@@ -62,7 +63,7 @@ interface ServerBundleChunk {
 }
 
 interface ServerModuleGraph {
-  getModuleInfo(id: string): { dynamicallyImportedIds: readonly string[], importedIds: readonly string[] } | null
+  getModuleInfo(id: string): { code: string | null, dynamicallyImportedIds: readonly string[], importedIds: readonly string[], isExternal?: boolean } | null
 }
 
 /** Records the server bundle's external imports and bundled packages, so the Deno output does not rescan the emitted files. */
@@ -75,11 +76,26 @@ export function denoServerPackagesPlugin(onPackages: (packages: DenoServerPackag
       const bundledPackageDirs = new Set<string>()
       const externalImports: DenoExternalImport[] = []
       for (const id of new Set(chunks.flatMap(chunk => chunk.moduleIds))) {
-        const packageDir = packageDirFromModuleId(id)
-        if (packageDir) bundledPackageDirs.add(packageDir)
+        const bundledPackage = packageFromModuleId(id)
+        if (bundledPackage) bundledPackageDirs.add(bundledPackage.dir)
         const info = this.getModuleInfo(id)
-        for (const specifier of [...info?.importedIds ?? [], ...info?.dynamicallyImportedIds ?? []]) {
-          if (packageNameFromSpecifier(specifier)) externalImports.push({ importer: id, required: staticImports.has(specifier), specifier })
+        const imports = [
+          ...(info?.importedIds ?? []).map(importedId => ({ importedId, static: true })),
+          ...(info?.dynamicallyImportedIds ?? []).map(importedId => ({ importedId, static: false })),
+        ]
+        for (const { importedId, static: isStatic } of imports) {
+          if (packageNameFromSpecifier(importedId)) {
+            externalImports.push({ importer: id, required: staticImports.has(importedId), specifier: importedId })
+            continue
+          }
+          // Nitro can keep an external as its resolved file, such as `file:///app/node_modules/sharp/dist/index.mjs`.
+          // Resolve the package by name from that file, so pnpm selects the same installation.
+          // Rollup marks externals with `isExternal`; Rolldown gives them no code.
+          const importedInfo = this.getModuleInfo(importedId)
+          if (importedInfo && !importedInfo.isExternal && importedInfo.code !== null) continue
+          const file = importedId.startsWith("file:") ? fileURLToPath(importedId) : importedId
+          const externalPackage = isAbsolute(file) ? packageFromModuleId(file) : undefined
+          if (externalPackage) externalImports.push({ importer: file, required: isStatic, specifier: externalPackage.name })
         }
       }
       onPackages({ bundledPackageDirs: [...bundledPackageDirs].sort(), externalImports })
@@ -87,14 +103,15 @@ export function denoServerPackagesPlugin(onPackages: (packages: DenoServerPackag
   }
 }
 
-function packageDirFromModuleId(id: string): string | undefined {
+function packageFromModuleId(id: string): { dir: string, name: string } | undefined {
   if (id.startsWith("\0")) return
   const path = id.replaceAll("\\", "/")
   const index = path.lastIndexOf("/node_modules/")
   if (index < 0) return
   const [first, second] = path.slice(index + "/node_modules/".length).split("/")
   if (!first || (first.startsWith("@") && !second)) return
-  return join(path.slice(0, index), "node_modules", ...first.startsWith("@") ? [first, second!] : [first])
+  const segments = first.startsWith("@") ? [first, second!] : [first]
+  return { dir: join(path.slice(0, index), "node_modules", ...segments), name: segments.join("/") }
 }
 
 function packageNameFromSpecifier(specifier: string): string | undefined {

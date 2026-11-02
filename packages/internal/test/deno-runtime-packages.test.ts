@@ -129,6 +129,34 @@ loader /* receiver */ . /* call */ import(path)
 `, "application entrypoint")).not.toThrow()
   })
 
+  it("records externals that Nitro 2 keeps as resolved files", () => {
+    // Nitro 2's externals plugin can keep an external as its resolved file path or file URL, and Rollup marks it `isExternal`.
+    const entry = "/app/server/api.ts"
+    const sharp = "file:///app/node_modules/.pnpm/sharp@1/node_modules/sharp/dist/index.mjs"
+    const lazy = "/app/node_modules/@scope/lazy/index.js"
+    const shaken = "/app/node_modules/shaken/index.js"
+    const modules = new Map([
+      [entry, { code: "", dynamicallyImportedIds: [lazy], importedIds: [sharp, shaken], isExternal: false }],
+      [sharp, { code: null, dynamicallyImportedIds: [], importedIds: [], isExternal: true }],
+      [lazy, { code: null, dynamicallyImportedIds: [], importedIds: [], isExternal: true }],
+      [shaken, { code: "", dynamicallyImportedIds: [], importedIds: [], isExternal: false }],
+    ])
+    let packages: DenoServerPackages | undefined
+    const plugin = denoServerPackagesPlugin((result) => { packages = result })
+
+    plugin.generateBundle.call({ getModuleInfo: id => modules.get(id) ?? null }, {}, {
+      "index.mjs": { imports: [sharp], moduleIds: [entry], type: "chunk" },
+    })
+
+    expect(packages).toEqual({
+      bundledPackageDirs: [],
+      externalImports: [
+        { importer: "/app/node_modules/.pnpm/sharp@1/node_modules/sharp/dist/index.mjs", required: true, specifier: "sharp" },
+        { importer: lazy, required: false, specifier: "@scope/lazy" },
+      ],
+    })
+  })
+
   it("stages literal imports with import attributes without resolving member calls", async () => {
     const root = await temporaryDirectory("vitehub-deno-import-options-")
     await writeRuntimePackage(root, "data-package")
