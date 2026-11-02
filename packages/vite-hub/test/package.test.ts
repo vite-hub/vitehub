@@ -153,6 +153,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/database/runtime/cloudflare-env",
   "@vite-hub/database/runtime/d1",
   "@vite-hub/database/runtime/default-database",
+  "@vite-hub/database/runtime/default-database-postgresql",
   "@vite-hub/database/runtime/hosted",
   "@vite-hub/database/runtime/migrate-on-start",
   "@vite-hub/database/runtime/postgres",

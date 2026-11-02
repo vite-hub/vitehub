@@ -26,7 +26,7 @@ It answers HTTP 503 with `{"code":"PROVIDER_UNAVAILABLE","error":"AGENT_R1016: T
 
 Without `@openai/codex` in this app, the same request answers `AGENT_R1025` instead. To get answers, install `@openai/codex` in this app and sign in with `corepack pnpm vitehub connections connect chatgpt --url http://127.0.0.1:4731`, with your ChatGPT account. See `playground/chatgpt/README.md`. `corepack pnpm vitehub connections inspect chatgpt --url http://127.0.0.1:4731` shows the grant, and `corepack pnpm vitehub agent info --agent docs` inspects the Agent.
 
-`server/databases/config.ts` is the Database Definition that stores the grant. `vite-hub/nuxt` needs one for Connections; the Vite plugin creates a default Database instead.
+The app has no Database Definition. Connections and the CMS store their data in the implicit `default` Database, and `corepack pnpm vitehub inspect definitions --kind database` shows which plugins need it.
 
 ## Edit pages in the Console
 

@@ -36,6 +36,7 @@ export default defineConfig({
       "src/runtime/agent.ts",
       "src/runtime/d1.ts",
       "src/runtime/default-database.ts",
+      "src/runtime/default-database-postgresql.ts",
       "src/runtime/definition-defaults.ts",
       "src/runtime/definition-hosted.ts",
       "src/runtime/definition-local.ts",

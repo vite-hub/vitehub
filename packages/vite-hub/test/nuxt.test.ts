@@ -940,27 +940,36 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
-  it("gives Nuxt Connections the default Database when the app has no Database Definition", async () => {
+  it("gives Nuxt Connections the implicit default Database when the app has no Database Definition", async () => {
+    const { vitehub } = await vi.importActual<typeof import("../src/index.ts")>("../src/index.ts")
+    mocks.vitehub.mockImplementation((options: Parameters<typeof vitehub>[0]) => vitehub(options).filter(
+      plugin => isTestRecord(plugin) && plugin.name === "@vite-hub/connections/vite",
+    ))
     const application = createNuxt(true)
     const definition = "/tmp/vitehub-nuxt/custom-server/databases/config.ts"
-    const generated = "/tmp/vitehub-nuxt/.vitehub/connections/database.ts"
     await rm(definition, { force: true })
+    await rm("/tmp/vitehub-nuxt/.vitehub/connections/database.ts", { force: true })
     try {
       await viteHubNuxtModule({ preset: "node", connections: true, console: { auth: false } }, application.nuxt)
       const { collectDatabaseContributions } = await import("@vite-hub/database/vite")
-      const collect = () => collectDatabaseContributions(application.nuxt.options.vite.plugins, {
+      const { discoverDatabaseDefinitions, isImplicitDefaultDatabase } = await import("@vite-hub/database/config")
+      const serverDirs = ["/tmp/vitehub-nuxt/custom-server"]
+      const contributions = await collectDatabaseContributions(application.nuxt.options.vite.plugins, {
         projectRoot: "/tmp/vitehub-nuxt",
         root: "/tmp/vitehub-nuxt/app",
         rootDir: "/tmp/vitehub-nuxt",
-        serverDirs: ["/tmp/vitehub-nuxt/custom-server"],
+        serverDirs,
       })
-      expect((await collect()).definitions).toEqual([expect.objectContaining({ definition: generated, name: "default", plugin: "vite-hub/connections-database" })])
-      await expect(readFile(generated, "utf8")).resolves.toContain("export default defineDatabase({ schema: {} })")
+      // Connections ask for the default Database. They do not add a Definition of their own.
+      expect(contributions.definitions).toEqual([])
+      expect(contributions.uses).toEqual([expect.objectContaining({ database: "default", dialect: "sqlite", name: "connections", plugin: "@vite-hub/connections/vite" })])
+      const discover = () => discoverDatabaseDefinitions("/tmp/vitehub-nuxt", { contributions, implicitDefault: true, serverDirs })
+      expect(discover().map(isImplicitDefaultDatabase)).toEqual([true])
+      await expect(readFile("/tmp/vitehub-nuxt/.vitehub/connections/database.ts", "utf8")).rejects.toThrow()
 
       await mkdir(dirname(definition), { recursive: true })
       await writeFile(definition, "export default defineDatabase({ schema: {} })\n")
-      expect((await collect()).definitions).toEqual([])
-      await expect(readFile(generated, "utf8")).rejects.toThrow()
+      expect(discover()).toEqual([expect.objectContaining({ handler: definition, name: "default" })])
     }
     finally {
       await rm(definition, { force: true })
