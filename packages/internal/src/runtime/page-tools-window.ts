@@ -49,7 +49,6 @@ const styles = `
 :host(:is([edge=left],[edge=right])){--start:max(var(--margin),var(--safe-top));--end:max(var(--margin),var(--safe-bottom));--width:calc(100vw - var(--dock) - var(--far));--height:calc(100dvh - var(--start) - var(--end))}
 :host([edge=right]){--dock:calc(max(var(--margin),var(--safe-right)) + var(--thickness,38px) + 8px);--far:max(16px,var(--safe-left))}
 :host([edge=left]){--dock:calc(max(var(--margin),var(--safe-left)) + var(--thickness,38px) + 8px);--far:max(16px,var(--safe-right))}
-@media(any-pointer:coarse){:host{--thickness:54px}.grip{display:none}header :is(button,a){width:44px;height:44px}}
 :host([hidden]){display:none}
 .window{position:absolute;width:min(600px,var(--width));height:min(640px,var(--height));min-width:min(300px,var(--width));min-height:min(240px,var(--height));max-width:var(--width);max-height:var(--height);display:flex;flex-direction:column;pointer-events:auto;background:var(--surface);border-radius:12px;box-shadow:0 0 0 1px light-dark(rgb(0 0 0/8%),rgb(255 255 255/10%)),0 2px 4px light-dark(rgb(0 0 0/4%),rgb(0 0 0/24%)),0 16px 40px -8px light-dark(rgb(0 0 0/18%),rgb(0 0 0/56%));outline:none;transition:opacity 200ms cubic-bezier(.23,1,.32,1),scale 200ms cubic-bezier(.23,1,.32,1)}
 :host([edge=bottom]) .window{bottom:var(--dock);left:var(--along);translate:var(--shift) 0;transform-origin:calc(var(--at) * 1%) 100%}
@@ -73,6 +72,7 @@ header :is(button,a){display:grid;place-items:center;width:32px;height:32px;bord
 header a[hidden]{display:none}
 @media(hover:hover){header :is(button,a):hover{background:var(--hover);color:var(--text)}}
 header :is(button,a):focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+@media(any-pointer:coarse){:host{--thickness:54px}.grip{display:none}header :is(button,a){width:44px;height:44px}}
 .body{flex:1;min-height:0;overflow:auto;position:relative}iframe{display:block;border:0;width:100%;height:100%;background:var(--surface)}
 @media(max-width:640px){:host([edge]) .window,:host([edge]) .window.expanded{inset:var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);translate:none;width:auto!important;height:auto!important;max-width:none;max-height:none;min-width:0;min-height:0;border-radius:0}:host([edge=bottom]) :is(.window,.window.expanded){bottom:var(--dock)}:host([edge=top]) :is(.window,.window.expanded){top:var(--dock)}:host([edge=right]) :is(.window,.window.expanded){right:var(--dock)}:host([edge=left]) :is(.window,.window.expanded){left:var(--dock)}:host(:is([edge=top],[edge=bottom])) .window:not(.expanded){left:var(--start);right:var(--end)}:host(:is([edge=left],[edge=right])) .window:not(.expanded){top:var(--start);bottom:var(--end)}.grip{display:none}header :is(button,a){width:44px;height:44px}.expand{display:none}}
 @media(prefers-reduced-motion:reduce){:host,.window{transition:none}}
