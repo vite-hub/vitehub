@@ -125,7 +125,7 @@ export function renderContentRobots(options: { site?: string, sitemap?: boolean,
 function markdownCopyPage(path: string): string | undefined {
   const pathname = path.split(/[?#]/, 1)[0]!
   if (!pathname.endsWith(".md")) return
-  return pathname.slice(0, -3).replace(/(^|\/)index$/, "/")
+  return pathname === "/index.md" ? "/" : pathname.slice(0, -3)
 }
 
 function stringField(data: unknown, field: string | undefined): string | undefined {
@@ -139,12 +139,17 @@ function absoluteLinks(markdown: string, site: string | undefined): string {
   if (!site) return markdown
   let fence: string | undefined
   return markdown.split("\n").map((line) => {
-    const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1]
-    if (marker && (!fence || (marker[0] === fence[0] && marker.length >= fence.length))) {
-      fence = fence ? undefined : marker
+    if (fence) {
+      const closing = /^ {0,3}(`{3,}|~{3,})[ \t]*\r?$/.exec(line)?.[1]
+      if (closing && closing[0] === fence[0] && closing.length >= fence.length) fence = undefined
       return line
     }
-    return fence ? line : line.replace(/\]\(\/(?!\/)/g, `](${site}/`)
+    const opening = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1]
+    if (opening) {
+      fence = opening
+      return line
+    }
+    return line.replace(/\]\(\/(?!\/)/g, `](${site}/`)
   }).join("\n")
 }
 
@@ -170,7 +175,7 @@ export async function contentMarkdownCopy(runtime: Pick<ContentCollectionsRuntim
   const resolved = await runtime.resolve(page, { ref: "published" }) ?? await routedSingleton(runtime.collections.values(), page)
   if (!resolved) return null
   const collection = runtime.collection(resolved.collection)
-  if (collection.format !== "markdown") return null
+  if (!collection.routable || collection.format !== "markdown") return null
   const document = await collection.get(resolved.id, { ref: "published" })
   if (!document) return null
   const seo: unknown = collection.seo ? document.data[collection.seo] : undefined

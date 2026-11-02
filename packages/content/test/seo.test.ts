@@ -309,6 +309,48 @@ describe("sitemap and robots", { timeout: 30_000 }, () => {
     expect(await (await app.request("https://example.com/blog/guide.md", { method: "POST" })).text()).toBe("page")
   })
 
+  it("preserves explicit document URLs ending in /index", async () => {
+    const content = await site({ markdown: true })
+    await content.collection("posts").save("index", { data: { title: "Blog index" }, body: "Posts." })
+    await content.publish({ ids: ["index"], collection: "posts" })
+
+    expect(await content.markdown("/blog/index.md")).toBe("# Blog index\n\nPosts.\n")
+    expect(await content.markdown("/index.md")).toBe("# Home\n")
+  })
+
+  it("does not expose Markdown collections without a public URL", async () => {
+    const content = defineContent({
+      workspace: await historyWorkspace(),
+      collections: { notes: documents({ path: "notes/*.md", fields: { title: z.string() } }) },
+      seo: { markdown: true },
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    await content.collection("notes").save("a", { data: { title: "Private note" }, body: "Unrouted." })
+    await content.publish({ ids: ["a"], collection: "notes" })
+
+    expect(await content.resolve("/a", { ref: "published" })).toMatchObject({ collection: "notes", id: "a" })
+    expect(await content.markdown("/a.md")).toBeNull()
+    const app = new H3().use(defineContentMarkdownHandler(content)).all("/**", () => "page")
+    expect(await (await app.request("https://example.com/a.md")).text()).toBe("page")
+  })
+
+  it.each([
+    ["```", "```not-a-close"],
+    ["~~~", "~~~not-a-close"],
+    ["```", "    ```"],
+    ["~~~", "\t~~~"],
+    ["````", "```"],
+    ["```", "~~~"],
+  ])("keeps links inside a %s fence after an invalid closer %j", async (fence, invalidCloser) => {
+    const content = await site({ site: "https://example.com", markdown: true })
+    const body = `Before [link](/before).\n\n${fence}md\n${invalidCloser}\n[code](/inside)\n   ${fence} \t\n\nAfter [link](/after).`
+    await content.collection("posts").save("fenced", { data: { title: "Fenced" }, body })
+    await content.publish({ ids: ["fenced"], collection: "posts" })
+
+    expect(await content.markdown("/blog/fenced.md")).toBe(`# Fenced\n\n${body.replace("](/before)", "](https://example.com/before)").replace("](/after)", "](https://example.com/after)")}\n`)
+  })
+
   it("answers 404 for routes that seo does not turn on and rejects invalid options", async () => {
     const content = await site({ site: "https://example.com" })
     const app = new H3().get("/sitemap.xml", defineContentSitemapHandler(content)).get("/robots.txt", defineContentRobotsHandler(content))
