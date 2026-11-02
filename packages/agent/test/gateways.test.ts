@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { discoverAgentGatewayEnv } from "../src/channel-env-discovery.ts"
 import { anthropic, cliproxy, cloudflare, cloudflareAccess, defineAiGateway, litellm, ollama, openai, openrouter, typesafe, vercel } from "@vite-hub/gateways"
-import { createAgentInspectionMetadata, defineAgent } from "../src/index.ts"
+import { claudeCodeDriver, codexDriver, createAgentInspectionMetadata, defineAgent } from "../src/index.ts"
 import { languageModel } from "@vite-hub/gateways/ai-sdk"
 import { normalizeAgentDriver } from "../src/internal/agent-driver.ts"
 import { materializeAgentModel } from "../src/internal/agent-model.ts"
@@ -188,7 +188,7 @@ describe("gateway Server Env", () => {
       await writeFile(join(root, "server", "agents", "dev", "agent.ts"), [
         `import { defineAgent } from "vite-hub/agent"`,
         `import { cliproxy, cloudflareAccess as access } from "vite-hub/gateways"`,
-        `export default defineAgent({ driver: { kind: "codex", gateway: cliproxy({ headers: access() }) } })`,
+        `export default defineAgent({ driver: codexDriver({ gateway: cliproxy({ headers: access() }) }) })`,
       ].join("\n"))
       await mkdir(join(root, "server", "agents", "labels"), { recursive: true })
       await writeFile(join(root, "server", "agents", "labels", "agent.ts"), [
@@ -200,7 +200,7 @@ describe("gateway Server Env", () => {
       await writeFile(join(root, "server", "agents", "plain", "agent.ts"), [
         `import { defineAgent } from "vite-hub/agent"`,
         `const vercel = () => ({})`,
-        `export default defineAgent({ driver: { kind: "codex", gateway: vercel() } })`,
+        `export default defineAgent({ driver: codexDriver({ gateway: vercel() }) })`,
       ].join("\n"))
 
       expect(discoverAgentGatewayEnv({ rootDir: root })).toEqual({
@@ -238,7 +238,7 @@ describe("AI SDK models through a gateway", () => {
 
 describe("driver.gateway", () => {
   it("replaces inherited Codex credentials and reports the gateway", () => {
-    const parent = defineAgent({ name: "stable", driver: { kind: "codex", credentials: () => "{}" } })
+    const parent = defineAgent({ name: "stable", driver: codexDriver({ credentials: () => "{}" }) })
     const agent = defineAgent({ extends: parent, name: "dev", driver: { gateway: cliproxy({ url: "https://proxy.example", apiKey: "k" }) } })
     const metadata = createAgentInspectionMetadata(agent).config?.driver
     expect(metadata?.provider).toMatchObject({ gateway: "cliproxy" })
@@ -247,34 +247,34 @@ describe("driver.gateway", () => {
   })
 
   it("skips credential-only rules for credentials that a gateway replaces", () => {
-    const parent = defineAgent({ name: "stable", driver: { kind: "codex", credentials: () => "{}", credentialProfile: "stable" } })
+    const parent = defineAgent({ name: "stable", driver: codexDriver({ credentials: () => "{}", credentialProfile: "stable" }) })
     expect(() => defineAgent({
       extends: parent,
       name: "dev",
       driver: { gateway: cliproxy({ url: "https://proxy.example", apiKey: "k" }), providerSettings: { shadowHomePath: "/tmp/codex" }, env: { CODEX_HOME: "/tmp/codex" } },
     })).not.toThrow()
-    const child = defineAgent({ extends: defineAgent({ name: "stable", driver: { kind: "codex", credentials: () => "{}" } }), name: "dev", driver: { gateway: cliproxy({ url: "https://proxy.example", apiKey: "k" }), sessionStorePath: ".vitehub/sessions.db" } })
+    const child = defineAgent({ extends: defineAgent({ name: "stable", driver: codexDriver({ credentials: () => "{}" }) }), name: "dev", driver: { gateway: cliproxy({ url: "https://proxy.example", apiKey: "k" }), sessionStorePath: ".vitehub/sessions.db" } })
     expect(createAgentInspectionMetadata(child).config?.driver.provider).toMatchObject({ gateway: "cliproxy", sessionStore: "sqlite" })
   })
 
   it("rejects a gateway that does not serve the Driver", () => {
     // @ts-expect-error The Claude Code Driver type accepts only gateways with a claude-code URL.
-    expect(() => defineAgent({ driver: { kind: "claude-code", gateway: openai() } })).toThrow('Gateway "openai" does not serve the claude-code Driver')
+    expect(() => defineAgent({ driver: claudeCodeDriver({ gateway: openai() }) })).toThrow('Gateway "openai" does not serve the claude-code Driver')
     // @ts-expect-error The Codex Driver type accepts only gateways with a codex URL.
-    expect(() => defineAgent({ driver: { kind: "codex", gateway: typesafe({ apiKey: "k" }) } })).toThrow('Gateway "typesafe" does not serve the codex Driver')
+    expect(() => defineAgent({ driver: codexDriver({ gateway: typesafe({ apiKey: "k" }) }) })).toThrow('Gateway "typesafe" does not serve the codex Driver')
     // @ts-expect-error cloudflare() serves AI SDK models and ask(), not Drivers.
-    expect(() => defineAgent({ driver: { kind: "codex", gateway: cloudflare({ typesafeApiKey: "k" }) } })).toThrow('Gateway "cloudflare" does not serve the codex Driver')
+    expect(() => defineAgent({ driver: codexDriver({ gateway: cloudflare({ typesafeApiKey: "k" }) }) })).toThrow('Gateway "cloudflare" does not serve the codex Driver')
   })
 
   it("routes Driver requests through a gateway that also answers Jev questions", async () => {
     const gateway = vercel({ apiKey: "gateway-key" })
-    expect(() => defineAgent({ driver: { kind: "codex", gateway } })).not.toThrow()
+    expect(() => defineAgent({ driver: codexDriver({ gateway }) })).not.toThrow()
     expect((await resolveAgentDriverGateway(gateway, "codex", context)).environment).toEqual({ VITEHUB_GATEWAY_API_KEY: "gateway-key" })
   })
 
   it("rejects driver.env values that the gateway owns", () => {
     expect(() => normalizeAgentDriver({
-      driver: { kind: "claude-code", env: { ANTHROPIC_BASE_URL: "https://other.example" }, gateway: vercel() },
+      driver: claudeCodeDriver({ env: { ANTHROPIC_BASE_URL: "https://other.example" }, gateway: vercel() }),
     })).toThrow("driver.gateway }) sets ANTHROPIC_BASE_URL")
   })
 

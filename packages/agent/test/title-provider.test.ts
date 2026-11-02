@@ -31,7 +31,7 @@ import { codexLaunchArgs } from "../src/internal/codex-launch-args.ts";
 import type { AgentProviderEnvironmentResolver } from "../src/types.ts";
 import { isAgentTypeDiagnostic } from "../src/agent-diagnostics.ts";
 import { title } from "../src/capabilities.ts";
-import { createMessage, defineAgent, runAgent } from "../src/index.ts";
+import { claudeCodeDriver, codexDriver, createMessage, defineAgent, runAgent } from "../src/index.ts";
 
 describe("title provider inheritance", () => {
   it.each([0, -1, 0.5, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 2_147_483_648])(
@@ -87,7 +87,7 @@ describe("title provider inheritance", () => {
     const finish = vi.fn();
     const agent = defineAgent({
       capabilities: [title({ model: resolver ? resolveModel : model })],
-      driver: { kind: "codex", model: "gpt-main" },
+      driver: codexDriver({ model: "gpt-main" }),
       hooks: { "agent:finish": finish },
     });
     await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
@@ -105,7 +105,7 @@ describe("title provider inheritance", () => {
   it.each([undefined, "claude-title"])("rejects reasoning overrides for inherited Claude with model %s", async (model) => {
     const agent = defineAgent({
       capabilities: [title({ model, reasoningEffort: "high" })],
-      driver: { kind: "claude-code", model: "claude-main" },
+      driver: claudeCodeDriver({ model: "claude-main" }),
     });
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
       messages: [createMessage({ role: "user", text: "Explain model routing" })],
@@ -139,17 +139,16 @@ describe("title provider inheritance", () => {
       const finish = vi.fn();
       const agent = defineAgent({
         capabilities: [title(titleOptions)],
-        driver: {
+        driver: codexDriver({
           credentials,
           credentialProfile: "primary-profile",
           instructions: "Primary agent policy",
           env: environment,
-          kind: "codex",
           launch: { args: ["codex"], command: "ssh" },
           model: "gpt-main",
           permissions: "allow-all",
           reasoningEffort,
-        },
+        }),
         hooks: { "agent:finish": finish },
       });
 

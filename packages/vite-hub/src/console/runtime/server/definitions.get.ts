@@ -23,10 +23,26 @@ async function readRuntimeRecords(reader: () => readonly ConsoleRecord[] | Promi
   }
 }
 
-/** Build-time records come first. A runtime record replaces the build-time record with the same id. */
+/** A runtime cell or field replaces the build-time one with the same key or label. The others stay. */
+function updateRecord(build: ConsoleRecord, runtime: ConsoleRecord): ConsoleRecord {
+  const fields = [
+    ...build.fields.map(field => runtime.fields.find(entry => entry.label === field.label) ?? field),
+    ...runtime.fields.filter(field => !build.fields.some(entry => entry.label === field.label)),
+  ]
+  return { ...build, ...runtime, cells: { ...build.cells, ...runtime.cells }, fields }
+}
+
+/** Build-time records come first. A runtime record updates the build-time record with the same id. */
 function mergeRecords(build: readonly ConsoleRecord[], runtime: readonly ConsoleRecord[]): ConsoleRecord[] {
-  const runtimeIds = new Set(runtime.map(record => record.id))
-  return [...build.filter(record => !runtimeIds.has(record.id)), ...runtime]
+  const runtimeById = new Map(runtime.map(record => [record.id, record]))
+  const buildIds = new Set(build.map(record => record.id))
+  return [
+    ...build.map((record) => {
+      const update = runtimeById.get(record.id)
+      return update ? updateRecord(record, update) : record
+    }),
+    ...runtime.filter(record => !buildIds.has(record.id)),
+  ]
 }
 
 function markRunnableSchedules(records: readonly ConsoleRecord[]): ConsoleRecord[] {

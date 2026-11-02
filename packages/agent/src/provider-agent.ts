@@ -1498,7 +1498,7 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
   if (isChatGPTGateway(options.gateway)) {
     const status = await inspectChatGPTGateway(options.gateway, context)
     return resolveInstalledProviderExecutable("codex") ? status
-      : withProviderStatusError({ ...status, readiness: "unavailable", reason: "Install @openai/codex in this app so the ChatGPT gateway can launch Codex." }, agentDiagnostics.AGENT_R1025())
+      : withProviderStatusError({ ...status, readiness: "unavailable", reason: "Install @openai/codex in this app so the ChatGPT gateway can launch Codex." }, agentDiagnostics.AGENT_R1026())
   }
   const checkRequirements = inspectionOptions.checkRequirements !== false
   // The toolchain exists only after an invocation prepares its checkout.
@@ -3354,7 +3354,7 @@ async function* runProvider<
       })
     }
     const providerExecutable = options.providerSettings?.binaryPath ?? resolveInstalledProviderExecutable(options.provider)
-    if (gateway?.chatgpt && !providerExecutable) throw agentDiagnostics.AGENT_R1025()
+    if (gateway?.chatgpt && !providerExecutable) throw agentDiagnostics.AGENT_R1026()
     const providerCommand = providerExecutable === undefined || (hasRuntimeType(providerExecutable, "string") && !providerExecutable.trim())
       ? (options.provider === "codex" ? "codex" : "claude")
       : providerExecutable

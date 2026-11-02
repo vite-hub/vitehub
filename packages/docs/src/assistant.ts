@@ -1,4 +1,4 @@
-import { defineAgent } from "@vite-hub/agent"
+import { codexDriver, defineAgent } from "@vite-hub/agent"
 import { rateLimit } from "@vite-hub/agent/capabilities"
 import { webChat } from "@vite-hub/agent/channels"
 import { chatgpt } from "@vite-hub/gateways"
@@ -84,14 +84,13 @@ export function docsRateLimit(options: DocsRateLimitOptions = {}): AgentCapabili
  */
 export const docsAssistant: WorkspaceAgentDefinition = defineAgent({
   description: "Answers reader questions from the documentation pages.",
-  driver: {
-    kind: "codex",
+  driver: codexDriver({
     gateway: chatgpt(),
     // Readers cannot approve provider actions. Codex works without prompts in its sandbox, and the read-only
     // Workspace discards every file change after the Invocation.
     permissions: "allow-edits-unattended",
     instructions: { template: [docsInstructions, currentPageInstructions] },
-  },
+  }),
   workspace: {
     mode: "read",
     sourceRootDir: process.cwd(),

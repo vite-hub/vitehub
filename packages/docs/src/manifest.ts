@@ -4,7 +4,7 @@ import { dirname, join, relative } from "node:path"
 import { parse as parseYaml } from "yaml"
 import { parseFrontmatter } from "comark/parse"
 
-import { normalizeDocsBase } from "./navigation.ts"
+import { docsManifestPages, normalizeDocsBase } from "./navigation.ts"
 import { docsPageOf, docsPagePath } from "./page.ts"
 import { docsFrontmatter, docsPageSchema, docsSectionSchema } from "./schema.ts"
 
@@ -43,12 +43,19 @@ export function createDocsManifest(options: DocsManifestOptions): DocsManifest {
     .filter(file => !isInside(file, baseDir) || (dirname(file) === dirname(rootFile) && file !== rootFile))
     .map(file => readPage(options.dir, file, "", docsPagePath(relative(options.dir, file))))
     .sort((left, right) => left.path.localeCompare(right.path))
-  return {
+  const manifest: DocsManifest = {
     base,
     root: existsSync(rootFile) ? readPage(options.dir, rootFile, "index", base) : null,
     sections,
     pages,
   }
+  const paths = new Map<string, string>()
+  for (const page of docsManifestPages(manifest)) {
+    const existing = paths.get(page.path)
+    if (existing) throw new DocsContentError(join(options.dir, page.file), [{ path: ["path"], message: `${page.path} is also produced by ${existing}` }])
+    paths.set(page.path, page.file)
+  }
+  return manifest
 }
 
 function readSection(dir: string, base: string, id: string, index: number): DocsSection {

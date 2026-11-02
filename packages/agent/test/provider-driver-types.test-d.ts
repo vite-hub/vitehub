@@ -21,9 +21,9 @@ describe("provider Agent Driver types", () => {
 
   it("accepts retention only on the Codex Driver", () => {
     codexDriver({ retention: { maxAge: "14d", maxRecords: 500, maxSize: "45%" } })
-    defineAgent({ driver: { kind: "codex", retention: { maxSize: "2 GB" } } })
+    defineAgent({ driver: codexDriver({ retention: { maxSize: "2 GB" } }) })
     // @ts-expect-error Claude Code keeps no Codex home.
-    defineAgent({ driver: { kind: "claude-code", retention: { maxSize: "45%" } } })
+    defineAgent({ driver: claudeCodeDriver({ retention: { maxSize: "45%" } }) })
     // @ts-expect-error A size needs a unit or a percent.
     codexDriver({ retention: { maxSize: "45" } })
     // @ts-expect-error A model Driver has no provider home.
@@ -31,8 +31,8 @@ describe("provider Agent Driver types", () => {
   })
 
   it("accepts omitted permissions and explicit full access for both built-in providers", () => {
-    const defaultCodex = { kind: "codex" } satisfies BuiltInAgentDriver
-    const defaultClaude = { kind: "claude-code" } satisfies BuiltInAgentDriver
+    const defaultCodex = codexDriver() satisfies BuiltInAgentDriver
+    const defaultClaude = claudeCodeDriver() satisfies BuiltInAgentDriver
     const fullAccessCodex = codexDriver({ permissions: "allow-all" })
     const fullAccessClaude = claudeCodeDriver({ permissions: "allow-all" })
     const configuredCodex = codexDriver({

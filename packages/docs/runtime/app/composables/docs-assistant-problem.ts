@@ -27,7 +27,7 @@ export function docsAssistantProblem(error: Error | string, origin: string): Doc
         command: `pnpm vitehub connections connect ${connection} --url ${origin}`,
       }
     }
-    case "AGENT_R1025":
+    case "AGENT_R1026":
       return {
         code,
         title: "Install Codex",
