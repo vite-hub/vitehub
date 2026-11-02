@@ -54,6 +54,7 @@ import { unavailableServicesPlugin } from "./unavailable-services.ts"
 import { operationsCheckPlugin } from "./operations-check.ts"
 import { consoleAuthConfig, consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
 import { includedNitro } from "./nitro-plugin.ts"
+import { nitroStartupChunks } from "./internal/nitro-startup-chunks.ts"
 import { detectPreset } from "./deployment.ts"
 import { nitroOrderPlugins } from "./nitro-order.ts"
 import { viteHubTaskPlugin } from "./task/vite.ts"
@@ -1357,6 +1358,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   plugins.push(nitroCacheBypass())
   // Lets CommonJS dependencies run in the workerd dev server of the Cloudflare presets.
   plugins.push(nitroWorkerdDependencies())
+  // Keeps packages that load on demand, such as Chat adapters, out of the chunks that the server loads at startup.
+  plugins.push(nitroStartupChunks())
   plugins.push(viteHubTypesPlugin({
     additionalProjectRoots: options.connections && options.connections !== true && options.connections.projectRoot ? [options.connections.projectRoot] : [],
     prepareSources: sourcePlugin.api.prepareSources,
