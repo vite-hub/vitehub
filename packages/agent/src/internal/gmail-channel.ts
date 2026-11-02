@@ -903,15 +903,25 @@ export interface GmailMailboxSync {
   client: GmailClient
   /** Starts one Invocation per message with a stable Invocation ID. */
   dispatch: (messages: GmailMessage[]) => Promise<ReplayChannelResult>
-  /** History ID from the push notification. The first notification starts the cursor at it. */
-  notificationHistoryId: string
+  /**
+   * Where the cursor starts when none is stored: the history ID of the push notification, or a function that reads the
+   * current one for a poll. It is read only on the first sync.
+   */
+  notificationHistoryId: string | (() => Promise<string>)
   state: AgentChannelStateBinding
+  /** Reject on mailbox contention or after saving the retry checkpoint when message Invocations fail. */
+  throwOnDispatchFailure?: boolean
   /** Pub/Sub topic of the watch. The sync renews the watch when it expires within a day. */
   topic?: string
 }
 
 export async function gmailMailboxAddress(client: GmailClient): Promise<string> {
   return (await gmailRequest(client, profileSchema, { method: "GET", path: "profile" })).emailAddress
+}
+
+/** The current history ID of the mailbox. A poll starts the cursor at it, like the first push. */
+export async function gmailMailboxHistoryId(client: GmailClient): Promise<string> {
+  return (await gmailRequest(client, profileSchema, { method: "GET", path: "profile" })).historyId
 }
 
 interface GmailSyncProgress {
@@ -934,13 +944,14 @@ async function syncMailboxOnce(sync: GmailMailboxSync, cursorKey: string, renew:
   const seenKey = `${state.keyPrefix}sync-seen-ids`
   const cursor = await state.state.get<string>(cursorKey)
   if (!cursor) {
+    const historyId = hasRuntimeType(sync.notificationHistoryId, "string") ? sync.notificationHistoryId : await sync.notificationHistoryId()
     await renew()
     await mutate([
-      { key: cursorKey, type: "set", value: sync.notificationHistoryId },
+      { key: cursorKey, type: "set", value: historyId },
       { key: progressKey, type: "delete" },
       { key: seenKey, type: "delete" },
     ])
-    log("cursor.initialized", { historyId: sync.notificationHistoryId })
+    log("cursor.initialized", { historyId })
     return false
   }
   const stored = await state.state.get<GmailSyncProgress>(progressKey)
@@ -1045,7 +1056,10 @@ async function syncMailboxOnce(sync: GmailMailboxSync, cursorKey: string, renew:
     await dispatchMessageIds(progress.pendingIds)
     await save({ ...progress, pageToken: progress.nextPageToken, nextPageToken: undefined, pageLoaded: false, done: !progress.nextPageToken })
   }
-  if (progress.retryIds.length) return false
+  if (progress.retryIds.length) {
+    if (sync.throwOnDispatchFailure) throw new Error(`Gmail message dispatch failed for ${progress.retryIds.length} message(s); saved for retry.`)
+    return false
+  }
   if (progress.mode === "recovery") log("history.expired", { historyId: cursor, recovered: seen.size })
   // Completion and checkpoint cleanup commit only while this worker owns the mailbox lease.
   await renew()
@@ -1075,7 +1089,10 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<void> {
     await state.set(pendingKey, true)
     // The holder may have released the lock before it saw the pending mark.
     lock = await state.acquireLock(lockKey, syncLockTtlMs)
-    if (!lock) return
+    if (!lock) {
+      if (sync.throwOnDispatchFailure) throw new Error("Gmail mailbox synchronization is already running; retry polling after it completes.")
+      return
+    }
   }
   const failures: unknown[] = []
   for (;;) {

@@ -7,11 +7,18 @@ export type AgentRegistryMetadata = Record<string, { name: string, workspace?: s
 // `imports` field, which happens in `vite dev` because ViteHub loads this package without Vite there.
 let registry: AgentRegistry = {}
 let metadata: AgentRegistryMetadata = {}
+let channelsHostLoader: (() => Promise<void>) | undefined
 
 export { metadata, registry as default }
 
+/** Loads the generated Channel host when Node loads the Agent package outside Vite. */
+export async function loadChannelsHost(): Promise<void> {
+  await channelsHostLoader?.()
+}
+
 /** Hands the generated registry to the Agent package. The `vite dev` Nitro plugin calls this at startup and after each reload. */
-export function installAgentRegistry(module: { default: AgentRegistry, metadata: AgentRegistryMetadata }): void {
+export function installAgentRegistry(module: { default: AgentRegistry, metadata: AgentRegistryMetadata, loadChannelsHost?: () => Promise<void> }): void {
   registry = module.default
   metadata = module.metadata
+  channelsHostLoader = module.loadChannelsHost
 }

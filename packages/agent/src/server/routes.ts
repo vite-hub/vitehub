@@ -203,6 +203,8 @@ const webhookInboxReceivedAt = Symbol("webhookInboxReceivedAt")
 
 export interface AgentChannelWebhookRouteOptions extends AgentRouteRuntimeOptions {
   agentName?: string
+  /** Explicit host context for trusted polling calls. */
+  runtimeContext?: AgentRuntimeContext
   state?: AgentChatStateResolver<ViteAgentRouteRuntimeConfig>
   webhookState?: AgentWebhookStateResolver<ViteAgentRouteRuntimeConfig>
 }
@@ -229,6 +231,12 @@ export interface AgentChannelWebhookRouteHandler {
    */
   threads(request: Request, input: { channel: string, invokers?: boolean }, options?: AgentChannelWebhookRouteOptions): Promise<AgentChannelThread[]>
   deliveries(request: Request, webhook?: string, options?: AgentChannelWebhookRouteOptions & { limit?: number }): Promise<AgentChannelDeliveryInspection[]>
+  /**
+   * Runs the `poll` trigger of each Channel of the Agent that is `channel`, with the Channel State that its webhook route
+   * uses, and waits for its work. Returns the IDs of the polled Channels. It checks nothing about the caller, so only
+   * trusted code, such as a Schedule, may call it.
+   */
+  poll(request: Request, channel: AgentChannelDefinition, options?: AgentChannelWebhookRouteOptions): Promise<string[]>
   resume(options?: AgentChannelWebhookResumeOptions): () => Promise<void>
   /**
    * Builds what the first delivery would otherwise build: the trigger registrations, the webhook secrets,
@@ -9945,14 +9953,15 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       return [...channels.values()]
     })
   }
-  const channelContext = async (request: Request, handlerOptions: AgentChannelWebhookRouteOptions) => createRuntimeContext(
+  const channelContext = async (request: Request, handlerOptions: AgentChannelWebhookRouteOptions, runtimeContext?: AgentRuntimeContext) => createRuntimeContext(
     request,
     undefined,
-    await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
+    await resolveRuntimeWaitUntil(runtimeContext?.waitUntil ?? handlerOptions.waitUntil),
     handlerOptions.cloudflare,
     handlerOptions.runtime,
     handlerOptions.capabilities,
     routeAgentIdentity(handlerOptions),
+    runtimeContext,
   )
   const channelRegistration = async (context: ViteAgentRouteRuntimeContext, channel: string) => {
     const match = (await agentWebhookRegistrations(agent, context)).find(({ registration }) => (registration.channelId || registration.id || registration.provider) === channel)
@@ -9976,6 +9985,38 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       const origin = chatRegistrationOrigin(registration)
       return await channelJournalThreads(agent, context, origin, input.invokers === true)
     })
+  }
+  handler.poll = async (request, channel, handlerOptions = {}) => {
+    const channelIds = Object.entries(agentChannelOptions(agent)).flatMap(([id, candidate]) => candidate === channel ? [id] : [])
+    if (!channelIds.length) return []
+    const context = await channelContext(request, handlerOptions, handlerOptions.runtimeContext)
+    try {
+      await runWithRuntimeCloudflareEnv(context, async () => {
+        const registrations = await agentWebhookRegistrations(agent, context)
+        for (const channelId of channelIds) {
+          const registration = registrations.find(({ registration }) => registration.channelId === channelId)?.registration
+          if (!registration) throw new ChannelUnknownError(`Channel ${JSON.stringify(channelId)} has no webhook route.`)
+          // The same State and key prefix as the webhook route, so a poll and a push share the cursor and its lock.
+          const webhookState = await resolveAgentWebhookState(context, registration, handlerOptions)
+          const channelState = webhookState ?? await (async () => {
+            const chatState = await resolveChatState(getChannelChatOptions(agent, channelId, getAgentChatOptions(agent)), context, registration, handlerOptions)
+            return { keyPrefix: chatState.titleKeyPrefix, state: chatState.state }
+          })()
+          if (registration.durableState && !isDurableAgentState(channelState.state)) {
+            throw new ChannelStateUnavailableError("This Channel requires durable State. Configure persistent SQLite/libSQL storage or Cloudflare Durable Objects.")
+          }
+          await channelState.state.connect()
+          bindAgentChannelTriggerState(context.request, channelId, { keyPrefix: `${channelState.keyPrefix}channel-state:`, state: channelState.state })
+          const trigger = (await resolveAgentTriggers(agent as never, context as never))[`${channelId}.poll`]
+          if (!trigger) throw new ChannelUnknownError(`Channel ${JSON.stringify(channelId)} has no poll trigger.`)
+          await trigger.invoke(undefined)
+        }
+      })
+    }
+    finally {
+      await context.flushWaitUntil?.()
+    }
+    return channelIds
   }
   handler.deliveries = async (request, webhook, handlerOptions = {}) => {
     const webhookId = webhook === undefined ? fallbackWebhookFromRequest(request) : webhook

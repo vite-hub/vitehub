@@ -40,6 +40,23 @@ describe("Agent package in vite dev", () => {
     expect(stdout).toBe("true")
   })
 
+  it("loads the installed Channel host through the native registry and replaces it on reload", async () => {
+    const { stdout } = await execFileAsync(process.execPath, ["--input-type=module", "--eval", `
+      import { loadChannelsHost } from "#vitehub/agent/registry"
+      import { installAgentRegistry } from "@vite-hub/agent/server/registry"
+      const calls = []
+      await loadChannelsHost()
+      for (const name of ["first", "second"]) {
+        installAgentRegistry({ default: {}, metadata: {}, loadChannelsHost: async () => { calls.push(name) } })
+        await loadChannelsHost()
+      }
+      installAgentRegistry({ default: {}, metadata: {} })
+      await loadChannelsHost()
+      process.stdout.write(JSON.stringify(calls))
+    `], { cwd: packageRoot })
+    expect(JSON.parse(stdout)).toEqual(["first", "second"])
+  })
+
   it("writes and registers the registry plugin only for the vite dev server", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-native-dev-"))
     roots.push(root)
