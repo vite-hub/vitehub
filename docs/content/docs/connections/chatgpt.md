@@ -47,10 +47,12 @@ Library consumers can use `@vite-hub/connections/chatgpt` and `@vite-hub/gateway
 Start the local app, then run from its directory:
 
 ```sh
-pnpm vitehub connections connect chatgpt --url http://127.0.0.1:3000
-pnpm vitehub connections inspect chatgpt --url http://127.0.0.1:3000
-pnpm vitehub connections models chatgpt --url http://127.0.0.1:3000
+pnpm vitehub connections connect chatgpt
+pnpm vitehub connections inspect chatgpt
+pnpm vitehub connections models chatgpt
 ```
+
+The CLI finds the dev server that runs in the project folder. Pass `--url` for another app, for example `--url http://127.0.0.1:3000`.
 
 The CLI opens the system browser and listens on `127.0.0.1`. If the browser does not open, use the printed URL. ViteHub validates state, PKCE, nonce and the ID token's signature, issuer, audience, expiry and account. It stores the issued `oaiapp_…` client ID and reuses it on later sign-ins. No client secret is needed.
 
@@ -77,7 +79,7 @@ The model command requests the account's current model catalog and keeps `visibi
 Sign out with:
 
 ```sh
-pnpm vitehub connections revoke chatgpt --confirm chatgpt --url http://127.0.0.1:3000
+pnpm vitehub connections revoke chatgpt --confirm chatgpt
 ```
 
 Revocation sends the refresh token and client ID to OpenAI. It keeps the account registration and host ID for the next sign-in. A failed revocation leaves the grant available for retry and reports the failure.
