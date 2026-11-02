@@ -44,11 +44,12 @@ vi.mock("@vite-hub/internal/build/provider-output-sources", () => ({
   retainProviderOutputSources: lifecycle.retainSources,
 }))
 
-vi.mock("@vite-hub/internal/build/vite", () => ({
+vi.mock("@vite-hub/internal/build/vite", async importOriginal => ({
   VITEHUB_NITRO_CONFIG_CONTEXT: "__vitehubNitroConfigContext",
   VITEHUB_SERVER_DIRS: "__vitehubServerDirs",
   collectViteHubProviderImportAliases: () => ({}),
   createNoExternalAddition: () => (value: unknown) => value,
+  createProviderOutputEnvironmentOwner: (await importOriginal<typeof import("@vite-hub/internal/build/vite")>()).createProviderOutputEnvironmentOwner,
   isServerEnvironment: (name: string, config: { consumer?: string }) => name === "ssr" || config.consumer === "server",
   resolveNitroVercelFunctionName: () => undefined,
   resolveViteHubProjectRoot: (root: string) => root,
@@ -234,6 +235,27 @@ describe("Workflow Provider Output lifecycle", () => {
     expect(lifecycle.reset).toHaveBeenCalledOnce()
     expect(lifecycle.removeArtifactDir).toHaveBeenCalledOnce()
     expect(lifecycle.finalize).not.toHaveBeenCalled()
+  })
+
+  it("runs Provider Output work once when Nitro builds the client before the Nitro environment", async () => {
+    const plugin = createPlugin({ finalNitroEnvironment: true, nitroPlugin: true })
+    const client = { isBuilt: false, name: "client" }
+    const nitro = { isBuilt: false, name: "nitro" }
+    plugin.nitro?.setup({ options: { static: false } })
+    await functionHook(plugin.buildApp, "buildApp")({ environments: { client, nitro } })
+    for (const environment of [client, nitro]) {
+      const context = { environment }
+      functionHook(plugin.buildStart, "buildStart").call(context)
+      await functionHook(plugin.buildEnd, "buildEnd").call(context)
+      await closeBundleHook(plugin).call(context)
+      environment.isBuilt = true
+    }
+
+    expect(lifecycle.capture).toHaveBeenCalledOnce()
+    expect(lifecycle.capture.mock.calls[0]?.[0]).toEqual({ environment: nitro })
+    expect(lifecycle.retainSources).toHaveBeenCalledOnce()
+    expect(lifecycle.contribute).toHaveBeenCalledOnce()
+    expect(lifecycle.finalize).toHaveBeenCalledOnce()
   })
 
   it("keeps Provider Output work in plain Vite client builds", async () => {
