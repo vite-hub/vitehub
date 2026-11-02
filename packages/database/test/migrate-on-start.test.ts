@@ -189,6 +189,67 @@ describe("database.migrateOnStart", () => {
     }
   })
 
+  it.each([false, true])("orders interleaved migrations of a shared file (reverse Definitions: %s)", async (reverse) => {
+    const root = await createProject()
+    const url = `file:${join(root, "shared.sqlite")}`
+    const first = createClient({ url })
+    const second = createClient({ url: new URL(url).href })
+    const migration = (entry: typeof init) => ({
+      dataLoss: [], hash: entry.tag, name: entry.tag, statements: entry.sql.split("--> statement-breakpoint"), when: entry.when,
+    })
+    const late = {
+      sql: "INSERT INTO users (id, name) SELECT id + 1, 'Grace' FROM users WHERE id = 7",
+      tag: "0002_late", when: dropLegacy.when,
+    }
+    const databases = [
+      { db: drizzle({ client: first }), migrations: [migration(init), migration(late)], name: "first" },
+      { db: drizzle({ client: second }), migrations: [migration(init), migration(seed)], name: "second" },
+    ]
+    if (reverse) databases.reverse()
+    const applied: string[] = []
+    try {
+      await migrateOnStart(databases, { log: message => applied.push(message) })
+      expect((await second.execute("SELECT id, name FROM users ORDER BY id")).rows.map(row => [row[0], row[1]])).toEqual([[7, "Ada"], [8, "Grace"]])
+      expect(await readLedger(url)).toEqual([init.when, seed.when, late.when])
+      expect(applied).toEqual([
+        `[vitehub] Database "${reverse ? "second" : "first"}": applied 0000_init.`,
+        '[vitehub] Database "second": applied 0001_seed.',
+        '[vitehub] Database "first": applied 0002_late.',
+      ])
+      await migrateOnStart(databases, { log: message => applied.push(message) })
+      expect(applied).toHaveLength(3)
+      expect(await readLedger(url)).toEqual([init.when, seed.when, late.when])
+    }
+    finally {
+      first.close()
+      second.close()
+    }
+  })
+
+  it("rolls back every Definition sharing a file when a migration fails", async () => {
+    const root = await createProject()
+    const url = `file:${join(root, "shared.sqlite")}`
+    const first = createClient({ url })
+    const second = createClient({ url })
+    try {
+      await expect(migrateOnStart([
+        {
+          db: drizzle({ client: first }), name: "first",
+          migrations: [{ dataLoss: [], hash: init.tag, name: init.tag, statements: init.sql.split("--> statement-breakpoint"), when: init.when }],
+        },
+        {
+          db: drizzle({ client: second }), name: "second",
+          migrations: [{ dataLoss: [], hash: "bad", name: "bad", statements: ["INSERT INTO missing_table VALUES (1)"], when: seed.when }],
+        },
+      ], { log: () => {} })).rejects.toThrow(/missing_table/)
+      expect((await first.execute("SELECT name FROM sqlite_master WHERE name IN ('users', 'legacy', '__drizzle_migrations')")).rows).toEqual([])
+    }
+    finally {
+      first.close()
+      second.close()
+    }
+  })
+
   it("refuses to start with a pending migration that loses data, unless allowDataLoss is set", { timeout: 60_000 }, async () => {
     const root = await createProject()
     const url = `file:${join(root, "data/app.sqlite")}`

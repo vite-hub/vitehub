@@ -33,6 +33,11 @@ interface LibsqlMigrationClient {
   protocol: string
 }
 
+interface StartMigrationPlan {
+  client: LibsqlMigrationClient
+  pending: Map<string, { migration: StartMigration, name: string }>
+}
+
 // Drizzle Kit's ledger, created with the same statement as `drizzle-orm/libsql/migrator`, so `vitehub db migrate`
 // and the server agree on what is applied.
 const migrationsTable = "__drizzle_migrations"
@@ -58,12 +63,12 @@ async function readLastApplied(client: LibsqlMigrationClient): Promise<number | 
 /**
  * Applies the pending migrations of each local SQLite database before the server handles requests. It uses Drizzle
  * Kit's ledger and refuses migrations that lose data, like `vitehub db migrate`. It checks every database before the
- * first one changes, so a refusal leaves all of them as they were. All pending migrations of one database run in one
+ * first one changes, so a refusal leaves all of them as they were. All pending migrations of one SQLite file run in one
  * transaction, so a failure keeps none of them.
  */
 export async function migrateOnStart(databases: StartMigrationDatabase[], options: MigrateOnStartOptions = {}): Promise<void> {
   const log = options.log ?? (message => console.info(message))
-  const plans: Array<{ client: LibsqlMigrationClient, name: string, pending: StartMigration[] }> = []
+  const plans = new Map<string | LibsqlMigrationClient, StartMigrationPlan>()
   for (const database of databases) {
     const client: unknown = Reflect.get(Object(database.db), "$client")
     if (!isLibsqlClient(client) || client.protocol !== "file") {
@@ -76,21 +81,28 @@ export async function migrateOnStart(databases: StartMigrationDatabase[], option
     if (losses.length && !options.allowDataLoss) {
       throw databaseErrorDiagnostics.DATABASE_MIGRATION_DATA_LOSS({ database: database.name, statements: losses })
     }
-    if (pending.length) plans.push({ client, name: database.name, pending })
-  }
-  for (const plan of plans) {
-    const { client, name } = plan
-    // Definitions can share a file, so an earlier plan may have advanced this client's ledger.
-    const lastApplied = await readLastApplied(client)
-    const pending = plan.pending.filter(migration => lastApplied === undefined || lastApplied < migration.when)
     if (!pending.length) continue
+    // Separate clients and URL spellings can open the same file. SQLite reports the actual main database path.
+    const files = await client.execute("PRAGMA database_list")
+    const file = Array.from(files.rows).find(row => row[1] === "main")?.[2]
+    // In-memory databases have no file path and belong only to their client.
+    const target = typeof file === "string" && file ? file : client
+    const plan = plans.get(target) ?? { client, pending: new Map<string, { migration: StartMigration, name: string }>() }
+    for (const migration of pending) {
+      const key = `${migration.when}:${migration.hash}`
+      if (!plan.pending.has(key)) plan.pending.set(key, { migration, name: database.name })
+    }
+    plans.set(target, plan)
+  }
+  for (const { client, pending: migrations } of plans.values()) {
+    const pending = [...migrations.values()].sort((a, b) => a.migration.when - b.migration.when)
     await client.migrate([
       createMigrationsTable,
-      ...pending.flatMap(migration => [
+      ...pending.flatMap(({ migration }) => [
         ...migration.statements,
         { args: [migration.hash, migration.when], sql: `INSERT INTO "${migrationsTable}" ("hash", "created_at") VALUES (?, ?)` },
       ]),
     ])
-    for (const migration of pending) log(`[vitehub] Database "${name}": applied ${migration.name}.`)
+    for (const { migration, name } of pending) log(`[vitehub] Database "${name}": applied ${migration.name}.`)
   }
 }

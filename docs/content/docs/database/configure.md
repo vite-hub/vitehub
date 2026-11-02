@@ -123,6 +123,8 @@ export default defineNuxtConfig({
 
 The build reads each database's migrations folder and writes the migrations into a Nitro plugin, so the output does not need the folder. When the server starts, the plugin reads Drizzle Kit's `__drizzle_migrations` table and applies the pending migrations before the server handles a request. It writes the same ledger rows as `vitehub db migrate`, so either can migrate the database next. All pending migrations of a database run in one transaction, and the server logs each one it applied.
 
+Definitions that share a SQLite file share one transaction. Their pending migrations run in journal timestamp order, and matching timestamp and hash pairs run once.
+
 It refuses pending migrations that lose data, with the rules of `vitehub db migrate`: the server does not start, and it throws `DATABASE_MIGRATION_DATA_LOSS` without changing the database. Back up the data and set `migrateOnStart: { allowDataLoss: true }` to apply them.
 
 `migrateOnStart` works only for local SQLite files (`file:` URLs) in a production build with the Node preset. A build for another host, a Postgres database, or D1 over HTTP fails with `DATABASE_MIGRATE_ON_START_UNSUPPORTED`, and so does a server whose connection URL turns out to be remote libSQL. Migrate those from the deployment with `vitehub db migrate`. Development does not use it either: run `vitehub db migrate`.
