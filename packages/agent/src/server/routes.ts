@@ -9271,6 +9271,7 @@ function createChannelTaskQueue(
         webhookId: registration.id || registration.provider,
         webhookState,
       })
+      const superseded: AgentWebhookQueueDelivery[] = []
       const queued = await webhookQueue.admit(
         { backendId: await resolveWebhookStateBackendId(webhookState.state), options: handlerOptions, scope: webhookState.keyPrefix, state: webhookState.state },
         {
@@ -9278,7 +9279,18 @@ function createChannelTaskQueue(
           availableAt: options.notBefore,
           ...(options.key === undefined ? {} : { debounceKey: channelTaskDebounceKey(task, options.key) }),
         },
+        webhookState.state.enqueueWebhookDeliveryWithSuperseded
+          ? async (item) => {
+              const admitted = await webhookState.state.enqueueWebhookDeliveryWithSuperseded!(item)
+              superseded.push(...admitted.superseded)
+              return admitted.queued
+            }
+          : undefined,
       )
+      for (const replaced of superseded) {
+        const previous = replaced.channelDeliveryId ? await resumeAgentChannelDelivery(webhookState.state, replaced.channelDeliveryId) : undefined
+        await previous?.event({ type: "superseded" }).catch(() => undefined)
+      }
       if (queued) detachAgentChannelDelivery(channelDelivery)
       await recordChannelDeliveryEvidence(channelDelivery, { type: queued ? "queued" : "duplicate", runId })
       return { deliveryId, notBefore: options.notBefore, runId }

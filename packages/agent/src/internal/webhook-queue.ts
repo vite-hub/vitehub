@@ -58,6 +58,8 @@ export interface AgentWebhookQueueStateAdapter extends StateAdapter {
   beginWebhookFailureNotification?: (scope: string, deliveryId: string, leaseToken: string) => Promise<boolean>
   markWebhookDeliveryFailure?: (scope: string, deliveryId: string, leaseToken: string, failure: { error: string, attempts: number, invocationStarted?: false, publicErrorCode?: "TIMEOUT" }) => Promise<boolean>
   enqueueWebhookDelivery(delivery: AgentWebhookQueueDelivery): Promise<boolean>
+  /** Atomically admits a delivery and retains the rows it replaces for Channel delivery journal settlement. */
+  enqueueWebhookDeliveryWithSuperseded?: (delivery: AgentWebhookQueueDelivery) => Promise<{ queued: boolean, superseded: AgentWebhookQueueDelivery[] }>
   extendWebhookDeliveryLease(scope: string, deliveryId: string, leaseToken: string, ttlMs: number): Promise<boolean>
   retryWebhookDelivery(scope: string, deliveryId: string, leaseToken: string, availableAt: number, options?: { incrementAttempts?: boolean }): Promise<boolean>
   /** Lists the deliveries in one scope that are not complete, in queue order. */

@@ -296,7 +296,7 @@ Without the queue, `prepare` and the task run before the webhook is answered, an
 
 ### Run a task later from server code
 
-Use `enqueueChannelTask()` to queue a declared task from server code, such as an Agent hook, a Schedule or an API route. The task runs at `notBefore` or after `delayMs`, through the Channel's webhook queue. Its `prepare`, `failed`, retries, restart replay and Channel delivery record work as for a queued webhook delivery. `input` is the input that `invoke` would return for the task.
+Use `enqueueChannelTask()` to queue a declared task from server code in the same persistent Node server as the Agent webhook host, such as an Agent hook, an in-process Schedule or an API route. On persistent Nitro hosts, enqueue and cancellation start the queue on demand, including before its background startup timer fires. Standalone serverless Schedule and API entries on Netlify or Vercel run in separate processes and cannot use these APIs. The task runs at `notBefore` or after `delayMs`, through the Channel's webhook queue. Its `prepare`, `failed`, retries, restart replay and Channel delivery record work as for a queued webhook delivery. `input` is the input that `invoke` would return for the task.
 
 ```ts
 import { cancelChannelTask, enqueueChannelTask } from 'vite-hub/agent/server'

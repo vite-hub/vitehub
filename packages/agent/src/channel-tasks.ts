@@ -44,6 +44,7 @@ export interface ChannelTaskQueue {
 interface ChannelTaskRegistry {
   queues: Map<string, Set<ChannelTaskQueue>>
   starting: Set<Promise<unknown>>
+  starters?: Set<() => void>
 }
 
 const registryKey = Symbol.for("vitehub.agent.channelTaskQueues")
@@ -52,6 +53,13 @@ const registryKey = Symbol.for("vitehub.agent.channelTaskQueues")
 function channelTaskRegistry(): ChannelTaskRegistry {
   const holder = globalThis as typeof globalThis & { [registryKey]?: ChannelTaskRegistry }
   return holder[registryKey] ??= { queues: new Map(), starting: new Set() }
+}
+
+/** Internal: a persistent host can start its queue on demand before its background startup timer fires. */
+export function registerChannelTaskQueueStarter(start: () => void): () => void {
+  const starters = channelTaskRegistry().starters ??= new Set()
+  starters.add(start)
+  return () => { starters.delete(start) }
 }
 
 /** Internal: a webhook queue that is starting. Channel task calls wait for it, so a call right after startup finds its Channel. */
@@ -80,13 +88,14 @@ export function registerChannelTaskQueue(channels: readonly string[], queue: Cha
 
 async function channelTaskQueue(channel: string): Promise<ChannelTaskQueue> {
   const registry = channelTaskRegistry()
+  for (const start of registry.starters ?? []) start()
   await Promise.all(registry.starting)
   const registered = [...registry.queues.get(channel) ?? []]
   if (registered.length === 1) return registered[0]!
   if (registered.length > 1) {
     throw agentDiagnostics.AGENT_R1025({ message: `[vitehub] Channel "${channel}" is served by more than one Agent (${registered.map(queue => queue.agentName).join(", ")}). Give the Channel one Agent.` })
   }
-  throw agentDiagnostics.AGENT_R1025({ message: `[vitehub] Channel "${channel}" has no running webhook queue. Channel tasks need a declared Channel webhook and durable SQLite or libSQL Agent State.` })
+  throw agentDiagnostics.AGENT_R1025({ message: `[vitehub] Channel "${channel}" has no running webhook queue. Channel tasks need a declared Channel webhook and durable SQLite or libSQL Agent State in the same persistent Node server. Standalone serverless Schedule and API entries are not supported.` })
 }
 
 function validTaskName(channel: unknown, task: unknown): channel is string {
@@ -116,6 +125,8 @@ function validKey(key: unknown): boolean {
  * Queue a task that a Channel trigger declares, to run at `notBefore` or after `delayMs`. The task runs through the
  * Channel's webhook queue like a queued webhook delivery: its `prepare` and `failed`, retries, concurrency, restart
  * replay and Console view all apply. Tasks with the same name run one at a time.
+ * Call from the same persistent Node server as the Agent webhook host. Standalone serverless Schedule and API entries
+ * cannot access its process-local queue registry. On persistent Nitro hosts, calls start the queue on demand.
  *
  * `input` is the Agent run input that the trigger's `invoke` would return for the task, such as `{ data, prompt }`.
  *
@@ -142,7 +153,7 @@ export async function enqueueChannelTask(
   }
 }
 
-/** Drop the queued tasks that `enqueueChannelTask()` queued with this `key`. A task that has started keeps running. */
+/** Drop the queued tasks that `enqueueChannelTask()` queued with this `key`, from the same persistent Node host. A task that has started keeps running. */
 export async function cancelChannelTask(
   channel: string,
   task: string,
@@ -160,5 +171,5 @@ export async function cancelChannelTask(
 
 /** The queue debounce key of a Channel task key. The task name keeps it apart from trigger debounce keys. */
 export function channelTaskDebounceKey(task: string, key: string): string {
-  return `task:${task}:${key}`
+  return `task:${JSON.stringify([task, key])}`
 }

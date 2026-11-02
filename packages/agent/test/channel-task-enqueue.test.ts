@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -8,6 +8,9 @@ import { defineAgent } from "../src/index.ts"
 import { cancelChannelTask, enqueueChannelTask } from "../src/server.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
+import * as channelTasks from "../src/channel-tasks.ts"
+import { hubAgent } from "../src/vite.ts"
+import { isRuntimeFunction } from "../src/internal/runtime-value.ts"
 
 const cleanups: (() => Promise<void>)[] = []
 
@@ -15,7 +18,7 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
 })
 
-async function setup(options: { objected?: () => boolean } = {}) {
+async function setup(options: { objected?: () => boolean, resume?: boolean } = {}) {
   const stateDir = await mkdtemp(join(tmpdir(), "vitehub-channel-task-"))
   const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
   const ran: { data: unknown, at: number, runId?: string, annotations?: unknown }[] = []
@@ -37,6 +40,8 @@ async function setup(options: { objected?: () => boolean } = {}) {
                 },
                 failed,
               },
+              close: { run: (_context, { input }) => { ran.push({ at: Date.now(), data: input.data }) } },
+              "close:duplicate": { run: (_context, { input }) => { ran.push({ at: Date.now(), data: input.data }) } },
             },
           }),
         },
@@ -49,7 +54,9 @@ async function setup(options: { objected?: () => boolean } = {}) {
   // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
   const handler = createChannelWebhookRouteHandler(agent as never)
   const routeOptions = { agentName: "bot", webhookState: state }
-  let stop = handler.resume(routeOptions)
+  let stop = async () => {}
+  const resume = () => stop = handler.resume(routeOptions)
+  if (options.resume !== false) resume()
   cleanups.push(async () => {
     await stop()
     await state.disconnect()
@@ -59,6 +66,7 @@ async function setup(options: { objected?: () => boolean } = {}) {
     deliveries: () => handler.deliveries(new Request("https://example.com/api/airtable/webhook", { method: "POST" }), "airtable", routeOptions),
     failed,
     ran,
+    resume,
     async restart() {
       await stop()
       stop = createChannelWebhookRouteHandler(agent as never).resume(routeOptions)
@@ -69,7 +77,45 @@ async function setup(options: { objected?: () => boolean } = {}) {
   }
 }
 
+async function installGeneratedHost(resume: () => () => Promise<void>) {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-channel-task-host-"))
+  cleanups.push(() => rm(root, { force: true, recursive: true }))
+  await mkdir(join(root, "server", "agents"), { recursive: true })
+  await writeFile(join(root, "server", "agents", "bot.ts"), "export default {}")
+  const plugin = hubAgent({ providers: { state: { provider: "libsql", url: "file:state.sqlite" } } })
+  if (!isRuntimeFunction(plugin.configResolved)) throw new TypeError("Expected Agent configResolved hook.")
+  // SAFETY: The config hook reads only command and root from this fixture.
+  await plugin.configResolved.call({} as never, { command: "build", root } as never)
+  const source = await readFile(join(root, ".vitehub/agent/webhook-queue-plugin.ts"), "utf8")
+  const body = source.replace(/^import .*\n/gm, "").replaceAll("import.meta.prerender", "false").replaceAll("import.meta.dev", "false").replace("export default ", "return ")
+  const delayedStart = vi.fn()
+  // SAFETY: Evaluate only the plugin generated above, substituting the queue and Nitro host boundaries.
+  const install = new Function("resumeWebhookQueues", "warmWebhookRoutes", "onAgentRoutesLoad", "registerChannelTaskQueueStarter", "setTimeout", "onShutdown", "drainInlineChatInvocations", "webhookQueueShutdown", body)(
+    resume,
+    async () => {},
+    () => {},
+    channelTasks.registerChannelTaskQueueStarter,
+    delayedStart,
+    (_app: unknown, _name: string, drain: (context: { timeoutMs: number }) => Promise<void>) => { cleanups.push(() => drain({ timeoutMs: 0 })) },
+    async () => {},
+    async () => {},
+  )
+  install({})
+  return delayedStart
+}
+
 describe("enqueueChannelTask()", () => {
+  it.each(["enqueue", "cancel"])("starts the generated persistent Nitro queue for an immediate server-code %s call", async (operation) => {
+    const { ran, resume } = await setup({ resume: false })
+    const delayedStart = await installGeneratedHost(resume)
+    expect(delayedStart).toHaveBeenCalledWith(expect.any(Function), 1000)
+    const [error] = operation === "enqueue"
+      ? await enqueueChannelTask("airtable", "close-duplicate", { data: { immediate: true } })
+      : await cancelChannelTask("airtable", "close-duplicate", { key: "absent" })
+    expect(error).toBeNull()
+    if (operation === "enqueue") await vi.waitFor(() => expect(ran).toHaveLength(1), { timeout: 5_000 })
+  })
+
   it("runs a declared Channel task after its start time, through the Channel's prepare and run", async () => {
     const { deliveries, ran } = await setup()
     const enqueuedAt = Date.now()
@@ -87,14 +133,25 @@ describe("enqueueChannelTask()", () => {
   })
 
   it("replaces a queued task with the same key, so only the newest input runs", async () => {
-    const { ran } = await setup()
-    await enqueueChannelTask("airtable", "close-duplicate", { data: { version: 1 } }, { delayMs: 300, key: "pair:recA:recB" })
+    const { deliveries, ran } = await setup()
+    const [, first] = await enqueueChannelTask("airtable", "close-duplicate", { data: { version: 1 } }, { delayMs: 300, key: "pair:recA:recB" })
     const [error] = await enqueueChannelTask("airtable", "close-duplicate", { data: { version: 2 } }, { delayMs: 300, key: "pair:recA:recB" })
     expect(error).toBeNull()
+    expect((await deliveries()).find(item => item.sourceId === `task:${first!.deliveryId}`)?.status).toBe("completed")
 
     await vi.waitFor(() => expect(ran).toHaveLength(1), { timeout: 5_000 })
     await new Promise(resolve => setTimeout(resolve, 1_500))
     expect(ran.map(item => item.data)).toEqual([{ version: 2 }])
+  })
+
+  it("keeps task names and keys containing colons distinct during replacement and cancellation", async () => {
+    const { deliveries, ran } = await setup()
+    const [, first] = await enqueueChannelTask("airtable", "close", { data: { version: 1 } }, { delayMs: 400, key: "duplicate:123" })
+    const [, second] = await enqueueChannelTask("airtable", "close:duplicate", { data: { version: 2 } }, { delayMs: 400, key: "123" })
+    expect((await deliveries()).find(item => item.sourceId === `task:${first!.deliveryId}`)?.status).toBe("queued")
+    await expect(cancelChannelTask("airtable", "close", { key: "duplicate:123" })).resolves.toEqual([null, { cancelled: 1 }])
+    expect((await deliveries()).find(item => item.sourceId === `task:${second!.deliveryId}`)?.status).toBe("queued")
+    await vi.waitFor(() => expect(ran.map(item => item.data)).toEqual([{ version: 2 }]), { timeout: 5_000 })
   })
 
   it("lets prepare drop the task when live state changed", async () => {

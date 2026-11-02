@@ -476,6 +476,17 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     })
   }
 
+  async enqueueWebhookDeliveryWithSuperseded(delivery: AgentWebhookQueueDelivery): Promise<{ queued: boolean, superseded: AgentWebhookQueueDelivery[] }> {
+    return await retrySqliteBusy(async () => {
+      await this.cleanupExpiredStateIfDue()
+      return await this.transaction(async (tx) => {
+        const superseded: AgentWebhookQueueDelivery[] = []
+        const queued = await this.insertWebhookDelivery(tx, delivery, superseded)
+        return { queued, superseded }
+      })
+    })
+  }
+
   /**
    * In one transaction: throws unless every lock is still held, queues `delivery` unless its ID is already queued,
    * and applies `mutations` only when the delivery is newly queued. Returns whether `delivery` was newly queued (`true` without one).
@@ -523,10 +534,20 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     })
   }
 
-  private async insertWebhookDelivery(tx: SqliteAgentStateExecutor, delivery: AgentWebhookQueueDelivery): Promise<boolean> {
+  private async insertWebhookDelivery(tx: SqliteAgentStateExecutor, delivery: AgentWebhookQueueDelivery, superseded?: AgentWebhookQueueDelivery[]): Promise<boolean> {
     const debounceKey = delivery.debounceKey
     if (debounceKey) {
       const now = Date.now()
+      if (superseded) {
+        const replaced = await execute(
+          tx,
+          `SELECT value FROM ${this.tables.webhookQueue}
+            WHERE scope = ? AND delivery_id != ? AND json_extract(value, '$.debounceKey') = ?
+              AND (status = 'queued' OR (status IN ('running', 'steering', 'notifying') AND lease_expires_at <= ?))`,
+          [delivery.scope, delivery.deliveryId, debounceKey, now],
+        )
+        superseded.push(...replaced.flatMap(row => isRuntimeString(row.value) ? [parseAgentWebhookQueueDelivery(row.value)] : []))
+      }
       // A newer delivery permanently supersedes older deliveries with the same key.
       // Finalize queued work at admission. Active work keeps its lease; an expired
       // active lease is safe to finalize so it cannot remain orphaned forever.

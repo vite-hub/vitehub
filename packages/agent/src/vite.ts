@@ -2458,7 +2458,7 @@ async function writeAgentWebhookRouteHandler(
     const internalImport = JSON.stringify(subpath(options.agentImportBase ?? agentPackageName, "server/internal"))
     await writeFile(queuePluginPath, [
       `import { resumeWebhookQueues, warmWebhookRoutes${persistent ? "" : ", waitUntilFromEvent"} } from ${JSON.stringify(`./${generatedAgentWebhookRouteHandler.split("/").at(-1)!.replace(/\.ts$/, "")}`)}`,
-      `import { ${shutdown ? "drainInlineChatInvocations, " : ""}${persistent ? "onAgentRoutesLoad, " : ""}onShutdown, webhookQueueShutdown } from ${internalImport}`,
+      `import { ${shutdown ? "drainInlineChatInvocations, " : ""}${persistent ? "onAgentRoutesLoad, registerChannelTaskQueueStarter, " : ""}onShutdown, webhookQueueShutdown } from ${internalImport}`,
       "",
       "export default function viteHubWebhookQueuePlugin(nitroApp) {",
       "  let stop",
@@ -2466,9 +2466,11 @@ async function writeAgentWebhookRouteHandler(
       "  let closed = false",
       "  let waitUntil",
       "  let startTimer",
+      ...(persistent ? ["  let unregisterTaskQueueStarter"] : []),
       "  function shutdownWebhookQueues() {",
       "    closed = true",
       "    clearTimeout(startTimer)",
+      ...(persistent ? ["    unregisterTaskQueueStarter?.()"] : []),
       "    if (!stopping) stopping = stop?.()",
       "    if (stopping) waitUntil?.(stopping)",
       "    return stopping",
@@ -2492,6 +2494,7 @@ async function writeAgentWebhookRouteHandler(
             "    startWebhookQueues(startedAt)",
             "  }",
             "  if (!import.meta.prerender) {",
+            "    unregisterTaskQueueStarter = registerChannelTaskQueueStarter(startNow)",
             `    startTimer = setTimeout(startNow, ${JSON.stringify(webhookQueueStartDelayMs)})`,
             "    onAgentRoutesLoad(startNow)",
             "  }",
