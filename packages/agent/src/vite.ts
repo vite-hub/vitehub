@@ -13,7 +13,7 @@ import { providerOutputAliasSources, rebasePublishedProviderSourceLinks, removeP
 import { copyNodeRuntimePackages, copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { deploymentPresetFromNitro } from "@vite-hub/internal/deployment"
 import { registerViteHubNitroDevEndpoint, renderViteHubNitroDevHandler } from "@vite-hub/internal/dev-endpoint"
-import { createNoExternalAddition, createProviderOutputEnvironmentOwner, hasNitroConfigContext, isServerEnvironment, generatedViteHubWatchIgnoredAddition, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, createProviderOutputEnvironmentOwner, hasNitroConfigContext, isServerEnvironment, generatedViteHubWatchIgnoredAddition, loadsViteHubPackagesNatively, renderNativePackageInstallPlugin, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import type { ProviderOutputEnvironmentOwner } from "@vite-hub/internal/build/vite"
 import { summarizeDefinitions } from "@vite-hub/internal/inspect"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
@@ -127,6 +127,8 @@ const generatedAgentNetlifyFunction = "agent/netlify-function.mjs"
 const generatedAgentEmailRuntime = "agent/email-runtime.js"
 const generatedAgentRegistry = "agent/registry.mjs"
 const generatedAgentRegistryCatalog = "agent/registry-agents.mjs"
+/** Development-only Nitro plugin that installs the generated registry in the Agent package, which Node loads in `vite dev`. */
+const generatedAgentRegistryDevPlugin = "agent/registry-dev-plugin.ts"
 const agentRegistryId = "#vitehub/agent/registry"
 const netlifyAgentFunctionName = "vitehub-agent"
 const workspacePackageName = "@vite-hub/workspace"
@@ -189,6 +191,8 @@ function resolveNetlifyAgentBundleExternals(options: AgentGeneratedImportOptions
 interface InternalAgentModuleOptions extends AgentModuleOptions {
   cloudflareStateImport?: string
   importBase?: string
+  /** The specifier that generated code uses to import the KV package. */
+  kvImport?: string
   processDiscordGateway?: boolean
   providerImportAliases?: Record<string, string>
   runtimeCapabilityImports?: Record<string, false | string>
@@ -2978,6 +2982,20 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       agentImportBase: getAgentImportBase(agent, frameworkOptions),
       workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
     })
+    if (normalized && config.command === "serve") {
+      const registryEntry = subpath(getAgentImportBase(agent, frameworkOptions), "server/registry")
+      await writeFile(join(generatedRoot, generatedAgentRegistryDevPlugin), renderNativePackageInstallPlugin([
+        {
+          from: registryEntry,
+          install: "installAgentRegistry",
+          module: moduleImportSpecifier(join(generatedRoot, generatedAgentRegistryDevPlugin), join(generatedRoot, generatedAgentRegistry)),
+        },
+        // A configured KV store must come from the KV package that Vite resolves with the host's KV configuration.
+        ...(config.plugins?.some(plugin => plugin.name === "@vite-hub/kv/vite")
+          ? [{ from: registryEntry, install: "installAgentKV", module: getInternalAgentOptions(agent)?.kvImport ?? frameworkOptions?.kvImport ?? "@vite-hub/kv" }]
+          : []),
+      ]), "utf8")
+    }
     if (normalized && config.command === "serve" && normalized.runtime !== "deno") {
       const handler = join(generatedRoot, generatedAgentInvocationsDevHandler)
       await mkdir(dirname(handler), { recursive: true })
@@ -3452,6 +3470,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const mergedAgentNitro = (nitroContext ? mergeAgentNitroExternals : cloneNitroConfig)(mergeNitroPlugins(
         guardAgentDevelopmentRoutes(mergeNitroHandlers(nitro, [...nitroHandlers, ...devNitroHandlers]), devNitroHandlers),
         [
+          ...(normalizeAgentOptions(agent) && nitroContext && !cliDiscovery && environment?.command === "serve" ? [join(generatedRoot, generatedAgentRegistryDevPlugin)] : []),
           ...(installPreparation ? [join(generatedRoot, generatedAgentPreparationPlugin)] : []),
           ...(installWebhookQueue ? [join(generatedRoot, generatedAgentWebhookQueuePlugin)] : []),
           ...(installProcessDiscordGateway ? [join(generatedRoot, generatedAgentDiscordGatewayPlugin)] : []),
@@ -3538,7 +3557,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const evalOptions = resolveAgentEvalOptions(agent?.eval)
       await writeAgentEvaliteConfig(config.root, evalOptions, generatedRoot)
     },
-    configEnvironment(name, config) {
+    configEnvironment(name, config, env) {
       if (!isServerEnvironment(name, config)) {
         return
       }
@@ -3546,9 +3565,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       return {
         // SAFETY: Vite passes its environment build configuration, which this adapter augments without changing its owned fields.
         build: mergeBuildExternal(config as BuildWithRolldownOptions, []),
-        resolve: {
-          noExternal: mergeNoExternal(config.resolve?.noExternal),
-        },
+        ...(loadsViteHubPackagesNatively(name, env) ? {} : { resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) } }),
       }
     },
     buildApp: providerOutputEnvironment.buildApp,

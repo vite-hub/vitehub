@@ -34,8 +34,8 @@
   "types": "./dist/index.d.ts",
   "imports": {
     "#vitehub/agent/registry": {
-      "types": "./dist/runtime/empty-registry.d.ts",
-      "default": "./dist/runtime/empty-registry.js"
+      "types": "./dist/runtime/registry.d.ts",
+      "default": "./dist/runtime/registry.js"
     },
     "#vitehub/agent/provider-agent": {
       "types": "./dist/provider-agent.d.ts",
@@ -150,11 +150,6 @@
       "import": "./dist/process-host.js",
       "default": "./dist/process-host.js"
     },
-    "./runtime/empty-registry": {
-      "types": "./dist/runtime/empty-registry.d.ts",
-      "import": "./dist/runtime/empty-registry.js",
-      "default": "./dist/runtime/empty-registry.js"
-    },
     "./runtime/invocations-dev": {
       "types": "./dist/runtime/invocations-dev.d.ts",
       "import": "./dist/runtime/invocations-dev.js",
@@ -164,6 +159,11 @@
       "types": "./dist/runtime/process.d.ts",
       "import": "./dist/runtime/process.js",
       "default": "./dist/runtime/process.js"
+    },
+    "./runtime/registry": {
+      "types": "./dist/runtime/registry.d.ts",
+      "import": "./dist/runtime/registry.js",
+      "default": "./dist/runtime/registry.js"
     },
     "./runtime/workflow": {
       "types": "./dist/runtime/workflow.d.ts",
