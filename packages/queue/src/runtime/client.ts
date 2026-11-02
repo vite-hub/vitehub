@@ -76,13 +76,19 @@ async function createNamedQueueClient(name: string): Promise<QueueClient> {
 }
 
 async function getDynamicQueue(name: string): Promise<QueueClient> {
+  // A disabled Queue loads no definitions, so say so first: QUEUE_DEFINITION_NOT_FOUND
+  // would tell the developer to add a queue file that already exists.
+  const config = getActiveQueueConfig()
+  if (config === false) {
+    throw queueErrorDiagnostics.QUEUE_DISABLED()
+  }
+
   const definition = await loadNamedQueueDefinition(name)
   if (!definition) {
     throw queueErrorDiagnostics.QUEUE_DEFINITION_NOT_FOUND({ queue: normalizePublicQueueIdentifier(name) })
   }
 
-  const config = getActiveQueueConfig()
-  const bypassCache = definition.options?.cache === false || config === false || config.cache === false || config.provider === "cloudflare" || (config.provider === "vercel" && resolveVercelQueueRegion(config.region).requestScoped)
+  const bypassCache = definition.options?.cache === false || config.cache === false || config.provider === "cloudflare" || (config.provider === "vercel" && resolveVercelQueueRegion(config.region).requestScoped)
   if (bypassCache) {
     return await createNamedQueueClient(name)
   }

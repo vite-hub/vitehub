@@ -1,0 +1,8 @@
+{
+  "name": "zod-schema-app",
+  "private": true,
+  "devDependencies": {
+    "vite-hub": "^0.1.0",
+    "zod": "^4.2.0"
+  }
+}

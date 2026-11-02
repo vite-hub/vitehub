@@ -1,19 +1,44 @@
 # @vite-hub/gateways
 
-An AI gateway is one object that knows where AI requests go and how to sign them. A gateway has two capabilities:
+An AI gateway is one object that knows where AI requests go and how to sign them. A gateway has three capabilities:
 
 - **Driver routes.** It routes Codex and Claude Code model requests, for example through Vercel AI Gateway or CLIProxyAPI.
+- **AI SDK models.** `languageModel(gateway, modelId)` from `@vite-hub/gateways/ai-sdk` returns an [AI SDK](https://ai-sdk.dev) model that sends its requests through the gateway.
 - **`ask()`.** It answers typed [TypeSafe Jev](https://typesafe.ai) questions, such as "which category fits this transaction". Only gateways that can reach Jev have `ask()`.
 
-The package has no Agent, Vite, or Nitro code. It works in a plain Node script or a Worker, and its only dependency is `nostics`. ViteHub applications import it as `vite-hub/gateways`.
+The package has no Agent, Vite, or Nitro code. It works in a plain Node script, a Worker, or another framework, and its only dependency is `nostics`. ViteHub applications import it as `vite-hub/gateways`.
 
 ## Install
 
-`ask()` also needs `advocaat`, the TypeSafe client. It is an optional peer dependency, and only `ask()` loads it:
+`languageModel()` and `ask()` load optional peer dependencies only when you use them. `ask()` needs `advocaat`, the TypeSafe client. `languageModel()` needs the AI SDK provider package of its model API, usually `@ai-sdk/openai-compatible`:
 
 ```sh
 pnpm add @vite-hub/gateways advocaat
+pnpm add @vite-hub/gateways ai @ai-sdk/openai-compatible
 ```
+
+## Use a model with the AI SDK
+
+```ts
+import { generateText } from 'ai'
+import { openrouter } from '@vite-hub/gateways'
+import { languageModel } from '@vite-hub/gateways/ai-sdk'
+
+// Reads OPENROUTER_API_KEY when it sends the request.
+const model = languageModel(openrouter(), 'google/gemini-3-flash')
+
+const { text } = await generateText({ model, prompt: 'What is a Server Primitive?' })
+```
+
+Change the preset to change the provider. The model ID is the ID that the gateway uses. The `api` option selects the model API, and the type accepts only the APIs that the gateway serves:
+
+| `api` | Request | URL | Package |
+| --- | --- | --- | --- |
+| `'chat'` | OpenAI Chat Completions | `openai-compatible` | `@ai-sdk/openai-compatible` |
+| `'responses'` | OpenAI Responses | `openai-compatible`, else `codex` | `@ai-sdk/openai` |
+| `'messages'` | Anthropic Messages | `claude-code` | `@ai-sdk/anthropic` |
+
+The default is `'chat'` when the gateway has an `openai-compatible` URL, else `'messages'`, else `'responses'`. Use `api: 'responses'` for OpenAI reasoning models that call tools. The gateway resolves its URL, key, and headers for each request from the values that you passed or from `process.env`. Pass `fetch` to use a custom fetch implementation. `providerOptions` for `'chat'` go under the gateway name, such as `{ openrouter: { ... } }`; `'responses'` reads `openai` and `'messages'` reads `anthropic`.
 
 ## Ask your first question
 
@@ -51,20 +76,20 @@ The answer types come from the questions:
 
 ## Presets
 
-| Preset | Codex | Claude Code | `ask()` | Variables |
-| --- | --- | --- | --- | --- |
-| `typesafe()` | | | `jev-latest` at `https://api.typesafe.ai` | `TYPESAFE_API_KEY`, `TYPESAFE_DEFAULT_MODEL` |
-| `vercel()` | `https://ai-gateway.vercel.sh/codex/v1` | `https://ai-gateway.vercel.sh/claude-code` | `typesafe-ai/jev` at `https://ai-gateway.vercel.sh/v4/ai` | `AI_GATEWAY_API_KEY`, then `VERCEL_OIDC_TOKEN` |
-| `cloudflare()` | | | `jev-latest` through a [custom provider](#cloudflare-ai-gateway) | `TYPESAFE_API_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_AI_GATEWAY_ID`, `CLOUDFLARE_AI_GATEWAY_TOKEN` (optional), `CLOUDFLARE_AI_GATEWAY_SLUG` (default `typesafe`) |
-| `cliproxy()` | `<url>/v1` | `<url>` | | `CLIPROXY_URL`, `CLIPROXY_API_KEY` |
-| `litellm()` | `<url>/v1` | `<url>` | | `LITELLM_URL`, `LITELLM_API_KEY` |
-| `ollama()` | `<url>/v1` | `<url>` | | `OLLAMA_URL` (default `http://localhost:11434`), `OLLAMA_API_KEY` (default `ollama`) |
-| `openrouter()` | `https://openrouter.ai/api/v1` | `https://openrouter.ai/api` | | `OPENROUTER_API_KEY` |
-| `openai()` | `https://api.openai.com/v1` | | | `OPENAI_API_KEY` |
-| `chatgpt()` | `https://api.openai.com/v1` through a ChatGPT Connection | | | None |
-| `anthropic()` | | `https://api.anthropic.com` | | `ANTHROPIC_API_KEY` |
+| Preset | Codex | Claude Code | OpenAI-compatible | `ask()` | Variables |
+| --- | --- | --- | --- | --- | --- |
+| `vercel()` | `https://ai-gateway.vercel.sh/codex/v1` | `https://ai-gateway.vercel.sh/claude-code` | `https://ai-gateway.vercel.sh/v1` | `typesafe-ai/jev` at `https://ai-gateway.vercel.sh/v4/ai` | `AI_GATEWAY_API_KEY`, then `VERCEL_OIDC_TOKEN` |
+| `cloudflare()` | | | `.../<account>/<gateway>/compat` | `jev-latest` through a [custom provider](#typesafe-through-cloudflare-ai-gateway) | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_AI_GATEWAY_ID`, `CLOUDFLARE_AI_GATEWAY_TOKEN`, `CLOUDFLARE_AI_GATEWAY_API_KEY`, `TYPESAFE_API_KEY`, `CLOUDFLARE_AI_GATEWAY_SLUG` (see [Cloudflare AI Gateway](#cloudflare-ai-gateway)) |
+| `openrouter()` | `https://openrouter.ai/api/v1` | `https://openrouter.ai/api` | `https://openrouter.ai/api/v1` | | `OPENROUTER_API_KEY` |
+| `litellm()` | `<url>/v1` | `<url>` | `<url>/v1` | | `LITELLM_URL`, `LITELLM_API_KEY` |
+| `cliproxy()` | `<url>/v1` | `<url>` | `<url>/v1` | | `CLIPROXY_URL`, `CLIPROXY_API_KEY` |
+| `ollama()` | `<url>/v1` | `<url>` | `<url>/v1` | | `OLLAMA_URL` (default `http://localhost:11434`), `OLLAMA_API_KEY` (default `ollama`) |
+| `openai()` | `https://api.openai.com/v1` | | `https://api.openai.com/v1` | | `OPENAI_API_KEY` |
+| `chatgpt()` | `https://api.openai.com/v1` through a ChatGPT Connection | | | | None |
+| `anthropic()` | | `https://api.anthropic.com` | | | `ANTHROPIC_API_KEY` |
+| `typesafe()` | | | | `jev-latest` at `https://api.typesafe.ai` | `TYPESAFE_API_KEY`, `TYPESAFE_DEFAULT_MODEL` |
 
-`typesafe()`, `vercel()`, and `cloudflare()` return `AiGateway<{ ask: true }>`. `chatgpt()` returns a `ChatGPTGateway` descriptor for the Agent runtime. The remaining presets return `AiGateway<{ ask: false }>`, so `ask()` on them is a type error. CLIProxyAPI, LiteLLM, Ollama, OpenRouter, OpenAI, and Anthropic forward model APIs only, not TypeSafe's `/v1/systemone`.
+The type of a preset lists the model APIs that it serves: `AiGateway<{ routes: "codex" }>` accepts only gateways with a Codex URL, so a ViteHub Codex Driver with `anthropic()` and `languageModel(typesafe(), ...)` are type errors. `vercel()`, `typesafe()`, and `cloudflare()` return `AiGateway<{ ask: true }>`. `chatgpt()` returns a `ChatGPTGateway` descriptor for the Agent runtime. The other presets have no `ask()`, so `ask()` on them is a type error. CLIProxyAPI, LiteLLM, Ollama, OpenRouter, OpenAI, Anthropic, and the Cloudflare OpenAI-compatible endpoint forward model APIs only, not TypeSafe's `/v1/systemone`.
 
 `cloudflareAccess()` returns the `CF-Access-Client-Id` and `CF-Access-Client-Secret` headers for a gateway behind Cloudflare Access, from `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`. Pass it as `headers`, for example `cliproxy({ headers: cloudflareAccess() })`.
 
@@ -74,7 +99,7 @@ The answer types come from the questions:
 
 `chatgpt({ connection?: string })` is a credential-free descriptor for a ViteHub Codex Driver. It defaults to the `chatgpt` Connection. The Agent runtime applies the Connection's read policy and resolves a fresh plan token. This descriptor has no `apiKey` callback or `ask()` method. Configure `chatgpt({ appName })` from `@vite-hub/connections/chatgpt` on the Connection and sign in with `vitehub connections connect chatgpt`. See [ChatGPT plan usage](https://vitehub.dev/docs/connections/chatgpt).
 
-A preset reads each value that you do not pass when it sends a request. Direct `gateway.ask()` calls, including imports from `vite-hub/gateways`, read `process.env`: `VITEHUB_<PRESET>_<FIELD>` first, such as `VITEHUB_TYPESAFE_API_KEY`, then the vendor variable in the table. Agent Drivers, `llmGate()`, and `llmRoute()` supply Server Env, with the Cloudflare bindings of the request. For a direct call with provider-backed Server Env or request bindings, load the values in your application and pass them to the preset.
+A preset reads each value that you do not pass when it sends a request. Direct `gateway.ask()` calls, including imports from `vite-hub/gateways`, read `process.env`: `VITEHUB_<PRESET>_<FIELD>` first, such as `VITEHUB_TYPESAFE_API_KEY`, then the vendor variable in the table. Provider Drivers, ask Drivers, `llmGate()`, and `llmRoute()` supply Server Env, with the Cloudflare bindings of the request. `languageModel()` reads `process.env`, also in an AI SDK model Driver. For a direct call with provider-backed Server Env or request bindings, load the values in your application and pass them to the preset.
 
 Vercel keeps its credentials in separate Server Env fields: `vercel.apiKey` reads `AI_GATEWAY_API_KEY`, and `vercel.oidcToken` reads `VERCEL_OIDC_TOKEN`. The API key takes precedence; a token uses OIDC authentication even when an Env provider supplies it.
 
@@ -85,14 +110,28 @@ import { cloudflare, typesafe, vercel } from '@vite-hub/gateways'
 
 typesafe({ apiKey: tenant.typesafeKey })
 vercel({ apiKey: tenant.aiGatewayKey })
-cloudflare({ apiKey: tenant.typesafeKey, accountId, gatewayId, token, slug })
+cloudflare({ accountId, gatewayId, token: tenant.gatewayToken, typesafeApiKey: tenant.typesafeKey, slug })
 ```
 
-An `apiKey` or header value can also be a function that returns the value for each request. `undefined` fails the request; it does not fall back to the variable. `typesafe()`, `vercel()`, and `cloudflare()` also take `model` and `fetch`, a custom fetch implementation.
+An `apiKey` or header value can also be a function that returns the value for each request. `undefined` fails the request; it does not fall back to the variable. `cloudflare()` reads two keys, `typesafeApiKey` for `ask()` and an optional `providerApiKey` for models. `typesafe()`, `vercel()`, and `cloudflare()` also take `model` and `fetch` for `ask()`.
 
 ## Cloudflare AI Gateway
 
-Cloudflare AI Gateway has no TypeSafe provider. `cloudflare()` reaches TypeSafe through a [custom provider](https://developers.cloudflare.com/ai-gateway/configuration/custom-providers/) that you create once per Cloudflare account. The gateway then logs each request, and its caching and rate limits apply.
+`cloudflare()` sends AI SDK model requests to the [OpenAI-compatible endpoint](https://developers.cloudflare.com/ai-gateway/usage/chat-completion/) of a Cloudflare AI Gateway: `https://gateway.ai.cloudflare.com/v1/<account>/<gateway>/compat/chat/completions`. This endpoint supports only `api: 'chat'`; `api: 'responses'` is rejected. Model IDs are `{provider}/{model}`, such as `openai/gpt-5` or `workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast`.
+
+Each request needs a gateway token, a provider key, or both:
+
+| Setup | Variables | Headers |
+| --- | --- | --- |
+| The gateway stores the provider keys, or uses Unified Billing | `CLOUDFLARE_AI_GATEWAY_TOKEN` | `cf-aig-authorization` |
+| Open gateway, provider key in the request | `CLOUDFLARE_AI_GATEWAY_API_KEY` (or `providerApiKey`) | `Authorization` |
+| Authenticated gateway, provider key in the request | Both | Both |
+
+`CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_AI_GATEWAY_ID` are always required. A request without a token and without a provider key fails with `GATEWAYS_R0002` before it is sent. The two keys never mix: `ask()` sends only the TypeSafe key, and model requests send only the provider key. `cloudflare({ apiKey })` throws and names both options. `cloudflare()` does not route Drivers: Codex and Claude Code need the vendor endpoints of the gateway, each with that vendor's key. To route a Driver through Cloudflare, define a gateway for it.
+
+### TypeSafe through Cloudflare AI Gateway
+
+Cloudflare AI Gateway has no TypeSafe provider. `cloudflare().ask()` reaches TypeSafe through a [custom provider](https://developers.cloudflare.com/ai-gateway/configuration/custom-providers/) that you create once per Cloudflare account. It reads `TYPESAFE_API_KEY`, or `typesafeApiKey` when you pass it. The gateway then logs each request, and its caching and rate limits apply.
 
 1. In the Cloudflare dashboard, go to **Compute & AI** > **AI Gateway** and create a gateway. Its name is the gateway ID.
 2. Go to **Custom Providers** and select **Add Custom Provider**. Set the slug to `typesafe` and the base URL to `https://api.typesafe.ai`. Or use the Cloudflare API:
@@ -119,11 +158,9 @@ Cloudflare AI Gateway has no TypeSafe provider. `cloudflare()` reaches TypeSafe 
 
 `cloudflare().ask()` sends `POST https://gateway.ai.cloudflare.com/v1/<account>/<gateway>/custom-<slug>/v1/systemone` with the TypeSafe key as `Authorization` and the gateway token as `cf-aig-authorization`. TypeSafe still bills the requests.
 
-`cloudflare()` does not route Drivers: Cloudflare's OpenAI and Anthropic endpoints each take that vendor's key. To route a Driver through Cloudflare, define a gateway for it.
-
 ## Custom gateways
 
-Use `defineAiGateway()` for an endpoint without a preset. It routes Driver model requests and has no `ask()`:
+Use `defineAiGateway()` for an endpoint without a preset. It routes model requests and has no `ask()`. Its type lists the keys of `baseURL`:
 
 ```ts
 import { defineAiGateway } from '@vite-hub/gateways'
@@ -142,7 +179,7 @@ export const codexThroughCloudflare = defineAiGateway({
 | Option | Description |
 | --- | --- |
 | `name` | Shown in inspection and diagnostics. |
-| `baseURL` | One URL for each Driver: `codex` (OpenAI Responses at `<url>/responses`) and `claude-code` (Anthropic Messages at `<url>/v1/messages`). A function runs for each request. |
+| `baseURL` | One URL for each model API: `codex` (OpenAI Responses at `<url>/responses`, for the Codex Driver), `claude-code` (Anthropic Messages at `<url>/v1/messages`, for the Claude Code Driver and `api: 'messages'`), and `openai-compatible` (OpenAI Chat Completions at `<url>/chat/completions` and Responses at `<url>/responses`, for AI SDK models). A function runs for each request. |
 | `apiKey` | A string or a function. |
 | `apiKeyEnv` | Host variables that supply the key, in order. |
 | `auth` | `'bearer'` (default) sends `Authorization: Bearer <key>`. `'x-api-key'` sends `x-api-key: <key>`. |
@@ -150,9 +187,9 @@ export const codexThroughCloudflare = defineAiGateway({
 
 ## Use with ViteHub Agents
 
-In a ViteHub application, set a gateway as `driver.gateway` to route an Agent's model requests, or pass a gateway with `ask()` to an ask Driver, `llmGate()`, or `llmRoute()`. ViteHub then declares the preset's variables in Server Env. See [AI gateways](https://vitehub.dev/docs/agents/ai-gateways#use-with-agents) in the ViteHub docs.
+In a ViteHub application, set a gateway as `driver.gateway` to route an Agent's model requests, pass `languageModel(gateway, modelId)` from `vite-hub/gateways/ai-sdk` as an AI SDK Driver `model`, or pass a gateway with `ask()` to an ask Driver, `llmGate()`, or `llmRoute()`. ViteHub then declares the preset's variables in Server Env. See [AI gateways](https://vitehub.dev/docs/agents/ai-gateways#use-with-agents) in the ViteHub docs.
 
-`@vite-hub/gateways/internal` is for ViteHub packages: Driver route resolution and `ask()` with trace observers.
+`@vite-hub/gateways/internal` is for ViteHub packages: model API route resolution and `ask()` with trace observers.
 
 ## Errors
 
@@ -163,9 +200,10 @@ Every error has a `code`, a `why`, and a `fix`. Errors from `ask()` keep the pro
 | `GATEWAYS_R0001` | A gateway definition is not valid, such as an unknown option or a URL that is not http or https. It throws when you call the preset. |
 | `GATEWAYS_R0002` | A key is missing or empty. The message names the variable to set, or `apiKey` when you passed it. |
 | `GATEWAYS_R0003` | A header value is missing, empty, or has a line break. |
-| `GATEWAYS_R0004` | A URL, a Cloudflare account ID, or an AI Gateway ID is missing or not valid. |
-| `GATEWAYS_R0005` | `ask()` on a gateway that only routes Driver model requests. |
+| `GATEWAYS_R0004` | A URL, a Cloudflare account ID, or an AI Gateway ID is missing or not valid, or the gateway does not serve the Driver or model API. |
+| `GATEWAYS_R0005` | `ask()` on a gateway that only routes model requests. |
 | `GATEWAYS_R0006` | `ask()` without the `advocaat` package. Install it with `pnpm add advocaat`. |
 | `GATEWAYS_R0007` | A Jev question that the `ask` builders do not make, or a question that is too large. |
 | `GATEWAYS_R0008` | The provider rejected the key with 401 or 403. `status` is 503, and the error has `providerStatus` and `requestId`. The `fix` names the variable to rotate. |
 | `GATEWAYS_R0009` | The provider still failed after three attempts. `status` is 502, and the error has `providerStatus` and `requestId`. |
+| `GATEWAYS_R0010` | `languageModel()` without the AI SDK provider package of its model API. The message names the package to install. |

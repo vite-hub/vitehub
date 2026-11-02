@@ -81,6 +81,16 @@ Content bundles Comark UI's parser and editor implementation and installs the Co
 
 `collections` stores Markdown documents in a Workspace with retained history, such as the Blob + Database Store. Import `documents()` and `optional()` from `@vite-hub/content/collections` and install `@vite-hub/workspace`; `@vite-hub/content` alone does not install Workspace or Database. `fields` is a record of Standard Schema validators, one per frontmatter field, so validators from different libraries mix. Wrap a validator without `.optional()` in `optional()`. `@vite-hub/content` exports every field helper: `image()` and `file()` from Blob, `seo()`, and `optional()`.
 
+`components` lists the Comark components that bodies may use, such as `alert` for `::alert`, and the Console editor offers them in its `/` menu. Each prop has a `type`: `string`, `number`, `boolean`, `json`, `image`, or `file`. An `image` or `file` prop opens the same Media picker as `image()` and `file()` fields, limited to `store` when set. It stores the picked file as a string attribute: the served URL, such as `/media/icons/train.webp`, or the Blob pathname when the store is not served. Content stores the Markdown as written and does not check component use.
+
+```ts
+documents({
+  path: "notes/*.md",
+  fields: { title: z.string() },
+  components: { "field-note": { props: { title: { type: "string" }, icon: { type: "image", store: "media" } } } },
+})
+```
+
 ```ts
 import { defineContent } from "@vite-hub/content"
 import { documents } from "@vite-hub/content/collections"

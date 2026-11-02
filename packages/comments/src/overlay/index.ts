@@ -1,10 +1,11 @@
+import { viteHubPillButtonStyles } from "@vite-hub/internal/runtime/page-tools-shared"
 import { connectRealtimeRoom } from "@vite-hub/realtime/client"
 
 import { createAnchor, fieldAttribute, fieldElementOf, placeAnchor, selectorOf } from "../anchor.ts"
 import { commentRoom, commentsApiRoute, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
 import { api, readGuest, saveGuest } from "./api.ts"
 import { captureContext } from "./context.ts"
-import { documentStyles, overlayStyles } from "./styles.ts"
+import { documentStyles, overlayStyles, pillBarStyles } from "./styles.ts"
 
 import type { ViteHubPageToolContext, ViteHubPageToolModule } from "@vite-hub/internal/runtime/page-tools-loader"
 import type { RealtimeRoom } from "@vite-hub/realtime/client"
@@ -49,8 +50,6 @@ const svg = (path: string) => {
   return template.content.firstChild!
 }
 const icons = {
-  comment: () => svg("<path d=\"M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z\"/>"),
-  edit: () => svg("<path d=\"M12 20h9\"/><path d=\"M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z\"/>"),
   list: () => svg("<path d=\"M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01\"/>"),
   close: () => svg("<path d=\"M18 6 6 18M6 6l12 12\"/>"),
   check: () => svg("<path d=\"M20 6 9 17l-5-5\"/>"),
@@ -132,6 +131,7 @@ class CommentsOverlay extends HTMLElement {
   private readonly composeMentions = new WeakMap<HTMLTextAreaElement, CommentMention[]>()
   /** The Comments controls. They live in the tool's segment of the page tools pill, in a shadow root of their own. */
   private readonly toolbar = h("div", { className: "bar toolbar", role: "group", "aria-label": "Comments" })
+  private readonly documentStyle = h("style", { "data-vitehub-comments": true }, documentStyles)
   private session?: CommentsSession
   private page = normalizeCommentPage(location.pathname)
   private threads: PageThread[] = []
@@ -166,29 +166,25 @@ class CommentsOverlay extends HTMLElement {
     const bar = this.context?.bar
     if (bar) bar.tabIndex = -1
     if (bar) {
-      // Hidden until the session allows the overlay, so the pill shows no empty segment.
-      bar.hidden = true
-      bar.attachShadow({ mode: "open" }).append(h("style", {}, overlayStyles), this.toolbar)
+      // Until the session answers, the segment keeps the launch button's place and busy look, so the pill does not shrink
+      // and grow again. A session that does not allow the overlay hides the segment.
+      bar.attachShadow({ mode: "open" }).append(h("style", {}, overlayStyles + viteHubPillButtonStyles + pillBarStyles), this.toolbar)
+      this.toolbar.replaceChildren(h("button", { className: "tool", disabled: true, "aria-busy": "true" }, this.context?.tool.label ?? "Comments"))
     }
-    const font = getComputedStyle(document.body).fontFamily
-    for (const element of [this.root, this.toolbar]) element.style.setProperty("--font", font)
+    this.root.style.setProperty("--font", getComputedStyle(document.body).fontFamily)
     this.followTheme()
-    const style = h("style", { "data-vitehub-comments": true }, documentStyles)
-    document.head.append(style)
-    this.cleanups.push(() => style.remove())
+    this.restoreDocumentState()
+    this.cleanups.push(() => this.documentStyle.remove())
 
     const [error, session] = await api.session()
-    if (!this.active) return
-    if (error) {
-      this.showToast(error.why, "error", { keep: true, action: ["Close", () => this.exit()] })
-      return
-    }
-    if (!session.can.read) {
-      this.showDenied(session)
+    if (!this.active || error || !session.can.read) {
+      if (bar) bar.hidden = true
+      if (!this.active) return
+      if (error) this.showToast(error.why, "error", { keep: true, action: ["Close", () => this.exit()] })
+      else this.showDenied(session)
       return
     }
     this.session = session
-    if (bar) bar.hidden = false
     this.listen()
     this.renderToolbar()
     await this.load()
@@ -214,8 +210,7 @@ class CommentsOverlay extends HTMLElement {
   /** Keeps the overlay in the page's light or dark scheme when the page or the system switches. */
   private followTheme() {
     const apply = () => {
-      this.root.dataset.theme = this.toolbar.dataset.theme = hostIsDark() ? "dark" : "light"
-      if (this.panelBody) this.panelBody.dataset.theme = this.root.dataset.theme
+      this.root.dataset.theme = hostIsDark() ? "dark" : "light"
     }
     apply()
     const classes = new MutationObserver(apply)
@@ -243,10 +238,16 @@ class CommentsOverlay extends HTMLElement {
     let timer: ReturnType<typeof setTimeout> | undefined
     const mutations = new MutationObserver((records) => {
       if (records.every(record => record.target === this || this.contains(record.target))) return
+      // A direct body/field replacement need not blur the detached editable element.
+      if (this.editing && !this.editing.element.isConnected) void this.finishEdit(true)
+      // Astro replaces html attributes; Astro and Turbo both merge the head. The retained overlay must restore its
+      // stylesheet and mode class without resetting its mode or drafts, even when the URL stays the same.
+      this.restoreDocumentState()
       clearTimeout(timer)
       timer = setTimeout(schedule, 50)
     })
-    mutations.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["class", "style", "hidden"] })
+    // Follow the new page as well when its router replaces the body.
+    mutations.observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["class", "style", "hidden"] })
     this.cleanups.push(() => {
       resize.disconnect()
       mutations.disconnect()
@@ -254,6 +255,10 @@ class CommentsOverlay extends HTMLElement {
 
     // Client navigation: Nuxt and other routers use the History API.
     const navigate = () => queueMicrotask(() => this.navigated())
+    // Finalize the inline draft before Astro or Turbo removes its field, as a normal blur would.
+    for (const event of ["astro:before-swap", "turbo:before-render"]) {
+      this.on(document, event as keyof DocumentEventMap, () => void this.finishEdit(true))
+    }
     for (const method of ["pushState", "replaceState"] as const) {
       const original = history[method]
       history[method] = function (this: History, ...args: Parameters<History["pushState"]>) {
@@ -353,11 +358,19 @@ class CommentsOverlay extends HTMLElement {
   private setMode(mode: Mode) {
     this.mode = mode
     this.hover = undefined
-    document.documentElement.classList.toggle("vitehub-comment-mode", mode === "comment")
-    document.documentElement.classList.toggle("vitehub-edit-mode", mode === "edit")
+    this.restoreDocumentState()
     if (mode !== "comment") this.draft = undefined
     this.renderToolbar()
     this.render()
+  }
+
+  private restoreDocumentState() {
+    if (this.documentStyle.parentElement !== document.head) document.head.append(this.documentStyle)
+    for (const mode of ["comment", "edit"] as const) {
+      const name = `vitehub-${mode}-mode`
+      const active = this.mode === mode
+      if (document.documentElement.classList.contains(name) !== active) document.documentElement.classList.toggle(name, active)
+    }
   }
 
   private async navigated() {
@@ -596,8 +609,8 @@ class CommentsOverlay extends HTMLElement {
       h("span", { className: "avatar", title: person.name, style: `background:${person.color}` }, person.image ? h("img", { src: person.image, alt: "" }) : initials(person.name)))
     const count = `${open} open ${open === 1 ? "thread" : "threads"}`
     this.toolbar.replaceChildren(...present(
-      session.can.comment && h("button", { className: "tool", "aria-pressed": String(this.mode === "comment"), title: "Comment (C)", onClick: () => this.setMode(this.mode === "comment" ? "view" : "comment") }, icons.comment(), "Comment", h("kbd", {}, "C")),
-      session.content && session.can.comment && h("button", { className: "tool", "aria-pressed": String(this.mode === "edit"), title: "Edit text (E)", onClick: () => this.setMode(this.mode === "edit" ? "view" : "edit") }, icons.edit(), "Edit", h("kbd", {}, "E")),
+      session.can.comment && h("button", { className: "tool", "aria-pressed": String(this.mode === "comment"), title: "Comment (C)", "aria-keyshortcuts": "C", onClick: () => this.setMode(this.mode === "comment" ? "view" : "comment") }, "Comment"),
+      session.content && session.can.comment && h("button", { className: "tool", "aria-pressed": String(this.mode === "edit"), title: "Edit text (E)", "aria-keyshortcuts": "E", onClick: () => this.setMode(this.mode === "edit" ? "view" : "edit") }, "Edit"),
       h("span", { className: "sep" }),
       h("button", { className: "tool", "aria-pressed": String(this.panel), title: "Comments on this page", "aria-label": `Comments on this page, ${count}`, onClick: () => {
         if (this.panel) this.pageWindow?.hide()
@@ -725,14 +738,16 @@ class CommentsOverlay extends HTMLElement {
     if (!this.context) return
     if (!this.pageWindow) {
       this.pageWindow = this.context.createWindow({
-        id: "comments", title: "Comments", trigger: this.context.bar,
+        id: "comments", title: "Comments", trigger: this.context.bar, colorScheme: () => "dark",
         onHide: () => { this.panel = false; this.renderToolbar() },
       })
       const host = document.createElement("div")
       const shadow = host.attachShadow({ mode: "open" })
-      this.panelBody = h("div", { className: "root" })
+      // The window opens from the dark pill, so the window and its list are dark, like the comments panel of Drop. The list
+      // takes the dark window surface.
+      this.panelBody = h("div", { className: "root", "data-theme": "dark" })
       shadow.append(h("style", {}, overlayStyles + `
-        :host{display:block;height:100%}.root{position:static;height:100%;pointer-events:auto}
+        :host{display:block;height:100%}.root{position:static;height:100%;pointer-events:auto}.root[data-theme="dark"]{--surface:#0a0a0a}
         .panel,.card{position:static;width:auto;max-width:none;max-height:none;border:0;border-radius:0;box-shadow:none}
         .panel-head>.title h2,.panel-head>.icon{display:none}.panel-list{max-height:40vh}
         .card{border-top:1px solid var(--line)}
@@ -768,7 +783,6 @@ class CommentsOverlay extends HTMLElement {
     if (this.panelBody && this.panel && this.panelBody.dataset.key !== key) {
       const drafts = new Map([...this.panelBody.querySelectorAll<HTMLTextAreaElement>("textarea")].map(input => [input.closest<HTMLElement>("[data-card]")?.dataset.card, { value: input.value, mentions: this.composeMentions.get(input) ?? [] }]))
       this.panelBody.dataset.key = key
-      this.panelBody.dataset.theme = hostIsDark() ? "dark" : "light"
       this.panelBody.replaceChildren(this.renderPanel(), ...(thread ? [this.renderThread(thread)] : []))
       for (const input of this.panelBody.querySelectorAll<HTMLTextAreaElement>("textarea")) {
         const draft = drafts.get(input.closest<HTMLElement>("[data-card]")?.dataset.card)
@@ -854,7 +868,7 @@ class CommentsOverlay extends HTMLElement {
         h("div", { className: "message-head" },
           h("span", { className: "name" }, comment.author.guest ? `${comment.author.name} (guest)` : comment.author.name),
           h("time", { className: "time", datetime: comment.createdAt, title: new Date(comment.createdAt).toLocaleString() }, ago(comment.createdAt)),
-          session.user && !session.user.guest && (can.resolve || (can.comment && !comment.author.guest && comment.author.id === session.user.id)) && h("button", { className: "icon danger", title: "Delete", "aria-label": "Delete comment", onClick: () => void this.removeComment(thread, comment.id) }, icons.trash())),
+          session.user && !session.user.guest && (can.delete || (can.comment && !comment.author.guest && comment.author.id === session.user.id)) && h("button", { className: "icon danger", title: "Delete", "aria-label": "Delete comment", onClick: () => void this.removeComment(thread, comment.id) }, icons.trash())),
         renderBody(comment.body, comment.mentions)))),
       !resolved && can.comment && this.renderCompose("Reply", (body, mentions, name) => this.reply(thread, body, mentions, name)),
     )
@@ -1013,7 +1027,9 @@ const start: ViteHubPageToolModule["default"] = (context) => {
   const overlay = document.createElement("vitehub-comments")
   if (!(overlay instanceof CommentsOverlay)) return
   overlay.context = context
-  document.body.append(overlay)
+  // Like the pill and its windows, stay connected throughout a router's body swap. A detach would stop listeners,
+  // polling and Realtime, and reconnecting would initialize the toolbar's shadow root a second time.
+  document.documentElement.append(overlay)
   return () => overlay.stop()
 }
 

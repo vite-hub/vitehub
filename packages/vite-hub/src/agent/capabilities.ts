@@ -1,6 +1,5 @@
 export * from "@vite-hub/agent/capabilities"
 
-import { and, desc, eq, lt, or, sql } from "drizzle-orm"
 import { inputCommands as baseInputCommands } from "@vite-hub/agent/capabilities"
 
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
@@ -35,6 +34,8 @@ export interface ConsoleInputCommandsOptions extends Omit<InputCommandsOptions, 
 
 /** Finds the latest earlier Invocation of the same Agent, and of the same Channel thread when the current one has a thread. */
 async function previousConsoleInvocation(invocations: ConsoleInvocationsDatabase, id: string): Promise<ConsoleInvocationLink | undefined> {
+  // Only the Console journal reaches here, so an Agent app without the Console does not need drizzle-orm.
+  const { and, desc, eq, lt, or, sql } = await import("drizzle-orm")
   // Both journal drivers are async SQLite databases with the same columns.
   const db: BaseSQLiteDatabase<"async", unknown, ConsoleInvocationsDatabase["schema"]> = invocations.db
   const table = invocations.schema.invocations

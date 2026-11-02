@@ -9,7 +9,7 @@ icon: i-lucide-circle-alert
 ## Production checks
 
 - Supply a strong Better Auth secret from Server Env at request time. Never put it in Public Env, client code, Agent input, logs, or traces.
-- Set a request-aware `baseURL`, use `requestOrigin`, or set `vitehub({ publicUrl })`, so callback and cookie origins match the deployed host.
+- Set a request-aware `baseURL`, use `requestOrigin`, or set `vitehub({ publicUrl })`, so callback and cookie origins match the deployed host. Behind a proxy that ends TLS, also set [`advanced.trustedProxyHeaders`](/docs/auth/configure#behind-a-proxy-that-ends-tls).
 - Configure a concrete Better Auth database adapter and its migrations, or use [`stateless()`](/docs/auth/configure#sessions-without-a-database) for social sign-in without a database.
 - Protect application and Console pages and APIs explicitly. A session proves identity. Your `authorize` callbacks define roles and permissions.
 - Keep automatic `/api/auth/**` exposure unless the host mounts the handler itself. Use the same `basePath` on the server and the client.

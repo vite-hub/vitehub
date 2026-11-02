@@ -6,7 +6,7 @@ export interface CommentsSession {
   user: CommentAuthor | null
   /** For a person signed in with GitHub: their login, and whether they can push to the repository. */
   github?: CommentsGitHubAccess
-  can: { read: boolean, comment: boolean, resolve: boolean }
+  can: { read: boolean, comment: boolean, resolve: boolean, delete?: boolean }
   /** The GitHub sign-in, when the person may not read yet and the site offers it. */
   signIn?: { provider: "github", url: string }
   /** Signs out of the GitHub sign-in of Comments. */
@@ -17,7 +17,7 @@ export interface CommentsSession {
 
 /** Request-scoped permissions for an existing thread, evaluated with that thread's authorization context. */
 export interface CommentsThread extends CommentThread {
-  can?: { comment: boolean, resolve: boolean }
+  can?: { comment: boolean, resolve: boolean, delete?: boolean }
 }
 
 export interface CommentsField {

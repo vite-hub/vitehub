@@ -21,7 +21,7 @@ The `comments()` plugin has one option of its own, [`database`](#choose-the-data
 
 ## Decide who can comment
 
-`authorize` gets the user and the action. Return `false` to deny.
+`authorize` gets the user and the action. Return `false` to deny. The `delete` action requires `true`; `read`, `comment`, and `resolve` also accept a `void` return as permission.
 
 ```ts [server/comments.ts]
 import { defineComments } from 'vite-hub/comments'
@@ -39,7 +39,8 @@ export const comments = defineComments({
 | --- | --- |
 | `read` | See pins and threads, join the presence room of the page, and get `@` suggestions. |
 | `comment` | Start threads and reply. Signed-in authors can also delete their own comments. |
-| `resolve` | Resolve and reopen any thread. Signed-in users can also delete any thread or comment. |
+| `resolve` | Resolve and reopen any thread. |
+| `delete` | Signed-in users can delete any thread or comment. |
 
 `thread` is the thread that the action changes. It is `undefined` for reads and for new threads.
 
@@ -172,7 +173,7 @@ export const comments = defineComments({
 })
 ```
 
-The server does not verify a guest name or ID. They are display data, never proof of ownership. Guests cannot delete comments or threads, even when the policy allows `resolve`. Sign in to delete your own comments, or ask a signed-in moderator with `resolve` permission.
+The server does not verify a guest name or ID. They are display data, never proof of ownership. Guests cannot delete comments or threads, even when the policy allows `delete`. Sign in to delete your own comments, or ask a signed-in moderator with `delete` permission.
 
 ## Comments in your own UI
 
@@ -381,7 +382,7 @@ The Comments toolbar is one segment of the ViteHub tools pill at the bottom of t
 | <kbd>Esc</kbd> | Close the open thread, or turn **Comment** and **Edit** off. |
 | <kbd>⌘</kbd> <kbd>Enter</kbd> | Send the comment. |
 
-Without the hint, the server returns each page unchanged: no script, no request, and no extra cache variant. With the hint, it adds one loader script, `<script type="module" src="/_vitehub/page/assets/loader.js?v=8">`, before `</body>` of HTML responses and sends them with `cache-control: private, no-store`. The loader imports the overlay only for people that the session route allows. With an application base such as `/portal/`, the loader and session URLs start with `/portal/_vitehub/page/`. Paths under `/_vitehub` and `/api` within that application never get the loader.
+Without the hint, the server returns each page unchanged: no script, no request, and no extra cache variant. With the hint, it adds one loader script, `<script type="module" src="/_vitehub/page/assets/loader.js?v=10">`, before `</body>` of HTML responses and sends them with `cache-control: private, no-store`. The loader imports the overlay only for people that the session route allows. With an application base such as `/portal/`, the loader and session URLs start with `/portal/_vitehub/page/`. Paths under `/_vitehub` and `/api` within that application never get the loader.
 
 - Nitro 3 apps get the script from the server response. Nuxt 4 apps get it through Nitro's `render:html` hook, and also when a route returns the page as a `Response`.
 - A single-page app whose `index.html` Vite serves or builds gets a short inline check instead. The check loads the page tools loader in the browser when it finds the query or the cookie. It is in the built `index.html`, so it also works when a host serves that file as a static file. The server does not add a second loader to a page that has the check.

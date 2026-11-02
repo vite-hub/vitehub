@@ -1,6 +1,7 @@
 import { consoleDocumentMetadata } from "../../document-metadata.ts"
 import { consoleMountBase } from "../console-route.ts"
-import { consoleAllowsRequest, consoleAppAuthBasePath, consoleSignInPage, consoleSignInRedirect } from "./access.ts"
+import { consoleDiagnosticBody, consoleStatusDiagnosticCode, isConsoleDiagnosticCode } from "../diagnostics.ts"
+import { consoleAllowsRequest, consoleAppAuthBasePath, consolePageRejection, consoleSignInPage, consoleSignInRedirect } from "./access.ts"
 import { assertConsoleRequest, consoleRequestURL } from "./request.ts";
 import { isConsoleDevelopmentBuild } from "./development.ts"
 
@@ -27,11 +28,61 @@ const page = `<!doctype html>
 const escapeAttribute = (value: string): string =>
   value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
 
+/** The page for a rejection of the access check: `Access denied` for `403`, with the why and the fix of its Console code. */
+async function rejectedPage(rejection: Response): Promise<Response> {
+  const body: unknown = await rejection.clone().json().catch(() => undefined)
+  const code: unknown = body instanceof Object ? Reflect.get(body, "code") : undefined
+  const message: unknown = body instanceof Object ? Reflect.get(body, "message") : undefined
+  const diagnostic = isConsoleDiagnosticCode(code)
+    ? consoleDiagnosticBody(code, typeof message === "string" ? message : undefined)
+    : consoleDiagnosticBody(consoleStatusDiagnosticCode(rejection.status))
+  const development = isConsoleDevelopmentBuild()
+  const title = rejection.status === 403 ? "Access denied" : "The Console cannot open"
+  const document = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">${consoleDocumentMetadata}
+    <title>${title} · ViteHub Console</title>
+    <style>
+      :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+      body { min-height: 100dvh; margin: 0; display: grid; place-items: center; background: light-dark(#fafafa, #0a0a0a); color: light-dark(#171717, #f5f5f5); }
+      main { width: min(24rem, calc(100% - 3rem)); }
+      h1 { margin: 0 0 .5rem; font-size: 1.5rem; font-weight: 600; }
+      p { color: light-dark(#525252, #a3a3a3); line-height: 1.5; overflow-wrap: anywhere; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>${title}</h1>
+      <p>${escapeAttribute(diagnostic.message)}</p>
+      <p>${escapeAttribute(diagnostic.fix ?? "")}</p>
+    </main>
+  </body>
+</html>`
+  return new Response(document, {
+    headers: {
+      "cache-control": "no-store",
+      "content-security-policy": `default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors ${development ? "'self'" : "'none'"}`,
+      "content-type": "text/html; charset=utf-8",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": development ? "SAMEORIGIN" : "DENY",
+      "x-robots-tag": "noindex, nofollow",
+    },
+    status: rejection.status,
+  })
+}
+
 export default async function consolePageHandler(event: ConsoleRequestEvent): Promise<Response> {
   assertConsoleRequest(event);
   // With a sign-in page, a signed-out visit goes there and comes back, as with Console Auth.
   const signIn = await consoleSignInRedirect(event)
   if (signIn) return signIn
+  // A visitor that the data routes reject does not get the Console. A signed-out visitor gets its signed-out state.
+  const rejection = await consolePageRejection(event)
+  if (rejection) return rejection.app ? rejection.response : await rejectedPage(rejection.response)
   const { pathname } = consoleRequestURL(event)
   const mountBase = consoleMountBase(pathname)
   // The Console links to the sign-in page when a session ends while the page is open.

@@ -67,7 +67,7 @@ describe("Cloudflare Sandbox runtime provider", () => {
       provider: { provider: "cloudflare" },
     }, {
       event: { context: { cloudflare: { env: { DB: {} } } } },
-    })).rejects.toThrow("build, then run `npx wrangler --cwd .output/server dev`")
+    })).rejects.toThrow("build, then run `npx wrangler dev --config .output/server/wrangler.json`")
   })
 
   it.each(["__proto__", "constructor", "toString"])("rejects inherited Cloudflare binding %s", async (binding) => {

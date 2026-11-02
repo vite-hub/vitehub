@@ -15,10 +15,10 @@ You need Node.js 24.15 or newer, pnpm, and a Vite application. Run the commands 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
 
-Install ViteHub and the server dependencies. Content includes its Comark runtime and the Comark UI parser preset.
+Install ViteHub, the Content package, and the server dependencies. Content includes its Comark runtime and the Comark UI parser preset.
 
 ```bash [commands/install]
-pnpm add vite-hub nitro h3
+pnpm add vite-hub @vite-hub/content nitro h3
 pnpm add -D vite
 ```
 

@@ -20,7 +20,7 @@ Install the facade as one coherent graph. Current pnpm versions reject preview t
 PNPM_CONFIG_BLOCK_EXOTIC_SUBDEPS=false pnpm add "vite-hub@https://pkg.pr.new/vite-hub/vitehub/vite-hub@<full-sha>"
 ```
 
-If the application intentionally needs direct owner packages, generate every selected URL from the same full SHA, probe each URL, and install them together. A split-commit graph is a canary-development exception; record why each split is required and prove it separately.
+The owner packages of enabled opt-in features, such as `@vite-hub/agent`, are optional peers of the facade. Install them from the same full SHA. If the application intentionally needs other direct owner packages, generate every selected URL from the same full SHA, probe each URL, and install them together. A split-commit graph is a canary-development exception; record why each split is required and prove it separately.
 
 ## Contract gate
 

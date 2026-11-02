@@ -8,6 +8,7 @@ import { execFileSync } from "node:child_process"
 it("describes a Connection without credentials and accepts only a local Codex Driver", () => {
   expect(chatgpt()).toEqual({ kind: "chatgpt", name: "chatgpt", connection: "chatgpt" })
   expect(normalizeAgentDriver({ driver: { kind: "codex", gateway: chatgpt() } })).toMatchObject({ gateway: chatgpt() })
+  // @ts-expect-error The Claude Code Driver type rejects a ChatGPT plan gateway too.
   expect(() => defineAgent({ driver: { kind: "claude-code", gateway: chatgpt() } })).toThrow("does not serve")
   expect(() => defineAgent({ driver: { kind: "codex", gateway: chatgpt(), launch: { command: "custom" } } })).toThrow(expect.objectContaining({ code: "AGENT_R1015" }))
   expect(() => defineAgent({ driver: { kind: "codex", gateway: chatgpt(), providerSettings: { launchArgs: "--enable image_generation" } } })).toThrow(expect.objectContaining({ code: "AGENT_R1015" }))

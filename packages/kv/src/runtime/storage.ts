@@ -120,6 +120,14 @@ function createKVStorage(name = "default"): KVStorage {
       return runKVOperation("list", name, storage => storage.listKeys(options), ["KV_INVALID_CURSOR"])
     },
     async set(key, value, options) { return runKVOperation("set", name, async storage => storage.setItem(key, value, options)) },
+    async setIfAbsent(key, value, options) {
+      return runKVOperation("setIfAbsent", name, async (storage) => {
+        if (!storage.setIfAbsentItem) throw kvErrorDiagnostics.KV_UNSUPPORTED_OPERATION({ operation: "setIfAbsent", store: name })
+        const ttl = options?.ttl
+        if (ttl !== undefined && (!Number.isFinite(ttl) || ttl <= 0 || !Number.isSafeInteger(Math.ceil(ttl)))) throw kvErrorDiagnostics.KV_INVALID_TTL()
+        return storage.setIfAbsentItem(key, value, ttl)
+      }, ["KV_INVALID_TTL", "KV_UNSUPPORTED_OPERATION"])
+    },
     store(storeName: KVStoreName) { return createKVStorage(storeName) },
   }
 }

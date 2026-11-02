@@ -1,8 +1,10 @@
 import { resolve } from "node:path"
 
-import { discoverAgentChannelEnv, discoverAgentGatewayEnv } from "@vite-hub/agent/vite"
 import { env } from "@vite-hub/env/vite"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+
+import { requireOptionalOwner } from "./internal/optional-owners.ts"
+import { ownerModules } from "./internal/owner-modules.ts"
 
 import type { EnvRuntimeConfigOptions, EnvViteUserConfig } from "@vite-hub/env"
 import type { Plugin } from "vite"
@@ -30,6 +32,7 @@ export function agentChannelEnvPlugin(): Plugin {
           // SAFETY: ViteHub framework integrations set this private server-directory key.
           serverDirs: (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS],
         }
+        const { discoverAgentChannelEnv, discoverAgentGatewayEnv } = requireOptionalOwner(ownerModules.agentVite, "agent")
         const channelEnv = { ...discoverAgentGatewayEnv(discovery), ...discoverAgentChannelEnv(discovery) }
         // SAFETY: hubEnv() owns the `env` Vite config extension read and written here.
         const envConfig = config as typeof config & EnvViteUserConfig

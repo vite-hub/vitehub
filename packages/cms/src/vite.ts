@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path"
 
 import { resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { flattenPluginOptions } from "@vite-hub/internal/contributions"
+import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { findContentEntry } from "@vite-hub/source/vite"
 import { parseAst } from "vite"
 
@@ -17,14 +18,20 @@ import {
   resolveCmsPresetPlan,
   usesCmsPresetSync,
 } from "./build.ts"
+import { createCmsCliContributor } from "./cli.ts"
+import { cmsStoreOf } from "./options.ts"
 
 import type { DatabaseContributionContext, DatabaseContributionEntry, DatabaseContributionFactory } from "@vite-hub/database/vite"
+import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
+import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { WorkspaceContributionContext, WorkspaceContributionFactory } from "@vite-hub/workspace/vite"
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import type { CmsPresetPlan, CmsWorkspaceImports } from "./build.ts"
 
 export { cmsPresetModules, readCmsPresetUsage, renderCmsDatabaseModule, renderCmsWorkspaceModule, resolveCmsPresetPlan } from "./build.ts"
 export type { CmsDatabaseChoices, CmsGitHubPlan, CmsPresetPlan, CmsPresetUsage, CmsWorkspaceImports } from "./build.ts"
+
+export { createCmsCliContributor } from "./cli.ts"
 
 export const CMS_VITE_PLUGIN_NAME = "@vite-hub/cms/vite"
 
@@ -62,8 +69,12 @@ export interface CmsVitePluginAPI {
 
 export type CmsVitePlugin = Plugin & {
   api: CmsVitePluginAPI
-  /** Contributions that the Workspace and Database plugins collect. Both are empty without the `cms` preset. */
-  vitehub: { databases: DatabaseContributionFactory, workspaces: WorkspaceContributionFactory }
+  /**
+   * Contributions that the Workspace and Database plugins collect, both empty without the `cms` preset. With
+   * `server/content.ts`, the `vitehub cms roles` command. With the preset, a `cms` inspector that says whether the CMS
+   * roles or the app's `authorize` decide access.
+   */
+  vitehub: { databases: DatabaseContributionFactory, workspaces: WorkspaceContributionFactory } & ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata
 }
 
 type CmsPluginConfig = UserConfig & {
@@ -168,6 +179,32 @@ export function hubCms(options: CmsVitePluginOptions = {}): CmsVitePlugin {
     enforce: "post",
     api: { resolvePlan },
     vitehub: {
+      cli: async () => {
+        if (!await findContentEntry({ projectRoot: projectRoot ?? process.cwd(), serverDirs })) return
+        return createCmsCliContributor()
+      },
+      inspect: async () => {
+        const root = projectRoot ?? process.cwd()
+        const file = await findContentEntry({ projectRoot: root, serverDirs })
+        const usage = file ? await readCmsPresetUsageFile(file, root, parseAst) : undefined
+        if (!usage) return
+        return {
+          definitions: [{
+            kind: "cms",
+            label: "CMS",
+            list: () => [{
+              fields: [
+                { label: "Store", value: cmsStoreOf(usage.options) },
+                { label: "Workspace", value: usage.options.workspace ?? "content" },
+                { label: "Access", value: usage.authorize === "unknown" ? "Indeterminate (object spread may supply authorize)" : usage.authorize ? "The app's defineContent({ authorize })" : usage.options.access === "roles" ? "CMS roles of the Better Auth admin plugin (vitehub cms roles)" : "No policy (all actions denied)" },
+              ],
+              file: relativeDefinitionFile(root, usage.file),
+              name: usage.options.workspace ?? "content",
+              source: "server-content",
+            }],
+          }],
+        }
+      },
       async workspaces(context: WorkspaceContributionContext) {
         // Nuxt may omit ViteHub project-root metadata; use the Vite root then.
         const projectRoot = context.projectRoot ?? context.root

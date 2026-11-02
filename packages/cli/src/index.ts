@@ -100,7 +100,7 @@ async function loadNuxtViteConfig(rootDir: string, command: ConfigEnv["command"]
   const nuxt = await loadNuxt({
     cwd: rootDir,
     dev: command === "serve",
-    overrides: { vitehubCliDiscovery: true },
+    overrides: { devtools: { enabled: false }, vitehubCliDiscovery: true },
     ready: true,
   } as Parameters<typeof loadNuxt>[0])
   try {

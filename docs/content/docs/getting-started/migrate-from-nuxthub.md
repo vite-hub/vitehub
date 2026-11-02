@@ -42,11 +42,13 @@ pnpm remove @nuxthub/core
 pnpm add vite-hub
 ```
 
-For Database, keep or add `drizzle-orm` as a direct dependency because your
-schema imports it. ViteHub supplies `drizzle-kit` for its migration commands.
+For Database, add the Database package and keep or add `drizzle-orm` as a
+direct dependency because your schema imports it. Add `drizzle-kit` for the
+migration commands.
 
 ```bash [Terminal]
-pnpm add drizzle-orm
+pnpm add @vite-hub/database drizzle-orm
+pnpm add -D drizzle-kit
 ```
 
 Early NuxtHub v0.10 releases use `hub:db`, `hub:kv`, and `hub:blob` imports.
@@ -307,6 +309,10 @@ with an ID in `nitro.cloudflare.wrangler.kv_namespaces`, so the generated
 deployment always names a real namespace. The `netlify` preset has no
 default cache store, so `cache: true` fails the build there. A `cache` mount
 that you set in `nitro.storage` takes precedence.
+
+To share the app's KV store instead, on any preset, set
+`cache: { driver: "kv" }` with `kv` enabled. Cache keys get the `nitro-cache:`
+prefix.
 
 To keep the cache namespace that NuxtHub created on Cloudflare, pass its ID:
 

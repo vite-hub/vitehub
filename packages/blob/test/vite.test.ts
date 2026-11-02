@@ -1178,7 +1178,7 @@ describe("hubBlob", () => {
   describe.each([false, true])("serve authorization (Nuxt: %s)", (nuxt) => {
     const authPlugin = { name: "@vite-hub/auth/vite", api: { getConfig: () => ({ definition: {} }) } }
 
-    async function bundleServeRoute(root: string, priorCacheControl?: string) {
+    async function bundleServeRoute(root: string, priorCacheControl?: string, route = "/photos") {
       const artifactFile = join(root, "serve-route.mjs")
       await bundle({
         bundle: true,
@@ -1244,7 +1244,7 @@ describe("hubBlob", () => {
         }],
         target: "node24",
       })
-      return await serveRouteRequest(artifactFile, nuxt, "/photos", priorCacheControl)
+      return await serveRouteRequest(artifactFile, nuxt, route, priorCacheControl)
     }
 
     it("requires a session before the store read and before conditional handling", async () => {
@@ -1325,6 +1325,67 @@ describe("hubBlob", () => {
       }
       finally {
         Reflect.deleteProperty(globalThis, "__vitehubBlobServeCalls")
+        await rm(root, { force: true, recursive: true })
+      }
+    })
+
+    it("runs the anonymous authorize export for signed-out callers", async () => {
+      const root = await temporaryDirectory("vitehub-blob-authorize-anonymous-")
+      const calls: string[] = []
+      Reflect.set(globalThis, "__vitehubBlobServeCalls", calls)
+      try {
+        await mkdir(join(root, "server"), { recursive: true })
+        await writeFile(join(root, "server", "blob.ts"), [
+          "export const authorize = ({ request, session, user }) => {",
+          "  const pathname = new URL(request.url).pathname",
+          "  if (pathname.startsWith('/f/public/')) return session === null || typeof session.id === 'string'",
+          "  if (pathname.startsWith('/f/gone/')) return new Response('Not found', { status: 404 })",
+          "  return user !== null && pathname.startsWith(`/f/${user.id}/`)",
+          "}",
+          "",
+        ].join("\n"))
+        const plugin = hubBlob({ driver: "fs", serve: { anonymous: true, authorize: true, route: "/f" } }, { importBase: "virtual:blob-test" })
+        await (plugin.configResolved as (config: unknown) => void | Promise<void>)({
+          build: { outDir: "dist" },
+          plugins: [authPlugin],
+          root,
+        } as never)
+        const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
+        expect(handler).toContain("import { withAnonymousAuthorization } from \"#vitehub/auth/server\"")
+        expect(handler).toContain("withAnonymousAuthorization(authorize, (event: H3Event) => serveBlob(event))")
+
+        const request = await bundleServeRoute(root, "public, max-age=3600", "/f")
+        const shared = await request("public/meal.jpg")
+        expect(shared.status).toBe(200)
+        expect(shared.headers.get("Cache-Control")).toBe("private, no-cache")
+        expect(new Uint8Array(await shared.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]))
+        expect((await request("public/meal.jpg", { "If-None-Match": shared.headers.get("etag")! })).status).toBe(304)
+        expect((await request("public/meal.jpg", { cookie: "session=u1" })).status).toBe(200)
+        expect((await request("gone/meal.jpg")).status).toBe(404)
+        const signedOut = await request("u1/meal.jpg")
+        expect(signedOut.status).toBe(401)
+        expect((await request("u1/meal.jpg", { "If-None-Match": '"photo-v1"' })).status).toBe(401)
+        expect((await request("u1/meal.jpg", { cookie: "session=u1" })).status).toBe(200)
+        expect((await request("u1/meal.jpg", { cookie: "session=u2" })).status).toBe(403)
+        expect(calls).toEqual(["public/meal.jpg", "public/meal.jpg", "public/meal.jpg", "u1/meal.jpg"])
+      }
+      finally {
+        Reflect.deleteProperty(globalThis, "__vitehubBlobServeCalls")
+        await rm(root, { force: true, recursive: true })
+      }
+    })
+
+    it("fails the build when anonymous serving has no authorize export", async () => {
+      const root = await temporaryDirectory("vitehub-blob-authorize-anonymous-missing-")
+      try {
+        const plugin = hubBlob({ driver: "fs", serve: { anonymous: true, authorize: true } })
+        await expect((plugin.configResolved as (config: unknown) => void | Promise<void>)({
+          build: { outDir: "dist" },
+          plugins: [authPlugin],
+          root,
+        } as never)).rejects.toThrow("`blob.serve.anonymous` requires an `authorize` export")
+      }
+      finally {
         await rm(root, { force: true, recursive: true })
       }
     })

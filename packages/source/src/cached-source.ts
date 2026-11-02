@@ -5,13 +5,8 @@ interface KeyedSourceReader {
 }
 
 function isRuntimeFunction(value: unknown): value is Function {
-  if (value === null || Object(value) !== value) return false
-  try {
-    Function.prototype.toString.call(value)
-    return true
-  } catch {
-    return false
-  }
+  // Callable HTMLDDA browser values report undefined without being undefined.
+  return typeof value === "function" || (typeof value === "undefined" && value !== undefined)
 }
 
 type ValidCachedGet<TReader extends KeyedSourceReader> =

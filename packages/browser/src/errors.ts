@@ -35,13 +35,6 @@ export function browserDefinitionNotFoundError(name: string): ViteHubError {
   )
 }
 
-export function browserRuntimeNotConfiguredError(): ViteHubError {
-  return new ViteHubError(
-    "BROWSER_RUNTIME_NOT_CONFIGURED",
-    "[vitehub:browser] Browser runtime is not configured. Enable Browser through the ViteHub deployment preset.",
-  )
-}
-
 function isBrowserError(value: unknown): value is ViteHubError<`BROWSER_${string}`> {
   return getViteHubErrorShape(value)?.code.startsWith("BROWSER_") === true
 }

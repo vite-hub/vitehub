@@ -24,6 +24,12 @@ the Agent Definition and server route stay the same.
 ::tutorial-step{title="Enable Agents"}
 ## Enable Agents
 
+Install the Agent package:
+
+```bash [commands/install-agent]
+pnpm add @vite-hub/agent
+```
+
 Add `agent: true` to the ViteHub options. Set `workflow: false` because this
 Agent finishes inside the HTTP request. Keep other features you already use.
 

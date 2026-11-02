@@ -1,0 +1,41 @@
+nuxt-safe-runtime-config: migrated 9 Env declarations (3 public, 6 server) from $schema (runtime-config.schema.ts) to vite-hub/nuxt.
+Dry run: no files were written.
+
+Files to change (4):
+  nuxt.config.ts
+  package.json
+  composables/useSite.ts
+  server/utils/session.ts
+
+Manual follow-ups (20):
+  1. runtime-config.schema.ts The $schema has a Zod refinement on the whole runtimeConfig, such as a cross-field rule. Env does not run it. Check it in server code.
+  2. nuxt.config.ts:18 sessionPassword is secret, so its value "dev-only-password" was not kept as a default. Defaults are written into the server build. Set NUXT_SESSION_PASSWORD instead.
+  3. nuxt.config.ts:18 sessionPassword: Env does not keep minimum length 32. Check the value in code, or use envSchema() with a .env.example for length, range, integer, and URL checks.
+  4. nuxt.config.ts:19 timeoutMs: Env does not keep the integer rule. Check the value in code, or use envSchema() with a .env.example for length, range, integer, and URL checks.
+  5. nuxt.config.ts:21 cacheTtl: Env does not keep a Zod refinement. Check the value in code, or use envSchema() with a .env.example for length, range, integer, and URL checks.
+  6. nuxt.config.ts:25 redirectUrl: Env does not keep a Zod transform. Check the value in code, or use envSchema() with a .env.example for length, range, integer, and URL checks.
+  7. runtime-config.schema.ts:12 mode is a union, which Env cannot declare. It stays in runtimeConfig without validation. Read it with useRuntimeConfig().
+  8. nuxt.config.ts:14 public.posthog.host is nested. Public Env is flat, so read it as usePublicEnv().posthogHost.
+  9. nuxt.config.ts:14 public.posthog.host: Env does not keep the URL format. Check the value in code, or use envSchema() with a .env.example for length, range, integer, and URL checks.
+  10. nuxt.config.ts:15 public.posthog.sampleRate accepts null. Env has no null value, so the field is optional and is undefined when the variable is not set.
+  11. nuxt.config.ts:15 public.posthog.sampleRate is nested. Public Env is flat, so read it as usePublicEnv().posthogSampleRate.
+  12. nuxt.config.ts:15 public.posthog.sampleRate: Env does not keep minimum 0, maximum 1. Check the value in code, or use envSchema() with a .env.example for length, range, integer, and URL checks.
+  13. components/Footer.vue:2 The template reads config. Rewrite the template and this call by hand with usePublicEnv().
+  14. components/Footer.vue The template reads $config.public.siteName, which moved to Env. Read it with usePublicEnv() in the script.
+  15. pages/index.vue:3 useRuntimeConfig() reads public.siteName, which moved to Env and is no longer in runtimeConfig. Read it with usePublicEnv() from #vitehub/env/public.
+  16. server/api/info.get.ts:3 Reads the public object. Public Env is flat, so nested public groups do not exist. Read each field from usePublicEnv(), for example usePublicEnv().posthogHost. Then rewrite this useSafeRuntimeConfig() call by hand.
+  17. server/utils/session.ts:14 useSafeRuntimeConfig() passes the config object on. Rewrite it by hand with useServerEnv() or usePublicEnv().
+  18. shared/config.ts:1 useSafeRuntimeConfig() in shared code runs on the server and in the app. Use useServerEnv() from #vitehub/env/server in server code and usePublicEnv() from #vitehub/env/public elsewhere.
+  19. server/utils/session.ts:4 useServerEnv().sessionPassword is secret, a SecretEnv<string>. Call .unseal() where this code needs the raw value.
+  20. server/utils/session.ts:4 useServerEnv().webhook.signingSecret is secret, a SecretEnv<string>. Call .unseal() where this code needs the raw value.
+
+Notes:
+  - Each declaration reads its NUXT_* name with env.source(). Env reads the canonical name VITEHUB_<PATH> first, for example VITEHUB_API_SECRET before NUXT_API_SECRET.
+  - The codemod did not delete runtime-config.schema.ts. Delete it, and its schema library if nothing else uses it.
+  - Public Env values are fixed at build time. Nuxt applied NUXT_PUBLIC_* overrides when the server started; now set them when you build. Server Env values are read when the server runs.
+  - Shelve and the standalone Nitro module (nuxt-safe-runtime-config/nitro) are out of scope for this codemod.
+  - No ESLint config references nuxt-safe-runtime-config/eslint.
+
+Next steps:
+  - Run `pnpm install` to install vite-hub and remove nuxt-safe-runtime-config.
+  - Run `npx nuxi prepare` to generate the Env types, then type-check the app.

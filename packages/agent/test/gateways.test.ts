@@ -7,7 +7,9 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { discoverAgentGatewayEnv } from "../src/channel-env-discovery.ts"
 import { anthropic, cliproxy, cloudflare, cloudflareAccess, defineAiGateway, litellm, ollama, openai, openrouter, typesafe, vercel } from "@vite-hub/gateways"
 import { createAgentInspectionMetadata, defineAgent } from "../src/index.ts"
+import { languageModel } from "@vite-hub/gateways/ai-sdk"
 import { normalizeAgentDriver } from "../src/internal/agent-driver.ts"
+import { materializeAgentModel } from "../src/internal/agent-model.ts"
 import { resolveAgentDriverGateway } from "../src/internal/agent-gateway.ts"
 
 const context = { purpose: "inspection" } as never
@@ -18,12 +20,12 @@ afterEach(() => {
 
 describe("gateway presets", () => {
   it("maps each preset to the base URL that each Driver expects", () => {
-    expect(cliproxy({ url: "https://proxy.example/v1/" }).baseURL).toEqual({ "codex": "https://proxy.example/v1", "claude-code": "https://proxy.example" })
-    expect(litellm({ url: "http://litellm:4000" }).baseURL).toEqual({ "codex": "http://litellm:4000/v1", "claude-code": "http://litellm:4000" })
-    expect(ollama({ url: "http://gpu:11434" }).baseURL).toEqual({ "codex": "http://gpu:11434/v1", "claude-code": "http://gpu:11434" })
-    expect(openrouter().baseURL).toEqual({ "codex": "https://openrouter.ai/api/v1", "claude-code": "https://openrouter.ai/api" })
-    expect(vercel().baseURL).toEqual({ "codex": "https://ai-gateway.vercel.sh/codex/v1", "claude-code": "https://ai-gateway.vercel.sh/claude-code" })
-    expect(openai().baseURL).toEqual({ codex: "https://api.openai.com/v1" })
+    expect(cliproxy({ url: "https://proxy.example/v1/" }).baseURL).toEqual({ "codex": "https://proxy.example/v1", "claude-code": "https://proxy.example", "openai-compatible": "https://proxy.example/v1" })
+    expect(litellm({ url: "http://litellm:4000" }).baseURL).toEqual({ "codex": "http://litellm:4000/v1", "claude-code": "http://litellm:4000", "openai-compatible": "http://litellm:4000/v1" })
+    expect(ollama({ url: "http://gpu:11434" }).baseURL).toEqual({ "codex": "http://gpu:11434/v1", "claude-code": "http://gpu:11434", "openai-compatible": "http://gpu:11434/v1" })
+    expect(openrouter().baseURL).toEqual({ "codex": "https://openrouter.ai/api/v1", "claude-code": "https://openrouter.ai/api", "openai-compatible": "https://openrouter.ai/api/v1" })
+    expect(vercel().baseURL).toEqual({ "codex": "https://ai-gateway.vercel.sh/codex/v1", "claude-code": "https://ai-gateway.vercel.sh/claude-code", "openai-compatible": "https://ai-gateway.vercel.sh/v1" })
+    expect(openai().baseURL).toEqual({ "codex": "https://api.openai.com/v1", "openai-compatible": "https://api.openai.com/v1" })
     expect(anthropic().baseURL).toEqual({ "claude-code": "https://api.anthropic.com" })
   })
 
@@ -32,7 +34,7 @@ describe("gateway presets", () => {
   })
 
   it("validates custom gateways", () => {
-    expect(() => defineAiGateway({ name: "x", baseURL: {} })).toThrow('must set a baseURL for "codex" or "claude-code"')
+    expect(() => defineAiGateway({ name: "x", baseURL: {} })).toThrow('must set a baseURL for "codex", "claude-code", "openai-compatible"')
     expect(() => defineAiGateway({ name: "x", baseURL: { codex: "ftp://proxy" }, apiKey: "k" })).toThrow("http or https URL")
     expect(() => defineAiGateway({ name: "x", baseURL: { codex: "https://proxy" } })).toThrow("needs apiKey or apiKeyEnv")
     expect(() => defineAiGateway({ name: "x", baseURL: { codex: "https://proxy" }, apiKey: "k", headers: { "bad header": "v" } })).toThrow("not a valid HTTP header name")
@@ -208,10 +210,11 @@ describe("gateway Server Env", () => {
         },
         cloudflare: {
           accountId: { names: ["CLOUDFLARE_ACCOUNT_ID"], required: false, secret: false },
-          apiKey: { names: ["TYPESAFE_API_KEY"], required: false, secret: true },
           gatewayId: { names: ["CLOUDFLARE_AI_GATEWAY_ID"], required: false, secret: false },
+          providerApiKey: { names: ["CLOUDFLARE_AI_GATEWAY_API_KEY"], required: false, secret: true },
           slug: { names: ["CLOUDFLARE_AI_GATEWAY_SLUG"], required: false, secret: false },
           token: { names: ["CLOUDFLARE_AI_GATEWAY_TOKEN"], required: false, secret: true },
+          typesafeApiKey: { names: ["TYPESAFE_API_KEY"], required: false, secret: true },
         },
         cloudflareAccess: {
           clientId: { names: ["CF_ACCESS_CLIENT_ID"], required: false, secret: true },
@@ -222,6 +225,14 @@ describe("gateway Server Env", () => {
     finally {
       await rm(root, { force: true, recursive: true })
     }
+  })
+})
+
+describe("AI SDK models through a gateway", () => {
+  it("runs an AI SDK model Driver on languageModel() without the Vercel AI Gateway", async () => {
+    const model = languageModel(openrouter({ apiKey: "k" }), "google/gemini-3-flash")
+    expect(() => defineAgent({ driver: { model } })).not.toThrow()
+    await expect(materializeAgentModel(model, {})).resolves.toBe(model)
   })
 })
 
@@ -247,9 +258,12 @@ describe("driver.gateway", () => {
   })
 
   it("rejects a gateway that does not serve the Driver", () => {
+    // @ts-expect-error The Claude Code Driver type accepts only gateways with a claude-code URL.
     expect(() => defineAgent({ driver: { kind: "claude-code", gateway: openai() } })).toThrow('Gateway "openai" does not serve the claude-code Driver')
+    // @ts-expect-error The Codex Driver type accepts only gateways with a codex URL.
     expect(() => defineAgent({ driver: { kind: "codex", gateway: typesafe({ apiKey: "k" }) } })).toThrow('Gateway "typesafe" does not serve the codex Driver')
-    expect(() => defineAgent({ driver: { kind: "codex", gateway: cloudflare({ apiKey: "k" }) } })).toThrow('Gateway "cloudflare" does not serve the codex Driver')
+    // @ts-expect-error cloudflare() serves AI SDK models and ask(), not Drivers.
+    expect(() => defineAgent({ driver: { kind: "codex", gateway: cloudflare({ typesafeApiKey: "k" }) } })).toThrow('Gateway "cloudflare" does not serve the codex Driver')
   })
 
   it("routes Driver requests through a gateway that also answers Jev questions", async () => {

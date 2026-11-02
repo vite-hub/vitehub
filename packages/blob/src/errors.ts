@@ -19,7 +19,7 @@ export function blobError(
   store: string,
   cause?: unknown,
 ): ViteHubError<typeof code, BlobErrorDetails> {
-  return new ViteHubError(
+  const error = new ViteHubError(
     code,
     blobErrorMessages[code],
     {
@@ -27,6 +27,8 @@ export function blobError(
       details: { operation, store },
     },
   )
+  // H3 reads `statusCode`, so a route that rethrows a missing object answers 404, not 500.
+  return code === "BLOB_NOT_FOUND" ? Object.assign(error, { statusCode: 404 }) : error
 }
 
 export async function blobResult<TResult>(

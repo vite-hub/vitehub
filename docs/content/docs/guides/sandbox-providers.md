@@ -115,7 +115,7 @@ ViteHub creates and closes a new Sandbox for each Sandbox Task run, unless you s
 
 Plan for these limits:
 
-- The Vite dev server cannot host the Container. Build the app, then run `npx wrangler --cwd .output/server dev`. Wrangler needs Docker for this.
+- The Vite dev server cannot host the Container. Build the app, then run `npx wrangler dev --config .output/server/wrangler.json`. Wrangler needs Docker for this.
 - ViteHub has no network policy option for Cloudflare Sandbox, and it reports `network: 'unknown'`.
 
 ## Self-hosted sandboxes with trusted-host and Crabbox

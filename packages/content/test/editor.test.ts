@@ -118,6 +118,16 @@ describe("contentRealtimeEditor", () => {
     expect(written).toContain("[x] A task.")
   })
 
+  it("keeps image and file props as plain string attributes", async () => {
+    for (const body of [
+      "::field-note{icon=\"/media/icons/train.webp\" title=\"Book about 90 days ahead\"}\nBook early.\n::\n",
+      "::day{art=\"art/2026.webp\"}\nDay out.\n::\n",
+    ]) {
+      expect(await editor.verify!(body, {})).toEqual({ writable: true })
+      expect(await editor.toMarkdown(await editor.fromMarkdown(body))).toBe(body)
+    }
+  })
+
   it("opens an empty body with one empty paragraph", async () => {
     expect(await editor.fromMarkdown("")).toMatchObject({ type: "doc", content: [{ type: "paragraph" }] })
   })

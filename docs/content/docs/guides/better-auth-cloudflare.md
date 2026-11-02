@@ -29,7 +29,7 @@ Do not deploy the default Auth setup without one of these. Its users and session
 ### Install the packages
 
 ```bash [Terminal]
-pnpm add vite-hub better-auth drizzle-orm
+pnpm add vite-hub @vite-hub/auth @vite-hub/database better-auth drizzle-orm
 pnpm add -D drizzle-kit wrangler
 ```
 

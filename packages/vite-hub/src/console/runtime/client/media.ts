@@ -62,7 +62,7 @@ export interface ConsoleMediaPicker {
   pick(request: ConsoleMediaRequest): Promise<ConsoleMediaItem[]>
   /**
    * The URL that displays a stored `src` in the editor, such as the served URL of a Blob pathname. Return undefined to
-   * show the `src` as written. Display only: the Markdown keeps the `src`.
+   * show the `src` as written. Body images keep the `src`; `image` and `file` component props store this URL.
    */
   resolveSrc?(src: string): string | undefined
   /** Reads what a field preview shows of a stored file. Undefined when the file no longer exists. */

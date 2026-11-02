@@ -27,6 +27,7 @@ let fsLiteDriver: Driver | Error | undefined
 let upstashEval: ReturnType<typeof vi.fn<(...args: unknown[]) => Promise<unknown>>> | undefined
 let upstashGetdel: ReturnType<typeof vi.fn<(key: string) => Promise<unknown>>> | undefined
 let upstashScan: ReturnType<typeof vi.fn> | undefined
+let upstashSetIfAbsent: ReturnType<typeof vi.fn<(key: string, value: string, ttl?: number) => Promise<boolean>>> | undefined
 // SAFETY: Tests install and restore an optional Deno runtime shim on globalThis.
 const originalDeno = (globalThis as typeof globalThis & { Deno?: unknown }).Deno
 
@@ -39,6 +40,7 @@ function resetStorage() {
   upstashEval = undefined
   upstashGetdel = undefined
   upstashScan = undefined
+  upstashSetIfAbsent = undefined
 }
 
 function createInspectableDriver(name: "upstash") {
@@ -51,6 +53,9 @@ function createInspectableDriver(name: "upstash") {
       },
       async incrementItem(key: string, ttl: number): Promise<number> {
         return Number(await upstashEval?.(key, ttl) ?? 1)
+      },
+      async setIfAbsentItem(key: string, value: string, ttl?: number) {
+        return await upstashSetIfAbsent?.(key, value, ttl) ?? true
       },
     }
   }
@@ -268,6 +273,22 @@ describe("kv runtime", () => {
     expect(expectKVSuccess(await kv.increment("attempts", 60))).toBe(2)
     expect(upstashGetdel).toHaveBeenCalledWith("verification")
     expect(upstashEval).toHaveBeenCalledWith("attempts", 60)
+  })
+
+  it("writes a missing key once through the KV helper", async () => {
+    process.env.KV_REST_API_URL = "https://upstash.example.com"
+    process.env.KV_REST_API_TOKEN = "upstash-token"
+    upstashSetIfAbsent = vi.fn(async () => true)
+    const { kv } = await import("../src/runtime/storage.ts")
+
+    expect(expectKVSuccess(await kv.setIfAbsent("uploads/ticket", { user: "a" }, { ttl: 60 }))).toBe(true)
+    expect(upstashSetIfAbsent).toHaveBeenCalledWith("uploads:ticket", "{\"user\":\"a\"}", 60)
+    upstashSetIfAbsent.mockResolvedValueOnce(false)
+    expect(expectKVSuccess(await kv.setIfAbsent("uploads/ticket", 1))).toBe(false)
+    expect(upstashSetIfAbsent).toHaveBeenLastCalledWith("uploads:ticket", "1", undefined)
+
+    expect((await kv.setIfAbsent("uploads/ticket", 1, { ttl: 0 }))[0]).toMatchObject({ code: "KV_INVALID_TTL" })
+    expect(upstashSetIfAbsent).toHaveBeenCalledTimes(2)
   })
 
   it("returns invalid arguments as KV results", async () => {

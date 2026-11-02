@@ -1,10 +1,11 @@
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
-import { isImplicitDefaultDatabase, resolveDBViteConfig, resolveDefaultDatabase } from "@vite-hub/database/config"
 import type { BlobStoreConfig } from "@vite-hub/blob"
 import type { KVStoreConfig } from "@vite-hub/kv"
 import type { ViteHubOptions } from "./index.ts"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
+import { requireOptionalOwner } from "./internal/optional-owners.ts"
+import { ownerModules } from "./internal/owner-modules.ts"
 
 /** An explicit Node data directory selects local storage; the host owns durability. */
 export function withDataDir(options: ViteHubOptions): ViteHubOptions {
@@ -76,6 +77,7 @@ export function consoleD1Binding(
 ): string | undefined {
   if (preset !== "cloudflare" || !database) return
   if (!definitions) return
+  const { isImplicitDefaultDatabase, resolveDBViteConfig, resolveDefaultDatabase } = requireOptionalOwner(ownerModules.databaseConfig, "database")
   const options = database === true ? undefined : database
   const root = resolve(definitions.root, options?.projectRoot ?? ".")
   const serverDirs = options?.projectRoot !== undefined ? [resolve(root, "server")] : definitions.serverDirs

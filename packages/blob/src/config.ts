@@ -186,8 +186,15 @@ function normalizeServeOptions(value: BlobServeOptions | undefined): ResolvedBlo
   if (value.authorize !== undefined && value.authorize !== true && value.authorize !== false) {
     throw blobErrorDiagnostics.BLOB_C0012({ message: "`blob.serve.authorize` must be a boolean. Export an `authorize` function from `server/blob.ts` for per-request rules." })
   }
+  if (value.anonymous !== undefined && value.anonymous !== true && value.anonymous !== false) {
+    throw blobErrorDiagnostics.BLOB_C0016({ message: "`blob.serve.anonymous` must be a boolean." })
+  }
+  if (value.anonymous && !value.authorize) {
+    throw blobErrorDiagnostics.BLOB_C0016({ message: "`blob.serve.anonymous` requires `blob.serve.authorize: true`. Without authorization the serve route is already public." })
+  }
   const headers = normalizeServeHeaders(value.headers)
   return {
+    ...(value.anonymous ? { anonymous: true } : {}),
     ...(value.authorize ? { authorize: true } : {}),
     ...(headers ? { headers } : {}),
     route: trimmed(value.route) || DEFAULT_BLOB_SERVE_ROUTE,

@@ -10,7 +10,7 @@ import { defineAuth } from "@vite-hub/auth"
 import { createAuthForRequest } from "@vite-hub/auth/server"
 import { defineOperation } from "@vite-hub/internal/operations"
 
-import { consoleAuthSignInPage, consoleMcpNativeClients, createConsoleAuthDefinition, defineConsoleAuth, prepareConsoleAuth } from "../src/console/auth.ts"
+import { consoleAuthSignInPage, consoleMcpNativeClients, consoleMcpOAuth, createConsoleAppAuthPages, createConsoleAuthDefinition, defineConsoleAuth, prepareConsoleAuth } from "../src/console/auth.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import type { ConsoleOAuthAuth } from "../src/console/runtime/server/bearer.ts"
 import consoleMcpAuthorizationServerHandler from "../src/console/runtime/server/mcp-authorization-server.ts"
@@ -278,6 +278,86 @@ describe("MCP sign-in against a real Better Auth", () => {
     finally {
       database.close()
     }
+  })
+
+  it("completes app Auth with consoleMcpOAuth(), and keeps its issuer and resource on another host", async () => {
+    const database = new DatabaseSync(":memory:")
+    // `baseURL: requestOrigin` follows the request, so a preview host would otherwise issue tokens that the Console rejects.
+    const definition = defineAuth(({ requestOrigin }) => ({ baseURL: requestOrigin, database, plugins: consoleMcpOAuth({ loginPage: "/login", resource }), secret: "test-secret-at-least-32-bytes-long" }))
+    const real = (request: Request) => createAuthForRequest(definition, request)
+    const preview = "https://preview.example.com"
+    try {
+      await (await real(new Request(resource)).$context).runMigrations()
+      // SAFETY: Better Auth's plugins add the OAuth endpoints to this instance at runtime.
+      const auth = (request: Request) => real(request) as unknown as ConsoleOAuthAuth
+      installConsoleAccess({ mode: "auth", oauth: { auth, path: "/_vitehub/mcp", resource } })
+      const metadata = await defineHandler(consoleMcpMetadataHandler).fetch(new Request(`${app}/.well-known/oauth-protected-resource`))
+      expect(metadata.status, await metadata.clone().text()).toBe(200)
+      await expect(metadata.json()).resolves.toMatchObject({ authorization_servers: [`${app}/api/auth`], resource })
+      await expect(auth(new Request(`${preview}/_vitehub/mcp`)).api.getOAuthServerConfig?.({ asResponse: false, headers: new Headers() })).resolves.toMatchObject({ issuer: `${app}/api/auth` })
+      const context = await real(new Request(`${preview}/_vitehub/mcp`)).$context
+      expect(context.getPlugin("oauth-provider")?.options).toMatchObject({ clientRegistrationDefaultResources: [resource], consentPage: "/login", loginPage: "/login", resources: [resource] })
+      const registration = await real(new Request(`${preview}/_vitehub/mcp`)).handler(new Request(`${preview}/api/auth/oauth2/register`, {
+        body: JSON.stringify({ client_name: "Claude Code", redirect_uris: ["http://localhost:53682/callback"], token_endpoint_auth_method: "none" }),
+        headers: { "content-type": "application/json", "origin": preview },
+        method: "POST",
+      }))
+      expect(registration.status, await registration.clone().text()).toBe(201)
+      await expect(registration.json()).resolves.toMatchObject({ application_type: "native" })
+    }
+    finally {
+      database.close()
+    }
+  })
+
+  it.each(["", "/", "/.", "/%2e"])("signs an agent in and asks for consent on the built-in app Auth page by default (resource suffix: %s)", async (suffix) => {
+    const resource = `${app}/_vitehub/mcp${suffix}`
+    const database = new DatabaseSync(":memory:")
+    const definition = defineAuth(() => ({ baseURL: app, database, emailAndPassword: { enabled: true }, plugins: consoleMcpOAuth({ resource }), secret: "test-secret-at-least-32-bytes-long" }))
+    const real = (request: Pick<Request, "headers" | "url">) => createAuthForRequest(definition, request)
+    const call = (path: string, init: RequestInit = {}) => real(new Request(resource)).handler(new Request(`${app}/api/auth${path}`, init))
+    const post = (path: string, body: Record<string, unknown>, cookie = "") => call(path, { body: JSON.stringify(body), headers: { "content-type": "application/json", cookie, origin: app }, method: "POST" })
+    const pages = createConsoleAppAuthPages(real)
+    try {
+      await (await real(new Request(resource)).$context).runMigrations()
+      expect((await post("/sign-up/email", { email: "ada@example.com", name: "Ada", password: "test-password-123" })).status).toBe(200)
+      const registration = await post("/oauth2/register", { client_name: "Claude Code", redirect_uris: ["http://localhost:53682/callback"], token_endpoint_auth_method: "none" })
+      const { client_id } = v.parse(v.object({ client_id: v.string() }), await registration.json())
+      const query = new URLSearchParams({ client_id, code_challenge: "a".repeat(43), code_challenge_method: "S256", redirect_uri: "http://localhost:53682/callback", resource, response_type: "code", scope: "vitehub:read vitehub:write", state: "built-in-page" })
+      const login = new URL((await call(`/oauth2/authorize?${query}`)).headers.get("location") ?? "", app)
+      expect(login.pathname).toBe("/_vitehub/sign-in")
+      const page = await pages.signIn({ req: new Request(login) })
+      const html = await page.text()
+      expect(html).toContain("Connect an agent")
+      expect(html).toContain('autocomplete="current-password"')
+      expect(html).toContain('const authBase = "/api/auth"')
+      // The page posts the signed query with the email and password, then with the answer, as its script does.
+      const oauthQuery = login.search.slice(1)
+      const signedIn = await post("/sign-in/email", { email: "ada@example.com", oauth_query: oauthQuery, password: "test-password-123" })
+      expect(signedIn.status, await signedIn.clone().text()).toBe(200)
+      const consent = new URL(v.parse(v.object({ url: v.string() }), await signedIn.json()).url, app)
+      expect(consent.pathname).toBe("/_vitehub/sign-in")
+      const cookie = signedIn.headers.getSetCookie().map(value => value.split(";")[0]).join("; ")
+      const answer = await post("/oauth2/consent", { accept: true, oauth_query: consent.search.slice(1) }, cookie)
+      expect(answer.status, await answer.clone().text()).toBe(200)
+      const callback = new URL(v.parse(v.object({ url: v.string() }), await answer.json()).url)
+      expect(callback.origin).toBe("http://localhost:53682")
+      expect(callback.searchParams.get("state")).toBe("built-in-page")
+      expect(callback.searchParams.get("code")).toBeTruthy()
+    }
+    finally {
+      database.close()
+    }
+  })
+
+  it.each(["", "/", "/.", "/%2e"])("defaults to the mounted sibling sign-in page (resource suffix: %s)", (suffix) => {
+    const resource = `${app}/portal/_vitehub/mcp${suffix}`
+    const provider = consoleMcpOAuth({ resource }).find(plugin => plugin.id === "oauth-provider")
+    expect(provider?.options).toMatchObject({
+      consentPage: "/portal/_vitehub/sign-in",
+      loginPage: "/portal/_vitehub/sign-in",
+      resources: [resource],
+    })
   })
 
   it("keeps supplied plugins, and adds no OAuth schema with migrate false", async () => {

@@ -41,12 +41,12 @@ export default defineAgent({ runtime: false, driver: { run: () => 'unused' }, ch
     server: { middlewareMode: true, watch: null } })
 }
 
-async function declaredWebhookApp(server: Awaited<ReturnType<typeof createServer>>) {
+async function declaredWebhookApp(server: Awaited<ReturnType<typeof createServer>>, around = (middleware: () => Promise<unknown>) => middleware()) {
   const handlers = (server.config as unknown as { nitro: { handlers: Array<{ handler: string, middleware?: boolean, route: string }> } }).nitro.handlers
   const middleware = handlers.find(handler => handler.middleware && handler.handler.endsWith('/declared-webhook-route.ts'))
   expect(middleware).toMatchObject({ route: '/**' })
   const module = await server.ssrLoadModule(middleware!.handler)
-  const app = new H3().use(async (event, next) => (await module.default(event)) ?? next())
+  const app = new H3().use(async (event, next) => (await around(() => module.default(event))) ?? next())
   for (const handler of handlers.filter(handler => !handler.middleware)) {
     app.all(handler.route, (await server.ssrLoadModule(handler.handler)).default)
   }
@@ -73,6 +73,35 @@ it('serves declared webhook paths through Nitro middleware with HEAD, authentica
     expect(await (await app.request('/unrelated', { method: 'POST', body: 'untouched' })).text()).toBe('untouched')
     expect((await app.request('/missing')).status).toBe(404)
   } finally { await server.close() }
+}, 30_000)
+
+it('lets an undeclared path leave the declared webhook middleware without building a Request', async () => {
+  const server = await declaredWebhookServer()
+  const NativeRequest = globalThis.Request
+  let inMiddleware = false
+  let built = 0
+  globalThis.Request = class extends NativeRequest {
+    constructor(input: ConstructorParameters<typeof Request>[0], init?: RequestInit) {
+      super(input, init)
+      if (inMiddleware) built++
+    }
+  }
+  try {
+    const app = await declaredWebhookApp(server, async (middleware) => {
+      inMiddleware = true
+      try { return await middleware() } finally { inMiddleware = false }
+    })
+    expect(await (await app.request('/unrelated', { method: 'POST', body: 'first' })).text()).toBe('first')
+    built = 0
+    expect(await (await app.request('/unrelated', { method: 'POST', body: 'second' })).text()).toBe('second')
+    expect((await app.request('/missing')).status).toBe(404)
+    expect(built).toBe(0)
+    expect((await app.request('/api/productlane/webhook/', { method: 'HEAD' })).status).toBe(204)
+    expect(built).toBeGreaterThan(0)
+  } finally {
+    globalThis.Request = NativeRequest
+    await server.close()
+  }
 }, 30_000)
 
 it('selects a shared declared webhook path by public origin and rejects unresolved ownership', async () => {

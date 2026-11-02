@@ -9,6 +9,8 @@ import type { ViteHubDefinitionField, ViteHubDefinitionSummary } from "@vite-hub
 import type { DiscoveredScheduleDefinition } from "./types.ts"
 
 export interface ScheduleInspectionOptions {
+  /** Cron per Schedule name that this build's host runs in place of the declared cron. */
+  cron?: Readonly<Record<string, string>>
   /** Vite plugins that can contribute Schedule Definitions through `vitehub.schedules`. */
   plugins?: readonly unknown[]
   projectRoot: string
@@ -26,14 +28,17 @@ function summarizeScheduleDefinition(
   projectRoot: string,
   definition: DiscoveredScheduleDefinition,
   crons: ReadonlyMap<string, string>,
+  overrides: Readonly<Record<string, string>> = {},
 ): ViteHubDefinitionSummary {
-  const cron = crons.get(definition.name)
+  const declaredCron = crons.get(definition.name)
+  const cron = Object.hasOwn(overrides, definition.name) ? overrides[definition.name] : declaredCron
   const fields: ViteHubDefinitionField[] = [
     { label: "Kind", value: "Static schedule" },
   ]
   if (cron) {
     fields.push(
       { label: "Cron", value: cron },
+      ...(declaredCron && declaredCron !== cron ? [{ label: "Declared cron", value: declaredCron }] : []),
       { label: "Time zone", value: inspectTimeZone(definition.handler) },
     )
   }
@@ -55,8 +60,8 @@ function summarizeScheduleDefinition(
 }
 
 /**
- * Lists Schedule Definitions with their static cron when the Definition declares one. Contributed Definitions name the
- * plugin that added them and its reason.
+ * Lists Schedule Definitions with their static cron when the Definition declares one, or the build's `cron` for it.
+ * Contributed Definitions name the plugin that added them and its reason.
  */
 export async function inspectScheduleDefinitions(options: ScheduleInspectionOptions): Promise<ViteHubDefinitionSummary[]> {
   const contributions = await collectScheduleContributions(options.plugins, {
@@ -79,7 +84,7 @@ export async function inspectScheduleDefinitions(options: ScheduleInspectionOpti
       // Inspection must not apply provider-output validation to runtime-valid Schedule Definitions.
     }
   }
-  return definitions.map(definition => summarizeScheduleDefinition(options.projectRoot, definition, crons))
+  return definitions.map(definition => summarizeScheduleDefinition(options.projectRoot, definition, crons, options.cron))
 }
 
 function definitionRecord(summary: ViteHubDefinitionSummary): ViteHubConsoleRecord {

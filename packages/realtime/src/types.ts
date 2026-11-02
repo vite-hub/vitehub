@@ -231,3 +231,11 @@ export type RealtimeRequestErrorCode =
   | "REALTIME_INVALID_RESPONSE"
   | "REALTIME_MISSING_DOCUMENT"
   | "REALTIME_REQUEST_FAILED"
+
+/**
+ * Whether this build has a Realtime room authority. ViteHub generates it for each build; an unavailable build says why
+ * and how to enable Realtime.
+ */
+export type RealtimeAvailability =
+  | { available: true }
+  | { available: false, preset?: string, reason: string, fix: string }

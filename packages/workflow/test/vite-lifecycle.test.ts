@@ -38,6 +38,7 @@ vi.mock("@vite-hub/internal/build/deployment-output", () => ({
 }))
 
 vi.mock("@vite-hub/internal/build/provider-output-sources", () => ({
+  providerOutputAliasSources: () => [],
   removeProviderOutputArtifactDir: lifecycle.removeArtifactDir,
   retainProviderOutputAliases: (aliases: Record<string, string>) => aliases,
   retainProviderOutputSources: lifecycle.retainSources,
