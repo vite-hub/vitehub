@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/cms",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Editable Content collections on a generated ViteHub Workspace, in Blob and Database or in a GitHub repository.",
   "keywords": [
     "cms",
