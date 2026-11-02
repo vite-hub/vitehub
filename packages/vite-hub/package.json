@@ -1296,7 +1296,7 @@
     "miniflare": "4.20260730.0",
     "nuxt": "catalog:nuxt",
     "publint": "catalog:tooling",
-    "reka-ui": "^2.10.5",
+    "reka-ui": "^2.11.0",
     "shiki": "^4.5.0",
     "ssh2": "^1.17.0",
     "tailwindcss": "^4.3.3",

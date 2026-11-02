@@ -2895,15 +2895,12 @@ function connectorHash(value: string): string {
 /** The part of the @vite-hub/kv storage that Chat connectors use for thread roots and receipts. */
 type ConnectorKV = Pick<import("@vite-hub/kv").KVStorage, "del" | "get" | "set">
 
-let connectorKVModule: Promise<ConnectorKV> | undefined
-
 function connectorKV(name: string): Promise<ConnectorKV> {
   // @vite-hub/kv is optional and loaded only when a Chat connector runs.
-  connectorKVModule ??= importOptionalKV().then(module => module.kv, (error: unknown) => {
-    connectorKVModule = undefined
+  // Resolve it for each operation so a native dev reload can replace or remove the installed store.
+  return importOptionalKV().then(module => module.kv, (error: unknown) => {
     throw agentDiagnostics.AGENT_R0365({ message: `[vitehub] ${name}.connector() requires @vite-hub/kv to be installed and configured.`, cause: error })
   })
-  return connectorKVModule
 }
 
 async function connectorKVGet(kv: ConnectorKV, key: string): Promise<Record<string, unknown> | undefined> {

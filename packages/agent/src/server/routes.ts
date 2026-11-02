@@ -1,4 +1,4 @@
-import { formatChannelCitationMessage, formatChannelCitationStream, formatChannelCitationText } from "../internal/channel-citations.ts"
+import { formatChannelCitationMessage, formatChannelCitationStream, formatChannelCitationText, transformChannelTextStream } from "../internal/channel-citations.ts"
 import { isDurableAgentState, requireAtomicAgentStateLock, type AgentStateCacheMutation, type AtomicAgentStateLockAdapter } from "../internal/state-lock.ts"
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import { createExecutionContext, getViteHubErrorShape, ViteHubError } from "@vite-hub/runtime"
@@ -74,6 +74,7 @@ import type { ResolvedAgentTriggerInvocation } from "../trigger-runtime.ts"
 import { AgentHttpError, toHttpErrorResponse } from "../http-error.ts"
 import { isWorkflowRun } from "../http-response.ts"
 import { messageChannelStateContextKey } from "../internal/channels.ts"
+import { chatMessageHeaderPartType, createChatMetadataEchoFilter, formatChatHeaderTime, formatChatMessageHeader, formatChatReplyLine, stripEchoedChatMessageMetadata } from "../internal/chat-message-header.ts"
 import { chatFinalReplyContextKey, chatFinishDeliveryRegistrarKey, chatFinishDirectReplyTrace, chatFinishPrimaryReplyTrace } from "../internal/chat-finish-delivery.ts"
 import type { ChatFinalReplyMode, ChatFinishDeliveryCallback, ChatFinishDeliveryCapture, ChatFinishDeliveryRegistrar } from "../internal/chat-finish-delivery.ts"
 import { createAgentChatApprovalCustody, resolveAgentChatApprovalTtl, withAgentChatApprovalGrant } from "../internal/chat-approvals.ts"
@@ -2899,8 +2900,8 @@ async function postChatStream(
   if (fallback) fallback = formatChannelCitationText(fallback)
   const originalResponse = response
   response = {
-    getText: () => formatChannelCitationText(originalResponse.getText()),
-    [Symbol.asyncIterator]: () => formatChannelCitationStream(originalResponse)[Symbol.asyncIterator](),
+    getText: () => formatChannelCitationText(stripEchoedChatMessageMetadata(originalResponse.getText())),
+    [Symbol.asyncIterator]: () => formatChannelCitationStream(transformChannelTextStream(originalResponse, createChatMetadataEchoFilter))[Symbol.asyncIterator](),
   }
   abortSignal?.throwIfAborted()
   let sent: unknown
@@ -4794,7 +4795,6 @@ async function chatSdkMessageToUiMessage(
 
 // Message headers need the Chat SDK author, attachments, and reply that the UI message does not keep.
 const chatUiMessageSources = new WeakMap<UIMessageLike, ChatSdkMessage>()
-const chatMessageHeaderPartType = "data-chat-message-header"
 const chatReplyQuoteMaxLength = 280
 
 /**
@@ -4833,24 +4833,6 @@ function chatHeaderTimeZone(options: AgentChatOptions | undefined): string {
   } catch {
     return "UTC"
   }
-}
-
-function formatChatHeaderTime(time: number, timeZone: string, short = false): string {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
-    day: "2-digit",
-    hour: "2-digit",
-    hourCycle: "h23",
-    minute: "2-digit",
-    month: "2-digit",
-    second: "2-digit",
-    timeZone,
-    timeZoneName: "longOffset",
-    weekday: "short",
-    year: "numeric",
-  }).formatToParts(new Date(time)).map(part => [part.type, part.value]))
-  if (short) return `${parts.weekday} ${parts.hour}:${parts.minute}`
-  const offset = parts.timeZoneName === "GMT" ? "+00:00" : parts.timeZoneName?.replace("GMT", "")
-  return `${parts.weekday} ${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second} ${offset}`
 }
 
 function chatHeaderMessageId(id: unknown): string | undefined {
@@ -4900,8 +4882,13 @@ function chatReplyLine(replyTo: ChatSdkMessage, timeZone: string, keptIds: Set<s
   const quote = shownIds.has(replyTo.id) ? "(shown above)" : replyTo.text ? `"${chatHeaderQuote(replyTo.text)}"` : ""
   const media = replyTo.attachments.map((attachment, index) =>
     `${chatHeaderAttachmentLabel(attachment)}${keptIds.has(`reply-input-attachment-${index + 1}`) ? " attached below" : " (not shown)"}`)
-  const line = `↪ replying to ${author} msg ${chatHeaderMessageId(replyTo.id) ?? "unknown"}${time === undefined ? "" : ` (${formatChatHeaderTime(time, timeZone, true)})`}${quote ? `: ${quote}` : ""}`
-  return [line, ...media].join(" · ")
+  return formatChatReplyLine({
+    author,
+    media,
+    messageId: chatHeaderMessageId(replyTo.id) ?? "unknown",
+    quote,
+    time: time === undefined ? undefined : formatChatHeaderTime(time, timeZone, true),
+  })
 }
 
 /**
@@ -4952,18 +4939,18 @@ function decorateChatTriggerMessages(
     const sender = thread.isDM
       ? undefined
       : `from ${chatHeaderName(source.author.fullName || source.author.userName || "unknown")} (id ${chatHeaderName(source.author.userId)})`
-    const header = [
+    const header = formatChatMessageHeader([
       time === undefined ? undefined : formatChatHeaderTime(time, timeZone),
       messageId ? `msg ${messageId}` : undefined,
       sender,
       ...media,
       source.metadata.edited ? "edited" : undefined,
-    ].filter(Boolean).join(" · ")
+    ])
     const replyLine = source.replyTo ? chatReplyLine(source.replyTo, timeZone, keptIds, shownIds) : undefined
     return {
       ...uiMessage,
       parts: [
-        { data: { modelText: header ? `[${header}]` : "" }, id: "message-header", type: chatMessageHeaderPartType },
+        { data: { modelText: header }, id: "message-header", type: chatMessageHeaderPartType },
         ...kept.map(part => isChatReplyModelPart(part)
           ? { ...part, data: { ...("data" in part && isRecord(part.data) ? part.data : {}), modelText: part.type === "data-chat-reply-context" && replyLine ? replyLine : "" } }
           : part),
@@ -7215,7 +7202,7 @@ async function handleChatSdkMessage(
             : // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
               await runAgentInline(agent as never, inlineRunContext as never, invocationInput as never)
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-          const text = formatChannelCitationText(await collectAgentOutput(result, progress?.update, (toolResult) => toolResults.push(toolResult)))
+          const text = formatChannelCitationText(stripEchoedChatMessageMetadata(await collectAgentOutput(result, progress?.update, (toolResult) => toolResults.push(toolResult))))
           if (!bufferedDelivery && text) {
             await deliverPrimaryChatReply(chatFinish, async () => {
               invocationDeadlineAbort?.signal.throwIfAborted()

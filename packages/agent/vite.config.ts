@@ -67,7 +67,7 @@ export default defineConfig({
       "src/invocations/sqlite.ts",
       "src/state/sqlite.ts",
       "src/cloudflare/state.ts",
-      "src/runtime/empty-registry.ts",
+      "src/runtime/registry.ts",
       "src/runtime/invocations-dev.ts",
       "src/runtime/process.ts",
       "src/runtime/provider-agent-worker.ts",
