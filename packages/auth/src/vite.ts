@@ -42,7 +42,7 @@ const generatedAuthRouteHandler = ".vitehub/auth/route.ts"
 const mergeNoExternal = createNoExternalAddition(authPackageName)
 
 type NitroConfig = Record<string, unknown>
-type NitroHandler = { handler: string; method?: string; middleware?: boolean; route: string }
+type NitroHandler = { handler: string; lazy?: boolean; method?: string; middleware?: boolean; route: string }
 
 export interface AuthVitePluginAPI {
   getConfig: () => ResolvedAuthViteConfig | undefined
@@ -89,31 +89,29 @@ interface RequestInitWithDuplex extends RequestInit {
   duplex?: "half"
 }
 
-function renderAuthDefinitionModule(config: ResolvedAuthViteConfig | undefined): string {
+function renderAuthDefinitionModule(config: ResolvedAuthViteConfig | undefined, options: { importBase?: string, serverEnv: boolean } = { serverEnv: false }): string {
   if (!config) {
     return "export const definition = undefined\nexport default definition\n"
   }
   return [
     `import definition from ${JSON.stringify(config.definition.handler)}`,
+    // The Auth server module imports this module, so the Env resolver is set before the first Auth instance.
+    ...(options.serverEnv
+      ? [
+          `import { setAuthRuntimeEnvResolver } from ${JSON.stringify(`${options.importBase ?? authPackageName}/runtime/server`)}`,
+          `import { useServerEnv } from ${JSON.stringify(envServerModuleId)}`,
+          "setAuthRuntimeEnvResolver(useServerEnv, definition)",
+        ]
+      : []),
     "export { definition }",
     "export default definition",
     "",
   ].join("\n")
 }
 
-function renderAuthServerModule(options: { importBase?: string, serverEnv: boolean } = { serverEnv: false }): string {
-  const importBase = options.importBase ?? authPackageName
-  const serverImport = `${importBase}/server`
+function renderAuthServerModule(options: { importBase?: string } = {}): string {
+  const serverImport = `${options.importBase ?? authPackageName}/server`
   return [
-    ...(options.serverEnv
-      ? [
-          `import definition from ${JSON.stringify(AUTH_DEFINITION_ID)}`,
-          `import { setAuthRuntimeEnvResolver } from ${JSON.stringify(serverImport)}`,
-          `import { useServerEnv } from ${JSON.stringify(envServerModuleId)}`,
-          "setAuthRuntimeEnvResolver(useServerEnv, definition)",
-          "",
-        ]
-      : []),
     `export * from ${JSON.stringify(serverImport)}`,
     `export { handleAuth as default } from ${JSON.stringify(serverImport)}`,
     "",
@@ -127,12 +125,13 @@ function renderAuthRouteHandler(): string {
   ].join("\n")
 }
 
-function renderAuthAccessMiddlewareHandler(config: ResolvedAuthViteConfig | undefined): string {
+function renderAuthAccessMiddlewareHandler(config: ResolvedAuthViteConfig | undefined, importBase = authPackageName): string {
   const routes = JSON.stringify(config?.access.routes ?? [])
   return [
-    `import { createAuthAccessHandler } from ${JSON.stringify(AUTH_SERVER_ID)}`,
+    `import { createLazyAuthAccessHandler } from ${JSON.stringify(`${importBase}/runtime/server`)}`,
     "",
-    `export default createAuthAccessHandler(${routes})`,
+    // Every request runs this middleware. It loads Better Auth only for a request that an access route matches.
+    `export default createLazyAuthAccessHandler(${routes}, () => import(${JSON.stringify(AUTH_SERVER_ID)}))`,
     "",
   ].join("\n")
 }
@@ -190,7 +189,7 @@ function renderAuthServerTypes(importBase: string = authPackageName): string {
 
 async function refreshAuthGeneratedFiles(root: string, config?: ResolvedAuthViteConfig, options: { importBase?: string, serverEnv?: boolean } = {}): Promise<void> {
   await Promise.all([
-    writeFileIfChanged(resolve(root, generatedAuthAccessMiddlewareHandler), renderAuthAccessMiddlewareHandler(config)),
+    writeFileIfChanged(resolve(root, generatedAuthAccessMiddlewareHandler), renderAuthAccessMiddlewareHandler(config, options.importBase)),
     writeFileIfChanged(authAmbientTypesPath(root), renderAuthAmbientTypes({
       definition: config && typeImportSpecifier(dirname(authAmbientTypesPath(root)), config.definition.handler),
       serverEnv: Boolean(options.serverEnv),
@@ -237,6 +236,8 @@ function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | 
       ? []
       : [{
           handler: resolve(resolveViteHubProjectRoot(config.rootDir), generatedAuthRouteHandler),
+          // Better Auth loads with the first Auth request, not when the server starts.
+          lazy: true,
           route: authRoutePattern(config.route),
         }]),
     ...(config.access.routes.length > 0
@@ -446,8 +447,8 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
       if (id === AUTH_SERVER_ID) return RESOLVED_AUTH_SERVER_ID
     },
     load(id) {
-      if (id === RESOLVED_AUTH_DEFINITION_ID) return renderAuthDefinitionModule(runtimeConfig)
-      if (id === RESOLVED_AUTH_SERVER_ID) return renderAuthServerModule({ importBase, serverEnv })
+      if (id === RESOLVED_AUTH_DEFINITION_ID) return renderAuthDefinitionModule(runtimeConfig, { importBase, serverEnv })
+      if (id === RESOLVED_AUTH_SERVER_ID) return renderAuthServerModule({ importBase })
     },
   }
 }

@@ -274,3 +274,25 @@ pnpm vitehub channels replay --agent labeller --channel gmail --query "in:inbox 
 | `labelIds` | Label IDs that every message must have. Repeat the flag for several. |
 
 See [Replay Channel history](/docs/agents/channels#replay-channel-history) for `replayChannel()`, cursors, and `--force`.
+
+## Clean up old mail
+
+`cleanupGmailChannel()` moves labelled mail older than a number of days to Trash. Starred mail stays. Without `apply: true`, it only returns the matching message IDs. Each run moves at most 500 messages per rule, so call it from a daily [Schedule](/docs/schedule):
+
+```ts [server/schedules/cleanup.ts]
+import { defineSchedule } from 'vite-hub/schedule'
+import { cleanupGmailChannel } from 'vite-hub/agent/channels'
+import { inbox } from '../lib/inbox'
+
+export default defineSchedule({
+  cron: '0 4 * * *',
+  async handler() {
+    await cleanupGmailChannel(inbox, {
+      apply: true,
+      rules: { promotions: { label: 'Promotions', olderThan: 14 } },
+    })
+  },
+})
+```
+
+The [Labeller preset](/docs/agents/labeller#clean-up-old-mail) declares these rules in its `cleanup` option.

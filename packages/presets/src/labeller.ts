@@ -1,7 +1,8 @@
 import { ask } from "@vite-hub/gateways"
 import { defineAgent, type AgentDefinition, type AgentInvokerProfile, type AgentInvocationContextValues, type AgentRuntimeConfig, type ConfiguredAgentDefinition } from "@vite-hub/agent"
-import { gmail } from "@vite-hub/agent/channels"
-import type { GmailChannelOptions, GmailClient, GmailLabelSettings, GmailMessage } from "@vite-hub/agent/channels"
+import { cleanupGmailChannel, gmail } from "@vite-hub/agent/channels"
+import type { AgentRuntimeContext } from "@vite-hub/agent"
+import type { CleanupGmailChannelResult, GmailChannelOptions, GmailCleanupRule, GmailClient, GmailLabelSettings, GmailMessage } from "@vite-hub/agent/channels"
 import { channelMessageContextKey } from "@vite-hub/agent/channels"
 import { hasRuntimeType, isRuntimeObject } from "@vite-hub/runtime/internal/runtime-type"
 
@@ -32,10 +33,14 @@ export interface LabellerAction {
   trash?: boolean
 }
 
+/** Moves mail with a declared `label` that is older than `olderThan` days to Trash. Starred mail stays. */
+export interface LabellerCleanupRule extends GmailCleanupRule {}
+
 export interface LabellerOptions {
   labels: Readonly<Record<string, LabellerLabel>>
   rules: Readonly<Record<string, LabellerRule>>
   actions: Readonly<Record<string, LabellerAction>>
+  cleanup: Readonly<Record<string, LabellerCleanupRule>>
   bodyLimit: number
   dryRun: boolean
   /** Hide Gmail labels that `labels` does not declare from Gmail's label list when `vitehub channels sync` applies. */
@@ -199,6 +204,15 @@ function validateOptions(options: LabellerOptions): void {
     if (!isRuntimeObject(action) || Array.isArray(action)) throw new TypeError(`[vitehub] Labeller action "${label}" must be an object.`)
     validateAction(`action "${label}"`, action)
   }
+  if (!isRuntimeObject(options.cleanup) || Array.isArray(options.cleanup)) throw new TypeError("[vitehub] Labeller cleanup must be an object.")
+  for (const [name, rule] of Object.entries(options.cleanup)) {
+    if (!isRuntimeObject(rule) || !hasRuntimeType(rule.label, "string") || !Object.hasOwn(options.labels, rule.label)) {
+      throw new TypeError(`[vitehub] Labeller cleanup rule "${name}" refers to an undeclared label.`)
+    }
+    if (!Number.isSafeInteger(rule.olderThan) || rule.olderThan < 1) {
+      throw new TypeError(`[vitehub] Labeller cleanup rule "${name}" needs olderThan as a positive whole number of days.`)
+    }
+  }
 }
 
 function decision(message: GmailMessage, rules: Readonly<Record<string, LabellerRule>>): LabellerDecision | undefined {
@@ -222,6 +236,8 @@ export const labeller: LabellerAgent = defineAgent({
     rules: {} as Readonly<Record<string, LabellerRule>>,
     // SAFETY: Consumer validation checks each label action before it is used.
     actions: {} as Readonly<Record<string, LabellerAction>>,
+    // SAFETY: Consumer validation checks each cleanup rule against the declared labels.
+    cleanup: {} as Readonly<Record<string, LabellerCleanupRule>>,
     bodyLimit: 10_000,
     // Safe for notifications and first replays. Set false only when writes are intended.
     dryRun: true,
@@ -283,3 +299,24 @@ export const labeller: LabellerAgent = defineAgent({
     })
   },
 })
+
+export interface CleanupLabellerOptions {
+  /** Move the matches to Trash. Without it, or while the Agent has `dryRun: true`, the function only lists them. */
+  apply?: boolean
+  /** Runtime Context for Server Env and Cloudflare bindings. Omit it outside a host request. */
+  runtime?: AgentRuntimeContext
+}
+
+/**
+ * Runs the Labeller's `cleanup` rules on its Gmail Channel, at most 500 messages per rule.
+ * Call it from a daily Schedule: each run continues with the matches that remain.
+ */
+export async function cleanupLabeller(agent: LabellerAgent, options: CleanupLabellerOptions = {}): Promise<CleanupGmailChannelResult> {
+  const channel = agent.channels?.gmail
+  if (!channel) throw new TypeError("[vitehub] cleanupLabeller() expects an Agent that extends labeller.")
+  return await cleanupGmailChannel(channel, {
+    apply: options.apply === true && agent.options.dryRun === false,
+    rules: agent.options.cleanup,
+    ...(options.runtime ? { runtime: options.runtime } : {}),
+  })
+}

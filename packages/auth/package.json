@@ -76,6 +76,11 @@
       "import": "./dist/runtime/console.js",
       "default": "./dist/runtime/console.js"
     },
+    "./runtime/server": {
+      "types": "./dist/runtime/server.d.ts",
+      "import": "./dist/runtime/server.js",
+      "default": "./dist/runtime/server.js"
+    },
     "./server": {
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js",

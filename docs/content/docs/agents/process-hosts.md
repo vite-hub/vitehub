@@ -205,8 +205,11 @@ long: GitHub closes the connection after 10 seconds and does not send the
 delivery again.
 
 With libSQL or SQLite Agent State, the generated webhook queue plugin does this
-work at startup with `handler.warm()` for every Agent. The generated
-`/api/_vitehub/ready` route reports the result:
+work with `handler.warm()` for every Agent one second after the server starts,
+so the Agent routes do not compile while the server answers its first requests.
+A request that loads the Agent routes, such as a webhook delivery or a call to
+the ready route, starts it at once. The generated `/api/_vitehub/ready` route
+reports the result:
 
 | State | Status | Body |
 | --- | --- | --- |

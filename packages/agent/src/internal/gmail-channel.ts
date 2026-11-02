@@ -696,6 +696,50 @@ export async function trashGmailMessage(client: GmailClient, id: string): Promis
   await client({ method: "POST", path: `messages/${encodeURIComponent(id)}/trash` })
 }
 
+/** Moves mail with `label` that is older than `olderThan` days to Trash. Starred mail stays. */
+export interface GmailCleanupRule {
+  /** Gmail label name. Nested labels use `Parent/Child`. */
+  label: string
+  /** Age in whole days. */
+  olderThan: number
+}
+
+export interface GmailCleanupRuleResult {
+  /** IDs of the matching messages, at most 500 per rule. */
+  messageIds: string[]
+  /** Gmail search query of the rule. */
+  query: string
+  rule: string
+}
+
+/** Gmail's largest search page. A later run finds the rest. */
+const cleanupLimit = 500
+
+function gmailCleanupQuery(rule: GmailCleanupRule): string {
+  // Quotes keep spaces and nested label names exact.
+  return `label:"${rule.label}" older_than:${rule.olderThan}d -is:starred -in:trash`
+}
+
+/** Finds the matches of each rule and, with `apply`, moves them to Trash. */
+export async function cleanupGmailMailbox(client: GmailClient, rules: Readonly<Record<string, GmailCleanupRule>>, apply: boolean): Promise<GmailCleanupRuleResult[]> {
+  const results: GmailCleanupRuleResult[] = []
+  for (const [rule, value] of Object.entries(rules)) {
+    const query = gmailCleanupQuery(value)
+    const { ids } = await listGmailMessageIds(client, { includeSpamTrash: true, limit: cleanupLimit, query })
+    for (let start = 0; apply && start < ids.length; start += messageFetchConcurrency) {
+      await Promise.all(ids.slice(start, start + messageFetchConcurrency).map(async (id) => {
+        try { await trashGmailMessage(client, id) }
+        catch (error) {
+          // A message deleted after the search needs no cleanup.
+          if (gmailErrorStatus(error) !== 404) throw error
+        }
+      }))
+    }
+    results.push({ messageIds: ids, query, rule })
+  }
+  return results
+}
+
 // Pub/Sub push authentication
 
 const jwkSchema = v.object({ e: v.string(), kid: v.string(), kty: v.literal("RSA"), n: v.string() })
