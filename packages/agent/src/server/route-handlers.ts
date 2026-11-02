@@ -119,6 +119,8 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
   return Object.assign(
     async (...input: Parameters<AgentChannelWebhookRouteHandler>) => await (await load())(...input),
     {
+      channelState: async (...input: Parameters<AgentChannelWebhookRouteHandler["channelState"]>) => await (await load()).channelState(...input),
+      channelStatus: async (...input: Parameters<AgentChannelWebhookRouteHandler["channelStatus"]>) => await (await load()).channelStatus(...input),
       channels: async (...input: Parameters<AgentChannelWebhookRouteHandler["channels"]>) => await (await load()).channels(...input),
       conversation: async (...input: Parameters<AgentChannelWebhookRouteHandler["conversation"]>) => await (await load()).conversation(...input),
       declaredPathMatcher: createDeclaredWebhookPathMatcher(agent),

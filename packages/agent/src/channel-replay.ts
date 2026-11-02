@@ -2,10 +2,12 @@ import { createExecutionContext, createRuntimeContext } from "@vite-hub/runtime"
 
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { agentErrorMessage } from "./agent-error.ts"
+import { channelsConsoleHost } from "./channels-console-host.ts"
 import { isResolvedAgentTriggerHandledInvocation, reserveAgentChannelItem, runAgent } from "./index.ts"
 import { AgentInvocationClaimConflict, exclusiveAgentInvocation, inheritedAgentInvocationClaim, type AgentInvocationJournal, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations } from "./invocations.ts"
 import { agentInvocationName } from "./internal/agent-invocation-name.ts"
 import { channelMessageRunId } from "./internal/channel-run-id.ts"
+import { getAgentChannelStatusDefinition, type AgentChannelStatusDefinition } from "./internal/channel-status.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { readWorkflowJournalName, setWorkflowJournalName } from "./internal/workflow-journal-name.ts"
 import { agentToolJsonSchema } from "./tool-schema.ts"
@@ -81,6 +83,8 @@ export interface ChannelHistoryDescription {
 
 interface ResolvedChannelHistory {
   history: AgentChannelHistory
+  /** Clears replayed items from the Channel's skipped list. */
+  status?: AgentChannelStatusDefinition
   triggerId: string
   triggerName: string
 }
@@ -102,12 +106,12 @@ function resolveChannelHistory<TRuntimeConfig extends AgentRuntimeConfig>(
   const triggerName = history.trigger
   if (triggerName === undefined) {
     if (triggerNames.length !== 1) throw agentDiagnostics.AGENT_R0933({ message: `[vitehub] Channel "${channel}" history requires an explicit trigger when the Channel has ${triggerNames.length} triggers.` })
-    return { history, triggerId: `${channel}.${triggerNames[0]}`, triggerName: triggerNames[0]! }
+    return { history, status: getAgentChannelStatusDefinition(definition), triggerId: `${channel}.${triggerNames[0]}`, triggerName: triggerNames[0]! }
   }
   if (!hasRuntimeType(triggerName, "string") || !triggerNames.includes(triggerName)) {
     throw agentDiagnostics.AGENT_R0930({ message: `[vitehub] Channel "${channel}" history trigger must name one of the Channel triggers: ${triggerNames.join(", ") || "none"}.` })
   }
-  return { history, triggerId: `${channel}.${triggerName}`, triggerName }
+  return { history, status: getAgentChannelStatusDefinition(definition), triggerId: `${channel}.${triggerName}`, triggerName }
 }
 
 /** Describes a Channel history so a CLI can list the accepted query keys. */
@@ -125,6 +129,34 @@ export function describeChannelHistory<TRuntimeConfig extends AgentRuntimeConfig
     query = undefined
   }
   return { channel, ...(query ? { query } : {}), trigger: triggerName }
+}
+
+/**
+ * Removes replayed items from the Channel's skipped list, such as Gmail messages that failed every sync.
+ * The Channel State comes from the webhook routes of this process. Without them there is no State to clear.
+ */
+async function clearSkippedChannelItems<TRuntimeConfig extends AgentRuntimeConfig>(
+  history: ResolvedChannelHistory,
+  agentName: string | undefined,
+  channel: string,
+  runtime: AgentRuntimeContext<TRuntimeConfig>,
+  ids: readonly string[],
+): Promise<void> {
+  const { status } = history
+  const name = runtime.agentIdentity?.name ?? agentName
+  const host = channelsConsoleHost()
+  const handler = name ? host?.handlers[name] : undefined
+  if (!status || !host || !name || !handler || !ids.length) return
+  try {
+    const request = runtime.request ?? new Request("http://vitehub.local/_vitehub/channels/replay")
+    // SAFETY: A Cloudflare runtime context carries the Worker environment as a string-keyed record.
+    const env = runtime.cloudflare?.env as Record<string, unknown> | undefined
+    await status.clear(await handler.channelState(request, channel, host.options(name, env)), ids)
+  }
+  catch (error) {
+    // The Invocations already ran. The items stay listed until a later replay clears them.
+    console.error(JSON.stringify({ error: agentErrorMessage(error).slice(0, 500), event: "skipped.clear.failed", scope: "vitehub.channel.replay" }))
+  }
 }
 
 function assertReplayOptions<TRuntimeConfig extends AgentRuntimeConfig>(options: ReplayChannelOptions<TRuntimeConfig>): void {
@@ -272,7 +304,8 @@ export async function replayChannel<TRuntimeConfig extends AgentRuntimeConfig = 
   options: ReplayChannelOptions<TRuntimeConfig> = {},
 ): Promise<ReplayChannelResult> {
   assertReplayOptions(options)
-  const { history, triggerId } = resolveChannelHistory(agent, channel)
+  const resolved = resolveChannelHistory(agent, channel)
+  const { history, triggerId } = resolved
   const invocations = agent.invocations
   if (!invocations && !options.force && !options.dryRun) {
     throw agentDiagnostics.AGENT_R0932({ message: `[vitehub] Replaying Channel "${channel}" needs Agent Invocations to skip handled items. Configure invocations or the Console, or pass force.` })
@@ -336,6 +369,8 @@ export async function replayChannel<TRuntimeConfig extends AgentRuntimeConfig = 
       if (!page.nextCursor || !page.items.length) break
       cursor = page.nextCursor
     }
+    const started = result.items.filter(item => item.status === "completed" || item.status === "started" || item.status === "queued" || item.reason === "handled")
+    if (!options.dryRun) await clearSkippedChannelItems(resolved, agentName, channel, runtime, started.map(item => item.key))
     return result
   }
   finally {

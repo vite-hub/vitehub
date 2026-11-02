@@ -72,6 +72,7 @@ import { defineMessageChannelInstructions } from "./internal/channels.ts"
 import { forgeAccessKey, type ForgeAccess } from "./internal/forge-access.ts"
 import { chatFinalReplyIntent, chatFinalReplyText, chatFinishDeliveryRegistrarKey, clearChatFinalReplyText, setChatFinalReplyText, setMessageChannelDeferredReplyTrace } from "./internal/chat-finish-delivery.ts"
 import type { ChatFinishDeliveryRegistrar } from "./internal/chat-finish-delivery.ts"
+import { withAgentChannelStatusDefinition } from "./internal/channel-status.ts"
 import { withAgentChannelSyncDefinition } from "./internal/channel-sync.ts"
 import { channelDeliveryHandlers } from "./internal/channel-delivery-handlers.ts"
 import { withAgentChannelHistoryDefinition } from "./internal/channel-history.ts"
@@ -81,6 +82,7 @@ import { postChannelReply } from "./internal/chat-reply.ts"
 import { getAgentChannelSyncDefinition } from "./internal/channel-sync.ts"
 import {
   cleanupGmailMailbox,
+  clearGmailSkippedMessages,
   createGmailChannelSyncProvider,
   getGmailMessage,
   getGmailThread,
@@ -92,6 +94,7 @@ import {
   gmailMailboxAddress,
   gmailSettings,
   modifyGmailMessage,
+  readGmailChannelStatus,
   readGmailPush,
   syncGmailMailbox,
   trashGmailMessage,
@@ -117,6 +120,7 @@ export {
   rewriteDeliveryArtifactMarkdown,
 } from "./delivery-artifacts.ts"
 export { GmailApiError, createGmailOAuthClient, gmailEnvNames } from "./internal/gmail-channel.ts"
+export type { AgentChannelRetryingMessage, AgentChannelSkippedMessage, AgentChannelStatus } from "./internal/channel-status.ts"
 export type {
   GmailCleanupRule,
   GmailCleanupRuleResult,
@@ -3966,6 +3970,11 @@ export interface GmailChannelOptions<TRuntimeConfig extends AgentRuntimeConfig =
    * and message methods create a missing one on first use.
    */
   labels?: Record<string, GmailLabelSettings>
+  /**
+   * Syncs that try one failing message before the Channel skips it, so that later mail is not blocked.
+   * `vitehub channels status` lists skipped messages. Defaults to 5.
+   */
+  maxAttempts?: number
   /** Builds the Invocation prompt from a message. The default prompt lists the headers, then the body. */
   prompt?: (message: GmailMessage) => string
 }
@@ -4009,6 +4018,9 @@ function assertGmailOptions<TRuntimeConfig extends AgentRuntimeConfig>(options: 
   const invalid = (detail: string) => agentDiagnostics.AGENT_R0940({ message: `[vitehub] gmail() ${detail}` })
   if (options.bodyLimit !== undefined && (!Number.isSafeInteger(options.bodyLimit) || options.bodyLimit < 1)) {
     throw invalid("bodyLimit must be a positive integer.")
+  }
+  if (options.maxAttempts !== undefined && (!Number.isSafeInteger(options.maxAttempts) || options.maxAttempts < 1)) {
+    throw invalid("maxAttempts must be a positive integer.")
   }
   for (const [name, label] of Object.entries(options.labels || {})) {
     if (!name.trim()) throw invalid("labels must have non-empty names.")
@@ -4101,6 +4113,7 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
                 messages.map(message => ({ input: message, key: message.id })),
                 { trigger: "received", ...(options.dryRun ? { dryRun: true } : {}) },
               ),
+              ...(options.maxAttempts ? { maxAttempts: options.maxAttempts } : {}),
               notificationHistoryId: push.historyId,
               state,
               ...(settings.pubsubTopic ? { topic: settings.pubsubTopic } : {}),
@@ -4147,7 +4160,11 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
     },
   })
   Object.defineProperty(channel, gmailChannelClient, { enumerable: true, value: resolveClient })
-  return withAgentChannelSyncDefinition<TRuntimeConfig, typeof channel>(defineMessageChannelInstructions(channel, gmailInstructions(labels)), {
+  const described = withAgentChannelStatusDefinition<TRuntimeConfig, typeof channel>(defineMessageChannelInstructions(channel, gmailInstructions(labels)), {
+    clear: clearGmailSkippedMessages,
+    read: readGmailChannelStatus,
+  })
+  return withAgentChannelSyncDefinition<TRuntimeConfig, typeof channel>(described, {
     provider: "gmail",
     async resolve(context) {
       const settings = await gmailChannelSettings(context)
