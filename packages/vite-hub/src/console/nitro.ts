@@ -19,7 +19,7 @@ type NitroPublicAsset = { baseURL?: string, dir: string, fallthrough?: boolean, 
  * adds the application base to these routes.
  */
 export function addConsolePageHandlers(
-  nitro: { handlers?: NitroHandler[], publicAssets?: NitroPublicAsset[] },
+  nitro: { handlers?: NitroHandler[], prerender?: { ignore?: Array<string | RegExp | ((path: string) => boolean)> }, publicAssets?: NitroPublicAsset[] },
   consoleRuntimeRoot: string,
   base?: string,
   signInPage?: string,
@@ -37,6 +37,11 @@ export function addConsolePageHandlers(
   }
   for (const suffix of ["/_vitehub", "/_vitehub/**"]) handlers.push({ handler: page, lazy: true, route: mountPath(base, suffix) })
   nitro.handlers = handlers
+  // The Console pages need a signed-in request. A page that links to them, such as a docs page about the Console, must
+  // not make the prerender crawler fetch them and fail the build.
+  const prerender = nitro.prerender ??= {}
+  const consolePath = mountPath(base, "/_vitehub")
+  if (!prerender.ignore?.includes(consolePath)) prerender.ignore = [...prerender.ignore ?? [], consolePath]
   nitro.publicAssets = [
     // Every Console asset name contains a content hash.
     { baseURL: mountPath(base, "/_vitehub/assets"), dir: assets, fallthrough: false, maxAge: 60 * 60 * 24 * 365 },
