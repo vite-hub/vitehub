@@ -670,7 +670,7 @@ describe("framework package contract", () => {
     expect(consolePage).toContain('window.matchMedia("(min-width: 981px)")');
     expect(consolePage).toContain("root: 'md:flex'");
     expect(consolePage).toContain("content: 'md:hidden w-[calc(100vw-0.75rem)] max-w-none'");
-    expect(consolePage).toContain("const detailsOpen = ref(false)");
+    expect(consolePage).toContain('details: queryChoice(["closed", "open", "max"], "closed", { history: "push" })');
     expect(consolePage).toContain("}, 60_000);");
     expect(consolePage).toContain(
       "if (isRetryableConsoleRequestError(error)) scheduleAgentsRetry();",

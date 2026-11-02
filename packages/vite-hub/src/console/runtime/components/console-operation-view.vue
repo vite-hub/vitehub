@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import type { ConsoleContributedSection, ConsoleOperationView } from "../definitions";
 import { loadOperationItems, operationCell, operationLink, operationValue } from "../client/operation-view";
+import { querySelection, useConsoleQuery } from "../client/route-query";
 import ConsoleFrame from "./console-frame.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
@@ -21,7 +22,8 @@ const props = defineProps<{
 // The rail's Search button and Cmd+K open the search of the page. Its API routes sit next to the sections route.
 const apiBase = props.sectionsBase.replace(/\/sections$/, "");
 const view = computed(() => props.details.view as ConsoleOperationView);
-const filterId = ref<string>();
+// The filter lives in the URL, so a reload or a shared link opens the same list. The first filter is the default.
+const { filter: filterId } = useConsoleQuery({ filter: querySelection({ history: "replace" }) });
 const items = ref<Array<Record<string, unknown>>>([]);
 const loading = ref(true);
 const error = ref<unknown>();
@@ -50,11 +52,11 @@ async function load(): Promise<void> {
 }
 
 function choose(id: string): void {
-  filterId.value = id;
-  void load();
+  filterId.value = id === filters.value[0]?.id ? undefined : id;
 }
 
 onMounted(() => void load());
+watch(() => activeFilter.value?.id, () => void load());
 onBeforeUnmount(() => controller?.abort());
 </script>
 

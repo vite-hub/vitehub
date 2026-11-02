@@ -20,6 +20,7 @@ import {
   changeAuthConsole,
   readAuthConsole,
 } from "../client/auth-management";
+import { queryChoice, queryInteger, querySelection, queryText, useConsoleQuery } from "../client/route-query";
 import { consoleMountBase, consoleMountPath } from "../console-route";
 import { rememberConsoleSection } from "../sections";
 import ConsoleAuthAction from "./console-auth-action.vue";
@@ -48,15 +49,15 @@ const sessions = shallowRef<AuthConsoleSession[]>([]);
 const organizations = shallowRef<AuthConsoleOrganization[]>([]);
 const agents = shallowRef<AuthConsoleAgent[]>([]);
 const total = ref(0);
-const offset = ref(0);
 const limit = 25;
-const search = ref("");
-const filter = ref<NonNullable<AuthConsoleQuery["filter"]>>("all");
-const selectedUser = computed({
-  get: () => (typeof route.query.user === "string" ? route.query.user : undefined),
-  set: (user: string | undefined) => {
-    void router.replace({ query: { ...route.query, user } });
-  },
+const filters: ReadonlyArray<NonNullable<AuthConsoleQuery["filter"]>> = ["all", "admins", "banned", "agents"];
+// The search, filter, page, open user, and open organization live in the URL, so a reload or a shared link opens the same view.
+const { filter, offset, org: selectedOrgId, q: search, user: selectedUser } = useConsoleQuery({
+  filter: queryChoice(filters, "all"),
+  offset: queryInteger(0, { history: "push" }),
+  org: querySelection(),
+  q: queryText(),
+  user: querySelection(),
 });
 const selectedOrg = shallowRef<AuthConsoleOrganizationDetail>();
 const orgOffset = ref(0);
@@ -110,6 +111,7 @@ function closeOrganization() {
   orgController?.abort();
   selectedOrg.value = undefined;
   orgError.value = undefined;
+  selectedOrgId.value = undefined;
 }
 let timer: ReturnType<typeof setTimeout> | undefined;
 async function refresh() {
@@ -134,7 +136,7 @@ async function refresh() {
     if (!config.storage.enabled) return;
     if (!config.pages.includes(page.value))
       throw new Error("This page needs a Better Auth plugin that the app has not enabled.");
-    const query = { offset: offset.value, limit, search: search.value, filter: filter.value };
+    const query = { offset: offset.value, limit, search: search.value.trim(), filter: filter.value };
     let list: AuthConsoleList<unknown>;
     if (page.value === "users") {
       const result = await readAuthConsole(
@@ -187,16 +189,19 @@ function navigate(target: AuthConsolePage) {
   });
 }
 watch(page, () => {
-  offset.value = 0;
   closeOrganization();
   void refresh();
 });
 watch([search, filter], () => {
-  offset.value = 0;
   clearTimeout(timer);
   timer = setTimeout(() => void refresh(), 200);
 });
 watch(offset, () => void refresh());
+// The open organization follows the URL, so Back closes it and a link opens it.
+watch(selectedOrgId, (id) => {
+  if (!id) closeOrganization();
+  else if (selectedOrg.value?.id !== id) void openOrganization(id);
+}, { immediate: true });
 async function openOrganization(id: string, offset = 0) {
   orgController?.abort();
   const current = new AbortController();
@@ -292,6 +297,7 @@ onBeforeUnmount(() => {
         <ConsolePageToolbar v-if="page === 'users'" width="6xl">
           <UInput
             v-model="search"
+            @update:model-value="offset = 0"
             aria-label="Search users by name or email"
             placeholder="Search name or email…"
             icon="i-lucide-search"
@@ -299,6 +305,7 @@ onBeforeUnmount(() => {
             class="min-w-48 flex-1 sm:max-w-72"
           /><USelect
             v-model="filter"
+            @update:model-value="offset = 0"
             aria-label="Filter users"
             :items="[
               { label: 'All users', value: 'all' },
@@ -447,7 +454,7 @@ onBeforeUnmount(() => {
                     <td>
                       <button
                         class="text-left font-medium text-highlighted outline-none after:absolute after:inset-0"
-                        @click="openOrganization(org.id)"
+                        @click="selectedOrgId = org.id"
                       >
                         {{ org.name }}
                       </button>
