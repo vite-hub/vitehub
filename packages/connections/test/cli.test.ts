@@ -73,6 +73,19 @@ describe("vitehub connections", () => {
     expect(output.stderr).toContain(`The browser did not return to http://127.0.0.1:47991/callback before ${until}, when the link expired. Run \`vitehub connections connect chatgpt\` again.\n`)
   })
 
+  it("explains the port to forward when the browser runs on another computer", async () => {
+    const fetch = (async () => Response.json({ expiresAt: new Date(Date.now() + 100).toISOString(), state: "state-1", url: "https://auth.example.com/authorize" })) as typeof globalThis.fetch
+    const hint = "If the browser runs on another computer, forward port 47992 first. On that computer, run:\n\n  ssh -N -L 47992:127.0.0.1:47992 <user>@<this computer>\n"
+    const run = async (env: NodeJS.ProcessEnv, openBrowser: false | ((url: string) => Promise<void>)) => {
+      let stderr = ""
+      await runConnectionsCli("connect", ["chatgpt", "--url", "http://127.0.0.1:4741", "--port", "47992"], { env, stderr: { write: chunk => (stderr += String(chunk)) }, stdout: { write: () => true } }, { fetch, openBrowser })
+      return stderr
+    }
+    expect(await run({ SSH_CONNECTION: "192.0.2.1 50000 192.0.2.2 22" }, async () => {})).toContain(hint)
+    expect(await run({}, async () => { throw new Error("No browser") })).toContain(hint)
+    expect(await run({}, async () => {})).not.toContain("forward port")
+  })
+
   it("names the fix when the authorization link expired", async () => {
     const harness = cli()
     const done = harness.run("connect", ["mail"])

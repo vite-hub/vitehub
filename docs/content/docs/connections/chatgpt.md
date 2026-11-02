@@ -48,6 +48,22 @@ pnpm vitehub connections models chatgpt --url http://127.0.0.1:3000
 
 The CLI opens the system browser and listens on `127.0.0.1`. If the browser does not open, use the printed URL. ViteHub validates state, PKCE, nonce and the ID token's signature, issuer, audience, expiry and account. It stores the issued `oaiapp_…` client ID and reuses it on later sign-ins. No client secret is needed.
 
+The link works one time, for 10 minutes. The CLI prints when it expires and waits until then.
+
+### Sign in on a server without a browser
+
+The browser returns to `127.0.0.1` on its own computer. When the app runs on a server, choose a port with `--port` and forward it from the computer with the browser:
+
+```sh
+# On the server
+pnpm vitehub connections connect chatgpt --port 4799
+
+# On the computer with the browser
+ssh -N -L 4799:127.0.0.1:4799 user@server
+```
+
+Then open the printed URL on the computer with the browser. If only the server can reach the other computer, run `ssh -N -R 4799:127.0.0.1:4799 user@laptop` on the server instead. Over SSH, or when no browser opens, the CLI prints the port to forward.
+
 Inspection shows the account email, granted and missing scopes, plan status, token expiry, client ID and host ID. It never prints access, refresh or ID tokens. The Console shows the same plan details and directs sign-in to the CLI. A website redirect cannot grant plan usage.
 
 The model command requests the account's current model catalog and keeps `visibility == "list"`. Set `driver.model` to one of the returned IDs. Codex's bundled model catalog is not an entitlement check.

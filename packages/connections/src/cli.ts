@@ -290,7 +290,10 @@ async function connectLoopback(name: string, parsed: ParsedArgs, context: CliCon
     )
     const minutes = Math.round((expiresAt.getTime() - Date.now()) / 60_000)
     context.stderr.write(`Open this URL to connect "${name}":\n\n  ${authorization.url}\n\nThe link works one time, until ${until} (${minutes} minutes).\nWaiting for ${redirectUri} ...\n`)
-    if (options.openBrowser !== false) void (options.openBrowser ?? openBrowser)(authorization.url).catch(() => undefined)
+    // The browser returns to 127.0.0.1 on its own computer. On a server without one, that port must be forwarded.
+    const forward = () => context.stderr.write(`If the browser runs on another computer, forward port ${address.port} first. On that computer, run:\n\n  ssh -N -L ${address.port}:127.0.0.1:${address.port} <user>@<this computer>\n\n`)
+    if (context.env.SSH_CONNECTION) forward()
+    else if (options.openBrowser !== false) void (options.openBrowser ?? openBrowser)(authorization.url).catch(forward)
     const result = await callback
     return (await request(parsed, options, { action: "complete", ...result }, connectionResponse)).connection
   }
