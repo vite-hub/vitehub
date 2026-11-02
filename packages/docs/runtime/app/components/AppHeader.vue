@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { docsHomePath } from "#docs/navigation"
+import { docsHomePath, isDocsPath } from "#docs/navigation"
 
 const route = useRoute()
 const { base, github, site, start } = useDocsConfig()
@@ -25,7 +25,7 @@ const mobileLinks = [
 ]
 
 // The docs drawer already lists the docs pages.
-const docsMobileLinks = mobileLinks.filter(link => link.to !== base && !link.to.startsWith(`${base}/`))
+const docsMobileLinks = mobileLinks.filter(link => !isDocsPath(link.to, base))
 
 function isActiveLink(to: string) {
   return route.path === to || route.path.startsWith(`${to}/`)

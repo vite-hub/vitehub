@@ -53,7 +53,7 @@ defineProps<{
 .vh-feature-item:focus-visible {
   position: relative;
   z-index: 1;
-  outline: 2px solid var(--ui-primary);
+  outline: 2px solid var(--ui-text-highlighted);
   outline-offset: -2px;
 }
 

@@ -96,7 +96,8 @@ export interface DocsPublicConfig {
   site: { name: string, url: string, description: string, logo: string | null, badge: { label: string, tooltip: string | null } | null }
   categories: string[]
   railExclude: string[]
-  start: { section: string, links: DocsLink[] } | null
+  /** Absent without a `start` option. Nuxt turns a `null` in runtime config into an empty string. */
+  start?: { section: string, links: DocsLink[] }
   socials: DocsLink[]
   banner: string | null
   sitemap: string[]
@@ -435,7 +436,7 @@ function publicConfig(options: DocsModuleOptions): DocsPublicConfig {
     },
     categories: options.categories ?? [],
     railExclude: options.railExclude ?? [],
-    start: options.start ? { section: options.start.section, links: options.start.links ?? [] } : null,
+    start: options.start ? { section: options.start.section, links: options.start.links ?? [] } : undefined,
     socials: options.socials ?? [],
     banner: options.banner ?? null,
     sitemap: options.sitemap ?? [],

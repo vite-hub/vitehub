@@ -53,6 +53,11 @@ export function normalizeDocsPath(path: string): string {
   return path.replace(/\/index$/, "").replace(/(.)\/+$/, "$1") || "/"
 }
 
+/** Whether a path is the docs base or a page under it. Every path is under a base of `/`. */
+export function isDocsPath(path: string, base: string): boolean {
+  return base === "/" || path === base || path.startsWith(`${base}/`)
+}
+
 /** The page at a URL. A trailing slash and `/index` resolve to the same page. */
 export function findDocsPage(manifest: DocsManifest, path: string): { page: DocsPage, section: DocsSection | null } | null {
   const normalized = normalizeDocsPath(path)

@@ -1,7 +1,7 @@
 import { computed, type ComputedRef } from "vue"
 import { useRoute, useRuntimeConfig } from "#imports"
 import manifest from "#docs/manifest"
-import { docsSectionForPath, findDocsPage, normalizeDocsPath } from "#docs/navigation"
+import { docsSectionForPath, findDocsPage, isDocsPath, normalizeDocsPath } from "#docs/navigation"
 
 import type { DocsManifest, DocsPage, DocsPublicConfig, DocsSection } from "@vite-hub/docs"
 
@@ -19,7 +19,7 @@ export function useDocsConfig(): DocsPublicConfig {
 /** Whether a path is one of the site pages that `start.links` lists. They open inside the start section. */
 export function isDocsStartLink(config: DocsPublicConfig, path: string): boolean {
   const normalized = normalizeDocsPath(path)
-  return config.start?.links.some(link => link.to !== config.base && normalizeDocsPath(link.to) === normalized) ?? false
+  return (config.start?.links ?? []).some(link => link.to !== config.base && normalizeDocsPath(link.to) === normalized) ?? false
 }
 
 /** The docs page of the current route, or `null` on other pages. */
@@ -45,6 +45,6 @@ export function useDocsShell(): ComputedRef<boolean> {
   const config = useDocsConfig()
   return computed(() => {
     const path = normalizeDocsPath(route.path)
-    return route.meta.layout === "docs" || path === config.base || path.startsWith(`${config.base}/`)
+    return route.meta.layout === "docs" || isDocsPath(path, config.base)
   })
 }

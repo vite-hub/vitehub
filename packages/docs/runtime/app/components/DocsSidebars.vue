@@ -49,6 +49,6 @@ const single = docsSingleList(useDocsManifest(), useDocsConfig().icons)
 }
 
 .dark .vh-docs-panel {
-  background: #000;
+  background: var(--ui-bg);
 }
 </style>

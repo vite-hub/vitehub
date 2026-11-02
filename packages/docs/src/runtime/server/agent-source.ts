@@ -2,7 +2,7 @@ import { useStorage } from "#imports"
 
 import type { H3Event } from "h3"
 import manifest from "#docs/manifest"
-import { docsManifestPages, findDocsPage } from "../../navigation.ts"
+import { docsManifestPages, findDocsPage, isDocsPath } from "../../navigation.ts"
 
 interface AgentPageEntry {
   route: string
@@ -22,7 +22,7 @@ interface AgentContentSource {
  */
 const source: AgentContentSource = {
   list() {
-    const isDocs = (path: string) => path === manifest.base || path.startsWith(`${manifest.base}/`)
+    const isDocs = (path: string) => isDocsPath(path, manifest.base)
     // Docs pages come first, then pages outside the base, each in URL order. llms.txt groups them in this order.
     const rank = (path: string) => isDocs(path) ? 0 : 1
     return docsManifestPages(manifest)

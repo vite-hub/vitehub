@@ -22,6 +22,7 @@ import {
   findDocsPage,
   normalizeDocsPath,
   type DocsIcons,
+  isDocsPath,
 } from "../src/navigation.ts"
 
 const manifest = createDocsManifest({ dir: resolve(import.meta.dirname, "fixtures/content"), base: "/docs" })
@@ -57,6 +58,13 @@ describe("docs manifest", () => {
 })
 
 describe("docs paths", () => {
+  it("knows which paths belong to the docs base, also at the site root", () => {
+    expect(isDocsPath("/docs", "/docs")).toBe(true)
+    expect(isDocsPath("/docs/kv", "/docs")).toBe(true)
+    expect(isDocsPath("/docsearch", "/docs")).toBe(false)
+    expect(isDocsPath("/guide", "/")).toBe(true)
+  })
+
   it("resolves trailing slashes and `/index` to the same page", () => {
     expect(normalizeDocsPath("/docs/kv/")).toBe("/docs/kv")
     expect(normalizeDocsPath("/docs/kv/index")).toBe("/docs/kv")

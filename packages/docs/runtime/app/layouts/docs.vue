@@ -109,7 +109,7 @@ const docsShellUi = {
   }
 
   .vh-tutorial-toggle:focus-visible {
-    outline: 2px solid var(--ui-primary);
+    outline: 2px solid var(--ui-text-highlighted);
     outline-offset: -2px;
   }
 

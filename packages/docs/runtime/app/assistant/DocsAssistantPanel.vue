@@ -2,7 +2,9 @@
 import { createReusableTemplate, useClipboard, useEventListener, usePreferredReducedMotion } from "@vueuse/core"
 import { computed, nextTick, onScopeDispose, ref, useId, watch, watchEffect } from "vue"
 
-import { useAgent, useChat, useCookie, useRoute } from "#imports"
+import { useAgent, useChat } from "vite-hub/agent/vue"
+
+import { useCookie, useRoute } from "#imports"
 
 import { docsAssistantProblem } from "../composables/docs-assistant-problem"
 import { useDocsAssistant } from "../composables/useDocsAssistant"
@@ -24,7 +26,7 @@ const headingId = useId()
 const [DefineBody, ReuseBody] = createReusableTemplate()
 
 // From `lg` the panel is a column beside the page. Narrower screens get a modal sheet above the sticky site header.
-const wide = window.matchMedia("(min-width: 64rem)")
+const wide = window.matchMedia("(min-width: 80rem)")
 const docked = ref(wide.matches)
 useEventListener(wide, "change", () => { docked.value = wide.matches })
 
@@ -327,8 +329,8 @@ async function restart() {
 </style>
 
 <style>
-/* The page keeps its content clear of the docked panel. */
-@media (min-width: 64rem) {
+/* The page keeps its content clear of the docked panel. Below 80rem the panel is a sheet, so prose keeps its width. */
+@media (min-width: 80rem) {
   html[data-docs-assistant="docked"] {
     padding-right: var(--vh-assistant-width);
   }
