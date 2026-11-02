@@ -152,6 +152,8 @@ export function vercelTheme(siteName: string): DocsThemeUi {
     contentSearch: {
       defaultVariants: {
         placeholder: "Search",
+        // A command palette opens and closes at once, without the scale and fade of a modal.
+        transition: false,
       },
       slots: {
         modal: "vh-docs-search-modal w-[calc(100vw-1rem)] !max-w-[640px] !h-auto rounded-sm border border-default shadow-none max-h-[calc(100dvh-1rem)] sm:max-h-[70vh]",
