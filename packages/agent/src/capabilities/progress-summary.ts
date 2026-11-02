@@ -272,7 +272,7 @@ async function generateWithDriver(
   const instructions = progressSummaryInstructions(options)
   const runContext = progressSummaryAdapterRunContext(context, input, prompt)
   if (driver.kind === "provider") {
-    const { createProviderAgentAdapter } = await import("#vitehub/agent/provider-agent")
+    const { createProviderAgentAdapter } = await driver.runtime()
     // SAFETY: The adapter run context is normalized from the active Agent Invocation.
     return await resultText(await createProviderAgentAdapter({ ...driver, instructions }).generate(runContext as never))
   }

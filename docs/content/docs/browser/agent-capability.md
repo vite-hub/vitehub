@@ -13,11 +13,11 @@ The [Browser server API](/docs/browser/server-api) covers Browser Sessions that 
 ## Configure the browser
 
 ```ts [server/agents/review.ts]
-import { defineAgent } from 'vite-hub/agent'
+import { codexDriver, defineAgent } from 'vite-hub/agent'
 import { browser } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
-  driver: { kind: 'codex', model: 'gpt-6-astra' },
+  driver: codexDriver({ model: 'gpt-6-astra' }),
   workspace: { mode: 'write' },
   capabilities: [browser()],
 })

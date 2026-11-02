@@ -1,22 +1,22 @@
 import { describe, expect, it } from "vitest"
 import { chatgpt } from "@vite-hub/gateways"
-import { defineAgent } from "../src/index.ts"
+import { claudeCodeDriver, codexDriver, defineAgent } from "../src/index.ts"
 import { chatgptCodexGateway, chatgptCodexLaunchArgs, chatgptProviderError } from "../src/internal/chatgpt-gateway.ts"
 import { normalizeAgentDriver } from "../src/internal/agent-driver.ts"
 import { execFileSync } from "node:child_process"
 
 it("describes a Connection without credentials and accepts only a local Codex Driver", () => {
   expect(chatgpt()).toEqual({ kind: "chatgpt", name: "chatgpt", connection: "chatgpt" })
-  expect(normalizeAgentDriver({ driver: { kind: "codex", gateway: chatgpt() } })).toMatchObject({ gateway: chatgpt() })
+  expect(normalizeAgentDriver({ driver: codexDriver({ gateway: chatgpt() }) })).toMatchObject({ gateway: chatgpt() })
   // @ts-expect-error The Claude Code Driver type rejects a ChatGPT plan gateway too.
-  expect(() => defineAgent({ driver: { kind: "claude-code", gateway: chatgpt() } })).toThrow("does not serve")
-  expect(() => defineAgent({ driver: { kind: "codex", gateway: chatgpt(), launch: { command: "custom" } } })).toThrow(expect.objectContaining({ code: "AGENT_R1015" }))
-  expect(() => defineAgent({ driver: { kind: "codex", gateway: chatgpt(), providerSettings: { launchArgs: "--enable image_generation" } } })).toThrow(expect.objectContaining({ code: "AGENT_R1015" }))
-  expect(() => defineAgent({ driver: { kind: "codex", gateway: chatgpt() }, sandbox: { runtime: {} } } as never)).toThrow(expect.objectContaining({ code: "AGENT_R1015" }))
+  expect(() => defineAgent({ driver: claudeCodeDriver({ gateway: chatgpt() }) })).toThrow("does not serve")
+  expect(() => defineAgent({ driver: codexDriver({ gateway: chatgpt(), launch: { command: "custom" } }) })).toThrow(expect.objectContaining({ code: "AGENT_R1015" }))
+  expect(() => defineAgent({ driver: codexDriver({ gateway: chatgpt(), providerSettings: { launchArgs: "--enable image_generation" } }) })).toThrow(expect.objectContaining({ code: "AGENT_R1015" }))
+  expect(() => defineAgent({ driver: codexDriver({ gateway: chatgpt() }), sandbox: { runtime: {} } } as never)).toThrow(expect.objectContaining({ code: "AGENT_R1015" }))
 })
 
 it.each(["binaryPath", "homePath", "shadowHomePath"])("rejects caller-owned %s for ChatGPT", (setting) => {
-  expect(() => defineAgent({ driver: { kind: "codex", gateway: chatgpt(), providerSettings: { [setting]: "/tmp/caller-owned" } } })).toThrow(expect.objectContaining({ code: "AGENT_R1015" }))
+  expect(() => defineAgent({ driver: codexDriver({ gateway: chatgpt(), providerSettings: { [setting]: "/tmp/caller-owned" } }) })).toThrow(expect.objectContaining({ code: "AGENT_R1015" }))
 })
 
 it("sets the exact Codex plan profile and keeps the token out of arguments", () => {
