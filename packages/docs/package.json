@@ -25,9 +25,7 @@
     "package.json"
   ],
   "type": "module",
-  "sideEffects": [
-    "./dist/runtime/theme/*.css"
-  ],
+  "sideEffects": false,
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {

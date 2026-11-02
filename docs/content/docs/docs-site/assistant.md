@@ -51,6 +51,14 @@ export default defineConnection({
 })
 ```
 
+Connections keeps the grant in the app Database, so add a Database Definition if the app has none:
+
+```ts [server/databases/config.ts]
+import { defineDatabase } from 'vite-hub/database'
+
+export default defineDatabase({ schema: {} })
+```
+
 Connections encrypts the grant with `VITEHUB_CONNECTIONS_KEY`. Set it to 32 random bytes in `.env`, and keep it across restarts:
 
 ```bash [commands/connections-key]
@@ -66,6 +74,8 @@ pnpm vitehub connections connect chatgpt --url http://localhost:3000
 Every page now shows an **Ask** button at the bottom right. `⌘I` opens it too. The panel shows the conversation. When the grant is missing, it shows the sign-in command. When the plan limit is reached or the account is not eligible, it says so.
 
 To open the panel from your own control, call `useDocsAssistant().toggle()`.
+
+Without `@openai/codex` in the app, the panel shows `AGENT_R1025` with the install command.
 
 ## What the preset sets
 

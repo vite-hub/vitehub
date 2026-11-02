@@ -218,7 +218,21 @@ The [assistant guide](https://vitehub.dev/docs/docs-site/assistant) has every de
 
 ## Edit in the Console
 
-See [Edit in the Console](https://vitehub.dev/docs/docs-site/configure#edit-in-the-console).
+The ViteHub Console edits, previews, and publishes pages through the CMS. Add `vite-hub/nuxt` and one file:
+
+```ts
+// server/content.ts
+import { defineContent } from "vite-hub/content"
+import cms from "vite-hub/cms"
+import { docsCollection } from "@vite-hub/docs"
+
+export const content = defineContent({
+  extends: [cms, { repo: "owner/name", publish: "pr", access: "roles" }],
+  collections: { docs: docsCollection() },
+})
+```
+
+`docsCollection({ path?, label? })` is a `documents()` collection over `content/**/*.md` with the page frontmatter as fields, and each document URL is its page URL. With `repo`, a save commits to a draft branch and a publish opens a pull request, so the site shows the change after it merges and builds. In the Console preview pane the page route renders the draft, uncached. See [Edit in the Console](https://vitehub.dev/docs/docs-site/configure#edit-in-the-console).
 
 ## Errors
 

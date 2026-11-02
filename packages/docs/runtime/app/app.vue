@@ -2,7 +2,7 @@
 import { normalizeDocsPath } from "#docs/navigation"
 
 const route = useRoute()
-const { assistant, site } = useDocsConfig()
+const { site } = useDocsConfig()
 
 useHead({
   htmlAttrs: { lang: "en", dir: "ltr" },
@@ -34,7 +34,7 @@ useSeoMeta({
         <ClientOnly>
           <AppSearch />
         </ClientOnly>
-        <DocsAssistant v-if="assistant" />
+        <DocsAssistant />
       </div>
     </div>
   </UApp>

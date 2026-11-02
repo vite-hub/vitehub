@@ -312,4 +312,31 @@ export default defineNuxtConfig({
 
 ## Edit in the Console
 
-Editing docs pages in the ViteHub Console, through the [CMS](/docs/cms), is not documented yet. Until then, edit the Markdown files and commit them. In development, the site shows a body change on the next page load.
+The ViteHub Console edits, previews, and publishes docs pages through the [CMS](/docs/cms). The site keeps rendering the Markdown files. The CMS stores drafts and publishes them, and the Console preview shows a draft through the docs UI.
+
+Install `vite-hub/nuxt` next to `@vite-hub/docs/nuxt`, and add one file:
+
+```ts [server/content.ts]
+import { defineContent } from 'vite-hub/content'
+import cms from 'vite-hub/cms'
+import { docsCollection } from '@vite-hub/docs'
+
+export const content = defineContent({
+  extends: [cms, { repo: 'owner/name', publish: 'pr', access: 'roles' }],
+  collections: { docs: docsCollection() },
+})
+```
+
+Open `/_vitehub/content` and select **Docs**. The build reads this file without running it, so keep `defineContent({ extends, collections })` as written and give the `cms` options as string literals.
+
+`docsCollection()` is a `documents()` collection over the pages:
+
+- `path` is `content/**/*.md` by default. The folder before the first `*` must be the content folder, because the document id is the page file without `.md`. In a monorepo, pass `docsCollection({ path: 'docs/content/**/*.md' })`.
+- `fields` are the page frontmatter. The Console validates them like the build does, and writes dotted keys such as `navigation.order` back as dotted keys.
+- Each document URL is its page URL: `content/docs/kv/index.md` is `/docs/kv`, and `content/about.md` is `/about`.
+
+With `repo`, the CMS uses the GitHub store and needs `VITEHUB_GITHUB_TOKEN`. A save commits to the `vitehub/content` branch, and `publish: 'pr'` opens a pull request into `main`. The site shows the change after the pull request merges and the site builds again. Without `repo`, the CMS uses the Blob + Database store. Its Workspace starts empty, and a publish does not change the files that the site renders, so use it only to try the editor. Run `vitehub db generate` and `vitehub db migrate` once, then import a page with `vitehub content edit docs docs/kv/index --file content/docs/kv/index.md`.
+
+`access: 'roles'` uses the CMS roles of the Better Auth `admin` plugin. Your own `authorize` replaces it, for example `authorize: () => import.meta.dev` lets everyone edit on a development server and nobody in production.
+
+The preview pane opens the page URL with the draft. The page route reads the draft from the collection and parses it like a published page, with `Cache-Control: private, no-store`. A page that exists only as a draft previews too. The sidebar, search, and previous and next links stay published. The preview needs a server that renders the page: a prerendered page on a static host shows the published file. Without `server/content.ts`, the page route reads only the files and bundles nothing from Content.

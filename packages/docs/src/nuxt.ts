@@ -1,4 +1,4 @@
-import { mkdirSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -12,6 +12,7 @@ import {
   createResolver,
   defineNuxtModule,
   extendPages,
+  useLogger,
 } from "@nuxt/kit"
 import { defu } from "defu"
 
@@ -22,6 +23,8 @@ import { toRawMarkdown } from "./raw.ts"
 import { vercelTheme } from "./theme.ts"
 
 import type { DocsPage } from "./types.ts"
+
+export { DocsAssistantSetupError } from "./assistant-nuxt.ts"
 
 /** The look of the site: tokens, typography, and the shape of the shell. */
 export type DocsTheme = "vercel"
@@ -160,15 +163,17 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
   async setup(options, nuxt) {
     const resolver = createResolver(import.meta.url)
     const runtime = resolver.resolve("./runtime")
+    // Nuxt transpiles the package of the module path it loaded. Through `vite-hub/docs/nuxt` that is `vite-hub`, so the
+    // runtime of this package, which imports `#imports`, must be listed itself.
+    nuxt.options.build.transpile.push(resolver.resolve(".."))
     const contentDir = resolve(nuxt.options.rootDir, options.dir ?? "content")
     const rawDir = join(nuxt.options.buildDir, "docs/raw")
     const config = publicConfig(options)
     nuxt.options.runtimeConfig.public.docs = config
     setupDocsAssistant(nuxt, config)
-    if (config.assistant) {
-      // The panel calls `useChat()` from `vite-hub/nuxt`, so it is registered only when the assistant is on.
-      for (const name of ["DocsAssistant", "DocsAssistantPanel"]) addComponent({ name, filePath: join(runtime, `app/assistant/${name}.vue`) })
-    }
+    // The panel calls `useChat()` from `vite-hub/nuxt`, so without the assistant `DocsAssistant` renders nothing.
+    addComponent({ name: "DocsAssistant", filePath: join(runtime, config.assistant ? "app/assistant/DocsAssistant.vue" : "app/assistant/DocsAssistantOff.vue") })
+    if (config.assistant) addComponent({ name: "DocsAssistantPanel", filePath: join(runtime, "app/assistant/DocsAssistantPanel.vue") })
     const moduleOptions: DocsNuxtOptions = nuxt.options
 
     let manifest = createDocsManifest({ dir: contentDir, base: config.base })
@@ -239,13 +244,19 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         if (!file || !/(\.md|\.navigation\.yml)$/.test(file)) return
         clearTimeout(timer)
         timer = setTimeout(async () => {
-          const next = createDocsManifest({ dir: contentDir, base: config.base })
-          const changed = JSON.stringify(next) !== JSON.stringify(manifest)
-          manifest = next
-          await writeRaw()
-          // A body edit shows on the next page load, because pages parse on each request in development. Titles,
-          // order, and new pages live in the manifest that the app and the server load once, so they restart.
-          if (changed) await nuxt.callHook("restart")
+          try {
+            const next = createDocsManifest({ dir: contentDir, base: config.base })
+            const changed = JSON.stringify(next) !== JSON.stringify(manifest)
+            manifest = next
+            await writeRaw()
+            // A body edit shows on the next page load, because pages parse on each request in development. Titles,
+            // order, and new pages live in the manifest that the app and the server load once, so they restart.
+            if (changed) await nuxt.callHook("restart")
+          }
+          catch (error) {
+            // A half-typed frontmatter must not stop the server. The site keeps the last valid pages until the file is fixed.
+            useLogger("@vite-hub/docs").error(error)
+          }
         }, 100)
       })
       nuxt.hook("close", () => watcher.close())
@@ -285,7 +296,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // App components with the same name replace these, so a site can restyle one piece without forking the shell.
     // Components in `components/content/` are the blocks that Markdown pages use, such as `::tutorial-step`. Nuxt scans
     // a folder once, so the content folders register before the folders that contain them.
-    const contentDirs = [join(runtime, "app/components/content"), ...nuxt.options._layers.map(layer => join(layer.config.srcDir, "components/content"))]
+    const contentDirs = [join(runtime, "app/components/content"), ...nuxt.options._layers.map(layer => join(layer.config.srcDir, "components/content")).filter(dir => existsSync(dir))]
     addComponentsDir({ path: contentDirs[0]!, pathPrefix: false, priority: -1 })
     addComponentsDir({ path: join(runtime, "app/components"), pathPrefix: false, priority: -1, ignore: ["content/**"] })
     nuxt.hook("components:dirs", (dirs) => {
