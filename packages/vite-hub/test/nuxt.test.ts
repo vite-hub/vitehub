@@ -2445,7 +2445,8 @@ describe("ViteHub Nuxt integration", () => {
       const discovery = handlers.filter(handler => handler.handler.endsWith("/server/mcp-discovery.js"))
       expect(discovery).toHaveLength(1)
       for (const handler of discovery) {
-        expect(handler).toMatchObject({ middleware: true, route: "/**" })
+        expect(handler).toMatchObject({ middleware: true })
+        expect(handler).not.toHaveProperty("route")
         expect(handler).not.toHaveProperty("method")
         expect(handlers.indexOf(handler)).toBeLessThan(handlers.findIndex(candidate => candidate.handler === authHandler.handler))
       }
