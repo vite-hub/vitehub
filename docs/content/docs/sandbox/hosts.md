@@ -40,9 +40,11 @@ On the Vite or Nuxt dev server, the Vercel provider works when Vercel credential
 | `migrationTag` | `'v1'` | Wrangler migration tag for the class. Must be unique. |
 | `name` | - | Container name. The `cloudflare` preset derives one from the app name. |
 | `sandboxId` | - | Shared Sandbox identity for every run. |
-| `sleepAfter`, `keepAlive`, `normalizeId` | - | Cloudflare Sandbox session options. |
+| `sleepAfter` | `'10m'` | Idle time before Cloudflare stops the Container: seconds, or a value such as `'30s'`, `'5m'`, or `'1h'`. |
+| `keepAlive` | `false` | Keep the Container running for up to 6 idle hours between requests (Cloudflare’s maximum). ViteHub then closes the session after each run. |
+| `normalizeId` | `false` | Lowercase the Sandbox ID before it names the Durable Object. |
 
-The Cloudflare integration writes the Container, Durable Object binding, migration, and Worker exports to Provider Output. It generates `.vitehub/sandbox-task/Dockerfile` when the container has no image. For a custom image, configure the application-owned container with a complete Dockerfile. For Vercel, set `runtime` or `source`. Sandbox has no Dockerfile-fragment helper because partial image syntax is not portable across providers.
+The Cloudflare integration writes the Container, Durable Object binding, migration, and Worker exports to Provider Output. It generates `.vitehub/sandbox-task/Dockerfile` when the container has no image. For a custom image, configure the application-owned container with a complete Dockerfile that copies `/usr/local/bin/sandbox-shim` from `docker.io/cloudflare/sandbox:<installed @cloudflare/sandbox version>`. For Vercel, set `runtime` or `source`. Sandbox has no Dockerfile-fragment helper because partial image syntax is not portable across providers.
 
 ## Related guides
 
