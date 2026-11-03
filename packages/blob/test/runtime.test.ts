@@ -738,7 +738,7 @@ describe("blob runtime", () => {
     expect(await blob.head("notes/hello.txt")).toEqual([null, null])
   })
 
-  it("serves byte ranges from the active Cloudflare binding without reading the whole object", async () => {
+  it("serves byte ranges from the active Cloudflare binding in one read, without reading the whole object", async () => {
     setBlobRuntimeConfig({ store: { binding: "BLOB", bucketName: "assets", driver: "cloudflare-r2" } })
     const reads: unknown[] = []
     const object = { httpEtag: "\"v1\"", httpMetadata: { contentType: "video/mp4" }, key: "video.mp4", size: 10, uploaded: new Date(0) }
@@ -751,6 +751,7 @@ describe("blob runtime", () => {
           return { ...object, body: new Blob([range ? bytes.slice(range.offset, range.offset + range.length) : bytes]).stream() }
         },
         async head() {
+          reads.push("head")
           return object
         },
       },
@@ -761,7 +762,7 @@ describe("blob runtime", () => {
 
     expect(event.res.status).toBe(206)
     expect(await new Response(body).text()).toBe("456")
-    expect(reads).toEqual([{ onlyIf: { etagMatches: "v1" }, range: { offset: 4, length: 3 } }])
+    expect(reads).toEqual([{ onlyIf: undefined, range: { offset: 4, length: 3 } }])
   })
 
   it("falls back to Files SDK R2 when no Cloudflare binding exists", async () => {
