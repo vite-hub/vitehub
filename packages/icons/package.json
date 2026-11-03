@@ -1,6 +1,7 @@
 {
   "name": "@vite-hub/icons",
   "version": "0.1.0",
+  "private": true,
   "description": "The ViteHub icon set as an Iconify collection: one 24px icon for each Server Primitive and Console area.",
   "keywords": [
     "iconify",

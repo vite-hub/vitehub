@@ -1,5 +1,5 @@
-import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs"
-import { dirname, resolve } from "node:path"
+import { mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs"
+import { basename, dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import type { Database, PreparedStatement, SqlValue } from "@sqlite.org/sqlite-wasm"
@@ -256,7 +256,18 @@ function beginStatement(mode: TransactionMode) {
  */
 export function createWasmSqliteClient(options: WasmSqliteClientOptions): WasmSqliteClient {
   const intMode = options.intMode ?? "number"
-  const path = localSqliteFilePath(options.url)
+  let path = localSqliteFilePath(options.url)
+  if (path) {
+    // Resolve aliases before sharing the database or atomically replacing its file.
+    mkdirSync(dirname(path), { recursive: true })
+    try {
+      path = realpathSync(path)
+    }
+    catch (error) {
+      if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error
+      path = resolve(realpathSync(dirname(path)), basename(path))
+    }
+  }
   let shared = path ? sharedDatabases.get(path) : undefined
   if (!shared) {
     shared = { clients: 0, db: undefined, fileStamp: undefined, lock: Promise.resolve(), path, ready: undefined }

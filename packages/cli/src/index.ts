@@ -4,7 +4,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs"
 import process from "node:process"
 import { fileURLToPath } from "node:url"
 
-import { collectViteHubCliContribution, getStableStdoutWrite, withStdoutOnStderr } from "@vite-hub/internal/cli"
+import { collectViteHubCliContribution, createCliDiscoveryNitroCloser, getStableStdoutWrite, withStdoutOnStderr } from "@vite-hub/internal/cli"
 import { reservedOperationNamespaces } from "@vite-hub/internal/operations"
 import { withViteStageEnvironment } from "@vite-hub/internal/vite-stage"
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
@@ -165,7 +165,13 @@ async function loadViteConfig(rootDir: string, command: ConfigEnv["command"], mo
     ...(mode ? { mode } : {}),
     vitehubCliDiscovery: true,
   }
-  return await resolveConfig(inlineConfig, command, mode ?? (command === "build" ? "production" : "development"))
+  const nitro = createCliDiscoveryNitroCloser()
+  try {
+    return await resolveConfig({ ...inlineConfig, plugins: [nitro.plugin] }, command, mode ?? (command === "build" ? "production" : "development"))
+  }
+  finally {
+    await nitro.close()
+  }
 }
 
 /** Keeps at least two spaces between a help name and its description. */

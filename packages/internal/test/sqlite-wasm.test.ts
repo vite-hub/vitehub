@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { lstat, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
@@ -58,6 +58,47 @@ describe("createWasmSqliteClient", () => {
     expect((await first.execute("SELECT v FROM kv")).rows.map(row => row.v)).toEqual(["1"])
     first.close()
     second.close()
+  })
+
+  it("preserves a database symlink and shares its target between clients", async () => {
+    const path = join(dir, "target.sqlite")
+    const link = join(dir, "linked.sqlite")
+    const native = new DatabaseSync(path)
+    native.exec("CREATE TABLE t (n INTEGER)")
+    native.close()
+    await symlink("target.sqlite", link)
+
+    const linked = createWasmSqliteClient({ url: `file:${link}` })
+    const direct = createWasmSqliteClient({ url: `file:${path}` })
+    let transaction
+    try {
+      await linked.execute("INSERT INTO t VALUES (1)")
+      expect((await lstat(link)).isSymbolicLink()).toBe(true)
+      const reader = new DatabaseSync(path)
+      try {
+        expect(reader.prepare("SELECT n FROM t").all()).toEqual([{ n: 1 }])
+      }
+      finally {
+        reader.close()
+      }
+
+      transaction = await linked.transaction("write")
+      await transaction.execute("INSERT INTO t VALUES (2)")
+      const inserted = direct.execute("INSERT INTO t VALUES (3)")
+      try {
+        await transaction.commit()
+      }
+      finally {
+        await inserted
+      }
+      expect((await direct.execute("SELECT n FROM t ORDER BY n")).rows.map(row => row.n)).toEqual([1, 2, 3])
+      expect(wasmSqliteStatus().files).toEqual([path])
+    }
+    finally {
+      transaction?.close()
+      linked.close()
+      direct.close()
+    }
   })
 
   it("keeps one database when the last client closes during a transaction and another opens", async () => {

@@ -26,7 +26,7 @@ export const LogsLanding = {
               dependencies: {
                 "vite-hub": "latest",
                 evlog: "^2.28.1",
-                nitro: "3.0.260903-beta",
+                nitro: "3.0.261102-rc",
                 vite: "^8.2.2",
               },
             },
