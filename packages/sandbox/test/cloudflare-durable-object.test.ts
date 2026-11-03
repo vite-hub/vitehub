@@ -239,6 +239,33 @@ describe("Cloudflare Sandbox Durable Object", () => {
     await session.close();
   });
 
+  it.each(["stdout", "stderr"] as const)("propagates a Container %s read failure through process logs", async (type) => {
+    const { container, objects, runtime } = setup();
+    const session = await (await resolveSandbox({ runtime }, {})).open();
+    const exec = container.exec.bind(container);
+    container.exec = async (...args) => ({
+      ...await exec(...args),
+      [type]: new ReadableStream<Uint8Array>({
+        start(controller) { controller.error(new Error(`${type} read failed`)); },
+      }),
+    });
+    try {
+      const object = objects.get("Task-1")!;
+      const command = await object.startProcess("short-command");
+      const events = await new Response(await object.streamProcessLogs(command.id)).text();
+      expect(events).toContain(`"data":"${type} read failed","type":"error"`);
+      expect(events).not.toContain('"type":"exit"');
+
+      const process = await session.spawn!("short-command");
+      await Promise.all([process.stdout, process.stderr].map(async (stream) => {
+        await expect(new Response(stream).text()).rejects.toThrow(`${type} read failed`);
+      }));
+      await expect(process.wait()).resolves.toEqual({ code: 0 });
+    } finally {
+      await session.close();
+    }
+  });
+
   it.skipIf(process.platform === "win32")("times out shell descendants and finishes collecting output", async () => {
     const { container, objects, runtime } = setup();
     const session = await (await resolveSandbox({ runtime }, {})).open();

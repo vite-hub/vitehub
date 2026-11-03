@@ -354,6 +354,49 @@ describe("remote Sandbox providers", () => {
     await session.close();
   });
 
+  it.each(["stderr", "stdout"] as const)("bounds unread Cloudflare %s without blocking the other channel", async (unread) => {
+    const consumed = unread === "stderr" ? "stdout" : "stderr";
+    const encoder = new TextEncoder();
+    const event = (value: Record<string, unknown>) => encoder.encode(`data: ${JSON.stringify(value)}\n\n`);
+    const stub: CloudflareSandboxStub = {
+      ...cloudflareStub(async () => ({ exitCode: 0, stderr: "", stdout: "", success: true })),
+      async startProcess() {
+        return {
+          async getLogs() { return { stderr: "", stdout: "" }; },
+          id: "process-1",
+          async kill() {},
+          async waitForExit() { return { exitCode: 0 }; },
+        };
+      },
+      async streamProcessLogs() {
+        let index = 0;
+        return new ReadableStream<Uint8Array>({
+          pull(controller) {
+            // Eight MiB of UTF-8 output must not remain queued in the unread channel.
+            if (index < 128) controller.enqueue(event({ data: "é".repeat(32 * 1024), type: unread }));
+            else if (index === 128) controller.enqueue(event({ data: "still live\n", type: consumed }));
+            else {
+              controller.enqueue(event({ exitCode: 0, type: "exit" }));
+              controller.close();
+            }
+            index++;
+          },
+        });
+      },
+    };
+    const sandbox = await resolveSandbox({
+      runtime: { getSandbox: () => stub, kind: "cloudflare", namespace: namespace(stub) },
+    }, {});
+    const session = await sandbox.open();
+    try {
+      const process = await session.spawn!("noisy");
+      await expect(new Response(process[consumed]).text()).resolves.toBe("still live\n");
+      await expect(process[unread].getReader().read()).rejects.toMatchObject({ code: "SANDBOX_R0159" });
+    } finally {
+      await session.close();
+    }
+  });
+
   it("reads Cloudflare spawn logs after exit when the stub cannot stream them", async () => {
     let output = "first\n";
     let finish!: () => void;

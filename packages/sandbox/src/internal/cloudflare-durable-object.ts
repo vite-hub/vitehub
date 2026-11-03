@@ -83,7 +83,12 @@ class SandboxProcessRecord {
     const pumps = (["stdout", "stderr"] as const).map(type => this.#pump(type, process[type]));
     this.exited = process.exitCode;
     void Promise.allSettled(pumps)
-      .then(async () => ({ exitCode: await process.exitCode, type: "exit" as const }))
+      .then(async (results) => {
+        for (const result of results) {
+          if (result.status === "rejected") throw result.reason;
+        }
+        return { exitCode: await process.exitCode, type: "exit" as const };
+      })
       .catch((error: unknown) => ({ data: error instanceof Error ? error.message : String(error), type: "error" as const }))
       .then((event) => {
         this.#emit(event);
