@@ -1,4 +1,5 @@
 import { ConsoleRequestError, requestConsole } from "./request"
+import { consoleQueryText } from "./route-query"
 import { dayLabel } from "./time"
 
 import type { ConsoleDocumentCollection, ConsoleDocumentSetup } from "../definitions"
@@ -544,27 +545,22 @@ export interface ConsoleListView {
 
 const filterPrefix = "filter."
 
-function queryText(value: unknown): string | undefined {
-  const first = Array.isArray(value) ? value[0] : value
-  return String(first) === first && first ? first : undefined
-}
-
 /** Reads the list view from a route query. Unknown states, sorts, and filter fields fall back to the defaults. */
 export function parseConsoleListQuery(
   query: Readonly<Record<string, unknown>>,
   options: { facets: readonly string[], sorts: readonly string[] },
 ): ConsoleListView {
-  const state = queryText(query.state)
-  const sort = queryText(query.sort)
+  const state = consoleQueryText(query.state)
+  const sort = consoleQueryText(query.sort)
   const filters: Record<string, string> = {}
   for (const [key, value] of Object.entries(query)) {
     const name = key.startsWith(filterPrefix) ? key.slice(filterPrefix.length) : undefined
-    const text = queryText(value)
+    const text = consoleQueryText(value)
     if (name && text && options.facets.includes(name)) filters[name] = text
   }
   return {
     filters,
-    search: queryText(query.q) ?? "",
+    search: consoleQueryText(query.q) ?? "",
     sort: sort && options.sorts.includes(sort) ? sort : options.sorts[0] ?? "id:asc",
     state: state === "scheduled" ? state : consoleDocumentStates.find(entry => entry === state) ?? "all",
   }

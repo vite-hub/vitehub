@@ -35,6 +35,27 @@ Pages share the access of their section. `{ sections: ['content'] }` in `console
 
 The section sidebar collapses to icons with the button in its header. The Console stores the collapsed state and the sidebar width in the browser.
 
+### Page state in the URL
+
+Each page keeps its view in the query string, so a reload, a shared link, Back and Forward, and **Open in new tab** in the floating window open the same view. A selection, a tab, or another page of results adds a history entry. Typing a search, choosing a filter, or changing the sort replaces the current entry. A value equal to the default leaves the URL, and the Console ignores a value that it does not know.
+
+| Page | Query parameters |
+| --- | --- |
+| Agents | `capability`, `triggeredBy`, `details=open` or `details=max`, `tab`, `file`. The Agent and the session are in the path. `sessions=open` opens the session list on a narrow screen when the page loads. |
+| Auth | `q`, `filter`, `offset`, `user`, `org`. Activity: `group`, `userId`, `cursor`. |
+| Blob | `store`, `folder`, `file`, `q`, `type`, `vitehub=1`. |
+| Channels | `agent`, `channel`, `thread`. |
+| Comments | `filter`. |
+| Connections | `q`, `connection`, `tab`. |
+| Content | List: `q`, `state`, `sort`, `filter.<field>`. Editor: `preview`, `panel`. Media: `folder`, `file`, `q`, `type`. |
+| Databases | `q`, `sort`, `dir`, `offset`. The database and the table are in the path. |
+| Env | `q`, `source`, `variable`, `manage=1`, `tab`. |
+| KV | `store`, `key`, `q`. |
+| Logs | `q`, `level`, `view`, `entry`. |
+| Queues, Schedules, Workflows, and other catalogs | `definition`, or `record` for a record table. Rate Limits: `key`, the key that was read. |
+| Skills | `agent`, `path`. |
+| Usage | `window`, `section`, `metric`, `breakdown`, `agent`, `status`, `search`. |
+
 ### Search
 
 <kbd>⌘</kbd> <kbd>K</kbd> or <kbd>/</kbd> opens search from any Console page.

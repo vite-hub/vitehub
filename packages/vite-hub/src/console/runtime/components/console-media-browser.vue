@@ -65,6 +65,9 @@ const emit = defineEmits<{
 
 const folder = defineModel<string>("folder", { default: "" });
 const selected = defineModel<string[]>("selected", { default: () => [] });
+/** The file name search and the type filter. A page keeps them in the URL; the picker keeps them here. */
+const search = defineModel<string>("search", { default: "" });
+const type = defineModel<ConsoleMediaType | "all">("type", { default: "all" });
 
 const toast = useConsoleToast();
 const items = shallowRef<ConsoleMediaFile[]>([]);
@@ -76,9 +79,7 @@ const truncated = ref(false);
 const loading = ref(true);
 const loadingMore = ref(false);
 const error = ref<unknown>();
-const search = ref("");
-const query = ref("");
-const type = ref<ConsoleMediaType | "all">("all");
+const query = ref(search.value.trim());
 const viewKey = props.viewKey ?? "vitehub:console:media-view";
 const storedView = globalThis.localStorage?.getItem(viewKey);
 const view = ref<"grid" | "list">(storedView === "list" || storedView === "grid" ? storedView : props.defaultView ?? "grid");
@@ -155,6 +156,7 @@ watch(type, () => void load());
 watch(search, (value) => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => {
+    if (query.value === value.trim()) return;
     query.value = value.trim();
     void load();
   }, 200);

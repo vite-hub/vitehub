@@ -13,6 +13,7 @@ import {
   connectionStatusLabel,
   requestConnectionsManagement,
 } from "../client/connections-management";
+import { queryChoice, querySelection, queryText, useConsoleQuery } from "../client/route-query";
 import { consolePrimitives, rememberConsoleSection } from "../sections";
 import ConsoleConnectionsDetails from "./console-connections-details.vue";
 import ConsoleFrame from "./console-frame.vue";
@@ -34,9 +35,12 @@ const props = defineProps<{
 }>();
 const connections = ref<readonly ConnectionInspection[]>([]);
 const pending = ref(new Map<string, number>());
-const search = ref("");
-const selectedName = ref<string>();
-const selectedTab = ref<DetailsTab>("details");
+// The search, open connection, and its tab live in the URL, so a reload or a shared link opens the same view.
+const { connection: selectedName, q: search, tab: selectedTab } = useConsoleQuery({
+  connection: querySelection(),
+  q: queryText(),
+  tab: queryChoice<DetailsTab>(["details", "activity", "approvals"], "details", { history: "push" }),
+});
 const selectedKeyForm = ref(false);
 const loading = ref(true);
 const error = ref<unknown>();
@@ -286,7 +290,7 @@ export default defineConnection({
           :key="selected.name"
           :connection="selected"
           :endpoint="managementBase"
-          :initial-tab="selectedTab"
+          v-model:tab="selectedTab"
           :key-form="selectedKeyForm"
           :return-to="returnTo"
           @changed="refresh"

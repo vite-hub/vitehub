@@ -35,6 +35,7 @@ import {
   resolveUsageSessionsAgent,
 } from "../console-route";
 import { isConsoleSignInRequired, isRetryableConsoleRequestError, requestConsole } from "../client/request";
+import { queryChoice, querySelection, useConsoleQuery, writeConsoleQuery } from "../client/route-query";
 import { useConsoleConnectionUnavailable } from "./console-connection";
 import { rememberConsoleSection } from "../sections";
 import ConsoleFrame from "./console-frame.vue";
@@ -51,13 +52,7 @@ import type { ConsoleSessionRerun } from "./console-session-actions.vue";
 import ConsoleSessionInspector from "./console-session-inspector.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleUsage from "./console-usage.vue";
-import {
-  isCapabilityFilterRouteTransition,
-  refreshCapabilityFilteredInvocations,
-  resetCapabilityFilterForRouteTransition,
-  useConsoleSessionBootstrap,
-} from "./console-session-bootstrap";
-import type { CapabilityFilterRouteTransition } from "./console-session-bootstrap";
+import { refreshCapabilityFilteredInvocations, useConsoleSessionBootstrap } from "./console-session-bootstrap";
 import "./console-session.css";
 import "./invocation/invocation.css";
 
@@ -78,8 +73,49 @@ const initialAgentParam = decodeAgentRouteParam(route.params.agent);
 const selectedInvocationId = ref<string>();
 const selectedAgentName = ref(initialAgentParam?.trim() ? initialAgentParam : undefined);
 const newChatAgentName = ref<string>();
-const selectedCapabilityId = ref<string>();
-const selectedTriggeredBy = ref<string>();
+const inspectorViewNames = ["details", "trace", "workspace", "capabilities", "diff"] as const;
+// The session filters, the details panel, and its tab or file live in the URL, so a reload, a shared link, or a new
+// tab opens the same view. The session itself is in the path. The sessions drawer of narrow screens stays out: the
+// dashboard sidebar closes it on every navigation, so a URL write would close it at once.
+const sessionQuery = {
+  capability: querySelection({ history: "replace" }),
+  details: queryChoice(["closed", "open", "max"], "closed", { history: "push" }),
+  file: querySelection(),
+  tab: queryChoice(inspectorViewNames, "details", { history: "push" }),
+  triggeredBy: querySelection({ history: "replace" }),
+};
+const {
+  capability: selectedCapabilityId,
+  details: detailsView,
+  file: inspectorSelectedPath,
+  tab: inspectorTab,
+  triggeredBy: selectedTriggeredBy,
+} = useConsoleQuery(sessionQuery, {
+  active: current => ["vitehub-console-agents", "vitehub-console-agent", "vitehub-console-invocation"]
+    .some(name => current.name === resolveConsoleRouteName(current.name, name)),
+  onRestore(names) {
+    if (names.includes("capability") || names.includes("triggeredBy")) scheduleInvocationListRefresh();
+    if (names.includes("tab") || names.includes("file") || (names.includes("details") && detailsOpen.value)) showInspectorSurface();
+  },
+});
+/** The URL query of the page as it shows now, for a route that only fills in the Agent or the first session. */
+function currentSessionQuery() {
+  return writeConsoleQuery(sessionQuery, {
+    capability: selectedCapabilityId.value,
+    details: detailsView.value,
+    file: inspectorSelectedPath.value,
+    tab: inspectorTab.value,
+    triggeredBy: selectedTriggeredBy.value,
+  }, route.query);
+}
+/** The query to keep when another session or Agent opens: the filters, and the details panel unless `closeDetails`. */
+function keptSessionQuery(options: { closeDetails?: boolean } = {}) {
+  return writeConsoleQuery(sessionQuery, {
+    capability: selectedCapabilityId.value,
+    triggeredBy: selectedTriggeredBy.value,
+    ...(options.closeDetails ? {} : { details: detailsView.value, tab: inspectorTab.value }),
+  }, {});
+}
 const filterOpen = ref(false);
 const capabilityIds = ref<string[]>([]);
 const triggeredByValues = ref<string[]>([]);
@@ -98,14 +134,38 @@ interface ConsoleAgentProfile {
 }
 const agentInvocationOptions = ref<Record<string, { profiles: ConsoleAgentProfile[] }>>({});
 const nowMs = ref(Date.now());
+// Usage links to the sessions with `?sessions=open`.
 const sessionsOpen = ref(route.query.sessions === "open");
-const detailsOpen = ref(false);
-const detailsMaximized = ref(false);
-const inspectorTab = ref<"details" | "trace" | "workspace" | "capabilities">("details");
+const detailsOpen = computed({
+  get: () => detailsView.value !== "closed",
+  set: (open: boolean) => {
+    detailsView.value = !open ? "closed" : detailsView.value === "max" ? "max" : "open";
+  },
+});
+const detailsMaximized = computed({
+  get: () => detailsView.value === "max",
+  set: (maximized: boolean) => {
+    detailsView.value = maximized ? "max" : detailsView.value === "closed" ? "closed" : "open";
+  },
+});
 const inspectorActiveSurface = ref("");
-const inspectorOpenViews = ref<Array<"details" | "trace" | "workspace" | "capabilities">>([]);
+const inspectorOpenViews = ref<Array<(typeof inspectorViewNames)[number]>>([]);
 const inspectorOpenPaths = ref<string[]>([]);
-const inspectorSelectedPath = ref<string>();
+/** Opens the tab or file of the URL in the inspector, for a link, Back, and Forward. */
+function showInspectorSurface(): void {
+  const path = inspectorSelectedPath.value;
+  if (path) {
+    if (!inspectorOpenPaths.value.includes(path)) inspectorOpenPaths.value = [...inspectorOpenPaths.value, path];
+    if (inspectorTab.value === "workspace") {
+      inspectorActiveSurface.value = `file:${path}`;
+      return;
+    }
+  }
+  const view = inspectorTab.value;
+  if (!inspectorOpenViews.value.includes(view)) inspectorOpenViews.value = [...inspectorOpenViews.value, view];
+  inspectorActiveSurface.value = `view:${view}`;
+}
+if (detailsOpen.value || inspectorSelectedPath.value || inspectorTab.value !== "details") showInspectorSurface();
 const inspectorWorkspaceIdentity = ref<string>();
 const selectedActivityId = ref<string>();
 const isDesktop = ref(false);
@@ -118,7 +178,6 @@ let agentsRequest: AbortController | undefined;
 let capabilityIdsRequest: AbortController | undefined;
 let refreshCount = 0;
 let invocationListRefreshQueued = false;
-let pendingCapabilityFilterRouteTransition: CapabilityFilterRouteTransition | undefined;
 const sessionPollingEnabled = computed(
   () =>
     pageVisible.value &&
@@ -541,6 +600,7 @@ async function selectInvocation(
   await router.push({
     name: resolveConsoleRouteName(route.name, "vitehub-console-invocation"),
     params: { agent: encodeAgentRouteParam(agentName), invocation: invocation.id },
+    query: keptSessionQuery(),
   });
 }
 
@@ -566,6 +626,7 @@ async function removeDeletedInvocation(id: string): Promise<void> {
         await router.replace({
           name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
           params: { agent: encodeAgentRouteParam(agentName) },
+          query: keptSessionQuery({ closeDetails: true }),
         });
       }
     },
@@ -587,6 +648,7 @@ async function startNewChat(): Promise<void> {
   await router.push({
     name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
     params: { agent: encodeAgentRouteParam(agentName) },
+    query: keptSessionQuery({ closeDetails: true }),
   });
   await nextTick();
   document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Test this Agent"]')?.focus();
@@ -609,27 +671,17 @@ async function applySessionFilters(): Promise<void> {
   newChatAgentName.value = undefined;
   selectedInvocationId.value = undefined;
   closeDetails();
-  const transition = {
-    agent: selectedAgentName.value,
-    invocation: undefined,
-  } satisfies CapabilityFilterRouteTransition;
-  pendingCapabilityFilterRouteTransition = transition;
-  try {
-    await refreshCapabilityFilteredInvocations({
-      navigate: () =>
-        selectedAgentName.value
-          ? router.replace({
-              name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
-              params: { agent: encodeAgentRouteParam(selectedAgentName.value) },
-            })
-          : Promise.resolve(),
-      refresh: () => list.refresh(),
-    });
-  } finally {
-    if (pendingCapabilityFilterRouteTransition === transition) {
-      pendingCapabilityFilterRouteTransition = undefined;
-    }
-  }
+  await refreshCapabilityFilteredInvocations({
+    navigate: () =>
+      selectedAgentName.value
+        ? router.replace({
+            name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
+            params: { agent: encodeAgentRouteParam(selectedAgentName.value) },
+            query: keptSessionQuery({ closeDetails: true }),
+          })
+        : Promise.resolve(),
+    refresh: () => list.refresh(),
+  });
 }
 
 function selectCapability(capabilityId?: string): void {
@@ -813,7 +865,6 @@ watch(
   [routeInvocation, routeAgent, () => list.invocations.value.find(invocation => !deletedInvocations.has(invocation.id)), selectedAgentName, isUsageRoute],
   async (
     [requestedInvocation, requestedAgent, firstInvocation, agentName, usageRoute],
-    previous,
   ) => {
     if (requestedInvocation && deletedInvocations.has(requestedInvocation)) {
       selectedInvocationId.value = undefined;
@@ -826,40 +877,24 @@ watch(
       return;
     }
     if (requestedInvocation) newChatAgentName.value = undefined;
-    const routeChanged =
-      !previous || requestedInvocation !== previous[0] || requestedAgent !== previous[1];
-    const preserveCapabilityFilter =
-      routeChanged &&
-      (requestedAgent === agentName || isCapabilityFilterRouteTransition(pendingCapabilityFilterRouteTransition, {
-          agent: requestedAgent,
-          invocation: requestedInvocation,
-        }));
-    if (routeChanged) pendingCapabilityFilterRouteTransition = undefined;
-    const filterReset = resetCapabilityFilterForRouteTransition({
-      preserve: preserveCapabilityFilter,
-      routeChanged,
-      scheduleRefresh: scheduleInvocationListRefresh,
-      selectedCapabilityId,
-      selectedTriggeredBy,
-    });
-    const availableFirstInvocation = filterReset ? undefined : firstInvocation;
     if (requestedInvocation || requestedAgent) {
       initialBootstrapPending.value = false;
     }
     if (!requestedAgent && !agentName) {
-      if (!availableFirstInvocation) return;
-      if (!availableFirstInvocation.agentName) {
+      if (!firstInvocation) return;
+      if (!firstInvocation.agentName) {
         initialBootstrapPending.value = false;
         return;
       }
-      selectedInvocationId.value = availableFirstInvocation.id;
+      selectedInvocationId.value = firstInvocation.id;
       try {
         await router.replace({
           name: resolveConsoleRouteName(route.name, "vitehub-console-invocation"),
           params: {
-            agent: encodeAgentRouteParam(availableFirstInvocation.agentName),
-            invocation: availableFirstInvocation.id,
+            agent: encodeAgentRouteParam(firstInvocation.agentName),
+            invocation: firstInvocation.id,
           },
+          query: currentSessionQuery(),
         });
       } finally {
         initialBootstrapPending.value = false;
@@ -872,14 +907,15 @@ watch(
     }
     const agentRouteReady = !requestedAgent || requestedAgent === agentName;
     selectedInvocationId.value =
-      requestedInvocation || (agentRouteReady ? availableFirstInvocation?.id : undefined);
-    if (!requestedInvocation && availableFirstInvocation?.id && agentName && agentRouteReady) {
+      requestedInvocation || (agentRouteReady ? firstInvocation?.id : undefined);
+    if (!requestedInvocation && firstInvocation?.id && agentName && agentRouteReady) {
       await router.replace({
         name: resolveConsoleRouteName(route.name, "vitehub-console-invocation"),
         params: {
           agent: encodeAgentRouteParam(agentName),
-          invocation: availableFirstInvocation.id,
+          invocation: firstInvocation.id,
         },
+        query: currentSessionQuery(),
       });
     }
   },
@@ -904,6 +940,7 @@ watch(
       await router.replace({
         name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
         params: { agent: encodeAgentRouteParam(agentName) },
+        query: currentSessionQuery(),
       });
     }
   },
@@ -935,6 +972,7 @@ watch(
     await router.replace({
       name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
       params: { agent: encodeAgentRouteParam(agentName) },
+      query: keptSessionQuery({ closeDetails: true }),
     });
   },
 );
@@ -946,9 +984,9 @@ watch(selectedInvocationId, () => {
     ? `${props.hostBase}/api/invocations/${selectedInvocationId.value}`
     : undefined;
   if (identity !== inspectorWorkspaceIdentity.value) {
+    // A new session's URL omits the file. Back and Forward can restore one from the destination session.
+    inspectorOpenPaths.value = inspectorSelectedPath.value ? [inspectorSelectedPath.value] : [];
     inspectorWorkspaceIdentity.value = identity;
-    inspectorSelectedPath.value = undefined;
-    inspectorOpenPaths.value = [];
   }
 });
 

@@ -5,6 +5,7 @@ import { useVirtualList } from "@vueuse/core";
 import { logPageSchema, logSourceInfoSchema } from "../../../logs/source";
 import type { LogEntry, LogSourceInfo } from "../../../logs/source";
 import { requestConsole } from "../client/request";
+import { queryChoice, querySelection, queryText, useConsoleQuery } from "../client/route-query";
 import { consoleClockTime, exactTimestamps } from "../client/time";
 import ConsoleFrame from "./console-frame.vue";
 import ConsolePageHeader from "./console-page-header.vue";
@@ -16,9 +17,14 @@ import ConsoleState from "./console-state.vue";
 const props = defineProps<{ logsBase: string; sectionsBase: string }>();
 // The rail's Search button and Cmd+K open the search of the page. Its API routes sit next to the sections route.
 const apiBase = props.sectionsBase.replace(/\/sections$/, "");
-const mode = ref("explorer");
-const text = ref("");
-const level = ref("all");
+const levelValues = ["all", "debug", "info", "warn", "error"] as const;
+// The view, search, level, and open event live in the URL, so a reload or a shared link opens the same view.
+const { entry: selectedId, level, q: text, view: mode } = useConsoleQuery({
+  entry: querySelection(),
+  level: queryChoice(levelValues, "all"),
+  q: queryText(),
+  view: queryChoice(["explorer", "stream"], "explorer", { history: "push" }),
+});
 const entries = ref<LogEntry[]>([]);
 const {
   list: visibleEntries,
@@ -27,8 +33,8 @@ const {
   scrollTo,
 } = useVirtualList(entries, { itemHeight: 32, overscan: 8 });
 const source = ref<LogSourceInfo>();
-const selectedId = ref<string>();
-const selected = computed(() => entries.value.find((entry) => entry.id === selectedId.value));
+// Without an open event in the URL, or when the open event left the list, the newest event shows.
+const selected = computed(() => entries.value.find((entry) => entry.id === selectedId.value) ?? entries.value[0]);
 const cursor = ref<string>();
 // The first load starts on mount, so the page opens in its loading state instead of the empty state.
 const loading = ref(true);
@@ -89,7 +95,7 @@ async function load(older = false) {
   loading.value = true;
   error.value = undefined;
   const params = new URLSearchParams({ limit: "200" });
-  if (text.value) params.set("text", text.value);
+  if (text.value.trim()) params.set("text", text.value.trim());
   if (level.value !== "all") params.set("level", level.value);
   if (older && cursor.value) params.set("cursor", cursor.value);
   try {
@@ -117,8 +123,6 @@ async function load(older = false) {
     cursor.value = entries.value.length < 1000 ? page.cursor : undefined;
     if (!older) scrollTo(0);
     dropped.value = page.dropped ?? 0;
-    if (!entries.value.some((entry) => entry.id === selectedId.value))
-      selectedId.value = entries.value[0]?.id;
   } catch (cause) {
     if (!controller.signal.aborted && !disposed)
       error.value = cause;
@@ -238,8 +242,8 @@ onBeforeUnmount(() => {
                 v-for="{ data: entry } in visibleEntries"
                 :key="entry.id"
                 class="log-row w-full text-left hover:bg-elevated/50 focus-visible:outline-2 focus-visible:outline-primary"
-                :class="[{ 'bg-elevated': selectedId === entry.id }, mode]"
-                :aria-pressed="selectedId === entry.id"
+                :class="[{ 'bg-elevated': selected?.id === entry.id }, mode]"
+                :aria-pressed="selected?.id === entry.id"
                 @click="selectedId = entry.id"
               >
                 <!-- Local time, as in the rest of the Console. The tooltip has the date in the local zone and in UTC. -->

@@ -50,9 +50,10 @@ it("keeps cursor filters, resets on a new user and ignores stale responses", asy
     pending[0]!({ enabled: true, events: [], nextCursor: "cursor-a" });
     await vi.waitFor(() => expect(state.loading).toBe(false));
     state.next();
-    expect(mocks.read.mock.lastCall?.[2]).toEqual({
+    await vi.waitFor(() => expect(mocks.read.mock.lastCall?.[2]).toEqual({
       activity: { group: "admin", userId: "u1", cursor: "cursor-a", limit: 25 },
-    });
+    }));
+    expect(router.currentRoute.value.query.cursor).toBe("cursor-a");
     await router.replace("/auth/activity?group=agents&userId=u2");
     await nextTick();
     expect(state.page).toBe(0);
@@ -63,12 +64,13 @@ it("keeps cursor filters, resets on a new user and ignores stale responses", asy
     await nextTick();
     expect(state.data).toEqual(current);
     state.next();
+    await vi.waitFor(() => expect(pending).toHaveLength(4));
     pending[3]!({ enabled: true, events: [] });
     await vi.waitFor(() => expect(state.loading).toBe(false));
     state.previous();
-    expect(mocks.read.mock.lastCall?.[2]).toEqual({
+    await vi.waitFor(() => expect(mocks.read.mock.lastCall?.[2]).toEqual({
       activity: { group: "agents", userId: "u2", cursor: undefined, limit: 25 },
-    });
+    }));
     app.unmount();
     expect(mocks.read.mock.lastCall?.[3].aborted).toBe(true);
   } finally {
