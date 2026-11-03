@@ -19,7 +19,8 @@ icon: i-lucide-code-2
 | `contentSessionTimeouts` from `vite-hub/content` | Presence, lease, and idle durations in milliseconds: `{ presence: 45_000, lease: 300_000, idle: 900_000 }`. |
 | `contentHead` from `vite-hub/content` or `vite-hub/content/client` | [Head tags](/docs/content/seo#head-tags) for a document, in the shape `useHead()` takes. |
 | `defineContentSitemapHandler`, `defineContentRobotsHandler`, `renderContentSitemap` from `vite-hub/content` | Serve or render the [sitemap and robots.txt](/docs/content/seo#sitemap-and-robotstxt) in another server. |
-| `contentSource` from `vite-hub/content` | Adapt one Source and set Comark options such as `prefix` and `schema`. |
+| `contentSource` from `vite-hub/content` | Adapt one Source and set Comark options such as `prefix` and `schema`, and a [`url`](/docs/content/seo#source-urls) for the sitemap. |
+| `renderContentHtml` from `vite-hub/content` | [Render a document to HTML](/docs/content/configure#render-html-on-the-server) in a server route without a framework. |
 | `defineContentHandler` from `vite-hub/content` | Adapt a Content runtime to an H3 or Nitro route in another server. |
 | `createContentClient`, `defineContentClientPlugin` from `vite-hub/content/client` | Use or extend the typed Comark Content client. |
 | `createContentEditorCodec`, `contentRealtimeEditor`, `ContentImage` from `vite-hub/content/editor` | Content's configured editor codec, Realtime adapter, and image extension. See [Live editing](/docs/content/editing-together#build-your-own-live-editor). |
@@ -103,7 +104,7 @@ export default defineEventHandler(async (event) => {
 | `content.hasPolicy` | Whether `defineContent({ authorize })` defines a policy. |
 | `content.sessions.report()`, `.acquire()`, `.release()`, `.list()` | Presence and edit leases of documents. See [Editing together](/docs/content/editing-together). |
 | `posts.editing` | `{ lease }` from the definition's `editing` option. |
-| `content.sitemap(options?)` | The [sitemap entries](/docs/content/seo#sitemap-and-robotstxt) `{ collection, id, loc, lastmod? }` of published, indexable documents with a URL. |
+| `content.sitemap(options?)` | The [sitemap entries](/docs/content/seo#sitemap-and-robotstxt) `{ collection, id, loc, lastmod? }` of published, indexable documents with a URL, and of Source documents with a URL. |
 | `content.robots(options?)` | The robots.txt text for `defineContent({ seo: { robots } })`. |
 
 To read, edit, publish, or schedule documents from a terminal during development, use [`vitehub content`](/docs/content/cli).

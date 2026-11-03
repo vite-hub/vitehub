@@ -17,7 +17,8 @@ import type {
   Source as ComarkContentSource,
 } from "comark-content"
 import type { H3Event } from "h3"
-import { createContentInstance } from "./content-source.ts"
+import { contentSourceUrl, createContentInstance } from "./content-source.ts"
+import { contentMarkdownPreset } from "./html.ts"
 import { collectionPathsOverlap, documentsRuntimeOf, isContentCollectionDefinition } from "./documents.ts"
 import { resolveContentPreset } from "./presets.ts"
 import type { ContentPresetSelection } from "./presets.ts"
@@ -62,6 +63,7 @@ import type { ContentSitemapEntry, ContentSitemapOptions, DefineContentSeoOption
 import type { ContentCollectionsRuntime, ContentHistorySource } from "./collections-types.ts"
 import type { ContentSessions } from "./sessions.ts"
 export { contentSource } from "./content-source.ts"
+export { renderContentHtml } from "./html.ts"
 export { contentKeyVariable, contentPreviewCookieName, contentPreviewFrameParameter, contentPreviewPublishedParameter, defineContentPreviewPlugin } from "./preview.ts"
 export type { ContentPreview, ContentPreviewCookie, ContentPreviewDocument, ContentPreviewEvent, ContentPreviewFrame, ContentPreviewFrameOptions, ContentPreviewHost, ContentPreviewOptions, ContentPreviewToken } from "./preview.ts"
 export { contentScheduleOverdueMs, contentSchedulesRef } from "./defaults.ts"
@@ -286,8 +288,8 @@ export type DefineContentOptions<
   live?: "auto" | false
   /**
    * Site-wide SEO routes. `sitemap: true` serves `/sitemap.xml` from the published documents of collections with a
-   * `url`; `robots: true` serves `/robots.txt`; `markdown: true` serves each of those Markdown documents at its URL plus
-   * `.md`. ViteHub generates the routes when this call sets them.
+   * `url` and the documents of Sources with a `url`; `robots: true` serves `/robots.txt`; `markdown: true` serves each
+   * Markdown document of those collections at its URL plus `.md`. ViteHub generates the routes when this call sets them.
    */
   seo?: DefineContentSeoOptions
 }
@@ -359,7 +361,7 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
   readonly seo: DefineContentSeoOptions | undefined
   /**
    * The sitemap entries: published documents of collections with a `url`, without `noindex` ones or ones whose
-   * canonical URL points elsewhere. `loc` is absolute when `site` is known.
+   * canonical URL points elsewhere, then the documents of Sources with a `url`. `loc` is absolute when `site` is known.
    */
   sitemap(options?: ContentSitemapOptions): Promise<ContentSitemapEntry[]>
   /** The robots.txt text for `defineContent({ seo: { robots } })`. */
@@ -405,8 +407,7 @@ export function defineContent<
   const replaced = new Set(customPlugins.filter(Boolean).map(plugin => plugin.name))
   sharedOptions.markdown = {
     ...sharedOptions.markdown,
-    // The Vue renderer omits these HTML-only plugins.
-    plugins: [...comarkUi({ annotate: false, diff: false, quiz: false, chips: { download: false }, badge: { download: false } }).plugins.filter(plugin => !replaced.has(plugin.name)), ...customPlugins],
+    plugins: [...comarkUi(contentMarkdownPreset).plugins.filter(plugin => !replaced.has(plugin.name)), ...customPlugins],
   }
   const seo = normalizeSeoOptions(seoOptions)
   const presetDefaults = options.extends === undefined ? {} : resolveContentPreset(options.extends)
@@ -549,6 +550,10 @@ export function defineContent<
     if (!instance) throw new Error(`Unknown content cache key ${JSON.stringify(key)}.`)
     return instance.cache
   }
+  const routedSources = Object.entries(inputs).flatMap(([name, input]) => {
+    const url = contentSourceUrl(input)
+    return url === undefined ? [] : [{ name, url, list: () => from(name).list() }]
+  })
   const configuredSite = seo?.site === undefined ? undefined : siteOrigin(seo.site)
   const siteFor = (sitemapOptions: ContentSitemapOptions = {}) => sitemapOptions.site === undefined ? configuredSite : siteOrigin(sitemapOptions.site)
   // SAFETY: collection() returns the runtime built from TCollections[TName], whose fields type its documents.
@@ -559,7 +564,7 @@ export function defineContent<
     route,
     hasPolicy: policy !== undefined,
     sitemap: async (sitemapOptions?: ContentSitemapOptions) =>
-      documentsRuntime ? await contentSitemapEntries([...documentsRuntime.collections.values()], siteFor(sitemapOptions)) : [],
+      await contentSitemapEntries(documentsRuntime ? [...documentsRuntime.collections.values()] : [], siteFor(sitemapOptions), routedSources),
     markdown: async (path: string, markdownOptions?: ContentSitemapOptions) =>
       documentsRuntime ? await contentMarkdownCopy(documentsRuntime, path, siteFor(markdownOptions)) : null,
     robots: (sitemapOptions?: ContentSitemapOptions) => {

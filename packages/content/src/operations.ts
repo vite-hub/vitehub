@@ -753,7 +753,7 @@ const schedules = defineOperation({
 
 const sitemap = defineOperation({
   cli: { command: "sitemap" },
-  description: "List the sitemap URLs of published documents of collections with a url.",
+  description: "List the sitemap URLs of published documents of collections, and documents of Sources, with a url.",
   input: v.strictObject({ site: optionalText }),
   kind: "read",
   name: "content.sitemap",
@@ -761,7 +761,9 @@ const sitemap = defineOperation({
     const content = await contentRuntime()
     const access = guard(content, context)
     const entries = await content.sitemap(input.site === undefined ? {} : { site: input.site })
-    const allowed = await Promise.all(entries.map(async entry => await access.can("read", entry.collection) && await access.can("read", entry.collection, entry.id)))
+    // Entries of read-only Sources are public and have no collection policy.
+    const collections = new Set(content.collections().map(collection => collection.name))
+    const allowed = await Promise.all(entries.map(async entry => !collections.has(entry.collection) || (await access.can("read", entry.collection) && await access.can("read", entry.collection, entry.id))))
     return { entries: entries.filter((_entry, index) => allowed[index]) }
   }),
   section: "content",

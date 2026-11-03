@@ -18,7 +18,7 @@ import { image } from "../../blob/src/reference.ts"
 import { contentHead as clientContentHead } from "../src/client.ts"
 import { createContentConsoleActions } from "../src/runtime/console.ts"
 import { documents, singleton } from "../src/collections.ts"
-import { contentHead, defineContent, defineContentMarkdownHandler, defineContentRobotsHandler, defineContentSitemapHandler, renderContentSitemap, seo } from "../src/index.ts"
+import { contentHead, contentSource, defineContent, defineContentMarkdownHandler, defineContentRobotsHandler, defineContentSitemapHandler, renderContentSitemap, seo } from "../src/index.ts"
 
 import type { ContentSeo, DefineContentSeoOptions } from "../src/index.ts"
 
@@ -265,6 +265,29 @@ describe("sitemap and robots", { timeout: 30_000 }, () => {
       "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n  <url>\n    <loc>https://example.com/a?b=1&amp;c=&lt;2&gt;</loc>\n  </url>\n</urlset>\n",
     )
     expect(content.robots()).toBe("User-agent: *\nAllow: /\n\nSitemap: https://example.com/sitemap.xml\n")
+  })
+
+  it("lists the documents of read-only Sources with a url", async () => {
+    const reader = (items: Array<{ path: string, content: string }>) => ({ async items() { return items.map(item => ({ key: item.path, ...item })) } })
+    const content = defineContent({
+      route: false,
+      logger: false,
+      sources: {
+        guides: contentSource(reader([
+          { path: "guides/start.md", content: "---\ntitle: Start\n---\n# Start\n" },
+          { path: "guides/hidden.md", content: "---\ntitle: Hidden\nunlisted: true\n---\n" },
+        ]), { url: ({ id, data }) => data.unlisted ? null : `/${id}` }),
+        reference: contentSource(reader([{ path: "api.md", content: "# API" }]), { url: "/docs/:id" }),
+        notes: reader([{ path: "note.md", content: "# Note" }]),
+      },
+      seo: { site: "https://example.com", sitemap: true },
+    })
+    cleanup.push(() => content.dispose())
+    expect(await content.sitemap()).toEqual([
+      { collection: "guides", id: "guides/start", loc: "https://example.com/guides/start" },
+      { collection: "reference", id: "api", loc: "https://example.com/docs/api" },
+    ])
+    expect(() => contentSource(reader([]), { url: "docs/:id" })).toThrow(/must be a path that starts with \//)
   })
 
   it("serves /sitemap.xml and /robots.txt from the request origin without a site", async () => {

@@ -1,16 +1,18 @@
 import { parseMarkdown } from "comark/parse"
 import type { ComarkPlugin } from "comark"
 
+import { contentDocumentUrl } from "./documents.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type { AnyContentCollection } from "./collections-types.ts"
 import type { ContentCollectionsRuntime } from "./collections-runtime.ts"
+import type { ContentDocumentUrl } from "./documents.ts"
 
 /** `defineContent({ seo })`: site-wide SEO routes generated from routable collections. */
 export interface DefineContentSeoOptions {
   /** Public origin, such as `https://example.com`. Defaults to the origin of each sitemap or robots.txt request. */
   site?: string
-  /** Serve `/sitemap.xml` with the published documents of every collection that has a `url`. */
+  /** Serve `/sitemap.xml` with the published documents of every collection, and the documents of every Source, that has a `url`. */
   sitemap?: boolean
   /** Serve `/robots.txt` that allows crawling and names the sitemap. `disallow` adds paths to keep out. */
   robots?: boolean | { disallow?: readonly string[] }
@@ -72,11 +74,19 @@ function absolute(path: string, site: string | undefined): string {
   return site ? `${site}${path.startsWith("/") ? "" : "/"}${path}` : path
 }
 
+/** A read-only Source whose documents have a URL, from `contentSource(input, { url })`. */
+export interface ContentSitemapSource {
+  name: string
+  url: ContentDocumentUrl
+  list(): Promise<ReadonlyArray<{ path: string, data: Record<string, unknown> }>>
+}
+
 /**
  * The sitemap entries of every routable collection: published documents with a URL, without `noindex` and without a
- * canonical URL that points elsewhere. Singletons with a `url` are included.
+ * canonical URL that points elsewhere. Singletons with a `url` are included. Then the documents of every Source with a
+ * `url`.
  */
-export async function contentSitemapEntries(collections: readonly AnyContentCollection[], site: string | undefined): Promise<ContentSitemapEntry[]> {
+export async function contentSitemapEntries(collections: readonly AnyContentCollection[], site: string | undefined, sources: readonly ContentSitemapSource[] = []): Promise<ContentSitemapEntry[]> {
   const entries: ContentSitemapEntry[] = []
   const seen = new Set<string>()
   for (const collection of collections) {
@@ -100,6 +110,17 @@ export async function contentSitemapEntries(collections: readonly AnyContentColl
       }
       cursor = page.nextCursor ?? undefined
     } while (cursor)
+  }
+  for (const source of sources) {
+    for (const document of await source.list()) {
+      const id = document.path.replace(/^\/+/, "")
+      const url = contentDocumentUrl(source.url, { id, data: document.data })
+      if (url === null) continue
+      const loc = absolute(url, site)
+      if (seen.has(loc)) continue
+      seen.add(loc)
+      entries.push({ collection: source.name, id, loc })
+    }
   }
   if (entries.length > contentSitemapLimit) {
     throw contentErrorDiagnostics.CONTENT_R0009({ message: `[vitehub] The Content sitemap has ${entries.length} URLs, exceeding the ${contentSitemapLimit}-URL sitemap limit. Split the routes across sitemap files.` })
