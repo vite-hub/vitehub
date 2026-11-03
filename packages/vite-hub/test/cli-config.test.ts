@@ -335,6 +335,25 @@ export default { plugins: [hubBlob({ driver: "fs" }), hubEnv({ server: {} }), ni
     expect(env.stdout).toBe(`${JSON.stringify({ entries: [], ok: true, stage: "development" }, null, 2)}\n`);
   }, 60_000);
 
+  it("closes the Nitro dev runner after config discovery", async () => {
+    // Nitro starts its dev env runner while Vite resolves a `serve` config. If discovery leaves it open, the process cannot
+    // exit by itself, and the CLI's process.exit() then wedges a StackBlitz WebContainer.
+    const tmp = resolve(import.meta.dirname, "../.vitest-tmp");
+    await mkdir(tmp, { recursive: true });
+    const root = await mkdtemp(join(tmp, "cli-nitro-close-"));
+    roots.push(root);
+    await writeFile(join(root, "vite.config.ts"), `import { nitro } from "nitro/vite"\nexport default { plugins: [nitro()] }\n`);
+    await writeFile(join(root, "discover.mts"), [
+      `import { loadViteHubCliConfig } from ${JSON.stringify(resolve(import.meta.dirname, "../src/internal/cli-config.ts"))}`,
+      `await loadViteHubCliConfig(process.cwd(), "serve")`,
+      `console.log("discovered")`,
+    ].join("\n"));
+
+    // Without the close, the child keeps running until the timeout kills it.
+    const { stdout } = await execFileAsync(process.execPath, ["discover.mts"], { cwd: root, timeout: 30_000 });
+    expect(stdout).toContain("discovered");
+  }, 60_000);
+
   it("cancels an Agent Invocation through a deployed Console without loading the project config", async () => {
     const root = await createProject("vite");
     await writeFile(join(root, "vite.config.ts"), "throw new Error('project config loaded')\n");

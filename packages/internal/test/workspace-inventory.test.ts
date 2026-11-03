@@ -25,7 +25,6 @@ describe("workspace inventory", () => {
       "env",
       "forge",
       "gateways",
-      "icons",
       "kv",
       "markdown-template",
       "presets",
@@ -39,6 +38,7 @@ describe("workspace inventory", () => {
       "source",
       "ui",
       "vite-hub",
+      "web-container",
       "workflow",
       "workspace",
     ])

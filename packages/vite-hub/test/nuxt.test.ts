@@ -12,6 +12,7 @@ import {
   resolveViteHubProjectRoot,
   VITEHUB_GENERATED_ROOT,
   VITEHUB_NITRO_CONFIG_CONTEXT,
+  VITEHUB_NITRO_MAJOR_VERSION,
   VITEHUB_PROJECT_ROOT,
   VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite"
@@ -981,7 +982,7 @@ describe("ViteHub Nuxt integration", () => {
     )
   })
 
-  it.each([true, false])("preserves Nuxt Connections development navigation and production rejection (dev: %s)", async (dev) => {
+  it.each([true, false])("keeps Nuxt Connections development navigation and builds Connections for production (dev: %s)", async (dev) => {
     const application = createNuxt(dev)
     try {
       const configure = () => viteHubNuxtModule({
@@ -990,10 +991,6 @@ describe("ViteHub Nuxt integration", () => {
         database: true,
         console: dev ? { auth: false } : { auth: false, authorize: hostManagedAuthorize },
       }, application.nuxt)
-      if (!dev) {
-        await expect(configure()).rejects.toThrow("connections is not supported by the Nuxt module yet")
-        return
-      }
       await configure()
       const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
       expect(generated.includes('"connections"')).toBe(dev)
@@ -2523,15 +2520,58 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
-  it("rejects Connections in production Nuxt applications", async () => {
+  it.each(["node", "cloudflare"] as const)("generates Connections production Nitro output for %s", async (preset) => {
+    const { vitehub } = await vi.importActual<typeof import("../src/index.ts")>("../src/index.ts")
+    mocks.vitehub.mockImplementation((options: Parameters<typeof vitehub>[0]) => vitehub(options).filter(
+      plugin => isTestRecord(plugin) && ["vite-hub/deployment-preset", "@vite-hub/connections/vite"].includes(String(plugin.name)),
+    ))
     const production = createNuxt(false)
-
-    await expect(viteHubNuxtModule({
-      connections: { management: true },
-      database: true,
-      console: { auth: false, authorize: hostManagedAuthorize },
-      preset: "node",
-    }, production.nuxt)).rejects.toThrow("connections is not supported by the Nuxt module yet")
+    const definition = "/tmp/vitehub-nuxt/custom-server/connections/mail.ts"
+    const generatedDir = "/tmp/vitehub-nuxt/.vitehub/nitro/connections"
+    await mkdir(dirname(definition), { recursive: true })
+    await writeFile(definition, `import { apiKey, defineConnection } from "vite-hub/connections"
+export default defineConnection({ provider: apiKey({ origins: ["https://api.example.com"] }) })
+`)
+    await rm(generatedDir, { recursive: true, force: true })
+    try {
+      await viteHubNuxtModule({
+        connections: { management: true },
+        database: preset === "cloudflare" ? { databaseId: "connections-id", databaseName: "connections" } : true,
+        console: { auth: false, authorize: hostManagedAuthorize },
+        preset,
+      }, production.nuxt)
+      const config = nitroOptions(production.nuxt)
+      await production.runNitroConfigHook(config)
+      expect(config.preset).toBe(preset === "node" ? "node-server" : "cloudflare-module")
+      const registry = resolve(generatedDir, "registry.ts")
+      const handler = resolve(generatedDir, "handler.ts")
+      expect(config.alias).toMatchObject({ "#vitehub/connections/registry": registry })
+      expect(config.externals).toMatchObject({ inline: expect.arrayContaining(["vite-hub", "@vite-hub/connections"]) })
+      expect(await readFile(registry, "utf8")).toContain(`registry["mail"] = () => import(${JSON.stringify(definition)})`)
+      expect(config.handlers).toEqual(expect.arrayContaining([
+        { handler, method: "post", route: "/_vitehub/connections" },
+        { handler, method: "get", route: "/_vitehub/connections/connect/**" },
+        { handler, method: "get", route: "/_vitehub/connections/callback" },
+      ]))
+      // Resolve generated imports, including the Console actor alias and discovered Connection.
+      const output = await build({
+        // SAFETY: Nitro aliases map virtual module names to generated module paths.
+        alias: config.alias as Record<string, string>,
+        bundle: true,
+        entryPoints: [registry, handler],
+        format: "esm",
+        outdir: resolve(generatedDir, "bundled"),
+        packages: "external",
+        platform: preset === "node" ? "node" : "neutral",
+        write: false,
+      })
+      expect(output.outputFiles.map(file => file.text).join("\n")).toContain("https://api.example.com")
+      expect(output.outputFiles.map(file => file.text).join("\n")).toContain("createConnectionsHandler")
+    }
+    finally {
+      await production.runCloseHook()
+      await rm(definition, { force: true })
+    }
   })
 
   it.each(["none", "console-auth"] as const)("resolves the Nuxt Connections management actor with %s", async (source) => {
@@ -2924,6 +2964,60 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ preset }, nuxt)
 
     expect(nitroOptions(nuxt)).toMatchObject({ preset: nitroPreset })
+  })
+
+  it.each([
+    [2, "nuxt", "deno", false, "deno-deploy"],
+    [2, "server builder", "deno", false, "deno-deploy"],
+    [3, "server builder", "deno", false, "deno-server"],
+    [2, "nuxt", "cloudflare", true, "cloudflare-durable"],
+    [2, "server builder", "cloudflare", true, "cloudflare-durable"],
+    [3, "server builder", "cloudflare", true, "cloudflare-module"],
+  ] as const)("uses the installed Nuxt Nitro %s via %s for %s with realtime %s", async (major, owner, preset, realtime, expectedPreset) => {
+    const root = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-nitro-"))
+    const writePackage = async (directory: string, manifest: object) => {
+      await mkdir(directory, { recursive: true })
+      await writeFile(resolve(directory, "package.json"), JSON.stringify(manifest))
+    }
+    try {
+      const nuxtRoot = resolve(root, "node_modules/nuxt")
+      await writePackage(nuxtRoot, {
+        name: "nuxt",
+        dependencies: owner === "nuxt" ? { nitropack: "2.13.4" } : { "@nuxt/nitro-server": `${major + 2}.0.0` },
+      })
+      // The app's standalone Nitro must not override Nuxt's server dependency.
+      await writePackage(resolve(root, "node_modules/nitro"), { name: "nitro", version: "3.0.261102-rc" })
+      if (owner === "nuxt") {
+        await writePackage(resolve(nuxtRoot, "node_modules/nitropack"), { name: "nitropack", version: "2.13.4" })
+      }
+      else {
+        // Model a hoisted Nuxt 4 builder alongside the app's standalone Nitro 3.
+        const builderRoot = resolve(major === 2 ? root : nuxtRoot, "node_modules/@nuxt/nitro-server")
+        await writePackage(builderRoot, {
+          name: "@nuxt/nitro-server",
+          dependencies: major === 2 ? { nitropack: "2.13.4" } : { nitro: "3.0.261102-rc" },
+        })
+        await writePackage(resolve(major === 2 ? root : builderRoot, `node_modules/${major === 2 ? "nitropack" : "nitro"}`), {
+          name: major === 2 ? "nitropack" : "nitro",
+          version: major === 2 ? "2.13.4" : "3.0.261102-rc",
+        })
+      }
+      const { nuxt, runNitroConfigHook } = createNuxt()
+      nuxt.options.rootDir = root
+      nuxt.options.buildDir = resolve(root, ".nuxt")
+      nuxt.options.serverDir = resolve(root, "server")
+      await viteHubNuxtModule({ console: false, preset, realtime }, nuxt)
+      expect(nitroOptions(nuxt).preset).toBe(expectedPreset)
+      expect(nuxt.options.vite).toHaveProperty(VITEHUB_NITRO_MAJOR_VERSION, major)
+      await runNitroConfigHook({ ...nitroOptions(nuxt) })
+      expect(mocks.sandboxTaskHook).toHaveBeenCalledWith(expect.objectContaining({
+        [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+        [VITEHUB_NITRO_MAJOR_VERSION]: major,
+      }), expect.anything())
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 
   it("detects the Nitro preset from the host's build variables when preset is omitted", async () => {

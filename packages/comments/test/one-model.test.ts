@@ -60,21 +60,68 @@ describe("attachments", () => {
     expect(get).not.toHaveBeenCalled()
   })
 
-  it("reads a default Blob upload after a message references it", async () => {
+  it.each(["operation", "HTTP"])("does not read an app Blob with a Comments-shaped key through %s", async (surface) => {
+    const key = "comments/7d562079-28dd-4f92-920b-917357f74283/payroll.txt"
+    const get = vi.fn(async (pathname: string) => [undefined, pathname === key ? new Blob(["private contents"], { type: "text/plain" }) : null] as const)
+    const comments = await setup({}, { attachments: { put: vi.fn(), get } })
+    await comments.create({ subject: page, body: "See attached", author: ada, attachments: [key] })
+    if (surface === "operation") {
+      expect(await call("comments.attachment", { key })).toMatchObject({ ok: false, code: "COMMENTS_R0020", status: 404 })
+    }
+    else {
+      const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false }))
+      expect((await app.fetch(new Request(`http://site.test/api/_vitehub/comments/attachments/${key}`))).status).toBe(404)
+    }
+    expect(get).not.toHaveBeenCalledWith(key)
+  })
+
+  it("reads a default upload after runtime reinstallation, but not app files that replace it or share its directory", async () => {
     const files = new Map<string, Blob>()
-    const comments = await setup({}, { attachments: {
+    const install: InstallCommentsOptions = { database: await createDatabase(), attachments: {
       put: async (key, data, options) => {
         files.set(key, new Blob([data.slice()], { type: options.contentType }))
         return [undefined, {}]
       },
       get: async key => [undefined, files.get(key)],
-    } })
+    } }
+    const comments = await setup({}, install)
     const uploaded = await call("comments.upload", { name: "notes.txt", type: "text/plain", data: btoa("hello") })
     expect(uploaded.ok).toBe(true)
     if (!uploaded.ok) throw new Error("Upload failed")
     const key = String(Reflect.get(Object(uploaded.value), "key"))
     await comments.create({ subject: page, body: "", author: ada, attachments: [key] })
+    const restarted = defineComments({ authorize: () => true })
+    installComments(restarted, install)
     expect(await call("comments.attachment", { key })).toMatchObject({ ok: true, value: { key, data: btoa("hello"), type: "text/plain" } })
+    const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments: restarted, realtime: false }))
+    const response = await app.fetch(new Request(`http://site.test/api/_vitehub/comments/attachments/${key}`))
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe("hello")
+
+    const sibling = key.replace("notes.txt", "payroll.txt")
+    files.set(sibling, new Blob(["private contents"], { type: "text/plain" }))
+    await restarted.create({ subject: page, body: "", author: ada, attachments: [sibling] })
+    expect(await call("comments.attachment", { key: sibling })).toMatchObject({ ok: false, code: "COMMENTS_R0020", status: 404 })
+    files.set(key, files.get(sibling)!)
+    expect(await call("comments.attachment", { key })).toMatchObject({ ok: false, code: "COMMENTS_R0020", status: 404 })
+    expect((await app.fetch(new Request(`http://site.test/api/_vitehub/comments/attachments/${key}`))).status).toBe(404)
+  })
+
+  it("fails an upload when its ownership record cannot be saved and leaves the file unreadable", async () => {
+    const files = new Map<string, Blob>()
+    const comments = await setup({}, { attachments: {
+      put: async (key, data, options) => {
+        if (key.endsWith("/.upload.json")) return [new Error("Record write failed"), undefined]
+        files.set(key, new Blob([data.slice()], { type: options.contentType }))
+        return [undefined, {}]
+      },
+      get: async key => [undefined, files.get(key)],
+    } })
+    expect(await call("comments.upload", { name: "notes.txt", type: "text/plain", data: btoa("hello") })).toMatchObject({ ok: false })
+    expect(files.size).toBe(1)
+    const key = [...files.keys()][0]!
+    await comments.create({ subject: page, body: "", author: ada, attachments: [key] })
+    expect(await call("comments.attachment", { key })).toMatchObject({ ok: false, code: "COMMENTS_R0020", status: 404 })
   })
 
   it("refuses files it cannot store, of other types, or over 5 MB", async () => {

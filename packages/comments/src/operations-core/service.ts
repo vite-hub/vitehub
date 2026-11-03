@@ -436,6 +436,13 @@ function decodeBase64(data: string): Uint8Array {
   return bytes
 }
 
+/** Binds an upload to its exact key and bytes, including after a process restart or an app Blob replacement. */
+async function attachmentRecord(key: string, data: Uint8Array): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array(data)))
+  const sha256 = Array.from(digest, byte => byte.toString(16).padStart(2, "0")).join("")
+  return JSON.stringify({ key, sha256 })
+}
+
 /** Checks a file and stores it with `storeAttachment`, else in the Blob store. The caller checked access. */
 export async function storeAttachment(runtime: CommentsRuntime, input: { name: string, type: string, data: Uint8Array | string, subject?: CommentSubject }, user: CommentsUser | null): Promise<CommentAttachment> {
   const type = input.type.toLowerCase().split(";", 1)[0]!.trim()
@@ -454,9 +461,13 @@ export async function storeAttachment(runtime: CommentsRuntime, input: { name: s
   }
   else {
     if (!runtime.attachments) throw fail(commentsErrorDiagnostics.COMMENTS_R0014(), 501)
-    key = `comments/${crypto.randomUUID()}/${name}`
+    const id = crypto.randomUUID()
+    key = `comments/${id}/${name}`
     const [error] = await runtime.attachments.put(key, data, { contentType: type })
     if (error) throw error
+    const record = new TextEncoder().encode(await attachmentRecord(key, data))
+    const [recordError] = await runtime.attachments.put(`comments/${id}/.upload.json`, record, { contentType: "application/json" })
+    if (recordError) throw recordError
   }
   return { key, name, size: file.size, type }
 }
@@ -481,12 +492,21 @@ export async function readAttachment(runtime: CommentsRuntime, key: string, cont
   // Files that the app's own hook stored are not in the Blob store.
   else if (store) throw fail(commentsErrorDiagnostics.COMMENTS_R0021(), 501)
   else if (runtime.attachments?.get) {
-    // Only Comments uploads belong to this reader. App files need readAttachment to check their own access.
-    if (!/^comments\/[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}\/\w[\w.-]{0,99}$/.test(key)) {
+    const match = /^comments\/([\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12})\/\w[\w.-]{0,99}$/.exec(key)
+    if (!match) {
+      throw fail(commentsErrorDiagnostics.COMMENTS_R0020({ key }), 404)
+    }
+    // A pathname convention cannot prove ownership: an app can also put files under comments/.
+    const [recordError, record] = await runtime.attachments.get(`comments/${match[1]}/.upload.json`)
+    if (recordError) throw recordError
+    if (!record || record.size > 1024) {
       throw fail(commentsErrorDiagnostics.COMMENTS_R0020({ key }), 404)
     }
     const [error, found] = await runtime.attachments.get(key)
     if (error) throw error
+    if (!found || found.size > maximumAttachmentBytes || await record.text() !== await attachmentRecord(key, new Uint8Array(await found.arrayBuffer()))) {
+      throw fail(commentsErrorDiagnostics.COMMENTS_R0020({ key }), 404)
+    }
     data = found
   }
   else throw fail(commentsErrorDiagnostics.COMMENTS_R0014(), 501)
