@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, lt, lte, or, sql } from "drizzle-orm"
+import { and, asc, desc, eq, gt, inArray, lt, lte, or, sql } from "drizzle-orm"
 import type { SQL } from "drizzle-orm"
 import type { LibSQLDatabase } from "drizzle-orm/libsql"
 
@@ -158,8 +158,8 @@ export interface CommentsStore {
   getByNumber: (scope: string, n: number) => Promise<CommentThread | null>
   /** The thread that holds a message. */
   getByMessage: (messageId: string) => Promise<CommentThread | null>
-  /** The threads with a message that lists `key` in its `attachments`, at most 20. */
-  getByAttachment: (key: string) => Promise<CommentThread[]>
+  /** Threads listing `key` in a page of matching messages. `cursor` continues after those candidates. */
+  getByAttachment: (key: string, cursor?: string) => Promise<{ threads: CommentThread[], cursor?: string }>
   /**
    * Inserts the thread and its first message together, with the next number of its scope. Several creators at once each
    * get their own number, and a number is never handed out twice.
@@ -332,13 +332,18 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
       const [row] = await db.select({ threadId: messages.threadId }).from(messages).where(eq(messages.id, messageId)).limit(1)
       return row ? find(row.threadId) : null
     },
-    async getByAttachment(key) {
+    async getByAttachment(key, cursor) {
       // `attachments` is a JSON list of strings, so the quoted key matches one whole entry. The parsed list decides.
       const pattern = `%${JSON.stringify(key).replaceAll(/[\\%_]/g, character => `\\${character}`)}%`
-      const rows = await db.select({ threadId: messages.threadId, attachments: messages.attachments }).from(messages).where(sql`${messages.attachments} LIKE ${pattern} ESCAPE '\\'`).limit(20)
+      const rows = await db.select({ id: messages.id, threadId: messages.threadId, attachments: messages.attachments }).from(messages)
+        .where(and(sql`${messages.attachments} LIKE ${pattern} ESCAPE '\\'`, cursor === undefined ? undefined : gt(messages.id, cursor)))
+        .orderBy(asc(messages.id)).limit(candidateLimit)
       const ids = [...new Set(rows.filter(row => parseJson<string[]>(row.attachments, []).includes(key)).map(row => row.threadId))]
       const found = await Promise.all(ids.map(id => find(id)))
-      return found.filter(thread => thread !== null)
+      return {
+        threads: found.filter(thread => thread !== null),
+        ...(rows.length === candidateLimit ? { cursor: rows.at(-1)!.id } : {}),
+      }
     },
     async createThread(input) {
       for (let attempt = 0; attempt < allocationAttempts; attempt++) {

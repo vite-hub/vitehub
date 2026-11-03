@@ -20,7 +20,12 @@ async function site(lazy = false) {
   const server = await serveComments({ identify: () => ada })
   const api = server.fetch.getMockImplementation()!
   const tools = [lazy ? tool : { ...tool, lazy: false }]
-  server.fetch.mockImplementation(async (input, init) => String(input) === "/_vitehub/page/session" ? Response.json({ tools }) : await api(input, init))
+  server.fetch.mockImplementation(async (input, init) => {
+    const url = new URL(String(input), location.href)
+    if (url.pathname !== "/_vitehub/page/session") return await api(input, init)
+    expect(url.searchParams.get("page")).toBe(location.pathname)
+    return Response.json({ tools })
+  })
   return server
 }
 
@@ -54,6 +59,16 @@ afterEach(() => {
 })
 
 describe("the Comments list in the pill's window", () => {
+  it.each(["pushState", "replaceState"] as const)("opens a same-page query link after %s", async (method) => {
+    const { comments } = await site()
+    const [, thread] = await comments.create({ page: "/", anchor, body: "Client navigation link", author: ada })
+    await comments.resolve(thread!.id, { by: ada })
+    await openPanel()
+    history[method](null, "", `/?comment=${thread!.n}`)
+    const shadow = document.querySelector("vitehub-comments")!.shadowRoot!
+    await vi.waitFor(() => expect(shadow.querySelector(`[data-slot="comment-thread"][aria-label="Comment ${thread!.n}"]`)?.textContent).toContain("Client navigation link"))
+  })
+
   it("shows CommentPanel with the page as its title, and follows navigation", async () => {
     await site()
     const { panel } = await openPanel()

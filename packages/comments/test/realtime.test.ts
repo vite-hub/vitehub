@@ -14,6 +14,13 @@ function event(): H3Event {
 }
 
 describe("commentsRealtime", () => {
+  it("denies the shared events room even when the claimed page is readable", async () => {
+    const definition = commentsRealtime(defineComments({ authorize: ({ subject }) => subject?.id === "/public" }))
+    const context = { definition: "comments", event: event(), request: new Request("http://site.test/@workspace?workspace=events&page=%2Fpublic") }
+    await definition.identify!(context)
+    expect(await definition.authorize!({ ...context, documentId: null, mode: "read", user: null })).toBe(false)
+  })
+
   it.each([
     { page: "/public", room: "/public", allowed: true },
     { page: "/public/", room: "/public", allowed: true },
@@ -103,7 +110,7 @@ describe("commentsRealtime", () => {
     const user = await definition.identify!(context)
     expect(user).toBeNull()
     expect(await definition.authorize!({ ...context, documentId: commentRoom("/"), mode: "read", user: null })).toBe(allowed)
-    expect(await definition.authorize!({ ...context, documentId: null, mode: "read", user: null })).toBe(allowed)
+    expect(await definition.authorize!({ ...context, documentId: null, mode: "read", user: null })).toBe(false)
     expect(await definition.authorize!({ ...context, documentId: commentRoom("/"), mode: "write", user: null })).toBe(false)
   })
 

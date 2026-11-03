@@ -1,5 +1,5 @@
 import { H3 } from "h3"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { createCommentsClient, createRestTransport } from "../src/client.ts"
 import { defineCommentSubject } from "../src/index.ts"
@@ -148,6 +148,29 @@ describe("createRestTransport", () => {
     const denied = await read("ben")
     expect(denied.status).toBe(404)
     expect(await denied.json()).toMatchObject({ error: { code: "COMMENTS_R0020" } })
+  })
+
+  it("reads an attachment beyond a full page of denied message references", async () => {
+    const key = "files/shared.txt"
+    const files = new Map([[key, new Blob(["Shared file"], { type: "text/plain" })]])
+    const { comments, app } = await setup({ authorize: ({ thread }) => !thread || thread.subject.id === "/public" }, files)
+    // Increasing ids put the readable reference after the first store page as well as the old 20-row cap.
+    let sequence = 0
+    const uuid = vi.spyOn(crypto, "randomUUID").mockImplementation(() => `00000000-0000-4000-8000-${String(++sequence).padStart(12, "0")}`)
+    try {
+      const author = { id: "ada", name: "Ada" }
+      const [, denied] = await comments.create({ page: "/private", anchor, body: "Private", attachments: [key], author })
+      for (let index = 0; index < 205; index++) await comments.reply(denied!.id, { body: "Private reference", attachments: [key], author })
+      const read = () => app.fetch(new Request(`${origin}/api/_vitehub/comments/attachments/${key}`, { headers: { "x-share-token": "ada" } }))
+      expect((await read()).status).toBe(404)
+      await comments.create({ page: "/public", anchor, body: "Readable reference", attachments: [key], author })
+      const response = await read()
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe("Shared file")
+    }
+    finally {
+      uuid.mockRestore()
+    }
   })
 
   it("serves a stored type that Comments does not attach, such as SVG from the app's hook, as a download", async () => {

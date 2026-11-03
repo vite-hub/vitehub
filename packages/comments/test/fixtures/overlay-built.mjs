@@ -8,7 +8,7 @@ let connected
 let timeout
 const connections = new Promise((resolve, reject) => {
   connected = resolve
-  timeout = setTimeout(() => reject(new Error(`Expected two Realtime connections, got ${JSON.stringify(sockets)}`)), 2000)
+  timeout = setTimeout(() => reject(new Error(`Expected a page presence connection, got ${JSON.stringify(sockets)}`)), 2000)
 })
 const browser = new Browser({
   settings: {
@@ -42,7 +42,7 @@ try {
     readyState = 0
     constructor(url) {
       sockets.push(url)
-      if (sockets.length === 2) connected()
+      if (sockets.length === 1) connected()
     }
     close() {}
   }

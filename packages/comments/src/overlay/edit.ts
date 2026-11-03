@@ -23,8 +23,10 @@ export interface InlineEditOptions {
 export function createInlineEdit(options: InlineEditOptions) {
   let editing: { element: HTMLElement, field: string, page: string, digest: string, original: string, initial: string } | undefined
   let stop: (() => void) | undefined
+  let generation = 0
 
   async function finish(save: boolean) {
+    generation++
     const current = editing
     if (!current) return
     editing = undefined
@@ -48,14 +50,18 @@ export function createInlineEdit(options: InlineEditOptions) {
   }
 
   async function start(element: HTMLElement) {
-    await finish(true)
+    const finished = finish(true)
+    const request = generation
+    await finished
+    if (request !== generation || !element.isConnected) return
     const field = element.getAttribute(fieldAttribute)
     if (!field) return
     const page = options.page()
     const [error, value] = await api.field(field, page)
+    if (request !== generation || !element.isConnected) return
     if (error) return options.failed(error)
     const path = `/content/${encodeURIComponent(value.collection)}/${value.id.split("/").map(encodeURIComponent).join("/")}`
-    if (await options.openTool(path)) return
+    if (await options.openTool(path) || request !== generation || !element.isConnected) return
     if (!value.editable || value.value === null) {
       options.info("This field is not plain text. Edit it in the Console.", ["Open Content", options.contentPath()])
       return

@@ -54,7 +54,8 @@ export function commentsRealtime(comments: Comments, options: {
       const page = new URL(request.url).searchParams.get("page")
       if (!page) return false
       const subject = { kind: "page", id: normalizeCommentPage(page) }
-      if (documentId !== null && documentId !== commentRoom(subject.id)) return false
+      // Comments hints travel in page awareness. The definition-wide events room exposes other pages' activity.
+      if (documentId !== commentRoom(subject.id)) return false
       return await comments.can({ user, action: "read", subject }, { console: Boolean(options.consoleSession) })
     },
     document: {

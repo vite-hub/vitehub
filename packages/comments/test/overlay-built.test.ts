@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest"
 import { commentRoom } from "../src/page.ts"
 
 describe("built Comments overlay", () => {
-  it.each(["", "/portal", "/nested/portal"])("uses the asset's app base %s for presence and changes", async (base) => {
+  it.each(["", "/portal", "/nested/portal"])("uses only the authorized page room below the asset's app base %s", async (base) => {
     // Native ESM evaluation preserves import.meta.url without rewriting the prebuilt overlay.
     const { stdout } = await promisify(execFile)(process.execPath, [
       "--experimental-vm-modules",
@@ -15,7 +15,6 @@ describe("built Comments overlay", () => {
     ])
     expect(JSON.parse(stdout)).toEqual([
       `wss://site.test${base}/api/_vitehub/realtime/comments/${commentRoom("/articles/example")}?page=%2Farticles%2Fexample`,
-      `wss://site.test${base}/api/_vitehub/realtime/comments/%40workspace?page=%2Farticles%2Fexample&workspace=events`,
     ])
   })
 })

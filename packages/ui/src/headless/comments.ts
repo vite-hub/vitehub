@@ -461,6 +461,8 @@ export function useComments(options: UseCommentsOptions): CommentsState {
       applyDeepLink();
     };
     window.addEventListener("popstate", onPopstate);
+    // Hosts with History API routing can supply a reactive location without synthesizing browser events.
+    stops.push(watch(() => options.location?.().search, onPopstate));
     // The comment UI changes the DOM too, and measuring after that would never settle. Only changes that move things count.
     const observer = new MutationObserver(records => {
       if (records.every(record => record.target instanceof Element && defaultIgnore(record.target))) return;

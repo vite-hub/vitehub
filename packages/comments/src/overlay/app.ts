@@ -144,6 +144,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   shadow.replaceChildren(style(shadowCss(overlayStyles)), root)
 
   const page = ref(normalizeCommentPage(location.pathname))
+  const search = ref(location.search)
   const toast = shallowRef<Toast>()
   const panelOpen = ref(false)
   const panelTarget = shallowRef<HTMLElement>()
@@ -207,7 +208,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       for (const person of people) next.set(person.id, person)
       known.value = [...next.values()]
     },
-    onChange: () => room?.notify({ operation: "update", path: commentRoom(page.value) }),
+    onChange: () => room?.setLocal("commentsChange", crypto.randomUUID()),
   })
   const client = createCommentsClient({
     transport: {
@@ -246,6 +247,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         naming.value = true
         return
       }
+      void edit.finish(true)
       editing.value = false
       state.enter()
     }
@@ -274,10 +276,19 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     room?.destroy()
     const identity = account() ?? (guest.value ? { id: `guest:${guest.value.id}`, name: `${guest.value.name} (guest)` } : undefined)
     const baseURL = commentsApiRoute(import.meta.url).slice(0, -commentsRoute.length)
-    const joined = realtime.connectRealtimeRoom(commentsRealtimeDefinition, commentRoom(page.value), { identity, changes: true, baseURL, params: { page: page.value } })
-    joined.onUpdate(() => tick.value++)
-    joined.onChange((change) => {
-      if ("path" in change && change.path === commentRoom(page.value)) refresh()
+    const joined = realtime.connectRealtimeRoom(commentsRealtimeDefinition, commentRoom(page.value), { identity, baseURL, params: { page: page.value } })
+    let changes = new Map<number, string>()
+    joined.onUpdate(() => {
+      tick.value++
+      const next = new Map<number, string>()
+      let changed = false
+      for (const [id, state] of joined.states()) {
+        if (id === joined.clientId || typeof state.commentsChange !== "string") continue
+        next.set(id, state.commentsChange)
+        if (changes.get(id) !== state.commentsChange) changed = true
+      }
+      changes = next
+      if (changed) refresh()
     })
     room = joined
   }
@@ -360,6 +371,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       state = useComments({
         client,
         subject: () => ({ kind: "page", id: page.value }),
+        location: () => ({ href: location.href, origin: location.origin, search: search.value }),
         user: () => me.value,
         people: known,
         hotkey: false,
@@ -516,10 +528,14 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     setMode,
     finishEdit: edit.finish,
     navigated(next) {
-      if (next === page.value) return
+      if (next === page.value) {
+        search.value = location.search
+        return
+      }
       // Routers may already have swapped the page. Keep the previous comments and draft until the person agrees.
       if (hasUnsentComment() && !window.confirm("Discard your unsent comment and show comments for the new page?")) return
       page.value = next
+      search.value = location.search
       panelThread.value = null
       // The state lists the threads of the new page. The page then joins its room.
       leaveRoom()
@@ -561,6 +577,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     },
     destroy() {
       clearTimeout(toastTimer)
+      void edit.finish(false)
       leaveRoom()
       app.unmount()
       pageWindow?.destroy()
