@@ -61,7 +61,7 @@ export interface VercelSandboxCreateOptions {
 export interface VercelSandboxCommand {
   closeStdin(): Promise<void>;
   kill(): Promise<void>;
-  logs(): AsyncIterable<{ data: string; stream: "stderr" | "stdout" }>;
+  logs(options?: { signal?: AbortSignal }): AsyncIterable<{ data: string; stream: "stderr" | "stdout" }>;
   stderr(): Promise<string>;
   stdout(): Promise<string>;
   wait(): Promise<{ exitCode: number }>;
@@ -411,7 +411,7 @@ function createVercelSession(
 
 function vercelProcess(process: VercelSandboxCommand, stdin: boolean | undefined): RuntimeProcess {
   const wait = process.wait();
-  const output = streamLogs(process.logs());
+  const output = streamLogs(process);
   return {
     ...output,
     ...(stdin
@@ -432,28 +432,58 @@ function vercelProcess(process: VercelSandboxCommand, stdin: boolean | undefined
   };
 }
 
-/** Splits the command log into live stdout and stderr streams. */
-function streamLogs(logs: AsyncIterable<{ data: string; stream: "stderr" | "stdout" }>) {
+/** Bounds each channel independently so an unread channel cannot stall its sibling. */
+function streamLogs(command: VercelSandboxCommand) {
+  const bufferLimit = 1024 * 1024;
   const encoder = new TextEncoder();
+  const abort = new AbortController();
+  const iterator = command.logs({ signal: abort.signal })[Symbol.asyncIterator]();
   const open = new Map<"stderr" | "stdout", ReadableStreamDefaultController<Uint8Array>>();
+  let stopped = false;
+  const stop = async () => {
+    if (stopped) return;
+    stopped = true;
+    // Interrupt a pending SDK read before returning the async generator.
+    abort.abort();
+    try {
+      await iterator.return?.();
+    } catch {
+      // The aborted log transport may reject during cleanup.
+    }
+  };
   const stream = (name: "stderr" | "stdout") => new ReadableStream<Uint8Array>({
     cancel() {
       open.delete(name);
+      if (open.size === 0) return stop();
     },
     start(controller) {
       open.set(name, controller);
     },
-  });
+  }, new ByteLengthQueuingStrategy({ highWaterMark: bufferLimit }));
   const output = { stderr: stream("stderr"), stdout: stream("stdout") };
   void (async () => {
     try {
-      for await (const line of logs) {
-        open.get(line.stream)?.enqueue(encoder.encode(line.data));
-        if (open.size === 0) return;
+      while (open.size > 0) {
+        const entry = await iterator.next();
+        if (entry.done) break;
+        const line = entry.value;
+        const controller = open.get(line.stream);
+        if (!controller) continue;
+        const chunk = encoder.encode(line.data);
+        if (chunk.byteLength === 0) continue;
+        if (chunk.byteLength > (controller.desiredSize ?? 0)) {
+          controller.error(sandboxErrorDiagnostics.SANDBOX_R0159({ message: `Vercel ${line.stream} exceeded the ${bufferLimit}-byte output buffer limit. Consume both streams concurrently or cancel unused output.` }));
+          open.delete(line.stream);
+        } else {
+          controller.enqueue(chunk);
+        }
       }
       for (const controller of open.values()) controller.close();
     } catch (error) {
       for (const controller of open.values()) controller.error(error);
+    } finally {
+      open.clear();
+      await stop();
     }
   })();
   return output;

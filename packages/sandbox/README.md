@@ -82,7 +82,7 @@ try {
 
 Binary file reads and writes, directory operations, recursive listing, removal, and command execution are required across runtimes. Long-running processes and exposed ports are explicit optional capabilities through `session.spawn` and `session.ports`. `close()` is idempotent, and every operation rejects after closure.
 
-Spawned `vercel` processes stream `stdout` and `stderr` while they run.
+Spawned `vercel` processes stream `stdout` and `stderr` while they run. Consume both streams concurrently, or cancel unused output. Each channel buffers up to 1 MiB; if a log entry would exceed that limit, that stream errors with `SANDBOX_R0159` and discards its queued and subsequent output. The other channel continues streaming. Cancelling both channels stops log streaming without killing the process.
 
 For trusted-host processes, `child.kill()` sends `SIGTERM`, then sends `SIGKILL` after a 250 ms grace period if needed. On POSIX hosts it terminates the process group, including descendants. `child.kill(signal)` forwards the explicit signal and waits for the process to finish without automatic escalation.
 
