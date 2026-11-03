@@ -46,7 +46,7 @@ DevKit assign it as shown in [Add a durable Vercel entry](/docs/workflows/config
 | `runWorkflow(name, payload?, options?)` | Starts a Workflow Run immediately. |
 | `deferWorkflow(name, payload?, options?)` | Starts a run through the deferred provider path when available. |
 | `getWorkflowRun(name, id)` | Reads the current run state. |
-| `cancelWorkflow(name, id)` | Cancels a durable Vercel run. |
+| `cancelWorkflow(name, id)` | Cancels a native Vercel run or a pending or running OpenWorkflow run. |
 | `resumeWorkflowSignal(token, payload)` | Resumes a Vercel operation using a registered Workflow DevKit hook token. |
 | `createWorkflow(name, options?)` | Returns a handle with `run`, `defer`, `getRun`, and `cancel`. |
 
@@ -66,8 +66,11 @@ Starting another run evicts the oldest active inspection entry, even if executio
 is still reachable. It reports `unknown`, and completion does not restore it.
 Use a durable provider when inspection must survive abandonment or a process restart.
 
-Cancellation currently requires a native Vercel Workflow Definition.
-Cloudflare, OpenWorkflow, and inline Vercel runs report
+Cancellation works for native Vercel Workflow Definitions and for OpenWorkflow.
+On OpenWorkflow, `cancelWorkflow()` cancels a pending or running run in
+OpenWorkflow storage. A step that is already running finishes, but its worker
+records no further steps or result. A finished run keeps its status, and a run
+of another Workflow reports `unknown`. Cloudflare and inline Vercel runs report
 `WORKFLOW_OPERATION_UNSUPPORTED` instead of simulating cancellation.
 
 Signal resumption requires the Vercel provider, the Workflow DevKit runtime,
