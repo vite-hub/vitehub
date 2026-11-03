@@ -171,8 +171,10 @@ type NuxtLike = {
     (name: "app:templatesGenerated", callback: (app: { components: Parameters<CommentsVitePlugin["api"]["setComponents"]>[0] }) => Promise<void>): void
     (name: "close" | "nitro:config", callback: ((config: Record<string, unknown>) => Promise<void>) | (() => Promise<void>)): void
     (name: "listen", callback: (server: unknown, listener: { url: string }) => void): void
+    (name: "modules:done", callback: () => Promise<void>): void
   }
   options: {
+    _installedModules?: Array<{ meta?: { name?: string } }>
     _layers?: NuxtServerDirOptions["_layers"]
     alias?: Record<string, string>
     app?: {
@@ -937,16 +939,22 @@ type ViteHubNuxtModule = {
 }
 
 /**
- * An app that imports `vite-hub/ui` parts gets their runtime without adding `@vite-hub/ui/nuxt`: the plugin that gives
- * them Nuxt UI's Nuxt icon, and their icons in the `@nuxt/icon` client bundle. `@vite-hub/ui` owns both.
+ * An app using Nuxt UI and `vite-hub/ui` parts gets their runtime without adding `@vite-hub/ui/nuxt`: the plugin that
+ * gives them Nuxt UI's Nuxt icon, and their icons in the `@nuxt/icon` client bundle. `@vite-hub/ui` owns both.
  */
-async function installViteHubUIRuntime(nuxt: NuxtLike): Promise<void> {
-  const ui = await importOptionalOwner("@vite-hub/ui", () => import("@vite-hub/ui/nuxt"))
-  if (!ui || !nuxt.hook) return
+function installViteHubUIRuntime(nuxt: NuxtLike): void {
+  if (!nuxt.hook) return
   const hook = nuxt.hook
-  ui.addViteHubUIRuntime({
-    hook: (name, callback) => Reflect.apply(hook, nuxt, [name, callback]),
-    options: { plugins: (nuxt.options.plugins ??= []) },
+  nuxt.hook("modules:done", async () => {
+    // The runtime imports Nuxt UI's generated themes and icon bundle. Wait for all modules, including ones that
+    // install Nuxt UI indirectly, and leave apps without that module free of imports they cannot resolve.
+    if (!nuxt.options._installedModules?.some(module => module.meta?.name === "@nuxt/ui")) return
+    const ui = await importOptionalOwner("@vite-hub/ui", () => import("@vite-hub/ui/nuxt"))
+    if (!ui) return
+    ui.addViteHubUIRuntime({
+      hook: (name, callback) => Reflect.apply(hook, nuxt, [name, callback]),
+      options: { plugins: (nuxt.options.plugins ??= []) },
+    })
   })
 }
 
@@ -961,7 +969,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     }])
   }
 
-  await installViteHubUIRuntime(nuxt)
+  installViteHubUIRuntime(nuxt)
 
   const configuredModuleOptions = {
     ...nuxt.options.vitehub,

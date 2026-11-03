@@ -136,13 +136,15 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
   const doctorExtensionHooks: Array<(entries: string[]) => void> = []
   const devtoolsCustomTabsHooks: Array<(tabs: unknown[]) => void> = []
   const iconHooks: Array<(icons: Set<string>) => void> = []
+  const modulesDoneHooks: Array<() => Promise<void>> = []
   const nuxt = {
     callHook: vi.fn(async (_name: "restart") => {}),
-    hook(name: "components:extend" | "app:templatesGenerated" | "builder:watch" | "close" | "devtools:customTabs" | "doctor:extendExtensions" | "icon:clientBundleIcons" | "listen" | "nitro:config" | "vite:serverCreated", callback: (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((entries: string[]) => void) | ((server: unknown, listener: { url: string }) => void) | ((icons: Set<string>) => void)) {
+    hook(name: "components:extend" | "app:templatesGenerated" | "builder:watch" | "close" | "devtools:customTabs" | "doctor:extendExtensions" | "icon:clientBundleIcons" | "listen" | "modules:done" | "nitro:config" | "vite:serverCreated", callback: (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((entries: string[]) => void) | ((server: unknown, listener: { url: string }) => void) | ((icons: Set<string>) => void)) {
       if (name === "icon:clientBundleIcons") iconHooks.push(callback as (icons: Set<string>) => void)
       else if (name === "components:extend") componentsExtendHooks.push(callback as (typeof componentsExtendHooks)[number])
       else if (name === "app:templatesGenerated") templatesGeneratedHooks.push(callback as (typeof templatesGeneratedHooks)[number])
       else if (name === "listen") listenHooks.push(callback as (typeof listenHooks)[number])
+      else if (name === "modules:done") modulesDoneHooks.push(callback as () => Promise<void>)
       else if (name === "devtools:customTabs") devtoolsCustomTabsHooks.push(callback as (tabs: unknown[]) => void)
       else if (name === "doctor:extendExtensions") doctorExtensionHooks.push(callback as (entries: string[]) => void)
       else if (name === "nitro:config") nitroConfigHooks.push(callback as (config: Record<string, unknown>) => Promise<void>)
@@ -151,6 +153,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       else if (name === "close") closeHooks.push(callback as () => Promise<void>)
     },
     options: {
+      _installedModules: [] as Array<{ meta?: { name?: string } }>,
       alias: {
         "~": "/tmp/vitehub-nuxt/app",
       },
@@ -184,6 +187,9 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
     nitroConfigHooks,
     nuxt,
     viteServerCreatedHooks,
+    async runModulesDoneHook() {
+      for (const hook of modulesDoneHooks) await hook()
+    },
     async runComponentScan(components: Array<{ pascalName: string, filePath: string }>) {
       for (const hook of componentsExtendHooks) await hook(components)
       for (const hook of templatesGeneratedHooks) await hook({ components })
@@ -543,14 +549,26 @@ describe("ViteHub Nuxt integration", () => {
   })
 
   it("gives the vite-hub/ui parts their Nuxt runtime and icons without @vite-hub/ui/nuxt", async () => {
-    const { nuxt, runIconHook } = createNuxt()
+    const { nuxt, runIconHook, runModulesDoneHook } = createNuxt()
     await viteHubNuxtModule({ console: false, env: false, preset: "node" }, nuxt)
     await viteHubNuxtModule({ console: false, env: false, preset: "node" }, nuxt)
+    expect(nuxt.options.plugins).toEqual([])
+    // A later module can install Nuxt UI, including through @vite-hub/ui/nuxt.
+    nuxt.options._installedModules.push({ meta: { name: "@nuxt/ui" } })
+    await runModulesDoneHook()
     const runtime = nuxt.options.plugins.filter(plugin => String(typeof plugin === "string" ? plugin : plugin.src).endsWith("/ui/dist/runtime/nuxt-plugin.js"))
     expect(runtime).toHaveLength(1)
     // The list that @vite-hub/ui generates from the icons its sources name, so a new icon of a part needs no change here.
     expect([...runIconHook()].sort()).toEqual([...viteHubUIIcons].sort())
     expect(viteHubUIIcons).toEqual(expect.arrayContaining(["ph:arrow-left", "ph:check", "ph:pencil-simple-light", "ph:trash-light", "ph:x-light"]))
+  })
+
+  it("does not inject the UI runtime into apps without the Nuxt UI module", async () => {
+    const { nuxt, runIconHook, runModulesDoneHook } = createNuxt()
+    await viteHubNuxtModule({ console: false, env: false, preset: "node" }, nuxt)
+    await runModulesDoneHook()
+    expect(nuxt.options.plugins).toEqual([])
+    expect([...runIconHook()]).toEqual([])
   })
 
   it("installs the Email resolver for Nitro Console output", async () => {
