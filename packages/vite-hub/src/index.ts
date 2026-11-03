@@ -1388,7 +1388,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       providerImportAliases,
       includeUserAppEntry: options.workflow !== undefined && options.workflow !== false,
       workspaceDependencyRuntimeImports,
-      workspaceImportBase: `${generatedImportBase}/agent/internal/workspace`,
+      workspaceImportBase: options.agent ? `${generatedImportBase}/agent/internal/workspace` : `${generatedImportBase}/workspace`,
       },
     ))
   }
