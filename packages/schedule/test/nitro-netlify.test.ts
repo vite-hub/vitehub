@@ -81,8 +81,8 @@ describe("Netlify scheduled functions in a Nitro build", () => {
       compatibilityDate: "2026-10-01",
       dev: false,
       logLevel: 0,
-      // Exercise the newer Frameworks API layout with the repository's pinned Nitro beta too.
-      ...(layout === "frameworks-api" ? { output: { dir: join(root, ".netlify", "v1", "functions") } } : {}),
+      // Nitro RC defaults to the Frameworks API layout; explicitly select the older layout too.
+      ...(layout === "legacy" ? { output: { dir: functionsDir } } : {}),
       plugins: [join(root, "configure.mjs")],
       preset: "netlify",
       rootDir: root,

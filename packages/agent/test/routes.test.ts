@@ -9,7 +9,7 @@ describe("agent route paths", () => {
 })
 
 // Only literal enclosing fallbacks may share the framework-reserved namespace.
-it.each(["/_vitehub/**:rest", "/_vitehub/**rest", "/_vitehub/:...rest", "/_vitehub/:section/**", "/:section/**", "/_vitehub/*/**"])("rejects a parameter or wildcard catch-all %s", (route) => {
+it.each(["/_vitehub/**:rest", "/_vitehub/**rest", "/_vitehub/:...rest", "/_vitehub/:path(.*)", "/_vitehub/agent/:path(.*)", "/_vitehub/:section/**", "/:section/**", "/_vitehub/*/**"])("rejects a parameter or wildcard catch-all %s", (route) => {
   expect(() => validateAgentStaticRoute("/_vitehub/agent/invocations/dev", [{ route }], "development invocation", "/_vitehub/agent")).toThrow(/route conflicts/)
 })
 
