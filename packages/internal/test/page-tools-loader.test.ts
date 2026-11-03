@@ -430,6 +430,33 @@ describe("loadViteHubPageTools", () => {
     finally { vi.useRealTimers() }
   })
 
+  it.each(["focus", "pointer"])("keeps the note while %s remains after the other interaction leaves", async (remaining) => {
+    page("/?vitehub")
+    session({ tools: [comments] })
+    await loadViteHubPageTools({ load: modules().load })
+    vi.useFakeTimers()
+    try {
+      pill().exit.click()
+      const note = document.querySelector("vitehub-tools-off")!
+      const status = note.shadowRoot!.querySelector("[role=status]")!
+      const undo = status.querySelector("button")!
+      expect(note.shadowRoot!.activeElement).toBe(undo)
+      status.dispatchEvent(new PointerEvent("pointerenter"))
+      if (remaining === "focus") status.dispatchEvent(new PointerEvent("pointerleave"))
+      else undo.blur()
+      vi.advanceTimersByTime(20_000)
+      expect(note.isConnected).toBe(true)
+
+      if (remaining === "focus") undo.blur()
+      else status.dispatchEvent(new PointerEvent("pointerleave"))
+      vi.advanceTimersByTime(7999)
+      expect(note.isConnected).toBe(true)
+      vi.advanceTimersByTime(1)
+      expect(note.isConnected).toBe(false)
+    }
+    finally { vi.useRealTimers() }
+  })
+
   it("starts the other tools when one script fails or has no default export", async () => {
     page("/?vitehub")
     session({ tools: [{ ...comments, script: "/broken.js" }, consoleTool] })

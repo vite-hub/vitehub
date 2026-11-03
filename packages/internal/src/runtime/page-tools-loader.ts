@@ -386,13 +386,17 @@ function mountOffNote(undo: () => void, keyboard: boolean): void {
   shadow.append(style, box)
   document.documentElement.append(note)
   let timer: ReturnType<typeof setTimeout> | undefined
+  let hovered = false
+  let focused = false
   const close = () => { clearTimeout(timer); note.remove() }
-  const wait = () => { clearTimeout(timer); timer = setTimeout(close, offNoteTime) }
-  const hold = () => clearTimeout(timer)
-  box.addEventListener("pointerenter", hold)
-  box.addEventListener("pointerleave", wait)
-  box.addEventListener("focusin", hold)
-  box.addEventListener("focusout", wait)
+  const wait = () => {
+    clearTimeout(timer)
+    if (!hovered && !focused) timer = setTimeout(close, offNoteTime)
+  }
+  box.addEventListener("pointerenter", () => { hovered = true; wait() })
+  box.addEventListener("pointerleave", () => { hovered = false; wait() })
+  box.addEventListener("focusin", () => { focused = true; wait() })
+  box.addEventListener("focusout", () => { focused = false; wait() })
   button.addEventListener("click", () => { close(); undo() })
   wait()
   // The exit button had the keyboard focus and is gone, so the focus goes to the button that brings it back.
