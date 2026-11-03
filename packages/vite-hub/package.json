@@ -1068,6 +1068,16 @@
       "import": "./dist/ui/vite.js",
       "default": "./dist/ui/vite.js"
     },
+    "./web-container": {
+      "types": "./dist/web-container.d.ts",
+      "import": "./dist/web-container.js",
+      "default": "./dist/web-container.js"
+    },
+    "./web-container/connect": {
+      "types": "./dist/web-container/connect.d.ts",
+      "import": "./dist/web-container/connect.js",
+      "default": "./dist/web-container/connect.js"
+    },
     "./workflow": {
       "types": "./dist/workflow.d.ts",
       "import": "./dist/workflow.js",
@@ -1324,6 +1334,7 @@
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/shell": "workspace:*",
     "@vite-hub/ui": "workspace:*",
+    "@vite-hub/web-container": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "@vitejs/plugin-vue": "^6.0.9",
     "@vue/test-utils": "2.5.1",
@@ -1385,6 +1396,7 @@
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/shell": "workspace:*",
     "@vite-hub/ui": "workspace:*",
+    "@vite-hub/web-container": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "ai": "catalog:ai-compat",
     "better-auth": "catalog:auth",
@@ -1478,6 +1490,9 @@
       "optional": true
     },
     "@vite-hub/ui": {
+      "optional": true
+    },
+    "@vite-hub/web-container": {
       "optional": true
     },
     "@vite-hub/workspace": {
