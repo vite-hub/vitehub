@@ -262,9 +262,9 @@ export default defineAuth({
 })
 ```
 
-The `role` field is an application example. Use the app's existing role, permission, or allowlist. A missing session returns `401`. After sign-in, the callback receives the request and signed-in `user`. Returning `false` returns `403` and offers **Switch account**. A custom `Response` controls the rejection or redirect.
+The `role` field comes from Better Auth's `admin()` plugin. Use the app's existing role, permission, or allowlist. To give the first account the admin role on a fresh deploy, set `VITEHUB_ADMIN_EMAILS`; see [Give the first admin role](/docs/auth/configure#give-the-first-admin-role). To keep users and sessions across restarts, use [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database). A missing session returns `401`. After sign-in, the callback receives the request and signed-in `user`. Returning `false` returns `403` and offers **Switch account**. A custom `Response` controls the rejection or redirect.
 
-App Auth provides a built-in page at `/_vitehub/sign-in`. It shows an email and password form when `emailAndPassword` is on, and lists the configured social providers. It signs in through the existing Auth endpoints and returns to the requested Console page. Failed attempts show the form and the provider buttons again. Expired sessions show a clickable **Sign in** action. The account menu uses the same app session and supports sign-out. No Console Auth Definition, client, or sign-in route is needed.
+App Auth provides a built-in page at `/_vitehub/sign-in`. It shows an email and password form when `emailAndPassword` is on, and lists the configured social providers. When email and password sign-up is open, **Create one** opens a sign-up form; `emailAndPassword.disableSignUp: true` hides it. The page signs in and signs up through the existing Auth endpoints and returns to the requested Console page. Failed attempts show the form and the provider buttons again. Expired sessions show a clickable **Sign in** action. The account menu uses the same app session and supports sign-out. No Console Auth Definition, client, or sign-in route is needed.
 
 ViteHub requires an authorization callback for every Console route, including `GET /api/_vitehub/console/status` and, when enabled, `GET /api/_vitehub/console/usage`. The two wildcard routes above cover them. Missing policy stops the build with `VITE_HUB_B0006`. Missing app Auth stops it with `VITE_HUB_B0005`. `console: true` never grants access to every signed-in user by itself.
 
@@ -479,18 +479,15 @@ It needs app Auth with Better Auth's [admin plugin](https://www.better-auth.com/
 
 ```ts [server/auth.ts]
 import { createDatabaseAuthEventStore, defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
 import { useDatabase } from 'vite-hub/database/drizzle'
-import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { admin } from 'better-auth/plugins'
 
-export default defineAuth(() => {
-  const { db, schema } = useDatabase('auth')
-  return {
-    database: drizzleAdapter(db, { provider: 'sqlite', schema }),
-    plugins: [admin({ adminUserIds: ['<your user id>'] })],
-    events: { store: createDatabaseAuthEventStore({ db }) },
-  }
-})
+export default defineAuth(() => ({
+  database: authDatabase('auth'),
+  plugins: [admin()],
+  events: { store: createDatabaseAuthEventStore({ db: useDatabase('auth').db }) },
+}))
 ```
 
 Open **Auth › Users**, select a user, and select **Impersonate**. The browser signs in to the app as that user, and the app opens. To stop, open the Console again and select **Stop impersonating**. Better Auth restores your own session.

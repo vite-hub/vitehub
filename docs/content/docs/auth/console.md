@@ -6,7 +6,7 @@ navigation.order: 8
 icon: i-lucide-users-round
 ---
 
-The Auth section is at `/_vitehub/auth` on your app's origin. It appears when the app has a primary Auth Definition. It needs a Better Auth database adapter to read stored data. Stateless Auth shows why the data is unavailable.
+The Auth section is at `/_vitehub/auth` on your app's origin. It appears when the app has a primary Auth Definition. It needs a Better Auth database adapter, such as [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database), to read stored data. Stateless Auth shows why the data is unavailable.
 
 Enable and protect the [Console](/docs/development/console). The section id for `console.authorize` is `auth`. That scope covers every Auth page and management request. Console access permits inspection. Changes also need a signed-in session from the primary Auth Definition and the matching Better Auth permissions. A separate Console login does not grant app admin rights.
 
@@ -31,17 +31,14 @@ Add `events.store` to `defineAuth()` in your Auth Definition. This example uses 
 
 ```ts [server/auth.ts]
 import { createDatabaseAuthEventStore, defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
 import { useDatabase } from 'vite-hub/database/drizzle'
-import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 
-export default defineAuth(() => {
-  const { db, schema } = useDatabase('auth')
-  return {
-    database: drizzleAdapter(db, { provider: 'sqlite', schema }),
-    emailAndPassword: { enabled: true },
-    events: { store: createDatabaseAuthEventStore({ db }) },
-  }
-})
+export default defineAuth(() => ({
+  database: authDatabase('auth'),
+  emailAndPassword: { enabled: true },
+  events: { store: createDatabaseAuthEventStore({ db: useDatabase('auth').db }) },
+}))
 ```
 
 The event store supports Node SQLite and Cloudflare D1. It records new events after setup. Read the [event log contract](/docs/auth/events) for retention, event coverage, and storage failure limits. The Console checks `console.authorize` for the `auth` section before reading either store. `events.authorize` controls the separate CLI endpoint and is not required for the Console.
@@ -51,6 +48,8 @@ Activity returns event IDs, types, times, and actor and subject names and IDs. I
 ## Declare fields and policy
 
 Better Auth `user.additionalFields` become columns and profile fields. Fields with `returned: false` stay private. All fields start read-only. Opt in to editing each field under `console.fields`.
+
+Use a Better Auth adapter and schema that include those columns. [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database) owns a fixed `user` table and rejects `user.additionalFields` with `AUTH_C0055`.
 
 ```ts [server/auth.ts]
 import { defineAuth } from 'vite-hub/auth'

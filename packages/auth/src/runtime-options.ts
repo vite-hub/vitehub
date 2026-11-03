@@ -4,6 +4,9 @@ import { getAuthTables } from "better-auth/db"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { resolvePublicUrl } from "@vite-hub/runtime"
 import { resolveAuthMountPath } from "./application-path.ts"
+import { createAdminEmailsPlugin, readAdminEmails, withAdminEmails } from "./admin-emails.ts"
+import { assertAuthDatabaseAdditionalFields, assertAuthDatabaseIdStrategy, authDatabaseName, authDatabasePlacementError } from "./database-options.ts"
+import { assertAuthDatabaseSchema } from "./database-schema-options.ts"
 import { applyAuthPreset } from "./preset-options.ts"
 import { deriveAuthSecret } from "./secret.ts"
 import { validateAuthEvents } from "./events-config.ts"
@@ -67,6 +70,7 @@ function sharedMemoryDatabase(definition: AuthDefinition): NonNullable<BetterAut
 function stripViteHubOptions(
   definition: AuthDefinition,
   options: AuthRuntimeOptions & Record<string, unknown>,
+  event?: unknown,
 ): AuthBetterAuthRuntimeOptions {
   const {
     access: _access,
@@ -83,6 +87,11 @@ function stripViteHubOptions(
     ...(!isAuthDatabaseMetadata(database) ? { database } : {}),
     ...(!isAuthSecondaryStorageMetadata(secondaryStorage) ? { secondaryStorage } : {}),
   }
+  if (authDatabaseName(database) !== undefined) {
+    assertAuthDatabaseIdStrategy(rest.advanced?.database?.generateId)
+    assertAuthDatabaseAdditionalFields(rest)
+    assertAuthDatabaseSchema(rest)
+  }
   validateAuthEvents(events)
   const sessionRefresh = withSessionRefresh(rest, Boolean(storage.database || storage.secondaryStorage))
   // `stateless()` keeps everything in cookies and must stay without a database.
@@ -90,7 +99,14 @@ function stripViteHubOptions(
   const declaredPlugins = sessionRefresh.plugins ?? rest.plugins ?? []
   // Bounds the admin plugin's impersonation sessions, which the app or the Console can start.
   const impersonation = declaredPlugins.some(plugin => plugin.id === "admin")
-  const plugins = impersonation ? [...declaredPlugins, createImpersonationPlugin()] : declaredPlugins
+  const adminEmails = readAdminEmails(event)
+  const adminEmailsPlugin = adminEmails.length ? createAdminEmailsPlugin(adminEmails, declaredPlugins) : undefined
+  const plugins = [
+    ...declaredPlugins,
+    ...(impersonation ? [createImpersonationPlugin()] : []),
+    ...(adminEmailsPlugin ? [adminEmailsPlugin] : []),
+  ]
+  const databaseHooks = impersonation ? withImpersonationExpiry(rest.databaseHooks) : rest.databaseHooks
   const eventPlugin = events ? createAuthEventsPlugin(events) : undefined
   if (eventPlugin && storage.secondaryStorage && !rest.session?.storeSessionInDatabase) storage.secondaryStorage = eventPlugin.wrapStorage(storage.secondaryStorage)
   const after = rest.hooks?.after ?? createAuthMiddleware(async () => {})
@@ -99,7 +115,7 @@ function stripViteHubOptions(
     ...rest,
     ...storage,
     ...sessionRefresh,
-    ...(impersonation && rest.databaseHooks ? { databaseHooks: withImpersonationExpiry(rest.databaseHooks) } : {}),
+    ...(databaseHooks ? { databaseHooks: adminEmailsPlugin ? withAdminEmails(databaseHooks, adminEmailsPlugin) : databaseHooks } : {}),
     plugins: eventPlugin ? [...plugins, eventPlugin] : plugins,
     ...(eventPlugin ? {
       hooks: { ...rest.hooks, after: Object.assign(async (...args: Parameters<typeof after>) => {
@@ -185,6 +201,13 @@ export function resolveAuthOptions(
       ...resolvedRuntime,
       ...input.runtimeOptions,
     } as AuthRuntimeOptions & Record<string, unknown>
+    if (Object.hasOwn(requestRuntimeOptions, "database")) {
+      const declaredDatabase = authDatabaseName(declared.database)
+      const effectiveDatabase = authDatabaseName(requestRuntimeOptions.database)
+      if ((declaredDatabase !== undefined || effectiveDatabase !== undefined) && declaredDatabase !== effectiveDatabase) {
+        throw authDatabasePlacementError()
+      }
+    }
     const trusted = trustsProxyHeaders(callback || Object.hasOwn(requestRuntimeOptions, "advanced") ? requestRuntimeOptions : declared)
     return { declared, requestRuntimeOptions, trusted }
   }
@@ -219,7 +242,7 @@ export function resolveAuthOptions(
   const resolveSnapshot = () => snapshot ??= callback ? requestRuntimeOptions : { ...declared, ...requestRuntimeOptions }
   return {
     get options() { return resolveSnapshot() },
-    get providerOptions() { return withDerivedSecret(stripViteHubOptions(definition, resolveSnapshot()), input.event ?? request) },
+    get providerOptions() { return withDerivedSecret(stripViteHubOptions(definition, resolveSnapshot(), input.event ?? request), input.event ?? request) },
     requestRuntimeOptions,
   }
 }

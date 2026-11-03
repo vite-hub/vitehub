@@ -36,7 +36,7 @@ export function consoleAuthSignInPage(provider: string, request: Request, mountB
   return consoleSignInDocument(message, `<a href="${escapeHTML(startPath)}"${isConsoleDevelopmentBuild() ? ' target="_top"' : ""}>${escapeHTML(buttonLabel)}</a>`)
 }
 
-function consoleSignInDocument(message: string, actions: string, status = 200): Response {
+function consoleSignInDocument(message: string, actions: string, status = 200, heading = "Sign in"): Response {
   const development = isConsoleDevelopmentBuild()
   const page = `<!doctype html>
 <html lang="en">
@@ -44,7 +44,7 @@ function consoleSignInDocument(message: string, actions: string, status = 200): 
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex, nofollow">${consoleDocumentMetadata}
-    <title>Sign in · ViteHub Console</title>
+    <title>${escapeHTML(heading)} · ViteHub Console</title>
     <style>
       :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
       body { min-height: 100dvh; margin: 0; display: grid; place-items: center; background: light-dark(#fafafa, #0a0a0a); color: light-dark(#171717, #f5f5f5); }
@@ -60,11 +60,13 @@ function consoleSignInDocument(message: string, actions: string, status = 200): 
       .password ~ form button { border: 1px solid light-dark(#d4d4d4, #404040); background: transparent; color: inherit; }
       a, button { font: inherit; border: 0; cursor: pointer; display: inline-flex; min-height: 2.5rem; align-items: center; padding: 0 1rem; border-radius: .5rem; background: light-dark(#171717, #f5f5f5); color: light-dark(#fff, #171717); font-weight: 500; text-decoration: none; }
       a:focus-visible, button:focus-visible { outline: 2px solid #3b82f6; outline-offset: 3px; }
+      .switch { margin: 0 0 1.25rem; font-size: .875rem; }
+      .switch a { display: inline; min-height: 0; padding: 0; border-radius: 0; background: none; color: inherit; text-decoration: underline; text-underline-offset: 2px; }
     </style>
   </head>
   <body>
     <main>
-      <h1>Sign in</h1>
+      <h1>${escapeHTML(heading)}</h1>
       <p role="status">${escapeHTML(message)}</p>
       ${actions}
     </main>
@@ -75,7 +77,9 @@ function consoleSignInDocument(message: string, actions: string, status = 200): 
       "cache-control": "no-store",
       "content-security-policy": `default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'self' https:; frame-ancestors ${development ? "'self'" : "'none'"}`,
       "content-type": "text/html; charset=utf-8",
-      "referrer-policy": "no-referrer",
+      // A form POST from a `no-referrer` document sends `Origin: null`, which the sign-in check refuses. `same-origin`
+      // keeps the referrer on this origin and still sends none to a sign-in provider.
+      "referrer-policy": "same-origin",
       "x-content-type-options": "nosniff",
       "x-frame-options": development ? "SAMEORIGIN" : "DENY",
       "x-robots-tag": "noindex, nofollow",
@@ -275,7 +279,7 @@ export interface ConsoleAppAuthInstance extends ConsoleSessionReader {
   handler: (request: Request) => Response | Promise<Response>
   $context: Promise<{
     baseURL: string
-    options: { emailAndPassword?: { enabled?: boolean } }
+    options: { emailAndPassword?: { enabled?: boolean, disableSignUp?: boolean, minPasswordLength?: number } }
     socialProviders: { id: string, name: string }[]
     isTrustedOrigin: (origin: string) => boolean | Promise<boolean>
   }>
@@ -352,19 +356,37 @@ export function createConsoleAppAuthPages(resolveAuth: ConsoleAppAuthResolver): 
       const retry = new URL(page, url)
       retry.searchParams.set("redirect", target)
       const formTarget = isConsoleDevelopmentBuild() ? ' target="_top"' : ""
-      const actions = [
-        ...(password ? [`<form class="password" method="post" action="${escapeHTML(`${retry.pathname}${retry.search}`)}"${formTarget}><label>Email <input name="email" type="email" autocomplete="email" required></label><label>Password <input name="password" type="password" autocomplete="current-password" required></label><button type="submit">Sign in</button></form>`] : []),
-        ...providers.map((provider) => {
-          const start = new URL(retry)
-          start.searchParams.set("provider", provider.id)
-          return `<form method="post" action="${escapeHTML(`${start.pathname}${start.search}`)}"${formTarget}><button type="submit">Sign in with ${escapeHTML(provider.label)}</button></form>`
-        }),
-      ].join("")
-      const render = (message?: string) => consoleSignInDocument(
-        message ?? (actions ? "Sign in to access the ViteHub Console." : "No sign-in method is configured. Enable email and password or a social provider in server Auth, or set console.signInPage to your app's sign-in page."),
-        actions,
-        actions ? 200 : 503,
-      )
+      // The page offers sign-up when the app's email and password sign-up is open, the same as `/sign-up/email`.
+      const signUp = password && context.options.emailAndPassword?.disableSignUp !== true
+      const creating = signUp && url.searchParams.get("mode") === "sign-up"
+      const signUpPage = new URL(retry)
+      signUpPage.searchParams.set("mode", "sign-up")
+      const href = (target: URL) => escapeHTML(`${target.pathname}${target.search}`)
+      const minimum = context.options.emailAndPassword?.minPasswordLength ?? 8
+      const signInForm = [
+        `<form class="password" method="post" action="${href(retry)}"${formTarget}><label>Email <input name="email" type="email" autocomplete="email" required></label><label>Password <input name="password" type="password" autocomplete="current-password" required></label><button type="submit">Sign in</button></form>`,
+        ...(signUp ? [`<p class="switch">No account? <a href="${href(signUpPage)}"${formTarget}>Create one</a></p>`] : []),
+      ]
+      const signUpForm = [
+        `<form class="password" method="post" action="${href(signUpPage)}"${formTarget}><label>Name <input name="name" autocomplete="name" required></label><label>Email <input name="email" type="email" autocomplete="email" required></label><label>Password <input name="password" type="password" autocomplete="new-password" minlength="${minimum}" required></label><button type="submit">Create account</button></form>`,
+        `<p class="switch">Have an account? <a href="${href(retry)}"${formTarget}>Sign in</a></p>`,
+      ]
+      const providerForms = providers.map((provider) => {
+        const start = new URL(retry)
+        start.searchParams.set("provider", provider.id)
+        return `<form method="post" action="${href(start)}"${formTarget}><button type="submit">Sign in with ${escapeHTML(provider.label)}</button></form>`
+      })
+      const render = (message?: string, view: "sign-in" | "sign-up" = creating ? "sign-up" : "sign-in") => {
+        const actions = [...(password ? view === "sign-up" ? signUpForm : signInForm : []), ...providerForms].join("")
+        return consoleSignInDocument(
+          message ?? (!actions
+            ? "No sign-in method is configured. Enable email and password or a social provider in server Auth, or set console.signInPage to your app's sign-in page."
+            : view === "sign-up" ? "Create an account for this app." : "Sign in to access the ViteHub Console."),
+          actions,
+          actions ? 200 : 503,
+          view === "sign-up" ? "Create account" : "Sign in",
+        )
+      }
       const failed = "Sign-in failed. Try again."
       if (request.method !== "POST") return render(url.searchParams.has("auth_error") ? failed : undefined)
       // The Console starts a sign-in with the app's own trusted origin. Cross-origin forms must not start a login.
@@ -376,17 +398,27 @@ export function createConsoleAppAuthPages(resolveAuth: ConsoleAppAuthResolver): 
         const fields = await request.formData().catch(() => undefined)
         const email = fields?.get("email")
         const secret = fields?.get("password")
-        if (typeof email !== "string" || typeof secret !== "string") return render(failed)
+        const name = fields?.get("name")
+        if (typeof email !== "string" || typeof secret !== "string" || (creating && typeof name !== "string")) return render(failed)
         // The browser's headers go along, so Better Auth limits the attempts of this client, not of the server.
         const headers = new Headers(request.headers)
         headers.delete("content-length")
         headers.set("content-type", "application/json")
         headers.set("origin", url.origin)
-        const response = await auth.handler(new Request(`${authBase}/sign-in/email`, { body: JSON.stringify({ email, password: secret, rememberMe: true }), headers, method: "POST" }))
-        if (response.status === 429) return render("Too many sign-in attempts. Wait a minute, then try again.")
+        const response = creating
+          ? await auth.handler(new Request(`${authBase}/sign-up/email`, { body: JSON.stringify({ name, email, password: secret, rememberMe: true }), headers, method: "POST" }))
+          : await auth.handler(new Request(`${authBase}/sign-in/email`, { body: JSON.stringify({ email, password: secret, rememberMe: true }), headers, method: "POST" }))
+        if (response.status === 429) return render(`Too many ${creating ? "sign-up" : "sign-in"} attempts. Wait a minute, then try again.`)
+        if (!response.ok && creating) {
+          const reason = v.safeParse(v.object({ message: v.pipe(v.string(), v.minLength(1)) }), await response.json().catch(() => undefined))
+          return render(`Could not create the account.${reason.success ? ` ${reason.output.message}` : ""}`)
+        }
         if (!response.ok) return render("Sign-in failed. Check your email and password, then try again.")
+        const cookies = response.headers.getSetCookie()
+        // Without a session, for example when the app requires email verification, the person signs in later.
+        if (creating && !cookies.length) return render("Account created. Verify your email if the app asks you to, then sign in.", "sign-in")
         const signedIn = new Headers({ "cache-control": "no-store", location: target })
-        for (const cookie of response.headers.getSetCookie()) signedIn.append("set-cookie", cookie)
+        for (const cookie of cookies) signedIn.append("set-cookie", cookie)
         return new Response(null, { headers: signedIn, status: 303 })
       }
       if (!context.socialProviders.some(candidate => candidate.id === provider)) return render(failed)

@@ -449,6 +449,7 @@ describe("generated Console access", () => {
     rootDir: "/",
     route: "/api/auth",
     secondaryStorage: false,
+    tables: false,
   })
 
   it("installs the local policy for the development shorthand", async () => {

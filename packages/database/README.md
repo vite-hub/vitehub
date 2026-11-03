@@ -153,7 +153,7 @@ A package that needs a Database does not add one. It contributes its tables, or 
 - When the app adds `server/databases/config.ts`, the tables move to it and keep the same migrations directory.
 - Several Database Definitions without one named `default` are ambiguous for a contribution without `database`, and fail with `DATABASE_INVALID_CONTRIBUTION_TARGET` with the names to choose from.
 
-The CMS preset, Comments, and Connections use this rule.
+The CMS preset, Comments, Connections, and Auth's `authDatabase()` use this rule.
 
 ## Remote D1 development
 
