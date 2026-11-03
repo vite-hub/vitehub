@@ -402,12 +402,12 @@ onBeforeUnmount(() => {
           <UEmpty
             v-else-if="!selectedThread"
             variant="naked"
-            class="py-16"
+            class="flex-1 py-16"
             icon="i-vitehub-channels"
             :title="selected ? 'Choose a thread' : 'Choose a Channel'"
             description="Read a whole conversation from the provider history, the transcripts, and the Agent's runs, then download it."
           />
-          <UEmpty v-else-if="!messages.length" variant="naked" class="py-16" icon="i-lucide-message-square-off" title="No messages found" description="The provider and the transcripts have nothing for this thread." />
+          <UEmpty v-else-if="!messages.length" variant="naked" class="flex-1 py-16" icon="i-lucide-message-square-off" title="No messages found" description="The provider and the transcripts have nothing for this thread." />
           <ol v-else class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
             <li v-for="message in messages" :key="message.id">
               <ChatMessage :message="view(message)">

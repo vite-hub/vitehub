@@ -156,7 +156,7 @@ onBeforeUnmount(() => request?.abort());
           </template>
         </p>
       </ConsolePageToolbar>
-      <main class="min-h-0 flex-1 overflow-auto">
+      <main class="flex min-h-0 flex-1 flex-col overflow-auto">
         <ConsoleState v-if="error" :error="error" title="Could not load Connections" :retry="refresh" />
         <div v-else-if="loading && !connections.length" class="mx-auto grid w-full max-w-5xl gap-2 p-4 sm:p-6" aria-busy="true">
           <USkeleton v-for="index in 4" :key="index" class="h-11 w-full" />

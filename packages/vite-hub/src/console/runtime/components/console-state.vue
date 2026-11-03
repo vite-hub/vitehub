@@ -11,6 +11,8 @@ import { consolePrimitives } from "../sections";
  * - With `error`, it shows the why, the fix, the code, and one next step. A retry button appears only when `retry`
  *   is set and a retry can succeed. `401` asks to sign in again. A fix that only repeats the main button is left out.
  * - Without `error`, it shows `title` and `description`, and links the setup guide of `section`.
+ * A full state grows to fill its parent and centers in it. Put it in a flex column, such as the pane's scroll container
+ * with `flex flex-col`, or it stays at the top of the pane.
  */
 const props = withDefaults(
   defineProps<{
