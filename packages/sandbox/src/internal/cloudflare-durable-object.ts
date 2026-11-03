@@ -69,6 +69,20 @@ const fileOptions = { cwd: "/workspace" };
 const maxBufferedOutput = 8 * 1024 * 1024;
 const signals: Record<string, number> = { HUP: 1, INT: 2, KILL: 9, QUIT: 3, TERM: 15, USR1: 10, USR2: 12 };
 
+// Keep timeout's monitored shell alive until both output pipes reach EOF, including
+// output inherited by background descendants after the command shell has exited.
+const timedExecShell = `
+exec 3> >(cat)
+stdoutPid=$!
+exec 4> >(cat >&2 3>&-)
+stderrPid=$!
+/bin/bash -c "$1" >&3 2>&4 3>&- 4>&-
+status=$?
+exec 3>&- 4>&-
+wait "$stdoutPid" "$stderrPid"
+exit "$status"
+`;
+
 type OutputEvent = { data: string; type: "stderr" | "stdout" } | { exitCode: number; type: "exit" } | { data: string; type: "error" };
 
 class SandboxProcessRecord {
@@ -105,7 +119,8 @@ class SandboxProcessRecord {
   stream(): ReadableStream<Uint8Array> {
     const encoder = new TextEncoder();
     let listener: ((event: OutputEvent) => void) | undefined;
-    return new ReadableStream<Uint8Array>({
+    return new ReadableStream({
+      type: "bytes",
       start: (controller) => {
         const send = (event: OutputEvent) => {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
@@ -214,10 +229,10 @@ export function createCloudflareSandboxDurableObject(
       const timer = options.timeout ? setTimeout(() => { timedOut = true; }, options.timeout) : undefined;
       try {
         const commandLine = ["/bin/bash", "-c", command];
-        // Native exec cancellation only kills bash. GNU timeout also stops its descendants,
-        // escalating to SIGKILL if they ignore SIGTERM, so output() can finish draining.
+        // Native exec cancellation only kills the started process. GNU timeout kills the
+        // entire group at the deadline, including descendants that ignore SIGTERM.
         const process = await container.exec(options.timeout
-          ? ["timeout", "--kill-after=1s", `${options.timeout / 1000}s`, ...commandLine]
+          ? ["timeout", "--signal=KILL", `${options.timeout / 1000}s`, "/bin/bash", "-c", timedExecShell, "--", command]
           : commandLine, execOptions(options));
         const output = await process.output();
         if (timedOut) throw new Error(`Command timed out after ${options.timeout}ms.`);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { posix } from "node:path";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 
 import { createCloudflareRuntime } from "../src/cloudflare.ts";
 import { resolveSandbox } from "../src/index.ts";
@@ -185,7 +185,8 @@ describe("Cloudflare Sandbox Durable Object", () => {
     expect(timeouts).toEqual([30_000]);
 
     const result = await session.exec("echo", ["hi"], { env: { NAME: "value" } });
-    expect(result.stdout).toBe("/workspace|value|timeout --kill-after=1s 180s /bin/bash -c 'echo' 'hi'");
+    expect(result.stdout).toContain("/workspace|value|");
+    expect(executions.at(-1)!.command.at(-1)).toBe("'echo' 'hi'");
     expect(executions.at(-1)!.options).toMatchObject({ cwd: "/workspace", env: { NAME: "value" } });
 
     await session.files.write("/workspace/a.txt", new TextEncoder().encode("hello"));
@@ -266,7 +267,12 @@ describe("Cloudflare Sandbox Durable Object", () => {
     }
   });
 
-  it.skipIf(process.platform === "win32")("times out shell descendants and finishes collecting output", async () => {
+  it.skipIf(process.platform === "win32").each([
+    "sleep 600 & wait",
+    "sleep 600 & exit 0",
+    "sleep 600 >&2 & exit 0",
+    "bash -c 'trap \"\" TERM; sleep 600' & exit 0",
+  ])("times out descendants and drains output for %s", async (command) => {
     const { container, objects, runtime } = setup();
     const session = await (await resolveSandbox({ runtime }, {})).open();
     const children: ReturnType<typeof spawn>[] = [];
@@ -302,13 +308,23 @@ describe("Cloudflare Sandbox Durable Object", () => {
         await expect(objects.get("Task-1")!.exec(`exit ${exitCode}`, { timeout: 10_000 }))
           .resolves.toMatchObject({ exitCode, success: false });
       }
+      await expect(objects.get("Task-1")!.exec("printf output; printf warning >&2; exit 4", { timeout: 10_000 }))
+        .resolves.toEqual({ exitCode: 4, stderr: "warning", stdout: "output", success: false });
       const deadline = new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error("Descendants kept output open")), 2_000);
       });
       await expect(Promise.race([
-        objects.get("Task-1")!.exec("sleep 600 & wait", { timeout: 50 }),
+        objects.get("Task-1")!.exec(command, { timeout: 50 }),
         deadline,
       ])).rejects.toThrow("Command timed out after 50ms.");
+      // Output closing alone does not prove that every descendant stopped.
+      const processes = execFileSync("ps", ["-eo", "pgid=,stat="], { encoding: "utf8" });
+      const group = children.at(-1)!.pid;
+      const running = processes.trim().split("\n").filter((line) => {
+        const [pgid, status] = line.trim().split(/\s+/);
+        return Number(pgid) === group && !status!.startsWith("Z");
+      });
+      expect(running).toEqual([]);
     } finally {
       clearTimeout(timer);
       for (const child of children) {
