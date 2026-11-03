@@ -59,7 +59,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  for (const element of document.querySelectorAll("vitehub-pill, vitehub-window")) element.remove()
+  for (const element of document.querySelectorAll("vitehub-pill, vitehub-window, vitehub-tools-off")) element.remove()
   document.cookie = "vitehub-tools=; Path=/; Max-Age=0"
   document.documentElement.className = ""
   vi.unstubAllGlobals()
@@ -374,6 +374,60 @@ describe("loadViteHubPageTools", () => {
     expect(document.querySelector("vitehub-pill")).toBeNull()
     expect(document.cookie).toContain("vitehub-tools=0")
     expect(location.pathname + location.search).toBe("/guide?tab=2")
+  })
+
+  it("says how to turn the tools on again after exit, and Undo brings them back with their windows", async () => {
+    page("/?vitehub=console")
+    sessionStorage.setItem("vitehub-open:/_vitehub/page/session:console", "true")
+    localStorage.setItem("vitehub-tools-dock", JSON.stringify({ edge: "right", at: 20 }))
+    const fetch = session({ tools: [comments, consoleTool] })
+    const { load, started } = modules()
+    await loadViteHubPageTools({ load })
+    pill().exit.click()
+    expect(document.querySelector("vitehub-pill")).toBeNull()
+    const note = document.querySelector("vitehub-tools-off")!
+    expect([note.getAttribute("edge"), (note as HTMLElement).style.getPropertyValue("--at")]).toEqual(["right", "20"])
+    const status = note.shadowRoot!.querySelector("[role=status]")!
+    expect(status.textContent).toBe("ViteHub tools are off. To turn them on, open the Console or add ?vitehub to the URL.Undo")
+    expect(document.cookie).toContain("vitehub-tools=0")
+
+    status.querySelector("button")!.click()
+    await vi.waitFor(() => expect(started).toHaveLength(4))
+    expect(document.querySelector("vitehub-tools-off")).toBeNull()
+    expect(document.cookie).toContain("vitehub-tools=1")
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(started.slice(2).map(context => [context.tool.id, context.open])).toEqual([["comments", false], ["console", true]])
+    pill()
+  })
+
+  it.each([[0, true], [1, false]])("gives Undo the focus only after a key press on exit (click detail %i)", async (detail, focused) => {
+    page("/?vitehub")
+    session({ tools: [comments] })
+    await loadViteHubPageTools({ load: modules().load })
+    pill().exit.dispatchEvent(new MouseEvent("click", { bubbles: true, detail }))
+    const note = document.querySelector("vitehub-tools-off")!
+    expect(note.shadowRoot!.activeElement === note.shadowRoot!.querySelector("button")).toBe(focused)
+  })
+
+  it("removes the note after 8 seconds, but not while the pointer is on it", async () => {
+    page("/?vitehub")
+    session({ tools: [comments] })
+    await loadViteHubPageTools({ load: modules().load })
+    vi.useFakeTimers()
+    try {
+      pill().exit.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }))
+      const status = document.querySelector("vitehub-tools-off")!.shadowRoot!.querySelector("[role=status]")!
+      vi.advanceTimersByTime(7000)
+      status.dispatchEvent(new PointerEvent("pointerenter"))
+      vi.advanceTimersByTime(20_000)
+      expect(document.querySelector("vitehub-tools-off")).not.toBeNull()
+      status.dispatchEvent(new PointerEvent("pointerleave"))
+      vi.advanceTimersByTime(7999)
+      expect(document.querySelector("vitehub-tools-off")).not.toBeNull()
+      vi.advanceTimersByTime(1)
+      expect(document.querySelector("vitehub-tools-off")).toBeNull()
+    }
+    finally { vi.useRealTimers() }
   })
 
   it("starts the other tools when one script fails or has no default export", async () => {

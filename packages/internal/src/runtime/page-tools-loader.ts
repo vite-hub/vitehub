@@ -34,7 +34,8 @@ export interface ViteHubPageToolContext {
   beforeExit(check: () => boolean): void
   /**
    * Turns the page tools off for this browser: sets the hint cookie to `0`, removes the query, stops every tool, and
-   * removes the pill. The pill's exit button calls it, so a tool does not draw its own.
+   * replaces the pill with a short note that says how to turn them on again, with **Undo**. The pill's exit button
+   * calls it, so a tool does not draw its own.
    */
   exit(): void
 }
@@ -113,6 +114,18 @@ button{flex-shrink:0;padding:0}
 @media(any-pointer:coarse){:host{--vitehub-hex-h:40px}}
 @media(prefers-reduced-motion:reduce){:host,div,::slotted(*),.exit,.mark svg,:host([collapsed]) .mark{transition:none}}`
 
+// The note that replaces the pill when the tools turn off: the same glass, at the same place, with the way back.
+const offNoteStyles = `:host([off]){--vitehub-pill-flow:row}
+div{gap:4px;padding-left:12px;animation:vitehub-off-in 150ms ease-out}
+:host([off]) div{align-items:center}
+p{margin:0;max-width:44ch;line-height:16px;color:var(--vitehub-pill-muted)}
+strong{font-weight:inherit;color:var(--vitehub-pill-strong)}
+code{font:inherit;color:var(--vitehub-pill-strong)}
+@keyframes vitehub-off-in{from{opacity:0}}
+@media(prefers-reduced-motion:reduce){div{animation:none}}`
+/** How long the note stays after the tools turn off. It stays while the pointer or the keyboard focus is on it. */
+const offNoteTime = 8000
+
 /** The key in `localStorage` that keeps the pill collapsed to the ViteHub mark, on this page and the next ones. */
 const collapsedKey = "vitehub-tools-collapsed"
 /** The key in `localStorage` that keeps the edge and the place where the pill docks. */
@@ -180,7 +193,7 @@ function placeAlong(center: number, size: number, start: number, end: number, le
  * session order, and the exit button. The mark collapses the pill to itself, and dragging the mark docks the pill to
  * another edge. The browser remembers both.
  */
-function mountPill(tools: ViteHubPageToolInfo[], exit: () => void, signal: AbortSignal): HTMLElement {
+function mountPill(tools: ViteHubPageToolInfo[], exit: (keyboard: boolean) => void, signal: AbortSignal): HTMLElement {
   const pill = document.createElement("vitehub-pill")
   // Its own name keeps the pill in place through a page's View Transition. In the page's snapshot it would fade and
   // slide away with the old page, under any part that the page names itself.
@@ -224,7 +237,8 @@ function mountPill(tools: ViteHubPageToolInfo[], exit: () => void, signal: Abort
     slot.name = tool.id
     toolbar.insertBefore(slot, button)
   }
-  button.addEventListener("click", exit)
+  // A click from Enter or Space has no pointer press, so its `detail` is 0.
+  button.addEventListener("click", event => exit(event.detail === 0))
   signal.addEventListener("abort", () => pill.remove(), { once: true })
 
   let dock = storedDock()
@@ -341,6 +355,48 @@ function hexagonSize(pill: HTMLElement): { width: number, height: number } {
   return { width: height * 10 / 9, height }
 }
 
+/**
+ * Shows, where the pill was, that the tools are off and how to turn them on again: the Console sets the hint cookie
+ * again when it loads, and the `?vitehub` query loads the tools on any page. **Undo** turns them on at once.
+ */
+function mountOffNote(undo: () => void, keyboard: boolean): void {
+  const note = document.createElement("vitehub-tools-off")
+  note.setAttribute("off", "")
+  note.style.viewTransitionName = "vitehub-pill"
+  const dock = storedDock()
+  note.setAttribute("edge", dock.edge)
+  note.style.setProperty("--at", String(dock.at))
+  const shadow = note.attachShadow({ mode: "open" })
+  const style = document.createElement("style")
+  style.textContent = `${pillStyles}\n${offNoteStyles}`
+  const box = document.createElement("div")
+  box.setAttribute("role", "status")
+  const text = document.createElement("p")
+  const title = document.createElement("strong")
+  title.textContent = "ViteHub tools are off."
+  const query = document.createElement("code")
+  query.textContent = `?${viteHubPageToolsQuery}`
+  text.append(title, " To turn them on, open the Console or add ", query, " to the URL.")
+  const button = document.createElement("button")
+  button.type = "button"
+  button.textContent = "Undo"
+  box.append(text, button)
+  shadow.append(style, box)
+  document.documentElement.append(note)
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const close = () => { clearTimeout(timer); note.remove() }
+  const wait = () => { clearTimeout(timer); timer = setTimeout(close, offNoteTime) }
+  const hold = () => clearTimeout(timer)
+  box.addEventListener("pointerenter", hold)
+  box.addEventListener("pointerleave", wait)
+  box.addEventListener("focusin", hold)
+  box.addEventListener("focusout", wait)
+  button.addEventListener("click", () => { close(); undo() })
+  wait()
+  // The exit button had the keyboard focus and is gone, so the focus goes to the button that brings it back.
+  if (keyboard) button.focus({ preventScroll: true })
+}
+
 export interface LoadViteHubPageToolsOptions {
   /** Imports the script of a tool. Default: a dynamic `import()`. */
   load?: (script: string) => Promise<unknown>
@@ -375,8 +431,10 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
   const pillController = new AbortController()
   const controllers = session.tools.map(() => new AbortController())
   const exitChecks = new Set<() => boolean>()
-  const exit = () => {
+  // `keyboard`: the exit button was pressed with a key, so the note takes the focus that the button had.
+  const exit = (keyboard = false) => {
     if ([...exitChecks].some(check => !check())) return
+    const opened = session.tools.filter(tool => restored(tool.id))
     for (const tool of session.tools) remember(tool.id, false)
     // `0`, not a cleared cookie: a signed-in person would otherwise get the pill again on the next page.
     document.cookie = viteHubPageToolsHintCookie(false)
@@ -387,6 +445,11 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
     }
     for (const controller of controllers) controller.abort()
     pillController.abort()
+    mountOffNote(() => {
+      document.cookie = viteHubPageToolsHintCookie(true)
+      for (const tool of opened) remember(tool.id, true)
+      void loadViteHubPageTools(options)
+    }, keyboard)
   }
   const pill = mountPill(session.tools, exit, pillController.signal)
   const windows = new Map<string, ViteHubPageWindow>()
@@ -448,7 +511,7 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
               exitChecks.add(guard)
               attempt.signal.addEventListener("abort", () => exitChecks.delete(guard), { once: true })
             }, tool, bar, signal: attempt.signal,
-            open: show && (tool.lazy === true || tool.id === open || restored(tool.id)), exit,
+            open: show && (tool.lazy === true || tool.id === open || restored(tool.id)), exit: () => exit(),
             createWindow: options => {
               const window = createViteHubPageWindow({ ...options, signal: attempt.signal, onHide: () => {
                 remember(tool.id, false)
