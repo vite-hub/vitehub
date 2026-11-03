@@ -765,10 +765,11 @@ describe("Blob byte ranges", () => {
 
 describe("Blob streams on an R2 binding", () => {
   const encode = (text: string) => new TextEncoder().encode(text)
-  type Read = { onlyIf?: { etagMatches: string }, range?: { offset: number, length: number } }
-  let reads: Read[]
+  type Range = { offset: number, length?: number } | { suffix: number }
+  type Read = { onlyIf?: { etagMatches: string }, range?: Range }
+  let calls: Array<["get", Read] | ["head"]>
   let object: { body: Uint8Array, etag: string }
-  let changeAfterHead: (() => void) | undefined
+  let changeAfterGet: (() => void) | undefined
   const describeObject = () => ({
     httpEtag: `"${object.etag}"`,
     httpMetadata: { contentType: "video/mp4" },
@@ -779,24 +780,31 @@ describe("Blob streams on an R2 binding", () => {
   const bucket = {
     async get(key: string, options: Read = {}) {
       if (key !== "media/video.mp4") return null
-      reads.push(options)
+      calls.push(["get", options])
+      const meta = describeObject()
+      const size = object.body.byteLength
       // Like R2: a failed condition answers the metadata without a body.
-      if (options.onlyIf && options.onlyIf.etagMatches !== object.etag) return describeObject()
+      if (options.onlyIf && options.onlyIf.etagMatches !== object.etag) return meta
       const { range } = options
-      const bytes = range ? object.body.slice(range.offset, range.offset + range.length) : object.body
-      return { ...describeObject(), arrayBuffer: () => { throw new Error("read into memory") }, body: new Blob([bytes]).stream() }
+      const start = !range ? 0 : "suffix" in range ? size - range.suffix : range.offset
+      const end = !range || "suffix" in range || range.length === undefined ? size : range.offset + range.length
+      if (range && ("suffix" in range ? range.suffix <= 0 || size === 0 : range.offset >= size)) {
+        throw new Error("get: The requested range is not satisfiable (10039)")
+      }
+      const bytes = object.body.slice(Math.max(0, start), end)
+      changeAfterGet?.()
+      changeAfterGet = undefined
+      return { ...meta, arrayBuffer: () => { throw new Error("read into memory") }, body: new Blob([bytes]).stream() }
     },
     async head(key: string) {
       if (key !== "media/video.mp4") return null
-      const meta = describeObject()
-      changeAfterHead?.()
-      changeAfterHead = undefined
-      return meta
+      calls.push(["head"])
+      return describeObject()
     },
   }
 
   beforeEach(() => {
-    reads = []
+    calls = []
     object = { body: encode("0123456789abcdefghij"), etag: "v1" }
     setActiveCloudflareEnv({ BLOB: bucket })
   })
@@ -813,7 +821,17 @@ describe("Blob streams on an R2 binding", () => {
     return { event, text: await new Response(body).text() }
   }
 
-  it("reads only the requested bytes, on the version it checked", async () => {
+  it("streams the whole object and its metadata from one read", async () => {
+    const { event, text } = await serve()
+    expect(event.res.status).not.toBe(206)
+    expect(text).toBe("0123456789abcdefghij")
+    expect(event.res.headers.get("content-length")).toBe("20")
+    expect(event.res.headers.get("content-type")).toBe("video/mp4")
+    expect(event.res.headers.get("etag")).toMatch(/^"[^"]+"$/)
+    expect(calls).toEqual([["get", { onlyIf: undefined, range: undefined }]])
+  })
+
+  it("reads only the requested bytes in one read", async () => {
     const { event, text } = await serve({ range: "bytes=15-" })
     expect(event.res.status).toBe(206)
     expect(text).toBe("fghij")
@@ -821,39 +839,50 @@ describe("Blob streams on an R2 binding", () => {
     expect(event.res.headers.get("content-length")).toBe("5")
     expect(event.res.headers.get("content-type")).toBe("video/mp4")
     expect(event.res.headers.get("accept-ranges")).toBe("bytes")
-    // R2 rejects a quoted ETag in onlyIf.
-    expect(reads).toEqual([{ onlyIf: { etagMatches: "v1" }, range: { offset: 15, length: 5 } }])
+    expect(calls).toEqual([["get", { onlyIf: undefined, range: { offset: 15 } }]])
   })
 
-  it("reads suffix ranges as an offset from the size in the metadata", async () => {
-    const { text } = await serve({ range: "bytes=-3" })
-    expect(text).toBe("hij")
-    expect(reads[0]?.range).toEqual({ offset: 17, length: 3 })
+  it("reads bounded and suffix ranges in one read", async () => {
+    const bounded = await serve({ range: "bytes=2-4" })
+    expect(bounded.text).toBe("234")
+    expect(bounded.event.res.headers.get("content-range")).toBe("bytes 2-4/20")
+    const suffix = await serve({ range: "bytes=-3" })
+    expect(suffix.text).toBe("hij")
+    expect(suffix.event.res.headers.get("content-range")).toBe("bytes 17-19/20")
+    expect(calls.map(call => call[1]?.range)).toEqual([{ offset: 2, length: 3 }, { suffix: 3 }])
   })
 
-  it("streams the whole object without a Range header", async () => {
-    const { event, text } = await serve()
-    expect(event.res.status).not.toBe(206)
-    expect(text).toBe("0123456789abcdefghij")
-    expect(event.res.headers.get("content-length")).toBe("20")
-    expect(reads).toEqual([{ onlyIf: { etagMatches: "v1" }, range: undefined }])
+  it("answers a matching If-None-Match with 304 from one read", async () => {
+    const etag = (await serve()).event.res.headers.get("etag")!
+    calls = []
+    const { event, text } = await serve({ "if-none-match": etag })
+    expect(event.res.status).toBe(304)
+    expect(text).toBe("")
+    expect(calls).toHaveLength(1)
   })
 
-  it("answers an unsatisfiable range without reading the object", async () => {
+  it("answers an unsatisfiable range with 416 and the size", async () => {
     const { event, text } = await serve({ range: "bytes=20-" })
     expect(event.res.status).toBe(416)
     expect(text).toBe("")
     expect(event.res.headers.get("content-range")).toBe("bytes */20")
-    expect(reads).toEqual([])
+    expect(calls).toEqual([["get", { onlyIf: undefined, range: { offset: 20 } }], ["head"]])
   })
 
-  it("serves the new version when the object changes between head and read", async () => {
-    changeAfterHead = () => {
+  it("sends the whole body of the same version for a stale If-Range", async () => {
+    const { event, text } = await serve({ "if-range": "\"old\"", range: "bytes=0-1" })
+    expect(event.res.status).not.toBe(206)
+    expect(text).toBe("0123456789abcdefghij")
+    // R2 rejects a quoted ETag in onlyIf.
+    expect(calls).toEqual([["get", { onlyIf: undefined, range: { offset: 0, length: 2 } }], ["get", { onlyIf: { etagMatches: "v1" }, range: undefined }]])
+  })
+
+  it("serves the new version when the object changes before a stale If-Range reads the whole body", async () => {
+    changeAfterGet = () => {
       object = { body: encode("ABCDEFGHIJ"), etag: "v2" }
     }
-    const { event, text } = await serve({ range: "bytes=0-1" })
-    expect(text).toBe("AB")
-    expect(event.res.headers.get("content-range")).toBe("bytes 0-1/10")
-    expect(reads.map(read => read.onlyIf?.etagMatches)).toEqual(["v1", "v2"])
+    const { event, text } = await serve({ "if-range": "\"old\"", range: "bytes=0-1" })
+    expect(text).toBe("ABCDEFGHIJ")
+    expect(event.res.headers.get("content-length")).toBe("10")
   })
 })

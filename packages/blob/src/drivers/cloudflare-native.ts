@@ -3,7 +3,7 @@ import { r2S3Endpoint, runtimeValue } from "./cloudflare-runtime.ts"
 
 import { AwsClient } from "aws4fetch"
 
-import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobDriverStreamOptions, BlobListOptions, BlobListResult, BlobMultipartPart, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, BlobSignOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
+import type { BlobDriverAdapter, BlobDriverByteRange, BlobDriverMultipartUpload, BlobDriverStreamOptions, BlobListOptions, BlobListResult, BlobMultipartPart, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, BlobSignOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 import isBlob from "../internal/is-blob.ts"
 import { assertValidPathname } from "../internal/pathname.ts"
@@ -35,7 +35,7 @@ interface R2PutOptionsLike {
 interface R2BucketLike {
   createMultipartUpload(key: string, options?: R2PutOptionsLike): Promise<R2MultipartUploadLike>
   delete(key: string): Promise<void>
-  get(key: string, options?: { onlyIf?: { etagMatches: string }, range?: { offset: number, length: number } }): Promise<R2ObjectLike | null>
+  get(key: string, options?: { onlyIf?: { etagMatches: string }, range?: BlobDriverByteRange }): Promise<R2ObjectLike | null>
   head(key: string): Promise<R2ObjectLike | null>
   list(options?: { cursor?: string, delimiter?: string, include?: string[], limit?: number, prefix?: string }): Promise<{ cursor?: string, delimitedPrefixes?: string[], objects: R2ObjectLike[], truncated?: boolean }>
   put(key: string, value: BlobPutBody, options?: R2PutOptionsLike): Promise<R2ObjectLike>
@@ -162,9 +162,21 @@ export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): Blob
     async getStream(pathname, { etag, range }: BlobDriverStreamOptions = {}) {
       // R2 rejects a quoted ETag here, and leaves the body out when it no longer matches.
       const onlyIf = etag ? { etagMatches: etag.replace(/^"|"$/g, "") } : undefined
-      const object = await getBucket(options).get(pathname, { onlyIf, range })
+      let object: R2ObjectLike | null
+      try {
+        object = await getBucket(options).get(pathname, { onlyIf, range })
+      }
+      catch (error) {
+        // R2 throws InvalidRange (10039) for a range past the end. The caller answers 416 from the size.
+        if (!range || !(error instanceof Error) || !error.message.includes("(10039)")) throw error
+        object = await getBucket(options).head(pathname)
+        if (!object) return null
+        if (etag && object.httpEtag !== etag) return false
+        return { body: new Blob([]).stream(), object: { ...mapObject(object), size: object.size ?? 0 } }
+      }
       if (!object) return null
-      return object.body ?? false
+      if (!object.body) return false
+      return { body: object.body, object: { ...mapObject(object), size: object.size ?? 0 } }
     },
     async head(pathname) {
       const object = await getBucket(options).head(pathname)

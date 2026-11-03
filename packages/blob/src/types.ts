@@ -112,9 +112,19 @@ export interface BlobMultipartUpload {
   uploadPart(partNumber: number, body: BlobPutBody): Promise<BlobResult<BlobMultipartPart>>
 }
 
+/** Bytes of an object: `length` bytes from `offset` (to the end without `length`), or the last `suffix` bytes. */
+export type BlobDriverByteRange = { offset: number, length?: number } | { suffix: number }
+
 export interface BlobDriverStreamOptions {
   etag?: string
-  range?: { offset: number, length: number }
+  range?: BlobDriverByteRange
+}
+
+/** An object and a stream of its bytes, or of the requested range of them, read in one storage call. */
+export interface BlobDriverStream {
+  object: BlobObject & { size: number }
+  /** Empty when the range starts past the end of the object. */
+  body: ReadableStream
 }
 
 export interface BlobDriverAdapter<TOptions> {
@@ -127,10 +137,10 @@ export interface BlobDriverAdapter<TOptions> {
   get(pathname: string): Promise<Blob | null>
   getArrayBuffer(pathname: string): Promise<ArrayBuffer | null>
   /**
-   * Stream an object, or `length` bytes of it from `offset`, without reading it into memory. `serve()` uses it when the
-   * driver has it. With `etag` (the `httpEtag` that `head()` returned), returns `false` once the object has changed.
+   * Stream an object, or a range of it, with its metadata, without reading it into memory. `serve()` uses it when the
+   * driver has it. With `etag` (an `httpEtag` the driver returned), returns `false` once the object has changed.
    */
-  getStream?(pathname: string, options?: BlobDriverStreamOptions): Promise<ReadableStream | false | null>
+  getStream?(pathname: string, options?: BlobDriverStreamOptions): Promise<BlobDriverStream | false | null>
   head(pathname: string): Promise<BlobObject | null>
   list(options?: BlobListOptions): Promise<BlobListResult>
   put(pathname: string, body: BlobPutBody, options?: BlobPutOptions): Promise<BlobObject>
