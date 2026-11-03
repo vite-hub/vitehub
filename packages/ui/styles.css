@@ -2071,6 +2071,15 @@
     padding: 0.375rem 0.5rem 0.375rem 0.75rem;
   }
 
+  /* The header and message buttons are 24px for a mouse. A touch screen gets 44px targets; the icons keep their size. */
+  @media (pointer: coarse) {
+    :is([data-slot="comment-thread-header"], [data-slot="comment-reply-actions"]) > :is(button, a) {
+      justify-content: center;
+      min-height: 2.75rem;
+      min-width: 2.75rem;
+    }
+  }
+
   [data-slot="comment-thread-title"] {
     color: var(--vh-highlighted);
     font-weight: 600;
@@ -2111,11 +2120,21 @@
     min-width: 0;
   }
 
+  /* The avatar, the name, and the time share one row, as in the list and the composer. The text sits under the name. */
   [data-slot="comment-reply-header"] {
-    align-items: baseline;
+    align-items: center;
     display: flex;
     flex-wrap: wrap;
     gap: 0.375rem;
+    min-height: 1.5rem;
+  }
+
+  [data-slot="comment-reply-header"] > [data-slot="avatar-stack"] {
+    margin-inline-end: 0.125rem;
+  }
+
+  [data-slot="comment-reply-content"] > :not([data-slot="comment-reply-header"]) {
+    margin-inline-start: 2rem;
   }
 
   [data-slot="comment-reply-author"] {
@@ -2332,6 +2351,27 @@
   [data-slot="comment-reply-attachments"] {
     flex-wrap: wrap;
     margin-top: 0.5rem;
+  }
+
+  /* With groups, the groups scroll together, and each list is as tall as its rows. */
+  [data-slot="comment-panel-groups"] {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  [data-slot="comment-panel-groups"] [data-slot="comment-panel-items"] {
+    flex: none;
+    overflow: visible;
+  }
+
+  [data-slot="comment-panel-group-header"] {
+    border-block-start: 1px solid var(--vh-border);
+    color: var(--vh-muted);
+    font-size: 0.75rem;
+    font-weight: 500;
+    margin: 0;
+    padding: 0.75rem 0.75rem 0.25rem;
   }
 
   [data-slot="comment-reply-images"] {

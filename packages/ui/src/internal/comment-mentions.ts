@@ -62,13 +62,14 @@ const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
  * A Markdown plugin that turns `@Name` of each given person into a `comment-mention` element. It reads text only, so
- * code spans, code blocks, and link targets keep their `@`. Longer names win, so `@Ana Ruiz` is not cut to `@Ana`.
+ * code spans, code blocks, and link targets keep their `@`. Longer names win, so `@Ana Ruiz` is not cut to `@Ana`, and
+ * case does not matter, as in the composer.
  */
 export function mentionPlugin(people: readonly MentionName[]): ComarkPlugin {
   const known = [...new Map(people.filter((person) => person.name).map((person) => [person.name, person])).values()]
     .sort((a, b) => b.name.length - a.name.length);
   const pattern = known.length > 0
-    ? new RegExp(`@(${known.map((person) => escape(person.name)).join("|")})(?![\\p{L}\\p{N}_])`, "uy")
+    ? new RegExp(`@(${known.map((person) => escape(person.name)).join("|")})(?![\\p{L}\\p{N}_])`, "iuy")
     : undefined;
   return {
     name: "vitehub-comment-mentions",
@@ -80,7 +81,9 @@ export function mentionPlugin(people: readonly MentionName[]): ComarkPlugin {
         pattern.lastIndex = state.pos;
         const match = pattern.exec(state.src);
         if (!match) return false;
-        const person = known.find((entry) => entry.name === match[1]);
+        // The composer keeps a mention whose name changed case, such as `@ben soto`, so the chip matches it too.
+        const typed = match[1]!.toLowerCase();
+        const person = known.find((entry) => entry.name.toLowerCase() === typed);
         if (!person) return false;
         if (!silent) {
           const token = state.push("mdc_inline_component", mentionTag, 0);

@@ -136,15 +136,13 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
   const doctorExtensionHooks: Array<(entries: string[]) => void> = []
   const devtoolsCustomTabsHooks: Array<(tabs: unknown[]) => void> = []
   const iconHooks: Array<(icons: Set<string>) => void> = []
-  const modulesDoneHooks: Array<() => Promise<void>> = []
   const nuxt = {
     callHook: vi.fn(async (_name: "restart") => {}),
-    hook(name: "components:extend" | "app:templatesGenerated" | "builder:watch" | "close" | "devtools:customTabs" | "doctor:extendExtensions" | "icon:clientBundleIcons" | "listen" | "modules:done" | "nitro:config" | "vite:serverCreated", callback: (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((entries: string[]) => void) | ((server: unknown, listener: { url: string }) => void) | ((icons: Set<string>) => void)) {
+    hook(name: "components:extend" | "app:templatesGenerated" | "builder:watch" | "close" | "devtools:customTabs" | "doctor:extendExtensions" | "icon:clientBundleIcons" | "listen" | "nitro:config" | "vite:serverCreated", callback: (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((entries: string[]) => void) | ((server: unknown, listener: { url: string }) => void) | ((icons: Set<string>) => void)) {
       if (name === "icon:clientBundleIcons") iconHooks.push(callback as (icons: Set<string>) => void)
       else if (name === "components:extend") componentsExtendHooks.push(callback as (typeof componentsExtendHooks)[number])
       else if (name === "app:templatesGenerated") templatesGeneratedHooks.push(callback as (typeof templatesGeneratedHooks)[number])
       else if (name === "listen") listenHooks.push(callback as (typeof listenHooks)[number])
-      else if (name === "modules:done") modulesDoneHooks.push(callback as () => Promise<void>)
       else if (name === "devtools:customTabs") devtoolsCustomTabsHooks.push(callback as (tabs: unknown[]) => void)
       else if (name === "doctor:extendExtensions") doctorExtensionHooks.push(callback as (entries: string[]) => void)
       else if (name === "nitro:config") nitroConfigHooks.push(callback as (config: Record<string, unknown>) => Promise<void>)
@@ -153,7 +151,6 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       else if (name === "close") closeHooks.push(callback as () => Promise<void>)
     },
     options: {
-      _installedModules: [] as Array<{ meta?: { name?: string } }>,
       alias: {
         "~": "/tmp/vitehub-nuxt/app",
       },
@@ -187,9 +184,6 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
     nitroConfigHooks,
     nuxt,
     viteServerCreatedHooks,
-    async runModulesDoneHook() {
-      for (const hook of modulesDoneHooks) await hook()
-    },
     async runComponentScan(components: Array<{ pascalName: string, filePath: string }>) {
       for (const hook of componentsExtendHooks) await hook(components)
       for (const hook of templatesGeneratedHooks) await hook({ components })
@@ -548,27 +542,33 @@ describe("ViteHub Nuxt integration", () => {
     for (const [source] of facades) await expect(bundleFacade(source)).resolves.toBeDefined()
   })
 
+  it("leaves headless UI installations without the styled Nuxt runtime", async () => {
+    const hooks = registerHooks({
+      resolve(specifier, context, nextResolve) {
+        if (specifier === "@nuxt/ui" || specifier.startsWith("@nuxt/ui/")) throw new Error(`Cannot find package '${specifier}'`)
+        return nextResolve(specifier, context)
+      },
+    })
+    try {
+      const { nuxt, runIconHook } = createNuxt()
+      await viteHubNuxtModule({ console: false, env: false, preset: "node" }, nuxt)
+      expect(nuxt.options.plugins).toEqual([])
+      expect([...runIconHook()]).toEqual([])
+    }
+    finally {
+      hooks.deregister()
+    }
+  })
+
   it("gives the vite-hub/ui parts their Nuxt runtime and icons without @vite-hub/ui/nuxt", async () => {
-    const { nuxt, runIconHook, runModulesDoneHook } = createNuxt()
+    const { nuxt, runIconHook } = createNuxt()
     await viteHubNuxtModule({ console: false, env: false, preset: "node" }, nuxt)
     await viteHubNuxtModule({ console: false, env: false, preset: "node" }, nuxt)
-    expect(nuxt.options.plugins).toEqual([])
-    // A later module can install Nuxt UI, including through @vite-hub/ui/nuxt.
-    nuxt.options._installedModules.push({ meta: { name: "@nuxt/ui" } })
-    await runModulesDoneHook()
     const runtime = nuxt.options.plugins.filter(plugin => String(typeof plugin === "string" ? plugin : plugin.src).endsWith("/ui/dist/runtime/nuxt-plugin.js"))
     expect(runtime).toHaveLength(1)
     // The list that @vite-hub/ui generates from the icons its sources name, so a new icon of a part needs no change here.
     expect([...runIconHook()].sort()).toEqual([...viteHubUIIcons].sort())
     expect(viteHubUIIcons).toEqual(expect.arrayContaining(["ph:arrow-left", "ph:check", "ph:pencil-simple-light", "ph:trash-light", "ph:x-light"]))
-  })
-
-  it("does not inject the UI runtime into apps without the Nuxt UI module", async () => {
-    const { nuxt, runIconHook, runModulesDoneHook } = createNuxt()
-    await viteHubNuxtModule({ console: false, env: false, preset: "node" }, nuxt)
-    await runModulesDoneHook()
-    expect(nuxt.options.plugins).toEqual([])
-    expect([...runIconHook()]).toEqual([])
   })
 
   it("installs the Email resolver for Nitro Console output", async () => {
@@ -1019,7 +1019,7 @@ describe("ViteHub Nuxt integration", () => {
     )
   })
 
-  it.each([true, false])("preserves Nuxt Connections development navigation and production rejection (dev: %s)", async (dev) => {
+  it.each([true, false])("keeps Nuxt Connections development navigation and builds Connections for production (dev: %s)", async (dev) => {
     const application = createNuxt(dev)
     try {
       const configure = () => viteHubNuxtModule({
@@ -1028,10 +1028,6 @@ describe("ViteHub Nuxt integration", () => {
         database: true,
         console: dev ? { auth: false } : { auth: false, authorize: hostManagedAuthorize },
       }, application.nuxt)
-      if (!dev) {
-        await expect(configure()).rejects.toThrow("connections is not supported by the Nuxt module yet")
-        return
-      }
       await configure()
       const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
       expect(generated.includes('"connections"')).toBe(dev)
@@ -2561,15 +2557,58 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
-  it("rejects Connections in production Nuxt applications", async () => {
+  it.each(["node", "cloudflare"] as const)("generates Connections production Nitro output for %s", async (preset) => {
+    const { vitehub } = await vi.importActual<typeof import("../src/index.ts")>("../src/index.ts")
+    mocks.vitehub.mockImplementation((options: Parameters<typeof vitehub>[0]) => vitehub(options).filter(
+      plugin => isTestRecord(plugin) && ["vite-hub/deployment-preset", "@vite-hub/connections/vite"].includes(String(plugin.name)),
+    ))
     const production = createNuxt(false)
-
-    await expect(viteHubNuxtModule({
-      connections: { management: true },
-      database: true,
-      console: { auth: false, authorize: hostManagedAuthorize },
-      preset: "node",
-    }, production.nuxt)).rejects.toThrow("connections is not supported by the Nuxt module yet")
+    const definition = "/tmp/vitehub-nuxt/custom-server/connections/mail.ts"
+    const generatedDir = "/tmp/vitehub-nuxt/.vitehub/nitro/connections"
+    await mkdir(dirname(definition), { recursive: true })
+    await writeFile(definition, `import { apiKey, defineConnection } from "vite-hub/connections"
+export default defineConnection({ provider: apiKey({ origins: ["https://api.example.com"] }) })
+`)
+    await rm(generatedDir, { recursive: true, force: true })
+    try {
+      await viteHubNuxtModule({
+        connections: { management: true },
+        database: preset === "cloudflare" ? { databaseId: "connections-id", databaseName: "connections" } : true,
+        console: { auth: false, authorize: hostManagedAuthorize },
+        preset,
+      }, production.nuxt)
+      const config = nitroOptions(production.nuxt)
+      await production.runNitroConfigHook(config)
+      expect(config.preset).toBe(preset === "node" ? "node-server" : "cloudflare-module")
+      const registry = resolve(generatedDir, "registry.ts")
+      const handler = resolve(generatedDir, "handler.ts")
+      expect(config.alias).toMatchObject({ "#vitehub/connections/registry": registry })
+      expect(config.externals).toMatchObject({ inline: expect.arrayContaining(["vite-hub", "@vite-hub/connections"]) })
+      expect(await readFile(registry, "utf8")).toContain(`registry["mail"] = () => import(${JSON.stringify(definition)})`)
+      expect(config.handlers).toEqual(expect.arrayContaining([
+        { handler, method: "post", route: "/_vitehub/connections" },
+        { handler, method: "get", route: "/_vitehub/connections/connect/**" },
+        { handler, method: "get", route: "/_vitehub/connections/callback" },
+      ]))
+      // Resolve generated imports, including the Console actor alias and discovered Connection.
+      const output = await build({
+        // SAFETY: Nitro aliases map virtual module names to generated module paths.
+        alias: config.alias as Record<string, string>,
+        bundle: true,
+        entryPoints: [registry, handler],
+        format: "esm",
+        outdir: resolve(generatedDir, "bundled"),
+        packages: "external",
+        platform: preset === "node" ? "node" : "neutral",
+        write: false,
+      })
+      expect(output.outputFiles.map(file => file.text).join("\n")).toContain("https://api.example.com")
+      expect(output.outputFiles.map(file => file.text).join("\n")).toContain("createConnectionsHandler")
+    }
+    finally {
+      await production.runCloseHook()
+      await rm(definition, { force: true })
+    }
   })
 
   it.each(["none", "console-auth"] as const)("resolves the Nuxt Connections management actor with %s", async (source) => {

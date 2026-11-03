@@ -70,6 +70,16 @@ function reason(error: unknown): string {
 
 const fileName = (key: string) => key.split(/[/\\]/).at(-1) || key;
 
+function attachmentHref(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const { protocol } = new URL(value, "https://vitehub.invalid");
+    return protocol === "http:" || protocol === "https:" || protocol === "blob:" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 // Shows the attachments of a message: images as thumbnails that open full size, and other files as chips. An attachment
 // is an image when its media type says so, or, without one, when its name has an image extension or none.
 function attachmentList(message: CommentMessage, url: CommentAttachmentUrl | undefined, icon: Component) {
@@ -79,8 +89,9 @@ function attachmentList(message: CommentMessage, url: CommentAttachmentUrl | und
     const link = typeof found === "string" ? { url: found } : found;
     const name = link?.name || fileName(key);
     const extension = /\.([a-z0-9]+)$/i.exec(name)?.[1]?.toLowerCase();
-    const image = link !== undefined && (link.type ? link.type.startsWith("image/") : extension === undefined || imageExtensions.has(extension));
-    return { href: link?.url, image, key, name };
+    const href = attachmentHref(link?.url);
+    const image = href !== undefined && (link?.type ? link.type.startsWith("image/") : extension === undefined || imageExtensions.has(extension));
+    return { href, image, key, name };
   });
   const images = items.filter((item) => item.image);
   const files = items.filter((item) => !item.image);
@@ -209,9 +220,9 @@ export const CommentReply = defineComponent({
         "div",
         { "data-compact": props.compact ? "true" : undefined, "data-editing": editing.value ? "true" : undefined, "data-slot": "comment-reply" },
         [
-          h(AvatarStack, { "aria-hidden": "true", people: [toPerson(message.author)], size: "sm" }),
           h("div", { "data-slot": "comment-reply-content" }, [
             h("div", { "data-slot": "comment-reply-header" }, [
+              h(AvatarStack, { "aria-hidden": "true", people: [toPerson(message.author)], size: "sm" }),
               h("span", { "data-slot": "comment-reply-author" }, displayName(message.author)),
               message.actor ? h("span", { "data-slot": "comment-reply-actor" }, `via ${message.actor.name ?? message.actor.id}`) : null,
               h(
