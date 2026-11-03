@@ -6,6 +6,7 @@ import { parse } from "yaml";
 
 import { buildRunnableTutorial, createZip, readWorkspaceVersions, resolveManifest, tutorialStepFiles } from "../modules/tutorials/build";
 import { runnableTutorials } from "../modules/tutorials/list";
+import { tutorialWorkspaceFiles } from "../modules/tutorials/steps";
 import { parseCurl, splitTutorialDocument } from "../app/utils/runnable-tutorial";
 
 const docsRoot = resolve(import.meta.dirname, "..");
@@ -224,6 +225,34 @@ describe("runnable tutorials", () => {
       expect(normalize(final[path]!), path).toEqual(normalize(await readFile(resolve(fixturesRoot, runnableTutorials[index]!.fixture, path), "utf8")));
     }
     expect(tutorialStepFiles(tutorial, 1, "start")).toEqual(tutorialStepFiles(tutorial, 0, "solution"));
+  });
+
+  it.each(runnableTutorials.map((tutorial, index) => [tutorial.slug, index] as const))("resets files opened before %s creates them, preserving reader additions", async (_slug, index) => {
+    const tutorial = await build(index);
+    const start = tutorialStepFiles(tutorial, 0, "start");
+    const solution = tutorialStepFiles(tutorial, tutorial.steps.length - 1, "solution");
+    const created = Object.keys(solution).filter(path => !(path in start));
+    expect(created.length).toBeGreaterThan(0);
+
+    // "Show in editor" opens these tutorial files empty before they belong to the baseline.
+    const current = { ...start, ...Object.fromEntries(created.map(path => [path, ""])), "reader-notes.txt": "Keep these notes" };
+    expect(tutorialWorkspaceFiles(tutorial, current, start)).toEqual({ ...start, "reader-notes.txt": "Keep these notes" });
+
+    // Loading any step must also restore its state, whether or not the old baseline owned the opened files.
+    for (let step = 0; step < tutorial.steps.length; step++) {
+      const target = tutorialStepFiles(tutorial, step, "start");
+      expect(tutorialWorkspaceFiles(tutorial, current, target)).toEqual({ ...target, "reader-notes.txt": "Keep these notes" });
+    }
+    expect(tutorialWorkspaceFiles(tutorial, current, solution)).toEqual({ ...solution, "reader-notes.txt": "Keep these notes" });
+  });
+
+  it.each(runnableTutorials.map((tutorial, index) => [tutorial.slug, index] as const))("removes later %s files when loading an earlier step after Keep mine", async (_slug, index) => {
+    const tutorial = await build(index);
+    const current = { ...tutorialStepFiles(tutorial, tutorial.steps.length - 1, "solution"), "reader-notes.txt": "Keep these notes" };
+    const target = tutorialStepFiles(tutorial, 0, "start");
+
+    // "Keep mine" can change the baseline to an earlier step without changing the workspace files.
+    expect(tutorialWorkspaceFiles(tutorial, current, target)).toEqual({ ...target, "reader-notes.txt": "Keep these notes" });
   });
 
   it("installs from npm, not from this repository", async () => {

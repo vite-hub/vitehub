@@ -10,7 +10,7 @@ import { WorkspaceShell, type WorkspaceTab } from "@vite-hub/ui/workspace-shell"
 import { WorkspaceTerminal } from "@vite-hub/ui/workspace-terminal";
 import { runnableTutorials } from "#build/runnable-tutorials.mjs";
 import { parseCurl, requestScript } from "~/utils/runnable-tutorial";
-import { tutorialStepFiles } from "~~/modules/tutorials/steps";
+import { tutorialStepFiles, tutorialWorkspaceFiles } from "~~/modules/tutorials/steps";
 
 import type { TutorialActions } from "~/utils/tutorial-actions";
 
@@ -50,13 +50,9 @@ const source = computed({
   set: value => void workspace.setFiles({ [selected.value]: value }),
 });
 
-/** Writes `target` over the files that the lesson loaded, and keeps files that the reader added. */
+/** Restores the tutorial-owned files to `target`, and keeps unrelated files that the reader added. */
 async function load(target: Files) {
-  const next: Files = { ...workspace.files.value };
-  for (const path of Object.keys(baseline.value)) {
-    if (!(path in target)) delete next[path];
-  }
-  Object.assign(next, target);
+  const next = tutorialWorkspaceFiles(props.tutorial, workspace.files.value, target);
   baseline.value = target;
   await workspace.setFiles(next, { mode: "replace" });
 }

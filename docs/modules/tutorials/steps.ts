@@ -29,3 +29,13 @@ export function tutorialStepFiles(tutorial: Pick<RunnableTutorialData, "files" |
   for (let step = 0; step <= last && step < tutorial.steps.length; step++) Object.assign(files, tutorial.steps[step]!.files);
   return files;
 }
+
+/** Loads a lesson state, removing absent tutorial files while keeping unrelated reader additions. */
+export function tutorialWorkspaceFiles(tutorial: Pick<RunnableTutorialData, "files" | "steps">, current: TutorialFiles, target: TutorialFiles): TutorialFiles {
+  const owned = new Set([...Object.keys(tutorial.files), ...tutorial.steps.flatMap(step => Object.keys(step.files))]);
+  const next = { ...current };
+  for (const path of owned) {
+    if (!(path in target)) delete next[path];
+  }
+  return Object.assign(next, target);
+}
