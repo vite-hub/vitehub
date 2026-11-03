@@ -344,6 +344,13 @@ describe("posted messages", () => {
     expect(wrapper.get("[data-slot=comment-reply-attachments] a").text()).toBe("notes");
   });
 
+  it("puts the avatar, the name, and the time on one row above the text", () => {
+    const wrapper = keep(mount(CommentReply, { global, props: { message: message("m1") } }));
+    const header = wrapper.get("[data-slot=comment-reply-header]");
+    expect(header.findAll(":scope > [data-slot]").map(part => part.attributes("data-slot"))).toEqual(["avatar-stack", "comment-reply-author", "comment-reply-time"]);
+    expect(wrapper.findAll("[data-slot=comment-reply] > [data-slot=avatar-stack]")).toHaveLength(0);
+  });
+
   it("names files without a link when there is no attachmentUrl", () => {
     const wrapper = keep(mount(CommentReply, { global, props: { message: message("m1", { attachments: ["shots/a.png"] }) } }));
     expect(wrapper.find("[data-slot=comment-reply-images]").exists()).toBe(false);

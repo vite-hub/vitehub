@@ -209,9 +209,9 @@ export const CommentReply = defineComponent({
         "div",
         { "data-compact": props.compact ? "true" : undefined, "data-editing": editing.value ? "true" : undefined, "data-slot": "comment-reply" },
         [
-          h(AvatarStack, { "aria-hidden": "true", people: [toPerson(message.author)], size: "sm" }),
           h("div", { "data-slot": "comment-reply-content" }, [
             h("div", { "data-slot": "comment-reply-header" }, [
+              h(AvatarStack, { "aria-hidden": "true", people: [toPerson(message.author)], size: "sm" }),
               h("span", { "data-slot": "comment-reply-author" }, displayName(message.author)),
               message.actor ? h("span", { "data-slot": "comment-reply-actor" }, `via ${message.actor.name ?? message.actor.id}`) : null,
               h(
