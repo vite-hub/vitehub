@@ -16,8 +16,11 @@ export type OptionalOwnerPackage
     | "@vite-hub/comments"
     | "@vite-hub/content"
     | "@vite-hub/database"
+    | "@vite-hub/presets"
     | "@vite-hub/realtime"
     | "@vite-hub/schedule"
+    | "@vite-hub/shell"
+    | "@vite-hub/ui"
     | "@vite-hub/workspace"
 
 /**
@@ -35,8 +38,11 @@ export const optionalFeaturePackages = {
   "content": ["@vite-hub/content"],
   // Database also needs `drizzle-kit` as a development dependency, which `@vite-hub/database` declares.
   "database": ["@vite-hub/database", "drizzle-orm"],
+  "presets": ["@vite-hub/presets", "@vite-hub/agent"],
   "realtime": ["@vite-hub/realtime"],
   "schedule": ["@vite-hub/schedule"],
+  "shell": ["@vite-hub/shell"],
+  "ui": ["@vite-hub/ui"],
   "workspace": ["@vite-hub/workspace"],
 } as const satisfies Record<string, readonly string[]>
 

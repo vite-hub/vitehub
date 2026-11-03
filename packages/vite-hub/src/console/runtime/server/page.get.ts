@@ -80,9 +80,9 @@ export default async function consolePageHandler(event: ConsoleRequestEvent): Pr
   // With a sign-in page, a signed-out visit goes there and comes back, as with Console Auth.
   const signIn = await consoleSignInRedirect(event)
   if (signIn) return signIn
-  // A visitor that the data routes reject does not get the Console. A signed-out visitor gets its signed-out state.
+  // A visitor that the data routes reject does not get the Console. A signed-out page visit gets its signed-out state.
   const rejection = await consolePageRejection(event)
-  if (rejection) return rejection.app ? rejection.response : await rejectedPage(rejection.response)
+  if (rejection) return rejection.raw ? rejection.response : await rejectedPage(rejection.response)
   const { pathname } = consoleRequestURL(event)
   const mountBase = consoleMountBase(pathname)
   // The Console links to the sign-in page when a session ends while the page is open.

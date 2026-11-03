@@ -104,7 +104,7 @@ export default defineSchedule({
 
 Static Schedule Definitions use five-field cron expressions. The cron uses UTC unless the definition sets `timeZone` to an IANA name, such as `Europe/Madrid`. Only the Process Runtime evaluates `timeZone`. Provider cron output supports only UTC, so a build that generates Provider Output fails with `SCHEDULE_R0003` when a definition sets a `timeZone` other than `UTC`.
 
-The integration can generate host-specific output for Cloudflare Cron Triggers, Vercel Cron Jobs, Netlify Scheduled Functions, standalone `Deno.cron`, and Nitro's Cloudflare schedule hook. A build writes only the output of its host: Nitro's resolved preset, or else `nitro.preset`, `NITRO_PRESET`, `SERVER_PRESET`, or `VITEHUB_HOSTING`. It writes the output of every host only when no host is known. Host selection, local execution, deployment proof, limits, and billing still come from the selected host. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before deploying.
+The integration can generate host-specific output for Cloudflare Cron Triggers, Vercel Cron Jobs, Netlify Scheduled Functions, standalone `Deno.cron`, Nitro's Cloudflare schedule hook, and Netlify Scheduled Functions that run in Nitro's server bundle. A build writes only the output of its host: Nitro's resolved preset, or else `nitro.preset`, `NITRO_PRESET`, `SERVER_PRESET`, or `VITEHUB_HOSTING`. It writes the output of every host only when no host is known. Host selection, local execution, deployment proof, limits, and billing still come from the selected host. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before deploying.
 
 Applications that use the framework distribution register Schedule through `vitehub({ preset, schedule: true })` and import the definition helper from `vite-hub/schedule`. The Deno framework preset currently rejects Schedule because standalone Deno cron output sits outside its generated Nitro entrypoint. Use the direct Schedule integration for that output.
 
@@ -112,7 +112,7 @@ Direct Nuxt projects can register `@vite-hub/schedule/nuxt` instead of `hubSched
 
 ## Understand time zones
 
-Write `timeZone` as a string literal, because the build and the Console read it from the source file. Abbreviations such as `PST` and numeric offsets such as `+01:00` are rejected. To use a local clock time, use the Process Runtime. Otherwise, remove `timeZone` and write the cron in UTC.
+`timeZone` can be any expression, such as a shared constant. The value must be an IANA name. Abbreviations such as `PST` and numeric offsets such as `+01:00` are rejected. To use a local clock time, use the Process Runtime. Otherwise, remove `timeZone` and write the cron in UTC. Provider cron output reads `timeZone` from the source file, so a build that generates it fails with `SCHEDULE_R0003` when a definition sets `timeZone` to anything but the literal `'UTC'`.
 
 During a daylight-saving gap, a local time that does not exist does not run that day. A local time that occurs twice runs once, at its first occurrence, when the cron sets a fixed minute and hour. A cron with `*` in the minute or hour field runs on elapsed time, so it also runs in the repeated hour.
 
@@ -167,7 +167,7 @@ Set `manual: true` on a Static Schedule Definition to allow an on-demand run, th
 
 Discovery reads `manual` as a literal boolean from directly exported Definitions. Use identifier keys or quoted keys without escape sequences. Spreads, computed keys, escaped keys, and metadata getters or methods fail with the source file and line.
 
-The Console Schedules section lists Schedule Definitions with their cron, time zone, and manual state. It reads them at build time. Use `vitehub schedule runs <name>` to list the runs that the runtime recorded. The CLI and the Console redact credentials in error messages.
+The Console Schedules section lists Schedule Definitions with their cron, time zone, and manual state. It reads them at build time. When the server runs the Process Runtime, the cron and time zone come from the loaded Definitions on each request, so they are the values that the runtime uses. `vitehub inspect definitions` reads them from the source file and shows `Not a static string` for a value that it cannot read there. Use `vitehub schedule runs <name>` to list the runs that the runtime recorded. The CLI and the Console redact credentials in error messages.
 
 ## Import runtime helpers
 

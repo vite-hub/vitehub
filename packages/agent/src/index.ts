@@ -16,6 +16,8 @@ import { Diagnostic } from "nostics"
 import agentRegistry from "#vitehub/agent/registry"
 import { acquireAgentCapacity, configureAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
 import { normalizeAgentDriver, normalizeAgentDriverCapacity } from "./internal/agent-driver.ts"
+import { providerAgentRuntime } from "./internal/provider-driver-runtime.ts"
+import type { ProviderAgentRuntimeLoader } from "./internal/provider-driver-runtime.ts"
 import { createAgentHealthHandler } from "./health.ts"
 import { agentOutputEventObserverContextKey, progressSummaryOutputContextKey, type AgentOutputEventObserver } from "./internal/agent-output-events.ts"
 import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./internal/invocation-lifecycle.ts"
@@ -67,18 +69,11 @@ import {
 } from "./internal/channels.ts"
 import type { MessageChannelTitleDeliveryAttempt } from "./internal/channels.ts"
 import {
-  discord as builtInDiscord,
-  github as builtInGitHub,
-  http as builtInHttp,
   channelHasCustomTitleEffect,
   messageChannelSupportsTitleEffect,
   messageChannelDeliveredReplyBody,
   messageChannelReplyBody,
   messageChannelTitleSupportContextKey,
-  slack as builtInSlack,
-  teams as builtInTeams,
-  telegram as builtInTelegram,
-  webChat as builtInWebChat,
 } from "./channels.ts"
 import { registerMessageChannelDeferredReplyTrace, setChatFinalReplyText, setChatFinishDirectReplyTrace, setChatFinishPrimaryReplyTrace } from "./internal/chat-finish-delivery.ts"
 import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdatedContextKey, agentInvocationRunId, agentInvocationWorkflowBinding, createAgentInvocationContextStore } from "./invocation-context.ts"
@@ -196,9 +191,9 @@ import type {
   AgentInterceptHandler,
   AgentDefinition,
   AgentDriver,
-  BuiltInAgentDriver,
-  BuiltInAgentDriverName,
+  ClaudeCodeDriver,
   ClaudeCodeDriverOptions,
+  CodexDriver,
   CodexDriverOptions,
   AgentDriverContribution,
   AgentDriverKind,
@@ -335,6 +330,8 @@ export type {
   AgentCallSettingsInstrumentationContext,
   BuiltInAgentDriver,
   BuiltInAgentDriverName,
+  ClaudeCodeDriver,
+  CodexDriver,
   AgentCapabilityHandle,
   AgentCapabilityContext,
   AgentCapabilityDefinition,
@@ -2100,62 +2097,23 @@ function normalizeAgentChannels<TRuntimeConfig extends AgentRuntimeConfig>(
   if (!inputs) return inputs
   let channels: AgentChannels<TRuntimeConfig> | undefined
   for (const [id, input] of Object.entries(inputs)) {
-    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-    const value = input as unknown
-    if (hasRuntimeType(value, "object") && value && "kind" in value && hasRuntimeType(value.kind, "string")) continue
-    const channel = hasRuntimeType(input, "function")
-      ? (() => {
-          const resolved = input()
-          if (resolved && hasRuntimeType(resolved, "object") && "kind" in resolved) return resolved
-          // SAFETY: Each built-in constructor validates the callback configuration selected by its channel key.
-          return id === "discord" ? builtInDiscord<TRuntimeConfig>(resolved as never)
-            // SAFETY: The constructor validates the GitHub callback configuration.
-            : id === "github" ? builtInGitHub<TRuntimeConfig>(resolved as never)
-              // SAFETY: The constructor validates the HTTP callback configuration.
-              : id === "http" ? builtInHttp<TRuntimeConfig>(resolved as never)
-                // SAFETY: The constructor validates the Slack callback configuration.
-                : id === "slack" ? builtInSlack<TRuntimeConfig>(resolved as never)
-                  // SAFETY: The constructor validates the Teams callback configuration.
-                  : id === "teams" ? builtInTeams<TRuntimeConfig>(resolved as never)
-                    // SAFETY: The constructor validates the Telegram callback configuration.
-                    : id === "telegram" ? builtInTelegram<TRuntimeConfig>(resolved as never)
-                      // SAFETY: The constructor validates the web chat callback configuration.
-                      : id === "webChat" ? builtInWebChat<TRuntimeConfig>(resolved as never)
-                        : undefined
-        })()
-      : id === "discord"
-        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-        ? builtInDiscord<TRuntimeConfig>(input as never)
-        : id === "github"
-          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-          ? builtInGitHub<TRuntimeConfig>(input as never)
-          : id === "http"
-            // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-            ? builtInHttp<TRuntimeConfig>(input as never)
-            : id === "slack"
-              // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-              ? builtInSlack<TRuntimeConfig>(input as never)
-              : id === "teams"
-                // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-                ? builtInTeams<TRuntimeConfig>(input as never)
-                : id === "telegram"
-                  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-                  ? builtInTelegram<TRuntimeConfig>(input as never)
-                  : id === "webChat"
-                    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-                    ? builtInWebChat<TRuntimeConfig>(input as never)
-                    : undefined
-    if (!channel || !hasRuntimeType(channel, "object") || !hasRuntimeType(channel.kind, "string")) {
+    if (isAgentChannelDefinition(input)) continue
+    const channel: unknown = hasRuntimeType(input, "function") ? input() : undefined
+    if (!isAgentChannelDefinition<TRuntimeConfig>(channel)) {
       throw agentDiagnostics.AGENT_R0425({ message: hasRuntimeType(input, "function")
         ? `[vitehub] Channel factory "${id}" must return an Agent Channel definition.`
-        : `[vitehub] Channel "${id}" must be an Agent Channel definition or use a built-in Channel name.` })
+        : `[vitehub] Channel "${id}" must be an Agent Channel definition. Create it with a factory from vite-hub/agent/channels, such as webChat() or telegram({ ... }).` })
     }
-    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+    // SAFETY: Factories are replaced by the definitions they return below.
     channels ||= { ...inputs } as AgentChannels<TRuntimeConfig>
     channels[id] = channel
   }
-  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+  // SAFETY: Every entry is an Agent Channel definition when no factory needed a call.
   return channels || (inputs as AgentChannels<TRuntimeConfig>)
+}
+
+function isAgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfig>(value: unknown): value is AgentChannelDefinition<TRuntimeConfig> {
+  return isRuntimeRecord(value) && hasRuntimeType(value.kind, "string")
 }
 
 function capabilitiesContributeWorkspace(capabilities: unknown): boolean {
@@ -2273,7 +2231,7 @@ function defineBaseAgent<
           model: driver.model,
         } as never) as AgentAdapter<CALL_OPTIONS>
       : driver.kind === "provider"
-          ? await (providerAdapter ??= import("#vitehub/agent/provider-agent").then(module => module.createProviderAgentAdapter<CALL_OPTIONS, TRuntimeConfig>({
+          ? await (providerAdapter ??= driver.runtime().then(module => module.createProviderAgentAdapter<CALL_OPTIONS, TRuntimeConfig>({
             sandbox,
             credentialProfile: driver.credentialProfile,
             credentials: driver.credentials,
@@ -2338,7 +2296,7 @@ function defineBaseAgent<
       const checkedAt = new Date().toISOString()
       if (driver.kind !== "provider") return { agent: name ?? "agent", checkedAt, stale: false, readiness: "unsupported" }
       if (sandbox) return { agent: name ?? "agent", checkedAt, stale: false, readiness: "unsupported", reason: "Provider inspection inside an Agent Sandbox is not supported." }
-      const { inspectAgentProvider } = await import("#vitehub/agent/provider-agent")
+      const { inspectAgentProvider } = await driver.runtime()
       return inspectAgentProvider(driver, {
         ...createAgentCallbackContext(withAgentIdentityOwner(definition, context)),
         agentIdentity: { name: name ?? context.agentIdentity?.name ?? "agent" },
@@ -2623,29 +2581,23 @@ type ValidateStaticAgentCapabilities<TCapabilities> =
       : { readonly [TIndex in keyof TCapabilities]: ValidateStaticAgentCapability<TCapabilities[TIndex]> }
     : TCapabilities
 
-type ProviderDriver<
-  Name extends BuiltInAgentDriverName,
-  TOutput,
-> = Extract<BuiltInAgentDriver<unknown, TOutput>, { kind: Name }>
+// Only the provider Driver factories reference the provider runtime, so apps that never call one do not bundle it.
+// One promise for every load, so an Invocation and its concurrent title run share one module instance.
+let providerAgentRuntimeModule: ReturnType<ProviderAgentRuntimeLoader> | undefined
+const loadProviderAgentRuntime: ProviderAgentRuntimeLoader = () => providerAgentRuntimeModule ??= import("#vitehub/agent/provider-agent")
 
-function providerDriver<Name extends BuiltInAgentDriverName, TOutput>(
-  name: Name,
-  options: CodexDriverOptions<TOutput> | ClaudeCodeDriverOptions<TOutput>,
-): ProviderDriver<Name, TOutput> {
-  // SAFETY: The discriminant is added here and the option union is selected by the public wrapper.
-  return { ...options, kind: name } as ProviderDriver<Name, TOutput>
-}
-
+/** Run the Agent with Codex. Codex starts as a local process, so the Agent needs a Node.js host. */
 export function codexDriver<TOutput = unknown>(
   options: CodexDriverOptions<TOutput> = {},
-): ProviderDriver<"codex", TOutput> {
-  return providerDriver("codex", options)
+): CodexDriver<unknown, TOutput> {
+  return { ...options, kind: "codex", [providerAgentRuntime]: loadProviderAgentRuntime }
 }
 
+/** Run the Agent with Claude Code. Claude Code starts as a local process, so the Agent needs a Node.js host. */
 export function claudeCodeDriver<TOutput = unknown>(
   options: ClaudeCodeDriverOptions<TOutput> = {},
-): ProviderDriver<"claude-code", TOutput> {
-  return providerDriver("claude-code", options)
+): ClaudeCodeDriver<unknown, TOutput> {
+  return { ...options, kind: "claude-code", [providerAgentRuntime]: loadProviderAgentRuntime }
 }
 
 type AgentInvokerProfileOf<TOptions> = "invoker" extends keyof TOptions

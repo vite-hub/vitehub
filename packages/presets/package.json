@@ -54,11 +54,6 @@
     "agent": {
       "processHost": [
         "./babysitter"
-      ],
-      "providerDriver": [
-        "./babysitter",
-        "./babysitter/server",
-        "./workspace"
       ]
     }
   },

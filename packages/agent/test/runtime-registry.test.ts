@@ -143,8 +143,8 @@ async function fixture(withAgent = true, withWorkspace = false, name = 'review')
   if (withAgent) {
     const folder = join(root, 'server/agents', name)
     await mkdir(folder, { recursive: true })
-    await writeFile(join(folder, 'agent.ts'), `import { defineAgent } from '@vite-hub/agent'
-export default defineAgent({ driver: { kind: 'codex', instructions: { template: 'Before.\\n{{{ instructions }}}\\nAfter.' } }, ${withWorkspace ? "workspace: { mode: 'write' }," : ''} runtime: false })`)
+    await writeFile(join(folder, 'agent.ts'), `import { codexDriver, defineAgent } from '@vite-hub/agent'
+export default defineAgent({ driver: codexDriver({ instructions: { template: 'Before.\\n{{{ instructions }}}\\nAfter.' } }), ${withWorkspace ? "workspace: { mode: 'write' }," : ''} runtime: false })`)
     await writeFile(join(folder, 'instructions.md'), 'Check migrations.')
   }
   const plugin = hubAgent()
@@ -273,10 +273,10 @@ it('clears external runtime aliases on each internal-first Vite SSR load', async
 
 it('preserves earlier aliases across lazy loads and clears aliases when the parent registry is replaced', async () => {
   const { root, plugin, config } = await fixture()
-  await writeFile(join(root, 'server/agents/review/agent.ts'), "import { defineAgent } from '@vite-hub/agent'; export default defineAgent({ name: 'explicit-review', driver: { kind: 'codex' }, runtime: false })")
+  await writeFile(join(root, 'server/agents/review/agent.ts'), "import { codexDriver, defineAgent } from '@vite-hub/agent'; export default defineAgent({ name: 'explicit-review', driver: codexDriver(), runtime: false })")
   const second = join(root, 'server/agents/second')
   await mkdir(second, { recursive: true })
-  await writeFile(join(second, 'agent.ts'), "import { defineAgent } from '@vite-hub/agent'; export default defineAgent({ name: 'explicit-second', driver: { kind: 'codex' }, runtime: false })")
+  await writeFile(join(second, 'agent.ts'), "import { codexDriver, defineAgent } from '@vite-hub/agent'; export default defineAgent({ name: 'explicit-second', driver: codexDriver(), runtime: false })")
   await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
   const entry = join(root, 'aliases.ts')
   await writeFile(entry, `import { registerPublicUrlAgentName, resolvePublicUrl } from '@vite-hub/runtime'
@@ -319,7 +319,7 @@ it('refreshes discovered agents and their first instructions when files are adde
     const folder = join(root, 'server/agents/new-agent')
     await mkdir(folder, { recursive: true })
     const definition = join(folder, 'agent.ts')
-    await writeFile(definition, "import { defineAgent } from '@vite-hub/agent'; export default defineAgent({ driver: { kind: 'codex' }, runtime: false })")
+    await writeFile(definition, "import { codexDriver, defineAgent } from '@vite-hub/agent'; export default defineAgent({ driver: codexDriver(), runtime: false })")
     server.watcher.emit('add', definition)
     await expect.poll(async () => Object.keys((await server.ssrLoadModule(registryPath)).default)).toEqual(['new-agent'])
     const instructions = join(folder, 'instructions.md')

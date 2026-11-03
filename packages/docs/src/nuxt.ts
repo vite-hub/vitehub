@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs"
-import { dirname, join, resolve } from "node:path"
+import { dirname, join, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import {
@@ -120,7 +120,7 @@ interface NitroOptions {
   alias?: Record<string, string>
   serverAssets?: Array<{ baseName: string, dir: string, pattern?: string }>
   publicAssets?: Array<{ baseURL?: string, dir: string, fallthrough?: boolean, maxAge?: number }>
-  prerender?: { crawlLinks?: boolean, autoSubfolderIndex?: boolean }
+  prerender?: { crawlLinks?: boolean, autoSubfolderIndex?: boolean, routes?: string[] }
   experimental?: { asyncContext?: boolean }
   externals?: { inline?: Array<string | RegExp> | boolean }
 }
@@ -198,13 +198,13 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
 
     let manifest = createDocsManifest({ dir: contentDir, base: config.base })
     /** Writes the agent copy of every page. `nuxi build` empties the build folder after the modules load, so it runs before the build. */
-    async function writeRaw() {
+    async function writeRaw(snapshot = manifest) {
       rmSync(rawDir, { force: true, recursive: true })
-      for (const page of docsManifestPages(manifest)) {
+      for (const page of docsManifestPages(snapshot)) {
         const target = join(rawDir, docsRawFile(page.path))
         mkdirSync(dirname(target), { recursive: true })
         const source = readFileSync(join(contentDir, page.file), "utf8")
-        writeFileSync(target, toRawMarkdown(options.rawMarkdown ? await options.rawMarkdown(source, page) : source, { siteUrl: `${config.site.url}${config.appBase.replace(/\/+$/, "")}` }))
+        writeFileSync(target, toRawMarkdown(options.rawMarkdown ? await options.rawMarkdown(source, page) : source, { siteUrl: `${config.site.url}${config.appBase.replace(/\/+$/, "")}`, pagePath: page.path }))
       }
     }
     nuxt.hook("build:before", writeRaw)
@@ -280,30 +280,45 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     }).dst
 
     // Nuxt watches the app folder, and the content folder usually sits beside it, so the module watches it in development.
-    if (nuxt.options.dev && existsSync(contentDir)) {
+    if (nuxt.options.dev) {
+      // Watch the nearest existing parent until the configured content directory is created.
+      let watchDir = contentDir
+      while (!existsSync(watchDir) && dirname(watchDir) !== watchDir) watchDir = dirname(watchDir)
       let timer: ReturnType<typeof setTimeout> | undefined
-      const watcher = watch(contentDir, { recursive: true }, (_event, file) => {
-        if (!file || !/(\.md|\.navigation\.yml)$/.test(file)) return
+      let regeneration = Promise.resolve()
+      let closed = false
+      const logError = (error: unknown) => useLogger("@vite-hub/docs").error(error)
+      const watcher = watch(watchDir, { recursive: true }, (event, file) => {
+        if (file) {
+          const changedPath = resolve(watchDir, file)
+          if (changedPath !== contentDir && !changedPath.startsWith(`${contentDir}${sep}`) && !contentDir.startsWith(`${changedPath}${sep}`)) return
+          if (event === "change" && !/(\.md|\.navigation\.yml)$/.test(file)) return
+        }
         clearTimeout(timer)
-        timer = setTimeout(async () => {
-          try {
-            const next = createDocsManifest({ dir: contentDir, base: config.base })
-            const changed = JSON.stringify(next) !== JSON.stringify(manifest)
-            manifest = next
-            await writeRaw()
-            // A body edit shows on the next page load, because pages parse on each request in development. Titles,
-            // order, and new pages live in the manifest that the app and the server load once, so they restart.
-            if (changed) await nuxt.callHook("restart")
-          }
-          catch (error) {
-            // A half-typed frontmatter must not stop the server. The site keeps the last valid pages until the file is fixed.
-            useLogger("@vite-hub/docs").error(error)
-          }
+        timer = setTimeout(() => {
+          // A transform may be asynchronous. Each run must finish before another can replace its raw output.
+          regeneration = regeneration.then(async () => {
+            if (closed) return
+            try {
+              const next = createDocsManifest({ dir: contentDir, base: config.base })
+              const changed = JSON.stringify(next) !== JSON.stringify(manifest)
+              await writeRaw(next)
+              manifest = next
+              // Do not await restart here: Nuxt closes the watcher and drains this run before restarting.
+              if (changed && !closed) void Promise.resolve(nuxt.callHook("restart")).catch(logError)
+            }
+            catch (error) {
+              // A half-typed frontmatter must not stop the server. The site keeps the last valid pages until the file is fixed.
+              logError(error)
+            }
+          })
         }, 100)
       })
-      nuxt.hook("close", () => {
+      nuxt.hook("close", async () => {
+        closed = true
         clearTimeout(timer)
         watcher.close()
+        await regeneration
       })
     }
 
@@ -383,6 +398,25 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // The raw copy is the file as written, without the frontmatter that nuxt-agent-discovery adds to its own raw route.
     addServerHandler({ route: "/raw/**", method: "get", handler: resolver.resolve("./runtime/server/raw.js") })
 
+    /**
+     * The routes that the build prerenders. Nuxt lets the client read `_payload.json` only when the Nitro config lists
+     * prerender routes. Routes from the `prerender:routes` hook come too late: the prerendered HTML then has no page
+     * data, and every static page hydrates to "Page not found".
+     */
+    function prerenderRoutes(): string[] {
+      return [
+        ...docsManifestPages(manifest).flatMap(page => [
+          page.path,
+          // Client navigation reads the parsed page, so static hosts serve it instead of parsing on each request.
+          `/api/_docs/page${page.path === "/" ? "/index" : page.path}.json`,
+        ]),
+        "/api/_docs/search.json",
+        "/sitemap.xml",
+        // nuxt-agent-discovery serves the Markdown sitemap per request. Its pages are known at build time.
+        "/sitemap.md",
+      ]
+    }
+
     // Nuxt types `nitro:config` only when Nitro's types load.
     Reflect.apply(nuxt.hook, nuxt, ["nitro:config", (nitro: NitroOptions) => {
       if (config.appBase !== "/") {
@@ -407,22 +441,12 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       nitro.serverAssets = [...nitro.serverAssets ?? [], { baseName: "docs", dir: contentDir, pattern: "**/*.md" }, { baseName: "docs-raw", dir: rawDir }]
       // A removed page has no raw file. Fall through so a redirect route rule answers it.
       nitro.publicAssets = [...nitro.publicAssets ?? [], { baseURL: "/raw", dir: rawDir, fallthrough: true, maxAge: 300 }]
-      // `docs/kv.html` beside the `docs/kv/` folder, and every linked page, as static hosts expect.
-      nitro.prerender = defu(nitro.prerender, { crawlLinks: true, autoSubfolderIndex: false })
+      // `docs/kv.html` beside the `docs/kv/` folder, and every linked page, as static hosts expect. Development
+      // prerenders nothing, and Nuxt would turn listed routes into prerender route rules there.
+      nitro.prerender = defu(nitro.prerender, { crawlLinks: true, autoSubfolderIndex: false, routes: nuxt.options.dev ? [] : prerenderRoutes() })
       // The MCP toolkit reads the current request through Nitro's async context.
       if (config.mcp) nitro.experimental = { ...nitro.experimental, asyncContext: true }
     }])
-    nuxt.hook("prerender:routes", ({ routes }) => {
-      for (const page of docsManifestPages(manifest)) {
-        routes.add(page.path)
-        // Client navigation reads the parsed page, so static hosts serve it instead of parsing on each request.
-        routes.add(`/api/_docs/page${page.path === "/" ? "/index" : page.path}.json`)
-      }
-      routes.add("/api/_docs/search.json")
-      routes.add("/sitemap.xml")
-      // nuxt-agent-discovery serves the Markdown sitemap per request. Its pages are known at build time.
-      routes.add("/sitemap.md")
-    })
   },
 })
 

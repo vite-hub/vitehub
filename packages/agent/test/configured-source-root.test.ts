@@ -6,7 +6,7 @@ import { transform } from "esbuild"
 import { expect, it, vi } from "vitest"
 
 import { getAgentLayerOptions, inheritAgentLayerOptions } from "../src/agent-layers.ts"
-import { agentWithSkills, defineAgent, runAgent } from "../src/index.ts"
+import { agentWithSkills, codexDriver, defineAgent, runAgent } from "../src/index.ts"
 import { colocatedAgentSkillsSymbol, withColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
 import { hubAgent } from "../src/vite.ts"
 import { workspaceAgentWithSourceRoot, workspaceDefinitionFromOptions } from "../src/workspace-agent.ts"
@@ -66,7 +66,7 @@ it("restores the discovered source root through the generated deployment helper"
 })
 
 it("keeps runtime source-root decoration live before parent discovery", () => {
-  const parent = defineAgent({ driver: "codex", workspace: {} })
+  const parent = defineAgent({ driver: codexDriver(), workspace: {} })
   const child = workspaceAgentWithSourceRoot(defineAgent({ extends: parent }), "/child")
   const skills = { review: { content: "Review.", workspacePath: "skills/review/SKILL.md" } }
   withColocatedAgentSkills(parent, skills)
@@ -103,7 +103,7 @@ it("keeps generated colocated skills available to derived definitions", async ()
       mount: ""
       workspacePath: string
     }>) => object
-    const base = defineAgent({ driver: "codex", workspace: {} })
+    const base = defineAgent({ driver: codexDriver(), workspace: {} })
     const encodedSkills = {
       review: {
         content: Buffer.from("Review.").toString("base64"),
@@ -125,7 +125,7 @@ it("keeps generated colocated skills available to derived definitions", async ()
     const discoveredChild = decorate(child, "/child", undefined, undefined)
     expect(Reflect.get(discoveredChild, colocatedAgentSkillsSymbol)).toEqual(Reflect.get(child, colocatedAgentSkillsSymbol))
 
-    const lateParent = defineAgent({ driver: "codex", workspace: {} })
+    const lateParent = defineAgent({ driver: codexDriver(), workspace: {} })
     const lateChild = defineAgent({ extends: lateParent })
     const decoratedLateChild = decorate(lateChild, "/late-child", undefined, undefined)
     decorate(lateParent, "/late-parent", undefined, encodedSkills)

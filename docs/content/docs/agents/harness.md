@@ -81,12 +81,11 @@ Each property is one part of the harness. ViteHub discovers the file in `server/
 To run the same Agent in the Codex harness, change only the Driver:
 
 ```ts [server/agents/docs/agent.ts]
-driver: {
-  kind: 'codex',
+driver: codexDriver({
   model: 'gpt-5.5',
   instructions: 'Answer from the docs Workspace. Say when the answer is absent.',
   permissions: 'ask',
-},
+}),
 ```
 
 Now Codex runs the loop, its own file and shell tools, and the session. It works in a temporary directory with the Workspace files, so `workspaceShell()` adds no duplicate file tools. `permissions: 'ask'` is the default, so provider actions request approval. Codex needs the `@openai/codex` package, credentials, and a Node.js host. [Use a provider-backed Driver](/docs/agents/agent-drivers#use-a-provider-backed-driver) explains the setup.
@@ -104,8 +103,8 @@ An [Agent Driver](/docs/agents/agent-drivers) decides who runs the loop for one 
 | Driver | Who runs the loop | Use it for |
 | --- | --- | --- |
 | `{ model }` | ViteHub, with an AI SDK model | Answers, classification, extraction, structured output, and bounded tool use. |
-| `'codex'` or `{ kind: 'codex' }` | The Codex harness | Code changes, shell commands, and coding sessions over many turns. |
-| `'claude-code'` or `{ kind: 'claude-code' }` | Claude Code, through the Claude Agent SDK | Code changes, shell commands, and coding sessions over many turns. |
+| `codexDriver()` | The Codex harness | Code changes, shell commands, and coding sessions over many turns. |
+| `claudeCodeDriver()` | Claude Code, through the Claude Agent SDK | Code changes, shell commands, and coding sessions over many turns. |
 | `{ run }` | Your function | Work that does not need a model loop. |
 | `{ ask }` | TypeSafe Jev | A few typed answers, such as a label or a score. |
 

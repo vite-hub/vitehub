@@ -294,9 +294,9 @@ describe("built-in deployment preset integration", () => {
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "dev.ts"), [
-        `import { defineAgent } from "vite-hub/agent"`,
+        `import { codexDriver, defineAgent } from "vite-hub/agent"`,
         `import { cliproxy, cloudflareAccess } from "vite-hub/gateways"`,
-        `export default defineAgent({ driver: { kind: "codex", gateway: cliproxy({ headers: cloudflareAccess() }) } })`,
+        `export default defineAgent({ driver: codexDriver({ gateway: cliproxy({ headers: cloudflareAccess() }) }) })`,
       ].join("\n"))
       const config = await resolveConfig({
         root,
@@ -376,18 +376,15 @@ describe("built-in deployment preset integration", () => {
       expect(await readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).not.toContain("\"telegram\": {")
 
       for (const { source, required } of [
-        { source: `defineAgent({ channels: { telegram: undefined } })`, required: true },
         { source: `defineAgent({ channels: { telegram: telegram(undefined) } })`, required: true },
         { source: `defineAgent({ channels: { telegram: telegram(({})) } })`, required: true },
         { source: `defineAgent({ channels: { telegram: telegram((({ botToken: "token" }))) } })`, required: false },
         { source: `defineAgent({ channels: { telegram: telegram?.({ botToken: "token" }) } })`, required: false },
         { source: `defineAgent({ channels: { support: telegram<Runtime> } })`, required: true },
         { source: `defineAgent({ channels: { support: (telegram) } })`, required: true },
-        { source: `const channels = ({ telegram: {} }); defineAgent({ channels })`, required: true },
-        { source: `const channels = ({ telegram: {} }) && custom; defineAgent({ channels })`, required: false },
+        { source: `const channels = ({ support: telegram }); defineAgent({ channels })`, required: true },
+        { source: `const channels = ({ support: telegram }) && custom; defineAgent({ channels })`, required: false },
         { source: `defineAgent({ channels: { telegram: telegram({ botToken: void 0 }) } })`, required: true },
-        { source: `defineAgent({ channels: { telegram: { botToken: void 0, adapter: void 0 } } })`, required: true },
-        { source: `defineAgent({ channels: { telegram: void 0 } })`, required: true },
         { source: `defineAgent({ channels: { support: channelFactories?.["telegram"]() } })`, required: true },
         { source: `defineAgent({ channels: { support: channelFactories?.["telegram"]?.<Runtime>({ botToken: "token" }) } })`, required: false },
         { source: `function run() { telegram()\n{} }; defineAgent({ channels: {} })`, required: true },
@@ -396,10 +393,10 @@ describe("built-in deployment preset integration", () => {
         { source: `function build({ telegram: configured }: { telegram?: string }) { return telegram() }; defineAgent({ channels: { support: build({}) } })`, required: true },
         { source: `defineAgent({ channels: { telegram: telegram({ botToken: undefined as string | undefined }) } })`, required: true },
         { source: `const present = "telegram" in { telegram() {} }; type Conditional<T> = T extends { telegram(): void } ? true : false; defineAgent({ channels: {} })`, required: false },
-        { source: `const channels = { telegram: {} }; defineAgent({ channels: channels satisfies AgentChannelInputs })`, required: true },
-        { source: `const channels = { telegram: {} }; defineAgent({ channels: (channels as AgentChannelInputs) })`, required: true },
-        { source: `const channels = { telegram: {} }; defineAgent({ channels: ((channels satisfies AgentChannelInputs)) })`, required: true },
-        { source: `defineAgent({ channels: { telegram: { async botToken() { return "token" } } } })`, required: false },
+        { source: `const channels = { support: telegram }; defineAgent({ channels: channels satisfies AgentChannelInputs })`, required: true },
+        { source: `const channels = { support: telegram }; defineAgent({ channels: (channels as AgentChannelInputs) })`, required: true },
+        { source: `const channels = { support: telegram }; defineAgent({ channels: ((channels satisfies AgentChannelInputs)) })`, required: true },
+        { source: `defineAgent({ channels: { telegram: telegram({ async botToken() { return "token" } }) } })`, required: false },
       ]) {
         await writeFile(join(root, "server", "agents", "support.ts"), [
           `import { defineAgent } from "vite-hub/agent"`,
@@ -423,8 +420,9 @@ describe("built-in deployment preset integration", () => {
       await rm(join(root, "server", "agents", "support.js"))
 
       await writeFile(join(root, "server", "agents", "support.ts"), [
+        `import { telegram } from "vite-hub/agent/channels"`,
         `const defineAgent = (options) => options`,
-        `export default defineAgent({ channels: { telegram: {} } })`,
+        `export default defineAgent({ channels: { support: telegram } })`,
       ].join("\n"))
       expect(requiredSecrets(await resolve()) ?? []).not.toContain("TELEGRAM_BOT_TOKEN")
       expect(await readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).not.toContain("\"telegram\": {")
@@ -624,7 +622,7 @@ describe("built-in deployment preset integration", () => {
       const files = (await readdir(serverDir, { recursive: true })).filter(file => file.endsWith(".mjs"))
       const sources = await Promise.all(files.map(file => readFile(join(serverDir, file), "utf8")))
       const bundle = sources.join("\n")
-      expect(bundle).toContain("AGENT_R0928")
+      expect(files.filter(file => file.includes("provider-agent"))).toEqual([])
       expect(bundle).not.toContain("createSqliteProviderRuntimeSessionStore")
       expect(bundle).not.toMatch(/["']node:child_process["']/)
       expect(bundle).not.toMatch(/createRequire\(\s*import\.meta\.url\s*\)/)
@@ -641,8 +639,8 @@ describe("built-in deployment preset integration", () => {
       await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
       await writeFile(join(root, "index.html"), "<main>ok</main>\n")
       await writeFile(join(root, "server", "agents", "review.ts"), [
-        "import { defineAgent } from \"vite-hub/agent\"",
-        "export default defineAgent({ driver: \"codex\" })",
+        "import { codexDriver, defineAgent } from \"vite-hub/agent\"",
+        "export default defineAgent({ driver: codexDriver() })",
         "",
       ].join("\n"))
       const { nitro } = await import("nitro/vite" as string) as { nitro: () => unknown }
@@ -652,7 +650,7 @@ describe("built-in deployment preset integration", () => {
         plugins: [vitehub({ agent: true, preset: "cloudflare", workflow: false }), nitro() as never],
       })
 
-      await expect(builder.buildApp()).rejects.toThrow(/AGENT_B0019[\s\S]*server\/agents\/review\.ts/)
+      await expect(builder.buildApp()).rejects.toThrow(/AGENT_B0019[\s\S]*cannot run in a Cloudflare Worker/)
     }
     finally {
       await rm(root, { force: true, recursive: true })

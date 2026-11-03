@@ -3,8 +3,9 @@ import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { collectScheduleContributions } from "./contributions.ts"
 import { discoverScheduleDefinitions } from "./discovery.ts"
 import { readRuntimeDefinitionCrons, readStaticScheduleTimeZone } from "./internal/provider-output.ts"
+import { scheduleConsoleTiming } from "./runtime/console.ts"
 
-import type { ViteHubConsoleRecord, ViteHubConsoleSectionContribution } from "@vite-hub/internal/console"
+import type { ViteHubConsoleRecord, ViteHubConsoleRuntimeRecordTableSection } from "@vite-hub/internal/console"
 import type { ViteHubDefinitionField, ViteHubDefinitionSummary } from "@vite-hub/internal/inspect"
 import type { DiscoveredScheduleDefinition } from "./types.ts"
 
@@ -95,7 +96,7 @@ function definitionRecord(summary: ViteHubDefinitionSummary): ViteHubConsoleReco
     cells: {
       manual: field("Manual") === "Enabled" ? "Yes" : "No",
       schedule: summary.name,
-      timing: !cron ? "-" : timeZone === "UTC" ? cron : `${cron} (${timeZone})`,
+      timing: cron && timeZone ? scheduleConsoleTiming(cron, timeZone) : "-",
     },
     fields: [
       ...summary.fields,
@@ -114,15 +115,18 @@ export async function inspectScheduleConsoleRecords(options: ScheduleInspectionO
 }
 
 /**
- * Console section for Schedules. Records list discovered Schedule Definitions. `vitehub inspect definitions` reads the
- * same Definitions, and `vitehub schedule runs <name>` lists the runs that a runtime recorded.
+ * Console section for Schedules. Records list discovered Schedule Definitions. When the server runs the Process Runtime,
+ * the cron and time zone come from the loaded Definitions, so any expression shows its real value.
+ * `vitehub inspect definitions` reads the same Definitions from source, and `vitehub schedule runs <name>` lists the runs
+ * that a runtime recorded.
  */
-export const scheduleConsoleSection: ViteHubConsoleSectionContribution<ScheduleInspectionOptions> = {
+export const scheduleConsoleSection: ViteHubConsoleRuntimeRecordTableSection<ScheduleInspectionOptions> = {
   description: "Inspect Schedule Definitions.",
   icon: "i-lucide-calendar-clock",
   id: "schedules",
   label: "Schedules",
   read: inspectScheduleConsoleRecords,
+  runtime: { export: "readScheduleConsoleRecords", module: "@vite-hub/schedule/runtime/console" },
   view: {
     columns: [
       { key: "schedule", label: "Schedule" },
@@ -130,6 +134,6 @@ export const scheduleConsoleSection: ViteHubConsoleSectionContribution<ScheduleI
       { key: "manual", label: "Manual" },
     ],
     kind: "record-table",
-    notice: "The host runs each Schedule on its UTC cron. Definitions with `manual: true` can also run from the Console or `vitehub schedule run`.",
+    notice: "The host runs each Schedule on its cron, in its time zone (UTC by default). Definitions with `manual: true` can also run from the Console or `vitehub schedule run`.",
   },
 }

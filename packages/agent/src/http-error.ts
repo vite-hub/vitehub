@@ -33,7 +33,7 @@ export class AgentHttpError extends Diagnostic {
 function getHttpErrorStatusCode(error: unknown): number | undefined {
   const statusCode = readAgentErrorProperty(error, "statusCode")
   if (typeof statusCode === "number" && statusCode >= 400 && statusCode <= 599) return statusCode
-  if (chatgptGatewayDiagnostic(error)) return 503
+  if (chatgptGatewayDiagnostic(error)) return readAgentErrorProperty(error, "code") === "AGENT_R1017" ? 429 : 503
   const code = getViteHubErrorShape(error)?.code
   if (code === "AUTHENTICATION_REQUIRED") return 401
   if (code === "RATE_LIMIT_REJECTED") return 429
