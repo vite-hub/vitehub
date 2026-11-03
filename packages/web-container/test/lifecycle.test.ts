@@ -164,6 +164,49 @@ describe("WebContainer lifecycle", () => {
     await expect(app.preview.ready).resolves.toEqual({ port: 3000, url: "https://first.example" })
   })
 
+  it.each(["spawning", "starting", "ready"])("rejects overlapping dev runs while the first is %s", async (stage) => {
+    const { container, events, process, exited } = fixture()
+    const spawning = deferred<typeof process>()
+    container.spawn.mockReturnValueOnce(spawning.promise)
+    const app = await bootWebContainer()
+    const pending = app.run("dev")
+    if (stage !== "spawning") {
+      spawning.resolve(process)
+      await pending
+    }
+    if (stage === "ready") events.emit("server-ready", 3000, "https://first.example")
+    const status = app.status
+
+    await expect(app.run("dev")).rejects.toThrow("A dev process is already running. Stop it and await its exit before starting another.")
+    expect(container.spawn).toHaveBeenCalledOnce()
+    expect(app.status).toBe(status)
+
+    spawning.resolve(process)
+    const first = await pending
+    events.emit("server-ready", 3001, "https://first.example")
+    exited.resolve(0)
+    await first.exit
+
+    const secondExit = deferred<number>()
+    container.spawn.mockResolvedValueOnce({ ...process, output: new ReadableStream<string>({ start(controller) { controller.close() } }), exit: secondExit.promise })
+    const second = await app.run("dev")
+    secondExit.resolve(1)
+    await second.exit
+    expect(app.status).toMatchObject({ stage: "error", error: { message: "The dev server exited with code 1 before it was ready." } })
+  })
+
+  it("allows another dev run after spawn rejects", async () => {
+    const { container, events, exited } = fixture()
+    container.spawn.mockRejectedValueOnce(new Error("spawn failed"))
+    const app = await bootWebContainer()
+    await expect(app.run("dev")).rejects.toThrow("spawn failed")
+    const run = await app.run("dev")
+    events.emit("server-ready", 3000, "https://retry.example")
+    expect(app.status.stage).toBe("ready")
+    exited.resolve(0)
+    await run.exit
+  })
+
   it("rejects pending readiness on teardown", async () => {
     const { container } = fixture()
     const app = await bootWebContainer()

@@ -90,6 +90,7 @@ export interface ViteHubWebContainer {
   readonly status: WebContainerStatus
   preview: WebContainerPreview
   fs: FileSystemAPI
+  /** Only one `dev` run may be active. Stop it and await its exit before starting another. */
   run: (command: WebContainerCommand, options?: WebContainerRunOptions) => Promise<WebContainerRun>
   /** Serializes the working directory to a binary snapshot that `bootWebContainer({ snapshot })` mounts. */
   export: (options?: { path?: string, excludes?: string[], includes?: string[] }) => Promise<Uint8Array>
@@ -271,6 +272,7 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
   let rejectReady!: (error: Error) => void
   let readySettled = false
   let serverReadyCount = 0
+  let devRunning = false
   const ready = new Promise<WebContainerPreviewServer>((resolve, reject) => { resolveReady = resolve; rejectReady = reject })
   // Readiness is optional: consumers may use status events without awaiting it.
   void ready.catch(() => {})
@@ -305,6 +307,11 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
     async run(command, runOptions = {}) {
       const [file, ...args] = typeof command === "string" ? commandLines[command] : command
       const stage = typeof command === "string" ? commandStages[command] : undefined
+      if (stage === "starting") {
+        if (devRunning) throw new Error("A dev process is already running. Stop it and await its exit before starting another.")
+        // Reserve the slot before spawn yields so an overlapping call cannot share readiness.
+        devRunning = true
+      }
       const readyCountAtStart = serverReadyCount
       if (stage) status.enter(stage)
       let spawned: Awaited<ReturnType<StackBlitzWebContainer["spawn"]>>
@@ -313,6 +320,7 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
       }
       catch (cause) {
         const error = cause instanceof Error ? cause : new Error(String(cause))
+        if (stage === "starting") devRunning = false
         if (stage) fail(error)
         throw error
       }
@@ -325,6 +333,7 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
       }
       if (stage === "starting") {
         void run.exit.then((code) => {
+          devRunning = false
           if (serverReadyCount === readyCountAtStart) fail(new Error(`The dev server exited with code ${code} before it was ready.`))
         })
       }
