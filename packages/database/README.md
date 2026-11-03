@@ -55,6 +55,16 @@ export default defineConfig({
 })
 ```
 
+Cloudflare D1 binds at most 100 parameters in one statement. `chunkParameters(values, { per, reserved, limit })` from `@vite-hub/database/drizzle` splits values into arrays that fit one statement each: `per` is the parameters of one value (a Drizzle table counts its columns, for a multi-row insert), `reserved` the other parameters of the statement, and `limit` defaults to 100. It throws a `RangeError` when one value does not fit.
+
+The table shorthand covers inserts binding at most one parameter per column. The helper does not inspect row contents or SQL defaults. For SQL expressions with more bindings, supply a numeric `per` covering the maximum bindings of a whole row, including defaults: a one-column row containing `` sql`${first} || ${second}` `` needs `{ per: 2 }`.
+
+```ts
+for (const chunk of chunkParameters(ids, { reserved: 1 })) {
+  await db.delete(schema.files).where(and(eq(schema.files.ownerId, ownerId), inArray(schema.files.id, chunk)))
+}
+```
+
 ## Vite Integration
 
 Database instances expose Drizzle's `batch()` method on D1, D1 HTTP, and libSQL.
@@ -92,7 +102,7 @@ pnpm vitehub db migrate                   # refuse pending migrations that lose 
 pnpm vitehub db migrate --allow-data-loss # apply them, and skip the check
 ```
 
-Before it applies anything, `vitehub db migrate` reads Drizzle's migrations table (`__drizzle_migrations`) of each database, or Wrangler's table for D1 HTTP, to find the pending migrations. It refuses `DROP TABLE`, `DROP SCHEMA`, a column drop with `ALTER TABLE`, `TRUNCATE`, `DELETE` without `WHERE`, and a SQLite table rebuild that does not copy every column of the previous Drizzle snapshot. It reports them with `DATABASE_MIGRATION_DATA_LOSS` and exits with code 1. `--dry-run` also exits with code 1 in that case, so CI can run it as a check.
+Before it applies anything, `vitehub db migrate` reads Drizzle's migrations table (`__drizzle_migrations`) of each database, or Wrangler's table for D1 HTTP, to find the pending migrations. It refuses `DROP TABLE`, `DROP SCHEMA`, a column drop with `ALTER TABLE`, `TRUNCATE`, `DELETE` without `WHERE`, and a SQLite table rebuild that does not copy every column of the previous Drizzle snapshot. It reports them with `DATABASE_MIGRATION_DATA_LOSS` and exits with code 1. The check skips a table that an earlier pending migration of the same run created or dropped, because the table has no rows from before the run, for example a create and a drop on a new database. A table that gets rows from an older table, like a SQLite rebuild of an existing table, stays in the check. For PostgreSQL, this exception requires schema-qualified table names and, for `TRUNCATE`, `ONLY` on every target without `CASCADE`. After a SQLite temporary table is created, subsequent losses stay in the check because unqualified names can switch between temporary and permanent tables. `--dry-run` also exits with code 1 in that case, so CI can run it as a check.
 
 The check connects to the migration target: the local SQLite file, remote libSQL, D1 HTTP with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` (or the object-form `cloudflare.http` proxy's resolved `url` and `authToken`), or Postgres with the `postgres` package. When it cannot read the migrations table, it fails with `DATABASE_MIGRATION_CHECK_FAILED` and does not guess. A D1 HTTP database without Wrangler's table but with `__drizzle_migrations` keeps the migrations that Drizzle Kit applied: the first `vitehub db migrate` writes them to Wrangler's table. Wrangler applies the migrations of a native D1 binding, so that path has no check.
 
