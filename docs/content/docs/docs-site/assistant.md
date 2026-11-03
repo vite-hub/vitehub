@@ -137,7 +137,7 @@ The answer streams back. Without a ChatGPT grant, the stream has an error with `
 ## Limits
 
 - **Node.js host only.** Codex runs as a local process. A production build for Cloudflare Workers or another non-Node Nitro preset fails with [`DocsAssistantSetupError`](/docs/docs-site/limits-and-errors#docsassistantsetuperror) while `assistant` is on. Turn the assistant off for that build, for example `assistant: process.env.NITRO_PRESET !== 'cloudflare-module'`. The development server always runs on Node.
-- **ChatGPT plan in the development server only.** `vite-hub/nuxt` does not support Connections in production builds yet (`VITE_HUB_B0012`). An API key gateway does not need Connections.
+- **ChatGPT plan.** Connections work in Nuxt development and production builds. The assistant still requires a Node.js host to run Codex. An API key gateway does not need Connections.
 - **Plan use.** OpenAI allows plan usage for open-source projects, personal apps that run locally, and selected private apps. Paid apps and remotely hosted apps must join OpenAI's waitlist first. One host holds one grant. See [ChatGPT plan usage](/docs/connections/chatgpt).
 - **Shell access.** Codex reads the pages with shell commands in a temporary copy. Its sandbox blocks the network and writes outside that copy. But it can read other files that the server user can read, and a reader can ask for them. Run a public assistant as a user that can read only the app.
 - **Rate limit.** The default limit is in process memory. It resets on restart and does not span processes. It counts questions for the whole site, so one reader can use the budget of the hour for everyone.

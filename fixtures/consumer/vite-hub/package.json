@@ -15,7 +15,7 @@
     "@vite-hub/database": "*",
     "@vite-hub/schedule": "*",
     "@vite-hub/workspace": "*",
-    "better-auth": "1.7.7",
+    "better-auth": "1.7.15",
     "drizzle-orm": "0.45.3",
     "vite": "8.2.2",
     "vite-hub": "*"

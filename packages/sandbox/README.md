@@ -113,7 +113,7 @@ const vercel = await resolveSandbox({
 
 Use `runtime: "vercel"` for the default Vercel Sandbox configuration. Cloudflare remains tag-only because its Durable Objects namespace is required.
 
-The Cloudflare runtime uses `@cloudflare/sandbox`, preserves Durable Object idle reuse, and bounds transient transport operations with retries and deadlines. The Vercel runtime exposes only the ports declared when the microVM is created. Both reject host `cwd`; materialize a Workspace into their working tree instead.
+The Cloudflare runtime talks to the Sandbox Durable Object that the ViteHub Cloudflare host integration generates. That class starts the Container with the Workers Container API, uses `Files` from `@cloudflare/sandbox` 1.x, preserves Durable Object idle reuse, and the runtime bounds transient transport operations with retries and deadlines. Pass `getSandbox` to use another Durable Object that implements `CloudflareSandboxStub`. The Vercel runtime exposes only the ports declared when the microVM is created. Both reject host `cwd`; materialize a Workspace into their working tree instead.
 
 If Cloudflare Sandbox or Vercel cleanup fails, retry `session.close()`. The session rejects new operations after the first close attempt. Concurrent close calls wait for the same cleanup.
 
@@ -309,7 +309,7 @@ pnpm add @vite-hub/sandbox typescript @vercel/sandbox vite
 
 Sandbox Task requires Node.js 22.18 or newer. Vercel execution also requires a Vercel project with Sandbox access. At runtime, use the project's environment or set `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, and `VERCEL_PROJECT_ID`.
 
-For Cloudflare, install `@cloudflare/sandbox` instead and use the ViteHub Cloudflare host integration so it can emit the required Container, Durable Object binding, migration, and Worker exports. Both providers run remote, potentially billed infrastructure; Sandbox does not include a local in-process provider.
+For Cloudflare, install `@cloudflare/sandbox` 1.x instead and use the ViteHub Cloudflare host integration so it can emit the required Container, Durable Object binding, migration, and Worker exports. Both providers run remote, potentially billed infrastructure; Sandbox does not include a local in-process provider.
 
 ### Run one Sandbox Task
 
