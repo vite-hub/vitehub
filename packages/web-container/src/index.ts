@@ -62,11 +62,11 @@ export interface WebContainerRunOptions {
 }
 
 export interface WebContainerRun {
-  /** Terminal output of the process and its children. Read it once. */
+  /** Terminal output of the process and its children. Read it once. Buffers up to 65,536 characters; excess output is dropped until the reader catches up. */
   output: ReadableStream<string>
   /** Resolves with the exit code. */
   exit: Promise<number>
-  /** Resolves with all output after the process exits. */
+  /** Resolves with the last 65,536 characters of output after the process exits. */
   text: () => Promise<string>
   /** Writes to the process stdin. */
   write: (input: string) => Promise<void>
@@ -190,10 +190,26 @@ function createStatusTracker(onStatus?: (status: WebContainerStatus) => void) {
   }
 }
 
+const outputLimit = 64 * 1024
+
 function wrapProcess(spawned: Awaited<ReturnType<StackBlitzWebContainer["spawn"]>>, signal?: AbortSignal): WebContainerRun {
-  const [output, own] = spawned.output.tee()
-  const chunks: string[] = []
-  const collected = own.pipeTo(new WritableStream({ write(chunk) { chunks.push(chunk) } })).catch(() => {})
+  let captured = ""
+  let outputCancelled = false
+  let outputController!: ReadableStreamDefaultController<string>
+  const output = new ReadableStream<string>({
+    start(controller) { outputController = controller },
+    cancel() { outputCancelled = true },
+  }, { highWaterMark: outputLimit, size: chunk => chunk.length })
+  // Drain the process even when the terminal is idle, without tee()'s unbounded queue.
+  const collected = spawned.output.pipeTo(new WritableStream<string>({
+    write(chunk) {
+      captured = (captured + chunk).slice(-outputLimit)
+      const available = outputController.desiredSize ?? 0
+      if (!outputCancelled && available > 0 && chunk.length > 0) outputController.enqueue(chunk.slice(0, available))
+    },
+    close() { if (!outputCancelled) outputController.close() },
+    abort(error) { if (!outputCancelled) outputController.error(error) },
+  })).catch(() => {})
   const kill = () => spawned.kill()
   signal?.addEventListener("abort", kill, { once: true })
   if (signal?.aborted) kill()
@@ -205,7 +221,7 @@ function wrapProcess(spawned: Awaited<ReturnType<StackBlitzWebContainer["spawn"]
     async text() {
       await exit
       await collected
-      return chunks.join("")
+      return captured
     },
     async write(input) {
       const writer = spawned.input.getWriter()
@@ -254,6 +270,7 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
   let resolveReady!: (server: WebContainerPreviewServer) => void
   let rejectReady!: (error: Error) => void
   let readySettled = false
+  let serverReadyCount = 0
   const ready = new Promise<WebContainerPreviewServer>((resolve, reject) => { resolveReady = resolve; rejectReady = reject })
   // Readiness is optional: consumers may use status events without awaiting it.
   void ready.catch(() => {})
@@ -267,6 +284,7 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
     status.fail("error", error)
   }
   container.on("server-ready", (port, url) => {
+    serverReadyCount++
     server = { port, url }
     if (!readySettled) {
       readySettled = true
@@ -287,6 +305,7 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
     async run(command, runOptions = {}) {
       const [file, ...args] = typeof command === "string" ? commandLines[command] : command
       const stage = typeof command === "string" ? commandStages[command] : undefined
+      const readyCountAtStart = serverReadyCount
       if (stage) status.enter(stage)
       let spawned: Awaited<ReturnType<StackBlitzWebContainer["spawn"]>>
       try {
@@ -306,7 +325,7 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
       }
       if (stage === "starting") {
         void run.exit.then((code) => {
-          if (!readySettled) fail(new Error(`The dev server exited with code ${code} before it was ready.`))
+          if (serverReadyCount === readyCountAtStart) fail(new Error(`The dev server exited with code ${code} before it was ready.`))
         })
       }
       return run

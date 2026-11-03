@@ -69,7 +69,7 @@ document.querySelector("iframe")!.src = url
 ```
 
 - `run("install")` runs `npm install`. `run("dev")` and `run("build")` run the npm scripts of the app. Pass an array, such as `run(["node", "scripts/seed.js"])`, to run any command line.
-- A run returns `output` (a stream that you read once), `exit` (the exit code), `text()` (all output after exit), `write(input)`, and `kill()`. Pass `signal` to kill it with an `AbortController`.
+- A run returns `output` (a stream that you read once), `exit` (the exit code), `text()` (the last 65,536 output characters after exit), `write(input)`, and `kill()`. The stream buffers up to 65,536 characters and drops excess output until its reader catches up, so an idle terminal cannot accumulate unlimited logs. Pass `signal` to kill it with an `AbortController`.
 - `container.preview.ready` resolves with the first server that becomes ready. It rejects if startup fails or the container is torn down before readiness. The WebContainer chooses the port, so read `url` and `port` from it instead of the port that the app asks for.
 - Show the preview in an `<iframe>` on the same page. The preview origin does not answer a `fetch()` from the page.
 - `container.fs` is the WebContainer file system API (`readFile`, `writeFile`, `readdir`, `mkdir`, `rm`, `watch`).

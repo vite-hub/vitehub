@@ -39,6 +39,7 @@ describe("workspace inventory", () => {
       "source",
       "ui",
       "vite-hub",
+      "web-container",
       "workflow",
       "workspace",
     ])

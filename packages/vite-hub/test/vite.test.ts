@@ -138,7 +138,7 @@ import { vitehub, type ViteHubOptions } from "../src/index.ts"
 import { isIncludedNitroPlugin } from "../src/nitro-plugin.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
-const deniedGeneratedOwnerPackageNames = new Set(["@vite-hub/cli"])
+const deniedGeneratedOwnerPackageNames = new Set(["@vite-hub/cli", "@vite-hub/web-container"])
 const generatedOwnerPackageCases = Object.keys({ ...frameworkPackageManifest.dependencies, ...frameworkPackageManifest.peerDependencies })
   .filter(name => name.startsWith("@vite-hub/"))
   .map(name => [name, deniedGeneratedOwnerPackageNames.has(name) ? "deny" : "resolve"] as const)

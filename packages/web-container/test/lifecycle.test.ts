@@ -14,10 +14,13 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
-function fixture() {
+function fixture(chunks: string[] = []) {
   const exited = deferred<number>()
   const process = {
-    output: new ReadableStream<string>({ start(controller) { controller.close() } }),
+    output: new ReadableStream<string>({ start(controller) {
+      for (const chunk of chunks) controller.enqueue(chunk)
+      controller.close()
+    } }),
     input: new WritableStream<string>(),
     exit: exited.promise,
     kill: vi.fn(() => exited.resolve(143)),
@@ -41,6 +44,30 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
 describe("WebContainer lifecycle", () => {
+  it("bounds captured text and unread output for a chatty process", async () => {
+    const limit = 64 * 1024
+    const { exited } = fixture(["a".repeat(limit), "b".repeat(limit), "tail"])
+    const app = await bootWebContainer()
+    const run = await app.run(["node", "script.js"])
+    exited.resolve(0)
+    const text = await run.text()
+    expect(text.length).toBe(limit)
+    expect(text === `${"b".repeat(limit - 4)}tail`).toBe(true)
+    let output = ""
+    await run.output.pipeTo(new WritableStream({ write(chunk) { output += chunk } }))
+    expect(output.length).toBe(limit)
+    expect(output === "a".repeat(limit)).toBe(true)
+  })
+
+  it("keeps capturing text after the output reader cancels", async () => {
+    const { exited } = fixture(["finished"])
+    const app = await bootWebContainer()
+    const run = await app.run(["node", "script.js"])
+    await run.output.cancel()
+    exited.resolve(0)
+    await expect(run.text()).resolves.toBe("finished")
+  })
+
   it.each(["files", "snapshot"] as const)("frees the container when mounting %s fails", async (source) => {
     const { container } = fixture()
     const error = new Error("mount failed")
@@ -116,6 +143,25 @@ describe("WebContainer lifecycle", () => {
     await Promise.resolve()
     expect(app.status).toMatchObject({ stage: "error", error: { message: "runtime failed" } })
     expect(rejected).toHaveBeenCalledWith(app.status.error)
+  })
+
+  it("reports a later dev startup failure after the first preview is ready", async () => {
+    const { container, events, process, exited } = fixture()
+    const app = await bootWebContainer()
+    const first = await app.run("dev")
+    events.emit("server-ready", 3000, "https://first.example")
+    exited.resolve(0)
+    await first.exit
+
+    const secondExit = deferred<number>()
+    container.spawn.mockResolvedValueOnce({ ...process, output: new ReadableStream<string>({ start(controller) { controller.close() } }), exit: secondExit.promise })
+    const second = await app.run("dev")
+    expect(app.status.stage).toBe("starting")
+    secondExit.resolve(1)
+    await second.exit
+    expect(app.status).toMatchObject({ stage: "error", error: { message: "The dev server exited with code 1 before it was ready." } })
+    expect(app.status.steps.at(-2)).toMatchObject({ stage: "starting", ms: expect.any(Number) })
+    await expect(app.preview.ready).resolves.toEqual({ port: 3000, url: "https://first.example" })
   })
 
   it("rejects pending readiness on teardown", async () => {
