@@ -58,6 +58,8 @@ pnpm vitehub comments get --id thread_123
 
 Open the Console at `/_vitehub` and choose **Comments**. The list comes from `comments.list` with your sign-in, so it shows only the threads that `authorize` lets you read. Use the chips to filter by open, resolved, mine, or mentions. A page thread links to `<page>?comment=<n>`.
 
+Click a row to open the thread in a side panel. There you read every message, reply, resolve or reopen the thread, and edit or delete your own messages. Type `@` in the reply box to mention someone: the menu finds people with `comments.users`, and a mention shows as a chip. Each change runs the same operation with your sign-in, so `authorize` decides it. When it lets you read but not write, the panel has no reply box. The URL holds the open thread as `?thread=<id>`, so you can share the link. *Open page* in the panel opens the thread on its page.
+
 ### In `vite dev`
 
 With `console: { auth: false }`, or with no `console` option, and nobody signed in, `vite dev` runs every operation as the user `{ id: 'local', name: 'You' }`. `authorize` sees that user, and the comments you create have it as author, so you can try comments without Auth. A production build never does this: there, an unsigned call has no user, and writing fails with `COMMENTS_R0012`.

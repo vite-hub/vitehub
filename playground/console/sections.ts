@@ -96,3 +96,38 @@ export const playgroundConsoleContributions = [
     },
   },
 ] as const
+
+/**
+ * The Comments section of an app with a default-export `server/comments.ts`. The build puts it in place of the Comments
+ * record table, so it is not in the list above. `packages/vite-hub/test/console-contributions.test.ts` keeps it equal to
+ * `commentsOperationsConsoleSection`. `comments.ts` answers its operations.
+ */
+export const playgroundCommentsSection = {
+  description: "Read the comment threads of the site and jump to the page.",
+  icon: "i-vitehub-comments",
+  id: "comments",
+  label: "Comments",
+  view: {
+    columns: [
+      { key: "n", label: "#" },
+      { key: "subject.id", label: "Subject" },
+      { key: "status", label: "Status" },
+      { key: "author.name|author.id", label: "Author" },
+      { key: "messages.0.body", label: "Comment", format: "excerpt" },
+      { key: "updatedAt", label: "Updated", format: "datetime" },
+    ],
+    detail: { kind: "comment-thread" },
+    filters: [
+      { id: "all", input: {}, label: "All" },
+      { id: "open", input: { status: "open" }, label: "Open" },
+      { id: "resolved", input: { status: "resolved" }, label: "Resolved" },
+      { id: "mine", input: { mine: true }, label: "Mine" },
+      { id: "mentions", input: { mentions: true }, label: "Mentions" },
+    ],
+    kind: "operation-view",
+    link: { label: "Open page", template: "{subject.id:path}?comment={n}", when: { equals: "page", path: "subject.kind" } },
+    notice: "The list comes from the comments.list operation with your sign-in, so it shows only the threads that authorize lets you read. Without an authorize policy nobody can read comments: add one to defineComments(). `vitehub comments list` lists the same threads.",
+    operation: "comments.list",
+    pagination: { limit: 200, cursor: { id: "id", updatedAt: "updatedAt" } },
+  },
+} as const

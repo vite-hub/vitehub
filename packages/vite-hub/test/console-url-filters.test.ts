@@ -168,6 +168,28 @@ describe("Comments operation view", () => {
     expect(state.visibleItems.map(item => item.id)).toEqual(["1"])
   })
 
+  it("opens a thread from the URL and from its row, and keeps the list in step with the panel", async () => {
+    const threads = { ...details, view: { ...details.view, detail: { kind: "comment-thread" } } }
+    mocks.operation.mockResolvedValue([{ id: "1", status: "open" }, { id: "2", status: "open" }])
+    const { push, router, state } = await mountPage<{
+      items: Array<{ id: string, status: string }>
+      removeItem: (id: string) => void
+      replaceItem: (thread: object) => void
+      selectedId: string | undefined
+      selectedItem: { id: string } | undefined
+    }>(OperationView, { definitionsBase: "/definitions", details: threads, sectionsBase: "/sections" }, "/comments?filter=open&thread=2", routes)
+    await vi.waitFor(() => expect(state.selectedItem?.id).toBe("2"))
+    state.selectedId = "1"
+    await settle(router, { filter: "open", thread: "1" })
+    expect(push).toHaveBeenCalledOnce()
+    state.replaceItem({ id: "1", status: "resolved" })
+    expect(state.items).toEqual([{ id: "1", status: "resolved" }, { id: "2", status: "open" }])
+    state.removeItem("1")
+    expect(state.items.map(item => item.id)).toEqual(["2"])
+    state.selectedId = undefined
+    await settle(router, { filter: "open" })
+  })
+
   it("searches both the displayed date and its source timestamp", async () => {
     const comment = { id: "1", updatedAt: Date.UTC(2026, 0, 2, 3, 4) }
     expect(operationCell(comment, { format: "datetime", key: "updatedAt", label: "Updated" })).toBe("2026-01-02 03:04")

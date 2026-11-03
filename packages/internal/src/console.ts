@@ -57,6 +57,12 @@ export interface ViteHubConsoleOperationFilter {
  */
 export interface ViteHubConsoleOperationView {
   columns: readonly ViteHubConsoleOperationColumn[]
+  /**
+   * Opens the item of a row in a side panel. `comment-thread` shows an item of `comments.list` as a comment thread
+   * where the user reads, replies, resolves, reopens, and mentions people. The panel calls the `comments.*` operations
+   * with the Console user, and `?thread=<id>` in the URL opens it.
+   */
+  detail?: { kind: "comment-thread" }
   filters?: readonly ViteHubConsoleOperationFilter[]
   kind: "operation-view"
   /**

@@ -23,7 +23,7 @@ import databaseFixture from "./database.fixture.json" with { type: "json" }
 import fixtureDocument from "./console.fixture.json" with { type: "json" }
 import manifest from "./package.json" with { type: "json" }
 import { playgroundSkillFiles } from "./skills.ts"
-import { playgroundConsoleContributions } from "./sections.ts"
+import { playgroundCommentsSection, playgroundConsoleContributions } from "./sections.ts"
 
 const fixture = parseConsoleFixture(fixtureDocument)
 const invocationAgents = [...new Set(fixture.invocations.map(invocation => invocation.agentName))].sort()
@@ -58,6 +58,7 @@ const sections = [
   "workflows",
   "queues",
   "schedules",
+  "comments",
 ] as const;
 const definitions = {
   "rate-limits": [
@@ -574,7 +575,7 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
   }
   if (path === "/api/_vitehub/console/sections") {
     // A fixed build id, so the Console starts its update check. A test that answers another id shows "Update ready".
-    json(response, { build: "playground", contributions: playgroundConsoleContributions, projectName: manifest.name, sections })
+    json(response, { build: "playground", contributions: [...playgroundConsoleContributions, playgroundCommentsSection], projectName: manifest.name, sections })
     return true
   }
 
