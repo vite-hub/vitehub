@@ -349,6 +349,21 @@ describe("@vite-hub/shell just-bash runtime", () => {
     expect(stop).toHaveBeenCalledOnce()
   })
 
+  it("passes exec stdin to Just Bash commands", async () => {
+    const runtime = createShellRuntime({
+      provider: createJustBashProvider({ fs: createReadonlyWorkspaceFs(new MemoryWorkspace({})) }),
+    })
+
+    await expect(runtime.exec("jq -r .name", { stdin: "{\"name\":\"vitehub\"}" })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "vitehub\n",
+    })
+    await expect(runtime.createSession().exec("wc -l", { stdin: "a\nb\n" })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: expect.stringMatching(/^\s*2\n$/),
+    })
+  })
+
   it.each([{ commands: ["curl"] }, { commands: undefined }])("runs controlled curl through the just-bash provider network boundary with commands $commands", async ({ commands }) => {
     const workspace = new MemoryWorkspace({})
     const executeSourceRequest = vi.fn(async () => ({ content: "ok\n" }))
@@ -438,6 +453,45 @@ describe("@vite-hub/shell just-bash runtime", () => {
       signal: controller.signal,
       timeout: 100,
     })).rejects.toBe(reason)
+  })
+
+  it("runs controlled curl inside pipelines and command substitution", async () => {
+    const executeSourceRequest = vi.fn(async () => ({ content: "{\"status\":\"green\"}\n" }))
+    const runtime = createShellRuntime({
+      provider: createJustBashProvider({
+        cwd: workspaceMountPoint,
+        fs: createReadonlyWorkspaceFs(new MemoryWorkspace({})),
+        networkGrants: { executeSourceRequest },
+      }),
+    })
+
+    await expect(runtime.exec("curl -s https://portal.example.com/runtime/health | jq -r .status")).resolves.toMatchObject({
+      event: "command_finished",
+      exitCode: 0,
+      stdout: "green\n",
+    })
+    await expect(runtime.exec("echo \"status=$(curl https://portal.example.com/runtime/health | jq -r .status)\"")).resolves.toMatchObject({
+      event: "command_finished",
+      exitCode: 0,
+      stdout: "status=green\n",
+    })
+    expect(executeSourceRequest).toHaveBeenCalledTimes(2)
+  })
+
+  it("reports a denied controlled curl inside a pipeline as a policy denial", async () => {
+    const executeSourceRequest = vi.fn(async () => ({ content: "private" }))
+    const runtime = createShellRuntime({
+      provider: createJustBashProvider({
+        fs: createReadonlyWorkspaceFs(new MemoryWorkspace({})),
+        networkGrants: { executeSourceRequest },
+      }),
+    })
+
+    await expect(runtime.exec("curl -H 'Authorization: x' https://portal.example.com/action | cat")).resolves.toMatchObject({
+      event: "policy_denied",
+      stdout: expect.stringContaining("Controlled curl request was not run"),
+    })
+    expect(executeSourceRequest).not.toHaveBeenCalled()
   })
 
   it.each([{ commands: [] }, { commands: ["cat"] }])("rejects controlled curl when commands $commands do not permit it", async ({ commands }) => {
