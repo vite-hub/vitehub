@@ -49,11 +49,12 @@ describe("selectCommentsDatabase", () => {
 it("installs Comments on the sole named Database in a generated runtime registry", async () => {
   const main = await createDatabase()
   const code = renderDatabaseRuntimeModule({
+    chunkParametersImport: "@vite-hub/database/drizzle",
     createAgentDatabaseImport: "@vite-hub/database/runtime/agent",
     databaseEntries: ["  main: { db: main },"],
     imports: [],
   })
-  const evaluable = code.replace(/^import .+$/gm, "").replace(/^export /gm, "") + "\nreturn databases"
+  const evaluable = code.replace(/^(?:import .+|export .+ from .+)$/gm, "").replace(/^export /gm, "") + "\nreturn databases"
   const databases = new Function("main", "createAgentDatabase", "defaultDatabaseNotConfiguredError", evaluable)(
     main, createAgentDatabase, defaultDatabaseNotConfiguredError,
   ) as CommentsDatabaseRegistry

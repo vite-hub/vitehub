@@ -1,4 +1,5 @@
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
+import { withoutNewTableDataLoss } from "../internal/migration-sql.ts"
 
 import type { DataLossStatement } from "../internal/migration-sql.ts"
 
@@ -104,15 +105,20 @@ export async function migrateOnStart(databases: StartMigrationDatabase[], option
           })
         }
       }
-      const pending = database.migrations.filter(migration => lastApplied === undefined || lastApplied < migration.when)
-      const losses = pending.flatMap(migration => migration.dataLoss.map(loss => `${migration.name}: ${loss.reason}: ${loss.statement}`))
-      if (losses.length && !options.allowDataLoss) {
-        throw databaseErrorDiagnostics.DATABASE_MIGRATION_DATA_LOSS({ database: database.name, statements: losses })
-      }
-      for (const migration of pending) {
+      for (const migration of database.migrations) {
         const key = `${migration.when}:${migration.hash}`
-        if (!plan.pending.has(key)) plan.pending.set(key, { migration, name: database.name })
+        if ((lastApplied === undefined || lastApplied < migration.when) && !plan.pending.has(key)) plan.pending.set(key, { migration, name: database.name })
       }
+    }
+    if (options.allowDataLoss) continue
+    // Check the migrations in the order they run on the file, so a table that this run creates can lose its rows.
+    const pending = [...plan.pending.values()].sort((a, b) => a.migration.when - b.migration.when)
+    const checked = withoutNewTableDataLoss(pending.map(({ migration }) => migration))
+    for (const database of plan.databases) {
+      const losses = checked.flatMap((migration, index) => pending[index]!.name === database.name
+        ? migration.dataLoss.map(loss => `${migration.name}: ${loss.reason}: ${loss.statement}`)
+        : [])
+      if (losses.length) throw databaseErrorDiagnostics.DATABASE_MIGRATION_DATA_LOSS({ database: database.name, statements: losses })
     }
   }
   for (const { client, pending: migrations } of plans.values()) {

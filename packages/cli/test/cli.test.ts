@@ -91,6 +91,65 @@ describe("ViteHub CLI", () => {
     expect(stdout.output()).toBe("")
   })
 
+  it("passes the contributed public URL to commands", async () => {
+    const run = vi.fn()
+    const exitCode = await runViteHubCli({
+      args: ["channels", "sync"],
+      loadConfig: async () => ({
+        plugins: [
+          { name: "vite-hub/public-url", vitehub: { cli: () => ({ namespaces: [], publicUrl: "https://app.example.com" }) } },
+          { name: "agent", vitehub: { cli: { namespaces: [{ features: [{ name: "sync", run }], name: "channels" }] } } },
+        ],
+        root: "/repo",
+      }),
+      stderr: stream(),
+      stdout: stream(),
+    })
+
+    expect(exitCode).toBe(0)
+    expect(run).toHaveBeenCalledWith([], expect.objectContaining({ publicUrl: "https://app.example.com" }))
+  })
+
+  it.each(["sync", "history"])("discovers the public URL in the selected stage for channels %s", async (feature) => {
+    const rootDir = await createTempDir()
+    await symlink(resolve(import.meta.dirname, "../node_modules"), join(rootDir, "node_modules"), "dir")
+    await writeFile(join(rootDir, ".env.development"), "VITEHUB_TEST_PUBLIC_URL=https://development.example.com\n")
+    await writeFile(join(rootDir, ".env.production"), "VITEHUB_TEST_PUBLIC_URL=https://production.example.com\n")
+    await writeFile(join(rootDir, "vite.config.mjs"), `
+import { loadEnv } from "vite"
+export default ({ mode }) => ({
+  plugins: [{
+    name: "stage-contributor",
+    vitehub: { cli: {
+      publicUrl: loadEnv(mode, ${JSON.stringify(rootDir)}, "").VITEHUB_TEST_PUBLIC_URL,
+      namespaces: [{ name: "channels", features: ["sync", "history"].map(name => ({
+        name,
+        run(args, context) {
+          context.stdout.write(JSON.stringify({ mode, publicUrl: context.publicUrl }))
+          return 0
+        },
+      })) }],
+    } },
+  }],
+})
+`)
+    const previous = process.env.VITEHUB_TEST_PUBLIC_URL
+    for (const override of [undefined, "https://override.example.com"]) {
+      const stdout = stream()
+      const stderr = stream()
+      expect(await runViteHubCli({
+        args: ["channels", feature, "--stage", "production"],
+        cwd: rootDir,
+        env: { ...process.env, VITEHUB_TEST_PUBLIC_URL: override },
+        stderr,
+        stdout,
+      })).toBe(0)
+      expect(stderr.output()).toBe("")
+      expect(JSON.parse(stdout.output())).toEqual({ mode: "production", publicUrl: override ?? "https://production.example.com" })
+      expect(process.env.VITEHUB_TEST_PUBLIC_URL).toBe(previous)
+    }
+  })
+
   it.each(["--version", "-v"])("prints the packaged version for %s without loading project config", async (flag) => {
     const stdout = stream()
     const stderr = stream()
@@ -765,14 +824,28 @@ export default {
   })
 
   // Boots a real Nuxt app, which takes more than the default 5 s on a busy machine.
-  it("loads development-only Nuxt contributors during CLI discovery", { timeout: 30_000 }, async () => {
+  it.each([
+    { stage: undefined, vite: {}, directory: undefined },
+    { stage: "production", vite: {}, directory: "." },
+    { stage: "production", vite: { root: "client" }, directory: "client" },
+    { stage: "production", vite: { root: "client", envDir: "../config" }, directory: "config" },
+    { stage: "production", vite: { envDir: false }, directory: undefined },
+  ])("loads development-only Nuxt contributors during CLI discovery ($stage, $directory)", { timeout: 30_000 }, async ({ stage, vite, directory }) => {
     const rootDir = await createTempDir()
     await mkdir(join(rootDir, "node_modules"))
     await symlink(resolve(import.meta.dirname, "../node_modules/nuxt"), join(rootDir, "node_modules/nuxt"), "dir")
     await writeFile(join(rootDir, "package.json"), "{}\n")
+    await writeFile(join(rootDir, ".env.production"), "VITEHUB_TEST_NUXT_PUBLIC_URL=https://wrong.example.com\n")
+    if (directory !== undefined) {
+      await mkdir(join(rootDir, directory), { recursive: true })
+      await writeFile(join(rootDir, directory, ".env.production"), "VITEHUB_TEST_NUXT_PUBLIC_URL=https://env.production.example.com\n")
+    }
     await writeFile(join(rootDir, "nuxt.config.ts"), `
 export default {
+  configuredEnv: process.env.VITEHUB_TEST_NUXT_PUBLIC_URL,
   modules: ["./discovery-module.ts"],
+  testOrigin: "https://development.example.com",
+  $production: { vite: ${JSON.stringify(vite)}, testOrigin: "https://production.example.com" },
 }
 `)
     await writeFile(join(rootDir, "discovery-module.ts"), `
@@ -781,22 +854,32 @@ export default function (_options, nuxt) {
   if (nuxt.options.devtools.enabled !== false) throw new Error("Nuxt DevTools started during CLI discovery")
   if (!nuxt.options.dev) return
   nuxt.options.vite.plugins ||= []
-  nuxt.options.vite.plugins.push({
+  const fromEnv = process.env.VITEHUB_TEST_NUXT_PUBLIC_URL
+  const plugin = {
     name: "fixture-discovery-test",
     vitehub: {
       cli: {
-        namespaces: [{ features: [{ name: "run", run: () => 0 }], name: "test" }],
+        publicUrl: nuxt.options.configuredEnv ?? nuxt.options.testOrigin,
+        namespaces: [{ features: [{ name: "sync", run: (_args, context) => { context.stdout.write(JSON.stringify({ fromConfigEnv: nuxt.options.configuredEnv, fromEnv, publicUrl: context.publicUrl })); return 0 } }], name: "channels" }],
       },
     },
-  })
+  }
+  nuxt.options.vite.plugins.push(plugin)
 }
 `)
 
+    const stdout = stream()
     await expect(runViteHubCli({
-      args: ["test", "run"],
+      args: ["channels", "sync", ...stage ? ["--stage", stage] : []],
       cwd: rootDir,
-      stdout: stream(),
+      env: { ...process.env, VITEHUB_TEST_NUXT_PUBLIC_URL: undefined },
+      stdout,
     })).resolves.toBe(0)
+    expect(JSON.parse(stdout.output())).toEqual({
+      fromConfigEnv: directory === undefined ? undefined : "https://env.production.example.com",
+      fromEnv: directory === undefined ? undefined : "https://env.production.example.com",
+      publicUrl: directory === undefined ? `https://${stage ?? "development"}.example.com` : "https://env.production.example.com",
+    })
   })
 
   it("fails closed when provision credentials are missing", async () => {
