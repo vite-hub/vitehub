@@ -24,6 +24,8 @@ export type RealtimeRoomStatus = "connected" | "connecting" | "disconnected"
 export interface RealtimeRoomOptions {
   /** The app base path for a prebuilt client, such as `/portal/`. Defaults to the app's build-time base. */
   baseURL?: string
+  /** Query parameters sent to the definition's authorization on presence and workspace connections. */
+  params?: Record<string, string>
   /**
    * The person this browser shows as. A definition with `identify` or `auth: true` replaces it with the server's
    * identity, so only public definitions show it as given.
@@ -79,7 +81,7 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
 
   function connect() {
     document = new Y.Doc()
-    provider = new WebsocketProvider(url(), room, document, { disableBc: true, params: {} })
+    provider = new WebsocketProvider(url(), room, document, { disableBc: true, params: { ...options.params } })
     const current = provider
     keepRealtimeSocketAlive(current)
     current.messageHandlers[messageRealtimeControl] = (_encoder, decoder) => {
@@ -120,7 +122,7 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
   if (options.changes) {
     changes = new WebsocketProvider(url(), encodeURIComponent(workspaceRoomId), new Y.Doc(), {
       disableBc: true,
-      params: { workspace: "events" },
+      params: { ...options.params, workspace: "events" },
     })
     changes.awareness.setLocalState(null)
     keepRealtimeSocketAlive(changes)

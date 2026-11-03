@@ -14,8 +14,8 @@ describe("built Comments overlay", () => {
       base,
     ])
     expect(JSON.parse(stdout)).toEqual([
-      `wss://site.test${base}/api/_vitehub/realtime/comments/${commentRoom("/articles/example")}`,
-      `wss://site.test${base}/api/_vitehub/realtime/comments/%40workspace?workspace=events`,
+      `wss://site.test${base}/api/_vitehub/realtime/comments/${commentRoom("/articles/example")}?page=%2Farticles%2Fexample`,
+      `wss://site.test${base}/api/_vitehub/realtime/comments/%40workspace?page=%2Farticles%2Fexample&workspace=events`,
     ])
   })
 })

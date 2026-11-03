@@ -11,7 +11,7 @@ import { defineComments } from "../src/index.ts"
 import type { CommentsUser, DefineCommentsOptions } from "../src/types.ts"
 import type { CommentsGitHubLogin } from "../src/runtime/github-login.ts"
 
-const loaderTag = (mount: string) => `<script type="module" src="${mount}/_vitehub/page/assets/loader.js?v=14" data-vitehub-page-tools></script>`
+const loaderTag = (mount: string) => `<script type="module" src="${mount}/_vitehub/page/assets/loader.js?v=15" data-vitehub-page-tools></script>`
 
 /** Installs Comments with a session that reads the person from a `person` cookie. */
 function install(nitroApp: unknown, options: DefineCommentsOptions = {}, overlay = "/o.js"): void {
@@ -27,8 +27,8 @@ function install(nitroApp: unknown, options: DefineCommentsOptions = {}, overlay
   console.warn = warn
 }
 
-async function pageSession(app: object, cookie: string) {
-  const request = new Request("http://site.test/_vitehub/page/session", { headers: { cookie } })
+async function pageSession(app: object, cookie: string, page?: string) {
+  const request = new Request(`http://site.test/_vitehub/page/session${page ? `?page=${encodeURIComponent(page)}` : ""}`, { headers: { cookie } })
   const response = await respondViteHubPageSession(app, request, { req: request })
   return { cookie: response.headers.get("set-cookie"), body: await response.json() }
 }
@@ -38,6 +38,13 @@ beforeEach(() => {
 })
 
 describe("Comments page tool", () => {
+  it("checks the active page for subject-aware tool access", async () => {
+    const app = {}
+    install(app, { authorize: ({ subject }) => subject?.id === "/pricing" })
+    expect((await pageSession(app, "", "/pricing/")).body.tools).toHaveLength(1)
+    expect((await pageSession(app, "", "/private")).body.tools).toEqual([])
+  })
+
   it.each([null, { id: "gh-ada", name: "Ada", github: { login: "ada", write: false } }])("offers the overlay for GitHub sign-in or account switching: %j", async (user) => {
     vi.spyOn(console, "warn").mockImplementation(() => {})
     const app = {}

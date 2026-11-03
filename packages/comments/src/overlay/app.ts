@@ -274,7 +274,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     room?.destroy()
     const identity = account() ?? (guest.value ? { id: `guest:${guest.value.id}`, name: `${guest.value.name} (guest)` } : undefined)
     const baseURL = commentsApiRoute(import.meta.url).slice(0, -commentsRoute.length)
-    const joined = realtime.connectRealtimeRoom(commentsRealtimeDefinition, commentRoom(page.value), { identity, changes: true, baseURL })
+    const joined = realtime.connectRealtimeRoom(commentsRealtimeDefinition, commentRoom(page.value), { identity, changes: true, baseURL, params: { page: page.value } })
     joined.onUpdate(() => tick.value++)
     joined.onChange((change) => {
       if ("path" in change && change.path === commentRoom(page.value)) refresh()
@@ -396,13 +396,14 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       return () => {
         const nodes: Array<VNode | null> = []
         if (session?.can.read) {
-          nodes.push(h(CommentLayer, { comments: state, readOnly: !me.value, upload: canComment ? upload : undefined }, { default: () => [] }))
+          nodes.push(h(CommentLayer, { comments: state, readOnly: !me.value, upload: canComment ? upload : undefined, attachmentUrl: transport.attachmentUrl }, { default: () => [] }))
           nodes.push(h("div", { class: "cursors" }, cursors()))
           nodes.push(h("div", { class: "outlines" }, outlines()))
           if (panelTarget.value) {
             nodes.push(h(Teleport, { to: panelTarget.value }, h(CommentPanel, {
               key: page.value,
               comments: state,
+              attachmentUrl: transport.attachmentUrl,
               readOnly: !me.value || (!state.threads.value.some(thread => thread.id === panelThread.value) && !canComment),
               "onUpdate:thread": (value: string | null) => (panelThread.value = value),
               status: panelStatus.value,

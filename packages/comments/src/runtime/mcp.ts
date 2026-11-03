@@ -10,7 +10,7 @@ import { resolveCommentsUser } from "./session.ts"
 import type { ViteHubMcpTool, ViteHubMcpToolContext, ViteHubMcpToolResult } from "@vite-hub/internal/runtime/mcp-tools"
 import type { H3Event } from "h3"
 import type { Comments } from "../index.ts"
-import type { CommentAction, CommentsUser, CommentThread, CommentUser } from "../types.ts"
+import type { CommentAction, CommentListCursor, CommentsUser, CommentThread, CommentUser } from "../types.ts"
 import type { CommentsSessionOptions } from "./session.ts"
 
 /** A user supplied by an app's own MCP server. Missing identities remain anonymous. */
@@ -125,13 +125,21 @@ export function commentsMcpTools(comments: Comments, options: CommentsSessionOpt
         const status = input.status === "resolved" ? "resolved" : "open"
         const search = text(input.search)?.toLowerCase()
         const limit = Math.min(Math.max(Number(input.limit) || 25, 1), 100)
-        const [error, listed] = await comments.list({ scope: commentsPageScope, subjectKind: "page", status, limit: search ? 500 : limit, ...(page ? { page: normalizeCommentPage(page) } : {}) })
-        if (error) return failure(error.why)
-        const threads: CommentThread[] = []
-        for (const thread of listed) {
-          if (thread.subject.kind === "page" && await comments.can({ user, action: "read", thread }, gate)) threads.push(thread)
+        const found: CommentThread[] = []
+        const batchSize = search ? 500 : limit
+        let before: CommentListCursor | undefined
+        while (found.length < limit) {
+          const [error, listed] = await comments.list({ scope: commentsPageScope, subjectKind: "page", status, limit: batchSize, ...(subject ? { subject } : {}), ...(before ? { before } : {}) })
+          if (error) return failure(error.why)
+          for (const thread of listed) {
+            if (await comments.can({ user, action: "read", thread }, gate)
+              && (!search || thread.messages.some(message => message.body.toLowerCase().includes(search)))) found.push(thread)
+            if (found.length === limit) break
+          }
+          if (listed.length < batchSize) break
+          const last = listed.at(-1)!
+          before = { id: last.id, updatedAt: last.updatedAt }
         }
-        const found = (search ? threads.filter(thread => thread.messages.some(message => message.body.toLowerCase().includes(search))) : threads).slice(0, limit)
         const line = (thread: CommentThread) => {
           const components = thread.context?.components?.map(component => component.name) ?? []
           const replies = Math.max(0, thread.messages.length - 1)

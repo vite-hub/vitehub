@@ -24,6 +24,19 @@ async function setup(options: DefineCommentsOptions = {}) {
 }
 
 describe("Comments MCP tools", () => {
+  it.each([undefined, "matching"])("fills readable pages after denied and nonmatching threads (search: %s)", async (search) => {
+    const { comments, call } = await setup({ authorize: ({ thread }) => !thread?.messages[0]?.body.startsWith("Hidden") })
+    const [, oldest] = await comments.create({ page: "/pricing", body: "matching oldest", author: ada })
+    const [, newer] = await comments.create({ page: "/pricing", body: "matching newer", author: ada })
+    for (let index = 0; index < (search ? 500 : 2); index++) {
+      await comments.create({ page: "/pricing", body: `Hidden matching ${index}`, author: ada })
+    }
+    const answer = await call("comments_list_threads", { limit: 2, ...(search ? { search } : {}) })
+    expect(answer.structured).toMatchObject({ threads: expect.arrayContaining([expect.objectContaining({ id: newer!.id }), expect.objectContaining({ id: oldest!.id })]) })
+    expect(answer.structured?.threads).toHaveLength(2)
+    expect(answer.text).not.toContain("Hidden")
+  })
+
   it("filters denied pages and threads from both list answers", async () => {
     const { comments, call } = await setup({ authorize: ({ subject, thread }) => subject?.id !== "/private" && thread?.messages[0]?.body !== "Hidden thread" })
     const [, visible] = await comments.create({ page: "/pricing", body: "Visible", author: ada })

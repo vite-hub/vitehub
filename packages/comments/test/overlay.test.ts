@@ -48,6 +48,25 @@ async function site(user: CommentsUser | null = ada, options: Parameters<typeof 
 const composer = (root: ParentNode, label: string) => root.querySelector<HTMLTextAreaElement>(`textarea[aria-label="${label}"]`)
 
 describe("the Comments overlay on the comment parts", () => {
+  it.each(["layer", "panel"])("links stored attachments in the %s", async (surface) => {
+    const { shadow, bar, panel } = await site(ada, {}, async (comments) => {
+      await comments.create({ page: "/pricing", anchor, body: "Read this file", attachments: ["files/guide.pdf"], author: ada })
+    })
+    let root: ShadowRoot
+    if (surface === "layer") {
+      await vi.waitFor(() => expect(shadow.querySelector('[data-slot="comment-pin"]')).not.toBeNull())
+      shadow.querySelector<HTMLButtonElement>('[data-slot="comment-pin"]')!.click()
+      root = shadow
+    }
+    else {
+      tool(bar, "Comments on this page")!.click()
+      root = panel()!
+      await vi.waitFor(() => expect(root.querySelector('[data-slot="comment-panel-item"]')).not.toBeNull())
+      root.querySelector<HTMLButtonElement>('[data-slot="comment-panel-item"]')!.click()
+    }
+    await vi.waitFor(() => expect(root.querySelector('a[href="/api/_vitehub/comments/attachments/files/guide.pdf"]')).not.toBeNull())
+  })
+
   it("loads the toolbar for a page allowed by a subject-aware policy", async () => {
     const { bar, requests } = await site(ada, { authorize: ({ subject }) => subject?.id === "/pricing" })
     expect(bar.hidden).toBe(false)

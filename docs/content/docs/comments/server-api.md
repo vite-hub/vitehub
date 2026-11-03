@@ -332,7 +332,7 @@ The field path uses dots between keys, such as `hero.title` or `cards.0.title`. 
 
 When the host has a [Realtime room authority](/docs/realtime/configure#choose-a-room-authority), Comments adds the Realtime Definition `comments`. Each page has one room. The overlay connects read-only and shares only presence: who is on the page, and each cursor as an element and a point in its box. The room stores nothing. Threads stay in the Database.
 
-The server sets each person in the room from `identify` or the Auth session, and checks `authorize` with `read`. After a change, the overlay sends a hint without data to the other browsers on the page, and they read the threads again over HTTP.
+The server sets each person in the room from `identify` or the Auth session, and checks `authorize` with `read` and the page subject. Clients send the normalized page in `params: { page }`; the server checks that the requested room is `commentRoom(page)` before granting access. After a change, the overlay sends a hint without data to the other browsers on the page, and they read the threads again over HTTP.
 
 `connectRealtimeRoom(definition, documentId, options?)` from `@vite-hub/realtime/client` is the client that the overlay uses. It joins one room for presence and does not edit the document. See [Realtime server API](/docs/realtime/server-api#presence-without-an-editor).
 

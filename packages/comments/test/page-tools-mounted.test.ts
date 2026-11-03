@@ -45,7 +45,7 @@ describe("mounted page tools", () => {
       const pageURL = `https://site.test${mount}/guide?vitehub`
       const html = await (await app.fetch(new Request(pageURL))).text()
       const src = /src="([^"]+)"/.exec(html)?.[1]
-      expect(src).toBe(`${mount}/_vitehub/page/assets/loader.js?v=14`)
+      expect(src).toBe(`${mount}/_vitehub/page/assets/loader.js?v=15`)
       const fetch = vi.fn(async (path: string, init?: RequestInit) => app.fetch(new Request(new URL(path, pageURL), init)))
       const executeLoader = async (url: string) => {
         const response = await app.fetch(new Request(new URL(url, pageURL)))
@@ -56,7 +56,8 @@ describe("mounted page tools", () => {
       }
       await executeLoader(src!)
       await vi.waitFor(() => expect(authorize).toHaveBeenCalledOnce())
-      expect(fetch).toHaveBeenLastCalledWith(sessionRoute, { credentials: "same-origin", headers: { accept: "application/json" } })
+      expect(fetch).toHaveBeenLastCalledWith(`${sessionRoute}?page=${encodeURIComponent(`${mount}/guide`)}`, { credentials: "same-origin", headers: { accept: "application/json" } })
+      expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ subject: { kind: "page", id: `${mount}/guide` } }))
 
       const transform = plugin.transformIndexHtml
       if (!transform) throw new Error("Expected a transformIndexHtml hook")

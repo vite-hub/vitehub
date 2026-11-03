@@ -422,7 +422,9 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
   const load = options.load ?? ((script: string) => import(/* @vite-ignore */ script))
   let session: ViteHubPageSession
   try {
-    const response = await fetch(options.session ?? viteHubPageSessionUrl(import.meta.url), { credentials: "same-origin", headers: { accept: "application/json" } })
+    const sessionUrl = new URL(options.session ?? viteHubPageSessionUrl(import.meta.url), location.href)
+    sessionUrl.searchParams.set("page", location.pathname)
+    const response = await fetch(sessionUrl.origin === location.origin ? `${sessionUrl.pathname}${sessionUrl.search}` : sessionUrl.href, { credentials: "same-origin", headers: { accept: "application/json" } })
     if (!response.ok) return []
     session = readViteHubPageSession(await response.json())
   }
