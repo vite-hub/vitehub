@@ -7,10 +7,10 @@ const providerMocks = vi.hoisted(() => ({ open: vi.fn() }))
 
 vi.mock("#vitehub-sandbox-task-provider-loader", () => ({
   loadSandboxTaskRuntimeProvider: async () => ({
-    resolveTaskSandbox: async ({ provider }: { provider: { provider: "cloudflare" | "vercel", keepAlive?: boolean } }) => ({
+    resolveTaskSandbox: async ({ provider }: { provider: { provider: "cloudflare" | "vercel", keepAlive?: boolean, sandboxId?: string } }) => ({
       provider: provider.provider,
       closeAfterRun: provider.provider === "vercel" || provider.keepAlive === true,
-      sandboxId: "shared-errors",
+      sandboxId: provider.sandboxId,
       resolveSandbox: async () => ({
         plan: { executionAuthority: unknownExecutionAuthority },
         open: providerMocks.open,
@@ -190,6 +190,19 @@ describe("Sandbox Task error preservation", () => {
     expect(cleanup).toHaveBeenCalledOnce()
     expect(execute).toHaveBeenCalledOnce()
     expect(session.close).not.toHaveBeenCalled()
+  })
+
+  it("returns the handler result from a per-run Sandbox without deleting files it closes", async () => {
+    setSandboxTaskRuntimeConfig({ provider: "cloudflare" })
+    const { session, cleanup } = createSession()
+    cleanup.mockRejectedValue(new Error("Sandbox invocation cleanup failed."))
+
+    const response = await runSandboxTaskRuntime("example")
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ answer: 42 })
+    expect(cleanup).not.toHaveBeenCalled()
+    expect(session.close).toHaveBeenCalledOnce()
   })
 
   it("retains a rejected cleanup diagnostic on the runner", async () => {

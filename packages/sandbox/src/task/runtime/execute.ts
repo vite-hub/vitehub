@@ -159,7 +159,8 @@ async function executeSandboxTaskDefinitionOnce<TPayload>(
     throw error
   }
   finally {
-    if (sandbox.provider === 'cloudflare') {
+    // Closing a Sandbox removes its files, so only one that stays open needs them deleted.
+    if (sandbox.provider === 'cloudflare' && !sandbox.closesAfterRun) {
       const cleanupTimeout = deadline === undefined ? undefined : SANDBOX_CLEANUP_GRACE_MS
       const cleanupOptions = cleanupTimeout === undefined ? undefined : { timeout: cleanupTimeout }
       try {

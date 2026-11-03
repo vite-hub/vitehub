@@ -1105,7 +1105,7 @@ describe("resolveSandboxTaskProject", () => {
     const sandbox = await resolveSandbox({ runtime: "trusted-host" }, {}, { requires: ["node", "pnpm"] })
     const session = await sandbox.open()
     try {
-      const execution = createTaskSandbox(session, "cloudflare")
+      const execution = createTaskSandbox(session, "cloudflare", false)
       const root = dirname(session.cwd)
       const physical = (path: string) => path.startsWith('/') ? join(root, path) : path
       const exec = execution.exec
