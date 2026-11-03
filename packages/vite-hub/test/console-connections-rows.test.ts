@@ -19,11 +19,11 @@ vi.mock("../src/console/runtime/components/console-connections-details.vue", asy
   const { defineComponent, h } = await import("vue")
   return {
     default: defineComponent({
-      props: { connection: Object, endpoint: String, initialTab: String, keyForm: Boolean, returnTo: String },
+      props: { connection: Object, endpoint: String, tab: String, keyForm: Boolean, returnTo: String },
       setup: props => () => h("div", {
         "data-details": props.connection && "name" in props.connection ? String(props.connection.name) : "",
         "data-key-form": String(props.keyForm),
-        "data-tab": props.initialTab,
+        "data-tab": props.tab,
       }),
     }),
   }

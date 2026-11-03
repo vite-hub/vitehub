@@ -1,4 +1,4 @@
-import { createRenderer, createSSRApp, defineComponent, h, nextTick, ssrContextKey, type PropType } from "vue"
+import { createRenderer, createSSRApp, defineComponent, h, nextTick, ref, ssrContextKey, type Component, type PropType } from "vue"
 import { renderToString } from "vue/server-renderer"
 import { describe, expect, it, vi } from "vitest"
 
@@ -101,6 +101,46 @@ describe("Console inspector initialization", () => {
       await response
       await nextTick()
       expect(mocks.request).toHaveBeenCalledTimes(1)
+    } finally {
+      app.unmount()
+    }
+  })
+
+  it("keeps the restored view active when the retained file changes", async () => {
+    mocks.request.mockReturnValue(new Promise(() => {}))
+    const tab = ref("workspace")
+    const selectedPath = ref("first.md")
+    const activeSurface = ref("file:first.md")
+    const HeadlessInspector: Component = { ...Inspector, render: () => null }
+    const app = renderer.createApp({
+      setup: () => () => h(HeadlessInspector, {
+        invocation: { id: "run" },
+        workspaceBase: "/api/invocations",
+        tab: tab.value,
+        "onUpdate:tab": (value: string) => { tab.value = value },
+        selectedPath: selectedPath.value,
+        "onUpdate:selectedPath": (value: string) => { selectedPath.value = value },
+        activeSurface: activeSurface.value,
+        "onUpdate:activeSurface": (value: string) => { activeSurface.value = value },
+        openViews: ["workspace", "trace", "details"],
+        openPaths: ["first.md", "second.md"],
+      }),
+    })
+    app.provide(ssrContextKey, {})
+    try {
+      app.mount({})
+      tab.value = "trace"
+      selectedPath.value = "second.md"
+      activeSurface.value = "view:trace"
+      await nextTick()
+      expect(tab.value).toBe("trace")
+      expect(activeSurface.value).toBe("view:trace")
+      tab.value = "details"
+      selectedPath.value = "first.md"
+      activeSurface.value = "view:details"
+      await nextTick()
+      expect(tab.value).toBe("details")
+      expect(activeSurface.value).toBe("view:details")
     } finally {
       app.unmount()
     }

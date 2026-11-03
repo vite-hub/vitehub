@@ -174,7 +174,7 @@ async function loadDefinitions(): Promise<void> {
     selectedName.value = entries.value.some((entry) => entry.id === previousSelection)
       ? previousSelection
       : catalogView.value ? entries.value[0]?.id : undefined;
-    if (!catalogView.value && selectedName.value === undefined) selectRecord(undefined);
+    if (!catalogView.value && selectedName.value === undefined) selectRecord(undefined, "replace");
     error.value = undefined;
   } catch (requestError) {
     if (
@@ -192,18 +192,24 @@ async function loadDefinitions(): Promise<void> {
   }
 }
 
-function selectRecord(name: string | undefined): void {
+/** A selection adds a history entry, so Back returns to the previous one. A selection that the page corrects replaces it. */
+function selectRecord(name: string | undefined, history: "push" | "replace" = "push"): void {
   if (name) return selectDefinition(name);
   selectedName.value = undefined;
-  const { [selectionQuery.value]: _selection, ...query } = route.query;
-  void router.replace({ query });
+  const { [selectionQuery.value]: selection, ...query } = route.query;
+  if (selection !== undefined) void (history === "push" ? router.push({ query }) : router.replace({ query }));
 }
 
 function selectDefinition(name: string): void {
-  selectedName.value = name;
   sidebarOpen.value = false;
   if (route.query[selectionQuery.value] !== name) {
-    void router.replace({ query: { ...route.query, [selectionQuery.value]: name } });
+    const query = { ...route.query, [selectionQuery.value]: name };
+    // A new Rate Limit starts without a counter; history entries keep their own keys.
+    if (section.value === "rate-limits") delete query.key;
+    void router.push({ query });
+  } else {
+    // Commit the selection with its URL so the counter reads the destination's key.
+    selectedName.value = name;
   }
 }
 

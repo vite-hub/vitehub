@@ -120,7 +120,7 @@ describe("Console Connection details", () => {
 
   it("opens at the tab that the row asked for", async () => {
     const oauth = connection({ status: "connected" })
-    const root = await render({ connection: oauth, initialTab: "approvals" }, oauth)
+    const root = await render({ connection: oauth, tab: "approvals" }, oauth)
     expect(root.querySelector("[data-approvals]")).not.toBeNull()
   })
 })
