@@ -1055,7 +1055,6 @@ function renderProviderEntry(
   ]
   if (spec.name === "cloudflare") {
     imports.push(`import { runCloudflareWorkflow } from ${JSON.stringify(`${workflowImportBase}/runtime/cloudflare-runner`)}`)
-    imports.push(`import { NonRetryableError } from "cloudflare:workflows"`)
   }
   if (userAppEntry) {
     imports.push(`import workflowApp from ${JSON.stringify(createImportPath(entryFile, userAppEntry))}`)
@@ -1069,6 +1068,8 @@ function renderProviderEntry(
         "}",
         "",
         "export async function runViteHubWorkflowDefinition(name, env, event, step) {",
+        // A prerender build loads this module in Node.js, which has no `cloudflare:workflows`. Only a run needs it.
+        "  const { NonRetryableError } = await import(\"cloudflare:workflows\")",
         "  return await runCloudflareWorkflow({ config: workflowConfig, createNonRetryableError: error => Object.defineProperty(new NonRetryableError(error.message, error.name), \"cause\", { value: error, configurable: true, writable: true }), env: env || {}, event, name, registry: workflowRegistry, step })",
         "}",
       ]

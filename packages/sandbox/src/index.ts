@@ -182,7 +182,7 @@ export interface SandboxExecOptions {
 export interface SandboxSpawnOptions extends SandboxExecOptions {
   /**
    * Keep process input open and expose it as `SandboxProcess.stdin`.
-   * The `vercel` runtime forwards input only when this is set, because a command that reads stdin then waits for the caller to close it.
+   * The `vercel` and `cloudflare` runtimes forward input only when this is set, because a command that reads stdin then waits for the caller to close it.
    * `trusted-host` and `crabbox` always forward input.
    */
   stdin?: boolean;
