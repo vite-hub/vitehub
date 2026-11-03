@@ -10,7 +10,7 @@ icon: i-lucide-newspaper
 ::product-hero{tagline="Edit Markdown documents in the Console, keep every draft, and publish to your site or a pull request." hosts="Node, Docker, Cloudflare, Vercel" video="/videos/cms-demo.mp4" poster="/videos/cms-demo.jpg" video-label="An editor writes a post in the ViteHub Console and publishes it"}
 ::
 
-The CMS is one preset for [Content](/docs/content). Add `extends: cms` to `server/content.ts`, and ViteHub stores your [document collections](/docs/content/configure#document-collections): it turns on Workspace, Database, and Blob, adds the Workspace and its history tables, and adds a Database when the app has none. You write no Workspace Definition, no Database Definition, and no schema.
+The CMS is its own package, `vite-hub/cms`, built on [Content](/docs/content). Add `extends: cms` to `server/content.ts`, and ViteHub stores your [document collections](/docs/content/configure#document-collections): it turns on Workspace, Database, and Blob, adds the Workspace and its history tables, and adds a Database when the app has none. You write no Workspace Definition, no Database Definition, and no schema.
 
 ```ts [server/content.ts]
 import { defineContent, documents } from 'vite-hub/content'
