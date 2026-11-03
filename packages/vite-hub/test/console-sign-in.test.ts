@@ -85,6 +85,45 @@ describe("Console sign-in before app Auth", () => {
     finally { database.close() }
   })
 
+  it.each([undefined, "/sign-in"])("answers a signed-out request that is not a page visit with the 401 of the check, with signInPage=%s", async (signInPage) => {
+    const fetches = [
+      { method: "GET", headers: { accept: "application/json" } },
+      { method: "GET", headers: { accept: "application/json, text/html;q=0" } },
+      { method: "GET", headers: { accept: "application/json, text/html;q=0.000" } },
+      { method: "GET", headers: { accept: "TEXT/HTML; Q=0, application/json" } },
+      { method: "GET", headers: { accept: "*/*" } },
+      { method: "GET", headers: {} },
+    ]
+    for (const init of fetches) {
+      const denied = new Response("Sign in first.", { status: 401 })
+      installConsoleAccess({ mode: "auth", check: async () => denied, ...(signInPage ? { signInPage } : {}) })
+      const request = (path: string) => ({ req: new Request(`${origin}${path}`, init) })
+      await expect(consoleSignInMiddleware(request("/_vitehub/kv/dev"))).resolves.toBeUndefined()
+      const response = await consolePageHandler(request("/_vitehub/kv/dev"))
+      expect(response, JSON.stringify(init)).toBe(denied)
+      expect(response.headers.get("location")).toBeNull()
+    }
+  })
+
+  it("redirects a signed-out page visit when HTML has positive quality", async () => {
+    for (const accept of ["text/html", "application/json, text/html;q=0.5", "TEXT/HTML; Q=1"]) {
+      installConsoleAccess({ mode: "auth", check: signedOut, signInPage: "/sign-in" })
+      const request = () => ({ req: new Request(`${origin}/_vitehub/auth`, { headers: { accept } }) })
+      for (const handler of [consoleSignInMiddleware, consolePageHandler]) {
+        const response = await handler(request())
+        expect(response?.status, accept).toBe(302)
+        expect(response?.headers.get("location")).toBe("/sign-in?redirect=%2F_vitehub%2Fauth")
+      }
+    }
+  })
+
+  it("passes a Response from console.authorize through to a request that is not a page visit", async () => {
+    const notFound = new Response("Not found", { status: 404 })
+    installConsoleAccess({ mode: "auth", check: async () => undefined, user: async () => ({ id: "u1", email: "member@vitehub.dev" }), authorize: () => notFound, signInPage: "/sign-in" })
+    const response = await consolePageHandler({ req: new Request(`${origin}/_vitehub/unknown`, { headers: { accept: "application/json" } }) })
+    expect(response).toBe(notFound)
+  })
+
   it("leaves Auth redirects and authorization rejections to the app middleware", async () => {
     for (const status of [302, 403]) {
       installConsoleAccess({ mode: "auth", check: async () => new Response(null, { status }), signInPage: "/sign-in" })

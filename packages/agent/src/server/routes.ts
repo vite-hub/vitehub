@@ -43,6 +43,8 @@ import { isAgentInvocationCancellationError } from "../internal/invocation-cance
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
 import { agentChannelHistoryHeader } from "../internal/channel-history.ts"
 import { agentChannelSyncProviderHeader } from "../internal/channel-sync.ts"
+import { getAgentChannelStatusDefinition } from "../internal/channel-status.ts"
+import type { AgentChannelStatus } from "../internal/channel-status.ts"
 import { attachmentStringBytes, blobArrayBuffer, blobSize, blobType, isArrayBufferValue, isAttachmentBlob, isAttachmentData, isAttachmentPart, isUint8ArrayValue } from "../messages.ts"
 import { agentInvokerLabel, hasResolvedAgentInvokerInput, resolveInputAgentInvoker, resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentUIMessageStreamResponse, isUIMessageStreamResponse, uiMessageStreamFromResponse } from "../stream-output.ts"
@@ -145,6 +147,7 @@ import type {
   AgentChannelDefinition,
   AgentChannelHistory,
   AgentChannelHistoryQuery,
+  AgentChannelStateBinding,
   AgentChannelDeliveryEventInput,
   AgentChannelDeliveryInspection,
   AgentChatErrorHookArgs,
@@ -232,6 +235,10 @@ export interface AgentChannelWebhookRouteHandler {
    * a journal read for every Invocation.
    */
   threads(request: Request, input: { channel: string, invokers?: boolean }, options?: AgentChannelWebhookRouteOptions): Promise<AgentChannelThread[]>
+  /** The State that the Channel's triggers see as `channelState`. For trusted callers, such as the Console. */
+  channelState(request: Request, channel: string, options?: AgentChannelWebhookRouteOptions): Promise<AgentChannelStateBinding>
+  /** Sync health and skipped messages of a Channel that reads a provider cursor, such as Gmail. `undefined` for other Channels. */
+  channelStatus(request: Request, channel: string, options?: AgentChannelWebhookRouteOptions): Promise<AgentChannelStatus | undefined>
   deliveries(request: Request, webhook?: string, options?: AgentChannelWebhookRouteOptions & { limit?: number }): Promise<AgentChannelDeliveryInspection[]>
   /**
    * Runs the `poll` trigger of each Channel of the Agent that is `channel`, with the Channel State that its webhook route
@@ -10133,6 +10140,26 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       const origin = chatRegistrationOrigin(registration)
       return await channelJournalThreads(agent, context, origin, input.invokers === true)
     })
+  }
+  handler.channelState = async (request, channel, handlerOptions = {}) => {
+    const context = await channelContext(request, handlerOptions)
+    return await runWithRuntimeCloudflareEnv(context, async () => {
+      const match = (await agentWebhookRegistrations(agent, context)).find(({ registration }) => registration.channelId === channel)
+      if (!match) throw new ChannelUnknownError(`Unknown Channel ${JSON.stringify(channel)}.`)
+      // The same choice as a webhook delivery: the webhook State, else the chat State.
+      let scope = await resolveAgentWebhookState(context, match.registration, handlerOptions)
+      if (!scope) {
+        const { state, titleKeyPrefix } = await resolveChatState(getChannelChatOptions(agent, channel, getAgentChatOptions(agent)), context, match.registration, handlerOptions)
+        scope = { keyPrefix: titleKeyPrefix, state }
+      }
+      await scope.state.connect()
+      return { keyPrefix: `${scope.keyPrefix}channel-state:`, state: scope.state }
+    })
+  }
+  handler.channelStatus = async (request, channel, handlerOptions = {}) => {
+    const definition = Object.hasOwn(agentChannelOptions(agent), channel) ? agentChannelOptions(agent)[channel] : undefined
+    const status = definition && getAgentChannelStatusDefinition(definition)
+    return status ? await status.read(await handler.channelState(request, channel, handlerOptions)) : undefined
   }
   handler.poll = async (request, channel, handlerOptions = {}) => {
     const channelIds = Object.entries(agentChannelOptions(agent)).flatMap(([id, candidate]) => candidate === channel ? [id] : [])
