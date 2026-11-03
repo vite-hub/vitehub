@@ -379,12 +379,6 @@ function checkViteHubOptions(ctx: RuleContext, options: unknown, host: "nuxt" | 
         }
       }
     }
-    else if (name === "connections" && host === "nuxt" && !(isNodeType(value, "Literal") && value.value === false)) {
-      report = {
-        why: "The Nuxt module supports `connections` only in `nuxt dev`. `nuxt build` fails with `VITE_HUB_B0012`.",
-        fix: "Remove `connections` from the Nuxt config, or use the `vitehub()` Vite plugin for Connections.",
-      }
-    }
     if (report) ctx.report(diagnostics.VHUB0031({ why: `In ${where}: ${report.why}`, fix: report.fix }), { range: ctx.range(property) })
   }
 }

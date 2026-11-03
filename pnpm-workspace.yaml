@@ -39,8 +39,8 @@ catalogs:
   ai-compat:
     ai: ^6.0.0 || ^7.0.0-0
   auth:
-    "@better-auth/oauth-provider": 1.7.7
-    better-auth: 1.7.7
+    "@better-auth/oauth-provider": 1.7.15
+    better-auth: 1.7.15
     jose: ^6.2.12
   browser:
     "@cloudflare/playwright": ^1.3.6
@@ -48,10 +48,10 @@ catalogs:
     "@webcontainer/env": 1.1.1
     playwright-core: ^1.63.0
   chat:
-    "@chat-adapter/discord": 4.43.0
-    "@chat-adapter/teams": 4.43.0
-    "@chat-adapter/telegram": 4.43.0
-    chat: 4.43.0
+    "@chat-adapter/discord": 4.44.0
+    "@chat-adapter/teams": 4.44.0
+    "@chat-adapter/telegram": 4.44.0
+    chat: 4.44.0
     chat-state-cloudflare-do: ^0.2.0
   database:
     "@libsql/client": ^0.18.0
@@ -115,7 +115,7 @@ catalogs:
     valibot: ^1.5.0
     zod: ^4.6.7
   sandbox:
-    "@cloudflare/sandbox": ^0.12.10
+    "@cloudflare/sandbox": ^1.0.3
     "@vercel/sandbox": ^3.9.1
   shell:
     just-bash: ^3.6.0
@@ -171,7 +171,7 @@ catalogs:
   unjs:
     defu: ^6.1.7
     exsolve: ^1.1.3
-    h3: 2.0.1-rc.33
+    h3: 2.0.8
     jiti: ^2.7.0
     mlly: ^1.8.2
     nitro: 3.0.260903-beta
@@ -202,6 +202,7 @@ catalogs:
     tinyglobby: ^0.2.17
 
 overrides:
+  "mdast-util-from-markdown>micromark": 4.0.2
   mdast-util-to-markdown: 2.1.2
   "@vercel/blob>undici": ^6.28.0
   "@voidzero-dev/vite-plus-core": 0.3.3
