@@ -17,7 +17,7 @@ import { createDriver } from "../../blob/src/drivers/fs.ts"
 import { createContentCliContributor, runContentCli } from "../src/cli.ts"
 import { contentSessionsSchema } from "../src/database.ts"
 import { documents, singleton } from "../src/collections.ts"
-import { defineContent } from "../src/index.ts"
+import { contentSource, defineContent } from "../src/index.ts"
 import { contentOperations } from "../src/operations.ts"
 import { hubContent } from "../src/vite.ts"
 
@@ -796,6 +796,7 @@ describe("Content operations", () => {
       workspace: await historyWorkspace(),
       authorize: ({ id }) => id === undefined || id.startsWith("visible"),
       collections: { posts: documents({ path: "posts/*.md", fields: { title: z.string() }, url: "/blog/:id" }) },
+      sources: { guides: contentSource({ async items() { return [{ key: "start.md", path: "guides/start.md", content: "# Start" }] } }, { url: "/:id" }) },
       seo: { site: "https://example.com" },
       logger: false,
     })
@@ -813,7 +814,7 @@ describe("Content operations", () => {
     expect(await runOperation(registry, "content.list", { collection: "posts", limit: 1, cursor: page.cursor }, context))
       .toMatchObject({ ok: true, value: { items: [{ id: "visible-b" }], total: 2 } })
     const sitemap = await runOperation(registry, "content.sitemap", {}, context)
-    expect(sitemap).toMatchObject({ ok: true, value: { entries: [{ id: "visible-a" }, { id: "visible-b" }] } })
+    expect(sitemap).toMatchObject({ ok: true, value: { entries: [{ id: "visible-a" }, { id: "visible-b" }, { collection: "guides", id: "guides/start" }] } })
   })
 
   it("does not trust runtime NODE_ENV as production Content authorization", async () => {

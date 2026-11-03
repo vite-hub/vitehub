@@ -11,7 +11,7 @@ import { afterEach, describe, expect, expectTypeOf, it } from "vitest"
 import { clearSources, createSource, defineSource, registerSources, useSource } from "@vite-hub/source"
 import type { SourceName } from "@vite-hub/source"
 
-import { contentSource, defineContent, defineContentHandler } from "../src/index.ts"
+import { contentSource, defineContent, defineContentHandler, renderContentHtml } from "../src/index.ts"
 
 afterEach(clearSources)
 
@@ -926,6 +926,18 @@ describe("contentSource", () => {
     } as never)
 
     await expect(source.keys()).resolves.toEqual(["fallback.md"])
+  })
+})
+
+describe("renderContentHtml", () => {
+  it("renders a document with the Comark UI components that Content parses, and app components", async () => {
+    const content = defineContent({ route: false, source: { async items() { return [{ key: "guide", path: "guide.md", content: "# Guide\n\nArea $x^2$.\n\n::alert{type=\"info\"}\nNote\n::\n" }] } } })
+    const guide = (await content.get("/guide"))!
+    const html = await renderContentHtml(guide)
+    expect(html).toContain("<h1 id=\"guide\">Guide</h1>")
+    expect(html).toMatch(/<math>.*<mi>x<\/mi>/)
+    expect(html).not.toMatch(/<(formula|typeset-styles)[\s>]/)
+    expect(await renderContentHtml(guide, { components: { alert: () => "<aside>custom</aside>" } })).toContain("<aside>custom</aside>")
   })
 })
 

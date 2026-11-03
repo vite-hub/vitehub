@@ -19,7 +19,7 @@ icon: i-lucide-sliders-horizontal
 | `workspace` | `string` | The Workspace that stores `collections`, when you define it yourself. Required with `collections` unless `extends` sets it. It needs retained history. |
 | `authorize` | `({ user, actor?, collection, action, id? }) => boolean \| Promise<boolean>` | Policy that Content surfaces evaluate through `content.can()`. See [Access](#access). |
 | `live` | `'auto' \| false` | Live co-editing of Markdown documents. `auto` (default) turns it on when Realtime is enabled and the host has a room authority. See [Live editing](/docs/content/editing-together#live-editing). |
-| `seo` | `{ site?, sitemap?, robots? }` | Generated `/sitemap.xml` and `/robots.txt` from collections with a `url`. See [Sitemap and robots.txt](/docs/content/seo#sitemap-and-robotstxt). |
+| `seo` | `{ site?, sitemap?, robots? }` | Generated `/sitemap.xml` and `/robots.txt` from collections and Sources with a `url`. See [Sitemap and robots.txt](/docs/content/seo#sitemap-and-robotstxt). |
 | `plugins` | Comark Content plugins | Applied to each instance. Markdown parsing is built in. Add `json()`, `yaml()`, `media()`, `sql-query`, or `sqlite-full-text-search` plugins when you need them. A Comark parse plugin here throws `CONTENT_R0006`. |
 | `markdown` | Comark parser options | Applied to each instance. Put Comark parse plugins, such as `comark-knap`, in `markdown.plugins`. |
 | Other Comark options | `cache`, `hooks`, `logger`, `onError`, `baseURL` | Forwarded to each Comark Content instance. ViteHub sets `basePath` to `/api/content`. |
@@ -39,7 +39,7 @@ Plugin options are evaluated when the runtime is created. Recreate or rebuild th
 
 Each item's public path comes from its `path`, or from its key. Items need `content` or `data`. ViteHub serializes structured `data` as JSON before Comark parses it.
 
-Use `contentSource(input, { prefix, schema })` to set Comark options for one Source. A direct adapter selects a Reader when `keys()` starts an enumeration. Its later `getItem()` calls use that Reader until the next enumeration. Pass the adapter through `defineContent()` to isolate overlapping loads.
+Use `contentSource(input, { prefix, schema })` to set Comark options for one Source. Add `url`, such as `'/:id'`, to list its documents in the sitemap; see [Source URLs](/docs/content/seo#source-urls). A direct adapter selects a Reader when `keys()` starts an enumeration. Its later `getItem()` calls use that Reader until the next enumeration. Pass the adapter through `defineContent()` to isolate overlapping loads.
 
 ## Document collections
 
@@ -369,6 +369,34 @@ Use `@vite-hub/ui/markdown` with the owner packages. The Nuxt UI module auto-imp
 `markdown.plugins` extends that preset. A plugin with the same name replaces a preset plugin, so an app can configure file readers, icon collections, or a private diagram service. The include plugin stays off; badges and chips load their images by URL.
 
 Content's collaborative editor and the Console use `createContentEditorCodec()` from `vite-hub/content/editor` for their schema, Markdown conversion, and loss check. Content installs its Comark and Tiptap runtimes; apps do not configure them. Components do not need a separate editor node definition. A document that cannot round-trip opens read-only and remains editable in Source.
+
+### Render HTML on the server
+
+A server route without Vue renders a document with `renderContentHtml()` from `vite-hub/content`. It uses the same Comark UI preset that Content parses with, so math and the other preset components render as HTML. The app does not install `@comark/html` or `comark-ui`.
+
+```ts [server/routes/guides/[slug].get.ts]
+import { defineHandler, getRouterParam } from 'h3'
+import { renderContentHtml } from 'vite-hub/content'
+import { content } from '../../content'
+
+export default defineHandler(async (event) => {
+  const guide = await content.get(`/guides/${getRouterParam(event, 'slug')}`)
+  if (!guide) return new Response('Not found', { status: 404 })
+  return new Response(`<article>${await renderContentHtml(guide)}</article>`, { headers: { 'content-type': 'text/html; charset=utf-8' } })
+})
+```
+
+Pass `components` to render the app's own blocks, such as `::alert`. A component gets the node and a `render()` for its children:
+
+```ts
+await renderContentHtml(guide, {
+  components: {
+    alert: async ([, attributes, ...children], { render }) => `<aside class="alert">${await render(children)}</aside>`,
+  },
+})
+```
+
+A component that the preset and `components` do not know renders as an element with its own tag name. Pass a document from `content.get()`. List results have no `nodes`.
 
 ### Migrate an existing Comark setup
 

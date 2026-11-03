@@ -7,9 +7,17 @@ import type { Source, SourceItem, SourceName } from "@vite-hub/source"
 
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 
+import type { ContentDocumentUrl } from "./documents.ts"
+
 export interface ContentSourceOptions {
   prefix?: string
   schema?: JsonSchema
+  /**
+   * The public URL of each document, such as `/:id` or `/docs/:id`. The id is the document path without its leading
+   * slash, such as `guides/start`, and `:<name>` reads a frontmatter value. `defineContent({ seo: { sitemap: true } })`
+   * lists the documents of a Source with a `url`.
+   */
+  url?: ContentDocumentUrl
 }
 
 type ContentSourceItem = SourceItem<string, unknown, object>
@@ -34,6 +42,7 @@ export type ContentSourceInput =
   | ComarkContentSource
 
 const contentSourceFactory = Symbol("vitehub.contentSourceFactory")
+const contentSourceUrlKey = Symbol("vitehub.contentSourceUrl")
 const typedArrayTag = Object.getOwnPropertyDescriptor(
   Object.getPrototypeOf(Uint8Array.prototype),
   Symbol.toStringTag,
@@ -250,14 +259,29 @@ function createContentSourceFactory(
   return factory
 }
 
+/** The `url` that `contentSource(input, { url })` set, if any. */
+export function contentSourceUrl(input: ContentSourceInput | undefined): ContentDocumentUrl | undefined {
+  return isRuntimeObject(input) ? Reflect.get(input, contentSourceUrlKey) as ContentDocumentUrl | undefined : undefined
+}
+
 /** Adapt a Source to Comark Content, opening a fresh reader for each definition load. */
 export function contentSource(input: ContentSourceInput, options: ContentSourceOptions = {}): ComarkContentSource {
+  const { url, ...comarkOptions } = options
+  if (url !== undefined && !isRuntimeFunction(url) && (String(url) !== url || !url.startsWith("/") || url.startsWith("//"))) {
+    throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] contentSource({ url }) must be a path that starts with /, such as '/:id', or a function, received ${JSON.stringify(url)}.` })
+  }
+  let source: ComarkContentSource
   if (isComarkContentSource(input)) {
     const factory = getContentSourceFactory(input)
-    if (factory) return factory.create(options)
-    return options.prefix === undefined && options.schema === undefined ? input : configuredContentSource(input, options)
+    source = factory
+      ? factory.create(comarkOptions)
+      : comarkOptions.prefix === undefined && comarkOptions.schema === undefined && url === undefined ? input : configuredContentSource(input, comarkOptions)
   }
-  return createContentSourceFactory(input, options).create()
+  else {
+    source = createContentSourceFactory(input, comarkOptions).create()
+  }
+  if (url !== undefined) Object.defineProperty(source, contentSourceUrlKey, { value: url })
+  return source
 }
 
 export function createContentInstance(name: string, input: ContentSourceInput, options: ContentOptions): ReturnType<typeof comarkContent> {

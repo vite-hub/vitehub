@@ -113,7 +113,7 @@ const contentCommands: readonly ContentCliCommand[] = [
   { description: "Publish the listed draft documents at a later time, pinned to the digests shown. A Schedule Definition that calls content.publishDue() runs it.", name: "schedule", options: ["at", "collection", "id", "message", "dry-run", "yes"], positionals: [] },
   { description: "List pending, overdue, and failed schedules, earliest first.", name: "scheduled", options: ["status"], positionals: ["collection?", "id?"] },
   { description: "Cancel a pending schedule, or dismiss a failed one.", name: "unschedule", options: [], positionals: ["schedule"] },
-  { description: "Print the sitemap URLs of published documents of collections with a url.", name: "sitemap", options: ["site", "xml"], positionals: [] },
+  { description: "Print the sitemap URLs of published documents of collections, and documents of Sources, with a url.", name: "sitemap", options: ["site", "xml"], positionals: [] },
 ]
 
 const optionUsage: Record<ContentCliOption, string> = {
