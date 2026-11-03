@@ -388,7 +388,7 @@ describe("loadViteHubPageTools", () => {
     const note = document.querySelector("vitehub-tools-off")!
     expect([note.getAttribute("edge"), (note as HTMLElement).style.getPropertyValue("--at")]).toEqual(["right", "20"])
     const status = note.shadowRoot!.querySelector("[role=status]")!
-    expect(status.textContent).toBe("ViteHub tools are off. To turn them on, open the Console or add ?vitehub to the URL.Undo")
+    expect(status.textContent).toBe("ViteHub tools are off. Open the Console or add ?vitehub to turn them on.Undo")
     expect(document.cookie).toContain("vitehub-tools=0")
 
     status.querySelector("button")!.click()

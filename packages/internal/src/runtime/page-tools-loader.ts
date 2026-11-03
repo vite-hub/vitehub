@@ -376,7 +376,7 @@ function mountOffNote(undo: () => void, keyboard: boolean): void {
   title.textContent = "ViteHub tools are off."
   const query = document.createElement("code")
   query.textContent = `?${viteHubPageToolsQuery}`
-  text.append(title, " To turn them on, open the Console or add ", query, " to the URL.")
+  text.append(title, " Open the Console or add ", query, " to turn them on.")
   const button = document.createElement("button")
   button.type = "button"
   button.textContent = "Undo"
