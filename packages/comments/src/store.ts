@@ -3,6 +3,7 @@ import { and, desc, eq, exists, inArray, sql } from "drizzle-orm"
 import { commentsSchema } from "./database.ts"
 
 import type { RuntimeDrizzleDatabase } from "@vite-hub/database"
+import type { SQL } from "drizzle-orm"
 import type { Comment, CommentAnchor, CommentAuthor, CommentContext, CommentMention, CommentMetadata, CommentThread, CommentThreadStatus, ReplyOptions } from "./types.ts"
 
 const { vitehubCommentThreads: threads, vitehubComments: comments, vitehubCommentScopeCounters: counters } = commentsSchema
@@ -72,11 +73,18 @@ function toThread(row: ThreadRow, rows: readonly CommentRow[]): CommentThread {
 
 /** Comment threads in one Database. Each write is one atomic batch or statement. */
 export function createCommentsStore(database: CommentsDatabase): CommentsStore {
-  async function withComments(rows: ThreadRow[]): Promise<CommentThread[]> {
-    if (!rows.length) return []
-    const commentRows = await database.select().from(comments)
-      .where(inArray(comments.threadId, rows.map(row => row.id)))
-      .orderBy(comments.createdAt)
+  /**
+   * Reads the threads that match and their comments in one batch, so a read costs one round trip. Both statements
+   * select the same threads: the order ends on the unique ID, and a batch reads one snapshot.
+   */
+  async function readThreads(where: SQL | undefined, limit: number): Promise<CommentThread[]> {
+    const order = [desc(threads.updatedAt), desc(threads.id)]
+    const [rows, commentRows] = await database.batch([
+      database.select().from(threads).where(where).orderBy(...order).limit(limit),
+      database.select().from(comments)
+        .where(inArray(comments.threadId, database.select({ id: threads.id }).from(threads).where(where).orderBy(...order).limit(limit)))
+        .orderBy(comments.createdAt),
+    ])
     const byThread = new Map<string, CommentRow[]>()
     for (const row of commentRows) {
       const list = byThread.get(row.threadId) ?? []
@@ -88,19 +96,18 @@ export function createCommentsStore(database: CommentsDatabase): CommentsStore {
 
   return {
     async list({ scope, page, status, limit }) {
-      const where = and(
+      return await readThreads(and(
         scope === undefined ? undefined : eq(threads.scope, scope),
         page === undefined ? undefined : eq(threads.page, page),
         status === undefined ? undefined : eq(threads.status, status),
-      )
-      return await withComments(await database.select().from(threads).where(where).orderBy(desc(threads.updatedAt)).limit(limit))
+      ), limit)
     },
     async get(id) {
-      const [thread] = await withComments(await database.select().from(threads).where(eq(threads.id, id)).limit(1))
+      const [thread] = await readThreads(eq(threads.id, id), 1)
       return thread
     },
     async getByNumber(scope, number) {
-      const [thread] = await withComments(await database.select().from(threads).where(and(eq(threads.scope, scope), eq(threads.number, number))).limit(1))
+      const [thread] = await readThreads(and(eq(threads.scope, scope), eq(threads.number, number)), 1)
       return thread
     },
     async threadOf(commentId) {
