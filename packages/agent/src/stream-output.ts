@@ -1,7 +1,7 @@
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { usageRecordFromStreamChunk } from "./agent-output.ts"
-import { diagnosticErrorText } from "./agent-error.ts"
+import { chatgptGatewayDiagnostic, diagnosticErrorText } from "./agent-error.ts"
 import { isResponse } from "./internal/response.ts"
 
 import type { AgentUIMessageStreamProjection, AgentUsageRecord, MaybePromise } from "./types.ts"
@@ -29,7 +29,7 @@ const uiMessageStreamHeaders = {
   "x-vercel-ai-ui-message-stream": "v1",
 } as const
 
-export function isUIMessageStreamResult(value: unknown): value is { toUIMessageStream: () => ReadableStream<unknown> } {
+export function isUIMessageStreamResult(value: unknown): value is { toUIMessageStream: (options?: { onError?: (error: unknown) => string }) => ReadableStream<unknown> } {
   return isRuntimeRecord(value) && hasRuntimeType(value.toUIMessageStream, "function")
 }
 
@@ -862,7 +862,9 @@ export async function finalizeUiMessageStreamOutput(
   }
   let streamedUsageRecord: AgentUsageRecord | undefined
   const stream = projectUiMessageStream(normalizeUiMessageStream(hasUiMessageStream
-    ? rendered.toUIMessageStream()
+    // The AI SDK hides every error behind its default text. A ChatGPT plan diagnostic names the reader's fix, such as
+    // sign-in or the usage limit, so it reaches the chat like it does before the stream starts.
+    ? rendered.toUIMessageStream({ onError: (error: unknown) => chatgptGatewayDiagnostic(error) ?? "An error occurred." })
     : hasAsyncIterable
       ? createAgentUIMessageStream({
           execute: async ({ writer }) => await writeEventsToUiMessageStream(writer, rendered, {

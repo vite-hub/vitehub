@@ -41,14 +41,15 @@ export function chatgptCodexGateway(credential: ChatGPTCredential): ResolvedAgen
   return { environment: { [chatgptTokenEnvironment]: "" }, chatgpt: credential }
 }
 
-export async function resolveChatGPTGateway(gateway: ChatGPTGateway, context: AgentProviderCredentialContext): Promise<ResolvedAgentDriverGateway> {
+/** Resolve a fresh plan credential through the Connection, with Connection errors mapped to Agent diagnostics. */
+export async function resolveChatGPTCredential(gateway: ChatGPTGateway, context: AgentProviderCredentialContext): Promise<ChatGPTCredential> {
   const identity = context.agentIdentity
   if (!identity) throw agentDiagnostics.AGENT_R1016({ connection: gateway.connection, problem: "identity" })
   const invocationId = context.context.get(agentInvocationTraceIdContextKey)
   try {
     return await primitive(context, gateway.connection).useChatGPTCredential(gateway.connection, {
       access: agentEnvAccess(identity, { invocationId }), invocationId, signal: context.abortSignal,
-    }, async credential => chatgptCodexGateway(credential))
+    }, async credential => credential)
   }
   catch (error) {
     context.abortSignal?.throwIfAborted()
@@ -59,6 +60,10 @@ export async function resolveChatGPTGateway(gateway: ChatGPTGateway, context: Ag
     if (error instanceof Error && "code" in error && error.code === "CONNECTIONS_DENIED") throw agentDiagnostics.AGENT_R1016({ connection: gateway.connection, problem: "access" })
     throw agentDiagnostics.AGENT_R1016({ connection: gateway.connection, problem: "sign-in" })
   }
+}
+
+export async function resolveChatGPTGateway(gateway: ChatGPTGateway, context: AgentProviderCredentialContext): Promise<ResolvedAgentDriverGateway> {
+  return chatgptCodexGateway(await resolveChatGPTCredential(gateway, context))
 }
 
 export async function inspectChatGPTGateway(gateway: ChatGPTGateway, context: AgentProviderCredentialContext): Promise<AgentProviderStatus> {

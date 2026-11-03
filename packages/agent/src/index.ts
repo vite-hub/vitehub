@@ -2227,6 +2227,7 @@ function defineBaseAgent<
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       ? (await import("./ai-sdk.ts")).createAiSdkAdapter({
           execution: driver.execution,
+          gateway: driver.gateway,
           instructions: driver.instructions,
           model: driver.model,
         } as never) as AgentAdapter<CALL_OPTIONS>
