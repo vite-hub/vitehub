@@ -74,7 +74,7 @@ export function docsRateLimit(options: DocsRateLimitOptions = {}): AgentCapabili
 }
 
 /** The model of the Worker build. A model ID from the ChatGPT plan catalog: `vitehub connections models chatgpt`. */
-export const docsAssistantModel = "gpt-5.5"
+export const docsAssistantModel = "gpt-6.1-sol"
 
 /** The docs rules, the developer's instructions in their place, and the reader's page. */
 export const docsInstructions: AgentAdapterInstructions = { template: [docsRules, currentPageInstructions] }
