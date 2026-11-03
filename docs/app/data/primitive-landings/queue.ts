@@ -38,7 +38,7 @@ function packageFile(framework: "vite" | "nitro" | "nuxt"): PrimitiveProjectFile
       dependencies: { "vite-hub": "latest" },
       devDependencies: framework === "nuxt"
         ? { nuxt: "^4.5.2", typescript: "^6.0.3" }
-        : { vite: "^8.2.2", "@types/node": "^24.0.0", typescript: "^6.0.3", ...(framework === "nitro" ? { nitro: "3.0.260903-beta" } : {}) },
+        : { vite: "^8.2.2", "@types/node": "^24.0.0", typescript: "^6.0.3", ...(framework === "nitro" ? { nitro: "3.0.261102-rc" } : {}) },
     }, null, 2),
   };
 }
