@@ -96,7 +96,7 @@ describe("commentsRealtime", () => {
     expect(user).toEqual({ id: "ada", name: "Ada" })
     expect(await definition.authorize!({ ...context, documentId: "pages/x", mode: "read", user: user ?? null })).toBe(true)
     expect(await definition.authorize!({ ...context, documentId: "pages/x", mode: "write", user: user ?? null })).toBe(false)
-    await expect(session(request, "comment")).resolves.toBe(false)
+    await expect(session(request, "write")).resolves.toBe(false)
   })
 
   it("binds verified Cloudflare guest-prefixed emails and authorizes with that identity", async () => {

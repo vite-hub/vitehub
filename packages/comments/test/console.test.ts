@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { readCommentsConsoleRecords } from "../src/runtime/console.ts"
 import { ada, anchor, createComments, grace } from "./harness.ts"
 
-const runtimeKey = Symbol.for("vitehub.comments.runtime")
+const runtimeKey = Symbol.for("vitehub.comments.installed")
 
 afterEach(() => {
   Reflect.deleteProperty(globalThis, runtimeKey)

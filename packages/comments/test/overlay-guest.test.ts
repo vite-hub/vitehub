@@ -36,7 +36,7 @@ afterEach(() => {
 async function compose(user: CommentsSession["user"], realtime = false) {
   const requests: RequestInit[] = []
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
-    if (url.endsWith("/session")) return Response.json({ data: { user, can: { read: true, comment: true, resolve: true }, content: false, realtime } })
+    if (new URL(url, location.href).pathname.endsWith("/session")) return Response.json({ data: { user, can: { read: true, comment: true, resolve: true }, content: false, realtime } })
     if (init?.method === "POST") {
       requests.push(init)
       return Response.json({ error: { code: "COMMENTS_FAILED", why: "Fixture keeps the composer open." } })

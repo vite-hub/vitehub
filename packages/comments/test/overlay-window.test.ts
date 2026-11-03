@@ -12,7 +12,7 @@ const tool = { id: "comments", label: "Comments", icon: "i-lucide-message-square
 /** The page tools session and the Comments API of a site where this person may `read`, and `comment` when `comment`. */
 function site(can: { read: boolean, comment: boolean }, realtime = false, threads: unknown[] = []) {
   vi.stubGlobal("fetch", vi.fn(async (input: string) => {
-    const path = String(input)
+    const path = new URL(String(input), location.href).pathname
     if (path === "/_vitehub/page/session") return Response.json({ tools: [tool] })
     if (path === "/api/_vitehub/comments/session") {
       return Response.json({ data: { user: { id: "ada", name: "Ada Lovelace" }, can: { ...can, resolve: can.comment }, realtime, content: false } })
@@ -43,9 +43,9 @@ async function openPanel() {
 function pageThread() {
   const author = { id: "ada", name: "Ada Lovelace" }
   return {
-    id: "thread-1", number: 1, page: "/", status: "open", createdBy: author,
-    anchor: { selector: "body", label: "body", x: 0, y: 0 },
-    comments: [{ id: "comment-1", author, body: "Original comment", mentions: [], createdAt: new Date().toISOString() }],
+    id: "thread-1", scope: "site", n: 1, subject: { kind: "page", id: "/" }, status: "open", author, updatedAt: Date.now(),
+    anchor: { kind: "element", selector: "body", label: "body", x: 0, y: 0 },
+    messages: [{ id: "comment-1", threadId: "thread-1", author, body: "Original comment", mentions: [], attachments: [], createdAt: Date.now() }],
   }
 }
 
@@ -115,7 +115,7 @@ describe("the Comments page tool", () => {
     site({ read: true, comment: true }, false, [thread])
     const serve = fetch
     vi.stubGlobal("fetch", vi.fn((input: string, init?: RequestInit) => String(input).endsWith("/thread-1/comments")
-      ? Promise.resolve(Response.json({ data: { ...thread.comments[0], id: "reply-1", body: "Sent reply" } }))
+      ? Promise.resolve(Response.json({ data: { ...thread.messages[0], id: "reply-1", body: "Sent reply" } }))
       : serve(input, init)))
     const { panel } = await openPanel()
     await vi.waitFor(() => expect(panel.querySelector(".panel-item")).toBeTruthy())
