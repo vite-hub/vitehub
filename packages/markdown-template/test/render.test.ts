@@ -449,6 +449,13 @@ Unavailable
       .resolves.toContain("https://example.com/?a=1&b=2")
     await expect(renderMarkdownTemplate('<a href="https://example.com/?x=1&copy=2">Open</a>'))
       .resolves.toContain("https://example.com/?x=1&copy=2")
+    await expect(renderMarkdownTemplate("<a href='https://example.com/?x=1&copy=2'>Open</a>"))
+      .resolves.toContain("https://example.com/?x=1&copy=2")
+    await expect(renderMarkdownTemplate('<policy note="x=1&copy=2">Use it.</policy>'))
+      .resolves.toBe('<policy note="x=1&amp;copy=2">Use it.</policy>')
+    // Attribute entities are decoded once, so a double-encoded reference stays a reference.
+    await expect(renderMarkdownTemplate('<a href="https://example.com/?q=&amp;lt;">Open</a>'))
+      .rejects.toThrow("must resolve to a safe destination")
     await expect(renderMarkdownTemplate('<a href="javascript:alert(1)">Open</a>'))
       .rejects.toThrow("must resolve to a safe destination")
     await expect(renderMarkdownTemplate('<a href="j&#x61;vascript:alert(1)">Open</a>'))
@@ -750,6 +757,7 @@ Unavailable
   it("keeps directive syntax literal inside raw HTML elements", async () => {
     const template = "<script>\n::else\n::if{:condition=\"data.missing\"}\n::\n</script>"
     await expect(renderMarkdownTemplate(template)).resolves.toBe(template)
+    await expect(renderMarkdownTemplate("<style>\n::else\n</style>")).resolves.toBe("<style>\n::else\n</style>")
   })
 
   it("does not expose internal placeholders or render handlers", async () => {
