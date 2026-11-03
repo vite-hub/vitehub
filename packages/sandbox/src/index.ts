@@ -179,6 +179,15 @@ export interface SandboxExecOptions {
   timeout?: number;
 }
 
+export interface SandboxSpawnOptions extends SandboxExecOptions {
+  /**
+   * Keep process input open and expose it as `SandboxProcess.stdin`.
+   * The `vercel` runtime forwards input only when this is set, because a command that reads stdin then waits for the caller to close it.
+   * `trusted-host` and `crabbox` always forward input.
+   */
+  stdin?: boolean;
+}
+
 export interface SandboxExecResult {
   readonly code: number;
   readonly ok: boolean;
@@ -246,7 +255,7 @@ export interface SandboxSession {
   readonly spawn?: (
     command: string,
     args?: readonly string[],
-    options?: SandboxExecOptions,
+    options?: SandboxSpawnOptions,
   ) => Promise<SandboxProcess>;
   close(): Promise<void>;
   exec(

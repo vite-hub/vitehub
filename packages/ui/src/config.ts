@@ -1,5 +1,8 @@
 import type { App, InjectionKey, Plugin } from "vue";
-import { defineAsyncComponent, inject } from "vue";
+import { inject } from "vue";
+import { uiComponentsKey, type ViteHubUIComponents } from "./internal/nuxt-ui.ts";
+
+export type { ViteHubUIComponentName, ViteHubUIComponents } from "./internal/nuxt-ui.ts";
 
 export interface ViteHubUIDefaults {
   markdown?: { class?: string };
@@ -11,6 +14,8 @@ export interface ViteHubUIDefaults {
 
 export interface ViteHubUIOptions {
   defaults?: ViteHubUIDefaults;
+  /** Components that the parts render instead of Nuxt UI's, by name, such as `{ UIcon: MyIcon }`. */
+  components?: ViteHubUIComponents;
 }
 
 export interface ResolvedViteHubUIDefaults {
@@ -24,13 +29,6 @@ export interface ResolvedViteHubUIDefaults {
 const defaultOptions: ResolvedViteHubUIDefaults = {
   markdown: { class: "vh-typeset vh-typeset-chat" },
   messageScroller: { edgeThreshold: 8, previousItemPeek: 64 },
-};
-
-const runtimeComponents = {
-  UButton: defineAsyncComponent(() => import("@nuxt/ui/components/Button.vue")),
-  // Nuxt UI's Vite build replaces its Nuxt Icon only for imports inside Nuxt UI, so use the Vue version here.
-  UIcon: defineAsyncComponent(() => import("@nuxt/ui/runtime/vue/components/Icon.vue")),
-  UModal: defineAsyncComponent(() => import("@nuxt/ui/components/Modal.vue")),
 };
 
 export const ViteHubUIInjectionKey: InjectionKey<ResolvedViteHubUIDefaults> = Symbol("ViteHubUI");
@@ -51,9 +49,7 @@ export function useViteHubUI(): ResolvedViteHubUIDefaults {
 export function createViteHubUI(options: ViteHubUIOptions = {}): Plugin {
   return {
     install(app: App) {
-      for (const [name, component] of Object.entries(runtimeComponents)) {
-        if (!app.component(name)) app.component(name, component);
-      }
+      if (options.components) app.provide(uiComponentsKey, options.components);
       app.provide(ViteHubUIInjectionKey, resolveViteHubUIDefaults(options));
     },
   };

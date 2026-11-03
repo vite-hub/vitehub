@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { createCommentsClient } from "@vite-hub/comments/client";
-import { CommentThread, provideComments, useComments } from "@vite-hub/ui";
+import { type CommentCan, CommentThread, provideComments, useComments } from "@vite-hub/ui";
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from "vue";
 
 import type { CommentThread as CommentThreadModel } from "@vite-hub/comments/client";
@@ -40,12 +40,12 @@ const error = shallowRef<unknown>();
 const loading = ref(false);
 const session = shallowRef<ConsoleCommentSession>();
 const canWrite = computed(() => session.value?.capabilities.reply === true);
-const permissions = computed(() => ({
-  reply: canWrite.value,
-  resolve: session.value?.capabilities.resolve === true,
-  edit: (id: string) => session.value?.capabilities.edit.includes(id) === true,
-  delete: (id: string) => session.value?.capabilities.delete.includes(id) === true,
-}));
+const can: CommentCan = (action, { message }) => {
+  const capabilities = session.value?.capabilities;
+  if (!capabilities) return false;
+  if (action === "edit" || action === "delete") return message !== undefined && capabilities[action].includes(message.id);
+  return capabilities[action];
+};
 const link = computed(() => thread.value ? operationLink(thread.value, props.view) : undefined);
 const user = shallowRef<CommentThreadModel["author"]>();
 const confirming = ref(false);
@@ -194,7 +194,7 @@ async function deleteThread(): Promise<void> {
           :attachments="false"
           :dismissible="false"
           :read-only="loading"
-          :permissions="permissions"
+          :can="can"
           :thread="thread"
           :user="user"
           :on-reply="reply"

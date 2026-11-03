@@ -1,6 +1,6 @@
 import type { CommentsClient, CommentSubject, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
 import { computed, defineComponent, h, nextTick, type PropType, ref, shallowRef, watch } from "vue";
-import { draftPositionKey, provideComments, useComments, type CommentDraft, type CommentsState } from "../headless/comments.ts";
+import { type CommentCan, draftPositionKey, provideComments, useComments, type CommentDraft, type CommentsState } from "../headless/comments.ts";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { consumedPointerEvents } from "../internal/comment-outside.ts";
 import { excerpt } from "../internal/comment-person.ts";
@@ -40,6 +40,8 @@ export const CommentLayer = defineComponent({
     subjectUrl: { type: Function as PropType<(subject: CommentSubject) => string | undefined> },
     /** Navigates to the page of a thread from the list. Defaults to `location.assign`. */
     navigate: { type: Function as PropType<(href: string) => void> },
+    /** What the signed-in user may do in a thread. Defaults to the `can` of the comments state. */
+    can: { type: Function as PropType<CommentCan> },
     /** Turns attached files into attachment keys. Without it the boxes take no files. */
     upload: { type: Function as PropType<CommentUpload> },
     /** The file types that the boxes take, such as `image/*`. */
@@ -149,6 +151,7 @@ export const CommentLayer = defineComponent({
         accept: props.accept,
         attachmentUrl: props.attachmentUrl,
         attachments: attachmentsOn.value,
+        can: props.can,
         key: thread.id,
         detached: state.positions.value.get(thread.id)?.detached === true,
         readOnly: props.readOnly,

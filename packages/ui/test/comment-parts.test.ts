@@ -313,7 +313,7 @@ describe("posted messages", () => {
     expect(wrapper.get("[data-slot=comment-mention]").attributes("data-self")).toBe("true");
   });
 
-  it("shows image attachments as thumbnails and other files as links", async () => {
+  it("shows image attachments as thumbnails that open full size, and other files as chips with links", async () => {
     const wrapper = keep(mount(CommentReply, {
       global,
       props: {
@@ -321,10 +321,33 @@ describe("posted messages", () => {
         message: message("m1", { attachments: ["shots/a.png", "docs/spec.pdf"] }),
       },
     }));
-    const group = wrapper.get("[data-slot=comment-reply-attachments]");
-    expect(group.get("img").attributes("src")).toBe("https://files.test/shots/a.png");
-    expect(group.get("a").attributes("href")).toBe("https://files.test/docs/spec.pdf");
-    expect(group.get("a").text()).toBe("spec.pdf");
+    const images = wrapper.get("[data-slot=comment-reply-images]");
+    expect(images.get("button.vh-image-preview").attributes("aria-label")).toBe("Preview a.png");
+    expect(images.get("img").attributes("src")).toBe("https://files.test/shots/a.png");
+    expect(images.find("[data-slot=attachment]").exists()).toBe(false);
+    const chips = wrapper.get("[data-slot=comment-reply-attachments]");
+    expect(chips.find("img").exists()).toBe(false);
+    expect(chips.get("a").attributes("href")).toBe("https://files.test/docs/spec.pdf");
+    expect(chips.get("a").text()).toBe("spec.pdf");
+  });
+
+  it("takes the name and media type of an attachment from attachmentUrl", () => {
+    const files: Record<string, { name: string; type: string }> = { drop1: { name: "shot.webp", type: "image/webp" }, drop2: { name: "notes", type: "text/plain" } };
+    const wrapper = keep(mount(CommentReply, {
+      global,
+      props: {
+        attachmentUrl: (key: string) => ({ url: `/files/${key}`, ...files[key] }),
+        message: message("m1", { attachments: ["drop1", "drop2"] }),
+      },
+    }));
+    expect(wrapper.get("[data-slot=comment-reply-images] img").attributes()).toMatchObject({ alt: "shot.webp", src: "/files/drop1" });
+    expect(wrapper.get("[data-slot=comment-reply-attachments] a").text()).toBe("notes");
+  });
+
+  it("names files without a link when there is no attachmentUrl", () => {
+    const wrapper = keep(mount(CommentReply, { global, props: { message: message("m1", { attachments: ["shots/a.png"] }) } }));
+    expect(wrapper.find("[data-slot=comment-reply-images]").exists()).toBe(false);
+    expect(wrapper.get("[data-slot=comment-reply-attachments]").text()).toBe("a.png");
   });
 
   it("replaces the body and the attachments through slots", () => {
@@ -531,5 +554,89 @@ describe("RPC attachments", () => {
     }
     expect(wrapper.find("input[type=file]").exists()).toBe(false);
     expect(upload).not.toHaveBeenCalled();
+  });
+});
+
+describe("CommentPanel rows", () => {
+  async function panel(threads: CommentThreadModel[], props: Record<string, unknown> = {}, slots: Record<string, unknown> = {}) {
+    const comments = client(threads);
+    const wrapper = keep(mount(CommentPanel, { attachTo: document.body, global, props: { client: comments, subject: pricing, ...props }, slots }));
+    await vi.waitFor(() => expect(comments.status).toBe("ready"));
+    await flushPromises();
+    return wrapper;
+  }
+
+  it("previews a message as plain text and keeps mention names", async () => {
+    const wrapper = await panel([thread(1, { messages: [message("m1", { body: "**Pro** plan for `@Ben Soto`, see [docs](https://x.test)", mentions: ["ben"] })] })]);
+    expect(wrapper.get("[data-slot=comment-list-text]").text()).toBe("Pro plan for @Ben Soto, see docs");
+  });
+
+  it("previews the quoted text when the first message has no text", async () => {
+    const wrapper = await panel([thread(1, { anchor: { exact: "Pricing table", kind: "text" } as CommentThreadModel["anchor"], messages: [message("m1", { body: "" })] })]);
+    expect(wrapper.get("[data-slot=comment-list-text]").text()).toBe("Pricing table");
+  });
+
+  it("takes a preview and a row slot with the thread", async () => {
+    const preview = await panel([thread(1)], {}, { preview: ({ thread: item }: { thread: CommentThreadModel }) => h("em", `Note ${item.n}`) });
+    expect(preview.get("[data-slot=comment-list-text]").html()).toContain("<em>Note 1</em>");
+    const row = await panel([thread(1)], {}, { row: ({ thread: item }: { thread: CommentThreadModel }) => h("span", { class: "own" }, `Row ${item.n}`) });
+    expect(row.get("[data-slot=comment-panel-item]").text()).toBe("Row 1");
+    expect(row.find("[data-slot=comment-list-number]").exists()).toBe(false);
+  });
+
+  it("groups rows under headings after the threads without a group", async () => {
+    const group = (item: CommentThreadModel) => (item.n < 3 ? "From earlier versions" : undefined);
+    const wrapper = await panel([thread(1), thread(2), thread(3)], { group });
+    const sections = wrapper.findAll("[data-slot=comment-panel-groups] > *");
+    expect(sections.map(section => section.attributes("data-slot"))).toEqual(["comment-panel-items", "comment-panel-group"]);
+    expect(sections[0]!.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-3"]);
+    expect(wrapper.get("[data-slot=comment-panel-group-header]").text()).toBe("From earlier versions");
+    expect(sections[1]!.findAll("[data-slot=comment-panel-item]")).toHaveLength(2);
+
+    const custom = await panel([thread(1)], { group }, { "group-header": ({ group: label, threads }: { group: string; threads: CommentThreadModel[] }) => h("span", `${label} (${threads.length})`) });
+    expect(custom.get("[data-slot=comment-panel-group-header]").text()).toBe("From earlier versions (1)");
+  });
+});
+
+describe("thread permissions", () => {
+  const own = thread(1, { messages: [message("m1", { author: ana }), message("m2", { author: ben, threadId: "thread-1" })] });
+  const labels = (wrapper: VueWrapper) => wrapper.findAll("button[aria-label]").map(button => button.attributes("aria-label"));
+
+  it("lets a signed-in user reply and resolve, and edit and delete their own messages", () => {
+    const wrapper = keep(mount(CommentThread, { global, props: { onDelete: () => {}, onEdit: () => {}, thread: own, user: ana } }));
+    expect(labels(wrapper)).toEqual(expect.arrayContaining(["Resolve", "Edit", "Delete"]));
+    expect(wrapper.findAll("[data-slot=comment-reply-actions]")).toHaveLength(1);
+    expect(wrapper.find("[data-slot=comment-composer]").exists()).toBe(true);
+  });
+
+  it("shows no controls to a reader without a user", () => {
+    const wrapper = keep(mount(CommentThread, { global, props: { onDelete: () => {}, onEdit: () => {}, thread: own } }));
+    expect(labels(wrapper)).not.toContain("Resolve");
+    expect(wrapper.find("[data-slot=comment-reply-actions]").exists()).toBe(false);
+    expect(wrapper.find("[data-slot=comment-composer]").exists()).toBe(false);
+  });
+
+  it("follows the can prop over the comments state", () => {
+    const can = (action: string) => action === "reply" || action === "delete";
+    const wrapper = keep(mount(CommentThread, { global, props: { can, onDelete: () => {}, onEdit: () => {}, thread: own, user: ana } }));
+    expect(labels(wrapper)).not.toContain("Resolve");
+    expect(labels(wrapper)).not.toContain("Edit");
+    expect(labels(wrapper).filter(label => label === "Delete")).toHaveLength(2);
+  });
+
+  it("takes can from useComments() inside a layer or panel", async () => {
+    const comments = createCommentsClient({ transport: createMemoryTransport({ threads: [own], user: ben, users: [ana, ben] }), user: ben });
+    const wrapper = keep(mount(defineComponent({
+      setup() {
+        // Only the author of a thread resolves it, and nobody deletes.
+        const state = useComments({ can: (action, { thread: item }) => (action === "resolve" ? item.author.id === ben.id : action !== "delete"), client: comments, subject: pricing });
+        return () => h(CommentPanel, { comments: state, thread: "thread-1" });
+      },
+    }), { attachTo: document.body, global }));
+    await vi.waitFor(() => expect(wrapper.find("[data-slot=comment-thread]").exists()).toBe(true));
+    expect(labels(wrapper)).not.toContain("Resolve");
+    expect(labels(wrapper)).toContain("Edit");
+    expect(labels(wrapper)).not.toContain("Delete");
+    expect(wrapper.find("[data-slot=comment-thread] [data-slot=comment-composer]").exists()).toBe(true);
   });
 });

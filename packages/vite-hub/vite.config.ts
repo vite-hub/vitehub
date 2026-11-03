@@ -383,7 +383,7 @@ export default defineConfig({
         { from: "src/console/runtime/components/console-rate-limit.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-blob-detail.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-toaster.vue", to: "dist/console/runtime/components" },
-        { from: "../ui/styles.css", to: "dist/ui" },
+        { from: "src/ui/styles.css", to: "dist/ui" },
         { from: "templates/cloudflare-types.d.ts", to: "dist" },
       ],
       deps: {

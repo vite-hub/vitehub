@@ -1551,7 +1551,7 @@ it("gates thread actions independently, including moderation and owner edits wit
   const onResolve = vi.fn().mockRejectedValue(new Error("Policy changed"))
   const wrapper = mount(CommentThread, { attachTo: document.body, global, props: {
     thread: item, user: ana, onEdit: vi.fn(), onDelete: vi.fn(), onReply: vi.fn(), onResolve,
-    permissions: { reply: false, resolve: true, edit: id => id === "message-1", delete: id => id === "other" },
+    can: (action, { message }) => action === "resolve" || (action === "edit" ? message?.id === "message-1" : action === "delete" && message?.id === "other"),
   } })
   mounted.push(wrapper)
   const messages = wrapper.findAll("[data-slot=comment-reply]")
@@ -1563,7 +1563,7 @@ it("gates thread actions independently, including moderation and owner edits wit
   await wrapper.get("[aria-label=Resolve]").trigger("click")
   await flushPromises()
   expect(wrapper.get("[role=alert]").text()).toBe("Policy changed")
-  await wrapper.setProps({ permissions: { reply: true, resolve: false, edit: () => false, delete: () => false } })
+  await wrapper.setProps({ can: action => action === "reply" })
   expect(wrapper.find("[aria-label=Resolve]").exists()).toBe(false)
   expect(wrapper.find("textarea").exists()).toBe(true)
   expect(wrapper.find("[aria-label=Edit]").exists()).toBe(false)

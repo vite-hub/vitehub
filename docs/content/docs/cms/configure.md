@@ -172,7 +172,7 @@ A new environment then starts with an empty Workspace. To copy documents into it
 
 If you followed the earlier setup, the app has a Database Definition that lists `workspaceHistorySchema` and a Workspace Definition on `createBlobDatabaseWorkspaceStore()`. Keep your existing history by pointing the preset at the same Database, Blob store, and Workspace identity:
 
-1. Remove `workspaceHistorySchema` and `contentSessionsSchema` from the Database Definition. The preset adds the same tables, and listing them twice fails with `DATABASE_B0010`.
+1. Remove `workspaceHistorySchema` and `contentSessionsSchema` from the Database Definition. The preset adds the same tables, and listing them twice fails with `DATABASE_DUPLICATE_TABLE`.
 
    ```ts [server/databases/content/config.ts]
    import { defineDatabase } from 'vite-hub/database'

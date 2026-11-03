@@ -247,6 +247,7 @@ async function handleRelayConnection(
     child = await options.sandbox.spawn(options.command, selectedArgs.map(mapText), {
       cwd: sandboxWorkingDirectory,
       env: environment,
+      stdin: true,
     })
   }
   catch (error) {

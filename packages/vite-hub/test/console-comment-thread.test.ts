@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import type { CommentThread as Thread } from "@vite-hub/comments/client"
+import type { CommentCan } from "@vite-hub/ui"
 import type { ConsoleOperationView } from "../src/console/runtime/definitions"
 import { createRenderer, ssrContextKey } from "vue"
 import { createMemoryHistory, createRouter } from "vue-router"
@@ -37,18 +38,27 @@ afterEach(() => {
   mocks.request.mockReset()
 })
 
-it("derives Open page from a fetched thread outside the active list", async () => {
+it("derives Open page and action permissions from a fetched thread outside the active list", async () => {
+  const own = { author: thread.author, body: "My reply", createdAt: 1, attachments: [], id: "owned", mentions: [], threadId: thread.id }
+  const other = { ...own, id: "other", author: { id: "ben" } }
   mocks.request.mockImplementation(async (_path, operation) => operation === "comments.get" ? thread : {
-    canWrite: false, user: { id: "ana" }, capabilities: { reply: false, resolve: true, deleteThread: false, edit: [], delete: [] },
+    canWrite: false, user: { id: "ana" }, capabilities: { reply: false, resolve: true, deleteThread: false, edit: [own.id], delete: [other.id] },
   })
   const app = renderer.createApp({ ...Panel, render: () => null }, { id: thread.id, definitionsBase: "/definitions", view })
   app.provide(ssrContextKey, {})
   const instance = app.mount({})
   mounted.push(() => app.unmount())
-  const state = (instance.$ as unknown as { setupState: { link?: string, loading: boolean, permissions: { reply: boolean, resolve: boolean } } }).setupState
+  const state = (instance.$ as unknown as { setupState: { link?: string, loading: boolean, can: CommentCan } }).setupState
+  expect(state.can("resolve", { thread })).toBe(false)
   await vi.waitFor(() => expect(state.loading).toBe(false))
   expect(state.link).toBe("/pricing?comment=5")
-  expect(state.permissions).toMatchObject({ reply: false, resolve: true })
+  expect(state.can("reply", { thread })).toBe(false)
+  expect(state.can("resolve", { thread })).toBe(true)
+  expect(state.can("edit", { thread, message: own })).toBe(true)
+  expect(state.can("edit", { thread, message: other })).toBe(false)
+  expect(state.can("delete", { thread, message: other })).toBe(true)
+  expect(state.can("delete", { thread, message: own })).toBe(false)
+  expect(state.can("delete", { thread })).toBe(false)
   expect(mocks.request).toHaveBeenCalledWith("/definitions", "comments.session", { subject: thread.subject, threadId: thread.id }, expect.anything())
 })
 

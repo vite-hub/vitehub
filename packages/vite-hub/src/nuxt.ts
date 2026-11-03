@@ -190,6 +190,7 @@ type NuxtLike = {
     }
     modules?: unknown[]
     nitro?: Record<string, unknown>
+    plugins?: Array<string | { src: string }>
     routeRules?: Record<string, {
       headers?: Record<string, string>
       [key: string]: unknown
@@ -935,6 +936,20 @@ type ViteHubNuxtModule = {
   }>
 }
 
+/**
+ * An app that imports `vite-hub/ui` parts gets their runtime without adding `@vite-hub/ui/nuxt`: the plugin that gives
+ * them Nuxt UI's Nuxt icon, and their icons in the `@nuxt/icon` client bundle. `@vite-hub/ui` owns both.
+ */
+async function installViteHubUIRuntime(nuxt: NuxtLike): Promise<void> {
+  const ui = await importOptionalOwner("@vite-hub/ui", () => import("@vite-hub/ui/nuxt"))
+  if (!ui || !nuxt.hook) return
+  const hook = nuxt.hook
+  ui.addViteHubUIRuntime({
+    hook: (name, callback) => Reflect.apply(hook, nuxt, [name, callback]),
+    options: { plugins: (nuxt.options.plugins ??= []) },
+  })
+}
+
 const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(inlineOptions, nuxtInstance): Promise<void> {
   if (!nuxtInstance) return
   // SAFETY: Nuxt supplies this module callback with its instance; NuxtLike describes only the members this integration uses.
@@ -945,6 +960,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       entries.push(doctorExtensionEntry)
     }])
   }
+
+  await installViteHubUIRuntime(nuxt)
 
   const configuredModuleOptions = {
     ...nuxt.options.vitehub,
