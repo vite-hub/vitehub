@@ -3,10 +3,10 @@ import { drizzle } from "drizzle-orm/libsql"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { commentsSchema } from "../src/database.ts"
-import { defineComments, installComments } from "../src/index.ts"
+import { defineComments, defineCommentSubject, installComments } from "../src/index.ts"
 import { ada, anchor, commentsMigration, grace } from "./harness.ts"
 
-import type { CommentsDatabase } from "../src/store.ts"
+import type { CommentsDatabase } from "../src/operations-core/store.ts"
 
 const clients: ReturnType<typeof createClient>[] = []
 
@@ -22,7 +22,7 @@ async function setup(foreignKeys = false) {
   // SAFETY: libSQL implements the runtime SQLite database and atomic batch contract.
   const database = drizzle(client) as unknown as CommentsDatabase
   const onComment = vi.fn()
-  const comments = defineComments({ onComment })
+  const comments = defineComments({ onComment, subjects: [defineCommentSubject({ kind: "doc", scope: id => `doc:${id}` })] })
   installComments(comments, { database })
   const [, thread] = await comments.create({ page: "/", anchor, body: "Root", author: ada })
   onComment.mockClear()
@@ -57,7 +57,7 @@ describe("concurrent Comments mutations", () => {
     const [error, reply] = await comments.reply(thread.id, { body: "Too late", author: ada })
     expect(error?.code).toBe("COMMENTS_RESOLVED")
     expect(reply).toBeUndefined()
-    expect((await comments.get(thread.id))[1]?.comments).toHaveLength(1)
+    expect((await comments.get(thread.id))[1]?.messages).toHaveLength(1)
     expect(onComment).not.toHaveBeenCalled()
   })
 
@@ -68,10 +68,10 @@ describe("concurrent Comments mutations", () => {
     expect(error).toBeUndefined()
     expect(reply?.body).toBe("Follow-up")
     const [, updated] = await comments.get(thread.id)
-    expect(updated).toMatchObject({ status: "resolved", resolvedBy: grace, resolvedAt: expect.any(String) })
-    expect(updated?.comments).toHaveLength(2)
+    expect(updated).toMatchObject({ status: "resolved", resolvedBy: grace, resolvedAt: expect.any(Number) })
+    expect(updated?.messages).toHaveLength(2)
     expect(onComment).toHaveBeenCalledTimes(1)
-    expect(onComment).toHaveBeenCalledWith({ thread: updated, comment: reply, mentions: reply!.mentions })
+    expect(onComment).toHaveBeenCalledWith({ thread: expect.objectContaining({ id: thread.id, status: "resolved" }), message: reply, mentions: [] })
   })
 
   it.each([[false, false], [false, true], [true, false], [true, true]])("rejects a reply when deletion wins, with foreign keys %s and allowResolved %s", async (foreignKeys, allowResolved) => {
@@ -80,35 +80,38 @@ describe("concurrent Comments mutations", () => {
     const [error, reply] = await comments.reply(thread.id, { body: "Too late", author: ada }, { allowResolved })
     expect(error?.code).toBe("COMMENTS_NOT_FOUND")
     expect(reply).toBeUndefined()
-    expect(await database.select().from(commentsSchema.vitehubComments)).toEqual([])
+    expect(await database.select().from(commentsSchema.vitehubCommentMessages)).toEqual([])
     expect(onComment).not.toHaveBeenCalled()
   })
 
   it("returns not found and leaves thread activity unchanged when deletion beats an edit", async () => {
     const { comments, thread, beforeWrite } = await setup()
     const [, reply] = await comments.reply(thread.id, { body: "Before", author: ada })
-    const [, before] = await comments.get(thread.id)
-    beforeWrite(() => comments.removeComment(reply!.id))
+    let before: number | undefined
+    beforeWrite(async () => {
+      await comments.removeMessage(reply!.id)
+      before = (await comments.get(thread.id))[1]?.updatedAt
+    })
     const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 10_000)
     try {
       const [error, edited] = await comments.edit(reply!.id, { body: "After" })
       expect(error?.code).toBe("COMMENTS_NOT_FOUND")
       expect(edited).toBeUndefined()
       const [, after] = await comments.get(thread.id)
-      expect(after?.updatedAt).toBe(before?.updatedAt)
-      expect(after?.comments.map(comment => comment.body)).toEqual(["Root"])
+      expect(after?.updatedAt).toBe(before)
+      expect(after?.messages.map(message => message.body)).toEqual(["Root"])
     }
     finally { clock.mockRestore() }
   })
 
   it.each([false, true])("counts all threads deleted from a scope when creation races, with foreign keys %s", async (foreignKeys) => {
     const { comments, database, beforeWrite } = await setup(foreignKeys)
-    const [, other] = await comments.create({ scope: "private", page: "/", body: "Keep", author: ada })
+    const [, other] = await comments.create({ subject: { kind: "doc", id: "1" }, body: "Keep", author: ada })
     beforeWrite(() => comments.create({ page: "/", anchor, body: "Concurrent", author: grace }))
-    expect(await comments.removeScope("pages")).toEqual([undefined, { removed: 2 }])
-    expect((await comments.list({ scope: "pages" }))[1]).toEqual([])
-    expect((await comments.get(other!.id))[1]?.comments[0]?.body).toBe("Keep")
-    expect(await database.select().from(commentsSchema.vitehubComments)).toHaveLength(1)
+    expect(await comments.removeScope("site")).toEqual([undefined, { removed: 2 }])
+    expect((await comments.list({ scope: "site" }))[1]).toEqual([])
+    expect((await comments.get(other!.id))[1]?.messages[0]?.body).toBe("Keep")
+    expect(await database.select().from(commentsSchema.vitehubCommentMessages)).toHaveLength(1)
   })
 
   it.each(["resolve", "reopen"] as const)("returns COMMENTS_NOT_FOUND when deletion wins before %s", async (action) => {

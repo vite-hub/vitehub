@@ -1,4 +1,3 @@
-import { commentsOverlayAssets } from "./comments-overlay/assets.ts"
 import { consoleD1Binding, consoleDatabaseUrl, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
 import { applyCacheStorage, resolveCacheStorage, type CacheOptions } from "./cache.ts"
 import { existsSync, readFileSync } from "node:fs"
@@ -28,8 +27,7 @@ import { collapseWranglerConfigFile } from "@vite-hub/internal/build/cloudflare"
 import { describeDeploymentPlanOutput, finalizeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { denoServerPackagesPlugin, finalizeDenoDeploymentOutput, type DenoServerPackages } from "@vite-hub/internal/build/deno-runtime-packages"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
-import { nitroWorkerdDependencies } from "@vite-hub/internal/build/nitro-workerd-dependencies"
-import { createNoExternalAddition, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_MAJOR_VERSION, VITEHUB_SERVER_DIRS, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_MAJOR_VERSION, VITEHUB_SERVER_DIRS, workerdDependencyConfig, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
@@ -407,7 +405,7 @@ export interface ViteHubOptions {
   /** Agent telemetry, request logs, and papercut reports through evlog. Read it at runtime with `useObservability()`. */
   observability?: ObservabilityOptions
   queue?: boolean
-  /** Database, SQL dialect, and page overlay for the default-export Comments operations. */
+  /** Database, SQL dialect, and `overlay: false` (no page tool) for Comments in `server/comments.ts`. */
   comments?: Pick<HubCommentsOptions, "database" | "dialect" | "overlay">
   rateLimit?: boolean | RateLimitModuleOptions
   realtime?: boolean | RealtimeModuleOptions
@@ -696,6 +694,7 @@ function deploymentPlugins(
     {
       name: "vite-hub/deployment-settings",
       enforce: "pre",
+      configEnvironment: { order: "post", handler: workerdDependencyConfig },
       config: {
         order: "pre",
         handler(config, environment) {
@@ -1350,22 +1349,16 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   // Comments in `server/comments.ts`: threads in the Database, the overlay on pages in comment mode, and page presence
   // rooms where Realtime has an authority. Inert without the file, and absent without its package.
-  const overlayAssets = options.console === false || options.comments?.overlay === false ? undefined : commentsOverlayAssets()
-  const usesCms = ownerModules.cmsVite?.usesCms ?? (() => false)
   const commentsPlugin = ownerModules.commentsVite?.hubComments({
     ...options.comments,
-    ...(overlayAssets ? { overlayAssets, overlayDevOnly: devOperationsOnly, overlayEdit: usesCms } : {}),
-    operationsImports: {
-      auth: "vite-hub/auth/server",
-      database: "vite-hub/database/drizzle",
-      databaseSchema: "vite-hub/comments/database",
-      runtime: "vite-hub/comments/server",
-    },
     auth: Boolean(options.auth),
+    // Attachments go to the app's Blob store.
+    blob: blobEnabled,
     // With the Console, its people are the people of Comments, and opening the Console turns comment mode on.
     ...(options.console ? { console: { module: "vite-hub/console/sections" } } : {}),
     imports: {
       auth: "vite-hub/comments/runtime/auth",
+      blob: "vite-hub/blob",
       contentClient: "vite-hub/content/client",
       database: "vite-hub/comments/database",
       databases: "vite-hub/database/drizzle",
@@ -1460,8 +1453,6 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   plugins.push(viteHubTaskPlugin())
   // Lets request-scoped checks, such as Content preview, keep a request out of Nitro's cache.
   plugins.push(nitroCacheBypass())
-  // Lets CommonJS dependencies run in the workerd dev server of the Cloudflare presets.
-  plugins.push(nitroWorkerdDependencies())
   // Keeps packages that load on demand, such as Chat adapters, out of the chunks that the server loads at startup.
   plugins.push(nitroStartupChunks())
   plugins.push(viteHubTypesPlugin({

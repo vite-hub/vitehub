@@ -2199,7 +2199,7 @@ describe("ViteHub Nuxt integration", () => {
       const config = nitroOptions(nuxt)
       await runNitroConfigHook(config)
       expect(nitroPlugins(nuxt)).toContain("/tmp/vitehub-nuxt/.vitehub/nitro/comments/plugin.mjs")
-      await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/comments/plugin.mjs", "utf8")).resolves.toContain("installComments(")
+      await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/comments/plugin.mjs", "utf8")).resolves.toContain("defineCommentsPlugin({")
 
       // An explicit `database: false` is never overridden.
       await viteHubNuxtModule({ database: false, preset: "node" }, createNuxt().nuxt)

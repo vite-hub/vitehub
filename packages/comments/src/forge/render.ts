@@ -1,6 +1,6 @@
 import { describeCommentContext } from "../context.ts"
 
-import type { Comment, CommentThread } from "../types.ts"
+import type { CommentMessage, CommentThread } from "../types.ts"
 
 /** The `<!-- -->` marker that ends every comment the sync posts, so people and tools can tell them apart. */
 export const forgeMarker = "vitehub-comments"
@@ -21,7 +21,7 @@ export function unlinked(text: string): string {
 
 /** A thread number as people say it, "#3", that GitHub does not link to issue 3. */
 function number(thread: CommentThread): string {
-  return `#\u2060${thread.number}`
+  return `#\u2060${thread.n}`
 }
 
 function quote(text: string): string {
@@ -54,8 +54,13 @@ function headline(body: string): string {
   return first.length > 100 ? `${first.slice(0, 99).trimEnd()}…` : first
 }
 
-function authorName(comment: Comment): string {
-  return unlinked(`${comment.author.name}${comment.author.guest ? " (guest)" : ""}`)
+function authorName(comment: CommentMessage): string {
+  return unlinked(`${comment.author.name ?? comment.author.id}${comment.author.guest ? " (guest)" : ""}`)
+}
+
+/** The page of a thread: the subject of a page thread. */
+function pageOf(thread: CommentThread): string {
+  return thread.subject.id
 }
 
 /** The page of a thread in comment mode, with its thread open: the Console's **Open on page** link. */
@@ -73,7 +78,7 @@ export function previewUrl(thread: CommentThread): string | undefined {
 
 function pageLink(thread: CommentThread): string {
   const url = previewUrl(thread)
-  return url ? `[\`${thread.page}\`](${url})` : `\`${thread.page}\``
+  return url ? `[\`${pageOf(thread)}\`](${url})` : `\`${pageOf(thread)}\``
 }
 
 function where(thread: CommentThread): string {
@@ -83,7 +88,7 @@ function where(thread: CommentThread): string {
 }
 
 function details(thread: CommentThread): string {
-  const fields = describeCommentContext(thread.context)
+  const fields = describeCommentContext(thread.context ?? null)
   if (!fields.length) return ""
   const rows = fields.map(({ label, value }) => {
     const shown = label === "URL" ? cell(value) : label === "Files" ? value.split(", ").map(code).join("<br>") : code(value)
@@ -96,8 +101,8 @@ function details(thread: CommentThread): string {
  * The pull request comment of one comment. `author` posts with the person's own token, so the text is theirs; `app`
  * posts for them, so it names them and quotes them.
  */
-export function renderComment(thread: CommentThread, comment: Comment, postedAs: "author" | "app"): string {
-  const first = thread.comments[0]?.id === comment.id
+export function renderComment(thread: CommentThread, comment: CommentMessage, postedAs: "author" | "app"): string {
+  const first = thread.messages[0]?.id === comment.id
   const body = plainText(comment.body)
   const lines: string[] = []
   if (postedAs === "app") lines.push(first ? `**${plainText(authorName(comment))}** commented on the preview:` : `**${plainText(authorName(comment))}** replied on ${number(thread)}:`, "", quote(body))
@@ -117,7 +122,7 @@ export function renderComment(thread: CommentThread, comment: Comment, postedAs:
 
 /** The summary comment of a pull request: every thread posted to it, by number, with its state. */
 export function renderSummary(input: { title: string, threads: ReadonlyArray<{ thread: CommentThread, url?: string, failed: boolean }> }): string {
-  const threads = [...input.threads].sort((a, b) => a.thread.number - b.thread.number)
+  const threads = [...input.threads].sort((a, b) => a.thread.n - b.thread.n)
   const open = threads.filter(({ thread }) => thread.status === "open").length
   const site = threads.map(({ thread }) => thread.context?.url).find(Boolean)
   let origin: URL | undefined
@@ -126,14 +131,14 @@ export function renderSummary(input: { title: string, threads: ReadonlyArray<{ t
   }
   catch {}
   const rows = threads.map(({ thread, url, failed }) => {
-    const first = thread.comments[0]
+    const first = thread.messages[0]
     const text = cell(unlinked(headline(first?.body ?? "")))
     const comment = url ? `[${text}](${url})` : text
     const shown = thread.status === "resolved" ? `~~${comment}~~` : comment
     const preview = previewUrl(thread)
     const label = preview ? `[${number(thread)}](${preview})` : number(thread)
     const state = thread.status === "resolved" ? "Resolved" : failed ? "Open, not posted yet" : "Open"
-    return `| ${label} | ${shown}<br><sub>${code(thread.page)} · ${cell(first ? authorName(first) : unlinked(thread.createdBy.name))}</sub> | ${state} |`
+    return `| ${label} | ${shown}<br><sub>${code(pageOf(thread))} · ${cell(first ? authorName(first) : unlinked(thread.author.name ?? thread.author.id))}</sub> | ${state} |`
   })
   return [
     `### ${input.title}`,

@@ -12,7 +12,7 @@ const tool = { id: "comments", label: "Comments", icon: "i-lucide-message-square
 /** The page tools session and the Comments API of a site where this person may `read`, and `comment` when `comment`. */
 function site(can: { read: boolean, comment: boolean }, realtime = false) {
   vi.stubGlobal("fetch", vi.fn(async (input: string) => {
-    const path = String(input)
+    const path = new URL(String(input), location.href).pathname
     if (path === "/_vitehub/page/session") return Response.json({ tools: [tool] })
     if (path === "/api/_vitehub/comments/session") {
       return Response.json({ data: { user: { id: "ada", name: "Ada Lovelace" }, can: { ...can, resolve: can.comment }, realtime, content: false } })
@@ -95,7 +95,7 @@ describe("the Comments page tool", () => {
     const serve = fetch
     let respond!: (response: Response) => void
     const pending = new Promise<Response>((resolve) => { respond = resolve })
-    vi.stubGlobal("fetch", vi.fn((input: string) => String(input) === "/api/_vitehub/comments/session" ? pending : serve(input)))
+    vi.stubGlobal("fetch", vi.fn((input: string) => new URL(String(input), location.href).pathname === "/api/_vitehub/comments/session" ? pending : serve(input)))
     const { bar } = await start()
     await vi.waitFor(() => expect(document.querySelector("vitehub-comments")).not.toBeNull())
     const placeholder = bar.shadowRoot!.querySelector<HTMLButtonElement>("button")!

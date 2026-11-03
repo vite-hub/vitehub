@@ -6,8 +6,11 @@ import * as v from "valibot"
 
 import { commentsErrors } from "../errors.ts"
 import { authorOf, guestFromHeaders } from "../identity.ts"
-import { commentsPageScope, commentsRoute, normalizeCommentPage } from "../page.ts"
-import { anchorSchema, bodySchema, contextSchema, describeIssue, mentionsSchema, pageSchema } from "../schema.ts"
+import { resolveCommentsRuntime } from "../index.ts"
+import { commentActions, commentAnchorSchema, commentInputSchemas } from "../operations-core/operations.ts"
+import { deniedForMissingPolicy } from "../operations-core/define.ts"
+import { can as policyCan, contextSchema, deniedError, mentionedPeople } from "../operations-core/service.ts"
+import { commentsRoute, normalizeCommentPage } from "../page.ts"
 import { requestOf } from "./request.ts"
 import { resolveCommentsUser } from "./session.ts"
 
@@ -15,7 +18,9 @@ import type { Result, ResultError } from "@vite-hub/runtime"
 import type { H3Event } from "h3"
 import type { Comments } from "../index.ts"
 import type { CommentsGitHubLogin } from "./github-login.ts"
-import type { CommentAuthor, CommentContext, CommentsAction, CommentsUser, CommentThread } from "../types.ts"
+import type { CommentsCaller } from "../operations-core/operations.ts"
+import type { CommentsRuntime } from "../operations-core/service.ts"
+import type { CommentAction, CommentContext, CommentListQuery, CommentsUser, CommentSubject, CommentThread, CommentUser } from "../types.ts"
 import type { CommentsSessionOptions } from "./session.ts"
 
 /** One field address, as `parseContentField()` from `@vite-hub/content/client` reads it. */
@@ -67,23 +72,27 @@ export interface CommentsHandlerOptions extends CommentsSessionOptions {
   components?: Readonly<Record<string, readonly string[]>>
 }
 
-/** Issued by `access()` after `authorize` allows an action, for that action on that thread. Each write needs one. */
-const actionGrant = defineGrant("vitehub.comments.action", (input: { action: CommentsAction, threadId: string | undefined }) => Object.freeze({ ...input }))
+const fieldEditGrant = defineGrant("vitehub.comments.field-edit", (input: { collection: ContentCollectionLike, id: string, field: string, user: CommentUser }) => input)
 
-type ActionGrant = ReturnType<typeof actionGrant.issue>
+const pageSchema = v.pipe(v.string(), v.startsWith("/", "A page starts with `/`."), v.maxLength(1024))
+/** `POST /threads`: the input of `comments.create`, or a `page` instead of the subject, and the page context of the overlay. */
+const createBody = v.object({
+  ...commentInputSchemas.create.entries,
+  subject: v.optional(commentInputSchemas.create.entries.subject),
+  page: v.optional(pageSchema),
+  anchor: v.optional(commentAnchorSchema),
+  context: v.optional(contextSchema),
+})
+const replyBody = v.object({ body: commentInputSchemas.reply.entries.body, mentions: commentInputSchemas.reply.entries.mentions, attachments: commentInputSchemas.reply.entries.attachments })
+const editBody = v.object({ body: commentInputSchemas.edit.entries.body, mentions: commentInputSchemas.edit.entries.mentions })
 
-/** Spends a grant for one of `actions` on `threadId`. A grant for another action or thread is a bug, so it throws. */
-function spend(grant: ActionGrant, actions: readonly CommentsAction[], threadId?: string): void {
-  const allowed = actionGrant.consume(grant)
-  if (!actions.includes(allowed.action) || allowed.threadId !== threadId) {
-    throw new TypeError(`[vitehub] A Comments write for ${actions.join(" or ")} ran with the grant of ${allowed.action}.`)
-  }
+/** The first issue as one sentence, for `COMMENTS_INVALID_INPUT`. */
+function describeIssue(issues: readonly v.BaseIssue<unknown>[]): string {
+  const issue = issues[0]
+  if (!issue) return "unknown issue."
+  const path = issue.path?.map(item => String(item.key)).join(".")
+  return path ? `${path}: ${issue.message}` : issue.message
 }
-
-const fieldEditGrant = defineGrant("vitehub.comments.field-edit", (input: { collection: ContentCollectionLike, id: string, field: string, user: CommentAuthor }) => input)
-
-const createBody = v.object({ page: pageSchema, anchor: anchorSchema, context: v.optional(contextSchema), body: bodySchema, mentions: mentionsSchema })
-const replyBody = v.object({ body: bodySchema, mentions: mentionsSchema })
 const fieldBody = v.object({ field: v.pipe(v.string(), v.maxLength(512)), value: v.pipe(v.string(), v.maxLength(20_000)), ifDigest: v.string() })
 
 function status(code: string): number {
@@ -92,6 +101,7 @@ function status(code: string): number {
     case "COMMENTS_CONTENT_MISSING":
       return 404
     case "COMMENTS_FORBIDDEN":
+    case "COMMENTS_POLICY_MISSING":
     case "COMMENTS_FIELD_FORBIDDEN":
       return 403
     case "COMMENTS_RESOLVED":
@@ -117,6 +127,63 @@ function json(value: unknown, init: ResponseInit = {}): Response {
 
 function failure(error: ResultError): Response {
   return json({ error }, { status: status(error.code) })
+}
+
+/** A thrown Comments diagnostic, such as `COMMENTS_R0019` for tables that need a migration, as the API's error object. */
+function diagnosticResponse(error: unknown): Response {
+  const code = Reflect.get(Object(error), "code")
+  const status = Reflect.get(Object(error), "status")
+  if (!(error instanceof Error) || typeof code !== "string" || !code.startsWith("COMMENTS_") || typeof status !== "number") throw error
+  const fix = Reflect.get(error, "fix")
+  return json({ error: { code, why: Reflect.get(error, "why") ?? error.message, ...(typeof fix === "string" ? { fix } : {}) } }, { status })
+}
+
+/** The REST code of a diagnostic of the comment actions. Codes without one, such as `COMMENTS_R0019`, stay as they are. */
+const restCodes: Readonly<Record<string, "COMMENTS_NOT_FOUND" | "COMMENTS_FORBIDDEN" | "COMMENTS_POLICY_MISSING" | "COMMENTS_RESOLVED" | "COMMENTS_INVALID_INPUT">> = {
+  COMMENTS_R0002: "COMMENTS_NOT_FOUND",
+  COMMENTS_R0003: "COMMENTS_NOT_FOUND",
+  COMMENTS_R0004: "COMMENTS_FORBIDDEN",
+  COMMENTS_R0005: "COMMENTS_INVALID_INPUT",
+  COMMENTS_R0006: "COMMENTS_POLICY_MISSING",
+  COMMENTS_R0007: "COMMENTS_INVALID_INPUT",
+  COMMENTS_R0008: "COMMENTS_INVALID_INPUT",
+  COMMENTS_R0009: "COMMENTS_FORBIDDEN",
+  COMMENTS_R0012: "COMMENTS_FORBIDDEN",
+  COMMENTS_R0016: "COMMENTS_RESOLVED",
+  COMMENTS_R0017: "COMMENTS_INVALID_INPUT",
+  COMMENTS_R0018: "COMMENTS_INVALID_INPUT",
+}
+
+/** A failure of a comment action as the API's error object: the REST code, and the status of the diagnostic. */
+function actionFailure(error: unknown, action: string): Response {
+  const code = Reflect.get(Object(error), "code")
+  const mapped = typeof code === "string" ? restCodes[code] : undefined
+  if (!(error instanceof Error) || !mapped) return diagnosticResponse(error)
+  const why = String(Reflect.get(error, "why") ?? error.message)
+  const result = mapped === "COMMENTS_FORBIDDEN"
+    ? commentsErrors.COMMENTS_FORBIDDEN({ action })
+    : mapped === "COMMENTS_POLICY_MISSING"
+      ? commentsErrors.COMMENTS_POLICY_MISSING()
+      : mapped === "COMMENTS_RESOLVED"
+        ? commentsErrors.COMMENTS_RESOLVED()
+        : mapped === "COMMENTS_NOT_FOUND"
+          ? commentsErrors.COMMENTS_NOT_FOUND({ id: why })
+          : commentsErrors.COMMENTS_INVALID_INPUT({ issue: why })
+  const statusOf = Reflect.get(error, "status")
+  return json({ error: mapped === "COMMENTS_NOT_FOUND" ? { ...result, why } : result }, { status: mapped === "COMMENTS_INVALID_INPUT" && typeof statusOf === "number" ? statusOf : status(mapped) })
+}
+
+/** Response headers for a stored file: its checked type, a file name, and no way for the browser to run it. */
+function attachmentHeaders(file: { name: string, type: string, size: number, inline: boolean }): Headers {
+  return new Headers({
+    "cache-control": "private, max-age=300",
+    "content-disposition": `${file.inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+    "content-length": String(file.size),
+    "content-security-policy": "default-src 'none'; sandbox",
+    "content-type": file.type === "text/plain" ? "text/plain; charset=utf-8" : file.type,
+    "cross-origin-resource-policy": "same-origin",
+    "x-content-type-options": "nosniff",
+  })
 }
 
 function respond<T>([error, data]: Result<T>): Response {
@@ -162,49 +229,52 @@ function leaseHolder(error: unknown): string {
  */
 export function createCommentsHandler(options: CommentsHandlerOptions): ReturnType<typeof defineEventHandler> {
   const { comments } = options
+  // With the Console, every user here passed its Comments section access first.
+  const gate = { console: Boolean(options.consoleSession) }
 
-  async function resolveUser(event: H3Event, action: CommentsAction = "read"): Promise<CommentsUser | null | false> {
+  async function resolveUser(event: H3Event, action: CommentAction = "read"): Promise<CommentsUser | null | false> {
     return resolveCommentsUser(comments, event, {
       ...options,
       session: async request => await options.session?.(request) ?? await options.githubLogin?.user(request),
     }, action)
   }
 
-  async function access(event: H3Event, action: CommentsAction, thread?: CommentThread): Promise<Result<{ user: CommentsUser | null, author: CommentAuthor | undefined, grant: ActionGrant }, "COMMENTS_FORBIDDEN">> {
+  async function access(event: H3Event, action: CommentAction, thread?: CommentThread, subject?: CommentSubject): Promise<Result<{ user: CommentsUser | null, author: CommentUser | undefined }, "COMMENTS_FORBIDDEN" | "COMMENTS_POLICY_MISSING">> {
     const user = await resolveUser(event, action)
-    if (user === false || !await comments.can({ user, action, thread })) return [commentsErrors.COMMENTS_FORBIDDEN({ action }), undefined]
+    if (user === false) return [commentsErrors.COMMENTS_FORBIDDEN({ action }), undefined]
+    if (!await comments.can({ user, action, ...(thread ? { thread } : {}), ...(subject ? { subject } : {}) }, gate)) {
+      return [deniedForMissingPolicy(comments.options, user, { ...gate, development: (await resolveCommentsRuntime(comments))?.development === true }) ? commentsErrors.COMMENTS_POLICY_MISSING() : commentsErrors.COMMENTS_FORBIDDEN({ action }), undefined]
+    }
     // A user writes as itself; without one, a guest that named itself, when the policy lets anonymous people act.
     const author = user ? authorOf(user) : guestFromHeaders(requestOf(event).headers)
-    return [undefined, { user, author, grant: actionGrant.issue({ action, threadId: thread?.id }) }]
+    return [undefined, { user, author }]
   }
 
-  /** The writes of this API. Each one needs the grant of the `access()` check that allowed it. */
-  const writes = {
-    create: (grant: ActionGrant, input: Parameters<Comments["create"]>[0]) => {
-      spend(grant, ["comment"])
-      return comments.create(input)
-    },
-    reply: (grant: ActionGrant, threadId: string, input: Parameters<Comments["reply"]>[1]) => {
-      spend(grant, ["comment"], threadId)
-      return comments.reply(threadId, input)
-    },
-    resolve: (grant: ActionGrant, threadId: string, by: CommentAuthor) => {
-      spend(grant, ["resolve"], threadId)
-      return comments.resolve(threadId, { by })
-    },
-    reopen: (grant: ActionGrant, threadId: string) => {
-      spend(grant, ["resolve"], threadId)
-      return comments.reopen(threadId)
-    },
-    remove: (grant: ActionGrant, threadId: string) => {
-      spend(grant, ["delete"], threadId)
-      return comments.remove(threadId)
-    },
-    // Authors delete their own comments with `comment`; moderators need `delete` for others' comments.
-    removeComment: (grant: ActionGrant, threadId: string, commentId: string) => {
-      spend(grant, ["comment", "delete"], threadId)
-      return comments.removeComment(commentId)
-    },
+  /**
+   * The caller of a comment action: the user of the request, after the Console's section access for `action`. A
+   * person that the Console refuses is denied before the policy runs.
+   */
+  async function callerOf(event: H3Event, action: CommentAction): Promise<{ who: CommentsCaller } | { denied: Response }> {
+    const runtime = await resolveCommentsRuntime(comments)
+    if (!runtime) return { denied: failure(commentsErrors.COMMENTS_NOT_INSTALLED()) }
+    const user = await resolveUser(event, action)
+    if (user === false) return { denied: failure(commentsErrors.COMMENTS_FORBIDDEN({ action })) }
+    const waitUntil = resolveWaitUntil(event, { preferHost: true })
+    return { who: { gate: { ...gate, development: runtime.development === true }, request: requestOf(event), runtime, user, ...(waitUntil ? { waitUntil } : {}) } }
+  }
+
+  /** Runs a comment action for the request, and answers its diagnostics as the API's error objects. */
+  async function act<T>(event: H3Event, action: CommentAction, run: (who: CommentsCaller) => Promise<T>, answer: (value: T, who: CommentsCaller) => Promise<Response> | Response): Promise<Response> {
+    const called = await callerOf(event, action)
+    if ("denied" in called) return called.denied
+    let value: T
+    try {
+      value = await run(called.who)
+    }
+    catch (error) {
+      return actionFailure(error, action)
+    }
+    return await answer(value, called.who)
   }
 
   /** Adds the build, and the source files of each component, to the context that the overlay read. */
@@ -240,9 +310,9 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
   }
 
   /** Who the overlay's person is and what they may do. The page tools session decides whether the overlay loads. */
-  async function session(event: H3Event): Promise<Response> {
+  async function session(event: H3Event, subject?: CommentSubject): Promise<Response> {
     const user = await resolveUser(event)
-    const [read, comment, resolve, remove] = await Promise.all((["read", "comment", "resolve", "delete"] as const).map(action => can(event, user, action)))
+    const [read, comment, resolve, remove] = await Promise.all((["read", "write", "resolve", "delete"] as const).map(action => can(event, user, action, undefined, subject)))
     const github = options.githubLogin?.configured() ? options.githubLogin : undefined
     const pathname = new URL(requestOf(event).url).pathname
     const route = pathname.slice(0, pathname.indexOf(commentsRoute) + commentsRoute.length)
@@ -262,37 +332,84 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     })
   }
 
-  async function can(event: H3Event, user: CommentsUser | null | false, action: CommentsAction, thread?: CommentThread): Promise<boolean> {
+  async function can(event: H3Event, user: CommentsUser | null | false, action: CommentAction, thread?: CommentThread, subject?: CommentSubject): Promise<boolean> {
     if (user === false) return false
     if (action !== "read" && await options.consoleSession?.(event, action).catch(() => false as const) === false) return false
-    return comments.can({ user, action, thread })
+    return comments.can({ user, action, ...(thread ? { thread } : {}), ...(subject ? { subject } : {}) }, gate)
   }
 
   async function permissions(event: H3Event, user: CommentsUser | null, thread: CommentThread) {
-    const [comment, resolve, remove] = await Promise.all((["comment", "resolve", "delete"] as const).map(action => can(event, user, action, thread)))
+    const [comment, resolve, remove] = await Promise.all((["write", "resolve", "delete"] as const).map(action => can(event, user, action, thread)))
     return { ...thread, can: { comment, resolve, delete: remove } }
   }
 
-  async function respondThread(event: H3Event, user: CommentsUser | null, [error, thread]: Result<CommentThread>): Promise<Response> {
-    return error ? failure(error) : json({ data: await permissions(event, user, thread) })
+  /** The people that the threads mention, so a UI shows their names. */
+  async function people(runtime: CommentsRuntime, user: CommentsUser | null, threads: readonly CommentThread[]): Promise<CommentUser[]> {
+    return await mentionedPeople(runtime, user, threads, gate)
   }
 
-  /** A page thread. Threads of other scopes belong to the app's own UI, so this API does not show or change them. */
-  async function thread(id: string): Promise<Result<CommentThread, "COMMENTS_NOT_FOUND" | "COMMENTS_NOT_INSTALLED">> {
-    const [error, found] = await comments.get(id)
-    if (error) return [error, undefined]
-    return found.scope === commentsPageScope ? [undefined, found] : [commentsErrors.COMMENTS_NOT_FOUND({ id }), undefined]
+  /** A thread with what the reader may do with it, and the people that it mentions. */
+  async function threadResponse(event: H3Event, who: CommentsCaller, thread: CommentThread | null, extra: Record<string, unknown> = {}): Promise<Response> {
+    if (!thread) return json({ data: null, ...extra })
+    return json({ data: await permissions(event, who.user, thread), people: await people(who.runtime, who.user, [thread]), ...extra })
   }
 
-  async function fieldTarget(event: H3Event, address: string): Promise<Result<{ collection: ContentCollectionLike, id: string, path: string[], document: ContentDocumentLike, author: CommentAuthor, user: CommentsUser | null }, "COMMENTS_CONTENT_MISSING" | "COMMENTS_FIELD_INVALID" | "COMMENTS_FIELD_FORBIDDEN" | "COMMENTS_FORBIDDEN">> {
+  /** Lists check `read` on the filter first, so a person who may not read gets `403`, not an empty list. */
+  async function mayRead(who: CommentsCaller, subject: CommentSubject | undefined): Promise<void> {
+    if (!await policyCan(who.runtime, { action: "read", user: who.user, ...(subject ? { subject } : {}) }, who.gate)) throw deniedError(who.runtime, "read", who.user, who.gate)
+  }
+
+  /** The list query of `GET /threads`: the filters of `comments.list` as search parameters. */
+  function listQuery(url: URL): Result<CommentListQuery, "COMMENTS_INVALID_INPUT"> {
+    const params = url.searchParams
+    const number = (name: string) => params.has(name) ? Number(params.get(name)) : undefined
+    const flag = (name: string) => params.has(name) ? params.get(name) === "true" || params.get(name) === "1" : undefined
+    const page = params.get("page")
+    const kind = params.get("subjectKind")
+    const subjectId = params.get("subjectId")
+    const state = params.get("status")
+    const lte = number("revision")
+    const beforeId = params.get("beforeId")
+    const beforeUpdatedAt = number("beforeUpdatedAt")
+    const parsed = v.safeParse(commentInputSchemas.list, {
+      ...(page ? { subject: { kind: "page", id: normalizeCommentPage(page) } } : kind && subjectId ? { subject: { kind, id: subjectId } } : kind ? { subjectKind: kind } : {}),
+      ...(state === "open" || state === "resolved" ? { status: state } : {}),
+      ...(lte === undefined ? {} : { revision: { lte } }),
+      ...(number("limit") === undefined ? {} : { limit: number("limit") }),
+      ...(beforeId && beforeUpdatedAt !== undefined ? { before: { id: beforeId, updatedAt: beforeUpdatedAt } } : {}),
+      ...(flag("mine") === undefined ? {} : { mine: flag("mine") }),
+      ...(flag("mentions") === undefined ? {} : { mentions: flag("mentions") }),
+    })
+    return parsed.success ? [undefined, parsed.output] : [commentsErrors.COMMENTS_INVALID_INPUT({ issue: describeIssue(parsed.issues) }), undefined]
+  }
+
+  /** Checks the page context that the overlay read: same origin, same page. Keeps only the origin and the path. */
+  function checkContext(request: Request, context: CommentContext, subject: CommentSubject): Result<CommentContext, "COMMENTS_INVALID_INPUT"> {
+    if (subject.kind !== "page") return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: "context: Only a page thread keeps the page context." }), undefined]
+    const origin = forwardedRequestOrigin(request)
+    let submitted: URL
+    try {
+      submitted = new URL(context.url)
+    }
+    catch {
+      return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: "context.url: Expected an absolute page URL." }), undefined]
+    }
+    if (submitted.origin !== origin || normalizeCommentPage(submitted.pathname) !== subject.id) {
+      return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: "context.url: Must match the request origin and thread page." }), undefined]
+    }
+    // Only the trusted origin and page are shared with thread readers, never query credentials or fragments.
+    return [undefined, completeContext({ ...context, url: `${origin}${subject.id}` })]
+  }
+
+  async function fieldTarget(event: H3Event, address: string): Promise<Result<{ collection: ContentCollectionLike, id: string, path: string[], document: ContentDocumentLike, author: CommentUser, user: CommentsUser | null }, "COMMENTS_CONTENT_MISSING" | "COMMENTS_FIELD_INVALID" | "COMMENTS_FIELD_FORBIDDEN" | "COMMENTS_FORBIDDEN" | "COMMENTS_POLICY_MISSING">> {
     if (!options.content) return [commentsErrors.COMMENTS_CONTENT_MISSING(), undefined]
-    const [denied, allowed] = await access(event, "comment")
+    const [denied, allowed] = await access(event, "write")
     if (denied) return [denied, undefined]
     const parsed = options.content.parseField(address)
     const collection = parsed && options.content.runtime.collections().find(candidate => candidate.name === parsed.collection)
     const id = collection?.kind === "singleton" ? collection.id : parsed?.id
     if (!parsed || !collection || !id) return [commentsErrors.COMMENTS_FIELD_INVALID({ field: address }), undefined]
-    if (!allowed.author) return [commentsErrors.COMMENTS_FORBIDDEN({ action: "comment" }), undefined]
+    if (!allowed.author) return [commentsErrors.COMMENTS_FORBIDDEN({ action: "write" }), undefined]
     if (!await options.content.runtime.can({ user: allowed.user ?? undefined, collection: collection.name, action: "write", id })) {
       return [commentsErrors.COMMENTS_FIELD_FORBIDDEN({ field: address }), undefined]
     }
@@ -342,7 +459,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
       }, {
         ifDigest: input.ifDigest,
         message: `Edit ${target.path.join(".")} on the page`,
-        metadata: { source: "comments", author: user.name },
+        metadata: { source: "comments", author: user.name ?? user.id },
       })
       return json({ data: { field, value: input.value, digest: saved.digest } })
     }
@@ -356,7 +473,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
 
   async function handle(event: H3Event) {
     const request = requestOf(event)
-    const response = await route(event, request)
+    const response = await route(event, request).catch(diagnosticResponse)
     // A change starts its pull request sync. Hosts that end work with the response keep it running until it ends.
     if (request.method !== "GET" && comments.options.forge) resolveWaitUntil(event, { preferHost: true })?.(comments.flush())
     return response
@@ -373,97 +490,92 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     const path = url.pathname.slice(url.pathname.indexOf(commentsRoute) + commentsRoute.length).replace(/\/+$/, "") || "/"
     const parts = path.split("/").filter(Boolean)
     const method = request.method
+    const page = url.searchParams.get("page")
+    const subjectKind = url.searchParams.get("subjectKind")
+    const subjectId = url.searchParams.get("subjectId")
+    const subject: CommentSubject | undefined = page ? { kind: "page", id: normalizeCommentPage(page) } : subjectKind && subjectId ? { kind: subjectKind, id: subjectId } : undefined
     if (method !== "GET" && !sameOrigin(request)) return json({ error: { code: "COMMENTS_FORBIDDEN", why: "Comments requests must come from the site's own pages." } }, { status: 403 })
 
-    if (method === "GET" && path === "/session") return await session(event)
+    if (method === "GET" && path === "/session") return await session(event, subject)
     // Better Auth checks the origin of its own POST routes.
     if (path.startsWith("/auth/") && options.githubLogin) return await options.githubLogin.handle(event, path)
 
     if (path === "/threads") {
       if (method === "GET") {
-        const [denied, allowed] = await access(event, "read")
-        if (denied) return failure(denied)
-        const page = url.searchParams.get("page")
-        const state = url.searchParams.get("status")
-        const [error, threads] = await comments.list({
-          scope: commentsPageScope,
-          page: page ? normalizeCommentPage(page) : undefined,
-          status: state === "open" || state === "resolved" ? state : undefined,
-        })
-        return error ? failure(error) : json({ data: await Promise.all(threads.map(thread => permissions(event, allowed.user, thread))) })
+        const [invalidQuery, query] = listQuery(url)
+        if (invalidQuery) return failure(invalidQuery)
+        return await act(event, "read", async (who) => {
+          await mayRead(who, query.subject)
+          return await commentActions.list(query, who)
+        }, async (threads, who) => json({ data: await Promise.all(threads.map(thread => permissions(event, who.user, thread))), people: await people(who.runtime, who.user, threads) }))
       }
       if (method === "POST") {
         const parsed = v.safeParse(createBody, await readJson(event))
         if (!parsed.success) return invalid(parsed.issues)
-        const [denied, allowed] = await access(event, "comment")
-        if (denied) return failure(denied)
-        if (!allowed.author) return failure(commentsErrors.COMMENTS_FORBIDDEN({ action: "comment" }))
-        const { context, ...input } = parsed.output
-        if (context) {
-          const origin = forwardedRequestOrigin(request)
-          const page = normalizeCommentPage(input.page)
-          let submitted: URL
-          try {
-            submitted = new URL(context.url)
-          }
-          catch {
-            return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: "context.url: Expected an absolute page URL." }))
-          }
-          if (submitted.origin !== origin || normalizeCommentPage(submitted.pathname) !== page) {
-            return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: "context.url: Must match the request origin and thread page." }))
-          }
-          // Only the trusted origin and page are shared with thread readers, never query credentials or fragments.
-          context.url = `${origin}${page}`
-        }
-        return await respondThread(event, allowed.user, await writes.create(allowed.grant, { ...input, ...(context ? { context: completeContext(context) } : {}), author: allowed.author }))
+        const { page, subject: given, context, anchor, ...input } = parsed.output
+        const target = given ?? (page === undefined ? undefined : { kind: "page", id: normalizeCommentPage(page) })
+        if (!target) return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: "subject: Give a subject, or a page." }))
+        const [badContext, checked] = context ? checkContext(request, context, target) : [undefined, undefined]
+        if (badContext) return failure(badContext)
+        return await act(event, "write", who => commentActions.create({ ...input, anchor: anchor ?? { kind: "page" }, subject: target, ...(checked ? { context: checked } : {}) }, who), (thread, who) => threadResponse(event, who, thread))
       }
+    }
+
+    if (parts[0] === "scopes" && parts[1] && parts[2] === "threads" && parts[3] && !parts[4] && method === "GET") {
+      const parsed = v.safeParse(commentInputSchemas.get, { scope: decodeURIComponent(parts[1]), n: Number(parts[3]) })
+      if (!parsed.success) return invalid(parsed.issues)
+      return await act(event, "read", who => commentActions.get(parsed.output, who), (thread, who) => threadResponse(event, who, thread))
     }
 
     if (parts[0] === "threads" && parts[1]) {
-      const id = decodeURIComponent(parts[1])
-      const [missing, current] = await thread(id)
-      if (missing) return failure(missing)
+      const threadId = decodeURIComponent(parts[1])
       const action = parts[2]
-      if (method === "POST" && action === "comments") {
+      const messageId = parts[3] ? decodeURIComponent(parts[3]) : undefined
+      if (method === "GET" && !action) return await act(event, "read", who => commentActions.get({ id: threadId }, who), (thread, who) => threadResponse(event, who, thread))
+      if (method === "POST" && action === "comments" && !messageId) {
         const parsed = v.safeParse(replyBody, await readJson(event))
         if (!parsed.success) return invalid(parsed.issues)
-        const [denied, allowed] = await access(event, "comment", current)
-        if (denied) return failure(denied)
-        if (!allowed.author) return failure(commentsErrors.COMMENTS_FORBIDDEN({ action: "comment" }))
-        return respond(await writes.reply(allowed.grant, id, { ...parsed.output, author: allowed.author }))
+        // The overlay reads the message as `data`; other clients read the thread as `thread`.
+        return await act(event, "write", who => commentActions.reply({ ...parsed.output, threadId }, who), async ({ message, thread }, who) => json({
+          data: message,
+          thread: await permissions(event, who.user, thread),
+          people: await people(who.runtime, who.user, [thread]),
+        }))
       }
-      if (method === "POST" && (action === "resolve" || action === "reopen")) {
-        const [denied, allowed] = await access(event, "resolve", current)
-        if (denied) return failure(denied)
-        if (action === "reopen") return await respondThread(event, allowed.user, await writes.reopen(allowed.grant, id))
-        return await respondThread(event, allowed.user, await writes.resolve(allowed.grant, id, allowed.author ?? { id: "anonymous", name: "Someone" }))
+      if (method === "PATCH" && action === "comments" && messageId) {
+        const parsed = v.safeParse(editBody, await readJson(event))
+        if (!parsed.success) return invalid(parsed.issues)
+        return await act(event, "write", who => commentActions.edit({ ...parsed.output, threadId, messageId }, who), (thread, who) => threadResponse(event, who, thread))
       }
-      if (method === "DELETE" && action === "comments" && parts[3]) {
-        const commentId = decodeURIComponent(parts[3])
-        const comment = current.comments.find(candidate => candidate.id === commentId)
-        if (!comment) return failure(commentsErrors.COMMENTS_NOT_FOUND({ id: commentId }))
-        const [denied, allowed] = await access(event, "comment", current)
-        // Removing the root removes the whole thread, so ownership must cover every affected comment.
-        const affected = current.comments[0]?.id === commentId ? current.comments : [comment]
-        if (!denied && allowed.user && !allowed.user.guest && affected.every(entry => !entry.author.guest && entry.author.id === allowed.user!.id)) return respond(await writes.removeComment(allowed.grant, id, commentId))
-        // Deleting others' comments requires its own permission. Guest IDs never prove ownership.
-        const [cannot, moderator] = await access(event, "delete", current)
-        if (cannot) return failure(cannot)
-        if (!moderator.user || moderator.user.guest) return failure(commentsErrors.COMMENTS_FORBIDDEN({ action: "delete" }))
-        return respond(await writes.removeComment(moderator.grant, id, commentId))
+      if (method === "POST" && (action === "resolve" || action === "reopen") && !messageId) {
+        return await act(event, "resolve", who => commentActions.setStatus({ threadId }, who, action === "resolve" ? "resolved" : "open"), (thread, who) => threadResponse(event, who, thread))
       }
-      if (method === "DELETE" && !action) {
-        const [denied, allowed] = await access(event, "delete", current)
-        if (denied) return failure(denied)
-        if (!allowed.user || allowed.user.guest) return failure(commentsErrors.COMMENTS_FORBIDDEN({ action: "delete" }))
-        return respond(await writes.remove(allowed.grant, id))
+      if (method === "DELETE" && (action === "comments" ? messageId : !action)) {
+        // Authors delete their own messages with `write`; deleting anything else needs `delete`, which the action checks.
+        return await act(event, "delete", who => commentActions.delete({ threadId, ...(messageId ? { messageId } : {}) }, who), (thread, who) => threadResponse(event, who, thread))
       }
     }
 
+    if (path === "/attachments" && method === "POST") {
+      const parsed = v.safeParse(commentInputSchemas.upload, await readJson(event))
+      if (!parsed.success) return invalid(parsed.issues)
+      return await act(event, "write", who => commentActions.upload(parsed.output, who), attachment => json({ data: attachment }))
+    }
+
+    if (parts[0] === "attachments" && parts.length > 1 && method === "GET") {
+      const key = parts.slice(1).map(part => decodeURIComponent(part)).join("/")
+      return await act(event, "read", who => commentActions.attachment({ key }, who), file => new Response(file.data.stream(), { headers: attachmentHeaders(file) }))
+    }
+
     if (method === "GET" && path === "/people") {
-      const [denied, allowed] = await access(event, "read")
+      const threadId = url.searchParams.get("thread")
+      const [missing, current] = threadId ? await comments.get(threadId) : [undefined, undefined]
+      if (missing) return failure(missing)
+      const target = current?.subject ?? subject
+      const [denied, allowed] = await access(event, "read", current, target)
       if (denied) return failure(denied)
-      return respond(await comments.people({ query: url.searchParams.get("q") ?? "", user: allowed.user }))
+      const limit = Number(url.searchParams.get("limit") ?? 20)
+      return respond(await comments.people({ query: url.searchParams.get("q") ?? "", user: allowed.user, gate, ...(Number.isFinite(limit) ? { limit } : {}), ...(current ? { thread: current } : {}), ...(target ? { subject: target } : {}) }))
     }
 
     if (path === "/fields") {

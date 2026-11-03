@@ -1,4 +1,4 @@
-import { bigint, index, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core"
+import { bigint, boolean, index, pgTable, text, uniqueIndex } from "drizzle-orm/pg-core"
 
 /**
  * Threads of comments. `n` is unique inside `scope`, which is what `?comment=<n>` names. `anchor`, `actor`, and
@@ -18,6 +18,9 @@ export const commentThreads = pgTable("vitehub_comment_threads", {
   authorName: text("author_name"),
   authorImage: text("author_image"),
   actor: text("actor"),
+  metadata: text("metadata"),
+  context: text("context"),
+  revision: bigint("revision", { mode: "number" }),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 }, table => [
@@ -52,8 +55,32 @@ export const commentCounters = pgTable("vitehub_comment_counters", {
   next: bigint("next", { mode: "number" }).notNull(),
 })
 
+/** The pull request comment of each message, when `defineComments({ forge })` posts threads. */
+export const commentForge = pgTable("vitehub_comment_forge", {
+  id: text("id").primaryKey(),
+  threadId: text("thread_id"),
+  repository: text("repository").notNull(),
+  pullRequest: bigint("pull_request", { mode: "number" }).notNull(),
+  remoteId: text("remote_id"),
+  nodeId: text("node_id"),
+  url: text("url"),
+  digest: text("digest"),
+  postedAs: text("posted_as", { enum: ["author", "app"] }),
+  minimized: boolean("minimized").notNull().default(false),
+  error: text("error"),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, table => [
+  index("vitehub_comment_forge_thread").on(table.threadId),
+  index("vitehub_comment_forge_pull_request").on(table.repository, table.pullRequest),
+])
+
 /**
- * The tables behind the comment operations, for Postgres. Add them to a Database Definition yourself
- * and apply their migration, or let `hubComments()` contribute them. For SQLite, libSQL, and D1 use `@vite-hub/comments/database`.
+ * The tables of Comments, for Postgres. ViteHub adds them to the Database for you; add them to a Database Definition
+ * yourself only without ViteHub. For SQLite, libSQL, and D1 use `@vite-hub/comments/database`.
  */
-export const commentsPostgresSchema = { commentThreads, commentMessages, commentCounters }
+export const commentsPostgresSchema = {
+  vitehubCommentThreads: commentThreads,
+  vitehubCommentMessages: commentMessages,
+  vitehubCommentCounters: commentCounters,
+  vitehubCommentForge: commentForge,
+}
