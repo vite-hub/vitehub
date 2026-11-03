@@ -612,7 +612,8 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
           writeFile(pageSession, `export { viteHubPageSessionHandler as default } from ${JSON.stringify(imports.runtime)}\n`),
         ])
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
-        kit.addHandler({ handler, route: `${mount}${commentsRoute}/**` })
+        // The handler imports server/content.ts and its Markdown renderer, so load it on the first Comments request.
+        kit.addHandler({ handler, lazy: true, route: `${mount}${commentsRoute}/**` })
         kit.addPlugin(plugin)
         addViteHubPageToolRoutes(kit, { handler: pageSession, loader: builtDirectory("page"), mount })
         const nitro = kit.config

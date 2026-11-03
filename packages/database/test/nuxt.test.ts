@@ -3,6 +3,8 @@ import { tmpdir } from "node:os"
 import { dirname, join, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
+import { hubDb as publishedHubDb } from "@vite-hub/database/nuxt"
+import { build } from "esbuild"
 import { describe, expect, it, vi } from "vitest"
 
 import { hubDb } from "../src/nuxt.ts"
@@ -1047,7 +1049,7 @@ describe("Database Nuxt integration", () => {
       await hubDb()(undefined, nuxt)
       await callHook(hooks, "nitro:config", {})
       const code = await readFile(join(buildDir, "vitehub/database/local-runtime.mjs"), "utf8")
-      const evaluable = code.replace(/^import .+$/gm, "").replace(/^export /gm, "") + "\nreturn { databases, useDatabase }"
+      const evaluable = code.replace(/^(?:import .+|export .+ from .+)$/gm, "").replace(/^export /gm, "") + "\nreturn { databases, useDatabase }"
       const runtime = new Function("definition_0", "createDefinitionRuntime", "createAgentDatabase", "defaultDatabaseNotConfiguredError", evaluable)(
         { name: "__proto__", schema: { marker: "schema" } },
         () => ({ marker: "database" }),
@@ -1079,7 +1081,7 @@ describe("Database Nuxt integration", () => {
       await callHook(hooks, "nitro:config", {})
       const code = await readFile(join(buildDir, "vitehub/database/local-runtime.mjs"), "utf8")
       expect(code).toContain('import { historySchema as contributedSchema_0_0 } from "history-tables/schema"')
-      const evaluable = code.replace(/^import .+$/gm, "").replace(/^export /gm, "") + "\nreturn { useDatabase }"
+      const evaluable = code.replace(/^(?:import .+|export .+ from .+)$/gm, "").replace(/^export /gm, "") + "\nreturn { useDatabase }"
       const created: unknown[] = []
       const runtime = new Function("definition_0", "contributedSchema_0_0", "createDefinitionRuntime", "createAgentDatabase", "defaultDatabaseNotConfiguredError", evaluable)(
         { name: "default", schema: { notes: "notes" } },
@@ -1672,6 +1674,53 @@ describe("Database Nuxt integration", () => {
       "#vitehub/database/definition-defaults": join(rootDir, ".vitehub/database/definition-defaults.mjs"),
       "@vite-hub/database/drizzle": join(rootDir, `.vitehub/database/${provider}-runtime.mjs`),
     })
+  })
+
+  it.each([
+    [true, "node-server", "local"],
+    [false, "node-server", "local"],
+    [false, "cloudflare-module", "cloudflare"],
+    [false, "vercel", "vercel"],
+  ] as const)("exports chunkParameters through the generated %s/%s runtime alias", async (dev, preset, provider) => {
+    const rootDir = await mkdtemp(join(import.meta.dirname, ".nuxt-chunk-parameters-"))
+    const definition = join(rootDir, "server/databases/config.ts")
+    const consumer = join(rootDir, "consumer.ts")
+    const output = join(rootDir, "consumer.mjs")
+    const { hooks, nuxt } = createNuxt({ buildDir: join(rootDir, ".nuxt"), dev, nitro: { preset }, rootDir, vite: {} })
+    try {
+      await mkdir(dirname(definition), { recursive: true })
+      await writeFile(join(rootDir, "package.json"), '{"type":"module"}\n')
+      await writeFile(definition, [
+        'import { defineDatabase } from "@vite-hub/database"',
+        'import { sqliteTable, text } from "drizzle-orm/sqlite-core"',
+        'export default defineDatabase({ connection: { url: "libsql://db.example.com" }, schema: { notes: sqliteTable("notes", { id: text("id"), title: text("title") }) } })',
+      ].join("\n"))
+      await writeFile(consumer, [
+        'import { chunkParameters, schema } from "@vite-hub/database/drizzle"',
+        'export const chunks = chunkParameters(Array.from({ length: 205 }, (_, id) => id), { per: schema.notes, reserved: 2 })',
+      ].join("\n"))
+      await publishedHubDb()(undefined, nuxt)
+      const nitroConfig = { alias: {} as Record<string, string>, preset }
+      await callHook(hooks, "nitro:config", nitroConfig)
+      expect(nitroConfig.alias["@vite-hub/database/drizzle"]).toContain(`${provider}-runtime.mjs`)
+      await build({
+        alias: nitroConfig.alias,
+        bundle: true,
+        entryPoints: [consumer],
+        format: "esm",
+        outfile: output,
+        packages: "external",
+        platform: "node",
+      })
+      // SAFETY: The fixture exports the numeric chunks from the public aliased import above.
+      const { chunks } = await import(pathToFileURL(output).href) as { chunks: number[][] }
+      expect(chunks.map(chunk => chunk.length)).toEqual([49, 49, 49, 49, 9])
+      expect(chunks.flat()).toEqual(Array.from({ length: 205 }, (_, id) => id))
+    }
+    finally {
+      await callHook(hooks, "close", {})
+      await rm(rootDir, { force: true, recursive: true })
+    }
   })
 
   it("selects the hosted definition runtime for Deno deployments", async () => {

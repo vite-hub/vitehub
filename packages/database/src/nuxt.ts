@@ -511,6 +511,7 @@ async function installNitroLocalDatabaseRuntime(
     "  },",
   ].join("\n"))
   await writeFileIfChanged(file, renderDatabaseRuntimeModule({
+    chunkParametersImport: pathToFileURL(resolve(databaseRuntimeDir, "chunk-parameters.js")).href,
     createAgentDatabaseImport: pathToFileURL(resolve(databaseRuntimeDir, "agent.js")).href,
     databaseEntries: entries,
     imports: [

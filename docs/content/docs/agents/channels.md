@@ -355,6 +355,7 @@ operations({ include: ['channels.*', 'conversations.export'], conversations: 'pa
 | `channels.threads` | `agent`, `channel`, `cursor?`, `limit?` | Threads from the journal, most recent first, with title, people, last activity, and number of runs. It reads no conversation, so it has no message count. |
 | `channels.conversation` | `agent`, `channel`, `thread`, `cursor?`, `limit?` | The messages in order, each with `role`, `author`, `text`, `attachments`, `at`, and `invocationId`, and the `messageCount`. |
 | `conversations.export` | `agent`, `channel`, `thread`, `format`, `media?` | `text` in `markdown` or `json`, and the attachment files when `media` is on. |
+| `channels.status` | `agent`, `channel` | Sync health of a Channel that reads a provider cursor, such as [Gmail](/docs/agents/gmail#failed-messages): `status`, `failures`, `error`, `syncedAt`, and the `retrying` and `skipped` messages. Other Channels answer `CHANNELS_NO_STATUS`. An Agent needs `conversations: 'all'`. |
 
 A `cursor` is an opaque value that names the last item of the previous page by id and time, so a page stays stable when new messages arrive or the provider window slides.
 
@@ -362,6 +363,7 @@ A `cursor` is an opaque value that names the last item of the previous page by i
 pnpm vitehub channels list
 pnpm vitehub channels threads support telegram
 pnpm vitehub channels conversation support telegram telegram:456
+pnpm vitehub channels status labeller gmail
 pnpm vitehub conversations export support telegram telegram:456 > chat.md
 pnpm vitehub conversations export support telegram telegram:456 --format json --output ./chat
 ```

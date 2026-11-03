@@ -16,14 +16,14 @@ When a Static Schedule handler throws, ViteHub logs `[vitehub:schedule] Schedule
 | --- | --- | --- |
 | `auto` | Selects the appropriate generated output for the active build context. | Default mode for Vite projects. |
 | `standalone` | Writes the wake output of the build's host outside Nitro. | Use when ViteHub owns provider output directly. To get the output of another host, build with that host. |
-| `nitro` | Writes Nitro Cloudflare module and plugin output. | Use when Nitro owns Cloudflare cron wiring. |
+| `nitro` | Writes Nitro output: the Cloudflare module and plugin, or the Netlify scheduled functions. | Use when Nitro owns the host's cron wiring. |
 | `false` | Disables generated provider output. | Runtime helpers still work when you wire execution yourself. |
 
 | Host | Static Schedule output |
 | --- | --- |
 | Cloudflare | Cron trigger output and Cloudflare schedule runtime entry wiring. |
 | Vercel | Vercel cron-compatible output for static schedules. |
-| Netlify | One Netlify scheduled function per static schedule. |
+| Netlify | One Netlify scheduled function per static schedule. In a Nitro build, `auto` and `nitro` write each function beside Nitro's server function, with its own copy of the server bundle, so the Schedule runs with the same plugins, Database, and other primitives as a request. `standalone` bundles the Schedule outside Nitro, without them. |
 | Deno | `Deno.cron` output loaded by generated Deno Agent server output. |
 | Node or Docker | No host output. The Process Runtime (`runtime: { driver: 'process' }`) runs each Definition in the long-lived process. |
 
@@ -49,7 +49,7 @@ pnpm vitehub schedule attempts <runId>
 
 The commands use the same Schedule Run store and registry as the running server. Read [CLI](/docs/development/cli#run-and-inspect-schedules) for every command and option.
 
-The Console Schedules page lists the discovered Schedule Definitions. Definitions with `manual: true` show a run action when Console invocation is enabled.
+The Console Schedules page lists the discovered Schedule Definitions. With the process driver, it shows the cron and time zone of the loaded Definitions. Definitions with `manual: true` show a run action when Console invocation is enabled.
 
 Both surfaces redact credentials in URLs, bearer tokens, and secret assignments in error messages.
 

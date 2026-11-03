@@ -112,9 +112,9 @@ export default defineSchedule({
 })
 ```
 
-This runs at 08:00 in Madrid: 06:00 UTC in summer and 07:00 UTC in winter. Write `timeZone` as a string literal, because the build and the Console read it from the source file. The value must be an IANA name. Abbreviations such as `PST` and numeric offsets are rejected.
+This runs at 08:00 in Madrid: 06:00 UTC in summer and 07:00 UTC in winter. `timeZone` can be any expression, such as a shared constant. The value must be an IANA name. Abbreviations such as `PST` and numeric offsets are rejected.
 
-Only the process driver (`runtime: { driver: 'process' }`) evaluates `timeZone`. Provider cron output for Cloudflare, Vercel, Netlify, and Deno supports only UTC, so a build that generates provider output fails when a Static Schedule sets a `timeZone` other than `UTC`. Remove `timeZone` and write the cron in UTC, or use the process driver.
+Only the process driver (`runtime: { driver: 'process' }`) evaluates `timeZone`. Provider cron output for Cloudflare, Vercel, Netlify, and Deno supports only UTC, so a build that generates provider output fails when a Static Schedule sets `timeZone` to anything but the literal `'UTC'`. Remove `timeZone` and write the cron in UTC, or use the process driver.
 
 On daylight saving time changes, a local time that does not exist does not run that day. For example, `30 2 * * *` in `Europe/Madrid` does not run on the spring-forward day. A local time that occurs twice runs once, at its first occurrence, when the cron sets a fixed minute and hour. A cron with `*` in the minute or hour field runs on elapsed time, so it also runs in the repeated hour.
 
