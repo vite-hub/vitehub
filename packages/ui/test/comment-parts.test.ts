@@ -647,3 +647,78 @@ describe("thread permissions", () => {
     expect(wrapper.find("[data-slot=comment-thread] [data-slot=comment-composer]").exists()).toBe(true);
   });
 });
+
+describe("review fixes", () => {
+  it("marks a mention whose name changed case after it was picked", async () => {
+    const wrapper = keep(mount(CommentReply, { global, props: { message: message("m1", { body: "Hi @ben soto", mentions: ["ben"] }), people: [ben] } }));
+    await vi.waitFor(() => expect(wrapper.find("[data-slot=comment-mention]").exists()).toBe(true));
+    expect(wrapper.get("[data-slot=comment-mention]").text()).toBe("@Ben Soto");
+  });
+
+  it("keeps the menu closed when a lookup that Esc overtook comes back", async () => {
+    let finish!: (people: CommentUser[]) => void;
+    const users = vi.fn((query: string) => (query === "b" ? Promise.resolve([ben]) : new Promise<CommentUser[]>(resolve => { finish = resolve; })));
+    const wrapper = keep(mount(CommentComposer, { attachTo: document.body, global, props: { autofocus: false, guard: false, users } }));
+    const field = wrapper.get("textarea");
+    await field.setValue("@b");
+    await vi.waitFor(() => expect(wrapper.find("[role=listbox]").exists()).toBe(true));
+    await field.setValue("@be");
+    await field.trigger("keydown", { key: "Escape" });
+    finish([ben]);
+    await flushPromises();
+    expect(wrapper.find("[role=listbox]").exists()).toBe(false);
+  });
+
+  it("does not send a layer draft that changed during its upload", async () => {
+    let finish!: (keys: string[]) => void;
+    const upload = vi.fn(() => new Promise<string[]>(resolve => { finish = resolve; }));
+    const comments = client();
+    const create = vi.spyOn(comments.transport, "create");
+    let state!: ReturnType<typeof useComments>;
+    const wrapper = keep(mount(defineComponent({
+      setup() {
+        state = useComments({ client: comments, subject: pricing });
+        return () => h(CommentLayer, { comments: state, upload });
+      },
+    }), { attachTo: document.body, global }));
+    await vi.waitFor(() => expect(comments.status).toBe("ready"));
+    state.startDraft("page");
+    await flushPromises();
+    addFiles(wrapper, [new File(["png"], "shot.png", { type: "image/png" })]);
+    await wrapper.get("textarea").setValue("First text");
+    await wrapper.get("form").trigger("submit");
+    await wrapper.get("textarea").setValue("Second text");
+    finish(["uploads/shot.png"]);
+    await flushPromises();
+    expect(create).not.toHaveBeenCalled();
+    expect(state.draft.value).toMatchObject({ body: "Second text" });
+  });
+
+  it("does not post a panel comment to the next subject, and empties the box for it", async () => {
+    let finish!: (keys: string[]) => void;
+    const upload = vi.fn(() => new Promise<string[]>(resolve => { finish = resolve; }));
+    const comments = client();
+    const create = vi.spyOn(comments.transport, "create");
+    const subject = ref(pricing);
+    const wrapper = keep(mount(defineComponent({
+      setup: () => () => h(CommentPanel, { client: comments, subject: subject.value, upload }),
+    }), { attachTo: document.body, global }));
+    await vi.waitFor(() => expect(comments.status).toBe("ready"));
+    addFiles(wrapper, [new File(["png"], "shot.png", { type: "image/png" })]);
+    await wrapper.get("textarea").setValue("About pricing");
+    await wrapper.get("form").trigger("submit");
+    subject.value = { id: "/about", kind: "page" };
+    await flushPromises();
+    finish(["uploads/shot.png"]);
+    await flushPromises();
+    expect(create).not.toHaveBeenCalled();
+    expect(wrapper.get("textarea").element).toHaveProperty("value", "");
+  });
+
+  it("sends a reply of files alone through a client", async () => {
+    const comments = client([thread(1)]);
+    await comments.start();
+    await comments.reply({ attachments: ["uploads/shot.png"], body: "", threadId: "thread-1" });
+    expect(comments.threads[0]!.messages.at(-1)).toMatchObject({ attachments: ["uploads/shot.png"], body: "" });
+  });
+});
