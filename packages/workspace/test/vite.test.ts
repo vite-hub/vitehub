@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Readable } from "node:stream"
@@ -262,7 +262,8 @@ describe("hubWorkspace", () => {
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
     const configResolved = plugin.configResolved as (config: { root: string }) => Promise<void>
-    const configEnvironment = plugin.configEnvironment as (name: string, environment: { consumer: "client" | "server", resolve?: { dedupe?: string[], noExternal?: string[] } }) => unknown
+    const environmentHook = plugin.configEnvironment as (name: string, environment: { consumer: "client" | "server", resolve?: { dedupe?: string[], noExternal?: string[] } }, env: { command: string }) => unknown
+    const configEnvironment = (name: string, environment: { consumer: "client" | "server", resolve?: { dedupe?: string[], noExternal?: string[] } }) => environmentHook(name, environment, { command: "build" })
     const resolveId = plugin.resolveId as (id: string) => string | undefined
     const load = plugin.load as (id: string) => string | undefined
 
@@ -284,6 +285,10 @@ describe("hubWorkspace", () => {
         dedupe: ["existing", "@vite-hub/workspace"],
         noExternal: ["existing", "@vite-hub/workspace"],
       },
+    })
+    // Node loads the package in the Nitro environment of `vite dev`. The registry plugin hands it the registry.
+    expect(environmentHook("nitro", { consumer: "server" }, { command: "serve" })).toEqual({
+      resolve: { dedupe: ["@vite-hub/workspace"] },
     })
     await expect(readFile(join(root, ".vitehub", "types", "workspace.d.ts"), "utf8")).resolves.toContain('"docs": true')
 
@@ -622,6 +627,30 @@ describe("hubWorkspace", () => {
     expect(pluginSource).not.toContain("configureHostedWorkspaceRuntime")
     expect(registrySource).toContain('["mirror"]: async () => {')
     expect(registrySource).toContain("../../../server/workspaces/mirror/config.ts")
+  })
+
+  it("keeps the Nitro Workspace files when another config load renders the same bytes", async () => {
+    const root = await createViteRoot()
+    await mkdir(join(root, "server", "workspaces", "mirror"), { recursive: true })
+    await writeFile(join(root, "server", "workspaces", "mirror", "config.ts"), [
+      `import { defineWorkspace } from "@vite-hub/workspace"`,
+      `export default defineWorkspace({ store: { provider: "memory" } })`,
+      ``,
+    ].join("\n"))
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const load = async () => {
+      const config = mergedConfigHook(hubWorkspace().config) as (config: { nitro?: Record<string, unknown>, root: string }, env: { command: "serve", mode: string }) => Promise<unknown>
+      await config({ nitro: {}, root }, { command: "serve", mode: "development" })
+    }
+    const files = ["plugin.ts", "registry.js"].map(file => join(root, ".vitehub", "nitro", "workspace", file))
+    const modified = async () => await Promise.all(files.map(async file => (await stat(file)).mtimeMs))
+
+    await load()
+    const first = await modified()
+    // A running dev server watches these files. A CLI command loads the project again and must not rebuild it.
+    await new Promise(resolve => setTimeout(resolve, 20))
+    await load()
+    expect(await modified()).toEqual(first)
   })
 
   it("installs GitHub stores for discovered Nitro workspace definitions", async () => {

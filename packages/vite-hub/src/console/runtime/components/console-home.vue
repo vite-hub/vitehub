@@ -21,6 +21,7 @@ import { isConsoleSignInRequired, requestConsole } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections";
 import { consoleSignInURL } from "../client/sign-in";
 import { recentTimestamp } from "../client/time";
+import ConsoleConnectAgent from "./console-connect-agent.vue";
 import ConsoleFrame from "./console-frame.vue";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleSearch from "./console-search.vue";
@@ -84,12 +85,12 @@ const sectionGroups = computed(() =>
     };
   }),
 );
-// Usage comes with Agents, so it is not offered on its own. A user limited to some sections may not see the others,
+// Usage and Skills come with Agents, so they are not offered on their own. A user limited to some sections may not see the others,
 // so the Overview does not call them "not enabled".
 const notEnabledPrimitives = computed(() =>
   installedNavigation.value?.scoped
     ? []
-    : consolePrimitives.filter((entry) => entry.id !== "usage" && !sections.value.includes(entry.id)),
+    : consolePrimitives.filter((entry) => entry.id !== "usage" && entry.id !== "skills" && !sections.value.includes(entry.id)),
 );
 const agentsEnabled = computed(() => sections.value.includes("agents"));
 const sessionItems = computed(() =>
@@ -323,7 +324,7 @@ onBeforeUnmount(() => {
                     <UButton class="ms-auto" color="neutral" variant="link" size="xs" label="Try again" @click="loadRecentSessions" />
                   </li>
                   <li v-else-if="!sessionItems.length" class="vitehub-console__overview-row">
-                    <ConsoleSectionIcon section="agents" :icon="consoleSectionDetails.agents.icon" class="vitehub-console__overview-icon" />
+                    <ConsoleSectionIcon :icon="consoleSectionDetails.agents.icon" class="vitehub-console__overview-icon" />
                     <span class="vitehub-console__overview-description">No Agent sessions yet. Invoke an Agent to see its sessions here.</span>
                   </li>
                   <template v-else>
@@ -374,7 +375,7 @@ onBeforeUnmount(() => {
                         :aria-label="`Open ${section.label}`"
                         @click="openSection(section.routeName)"
                       />
-                      <ConsoleSectionIcon :section="section.id" :icon="section.icon" class="vitehub-console__overview-icon" />
+                      <ConsoleSectionIcon :icon="section.icon" class="vitehub-console__overview-icon" />
                       <span class="vitehub-console__overview-name">{{ section.label }}</span>
                       <span class="vitehub-console__overview-description" :title="section.description">{{ section.description }}</span>
                       <span class="vitehub-console__overview-meta">
@@ -407,7 +408,7 @@ onBeforeUnmount(() => {
                       target="_blank"
                       :aria-label="`Set up ${entry.label}`"
                     >
-                      <ConsoleSectionIcon :section="entry.id" :icon="entry.icon" class="vitehub-console__overview-icon" />
+                      <ConsoleSectionIcon :icon="entry.icon" class="vitehub-console__overview-icon" />
                       <span class="vitehub-console__overview-name">{{ entry.label }}</span>
                       <span class="vitehub-console__overview-description" :title="entry.pitch">{{ entry.pitch }}</span>
                       <span class="vitehub-console__overview-meta">
@@ -418,6 +419,8 @@ onBeforeUnmount(() => {
                   </li>
                 </ul>
               </section>
+
+              <ConsoleConnectAgent v-if="installedNavigation" :auth="installedNavigation.auth" />
 
               <section class="vitehub-console__overview-block" aria-labelledby="console-home-learn">
                 <h2 id="console-home-learn" class="vitehub-console__overview-label">Learn</h2>

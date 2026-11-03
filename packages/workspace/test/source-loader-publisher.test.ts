@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer"
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -1826,6 +1826,32 @@ describe("sources and loaders", () => {
     await expect(registry["asset-bundle"].readFile("README.md")).resolves.toBe("hello\n")
     await expect(registry["asset-bundle"].readFile("data.bin", { encoding: "binary" })).resolves.toEqual(new Uint8Array([1, 2, 3]))
     await expect(registry["asset-bundle"].exists("../escape.txt")).resolves.toBe(false)
+  })
+
+  it("rewrites only the asset modules that changed", async () => {
+    const root = await createRoot()
+    const registryFile = join(root, ".vitehub/assets/registry.mjs")
+    const modulesDir = join(root, ".vitehub/assets/modules/docs")
+    const store = createMemoryWorkspaceStore()
+    await store.writeFile("kept.md", { content: "kept\n", path: "kept.md" })
+    await store.writeFile("removed.md", { content: "removed\n", path: "removed.md" })
+    await writeWorkspaceAssetsRegistry(registryFile, [await collectWorkspaceStoreAssetBundle("docs", store)])
+    const modified = async () => Object.fromEntries(await Promise.all(
+      [registryFile, ...(await readdir(modulesDir)).map(file => join(modulesDir, file))].map(async file => [file, (await stat(file)).mtimeMs]),
+    ))
+    const first = await modified()
+
+    // A running dev server rebuilds when one of these files is written, even with the same bytes.
+    await new Promise(resolve => setTimeout(resolve, 20))
+    await writeWorkspaceAssetsRegistry(registryFile, [await collectWorkspaceStoreAssetBundle("docs", store)])
+    expect(await modified()).toEqual(first)
+
+    await store.rm("removed.md")
+    await writeWorkspaceAssetsRegistry(registryFile, [await collectWorkspaceStoreAssetBundle("docs", store)])
+    expect(await readdir(modulesDir)).toHaveLength(1)
+    const { default: registry }: { default: Record<string, WorkspaceAssets> } = await import(`${pathToFileURL(registryFile).href}?t=${Date.now()}`)
+    await expect(registry.docs!.readFile("kept.md")).resolves.toBe("kept\n")
+    await expect(registry.docs!.exists("removed.md")).resolves.toBe(false)
   })
 
   it.each(["docs", "__proto__"])("preserves the __proto__ asset path and metadata in the %s bundle", async (name) => {

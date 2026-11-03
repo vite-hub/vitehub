@@ -52,6 +52,8 @@ export interface JevRoute {
   headers?: Record<string, string>
   /** The variables that hold the credentials, for the fix of a rejected key. Undefined when the caller passed them. */
   keyEnv?: string
+  /** The explicit option to rotate when the caller passed the key. */
+  keyOption?: string
   /** Shown in diagnostics, such as "Cloudflare AI Gateway". */
   label: string
   model?: string
@@ -213,7 +215,7 @@ async function requestJevWithRetry(
       const status = errorStatus(error)
       const details = { cause: error, providerStatus: status, requestId: errorRequestId(error) }
       if (status === 401 || status === 403) {
-        throw Object.assign(gatewayDiagnostics.GATEWAYS_R0008({ provider, status, env: options.keyEnv, cause: error }), { ...details, status: 503 })
+        throw Object.assign(gatewayDiagnostics.GATEWAYS_R0008({ provider, status, env: options.keyEnv, option: options.keyOption, cause: error }), { ...details, status: 503 })
       }
       // A failed fetch is surfaced as a TypeError without a status. Response
       // decoding and validation can also throw TypeError, but those are

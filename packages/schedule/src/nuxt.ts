@@ -1,6 +1,6 @@
 import { createScheduleNitroConfig, hubSchedule } from "./vite.ts"
 
-import type { ScheduleVitePluginOptions } from "./vite.ts"
+import type { ScheduleVitePlugin, ScheduleVitePluginOptions } from "./vite.ts"
 
 export interface ScheduleNuxtModuleOptions extends ScheduleVitePluginOptions {}
 
@@ -17,7 +17,7 @@ type NuxtLike = {
   }
 }
 
-function isScheduleVitePlugin(value: unknown) {
+function isScheduleVitePlugin(value: unknown): value is ScheduleVitePlugin {
   return Boolean(value && typeof value === "object" && (value as { name?: unknown }).name === "@vite-hub/schedule/vite")
 }
 
@@ -26,12 +26,15 @@ export default function viteHubScheduleNuxtModule(options: ScheduleNuxtModuleOpt
 
   nuxt.options.vite ??= {}
   const plugins = Array.isArray(nuxt.options.vite.plugins) ? nuxt.options.vite.plugins : []
-  if (!plugins.some(isScheduleVitePlugin)) {
-    plugins.push(hubSchedule(options))
-  }
+  const plugin = plugins.find(isScheduleVitePlugin) ?? hubSchedule(options)
+  if (!plugins.includes(plugin)) plugins.push(plugin)
   nuxt.options.vite.plugins = plugins
 
   nuxt.hook?.("nitro:config", async (nitroConfig) => {
+    // Nuxt does not install Nitro modules exposed by Vite plugins itself.
+    const modules = Array.isArray(nitroConfig.modules) ? nitroConfig.modules : []
+    if (plugin.nitro && !modules.includes(plugin.nitro)) modules.push(plugin.nitro)
+    nitroConfig.modules = modules
     const rootDir = nuxt.options.rootDir || process.cwd()
     const nitro = await createScheduleNitroConfig({
       ...options,

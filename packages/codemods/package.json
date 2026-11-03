@@ -1,0 +1,71 @@
+{
+  "name": "@vite-hub/codemods",
+  "version": "0.1.0",
+  "description": "Codemods that move applications to ViteHub.",
+  "keywords": [
+    "codemod",
+    "migration",
+    "nuxt",
+    "typescript",
+    "vitehub"
+  ],
+  "homepage": "https://vitehub.dev",
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "license": "Apache-2.0",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vite-hub/vitehub.git",
+    "directory": "packages/codemods"
+  },
+  "bin": {
+    "vitehub-codemods": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "typecheck": "vp run --cache -t @vite-hub/codemods#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
+    "test": "vp run -t @vite-hub/codemods#build && vp test"
+  },
+  "dependencies": {
+    "@babel/parser": "^7.29.9",
+    "@valibot/to-json-schema": "catalog:runtime",
+    "@vue/compiler-sfc": "^3.5.44",
+    "diff": "catalog:runtime",
+    "jiti": "catalog:unjs",
+    "magic-string": "^0.30.21",
+    "scule": "^1.3.0",
+    "tinyglobby": "catalog:workspace",
+    "valibot": "catalog:runtime"
+  },
+  "devDependencies": {
+    "@babel/types": "^7.29.8",
+    "@types/node": "catalog:tooling",
+    "@vite-hub/env": "workspace:*",
+    "@vite-hub/internal": "workspace:*",
+    "publint": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
+    "vite-plus": "catalog:tooling",
+    "vitest": "catalog:tooling",
+    "zod": "catalog:runtime"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

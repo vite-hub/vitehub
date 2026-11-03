@@ -206,7 +206,7 @@ describe("Console requests", () => {
       body: { key: "x".repeat(24_576), store: "default" },
       method: "POST",
     })).resolves.toEqual({ found: true })
-    expect(mocks.call).toHaveBeenCalledWith("kv.get", { key: "x".repeat(24_576), store: "default" })
+    expect(mocks.call).toHaveBeenCalledWith("kv.get", { key: "x".repeat(24_576), preview: true, store: "default" })
   })
 
   it("routes Agent invocation writes with the encoded Agent identity", async () => {
@@ -357,18 +357,27 @@ describe("Console requests", () => {
       contributions: {},
       operations: [],
       projectName: "console-host",
-      scoped: false,
+      readOnly: [], scoped: false,
       sections: ["kv"],
     })
     expect(mocks.call).toHaveBeenCalledTimes(1)
   })
 
-  it("keeps the names of the operations that run app code, for the pages to check", async () => {
-    mocks.call.mockResolvedValue({ ok: true, value: { operations: ["workflow.start", 7, "schedule.run"], sections: ["kv"] } })
+  it("requests the page tools session once per loaded Console, so the app's pages load the allowed tools", async () => {
+    mocks.call.mockResolvedValue({ ok: true, value: { sections: ["kv"] } })
+    const base = "/page-tools-app/api/_vitehub/console/sections"
+    await loadConsoleNavigation(base)
+    await loadConsoleNavigation(base)
+    const sessions = fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/_vitehub/page/session"))
+    expect(sessions).toEqual([["/page-tools-app/_vitehub/page/session", { credentials: "same-origin", headers: { accept: "application/json" } }]])
+  })
+
+  it("keeps permitted operations alongside read-only section metadata", async () => {
+    mocks.call.mockResolvedValue({ ok: true, value: { operations: ["workflow.start", 7, "schedule.run"], readOnly: ["kv"], sections: ["kv"] } })
 
     await expect(
       loadConsoleNavigation("/operations-navigation-test/api/_vitehub/console/sections"),
-    ).resolves.toMatchObject({ operations: ["workflow.start", "schedule.run"] })
+    ).resolves.toMatchObject({ operations: ["workflow.start", "schedule.run"], readOnly: ["kv"] })
   })
 
   it("loads independent auth availability in the navigation response", async () => {
@@ -376,7 +385,7 @@ describe("Console requests", () => {
 
     await expect(
       loadConsoleNavigation("/auth-navigation-test/api/_vitehub/console/sections"),
-    ).resolves.toEqual({ auth: true, contributions: {}, operations: [], scoped: false, sections: ["kv"] })
+    ).resolves.toEqual({ auth: true, contributions: {}, operations: [], readOnly: [], scoped: false, sections: ["kv"] })
   })
 
   it("preserves Cloudflare Access auth mode in the navigation response", async () => {
@@ -384,7 +393,7 @@ describe("Console requests", () => {
 
     await expect(
       loadConsoleNavigation("/cloudflare-navigation-test/api/_vitehub/console/sections"),
-    ).resolves.toEqual({ auth: "cloudflare-access", contributions: {}, operations: [], scoped: false, sections: ["kv"] })
+    ).resolves.toEqual({ auth: "cloudflare-access", contributions: {}, operations: [], readOnly: [], scoped: false, sections: ["kv"] })
   })
 
   it("keeps only valid contributed sections in the navigation response", async () => {
@@ -405,21 +414,21 @@ describe("Console requests", () => {
 
     await expect(
       loadConsoleNavigation("/contributions-navigation-test/api/_vitehub/console/sections"),
-    ).resolves.toEqual({ auth: false, contributions: { queues }, operations: [], scoped: false, sections: ["kv", "queues"] })
+    ).resolves.toEqual({ auth: false, contributions: { queues }, operations: [], readOnly: [], scoped: false, sections: ["kv", "queues"] })
   })
 
-  it.each(["", "/admin"])("visits allowed sections under the app mount %s", async (mount) => {
-    const comments = { id: "comments", label: "Comments", description: "Page comments", icon: "i-lucide-message-circle", view: { kind: "definition-catalog", notice: "Page comments" }, visit: `${mount}/api/_vitehub/comments/session` }
-    const hidden = { ...comments, id: "hidden", visit: "/api/hidden/session" }
+  it.each(["", "/admin"])("requests the shared page session under the app mount %s", async (mount) => {
+    const comments = { id: "comments", label: "Comments", description: "Page comments", icon: "i-lucide-message-circle", view: { kind: "definition-catalog", notice: "Page comments" } }
+    const hidden = { ...comments, id: "hidden" }
     const navigation = { ok: true, value: { contributions: [comments, hidden], sections: ["comments"] } }
-    // Navigation uses RPC; the contributed visit is an ordinary GET that sets the app cookie.
+    // Navigation uses RPC; the shared page session is an ordinary GET that sets the app cookie.
     const fetch = vi.fn(async (_url: string, init?: RequestInit) => init?.method === "POST" ? Response.json(navigation) : new Response())
     vi.stubGlobal("fetch", fetch)
-    const base = `${mount}/api/_vitehub/console/sections?visit-test`
+    const base = `${mount}/api/_vitehub/console/sections?page-session-test`
     await expect(loadConsoleNavigation(base)).resolves.toMatchObject({ sections: ["comments"] })
     await loadConsoleNavigation(base)
     expect(fetch).toHaveBeenCalledTimes(2)
-    expect(fetch).toHaveBeenLastCalledWith(`${mount}/api/_vitehub/comments/session`, { credentials: "same-origin" })
+    expect(fetch).toHaveBeenLastCalledWith(`${mount}/_vitehub/page/session`, { credentials: "same-origin", headers: { accept: "application/json" } })
   })
 
   it("stops waiting for an RPC result when navigation is aborted", async () => {
@@ -431,5 +440,31 @@ describe("Console requests", () => {
     controller.abort(new Error("navigation changed"))
 
     await expect(request).rejects.toThrow("navigation changed")
+  })
+})
+
+describe("Console storage actions", () => {
+  it.each([
+    { action: "set", operation: "kv.set", path: "/api/_vitehub/console/kv", input: { key: "greeting", store: "cache", value: "hi" } },
+    { action: "del", operation: "kv.del", path: "/api/_vitehub/console/kv", input: { key: "greeting", store: "cache" } },
+    { action: "put", operation: "blob.put", path: "/api/_vitehub/console/blob", input: { data: "aGk=", pathname: "docs/hi.txt" } },
+    { action: "del", operation: "blob.del", path: "/api/_vitehub/console/blob", input: { pathname: "docs/hi.txt" } },
+    { action: "peek", operation: "rate-limit.peek", path: "/api/_vitehub/console/rate-limit", input: { key: "192.0.2.1", name: "login" } },
+    { action: "reset", operation: "rate-limit.reset", path: "/api/_vitehub/console/rate-limit", input: { key: "192.0.2.1", name: "login" } },
+  ])("sends the $action action of $path as $operation", async ({ action, input, operation, path }) => {
+    mocks.call.mockResolvedValue({ ok: true, value: { done: true } })
+    await expect(requestConsole(path, { body: { action, ...input }, method: "POST" })).resolves.toEqual({ done: true })
+    expect(mocks.call).toHaveBeenCalledWith(operation, input)
+  })
+
+  it.each(["/api/_vitehub/console/blob", "/api/_vitehub/console/rate-limit"])("rejects an unknown action of %s before the RPC", async path => {
+    await expect(requestConsole(path, { body: { action: "wipe" }, method: "POST" })).rejects.toMatchObject({ status: 400 })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("shows a failed write as the operation reports it", async () => {
+    mocks.call.mockResolvedValue({ code: "KV_UNSUPPORTED_OPERATION", message: "This store is read-only.", ok: false, status: 400 })
+    await expect(requestConsole("/api/_vitehub/console/kv", { body: { action: "del", key: "a", store: "default" }, method: "POST" }))
+      .rejects.toMatchObject({ status: 400, message: expect.stringContaining("read-only") })
   })
 })

@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, shallowRef, watch } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { useRoute } from "vue-router";
 
 import { createConsoleBlobMediaClient } from "../client/blob-media";
-import { consoleFolderName, consoleFolderTrail } from "../client/media-library";
+import { isConsoleSectionReadOnly } from "../client/read-only";
+import { consoleFolderName, consoleFolderTrail, consoleMediaTypes } from "../client/media-library";
+import { queryChoice, queryFlag, querySelection, queryText, useConsoleQuery } from "../client/route-query";
 import { rememberConsoleSection } from "../sections";
 import ConsoleBlobDetail from "./console-blob-detail.vue";
 import ConsoleFrame from "./console-frame.vue";
@@ -14,8 +16,8 @@ import ConsoleSearch from "./console-search.vue";
 import type { ConsoleMediaFile } from "../client/media-library";
 
 /**
- * The Blob section: one Blob Store in the media browser of Content, read-only, with its raw metadata next to it. The
- * store, the folder, the open object, and "Show ViteHub files" live in the URL, so a link opens the same view.
+ * The Blob section: one Blob Store in the media browser of Content, with its raw metadata next to it. Upload and delete run the `blob.put` and `blob.del` operations. The
+ * store, the folder, the open object, the search, the type filter, and "Show ViteHub files" live in the URL, so a link opens the same view.
  */
 const props = defineProps<{
   agentsBase: string;
@@ -27,35 +29,48 @@ const props = defineProps<{
 }>();
 
 const route = useRoute();
-const router = useRouter();
 const stores = ref<string[]>([]);
 const active = shallowRef<ConsoleMediaFile>();
 const activeError = ref<string>();
 
-function query(name: string): string {
-  const value = route.query[name];
-  return String(value) === value ? value : "";
-}
-
-function setQuery(next: Record<string, string | undefined>): void {
-  void router.replace({ query: { ...route.query, ...next } });
-}
+const state = useConsoleQuery({
+  file: querySelection(),
+  folder: queryText({ history: "push" }),
+  q: queryText(),
+  store: queryText({ fallback: "default", history: "push" }),
+  type: queryChoice(["all", ...consoleMediaTypes], "all"),
+  vitehub: queryFlag(),
+});
+const { file, q: search, type } = state;
 
 const store = computed({
-  get: () => query("store") || "default",
-  set: (value: string) => setQuery({ file: undefined, folder: undefined, store: value === "default" ? undefined : value }),
+  get: () => state.store.value,
+  set: (value: string) => {
+    state.store.value = value;
+    state.folder.value = "";
+    file.value = undefined;
+  },
 });
 const showVitehub = computed({
-  get: () => query("vitehub") === "1",
-  set: (value: boolean) => setQuery({ file: undefined, vitehub: value ? "1" : undefined }),
+  get: () => state.vitehub.value,
+  set: (value: boolean) => {
+    state.vitehub.value = value;
+    file.value = undefined;
+  },
 });
 const folder = computed({
-  get: () => query("folder"),
-  set: (value: string) => setQuery({ file: undefined, folder: value || undefined }),
+  get: () => state.folder.value,
+  set: (value: string) => {
+    state.folder.value = value;
+    file.value = undefined;
+  },
 });
 
-// A new client per store and per ViteHub file switch remounts the browser, so it lists from the start.
+// Changes to the store, ViteHub file switch, or grant remount the browser, so it lists from the start.
+const readOnly = ref(false);
+// The client changes with the grant, so the browser remounts without upload and delete.
 const client = computed(() => createConsoleBlobMediaClient(props.blobBase, {
+  readOnly: readOnly.value,
   onPage: (page) => {
     stores.value = page.stores;
   },
@@ -69,15 +84,15 @@ const trail = computed(() => consoleFolderTrail(folder.value).slice(0, -1).map(p
 })));
 
 // `?file=` opens the metadata of one object, also after a reload.
-watch([() => query("file"), client], async ([pathname]) => {
+watch([file, client], async ([pathname, currentClient], [, previousClient]) => {
   activeError.value = undefined;
   if (!pathname) {
     active.value = undefined;
     return;
   }
-  if (active.value?.pathname === pathname) return;
+  if (active.value?.pathname === pathname && currentClient === previousClient) return;
   try {
-    active.value = await client.value.get(pathname);
+    active.value = await currentClient.get(pathname);
   }
   catch (error) {
     active.value = undefined;
@@ -85,12 +100,15 @@ watch([() => query("file"), client], async ([pathname]) => {
   }
 }, { immediate: true });
 
-function open(file: ConsoleMediaFile | undefined): void {
-  active.value = file;
-  setQuery({ file: file?.pathname });
+function open(next: ConsoleMediaFile | undefined): void {
+  active.value = next;
+  file.value = next?.pathname;
 }
 
-onMounted(() => rememberConsoleSection("blob"));
+onMounted(async () => {
+  rememberConsoleSection("blob");
+  readOnly.value = await isConsoleSectionReadOnly(props.sectionsBase, "blob");
+});
 </script>
 
 <template>
@@ -99,14 +117,13 @@ onMounted(() => rememberConsoleSection("blob"));
 
     <UDashboardPanel id="blob-objects" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
       <ConsolePageHeader :title="folder ? consoleFolderName(folder) : 'Blob'" :trail="trail" :back="trail.at(-1)" :description="stores.length > 1 ? undefined : store" :toggle="false">
-        <template #right>
-          <span class="text-xs text-dimmed">Read-only</span>
-        </template>
       </ConsolePageHeader>
       <div class="relative flex min-h-0 flex-1">
         <ConsoleMediaBrowser
-          :key="`${store}:${showVitehub}`"
+          :key="`${store}:${showVitehub}:${readOnly}`"
           v-model:folder="folder"
+          v-model:search="search"
+          v-model:type="type"
           mode="page"
           root-label="Blob"
           default-view="list"
@@ -132,7 +149,7 @@ onMounted(() => rememberConsoleSection("blob"));
           @close="open(undefined)"
         />
         <div v-else-if="activeError" class="vitehub-media-library__detail flex flex-col items-center justify-center gap-2 p-6 text-center">
-          <p class="text-sm text-highlighted">Couldn't open {{ query("file") }}</p>
+          <p class="text-sm text-highlighted">Couldn't open {{ file }}</p>
           <p class="text-xs text-muted">{{ activeError }}</p>
           <UButton variant="outline" size="sm" label="Close" @click="open(undefined)" />
         </div>

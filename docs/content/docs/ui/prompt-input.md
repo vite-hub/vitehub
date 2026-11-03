@@ -66,6 +66,8 @@ PromptInput (form, data-slot="prompt-input")
 
 Enter sends the message. Shift+Enter adds a new line. Text composed with an input method never sends. Enter does not trigger Stop or Retry.
 
+On a touch-only device, such as a phone, the on-screen keyboard has no Shift+Enter, so Enter adds a line and the Send button sends. The textarea's `enterkeyhint` names that key: `send` with a mouse or trackpad, `enter` on a touch-only device. The toolbar buttons get a 48px touch target around their 32px circle.
+
 ## Attachments
 
 The file picker and clipboard paste use the same path. A pasted image always becomes an attachment. Other pasted files become attachments only when the clipboard has no text. Set `multiple` to `false` to keep one file. A new file then replaces the current one.
@@ -137,7 +139,7 @@ Renders a `<form>` with a textarea, the attachments, and the attach and submit b
 | `multiple`    | `boolean`                                      | `true`    | Allows more than one attachment. When `false`, a new file replaces the current one. |
 | `filterFiles` | `(files: readonly File[]) => readonly File[]`  |           | Filters each batch of raw files before conversion.               |
 | `placeholder` | `string`                                       |           | Placeholder text of the input.                                   |
-| `submitLabel` | `string`                                       | `"Send prompt"` | Name of the submit button while `status` is `ready`. |
+| `submitLabel` | `string`                                       | | Name of the submit button while `status` is `ready`. Falls back to `"Send prompt"`. |
 
 Other attributes go to the root `<form>`.
 

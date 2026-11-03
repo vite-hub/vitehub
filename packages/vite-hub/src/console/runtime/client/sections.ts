@@ -14,6 +14,8 @@ export interface ConsoleNavigation {
   /** Names of the registered operations that run app code and that this access may run, such as `workflow.start`. */
   operations: readonly string[]
   projectName?: string
+  /** Installed sections that the access may only read. Their write actions are hidden. */
+  readOnly: ConsoleSectionId[]
   /** The access may use only some installed sections. The Console then does not call other sections "not enabled". */
   scoped: boolean
   sections: ConsoleSectionId[]
@@ -25,7 +27,7 @@ const navigationErrors = new Map<string, unknown>()
 
 function parseConsoleNavigation(value: unknown): ConsoleNavigation {
   // SAFETY: Reading an optional property is safe for every non-null JavaScript value; the property remains unknown until validated below.
-  const response = value as { auth?: unknown, build?: unknown, contributions?: unknown, operations?: unknown, projectName?: unknown, scoped?: unknown, sections?: unknown } | null | undefined
+  const response = value as { auth?: unknown, build?: unknown, contributions?: unknown, operations?: unknown, projectName?: unknown, readOnly?: unknown, scoped?: unknown, sections?: unknown } | null | undefined
   const contributions: Record<ConsoleSectionId, ConsoleContributedSection> = {}
   for (const entry of Array.isArray(response?.contributions) ? response.contributions : []) {
     const section = parseConsoleContributedSection(entry)
@@ -43,6 +45,7 @@ function parseConsoleNavigation(value: unknown): ConsoleNavigation {
     ...(typeof response?.projectName === "string" && response.projectName.trim()
       ? { projectName: response.projectName.trim() }
       : {}),
+    readOnly: Array.isArray(response?.readOnly) ? response.readOnly.filter((section): section is ConsoleSectionId => isConsoleSectionId(section)) : [],
     scoped: response?.scoped === true,
     sections,
   }
@@ -61,15 +64,13 @@ export function resolveConsoleSectionDetails(
 }
 
 /**
- * Requests the `visit` path of each section that this person may use, once per loaded Console, such as the Comments
- * session that turns comment mode on for the app's pages. The owner has resolved each path to its application mount.
- * Failures are ignored: the section page itself reports them.
+ * Requests the page tools session once per loaded Console. It sets the `vitehub-tools` hint cookie when this person may
+ * use a page tool, such as Comments, so the app's pages load those tools. The Console ignores the answer.
  */
-function visitConsoleSections(navigation: ConsoleNavigation): void {
-  for (const section of navigation.sections) {
-    const visit = Object.hasOwn(navigation.contributions, section) ? navigation.contributions[section]?.visit : undefined
-    if (visit) void fetch(visit, { credentials: "same-origin" }).catch(() => undefined)
-  }
+function openPageToolsSession(base: string): void {
+  const marker = base.lastIndexOf("/api/_vitehub/console/")
+  const prefix = marker === -1 ? "" : base.slice(0, marker)
+  void fetch(`${prefix}/_vitehub/page/session`, { credentials: "same-origin", headers: { accept: "application/json" } }).catch(() => undefined)
 }
 
 export async function loadConsoleNavigation(base: string): Promise<ConsoleNavigation | undefined> {
@@ -79,7 +80,7 @@ export async function loadConsoleNavigation(base: string): Promise<ConsoleNaviga
       .then((value) => {
         navigationErrors.delete(base)
         const navigation = parseConsoleNavigation(value)
-        visitConsoleSections(navigation)
+        openPageToolsSession(base)
         for (const subscriber of navigationSubscribers.get(base) || []) subscriber(navigation)
         return navigation
       })

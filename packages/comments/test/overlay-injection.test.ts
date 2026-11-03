@@ -395,7 +395,7 @@ describe("hubComments overlay", () => {
     const generated = '"/portal/_vitehub/comments/loader.abc123.js'
     expect(await readFile(join(root, ".vitehub/comments/inject-overlay.mjs"), "utf8")).toContain(generated)
     expect(await readFile(join(root, commentsNitroPluginPath), "utf8")).toContain(generated)
-    expect(JSON.stringify(Reflect.get(config, "nitro").publicAssets)).toContain('"baseURL":"/portal/_vitehub/comments"')
+    expect(JSON.stringify(Reflect.get(config, "nitro")?.publicAssets)).toContain('"baseURL":"/portal/_vitehub/comments"')
   })
 
   it("tells the loader that the app can edit pages only when the check says so", async () => {

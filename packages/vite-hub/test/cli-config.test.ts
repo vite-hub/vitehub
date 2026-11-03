@@ -127,7 +127,7 @@ describe("ViteHub CLI config loading", () => {
       root: String(config.root),
     }))
 
-    await expect(loadViteHubCliConfig(root, "serve", { loadNuxt, resolveViteConfig })).resolves.toEqual({
+    await expect(loadViteHubCliConfig(root, "serve", undefined, { loadNuxt, resolveViteConfig })).resolves.toEqual({
       plugins: [{ name: "nuxt-vitehub" }],
       root,
       vitehubConfigResolved: true,
@@ -146,6 +146,54 @@ describe("ViteHub CLI config loading", () => {
     expect(close).toHaveBeenCalledOnce()
   })
 
+  it.each([
+    { feature: "sync", vite: {}, directory: "." },
+    { feature: "sync", vite: { root: "client" }, directory: "client" },
+    { feature: "history", vite: { root: "client", envDir: "../config" }, directory: "config" },
+    { feature: "sync", vite: { envDir: false as const }, directory: undefined },
+  ])("loads Nuxt's stage config and env before contributing the URL ($directory, $feature)", async ({ feature, vite, directory }) => {
+    const root = await createProject("nuxt")
+    await writeFile(join(root, ".env.production"), "VITEHUB_TEST_NUXT_PUBLIC_URL=https://wrong.example.com\n")
+    if (directory !== undefined) {
+      await mkdir(join(root, directory), { recursive: true })
+      await writeFile(join(root, directory, ".env.production"), "VITEHUB_TEST_NUXT_PUBLIC_URL=https://production.example.com\n")
+    }
+    const previous = process.env.VITEHUB_TEST_NUXT_PUBLIC_URL
+    for (const override of [undefined, "https://override.example.com"]) {
+      const close = vi.fn()
+      const loadNuxt = vi.fn(async (options: { envName?: string }) => ({
+        close,
+        options: { vite: { plugins: [{
+          name: "stage-contributor",
+          vitehub: { cli: {
+            publicUrl: options.envName === "production" ? process.env.VITEHUB_TEST_NUXT_PUBLIC_URL : "https://development.example.com",
+            namespaces: [{ name: "channels", features: [{ name: feature, run: (_args: string[], context: { publicUrl?: string }) => {
+              expect(context.publicUrl).toBe(override ?? (directory === undefined ? undefined : "https://production.example.com"))
+              return 0
+            } }] }],
+          } },
+        }] } },
+      }))
+      const loadNuxtConfig = vi.fn(async () => ({ rootDir: root, vite }))
+      const resolveViteConfig = vi.fn(async config => ({ plugins: config.plugins || [], root: String(config.root) }))
+      expect(await runViteHubCli({
+        args: ["channels", feature, "--stage", "production"],
+        cwd: root,
+        env: { ...process.env, VITEHUB_TEST_NUXT_PUBLIC_URL: override },
+        loadConfig: (directory, command, mode) => loadViteHubCliConfig(directory, command, mode, { loadNuxt, loadNuxtConfig, resolveViteConfig }),
+        stderr: { write: () => true },
+        stdout: { write: () => true },
+      })).toBe(0)
+      expect(loadNuxt).toHaveBeenCalledWith(expect.objectContaining({
+        envName: "production",
+        overrides: { devtools: { enabled: false }, vite: { mode: "production" }, vitehubCliDiscovery: true },
+      }))
+      expect(resolveViteConfig).toHaveBeenCalledWith(expect.anything(), "serve", "production")
+      expect(close).toHaveBeenCalledOnce()
+      expect(process.env.VITEHUB_TEST_NUXT_PUBLIC_URL).toBe(previous)
+    }
+  })
+
   it("resolves Nuxt's configured Vite root for CLI discovery", async () => {
     const root = await createProject("nuxt")
     const close = vi.fn()
@@ -161,7 +209,7 @@ describe("ViteHub CLI config loading", () => {
       root: String(config.root),
     }))
 
-    await expect(loadViteHubCliConfig(root, "serve", { loadNuxt, resolveViteConfig })).resolves.toEqual({
+    await expect(loadViteHubCliConfig(root, "serve", undefined, { loadNuxt, resolveViteConfig })).resolves.toEqual({
       plugins: [{ name: "nuxt-vitehub" }],
       root: join(root, "app"),
       vitehubConfigResolved: true,
@@ -174,19 +222,19 @@ describe("ViteHub CLI config loading", () => {
     expect(close).toHaveBeenCalledOnce()
   })
 
-  it("keeps explicit Vite config ownership", async () => {
+  it.each([undefined, "production"])("keeps explicit Vite config ownership in mode %s", async (mode) => {
     const root = await createProject("vite")
     const loadNuxt = vi.fn()
     const resolveViteConfig = vi.fn(async config => ({ plugins: [], root: String(config.root) }))
 
-    await expect(loadViteHubCliConfig(root, "serve", { loadNuxt, resolveViteConfig })).resolves.toEqual({
+    await expect(loadViteHubCliConfig(root, "serve", mode, { loadNuxt, resolveViteConfig })).resolves.toEqual({
       plugins: [],
       root,
       vitehubConfigResolved: true,
     })
 
     expect(loadNuxt).not.toHaveBeenCalled()
-    expect(resolveViteConfig).toHaveBeenCalledWith({ root, vitehubCliDiscovery: true }, "serve", "development")
+    expect(resolveViteConfig).toHaveBeenCalledWith({ root, vitehubCliDiscovery: true }, "serve", mode ?? "development")
   })
 
   it("uses Nuxt ownership when a Nuxt app also has a Vite config", async () => {
@@ -206,7 +254,7 @@ describe("ViteHub CLI config loading", () => {
     await runViteHubCli({
       args: ["--help"],
       cwd: root,
-      loadConfig: (directory, command) => loadViteHubCliConfig(directory, command, { loadNuxt, resolveViteConfig }),
+      loadConfig: (directory, command, mode) => loadViteHubCliConfig(directory, command, mode, { loadNuxt, resolveViteConfig }),
       loadNuxtViteConfig,
       stdout: { write: () => true },
     })
@@ -278,7 +326,7 @@ export default { plugins: [hubBlob({ driver: "fs" }), hubEnv({ server: {} }), ni
     expect(blob).toMatchObject({ code: 1, stderr: expect.stringContaining("as renderer template") });
     // JSON.parse fails when any log line comes before the payload.
     expect(JSON.parse(blob.stdout)).toEqual({
-      error: { message: expect.stringContaining("No Compatible Vite Development Server found at http://127.0.0.1:1.") },
+      error: expect.objectContaining({ message: expect.stringContaining("http://127.0.0.1:1 failed") }),
     });
 
     // `env check` also starts a stage Development Server, which loads the config again.

@@ -9,10 +9,11 @@ import {
   connectionCredentialLabel,
   connectionListSchema,
   connectionNextStep,
-  connectionStatusColor,
+  connectionStatusTone,
   connectionStatusLabel,
   requestConnectionsManagement,
 } from "../client/connections-management";
+import { queryChoice, querySelection, queryText, useConsoleQuery } from "../client/route-query";
 import { consolePrimitives, rememberConsoleSection } from "../sections";
 import ConsoleConnectionsDetails from "./console-connections-details.vue";
 import ConsoleFrame from "./console-frame.vue";
@@ -20,6 +21,7 @@ import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
+import ConsoleStatus from "./console-status.vue";
 
 type DetailsTab = "activity" | "approvals" | "details";
 
@@ -33,9 +35,12 @@ const props = defineProps<{
 }>();
 const connections = ref<readonly ConnectionInspection[]>([]);
 const pending = ref(new Map<string, number>());
-const search = ref("");
-const selectedName = ref<string>();
-const selectedTab = ref<DetailsTab>("details");
+// The search, open connection, and its tab live in the URL, so a reload or a shared link opens the same view.
+const { connection: selectedName, q: search, tab: selectedTab } = useConsoleQuery({
+  connection: querySelection(),
+  q: queryText(),
+  tab: queryChoice<DetailsTab>(["details", "activity", "approvals"], "details", { history: "push" }),
+});
 const selectedKeyForm = ref(false);
 const loading = ref(true);
 const error = ref<unknown>();
@@ -151,7 +156,7 @@ onBeforeUnmount(() => request?.abort());
           </template>
         </p>
       </ConsolePageToolbar>
-      <main class="min-h-0 flex-1 overflow-auto">
+      <main class="flex min-h-0 flex-1 flex-col overflow-auto">
         <ConsoleState v-if="error" :error="error" title="Could not load Connections" :retry="refresh" />
         <div v-else-if="loading && !connections.length" class="mx-auto grid w-full max-w-5xl gap-2 p-4 sm:p-6" aria-busy="true">
           <USkeleton v-for="index in 4" :key="index" class="h-11 w-full" />
@@ -159,7 +164,7 @@ onBeforeUnmount(() => request?.abort());
         <ConsoleState
           v-else-if="!connections.length"
           section="connections"
-          icon="i-ph-plugs-connected-light"
+          icon="i-vitehub-connections"
           title="No Connections yet"
           description="Connections are defined in code. Add a file to server/connections/, then connect it here."
         >
@@ -197,25 +202,21 @@ export default defineConnection({
             <template #credential-cell="{ row }"
               ><span class="inline-flex items-center gap-1.5 text-xs text-muted"
                 ><UIcon
-                  :name="row.original.credential === 'api-key' ? 'i-ph-key-light' : 'i-ph-sign-in-light'"
+                  :name="row.original.credential === 'api-key' ? 'i-lucide-key-round' : 'i-lucide-log-in'"
                   class="size-3.5 shrink-0"
                 />{{ connectionCredentialLabel(row.original.credential) }}</span
               ></template
             >
             <template #status-cell="{ row }"
-              ><div class="flex flex-wrap items-center gap-1.5">
-                <UBadge
-                  :color="connectionStatusColor(row.original.status)"
+              ><div class="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                <ConsoleStatus
                   :label="connectionStatusLabel(row.original.status)"
-                  size="sm"
-                  variant="subtle"
+                  :tone="connectionStatusTone(row.original.status)"
                 />
-                <UBadge
+                <ConsoleStatus
                   v-if="row.original.scopes.missing.length"
-                  color="warning"
                   :label="plural(row.original.scopes.missing.length, 'missing scope')"
-                  size="sm"
-                  variant="subtle"
+                  tone="warning"
                 />
                 <UButton
                   v-if="pending.get(row.original.name)"
@@ -252,7 +253,7 @@ export default defineConnection({
                     external
                     color="neutral"
                     size="xs"
-                    trailing-icon="i-ph-arrow-up-right-light"
+                    trailing-icon="i-lucide-arrow-up-right"
                     variant="outline"
                     @click.stop
                   />
@@ -261,7 +262,7 @@ export default defineConnection({
                     :label="connectionNextStep(row.original)?.label"
                     :aria-label="`${connectionNextStep(row.original)?.label} for ${row.original.name}`"
                     color="neutral"
-                    icon="i-ph-key-light"
+                    icon="i-lucide-key-round"
                     size="xs"
                     variant="outline"
                     @click.stop="open(row.original.name, 'details', true)"
@@ -289,7 +290,7 @@ export default defineConnection({
           :key="selected.name"
           :connection="selected"
           :endpoint="managementBase"
-          :initial-tab="selectedTab"
+          v-model:tab="selectedTab"
           :key-form="selectedKeyForm"
           :return-to="returnTo"
           @changed="refresh"

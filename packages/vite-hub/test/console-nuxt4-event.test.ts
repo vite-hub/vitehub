@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 
-import { createConsoleAppAuthAccess } from "../src/console/auth.ts"
+import { createConsoleAppAuthAccess } from "../src/console/auth-pages.ts"
 import { handleCloudflareAccessConsoleRequest, verifyCloudflareAccessConsoleRequest } from "../src/console/auth-cloudflare-access.ts"
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
@@ -92,7 +92,7 @@ describe("Console access on an H3 1 event (Nuxt 4)", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-nuxt4-"))
     try {
       const file = join(root, "console.mjs")
-      await writeConsoleNitroPlugin(file, root, [], [], { agents: [], content: {} }, [], [], undefined, undefined, false, undefined, () => true, undefined, false, undefined, { check: { appRoutes: routes }, mode: "auth" })
+      await writeConsoleNitroPlugin(file, root, [], [], { agents: [], content: {} }, [], undefined, undefined, false, undefined, () => true, undefined, false, undefined, { check: { appRoutes: routes }, mode: "auth" })
       const generated = await readFile(file, "utf8")
       expect(generated).toContain("vitehubCreateConsoleAppAuthAccess({ routes:")
       expect(generated).not.toContain("event.url")

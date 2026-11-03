@@ -123,6 +123,7 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
     executionAuthority: unknownExecutionAuthority,
     id: "fake",
     provider: options.provider ?? "vercel",
+    closesAfterRun: false,
     async close() {},
     async exec(cmd: string, args: string[] = [], execOptions?: { cwd?: string, env?: Record<string, string>, signal?: AbortSignal }): Promise<SandboxExecResult> {
       execCalls.push({ cmd, args, options: execOptions })

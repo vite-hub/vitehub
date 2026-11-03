@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { resolveConfig } from "vite"
 import { afterEach, expect, it } from "vitest"
 
+import { consoleContributedSections } from "../src/console/contributions.ts"
 import { resolveCmsPresetFeatures, withCmsPresetPlugins } from "../src/internal/cms-preset-features.ts"
 
 const roots: string[] = []
@@ -17,7 +18,7 @@ it.each(["github", "blob-database"] as const)("resolves %s services for Nuxt and
   roots.push(root)
   await mkdir(join(root, "server"))
   await writeFile(join(root, "server/content.ts"), `import { defineContent } from '@vite-hub/content'
-import { cms } from '@vite-hub/content/presets/cms'
+import { cms } from '@vite-hub/cms'
 export const content = defineContent({ extends: [cms, { store: '${store}' }] })`)
   const expected = { blob: store === "github" ? undefined : true, database: true, workspace: true }
   expect(resolveCmsPresetFeatures({}, { projectRoot: root })).toEqual(expected)
@@ -42,7 +43,7 @@ it.each([undefined, "github", "blob-database"] as const)("enables comments with 
   await mkdir(join(root, "server"))
   await writeFile(join(root, "server/comments.ts"), "export default defineComments({})")
   if (store) await writeFile(join(root, "server/content.ts"), `import { defineContent } from '@vite-hub/content'
-import { cms } from '@vite-hub/content/presets/cms'
+import { cms } from '@vite-hub/cms'
 export const content = defineContent({ extends: [cms, { store: '${store}' }] })`)
   const expected = { blob: store === "blob-database" ? true : undefined, database: true, workspace: store ? true : undefined }
   expect(resolveCmsPresetFeatures({}, { projectRoot: root })).toEqual(expected)
@@ -63,4 +64,19 @@ export const content = defineContent({ extends: [cms, { store: '${store}' }] })`
   expect(config.plugins.some(plugin => plugin.name === "database-service")).toBe(true)
   expect(config.plugins.some(plugin => plugin.name === "blob-service")).toBe(store === "blob-database")
   expect(config.plugins.some(plugin => plugin.name === "workspace-service")).toBe(Boolean(store))
+})
+
+it.each([
+  ["github", {}],
+  ["blob-database", { schedule: { docs: "https://vitehub.dev/docs/content/scheduling#run-due-schedules", message: "Nothing publishes scheduled documents. Add a Schedule Definition that calls `content.publishDue()`." } }],
+] as const)("asks the %s CMS store for a publishDue() runner only when it can schedule", async (store, setup) => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-cms-console-"))
+  roots.push(root)
+  await mkdir(join(root, "server"))
+  const file = join(root, "server/content.ts")
+  await writeFile(file, `import { defineContent } from 'vite-hub/content'
+import cms from 'vite-hub/cms'
+export const content = defineContent({ extends: [cms, { store: '${store}' }] })`)
+  const inspect = consoleContributedSections.get("content")!.documents!.inspect!
+  await expect(inspect({ discoveryRoot: root, projectRoot: root, scheduleDefinitions: [] }, file)).resolves.toEqual(setup)
 })

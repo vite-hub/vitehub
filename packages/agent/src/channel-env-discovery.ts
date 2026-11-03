@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs"
-import { resolve } from "node:path"
+import { resolve, sep } from "node:path"
 
 import { forgeEnv } from "@vite-hub/forge"
+import { discoverServerChannelModules, listMatchingFiles } from "@vite-hub/internal/definition-catalog"
 import { builtInChannelEnv } from "./channel-env.ts"
 import { discoverAgentDefinitions, tokenizeAgentSource } from "./discovery.ts"
 import { builtInGatewayEnv } from "./internal/gateway-env.ts"
@@ -99,8 +100,8 @@ function visitObjectProperties(tokens: string[], start: number, visit: (key: str
         if (/^[A-Za-z_$][\w$]*$/.test(token) || isStringToken(token)) {
           const key = isStringToken(token) ? stringTokenValue(token) : token
           if (key === undefined) return false
-          // A shorthand property `{ telegram }` is its own value.
-          const shorthand = !isStringToken(token) && [",", "}"].includes(tokens[i + 1]!)
+          // A shorthand property or defaulted binding is its own value.
+          const shorthand = !isStringToken(token) && [",", "}", "="].includes(tokens[i + 1]!)
           const parameters = objectMethodParameters(tokens, i)
           visit(key, tokens[i + 1] === ":" ? i + 2 : shorthand ? i : undefined, parameters !== undefined && !["get", "set"].includes(tokens[propertyStart - 1]!))
           expectKey = false
@@ -145,8 +146,8 @@ function staticOptionKeys(tokens: string[], start: number, empty: string, typesc
 }
 
 /**
- * Find built-in Channel factory calls, such as `telegram({ ... })` imported from
- * `vite-hub/agent/channels`, and Channel shorthands such as `channels: { telegram: { ... } }`.
+ * Find built-in Channel factory and `.connector()` calls, such as `telegram({ ... })` imported from
+ * `vite-hub/agent/channels`, and bare factory references such as `channels: { telegram }`.
  * Source is TypeScript by default. JavaScript files must disable type argument handling.
  */
 export function discoverBuiltInChannelUses(
@@ -178,18 +179,48 @@ export function discoverBuiltInChannelUses(
       else if (!channelModule && clause[b] === "defineAgent") agentFactories.add(local)
     }
   }
-  const declarations = moduleObjectDeclarations(tokens, lineBreaks, typescript)
-  const shadowBindings = new Map([...bindings, ...[...namespaces].map(name => [name, name] as const)])
+  // Remember each module-level const alias's declaration so local shadows still win.
+  const factoryBindings = new Map(bindings)
+  const factoryShadowBindings = new Map([...bindings, ...[...namespaces].map(name => [name, name] as const)])
+  const aliasBindings = new Map<string, number>()
+  const namespaceBindings = new Map([...namespaces].map(name => [name, name]))
+  const declarations = moduleObjectDeclarations(tokens, lineBreaks, typescript, (binding, start, statementEnd) => {
+    const destructured = tokens[binding] === "{"
+    const reference = channelFactoryReference(tokens, start, destructured ? namespaceBindings : factoryBindings, namespaces, known, typescript, statementEnd)
+    if (!reference || reference.call || isShadowedAt(tokens, reference.index, tokens[reference.index]!, factoryShadowBindings, lineBreaks, aliasBindings.get(tokens[reference.index]!))) return
+    const register = (name: string, kind: string) => {
+      factoryBindings.set(name, kind)
+      factoryShadowBindings.set(name, kind)
+      aliasBindings.set(name, binding)
+    }
+    if (!destructured) register(tokens[binding]!, reference.kind)
+    else visitObjectProperties(tokens, binding, (kind, value) => {
+      if (!known.has(kind) || value === undefined || !/^[A-Za-z_$][\w$]*$/.test(tokens[value]!) || ![",", "}", "="].includes(tokens[value + 1]!)) return
+      register(tokens[value]!, kind)
+    })
+  })
   const agentBindings = new Map([...agentFactories].map(name => [name, "defineAgent"]))
   const agentShadowBindings = new Map([...agentBindings, ...[...agentNamespaces].map(name => [name, name] as const)])
   const agentNames = new Set(["defineAgent"])
   const uses: Array<DiscoveredChannelUse & { index: number }> = []
   for (let i = 0; i < tokens.length; i++) {
     if (tokens[i - 1] === "." || tokens[i - 1] === "as") continue
-    const factory = !isShadowedAt(tokens, i, tokens[i]!, shadowBindings, lineBreaks) && factoryCall(tokens, i, bindings, namespaces, known, lineBreaks, typescript)
+    const factory = !isShadowedAt(tokens, i, tokens[i]!, factoryShadowBindings, lineBreaks, aliasBindings.get(tokens[i]!)) && factoryCall(tokens, i, factoryBindings, namespaces, known, lineBreaks, typescript, options.modules === undefined)
     if (factory) {
       const start = skipOptionAssertions(tokens, factory.open + 1, typescript)
-      const optionKeys = staticOptionKeys(tokens, start, ")", typescript, factory.name)
+      let optionKeys = staticOptionKeys(tokens, start, ")", typescript, factory.name)
+      // Telegram connectors accept botToken inside adapter options, unlike the Agent Channel.
+      if (factory.connector && factory.name === "telegram" && optionKeys) {
+        const settings = localObject(tokens, start, declarations, typescript)
+        if (settings !== undefined) visitObjectProperties(tokens, settings, (key, value) => {
+          if (key !== "adapter" || value === undefined) return
+          const adapter = localObject(tokens, value, declarations, typescript)
+          if (adapter === undefined) return
+          const adapterKeys = staticOptionKeys(tokens, adapter, "}", typescript)
+          if (adapterKeys?.has("postMessage")) return
+          optionKeys = adapterKeys
+        })
+      }
       const stringOptions = new Map<string, string>()
       let object = start
       while (tokens[object] === "(") object = skipOptionAssertions(tokens, object + 1, typescript)
@@ -203,7 +234,7 @@ export function discoverBuiltInChannelUses(
       })
       uses.push({ index: i, kind: factory.name, optionKeys, stringOptions })
     }
-    // Shorthands count only in the top-level `channels` option of defineAgent(), not in types or other objects.
+    // Bare factory references count only in the top-level `channels` option of defineAgent(), not in types or other objects.
     const agent = options.shorthands !== false && !isShadowedAt(tokens, i, tokens[i]!, agentShadowBindings, lineBreaks) && factoryCall(tokens, i, agentBindings, agentNamespaces, agentNames, lineBreaks, typescript)
     if (!agent) continue
     const settings = localObject(tokens, agent.open + 1, declarations, typescript)
@@ -211,27 +242,14 @@ export function discoverBuiltInChannelUses(
     visitObjectProperties(tokens, settings, (option, channelsValue) => {
       const channels = channelsValue === undefined ? undefined : localObject(tokens, channelsValue, declarations, typescript)
       if (option !== "channels" || channels === undefined) return
-      visitObjectProperties(tokens, channels, (key, value) => {
+      visitObjectProperties(tokens, channels, (_key, value) => {
         if (value === undefined) return
-        const reference = channelFactoryReference(tokens, value, bindings, namespaces, known, typescript)
-        if (reference && isShadowedAt(tokens, reference.index, tokens[reference.index]!, shadowBindings, lineBreaks)) return
+        const reference = channelFactoryReference(tokens, value, factoryBindings, namespaces, known, typescript)
+        if (reference && isShadowedAt(tokens, reference.index, tokens[reference.index]!, factoryShadowBindings, lineBreaks, aliasBindings.get(tokens[reference.index]!))) return
         // A factory call is found by the call scan. Runtime calls a bare factory without options
         // and uses the kind it returns, whatever the key is.
         if (reference?.call) return
-        if (reference) {
-          uses.push({ index: value, kind: reference.kind, optionKeys: new Set() })
-          return
-        }
-        if (!known.has(key)) return
-        const options = localObject(tokens, value, declarations, typescript) ?? value
-        const optionKeys = staticOptionKeys(tokens, options, "}", typescript, key)
-        // An object with `kind` is a complete Channel definition, not built-in Channel options.
-        let complete = false
-        if (tokens[options] === "{") visitObjectProperties(tokens, options, (key, value) => {
-          const omitted = value !== undefined && isUndefinedValue(tokens, value, new Set([",", "}"]))
-          if (key === "kind" && !omitted) complete = true
-        })
-        if (!complete && !optionKeys?.has("kind")) uses.push({ index: value, kind: key, optionKeys })
+        if (reference) uses.push({ index: value, kind: reference.kind, optionKeys: new Set() })
       })
     })
   }
@@ -249,12 +267,13 @@ function channelFactoryReference(
   namespaces: ReadonlySet<string>,
   known: ReadonlySet<string>,
   typescript: boolean,
+  statementEnd?: (index: number) => boolean,
 ): { call: boolean, kind: string, index: number, end: number } | undefined {
   index = skipOptionAssertions(tokens, index, typescript)
   if (tokens[index] === "(") {
     const reference = channelFactoryReference(tokens, index + 1, bindings, namespaces, known, typescript)
     const close = closingDelimiter(tokens, index)
-    return reference && isValueEnd(tokens, reference.end, new Set([")"])) && isValueEnd(tokens, close + 1, new Set([",", "}", ")"]))
+    return reference && isValueEnd(tokens, reference.end, new Set([")"])) && isValueEnd(tokens, close + 1, new Set([",", "}", ")", ";"]), statementEnd)
       ? { ...reference, end: close + 1 } : undefined
   }
   let kind = bindings.get(tokens[index]!)
@@ -277,7 +296,7 @@ function channelFactoryReference(
     next = skipTypeArguments(tokens, next)
   }
   const call = tokens[next] === "("
-  return kind && (call || isValueEnd(tokens, next, new Set([",", "}", ")"]))) ? { call, kind, index, end: call ? closingDelimiter(tokens, next) + 1 : next } : undefined
+  return kind && (call || isValueEnd(tokens, next, new Set([",", "}", ")", ";"]), statementEnd)) ? { call, kind, index, end: call ? closingDelimiter(tokens, next) + 1 : next } : undefined
 }
 
 // A method key belongs directly to an object, class, or interface body. Function
@@ -505,9 +524,9 @@ function localObject(tokens: string[], index: number, declarations: ReadonlyMap<
   return declaration !== undefined && tokens[declaration] === "{" && isValueEnd(tokens, index + 1, new Set([",", "}", ")"])) ? declaration : undefined
 }
 
-function isShadowedAt(tokens: string[], index: number, name: string, bindings: ReadonlyMap<string, string>, lineBreaks: ReadonlySet<number>): boolean {
+function isShadowedAt(tokens: string[], index: number, name: string, bindings: ReadonlyMap<string, string>, lineBreaks: ReadonlySet<number>, ignoredBinding?: number): boolean {
   if (!bindings.has(name)) return false
-  if (hasLocalBinding(tokens, index, name, lineBreaks)) return true
+  if (hasLocalBinding(tokens, index, name, lineBreaks, ignoredBinding)) return true
   const closes = new Map<number, number>()
   const stack: number[] = []
   for (let i = 0; i < tokens.length; i++) {
@@ -677,7 +696,7 @@ function statementEnd(tokens: string[], start: number, closes: ReadonlyMap<numbe
 
 // Lexical declarations shadow the import throughout their block. `var` belongs
 // to the enclosing function, including declarations inside a nested block.
-function hasLocalBinding(tokens: string[], index: number, name: string, lineBreaks: ReadonlySet<number>): boolean {
+function hasLocalBinding(tokens: string[], index: number, name: string, lineBreaks: ReadonlySet<number>, ignoredBinding?: number): boolean {
   const closes = new Map<number, number>()
   const stack: number[] = []
   for (let i = 0; i < tokens.length; i++) {
@@ -744,7 +763,7 @@ function hasLocalBinding(tokens: string[], index: number, name: string, lineBrea
     // Walk declarators without mistaking identifiers in initializers for bindings.
     for (let binding = i + 1; binding < tokens.length;) {
       const end = closes.get(binding)
-      if (bindingPatternHasName(tokens, binding, name, closes)) return true
+      if (binding !== ignoredBinding && bindingPatternHasName(tokens, binding, name, closes)) return true
       let next = (end ?? binding) + 1
       while (next < tokens.length && !["=", ",", ";", "in", "of", ")", "}"].includes(tokens[next]!)) next++
       if (tokens[next] === "=") {
@@ -781,8 +800,8 @@ function bindingPatternHasName(tokens: string[], start: number, name: string, cl
   return false
 }
 
-// Map module-level const object initializers to the index of their opening brace.
-function moduleObjectDeclarations(tokens: string[], lineBreaks: ReadonlySet<number>, typescript: boolean): Map<string, number> {
+// Map module-level const objects to their opening brace and visit other const initializers.
+function moduleObjectDeclarations(tokens: string[], lineBreaks: ReadonlySet<number>, typescript: boolean, visitInitializer?: (binding: number, start: number, statementEnd: (index: number) => boolean) => void): Map<string, number> {
   const declarations = new Map<string, number>()
   // A newline before an identifier ends the initializer unless it continues
   // an assertion or a binary expression. Operators can continue across lines.
@@ -794,8 +813,10 @@ function moduleObjectDeclarations(tokens: string[], lineBreaks: ReadonlySet<numb
     const token = tokens[i]!
     if (depth === 0 && (token === ";" || (token !== "const" && statementEnd(i)))) constantDeclaration = false
     if (depth === 0 && token === "const") constantDeclaration = true
-    if (depth === 0 && constantDeclaration && ["const", ","].includes(token) && /^[A-Za-z_$][\w$]*$/.test(tokens[i + 1] ?? "")) {
-      let equals = i + 2
+    const binding = i + 1
+    const destructured = tokens[binding] === "{"
+    if (depth === 0 && constantDeclaration && ["const", ","].includes(token) && (destructured || /^[A-Za-z_$][\w$]*$/.test(tokens[binding] ?? ""))) {
+      let equals = destructured ? closingDelimiter(tokens, binding) + 1 : binding + 1
       while (tokens[equals] && !["=", ",", ";", "const", "let", "var", "declare", "export", "import"].includes(tokens[equals]!)) {
         if (["{", "(", "["].includes(tokens[equals]!)) equals = closingDelimiter(tokens, equals) + 1
         else if (typescript && tokens[equals] === "<") equals = skipTypeArguments(tokens, equals)
@@ -803,9 +824,10 @@ function moduleObjectDeclarations(tokens: string[], lineBreaks: ReadonlySet<numb
       }
       if (tokens[equals] === "=") {
         const start = skipOptionAssertions(tokens, equals + 1, typescript)
+        visitInitializer?.(binding, start, statementEnd)
         const object = localObject(tokens, start, declarations, typescript)
         const end = ["{", "("].includes(tokens[start]!) ? closingDelimiter(tokens, start) + 1 : start + 1
-        if (object !== undefined && isValueEnd(tokens, end, new Set([",", ";"]), statementEnd)) declarations.set(tokens[i + 1]!, object)
+        if (!destructured && object !== undefined && isValueEnd(tokens, end, new Set([",", ";"]), statementEnd)) declarations.set(tokens[binding]!, object)
       }
     }
     if (["{", "(", "["].includes(token)) depth++
@@ -823,7 +845,8 @@ function factoryCall(
   names: ReadonlySet<string>,
   lineBreaks: ReadonlySet<number>,
   typescript: boolean,
-): { name: string, open: number } | undefined {
+  connectors = false,
+): { name: string, open: number, connector: boolean } | undefined {
   if (tokens[index - 1] === "#") return undefined
   let name = bindings.get(tokens[index]!)
   let next = index + 1
@@ -840,6 +863,8 @@ function factoryCall(
     }
   }
   if (!name) return undefined
+  const connector = connectors && ["teams", "discord", "telegram"].includes(name) && tokens[next] === "." && tokens[next + 1] === "connector"
+  if (connector) next += 2
   if (tokens[next] === "?" && tokens[next + 1] === ".") next += 2
   if (tokens[next] === "<") {
     if (!typescript) return undefined
@@ -853,7 +878,7 @@ function factoryCall(
   // Method keys are declarations. A call can precede a ternary colon, so also
   // require the key to follow a property boundary or a method modifier.
   if (["{", ":"].includes(after!) && (afterType || followsDecorator(tokens, index) || ["{", "}", ",", ";", "async", "get", "set", "*", "static", "public", "private", "protected", "abstract", "declare", "override"].includes(previous)) && isMethodContainer(tokens, index)) return undefined
-  return { name, open: next }
+  return { name, open: next, connector }
 }
 
 // Decorator calls can separate a method key from its property boundary.
@@ -905,13 +930,21 @@ function agentHandlers(options: { rootDir: string, serverDirs?: string[] }): Set
 }
 
 /**
- * Declare the Server Env of each built-in Channel used by a discovered Agent.
- * A value is required when an Agent uses the Channel with static options that omit it.
+ * Declare the Server Env of each built-in Channel used by a discovered Agent or outbound Channel.
+ * A value is required when a Channel or connector uses static options that omit it.
  */
 export function discoverAgentChannelEnv(options: { rootDir: string, serverDirs?: string[] }): AgentChannelEnv {
   const fields: Readonly<Record<string, Readonly<Record<string, ChannelEnvField>>>> = builtInChannelEnv
   const declared: AgentChannelEnv = {}
-  for (const handler of agentHandlers(options)) {
+  const serverDirs = options.serverDirs ?? [resolve(options.rootDir, "server")]
+  const channelDirectories = serverDirs.map(directory => `${resolve(directory, "channels")}${sep}`)
+  const handlers = new Set([
+    ...agentHandlers(options),
+    ...discoverServerChannelModules(serverDirs).map(definition => definition.handler),
+    ...listMatchingFiles(options.rootDir, name => /\.channel\.(?:c|m)?[jt]s$/i.test(name))
+      .filter(handler => !channelDirectories.some(directory => resolve(handler).startsWith(directory))),
+  ])
+  for (const handler of handlers) {
     const source = readFileSync(handler, "utf8")
     for (const { kind, optionKeys } of discoverBuiltInChannelUses(source, Object.keys(fields), { typescript: /\.(?:c|m)?ts$/i.test(handler) })) {
       const group = declared[kind] ??= {}

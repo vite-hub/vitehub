@@ -1,8 +1,8 @@
 ---
 title: Configure comments
 description: Set the access policy, add subject kinds, react to mentions, and choose the Database.
-navigation.title: Configure
-navigation.order: 3
+navigation.title: Configure operations
+navigation.order: 22
 icon: i-lucide-settings
 ---
 
@@ -106,7 +106,7 @@ vitehub({ comments: { overlay: { session: 'always' } } })
 
 ## Database
 
-With `server/comments.ts` and no `database` option, `vitehub()` turns the Database on and adds an empty default Database Definition (`.vitehub/comments/database.ts`) when the app has none, the way the Content cms preset does. Comments then use the default Database. Setting `database: false` fails the build with `COMMENTS_B0001`. To choose another Database:
+With `server/comments.ts` and no `database` option, `vitehub()` turns the Database on, and Comments use the default Database. When the app has no Database Definition, that is the implicit `default` Database, as for the Content cms preset. Setting `database: false` fails the build with `COMMENTS_B0001`. To choose another Database:
 
 ```ts [vite.config.ts]
 vitehub({ comments: { database: 'main' } })

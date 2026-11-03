@@ -60,6 +60,12 @@ export interface ConsoleDocumentPresenceState {
   ownOtherTab: ComputedRef<boolean>
   /** Takes the lease on the first edit. Resolves false when another tab holds it; the dialog then opens. */
   claim: () => Promise<boolean>
+  /**
+   * Asks the server for the lease now, for an explicit save such as Apply of local-only edits. Unlike `claim()`, it
+   * asks after this tab chose read-only or its holder left, and it opens no dialog. The server still refuses while
+   * another tab holds the lease: it resolves false then, with `holder` set.
+   */
+  acquire: () => Promise<boolean>
   takeover: () => Promise<boolean>
   /** Records input, so the lease does not go idle. */
   input: () => void
@@ -172,9 +178,7 @@ export function useConsoleDocumentPresence(options: {
     schedule()
   }
 
-  function claim(): Promise<boolean> {
-    if (!leased.value || mode.value === "editing") return Promise.resolve(true)
-    if (mode.value !== "free") return Promise.resolve(false)
+  function ask(dialog: boolean): Promise<boolean> {
     lastInput = Date.now()
     claiming ??= send("acquire").then(() => {
       if (mode.value === "editing" || !leased.value) return true
@@ -182,13 +186,24 @@ export function useConsoleDocumentPresence(options: {
       if (presence.value?.holder && !presence.value.holder.self) {
         holder.value = presence.value.holder
         mode.value = "blocked"
-        dialogOpen.value = true
+        if (dialog) dialogOpen.value = true
       }
       return false
     }).finally(() => {
       claiming = undefined
     })
     return claiming
+  }
+
+  function claim(): Promise<boolean> {
+    if (!leased.value || mode.value === "editing") return Promise.resolve(true)
+    if (mode.value !== "free") return Promise.resolve(false)
+    return ask(true)
+  }
+
+  function acquire(): Promise<boolean> {
+    if (!leased.value || mode.value === "editing") return Promise.resolve(true)
+    return ask(false)
   }
 
   async function takeover(): Promise<boolean> {
@@ -248,6 +263,7 @@ export function useConsoleDocumentPresence(options: {
     tracked,
     ownOtherTab,
     claim,
+    acquire,
     takeover,
     input: () => {
       lastInput = Date.now()

@@ -17,7 +17,7 @@ Provider selection belongs to application or host configuration, not to a Defini
 
 The `deno`, `netlify`, and `node` presets have no built-in Sandbox provider, so `vitehub({ preset, sandboxTask: true })` fails during configuration for them. Without an explicit `provider`, the runtime detects Cloudflare or Vercel from the environment. Both providers run remote, potentially billed infrastructure. Sandbox has no local in-process provider.
 
-On the Vite or Nuxt dev server, the Vercel provider works when Vercel credentials are set. The Cloudflare provider does not: the `cloudflare` preset writes the Sandbox Durable Object and Container only to `.output/server/wrangler.json`, and the dev server cannot host a Container. Build, then run `npx wrangler --cwd .output/server dev`. Wrangler needs Docker to run the Container.
+On the Vite or Nuxt dev server, the Vercel provider works when Vercel credentials are set. The Cloudflare provider does not: the `cloudflare` preset writes the Sandbox Durable Object and Container only to `.output/server/wrangler.json`, and the dev server cannot host a Container. Build, then run `npx wrangler dev --config .output/server/wrangler.json`. Wrangler needs Docker to run the Container.
 
 ### Vercel options
 
@@ -43,3 +43,8 @@ On the Vite or Nuxt dev server, the Vercel provider works when Vercel credential
 | `sleepAfter`, `keepAlive`, `normalizeId` | - | Cloudflare Sandbox session options. |
 
 The Cloudflare integration writes the Container, Durable Object binding, migration, and Worker exports to Provider Output. It generates `.vitehub/sandbox-task/Dockerfile` when the container has no image. For a custom image, configure the application-owned container with a complete Dockerfile. For Vercel, set `runtime` or `source`. Sandbox has no Dockerfile-fragment helper because partial image syntax is not portable across providers.
+
+## Related guides
+
+Read [Choose Cloudflare Sandbox or Vercel Sandbox](/docs/guides/sandbox-providers)
+to compare setup, execution boundaries, and provider verification.

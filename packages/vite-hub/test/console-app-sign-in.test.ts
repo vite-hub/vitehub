@@ -4,7 +4,8 @@ import { createAuthForRequest, createAuthAccessHandler, requireAuthAccessRoutes,
 import { getAuthForRequest, resetAuth } from "../../auth/src/server.ts"
 import { H3, H3Event } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { createConsoleAppAuthAccess, createConsoleAppAuthPages, type ConsoleAuthorize } from "../src/console/auth.ts"
+import type { ConsoleAuthorize } from "../src/console/auth.ts"
+import { createConsoleAppAuthAccess, createConsoleAppAuthPages } from "../src/console/auth-pages.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import signInMiddleware from "../src/console/runtime/server/sign-in.ts"
 import consolePage from "../src/console/runtime/server/page.get.ts"
@@ -25,7 +26,7 @@ afterEach(() => {
   Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.access"))
 })
 
-async function setup(mount = "", providers = true, access: { authorize?: () => boolean, consoleAuthorize?: ConsoleAuthorize } = {}) {
+async function setup(mount = "", providers = true, access: { authorize?: () => boolean, consoleAuthorize?: ConsoleAuthorize, password?: false, signUp?: false } = {}) {
   const database = new DatabaseSync(":memory:")
   databases.push(database)
   const routes: Parameters<typeof createAuthAccessHandler>[0] = [{ route: `${mount}/_vitehub/**`, authorize: true }, { route: `${mount}/api/_vitehub/console/**`, authorize: true }]
@@ -35,7 +36,7 @@ async function setup(mount = "", providers = true, access: { authorize?: () => b
     database,
     secret: "test-secret-at-least-32-bytes-long",
     access: { routes: routes.map(route => ({ route: route.route, authorize: access.authorize ?? (() => true) })) },
-    emailAndPassword: { enabled: true },
+    emailAndPassword: { enabled: access.password ?? true, disableSignUp: access.signUp === false },
     socialProviders: providers ? {
       github: { clientId: "test-github", clientSecret: "test-secret" },
       google: { clientId: "test-google", clientSecret: "test-secret" },
@@ -227,11 +228,83 @@ describe("Console reuses app Auth sign-in", () => {
     }
   })
 
-  it("explains how to connect an app with no social providers", async () => {
-    const { visit } = await setup("", false)
+  it("explains how to connect an app with no sign-in method", async () => {
+    const { visit } = await setup("", false, { password: false })
     const page = await visit("/_vitehub/sign-in")
     expect(page.status).toBe(503)
     expect(await page.text()).toContain("console.signInPage")
+  })
+
+  it.each(["", "/portal"])("signs in with email and password before app Auth at %s", async (mount) => {
+    const { authForRequest, visit } = await setup(mount, false)
+    const signedUp = await authForRequest(new Request(origin)).handler(new Request(`${origin}${mount}/api/auth/sign-up/email`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin },
+      body: JSON.stringify({ name: "Console User", email: "console@example.com", password: "test-password-123" }),
+    }))
+    expect(signedUp.status).toBe(200)
+    const pageURL = (await visit("/_vitehub/content?file=home.md", { headers: { accept: "text/html" } })).headers.get("location")!
+    const page = await visit(pageURL.slice(mount.length))
+    expect(page.status).toBe(200)
+    const html = await page.text()
+    expect(html).toContain('autocomplete="current-password"')
+    expect(html).not.toContain("Sign in with")
+    const submit = (password: string, headers: Record<string, string> = { origin }) => visit(pageURL.slice(mount.length), {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", ...headers },
+      body: new URLSearchParams({ email: "console@example.com", password }),
+    })
+    const wrong = await submit("wrong-password-123")
+    expect(await wrong.text()).toContain("Check your email and password")
+    expect(wrong.headers.getSetCookie()).toEqual([])
+    expect((await submit("test-password-123", {})).status).toBe(403)
+    const signedIn = await submit("test-password-123")
+    expect(signedIn.status).toBe(303)
+    expect(signedIn.headers.get("location")).toBe(`${mount}/_vitehub/content?file=home.md`)
+    const cookie = signedIn.headers.getSetCookie().map(value => value.split(";")[0]).join("; ")
+    expect(cookie).toContain("session_token")
+    expect((await visit("/_vitehub/content?file=home.md", { headers: { accept: "text/html", cookie } })).status).toBe(200)
+  })
+
+  it.each(["", "/portal"])("creates an account on the sign-in page at %s", async (mount) => {
+    const { visit } = await setup(mount, false)
+    const pageURL = (await visit("/_vitehub/content?file=home.md", { headers: { accept: "text/html" } })).headers.get("location")!
+    const page = await visit(pageURL.slice(mount.length))
+    // A form POST from a `no-referrer` page carries `Origin: null`, and the sign-in check refuses it.
+    expect(page.headers.get("referrer-policy")).toBe("same-origin")
+    const signUpURL = new URL(pageURL, origin)
+    signUpURL.searchParams.set("mode", "sign-up")
+    expect(await page.text()).toContain(`No account? <a href="${`${signUpURL.pathname}${signUpURL.search}`.replaceAll("&", "&amp;")}"`)
+    const form = await visit(`${signUpURL.pathname.slice(mount.length)}${signUpURL.search}`)
+    const html = await form.text()
+    expect(html).toContain("<h1>Create account</h1>")
+    expect(html).toContain('autocomplete="new-password" minlength="8"')
+    const submit = () => visit(`${signUpURL.pathname.slice(mount.length)}${signUpURL.search}`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", origin },
+      body: new URLSearchParams({ name: "New User", email: "new@example.com", password: "test-password-123" }),
+    })
+    const created = await submit()
+    expect(created.status).toBe(303)
+    expect(created.headers.get("location")).toBe(`${mount}/_vitehub/content?file=home.md`)
+    const cookie = created.headers.getSetCookie().map(value => value.split(";")[0]).join("; ")
+    expect((await visit("/_vitehub/content?file=home.md", { headers: { accept: "text/html", cookie } })).status).toBe(200)
+    const again = await submit()
+    expect(again.status).toBe(200)
+    expect(await again.text()).toContain("Could not create the account.")
+  })
+
+  it("hides sign-up when the app turns it off", async () => {
+    const { visit } = await setup("", false, { signUp: false })
+    expect(await (await visit("/_vitehub/sign-in")).text()).not.toContain("Create one")
+    const page = await visit("/_vitehub/sign-in?mode=sign-up")
+    expect(await page.text()).not.toContain("Create account")
+    const attempt = await visit("/_vitehub/sign-in?mode=sign-up", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", origin },
+      body: new URLSearchParams({ name: "New User", email: "new@example.com", password: "test-password-123" }),
+    })
+    expect(await attempt.text()).toContain("Check your email and password")
   })
 
   it("offers account switching when console.authorize rejects the signed-in account", async () => {

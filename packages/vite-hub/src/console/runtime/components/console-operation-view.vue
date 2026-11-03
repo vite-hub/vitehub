@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import type { ConsoleContributedSection, ConsoleOperationView } from "../definitions";
 import { loadOperationItems, operationCell, operationLink, operationValue } from "../client/operation-view";
+import { querySelection, queryText, useConsoleQuery } from "../client/route-query";
 import ConsoleFrame from "./console-frame.vue";
 import ConsolePageHeader from "./console-page-header.vue";
+import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
 
 /**
@@ -17,8 +19,12 @@ const props = defineProps<{
   sectionsBase: string;
 }>();
 
+// The rail's Search button and Cmd+K open the search of the page. Its API routes sit next to the sections route.
+const apiBase = props.sectionsBase.replace(/\/sections$/, "");
 const view = computed(() => props.details.view as ConsoleOperationView);
-const filterId = ref<string>();
+// The filter and the search live in the URL, so a reload or a shared link opens the same list. The first filter is the
+// default.
+const { filter: filterId, q: search } = useConsoleQuery({ filter: querySelection({ history: "replace" }), q: queryText() });
 const items = ref<Array<Record<string, unknown>>>([]);
 const loading = ref(true);
 const error = ref<unknown>();
@@ -26,6 +32,17 @@ let controller: AbortController | undefined;
 
 const filters = computed(() => view.value.filters ?? []);
 const activeFilter = computed(() => filters.value.find((filter) => filter.id === filterId.value) ?? filters.value[0]);
+/** Match full column values and their displayed text, such as the page, the author, or the comment. */
+const visibleItems = computed(() => {
+  const query = search.value.trim().toLowerCase();
+  if (!query) return items.value;
+  return items.value.filter(item => view.value.columns.some(column => {
+    const value = String(operationValue(item, column.key) ?? "").toLowerCase();
+    return value.includes(query)
+      || value.replaceAll(/\s+/g, " ").includes(query)
+      || operationCell(item, column).toLowerCase().includes(query);
+  }));
+});
 
 async function load(): Promise<void> {
   controller?.abort();
@@ -47,16 +64,17 @@ async function load(): Promise<void> {
 }
 
 function choose(id: string): void {
-  filterId.value = id;
-  void load();
+  filterId.value = id === filters.value[0]?.id ? undefined : id;
 }
 
 onMounted(() => void load());
+watch(() => activeFilter.value?.id, () => void load());
 onBeforeUnmount(() => controller?.abort());
 </script>
 
 <template>
   <ConsoleFrame :active="details.id" :sections-base="sectionsBase">
+    <ConsoleSearch :agents-base="`${apiBase}/agents`" :definitions-base="definitionsBase" :kv-base="`${apiBase}/kv`" :search-base="`${apiBase}/search`" :sections-base="sectionsBase" />
     <UDashboardPanel :id="`console-${details.id}`" :ui="{ body: 'min-h-0 gap-0 overflow-auto p-0' }">
       <template #header>
         <ConsolePageHeader :title="details.label" :description="details.description" :toggle="false">
@@ -66,26 +84,46 @@ onBeforeUnmount(() => controller?.abort());
             </UTooltip>
           </template>
         </ConsolePageHeader>
-        <div v-if="filters.length" class="flex flex-wrap items-center gap-1.5 border-b border-default px-4 py-2" role="group" aria-label="Filter">
-          <UButton
-            v-for="filter in filters"
-            :key="filter.id"
-            size="xs"
-            :color="activeFilter?.id === filter.id ? 'primary' : 'neutral'"
-            :variant="activeFilter?.id === filter.id ? 'soft' : 'ghost'"
-            :aria-pressed="activeFilter?.id === filter.id"
-            :label="filter.label"
-            @click="choose(filter.id)"
+        <div class="flex flex-wrap items-center gap-1.5 border-b border-default px-4 py-2">
+          <UInput
+            v-model="search"
+            class="w-full sm:w-56"
+            icon="i-lucide-search"
+            size="sm"
+            :placeholder="`Filter ${details.label.toLowerCase()}…`"
+            :aria-label="`Filter ${details.label}`"
+            :ui="{ base: 'text-base sm:text-sm' }"
           />
+          <div v-if="filters.length" class="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter">
+            <UButton
+              v-for="filter in filters"
+              :key="filter.id"
+              size="xs"
+              :color="activeFilter?.id === filter.id ? 'primary' : 'neutral'"
+              :variant="activeFilter?.id === filter.id ? 'soft' : 'ghost'"
+              :aria-pressed="activeFilter?.id === filter.id"
+              :label="filter.label"
+              @click="choose(filter.id)"
+            />
+          </div>
         </div>
       </template>
       <template #body>
-        <div class="p-4">
+        <div class="flex flex-1 flex-col p-4">
           <ConsoleState v-if="error" :error="error" title="Couldn't load the list" :retry="load" />
-          <template v-else-if="loading && !items.length">
+          <div v-else-if="loading && !items.length">
             <USkeleton v-for="index in 5" :key="index" class="my-1 h-9 rounded-md" />
-          </template>
+          </div>
           <ConsoleState v-else-if="!items.length" :section="details.id" title="Nothing here yet" description="No item matches this filter." />
+          <UEmpty
+            v-else-if="!visibleItems.length"
+            variant="naked"
+            class="flex-1 py-12"
+            icon="i-lucide-search"
+            title="No matching items"
+            :description="`Nothing matches “${search.trim()}”.`"
+            :actions="[{ label: 'Clear search', color: 'neutral', variant: 'outline', onClick: () => { search = '' } }]"
+          />
           <table v-else class="w-full text-left text-sm">
             <thead class="text-xs text-muted">
               <tr>
@@ -94,7 +132,7 @@ onBeforeUnmount(() => controller?.abort());
               </tr>
             </thead>
             <tbody>
-              <tr v-for="item in items" :key="String(operationValue(item, 'id'))" class="border-t border-default">
+              <tr v-for="item in visibleItems" :key="String(operationValue(item, 'id'))" class="border-t border-default">
                 <td v-for="column in view.columns" :key="column.key" class="px-2 py-2 align-top">{{ operationCell(item, column) }}</td>
                 <td v-if="view.link" class="px-2 py-2 text-right">
                   <a v-if="operationLink(item, view)" class="text-primary hover:underline" :href="operationLink(item, view)">{{ view.link.label ?? "Open" }}</a>

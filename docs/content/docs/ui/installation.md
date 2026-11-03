@@ -1,6 +1,7 @@
 ---
 title: Installation
 description: "Install ViteHub UI in a Nuxt or Vue with Vite application, set the theme, and verify the setup with server rendering."
+seo.title: Install ViteHub UI
 navigation.title: Installation
 navigation.order: 3
 navigation.group: Start
@@ -172,6 +173,8 @@ The stylesheet maps its CSS variables to Nuxt UI tokens. Override them on any el
 ```
 
 The variables are `--vh-ui-radius`, `--vh-ui-border`, `--vh-ui-text`, `--vh-ui-muted`, `--vh-ui-dimmed`, `--vh-ui-bg`, `--vh-ui-bg-muted`, `--vh-ui-bg-elevated`, `--vh-ui-error`, `--vh-ui-info`, `--vh-ui-success`, and `--vh-ui-warning`.
+
+`--vh-ui-radius` is the corner radius of framed parts, such as `CodeBlock` and `CodeView`. It defaults to Nuxt UI's `rounded-lg`, twice `--ui-radius`. Smaller and larger corners, such as those of `Bubble` and `PromptInput`, derive from it, so one value changes them all.
 
 ## Server rendering
 

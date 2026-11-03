@@ -118,10 +118,17 @@ describe("package task runner", { timeout: 60_000 }, () => {
   })
 
   it.each([
-    "",
-    "vp run -t @fixture/compound#build && ",
-    "vp run -t @fixture/shared#build && vp run -t @fixture/compound#build && ",
-  ])("runs all test commands without replaying completed builds: %s", async (buildPrefix) => {
+    { buildPrefix: "", builds: '["pack","shared"]\n["pack","compound"]\n' },
+    { buildPrefix: "vp run -t @fixture/compound#build && ", builds: '["pack","shared"]\n["pack","compound"]\n' },
+    {
+      buildPrefix: "vp run -t @fixture/shared#build && vp run -t @fixture/compound#build && ",
+      builds: '["pack","shared"]\n["pack","compound"]\n',
+    },
+    {
+      buildPrefix: "vp run -t @fixture/tool#build && vp run -t @fixture/compound#build && ",
+      builds: '["pack","shared"]\n["pack","compound"]\n["pack","tool"]\n',
+    },
+  ])("runs all test commands without replaying completed builds: $buildPrefix", async ({ buildPrefix, builds }) => {
     const log = await tempFile("events.log")
     const workspace = join(log, "..")
     const packageDir = join(workspace, "packages/compound")
@@ -141,6 +148,14 @@ describe("package task runner", { timeout: 60_000 }, () => {
       name: "@fixture/shared",
       scripts: { build: "vp pack shared" },
     }))
+    // Not a dependency of compound, so only a leading build task selects it.
+    const toolDir = join(workspace, "packages/tool")
+    await mkdir(toolDir, { recursive: true })
+    await writeFile(join(toolDir, "package.json"), JSON.stringify({
+      name: "@fixture/tool",
+      dependencies: { "@fixture/compound": "workspace:*" },
+      scripts: { build: "vp pack tool" },
+    }))
     const fakeVp = join(binDir, "vp")
     await writeFile(fakeVp, [
       "#!/usr/bin/env node",
@@ -157,7 +172,7 @@ describe("package task runner", { timeout: 60_000 }, () => {
     }).then(result => ({ ...result, code: 0 }), (error: Error & { code: number, stdout: string }) => error)
 
     expect(result.code, result.stdout).toBe(7)
-    expect(await readFile(log, "utf8")).toBe('["pack","shared"]\n["pack","compound"]\n["test"]\n["test","--config","workerd.config.ts"]\n')
+    expect(await readFile(log, "utf8")).toBe(`${builds}["test"]\n["test","--config","workerd.config.ts"]\n`)
     expect(result.stdout).toContain("FAIL @fixture/compound")
   })
 

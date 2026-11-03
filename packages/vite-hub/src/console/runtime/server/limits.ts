@@ -8,4 +8,4 @@ const maximumAttachmentBytes = 10 * 1024 * 1024
 export const consoleAttachmentRequestBytes: number = Math.ceil(maximumAttachmentBytes * 4 / 3) + 40960
 
 /** The document actions that one Console request may call. It mirrors `ViteHubConsoleDocumentActionName`. */
-export const consoleDocumentActionNames = ["get", "list", "overview", "publish", "raw", "references", "remove", "restore", "revisions", "save", "schedule", "search", "session", "sessions", "unschedule"] as const
+export const consoleDocumentActionNames = ["get", "list", "overview", "preview", "publish", "raw", "references", "remove", "restore", "revisions", "save", "schedule", "search", "session", "sessions", "unschedule"] as const

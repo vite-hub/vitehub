@@ -6,6 +6,7 @@ import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { agentInvocationTraceIdContextKey } from "../trace.ts"
 import type { AgentProviderCredentialContext, AgentProviderStatus } from "../types.ts"
 import { codexConfigArg } from "./codex-launch-args.ts"
+import { withProviderStatusError } from "./provider-status-error.ts"
 import type { ResolvedAgentDriverGateway } from "./agent-gateway.ts"
 
 export const chatgptTokenEnvironment = "VITEHUB_CHATGPT_ACCESS_TOKEN"
@@ -63,13 +64,18 @@ export async function resolveChatGPTGateway(gateway: ChatGPTGateway, context: Ag
 export async function inspectChatGPTGateway(gateway: ChatGPTGateway, context: AgentProviderCredentialContext): Promise<AgentProviderStatus> {
   const connection = await primitive(context, gateway.connection).runtime().inspect(gateway.connection)
   const ready = connection.status === "connected" && connection.chatgpt?.plan === "enabled"
-  return {
+  const status: AgentProviderStatus = {
     agent: context.agentIdentity?.name ?? "agent", provider: "codex", checkedAt: new Date().toISOString(), stale: false,
     ...(connection.account ? { account: { id: connection.account.id, kind: "account" } } : {}),
     authenticated: ready, readiness: ready ? "ready" : "unavailable",
     reason: ready ? `ChatGPT plan: ${connection.account?.email ?? connection.account?.id ?? gateway.connection}. Token expires ${connection.expiresAt}. Host ${connection.chatgpt?.hostId}.`
       : `Run vitehub connections connect ${gateway.connection} and allow plan usage.`,
   }
+  // A grant without plan usage needs a new sign-in that allows it. Every other state has no usable grant.
+  return ready ? status : withProviderStatusError(status, agentDiagnostics.AGENT_R1016({
+    connection: gateway.connection,
+    problem: connection.status === "connected" ? "scopes" : "sign-in",
+  }))
 }
 
 /** Keep provider text out of diagnostics. Only recognized codes determine recovery. */

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createSkillReferences } from "../modules/vitehub-docs/artifacts/skill-references";
+import { createSkillReferences } from "../modules/vitehub-docs/skill-references";
 
 const docsRoot = resolve(import.meta.dirname, "..");
 const contentRoot = resolve(docsRoot, "content/docs");

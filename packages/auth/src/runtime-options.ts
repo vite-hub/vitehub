@@ -1,14 +1,23 @@
+import { memoryAdapter } from "better-auth/adapters/memory"
 import { createAuthMiddleware } from "better-auth/api"
+import { getAuthTables } from "better-auth/db"
+import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { resolvePublicUrl } from "@vite-hub/runtime"
 import { resolveAuthMountPath } from "./application-path.ts"
+import { createAdminEmailsPlugin, readAdminEmails, withAdminEmails } from "./admin-emails.ts"
+import { assertAuthDatabaseAdditionalFields, assertAuthDatabaseIdStrategy, authDatabaseName, authDatabasePlacementError } from "./database-options.ts"
+import { assertAuthDatabaseSchema } from "./database-schema-options.ts"
 import { applyAuthPreset } from "./preset-options.ts"
 import { deriveAuthSecret } from "./secret.ts"
 import { validateAuthEvents } from "./events-config.ts"
 import { createAuthEventsPlugin } from "./event-plugin.ts"
+import { createImpersonationPlugin, withImpersonationExpiry } from "./impersonation-plugin.ts"
+import { getAuthRuntimeState } from "./runtime-state.ts"
 import { createSessionRefreshPlugin } from "./session-refresh.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
 
+import type { BetterAuthOptions } from "better-auth"
 import type {
   AuthBetterAuthRuntimeOptions,
   AuthDefinition,
@@ -43,8 +52,25 @@ function isAuthSecondaryStorageMetadata(value: unknown): boolean {
     )
 }
 
+/**
+ * Without a database, Better Auth keeps users and sessions in the memory of one instance. Auth creates an instance per
+ * request, so the instances of one Auth Definition share these tables. A restart still removes them.
+ */
+function sharedMemoryDatabase(definition: AuthDefinition): NonNullable<BetterAuthOptions["database"]> {
+  const state = getAuthRuntimeState()
+  state.memoryDatabases ??= new WeakMap()
+  const tables = state.memoryDatabases.get(definition) ?? {}
+  state.memoryDatabases.set(definition, tables)
+  return (options: BetterAuthOptions) => {
+    for (const { modelName } of Object.values(getAuthTables(options))) tables[modelName] ??= []
+    return memoryAdapter(tables)(options)
+  }
+}
+
 function stripViteHubOptions(
+  definition: AuthDefinition,
   options: AuthRuntimeOptions & Record<string, unknown>,
+  event?: unknown,
 ): AuthBetterAuthRuntimeOptions {
   const {
     access: _access,
@@ -61,9 +87,26 @@ function stripViteHubOptions(
     ...(!isAuthDatabaseMetadata(database) ? { database } : {}),
     ...(!isAuthSecondaryStorageMetadata(secondaryStorage) ? { secondaryStorage } : {}),
   }
+  if (authDatabaseName(database) !== undefined) {
+    assertAuthDatabaseIdStrategy(rest.advanced?.database?.generateId)
+    assertAuthDatabaseAdditionalFields(rest)
+    assertAuthDatabaseSchema(rest)
+  }
   validateAuthEvents(events)
   const sessionRefresh = withSessionRefresh(rest, Boolean(storage.database || storage.secondaryStorage))
-  const plugins = sessionRefresh.plugins ?? rest.plugins ?? []
+  // `stateless()` keeps everything in cookies and must stay without a database.
+  if (!storage.database && options.preset === undefined) storage.database = sharedMemoryDatabase(definition)
+  const declaredPlugins = sessionRefresh.plugins ?? rest.plugins ?? []
+  // Bounds the admin plugin's impersonation sessions, which the app or the Console can start.
+  const impersonation = declaredPlugins.some(plugin => plugin.id === "admin")
+  const adminEmails = readAdminEmails(event)
+  const adminEmailsPlugin = adminEmails.length ? createAdminEmailsPlugin(adminEmails, declaredPlugins) : undefined
+  const plugins = [
+    ...declaredPlugins,
+    ...(impersonation ? [createImpersonationPlugin()] : []),
+    ...(adminEmailsPlugin ? [adminEmailsPlugin] : []),
+  ]
+  const databaseHooks = impersonation ? withImpersonationExpiry(rest.databaseHooks) : rest.databaseHooks
   const eventPlugin = events ? createAuthEventsPlugin(events) : undefined
   if (eventPlugin && storage.secondaryStorage && !rest.session?.storeSessionInDatabase) storage.secondaryStorage = eventPlugin.wrapStorage(storage.secondaryStorage)
   const after = rest.hooks?.after ?? createAuthMiddleware(async () => {})
@@ -72,6 +115,7 @@ function stripViteHubOptions(
     ...rest,
     ...storage,
     ...sessionRefresh,
+    ...(databaseHooks ? { databaseHooks: adminEmailsPlugin ? withAdminEmails(databaseHooks, adminEmailsPlugin) : databaseHooks } : {}),
     plugins: eventPlugin ? [...plugins, eventPlugin] : plugins,
     ...(eventPlugin ? {
       hooks: { ...rest.hooks, after: Object.assign(async (...args: Parameters<typeof after>) => {
@@ -111,6 +155,10 @@ function withDerivedSecret(options: AuthBetterAuthRuntimeOptions, event: unknown
   return secret ? { ...options, secret } : options
 }
 
+export function trustsProxyHeaders(options: unknown): boolean {
+  return isPlainObject(options) && isPlainObject(options.advanced) && options.advanced.trustedProxyHeaders === true
+}
+
 /** Resolves one coherent option snapshot before projecting it for Better Auth or host callers. */
 export function resolveAuthOptions(
   definition: AuthDefinition,
@@ -125,31 +173,63 @@ export function resolveAuthOptions(
   const callback = typeof definition.options === "function"
   const staticRequestRuntime = request && typeof definition.options !== "function" ? definition.options.runtime : undefined
   const usesContext = !request || callback || Boolean(staticRequestRuntime)
-  const context: AuthRuntimeContext = {
-    env: usesContext ? input.env?.(input.event ?? request) ?? {} : {},
+  const env = usesContext ? input.env?.(input.event ?? request) ?? {} : {}
+  const requestUrlOrigin = request ? new URL(request.url).origin : undefined
+  const proxiedOrigin = request ? forwardedRequestOrigin(request) : undefined
+  const contextFor = (origin: string | undefined): AuthRuntimeContext => ({
+    env,
     ...(request ? { request } : {}),
-    requestOrigin: usesContext && request ? new URL(request.url).origin : "http://localhost",
+    requestOrigin: usesContext && origin ? origin : "http://localhost",
+  })
+  const resolveAt = (origin: string | undefined) => {
+    const context = contextFor(origin)
+    // SAFETY: The callback returns AuthRuntimeOptions and the static branch is typed as AuthRuntimeOptions by AuthDefinition.
+    const declared = (callback
+      // SAFETY: `callback` is true only when definition.options is the AuthDefinitionResolver branch.
+      ? (definition.options as AuthDefinitionResolver)(context)
+      : definition.options) as AuthRuntimeOptions & Record<string, unknown>
+    const runtime = request && !callback ? staticRequestRuntime : declared.runtime
+    const resolvedRuntime = !runtime
+      ? {}
+      : typeof runtime === "function"
+        // SAFETY: The function branch of AuthRuntimeConfiguration is AuthRuntimeOptionsResolver.
+        ? (runtime as AuthRuntimeOptionsResolver)(context)
+        : runtime
+    // SAFETY: These spreads combine only resolved AuthRuntimeOptions while retaining the definition's enumerable metadata.
+    const requestRuntimeOptions = {
+      ...(callback ? declared : {}),
+      ...resolvedRuntime,
+      ...input.runtimeOptions,
+    } as AuthRuntimeOptions & Record<string, unknown>
+    if (Object.hasOwn(requestRuntimeOptions, "database")) {
+      const declaredDatabase = authDatabaseName(declared.database)
+      const effectiveDatabase = authDatabaseName(requestRuntimeOptions.database)
+      if ((declaredDatabase !== undefined || effectiveDatabase !== undefined) && declaredDatabase !== effectiveDatabase) {
+        throw authDatabasePlacementError()
+      }
+    }
+    const trusted = trustsProxyHeaders(callback || Object.hasOwn(requestRuntimeOptions, "advanced") ? requestRuntimeOptions : declared)
+    return { declared, requestRuntimeOptions, trusted }
   }
-  // SAFETY: The callback branch returns AuthRuntimeOptions and the static branch is typed as AuthRuntimeOptions by AuthDefinition.
-  const declared = (callback
-    // SAFETY: `callback` is true only when definition.options is the AuthDefinitionResolver branch.
-    ? (definition.options as AuthDefinitionResolver)(context)
-    : definition.options) as AuthRuntimeOptions & Record<string, unknown>
-  const runtime = request && !callback ? staticRequestRuntime : declared.runtime
-  const resolvedRuntime = !runtime
-    ? {}
-    : typeof runtime === "function"
-      // SAFETY: The function branch of AuthRuntimeConfiguration is AuthRuntimeOptionsResolver.
-      ? (runtime as AuthRuntimeOptionsResolver)(context)
-      : runtime
-  // SAFETY: These spreads combine only resolved AuthRuntimeOptions while retaining the definition's enumerable metadata.
-  let requestRuntimeOptions = {
-    ...(callback ? declared : {}),
-    ...resolvedRuntime,
-    ...input.runtimeOptions,
-  } as AuthRuntimeOptions & Record<string, unknown>
+  // Determine trust without exposing forwarded headers to a resolver: runtime and caller options can disable
+  // the Definition's opt-in. Only the effective options may select a forwarded origin for callbacks and links.
+  let resolved = resolveAt(requestUrlOrigin)
+  if (request && resolved.trusted && proxiedOrigin !== requestUrlOrigin) {
+    const forwarded = resolveAt(proxiedOrigin)
+    // If a resolver revokes trust with the forwarded context, discard that snapshot and keep URL-derived values.
+    resolved = forwarded.trusted ? forwarded : {
+      ...resolved,
+      trusted: false,
+      requestRuntimeOptions: {
+        ...resolved.requestRuntimeOptions,
+        advanced: { ...(resolved.requestRuntimeOptions.advanced ?? resolved.declared.advanced), trustedProxyHeaders: false },
+      },
+    }
+  }
+  const { declared, trusted } = resolved
+  let { requestRuntimeOptions } = resolved
   if (request) {
-    const baseURL = requestRuntimeOptions.baseURL || resolvePublicUrl({ request })
+    const baseURL = requestRuntimeOptions.baseURL || resolvePublicUrl({ request: trusted && proxiedOrigin ? { url: proxiedOrigin } : request })
     const staticTrustedOrigins = !callback && Object.hasOwn(declared, "trustedOrigins")
     // SAFETY: Origin defaults preserve the runtime options shape and add only supported Better Auth fields.
     requestRuntimeOptions = {
@@ -162,7 +242,7 @@ export function resolveAuthOptions(
   const resolveSnapshot = () => snapshot ??= callback ? requestRuntimeOptions : { ...declared, ...requestRuntimeOptions }
   return {
     get options() { return resolveSnapshot() },
-    get providerOptions() { return withDerivedSecret(stripViteHubOptions(resolveSnapshot()), input.event ?? request) },
+    get providerOptions() { return withDerivedSecret(stripViteHubOptions(definition, resolveSnapshot(), input.event ?? request), input.event ?? request) },
     requestRuntimeOptions,
   }
 }

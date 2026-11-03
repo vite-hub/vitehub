@@ -3,7 +3,7 @@ import { execFile } from "node:child_process"
 import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { pathToFileURL } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { afterEach, describe, expect, it } from "vitest"
@@ -158,6 +158,67 @@ describe("KV Vite output", () => {
     await expect(worker.default()).resolves.toBeNull()
   })
 
+  it("bundles the Nitro cache driver over the app's Cloudflare KV store", async () => {
+    const rootDir = await createConsumerRoot()
+    const entry = join(rootDir, "src", "worker.ts")
+    const [{ build }, { hubKv }] = await Promise.all([
+      import("vite"),
+      import("../src/vite.ts"),
+    ])
+    await writeFile(entry, [
+      `import { kv } from "@vite-hub/kv"`,
+      `import createKVCacheDriver from "@vite-hub/kv/runtime/nitro-cache"`,
+      `export default async () => {`,
+      `  await createKVCacheDriver().setItem("nitro:functions:stars.json", "{\\"value\\":42}", { ttl: 5 })`,
+      `  const [error, value] = await kv.get("nitro-cache:nitro:functions:stars.json")`,
+      `  if (error) throw error`,
+      `  return value`,
+      `}`,
+      ``,
+    ].join("\n"))
+
+    await build({
+      appType: "custom",
+      build: {
+        outDir: "dist",
+        rolldownOptions: { input: entry, output: { entryFileNames: "worker.js" } },
+        ssr: entry,
+      },
+      configFile: false,
+      kv: { driver: "cloudflare-kv-binding", namespaceId: "namespace-id" },
+      logLevel: "silent",
+      plugins: [hubKv()],
+      root: rootDir,
+    })
+
+    const output = await readOutput(join(rootDir, "dist"))
+    expect(output).not.toContain(`from "@vite-hub/kv"`)
+    expect(output).not.toContain("#vitehub/kv/config")
+
+    const puts: Array<{ key: string, options?: { expirationTtl?: number } }> = []
+    const values = new Map<string, string>()
+    const env = globalThis as { __env__?: unknown }
+    env.__env__ = {
+      KV: {
+        delete: async (key: string) => { values.delete(key) },
+        get: async (key: string) => values.get(key) ?? null,
+        put: async (key: string, value: string, options?: { expirationTtl?: number }) => {
+          puts.push({ key, options })
+          values.set(key, value)
+        },
+      },
+    }
+    try {
+      // SAFETY: the fixture entry exports the tested async worker as its default export.
+      const worker = await import(pathToFileURL(join(rootDir, "dist", "worker.js")).href) as { default: () => Promise<unknown> }
+      await expect(worker.default()).resolves.toEqual({ value: 42 })
+    }
+    finally {
+      delete env.__env__
+    }
+    expect(puts).toMatchObject([{ key: "nitro-cache:nitro:functions:stars.json", options: { expirationTtl: 60 } }])
+  })
+
   it("bundles selected runtime config into server output", async () => {
     const rootDir = await createConsumerRoot()
     const entry = join(rootDir, "src", "worker.ts")
@@ -200,6 +261,7 @@ describe("KV Vite output", () => {
     expect(output).toContain("KV_INVALID_LIMIT")
     expect(output).toMatch(/async getAndDelete\(\)\s*{\s*return unsupported\("getAndDelete", name\);/)
     expect(output).toMatch(/async increment\(\)\s*{\s*return unsupported\("increment", name\);/)
+    expect(output).toMatch(/async setIfAbsent\(\)\s*{\s*return unsupported\("setIfAbsent", name\);/)
     expect(output).toContain("KV_CUSTOM")
   })
 
@@ -252,7 +314,7 @@ describe("KV Vite output", () => {
       import("vite"),
       import("../src/vite.ts"),
     ])
-    await writeFile(entry, 'export { listKVDevStores } from "@vite-hub/kv/runtime/dev"')
+    await writeFile(entry, `export { listKVDevStores } from ${JSON.stringify(fileURLToPath(new URL("../src/runtime/operations.ts", import.meta.url)))}`)
 
     await build({
       appType: "custom",
@@ -272,7 +334,7 @@ describe("KV Vite output", () => {
     })
 
     const output = await readOutput(join(rootDir, "dist"))
-    // SAFETY: The fixture entry exports the real dev runtime's listKVDevStores function.
+    // SAFETY: The fixture entry exports the real operations runtime's listKVDevStores function.
     const worker = await import(pathToFileURL(join(rootDir, "dist", "worker.js")).href) as {
       listKVDevStores: () => Array<{ driver: string, name: string }>
     }

@@ -26,7 +26,7 @@ pnpm vitehub blob media avatars/ada.png
 pnpm vitehub blob variants avatars/ada.png
 ```
 
-`media` prints the [media record](/docs/blob/media) of an object, and `variants` lists its cached image variants. The commands call the same Blob storage as the running app. Pass `--store <name>` for a named store. Each write command prints what it changed. `get` writes the bytes unchanged to a file or to stdout. `put` sends the file as base64 JSON through the dev endpoint, so it accepts files up to 8 MiB. The commands do not print blob URLs. The commands call a guarded endpoint that exists only on the Vite Development Server. Nuxt and plain Vite do not run Nitro in the Vite process, so the endpoint returns status 501 there. Read [CLI](/docs/development/cli#read-and-write-blobs) for every command and option.
+`media` prints the [media record](/docs/blob/media) of an object, and `variants` lists its cached image variants. The commands call the same Blob storage as the running app. Pass `--store <name>` for a named store. Each write command prints what it changed. `get` writes the bytes unchanged to a file or to stdout. `put` sends the file as base64 JSON, so it accepts files up to 8 MiB, and `get` returns files up to 8 MiB. The commands do not print blob URLs. Each command runs a `blob.*` operation through the Console RPC, on the dev server or on a deployed app with `--url`. The Console Blob page uploads and deletes objects with the same operations. Read [CLI](/docs/development/cli#read-and-write-blobs) for every command and option.
 
 ## Cloudflare R2 bucket
 
@@ -135,3 +135,9 @@ BLOB_BUCKET_NAME=vitehub-blob
 ```
 
 ViteHub reads MinIO credentials from runtime env and masks them in generated provider output. It accepts the Files SDK names `MINIO_ACCESS_KEY_ID` and `MINIO_SECRET_ACCESS_KEY`, plus Docker Compose aliases such as `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD`. `driver: 'minio'` defaults to path-style S3 requests, `us-east-1`, `http://localhost:9000`, and the `vitehub-blob` bucket. For production Docker deployments, use managed `s3` or a production S3-compatible store instead of a single-host Compose MinIO service.
+
+## Related guides
+
+Use [Cloudflare R2](/docs/guides/cloudflare-r2) or
+[private Vercel Blob storage](/docs/guides/vercel-blob) for configuration and
+file upload checks.

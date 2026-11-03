@@ -1,3 +1,6 @@
+import { Readable } from "node:stream"
+
+import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 import { ViteHubError } from "@vite-hub/runtime"
 import { H3 } from "h3"
 import { describe, expect, it, vi } from "vitest"
@@ -96,8 +99,8 @@ describe("Comments API", () => {
     ] as const) {
       expect((await call(path, init)).response.status, path).toBe(readOnly ? 403 : 200)
     }
-    expect(current.body.data).toMatchObject({ user: { id: "ada", name: "Ada" }, can: { read: true, comment: !readOnly, resolve: !readOnly } })
-    expect(list.body.data[0].can).toEqual({ comment: !readOnly, resolve: !readOnly })
+    expect(current.body.data).toMatchObject({ user: { id: "ada", name: "Ada" }, can: { read: true, comment: !readOnly, resolve: !readOnly, delete: !readOnly } })
+    expect(list.body.data[0].can).toEqual({ comment: !readOnly, resolve: !readOnly, delete: !readOnly })
     expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ user }))
     expect(content.saves).toHaveLength(readOnly ? 0 : 1)
     if (readOnly) expect((await comments.get(thread!.id))[1]).toMatchObject({ status: "open", comments: [{ body: "Existing" }] })
@@ -108,7 +111,7 @@ describe("Comments API", () => {
     const identify = vi.fn(() => user)
     const { call } = await setup({ session, options: { identify, authorize: () => true } })
     const current = await call("/session")
-    expect(current.body.data).toMatchObject({ user, can: { read: true, comment: true, resolve: true } })
+    expect(current.body.data).toMatchObject({ user, can: { read: true, comment: true, resolve: true, delete: true } })
     expect((await call("/threads?page=/")).response.status).toBe(200)
     expect(identify).toHaveBeenCalled()
     expect(session).not.toHaveBeenCalled()
@@ -126,8 +129,8 @@ describe("Comments API", () => {
       })
       const { call } = await setup({ consoleSession: session, options: { identify: customIdentity ? identify : undefined, authorize } })
       const current = await call("/session")
-      expect(current.body.data).toMatchObject({ user: null, can: { read: false, comment: false, resolve: false } })
-      expect(current.response.headers.get("set-cookie")).toContain("Max-Age=0")
+      expect(current.body.data).toMatchObject({ user: null, can: { read: false, comment: false, resolve: false, delete: false } })
+      expect(current.response.headers.get("set-cookie")).toBeNull()
       expect((await call("/threads?page=/")).response.status).toBe(403)
       expect((await call("/threads", {
         method: "POST",
@@ -144,11 +147,11 @@ describe("Comments API", () => {
     const { call } = await setup({ consoleSession: session, options: { identify: undefined, authorize: ({ user }) => user === null } })
     const headers = { "x-vitehub-comments-guest-id": "visitor", "x-vitehub-comments-guest-name": "Visitor" }
     const current = await call("/session", { headers })
-    expect(current.body.data).toMatchObject({ user: null, can: { read: true, comment: true, resolve: true } })
+    expect(current.body.data).toMatchObject({ user: null, can: { read: true, comment: true, resolve: true, delete: true } })
     const created = await call("/threads", { headers, method: "POST", json: { page: "/", anchor, body: "Hi" } })
     expect(created.response.status).toBe(200)
     expect(created.body.data.createdBy).toEqual({ id: "guest:visitor", name: "Visitor", guest: true })
-    expect(created.body.data.can).toEqual({ comment: true, resolve: true })
+    expect(created.body.data.can).toEqual({ comment: true, resolve: true, delete: true })
   })
 
   it.each([false, true])("requires Content to allow anonymous writes for Console guests: %s", async (allowAnonymous) => {
@@ -170,8 +173,8 @@ describe("Comments API", () => {
     const { comments, call } = await setup({ consoleSession: session, options: { identify, authorize: () => true } })
     const [, thread] = await comments.create({ page: "/", anchor, body: "Private", author: { id: "ada", name: "Ada" } })
     const current = await call("/session")
-    expect(current.body.data.can).toEqual({ read: false, comment: false, resolve: false })
-    expect(current.response.headers.get("set-cookie")).toContain("Max-Age=0")
+    expect(current.body.data.can).toEqual({ read: false, comment: false, resolve: false, delete: false })
+    expect(current.response.headers.get("set-cookie")).toBeNull()
     for (const [path, init] of [
       ["/threads?page=/", {}],
       ["/threads", { method: "POST", json: { page: "/", anchor, body: "Denied" } }],
@@ -182,18 +185,29 @@ describe("Comments API", () => {
     }
   })
 
-  it("answers the session with access, and sets the comment mode hint", async () => {
+  it("answers the session with the user and access, without a cookie", async () => {
     const { call } = await setup()
     const { response, body } = await call("/session")
-    expect(body.data).toEqual({ user: { id: "ada", name: "Ada" }, can: { read: true, comment: true, resolve: true }, realtime: true, content: false })
-    expect(response.headers.get("set-cookie")).toContain("vitehub-comments=1")
+    expect(body.data).toEqual({ user: { id: "ada", name: "Ada" }, can: { read: true, comment: true, resolve: true, delete: true }, realtime: true, content: false })
+    expect(response.headers.get("set-cookie")).toBeNull()
+    expect(response.headers.get("cache-control")).toBe("private, no-store")
   })
 
-  it("clears the hint and denies threads to an anonymous user by default", async () => {
+  it("runs with the Cloudflare bindings of the request, as Nitro's workerd dev server passes them", async () => {
+    const comments = await createComments({ identify: () => getActiveCloudflareBinding<CommentsUser>("PERSON") ?? null })
+    const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false, build: {}, components: {} }))
+    const request = Object.assign(new Request(`${origin}/api/_vitehub/comments/session`), {
+      runtime: { name: "cloudflare", cloudflare: { env: { PERSON: { id: "ada", name: "Ada" } }, context: { waitUntil() {}, passThroughOnException() {} } } },
+    })
+    const body = await (await app.fetch(request)).json() as { data: { user: CommentsUser | null } }
+    expect(body.data.user).toEqual({ id: "ada", name: "Ada" })
+  })
+
+  it("denies threads to an anonymous user by default", async () => {
     const { call } = await setup({ user: null })
     const session = await call("/session")
     expect(session.body.data.can.read).toBe(false)
-    expect(session.response.headers.get("set-cookie")).toContain("Max-Age=0")
+    expect(session.response.headers.get("set-cookie")).toBeNull()
     const threads = await call("/threads?page=/")
     expect(threads.response.status).toBe(403)
     expect(threads.body.error?.code).toBe("COMMENTS_FORBIDDEN")
@@ -205,12 +219,12 @@ describe("Comments API", () => {
     } })
     const [, own] = await comments.create({ page: "/", anchor, body: "Mine", author: { id: "ada", name: "Ada" } })
     await comments.create({ page: "/", anchor, body: "Theirs", author: { id: "lin", name: "Lin" } })
-    expect((await call("/session")).body.data.can).toEqual({ read: true, comment: false, resolve: false })
+    expect((await call("/session")).body.data.can).toEqual({ read: true, comment: false, resolve: false, delete: false })
     const listed = (await call("/threads?page=/")).body.data
-    expect(listed.find((item: { id: string }) => item.id === own!.id).can).toEqual({ comment: true, resolve: true })
-    expect(listed.find((item: { id: string }) => item.id !== own!.id).can).toEqual({ comment: false, resolve: false })
+    expect(listed.find((item: { id: string }) => item.id === own!.id).can).toEqual({ comment: true, resolve: true, delete: true })
+    expect(listed.find((item: { id: string }) => item.id !== own!.id).can).toEqual({ comment: false, resolve: false, delete: false })
     const resolved = await call(`/threads/${own!.id}/resolve`, { method: "POST" })
-    expect(resolved.body.data.can).toEqual({ comment: true, resolve: true })
+    expect(resolved.body.data.can).toEqual({ comment: true, resolve: true, delete: true })
   })
 
   it("creates, lists, replies, resolves, and deletes through HTTP", async () => {
@@ -225,6 +239,27 @@ describe("Comments API", () => {
     expect((await call(`/threads/${id}/comments/${reply.body.data.id}`, { method: "DELETE" })).response.status).toBe(200)
     expect((await call(`/threads/${id}`, { method: "DELETE" })).response.status).toBe(200)
     expect((await call("/threads?page=/pricing")).body.data).toEqual([])
+  })
+
+  it.each([
+    { replyAuthor: { id: "lin", name: "Lin" }, canDelete: false, status: 403 },
+    { replyAuthor: { id: "lin", name: "Lin" }, canDelete: true, status: 200 },
+    { replyAuthor: { id: "ada", name: "Ada" }, canDelete: false, status: 200 },
+    { replyAuthor: { id: "ada", name: "Visitor", guest: true }, canDelete: false, status: 403 },
+  ])("checks ownership of every comment before deleting an owned root: %j", async ({ replyAuthor, canDelete, status }) => {
+    const { comments, call } = await setup({ options: { authorize: ({ action }) => action !== "delete" || canDelete } })
+    const [, thread] = await comments.create({ page: "/", anchor, body: "Root", author: { id: "ada", name: "Ada" } })
+    await comments.reply(thread!.id, { body: "Reply", author: replyAuthor })
+
+    const removed = await call(`/threads/${thread!.id}/comments/${thread!.comments[0]!.id}`, { method: "DELETE" })
+    expect(removed.response.status).toBe(status)
+    const [missing, remaining] = await comments.get(thread!.id)
+    if (status === 403) {
+      expect(removed.body.error?.code).toBe("COMMENTS_FORBIDDEN")
+      expect(missing).toBeUndefined()
+      expect(remaining!.comments.map(comment => comment.body)).toEqual(["Root", "Reply"])
+    }
+    else expect(missing?.code).toBe("COMMENTS_NOT_FOUND")
   })
 
   it.each(["https://other.test/pricing", "http://site.test/other", "/pricing", "not a URL"])("rejects a context URL outside the request origin and thread page: %s", async (url) => {
@@ -258,7 +293,7 @@ describe("Comments API", () => {
       build: { commit: "forged" },
     }
     const created = await call("/threads", { method: "POST", json: { page: "/pricing", anchor, context, body: "Buy is hidden" } })
-    expect(created.body.data.can).toEqual({ comment: true, resolve: true })
+    expect(created.body.data.can).toEqual({ comment: true, resolve: true, delete: true })
     expect(created.body.data.context).toEqual({
       ...context,
       url: "http://site.test/pricing",
@@ -272,6 +307,28 @@ describe("Comments API", () => {
     expect(library.body.data.context.components).toEqual([{ name: "B" }, { name: "C" }, { name: "D" }])
     const invalid = await call("/threads", { method: "POST", json: { page: "/pricing", anchor, context: { url: "x".repeat(3000) }, body: "Hi" } })
     expect(invalid.body.error?.code).toBe("COMMENTS_INVALID_INPUT")
+  })
+
+  it.each([false, true])("answers Nuxt 4 H3 1 events and retains forge work: %s", async (forge) => {
+    const comments = await createComments({ identify: () => ({ id: "ada", name: "Ada" }), forge: forge ? { provider: "github" } : undefined })
+    const work: Promise<unknown>[] = []
+    const waitUntil = vi.fn((promise: Promise<unknown>) => { work.push(promise) })
+    const handler = createCommentsHandler({ comments, realtime: false })
+    const send = async (method: string, path: string, json?: unknown) => {
+      const req = Object.assign(Readable.from(json === undefined ? [] : [JSON.stringify(json)]), {
+        method,
+        url: `/api/_vitehub/comments${path}`,
+        headers: { host: "site.test", origin, "content-type": "application/json" },
+      })
+      const response: unknown = await Reflect.apply(handler, undefined, [{ node: { req }, context: { waitUntil } }])
+      if (!(response instanceof Response)) throw new TypeError("Expected a Response")
+      return await response.json() as { data?: unknown }
+    }
+    const created = await send("POST", "/threads", { page: "/", anchor, body: "From Nuxt 4" })
+    expect(created.data).toMatchObject({ page: "/", createdBy: { id: "ada" } })
+    expect((await send("GET", "/threads?page=/")).data).toHaveLength(1)
+    expect(waitUntil).toHaveBeenCalledTimes(forge ? 1 : 0)
+    await Promise.all(work)
   })
 
   it("treats inherited component-map keys as unknown names", async () => {
@@ -319,7 +376,17 @@ describe("Comments API", () => {
     expect(saved?.comments.map(comment => comment.body)).toEqual(["Root", "Reply"])
   })
 
-  it("lets a resolve-only moderator delete comments and threads", async () => {
+  it("requires delete permission separately from resolve permission", async () => {
+    const { comments, call } = await setup({ options: { authorize: ({ action }) => action !== "delete" } })
+    const [, thread] = await comments.create({ page: "/", anchor, body: "Root", author: { id: "writer", name: "Writer" } })
+    const [, reply] = await comments.reply(thread!.id, { body: "Reply", author: { id: "writer", name: "Writer" } })
+    expect((await call(`/threads/${thread!.id}/resolve`, { method: "POST" })).response.status).toBe(200)
+    expect((await call(`/threads/${thread!.id}/comments/${reply!.id}`, { method: "DELETE" })).response.status).toBe(403)
+    expect((await call(`/threads/${thread!.id}`, { method: "DELETE" })).response.status).toBe(403)
+    expect((await comments.get(thread!.id))[1]?.comments).toHaveLength(2)
+  })
+
+  it("lets a moderator with delete permission delete comments and threads", async () => {
     const { comments, call } = await setup({ user: { id: "moderator", name: "Moderator" }, options: { authorize: ({ action }) => action !== "comment" } })
     const [, thread] = await comments.create({ page: "/", anchor, body: "Root", author: { id: "writer", name: "Writer" } })
     const [, reply] = await comments.reply(thread!.id, { body: "Reply", author: { id: "writer", name: "Writer" } })
@@ -327,9 +394,26 @@ describe("Comments API", () => {
     expect((await call(`/threads/${thread!.id}`, { method: "DELETE" })).response.status).toBe(200)
   })
 
-  it("lets authors delete their own reply, and only resolvers delete others'", async () => {
+  it("denies others' deletion when a legacy policy falls through for delete", async () => {
+    const { comments, call } = await setup({ options: {
+      authorize: ({ action }) => {
+        if (action === "read" || action === "comment" || action === "resolve") return true
+      },
+    } })
+    const [, thread] = await comments.create({ page: "/", anchor, body: "Root", author: { id: "writer", name: "Writer" } })
+    const [, reply] = await comments.reply(thread!.id, { body: "Reply", author: { id: "writer", name: "Writer" } })
+    const [, own] = await comments.reply(thread!.id, { body: "Mine", author: { id: "ada", name: "Ada" } })
+    expect((await call("/session")).body.data.can.delete).toBe(false)
+    expect((await call(`/threads/${thread!.id}/resolve`, { method: "POST" })).response.status).toBe(200)
+    expect((await call(`/threads/${thread!.id}/comments/${reply!.id}`, { method: "DELETE" })).response.status).toBe(403)
+    expect((await call(`/threads/${thread!.id}`, { method: "DELETE" })).response.status).toBe(403)
+    expect((await call(`/threads/${thread!.id}/comments/${own!.id}`, { method: "DELETE" })).response.status).toBe(200)
+    expect((await comments.get(thread!.id))[1]?.comments).toHaveLength(2)
+  })
+
+  it("lets authors delete their own reply, and checks delete for others'", async () => {
     let user: CommentsUser = { id: "ada", name: "Ada", role: "editor" }
-    const comments = await createComments({ identify: () => user, authorize: ({ user, action }) => action !== "resolve" || user?.role === "editor" })
+    const comments = await createComments({ identify: () => user, authorize: ({ user, action }) => action !== "delete" || user?.role === "editor" })
     const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false }))
     const [, thread] = await comments.create({ page: "/", anchor, body: "Root", author: { id: "ada", name: "Ada" } })
     const [, mine] = await comments.reply(thread!.id, { body: "Mine", author: { id: "writer", name: "W" } })

@@ -77,6 +77,78 @@ export function isServerEnvironment(name: string, config: { consumer?: string })
   return name === "ssr" || config.consumer === "server"
 }
 
+export interface ProviderOutputEnvironmentOwner {
+  /** Install as the plugin's `buildApp` hook. */
+  buildApp: (builder: { environments: Record<string, { isBuilt: boolean }> }) => Promise<void>
+  /** Install as the plugin's `nitro` module. */
+  nitro: { name: string, setup: (nitro: { options: { static?: boolean } }) => void }
+  /** Whether a later environment of the same Vite build writes Provider Output. */
+  defers: (context: { environment?: object } | undefined) => boolean
+}
+
+/**
+ * Lets a plugin write Provider Output once per Vite build. Nitro builds the `nitro` environment after
+ * the client and SSR environments, so those earlier environments defer to it. A `vite build()` call
+ * without `buildApp` or a static Nitro build has no later environment and does not defer.
+ */
+export function createProviderOutputEnvironmentOwner(name: string): ProviderOutputEnvironmentOwner {
+  let builder: { environments: Record<string, { isBuilt: boolean }> } | undefined
+  let nitroBuildsServer = false
+  return {
+    async buildApp(next) {
+      builder = next
+    },
+    nitro: {
+      name,
+      setup(nitro) {
+        nitroBuildsServer = !nitro.options.static
+      },
+    },
+    defers(context) {
+      const nitro = builder?.environments.nitro
+      return Boolean(nitroBuildsServer && nitro && !nitro.isBuilt && context?.environment && context.environment !== nitro)
+    },
+  }
+}
+
+/**
+ * Whether Node loads installed ViteHub packages directly in this environment, without Vite's SSR transform.
+ * This is the Nitro environment of `vite dev`. Generated Nitro plugins give these packages the registries and the
+ * `define` values that Vite gives to the code it transforms. Builds and other environments still inline the packages.
+ */
+export function loadsViteHubPackagesNatively(name: string, env: { command: string }): boolean {
+  return env.command === "serve" && name === "nitro"
+}
+
+/** A generated module, and the package export that receives it when Node loads the package in `vite dev`. */
+export interface NativePackageInstall {
+  /** The generated module, such as `./registry.mjs`. Omit it to clear a previous installation. */
+  module?: string
+  /** The package entry that exports `install`. */
+  from: string
+  /** The export that receives the module namespace. */
+  install: string
+}
+
+/**
+ * Render a Nitro plugin for `vite dev` that hands generated modules to the packages that read them.
+ * A package that Node loads resolves its `#vitehub/*` imports to its own fallback module, which keeps what the plugin
+ * installs. The install runs when Nitro evaluates the plugin, so it runs again when a reload re-evaluates a module.
+ */
+export function renderNativePackageInstallPlugin(installs: readonly NativePackageInstall[]): string {
+  return [
+    ...installs.flatMap(({ from, install, module }, index) => [
+      `import { ${install} as viteHubInstall${index} } from ${JSON.stringify(from)}`,
+      ...(module ? [`import * as viteHubModule${index} from ${JSON.stringify(module)}`] : []),
+    ]),
+    "",
+    ...installs.map(({ module }, index) => `viteHubInstall${index}(${module ? `viteHubModule${index}` : "undefined"})`),
+    "",
+    "export default function viteHubNativePackagesPlugin() {}",
+    "",
+  ].join("\n")
+}
+
 interface NitroVercelConfig {
   environments?: Record<string, { build?: { outDir?: string } }>
   nitro?: { preset?: string }

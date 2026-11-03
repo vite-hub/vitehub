@@ -1,6 +1,7 @@
 import { access, readFile } from "node:fs/promises"
 import { join } from "node:path"
 
+import { build as viteBuild, type Rolldown } from "vite"
 import { describe, expect, it } from "vitest"
 
 import { defineSandboxTask, runSandboxTask } from "../../src/task/index.ts"
@@ -41,7 +42,7 @@ describe("sandbox public api", () => {
 
     expect(response).toBeInstanceOf(Response)
     expect(response.status).toBe(500)
-    await expect(response.json()).resolves.toMatchObject({ error: { message: expect.stringContaining("missing") } })
+    await expect(response.json()).resolves.toMatchObject({ error: { message: expect.stringContaining('"missing". Sandbox Tasks are not enabled in this build.') } })
   })
 
   it("emits extensioned provider loader imports for published ESM", async () => {
@@ -52,6 +53,18 @@ describe("sandbox public api", () => {
     expect(loader).not.toContain('"./providers/cloudflare"')
     expect(loader).not.toContain('"./providers/vercel"')
     expect(loader).not.toContain("createSandboxClient")
+  })
+
+  it("bundles the published runtime without the Sandbox Task plugin", async () => {
+    const { output } = await viteBuild({
+      build: { rolldownOptions: { external: [/^cloudflare:/] }, ssr: join(import.meta.dirname, "../../dist/task/index.js"), write: false },
+      configFile: false,
+      logLevel: "silent",
+      root: join(import.meta.dirname, "../.."),
+      ssr: { noExternal: true },
+    }) as Rolldown.RolldownOutput
+
+    expect(output.some(chunk => chunk.type === "chunk" && chunk.code.includes("function loadSandboxTaskRuntimeProvider"))).toBe(true)
   })
 
   it("keeps provider implementations internal", async () => {

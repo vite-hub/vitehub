@@ -765,7 +765,12 @@
 .vh-invocation-preparation__action:hover,
 .vh-invocation-preparation__action:focus-visible {
   color: var(--vh-ui-text);
-  outline: none;
+}
+
+/* A color change alone does not show where the keyboard focus is. */
+.vh-invocation-preparation__action:focus-visible {
+  outline: 2px solid var(--vh-ui-primary);
+  outline-offset: 1px;
 }
 
 .vh-invocation-preparation__action .vh-invocation-event__icon {
@@ -895,6 +900,10 @@ button.vh-invocation-lifecycle__row:focus-visible {
   transition: background-color 120ms ease, color 120ms ease;
 }
 
+div.vh-invocation-event__summary {
+  cursor: default;
+}
+
 button.vh-invocation-event__summary {
   appearance: none;
   background: transparent;
@@ -937,6 +946,10 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
   stroke: currentColor;
   stroke-width: 1.8;
   width: 1rem;
+}
+
+.vh-invocation-event__icon[data-icon="channel"] svg {
+  stroke: none;
 }
 
 .vh-invocation-event__icon[data-icon="activity"] > svg:first-child {

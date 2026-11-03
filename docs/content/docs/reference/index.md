@@ -30,13 +30,16 @@ instead of one root barrel.
 | `@vite-hub/browser` | Browser Definitions, invocation-scoped sessions, controllers and providers, live handoff, and Browser Run output | `@vite-hub/browser`, `@vite-hub/browser/controllers/*`, `@vite-hub/browser/providers/*`, `@vite-hub/browser/vite` |
 | `@vite-hub/sandbox` | Sandbox Definitions, provider-neutral execution sessions, and Sandbox Tasks | `@vite-hub/sandbox`, `@vite-hub/sandbox/ssh`, `@vite-hub/sandbox/task`, `@vite-hub/sandbox/task/vite` |
 | `@vite-hub/channels` | Provider-neutral outbound Channel Definitions (`defineOutboundChannel()`), server access, and Vite discovery | `@vite-hub/channels`, `@vite-hub/channels/server`, `@vite-hub/channels/vite` |
+| `@vite-hub/cms` | The `cms` preset for Content collections, and the generated Workspace, tables, and Database it needs | `@vite-hub/cms`, `@vite-hub/cms/vite` |
 | `@vite-hub/comments` | Comment threads on site pages, anchors, the Comments API and overlay, page presence rooms, and edits of Content fields in place | `@vite-hub/comments`, `@vite-hub/comments/anchor`, `@vite-hub/comments/database`, `@vite-hub/comments/realtime`, `@vite-hub/comments/runtime`, `@vite-hub/comments/vite` |
 | `@vite-hub/connections` | Connection Definitions, OAuth 2 grants, API keys, access rules, activity, typed Operations, and Agent access | `@vite-hub/connections`, `@vite-hub/connections/google`, `@vite-hub/connections/server`, `@vite-hub/connections/http`, `@vite-hub/connections/agent`, `@vite-hub/connections/vite` |
-| `@vite-hub/content` | Comark Content runtime, document collections and the `cms` preset, ViteHub Source adaptation, server handler, and typed client | `@vite-hub/content`, `@vite-hub/content/client`, `@vite-hub/content/database`, `@vite-hub/content/presets/cms`, `@vite-hub/content/vite` |
+| `@vite-hub/content` | Comark Content runtime, document collections, ViteHub Source adaptation, server handler, and typed client | `@vite-hub/content`, `@vite-hub/content/client`, `@vite-hub/content/database`, `@vite-hub/content/vite` |
 | `@vite-hub/database` | Database Definitions, Drizzle schema generation, D1 and hosted database wiring | `@vite-hub/database`, `@vite-hub/database/drizzle`, `@vite-hub/database/vite` |
+| `@vite-hub/docs` | Documentation sites from a Markdown folder: page frontmatter, navigation, the docs shell and theme, search, raw Markdown, llms.txt, the docs MCP server, and the docs assistant | `@vite-hub/docs`, `@vite-hub/docs/nuxt`, `@vite-hub/docs/server`, `@vite-hub/docs/navigation`, `@vite-hub/docs/assistant` |
 | `@vite-hub/email` | Portable provider integration, built-in transports, runtime delivery, Dynamic Markdown composition, and test capture | `@vite-hub/email`, `@vite-hub/email/markdown`, `@vite-hub/email/server`, `@vite-hub/email/test`, `@vite-hub/email/vite` |
 | `@vite-hub/env` | Env Declarations, Public Env, Server Env, Secret Env, generated env access | `@vite-hub/env`, `@vite-hub/env/vite`, `@vite-hub/env/server`, `@vite-hub/env/secret` |
-| `@vite-hub/gateways` | AI gateways: Driver routes for Codex and Claude Code, `ask()` for TypeSafe Jev, the `ask` question builders. No Agent, Vite, or Nitro code. | `@vite-hub/gateways` |
+| `@vite-hub/gateways` | AI gateways: Driver routes for Codex and Claude Code, AI SDK models with `languageModel()`, `ask()` for TypeSafe Jev, the `ask` question builders. No Agent, Vite, or Nitro code. | `@vite-hub/gateways`, `@vite-hub/gateways/ai-sdk` |
+| `@vite-hub/icons` | The ViteHub icon set as an Iconify collection with the prefix `vitehub`, one icon for each Server Primitive and Console area | `@vite-hub/icons` |
 | `@vite-hub/kv` | KV Runtime Helper and configured KV Stores | `@vite-hub/kv`, `@vite-hub/kv/vite` |
 | `@vite-hub/markdown-template` | Markdown files and strings with data bindings, conditions, and fragments | `@vite-hub/markdown-template` |
 | `@vite-hub/queue` | Queue Definitions, queue dispatch Runtime Helpers, provider queue output | `@vite-hub/queue`, `@vite-hub/queue/vite` |
@@ -55,6 +58,7 @@ instead of one root barrel.
 | Package | Status | Purpose |
 | --- | --- | --- |
 | `@vite-hub/cli` | Public CLI package | Loads Vite config and runs package-owned CLI namespaces. |
+| `@vite-hub/codemods` | Public CLI package | Migrates applications to ViteHub with `npx @vite-hub/codemods <codemod>`, for example from `nuxt-safe-runtime-config` to Env. |
 | `@vite-hub/internal` | Internal package | Shared discovery, Provider Output, provisioning, runtime, and build helpers. |
 
 ## Package rules

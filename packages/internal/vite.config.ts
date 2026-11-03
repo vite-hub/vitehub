@@ -5,7 +5,8 @@ export default defineConfig({
     deps: {
       // The scanner uses the oxc parser that the consumer's Vite ships. Packages that bundle
       // `@vite-hub/internal/valibot` depend on the converter, so apps share one copy.
-      neverBundle: ["vite", "@valibot/to-json-schema"],
+      // Nitro must resolve its own dependencies from its installed package.
+      neverBundle: ["vite", /^nitro(?:\/|$)/, "@valibot/to-json-schema"],
     },
     dts: true,
     entry: [
@@ -26,6 +27,8 @@ export default defineConfig({
       "src/inspect.ts",
       "src/object.ts",
       "src/operations.ts",
+      "src/operations-vite.ts",
+      "src/operations-dev.ts",
       "src/owned-paths.ts",
       "src/provision.ts",
       "src/provision-state.ts",
@@ -43,9 +46,11 @@ export default defineConfig({
       "src/build/deployment-plan-output.ts",
       "src/build/deno-runtime-packages.ts",
       "src/build/esbuild.ts",
+      "src/build/included-nitro.ts",
       "src/build/mode.ts",
       "src/build/nitro-cache-bypass.ts",
       "src/build/nitro-workerd-dependencies.ts",
+      "src/build/page-tools.ts",
       "src/build/paths.ts",
       "src/build/provider-output-sources.ts",
       "src/build/scan-module.ts",
@@ -62,6 +67,9 @@ export default defineConfig({
       "src/runtime/cloudflare-hosted.ts",
       "src/runtime/h3-v1-request.ts",
       "src/runtime/mcp-tools.ts",
+      "src/runtime/page-tools.ts",
+      "src/runtime/page-tools-loader.ts",
+      "src/runtime/page-tools-shared.ts",
       "src/runtime/random.ts",
       "src/runtime/request-origin.ts",
       "src/runtime/time-zone.ts",

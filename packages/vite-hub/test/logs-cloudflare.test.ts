@@ -17,11 +17,12 @@ async function configure(
     !plugin ||
     typeof plugin !== "object" ||
     !("config" in plugin) ||
-    typeof plugin.config !== "function"
+    !plugin.config
   )
     throw new Error("Missing deployment config hook");
+  const handler = typeof plugin.config === "function" ? plugin.config : plugin.config.handler;
   const config = { nitro: { cloudflare: { wrangler } } };
-  await Reflect.apply(plugin.config, undefined, [config, { command: "build", mode: "production" }]);
+  await Reflect.apply(handler, undefined, [config, { command: "build", mode: "production" }]);
   return config.nitro.cloudflare.wrangler;
 }
 

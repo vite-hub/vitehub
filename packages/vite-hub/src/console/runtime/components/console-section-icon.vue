@@ -1,21 +1,17 @@
 <script setup lang="ts">
-import { PrimitiveIcon } from "@vite-hub/ui/primitive-rail";
+import { PrimitiveIcon, resolvePrimitiveIconName } from "@vite-hub/ui/primitive-rail";
 import { computed } from "vue";
 
-import type { ConsoleSectionId } from "../sections";
-import { consoleSectionRailIcon } from "../sections";
-
 const props = defineProps<{
-  /** Iconify name from the section details. Only a contributed section that the Console does not know shows it. */
+  /** Iconify name from the section details, such as `i-vitehub-kv`. */
   icon: string;
-  section: ConsoleSectionId;
 }>();
 
-const railIcon = computed(() => consoleSectionRailIcon(props.section));
+const primitiveIcon = computed(() => resolvePrimitiveIconName(props.icon));
 </script>
 
 <template>
-  <!-- Known primitives use the shared docs and rail icon family. A contributed section keeps the icon of its descriptor. -->
-  <PrimitiveIcon v-if="railIcon" :name="railIcon" />
+  <!-- An `i-vitehub-*` icon renders inline, so it can move on hover in the rail. A contributed section can name any Iconify icon. -->
+  <PrimitiveIcon v-if="primitiveIcon" :name="primitiveIcon" />
   <UIcon v-else :name="icon" aria-hidden="true" />
 </template>

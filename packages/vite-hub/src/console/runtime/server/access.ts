@@ -2,11 +2,13 @@ import { installOperationSectionResolver, operationAccessAllows } from "@vite-hu
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
 import { consoleMountBase } from "../console-route.ts"
-import { consoleDiagnosticBody, type ConsoleDiagnosticCode } from "../diagnostics.ts"
+import { consoleDiagnosticBody, isConsoleImpersonationRejection, type ConsoleDiagnosticCode } from "../diagnostics.ts"
+import { markBearerRejection, mcpChallenge, resolveConsoleOAuth, verifyConsoleBearer, type ConsoleOAuthConfig, type ConsoleOAuthState } from "./bearer.ts"
 import { consoleRequestError, consoleRequestURL, isConsoleDevelopmentRuntime, type ConsoleRequestEvent } from "./request.ts"
+import { loadConsoleRuntime } from "./runtime.ts"
 
 import type { OperationContext } from "@vite-hub/internal/operations"
-import type { ConsoleAuthorize, ConsoleUser } from "../../auth.ts"
+import type { ConsoleAuthorize, ConsoleUser } from "../../auth-types.ts"
 import type { AgentActor } from "@vite-hub/agent"
 import type { ConsoleSectionId } from "../sections.ts"
 
@@ -16,11 +18,23 @@ import type { ConsoleSectionId } from "../sections.ts"
  * - `local`: the development server only. Production requests fail closed.
  * - `auth`: a ViteHub Auth Session. `check` is built on `withAuthorization()`.
  * - `cloudflare-access`: the Cloudflare Access application token.
+ * `impersonation: true` is `console.impersonation`. The Auth section can then start and stop impersonation.
  */
 export type ConsoleAccessPolicy =
-  | { mode: "open", authorize?: ConsoleAuthorize, signInPage?: string }
+  | { mode: "open", authorize?: ConsoleAuthorize, impersonation?: boolean, signInPage?: string }
   | { mode: "local" }
-  | { mode: "auth" | "cloudflare-access", authorize?: ConsoleAuthorize, check?: (event: ConsoleRequestEvent) => Promise<Response | undefined>, signInPage?: string, authBasePath?: (event: object) => Promise<string>, signIn?: (event: object, denied?: Response) => Promise<Response>, user?: (event: ConsoleRequestEvent) => Promise<ConsoleUser | undefined> }
+  | {
+    mode: "auth" | "cloudflare-access"
+    authorize?: ConsoleAuthorize
+    impersonation?: boolean
+    check?: (event: ConsoleRequestEvent) => Promise<Response | undefined>
+    /** Accept an OAuth access token, as MCP clients send it, in place of a session. See `verifyConsoleBearer()`. */
+    oauth?: ConsoleOAuthConfig
+    signInPage?: string
+    authBasePath?: (event: object) => Promise<string>
+    signIn?: (event: object, denied?: Response) => Promise<Response>
+    user?: (event: ConsoleRequestEvent) => Promise<ConsoleUser | undefined>
+  }
 
 export type ConsoleAccessMode = ConsoleAccessPolicy["mode"]
 
@@ -32,6 +46,8 @@ export interface ConsoleAccess {
    * section id, or `"<section>:read"` for a section that the request may only read.
    */
   readonly sections: "all" | readonly string[]
+  /** The OAuth scopes of the access token; sessions have no scope limit. */
+  readonly scopes?: readonly string[]
   readonly user?: ConsoleUser
 }
 
@@ -58,8 +74,11 @@ const openWarningKey: unique symbol = Symbol.for("vitehub.console.access.open-wa
 const scope = globalThis as typeof globalThis & { [policyKey]?: ConsoleAccessPolicy, [openWarningKey]?: true }
 const consoleAccessGrant = defineGrant("vitehub.console.access", (mode: ConsoleAccessMode) => mode)
 const checkedEvents = new WeakMap<object, ConsoleAccess>()
+const rejectedEvents = new WeakMap<object, Response>()
 const routeScopes = new WeakMap<object, ConsoleRouteScope>()
 const deferredUsers = new WeakMap<ConsoleAccess, () => Promise<ConsoleUser | undefined>>()
+// Responses that `console.authorize` returned, so a page visit gets them as they are.
+const authorizeResponses = new WeakSet<Response>()
 const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "local", "open"])
 
 export const consoleOpenAccessWarning = "[vitehub] console: { auth: false } has no sign-in. Anyone who can reach /_vitehub can use the Console. Set console.auth to \"app\" or a Console Auth config, or set console.authorize."
@@ -88,6 +107,9 @@ export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
   }
   if ("signInPage" in policy && policy.signInPage !== undefined && !isConsoleSignInPage(policy.signInPage)) {
     throw new TypeError("[vitehub] The Console sign-in page must be a path on the same origin, such as /sign-in.")
+  }
+  if ("impersonation" in policy && policy.impersonation !== undefined && typeof policy.impersonation !== "boolean") {
+    throw new TypeError("[vitehub] console.impersonation must be true or false.")
   }
   if (policy.mode === "open" && !policy.authorize && !isConsoleDevelopmentRuntime() && !scope[openWarningKey]) {
     scope[openWarningKey] = true
@@ -122,6 +144,12 @@ export function consoleSignInPage(pathname: string): string | undefined {
   return isConsoleSignInPage(mounted) ? mounted : undefined
 }
 
+/** Whether `console.impersonation` is on. Without it, the Console has no impersonation route or action. */
+export function consoleImpersonation(): boolean {
+  const policy = scope[policyKey]
+  return Boolean(policy && "impersonation" in policy && policy.impersonation === true)
+}
+
 /** The app Auth mount used by the Console's own browser client. */
 export function consoleAppAuthBasePath(event: ConsoleRequestEvent): Promise<string> | undefined {
   const policy = scope[policyKey]
@@ -137,32 +165,63 @@ export function consoleAppSignIn(event: ConsoleRequestEvent): Promise<Response> 
   }
 }
 
+/** Whether a GET or HEAD explicitly accepts a Console HTML page with nonzero quality. */
+export function isConsolePageVisit(event: ConsoleRequestEvent): boolean {
+  const method = (event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET").toUpperCase()
+  if (method !== "GET" && method !== "HEAD") return false
+  return consoleRequest(event).headers.get("accept")?.split(",").some((range) => {
+    const [type, ...parameters] = range.split(";")
+    if (type?.trim().toLowerCase() !== "text/html") return false
+    const quality = parameters.find(parameter => /^\s*q\s*=/i.test(parameter))?.split("=")[1]
+    return quality === undefined || Number(quality) > 0
+  }) === true
+}
+
 /**
  * Send a signed-out visit to a Console page to the sign-in page of the installed policy. The `redirect` query parameter
  * is the Console page that the visitor asked for. Returns `undefined` when the policy has no sign-in page, the request
- * does not read a page, or the access check does not answer `401`.
+ * is not a page visit, or the authentication check does not answer `401`. Responses from `console.authorize` pass through.
  */
 export async function consoleSignInRedirect(event: ConsoleRequestEvent): Promise<Response | undefined> {
   const url = consoleRequestURL(event)
   const page = consoleSignInPage(url.pathname)
-  const method = (event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET").toUpperCase()
-  if (!page || (method !== "GET" && method !== "HEAD")) return undefined
-  const access = checkedEvents.get(event) ?? await checkConsoleAccess(event)
-  if (!isRuntimeResponse(access)) {
-    checkedEvents.set(event, access)
-    return undefined
-  }
+  if (!page || !isConsolePageVisit(event)) return undefined
+  const access = await checkPageAccess(event)
+  if (!isRuntimeResponse(access)) return undefined
   const policy = scope[policyKey]
-  if (access.status === 403 && page.endsWith("/_vitehub/sign-in") && policy && "signIn" in policy && policy.signIn) {
+  // An impersonation session gets the page that leads back to the administrator's session, whatever the sign-in page.
+  if (access.status === 403 && policy && "signIn" in policy && policy.signIn && (page.endsWith("/_vitehub/sign-in") || await isConsoleImpersonationRejection(access))) {
     return policy.signIn(event, access)
   }
-  if (access.status !== 401) return undefined
+  if (access.status !== 401 || authorizeResponses.has(access)) return undefined
   const target = new URL(page, url)
   target.searchParams.set("redirect", `${url.pathname}${url.search}`)
   return new Response(null, {
     headers: { "cache-control": "no-store", location: `${target.pathname}${target.search}${target.hash}`, "x-robots-tag": "noindex, nofollow" },
     status: 302,
   })
+}
+
+/**
+ * Check a visit to a Console page with the access check of the data routes. Returns `undefined` when the page may open:
+ * the check accepts the request, or the authentication check answers `401` to a page visit and the Console shows its
+ * signed-out state. Otherwise returns the rejection. `raw` is `true` when the page sends it as it is: `console.authorize`
+ * returned it, or it is the `401` for a request that is not a page visit.
+ */
+export async function consolePageRejection(event: ConsoleRequestEvent): Promise<{ raw: boolean, response: Response } | undefined> {
+  const access = await checkPageAccess(event)
+  if (!isRuntimeResponse(access)) return undefined
+  if (authorizeResponses.has(access)) return { raw: true, response: access }
+  if (access.status !== 401) return { raw: false, response: access }
+  return isConsolePageVisit(event) ? undefined : { raw: true, response: access }
+}
+
+/** The access check of a page visit, once per request: the sign-in middleware and the page handler both read it. */
+async function checkPageAccess(event: ConsoleRequestEvent): Promise<ConsoleAccess | Response> {
+  const access = checkedEvents.get(event) ?? rejectedEvents.get(event) ?? await checkConsoleAccess(event)
+  if (isRuntimeResponse(access)) rejectedEvents.set(event, access)
+  else checkedEvents.set(event, access)
+  return access
 }
 
 /** Build the standard Fetch request passed to Console authorization and runtime contexts. */
@@ -255,10 +314,34 @@ function assertRouteScope(routeScope: unknown): asserts routeScope is ConsoleRou
   throw new TypeError("[vitehub] withConsoleAccess() requires { section } or { anySection: true }.")
 }
 
+function invalidConsoleBearer(state: ConsoleOAuthState): Response {
+  return markBearerRejection(Response.json({ ...consoleDiagnosticBody("CONSOLE_SIGN_IN_REQUIRED", "The access token is not valid for this endpoint, or has expired."), ok: false, status: 401 }, {
+    headers: { "cache-control": "no-store", "www-authenticate": mcpChallenge(state, { description: "The access token is not valid.", error: "invalid_token" }), "x-content-type-options": "nosniff", "x-robots-tag": "noindex, nofollow" },
+    status: 401,
+  }))
+}
+
+/** Authenticate MCP at the app Auth middleware; Auth still checks its own matching route policies. */
+export async function resolveConsoleAppAuthIdentity(request: Request, event: object, hasSession: boolean): Promise<ConsoleUser | Response | undefined> {
+  const oauth = installedConsoleOAuth()
+  if (!oauth || new URL(request.url).pathname !== oauth.path) return undefined
+  // SAFETY: The Auth middleware supplies the original host event (or Web Request), as the OAuth Auth factory expects.
+  const hostEvent = event as ConsoleRequestEvent
+  const bearer = await verifyConsoleBearer(request, hostEvent, oauth, isConsoleDevelopmentRuntime())
+  if (bearer) return bearer.ok ? bearer.user : invalidConsoleBearer(bearer.state)
+  if (hasSession) return undefined
+  const state = await resolveConsoleOAuth(oauth, hostEvent, request, isConsoleDevelopmentRuntime())
+  return Response.json({ code: "CONSOLE_SIGN_IN_REQUIRED", message: "Sign in to use the MCP endpoint.", fix: "Sign in with your MCP client. It starts the OAuth flow from the resource metadata." }, {
+    headers: { "cache-control": "no-store", "www-authenticate": mcpChallenge(state), "x-content-type-options": "nosniff" },
+    status: 401,
+  })
+}
+
 async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: boolean } = {}): Promise<ConsoleAccess | Response> {
   const policy = scope[policyKey]
   if (!policy) return rejection(500, "CONSOLE_ACCESS_NOT_CONFIGURED", "Console access is not configured. The generated Console output did not install an access policy.")
   let user: ConsoleUser | undefined
+  let scopes: readonly string[] | undefined
   if (policy.mode === "local") {
     if (!isConsoleDevelopmentRuntime()) return rejection(403, "CONSOLE_DEVELOPMENT_ONLY")
   }
@@ -266,19 +349,39 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
     // open access intentionally performs no authentication
   }
   else {
-    if (!policy.check) {
-      return rejection(500, "CONSOLE_AUTH_NOT_CONFIGURED", policy.mode === "auth"
-        ? "console: { auth: \"app\" } requires a discovered ViteHub Auth Definition."
-        : "Cloudflare Access Console Auth is not configured.")
+    const bearer = policy.mode === "auth" && policy.oauth ? await verifyConsoleBearer(consoleRequest(event), event, policy.oauth, isConsoleDevelopmentRuntime()) : undefined
+    // A token that fails is a rejection, not a fall back to the session: the client has to sign in again.
+    if (bearer && !bearer.ok) {
+      return invalidConsoleBearer(bearer.state)
     }
-    const response = await policy.check(event)
-    if (response) return response
-    if (policy.user && (options.user || policy.authorize)) user = await policy.user(event)
+    if (bearer) {
+      // A valid access token is the sign-in. `authorize` still decides the sections, and the scopes limit the tools.
+      user = bearer.user
+      scopes = bearer.scopes
+      if (policy.oauth?.authorize) {
+        const allowed = await policy.oauth.authorize({ request: consoleRequest(event), user })
+        if (isRuntimeResponse(allowed)) return allowed
+        if (allowed !== true) return rejection(403, "CONSOLE_ACCESS_DENIED")
+      }
+    }
+    else {
+      if (!policy.check) {
+        return rejection(500, "CONSOLE_AUTH_NOT_CONFIGURED", policy.mode === "auth"
+          ? "console: { auth: \"app\" } requires a discovered ViteHub Auth Definition."
+          : "Cloudflare Access Console Auth is not configured.")
+      }
+      const response = await policy.check(event)
+      if (response) return response
+      if (policy.user && (options.user || policy.authorize)) user = await policy.user(event)
+    }
   }
   let sections: ConsoleAccess["sections"] = "all"
   if (policy.mode !== "local" && policy.authorize) {
     const result: unknown = await policy.authorize(user ? { request: consoleRequest(event), user } : { request: consoleRequest(event) })
-    if (isRuntimeResponse(result)) return result
+    if (isRuntimeResponse(result)) {
+      authorizeResponses.add(result)
+      return result
+    }
     if (result === false) return rejection(403, "CONSOLE_ACCESS_DENIED")
     if (result !== true) {
       const allowed = authorizedSections(result)
@@ -287,7 +390,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
       sections = allowed
     }
   }
-  const access = consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections, ...(user ? { user } : {}) })
+  const access = consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections, ...(scopes ? { scopes } : {}), ...(user ? { user } : {}) })
   if (policy.mode === "auth" && !user && policy.user) {
     // Read the user once per access, however many handlers ask for it.
     let pending: Promise<ConsoleUser | undefined> | undefined
@@ -299,6 +402,12 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
 export async function readConsoleAccessUser(access: ConsoleAccess): Promise<ConsoleUser | undefined> {
   if (!consoleAccessGrant.isValid(access)) return undefined
   return access.user ?? await deferredUsers.get(access)?.()
+}
+
+/** The OAuth settings of the installed policy, or undefined when the Console does not accept access tokens. */
+export function installedConsoleOAuth(): ConsoleOAuthConfig | undefined {
+  const policy = scope[policyKey]
+  return policy && policy.mode === "auth" ? policy.oauth : undefined
 }
 
 /**
@@ -438,8 +547,20 @@ export function consoleRealtimeAccess(section: ConsoleSectionId): ConsoleRealtim
 }
 
 /**
- * Wraps a Console server handler so it runs only after the installed access policy accepts the request.
- * Otherwise the wrapper returns the rejection `Response`. Without an installed policy, it returns `500`.
+ * Whether the installed access policy lets this request open the Console, for at least one section. The `console` page
+ * tool uses it, so a page shows the Console link only to people that the Console accepts. Editing tools request `write`.
+ */
+export async function consoleAllowsRequest(event: unknown, section?: ConsoleSectionId, kind: "read" | "write" = "read"): Promise<boolean> {
+  if (!(event instanceof Object)) return false
+  // The embedded page's framing decision shares its already-checked access.
+  // SAFETY: the page tools session passes the H3 event of its Nitro route, which has the members the check reads.
+  const access = checkedEvents.get(event) ?? rejectedEvents.get(event) ?? await checkConsoleAccess(event as ConsoleRequestEvent)
+  return !isRuntimeResponse(access) && (section === undefined || (kind === "write" ? consoleAccessWrites(access, section) : consoleAccessAllows(access, section)))
+}
+
+/**
+ * Wraps a Console server handler so it runs only after the installed access policy accepts the request, and after the
+ * Console runtime has loaded. Otherwise the wrapper returns the rejection `Response`. Without an installed policy, it returns `500`.
  */
 export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
   handler: ConsoleGuardedHandler<TEvent, TResult>,
@@ -471,6 +592,8 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
         checkedEvents.set(event, access)
       }
     }
+    // Only an accepted request loads the Console runtime, so a rejected one costs no more than the check.
+    await loadConsoleRuntime()
     return handler(event, access)
   }
   routeScopes.set(route, declared)

@@ -5,6 +5,7 @@ import * as v from "valibot"
 
 import { consoleRpcHeader } from "../rpc.ts"
 import { consoleAccessAllows, consoleAccessWrites, readConsoleOperationUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
+import { assertLoopbackWithoutSignIn, eventRemoteAddress } from "./loopback.ts"
 import { consoleDiagnosticBody, consoleStatusDiagnosticCode } from "../diagnostics.ts"
 import { consoleOperationRegistry, installedConsoleProjectRoot } from "./operation-contributions.ts"
 import { isConsoleDevelopmentBuild } from "./development.ts"
@@ -165,30 +166,6 @@ async function readConsoleEnvelope(request: Request): Promise<unknown> {
   }
 }
 
-const loopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]", "::1"])
-
-function isLoopbackHost(host: string | null): boolean {
-  if (!host) return false
-  const name = (host.startsWith("[") ? host.slice(0, host.indexOf("]") + 1) : host.replace(/:\d+$/, "")).toLowerCase()
-  return loopbackHosts.has(name) || name.endsWith(".localhost")
-}
-
-function isLoopbackAddress(address: string): boolean {
-  return address === "::1" || address === "127.0.0.1" || address.startsWith("127.") || address.startsWith("::ffff:127.")
-}
-
-/**
- * `vite dev` with no sign-in (the `local` or `open` access) trusts anyone who can reach it, so it serves only this
- * machine: a tunnel or a LAN address with a forwarded Host would give the whole app to a stranger.
- */
-function assertLoopbackWithoutSignIn(request: Request, url: URL, context: ConsoleRpcContext): void {
-  if ((context.access.mode !== "local" && context.access.mode !== "open") || !isConsoleDevelopmentBuild()) return
-  const hostHeader = request.headers.get("host") ?? url.host
-  const forwarded = request.headers.get("x-forwarded-host")
-  if (isLoopbackHost(hostHeader) && (!forwarded || isLoopbackHost(forwarded)) && (!context.remoteAddress || isLoopbackAddress(context.remoteAddress))) return
-  throw consoleRequestError(403, "The development Console without sign-in accepts only requests from this machine. Set console.auth to open it to others.", "CONSOLE_LOOPBACK_ONLY")
-}
-
 async function callConsoleOperation(request: Request, context: ConsoleOperationContext): Promise<unknown> {
   const url = new URL(request.url)
   if (!isSameOriginRequest(request, url)) throw consoleRequestError(403, "Cross-origin Console requests are not allowed.", "CONSOLE_ORIGIN_REJECTED")
@@ -252,23 +229,6 @@ export async function handleConsoleRpcRequest(request: Request, context: Console
   // The local dev RPC names its project, so a command can tell that it reached the wrong dev server.
   const root = context.access.mode === "local" ? installedConsoleProjectRoot() : undefined
   return Response.json(body, { headers: root ? { ...responseHeaders, [operationRootHeader]: projectRootHash(root) } : responseHeaders, status: body.ok ? response.status ?? 200 : body.status })
-}
-
-function readPath(value: unknown, ...path: string[]): unknown {
-  let current = value
-  for (const key of path) current = current instanceof Object ? Reflect.get(current, key) : undefined
-  return current
-}
-
-/** The peer address, from whichever of the h3 request or the Node socket the host exposes. */
-function eventRemoteAddress(event: H3Event): string | undefined {
-  const candidates = [
-    readPath(event, "req", "ip"),
-    readPath(event, "req", "context", "clientAddress"),
-    readPath(event, "req", "runtime", "node", "req", "socket", "remoteAddress"),
-    readPath(event, "node", "req", "socket", "remoteAddress"),
-  ]
-  return candidates.find((candidate): candidate is string => typeof candidate === "string" && candidate !== "")
 }
 
 // A plain handler, because Nuxt 4 bundles every `h3` import as its own h3 1, which has no `defineHandler()`.

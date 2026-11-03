@@ -154,6 +154,7 @@ const consoleRoutes: Record<string, ConsoleRoute> = {
   "invocations": { lists: ["id"], numbers: ["limit"], operation: "invocations.list", strings: ["agent", "capability", "cursor", "triggeredBy"] },
   "sections": { operation: "sections.list" },
   "search": { numbers: ["limit"], operation: "search.query", strings: ["cursor", "search"] },
+  "skills": { operation: "skills.inspect", strings: ["agent", "path"] },
   "status": { operation: "status.get", strings: ["agent"] },
   "logs": { operation: "logs.list", numbers: ["limit"], strings: ["text", "level", "service", "cursor"] },
   "usage": { operation: "usage.get", strings: ["agent", "cursor", "search", "status", "window"] },
@@ -217,8 +218,25 @@ export function consoleOperationCall(path: string, call: { body?: unknown, metho
     return { input: { action: first(call.query.action), ...(call.body === undefined ? {} : { body: call.body }), section: first(call.query.section) }, operation: `${route}.action` }
   }
   if (route === "kv") {
-    if (call.method === "POST") return { input: body, operation: "kv.get" }
+    // A POST names its operation: a read of one key by default, or a write or a delete from the editor.
+    if (call.method === "POST") {
+      const { action, ...input } = body
+      if (action === "set" || action === "del") return { input, operation: `kv.${action}` }
+      return { input: { ...input, preview: true }, operation: "kv.get" }
+    }
     return { input: inputFromQuery({ numbers: ["limit"], operation: "kv.list", strings: ["cursor", "prefix", "store"] }, call.query), operation: "kv.list" }
+  }
+  if (route === "blob" && call.method === "POST") {
+    // The Blob page uploads and deletes through the same route as it lists.
+    const { action, ...input } = body
+    if (action === "put" || action === "del") return { input, operation: `blob.${action}` }
+    throw new ConsoleRequestError(400, "Unsupported Blob action.")
+  }
+  if (route === "rate-limit" && call.method === "POST") {
+    // The Rate Limits page peeks at a counter and resets it through one route.
+    const { action, ...input } = body
+    if (action === "peek" || action === "reset") return { input, operation: `rate-limit.${action}` }
+    throw new ConsoleRequestError(400, "Unsupported Rate Limit action.")
   }
   if (route === "workflow") {
     // A POST names its operation: start a run, read it, cancel it, or resume a signal.

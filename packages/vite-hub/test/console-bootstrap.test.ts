@@ -2,9 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { useAgentInvocations } from "../../agent/src/invocations-vue";
 import {
-  isCapabilityFilterRouteTransition,
   refreshCapabilityFilteredInvocations,
-  resetCapabilityFilterForRouteTransition,
   useConsoleSessionBootstrap,
 } from "../src/console/runtime/components/console-session-bootstrap";
 import { computed, effectScope, nextTick, ref, watch } from "vue";
@@ -31,7 +29,7 @@ it("uses the Usage Agent filter when opening the sessions panel", () => {
 
 it("opens the inspector on its launcher and keeps terminal session chrome quiet", () => {
   expect(consolePage).toContain('const inspectorActiveSurface = ref("");');
-  expect(consolePage).toContain('ref<Array<"details" | "trace" | "workspace" | "capabilities">>([])');
+  expect(consolePage).toContain('const inspectorOpenViews = ref<Array<(typeof inspectorViewNames)[number]>>([]);');
   expect(consolePage).toContain("selectedDisplay.value?.status === \"pending\"");
   expect(consolePage).toContain(':aria-expanded="agentListOpen"');
   expect(consolePage).not.toContain("i-ph-caret-up-down-light");
@@ -143,23 +141,6 @@ it("selects an Invocation returned by the active Capability filter", async () =>
   scope.stop();
 });
 
-it("clears Capability filters for external Agent and Invocation route transitions", () => {
-  const selectedCapabilityId = ref<string | undefined>("papercuts");
-  const selectedTriggeredBy = ref<string | undefined>("Ferdinand");
-  let refreshes = 0;
-
-  expect(resetCapabilityFilterForRouteTransition({
-    preserve: false,
-    routeChanged: true,
-    scheduleRefresh: () => refreshes++,
-    selectedCapabilityId,
-    selectedTriggeredBy,
-  })).toBe(true);
-  expect(selectedCapabilityId.value).toBeUndefined();
-  expect(selectedTriggeredBy.value).toBeUndefined();
-  expect(refreshes).toBe(1);
-});
-
 it("uses server-backed session filters and a larger initial page", () => {
   expect(consolePage).toContain("query.triggeredBy = selectedTriggeredBy.value");
   expect(consolePage).toContain("limit: 50");
@@ -169,35 +150,6 @@ it("uses server-backed session filters and a larger initial page", () => {
   expect(consolePage).toContain("No matching sessions");
   expect(consolePage).toContain("Clear filters");
   expect(consolePage).not.toContain('icon: "i-ph-robot-light"');
-});
-
-it("preserves Capability filters during their own route transition", () => {
-  const selectedCapabilityId = ref<string | undefined>("papercuts");
-
-  expect(resetCapabilityFilterForRouteTransition({
-    preserve: true,
-    routeChanged: true,
-    scheduleRefresh: () => undefined,
-    selectedCapabilityId,
-  })).toBe(false);
-  expect(selectedCapabilityId.value).toBe("papercuts");
-});
-
-it("does not preserve Capability filters for unrelated navigation during refresh", () => {
-  const expected = { agent: "alpha", invocation: undefined };
-
-  expect(isCapabilityFilterRouteTransition(expected, {
-    agent: "alpha",
-    invocation: undefined,
-  })).toBe(true);
-  expect(isCapabilityFilterRouteTransition(expected, {
-    agent: "alpha",
-    invocation: "invocation-b",
-  })).toBe(false);
-  expect(isCapabilityFilterRouteTransition(expected, {
-    agent: "beta",
-    invocation: undefined,
-  })).toBe(false);
 });
 
 describe.each(["agents-first", "invocations-first"] as const)(
@@ -313,12 +265,12 @@ it.each([false, true])("clears a deleted route before list changes when refresh 
   const source = consolePage.slice(consolePage.indexOf("async function removeDeletedInvocation("), consolePage.indexOf("async function startNewChat("))
     .replace("(id: string): Promise<void>", "(id)");
   // SAFETY: The function is read from the component and receives its declared dependencies.
-  const remove = new Function("list", "selectedAgentName", "route", "routeInvocation", "deletedInvocations", "selectedInvocationId", "closeDetails", "router", "resolveConsoleRouteName", "encodeAgentRouteParam", `${source}; return removeDeletedInvocation;`)(
-    list, selectedAgentName, route, routeInvocation, deletedInvocations, selectedInvocationId, closeDetails, router, (_name: unknown, target: string) => target, (name: string) => name,
+  const remove = new Function("list", "selectedAgentName", "route", "routeInvocation", "deletedInvocations", "selectedInvocationId", "closeDetails", "router", "resolveConsoleRouteName", "encodeAgentRouteParam", "keptSessionQuery", `${source}; return removeDeletedInvocation;`)(
+    list, selectedAgentName, route, routeInvocation, deletedInvocations, selectedInvocationId, closeDetails, router, (_name: unknown, target: string) => target, (name: string) => name, () => ({ capability: "papercuts" }),
   ) as (id: string) => Promise<void>;
   try {
     await expect(remove("deleted")).resolves.toBeUndefined();
-    expect(router.replace).toHaveBeenCalledExactlyOnceWith({ name: "vitehub-console-agent", params: { agent: "agent" } });
+    expect(router.replace).toHaveBeenCalledExactlyOnceWith({ name: "vitehub-console-agent", params: { agent: "agent" }, query: { capability: "papercuts" } });
     expect(closeDetails).toHaveBeenCalledOnce();
     expect(list.invocations.value).toEqual([{ id: "remaining" }]);
     expect(selectedInvocationId.value).not.toBe("deleted");

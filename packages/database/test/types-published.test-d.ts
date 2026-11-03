@@ -1,5 +1,5 @@
 import { defineDatabase } from "@vite-hub/database"
-import { agentDb, db, databases, schema, useDatabase } from "@vite-hub/database/drizzle"
+import { agentDb, chunkParameters, db, databases, schema, useDatabase } from "@vite-hub/database/drizzle"
 import { hubDb } from "@vite-hub/database/nuxt"
 import { pgTable, text as pgText } from "drizzle-orm/pg-core"
 import { sqliteTable, text } from "drizzle-orm/sqlite-core"
@@ -36,6 +36,7 @@ describe("published package types", () => {
     expectTypeOf(databases.default.schema).toMatchTypeOf<typeof schema>()
     expectTypeOf(db).toMatchTypeOf<typeof databases.default.db>()
     expectTypeOf(agentDb.query).toBeFunction()
+    expectTypeOf(chunkParameters(["a"], { per: analyticsSchema.events, reserved: 1 })).toEqualTypeOf<string[][]>()
     expectTypeOf(agentDb.database("analytics").exec).toBeFunction()
     expectTypeOf(useDatabase("analytics").schema.events).toEqualTypeOf(analyticsSchema.events)
     // @ts-expect-error The default database is not configured by this generated registry.

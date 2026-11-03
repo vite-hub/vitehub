@@ -33,9 +33,9 @@ Configuration errors throw instead. They mean that the code or the deployment mu
 | --- | --- | --- |
 | `KV_INVALID_CURSOR` | `list()` | |
 | `KV_INVALID_LIMIT` | `list()` | |
-| `KV_INVALID_TTL` | `increment()` | |
+| `KV_INVALID_TTL` | `increment()`, `setIfAbsent()` | |
 | `KV_OPERATION_FAILED` | Every method | |
-| `KV_UNSUPPORTED_OPERATION` | `getAndDelete()`, `increment()` | |
+| `KV_UNSUPPORTED_OPERATION` | `getAndDelete()`, `increment()`, `setIfAbsent()` | |
 | `KV_DENO_KV_UNAVAILABLE`, `KV_DISABLED`, `KV_MISSING_ENV`, `KV_STORE_NOT_FOUND` | | When an operation starts |
 | `KV_INVALID_CONFIG`, `KV_INVALID_DRIVER`, `KV_MISSING_DEFAULT_STORE` | | When Vite reads the config |
 
@@ -51,7 +51,7 @@ The `cursor` of `kv.list()` expired, is in use by another call, belongs to anoth
 
 ### KV_INVALID_TTL
 
-`kv.increment(key, ttl)` needs `ttl` as a positive number of seconds. Upstash rounds the TTL up to whole seconds.
+`kv.increment(key, ttl)` and the `ttl` option of `kv.setIfAbsent()` need a positive number of seconds. Upstash rounds the TTL up to whole seconds.
 
 ### KV_OPERATION_FAILED
 
@@ -60,6 +60,8 @@ The provider failed. `error.why` names the operation and the store. Read `error.
 ### KV_UNSUPPORTED_OPERATION
 
 `getAndDelete()` and `increment()` need atomic operations. Only the `upstash` driver supports them. Deno KV, Cloudflare KV, and `fs-lite` return this code. For request budgets, use the [Rate Limit primitive](/docs/rate-limit).
+
+`setIfAbsent()` works on `upstash`, `deno-kv`, and `fs-lite`. Cloudflare KV returns this code, because Workers KV is eventually consistent and cannot write a key only when it is missing. On Cloudflare, keep single-use tokens in D1 with `INSERT ... ON CONFLICT DO NOTHING`, or in a Durable Object.
 
 ## Configuration errors
 

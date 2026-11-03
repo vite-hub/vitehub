@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process"
 import { readFileSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -5,6 +6,18 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { assertFeaturePackages, isPackageInstalled } from "../src/internal/optional-owners.ts"
+
+vi.mock("../src/internal/optional-owners.ts", async importOriginal => {
+  const original = await importOriginal<typeof import("../src/internal/optional-owners.ts")>()
+  return {
+    ...original,
+    assertFeaturePackages: vi.fn(original.assertFeaturePackages),
+    isPackageInstalled: vi.fn(original.isPackageInstalled),
+  }
+})
+
+const kvCacheDriver = fileURLToPath(import.meta.resolve("vite-hub/_internal/kv/runtime/nitro-cache"))
 
 vi.mock("node:fs", async importOriginal => {
   const fs = await importOriginal<typeof import("node:fs")>()
@@ -13,6 +26,10 @@ vi.mock("node:fs", async importOriginal => {
 
 const integrationMocks = vi.hoisted(() => ({
   discoverAgentDefinitionEntries: vi.fn(() => []),
+  denoServerPackagesPlugin: vi.fn((onPackages: (packages: { bundledPackageDirs: string[], externalImports: [] }) => void) => {
+    onPackages({ bundledPackageDirs: [], externalImports: [] })
+    return { name: "vitehub:deno-server-packages" }
+  }),
   discoverWorkflowDefinitions: vi.fn(() => []),
   finalizeDenoDeploymentOutput: vi.fn(),
   finalizeDeploymentPlanOutput: vi.fn(),
@@ -69,6 +86,7 @@ vi.mock("@vite-hub/agent/vite", () => ({
   hubAgent: integrationMocks.hubAgent,
 }))
 vi.mock("@vite-hub/internal/build/deno-runtime-packages", () => ({
+  denoServerPackagesPlugin: integrationMocks.denoServerPackagesPlugin,
   finalizeDenoDeploymentOutput: integrationMocks.finalizeDenoDeploymentOutput,
 }))
 vi.mock("@vite-hub/internal/build/deployment-plan-output", () => ({
@@ -116,12 +134,12 @@ import { resolveConfig, type Plugin, type PluginOption } from "vite"
 import type { ConsoleViteDevTools } from "../src/console/devtools.ts"
 import { contributeProviderDeploymentOutput, useProviderOutputCatalog } from "../../internal/src/build/deployment-output.ts"
 import frameworkPackageManifest from "../package.json" with { type: "json" }
-import { vitehub } from "../src/index.ts"
+import { vitehub, type ViteHubOptions } from "../src/index.ts"
 import { isIncludedNitroPlugin } from "../src/nitro-plugin.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
 const deniedGeneratedOwnerPackageNames = new Set(["@vite-hub/cli"])
-const generatedOwnerPackageCases = Object.keys(frameworkPackageManifest.dependencies)
+const generatedOwnerPackageCases = Object.keys({ ...frameworkPackageManifest.dependencies, ...frameworkPackageManifest.peerDependencies })
   .filter(name => name.startsWith("@vite-hub/"))
   .map(name => [name, deniedGeneratedOwnerPackageNames.has(name) ? "deny" : "resolve"] as const)
 
@@ -379,7 +397,7 @@ describe("vitehub", () => {
         ]),
       })
       await expect(readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.toContain(
-        `installConsoleSections(${JSON.stringify(root)}, ["env","agents","usage","channels","workflows"])`,
+        `installConsoleSections(${JSON.stringify(root)}, ["env","agents","skills","usage","channels","workflows"])`,
       )
     }
     finally {
@@ -452,7 +470,7 @@ describe("vitehub", () => {
         await callHook(inactive.configResolved, [inactiveConfig])
 
         const inactiveGenerated = await readFile(join(inactiveRoot, ".vitehub/nitro/console/plugin.mjs"), "utf8")
-        expect(inactiveGenerated).not.toContain("installConsoleKV")
+        expect(inactiveGenerated).not.toContain('"kv"')
         expect(inactiveConfig.nitro).not.toMatchObject({
           handlers: expect.arrayContaining([expect.objectContaining({ route: "/api/_vitehub/console/kv" })]),
         })
@@ -471,8 +489,8 @@ describe("vitehub", () => {
       await callHook(named.configResolved, [namedConfig])
 
       const generated = await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
-      expect(generated).toContain('installConsoleKV(')
-      expect(generated).toContain('["cache","sessions"]')
+      expect(generated).toContain('"kv"')
+      expect(generated).not.toContain("installConsoleKV")
       expect(namedConfig.nitro).toMatchObject({
         handlers: expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/rpc/**" })]),
       })
@@ -488,7 +506,7 @@ describe("vitehub", () => {
       await callHook(disabled.configResolved, [config])
 
       const disabledGenerated = await readFile(join(disabledRoot, ".vitehub/nitro/console/plugin.mjs"), "utf8")
-      expect(disabledGenerated).not.toContain("installConsoleKV")
+      expect(disabledGenerated).not.toContain('"kv"')
       expect(config.nitro).not.toMatchObject({
         handlers: expect.arrayContaining([expect.objectContaining({ route: "/api/_vitehub/console/kv" })]),
       })
@@ -599,6 +617,11 @@ describe("vitehub", () => {
     expect(integrationMocks.hubAuth).toHaveBeenCalledWith(false, { importBase: "vite-hub/auth" })
   })
 
+  it("keeps Cloudflare Access Console auth independent of the Auth owner", () => {
+    const plugins = vitehub({ console: { auth: { provider: "cloudflare-access" } }, preset: "cloudflare" })
+    expect(pluginNames(plugins)).not.toContain("@vite-hub/auth/vite")
+  })
+
   it("rejects production Auth policy that does not protect Console status", async () => {
     integrationMocks.resolveAuthViteConfig.mockReturnValueOnce({
       access: { routes: [{ authorize: true, route: "/_vitehub/**" }] },
@@ -677,16 +700,18 @@ describe("vitehub", () => {
   })
 
   it("keeps coherent defaults and opt-in integrations", () => {
-    // Database, Blob, and Workspace are in the list for the Content cms preset, which turns them on when it is used.
+    // Database, Blob, and Workspace are in the list for the `cms` preset, which turns them on when it is used.
     expect(pluginNames(vitehub({ preset: "node" }))).toEqual(expect.arrayContaining(["@vite-hub/database/vite", "@vite-hub/blob/vite", "@vite-hub/workspace/vite"]))
     expect(appliedPluginNames(vitehub({ preset: "node" }))).toEqual([
       "vite-hub/doctor",
       "@vite-hub/markdown-template/vite",
+      "vite-hub/deployment-settings",
       "vite-hub/deployment-preset",
       "vite-hub/deployment-output",
       "vite-hub/public-url",
       "vite-hub/standard-context",
       "vite-hub/database-disabled",
+      "vite-hub/unavailable-services",
       "vite-hub/dependencies",
       "vite-hub/error-log",
       "@vite-hub/env/vite",
@@ -696,9 +721,12 @@ describe("vitehub", () => {
       "@vite-hub/kv/optional-peers",
       "@vite-hub/source/vite",
       "@vite-hub/content/vite",
+      "@vite-hub/cms/vite",
       "@vite-hub/comments/vite",
+      "vite-hub/optional-owner-imports",
       "vite-hub/task",
       "vite-hub/nitro-cache-bypass",
+      "vite-hub/nitro-startup-chunks",
       "vite-hub/types",
       "vite-hub/nitro-order",
       "vite-hub/nitro-order/run",
@@ -722,10 +750,13 @@ describe("vitehub", () => {
       "vite-hub/doctor",
       "@vite-hub/markdown-template/vite",
       "vite-hub/agent-channel-env",
+      "vite-hub/deployment-settings",
       "vite-hub/deployment-preset",
       "vite-hub/deployment-output",
       "vite-hub/public-url",
+      "vite-hub/dev-defines",
       "vite-hub/standard-context",
+      "vite-hub/unavailable-services",
       "vite-hub/dependencies",
       "vite-hub/error-log",
       "@vite-hub/env/vite",
@@ -747,10 +778,13 @@ describe("vitehub", () => {
       "@vite-hub/workspace/vite",
       "@vite-hub/source/vite",
       "@vite-hub/content/vite",
+      "@vite-hub/cms/vite",
       "@vite-hub/comments/vite",
+      "vite-hub/optional-owner-imports",
       "vite-hub/task",
       "vite-hub/nitro-cache-bypass",
       "vite-hub/nitro-workerd-dependencies",
+      "vite-hub/nitro-startup-chunks",
       "vite-hub/types",
       "vite-hub/nitro-order",
       "vite-hub/nitro-order/run",
@@ -776,6 +810,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith({
       cloudflareStateImport: "vite-hub/_internal/agent/cloudflare/state",
       importBase: "vite-hub/_internal/agent",
+      kvImport: "vite-hub/_internal/kv",
       processDiscordGateway: true,
       providerImportAliases: {
         "@vite-hub/kv/runtime/upstash-driver": expect.stringMatching(/packages\/vite-hub\/dist\/_internal\/kv\/runtime\/disabled-upstash\.js$/),
@@ -807,12 +842,11 @@ describe("vitehub", () => {
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
       driver: "resend",
       hosting: "cloudflare-module",
-      importBase: "vite-hub/_internal/email",
       runtimeEnvImport: "vite-hub/env/server",
       workflowProvider: undefined,
     })
     expect(integrationMocks.hubChannels).toHaveBeenLastCalledWith(undefined)
-    expect(integrationMocks.hubKv).toHaveBeenLastCalledWith({ driver: "cloudflare-kv-binding" }, { importBase: "vite-hub/_internal/kv" })
+    expect(integrationMocks.hubKv).toHaveBeenLastCalledWith({ driver: "cloudflare-kv-binding" })
     expect(integrationMocks.hubSandboxTask).toHaveBeenLastCalledWith({
       provider: "cloudflare",
       providerImportAliases: expect.any(Object),
@@ -916,6 +950,20 @@ describe("vitehub", () => {
       .not.toContain("vite-hub/error-log")
   })
 
+  it("requires the Agent package for observability without Agents", () => {
+    vitehub({ preset: "node", observability: { service: "support" } })
+    expect(assertFeaturePackages).toHaveBeenLastCalledWith(["agent"])
+  })
+
+  it("omits the Workspace Shell loader when the Shell package is absent", () => {
+    vi.mocked(isPackageInstalled).withImplementation(name => name !== "@vite-hub/shell", () => {
+      vitehub({ preset: "node", agent: true })
+      expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
+        workspaceDependencyRuntimeImports: {},
+      }))
+    })
+  })
+
   it("passes configured Email drivers through the canonical integration", () => {
     const email = {
       driver: "resend" as const,
@@ -927,7 +975,6 @@ describe("vitehub", () => {
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
       ...email,
       hosting: "node-server",
-      importBase: "vite-hub/_internal/email",
       runtimeEnvImport: "vite-hub/env/server",
       workflowProvider: undefined,
     })
@@ -942,7 +989,6 @@ describe("vitehub", () => {
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
       driver: "cloudflare-email",
       hosting: "cloudflare-module",
-      importBase: "vite-hub/_internal/email",
       runtimeEnvImport: "vite-hub/env/server",
       workflowProvider: undefined,
     })
@@ -950,6 +996,15 @@ describe("vitehub", () => {
 
   it("rejects the Cloudflare Email default on other presets", () => {
     expect(() => vitehub({ email: true, preset: "node" })).toThrow("requires the Cloudflare deployment preset")
+  })
+
+  it("treats auth: false and email: false as omitted", () => {
+    integrationMocks.hubAuth.mockClear()
+    integrationMocks.hubEmail.mockClear()
+
+    expect(pluginNames(vitehub({ auth: false, email: false, preset: "node" }))).toEqual(pluginNames(vitehub({ preset: "node" })))
+    expect(integrationMocks.hubAuth).not.toHaveBeenCalled()
+    expect(integrationMocks.hubEmail).not.toHaveBeenCalled()
   })
 
   it("passes the active host to Workflow inference", () => {
@@ -1184,6 +1239,18 @@ describe("vitehub", () => {
     expect(specifiers.indexOf("vite-hub/ui/styles.css")).toBeLessThan(specifiers.indexOf("vite-hub/ui"))
   })
 
+  it("leaves facades of an absent owner package unaliased so their import names the package to install", () => {
+    vi.mocked(isPackageInstalled).withImplementation(name => name !== "@vite-hub/ui", () => {
+      const aliases = pluginAliases(dependencyPlugin())
+      expect(Object.keys(aliases).filter(specifier => /^vite-hub\/ui(?:\/|$)/.test(specifier))).toEqual([])
+      expect(aliases["vite-hub/shell"]).toMatch(/packages\/vite-hub\/dist\/shell\.js$/)
+    })
+    const imports = dependencyPluginByName(vitehub({ preset: "node" }), "vite-hub/optional-owner-imports")
+    vi.mocked(assertFeaturePackages).mockClear()
+    callHook(imports.resolveId, ["vite-hub/ui/avatar-stack", "/app/app.vue"])
+    expect(assertFeaturePackages).toHaveBeenCalledExactlyOnceWith(["ui"])
+  })
+
   it("passes the unused Upstash fallback only to provider bundlers", () => {
     vitehub({ agent: true, preset: "node", workflow: true })
     const defaultAliases = providerAliasesFromCall(integrationMocks.hubAgent.mock.calls.at(-1))
@@ -1289,6 +1356,36 @@ describe("vitehub", () => {
     expect(config.nitro).toHaveProperty("cloudflare.wrangler.kv_namespaces", [{ binding: "KV", id: "kv-id" }])
   })
 
+  it("mounts Nitro cache storage on the app's KV store", async () => {
+    const config = await applyDeploymentConfig({ cache: { driver: "kv" }, kv: true, preset: "cloudflare" })
+    const mount = { base: "nitro-cache", driver: kvCacheDriver }
+
+    expect(config.nitro).toMatchObject({ devStorage: { cache: mount }, storage: { cache: mount } })
+    await expect(applyDeploymentConfig({ cache: { driver: "kv" }, preset: "cloudflare" })).rejects.toThrow("`kv` is not enabled")
+  })
+
+  it.each(["build", "serve"] as const)("validates the effective KV cache configuration during %s", async (command) => {
+    const options = { cache: { driver: "kv" as const }, kv: true, preset: "node" as const }
+    await expect(applyDeploymentConfig(options, { kv: false }, command)).rejects.toThrow("`kv` is not enabled")
+    await expect(applyDeploymentConfig({ ...options, kv: false }, { kv: { driver: "fs-lite" } }, command)).resolves.toHaveProperty(
+      "nitro.storage.cache.driver", kvCacheDriver,
+    )
+  })
+
+  it.each([undefined, false] as const)("installs KV for top-level cache configuration when module KV is %s", async (kv) => {
+    const plugins = vitehub({ agent: true, cache: { driver: "kv" }, kv, preset: "cloudflare" })
+    const config = { kv: { binding: "APP_KV", driver: "cloudflare-kv-binding" } satisfies KVModuleOptions }
+    await callHook(dependencyPluginByName(plugins, "vite-hub/deployment-preset").config, [config, { command: "build", mode: "production" }])
+
+    expect(config).toHaveProperty("nitro.storage.cache.driver", kvCacheDriver)
+    expect.soft(pluginNames(plugins)).toContain("@vite-hub/kv/vite")
+    expect.soft(pluginNames(plugins)).not.toContain("@vite-hub/kv/optional-peers")
+
+    const aliases = providerAliasesFromCall(integrationMocks.hubAgent.mock.calls.at(-1))
+    callHook(dependencyPluginByName(plugins, "vite-hub/dependencies").configResolved, [{ kv: { driver: "upstash" } satisfies KVModuleOptions }])
+    expect(aliases).not.toHaveProperty("@vite-hub/kv/runtime/upstash-driver")
+  })
+
   it("stores the Node cache under dataDir", async () => {
     const config = await applyDeploymentConfig({ cache: true, dataDir: "/tmp/vitehub-data", preset: "node" })
 
@@ -1298,9 +1395,9 @@ describe("vitehub", () => {
     })
   })
 
-  it("rejects a cache store that the preset cannot provide", () => {
-    expect(() => vitehub({ cache: true, preset: "netlify" })).toThrow("`cache: true` has no default store for the netlify preset.")
-    expect(() => vitehub({ cache: { driver: "fs-lite" }, preset: "cloudflare" })).toThrow("`cache.driver: \"fs-lite\"` requires the node preset, but the preset is cloudflare.")
+  it("rejects a cache store that the preset cannot provide", async () => {
+    await expect(applyDeploymentConfig({ cache: true, preset: "netlify" })).rejects.toThrow("`cache: true` has no default store for the netlify preset.")
+    await expect(applyDeploymentConfig({ cache: { driver: "fs-lite" }, preset: "cloudflare" })).rejects.toThrow("`cache.driver: \"fs-lite\"` requires the node preset, but the preset is cloudflare.")
   })
 
   it("preserves an explicit Cloudflare WASM loading mode", async () => {
@@ -1328,75 +1425,139 @@ describe("vitehub", () => {
     })
   })
 
-  it("deploys Cloudflare Sandbox containers through the generated Nitro command", async () => {
-    const userModule = (nitro: { options: { commands: Record<string, unknown> } }) => {
-      nitro.options.commands.deploy = "node ./deploy.mjs"
-    }
-    const config = await applyDeploymentConfig(
-      { preset: "cloudflare", sandboxTask: true },
-      { nitro: { commands: { preview: "node ./preview.mjs" }, modules: [userModule] } },
-    )
-
-    // SAFETY: applyDeploymentConfig has populated Nitro commands and modules for the Cloudflare Sandbox preset.
-    const nitroConfig = config.nitro as { commands: Record<string, unknown>, modules: unknown[] }
-    // SAFETY: The deployment preset prepends its Nitro module to the configured module list.
-    const module = nitroConfig.modules[0] as (nitro: {
-      hooks: { hook: ReturnType<typeof vi.fn> }
-      options: {
-        commands: Record<string, unknown>
-        output: { dir: string, serverDir: string }
-        rootDir: string
-      }
-    }) => void
-    const nitro = {
-      hooks: { hook: vi.fn() },
-      options: {
-        commands: nitroConfig.commands,
-        output: { dir: "/app/.output", serverDir: "/app/.output/cloudflare worker" },
-        preset: "cloudflare_module",
-        rootDir: "/app",
-      },
-    }
-    module(nitro)
-
-    expect(nitro.options).toMatchObject({
-      commands: {
-        deploy: "npx wrangler --cwd './cloudflare worker' deploy --containers-rollout=gradual",
-        preview: "node ./preview.mjs",
-      },
-    })
-    expect(nitroConfig.modules[1]).toBe(userModule)
-    userModule(nitro)
-    expect(nitro.options.commands.deploy).toBe("node ./deploy.mjs")
-  })
-
-  it("preserves an explicit Cloudflare Sandbox deploy command", async () => {
-    const plugins = vitehub({ preset: "cloudflare", sandboxTask: true })
-    // SAFETY: The explicit preset and Sandbox option install both named plugins.
-    const preset = plugins.find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
-    // SAFETY: The explicit preset and Sandbox option install both named plugins.
-    const output = plugins.find(candidate => (candidate as Plugin).name === "vite-hub/deployment-output") as Plugin
-    const config: Record<string, unknown> = { nitro: { commands: { deploy: "node ./deploy.mjs" } } }
+  async function cloudflareCommands(
+    options: Parameters<typeof vitehub>[0],
+    config: Record<string, unknown>,
+    serverDir = "/app/.output/server",
+    rootDir = "/app",
+  ) {
+    const plugins = vitehub(options)
+    const preset = dependencyPluginByName(plugins, "vite-hub/deployment-preset")
+    const output = dependencyPluginByName(plugins, "vite-hub/deployment-output")
     await callHook(preset.config, [config, { command: "build", mode: "production" }])
-
     // SAFETY: The preset config hook populated Nitro commands and modules above.
-    const nitroConfig = config.nitro as { commands: Record<string, unknown>, modules: unknown[] }
-    nitroConfig.commands.deploy = "npx wrangler --cwd ./ deploy"
+    const nitroConfig = config.nitro as { cloudflare?: { deployConfig?: boolean }, commands?: Record<string, unknown>, modules: unknown[] }
     callHook(output.configResolved, [{ command: "build", nitro: nitroConfig }])
+    // Nitro applies the cloudflare-module preset defaults before modules run.
     const nitro = {
       hooks: { hook: vi.fn() },
       options: {
-        commands: nitroConfig.commands,
-        output: { dir: "/app/.output", serverDir: "/app/.output/server" },
+        cloudflare: nitroConfig.cloudflare,
+        commands: { deploy: "npx wrangler --cwd ./ deploy", preview: "npx wrangler --cwd ./ dev", ...nitroConfig.commands },
+        output: { dir: join(rootDir, ".output"), serverDir },
         preset: "cloudflare_module",
-        rootDir: "/app",
+        rootDir,
       },
     }
     // SAFETY: The deployment preset prepends its Nitro module to the module list.
     const module = nitroConfig.modules[0] as (target: typeof nitro) => void
     module(nitro)
+    return { commands: nitro.options.commands, modules: nitroConfig.modules, nitro }
+  }
 
-    expect(nitro.options).toMatchObject({ commands: { deploy: "npx wrangler --cwd ./ deploy" } })
+  it.each([undefined, true])("deploys Cloudflare builds with the generated Wrangler config when deployConfig is %s", async deployConfig => {
+    const { commands } = await cloudflareCommands(
+      { preset: "cloudflare" },
+      { nitro: { cloudflare: { deployConfig } } },
+    )
+
+    expect(commands).toEqual({
+      deploy: "npx wrangler deploy --config ./server/wrangler.json",
+      preview: "npx wrangler --cwd ./ dev",
+    })
+  })
+
+  it.each([false, true])("preserves Nitro's Cloudflare deploy command when deployConfig is disabled and Sandbox is %s", async sandboxTask => {
+    const { commands } = await cloudflareCommands(
+      { preset: "cloudflare", sandboxTask },
+      { nitro: { cloudflare: { deployConfig: false } } },
+    )
+
+    expect(commands).toEqual({
+      deploy: "npx wrangler --cwd ./ deploy",
+      preview: "npx wrangler --cwd ./ dev",
+    })
+  })
+
+  it.each(["server", "cloudflare worker", "worker's directory"])("rebases the Cloudflare config in %s for prebuilt deployment", async serverDir => {
+    const { commands } = await cloudflareCommands(
+      { preset: "cloudflare", sandboxTask: true },
+      {},
+      `/app/.output/${serverDir}`,
+    )
+    // Apply Nitro's deploy --prebuilt rewrite, then check the arguments Wrangler receives from the shell.
+    const command = commands.deploy.replace(/([\s:])\.\/(\S*)/g, "$1.output/$2")
+    const result = spawnSync("sh", ["-c", 'npx() { printf "%s\\n" "$@"; }\n' + command], { encoding: "utf8" })
+
+    expect(result.status).toBe(0)
+    expect(result.stdout.trim().split("\n")).toEqual([
+      "wrangler", "deploy", "--config", `.output/${serverDir}/wrangler.json`, "--containers-rollout=gradual",
+    ])
+  })
+
+  it.each([".env", "config/prod secrets.env"])("uploads the Cloudflare secrets file %s through the prebuilt deploy command", async secretsFile => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-secrets-file-"))
+    try {
+      await mkdir(join(root, "config"))
+      await writeFile(join(root, secretsFile), "API_TOKEN=secret\n")
+      const { commands } = await cloudflareCommands(
+        { cloudflare: { secretsFile }, preset: "cloudflare", sandboxTask: true },
+        {},
+        join(root, ".output/server"),
+        root,
+      )
+      // Apply Nitro's deploy --prebuilt rewrite, then run the command from the project root as Nitro does.
+      const command = commands.deploy.replace(/([\s:])\.\/(\S*)/g, "$1.output/$2")
+      const result = spawnSync("sh", ["-c", 'npx() { printf "%s\\n" "$@"; }\n' + command], { cwd: root, encoding: "utf8" })
+
+      expect(result.status).toBe(0)
+      expect(result.stdout.trim().split("\n")).toEqual([
+        "wrangler", "deploy", "--config", ".output/server/wrangler.json", "--secrets-file", `.output/../${secretsFile}`, "--containers-rollout=gradual",
+      ])
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("leaves the secrets file out of the Cloudflare deploy command when the file is missing at build time", async () => {
+    const { commands } = await cloudflareCommands(
+      { cloudflare: { secretsFile: ".env" }, preset: "cloudflare" },
+      {},
+    )
+
+    expect(commands.deploy).toBe("npx wrangler deploy --config ./server/wrangler.json")
+  })
+
+  it("deploys Cloudflare Sandbox containers through the generated Nitro command", async () => {
+    const userModule = (nitro: { options: { commands: Record<string, unknown> } }) => {
+      nitro.options.commands.deploy = "node ./deploy.mjs"
+    }
+    const { commands, modules, nitro } = await cloudflareCommands(
+      { preset: "cloudflare", sandboxTask: true },
+      { nitro: { commands: { preview: "node ./preview.mjs" }, modules: [userModule] } },
+      "/app/.output/cloudflare worker",
+    )
+
+    expect(commands).toEqual({
+      deploy: "npx wrangler deploy --config ./'cloudflare worker/wrangler.json' --containers-rollout=gradual",
+      preview: "node ./preview.mjs",
+    })
+    expect(modules[1]).toBe(userModule)
+    userModule(nitro)
+    expect(commands.deploy).toBe("node ./deploy.mjs")
+  })
+
+  it("preserves an explicit Cloudflare deploy command", async () => {
+    const { commands } = await cloudflareCommands(
+      { preset: "cloudflare", sandboxTask: true },
+      { nitro: { commands: { deploy: "node ./deploy.mjs" } } },
+    )
+
+    expect(commands).toEqual({
+      deploy: "node ./deploy.mjs",
+      preview: "npx wrangler --cwd ./ dev",
+    })
   })
 
   it("aliases Cloudflare runtime imports during Nitro prerendering", async () => {
@@ -1572,10 +1733,13 @@ describe("vitehub", () => {
     }
     callHook(output.configResolved, [{ ...resolvedConfig, nitro: nitroConfig }])
     let compiled: (() => Promise<void>) | undefined
+    const rollupConfig: { plugins?: unknown } = {}
     const nitro = {
       hooks: {
-        hook: vi.fn((name: string, callback: () => Promise<void>) => {
-          if (name === "compiled") compiled = callback
+        hook: vi.fn((name: string, callback: (...args: unknown[]) => unknown) => {
+          // SAFETY: Nitro passes the compiled hook no arguments, and this test awaits it.
+          if (name === "compiled") compiled = callback as () => Promise<void>
+          if (name === "rollup:before") callback(nitro, rollupConfig)
         }),
       },
       options: {
@@ -1592,8 +1756,10 @@ describe("vitehub", () => {
 
     await (compiled as () => Promise<void>)()
 
+    expect(rollupConfig.plugins).toEqual([{ name: "vitehub:deno-server-packages" }])
     expect(integrationMocks.finalizeDenoDeploymentOutput).toHaveBeenCalledWith(expect.objectContaining({
       conditions: ["browser", "launch"],
+      serverPackages: { bundledPackageDirs: [], externalImports: [] },
     }))
 
     integrationMocks.finalizeDenoDeploymentOutput.mockClear()
@@ -1676,7 +1842,7 @@ describe("vitehub", () => {
     expect(appliedPluginNames(vitehub({ preset: "node" }))).not.toContain("@vite-hub/blob/vite")
     expect(pluginNames(vitehub({ preset: "node", blob: false }))).not.toContain("@vite-hub/blob/vite")
     expect(pluginNames(vitehub({ preset: "deno" }))).not.toContain("@vite-hub/blob/vite")
-    // Only the Content cms preset case of the default list builds Blob.
+    // Only the `cms` preset case of the default list builds Blob.
     expect(integrationMocks.hubBlob).toHaveBeenCalledOnce()
     // SAFETY: The explicit Deno preset installs the named deployment plugin.
     const deployment = vitehub({ preset: "deno", blob: true }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
@@ -1898,6 +2064,22 @@ describe("vitehub", () => {
     )
   })
 
+  // Nitro resolves without Vite's `module` condition; Better Auth's @opentelemetry/semantic-conventions then ships whole.
+  it("resolves the module export condition in Cloudflare builds", () => {
+    const settings = (preset: ViteHubOptions["preset"]) =>
+      // SAFETY: The explicit preset installs the named deployment plugin.
+      vitehub({ preset }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-settings") as Plugin
+    const nitroOf = (plugin: Plugin, config: Record<string, unknown>, command: "build" | "serve") => {
+      callHook(plugin.config, [config, { command, mode: command === "build" ? "production" : "development" }])
+      return config.nitro as { exportConditions?: string[] }
+    }
+    expect(nitroOf(settings("cloudflare"), {}, "build").exportConditions).toEqual(["module"])
+    expect(nitroOf(settings("cloudflare"), { nitro: { exportConditions: ["custom"] } }, "build").exportConditions).toEqual(["custom", "module"])
+    expect(nitroOf(settings("cloudflare"), { nitro: { exportConditions: ["!module"] } }, "build").exportConditions).toEqual(["!module"])
+    expect(nitroOf(settings("cloudflare"), {}, "serve").exportConditions).toBeUndefined()
+    expect(nitroOf(settings("vercel"), {}, "build").exportConditions).toBeUndefined()
+  })
+
   it("rejects unsupported capabilities and conflicting target selection", async () => {
     expect(() => vitehub({ preset: "deno", schedule: true })).toThrow("cannot provide Schedule")
     expect(() => vitehub({ preset: "deno", agent: { runtime: "deno" } })).toThrow("cannot deploy the Agent Deno runtime")
@@ -1906,10 +2088,29 @@ describe("vitehub", () => {
     const unsupported = vitehub({ preset: "deno", queue: true }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
     expect(() => callHook(unsupported.config, [{}, { command: "build", mode: "production" }])).toThrow("cannot provide queue")
 
+    const nodePreset = (schedule: ViteHubOptions["schedule"]) =>
+      // SAFETY: The explicit Node preset installs the named deployment plugin.
+      vitehub({ preset: "node", schedule }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
+    expect(() => callHook(nodePreset(true).config, [{}, { command: "build", mode: "production" }])).toThrow("would never run its Schedules")
+    expect(() => callHook(nodePreset({ providerOutput: "auto" }).config, [{}, { command: "build", mode: "production" }])).toThrow("would never run its Schedules")
+    expect(() => callHook(nodePreset(true).config, [{}, { command: "serve", mode: "development" }])).not.toThrow()
+    expect(() => callHook(nodePreset({ runtime: { driver: "process" } }).config, [{}, { command: "build", mode: "production" }])).not.toThrow()
+    expect(() => callHook(nodePreset({ runtime: { driver: "process" }, providerOutput: "auto" }).config, [{}, { command: "build", mode: "production" }])).not.toThrow()
+    expect(() => callHook(nodePreset({ runtime: { driver: "process" }, providerOutput: false }).config, [{}, { command: "build", mode: "production" }])).not.toThrow()
+    expect(() => callHook(nodePreset({ providerOutput: false }).config, [{}, { command: "build", mode: "production" }])).not.toThrow()
+
     // SAFETY: The explicit Vercel preset installs the named deployment plugin.
     const conflicting = vitehub({ preset: "vercel" }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
     expect(() => callHook(conflicting.config, [{ nitro: { preset: "netlify" } }, { command: "build", mode: "production" }])).toThrow("conflicts with nitro.preset")
     expect(() => callHook(conflicting.config, [{ nitro: { preset: "vercel-edge" } }, { command: "build", mode: "production" }])).toThrow("conflicts with nitro.preset")
+  })
+
+  it.each(["nitro", "standalone"] as const)("rejects Node Schedule Provider Output %s even with the Process Runtime", providerOutput => {
+    // SAFETY: The explicit Node preset installs the named deployment plugin.
+    const plugin = vitehub({ preset: "node", schedule: { providerOutput, runtime: { driver: "process" } } })
+      .find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
+    expect(() => callHook(plugin.config, [{}, { command: "build", mode: "production" }])).toThrow(expect.objectContaining({ name: "VITE_HUB_R0137" }))
+    expect(() => callHook(plugin.config, [{}, { command: "serve", mode: "development" }])).not.toThrow()
   })
 
   it("composes Browser for Cloudflare and rejects unsupported presets", () => {

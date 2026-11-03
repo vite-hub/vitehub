@@ -6,17 +6,14 @@ packages:
   - "packages/*/examples/*"
   - "playground/console"
   - "playground/content"
+  - "playground/docs"
   - "playground/logs"
 catalog:
   "@cloudflare/vitest-plugin": ^1.3.6
   "@t3tools/provider-runtime": https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@ee5848bfdff74af1d14ad9464403d275e47f8822
   "@types/proper-lockfile": 4.1.4
-  forges: https://pkg.pr.new/danielroe/forges@40d50b2f8bdc5585becfae405e1a3b8a325f7202
+  forges: 0.3.1
   proper-lockfile: 4.1.2
-  remark-gfm: ^4.0.1
-  remark-mdc: ^3.11.1
-  remark-parse: ^11.0.0
-  unified: ^11.0.5
   comark-chat: 0.7.1
   vite-doctor: https://pkg.pr.new/vite-doctor@9f33eb1748fb93f7399579b60d3bff6af3895eb1
 
@@ -26,8 +23,12 @@ linkWorkspacePackages: true
 catalogs:
   ai:
     "@agntn/web": ^0.5.5
+    "@ai-sdk/anthropic": 4.0.75
     "@ai-sdk/gateway": 4.0.103
     "@ai-sdk/mcp": 2.0.69
+    "@ai-sdk/openai": 4.0.88
+    "@ai-sdk/openai-compatible": 3.0.65
+    "@ai-sdk/provider": 4.0.24
     "@ai-sdk/vue": 4.0.130
     "@modelcontextprotocol/sdk": ^1.32.1
     "@types/json-schema": ^7.0.15
@@ -37,8 +38,6 @@ catalogs:
     evalite: 1.0.0-beta.16
   ai-compat:
     ai: ^6.0.0 || ^7.0.0-0
-  ai-v6:
-    ai: 6.0.300
   auth:
     "@better-auth/oauth-provider": 1.7.7
     better-auth: 1.7.7
@@ -67,24 +66,27 @@ catalogs:
     "@comark/html": 0.7.0
     "@types/mdast": ^4.0.4
     comark: 0.7.0
-    comark-content: 0.4.1
-    comark-tiptap: ^0.1.1
+  # Content/UI need the matching renderer stack; other consumers retain their parser behavior.
+  markdown-ui:
+    "@comark/html": 0.8.1
+    comark: 0.8.1
+    comark-content: 0.4.3
+    # Includes the lazy Pele load in onmax/comark-ui#331; replace with its release when available.
+    comark-ui: https://pkg.pr.new/comark-ui@0e2a4fd483dfad175645cec59619cec8d1364156
   nuxt:
-    "@nuxt/content": ^3.16.1
-    "@nuxt/ui": ^4.11.3
+    "@nuxt/ui": ^4.12.0
     "@takumi-rs/core": 2.14.0
-    docus: https://pkg.pr.new/docus@c229a86
     nuxt: ^4.5.2
     nuxt-schema-org: ^6.4.3
   nuxt-compat:
     nuxt: ^4.5.2 || >=5.0.0-0
   realtime:
     "@tiptap/core": ^3.31.4
-    "@tiptap/extension-code-block": ^3.31.4
     "@tiptap/extension-collaboration": ^3.31.4
     "@tiptap/extension-collaboration-caret": 3.31.4
     "@tiptap/extension-document": ^3.31.4
     "@tiptap/extension-image": ^3.31.4
+    "@tiptap/extension-list": ^3.31.4
     "@tiptap/extension-table": ^3.31.4
     "@tiptap/extensions": ^3.31.4
     "@tiptap/markdown": ^3.31.4
@@ -104,7 +106,6 @@ catalogs:
   runtime:
     "@standard-schema/spec": ^1.1.0
     "@valibot/to-json-schema": ^1.8.0
-    devframe: 0.9.12
     diff: ^9.0.0
     nostics: 1.3.0
     ocache: ^0.3.0
@@ -112,7 +113,6 @@ catalogs:
     valibot: ^1.5.0
     zod: ^4.6.7
   sandbox:
-    "@cloudflare/computer": ^0.2.1
     "@cloudflare/sandbox": ^0.12.10
     "@vercel/sandbox": ^3.5.1
   shell:
@@ -164,7 +164,7 @@ catalogs:
     "@iconify/vue": ^5.0.3
     "@vueuse/core": ^14.4.0
     motion-v: ^2.5.2
-    reka-ui: ^2.10.5
+    reka-ui: ^2.11.0
     vue: 3.5.44
   unjs:
     defu: ^6.1.7
@@ -226,5 +226,4 @@ packageExtensions:
 patchedDependencies:
   "@netlify/blobs@11.1.4": patches/@netlify__blobs@11.1.4.patch
   "@vercel/blob@2.8.0": patches/@vercel__blob@2.8.0.patch
-  docus@5.13.0: patches/docus@5.13.0.patch
   nuxt-agent-discovery@0.7.0: patches/nuxt-agent-discovery@0.7.0.patch

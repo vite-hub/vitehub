@@ -3,7 +3,7 @@ import virtualConfig, { blob as virtualBlob, hosting as virtualHosting } from "#
 
 import { describe, expectTypeOf, it } from "vitest"
 
-import { blob, file, image, type BlobModuleOptions, type BlobReference, type BlobReferenceInput, type BlobObject, type BlobResult, type BlobServeAuthorize, type BlobStoreConfig, type ResolvedBlobModuleOptions } from "../src/index.ts"
+import { blob, file, image, type BlobModuleOptions, type BlobReference, type BlobReferenceInput, type BlobObject, type BlobResult, type BlobServeAnonymousAuthorize, type BlobServeAuthorize, type BlobStoreConfig, type ResolvedBlobModuleOptions } from "../src/index.ts"
 import { hubBlob } from "../src/vite.ts"
 
 describe("types", () => {
@@ -69,6 +69,21 @@ describe("types", () => {
       new URL(request.url).pathname.startsWith(`/photos/${user.id}/`)
     expectTypeOf(authorize).parameter(0).toHaveProperty("session").toEqualTypeOf<Record<string, unknown>>()
     expectTypeOf(authorize).returns.toMatchTypeOf<boolean | Response | Promise<boolean | Response>>()
+  })
+
+  it("types the anonymous serve callback with a nullable user", () => {
+    const config = {
+      driver: "fs",
+      serve: { anonymous: true, authorize: true, route: "/f" },
+    } satisfies BlobModuleOptions
+    expectTypeOf(config).toMatchTypeOf<BlobModuleOptions>()
+
+    // @ts-expect-error A signed-out caller has no user.
+    const unchecked: BlobServeAnonymousAuthorize = ({ user }) => user.id === "u1"
+    expectTypeOf(unchecked).toBeFunction()
+    const authorize: BlobServeAnonymousAuthorize = ({ request, user }) =>
+      new URL(request.url).pathname.startsWith("/f/public/") || (user !== null && new URL(request.url).pathname.startsWith(`/f/${user.id}/`))
+    expectTypeOf(authorize).parameter(0).toHaveProperty("session").toEqualTypeOf<Record<string, unknown> | null>()
   })
 
   it("allows MinIO to resolve common Docker env defaults", () => {

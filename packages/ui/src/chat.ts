@@ -1,1 +1,1 @@
-export { Chat } from "./components/chat.ts";
+export { Chat, chatActivity } from "./components/chat.ts";

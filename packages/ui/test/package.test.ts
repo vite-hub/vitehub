@@ -88,13 +88,17 @@ describe("@vite-hub/ui package contract", () => {
       vite: { optional: true },
     });
     expect(packageJson.dependencies).toEqual({
-      "@comark/vue": "0.7.0",
+      "@comark/vue": "0.8.1",
       "comark-chat": "catalog:",
-      katex: "^0.17.0",
+      comark: "catalog:markdown-ui",
+      "vega-canvas": "^2.0.0",
+      "vega-loader": "^5.1.3",
+      katex: "^0.18.7",
       "@nuxt/kit": "4.6.2",
       "@shikijs/langs": "4.5.0",
       "@types/node": "catalog:tooling",
       "@vite-hub/comments": "workspace:*",
+      "@vite-hub/icons": "workspace:*",
       "nostics": "catalog:runtime",
       "reka-ui": "catalog:ui",
       shiki: "^4.5.0",
@@ -124,7 +128,7 @@ describe("@vite-hub/ui package contract", () => {
 
   it("ships flat console surfaces that fill their containers", () => {
     for (const block of [".vh-chat", ".vh-session"]) {
-      expect(stylesheet, block).toMatch(new RegExp(`\\n${block.replace(".", "\\.")}\\s*\\{[^}]*height: 100%;[^}]*min-height: 0;`));
+      expect(stylesheet, block).toMatch(new RegExp(`\\n\\s*${block.replace(".", "\\.")}\\s*\\{[^}]*height: 100%;[^}]*min-height: 0;`));
     }
     expect(stylesheet).not.toMatch(/backdrop-filter|mask-image|linear-gradient/);
     expect(stylesheet).not.toContain("--vh-ui-text-muted");

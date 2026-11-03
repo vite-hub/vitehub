@@ -1,7 +1,7 @@
 import * as v from "valibot"
 import { describe, expect, it, vi } from "vitest"
 
-import { callOperation, collectOperationContributions, createOperationRegistry, defineOperation, operationCliPath, operationInputJsonSchema, projectRootHash, runOperation } from "../src/operations.ts"
+import { callOperation, collectOperationContributions, createOperationRegistry, defineOperation, operationCliPath, operationInputJsonSchema, operationToolName, projectRootHash, runOperation } from "../src/operations.ts"
 
 import type { OperationContext } from "../src/operations.ts"
 
@@ -161,6 +161,23 @@ describe("operations", () => {
     catch (error) {
       expect(error).toMatchObject({ code: "INTERNAL_B0049" })
     }
+  })
+
+  it("names MCP tools without dots, and fails when two operations share a tool name", () => {
+    expect(operationToolName("content.publish")).toBe("content_publish")
+    expect(operationToolName("a-b.c d/é")).toBe("a-b_c_d__")
+    const dotted = defineOperation({ ...greet, name: "content.publish", section: "content" })
+    // defineOperation() allows one dot and no underscore, so only an unchecked definition can collide.
+    const underscored = { ...greet, name: "content_publish", section: "content" }
+    try {
+      createOperationRegistry([{ operations: [dotted, underscored] }])
+      expect.unreachable()
+    }
+    catch (error) {
+      expect(error).toMatchObject({ code: "INTERNAL_B0050" })
+      expect(String(error)).toContain("content_publish")
+    }
+    expect(() => createOperationRegistry([{ operations: [dotted, { ...underscored, mcp: false as const }] }])).not.toThrow()
   })
 
   it("rejects a request limit below the default and a key that clashes with a CLI flag", () => {

@@ -26,7 +26,8 @@ export default defineConfig({
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `providerOutput` | `ScheduleVitePluginOptions['providerOutput']` | `auto` | Controls generated provider cron output. Values: `auto`, `standalone`, `nitro`, `false`. |
+| `cron` | `Record<string, string>` | Each Schedule's own cron | Cron per Schedule name for this build's host. See [Run a Schedule on another cron on one host](#run-a-schedule-on-another-cron-on-one-host). |
+| `providerOutput` | `ScheduleVitePluginOptions['providerOutput']` | `auto` | Controls generated provider cron output for the build's host. Values: `auto`, `standalone`, `nitro`, `false`. |
 | `projectRoot` | `string` | ViteHub project root | Resolves discovered schedule files and generated registry output from a custom project root. |
 | `runtime` | `ScheduleProcessRuntimeOptions` | No runtime driver | Explicitly installs the generated Nitro Process Runtime. Accepts `driver: 'process'`, plus optional `prefix` (default `vitehub:schedule`), `intervalMs` (default `60_000`), and `concurrency` (default `1`). |
 
@@ -37,6 +38,27 @@ The Process Runtime imports the discovered registry and runs each Static Schedul
 ::warning
 The Process Runtime requires exactly one long-lived process or replica. The KV run store records occurrences but does not provide distributed leader election or locking. Do not use this driver on request-scoped or serverless hosts that may stop between requests. It scans inside the Node.js process and does not create cron, systemd, or another operating-system schedule.
 ::
+
+## Run a Schedule on another cron on one host
+
+Some hosts limit how often a cron job runs. Vercel Hobby runs cron jobs at most once a day. Set `cron` in that host's build config to give a Schedule another cron there, and keep the Schedule's own cron on the other hosts:
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'vercel',
+      // server/schedules/cleanup.ts declares cron: '0 * * * *'
+      schedule: { cron: { cleanup: '0 0 * * *' } },
+    }),
+  ],
+})
+```
+
+The keys are Schedule names. The cron replaces the declared one in the generated host output: Vercel and Netlify cron jobs, Cloudflare cron triggers, and `Deno.cron`. `vitehub inspect definitions` shows it as the Schedule's `Cron`, with the `Declared cron` beside it. A name that matches no Schedule fails the build with `SCHEDULE_B0008`, and so does `cron` when the Process Runtime wakes the Static Schedules, since it always runs the declared cron. With `providerOutput: 'nitro'` or `'standalone'` the host wakes them, so `cron` applies.
 
 ## Define a static schedule
 
@@ -90,9 +112,9 @@ export default defineSchedule({
 })
 ```
 
-This runs at 08:00 in Madrid: 06:00 UTC in summer and 07:00 UTC in winter. Write `timeZone` as a string literal, because the build and the Console read it from the source file. The value must be an IANA name. Abbreviations such as `PST` and numeric offsets are rejected.
+This runs at 08:00 in Madrid: 06:00 UTC in summer and 07:00 UTC in winter. `timeZone` can be any expression, such as a shared constant. The value must be an IANA name. Abbreviations such as `PST` and numeric offsets are rejected.
 
-Only the process driver (`runtime: { driver: 'process' }`) evaluates `timeZone`. Provider cron output for Cloudflare, Vercel, Netlify, and Deno supports only UTC, so a build that generates provider output fails when a Static Schedule sets a `timeZone` other than `UTC`. Remove `timeZone` and write the cron in UTC, or use the process driver.
+Only the process driver (`runtime: { driver: 'process' }`) evaluates `timeZone`. Provider cron output for Cloudflare, Vercel, Netlify, and Deno supports only UTC, so a build that generates provider output fails when a Static Schedule sets `timeZone` to anything but the literal `'UTC'`. Remove `timeZone` and write the cron in UTC, or use the process driver.
 
 On daylight saving time changes, a local time that does not exist does not run that day. For example, `30 2 * * *` in `Europe/Madrid` does not run on the spring-forward day. A local time that occurs twice runs once, at its first occurrence, when the cron sets a fixed minute and hour. A cron with `*` in the minute or hour field runs on elapsed time, so it also runs in the repeated hour.
 

@@ -1,8 +1,8 @@
 ---
 title: Comments limits and errors
 description: Size limits, numbering, and the errors that comments raise.
-navigation.title: Limits and errors
-navigation.order: 5
+navigation.title: Operations limits and errors
+navigation.order: 24
 icon: i-lucide-circle-alert
 ---
 

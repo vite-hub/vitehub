@@ -25,17 +25,6 @@ export interface PublicPackageBinContract {
 
 type OptionalPeerUsage = "both" | "declaration" | "runtime"
 
-const contentEditorTiptapPeers: Readonly<Record<string, OptionalPeerUsage>> = {
-  "comark": "runtime",
-  "comark-tiptap": "both",
-  "@tiptap/core": "both",
-  "@tiptap/extension-code-block": "runtime",
-  "@tiptap/extension-image": "runtime",
-  "@tiptap/extension-table": "runtime",
-  "@tiptap/pm": "runtime",
-  "@tiptap/starter-kit": "runtime",
-}
-
 const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUsage>>>([
   ["@vite-hub/agent", { "@vite-hub/workflow": "declaration" }],
   ["@vite-hub/agent/cli", { "vite": "both" }],
@@ -50,15 +39,19 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/browser/internal/chromium", { "playwright-core": "declaration" }],
   ["@vite-hub/browser/internal/chromium.workerd", { "playwright-core": "declaration" }],
   ["@vite-hub/comments/vite", { "vite": "both" }],
+  ["@vite-hub/cms/access", { "@vite-hub/comments": "declaration", "better-auth": "both" }],
   ["@vite-hub/connections/agent", { "drizzle-orm": "both" }],
   ["@vite-hub/content/database", { "drizzle-orm": "both" }],
-  // The editor renders through comark-tiptap, which imports these Tiptap packages. Content keeps all of them external.
-  ["@vite-hub/content/editor", { ...contentEditorTiptapPeers, "@vite-hub/realtime": "declaration" }],
+  // The assistant preset is an Agent Definition on the ChatGPT gateway.
+  ["@vite-hub/docs/assistant", { "@vite-hub/agent": "both", "@vite-hub/gateways": "runtime" }],
+  // Content owns its parser and Tiptap dependencies; only optional ViteHub integrations remain peers.
+  ["@vite-hub/content/editor", { "@vite-hub/realtime": "declaration" }],
   // Realtime loads the editor, and the Realtime and Workspace runtimes that hold the live document.
-  ["@vite-hub/content/realtime", { ...contentEditorTiptapPeers, "@vite-hub/realtime": "both", "@vite-hub/workspace": "runtime" }],
+  ["@vite-hub/content/realtime", { "@vite-hub/realtime": "both", "@vite-hub/workspace": "runtime" }],
   ["@vite-hub/connections/server", { "drizzle-orm": "both" }],
   ["@vite-hub/env/cli", { "vite": "runtime" }],
   ["@vite-hub/env/database", { "drizzle-orm": "both" }],
+  ["@vite-hub/gateways/ai-sdk", { "@ai-sdk/provider": "declaration" }],
   ["@vite-hub/kv/runtime/upstash-driver", { "@upstash/redis": "both" }],
   ["@vite-hub/source/client", { "vue": "both" }],
   ["@vite-hub/source/drizzle", { "drizzle-orm": "both" }],
@@ -68,21 +61,24 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/workflow/runtime/openworkflow", { "openworkflow": "declaration" }],
   ["@vite-hub/workflow/runtime/openworkflow-worker", { "openworkflow": "declaration" }],
   ["vite-hub", { "vite": "both" }],
+  ["vite-hub/agent/invocations/database", { "@vite-hub/database": "both", "drizzle-orm": "both" }],
   ["vite-hub/agent/observability", { "evlog": "both" }],
-  ["vite-hub/agent/eval", { "evalite": "both", "vitest": "both" }],
+  // The Console signs people in with Better Auth and keeps the Agent journal in libSQL.
+  ["vite-hub/console/auth", { "@better-auth/oauth-provider": "both", "@vite-hub/auth": "both", "better-auth": "both" }],
+  ["vite-hub/console/auth/inline", { "@better-auth/oauth-provider": "both", "@vite-hub/auth": "both", "better-auth": "both" }],
+  ["vite-hub/console/server", { "@libsql/client": "both", "@vite-hub/agent": "both", "drizzle-orm": "both" }],
   ["vite-hub/doctor", { "vite-doctor": "both" }],
   ["vite-hub/browser/controllers/playwright", { "playwright-core": "declaration" }],
+  ["vite-hub/gateways/ai-sdk", { "@ai-sdk/provider": "declaration" }],
   ["vite-hub/logs", { "evlog": "both" }],
   ["vite-hub/logs/memory", { "evlog": "declaration" }],
   ["vite-hub/nuxt", { "vite": "both" }],
   ["vite-hub/source/client", { "vue": "both" }],
-  ["vite-hub/content", { "comark-content": "both" }],
-  ["vite-hub/content/client", { "comark-content": "both" }],
   ["vite-hub/ui", { "vue": "both" }],
   ["vite-hub/ui/headless", { "vue": "both" }],
   ["vite-hub/ui/nuxt", { "vue": "declaration" }],
   // The Console renders its panels with @json-render/vue, which imports Vue.
-  ["vite-hub/console/ui", { "vue": "both" }],
+  ["vite-hub/console/ui", { "@vite-hub/ui": "both", "vue": "both" }],
   ["vite-hub/ui/vite", { "@nuxt/ui": "both" }],
   ["vite-hub/workflow/runtime/openworkflow", { "openworkflow": "both" }],
   ["vite-hub/workflow/runtime/openworkflow-worker", { "openworkflow": "both" }],
@@ -113,8 +109,14 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/schedule/runtime/kv", { "@vite-hub/kv": "runtime" }],
 ])
 
+// `vite-hub` declares the owner packages of opt-in features as optional peers. Its subpaths of such a feature, such as
+// `vite-hub/agent` and `vite-hub/_internal/agent`, need the owner package.
+const optionalFrameworkOwners = new Set(["agent", "auth", "cms", "comments", "content", "database", "docs", "presets", "realtime", "schedule", "shell", "ui", "workspace"])
+
 function optionalPeersForExport(specifier: string, subpath: string) {
   const usage: Record<string, OptionalPeerUsage> = { ...optionalPeerUsage.get(specifier) }
+  const feature = subpath.replace(/^\.\/(?:_internal\/)?/, "").split("/")[0]
+  if (specifier.startsWith("vite-hub/") && feature && optionalFrameworkOwners.has(feature)) usage[`@vite-hub/${feature}`] ??= "both"
   if (/(?:^|\/)vite$/.test(subpath)) usage.vite ??= "both"
   if (/(?:^|\/)vue$/.test(subpath)) usage.vue ??= "both"
   if (specifier === "vite-hub/ui" || specifier.startsWith("vite-hub/ui/")) usage.vue ??= "both"

@@ -28,7 +28,7 @@ export default defineAuth({
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | Better Auth options | `AuthBetterAuthOptions` | Better Auth defaults | Passed to `betterAuth()` after ViteHub-owned fields are removed. |
-| `database` | `true \| { name, dedicated? }` | Default Database metadata | Records the intended Default or Named Database for inspection. It does not create a Better Auth database adapter. |
+| `database` | `authDatabase(name?)`, or `true \| { name, dedicated? }` | In-memory store | `authDatabase()` keeps users and sessions in an app Database and adds the Better Auth tables to it. See [Keep users in the app Database](#keep-users-in-the-app-database). `true` and `{ name }` only record the intended Database for inspection. |
 | `secondaryStorage` | `true \| { store }` | Disabled | Records the intended Default or named KV Store for inspection. It does not create a Better Auth secondary storage adapter. |
 | `preset` | `stateless()` | None | Sets the Better Auth options of a preset and checks the other options against it. See [Sessions without a database](#sessions-without-a-database). |
 | `basePath` | `string` | `/api/auth` | Sets the Auth Base Path. It must start with `/`. |
@@ -88,10 +88,24 @@ export default defineAuth(({ env, requestOrigin }) => ({
 | Callback input | Value |
 | --- | --- |
 | `env` | Typed Server Env when the Env Vite Integration is registered. `vitehub()` registers it by default. |
-| `requestOrigin` | The origin of the current request. Same-origin apps do not need a separate auth URL variable. |
+| `requestOrigin` | The origin of the current request. With [`advanced.trustedProxyHeaders`](#behind-a-proxy-that-ends-tls), the origin the client used. Same-origin apps do not need a separate auth URL variable. |
 | `request` | The current request headers and URL, when a request exists. |
 
-Without a `baseURL`, Auth uses `vitehub({ publicUrl })`, then the request origin. When Nitro serves the app below a path, such as Nuxt `app.baseURL: '/app/'`, Auth serves its routes and OAuth callbacks below that path, such as `/app/api/auth`. Set `baseURL` to an origin; Better Auth ignores `basePath` when `baseURL` has a path. Each Auth request or route guard resolves the Definition and `runtime` callbacks once. A later request resolves fresh options.
+Without a `baseURL`, Auth uses `vitehub({ publicUrl })`, then the request origin. When Nitro serves the app below a path, such as Nuxt `app.baseURL: '/app/'`, Auth serves its routes and OAuth callbacks below that path, such as `/app/api/auth`. Set `baseURL` to an origin; Better Auth ignores `basePath` when `baseURL` has a path. Each Auth request or route guard resolves the Definition and `runtime` callbacks once, except for the proxy origin recalculation below. A later request resolves fresh options.
+
+### Behind a proxy that ends TLS
+
+On a server behind Caddy, nginx, or Traefik, Node sees `http://` requests on an internal address, so `requestOrigin` and the default `baseURL` would start with `http://`. Set Better Auth's `advanced.trustedProxyHeaders` to read the origin from the first `X-Forwarded-Proto` and `X-Forwarded-Host` values instead. Without `X-Forwarded-Host`, the host comes from the request. `vitehub({ publicUrl })` still wins over both.
+
+```ts [server/auth.ts]
+export default defineAuth(({ env, requestOrigin }) => ({
+  advanced: { trustedProxyHeaders: true },
+  baseURL: requestOrigin,
+  secret: env.auth.secret.unseal(),
+}))
+```
+
+Turn it on only when a proxy you run sets these headers. Without one, a client can send them and choose the origin of callback URLs and emailed links. Proxy trust follows the normal option precedence: caller runtime options override the `runtime` result, which overrides the Definition. The `advanced` object is replaced as a whole. Callbacks first run with the request URL's origin; when the effective options enable proxy trust and the forwarded origin differs, they run a second time with that origin. If the second run disables trust, Auth discards the forwarded values and disables proxy trust. Auth checks the `Origin` of requests against the resulting `baseURL` by default.
 
 ## Sessions without a database
 
@@ -134,7 +148,7 @@ Every instance must use the same [secret](#secret). The secret encrypts the cook
 | `AUTH_C0047` | A Better Auth plugin that adds tables or fields, such as `jwt()`, `admin()`, or `organization()`, or one that stores verification tokens, such as `magicLink()`, `emailOTP()`, or `oneTimeToken()` |
 | `AUTH_C0048` | An option that the preset sets, from the table above. Pass `maxAge` to `stateless()` instead. |
 
-For revocable sessions, user records, or email and password, remove the preset and configure a database adapter.
+For revocable sessions, user records, or email and password, remove the preset and use [`authDatabase()`](#keep-users-in-the-app-database).
 
 ### User ID
 
@@ -175,7 +189,57 @@ The hook runs for every Better Auth path that refreshes a stored session: `/get-
 
 ## Session marker cookie
 
-When a response sets the session cookie, ViteHub Auth also sets `vitehub_session=1`. It has the session cookie's lifetime, path, domain, `SameSite`, `Secure`, and `Partitioned` attributes, and Better Auth clears it when it clears the session cookie, such as on sign-out. Unlike the session cookie it is not `HttpOnly`, so a page script can read it. It holds no secret and proves nothing: the server still checks the session on every request. The [comments overlay](/docs/comments/configure#privacy) can use it to skip the session request for visitors who never signed in when marker mode is enabled.
+When a response sets the session cookie, ViteHub Auth also sets `vitehub_session=1`. It has the session cookie's lifetime, path, domain, `SameSite`, `Secure`, and `Partitioned` attributes, and Better Auth clears it when it clears the session cookie, such as on sign-out. Unlike the session cookie it is not `HttpOnly`, so a page script can read it. It holds no secret and proves nothing: the server still checks the session on every request. The [comments overlay](/docs/comments/operations/configure#content-security-policy-and-privacy) can use it to skip the session request for visitors who never signed in when marker mode is enabled.
+
+When a session starts or ends, ViteHub Auth also clears the `vitehub-tools` cookie of the [ViteHub tools pill](/docs/development/console#open-the-console-from-the-apps-pages). The next page then asks whether the new person may use the Console or Comments, so the pill shows right after sign-in and goes away after sign-out. A session refresh keeps the same session and keeps the cookie.
+
+## Keep users in the app Database
+
+Pass `authDatabase()` as `database`. Better Auth then keeps users, sessions, accounts, and verifications in the app Database, and Auth adds their tables to that Database through the Database integration:
+
+```ts [server/auth.ts]
+import { admin } from 'better-auth/plugins'
+import { defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
+
+export default defineAuth({
+  database: authDatabase(),
+  emailAndPassword: { enabled: true },
+  plugins: [admin()],
+})
+```
+
+```bash [Terminal]
+pnpm vitehub db generate
+pnpm vitehub db migrate
+```
+
+- `authDatabase()` uses the `default` Database. Pass a name, such as `authDatabase('content')`, for a Named Database. Write the call inline in `defineAuth()`, in the object or in the object that the callback returns, so that the Vite integration can read it.
+- Keep one unconditional Database target. A callback must return one object with the inline call; branches and `runtime.database` cannot select another target. Other runtime options still work.
+- The owned tables use text IDs and text references. Use Better Auth's default ID generator or a custom function returning strings. `advanced.database.generateId` values `serial`, `uuid`, and `false` require another adapter and a schema that you own; `authDatabase()` rejects them with `AUTH_C0053`.
+- The owned core tables have fixed columns. For `additionalFields` on `user`, `session`, `account`, or `verification`, including Console profile fields, use another Better Auth adapter and a schema that includes those columns. `authDatabase()` rejects these options with `AUTH_C0055`; a Database contribution cannot extend the owned tables.
+- Plugins may use the owned columns of `admin()`, `jwt()`, and `oauthProvider()`. Plugins that add other columns to an owned table, such as `username()`, fail with `AUTH_C0056` before the adapter opens the Database. Model and field remapping on owned tables also fail with `AUTH_C0056`; use another adapter and a matching schema for those options.
+- The tables are the Better Auth core tables (`user`, `session`, `account`, `verification`), the fields of the [`admin()`](https://www.better-auth.com/docs/plugins/admin) plugin (`user.role`, bans, and `session.impersonatedBy`), and the `jwks` and `oauth*` tables that [Console MCP OAuth](/docs/development/mcp#set-up-oauth) needs. Column names follow the Better Auth CLI.
+- The tables use the dialect of the target Database: SQLite, libSQL, and Cloudflare D1, or Postgres. Without a Database Definition, the Database integration adds the implicit `default` Database for them.
+- `vitehub inspect definitions --kind database` lists the `auth` tables with `@vite-hub/auth/vite` as their plugin. The tables are also in `useDatabase(name).schema`, so server code can read them.
+- Other plugins that add tables, such as `organization()`, need their tables in the Database Definition. A table that the Database does not have fails when Better Auth uses it.
+- Without the tables, the adapter fails with `AUTH_R0019`. It does not fall back to the in-memory store.
+
+Better Auth's own adapters still work. Return one from the Definition callback or `runtime` when Auth uses another database.
+
+## Give the first admin role
+
+Set `VITEHUB_ADMIN_EMAILS` to a comma-separated list of emails. A new account with one of them gets the admin role of Better Auth's `admin()` plugin: an email and password sign-up, or the first sign-in with a social provider. Existing accounts keep their role. The Auth Console shows the rule in its access notes.
+
+```bash [Terminal]
+VITEHUB_ADMIN_EMAILS=you@example.com pnpm dev
+```
+
+On Cloudflare, store it as a Worker variable or secret, for example `pnpm exec wrangler secret put VITEHUB_ADMIN_EMAILS`. The role is the first entry of `admin({ adminRoles })`, `admin` by default. Without `admin()` in `plugins`, Auth fails with `AUTH_C0051`.
+
+The assignment runs after an application's `databaseHooks.user.create.before` hook, preserving its other fields and any cancellation. A hook's returned role cannot demote a new account with a listed email.
+
+The first account that signs up with a listed email gets the role. This is a bootstrap rule and does not prove email ownership. For email and password sign-up, restrict access to the deployment until you have created the admin account, then unset `VITEHUB_ADMIN_EMAILS` before opening public sign-up. Email verification alone does not protect this bootstrap: someone else can register the address with their own password, and keep that password if the mailbox owner follows the verification link. If the address has already been registered by someone else, remove that account through your trusted administration process before bootstrapping.
 
 ## Storage placement metadata
 
@@ -200,7 +264,7 @@ export default defineAuth({
 })
 ```
 
-To persist Better Auth data, return a concrete Better Auth `database` or `secondaryStorage` adapter from the Definition callback or its `runtime` field. The placement metadata does not substitute for that adapter.
+To persist Better Auth data, use [`authDatabase()`](#keep-users-in-the-app-database), or return a concrete Better Auth `database` or `secondaryStorage` adapter from the Definition callback or its `runtime` field. The placement metadata does not substitute for that adapter.
 
 ## Vite Integration options
 

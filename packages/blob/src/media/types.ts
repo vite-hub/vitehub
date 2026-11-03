@@ -78,8 +78,11 @@ export interface BlobImageTransformer {
   transform(input: Blob, operation: BlobImageOperation): Promise<Blob>
 }
 
-/** Built-in transformer names. `auto` picks the Cloudflare Images binding, then sharp, then passthrough. */
-export type BlobImageTransformerName = "auto" | "cloudflare-images" | "passthrough" | "sharp"
+/**
+ * Built-in transformer names. `auto` picks the Cloudflare Images binding, then sharp, then passthrough. `photon` uses
+ * `@cf-wasm/photon` on every host and is never picked by `auto`.
+ */
+export type BlobImageTransformerName = "auto" | "cloudflare-images" | "passthrough" | "photon" | "sharp"
 
 /** `blob.images` options. Variants are on by default with the `auto` transformer. */
 export interface BlobImagesOptions {

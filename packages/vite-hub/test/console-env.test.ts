@@ -5,7 +5,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest"
-import { consoleKVKey, consoleEnvKey, consoleEnvRootKey, consoleEnvRegistryKey, consoleSectionsKey, consoleSectionsRootKey, consoleSectionsRegistryKey, installConsoleEnvScope, resolveConsoleEnv } from "../src/console/internal.ts"
+import { consoleBlobKey, consoleEnvKey, consoleEnvRootKey, consoleEnvRegistryKey, consoleSectionsKey, consoleSectionsRootKey, consoleSectionsRegistryKey, installConsoleEnvScope, resolveConsoleEnv } from "../src/console/internal.ts"
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 import { installConsoleEnv, manageConsoleEnv } from "../src/console/runtime/server/env.ts"
@@ -29,16 +29,19 @@ const envHandler = allowed(envHandlerRoute)
 
 // SAFETY: Console state uses the same optional symbol keys in runtime and tests.
 const scope = globalThis as ConsoleInvocationScope
-const symbols = [consoleKVKey, consoleEnvKey, consoleEnvRootKey, consoleEnvRegistryKey, consoleSectionsKey, consoleSectionsRootKey, consoleSectionsRegistryKey]
+const symbols = [consoleBlobKey, consoleEnvKey, consoleEnvRootKey, consoleEnvRegistryKey, consoleSectionsKey, consoleSectionsRootKey, consoleSectionsRegistryKey]
 afterEach(() => { for (const key of symbols) { Reflect.deleteProperty(scope, key); Reflect.deleteProperty(process, key) } })
 
 describe("Console Env", () => {
   it("loads declaration metadata without importing provider-backed Server Env", async () => {
     const root = await temporaryDirectory("vitehub-console-env-")
     const plugin = join(root, "console.mjs")
-    await writeConsoleNitroPlugin(plugin, root, ["env"], [], { agents: [], content: {} }, [], [])
+    await writeConsoleNitroPlugin(plugin, root, ["env"], [], { agents: [], content: {} }, [])
     const generated = await readFile(plugin, "utf8")
-    expect(generated).toContain('import { describeServerEnv } from "#vitehub/env/description"')
+    // The Console runtime loads the declarations with the first Console request.
+    const runtimeImports = generated.split("\n").find(line => line.includes("await Promise.all("))
+    expect(runtimeImports).toContain('import("#vitehub/env/description")')
+    expect(runtimeImports).not.toContain('"#vitehub/env/server"')
     expect(generated).not.toContain('from "#vitehub/env/server"')
     // Status inspection can call providers, so the plugin imports it only on request.
     expect(generated).toContain('async event => (await import("#vitehub/env/server")).inspectServerEnv(event)')
@@ -77,7 +80,7 @@ describe("Console Env", () => {
       [undefined, [""]],
     ])
   })
-  it("uses registry keys distinct from KV", () => { expect(consoleEnvKey).not.toBe(consoleKVKey) })
+  it("uses registry keys distinct from Blob", () => { expect(consoleEnvKey).not.toBe(consoleBlobKey) })
   it("serves declaration metadata and rejects mutations", async () => {
     installConsoleSections("/env-test", ["env"])
     const metadata = { entries: [{ path: "env.server.token", source: "provider" as const, provider: "vault", secret: true, required: true, hasDefault: false, type: "string" }, { path: "env.server.dryRun", source: "env" as const, secret: false, required: true, hasDefault: true, type: "boolean" }] }

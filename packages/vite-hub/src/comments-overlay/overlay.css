@@ -14,7 +14,7 @@
    * a pressed button has `currentColor` for its background and the inverted color for its text. A Nuxt UI app still
    * wins: its `--ui-*` variables reach the shadow root through inheritance.
    */
-  --vh-ui-radius: var(--ui-radius, 0.5rem);
+  --vh-ui-radius: calc(var(--ui-radius, 0.25rem) * 2);
   --vh-ui-border: var(--ui-border, light-dark(#e2e8f0, #334155));
   --vh-ui-muted: var(--ui-text-muted, light-dark(#64748b, #94a3b8));
   --vh-ui-dimmed: var(--ui-text-dimmed, light-dark(#64748b, #94a3b8));

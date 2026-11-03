@@ -20,7 +20,7 @@ describe("Nitro plugin selection", () => {
     const excludedApply = vi.fn((_config: UserConfig, env: ConfigEnv) => env.command === "serve")
     const excluded: Plugin = { name: "nitro:env", apply: excludedApply, config: vi.fn(() => undefined) }
     const hub: Plugin[] = [
-      { name: "hub-config", config: () => ({ define: { hubConfigured: true } }) },
+      { name: "hub-config", config: { order: "post", handler: () => ({ define: { hubConfigured: true } }) } },
       ...nitroOrderPlugins(),
     ]
     const plugins = position === "before" ? [[selected, excluded], hub] : [hub, [selected, excluded]]

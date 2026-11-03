@@ -36,12 +36,12 @@ export function inspectRateLimitDefinitions(options: RateLimitInspectionOptions)
 /** Console section that lists discovered Rate Limit Definitions. `vitehub inspect definitions` reads the same data. */
 export const rateLimitConsoleSection: ViteHubConsoleSectionContribution<RateLimitInspectionOptions> = {
   description: "Inspect discovered Rate Limit policies and their source locations.",
-  icon: "i-lucide-gauge",
+  icon: "i-vitehub-rate-limit",
   id: "rate-limits",
   label: "Rate Limits",
   read: inspectRateLimitDefinitions,
   view: {
     kind: "definition-catalog",
-    notice: "Live counters and remaining quota are not included because their accuracy, scope, and availability depend on the provider.",
+    notice: "The page lists the policies. Enter a key to read its live counter or to reset it. Counters depend on the provider: a Cloudflare binding cannot be read or reset, and a memory counter exists only in this server process.",
   },
 }

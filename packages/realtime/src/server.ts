@@ -38,8 +38,10 @@ import {
   readRealtimeStatus,
   readRealtimeYDoc,
   realtimeCodecReadsBack,
+  realtimeDocumentLayout,
   realtimeJsonEqual,
   realtimeStatusFingerprint,
+  writeRealtimeFields,
   writeRealtimeStatus,
 } from "./document.ts"
 import { realtimeMarkdownEditor } from "./editor.ts"
@@ -51,6 +53,8 @@ import {
   messageQueryAwareness,
   messageWorkspaceChange,
   realtimeForbiddenWriteCloseCode,
+  realtimeKeepalivePing,
+  realtimeKeepalivePong,
   realtimeReadOnlyCode,
   realtimeResetCloseCode,
   realtimeSourceChangedCode,
@@ -63,7 +67,11 @@ import { hasNativeCloudflareSql } from "./cloudflare-sql.ts"
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 import { isH3V1Event, toH3V1Request } from "@vite-hub/internal/runtime/h3-v1-request"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
+import { realtimeDurableObjectKey } from "./durable-key.ts"
 
+export { isRealtimeAvailable } from "./availability.ts"
+export { blobDocument } from "./blob-document.ts"
+export type { RealtimeBlobDocumentOptions, RealtimeBlobStore } from "./blob-document.ts"
 export { applyRealtimeAwarenessUpdate, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness } from "./awareness.ts"
 export { RealtimeDocumentConflict, isRealtimeDocumentConflict } from "./conflict.ts"
 export { containsRealtimeState, createRealtimeYDoc, diffRealtimeYDoc, readRealtimeStatus, readRealtimeYDoc, realtimeDocumentLayout } from "./document.ts"
@@ -95,6 +103,7 @@ const durableUpdateCompactionInterval = 128
 const maxSaveRetryMs = 60_000
 const holdIntervalMs = 60_000
 const messageSync = 0
+const keepalivePing = new TextEncoder().encode(realtimeKeepalivePing)
 /** Marks the request that `refreshRealtimeDocument()` sends to a Durable Object. The Worker strips it from client requests. */
 const internalRefreshHeader = "x-vitehub-realtime-refresh"
 /**
@@ -108,6 +117,17 @@ export const realtimePersistenceDefaults = Object.freeze({ debounce: 2_000, maxW
 
 /** Origin of updates that the server writes itself: seeds, stored-form merges, and status. */
 const serverOrigin = Symbol("vitehub.realtime.server")
+
+/** The fields that the adapter loaded, without the ones it left undefined. */
+function loadedFields(loaded: RealtimeLoadedDocument): Record<string, RealtimeFieldValue> {
+  return Object.fromEntries(Object.entries(loaded.fields ?? {}).filter(([, value]) => value !== undefined))
+}
+
+/** True when the field map holds exactly these fields, including fields whose value is null. */
+function holdsFields(map: Y.Map<unknown>, fields: Record<string, RealtimeFieldValue>): boolean {
+  const keys = Object.keys(fields)
+  return map.size === keys.length && keys.every(key => map.has(key) && realtimeJsonEqual(map.get(key), fields[key]))
+}
 
 const readOnlyDocumentMessage = "The editor cannot save this document without loss. The room is read-only."
 const readOnlyDocumentRejection = "This realtime document is read-only: the editor cannot save it without loss."
@@ -365,9 +385,8 @@ interface DocumentGuard {
 async function verifyDocument(editor: RealtimeEditor, loaded: RealtimeLoadedDocument): Promise<DocumentGuard> {
   const result = await editor.verify?.(loaded.body, { fields: loaded.fields })
   const finalNewline = loaded.body.endsWith("\n")
-  const fields = Object.fromEntries(Object.entries(loaded.fields ?? {}).filter(([, value]) => value !== undefined))
   return {
-    clean: { body: keepRealtimeFinalNewline(result?.canonical ?? loaded.body, finalNewline), fields },
+    clean: { body: keepRealtimeFinalNewline(result?.canonical ?? loaded.body, finalNewline), fields: loadedFields(loaded) },
     finalNewline,
     issues: result?.issues ?? [],
     readOnly: result?.writable === false,
@@ -458,10 +477,12 @@ function migrateLegacyDocument(sql: RealtimeRoomSql, key: string, clientUpdateCo
 function parseRoomPath(url: string): { definitionName: string, documentId: string, searchParams: URLSearchParams, workspaceEvents: boolean } {
   const parsed = new URL(url)
   const path = parsed.pathname
-  if (!path.startsWith(routePrefix)) throw new HTTPError({ status: 404 })
+  // Nitro may leave the app base on the request URL. The registered route already owns that prefix.
+  const at = path.indexOf(routePrefix)
+  if (at === -1) throw new HTTPError({ status: 404 })
   let parts: string[]
   try {
-    parts = path.slice(routePrefix.length).split("/").map(decodeURIComponent)
+    parts = path.slice(at + routePrefix.length).split("/").map(decodeURIComponent)
   }
   catch {
     throw new HTTPError({ status: 400, message: "Realtime route components must be valid URL encoding." })
@@ -669,7 +690,7 @@ function toWebEvent(event: H3Event): H3Event {
   return isH3V1Event(event) ? new H3Event(toH3V1Request(event), event.context) : event
 }
 
-const durableObjectKey: unique symbol = Symbol.for("vitehub.realtime.durable-object")
+const durableObjectKey: unique symbol = Symbol.for(realtimeDurableObjectKey)
 // SAFETY: This module owns the process slot shared by the separately bundled handler and Nitro plugin.
 const durableScope = globalThis as typeof globalThis & { [durableObjectKey]?: { env: unknown, state: unknown } }
 
@@ -886,6 +907,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       let document: Y.Doc
       let persistedUpdates = 0
       let dirty = false
+      let refreshedFields = false
       if (restores) {
         document = new Y.Doc()
         try {
@@ -903,6 +925,13 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
           }
           persistedUpdates = updates.length
           dirty = Number(stored?.dirty) === 1 || updates.some(update => update.client_update === undefined || Number(update.client_update) === 1)
+          // A schema can read the same stored file differently, such as a string that now reads as an image
+          // reference. A room without unsaved edits shows the fields as they load now.
+          const fields = document.getMap(realtimeDocumentLayout.fields)
+          if (!dirty && !holdsFields(fields, guard.clean.fields)) {
+            document.transact(() => writeRealtimeFields(fields, guard.clean.fields), serverOrigin)
+            refreshedFields = true
+          }
           assertRealtimeRoomStateQuota(document)
           // The codec may have changed since the room was persisted: show what it reports now.
           if (guard.readOnly || readRealtimeStatus(document).error === readOnlyDocumentMessage) {
@@ -945,7 +974,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
         sql,
       }
       listen(room, document)
-      if (sql && !restores) persistRoom(room)
+      if (sql && (!restores || refreshedFields)) persistRoom(room)
       if (dirty) scheduleSave(room)
       return room
     })
@@ -1243,13 +1272,37 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     }
   }
 
+  /**
+   * Shows a clean room's stored file with the fields that it loads now, when they differ from the room's: a schema can
+   * read the same file differently. The new fields become the clean baseline. A state over the room quota changes nothing.
+   */
+  function refreshFields(room: DocumentRoom, fields: Record<string, RealtimeFieldValue>): void {
+    const map = room.document.getMap(realtimeDocumentLayout.fields)
+    if (holdsFields(map, fields)) return
+    const candidate = new Y.Doc()
+    try {
+      Y.applyUpdate(candidate, Y.encodeStateAsUpdate(room.document))
+      candidate.transact(() => writeRealtimeFields(candidate.getMap(realtimeDocumentLayout.fields), fields))
+      assertRealtimeRoomStateQuota(candidate)
+    }
+    finally {
+      candidate.destroy()
+    }
+    room.document.transact(() => writeRealtimeFields(map, fields), serverOrigin)
+    room.guard = { ...room.guard, clean: { ...room.guard.clean, fields } }
+    persistRoom(room)
+  }
+
   async function refreshRoom(room: DocumentRoom): Promise<{ digest: string | null, reseeded: boolean }> {
     const revision = room.revision
     const loaded = await room.resolved.adapter.load(room.context)
     // A client may edit while the adapter is loading. Preserve that live edit
     // and let the normal save path reconcile the external change.
     if (room.dirty || room.revision !== revision) return { digest: room.digest, reseeded: false }
-    if (loaded.digest === room.digest) return { digest: room.digest, reseeded: false }
+    if (loaded.digest === room.digest) {
+      refreshFields(room, loadedFields(loaded))
+      return { digest: room.digest, reseeded: false }
+    }
     const reseeded = await reseedRoom(room, "source-changed", loaded, true)
     return { digest: room.digest, reseeded }
   }
@@ -1467,6 +1520,11 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       message(peer, message: WebSocketMessage) {
         if (!room.peers.has(peer)) return
         const data = message.uint8Array()
+        // On Cloudflare the Durable Object answers the keepalive itself, so it reaches this hook only on other hosts.
+        if (data.byteLength === keepalivePing.byteLength && data.every((byte, index) => byte === keepalivePing[index])) {
+          peer.send(realtimeKeepalivePong)
+          return
+        }
         if (data.byteLength > maxMessageBytes) {
           peer.close(4400, "Realtime message exceeds 1 MiB.")
           return

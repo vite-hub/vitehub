@@ -250,14 +250,53 @@ describe("built-in deployment preset integration", () => {
     }
   })
 
+  it.each(["before", "after"] as const)("derives deployment resources from the root set by a plugin %s vitehub", async (position) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deployment-root-"))
+    const appRoot = join(root, "app")
+    let capturedWrangler: unknown
+    try {
+      await mkdir(appRoot)
+      await writeFile(join(root, "package.json"), JSON.stringify({ name: "original-root" }))
+      await writeFile(join(appRoot, "package.json"), JSON.stringify({ name: "application-root" }))
+      const rootPlugin = { name: "application-root", config: () => ({ root: appRoot }) }
+      const hub = vitehub({ preset: "cloudflare", blob: true, queue: true, rateLimit: true, sandboxTask: true, env: false })
+      const config = await resolveConfig({
+        configFile: false,
+        nitro: { modules: [{ name: "capture-resources", setup(nitro) {
+          capturedWrangler = structuredClone(nitro.options.cloudflare?.wrangler)
+        } }] },
+        root,
+        plugins: position === "before" ? [rootPlugin, hub] : [hub, rootPlugin],
+      }, "build")
+      expect(config.root).toBe(appRoot)
+      expect(config).toMatchObject({
+        blob: { bucketName: "application-root", driver: "cloudflare-r2" },
+        nitro: { cloudflare: { wrangler: {
+          name: "application-root",
+          r2_buckets: [{ binding: "BLOB", bucket_name: "application-root" }],
+        } } },
+        queue: { namePrefix: "application-root-", provider: "cloudflare" },
+        rateLimit: { namespace: "application-root", provider: "cloudflare" },
+        sandboxTask: { name: "application-root-sandbox", provider: "cloudflare" },
+      })
+      expect(capturedWrangler).toMatchObject({
+        name: "application-root",
+        r2_buckets: [{ binding: "BLOB", bucket_name: "application-root" }],
+      })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("declares optional Server Env for gateway presets used by Agents", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-gateway-env-"))
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "dev.ts"), [
-        `import { defineAgent } from "vite-hub/agent"`,
+        `import { codexDriver, defineAgent } from "vite-hub/agent"`,
         `import { cliproxy, cloudflareAccess } from "vite-hub/gateways"`,
-        `export default defineAgent({ driver: { kind: "codex", gateway: cliproxy({ headers: cloudflareAccess() }) } })`,
+        `export default defineAgent({ driver: codexDriver({ gateway: cliproxy({ headers: cloudflareAccess() }) }) })`,
       ].join("\n"))
       const config = await resolveConfig({
         root,
@@ -337,18 +376,15 @@ describe("built-in deployment preset integration", () => {
       expect(await readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).not.toContain("\"telegram\": {")
 
       for (const { source, required } of [
-        { source: `defineAgent({ channels: { telegram: undefined } })`, required: true },
         { source: `defineAgent({ channels: { telegram: telegram(undefined) } })`, required: true },
         { source: `defineAgent({ channels: { telegram: telegram(({})) } })`, required: true },
         { source: `defineAgent({ channels: { telegram: telegram((({ botToken: "token" }))) } })`, required: false },
         { source: `defineAgent({ channels: { telegram: telegram?.({ botToken: "token" }) } })`, required: false },
         { source: `defineAgent({ channels: { support: telegram<Runtime> } })`, required: true },
         { source: `defineAgent({ channels: { support: (telegram) } })`, required: true },
-        { source: `const channels = ({ telegram: {} }); defineAgent({ channels })`, required: true },
-        { source: `const channels = ({ telegram: {} }) && custom; defineAgent({ channels })`, required: false },
+        { source: `const channels = ({ support: telegram }); defineAgent({ channels })`, required: true },
+        { source: `const channels = ({ support: telegram }) && custom; defineAgent({ channels })`, required: false },
         { source: `defineAgent({ channels: { telegram: telegram({ botToken: void 0 }) } })`, required: true },
-        { source: `defineAgent({ channels: { telegram: { botToken: void 0, adapter: void 0 } } })`, required: true },
-        { source: `defineAgent({ channels: { telegram: void 0 } })`, required: true },
         { source: `defineAgent({ channels: { support: channelFactories?.["telegram"]() } })`, required: true },
         { source: `defineAgent({ channels: { support: channelFactories?.["telegram"]?.<Runtime>({ botToken: "token" }) } })`, required: false },
         { source: `function run() { telegram()\n{} }; defineAgent({ channels: {} })`, required: true },
@@ -357,10 +393,10 @@ describe("built-in deployment preset integration", () => {
         { source: `function build({ telegram: configured }: { telegram?: string }) { return telegram() }; defineAgent({ channels: { support: build({}) } })`, required: true },
         { source: `defineAgent({ channels: { telegram: telegram({ botToken: undefined as string | undefined }) } })`, required: true },
         { source: `const present = "telegram" in { telegram() {} }; type Conditional<T> = T extends { telegram(): void } ? true : false; defineAgent({ channels: {} })`, required: false },
-        { source: `const channels = { telegram: {} }; defineAgent({ channels: channels satisfies AgentChannelInputs })`, required: true },
-        { source: `const channels = { telegram: {} }; defineAgent({ channels: (channels as AgentChannelInputs) })`, required: true },
-        { source: `const channels = { telegram: {} }; defineAgent({ channels: ((channels satisfies AgentChannelInputs)) })`, required: true },
-        { source: `defineAgent({ channels: { telegram: { async botToken() { return "token" } } } })`, required: false },
+        { source: `const channels = { support: telegram }; defineAgent({ channels: channels satisfies AgentChannelInputs })`, required: true },
+        { source: `const channels = { support: telegram }; defineAgent({ channels: (channels as AgentChannelInputs) })`, required: true },
+        { source: `const channels = { support: telegram }; defineAgent({ channels: ((channels satisfies AgentChannelInputs)) })`, required: true },
+        { source: `defineAgent({ channels: { telegram: telegram({ async botToken() { return "token" } }) } })`, required: false },
       ]) {
         await writeFile(join(root, "server", "agents", "support.ts"), [
           `import { defineAgent } from "vite-hub/agent"`,
@@ -384,8 +420,9 @@ describe("built-in deployment preset integration", () => {
       await rm(join(root, "server", "agents", "support.js"))
 
       await writeFile(join(root, "server", "agents", "support.ts"), [
+        `import { telegram } from "vite-hub/agent/channels"`,
         `const defineAgent = (options) => options`,
-        `export default defineAgent({ channels: { telegram: {} } })`,
+        `export default defineAgent({ channels: { support: telegram } })`,
       ].join("\n"))
       expect(requiredSecrets(await resolve()) ?? []).not.toContain("TELEGRAM_BOT_TOKEN")
       expect(await readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).not.toContain("\"telegram\": {")
@@ -422,6 +459,52 @@ describe("built-in deployment preset integration", () => {
       await rm(root, { force: true, recursive: true })
     }
   }, 30_000)
+
+  it("keeps one Wrangler entry per binding when the project's wrangler.json repeats generated ones", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-project-wrangler-build-"))
+    try {
+      await mkdir(join(root, "server", "routes"), { recursive: true })
+      await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
+      await writeFile(join(root, "index.html"), "<main>ok</main>\n")
+      await writeFile(join(root, "server", "routes", "index.ts"), "export default () => 'ok'\n")
+      // A Deploy to Cloudflare template: the button writes real ids over the all-zero ones.
+      await writeFile(join(root, "wrangler.json"), JSON.stringify({
+        compatibility_flags: ["nodejs_compat"],
+        kv_namespaces: [{ binding: "KV", id: "kv-id" }, { binding: "CACHE", id: "00000000000000000000000000000000" }],
+        r2_buckets: [{ binding: "BLOB", bucket_name: "assets", preview_bucket_name: "assets-preview" }],
+        secrets: { required: ["VITEHUB_TOKEN", "OTHER_TOKEN"] },
+      }))
+      const { nitro } = await import("nitro/vite" as string) as { nitro: () => unknown }
+      const builder = await createBuilder({
+        env: { server: { token: env({ secret: true, source: env.source("VITEHUB_TOKEN") }) } },
+        logLevel: "silent",
+        nitro: {
+          cloudflare: {
+            wrangler: {
+              compatibility_flags: ["nodejs_compat"],
+              kv_namespaces: [{ binding: "KV" }, { binding: "CACHE" }],
+              r2_buckets: [{ binding: "BLOB", bucket_name: "assets" }],
+            },
+          },
+        },
+        root,
+        plugins: [vitehub({ preset: "cloudflare" }), nitro() as never],
+      } as Parameters<typeof createBuilder>[0] & EnvViteUserConfig)
+      await builder.buildApp()
+
+      const wrangler: unknown = JSON.parse(await readFile(join(root, ".output", "server", "wrangler.json"), "utf8"))
+      expect(wrangler).toMatchObject({
+        compatibility_flags: ["nodejs_compat"],
+        kv_namespaces: [{ binding: "KV", id: "kv-id" }, { binding: "CACHE" }],
+        r2_buckets: [{ binding: "BLOB", bucket_name: "assets", preview_bucket_name: "assets-preview" }],
+        secrets: { required: ["VITEHUB_TOKEN", "OTHER_TOKEN"] },
+      })
+      expect(wrangler).not.toHaveProperty("kv_namespaces.1.id")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  }, 120_000)
 
   it("emits discovered D1 bindings through the Nitro Vite plugin", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-d1-bindings-build-"))
@@ -539,7 +622,7 @@ describe("built-in deployment preset integration", () => {
       const files = (await readdir(serverDir, { recursive: true })).filter(file => file.endsWith(".mjs"))
       const sources = await Promise.all(files.map(file => readFile(join(serverDir, file), "utf8")))
       const bundle = sources.join("\n")
-      expect(bundle).toContain("AGENT_R0928")
+      expect(files.filter(file => file.includes("provider-agent"))).toEqual([])
       expect(bundle).not.toContain("createSqliteProviderRuntimeSessionStore")
       expect(bundle).not.toMatch(/["']node:child_process["']/)
       expect(bundle).not.toMatch(/createRequire\(\s*import\.meta\.url\s*\)/)
@@ -556,8 +639,8 @@ describe("built-in deployment preset integration", () => {
       await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
       await writeFile(join(root, "index.html"), "<main>ok</main>\n")
       await writeFile(join(root, "server", "agents", "review.ts"), [
-        "import { defineAgent } from \"vite-hub/agent\"",
-        "export default defineAgent({ driver: \"codex\" })",
+        "import { codexDriver, defineAgent } from \"vite-hub/agent\"",
+        "export default defineAgent({ driver: codexDriver() })",
         "",
       ].join("\n"))
       const { nitro } = await import("nitro/vite" as string) as { nitro: () => unknown }
@@ -567,7 +650,7 @@ describe("built-in deployment preset integration", () => {
         plugins: [vitehub({ agent: true, preset: "cloudflare", workflow: false }), nitro() as never],
       })
 
-      await expect(builder.buildApp()).rejects.toThrow(/AGENT_B0019[\s\S]*server\/agents\/review\.ts/)
+      await expect(builder.buildApp()).rejects.toThrow(/AGENT_B0019[\s\S]*cannot run in a Cloudflare Worker/)
     }
     finally {
       await rm(root, { force: true, recursive: true })

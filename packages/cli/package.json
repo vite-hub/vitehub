@@ -1,14 +1,18 @@
 {
   "name": "@vite-hub/cli",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "description": "Command-line workflows for ViteHub projects.",
   "keywords": [
     "agent",
     "cli",
+    "development-tools",
     "eval",
+    "nuxt",
+    "typescript",
+    "vite",
     "vitehub"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -31,7 +35,6 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./package.json": "./package.json"

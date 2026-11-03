@@ -1,8 +1,8 @@
 ---
 title: Comments
-navigation.title: Overview
+navigation.title: Operations overview
 description: Store the comment threads of your running app, check who may read and write them, and read them from the Console, the CLI, and agents.
-navigation.order: 1
+navigation.order: 20
 icon: i-lucide-message-square
 ---
 

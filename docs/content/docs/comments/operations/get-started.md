@@ -2,8 +2,8 @@
 title: Add comments to an app
 description: Define who may comment, create the tables, and read the first thread from the CLI.
 layout: tutorial
-navigation.title: Get started
-navigation.order: 2
+navigation.title: Operations tutorial
+navigation.order: 21
 icon: i-lucide-rocket
 ---
 
@@ -42,7 +42,7 @@ export default defineComments({
 
 ## Create the tables
 
-```bash [Terminal]
+```bash [commands/migrate]
 pnpm vitehub db generate
 pnpm vitehub db migrate
 ```
@@ -51,7 +51,7 @@ pnpm vitehub db migrate
 
 Create a thread from code or from the [UI parts](/docs/ui/comments), then list it:
 
-```bash [Terminal]
+```bash [commands/read-thread]
 pnpm vitehub comments list --json
 pnpm vitehub comments get --id thread_123
 ```
@@ -89,7 +89,7 @@ The overlay lives in a shadow root on an element with `data-comments-ui`, so you
 
 Turn it off, or limit it to some pages, in `vitehub()`:
 
-```ts [vite.config.ts]
+```ts [overlay/vite.config.ts]
 vitehub({ comments: { overlay: { paths: ['/docs/**'], exclude: ['/docs/internal/**'] } } })
 vitehub({ comments: { overlay: false } })
 ```

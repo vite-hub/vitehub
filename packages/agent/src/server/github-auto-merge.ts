@@ -3,7 +3,7 @@ import html from "comark/plugins/html"
 import type { ComarkPlugin, Node as MarkdownNode } from "comark"
 import * as v from "valibot"
 import { isRuntimeRecord as isRecord } from "../internal/runtime-type.ts"
-import { getReviewThread, githubBranchRuleDetails, repoRef, type CiRunRef, type GitHubProvider, type ThreadRef } from "@vite-hub/forge"
+import { forgeBranchRules, githubBranchRuleDetails, repoRef, type CiRunRef, type GitHubProvider, type ThreadRef } from "@vite-hub/forge"
 import type { GitHubHost } from "./github-host.ts"
 import type { GitHubRepairCommit } from "./github-repair.ts"
 
@@ -305,7 +305,7 @@ export function createGitHubPullRequestOperations(
     if (!current.autoMergeAllowed) return { status: "blocked", reason: "repository-disabled" }
     const { provider, repo } = await forge()
     // Active rulesets, including organization rulesets, and classic branch protection.
-    const rules = await provider.repos.branchRules(repo, pullRequest.baseRefName, { signal })
+    const rules = await forgeBranchRules(provider, repo, pullRequest.baseRefName, { signal })
     const details = githubBranchRuleDetails(rules)
     if (!rules.requiredChecks.length && !details.requiredWorkflows) return { status: "blocked", reason: "required-checks-missing" }
     const reviews = pullRequest.latestOpinionatedReviews.nodes
@@ -441,11 +441,14 @@ export function createGitHubPullRequestOperations(
     },
     async resolveThread(id) {
       nonempty(id, "Review thread ID")
-      const current = await snapshot()
-      const { provider } = await forge()
-      const thread = await getReviewThread(provider, id, { signal })
-      if (!thread || thread.pullRequestId !== current.pullRequest.id) throw new Error("Review thread does not belong to this pull request.")
-      if (thread.resolved) return
+      await snapshot()
+      const reader = await forge()
+      let resolved: boolean | undefined
+      for await (const thread of reader.provider.threads.reviewThreads(reader.pullRequest, { signal })) {
+        if (thread.id === id) { resolved = thread.resolved; break }
+      }
+      if (resolved === undefined) throw new Error("Review thread does not belong to this pull request.")
+      if (resolved) return
       // The thread lookup may race a push or closure. Its ownership is not evidence
       // that this pass still owns the current PR head.
       await snapshot()

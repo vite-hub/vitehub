@@ -72,6 +72,9 @@ export interface ConsoleMediaListing {
 
 export type ConsoleMediaType = "audio" | "document" | "image" | "other" | "video"
 
+/** Every media type, for the type filter. */
+export const consoleMediaTypes: readonly ConsoleMediaType[] = ["image", "video", "audio", "document", "other"]
+
 export interface ConsoleMediaListQuery {
   cursor?: string
   folder?: string
@@ -100,6 +103,8 @@ export interface ConsoleMediaUploadResult {
 export interface ConsoleMediaUploadOptions {
   /** Upload the replacement image of this crop of `pathname` instead of a new file. */
   crop?: { name: string, pathname: string }
+  /** Asked when the pathname exists. Without it, an upload never replaces a file. */
+  confirmReplace?: (pathname: string) => boolean | Promise<boolean>
   folder?: string
   onProgress?: (fraction: number) => void
   signal?: AbortSignal
@@ -107,7 +112,11 @@ export interface ConsoleMediaUploadOptions {
 
 /** The media library actions of one document editor section, called through the Console RPC transport. */
 export interface ConsoleMediaClient {
+  /** Supported mutations, in addition to the user's access. Omitted for a full Content media library. */
+  capabilities?: { folders: boolean, move: boolean }
   createFolder(parent: string, name: string): Promise<{ path: string }>
+  /** Paths that the library shows but never changes, such as the files that ViteHub keeps for itself. */
+  isProtected?(pathname: string): boolean
   get(pathname: string): Promise<ConsoleMediaFile>
   /** The access of the signed-in user and the served URL of the store. */
   info(): Promise<ConsoleMediaInfo>

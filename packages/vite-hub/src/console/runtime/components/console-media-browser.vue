@@ -21,6 +21,7 @@ import ConsoleMediaMove from "./console-media-move.vue";
 import ConsoleMediaUploads from "./console-media-uploads.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
+import ConsoleState from "./console-state.vue";
 
 import type { ConsoleMediaAccess, ConsoleMediaClient, ConsoleMediaFile, ConsoleMediaReferenceDocument, ConsoleMediaType, ConsoleMediaUploadResult } from "../client/media-library";
 
@@ -64,6 +65,9 @@ const emit = defineEmits<{
 
 const folder = defineModel<string>("folder", { default: "" });
 const selected = defineModel<string[]>("selected", { default: () => [] });
+/** The file name search and the type filter. A page keeps them in the URL; the picker keeps them here. */
+const search = defineModel<string>("search", { default: "" });
+const type = defineModel<ConsoleMediaType | "all">("type", { default: "all" });
 
 const toast = useConsoleToast();
 const items = shallowRef<ConsoleMediaFile[]>([]);
@@ -75,9 +79,7 @@ const truncated = ref(false);
 const loading = ref(true);
 const loadingMore = ref(false);
 const error = ref<unknown>();
-const search = ref("");
-const query = ref("");
-const type = ref<ConsoleMediaType | "all">("all");
+const query = ref(search.value.trim());
 const viewKey = props.viewKey ?? "vitehub:console:media-view";
 const storedView = globalThis.localStorage?.getItem(viewKey);
 const view = ref<"grid" | "list">(storedView === "list" || storedView === "grid" ? storedView : props.defaultView ?? "grid");
@@ -106,6 +108,10 @@ const hasDimensions = computed(() => items.value.some(file => file.width && file
 const selectedSet = computed(() => new Set(selected.value));
 const selecting = computed(() => selected.value.length > 0);
 /** Selection exists for bulk moves and deletes on the page, and for picking several files in the picker. */
+/** A folder or file that the store keeps for itself can be read here, but not uploaded to, moved, or deleted. */
+const folderProtected = computed(() => props.client.isProtected?.(folder.value) ?? false);
+const canWrite = computed(() => access.value.write && !folderProtected.value);
+const selectionManageable = computed(() => access.value.manage && !selectedFiles().some(file => props.client.isProtected?.(file.pathname)));
 const canSelect = computed(() => (props.mode === "page" ? access.value.manage : Boolean(props.multiple)));
 const pickable = (file: ConsoleMediaFile) => props.mode !== "picker" || consoleMediaAccepts(props.accept, file.contentType);
 
@@ -150,6 +156,7 @@ watch(type, () => void load());
 watch(search, (value) => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => {
+    if (query.value === value.trim()) return;
     query.value = value.trim();
     void load();
   }, 200);
@@ -241,7 +248,7 @@ function keydown(event: KeyboardEvent): void {
     event.preventDefault();
     selected.value = items.value.filter(pickable).map(item => item.pathname);
   }
-  else if ((event.key === "Backspace" || event.key === "Delete") && selecting.value && props.mode === "page" && access.value.manage) {
+  else if ((event.key === "Backspace" || event.key === "Delete") && selecting.value && props.mode === "page" && selectionManageable.value) {
     event.preventDefault();
     void askRemove(selectedFiles());
   }
@@ -265,7 +272,7 @@ const dragDepth = ref(0);
 
 async function upload(files: readonly File[]): Promise<ConsoleMediaUploadResult[]> {
   if (!files.length) return [];
-  if (!access.value.write) {
+  if (!canWrite.value) {
     toast.error("You cannot upload files here. Ask for write access to a collection.");
     return [];
   }
@@ -290,13 +297,13 @@ function hasFiles(event: DragEvent): boolean {
 }
 
 function dragenter(event: DragEvent): void {
-  if (!hasFiles(event) || !access.value.write) return;
+  if (!hasFiles(event) || !canWrite.value) return;
   event.preventDefault();
   dragDepth.value++;
 }
 
 function dragover(event: DragEvent): void {
-  if (!hasFiles(event) || !access.value.write) return;
+  if (!hasFiles(event) || !canWrite.value) return;
   event.preventDefault();
   if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
 }
@@ -534,8 +541,8 @@ defineExpose({
           </UTooltip>
         </div>
         <!-- The Media page moves its actions into the page header, next to the title, like New on a collection. -->
-        <Teleport v-if="access.write" :to="actionsTarget ?? 'body'" :disabled="!actionsTarget">
-          <UPopover v-model:open="folderOpen" :content="{ align: 'end' }">
+        <Teleport v-if="canWrite" :to="actionsTarget ?? 'body'" :disabled="!actionsTarget">
+          <UPopover v-if="client.capabilities?.folders !== false" v-model:open="folderOpen" :content="{ align: 'end' }">
             <UButton size="sm" variant="outline" icon="i-lucide-folder-plus" :label="actionsTarget ? 'New folder' : undefined" aria-label="New folder" />
             <template #content>
               <form class="grid w-64 gap-2 p-3" @submit.prevent="createFolder">
@@ -554,16 +561,8 @@ defineExpose({
       </div>
     </ConsolePageToolbar>
 
-    <div class="min-h-0 flex-1 overflow-y-auto" :class="mode === 'page' ? 'p-4' : 'p-3'">
-      <UAlert
-        v-if="error"
-        color="error"
-        variant="subtle"
-        icon="i-lucide-cloud-off"
-        title="Couldn't load media"
-        :description="consoleErrorMessage(error)"
-        :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', color: 'neutral', variant: 'outline', onClick: () => load() }]"
-      />
+    <div class="flex min-h-0 flex-1 flex-col overflow-y-auto" :class="mode === 'page' ? 'p-4' : 'p-3'">
+      <ConsoleState v-if="error" :error="error" :compact="mode === 'picker'" title="Could not load files" :retry="() => load()" />
       <div v-else-if="loading && !items.length && !folders.length" class="vitehub-media-grid" aria-busy="true">
         <USkeleton v-for="index in 12" :key="index" class="aspect-square rounded-md" />
       </div>
@@ -579,7 +578,7 @@ defineExpose({
               <span class="truncate">{{ consoleFolderName(path) }}</span>
             </button>
             <UDropdownMenu
-              v-if="mode === 'page' && access.manage"
+              v-if="mode === 'page' && access.manage && client.capabilities?.folders !== false"
               :content="{ align: 'end' }"
               :items="[[{ label: 'Rename or move…', icon: 'i-lucide-pencil', onSelect: () => askMoveFolder(path) }], [{ label: 'Delete folder', icon: 'i-lucide-trash-2', color: 'error' as const, onSelect: () => askRemoveFolder(path) }]]"
             >
@@ -591,20 +590,18 @@ defineExpose({
         <UEmpty
           v-if="!items.length && !searching && !folders.length"
           variant="naked"
-          class="py-16"
+          class="flex-1 py-16"
           :icon="folder ? 'i-lucide-folder-open' : 'i-lucide-images'"
           :title="folder ? 'This folder is empty' : 'No media yet'"
-          :description="emptyDescription ?? (access.write ? 'Drop files anywhere here, or upload them.' : 'Files that editors upload show here.')"
-          :actions="access.write ? [{ label: 'Upload files', icon: 'i-lucide-upload', color: 'neutral', variant: 'outline', onClick: () => fileInput?.click() }] : []"
+          :description="emptyDescription ?? (canWrite ? 'Drop files anywhere here, or upload them.' : 'Files that editors upload show here.')"
+          :actions="canWrite ? [{ label: 'Upload files', icon: 'i-lucide-upload', color: 'neutral', variant: 'outline', onClick: () => fileInput?.click() }] : []"
         />
 
-        <ul v-else-if="view === 'grid' && items.length" class="vitehub-media-grid" :aria-label="`Files in ${folderLabel(folder)}`" :aria-multiselectable="canSelect ? 'true' : undefined" role="listbox">
+        <!-- A plain list: each tile holds a button and a checkbox, and a listbox option cannot contain controls. -->
+        <ul v-else-if="view === 'grid' && items.length" class="vitehub-media-grid" :aria-label="`Files in ${folderLabel(folder)}`">
           <li
             v-for="file in items"
             :key="file.pathname"
-            role="option"
-            :aria-selected="selectedSet.has(file.pathname) || active === file.pathname"
-            :aria-disabled="!pickable(file) || undefined"
             class="vitehub-media-tile group"
             :class="{ 'is-selected': selectedSet.has(file.pathname), 'is-active': active === file.pathname, 'is-disabled': !pickable(file) }"
           >
@@ -613,6 +610,8 @@ defineExpose({
               class="vitehub-media-tile__button"
               :title="file.pathname"
               :disabled="!pickable(file)"
+              :aria-pressed="mode === 'picker' ? selectedSet.has(file.pathname) : undefined"
+              :aria-current="mode === 'page' && active === file.pathname ? 'true' : undefined"
               @click="click(file, $event)"
               @dblclick="activate(file)"
               @keydown.enter.prevent="mode === 'picker' ? activate(file) : click(file, $event as unknown as MouseEvent)"
@@ -663,7 +662,7 @@ defineExpose({
                 <UCheckbox color="neutral" :model-value="selectedSet.has(file.pathname)" :disabled="!pickable(file)" :aria-label="`Select ${file.name}`" @update:model-value="toggle(file)" />
               </td>
               <td>
-                <button type="button" class="flex min-w-0 items-center gap-2.5 text-start" :disabled="!pickable(file)" @click.stop="click(file, $event)" @keydown.enter.prevent="mode === 'picker' ? activate(file) : click(file, $event as unknown as MouseEvent)">
+                <button type="button" class="flex min-w-0 items-center gap-2.5 text-start" :disabled="!pickable(file)" :aria-pressed="mode === 'picker' ? selectedSet.has(file.pathname) : undefined" :aria-current="mode === 'page' && active === file.pathname ? 'true' : undefined" @click.stop="click(file, $event)" @keydown.enter.prevent="mode === 'picker' ? activate(file) : click(file, $event as unknown as MouseEvent)">
                   <span class="vitehub-media-row-thumb" :style="{ background: file.color }">
                     <img v-if="thumbnail(file, 64)" :src="thumbnail(file, 64)" alt="" loading="lazy" class="size-full object-cover" :style="{ objectPosition: consoleFocalCropPosition(file.focal, file, 1) }">
                     <UIcon v-else :name="consoleMediaTypeIcons[consoleMediaType(file.contentType)]" class="size-4 text-dimmed" aria-hidden="true" />
@@ -691,8 +690,8 @@ defineExpose({
     <div v-if="mode === 'page' && selecting" class="vitehub-media-bulk" role="toolbar" aria-label="Selected files">
       <span class="ps-1 text-[13px] text-highlighted tabular-nums">{{ selected.length }} selected</span>
       <span class="h-4 w-px bg-(--ui-border)" aria-hidden="true" />
-      <UButton v-if="access.manage" size="sm" variant="ghost" icon="i-lucide-folder-input" label="Move…" @click="askMove(selectedFiles())" />
-      <UButton v-if="access.manage" size="sm" variant="ghost" color="error" icon="i-lucide-trash-2" label="Delete" @click="askRemove(selectedFiles())" />
+      <UButton v-if="selectionManageable && client.capabilities?.move !== false" size="sm" variant="ghost" icon="i-lucide-folder-input" label="Move…" @click="askMove(selectedFiles())" />
+      <UButton v-if="selectionManageable" size="sm" variant="ghost" color="error" icon="i-lucide-trash-2" label="Delete" @click="askRemove(selectedFiles())" />
       <UTooltip text="Clear selection" :kbds="['esc']">
         <UButton size="sm" variant="ghost" icon="i-lucide-x" aria-label="Clear selection" @click="selected = []" />
       </UTooltip>

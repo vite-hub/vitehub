@@ -7,8 +7,11 @@ export default defineConfig({
     tsconfig: "tsconfig.build.json",
     copy: [{ from: "styles.css", to: "dist" }],
     deps: {
-      alwaysBundle: [/@pierre\//, "@vite-hub/runtime"],
+      alwaysBundle: [/@pierre\//, "@vite-hub/runtime", /^comark-(?!chat(?:\/|$))/],
+      // Keep Vega's Node/browser exports selectable by the consuming host.
       neverBundle: [
+        "vega-canvas",
+        "vega-loader",
         "#app",
         "@comark/vue",
         /^@comark\/vue\//,

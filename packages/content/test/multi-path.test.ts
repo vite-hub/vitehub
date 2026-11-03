@@ -45,11 +45,6 @@ describe("documents({ path: [...] })", () => {
     expect(mixed.code).toBe("CONTENT_R0006")
     expect(mixed.message).toContain("must share one extension")
   })
-
-  it("rejects a route that is not a function", () => {
-    // @ts-expect-error -- route takes a function.
-    expect(errorOf(() => documents({ path: "posts/*.md", fields, route: "/blog" })).message).toContain("route must be a function")
-  })
 })
 
 describe("collections with several globs", () => {
@@ -137,7 +132,7 @@ describe("content.resolve()", () => {
     const content = defineContent({
       workspace,
       collections: {
-        posts: documents({ path: "blog/**/*.md", fields, route: id => `/blog/${id}` }),
+        posts: documents({ path: "blog/**/*.md", fields, url: "/blog/:id" }),
         pages: documents({ path: "pages/**/*.md", fields }),
       },
       logger: false,
@@ -158,7 +153,7 @@ describe("content.resolve()", () => {
     await expect(content.resolve("/guides/start")).resolves.toEqual({ collection: "pages", id: "guides/start" })
   })
 
-  it("strips /index by default and ignores the query, the hash, and a trailing slash", async () => {
+  it("maps the id without /index when a collection has no url, and ignores the query, the hash, and a trailing slash", async () => {
     const { content } = await setup()
     await expect(content.resolve("/")).resolves.toEqual({ collection: "pages", id: "index" })
     await expect(content.resolve("/guides")).resolves.toEqual({ collection: "pages", id: "guides/index" })
@@ -206,8 +201,8 @@ describe("content.resolve()", () => {
     const content = defineContent({
       workspace,
       collections: {
-        first: documents({ path: "a/*.md", fields, route: () => "/same" }),
-        second: documents({ path: "b/*.md", fields, route: () => "/same" }),
+        first: documents({ path: "a/*.md", fields, url: () => "/same" }),
+        second: documents({ path: "b/*.md", fields, url: () => "/same" }),
       },
       logger: false,
     })
@@ -223,7 +218,7 @@ describe("content.resolve()", () => {
     { kind: "schema-invalid", text: "---\ntitle: 42\n---\n", ref: "draft", readable: true },
     { kind: "malformed", text: "---\ntitle: [unclosed\n---\n", ref: "published", readable: false },
     { kind: "malformed", text: "---\ntitle: [unclosed\n---\n", ref: "draft", readable: false },
-  ] as const)("matches read eligibility for $kind files on $ref, including route collisions", async ({ text, ref, readable }) => {
+  ] as const)("matches read eligibility for $kind files on $ref with a url function, including collisions", async ({ text, ref, readable }) => {
     const workspace = await historyWorkspace(cleanup)
     // Existing files can predate Content's validation hook or the current field schema.
     await useWorkspace(workspace as never, { mode: "write" }).history.commit({
@@ -232,11 +227,11 @@ describe("content.resolve()", () => {
       changes: { put: { "a/same.md": text, "a/only.md": text, "b/same.md": "---\ntitle: Valid\n---\n" } },
     })
     vi.spyOn(console, "warn").mockImplementation(() => undefined)
-    const route = vi.fn((id: string) => `/${id}`)
+    const url = vi.fn(({ id }: { id: string }) => `/${id}`)
     const content = defineContent({
       workspace,
       collections: {
-        first: documents({ path: "a/*.md", fields, route }),
+        first: documents({ path: "a/*.md", fields, url }),
         second: documents({ path: "b/*.md", fields }),
       },
       logger: false,
@@ -246,45 +241,130 @@ describe("content.resolve()", () => {
     expect((await first.list({ ref })).items.map(item => item.id)).toEqual(readable ? ["only", "same"] : [])
     if (readable) await expect(first.get("same", { ref })).resolves.toMatchObject({ issues: expect.any(Array) })
     else await expect(first.get("same", { ref })).rejects.toMatchObject({ code: "CONTENT_INVALID" })
+    // Reads call url too, so count only the calls made while building the resolve() index.
+    url.mockClear()
     await expect(content.resolve("/same", { ref })).resolves.toEqual({ collection: readable ? "first" : "second", id: "same" })
     await expect(content.resolve("/only", { ref })).resolves.toEqual(readable ? { collection: "first", id: "only" } : null)
-    expect(route).toHaveBeenCalledTimes(readable ? 2 : 0)
+    expect(url).toHaveBeenCalledTimes(readable ? 2 : 0)
   })
 
   it("decodes the path and builds the routes once per revision", async () => {
     const workspace = await historyWorkspace(cleanup)
-    const route = vi.fn((id: string) => `/cafe/${id}`)
-    const content = defineContent({ workspace, collections: { cafes: documents({ path: "cafes/*.md", fields, route }) }, logger: false })
+    const url = vi.fn(({ id }: { id: string }) => `/cafe/${id}`)
+    const content = defineContent({ workspace, collections: { cafes: documents({ path: "cafes/*.md", fields, url }) }, logger: false })
     cleanup.push(() => content.dispose())
     await content.collection("cafes").save("café", { data: { title: "Café" }, body: "" })
     await content.publish()
+    // Saves call url too, so count from the first resolve().
+    const before = url.mock.calls.length
     await expect(content.resolve("/cafe/caf%C3%A9")).resolves.toEqual({ collection: "cafes", id: "café" })
     await expect(content.resolve("/cafe/caf%E9")).resolves.toBeNull()
     await expect(content.resolve("/cafe/café?x=1")).resolves.toEqual({ collection: "cafes", id: "café" })
-    expect(route).toHaveBeenCalledTimes(1)
+    expect(url.mock.calls.length - before).toBe(1)
     // A new revision builds the map again.
     await content.collection("cafes").save("tea", { data: { title: "Tea" }, body: "" })
     await content.publish()
+    const saved = url.mock.calls.length
     await expect(content.resolve("/cafe/tea")).resolves.toEqual({ collection: "cafes", id: "tea" })
-    expect(route.mock.calls.length).toBeGreaterThan(1)
+    expect(url.mock.calls.length).toBeGreaterThan(saved)
   })
 
-  it("skips a document whose route throws and warns once", async () => {
+  it("skips a document whose url throws and warns once", async () => {
+    let failing = false
     const workspace = await historyWorkspace(cleanup)
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
     const content = defineContent({
       workspace,
-      collections: { pages: documents({ path: "pages/*.md", fields, route: (id) => { if (id === "broken") throw new Error("no route"); return `/${id}` } }) },
+      collections: { pages: documents({ path: "pages/*.md", fields, url: ({ id }) => { if (failing && id === "broken") throw new Error("no url"); return `/${id}` } }) },
       logger: false,
     })
     cleanup.push(() => content.dispose())
     for (const id of ["broken", "fine", "other"]) await content.collection("pages").save(id, { data: { title: id }, body: "" })
     await content.publish()
+    // Saves return the url, so it starts to throw only after them.
+    failing = true
     await expect(content.resolve("/fine")).resolves.toEqual({ collection: "pages", id: "fine" })
     await expect(content.resolve("/broken")).resolves.toBeNull()
     await expect(content.resolve("/other")).resolves.toEqual({ collection: "pages", id: "other" })
     expect(warn).toHaveBeenCalledTimes(1)
-    expect(warn.mock.calls[0]![0]).toContain("threw for document \"broken\"")
+    expect(warn.mock.calls[0]![0]).toContain("failed for document \"broken\"")
+  })
+
+  /** A Workspace that counts the files each revision view reads, and a fresh Content runtime over it after `seed`. */
+  async function counted(collections: () => Record<string, ReturnType<typeof documents>>, seed: (content: ReturnType<typeof defineContent>) => Promise<void>) {
+    const reads: string[] = []
+    const workspace = await historyWorkspace(cleanup, {
+      wrap(store) {
+        const open = store.history.open.bind(store.history)
+        store.history = {
+          ...store.history,
+          open: async (id) => {
+            const view = await open(id)
+            return { ...view, revision: view.revision, list: view.list, stat: view.stat, readFile: ((path: string, ...rest: unknown[]) => {
+              reads.push(path)
+              return Reflect.apply(view.readFile, view, [path, ...rest])
+            }) as typeof view.readFile }
+          },
+        }
+      },
+    })
+    const writer = defineContent({ workspace, collections: collections(), logger: false })
+    await seed(writer)
+    writer.dispose()
+    // A new runtime has no cached text, so every read below reaches the store.
+    const content = defineContent({ workspace, collections: collections(), logger: false })
+    cleanup.push(() => content.dispose())
+    reads.length = 0
+    return { content, reads }
+  }
+
+  it("reads no document when url is a pattern of :id alone", async () => {
+    const { content, reads } = await counted(() => ({ posts: documents({ path: "blog/**/*.md", fields, url: "/blog/:id" }) }), async (writer) => {
+      await writer.collection("posts").save("2026/hello", { data: { title: "Hello" }, body: "" })
+      await writer.publish()
+    })
+    await expect(content.resolve("/blog/2026/hello")).resolves.toEqual({ collection: "posts", id: "2026/hello" })
+    await expect(content.resolve("/2026/hello")).resolves.toBeNull()
+    expect(reads.filter(path => path.startsWith("blog/"))).toEqual([])
+  })
+
+  it("reads the documents when url uses a field, with a pattern or a function", async () => {
+    const withSlug = { title: z.string(), slug: z.string().optional() }
+    const { content, reads } = await counted(() => ({
+      posts: documents({ path: "posts/*.md", fields: withSlug, url: "/p/:slug" }),
+      notes: documents({ path: "notes/*.md", fields: withSlug, url: ({ id, data }) => data.slug ? `/n/${data.slug}` : `/n/${id}` }),
+    }), async (writer) => {
+      await writer.collection("posts").save("first", { data: { title: "First", slug: "hello-world" }, body: "" })
+      await writer.collection("notes").save("a", { data: { title: "A", slug: "short" }, body: "" })
+      await writer.collection("notes").save("b", { data: { title: "B" }, body: "" })
+      await writer.publish()
+    })
+    await expect(content.resolve("/p/hello-world")).resolves.toEqual({ collection: "posts", id: "first" })
+    await expect(content.resolve("/p/first")).resolves.toBeNull()
+    await expect(content.resolve("/n/short")).resolves.toEqual({ collection: "notes", id: "a" })
+    await expect(content.resolve("/n/a")).resolves.toBeNull()
+    await expect(content.resolve("/n/b")).resolves.toEqual({ collection: "notes", id: "b" })
+    expect(reads.filter(path => path.endsWith(".md")).sort()).toEqual(["notes/a.md", "notes/b.md", "posts/first.md"])
+  })
+
+  it("does not resolve a document whose url is null", async () => {
+    const workspace = await historyWorkspace(cleanup)
+    const content = defineContent({
+      workspace,
+      collections: {
+        posts: documents({ path: "posts/*.md", fields: { title: z.string(), slug: z.string().optional() }, url: "/p/:slug" }),
+        pages: documents({ path: "pages/*.md", fields, url: ({ id }) => id === "hidden" ? null : `/${id}` }),
+      },
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    await content.collection("posts").save("draft", { data: { title: "No slug" }, body: "" })
+    for (const id of ["hidden", "shown"]) await content.collection("pages").save(id, { data: { title: id }, body: "" })
+    await content.publish()
+    await expect(content.resolve("/p")).resolves.toBeNull()
+    await expect(content.resolve("/p/draft")).resolves.toBeNull()
+    await expect(content.resolve("/hidden")).resolves.toBeNull()
+    await expect(content.resolve("/shown")).resolves.toEqual({ collection: "pages", id: "shown" })
   })
 
   it("requires a string path", async () => {

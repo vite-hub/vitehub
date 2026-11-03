@@ -6,7 +6,7 @@ import type { ViteHubConsoleOperationSection } from "@vite-hub/internal/console"
  */
 export const commentsConsoleSection: ViteHubConsoleOperationSection = {
   description: "Read the comment threads of the site and jump to the page.",
-  icon: "i-lucide-message-square",
+  icon: "i-vitehub-comments",
   id: "comments",
   label: "Comments",
   view: {

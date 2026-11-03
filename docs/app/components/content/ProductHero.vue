@@ -1,13 +1,9 @@
 <script setup lang="ts">
+import { usePreferredReducedMotion } from "@vueuse/core";
 // `::product-hero` opens a product landing page. The copy comes from the page frontmatter and the
 // section manifest. The default slot renders in the right column: a `::product-files` file tree, a
 // `::code-group` whose tabs become a file list beside the code, or an interactive component.
 // The only action is Get started. The sidebar lists the other product pages.
-import { docsManifest, getDocsPageByPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
-import {
-  getDocsSectionForPath,
-  getDocsSectionSubpages,
-} from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
 
 const props = defineProps<{
   /** One sentence of 20 words or fewer, shown instead of the frontmatter description. */
@@ -17,12 +13,19 @@ const props = defineProps<{
   /** Built-in inbound Agent Channels, or examples of application-owned outbound connectors. */
   channels?: string;
   channelMode?: "builtin" | "custom";
+  /** Path of a short, silent demo video, such as `/videos/cms-demo.mp4`. It replaces the slot. */
+  video?: string;
+  /** Path of the still image that shows until the video plays. */
+  poster?: string;
+  /** What the video shows, for screen readers. Defaults to a demo of the product. */
+  videoLabel?: string;
 }>();
 
-const route = useRoute();
-const page = computed(() => getDocsPageByPath(route.path));
-const section = computed(() => getDocsSectionForPath(docsManifest.sections, route.path));
-const subpages = computed(() => (section.value ? getDocsSectionSubpages(section.value) : []));
+const found = useDocsPage();
+const page = computed(() => found.value?.page ?? null);
+const section = useDocsSection();
+// Pages of the section other than its Overview, in sidebar order.
+const subpages = computed(() => section.value?.pages.filter(candidate => candidate.navigation && candidate.id !== "index") ?? []);
 const getStarted = computed(
   () => subpages.value.find((candidate) => candidate.id === "get-started") ?? subpages.value[0],
 );
@@ -77,6 +80,23 @@ const channelItems = computed(() =>
     .filter(Boolean)
     .map((name) => ({ name, icon: channelIcons.get(name.toLowerCase()) ?? "i-lucide-plug" })),
 );
+/*
+ * The video has no `autoplay` attribute, because the server cannot read the motion setting.
+ * The client plays it only when the reader allows motion, and pauses it when they turn motion off.
+ */
+const videoElement = useTemplateRef<HTMLVideoElement>("video");
+const reducedMotion = usePreferredReducedMotion();
+watchEffect(() => {
+  const element = videoElement.value;
+  if (!element) return;
+  if (reducedMotion.value === "reduce") {
+    element.pause();
+    return;
+  }
+  // The browser can refuse to play without a gesture. The controls still let the reader start it.
+  element.play().catch(() => {});
+});
+
 const channelPath = computed(() =>
   props.channelMode === "custom" ? "/docs/channels/get-started" : "/docs/agents/channels",
 );
@@ -136,7 +156,20 @@ const channelPath = computed(() =>
     </div>
 
     <div class="vh-hero-panel">
-      <slot />
+      <video
+        v-if="video"
+        ref="video"
+        class="vh-hero-video"
+        :src="video"
+        :poster="poster"
+        :aria-label="videoLabel || `${page?.sourceTitle || page?.title} demo`"
+        muted
+        loop
+        playsinline
+        controls
+        preload="metadata"
+      />
+      <slot v-else />
     </div>
   </header>
 </template>
@@ -281,6 +314,18 @@ const channelPath = computed(() =>
 
 .vh-hero-panel :deep(> *) {
   margin: 0;
+}
+
+/* A fixed ratio keeps the page still while the video loads. Record the demo at 16:9 so nothing is cut. */
+.vh-hero-video {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius);
+  background: var(--ui-bg-muted);
 }
 
 /*

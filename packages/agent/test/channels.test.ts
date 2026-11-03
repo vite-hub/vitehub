@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { encodeRouteSegment, resetPublicUrlAgentNames } from "@vite-hub/runtime"
 
 import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
@@ -71,9 +71,24 @@ function githubPullRequestPayload(action = "opened", senderType = "User") {
   }
 }
 
+// A pull request Workspace needs the head SHA, so tests without their own fetch get it here.
+async function githubPullRequestApi(input: string | URL | Request): Promise<Response> {
+  const url = new URL(hasRuntimeType(input, "string") || input instanceof URL ? input : input.url)
+  if (url.hostname === "api.github.test" && /^\/repos\/[^/]+\/[^/]+\/pulls\/\d+$/.test(url.pathname)) {
+    return Response.json({ base: { ref: "main", sha: "base-sha" }, head: { ref: "feature", sha: "head-sha" } })
+  }
+  if (url.hostname === "api.github.test" && /\/(comments|files)$/.test(url.pathname)) return Response.json([])
+  throw new TypeError("fetch failed")
+}
+
 describe("agent channels", () => {
   beforeEach(() => {
     resetPublicUrlAgentNames()
+    vi.stubGlobal("fetch", githubPullRequestApi)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
   })
 
   it("creates and updates one GitHub Agent activity comment with session history", async () => {
@@ -1787,7 +1802,9 @@ describe("agent channels", () => {
 
   it("skips no-findings bot reviews and debounces a trigger's deliveries per PR", async () => {
     const { github } = await import("../src/channels.ts")
+    const fetcher = vi.fn(async () => Response.json({ number: 42, title: "Improve app" }))
     const channel = github({
+      app: { fetch: fetcher },
       pullRequest: {
         reconcile: {
           triggers: [
@@ -1833,10 +1850,12 @@ describe("agent channels", () => {
     // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const clean = await trigger.invoke(context as never, review(57, "> ✅ No new issues found.\n\n**Reviewed changes**"))
     expect(clean).toBeInstanceOf(Response)
+    expect(fetcher).not.toHaveBeenCalled()
 
     // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const finding = await trigger.invoke(context as never, review(58, "> [!IMPORTANT]\n> The new type drops a field."))
     if (finding instanceof Response) throw new Error("Expected GitHub review invocation for a finding.")
+    expect(fetcher).toHaveBeenCalled()
     expect(finding.webhook).toMatchObject({ concurrencyGroup: "acme/app#42", debounce: { delayMs: 60_000, key: "acme/app#42:1" }, deliveryId: "review-58" })
   })
 
@@ -2103,6 +2122,51 @@ describe("agent channels", () => {
         else process.env[key] = value
       })
     }
+  })
+
+  it("fails a pull request Workspace delivery with the cause when its metadata does not load", async () => {
+    const { github } = await import("../src/channels.ts")
+    const pullRequest = {
+      base: { ref: "main", repo: { full_name: "acme/app" }, sha: "base-sha" },
+      head: { ref: "feature", repo: { full_name: "acme/app" }, sha: "head-sha" },
+    }
+    let online = true
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      if (!online) throw new TypeError("fetch failed", { cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }) })
+      return Response.json(String(url).endsWith("/pulls/42") ? pullRequest : [])
+    })
+    const token = vi.fn(async () => {
+      if (!online) throw new Error("GitHub App token request timed out")
+      return "app-token"
+    })
+    const invoke = async (workspace: false | undefined, queuedInvocation?: unknown) => {
+      const channel = github({
+        // SAFETY: This test fixture intentionally supplies a Fetch-compatible mock.
+        app: { fetch: fetcher as typeof fetch, token },
+        pullRequest: { reply: false, workspace },
+      })
+      // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
+      return await channel.triggers!.webhook!.invoke({
+        capabilities: [],
+        channel,
+        ...(queuedInvocation ? { queuedInvocation } : {}),
+        trigger: { channelId: "github", deliveryId: "delivery-1", id: "github.webhook", name: "webhook", source: "channel" },
+      } as never, { payload: githubIssueCommentPayload() })
+    }
+    const accepted = await invoke(undefined)
+    if (accepted instanceof Response) throw new Error("Expected GitHub webhook invocation.")
+    expect(accepted.input.context?.pullRequest).toMatchObject({ pullRequest: { head: { sha: "head-sha" } } })
+
+    online = false
+    const failure = { code: "AGENT_R0370", message: expect.stringMatching(/loading acme\/app#42 failed: .*ECONNRESET.*GitHub App token request timed out/) }
+    await expect(invoke(undefined)).rejects.toMatchObject(failure)
+    // An already admitted delivery reloads metadata on replay; route coverage tests the queue retry.
+    await expect(invoke(undefined, accepted)).rejects.toMatchObject(failure)
+
+    const bestEffort = await invoke(false)
+    if (bestEffort instanceof Response) throw new Error("Expected GitHub webhook invocation.")
+    expect(bestEffort.input.context?.pullRequest).toMatchObject({ pullRequest: { metadata: { unavailable: expect.stringContaining("ECONNRESET") } } })
+    expect(bestEffort.input.context?.pullRequest).not.toHaveProperty("pullRequest.head")
   })
 
   it.each([

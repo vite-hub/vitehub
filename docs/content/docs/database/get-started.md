@@ -15,10 +15,10 @@ Start with the working app from [Installation](/docs/getting-started/installatio
 ::tutorial-step{title="Enable Database"}
 ## Enable Database
 
-Install Drizzle for the schema and Drizzle Kit for migration commands. The existing `vite-hub` dependency provides the CLI.
+Install the Database package, Drizzle for the schema, and Drizzle Kit for migration commands. The existing `vite-hub` dependency provides the CLI.
 
 ```bash [commands/install]
-pnpm add drizzle-orm
+pnpm add @vite-hub/database drizzle-orm
 pnpm add -D drizzle-kit
 ```
 

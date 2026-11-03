@@ -12,7 +12,7 @@
         "../../packages/sandbox/src/internal/host-toolchain.ts"
       ],
       "#vitehub/agent/registry": [
-        "../../packages/agent/src/runtime/empty-registry.ts"
+        "../../packages/agent/src/runtime/registry.ts"
       ],
       "#vitehub/agent/provider-agent": [
         "../../packages/agent/src/provider-agent.ts"

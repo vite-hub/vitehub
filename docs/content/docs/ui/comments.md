@@ -10,6 +10,9 @@ icon: i-ph-chat-circle-light
 
 The parts show state and call a transport. They do not own storage or access. The transport is the seam to the server: `@vite-hub/comments/testing` has `createMemoryTransport()` for tests and examples, and `createRpcTransport()` from `@vite-hub/comments/rpc` connects to the [Comments Operations server](/docs/comments/operations/get-started). The built-in live-site overlay uses a separate thread and anchor format.
 
+::component-preview{name="CommentComposerExample"}
+::
+
 ## Installation
 
 Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation), and add the client:
@@ -144,15 +147,15 @@ The overlay of a page. Renders a `div` with `data-slot="comment-layer"`. Give it
 
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
-| `client` | `CommentsClient` | None | The client. Needed when `comments` is not set. |
-| `subject` | `CommentSubject` | None | What the threads are about. Needed when `comments` is not set. |
-| `user` | `CommentUser` | The client's user | The signed-in user. |
-| `comments` | `CommentsState` | None | A state from `useComments()`, instead of `client` and `subject`. |
+| `client` | `CommentsClient` | | The client. Needed when `comments` is not set. |
+| `subject` | `CommentSubject` | | What the threads are about. Needed when `comments` is not set. |
+| `user` | `CommentUser` | | The signed-in user. Defaults to the client's user. |
+| `comments` | `CommentsState` | | A state from `useComments()`, instead of `client` and `subject`. |
 | `people` | `AvatarStackPerson[]` | `[]` | The people on the page. The toolbar shows them in an [Avatar Stack](/docs/ui/avatar-stack). |
 | `hotkey` | `string \| false` | `"c"` | The key of comment mode. |
 | `readOnly` | `boolean` | `false` | Hide reply, edit, delete, and status controls in threads. |
-| `subjectUrl` | `(subject: CommentSubject) => string \| undefined` | None | The URL of the page of a subject, for the links of threads that are not page threads. |
-| `navigate` | `(href: string) => void` | `location.assign` | Goes to the page of a thread that the list shows. |
+| `subjectUrl` | `(subject: CommentSubject) => string \| undefined` | | The URL of the page of a subject, for the links of threads that are not page threads. |
+| `navigate` | `(href: string) => void` | | Goes to the page of a thread that the list shows. Defaults to `location.assign`. |
 
 ### CommentPin
 
@@ -162,9 +165,9 @@ The pin. Renders a `button` with `data-slot="comment-pin"`. The pin has the auth
 
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
-| `n` | `number` | None | The thread number. A draft has none. |
-| `author` | `CommentUser` | None | Whose avatar shows. |
-| `excerpt` | `string` | None | The start of the comment. It is part of the label. |
+| `n` | `number` | | The thread number. A draft has none. |
+| `author` | `CommentUser` | | Whose avatar shows. |
+| `excerpt` | `string` | | The start of the comment. It is part of the label. |
 | `status` | `"open" \| "resolved"` | `"open"` | A resolved pin is gray. |
 | `active` | `boolean` | `false` | The thread of this pin is open. |
 | `draft` | `boolean` | `false` | The comment is still being written. |
@@ -188,18 +191,18 @@ The handlers may return a promise. The thread waits for it. A reply clears its b
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
 | `thread` | `CommentThread` | Required | The thread. |
-| `user` | `CommentUser` | None | The signed-in user. Their messages can be edited and deleted. |
+| `user` | `CommentUser` | | The signed-in user. Their messages can be edited and deleted. |
 | `preview` | `boolean` | `false` | A read-only card with the comment and the reply count. |
 | `readOnly` | `boolean` | `false` | Keep the full thread readable without reply, edit, delete, or status controls. |
 | `busy` | `boolean` | `false` | Show a reply as being sent, on top of the thread's own tracking. |
-| `error` | `string` | None | An error to show, on top of the ones from the handlers. |
+| `error` | `string` | | An error to show, on top of the ones from the handlers. |
 | `detached` | `boolean` | `false` | The place of the thread is no longer on the page. |
-| `users` | `(query: string) => Promise<CommentUser[]>` | None | Finds people for `@mentions`. |
-| `onReply` | `(body: string, mentions: string[]) => void \| Promise<unknown>` | None | Sends a reply. |
-| `onEdit` | `(messageId: string, body: string, mentions: string[]) => void \| Promise<unknown>` | None | Saves an edited message. |
-| `onDelete` | `(messageId: string) => void \| Promise<unknown>` | None | Deletes a message. Deleting the first message deletes the thread, and the thread asks first. |
-| `onResolve` | `() => void \| Promise<unknown>` | None | Resolve was pressed. |
-| `onReopen` | `() => void \| Promise<unknown>` | None | Reopen was pressed. |
+| `users` | `(query: string) => Promise<CommentUser[]>` | | Finds people for `@mentions`. |
+| `onReply` | `(body: string, mentions: string[]) => void \| Promise<unknown>` | | Sends a reply. |
+| `onEdit` | `(messageId: string, body: string, mentions: string[]) => void \| Promise<unknown>` | | Saves an edited message. |
+| `onDelete` | `(messageId: string) => void \| Promise<unknown>` | | Deletes a message. Deleting the first message deletes the thread, and the thread asks first. |
+| `onResolve` | `() => void \| Promise<unknown>` | | Resolve was pressed. |
+| `onReopen` | `() => void \| Promise<unknown>` | | Reopen was pressed. |
 
 #### Events
 
@@ -222,9 +225,9 @@ Edit and Delete are shown when their respective handlers are supplied. An unchan
 | `compact` | `boolean` | `false` | Clamp the body to three lines, without actions. |
 | `confirmDelete` | `boolean` | `false` | Ask before Delete. A thread sets it on the first message. |
 | `people` | `CommentUser[]` | `[]` | People whose `@name` the message may hold, so an edit keeps their mentions. |
-| `users` | `(query: string) => Promise<CommentUser[]>` | None | Finds people for `@mentions` while editing. |
-| `onEdit` | `(messageId: string, body: string, mentions: string[]) => void \| Promise<unknown>` | None | Saves the edit. |
-| `onDelete` | `(messageId: string) => void \| Promise<unknown>` | None | Deletes the message. |
+| `users` | `(query: string) => Promise<CommentUser[]>` | | Finds people for `@mentions` while editing. |
+| `onEdit` | `(messageId: string, body: string, mentions: string[]) => void \| Promise<unknown>` | | Saves the edit. |
+| `onDelete` | `(messageId: string) => void \| Promise<unknown>` | | Deletes the message. |
 
 ### CommentComposer
 
@@ -236,20 +239,22 @@ The box for a new comment, a reply, or an edit. It wraps [Prompt Input](/docs/ui
 | --- | --- | --- | --- |
 | `modelValue` | `string` | `""` | The text. Use `v-model`. |
 | `mentions` | `string[]` | `[]` | The ids of the people mentioned. Use `v-model:mentions`. |
-| `user` | `CommentUser` | None | Whose avatar shows beside the box. |
+| `user` | `CommentUser` | | Whose avatar shows beside the box. |
 | `variant` | `"comment" \| "reply" \| "edit"` | `"comment"` | Sets the label and the placeholder. |
-| `placeholder` | `string` | By variant | The placeholder. |
+| `placeholder` | `string` | | The placeholder. Defaults to the variant placeholder. |
 | `busy` | `boolean` | `false` | A send is running. The box keeps its text and cannot send again. |
-| `error` | `string` | None | Why the last send failed. |
+| `error` | `string` | | Why the last send failed. |
 | `autofocus` | `boolean` | `true` | Focus the box when it appears. |
 | `guard` | `boolean` | `true` | A click outside closes an empty box, and shakes a box with text. Turn it off when the parent decides. |
 | `people` | `CommentUser[]` | `[]` | People whose `@name` the text may hold. A mention is sent only when its `@name` is still in the text, so deleting the name drops the mention. |
-| `users` | `(query: string) => Promise<CommentUser[]>` | None | Finds people for `@mentions`. Without it there is no mention menu. |
+| `users` | `(query: string) => Promise<CommentUser[]>` | | Finds people for `@mentions`. Without it there is no mention menu. |
 
 #### Events
 
 | Event | Description |
 | --- | --- |
+| `update:modelValue` | The text changed. Gets the text. |
+| `update:mentions` | The mentioned people changed. Gets their ids. |
 | `submit` | `Enter` was pressed with text. Gets `{ body, mentions }`. |
 | `cancel` | `Esc` was pressed in an empty box, or the reader clicked outside it. |
 
@@ -263,7 +268,7 @@ The comment button, the "Comment on page" button, the list button, and the peopl
 
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
-| `comments` | `CommentsState` | The layer's state | The state from `useComments()`. |
+| `comments` | `CommentsState` | | The state from `useComments()`. Inherits the layer's state when omitted. |
 | `people` | `AvatarStackPerson[]` | `[]` | The people on the page. |
 
 ### CommentList
@@ -274,8 +279,8 @@ The side list of threads. Renders a `section` with `data-slot="comment-list"`. I
 
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
-| `comments` | `CommentsState` | The layer's state | The state from `useComments()`. |
-| `navigate` | `(href: string) => void` | `location.assign` | Goes to the page of a thread that is not on this page. |
+| `comments` | `CommentsState` | | The state from `useComments()`. Inherits the layer's state when omitted. |
+| `navigate` | `(href: string) => void` | | Goes to the page of a thread that is not on this page. Defaults to `location.assign`. |
 
 #### Events
 
@@ -291,7 +296,7 @@ Open, Resolved, and Mine. Each is a toggle. Renders a `div` with `data-slot="com
 
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
-| `comments` | `CommentsState` | The layer's state | The state from `useComments()`. |
+| `comments` | `CommentsState` | | The state from `useComments()`. Inherits the layer's state when omitted. |
 
 ## Related
 

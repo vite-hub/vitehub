@@ -4,7 +4,6 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
-import { normalizeRetention, readColocatedAgentSkills } from "@vite-hub/agent/vite"
 
 import type { AgentInvocationsOptions, AgentRetentionPolicy } from "@vite-hub/agent/server"
 import type { ConsoleAgentEntry, ConsoleBuildCatalog } from "./build.ts"
@@ -18,6 +17,8 @@ import { consoleRuntimeReaderModule, describeConsoleContributedSections, describ
 import { withConsoleDocumentEditorSections } from "./build.ts"
 import { consoleD1MaxSizeError } from "./retention.ts"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
+import { requireOptionalOwner } from "../internal/optional-owners.ts"
+import { ownerModules } from "../internal/owner-modules.ts"
 
 function resolveConsoleRuntimeRoot(): string {
   const root = [
@@ -29,8 +30,17 @@ function resolveConsoleRuntimeRoot(): string {
 }
 export const consoleRuntimeRoot: string = resolveConsoleRuntimeRoot()
 export const consolePublicRoot: string = join(consoleRuntimeRoot, "public/console")
-function readConsoleOutput(root: string): string {
-  if (!existsSync(root)) return ""
+/** The ViteHub skill and its well-known index, which the Console serves at `/_vitehub/.well-known/skills`. */
+export const consoleSkillsRoot: string = join(consoleRuntimeRoot, "public/skills")
+let consoleRuntimeDigest: string | undefined
+
+/**
+ * A digest of the packaged Console runtime, client, and assets.
+ * The package does not change while the process runs, so read its files once, not on each file change.
+ */
+function readConsoleRuntimeDigest(): string {
+  if (consoleRuntimeDigest !== undefined) return consoleRuntimeDigest
+  const hash = createHash("sha256")
   const files: string[] = []
   const visit = (directory: string): void => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -39,8 +49,10 @@ function readConsoleOutput(root: string): string {
       else if (entry.isFile()) files.push(file)
     }
   }
-  visit(root)
-  return files.sort().map(file => `${file.slice(consoleRuntimeRoot.length)}\0${readFileSync(file)}`).join("\0")
+  if (existsSync(consoleRuntimeRoot)) visit(consoleRuntimeRoot)
+  for (const file of files.sort()) hash.update(file.slice(consoleRuntimeRoot.length)).update("\0").update(readFileSync(file)).update("\0")
+  consoleRuntimeDigest = hash.digest("hex")
+  return consoleRuntimeDigest
 }
 
 /** A short id of the generated Console output and the Console client. It is the same for the same Console. */
@@ -48,15 +60,7 @@ function consoleBuildId(contents: string): string {
   return createHash("sha256")
     .update(contents)
     .update("\0")
-    .update(readConsoleOutput(consoleRuntimeRoot))
-    .update("\0")
-    .update(readConsoleOutput(consolePublicRoot))
-    .update("\0")
-    .update(readConsoleOutput(join(consoleRuntimeRoot, "server")))
-    .update("\0")
-    .update(readConsoleOutput(join(consoleRuntimeRoot, "pages")))
-    .update("\0")
-    .update(readConsoleOutput(join(consoleRuntimeRoot, "components")))
+    .update(readConsoleRuntimeDigest())
     .digest("hex")
     .slice(0, 16)
 }
@@ -71,7 +75,8 @@ function renderRetentionLimit(value: AgentRetentionPolicy[keyof AgentRetentionPo
  */
 export function assertConsoleRetention(retention: AgentRetentionPolicy | undefined, journal: ConsoleJournal | undefined): void {
   if (retention === undefined) return
-  const { maxSize } = normalizeRetention(retention, {
+  // Retention limits the Agent invocation journal.
+  const { maxSize } = requireOptionalOwner(ownerModules.agentVite, "agent").normalizeRetention(retention, {
     label: "console.retention",
     defaults: { maxAgeMs: false, maxRecords: false, maxSize: false },
     size: "any",
@@ -89,6 +94,10 @@ export interface ConsoleAccessBuild {
   mode: "open" | "auth" | "cloudflare-access" | "local"
   authorize?: string
   check?: { module: string } | { appRoutes: readonly { authorize: boolean, index: number, method?: string, route: string }[] }
+  /** How MCP clients sign in with OAuth. Only `auth` mode accepts access tokens. `path` is the mounted MCP endpoint. */
+  oauth?: { issuer?: string, path: string, resource?: string }
+  /** `console.impersonation`. App Auth access then rejects impersonation sessions from the Console. */
+  impersonation?: true
   /** Path of the sign-in page under the application mount, such as `/sign-in`. */
   signInPage?: string
 }
@@ -127,12 +136,18 @@ function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports:
   if (!access) return { imports: [], install: [] }
   const imports: string[] = []
   const setup: string[] = []
+  const afterInstall: string[] = []
   const fields = [`mode: ${JSON.stringify(access.mode)}`]
+  // The Better Auth instance that MCP access tokens are checked against, read in-process.
+  let oauthAuth: string | undefined
+  let oauthAuthorize: string | undefined
   if (access.check && "module" in access.check) {
     const module = JSON.stringify(pathToFileURL(access.check.module).href)
     if (access.mode === "auth") {
-      imports.push(`import { checkConsoleAccess as vitehubConsoleAccessCheck, readConsoleUser as vitehubConsoleUser } from ${module}`)
+      imports.push(`import { authorizeConsoleBearer as vitehubAuthorizeConsoleBearer, checkConsoleAccess as vitehubConsoleAccessCheck, createConsoleAuth as vitehubCreateConsoleAuth, readConsoleUser as vitehubConsoleUser } from ${module}`)
       fields.push("check: vitehubConsoleAccessCheck", "user: vitehubConsoleUser")
+      oauthAuth = "(request, event) => vitehubCreateConsoleAuth(request, event)"
+      oauthAuthorize = "vitehubAuthorizeConsoleBearer"
     }
     else {
       imports.push(`import { checkConsoleAccess as vitehubConsoleAccessCheck } from ${module}`)
@@ -140,26 +155,41 @@ function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports:
     }
   }
   else if (access.check) {
-    // App Auth: require a session, and the authorize callbacks of the Auth access routes that match the request.
+    // App Auth keeps its session guard and matching route policies; the MCP identity resolver also accepts tokens.
     const routes = JSON.stringify(access.check.appRoutes)
-    imports.push(
-      'import { getAuthForRequest as vitehubGetAuthForRequest, requireAuthAccessRoutes as vitehubRequireAuthAccessRoutes, withAuthorization as vitehubWithAuthorization } from "#vitehub/auth/server"',
-      'import { createConsoleAppAuthAccess as vitehubCreateConsoleAppAuthAccess, createConsoleAppAuthPages as vitehubCreateConsoleAppAuthPages } from "vite-hub/console/auth"',
-    )
+    imports.push('import { createConsoleAppAuthAccess as vitehubCreateConsoleAppAuthAccess, createConsoleAppAuthPages as vitehubCreateConsoleAppAuthPages } from "vite-hub/console/sections"')
+    oauthAuth = "(request, event) => vitehubGetAuthForRequest(request, undefined, event)"
     fields.push("check: vitehubConsoleAppAccess.check", "user: vitehubConsoleAppAccess.user", "signIn: vitehubConsoleAppPages.signIn", "authBasePath: vitehubConsoleAppPages.authBasePath")
-    setup.push("const vitehubConsoleAppPages = vitehubCreateConsoleAppAuthPages(vitehubGetAuthForRequest)")
-    setup.push(`const vitehubConsoleAppAccess = vitehubCreateConsoleAppAuthAccess({ routes: ${routes}, getAuthForRequest: vitehubGetAuthForRequest, requireAuthAccessRoutes: vitehubRequireAuthAccessRoutes, requireSession: vitehubWithAuthorization(true, () => undefined) })`)
+    // The Auth server module loads Better Auth. Import it on the first Console request, not when the server starts.
+    setup.push(
+      'const vitehubAuthServer = () => import("#vitehub/auth/server")',
+      "const vitehubGetAuthForRequest = async (request, runtimeOptions, event) => (await vitehubAuthServer()).getAuthForRequest(request, runtimeOptions, event)",
+      "const vitehubRequireAuthAccessRoutes = async (...input) => (await vitehubAuthServer()).requireAuthAccessRoutes(...input)",
+      "const vitehubRequireSession = async event => (await vitehubAuthServer()).withAuthorization(true, () => undefined)(event)",
+      "const vitehubConsoleAppPages = vitehubCreateConsoleAppAuthPages(vitehubGetAuthForRequest)",
+      `const vitehubConsoleAppAccess = vitehubCreateConsoleAppAuthAccess({ routes: ${routes}, getAuthForRequest: vitehubGetAuthForRequest, requireAuthAccessRoutes: vitehubRequireAuthAccessRoutes, requireSession: vitehubRequireSession${access.impersonation ? ", impersonation: true" : ""} })`,
+    )
+    if (access.oauth) {
+      imports.push(
+        'import { setAuthAccessIdentityResolver as vitehubSetAuthAccessIdentityResolver } from "vite-hub/auth/runtime/server"',
+        'import { resolveConsoleAppAuthIdentity as vitehubResolveConsoleAppAuthIdentity } from "vite-hub/console/sections"',
+      )
+      afterInstall.push(`vitehubSetAuthAccessIdentityResolver(${JSON.stringify(access.oauth.path)}, vitehubResolveConsoleAppAuthIdentity)`)
+    }
   }
+  if (access.oauth && access.mode === "auth" && oauthAuth) fields.push(`oauth: { ...${JSON.stringify(access.oauth)}, auth: ${oauthAuth}${oauthAuthorize ? `, authorize: ${oauthAuthorize}` : ""} }`)
   if (access.authorize) {
     imports.push(`import vitehubConsoleAuthorize from ${JSON.stringify(pathToFileURL(access.authorize).href)}`)
     fields.push("authorize: vitehubConsoleAuthorize")
   }
+  if (access.impersonation) fields.push("impersonation: true")
   if (access.signInPage) fields.push(`signInPage: ${JSON.stringify(access.signInPage)}`)
   return {
     imports,
     install: [
       ...setup,
       `installConsoleAccess({ ${fields.join(", ")} })`,
+      ...afterInstall,
     ],
   }
 }
@@ -170,7 +200,6 @@ function renderConsoleNitroPlugin(
   agents: readonly ConsoleAgentEntry[],
   catalog: ConsoleBuildCatalog,
   blobStores: readonly string[],
-  kvStores: readonly string[],
   fixture?: string,
   fixtureSnapshot = fixture ? readConsoleFixture(fixture) : undefined,
   runtimeBinding?: string,
@@ -183,6 +212,7 @@ function renderConsoleNitroPlugin(
   runtimeCapabilityImports?: Record<string, false | string>,
   development = false,
   applicationBase = "/",
+  pageTools = true,
 ): string {
   assertConsoleRetention(retention, journal)
   const accessCode = renderConsoleAccess(access)
@@ -191,7 +221,7 @@ function renderConsoleNitroPlugin(
   const documentEditors = describeConsoleDocumentEditors(sections, catalog.documents ?? {})
   const runtimeCapabilities = renderConsoleRuntimeCapabilities(runtimeCapabilityImports)
   const definitions = agents.map((agent, index) => {
-    const skills = readColocatedAgentSkills(agent.handler)
+    const skills = requireOptionalOwner(ownerModules.agentVite, "agent").readColocatedAgentSkills(agent.handler)
     const module = `vitehubConsoleAgent${index}`
     const definition = skills
       ? `agentWithColocatedSkills(${module}.default ?? ${module}, ${JSON.stringify(skills)})`
@@ -201,69 +231,56 @@ function renderConsoleNitroPlugin(
   const agentsEnabled = sections.includes("agents")
   const blobEnabled = sections.includes("blob")
   const databaseEnabled = sections.includes("databases")
-  const kvEnabled = sections.includes("kv")
   const schedulesEnabled = sections.includes("schedules")
   const runnableSchedules = (invoke ? catalog.manualSchedules ?? [] : [])
     .map(schedule => ` [${JSON.stringify(schedule.name)}]: () => import(${JSON.stringify(pathToFileURL(schedule.handler).href)}),`)
     .join("")
     .replace(/,$/, " ")
-  const contributedSections = describeConsoleContributedSections(sections, applicationBase).map(section => catalog.sectionOverrides?.[section.id] ?? section)
+  const contributedSections = describeConsoleContributedSections(sections).map(section => catalog.sectionOverrides?.[section.id] ?? section)
   const runtimeReaders = describeConsoleRuntimeReaders(sections).filter(reader => catalog.sectionOverrides?.[reader.section]?.view.kind !== "operation-view")
   const definitionsEnabled = databaseEnabled || contributedSections.length > 0
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
   const fixtureSource = fixtureSnapshot ? `JSON.parse(${JSON.stringify(JSON.stringify(fixtureSnapshot))})` : undefined
+  const runtimeImports = [
+    ...operations.map((operation, index) => ({ bindings: `${operation.export}: vitehubConsoleOperations${index}`, module: operation.module })),
+    ...(blobEnabled ? [{ bindings: "installConsoleBlob", module: "vite-hub/console/blob" }, { bindings: "blob: vitehubConsoleBlob", module: "vite-hub/blob" }] : []),
+    ...(definitionsEnabled ? [{ bindings: `installConsoleDefinitions${schedulesEnabled ? ", installConsoleSchedules" : ""}`, module: "vite-hub/console/definitions" }] : []),
+    ...(definitionsEnabled ? runtimeReaders.map((reader, index) => ({ bindings: `${reader.export}: vitehubConsoleRuntimeReader${index}`, module: reader.module })) : []),
+    ...(databaseEnabled ? [{ bindings: "installConsoleDatabase", module: "vite-hub/console/database" }, { bindings: "databases: vitehubConsoleDatabases", module: "vite-hub/database/drizzle" }] : []),
+    ...(sections.includes("env") ? [{ bindings: "describeServerEnv", module: "#vitehub/env/description" }, { bindings: "installConsoleEnv", module: "vite-hub/console/env" }] : []),
+  ]
+  const runtimeInstall = [
+    ...(blobEnabled ? [`installConsoleBlob(${JSON.stringify(projectRoot)}, vitehubConsoleBlob, ${JSON.stringify(blobStores)})`] : []),
+    ...(sections.includes("env") ? [`installConsoleEnv(${JSON.stringify(projectRoot)}, describeServerEnv(), async request => { try { return await (await import("#vitehub/env/server")).manageServerEnv(request) } catch { return Response.json({ message: "Env management is unavailable." }, { status: 503, headers: { "cache-control": "no-store" } }) } }, async event => (await import("#vitehub/env/server")).inspectServerEnv(event))`] : []),
+    `installConsoleOperations([${operations.map((operation, index) => `{ operations: vitehubConsoleOperations${index}, plugin: ${JSON.stringify(operation.plugin)} }`).join(", ")}], { invoke: ${invoke} })`,
+    ...(definitionsEnabled ? [`installConsoleDefinitions(${JSON.stringify(projectRoot)}, ${JSON.stringify(catalog.content)}, ${JSON.stringify(contributedSections)}${runtimeReaders.length ? `, { ${runtimeReaders.map((reader, index) => `${JSON.stringify(reader.section)}: vitehubConsoleRuntimeReader${index}`).join(", ")} }` : ""})`] : []),
+    ...(schedulesEnabled ? [`installConsoleSchedules(${JSON.stringify(projectRoot)}, {${runnableSchedules}})`] : []),
+    ...(databaseEnabled ? [`installConsoleDatabase(${JSON.stringify(projectRoot)}, vitehubConsoleDatabases, ${JSON.stringify(catalog.content.databases?.kind === "definition-catalog" ? catalog.content.databases.definitions.map(definition => definition.name) : [])})`] : []),
+  ]
   return [
-    `import { ${access ? "installConsoleAccess, " : ""}installConsoleBuild, installConsoleDevelopment, installConsoleOperations, installConsoleProjectName, installConsoleSections } from "vite-hub/console/sections"`,
-    ...operations.map((operation, index) => `import { ${operation.export} as vitehubConsoleOperations${index} } from ${JSON.stringify(operation.module)}`),
+    `import { ${access ? "installConsoleAccess, " : ""}installConsoleBuild, installConsoleDevelopment, installConsoleOperations, installConsolePageTool, installConsoleProjectName, installConsoleRuntime, installConsoleSections } from "vite-hub/console/sections"`,
     ...accessCode.imports,
     ...(agentsEnabled ? runtimeCapabilities.imports : []),
-    ...(blobEnabled
-      ? [
-          `import { installConsoleBlob } from "vite-hub/console/blob"`,
-          `import { blob as vitehubConsoleBlob } from "vite-hub/blob"`,
-        ]
-      : []),
     ...(agentsEnabled
       ? [`import { installConsoleAgentDefinitions, installConsoleFixtureInvocations } from "vite-hub/console/server"`, `import { agentWithColocatedSkills } from "vite-hub/_internal/agent/runtime/workflow"`]
       : []),
-    ...(definitionsEnabled ? [`import { installConsoleDefinitions${schedulesEnabled ? ", installConsoleSchedules" : ""} } from "vite-hub/console/definitions"`] : []),
-    ...(definitionsEnabled
-      ? runtimeReaders.map((reader, index) => `import { ${reader.export} as vitehubConsoleRuntimeReader${index} } from ${JSON.stringify(reader.module)}`)
-      : []),
-    ...(databaseEnabled
-      ? [
-          `import { installConsoleDatabase } from "vite-hub/console/database"`,
-          `import { databases as vitehubConsoleDatabases } from "vite-hub/database/drizzle"`,
-        ]
-      : []),
-    ...(kvEnabled
-      ? [
-          `import { installConsoleKV } from "vite-hub/console/kv"`,
-          `import { kv as vitehubConsoleKV } from "vite-hub/kv"`,
-        ]
-      : []),
-    ...(sections.includes("env") ? [`import { describeServerEnv } from "#vitehub/env/description"`, `import { installConsoleEnv } from "vite-hub/console/env"`] : []),
     ...(documentEditors.length ? [`import { installConsoleDocuments } from "vite-hub/console/documents"`] : []),
     ...documentEditors.map((editor, index) => `import { ${editor.export} as vitehubConsoleDocumentActions${index} } from ${JSON.stringify(editor.module)}`),
     ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
     `installConsoleDevelopment(${JSON.stringify(projectRoot)}, ${JSON.stringify(development)})`,
     ...accessCode.install,
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)}${independentAuth ? `, ${JSON.stringify(independentAuth)}` : ""})`,
-    ...(blobEnabled
-      ? [`installConsoleBlob(${JSON.stringify(projectRoot)}, vitehubConsoleBlob, ${JSON.stringify(blobStores)})`]
-      : []),
-    ...(sections.includes("env") ? [`installConsoleEnv(${JSON.stringify(projectRoot)}, describeServerEnv(), async request => { try { return await (await import("#vitehub/env/server")).manageServerEnv(request) } catch { return Response.json({ message: "Env management is unavailable." }, { status: 503, headers: { "cache-control": "no-store" } }) } }, async event => (await import("#vitehub/env/server")).inspectServerEnv(event))`] : []),
-    // Always installed, so agent tools see the operations before the first RPC call.
-    `installConsoleOperations([${operations.map((operation, index) => `{ operations: vitehubConsoleOperations${index}, plugin: ${JSON.stringify(operation.plugin)} }`).join(", ")}], { invoke: ${invoke} })`,
+    // The first Console request or agent tool that needs the operations loads them, with every primitive they import.
+    `installConsoleRuntime(async () => {`,
+    ...(runtimeImports.length ? [`  const [${runtimeImports.map(entry => `{ ${entry.bindings} }`).join(", ")}] = await Promise.all([${runtimeImports.map(entry => `import(${JSON.stringify(entry.module)})`).join(", ")}])`] : []),
+    "  return () => {",
+    ...runtimeInstall.map(line => `    ${line}`),
+    "  }",
+    "})",
     `installConsoleProjectName(${JSON.stringify(projectRoot)}, ${JSON.stringify(resolveConsoleProjectNameFromRoot(projectRoot))})`,
     // The application module loads on the first document request, so the Console does not start Content at boot.
     ...(documentEditors.length
       ? [`installConsoleDocuments(${JSON.stringify(projectRoot)}, { ${documentEditors.map((editor, index) => `${JSON.stringify(editor.section)}: { actions: vitehubConsoleDocumentActions${index}, load: () => import(${JSON.stringify(pathToFileURL(editor.entry).href)}) }`).join(", ")} })`]
-      : []),
-    ...(definitionsEnabled ? [`installConsoleDefinitions(${JSON.stringify(projectRoot)}, ${JSON.stringify(catalog.content)}, ${JSON.stringify(contributedSections)}${runtimeReaders.length ? `, { ${runtimeReaders.map((reader, index) => `${JSON.stringify(reader.section)}: vitehubConsoleRuntimeReader${index}`).join(", ")} }` : ""})`] : []),
-    ...(schedulesEnabled ? [`installConsoleSchedules(${JSON.stringify(projectRoot)}, {${runnableSchedules}})`] : []),
-    ...(databaseEnabled
-      ? [`installConsoleDatabase(${JSON.stringify(projectRoot)}, vitehubConsoleDatabases, ${JSON.stringify(catalog.content.databases?.kind === "definition-catalog" ? catalog.content.databases.definitions.map(definition => definition.name) : [])})`]
       : []),
     ...(agentsEnabled
       ? fixture
@@ -273,10 +290,10 @@ function renderConsoleNitroPlugin(
           ]
         : [`installConsoleAgentDefinitions([${definitions}], { projectRoot: ${JSON.stringify(projectRoot)}${invoke ? ", invoke: true" : ""}${observations !== undefined ? `, observations: ${JSON.stringify(observations)}` : ""}${journal && "databaseUrl" in journal ? `, databaseUrl: ${JSON.stringify(journal.databaseUrl)}` : ""}${journal && "d1Binding" in journal ? `, d1: { binding: ${JSON.stringify(journal.d1Binding)}, env: async () => (await import("cloudflare:workers")).env }` : ""}${retention !== undefined ? `, retention: { maxAge: ${renderRetentionLimit(retention.maxAge)}, maxRecords: ${renderRetentionLimit(retention.maxRecords)}, maxSize: ${renderRetentionLimit(retention.maxSize)} }` : ""}${runtimeCapabilities.install ? `, ${runtimeCapabilities.install}` : ""} })`]
       : []),
-    ...(kvEnabled
-      ? [`installConsoleKV(${JSON.stringify(projectRoot)}, vitehubConsoleKV, ${JSON.stringify(kvStores)})`]
-      : []),
-    "export default function viteHubConsolePlugin() {}",
+    // The Console link lives in the shared page tools pill.
+    pageTools
+      ? `export default function viteHubConsolePlugin(nitroApp) { installConsolePageTool(nitroApp, { base: ${JSON.stringify(applicationBase)} }) }`
+      : "export default function viteHubConsolePlugin() {}",
     "",
   ].join("\n")
 }
@@ -288,7 +305,6 @@ export async function writeConsoleNitroPlugin(
   agents: readonly ConsoleAgentEntry[],
   catalog: ConsoleBuildCatalog,
   blobStores: readonly string[],
-  kvStores: readonly string[],
   fixture?: string,
   runtimeBinding?: string,
   invoke = false,
@@ -301,6 +317,7 @@ export async function writeConsoleNitroPlugin(
   runtimeCapabilityImports?: Record<string, false | string>,
   development = false,
   applicationBase = "/",
+  pageTools = true,
 ): Promise<string> {
   const snapshot = fixture ? readConsoleFixture(fixture) : undefined
   const identity = createConsoleInvocationsIdentity(
@@ -310,7 +327,7 @@ export async function writeConsoleNitroPlugin(
     runtimeBinding,
   )
   if (!active()) return identity
-  const rendered = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, kvStores, fixture, snapshot, runtimeBinding, invoke, observations, journal, independentAuth, retention, access, runtimeCapabilityImports, development, applicationBase)
+  const rendered = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, fixture, snapshot, runtimeBinding, invoke, observations, journal, independentAuth, retention, access, runtimeCapabilityImports, development, applicationBase, pageTools)
   // The build id is a hash of the rest of the output, so it changes only when an open Console would be outdated.
   const contents = `${rendered}installConsoleBuild(${JSON.stringify(projectRoot)}, ${JSON.stringify(consoleBuildId(rendered))})\n`
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {

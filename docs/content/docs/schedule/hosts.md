@@ -15,16 +15,23 @@ When a Static Schedule handler throws, ViteHub logs `[vitehub:schedule] Schedule
 | Mode | Output | Nuance |
 | --- | --- | --- |
 | `auto` | Selects the appropriate generated output for the active build context. | Default mode for Vite projects. |
-| `standalone` | Writes standalone provider output outside Nitro. | Use when ViteHub owns provider output directly. |
-| `nitro` | Writes Nitro Cloudflare module and plugin output. | Use when Nitro owns Cloudflare cron wiring. |
+| `standalone` | Writes the wake output of the build's host outside Nitro. | Use when ViteHub owns provider output directly. To get the output of another host, build with that host. |
+| `nitro` | Writes Nitro output: the Cloudflare module and plugin, or the Netlify scheduled functions. | Use when Nitro owns the host's cron wiring. |
 | `false` | Disables generated provider output. | Runtime helpers still work when you wire execution yourself. |
 
 | Host | Static Schedule output |
 | --- | --- |
 | Cloudflare | Cron trigger output and Cloudflare schedule runtime entry wiring. |
 | Vercel | Vercel cron-compatible output for static schedules. |
+| Netlify | One Netlify scheduled function per static schedule. In a Nitro build, `auto` and `nitro` write each function beside Nitro's server function, with its own copy of the server bundle, so the Schedule runs with the same plugins, Database, and other primitives as a request. `standalone` bundles the Schedule outside Nitro, without them. |
 | Deno | `Deno.cron` output loaded by generated Deno Agent server output. |
-| Node or Docker | The Process Runtime (`runtime: { driver: 'process' }`) runs each Definition in the long-lived process. |
+| Node or Docker | No host output. The Process Runtime (`runtime: { driver: 'process' }`) runs each Definition in the long-lived process. |
+
+A Node server has no host cron. `vitehub({ preset: 'node', schedule: true })` fails the build with `VITE_HUB_R0137`, because nothing would run its Schedules. Set `schedule: { runtime: { driver: 'process' } }` to run them in the server process. Set `schedule: { providerOutput: false }` when your own code or an external cron starts them, for example through `/_vitehub/schedules/run`. The check runs only for builds, so `vite dev` still works with `schedule: true`.
+
+With the Process Runtime on Node, leave `providerOutput` unset or set it to `'auto'` or `false`. The explicit `'nitro'` and `'standalone'` modes give wake ownership to the provider, so they fail a Node build even when `runtime` is configured.
+
+Schedule writes the output of one host per build. With Nitro, the host is the preset that Nitro resolves. Without Nitro, it comes from `nitro.preset` in the Vite config, then `NITRO_PRESET`, `SERVER_PRESET`, and `VITEHUB_HOSTING`. A build also removes the Schedule output that an earlier build wrote for another host. When no host is known, the build writes the output of every host above.
 
 ::warning
 Provider Wake output requires a static five-field UTC cron string compatible with generated provider output. A Static Schedule that sets a `timeZone` other than `UTC` fails the build when the build generates provider output.
@@ -42,7 +49,7 @@ pnpm vitehub schedule attempts <runId>
 
 The commands use the same Schedule Run store and registry as the running server. Read [CLI](/docs/development/cli#run-and-inspect-schedules) for every command and option.
 
-The Console Schedules page lists the discovered Schedule Definitions. Definitions with `manual: true` show a run action when Console invocation is enabled.
+The Console Schedules page lists the discovered Schedule Definitions. With the process driver, it shows the cron and time zone of the loaded Definitions. Definitions with `manual: true` show a run action when Console invocation is enabled.
 
 Both surfaces redact credentials in URLs, bearer tokens, and secret assignments in error messages.
 

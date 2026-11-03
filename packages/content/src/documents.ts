@@ -62,12 +62,6 @@ export interface DocumentsOptions<TFields extends ContentFields> {
   /** Document fields: frontmatter for Markdown, the whole object for JSON and YAML. A Markdown body is always `body`. */
   fields: TFields
   /**
-   * The app path of a document, from its id, such as `id => \`/blog/\${id}\``. `content.resolve(path)` maps a page back
-   * to its document with it, for an Edit button. Defaults to the id with a trailing `/index` removed, after a leading
-   * slash: `guides/index` is `/guides`, and `index` is `/`.
-   */
-  route?: (id: string) => string
-  /**
    * Display name, such as `Posts`. Pass `{ singular, plural }` when the plural is not the singular plus `s`, such as
    * `{ singular: 'Person', plural: 'People' }`. Defaults to the collection name in title case.
    */
@@ -89,7 +83,9 @@ export interface DocumentsOptions<TFields extends ContentFields> {
   components?: Record<string, DocumentComponent>
   /**
    * The public URL of each document, such as `/blog/:id`. Reads expose it as `document.url`; canonical links, sitemaps,
-   * and previews use it. Omit it for documents without their own page.
+   * and previews use it, and `content.resolve(path)` maps a page back to its document with it, for an Edit button. A
+   * document whose URL is null has no page. Without `url`, documents have no public URL, and `resolve()` maps the id
+   * after a slash, without a trailing `/index`: `guides/index` is `/guides`, and `index` is `/`.
    */
   url?: ContentDocumentUrl<ContentFieldsOutput<TFields>>
   /**
@@ -126,10 +122,23 @@ export interface DocumentComponent {
   props?: Record<string, DocumentComponentProp>
 }
 
-/** How a component prop round-trips: strings as written (`type="info"`), other types with Comark's `:` prefix. */
-export interface DocumentComponentProp {
-  type: "string" | "number" | "boolean" | "json"
-  default?: unknown
+/**
+ * How a component prop round-trips: strings as written (`type="info"`), other types with Comark's `:` prefix. `image`
+ * and `file` are strings too: editors pick them from the Media library, as for `image()` and `file()` fields.
+ */
+export type DocumentComponentProp =
+  | { type: "string" | "number" | "boolean" | "json", default?: unknown }
+  | DocumentComponentMediaProp
+
+/**
+ * A prop that holds one Media file as a string attribute, such as `icon="/media/icons/train.webp"`: the served URL of
+ * the picked file, or its Blob pathname when the store is not served.
+ */
+export interface DocumentComponentMediaProp {
+  type: "image" | "file"
+  /** Named Blob Store that the picker chooses from, as in `image({ store })`. Without it, the served store. */
+  store?: string
+  default?: string
 }
 
 export interface SingletonOptions<TFields extends ContentFields> {
@@ -183,8 +192,6 @@ export interface DocumentsDefinition<TFields extends ContentFields = ContentFiel
   /** Name of one document from `label: { singular }`, when the definition sets one. */
   readonly singularLabel?: string
   readonly search?: ReadonlyArray<string>
-  /** App path of a document, from its id. `content.resolve()` reads it. */
-  readonly route?: (id: string) => string
   readonly components?: Readonly<Record<string, DocumentComponent>>
 }
 
@@ -251,11 +258,6 @@ export function documents<const TFields extends ContentFields>(options: Document
   if (options.search) definition.search = [...options.search]
   if (options.components !== undefined) definition.components = documentComponents(display, options.components)
   if (options.url !== undefined) definition.url = options.url
-  if (options.route !== undefined) {
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A route is a public callback boundary and must accept functions from other realms.
-    if (typeof options.route !== "function") throw invalidDefinition(`documents(${JSON.stringify(display)}) route must be a function from a document id to an app path, such as id => \`/blog/\${id}\`.`)
-    definition.route = options.route
-  }
   const label = labelOption("documents", display, options.label, true)
   if (label?.plural) definition.label = label.plural
   if (label?.singular) definition.singularLabel = label.singular
@@ -283,7 +285,7 @@ function titleFieldOption(helper: string, path: string, value: unknown, fields: 
 }
 
 const componentTag = /^[a-z][a-z0-9-]*$/
-const componentPropTypes: ReadonlyArray<DocumentComponentProp["type"]> = ["string", "number", "boolean", "json"]
+const componentPropTypes: ReadonlyArray<DocumentComponentProp["type"]> = ["string", "number", "boolean", "json", "image", "file"]
 
 function isComponentPropType(value: unknown): value is DocumentComponentProp["type"] {
   return componentPropTypes.some(type => type === value)
@@ -311,9 +313,24 @@ function documentComponents(path: string, components: unknown): Record<string, D
       component.props = {}
       for (const [name, prop] of Object.entries(Object(props))) {
         const type: unknown = Reflect.get(Object(prop), "type")
-        if (!isComponentPropType(type)) throw invalidDefinition(`${where}.${tag}.props.${name}.type must be string, number, boolean, or json.`)
-        const entry: DocumentComponentProp = { type }
+        if (!isComponentPropType(type)) throw invalidDefinition(`${where}.${tag}.props.${name}.type must be string, number, boolean, json, image, or file.`)
         const fallback: unknown = Reflect.get(Object(prop), "default")
+        const store: unknown = Reflect.get(Object(prop), "store")
+        if (type === "image" || type === "file") {
+          const entry: DocumentComponentMediaProp = { type }
+          if (store !== undefined) {
+            if (String(store) !== store || !store) throw invalidDefinition(`${where}.${tag}.props.${name}.store must be a Blob Store name, such as 'media'.`)
+            entry.store = store
+          }
+          if (fallback !== undefined) {
+            if (String(fallback) !== fallback) throw invalidDefinition(`${where}.${tag}.props.${name}.default must be a string, such as a Blob pathname.`)
+            entry.default = fallback
+          }
+          component.props[name] = entry
+          continue
+        }
+        if (store !== undefined) throw invalidDefinition(`${where}.${tag}.props.${name}.store needs type 'image' or 'file'.`)
+        const entry: DocumentComponentProp = { type }
         if (fallback !== undefined) entry.default = JSON.parse(JSON.stringify(fallback))
         component.props[name] = entry
       }
@@ -377,6 +394,11 @@ function assertUrl(helper: string, path: string, url: unknown, fields: ContentFi
       throw invalidDefinition(`${helper}(${JSON.stringify(path)}) url ${JSON.stringify(url)} uses :${name}, which is neither :id nor a field.`)
     }
   }
+}
+
+/** Whether `url` is a pattern whose only placeholder is `:id`, so a document's URL needs no read of the document. */
+export function contentUrlNeedsOnlyId(url: ContentDocumentUrl<any>): boolean {
+  return String(url) === url && [...url.matchAll(urlToken)].every(([, name]) => name === "id")
 }
 
 /**

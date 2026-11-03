@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import { readdirSync, readFileSync } from "node:fs"
 
 import { describe, expect, it } from "vitest"
 
@@ -35,6 +35,15 @@ describe("shared Console navigation layout", () => {
     expect(rail).toContain("<UDashboardSearchButton")
   })
 
+  it("mounts search on every page with the rail, so the rail's Search button opens it", () => {
+    const pages = readdirSync(new URL("../src/console/runtime/components/", import.meta.url))
+      .filter(file => file.endsWith(".vue"))
+      .map(file => file.slice(0, -".vue".length))
+      .filter(name => component(name).includes("<ConsoleFrame"))
+    expect(pages).toContain("console-logs")
+    for (const name of pages) expect(component(name), name).toContain("<ConsoleSearch")
+  })
+
   it("shows appearance and sign-out inside one avatar menu", () => {
     const rail = component("console-rail")
     expect(rail).toContain("inject(consoleAppearanceKey, undefined)")
@@ -42,7 +51,7 @@ describe("shared Console navigation layout", () => {
     expect(rail).toMatch(/type: "checkbox",[\s\S]*?checked: appearance\?\.preference\.value === option/)
     expect(rail).toContain('label: signOutFailed.value ? "Retry sign out" : "Sign out"')
     expect(rail).toContain("userIdentity.value")
-    expect(component("console-search")).toContain("inject(consoleAppearanceKey, undefined)")
+    expect(component("console-search-palette")).toContain("inject(consoleAppearanceKey, undefined)")
     const client = readFileSync(new URL("../src/console/runtime/client/main.js", import.meta.url), "utf8")
     // The stored appearance applies before mount, so the first render uses the chosen scheme.
     expect(client).toMatch(/startConsoleAppearance\([\s\S]*?\.provide\(consoleAppearanceKey, appearance\)[\s\S]*?\.mount\("#app"\)/)
@@ -65,11 +74,15 @@ describe("shared Console navigation layout", () => {
     expect(rail).toContain('[consoleOverviewShortcut.join("-")]: () => openShortcut("vitehub-console")')
     expect(rail).toContain('if (section.shortcut) shortcuts[section.shortcut.join("-")] = () => openShortcut(section.routeName)')
     expect(rail).toContain(':kbds="section.shortcut ? [...section.shortcut] : undefined"')
-    const search = component("console-search")
+    const search = component("console-search-palette")
     expect(search).toContain('label: "Go to"')
     expect(search).toContain("kbds: [...consoleOverviewShortcut]")
-    expect(search).toContain('"/": () => {')
     expect(search).toContain("<template #footer>")
+    // Search loads its palette on first open. Until then, `/`, ⌘K, and the rail button still open it.
+    const launcher = component("console-search")
+    expect(launcher).toContain('"/": show')
+    expect(launcher).toContain('useRuntimeHook("dashboard:search:toggle"')
+    expect(launcher).toContain('defineAsyncComponent(() => import("./console-search-palette.vue"))')
     const app = component("console-app")
     expect(app).toContain(':actions="searchActions"')
     expect(app).toContain('label: "New chat"')
@@ -106,7 +119,7 @@ describe("shared Console navigation layout", () => {
     expect(home).toMatch(/<button\s+type="button"\s+class="vitehub-console__overview-cell-target absolute inset-0"[^>]*\/>/)
     expect(home).toContain(':href="section.docs"')
     expect(home).toContain(':aria-label="`${section.label} documentation`"')
-    expect(home).toContain('consolePrimitives.filter((entry) => entry.id !== "usage" && !sections.value.includes(entry.id))')
+    expect(home).toContain('consolePrimitives.filter((entry) => entry.id !== "usage" && entry.id !== "skills" && !sections.value.includes(entry.id))')
     expect(home).toContain(':aria-label="`Set up ${entry.label}`"')
     expect(home).toContain('v-for="guide in consoleGuides"')
     expect(home).toContain("Add your first primitive")

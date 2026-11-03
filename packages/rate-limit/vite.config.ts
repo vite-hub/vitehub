@@ -15,8 +15,8 @@ export default defineConfig({
       "src/cli.ts",
       "src/drivers/cloudflare.ts",
       "src/drivers/memory.ts",
+      "src/operations.ts",
       "src/runtime.ts",
-      "src/runtime/console.ts",
       "src/vite.ts",
     ],
     exports: {

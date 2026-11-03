@@ -6,7 +6,7 @@
     "moduleResolution": "Bundler",
     "rootDir": "..",
     "paths": {
-      "#vitehub/agent/registry": ["../../packages/agent/src/runtime/empty-registry.ts"],
+      "#vitehub/agent/registry": ["../../packages/agent/src/runtime/registry.ts"],
       "#vitehub/agent/provider-agent": ["../../packages/agent/src/provider-agent.ts"],
       "#vitehub/auth/definition": ["../../packages/auth/src/runtime/empty-definition.ts"],
       "#vitehub/database/databases": ["../../packages/database/src/runtime/virtual-databases.ts"],
@@ -77,8 +77,10 @@
   "exclude": [
     "dist",
     "node_modules",
-    // Browser code of the Console's invocation views; tsconfig.console.json checks it with the DOM library.
+    // Browser code of the Console's invocation views and page tool; tsconfig.console.json checks it with the DOM library.
     "src/console/runtime/components/invocation",
+    "src/console/page",
+    "test/console-page-tool-client.test.ts",
     "src/console/ui.ts",
     "test/console-invocation-views",
     // Browser code of the comments overlay, also checked by tsconfig.console.json.

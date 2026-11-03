@@ -1,5 +1,6 @@
 ---
 title: Blob
+layout: landing
 navigation.title: Overview
 description: Save uploads and other files from your server, then read or serve them with the same code on every host.
 navigation.order: 1

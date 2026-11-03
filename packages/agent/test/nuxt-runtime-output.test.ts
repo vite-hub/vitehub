@@ -9,14 +9,14 @@ import { promisify } from "node:util"
 
 import { expect, it } from "vitest"
 
-import { syncPackedWorkspaceDependencies } from "../../internal/test-utils/published-types.js"
+import { packedWorkspacePackages, syncPackedWorkspaceDependencies } from "../../internal/test-utils/published-types.js"
 
 const execFileAsync = promisify(execFile)
 const packageRoot = resolve(import.meta.dirname, "..")
 const workspaceRoot = resolve(packageRoot, "../..")
 const childProcessTimeout = 60_000
 // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-const packedPackages = [
+const packedPackages = await packedWorkspacePackages(workspaceRoot, [
   "agent",
   "sandbox",
   "env",
@@ -27,7 +27,7 @@ const packedPackages = [
   "runtime",
   "source",
   "workspace",
-] as const
+])
 
 async function runPnpm(args: string[], cwd: string): Promise<void> {
   const npmExecPath = process.env.npm_execpath
@@ -97,10 +97,10 @@ it("packages optional Agent runtimes into immutable Nuxt output", { timeout: 180
     await writeFile(join(root, "pnpm-workspace.yaml"), "packages:\n  - .\n\nblockExoticSubdeps: false\n", "utf8")
     await writeFile(join(root, "app.vue"), "<template><div>ViteHub runtime proof</div></template>\n", "utf8")
     await writeFile(join(root, "server", "api", "proof.get.ts"), `
-import { defineAgent, runAgentInline } from "@vite-hub/agent"
+import { codexDriver, defineAgent, runAgentInline } from "@vite-hub/agent"
 import { gmail, mcp } from "@vite-hub/agent/capabilities"
 
-const agent = defineAgent({ driver: { env: { PATH: "" }, kind: "codex" }, runtime: false })
+const agent = defineAgent({ driver: codexDriver({ env: { PATH: "" } }), runtime: false })
 const optionalServer = false as boolean
 const gmailCapability = gmail({ connection: "google" })
 const capability = mcp({

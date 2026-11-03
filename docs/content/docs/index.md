@@ -1,5 +1,6 @@
 ---
 title: ViteHub documentation
+layout: landing
 description: Add server features to your Vite or Nuxt app, build an Agent, and deploy it on your chosen host.
 navigation: false
 icon: i-lucide-book-open
@@ -27,6 +28,10 @@ If a coding agent is doing the work, give it the
 
 Each product keeps its quickstart, configuration, API, host support, and errors
 together. Use the catalog below to look up a feature you already know you need.
+
+Use the [integration and deployment guides](/docs/guides) to connect hosted
+services or deploy an Agent. Read the [tool comparisons](/docs/compare) when
+you need to choose a framework or keep an existing server stack.
 
 ::docs-catalog
 ::

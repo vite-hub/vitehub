@@ -153,6 +153,7 @@ describe("resolveAuthViteConfig", () => {
       rootDir,
       route: "/api/auth",
       secondaryStorage: false,
+      tables: false,
     })
   })
 
@@ -451,5 +452,103 @@ describe("resolveAuthViteConfig", () => {
     ])
 
     expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/secondaryStorage.store is required/)
+  })
+  it.each([
+    "({ env }) => { if (env.other) return { database: authDatabase('other') }; return { database: authDatabase() } }",
+    "({ env }) => { if (env.other) return { database: otherAdapter }; return { database: authDatabase() } }",
+    "{ database: authDatabase(), runtime: { database: authDatabase('other') } }",
+    "{ runtime: () => ({ database: authDatabase('other') }) }",
+    "{ database: authDatabase('schema'), database: otherAdapter }",
+    "{ database: authDatabase('schema'), 'database': otherAdapter }",
+  ])("rejects ambiguous owned Database placement: %s", async (options) => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from 'vite-hub/auth'",
+      "import { authDatabase } from 'vite-hub/auth/database'",
+      `export default defineAuth(${options})`,
+    ])
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/statically invariant Database/)
+  })
+
+  it("uses the last duplicate database property when it owns the tables", async () => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.js", [
+      "import { defineAuth } from 'vite-hub/auth'",
+      "import { authDatabase } from 'vite-hub/auth/database'",
+      "export default defineAuth({ database: otherAdapter, database: authDatabase('content') })",
+    ])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toEqual({ database: "content" })
+  })
+
+  it.each([
+    "{ database: authDatabase(), user: { additionalFields: { plan: { type: 'string' } } } }",
+    "() => ({ database: authDatabase(), user: { additionalFields: { plan: { type: 'string' } } } })",
+    "{ database: authDatabase(), user: { additionalFields: profileFields } }",
+  ])("rejects user fields missing from the owned schema before table discovery: %s", async (options) => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from 'vite-hub/auth'",
+      "import { authDatabase } from 'vite-hub/auth/database'",
+      `export default defineAuth(${options})`,
+    ])
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/user.additionalFields/)
+  })
+
+  it.each(["session", "account", "verification"])("rejects %s fields missing from the owned schema before table discovery", async (model) => {
+    const rootDir = await createTempProject()
+    for (const options of [
+      `{ database: authDatabase(), ${model}: { additionalFields: { tenant: { type: 'string' } } } }`,
+      `{ database: authDatabase(), runtime: () => ({ ${model}: { additionalFields: extraFields } }) }`,
+    ]) {
+      await writeAuthSource(rootDir, "server/auth.ts", [
+        "import { defineAuth } from 'vite-hub/auth'",
+        "import { authDatabase } from 'vite-hub/auth/database'",
+        `export default defineAuth(${options})`,
+      ])
+      expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(`${model}.additionalFields`)
+    }
+  })
+
+  it.each(["'serial'", "'uuid'", "false"])("rejects ID strategies incompatible with owned text IDs: %s", async (strategy) => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from 'vite-hub/auth'",
+      "import { authDatabase } from 'vite-hub/auth/database'",
+      `export default defineAuth({ database: authDatabase(), advanced: { database: { generateId: ${strategy} } } })`,
+    ])
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/text IDs/)
+  })
+
+  it("finds authDatabase() and the Database that gets the Auth tables", async () => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from 'vite-hub/auth'",
+      "import { authDatabase } from 'vite-hub/auth/database'",
+      "export default defineAuth({ database: authDatabase(), emailAndPassword: { enabled: true } })",
+    ])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toEqual({ database: "default" })
+
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from '@vite-hub/auth'",
+      "import { authDatabase as appDatabase } from '@vite-hub/auth/database'",
+      "export default defineAuth(({ env }) => ({ database: appDatabase('content'), secret: env.secret }))",
+    ])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toEqual({ database: "content" })
+
+    // A function with the same name from another module is not the Auth adapter.
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from '@vite-hub/auth'",
+      "import { authDatabase } from './database'",
+      "export default defineAuth(() => ({ database: authDatabase() }))",
+    ])
+    expect(resolveAuthViteConfig(undefined, rootDir)?.tables).toBe(false)
+
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from '@vite-hub/auth'",
+      "import { authDatabase } from '@vite-hub/auth/database'",
+      "const name = 'content'",
+      "export default defineAuth({ database: authDatabase(name) })",
+    ])
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/one inline string literal/)
   })
 })

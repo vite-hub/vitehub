@@ -56,6 +56,10 @@ Providers include local `fs-lite`, Deno KV, [Cloudflare Workers KV](https://deve
 
 Deno KV accepts `kv.set(key, value, { ttl: seconds })` to expire a value. Omitting `ttl` keeps the value until it is deleted or replaced. Initialization failures do not disable a store for the life of the process. The next operation can retry initialization.
 
+## Nitro cache
+
+`@vite-hub/kv/runtime/nitro-cache` is an unstorage driver over the default store, for Nitro's `cache` mount. Its keys get the `nitro-cache:` prefix, or the `base` option. With `vitehub()`, set `cache: { driver: "kv" }` to mount it.
+
 ## Listing keys
 
 `kv.keys(prefix)` is exhaustive. Use `kv.list({ prefix, limit, cursor })` when the caller needs bounded work. `limit` must be a positive integer. A page returns `{ keys, cursor? }`; an omitted cursor means the listing is complete.
@@ -65,6 +69,8 @@ List prefixes use the same key normalization as reads and writes. For example, `
 Cursors are opaque and provider-specific. Pass a returned cursor back to the same store with the same prefix. Cloudflare KV, Upstash, Deno KV, and `fs-lite` stop enumeration when the requested page is full. An `fs-lite` cursor retains a directory iterator in the current process for up to 15 minutes. Upstash uses the same retention window when the provider returns more keys than requested. These process-local cursors can expire sooner when more than 32 listings are left unfinished. Calling `disposeKVStores()` from the application shutdown hook releases these process-local cursors, closes retained directory iterators, and clears their expiry timers. A pending listing cannot retain a new cursor after disposal. Callers must restart listing without a cursor when continuation fails.
 
 KV operations return `[error, value]`. `error.code` is one of the codes of the method, for example `KV_INVALID_CURSOR` for `list()`, and `error.why`, `error.fix`, and `error.docs` explain it. Provider failures use the code `KV_OPERATION_FAILED` and keep the provider failure in `cause`. See [KV limits and errors](https://vitehub.dev/docs/kv/limits-and-errors). Configuration errors, for example an unknown named store, throw.
+
+`kv.setIfAbsent(key, value, { ttl })` writes the value only when the key has no value, in one atomic step. Its value is `true` for the one call that wrote it and `false` for the others. Use it for upload tickets, invite codes, and nonces instead of `get()` then `set()`, which two requests can race. Upstash runs `SET NX`. Deno KV commits an atomic check that the key is missing; it deletes expired keys some time after the TTL. `fs-lite` creates the file exclusively, which is atomic on one disk, and never expires keys. Cloudflare KV returns `KV_UNSUPPORTED_OPERATION`, because Workers KV is eventually consistent; use D1 or a Durable Object there.
 
 Upstash also supports `kv.getAndDelete(key)` and `kv.increment(key, ttl)`. These operations are atomic in the provider. Deno KV, Cloudflare KV, and `fs-lite` return `KV_UNSUPPORTED_OPERATION` because they cannot provide the same contract without extra storage or non-atomic calls.
 
@@ -87,6 +93,6 @@ export default defineNitroPlugin((nitroApp) => {
 
 `hubKv()` contributes the `vitehub kv` CLI namespace: `list [--prefix] [--limit] [--cursor]`, `get <key>`, `has <key>`, `set <key> <value|@file> [--ttl <seconds>] [--json-value]`, and `del <key>`. Each command accepts `--store <name>` and `--json`. `get` writes stored strings unchanged, without adding a newline. JSON input rejects underflow and decimal values that change magnitude during parsing; use strings to preserve them. Write commands print what they changed. There is no `clear` command.
 
-The commands call a guarded endpoint that exists only on the Vite Development Server. The endpoint forwards each operation into the Nitro dev environment, so it uses the same KV storage as the running app. Nuxt and plain Vite do not run Nitro in the Vite process, so the endpoint returns status 501 there. `handleKVDevRequest()` from `@vite-hub/kv/runtime/dev` is the Nitro handler; it is not a public runtime API.
+Each command runs a `kv.*` operation of the app through the Console RPC (`@vite-hub/kv/operations`). On the dev server it needs no sign-in. With `--url` it calls a deployed app. The same operations serve the Console KV page, which edits and deletes keys, and agents.
 
 Learn more at [vitehub.dev](https://vitehub.dev).

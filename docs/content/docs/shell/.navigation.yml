@@ -1,5 +1,5 @@
 title: Shell
-icon: i-lucide-terminal
+icon: i-vitehub-shell
 order: 24
 category: Compute
 related: [sandbox, workspace]

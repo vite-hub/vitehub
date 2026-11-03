@@ -16,6 +16,7 @@ export default defineConfig({
       "src/internal/chromium.ts",
       "src/internal/chromium.workerd.ts",
       "src/internal/runtime/empty-registry.ts",
+      "src/internal/runtime/unavailable.ts",
       "src/internal/runtime/unconfigured.ts",
       "src/controllers/cdp.ts",
       "src/controllers/playwright.ts",

@@ -23,6 +23,7 @@ export default defineConfig({
       "src/drivers/cloudflare-email.ts",
       "src/drivers/resend.ts",
       "src/markdown.ts",
+      "src/operations.ts",
       "src/runtime/console.ts",
       "src/runtime/empty-definition.ts",
       "src/runtime/outbox.ts",

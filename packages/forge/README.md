@@ -1,7 +1,7 @@
 # @vite-hub/forge
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fforge&icon=npm)](https://www.npmjs.com/package/@vite-hub/forge)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fforge&period=month&icon=npm)](https://www.npmjs.com/package/@vite-hub/forge)
+[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fforge&icon=npm)](https://npmx.dev/package/@vite-hub/forge)
+[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fforge&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/forge)
 [![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
 [![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
 
@@ -36,7 +36,6 @@ Each field reads its `VITEHUB_` name first, then the `FORGES_` name that the `fo
 | `readForgeEnv(field, env)` | The first value set for one `forgeEnv` field, from an env record or a lookup function. |
 | `forgeProvider(connection)` | A `forges` provider for one Forge. Return it from a public API only where that API owns the Forge credentials. A GitHub provider has `graphql()`. |
 | `githubBranchRuleDetails(rules)` | GitHub only. Required workflows, ruleset merge methods and the classic protection source from the result of `provider.repos.branchRules()`. |
-| `listReviewThreads(provider, pull)`, `getReviewThread(provider, id)` | GitHub only. List the review conversations of a pull request, or look up one by id. |
 | `retargetPullRequest(provider, pull, base)` | GitHub only. Change the base branch of a pull request. |
 | `ForgeApiError`, `ForgeTimeoutError`, `MergeBlockedError`, `NotFoundError`, `RateLimitedError`, `repoRef` | The bundled `forges` classes and helper. Import them from here, so that `instanceof` matches errors from `forgeProvider()`. |
 | `githubAppCredentials(input)` | GitHub App installation tokens, installation lookup and App metadata. Tokens are cached until one minute before they expire. |
@@ -61,7 +60,6 @@ Each field reads its `VITEHUB_` name first, then the `FORGES_` name that the `fo
 | `FORGE_R0005` | `forgeCommitFiles()` received a file mode for a Forge other than GitHub. |
 | `FORGE_R0006` | A GitHub-only helper got a provider for another Forge. |
 | `FORGE_R0007` | `githubBranchRuleDetails()` got branch rules that are not complete GitHub rulesets or classic protection. |
-| `FORGE_R0008` | GitHub did not return complete review threads. |
 | `FORGE_R0009` | A GitHub-only helper got a reference that is not a numbered pull request, or an empty input. |
 
 ## Gaps in `forges`
@@ -75,5 +73,4 @@ Each field reads its `VITEHUB_` name first, then the `FORGES_` name that the `fo
 | `forgeCommitFiles()` | `contents.commitFiles()` cannot set a file mode. |
 | `forgeGitCredentials()`, `forgeGitAuthHeader()` | `Repo.cloneUrls` has no transport credential. |
 | `githubBranchRuleDetails()` | `BranchRules` has no required workflows, ruleset merge methods or classic protection source. |
-| `listReviewThreads()`, `getReviewThread()` | No review thread listing. |
 | `retargetPullRequest()` | No pull request base change. |

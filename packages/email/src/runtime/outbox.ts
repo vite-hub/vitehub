@@ -2,6 +2,7 @@ import * as v from "valibot"
 import { redactInspectionText, redactInspectionValue } from "@vite-hub/internal/inspect"
 import { getViteHubErrorShape } from "@vite-hub/runtime"
 
+import { emailCaptureKey } from "./capture.ts"
 import { createEmailDriverResolver } from "../driver.ts"
 import { addresses, formatAddress } from "../drivers/shared.ts"
 
@@ -115,13 +116,7 @@ function installState(limit: number, runtimeId: string): EmailOutboxState {
   return created
 }
 
-/**
- * Returns the development outbox of this runtime, or `undefined` when no outbox is installed. The outbox exists only
- * after the first send in `vite dev` with `outbox` enabled.
- */
-export function getEmailOutbox(runtimeId = "default"): EmailOutboxStore | undefined {
-  const current = state(runtimeId)
-  if (!current) return
+function storeOf(current: EmailOutboxState): EmailOutboxStore {
   return {
     clear() {
       const count = current.messages.length
@@ -134,6 +129,29 @@ export function getEmailOutbox(runtimeId = "default"): EmailOutboxStore | undefi
     },
     list: () => [...current.messages],
   }
+}
+
+/**
+ * Returns the development outbox of this runtime, or `undefined` when no outbox is installed. The outbox exists only
+ * after the first send in `vite dev` with `outbox` enabled.
+ */
+export function getEmailOutbox(runtimeId = "default"): EmailOutboxStore | undefined {
+  const current = state(runtimeId)
+  return current && storeOf(current)
+}
+
+/**
+ * Returns the newest installed outbox. The `email.outbox-*` operations are not generated per app, so they cannot
+ * name the runtime id, and one app runs one outbox.
+ */
+export function getActiveEmailOutbox(): EmailOutboxStore | undefined {
+  const registry = (globalThis as OutboxGlobal)[outboxState]
+  const current = registry ? [...registry.values()].at(-1) : undefined
+  return current && storeOf(current)
+}
+
+export function isEmailOutboxDisabled(): boolean {
+  return (globalThis as typeof globalThis & { [key: symbol]: unknown })[Symbol.for(emailCaptureKey)] === false
 }
 
 function addressList(value: EmailAddressList | undefined): string[] | undefined {

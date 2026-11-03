@@ -1,17 +1,23 @@
 import { commentsApiRoute } from "../page.ts"
 
-import type { Comment, CommentAnchor, CommentAuthor, CommentContext, CommentMention, CommentThread } from "../types.ts"
+import type { Comment, CommentAnchor, CommentAuthor, CommentsGitHubAccess, CommentContext, CommentMention, CommentThread } from "../types.ts"
 
 export interface CommentsSession {
   user: CommentAuthor | null
-  can: { read: boolean, comment: boolean, resolve: boolean }
+  /** For a person signed in with GitHub: their login, and whether they can push to the repository. */
+  github?: CommentsGitHubAccess
+  can: { read: boolean, comment: boolean, resolve: boolean, delete?: boolean }
+  /** The GitHub sign-in, when the person may not read yet and the site offers it. */
+  signIn?: { provider: "github", url: string }
+  /** Signs out of the GitHub sign-in of Comments. */
+  signOut?: string
   realtime: boolean
   content: boolean
 }
 
 /** Request-scoped permissions for an existing thread, evaluated with that thread's authorization context. */
 export interface CommentsThread extends CommentThread {
-  can?: { comment: boolean, resolve: boolean }
+  can?: { comment: boolean, resolve: boolean, delete?: boolean }
 }
 
 export interface CommentsField {
@@ -75,13 +81,16 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<ApiResult<
 
 const post = (body: unknown): RequestInit => ({ method: "POST", body: JSON.stringify(body) })
 
+/** A thread of the `"pages"` scope. The Comments API returns only these, and each has an anchor. */
+export type PageThread = CommentsThread & { anchor: CommentAnchor }
+
 export const api = {
   session: () => call<CommentsSession>("/session"),
-  threads: (page: string) => call<CommentsThread[]>(`/threads?page=${encodeURIComponent(page)}`),
-  create: (input: { page: string, anchor: CommentAnchor, context: CommentContext, body: string, mentions: CommentMention[] }) => call<CommentsThread>("/threads", post(input)),
+  threads: (page: string) => call<PageThread[]>(`/threads?page=${encodeURIComponent(page)}`),
+  create: (input: { page: string, anchor: CommentAnchor, context: CommentContext, body: string, mentions: CommentMention[] }) => call<PageThread>("/threads", post(input)),
   reply: (thread: string, input: { body: string, mentions: CommentMention[] }) => call<Comment>(`/threads/${encodeURIComponent(thread)}/comments`, post(input)),
-  resolve: (thread: string) => call<CommentsThread>(`/threads/${encodeURIComponent(thread)}/resolve`, { method: "POST" }),
-  reopen: (thread: string) => call<CommentsThread>(`/threads/${encodeURIComponent(thread)}/reopen`, { method: "POST" }),
+  resolve: (thread: string) => call<PageThread>(`/threads/${encodeURIComponent(thread)}/resolve`, { method: "POST" }),
+  reopen: (thread: string) => call<PageThread>(`/threads/${encodeURIComponent(thread)}/reopen`, { method: "POST" }),
   remove: (thread: string) => call<null>(`/threads/${encodeURIComponent(thread)}`, { method: "DELETE" }),
   removeComment: (thread: string, comment: string) => call<null>(`/threads/${encodeURIComponent(thread)}/comments/${encodeURIComponent(comment)}`, { method: "DELETE" }),
   people: (query: string) => call<CommentMention[]>(`/people?q=${encodeURIComponent(query)}`),

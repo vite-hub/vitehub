@@ -8,8 +8,11 @@ import { mergeConfig } from "vite"
 import {
   createNoExternalMerger,
   createNoExternalAddition,
+  createProviderOutputEnvironmentOwner,
   generatedViteHubWatchIgnoredAddition,
   hasNitroConfigContext,
+  loadsViteHubPackagesNatively,
+  renderNativePackageInstallPlugin,
   resolveNitroVercelFunctionName,
   resolveNuxtServerDirs,
   resolveViteHubGeneratedRoot,
@@ -19,6 +22,34 @@ import {
 } from "../src/build/vite.ts"
 
 describe("Vite provider builds", () => {
+  it("loads ViteHub packages natively only in the Nitro environment of vite dev", () => {
+    expect(loadsViteHubPackagesNatively("nitro", { command: "serve" })).toBe(true)
+    expect(loadsViteHubPackagesNatively("nitro", { command: "build" })).toBe(false)
+    expect(loadsViteHubPackagesNatively("ssr", { command: "serve" })).toBe(false)
+  })
+
+  it("renders a Nitro plugin that hands each generated module to its package", async () => {
+    const source = renderNativePackageInstallPlugin([
+      { from: "@vite-hub/agent/server/registry", install: "installAgentRegistry", module: "./registry.mjs" },
+      { from: "@vite-hub/agent/server/registry", install: "installAgentKV", module: "vite-hub/_internal/kv" },
+      { from: "@vite-hub/agent/server/registry", install: "installAgentServerEnv" },
+    ])
+    expect(source).toBe([
+      'import { installAgentRegistry as viteHubInstall0 } from "@vite-hub/agent/server/registry"',
+      'import * as viteHubModule0 from "./registry.mjs"',
+      'import { installAgentKV as viteHubInstall1 } from "@vite-hub/agent/server/registry"',
+      'import * as viteHubModule1 from "vite-hub/_internal/kv"',
+      'import { installAgentServerEnv as viteHubInstall2 } from "@vite-hub/agent/server/registry"',
+      "",
+      "viteHubInstall0(viteHubModule0)",
+      "viteHubInstall1(viteHubModule1)",
+      "viteHubInstall2(undefined)",
+      "",
+      "export default function viteHubNativePackagesPlugin() {}",
+      "",
+    ].join("\n"))
+  })
+
   it("merges a package into existing noExternal values", () => {
     const merge = createNoExternalMerger("@vite-hub/blob")
     expect(merge(undefined)).toEqual(["@vite-hub/blob"])
@@ -164,6 +195,36 @@ describe("Vite provider builds", () => {
     expect(hasNitroConfigContext({ [VITEHUB_NITRO_CONFIG_CONTEXT]: true })).toBe(true)
     expect(hasNitroConfigContext({ plugins: [{ name: "@vite-hub/blob/vite" }, { name: "@vite-hub/queue/vite" }] })).toBe(false)
     expect(hasNitroConfigContext({ plugins: [[{ name: "@vite-hub/blob/vite" }]] })).toBe(false)
+  })
+
+  it("writes Provider Output only in the Nitro environment when Nitro builds it last", async () => {
+    const client = { isBuilt: false }
+    const nitro = { isBuilt: false }
+    const owner = createProviderOutputEnvironmentOwner("test")
+    owner.nitro.setup({ options: { static: false } })
+    await owner.buildApp({ environments: { client, nitro } })
+
+    expect(owner.defers({ environment: client })).toBe(true)
+    expect(owner.defers({ environment: nitro })).toBe(false)
+    expect(owner.defers(undefined)).toBe(false)
+    nitro.isBuilt = true
+    expect(owner.defers({ environment: client })).toBe(false)
+  })
+
+  it("writes Provider Output in the client environment without a later Nitro build", async () => {
+    const client = { isBuilt: false }
+    const nitro = { isBuilt: false }
+    const withoutBuildApp = createProviderOutputEnvironmentOwner("test")
+    withoutBuildApp.nitro.setup({ options: { static: false } })
+    const staticNitro = createProviderOutputEnvironmentOwner("test")
+    staticNitro.nitro.setup({ options: { static: true } })
+    await staticNitro.buildApp({ environments: { client, nitro } })
+    const withoutNitro = createProviderOutputEnvironmentOwner("test")
+    await withoutNitro.buildApp({ environments: { client } })
+
+    expect(withoutBuildApp.defers({ environment: client })).toBe(false)
+    expect(staticNitro.defers({ environment: client })).toBe(false)
+    expect(withoutNitro.defers({ environment: client })).toBe(false)
   })
 
   it("isolates provider functions when Nitro owns the Vercel output", () => {

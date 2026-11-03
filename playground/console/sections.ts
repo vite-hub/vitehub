@@ -6,7 +6,7 @@ export const playgroundConsoleContributions = [
   {
     id: "auth",
     label: "Auth",
-    icon: "i-lucide-users-round",
+    icon: "i-vitehub-auth",
     description: "Manage users, sessions, organizations, and approved OAuth clients.",
     view: {
       kind: "auth-management",
@@ -15,7 +15,7 @@ export const playgroundConsoleContributions = [
   },
   {
     description: "Inspect messages that the development outbox captured.",
-    icon: "i-lucide-mail",
+    icon: "i-vitehub-email",
     id: "email",
     label: "Email",
     view: {
@@ -23,7 +23,7 @@ export const playgroundConsoleContributions = [
         { key: "subject", label: "Subject" },
         { key: "to", label: "To" },
         { key: "provider", label: "Provider" },
-        { key: "delivery", label: "Delivery" },
+        { filter: true, key: "delivery", label: "Delivery" },
         { key: "captured", label: "Captured" },
       ],
       kind: "record-table",
@@ -32,17 +32,17 @@ export const playgroundConsoleContributions = [
   },
   {
     description: "Inspect discovered Rate Limit policies and their source locations.",
-    icon: "i-lucide-gauge",
+    icon: "i-vitehub-rate-limit",
     id: "rate-limits",
     label: "Rate Limits",
     view: {
       kind: "definition-catalog",
-      notice: "Live counters and remaining quota are not included because their accuracy, scope, and availability depend on the provider.",
+      notice: "The page lists the policies. Enter a key to read its live counter or to reset it. Counters depend on the provider: a Cloudflare binding cannot be read or reset, and a memory counter exists only in this server process.",
     },
   },
   {
     description: "Inspect discovered Sandbox Task Definitions without starting runtime resources.",
-    icon: "i-lucide-container",
+    icon: "i-vitehub-sandbox",
     id: "sandbox-tasks",
     label: "Sandbox Tasks",
     view: {
@@ -52,7 +52,7 @@ export const playgroundConsoleContributions = [
   },
   {
     description: "Inspect discovered Workspace Definitions and their source roots.",
-    icon: "i-lucide-folder-kanban",
+    icon: "i-vitehub-workspace",
     id: "workspaces",
     label: "Workspaces",
     view: {
@@ -62,7 +62,7 @@ export const playgroundConsoleContributions = [
   },
   {
     description: "Inspect discovered Workflow Definitions and their source metadata.",
-    icon: "i-lucide-git-branch",
+    icon: "i-vitehub-workflow",
     id: "workflows",
     label: "Workflows",
     view: {
@@ -72,7 +72,7 @@ export const playgroundConsoleContributions = [
   },
   {
     description: "Inspect discovered Queue Definitions and their source metadata.",
-    icon: "i-lucide-inbox",
+    icon: "i-vitehub-queue",
     id: "queues",
     label: "Queues",
     view: {
@@ -82,7 +82,7 @@ export const playgroundConsoleContributions = [
   },
   {
     description: "Inspect Schedule Definitions.",
-    icon: "i-lucide-calendar-clock",
+    icon: "i-vitehub-schedule",
     id: "schedules",
     label: "Schedules",
     view: {
@@ -92,7 +92,7 @@ export const playgroundConsoleContributions = [
         { key: "manual", label: "Manual" },
       ],
       kind: "record-table",
-      notice: "The host runs each Schedule on its UTC cron. Definitions with `manual: true` can also run from the Console or `vitehub schedule run`.",
+      notice: "The host runs each Schedule on its cron, in its time zone (UTC by default). Definitions with `manual: true` can also run from the Console or `vitehub schedule run`.",
     },
   },
 ] as const

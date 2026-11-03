@@ -1,6 +1,10 @@
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 const workflowSpecifier = "@vite-hub/workflow"
 const workflowRuntimeStateSpecifier = "@vite-hub/workflow/runtime/state"
+// Module-level specifiers stay variables in the built output. The bundler inlines a local constant,
+// and then `vite dev` resolves the import eagerly and fails when the app disables Blob or Database.
+const blobSpecifier = "@vite-hub/blob"
+const databaseSpecifier = "@vite-hub/database/drizzle"
 
 type WorkflowModule = typeof import("@vite-hub/workflow")
 type WorkflowRuntimeStateModule = typeof import("@vite-hub/workflow/runtime/state")
@@ -60,9 +64,8 @@ export function loadAgentWorkflowRuntimeStateModule(): Promise<WorkflowRuntimeSt
 
 export async function loadAgentWorkflowBlobPrimitive(): Promise<unknown> {
   if (workflowCapabilityLoaders.blob) return await workflowCapabilityLoaders.blob()
-  const packageName: string = "@vite-hub/blob"
   // SAFETY: The official Blob package export is the primitive registered by generated Workflow hosts.
-  return ((await import(/* @vite-ignore */ packageName)) as { blob: unknown }).blob
+  return ((await import(/* @vite-ignore */ blobSpecifier)) as { blob: unknown }).blob
 }
 
 export async function loadAgentWorkflowConsolePrimitive(): Promise<unknown> {
@@ -73,7 +76,6 @@ export async function loadAgentWorkflowConsolePrimitive(): Promise<unknown> {
 
 export async function loadAgentWorkflowDatabasePrimitive(): Promise<unknown> {
   if (workflowCapabilityLoaders.db) return await workflowCapabilityLoaders.db()
-  const packageName: string = "@vite-hub/database/drizzle"
   // SAFETY: The official Database package export is the primitive registered by generated Workflow hosts.
-  return ((await import(/* @vite-ignore */ packageName)) as { agentDb: unknown }).agentDb
+  return ((await import(/* @vite-ignore */ databaseSpecifier)) as { agentDb: unknown }).agentDb
 }

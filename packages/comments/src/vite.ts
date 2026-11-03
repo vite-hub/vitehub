@@ -19,9 +19,9 @@ export { commentsOverlayMiddlewarePath } from "./operations-core/vite.ts"
 export { commentsConsoleSection } from "./console.ts"
 export { mountedCommentsRoute } from "./page.ts"
 export { commentsConsoleSection as commentsOperationsConsoleSection } from "./operations-core/console.ts"
-export { COMMENTS_VITE_PLUGIN_NAME, commentsNitroPluginPath, commentsDatabaseModulePath, renderCommentsDatabaseModule, renderCommentsNitroPlugin, usesComments } from "./operations-core/vite.ts"
-export { componentNames, readCommentsBuild, readCommentsComponents, readCommentsDatabase, renderCommentsHandler, renderCommentsPlugin } from "./live-vite.ts"
-export type { CommentsComponent, CommentsImports, CommentsRealtimeContributionContext, CommentsVitePluginOptions } from "./live-vite.ts"
+export { COMMENTS_VITE_PLUGIN_NAME, commentsNitroPluginPath, renderCommentsNitroPlugin, usesComments } from "./operations-core/vite.ts"
+export { comments, comments as default, commentsOverlayDirectory, componentNames, githubRepository, readCommentsBuild, readCommentsComponents, readCommentsDatabase, renderCommentsHandler, renderCommentsPlugin } from "./live-vite.ts"
+export type { CommentsOptions, CommentsComponent, CommentsImports, CommentsRealtimeContributionContext, CommentsVitePluginOptions, StandaloneDatabase } from "./live-vite.ts"
 
 export type HubCommentsOptions = Omit<OperationOptions, "imports"> & CommentsVitePluginOptions & {
   operationsImports?: OperationOptions["imports"]
