@@ -205,6 +205,7 @@ A transport is the seam to the server. Each method has the name and the input of
 
 ```ts
 interface CommentsTransport {
+  supportsAttachments?: boolean; // Defaults to true for custom transports.
   list(query: CommentListQuery): Promise<CommentThread[]>;
   get(input: CommentGetInput): Promise<CommentThread | null>; // { id } or { scope, n }
   create(input: CommentCreateInput): Promise<CommentThread>;
@@ -219,6 +220,8 @@ interface CommentsTransport {
 ```
 
 A mutation returns the thread as it is afterwards. `delete` returns `null` when the thread is gone.
+
+`supportsAttachments: false` tells comment surfaces to disable file controls. The shipped `createRpcTransport()` sets it because the runtime rejects attachment keys until it has an upload operation.
 
 `createMemoryTransport()` keeps threads in memory. Use it in tests and docs examples:
 

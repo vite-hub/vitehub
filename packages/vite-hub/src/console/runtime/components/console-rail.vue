@@ -348,7 +348,7 @@ onBeforeUnmount(() => {
 }
 
 .vh-primitive-rail .vitehub-console__rail-update .vh-primitive-rail__icon::after {
-  --vitehub-console-rail-update-ring: var(--vh-ui-bg-muted);
+  --vitehub-console-rail-update-ring: var(--vh-bg-muted);
   background: var(--ui-info);
   border-radius: 9999px;
   box-shadow: 0 0 0 2px var(--vitehub-console-rail-update-ring);
@@ -366,7 +366,7 @@ onBeforeUnmount(() => {
 
 @media (hover: hover) {
   .vh-primitive-rail .vitehub-console__rail-update:hover .vh-primitive-rail__icon::after {
-    --vitehub-console-rail-update-ring: var(--vh-ui-bg-elevated);
+    --vitehub-console-rail-update-ring: var(--vh-bg-elevated);
   }
 }
 

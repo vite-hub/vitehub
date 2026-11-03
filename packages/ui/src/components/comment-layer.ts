@@ -1,6 +1,6 @@
 import type { CommentsClient, CommentSubject, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
-import { computed, defineComponent, h, nextTick, type PropType, ref, watch } from "vue";
-import { draftPositionKey, provideComments, useComments, type CommentsState } from "../headless/comments.ts";
+import { computed, defineComponent, h, nextTick, type PropType, ref, shallowRef, watch } from "vue";
+import { type CommentCan, draftPositionKey, provideComments, useComments, type CommentDraft, type CommentsState } from "../headless/comments.ts";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { consumedPointerEvents } from "../internal/comment-outside.ts";
 import { excerpt } from "../internal/comment-person.ts";
@@ -40,6 +40,8 @@ export const CommentLayer = defineComponent({
     subjectUrl: { type: Function as PropType<(subject: CommentSubject) => string | undefined> },
     /** Navigates to the page of a thread from the list. Defaults to `location.assign`. */
     navigate: { type: Function as PropType<(href: string) => void> },
+    /** What the signed-in user may do in a thread. Defaults to the `can` of the comments state. */
+    can: { type: Function as PropType<CommentCan> },
     /** Turns attached files into attachment keys. Without it the boxes take no files. */
     upload: { type: Function as PropType<CommentUpload> },
     /** The file types that the boxes take, such as `image/*`. */
@@ -71,11 +73,13 @@ export const CommentLayer = defineComponent({
     });
     provideComments(state);
     const draftFiles = ref<File[]>([]);
+    const uploadingDraft = shallowRef<CommentDraft | null>(null);
     // The files belong to one draft. A new draft, or none, starts without them.
     watch(() => state.draft.value, (next, previous) => {
       if (next !== previous) draftFiles.value = [];
     });
-    const keys = async (files: File[]) => (files.length > 0 && props.upload ? props.upload(files) : []);
+    const attachmentsOn = computed(() => props.upload !== undefined && state.client.transport.supportsAttachments !== false);
+    const keys = async (files: File[]) => (attachmentsOn.value && files.length > 0 && props.upload ? props.upload(files) : []);
 
     const user = computed(() => state.user.value);
     const pinned = computed(() => {
@@ -146,7 +150,8 @@ export const CommentLayer = defineComponent({
       h(CommentThread, {
         accept: props.accept,
         attachmentUrl: props.attachmentUrl,
-        attachments: props.upload !== undefined,
+        attachments: attachmentsOn.value,
+        can: props.can,
         key: thread.id,
         detached: state.positions.value.get(thread.id)?.detached === true,
         readOnly: props.readOnly,
@@ -238,23 +243,32 @@ export const CommentLayer = defineComponent({
                   { "data-slot": "comment-layer-popover" },
                   h(CommentComposer, {
                     accept: props.accept,
-                    attachments: props.upload !== undefined,
-                    busy: draft.busy,
+                    attachments: attachmentsOn.value,
+                    busy: draft.busy || uploadingDraft.value === draft,
                     error: draft.error,
                     mentions: draft.mentions,
                     modelValue: draft.body,
                     onCancel: () => state.cancelDraft(),
                     files: draftFiles.value,
                     onSubmit: async (submit: CommentComposerSubmit) => {
+                      if (draft.busy || uploadingDraft.value === draft || state.draft.value !== draft) return;
+                      uploadingDraft.value = draft;
+                      draft.error = undefined;
                       draft.mentions = submit.mentions;
                       const submitted = draftFiles.value;
+                      const body = draft.body;
+                      const mentions = draft.mentions;
                       try {
-                        draft.attachments = await keys(submit.files);
+                        const attachments = await keys(submit.files);
+                        // The box stays editable during an upload. A changed draft is not what was sent, so it waits for another Enter.
+                        if (state.draft.value !== draft || draft.body !== body || draft.mentions !== mentions || draftFiles.value !== submitted) return;
+                        draft.attachments = attachments;
+                        if (await state.send() && draftFiles.value === submitted) draftFiles.value = [];
                       } catch (error) {
                         draft.error = error instanceof Error ? error.message : "The files could not be uploaded. Try again.";
-                        return;
+                      } finally {
+                        if (uploadingDraft.value === draft) uploadingDraft.value = null;
                       }
-                      if (await state.send() && draftFiles.value === submitted) draftFiles.value = [];
                     },
                     "onUpdate:files": (value: File[]) => (draftFiles.value = value),
                     "onUpdate:mentions": (value: string[]) => (draft.mentions = value),

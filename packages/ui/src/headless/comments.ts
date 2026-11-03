@@ -22,6 +22,7 @@ import {
   type AnchorPosition,
   type AnchorTarget,
   type CommentAnchor,
+  type CommentMessage,
   type CommentsClient,
   type CommentsClientStatus,
   type CommentSubject,
@@ -57,6 +58,24 @@ export interface CommentDraft {
   error: string | undefined;
 }
 
+/** What the signed-in user may do to a thread. `edit` and `delete` name a message; deleting the first one deletes the thread. */
+export type CommentThreadAction = "reply" | "resolve" | "edit" | "delete";
+
+/** Whether the signed-in user may do `action`. The parts show only the controls that it allows. The server still decides. */
+export type CommentCan = (action: CommentThreadAction, target: { thread: CommentThread; message?: CommentMessage }) => boolean;
+
+/**
+ * The permissions that the parts assume without a `can` option: a signed-in user may reply to and resolve any thread,
+ * and edit and delete their own messages. Nobody may do anything without a user.
+ */
+export function defaultCommentCan(user: CommentUser | undefined): CommentCan {
+  return (action, { message }) => {
+    if (!user) return false;
+    if (action === "edit" || action === "delete") return message?.author.id === user.id;
+    return true;
+  };
+}
+
 export interface UseCommentsOptions {
   client: CommentsClient;
   /** What the threads of this page are about. For a page, `{ kind: "page", id: location.pathname }`. */
@@ -81,12 +100,16 @@ export interface UseCommentsOptions {
   location?: () => Pick<Location, "href" | "origin" | "search">;
   /** Load the threads and listen for keys when the component mounts. Default `true`. Call `start()` yourself when `false`. */
   autoStart?: boolean;
+  /** What the signed-in user may do, such as your app's sharing rules. Defaults to `defaultCommentCan()`. */
+  can?: CommentCan;
 }
 
 export interface CommentsState {
   readonly client: CommentsClient;
   readonly subject: ComputedRef<CommentSubject>;
   readonly user: ComputedRef<CommentUser | undefined>;
+  /** Whether the signed-in user may reply, resolve, edit, or delete. Always false without a user. */
+  readonly can: CommentCan;
   /** Every person the state knows: the user, the authors of threads, the people that `users()` found, and `people`. Mentions get their names here. */
   readonly people: ComputedRef<CommentUser[]>;
   /** Comment mode: a click drops a pin. */
@@ -533,10 +556,13 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     return result;
   }
 
+  const can: CommentCan = (action, target) => user.value !== undefined && (options.can ?? defaultCommentCan(user.value))(action, target);
+
   const state: CommentsState = {
     client,
     subject,
     user,
+    can,
     people,
     active,
     scope,

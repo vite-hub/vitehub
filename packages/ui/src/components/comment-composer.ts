@@ -156,8 +156,8 @@ export const CommentComposer = defineComponent({
       return part;
     };
     const fileParts = computed(() => files.value.map(partOf));
-    function setFiles(next: File[]) {
-      for (const file of files.value) {
+    watch(() => [...files.value], (next, previous) => {
+      for (const file of previous) {
         const part = parts.get(file);
         if (part && !next.includes(file)) {
           URL.revokeObjectURL(part.url);
@@ -165,6 +165,8 @@ export const CommentComposer = defineComponent({
           parts.delete(file);
         }
       }
+    });
+    function setFiles(next: File[]) {
       localFiles.value = next;
       hint.value = undefined;
       emit("update:files", next);
@@ -287,7 +289,7 @@ export const CommentComposer = defineComponent({
       const results = await find(found.query).catch(() => []);
       const items = rankPeople(results, found.query, { exclude: self(), participants: props.participants });
       checkSelection();
-      if (run !== lookup) return;
+      if (run !== lookup || found.start === dismissed) return;
       const sameToken = field.selectionStart === field.selectionEnd && field.value.slice(0, field.selectionStart) === before;
       menu.value = sameToken && items.length > 0 ? { before, index: 0, items, start: found.start } : null;
     }
@@ -329,6 +331,8 @@ export const CommentComposer = defineComponent({
       event.preventDefault();
       event.stopPropagation();
       if (open) {
+        // A lookup that is still on its way must not open the menu again.
+        lookup++;
         dismissed = open.start;
         menu.value = null;
       } else if (hasContent()) void shake();

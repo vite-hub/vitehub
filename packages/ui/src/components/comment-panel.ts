@@ -1,18 +1,45 @@
 import type { CommentsClient, CommentStatus, CommentSubject, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
-import { computed, defineComponent, h, nextTick, type PropType, ref, resolveComponent, type SlotsType } from "vue";
-import { type CommentsState, provideComments, useComments, useCommentsContext } from "../headless/comments.ts";
+import { computed, defineComponent, h, nextTick, type PropType, ref, type SlotsType, type VNode, watch } from "vue";
+import { type CommentCan, type CommentsState, provideComments, useComments, useCommentsContext } from "../headless/comments.ts";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { threadRow } from "../internal/comment-row.ts";
 import { injectComments } from "../internal/comments-context.ts";
 import { CommentComposer, type CommentComposerSubmit } from "./comment-composer.ts";
 import { type CommentAttachmentUrl, CommentThread, type CommentThreadSlots } from "./comment-thread.ts";
+import { useUIComponent } from "../internal/nuxt-ui.ts";
 
 export type CommentPanelVariant = "docked" | "floating";
 
 /** Turns files into attachment keys, such as Blob keys, before a comment or a reply is sent. */
 export type CommentUpload = (files: File[]) => Promise<string[]>;
 
-export type CommentPanelSlots = CommentThreadSlots;
+/** The scope of the `row` and `preview` slots of `CommentPanel` and `CommentList`. */
+export interface CommentRowSlotScope {
+  thread: CommentThreadModel;
+}
+
+/** The scope of the `group-header` slot: the label that `group` gave, and the threads under it. */
+export interface CommentGroupSlotScope {
+  group: string;
+  threads: CommentThreadModel[];
+}
+
+export type CommentRowSlots = {
+  /** The inside of one row of the list. Replaces the number, avatar, text, and facts. */
+  row?: (scope: CommentRowSlotScope) => VNode[];
+  /** The text of one row. Replaces the start of the first message, as plain text. */
+  preview?: (scope: CommentRowSlotScope) => VNode[];
+};
+
+export type CommentPanelSlots = CommentThreadSlots & CommentRowSlots & {
+  /** The heading of a group of rows. Replaces the label that `group` gave. */
+  "group-header"?: (scope: CommentGroupSlotScope) => VNode[];
+};
+
+/** Puts a thread under a heading of the list, such as `"From earlier versions"`. `undefined` keeps it in the first, unnamed group. */
+export type CommentGroup = (thread: CommentThreadModel) => string | undefined;
+
+const listSlots = new Set(["row", "preview", "group-header"]);
 
 function reason(error: unknown): string {
   return error instanceof Error ? error.message : "The comment could not be sent. Try again.";
@@ -55,12 +82,16 @@ export const CommentPanel = defineComponent({
     allowEmpty: { default: false, type: Boolean },
     /** People that messages may mention, on top of the people that the comments state knows. */
     people: { default: () => [], type: Array as PropType<CommentUser[]> },
+    /** What the signed-in user may do in a thread. Defaults to the `can` of the comments state. */
+    can: { type: Function as PropType<CommentCan> },
+    /** Groups the rows under headings, in the order the groups first appear. Threads without a group come first. */
+    group: { type: Function as PropType<CommentGroup> },
   },
   emits: ["update:thread", "update:status", "select"],
   // SAFETY: Vue uses Object as its runtime slots marker.
   slots: Object as SlotsType<CommentPanelSlots>,
   setup(props, { emit, slots }) {
-    const UButton = resolveComponent("UButton");
+    const UButton = useUIComponent("UButton");
     const inherited = props.comments ?? injectComments();
     if (!inherited && (!props.client || !props.subject)) {
       throw uiErrorDiagnostics.UI_R0002({
@@ -70,7 +101,7 @@ export const CommentPanel = defineComponent({
     // SAFETY: the check above leaves `client` and `subject` defined whenever no state was found.
     // A panel of its own has no comment mode, so it takes no hotkey.
     const state = useCommentsContext(inherited ?? useComments({ client: props.client!, hotkey: false, subject: () => props.subject!, user: () => props.user }));
-    if (!inherited) provideComments(state);
+    provideComments(state);
 
     const root = ref<HTMLElement | null>(null);
     const localThread = ref<string | null>(null);
@@ -110,15 +141,29 @@ export const CommentPanel = defineComponent({
         [...rowsOf].find((row) => row.dataset.threadId === id)?.focus();
       });
     }
-    const keys = async (list: File[]) => (list.length > 0 && props.upload ? props.upload(list) : []);
+    const attachmentsOn = computed(() => props.upload !== undefined && state.client.transport.supportsAttachments !== false);
+    const keys = async (list: File[]) => (attachmentsOn.value && list.length > 0 && props.upload ? props.upload(list) : []);
+
+    // The page box belongs to one subject. Another subject starts with an empty box.
+    const subjectKey = () => `${state.subject.value.kind}\u0000${state.subject.value.id}`;
+    watch(subjectKey, () => {
+      body.value = "";
+      mentions.value = [];
+      files.value = [];
+      failure.value = undefined;
+    });
 
     async function send(submit: CommentComposerSubmit) {
       if (busy.value) return;
       busy.value = true;
       failure.value = undefined;
       const submitted = { body: body.value, files: files.value, mentions: mentions.value };
+      const subject = subjectKey();
       try {
-        await state.create({ attachments: await keys(submit.files), body: submit.body, mentions: submit.mentions });
+        const attachments = await keys(submit.files);
+        // A comment written on one page never goes to the next one, even when the subject changed during the upload.
+        if (subjectKey() !== subject) return;
+        await state.create({ attachments, body: submit.body, mentions: submit.mentions });
         if (body.value === submitted.body && files.value === submitted.files && mentions.value === submitted.mentions) {
           body.value = "";
           mentions.value = [];
@@ -131,7 +176,46 @@ export const CommentPanel = defineComponent({
       }
     }
 
-    const threadSlots = () => Object.fromEntries(Object.entries(slots).filter(([, slot]) => slot !== undefined));
+    const threadSlots = () => Object.fromEntries(Object.entries(slots).filter(([name, slot]) => slot !== undefined && !listSlots.has(name)));
+    const groups = computed(() => {
+      const found: Array<{ label: string | undefined; threads: CommentThreadModel[] }> = [];
+      for (const thread of rows.value) {
+        const label = props.group?.(thread);
+        let entry = found.find((group) => group.label === label);
+        if (!entry) found.push((entry = { label, threads: [] }));
+        entry.threads.push(thread);
+      }
+      // Threads without a group lead, so a heading such as "From earlier versions" sits below the current ones.
+      return found.sort((a, b) => Number(a.label !== undefined) - Number(b.label !== undefined));
+    });
+    const row = (thread: CommentThreadModel) =>
+      h("li", { key: thread.id }, [
+        h(
+          "button",
+          {
+            "data-slot": "comment-panel-item",
+            "data-status": thread.status,
+            "data-thread-id": thread.id,
+            onClick: () => select(thread),
+            type: "button",
+          },
+          slots.row?.({ thread }) ?? threadRow(thread, {
+            detached: state.positions.value.get(thread.id)?.detached === true,
+            preview: slots.preview?.({ thread }),
+            site: state.scope.value === "site",
+          }),
+        ),
+      ]);
+    const items = (threads: CommentThreadModel[], label: string, key?: string) => h("ol", { "aria-label": label, "data-slot": "comment-panel-items", key }, threads.map(row));
+    const grouped = () =>
+      groups.value.map(({ label, threads }) =>
+        label === undefined
+          ? items(threads, props.title, "ungrouped")
+          : h("section", { "aria-label": label, "data-slot": "comment-panel-group", key: label }, [
+              h("h3", { "data-slot": "comment-panel-group-header" }, slots["group-header"]?.({ group: label, threads }) ?? label),
+              items(threads, label),
+            ]),
+      );
 
     const list = () => {
       const counts = state.counts.value;
@@ -161,32 +245,16 @@ export const CommentPanel = defineComponent({
         ]),
         rows.value.length === 0
           ? h("p", { "data-slot": "comment-panel-empty", role: "status" }, empty)
-          : h(
-              "ol",
-              { "aria-label": props.title, "data-slot": "comment-panel-items" },
-              rows.value.map((thread) =>
-                h("li", { key: thread.id }, [
-                  h(
-                    "button",
-                    {
-                      "data-slot": "comment-panel-item",
-                      "data-status": thread.status,
-                      "data-thread-id": thread.id,
-                      onClick: () => select(thread),
-                      type: "button",
-                    },
-                    threadRow(thread, { detached: state.positions.value.get(thread.id)?.detached === true, site: state.scope.value === "site" }),
-                  ),
-                ]),
-              ),
-            ),
+          : props.group
+            ? h("div", { "data-slot": "comment-panel-groups" }, grouped())
+            : items(rows.value, props.title),
         props.readOnly
           ? null
           : h("div", { "data-slot": "comment-panel-composer" }, [
               h(CommentComposer, {
                 accept: props.accept,
                 allowEmpty: props.allowEmpty,
-                attachments: props.upload !== undefined,
+                attachments: attachmentsOn.value,
                 autofocus: false,
                 busy: busy.value,
                 error: failure.value,
@@ -213,7 +281,8 @@ export const CommentPanel = defineComponent({
       h(CommentThread, {
         accept: props.accept,
         attachmentUrl: props.attachmentUrl,
-        attachments: props.upload !== undefined,
+        attachments: attachmentsOn.value,
+        can: props.can,
         detached: state.positions.value.get(thread.id)?.detached === true,
         dismissible: false,
         key: thread.id,

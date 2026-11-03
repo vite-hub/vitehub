@@ -1,9 +1,10 @@
 import type { ChatStatus, FileUIPart } from "ai";
-import { computed, defineComponent, h, onBeforeUnmount, onMounted, type PropType, ref, resolveComponent } from "vue";
+import { computed, defineComponent, h, onBeforeUnmount, onMounted, type PropType, ref } from "vue";
 import { fileToUIPart } from "../composables/attachments.ts";
 import { nextPromptFiles } from "../internal/prompt-files.ts";
 import { ImagePreview } from "../internal/image-preview.ts";
 import { Attachment, AttachmentAction, AttachmentActions, AttachmentContent, AttachmentGroup, AttachmentMedia, AttachmentTitle } from "./attachment.ts";
+import { useUIComponent } from "../internal/nuxt-ui.ts";
 
 export interface PromptInputSubmit {
   files: readonly FileUIPart[];
@@ -67,8 +68,8 @@ export const PromptInput = defineComponent({
     onBeforeUnmount(() => {
       disposed = true;
     });
-    const UButton = resolveComponent("UButton");
-    const UIcon = resolveComponent("UIcon");
+    const UButton = useUIComponent("UButton");
+    const UIcon = useUIComponent("UIcon");
     const remove = (index: number) => emit("update:files", props.files.filter((_, current) => current !== index));
     const addFiles = async (input: FileList | Iterable<File>, onAccepted?: () => void) => {
       const batch = nextBatch++;
