@@ -115,12 +115,14 @@ button{flex-shrink:0;padding:0}
 @media(prefers-reduced-motion:reduce){:host,div,::slotted(*),.exit,.mark svg,:host([collapsed]) .mark{transition:none}}`
 
 // The note that replaces the pill when the tools turn off: the same glass, at the same place, with the way back.
-const offNoteStyles = `:host([off]){--vitehub-pill-flow:row}
-div{gap:4px;padding-left:12px;animation:vitehub-off-in 150ms ease-out}
+// `max-content` keeps the note from shrinking to the space between its `left` and the edge of the screen.
+const offNoteStyles = `:host([off]){--vitehub-pill-flow:row;width:max-content}
+div{gap:8px;padding-left:12px;animation:vitehub-off-in 150ms ease-out}
 :host([off]) div{align-items:center}
-p{margin:0;max-width:44ch;line-height:16px;color:var(--vitehub-pill-muted)}
+p{margin:0;line-height:16px;color:var(--vitehub-pill-muted)}
 strong{font-weight:inherit;color:var(--vitehub-pill-strong)}
-code{font:inherit;color:var(--vitehub-pill-strong)}
+code{font:inherit;white-space:nowrap;color:var(--vitehub-pill-strong)}
+button{padding:0 10px}
 @keyframes vitehub-off-in{from{opacity:0}}
 @media(prefers-reduced-motion:reduce){div{animation:none}}`
 /** How long the note stays after the tools turn off. It stays while the pointer or the keyboard focus is on it. */
