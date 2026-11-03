@@ -24,7 +24,7 @@ import { createConsoleCliNamespace } from "./cli.ts"
 import { consoleViteDevTools, type ConsoleViteDevTools } from "./devtools.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
 import { bindConsoleInvocationsIdentity, createConsoleInvocationsIdentity, releaseConsoleInvocationsBinding } from "./internal.ts"
-import { addConsolePageToolRoutes, addConsoleRpcHandler } from "./nitro.ts"
+import { addConsolePageToolRoutes, addConsoleRpcHandler, ignoreConsolePrerender } from "./nitro.ts"
 import { transformConsoleOperationFeatures } from "./operation-features.ts"
 import { consoleOpenAccessWarning, isConsoleSignInPage } from "./runtime/server/access.ts"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
@@ -285,6 +285,7 @@ function configureConsoleNitroRoutes(
   const kit = createNitroServerKit({ ...nitro, handlers, publicAssets: assets })
   // Without a `console` option, `vite dev` serves only the RPC, so the CLI can call operations. No page, no assets.
   if (!rpcOnly) {
+    ignoreConsolePrerender(kit.config, baseURL)
     // Console Auth already redirects in its middleware, including its OAuth start request.
     if (signInPage && !consoleAuthHandlers) {
       for (const route of ["/_vitehub", "/_vitehub/**"]) {
