@@ -130,6 +130,7 @@ vi.mock("@vite-hub/workspace/vite", () => ({ hubWorkspace: integrationMocks.hubW
 vi.mock("../src/task/vite.ts", () => ({ viteHubTaskPlugin: integrationMocks.viteHubTask }))
 
 import type { KVModuleOptions } from "@vite-hub/kv"
+import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_MAJOR_VERSION } from "@vite-hub/internal/build/vite"
 import { resolveConfig, type Plugin, type PluginOption } from "vite"
 import type { ConsoleViteDevTools } from "../src/console/devtools.ts"
 import { contributeProviderDeploymentOutput, useProviderOutputCatalog } from "../../internal/src/build/deployment-output.ts"
@@ -138,7 +139,7 @@ import { vitehub, type ViteHubOptions } from "../src/index.ts"
 import { isIncludedNitroPlugin } from "../src/nitro-plugin.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
-const deniedGeneratedOwnerPackageNames = new Set(["@vite-hub/cli"])
+const deniedGeneratedOwnerPackageNames = new Set(["@vite-hub/cli", "@vite-hub/web-container"])
 const generatedOwnerPackageCases = Object.keys({ ...frameworkPackageManifest.dependencies, ...frameworkPackageManifest.peerDependencies })
   .filter(name => name.startsWith("@vite-hub/"))
   .map(name => [name, deniedGeneratedOwnerPackageNames.has(name) ? "deny" : "resolve"] as const)
@@ -690,6 +691,26 @@ describe("vitehub", () => {
     }
   })
 
+  it("keeps dependency discovery for an explicitly inlined workerd service", async () => {
+    const config = await resolveConfig({
+      configFile: false,
+      logLevel: "silent",
+      plugins: [
+        dependencyPluginByName(vitehub({ preset: "cloudflare" }), "vite-hub/deployment-settings"),
+        {
+          name: "nitro-service-stand-in",
+          configEnvironment(name) {
+            if (name === "api") return { consumer: "server", resolve: { conditions: ["workerd"] } }
+          },
+        },
+      ],
+      environments: { api: { resolve: { noExternal: true } } },
+    }, "serve")
+
+    expect(config.environments.api!.optimizeDeps.noDiscovery).toBe(false)
+    expect(config.environments.api!.optimizeDeps.exclude).toContain("nitro")
+  })
+
   it("includes Nitro once, and steps aside when the app adds nitro()", () => {
     const included = (vitehub({ preset: "node" }).flat() as Plugin[]).filter(isIncludedNitroPlugin)
     const main = included.find(plugin => plugin.name === "nitro:main")!
@@ -783,7 +804,6 @@ describe("vitehub", () => {
       "vite-hub/optional-owner-imports",
       "vite-hub/task",
       "vite-hub/nitro-cache-bypass",
-      "vite-hub/nitro-workerd-dependencies",
       "vite-hub/nitro-startup-chunks",
       "vite-hub/types",
       "vite-hub/nitro-order",
@@ -1315,7 +1335,7 @@ describe("vitehub", () => {
     ["cloudflare", "cloudflare-module"],
     ["netlify", "netlify"],
     ["vercel", "vercel"],
-    ["deno", "deno-deploy"],
+    ["deno", "deno-server"],
     ["node", "node-server"],
   ] as const)("maps the %s deployment plan to Nitro %s", async (preset, nitroPreset) => {
     const config: Record<string, unknown> = preset === "deno"
@@ -1340,6 +1360,40 @@ describe("vitehub", () => {
   })
 
   it.each([
+    ["deno", false, 2, "deno-deploy"],
+    ["cloudflare", true, 2, "cloudflare-durable"],
+    ["deno", false, 3, "deno-server"],
+    ["cloudflare", true, 3, "cloudflare-module"],
+  ] as const)("selects the %s preset with realtime %s on Nitro %s during Nuxt config replay", async (preset, realtime, nitroMajorVersion, nitroPreset) => {
+    const plugins = vitehub({ cache: { driver: "kv" }, kv: true, preset, realtime })
+    const settings = dependencyPluginByName(plugins, "vite-hub/deployment-settings")
+    const deployment = dependencyPluginByName(plugins, "vite-hub/deployment-preset")
+    const output = dependencyPluginByName(plugins, "vite-hub/deployment-output")
+    try {
+      vi.stubEnv("NITRO_PRESET", nitroPreset)
+      vi.stubEnv("SERVER_PRESET", nitroPreset)
+      for (const initialPreset of [undefined, nitroPreset]) {
+        const config = {
+          [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+          [VITEHUB_NITRO_MAJOR_VERSION]: nitroMajorVersion,
+          command: "build",
+          nitro: { preset: initialPreset },
+        }
+        await callHook(settings.config, [config, { command: "build", mode: "production" }])
+        expect(config.nitro.preset).toBe(nitroPreset)
+        await callHook(deployment.config, [config, { command: "build", mode: "production" }])
+        expect(config.nitro.preset).toBe(nitroPreset)
+        expect(config.nitro).toHaveProperty(nitroMajorVersion === 2 ? "storage.cache.driver" : "kv.cache.driver", kvCacheDriver)
+        expect(config.nitro).toHaveProperty(nitroMajorVersion === 2 ? "devStorage.cache.driver" : "$development.kv.cache.driver", kvCacheDriver)
+        expect(() => callHook(output.configResolved, [config])).not.toThrow()
+      }
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it.each([
     ["cloudflare", { binding: "CACHE", driver: "cloudflare-kv-binding" }],
     ["vercel", { driver: "vercel-runtime-cache" }],
     ["deno", { base: "cache", driver: "deno-kv" }],
@@ -1350,8 +1404,8 @@ describe("vitehub", () => {
     )
 
     expect(config.nitro).toMatchObject({
-      devStorage: { cache: { base: ".vitehub/data/cache", driver: "fs-lite" } },
-      storage: { cache: storage },
+      $development: { kv: { cache: { base: ".vitehub/data/cache", driver: "fs-lite" } } },
+      kv: { cache: storage },
     })
     if (preset === "cloudflare") {
       expect(config.nitro).toHaveProperty("cloudflare.wrangler.kv_namespaces", [{ binding: "CACHE", id: "cache-id" }])
@@ -1361,10 +1415,10 @@ describe("vitehub", () => {
   it("keeps an application cache mount and other KV namespaces", async () => {
     const config = await applyDeploymentConfig(
       { cache: true, preset: "cloudflare" },
-      { nitro: { cloudflare: { wrangler: { kv_namespaces: [{ binding: "KV", id: "kv-id" }] } }, storage: { cache: { driver: "memory" } } } },
+      { nitro: { cloudflare: { wrangler: { kv_namespaces: [{ binding: "KV", id: "kv-id" }] } }, kv: { cache: { driver: "memory" } } } },
     )
 
-    expect(config.nitro).toHaveProperty("storage.cache", { driver: "memory" })
+    expect(config.nitro).toHaveProperty("kv.cache", { driver: "memory" })
     expect(config.nitro).toHaveProperty("cloudflare.wrangler.kv_namespaces", [{ binding: "KV", id: "kv-id" }])
   })
 
@@ -1372,7 +1426,7 @@ describe("vitehub", () => {
     const config = await applyDeploymentConfig({ cache: { driver: "kv" }, kv: true, preset: "cloudflare" })
     const mount = { base: "nitro-cache", driver: kvCacheDriver }
 
-    expect(config.nitro).toMatchObject({ devStorage: { cache: mount }, storage: { cache: mount } })
+    expect(config.nitro).toMatchObject({ $development: { kv: { cache: mount } }, kv: { cache: mount } })
     await expect(applyDeploymentConfig({ cache: { driver: "kv" }, preset: "cloudflare" })).rejects.toThrow("`kv` is not enabled")
   })
 
@@ -1380,7 +1434,7 @@ describe("vitehub", () => {
     const options = { cache: { driver: "kv" as const }, kv: true, preset: "node" as const }
     await expect(applyDeploymentConfig(options, { kv: false }, command)).rejects.toThrow("`kv` is not enabled")
     await expect(applyDeploymentConfig({ ...options, kv: false }, { kv: { driver: "fs-lite" } }, command)).resolves.toHaveProperty(
-      "nitro.storage.cache.driver", kvCacheDriver,
+      "nitro.kv.cache.driver", kvCacheDriver,
     )
   })
 
@@ -1389,7 +1443,7 @@ describe("vitehub", () => {
     const config = { kv: { binding: "APP_KV", driver: "cloudflare-kv-binding" } satisfies KVModuleOptions }
     await callHook(dependencyPluginByName(plugins, "vite-hub/deployment-preset").config, [config, { command: "build", mode: "production" }])
 
-    expect(config).toHaveProperty("nitro.storage.cache.driver", kvCacheDriver)
+    expect(config).toHaveProperty("nitro.kv.cache.driver", kvCacheDriver)
     expect.soft(pluginNames(plugins)).toContain("@vite-hub/kv/vite")
     expect.soft(pluginNames(plugins)).not.toContain("@vite-hub/kv/optional-peers")
 
@@ -1402,8 +1456,8 @@ describe("vitehub", () => {
     const config = await applyDeploymentConfig({ cache: true, dataDir: "/tmp/vitehub-data", preset: "node" })
 
     expect(config.nitro).toMatchObject({
-      devStorage: { cache: { base: "/tmp/vitehub-data/cache", driver: "fs-lite" } },
-      storage: { cache: { base: "/tmp/vitehub-data/cache", driver: "fs-lite" } },
+      $development: { kv: { cache: { base: "/tmp/vitehub-data/cache", driver: "fs-lite" } } },
+      kv: { cache: { base: "/tmp/vitehub-data/cache", driver: "fs-lite" } },
     })
   })
 
@@ -1425,7 +1479,7 @@ describe("vitehub", () => {
     const config = await applyDeploymentConfig({ preset: "cloudflare", realtime: true })
 
     expect(config.nitro).toMatchObject({
-      preset: "cloudflare-durable",
+      preset: "cloudflare-module",
       cloudflare: {
         wrangler: {
           durable_objects: {
@@ -1716,7 +1770,7 @@ describe("vitehub", () => {
 
     expect(() => callHook(plugin.configResolved, [{
       command: "build",
-      nitro: { preset: "deno-deploy" },
+      nitro: { preset: "deno-server" },
       plugins: [],
       resolve: { alias: [{ customResolver, find: "#app", replacement: "/app/index.ts" }] },
     }])).not.toThrow()
@@ -1745,19 +1799,20 @@ describe("vitehub", () => {
     }
     callHook(output.configResolved, [{ ...resolvedConfig, nitro: nitroConfig }])
     let compiled: (() => Promise<void>) | undefined
-    const rollupConfig: { plugins?: unknown } = {}
+    const rolldownConfig: { plugins?: unknown } = {}
     const nitro = {
       hooks: {
         hook: vi.fn((name: string, callback: (...args: unknown[]) => unknown) => {
           // SAFETY: Nitro passes the compiled hook no arguments, and this test awaits it.
           if (name === "compiled") compiled = callback as () => Promise<void>
-          if (name === "rollup:before") callback(nitro, rollupConfig)
+          if (name === "build:config") callback(nitro, { builder: "vite", rolldown: rolldownConfig })
         }),
       },
       options: {
+        builder: "vite",
         commands: nitroConfig.commands,
         output: { dir: "/app/.output", serverDir: "/app/.output/server" },
-        preset: "deno_deploy",
+        preset: "deno_server",
         rootDir: "/app",
       },
     }
@@ -1768,7 +1823,7 @@ describe("vitehub", () => {
 
     await (compiled as () => Promise<void>)()
 
-    expect(rollupConfig.plugins).toEqual([{ name: "vitehub:deno-server-packages" }])
+    expect(rolldownConfig.plugins).toEqual([{ name: "vitehub:deno-server-packages" }])
     expect(integrationMocks.finalizeDenoDeploymentOutput).toHaveBeenCalledWith(expect.objectContaining({
       conditions: ["browser", "launch"],
       serverPackages: { bundledPackageDirs: [], externalImports: [] },

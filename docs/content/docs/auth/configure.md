@@ -189,7 +189,7 @@ The hook runs for every Better Auth path that refreshes a stored session: `/get-
 
 ## Session marker cookie
 
-When a response sets the session cookie, ViteHub Auth also sets `vitehub_session=1`. It has the session cookie's lifetime, path, domain, `SameSite`, `Secure`, and `Partitioned` attributes, and Better Auth clears it when it clears the session cookie, such as on sign-out. Unlike the session cookie it is not `HttpOnly`, so a page script can read it. It holds no secret and proves nothing: the server still checks the session on every request. The [comments overlay](/docs/comments/operations/configure#content-security-policy-and-privacy) can use it to skip the session request for visitors who never signed in when marker mode is enabled.
+When a response sets the session cookie, ViteHub Auth also sets `vitehub_session=1`. It has the session cookie's lifetime, path, domain, `SameSite`, `Secure`, and `Partitioned` attributes, and Better Auth clears it when it clears the session cookie, such as on sign-out. Unlike the session cookie it is not `HttpOnly`, so a page script can read it. It holds no secret and proves nothing: the server still checks the session on every request. The [page tools](/docs/comments/configure#turn-comment-mode-on-and-off) read it to load comment mode for a person who just signed in.
 
 When a session starts or ends, ViteHub Auth also clears the `vitehub-tools` cookie of the [ViteHub tools pill](/docs/development/console#open-the-console-from-the-apps-pages). The next page then asks whether the new person may use the Console or Comments, so the pill shows right after sign-in and goes away after sign-out. A session refresh keeps the same session and keeps the cookie.
 

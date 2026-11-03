@@ -12,6 +12,7 @@ import {
   resolveViteHubProjectRoot,
   VITEHUB_GENERATED_ROOT,
   VITEHUB_NITRO_CONFIG_CONTEXT,
+  VITEHUB_NITRO_MAJOR_VERSION,
   VITEHUB_PROJECT_ROOT,
   VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite"
@@ -21,7 +22,7 @@ import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubComments } from "@vite-hub/comments/vite"
 import { env, hubEnv } from "@vite-hub/env/vite"
 import type { KVModuleOptions } from "@vite-hub/kv"
-import { resolveKVViteConfig } from "@vite-hub/kv/vite"
+import { hubKv, resolveKVViteConfig } from "@vite-hub/kv/vite"
 import type { QueueModuleOptions } from "@vite-hub/queue"
 import { hubRealtime } from "@vite-hub/realtime/vite"
 import { viteHubUIIcons } from "@vite-hub/ui/nuxt"
@@ -466,6 +467,28 @@ describe("ViteHub Nuxt integration", () => {
       expect(result("@scope/x", undefined, false)).toBe(external !== undefined)
       expect(result("vue", undefined, false)).toBe(false)
     }
+  })
+
+  it.each([false, true])("resolves unstorage's Cloudflare import during Nitro replay (dev: %s)", async (dev) => {
+    mocks.vitehub.mockReturnValue([hubKv({ driver: "cloudflare-kv-binding", binding: "KV" })])
+    const { nuxt, runNitroConfigHook } = createNuxt(dev)
+    await viteHubNuxtModule({ kv: true, preset: "cloudflare" }, nuxt)
+    const config: Record<string, unknown> = {}
+    await runNitroConfigHook(config)
+    const { plugins } = config.rollupConfig as { plugins: Plugin[] }
+    const resolver = plugins.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/kv/vite")
+    if (typeof resolver?.resolveId !== "function") throw new TypeError("Expected the Nitro KV resolver.")
+    // Rollup supplies isEntry, but no Vite ssr option.
+    const resolveImport = (importer: string) => Reflect.apply(resolver.resolveId as Function, {}, ["cloudflare:workers", importer, { isEntry: false }])
+    const result = await resolveImport("/app/node_modules/unstorage/dist/drivers/cloudflare-kv-binding.mjs")
+    if (dev) {
+      expect(result).toBeUndefined()
+      expect(config.alias).toHaveProperty("cloudflare:workers", expect.stringContaining("cloudflare-workers.dev.mjs"))
+    }
+    else {
+      expect(result).toEqual({ external: true, id: "cloudflare:workers" })
+    }
+    expect(await resolveImport("/app/server/api/example.ts")).toBeUndefined()
   })
 
   it("discovers Definitions in every Nuxt layer server directory, application first", async () => {
@@ -2176,7 +2199,7 @@ describe("ViteHub Nuxt integration", () => {
       const config = nitroOptions(nuxt)
       await runNitroConfigHook(config)
       expect(nitroPlugins(nuxt)).toContain("/tmp/vitehub-nuxt/.vitehub/nitro/comments/plugin.mjs")
-      await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/comments/plugin.mjs", "utf8")).resolves.toContain("installComments(")
+      await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/comments/plugin.mjs", "utf8")).resolves.toContain("defineCommentsPlugin({")
 
       // An explicit `database: false` is never overridden.
       await viteHubNuxtModule({ database: false, preset: "node" }, createNuxt().nuxt)
@@ -3018,6 +3041,60 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     await viteHubNuxtModule({ preset }, nuxt)
 
     expect(nitroOptions(nuxt)).toMatchObject({ preset: nitroPreset })
+  })
+
+  it.each([
+    [2, "nuxt", "deno", false, "deno-deploy"],
+    [2, "server builder", "deno", false, "deno-deploy"],
+    [3, "server builder", "deno", false, "deno-server"],
+    [2, "nuxt", "cloudflare", true, "cloudflare-durable"],
+    [2, "server builder", "cloudflare", true, "cloudflare-durable"],
+    [3, "server builder", "cloudflare", true, "cloudflare-module"],
+  ] as const)("uses the installed Nuxt Nitro %s via %s for %s with realtime %s", async (major, owner, preset, realtime, expectedPreset) => {
+    const root = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-nitro-"))
+    const writePackage = async (directory: string, manifest: object) => {
+      await mkdir(directory, { recursive: true })
+      await writeFile(resolve(directory, "package.json"), JSON.stringify(manifest))
+    }
+    try {
+      const nuxtRoot = resolve(root, "node_modules/nuxt")
+      await writePackage(nuxtRoot, {
+        name: "nuxt",
+        dependencies: owner === "nuxt" ? { nitropack: "2.13.4" } : { "@nuxt/nitro-server": `${major + 2}.0.0` },
+      })
+      // The app's standalone Nitro must not override Nuxt's server dependency.
+      await writePackage(resolve(root, "node_modules/nitro"), { name: "nitro", version: "3.0.261102-rc" })
+      if (owner === "nuxt") {
+        await writePackage(resolve(nuxtRoot, "node_modules/nitropack"), { name: "nitropack", version: "2.13.4" })
+      }
+      else {
+        // Model a hoisted Nuxt 4 builder alongside the app's standalone Nitro 3.
+        const builderRoot = resolve(major === 2 ? root : nuxtRoot, "node_modules/@nuxt/nitro-server")
+        await writePackage(builderRoot, {
+          name: "@nuxt/nitro-server",
+          dependencies: major === 2 ? { nitropack: "2.13.4" } : { nitro: "3.0.261102-rc" },
+        })
+        await writePackage(resolve(major === 2 ? root : builderRoot, `node_modules/${major === 2 ? "nitropack" : "nitro"}`), {
+          name: major === 2 ? "nitropack" : "nitro",
+          version: major === 2 ? "2.13.4" : "3.0.261102-rc",
+        })
+      }
+      const { nuxt, runNitroConfigHook } = createNuxt()
+      nuxt.options.rootDir = root
+      nuxt.options.buildDir = resolve(root, ".nuxt")
+      nuxt.options.serverDir = resolve(root, "server")
+      await viteHubNuxtModule({ console: false, preset, realtime }, nuxt)
+      expect(nitroOptions(nuxt).preset).toBe(expectedPreset)
+      expect(nuxt.options.vite).toHaveProperty(VITEHUB_NITRO_MAJOR_VERSION, major)
+      await runNitroConfigHook({ ...nitroOptions(nuxt) })
+      expect(mocks.sandboxTaskHook).toHaveBeenCalledWith(expect.objectContaining({
+        [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+        [VITEHUB_NITRO_MAJOR_VERSION]: major,
+      }), expect.anything())
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 
   it("detects the Nitro preset from the host's build variables when preset is omitted", async () => {

@@ -25,6 +25,8 @@ import * as ownerBlobVue from "@vite-hub/blob/vue";
 import { setActiveCloudflareEnv as ownerCloudflareEnvSetter } from "@vite-hub/database/runtime/cloudflare-env";
 import { setActiveCloudflareEnv as ownerDatabaseStateSetter } from "@vite-hub/database/runtime/state";
 import * as ownerRateLimit from "@vite-hub/rate-limit";
+import * as ownerWebContainer from "@vite-hub/web-container";
+import * as ownerWebContainerConnect from "@vite-hub/web-container/connect";
 import * as framework from "vite-hub";
 import * as frameworkAgent from "vite-hub/agent";
 import * as frameworkAgentEve from "vite-hub/_internal/agent/eve";
@@ -44,6 +46,8 @@ import * as frameworkBlobContentType from "vite-hub/blob/content-type";
 import * as frameworkBlobMedia from "vite-hub/blob/media";
 import * as frameworkBlobVue from "vite-hub/blob/vue";
 import * as frameworkRateLimit from "vite-hub/rate-limit";
+import * as frameworkWebContainer from "vite-hub/web-container";
+import * as frameworkWebContainerConnect from "vite-hub/web-container/connect";
 import * as frameworkRuntimeNode from "vite-hub/runtime/node";
 import { setActiveCloudflareEnv as frameworkDatabaseStateSetter } from "vite-hub/_internal/database/runtime/state";
 import * as ownerRuntimeNode from "@vite-hub/runtime/node";
@@ -131,6 +135,16 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/kv/errors",
   "@vite-hub/realtime/client",
   "@vite-hub/ui/primitive-rail",
+  "@vite-hub/ui/browser-support-notice",
+  "@vite-hub/ui/connect-panel",
+  "@vite-hub/ui/workspace",
+  "@vite-hub/ui/workspace-boot-status",
+  "@vite-hub/ui/workspace-editor",
+  "@vite-hub/ui/workspace-file-tree",
+  "@vite-hub/ui/workspace-preview",
+  "@vite-hub/ui/workspace-shell",
+  "@vite-hub/ui/workspace-terminal",
+  "@vite-hub/web-container/env",
   "@vite-hub/workspace/source-metadata",
 ]);
 
@@ -285,6 +299,8 @@ describe("framework package contract", () => {
     expect(frameworkBlobVue.useMultipartUpload).toBe(ownerBlobVue.useMultipartUpload);
     expect(frameworkRateLimit.requireRateLimit).toBe(ownerRateLimit.requireRateLimit);
     expect(frameworkRateLimit.createRateLimiter).toBe(ownerRateLimit.createRateLimiter);
+    expect(frameworkWebContainer.bootWebContainer).toBe(ownerWebContainer.bootWebContainer);
+    expect(frameworkWebContainerConnect.defineConnect).toBe(ownerWebContainerConnect.defineConnect);
     expect(frameworkRuntimeNode.nodeRuntimeResources).toBe(ownerRuntimeNode.nodeRuntimeResources);
   });
 

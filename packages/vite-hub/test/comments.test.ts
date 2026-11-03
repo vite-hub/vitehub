@@ -12,7 +12,8 @@ import { commentsOperationsConsoleSection as commentsConsoleSection } from "@vit
 import { describeViteHubConsoleSection } from "@vite-hub/internal/console"
 import { createOperationRegistry, runOperation } from "@vite-hub/internal/operations"
 import { createRpcTransport } from "@vite-hub/comments/rpc"
-import { createCommentsStore, installComments } from "@vite-hub/comments/server"
+import { commentsTables } from "@vite-hub/comments/database"
+import { createCommentsStore, installCommentsRuntime } from "@vite-hub/comments/server"
 import { runViteHubCli } from "@vite-hub/cli"
 
 import { discoverConsoleBuildCatalog, withConsoleDocumentEditorSections } from "../src/console/build.ts"
@@ -23,15 +24,9 @@ import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleOperations, installConsoleProjectRoot } from "../src/console/runtime/server/operation-contributions.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 
-import type { CommentsDefinition, CommentUser } from "@vite-hub/comments"
+import type { Comments, CommentsPeople, CommentUser, DefineCommentsOptions } from "@vite-hub/comments"
+import type { CommentsStore } from "@vite-hub/comments/server"
 import type { CommentThread } from "@vite-hub/comments/client"
-
-const ddl = [
-  `create table vitehub_comment_threads (id text primary key, scope text not null, n integer not null, subject_kind text not null, subject_id text not null, anchor text not null, status text not null, resolved_by text, resolved_at integer, author_id text not null, author_name text, author_image text, actor text, created_at integer not null, updated_at integer not null)`,
-  `create unique index vitehub_comment_threads_scope_n on vitehub_comment_threads (scope, n)`,
-  `create table vitehub_comment_counters (scope text primary key, next integer not null)`,
-  `create table vitehub_comment_messages (id text primary key, thread_id text not null, body text not null, author_id text not null, author_name text, author_image text, actor text, mentions text not null, attachments text not null, created_at integer not null, edited_at integer)`,
-]
 
 const ana: CommentUser = { id: "ana", name: "Ana" }
 const ben: CommentUser = { id: "ben", name: "Ben" }
@@ -39,12 +34,17 @@ let signedIn: CommentUser | undefined = ana
 const mentions: unknown[] = []
 const pending: Promise<unknown>[] = []
 
-async function setup(definition: CommentsDefinition = defineComments({ authorize: () => true })) {
+/** Installs the runtime of the comment operations with a definition, on a store. */
+function install(comments: Comments, store: CommentsStore, users?: CommentsPeople) {
+  installCommentsRuntime({ definition: comments.options, store, ...(users ? { users } : {}) })
+}
+
+async function setup(definition: Comments = defineComments({ authorize: () => true })) {
   const client = createClient({ url: ":memory:" })
-  for (const statement of ddl) await client.execute(statement)
+  for (const statement of commentsTables) await client.execute(statement)
   // SAFETY: The test database has the tables of the comments schema.
   const store = createCommentsStore(drizzle(client) as never)
-  installComments({ definition, store })
+  install(definition, store)
   return { client, store }
 }
 
@@ -85,7 +85,7 @@ afterEach(async () => {
   await Promise.all(pending.splice(0))
   installConsoleOperations([])
   installConsoleAccess({ mode: "open" })
-  installComments(() => { throw new Error("not installed") })
+  installCommentsRuntime(() => { throw new Error("not installed") })
   vi.restoreAllMocks()
 })
 
@@ -107,11 +107,9 @@ describe("comment operations over the Console RPC", () => {
     expect(await value<CommentThread[]>("comments.list", { mine: true })).toEqual([])
   })
 
-  it("denies without a policy, and when authorize says no", async () => {
+  it("lets signed-in people in without a policy, and denies when authorize says no", async () => {
     await setup(defineComments())
-    const none = await failure("comments.list")
-    expect(none).toMatchObject({ code: "COMMENTS_R0006", status: 403 })
-    expect(none.fix).toContain("authorize")
+    expect(await value("comments.list")).toEqual([])
     await setup(defineComments({ authorize: ({ action }) => action === "read" }))
     expect(await failure("comments.create", { anchor: { kind: "page" }, body: "x", subject: page })).toMatchObject({ code: "COMMENTS_R0009", status: 403 })
     expect(await value("comments.list")).toEqual([])
@@ -130,7 +128,7 @@ describe("comment operations over the Console RPC", () => {
   })
 
   it("filters the list by what authorize lets the user read", async () => {
-    await setup(defineComments({ authorize: ({ action, thread, user }) => action !== "read" || !thread || thread.author.id === user?.id } satisfies CommentsDefinition))
+    await setup(defineComments({ authorize: ({ action, thread, user }) => action !== "read" || !thread || thread.author.id === user?.id } satisfies DefineCommentsOptions))
     await create("Mine")
     signedIn = ben
     await create("Ben's")
@@ -176,7 +174,7 @@ describe("comment operations over the Console RPC", () => {
   })
 
   it("checks mentions against real people named in the text, and announces them after the commit", async () => {
-    const { store } = await setup(defineComments({ authorize: () => true, onMention: event => void mentions.push({ mentioned: event.mentioned.map(person => person.id), thread: event.thread.n }) }))
+    const { store } = await setup(defineComments({ authorize: () => true, onMention: event => void mentions.push({ mentioned: event.users.map(person => person.id), thread: event.thread.n }) }))
     // Ben has written a comment, so the store knows him.
     signedIn = ben
     await create("Ben was here")
@@ -242,7 +240,7 @@ describe("comment operations over the Console RPC", () => {
   it("asks Auth for people when the runtime has an Auth adapter", async () => {
     const { store } = await setup()
     const users = { byIds: vi.fn(async (ids: readonly string[]) => ids.map(id => ({ id, name: id }))), search: vi.fn(async () => [{ id: "zed", name: "Zed" }]) }
-    installComments({ definition: defineComments({ authorize: () => true }), store, users })
+    install(defineComments({ authorize: () => true }), store, users)
     expect(await value("comments.users", { query: "ze" })).toEqual([{ id: "zed", name: "Zed" }])
     const thread = await create("Hello @zed", { mentions: ["zed"] })
     expect(thread.messages[0]!.mentions).toEqual(["zed"])
@@ -288,7 +286,7 @@ describe("comments in the CLI, the Console, and the browser transport", () => {
   })
 
   it("shows the Console user only the threads that authorize lets that user read", async () => {
-    await setup(defineComments({ authorize: ({ action, thread, user }) => action !== "read" || !thread || thread.author.id === user?.id } satisfies CommentsDefinition))
+    await setup(defineComments({ authorize: ({ action, thread, user }) => action !== "read" || !thread || thread.author.id === user?.id } satisfies DefineCommentsOptions))
     await create("Ana's")
     signedIn = ben
     await create("Ben's")
@@ -299,9 +297,9 @@ describe("comments in the CLI, the Console, and the browser transport", () => {
     expect((await value<CommentThread[]>(view.operation, open.input)).map(thread => thread.author.id)).toEqual(["ben"])
     signedIn = ana
     expect((await value<CommentThread[]>(view.operation, open.input)).map(thread => thread.author.id)).toEqual(["ana"])
-    // Without a policy the view gets the failure and its fix instead of a list.
+    // Without a policy, everyone the Console admits reads every thread.
     await setup(defineComments())
-    expect(await failure(view.operation, {})).toMatchObject({ code: "COMMENTS_R0006", fix: expect.stringContaining("authorize") })
+    expect(await value<CommentThread[]>(view.operation, {})).toEqual([])
   })
 
   it("lets a development server without sign-in comment as the local developer", async () => {
@@ -386,7 +384,7 @@ function database() {
 
 async function ready() {
   const made = database()
-  for (const statement of ddl) await made.client.execute(statement)
+  for (const statement of commentsTables) await made.client.execute(statement)
   return made
 }
 
@@ -398,7 +396,7 @@ const stub = { author: ana, id: "m", mentions: [], attachments: [], now: 1 }
 const newThread = (threadId: string, id: string, scope = "site") => ({ ...stub, anchor: { kind: "page" as const }, body: "Hi", id, scope, subject: page, threadId })
 
 describe("who can see and change a thread", () => {
-  const ownOnly: CommentsDefinition = defineComments({ authorize: ({ action, thread, user }) => action === "read" ? !thread || thread.author.id === user?.id : true } satisfies CommentsDefinition)
+  const ownOnly: Comments = defineComments({ authorize: ({ action, thread, user }) => action === "read" ? !thread || thread.author.id === user?.id : true } satisfies DefineCommentsOptions)
 
   it("treats a thread you may not read as missing, in every operation", async () => {
     await setup(ownOnly)
@@ -420,21 +418,22 @@ describe("who can see and change a thread", () => {
     expect(await value("comments.get", { n: thread.n, scope: thread.scope })).toEqual(thread)
   })
 
-  it("lets nobody do anything without an authorize policy", async () => {
+  it("lets nobody anonymous do anything without an authorize policy outside development", async () => {
     const { store } = await setup(defineComments({ authorize: () => true }))
     const thread = await create("Mine")
-    installComments({ definition: defineComments(), store })
+    install(defineComments(), store)
+    signedIn = undefined
     const messageId = thread.messages[0]!.id
+    expect(await value("comments.get", { id: thread.id })).toBeNull()
+    expect(await value("comments.list", {})).toEqual([])
     for (const [name, input] of [
-      ["comments.get", { id: thread.id }],
-      ["comments.list", {}],
       ["comments.users", { query: "an" }],
       ["comments.edit", { body: "Changed", messageId, threadId: thread.id }],
       ["comments.delete", { messageId, threadId: thread.id }],
       ["comments.delete", { threadId: thread.id }],
       ["comments.reply", { body: "Hi", threadId: thread.id }],
       ["comments.resolve", { threadId: thread.id }],
-    ] as const) expect(await failure(name, input), name).toMatchObject({ code: "COMMENTS_R0006", status: 403 })
+    ] as const) expect((await failure(name, input)).status, name).toBeGreaterThanOrEqual(400)
   })
 
   it("makes an Agent earn what the author keeps: write to edit, delete to delete", async () => {
@@ -490,15 +489,16 @@ describe("mention suggestions", () => {
     const { store } = await setup()
     const people = Array.from({ length: 30 }, (_, index) => ({ email: `p${index}@example.com`, id: `p${index}`, image: "i.png", name: `Person ${index}` }))
     const users = { byIds: async () => [], search: vi.fn(async () => people) }
-    installComments({ definition: defineComments({ authorize: () => true }), store, users })
+    install(defineComments({ authorize: () => true }), store, users)
     const found = await value<Array<Record<string, unknown>>>("comments.users", { query: "pe", limit: 10 })
     expect(found).toHaveLength(10)
     expect(found[0]).toEqual({ id: "p0", image: "i.png", name: "Person 0" })
-    expect(users.search).toHaveBeenCalledWith("pe", 10)
+    // Twice the limit, so people that canMention leaves out do not shorten the list.
+    expect(users.search).toHaveBeenCalledWith("pe", 20)
   })
 
   it("search only authors of threads that the caller can read, and never an orphaned message", async () => {
-    const { client } = await setup(defineComments({ authorize: ({ action, thread, user }) => action !== "read" || !thread || thread.author.id === user?.id } satisfies CommentsDefinition))
+    const { client } = await setup(defineComments({ authorize: ({ action, thread, user }) => action !== "read" || !thread || thread.author.id === user?.id } satisfies DefineCommentsOptions))
     signedIn = ben
     await create("Ben's private thread")
     signedIn = ana
@@ -517,7 +517,7 @@ describe("mention suggestions", () => {
 })
 
 describe("onMention", () => {
-  it("runs for the mentioned people who may read the thread, and the mention stays in the text", async () => {
+  it("runs for the mentioned people, who must be able to read the thread", async () => {
     const seen: string[][] = []
     const readers = ({ action, user }: { action: string, user: CommentUser | null }) => action !== "read" || user?.id !== "cat"
     const { store } = await setup()
@@ -526,16 +526,18 @@ describe("onMention", () => {
       signedIn = person
       await create(`${person.name} was here`)
     }
-    installComments({ definition: defineComments({ authorize: readers, onMention: event => void seen.push(event.mentioned.map(person => person.id)) }), store })
+    install(defineComments({ authorize: readers, onMention: event => void seen.push(event.users.map(person => person.id)) }), store)
     signedIn = ana
-    const thread = await create("Look @Ben and @Cat", { mentions: ["ben", "cat"] })
+    // Cat may not read the thread, so the message may not mention her.
+    expect(await failure("comments.create", { anchor: { kind: "page" }, body: "Look @Ben and @Cat", mentions: ["ben", "cat"], subject: page })).toMatchObject({ code: "COMMENTS_R0007" })
+    const thread = await create("Look @Ben", { mentions: ["ben"] })
     await Promise.all(pending.splice(0))
-    expect(thread.messages[0]!.mentions).toEqual(["ben", "cat"])
+    expect(thread.messages[0]!.mentions).toEqual(["ben"])
     expect(seen).toEqual([["ben"]])
-    // Nobody who may read: the hook does not run.
+    // Nobody who may read: the mention fails, and the hook does not run.
     seen.length = 0
-    installComments({ definition: defineComments({ authorize: ({ action, user }) => action !== "read" || user?.id === "ana", onMention: event => void seen.push(event.mentioned.map(person => person.id)) }), store })
-    await create("Only @Ben", { mentions: ["ben"] })
+    install(defineComments({ authorize: ({ action, user }) => action !== "read" || user?.id === "ana", onMention: event => void seen.push(event.users.map(person => person.id)) }), store)
+    expect(await failure("comments.create", { anchor: { kind: "page" }, body: "Only @Ben", mentions: ["ben"], subject: page })).toMatchObject({ code: "COMMENTS_R0007" })
     await Promise.all(pending.splice(0))
     expect(seen).toEqual([])
   })
@@ -635,7 +637,7 @@ describe("listing threads", () => {
   it("fills a page with readable threads and asks authorize for at most 16 at once", async () => {
     let running = 0
     let peak = 0
-    const authorize: CommentsDefinition["authorize"] = async ({ action, thread }) => {
+    const authorize: DefineCommentsOptions["authorize"] = async ({ action, thread }) => {
       if (action !== "read" || !thread) return true
       running++
       peak = Math.max(peak, running)
@@ -670,12 +672,11 @@ describe("what a page subject may be", () => {
     expect(operationLink(row("/"), view as never)).toBe("/?comment=3")
   })
 
-  it("takes no attachments until an upload operation exists", async () => {
+  it("keeps attachment keys, and needs a place to store an upload", async () => {
     await setup()
-    expect(await failure("comments.create", { anchor: { kind: "page" }, attachments: ["blob/a.png"], body: "x", subject: page })).toMatchObject({ code: "COMMENTS_R0014", status: 400 })
-    const thread = await create("No files", { attachments: [] })
-    expect(thread.messages[0]!.attachments).toEqual([])
-    expect(await failure("comments.reply", { attachments: ["blob/a.png"], body: "x", threadId: thread.id })).toMatchObject({ code: "COMMENTS_R0014" })
+    const thread = await create("", { attachments: ["comments/a/a.png"] })
+    expect(thread.messages[0]).toMatchObject({ body: "", attachments: ["comments/a/a.png"] })
+    expect(await failure("comments.upload", { data: "iVBORw==", name: "a.png", subject: page, type: "image/png" })).toMatchObject({ code: "COMMENTS_R0014", status: 501 })
   })
 })
 
@@ -695,12 +696,12 @@ describe("the overlay session", () => {
     expect(authorize).not.toHaveBeenCalled()
   })
 
-  it("says no to everything without a policy, when the policy refuses, or when it cannot answer without a thread", async () => {
+  it("says yes without a policy, and no when the policy refuses or cannot answer without a thread", async () => {
     const { store } = await setup(defineComments())
+    expect(await value("comments.session")).toEqual({ canRead: true, canWrite: true, user: ana })
+    install(defineComments({ authorize: () => false }), store)
     expect(await value("comments.session")).toEqual({ canRead: false, canWrite: false, user: ana })
-    installComments({ definition: defineComments({ authorize: () => false }), store })
-    expect(await value("comments.session")).toEqual({ canRead: false, canWrite: false, user: ana })
-    installComments({ definition: defineComments({ authorize: ({ thread }) => thread!.author.id === "ana" } satisfies CommentsDefinition), store })
+    install(defineComments({ authorize: ({ thread }) => thread!.author.id === "ana" } satisfies DefineCommentsOptions), store)
     expect(await value("comments.session")).toEqual({ canRead: false, canWrite: false, user: ana })
     // A thread id is accepted, but missing threads and unknown options still fail.
     expect(await failure("comments.session", { threadId: "x" })).toMatchObject({ code: "COMMENTS_R0002", status: 404 })

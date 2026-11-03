@@ -2,6 +2,7 @@
 import { createCommentsClient } from "@vite-hub/comments/client";
 import { type CommentCan, CommentThread, provideComments, useComments } from "@vite-hub/ui";
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from "vue";
+import { onBeforeRouteUpdate } from "vue-router";
 
 import type { CommentThread as CommentThreadModel } from "@vite-hub/comments/client";
 
@@ -14,6 +15,7 @@ import {
 import type { ConsoleCommentSession } from "../client/comment-thread";
 import type { ConsoleOperationView } from "../definitions";
 import { operationLink } from "../client/operation-view";
+import { consoleQueryText } from "../client/route-query";
 import { useConsoleToast } from "../client/toast";
 import ConsoleState from "./console-state.vue";
 
@@ -37,6 +39,7 @@ const toast = useConsoleToast();
 const client = createCommentsClient({ refreshOnFocus: false, transport: consoleCommentsTransport(props.definitionsBase) });
 const thread = shallowRef<CommentThreadModel>();
 const error = shallowRef<unknown>();
+const sessionError = shallowRef<unknown>();
 const loading = ref(false);
 const session = shallowRef<ConsoleCommentSession>();
 const canWrite = computed(() => session.value?.capabilities.reply === true);
@@ -62,6 +65,26 @@ const comments = useComments({
 provideComments(comments);
 
 const threadView = ref<{ close: () => void } | null>(null);
+let navigationClosed: (() => void) | undefined;
+function close(): void {
+  if (navigationClosed) navigationClosed();
+  else emit("close");
+}
+
+// Cancel URL-driven selection changes before they unmount a dirty reply or edit. A successful guarded close permits
+// the requested navigation instead of emitting another URL change to the parent.
+onBeforeRouteUpdate((to, from) => {
+  if (consoleQueryText(to.query.thread) === consoleQueryText(from.query.thread) || !threadView.value) return;
+  let allowed = false;
+  navigationClosed = () => { allowed = true; };
+  try {
+    threadView.value.close();
+    return allowed;
+  } finally {
+    navigationClosed = undefined;
+  }
+});
+
 const open = computed({
   get: () => Boolean(props.id),
   set: (value: boolean) => {
@@ -75,10 +98,22 @@ const where = computed(() => (thread.value ? `On ${consoleCommentSubjectLabel(th
 
 // Focus lands on the thread, as in CommentPanel, not on the first header button, whose tooltip would cover the title.
 const root = ref<HTMLElement | null>(null);
+let pendingFocus = false;
+function focusLoadedThread(): void {
+  if (!pendingFocus) return;
+  void nextTick(() => {
+    const target = root.value?.querySelector<HTMLElement>("[data-slot='comment-thread']");
+    if (!target) return;
+    target.focus();
+    pendingFocus = false;
+  });
+}
 function focusThread(event: Event): void {
   event.preventDefault();
-  void nextTick(() => root.value?.querySelector<HTMLElement>("[data-slot='comment-thread']")?.focus());
+  pendingFocus = true;
+  focusLoadedThread();
 }
+watch(thread, focusLoadedThread, { flush: "post" });
 
 let controller: AbortController | undefined;
 async function load(): Promise<void> {
@@ -88,6 +123,7 @@ async function load(): Promise<void> {
   const current = new AbortController();
   controller = current;
   error.value = undefined;
+  sessionError.value = undefined;
   loading.value = true;
   try {
     const listed = isConsoleCommentThread(props.initial) && props.initial.id === id ? props.initial : undefined;
@@ -109,6 +145,7 @@ async function load(): Promise<void> {
 watch(
   () => props.id,
   () => {
+    pendingFocus = false;
     thread.value = undefined;
     session.value = undefined;
     void load();
@@ -122,13 +159,14 @@ async function update(next: CommentThreadModel): Promise<void> {
   thread.value = next;
   emit("changed", next);
   session.value = undefined;
+  sessionError.value = undefined;
   const current = controller;
   try {
     const currentSession = await readConsoleCommentSession(props.definitionsBase, next.subject, current?.signal, next.id);
     if (props.id === next.id && !current?.signal.aborted) session.value = currentSession;
   } catch (cause) {
     // The mutation succeeded. A failed capability refresh must not leave a reply looking unsent.
-    if (props.id === next.id && !current?.signal.aborted) error.value = cause;
+    if (props.id === next.id && !current?.signal.aborted) sessionError.value = cause;
   }
 }
 
@@ -176,6 +214,7 @@ async function reopen(): Promise<void> {
           ref="threadView"
           :attachments="false"
           :dismissible="false"
+          :error="sessionError ? 'The change was saved, but your permissions could not be refreshed. Reopen the thread to try again.' : undefined"
           :read-only="loading"
           :thread="thread"
           :on-reply="reply"
@@ -183,7 +222,7 @@ async function reopen(): Promise<void> {
           :on-delete="remove"
           :on-resolve="resolve"
           :on-reopen="reopen"
-          @close="emit('close')"
+          @close="close"
         >
           <template #actions>
             <UTooltip v-if="link" text="Open page">
@@ -197,7 +236,7 @@ async function reopen(): Promise<void> {
             <blockquote v-if="current.anchor.kind === 'text'" data-slot="comment-thread-quote">{{ current.anchor.exact }}</blockquote>
           </template>
         </CommentThread>
-        <p v-if="thread && !loading && !canWrite" class="border-t border-default px-3 py-2 text-xs text-muted">
+        <p v-if="thread && !loading && !canWrite && !sessionError" class="border-t border-default px-3 py-2 text-xs text-muted">
           You can read this thread. The app's <code>authorize</code> policy does not let you reply to it.
         </p>
       </div>

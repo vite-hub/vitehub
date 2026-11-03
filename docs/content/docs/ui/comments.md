@@ -208,7 +208,7 @@ A composer takes files from the clipboard, from a drop on the box, and from the 
 
 `CommentThread` passes the files to `onReply` as the third argument. `CommentLayer` and `CommentPanel` take files only when you give them `upload`: a function that stores the files and returns their keys, such as Blob keys. They send the keys as the `attachments` of the message.
 
-The transport must accept attachment keys. The shipped `createRpcTransport()` does not support them yet, so a layer or panel using it keeps file controls disabled even with `upload`. Custom transports can set `supportsAttachments: false` to do the same; otherwise they accept attachments by default.
+Transports accept attachment keys by default, including `createRpcTransport()`. A transport that cannot accept attachment keys can set `supportsAttachments: false`; the layer and panel then keep file controls disabled even with `upload`.
 
 ```vue
 <script setup lang="ts">

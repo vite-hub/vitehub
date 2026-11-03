@@ -46,7 +46,7 @@ export default defineConfig({
         {
           path: "vite.config.ts",
           language: "typescript",
-          content: `// Install: pnpm add vite-hub better-auth vite nitro@3.0.260903-beta
+          content: `// Install: pnpm add vite-hub better-auth vite nitro@3.0.261102-rc
 import { nitro } from "nitro/vite"
 import { defineConfig } from "vite"
 import { vitehub } from "vite-hub"
