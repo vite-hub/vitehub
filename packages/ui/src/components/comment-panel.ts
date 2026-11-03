@@ -144,35 +144,39 @@ export const CommentPanel = defineComponent({
     const attachmentsOn = computed(() => props.upload !== undefined && state.client.transport.supportsAttachments !== false);
     const keys = async (list: File[]) => (attachmentsOn.value && list.length > 0 && props.upload ? props.upload(list) : []);
 
-    // The page box belongs to one subject. Another subject starts with an empty box.
+    // The page box belongs to one subject. Another subject starts with an empty, ready box, and a send that is still on
+    // its way for the old subject no longer touches it.
     const subjectKey = () => `${state.subject.value.kind}\u0000${state.subject.value.id}`;
+    let sending = 0;
     watch(subjectKey, () => {
+      sending++;
       body.value = "";
       mentions.value = [];
       files.value = [];
       failure.value = undefined;
+      busy.value = false;
     });
 
     async function send(submit: CommentComposerSubmit) {
       if (busy.value) return;
+      const run = ++sending;
       busy.value = true;
       failure.value = undefined;
       const submitted = { body: body.value, files: files.value, mentions: mentions.value };
-      const subject = subjectKey();
       try {
         const attachments = await keys(submit.files);
         // A comment written on one page never goes to the next one, even when the subject changed during the upload.
-        if (subjectKey() !== subject) return;
+        if (run !== sending) return;
         await state.create({ attachments, body: submit.body, mentions: submit.mentions });
-        if (body.value === submitted.body && files.value === submitted.files && mentions.value === submitted.mentions) {
+        if (run === sending && body.value === submitted.body && files.value === submitted.files && mentions.value === submitted.mentions) {
           body.value = "";
           mentions.value = [];
           files.value = [];
         }
       } catch (cause) {
-        failure.value = reason(cause);
+        if (run === sending) failure.value = reason(cause);
       } finally {
-        busy.value = false;
+        if (run === sending) busy.value = false;
       }
     }
 

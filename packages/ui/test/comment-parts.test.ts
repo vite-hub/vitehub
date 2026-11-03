@@ -769,6 +769,25 @@ describe("review fixes", () => {
     expect(wrapper.get("textarea").element).toHaveProperty("value", "");
   });
 
+  it("lets the next subject send while an upload for the old one never settles", async () => {
+    const upload = vi.fn((files: File[]) => (files[0]!.name === "stuck.png" ? new Promise<string[]>(() => {}) : Promise.resolve(files.map(file => `uploads/${file.name}`))));
+    const comments = client();
+    const subject = ref(pricing);
+    const wrapper = keep(mount(defineComponent({
+      setup: () => () => h(CommentPanel, { client: comments, subject: subject.value, upload }),
+    }), { attachTo: document.body, global }));
+    await vi.waitFor(() => expect(comments.status).toBe("ready"));
+    addFiles(wrapper, [new File(["png"], "stuck.png", { type: "image/png" })]);
+    await wrapper.get("textarea").setValue("About pricing");
+    await wrapper.get("form").trigger("submit");
+    subject.value = { id: "/about", kind: "page" };
+    await flushPromises();
+    await wrapper.get("textarea").setValue("About us");
+    await wrapper.get("form").trigger("submit");
+    await vi.waitFor(() => expect(comments.threads.map(item => item.messages[0]!.body)).toEqual(["About us"]));
+    expect(comments.threads[0]!.subject).toEqual({ id: "/about", kind: "page" });
+  });
+
   it("sends a reply of files alone through a client", async () => {
     const comments = client([thread(1)]);
     await comments.start();
