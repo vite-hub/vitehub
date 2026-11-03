@@ -8,7 +8,7 @@ export function mountPath(base: string | undefined, path: string): string {
   return `${viteHubBasePath(base)}${path}`
 }
 
-type NitroHandler = { handler: string; lazy?: boolean; method?: string | string[]; middleware?: boolean; route: string }
+type NitroHandler = { handler: string; lazy?: boolean; method?: string | string[]; middleware?: boolean; route?: string }
 const configuredMcpDiscovery = "virtual:vitehub/console-mcp-discovery"
 type NitroPublicAsset = { baseURL?: string, dir: string, fallthrough?: boolean, maxAge?: number }
 
@@ -54,27 +54,29 @@ export function addConsolePageHandlers(
  * like the other Console routes.
  */
 export function addConsolePageToolRoutes(
-  nitro: { handlers?: Array<{ handler: string; route: string }>, publicAssets?: NitroPublicAsset[] },
+  nitro: { handlers?: Array<{ handler: string; route?: string }>, publicAssets?: NitroPublicAsset[] },
   consoleRuntimeRoot: string,
   mount = "",
 ): void {
   const kit = createNitroServerKit(nitro)
   addViteHubPageToolRoutes(kit, { handler: join(consoleRuntimeRoot, "server/page-session.js"), loader: join(consoleRuntimeRoot, "page"), mount })
   // SAFETY: The kit keeps the caller's Nitro handler and public asset entries, and the page tools add entries of the same shape.
-  nitro.handlers = kit.config.handlers as Array<{ handler: string; route: string }>
+  nitro.handlers = kit.config.handlers as Array<{ handler: string; route?: string }>
   // SAFETY: As above.
   nitro.publicAssets = kit.config.publicAssets as NitroPublicAsset[]
 }
 
 export function addConsoleRpcHandler(
-  nitro: { handlers?: Array<{ handler: string; route: string }>; virtual?: Record<string, unknown> },
+  nitro: { handlers?: Array<{ handler: string; route?: string }>; plugins?: string[]; virtual?: Record<string, unknown> },
   consoleRuntimeRoot: string,
   base?: string,
   sections: readonly string[] = [],
   oauth = false,
 ): void {
   const kit = createNitroServerKit(nitro)
-  // SAFETY: The Console only adds Nitro handlers with string handler and route fields.
+  // Nitro 2 resolves plugin names against srcDir, so this virtual plugin needs an absolute filename.
+  const nitro2McpDiscovery = join(consoleRuntimeRoot, "server/mcp-discovery-nitro2.js")
+  // SAFETY: The Console adds Nitro handlers with a string handler and an optional route.
   const handlers = kit.config.handlers as NitroHandler[]
   const registrations: Array<{ absolute?: true, handler: string, method?: "get" | "post", middleware?: true, suffix: string }> = [
     { suffix: "/_vitehub/rpc/**", handler: join(consoleRuntimeRoot, "server/rpc.js") },
@@ -84,6 +86,8 @@ export function addConsoleRpcHandler(
     { suffix: "/_vitehub/schedules/run", handler: join(consoleRuntimeRoot, "server/schedule-run.js"), method: "post" },
     // The MCP endpoint answers every method itself. Its OAuth metadata lives at the origin root, where clients look.
     { suffix: "/_vitehub/mcp", handler: join(consoleRuntimeRoot, "server/mcp.js") },
+    // Nitro 2 reads middleware routes as prefixes, so `/**` matches no request. Its non-root app base is handled by
+    // the request hook below; Nitro 3 runs this route-less middleware for every request.
     { absolute: true, suffix: "/**", handler: join(consoleRuntimeRoot, "server/mcp-discovery.js"), middleware: true },
     { absolute: true, suffix: "/.well-known/oauth-protected-resource", handler: join(consoleRuntimeRoot, "server/mcp-metadata.js"), method: "get" },
     { absolute: true, suffix: "/.well-known/oauth-protected-resource/**", handler: join(consoleRuntimeRoot, "server/mcp-metadata.js"), method: "get" },
@@ -96,7 +100,9 @@ export function addConsoleRpcHandler(
   const ownedSuffixes = new Set(registrations.map(registration => registration.suffix))
   const retainedHandlers = handlers.filter(candidate => {
     if (!ownedHandlers.has(candidate.handler)) return true
-    return !Array.from(ownedSuffixes).some(suffix => candidate.route === suffix || candidate.route.endsWith(suffix))
+    const route = candidate.route
+    if (route === undefined) return false
+    return !Array.from(ownedSuffixes).some(suffix => route === suffix || route.endsWith(suffix))
   })
   handlers.splice(0, handlers.length, ...retainedHandlers)
 
@@ -104,7 +110,35 @@ export function addConsoleRpcHandler(
     .filter(registration => retainedHandlers.some(candidate => candidate.route === registration.suffix && !candidate.middleware
       && (!candidate.method || [candidate.method].flat().some(method => method.toLowerCase() === "get"))))
     .map(registration => registration.suffix)
-  if (nitro.virtual) delete nitro.virtual[configuredMcpDiscovery]
+  if (nitro.virtual) {
+    delete nitro.virtual[configuredMcpDiscovery]
+    delete nitro.virtual[nitro2McpDiscovery]
+  }
+  // SAFETY: The kit preserves the caller's Nitro plugin registrations.
+  const plugins = kit.config.plugins as string[]
+  const retainedPlugins = plugins.filter(plugin => plugin !== nitro2McpDiscovery)
+  plugins.splice(0, plugins.length, ...retainedPlugins)
+  if (oauth) {
+    // Nitro 2 mounts even route-less middleware below app.baseURL. Its request hook runs at the origin root,
+    // before app middleware, and H3 1's respondWith() completes the response without entering the mounted stack.
+    nitro.virtual = {
+      ...nitro.virtual,
+      [nitro2McpDiscovery]: [
+        `import { createConsoleMcpDiscoveryHandler } from ${JSON.stringify(join(consoleRuntimeRoot, "server/mcp-discovery.js"))}`,
+        `const discovery = createConsoleMcpDiscoveryHandler(${JSON.stringify(delegatedPaths)})`,
+        `export default function consoleMcpDiscoveryNitro2(nitroApp) {`,
+        `  if (!nitroApp.h3App) return`,
+        `  nitroApp.hooks.hook("request", async (event) => {`,
+        `    if (event.handled) return`,
+        `    const response = await discovery(event)`,
+        `    if (response) await event.respondWith(response)`,
+        `  })`,
+        `}`,
+        "",
+      ].join("\n"),
+    }
+    kit.addPlugin(nitro2McpDiscovery, "start")
+  }
   if (oauth && delegatedPaths.length) {
     nitro.virtual = {
       ...nitro.virtual,
@@ -130,15 +164,17 @@ export function addConsoleRpcHandler(
           : `Cannot mount the ViteHub ${registration.suffix.includes("auth") ? "Auth" : registration.suffix.includes("env") ? "Env" : registration.suffix.includes("channels") ? "Channel replay" : registration.suffix.includes("mcp") ? "MCP" : "Schedule run"} handler at "${route}" because that route is already registered.`;
       throw viteHubErrorDiagnostics.VITE_HUB_R0040({ message })
     }
-    const handler: NitroHandler = { handler: registration.handler, route }
+    const handler: NitroHandler = registration.middleware ? { handler: registration.handler, middleware: true } : { handler: registration.handler, route }
     if (registration.method) handler.method = registration.method
-    if (registration.middleware) handler.middleware = true
     // The Console's routes import Agents, Workspaces, Sources, and Comark. Loaded on their first request, they stay out
     // of every cold start of the app around them.
-    else handler.lazy = true
+    if (!registration.middleware) handler.lazy = true
     kit.addHandler(handler, registration.middleware ? "start" : "end")
   }
 
   // SAFETY: The kit preserves the caller's Nitro handler array while adding the Console routes.
-  nitro.handlers = kit.config.handlers as Array<{ handler: string; route: string }>
+  nitro.handlers = kit.config.handlers as Array<{ handler: string; route?: string }>
+  // Preserve an outer kit's plugin array so subsequent registrations use the same list.
+  if (nitro.plugins) nitro.plugins.splice(0, nitro.plugins.length, ...plugins)
+  else nitro.plugins = plugins
 }

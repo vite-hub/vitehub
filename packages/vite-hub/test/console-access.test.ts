@@ -511,7 +511,7 @@ describe("generated Console access", () => {
       resolveAuthConfig: () => appAuth([{ authorize: true, route: `${mount}/_vitehub/**` }, { authorize: true, route: `${mount}/api/_vitehub/console/**` }]),
     }, "build", config)
     expect(config.nitro.handlers.slice(0, 3)).toEqual([
-      { handler: expect.stringMatching(/server\/mcp-discovery\.js$/), middleware: true, route: "/**" },
+      { handler: expect.stringMatching(/server\/mcp-discovery\.js$/), middleware: true },
       { handler: expect.stringMatching(/server\/sign-in\.js$/), middleware: true, route: `${mount}/_vitehub/**` },
       { handler: expect.stringMatching(/server\/sign-in\.js$/), middleware: true, route: `${mount}/_vitehub` },
     ])
