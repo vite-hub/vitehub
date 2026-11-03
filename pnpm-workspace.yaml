@@ -200,6 +200,7 @@ catalogs:
     tinyglobby: ^0.2.17
 
 overrides:
+  "mdast-util-from-markdown>micromark": 4.0.2
   mdast-util-to-markdown: 2.1.2
   "@vercel/blob>undici": ^6.28.0
   "@voidzero-dev/vite-plus-core": 0.3.3
