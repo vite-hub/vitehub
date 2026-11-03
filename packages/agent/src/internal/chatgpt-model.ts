@@ -22,10 +22,6 @@ const rejectedFields = [
   "previous_response_id", "prompt", "prompt_cache_retention", "safety_identifier", "temperature", "top_logprobs",
   "top_p", "truncation", "user",
 ]
-/** Hosted tools that ChatGPT plan usage rejects. Function tools run in the Agent. */
-const rejectedTools = new Set([
-  "code_interpreter", "computer", "computer_use", "computer_use_preview", "file_search", "image_generation", "mcp", "tool_search",
-])
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -38,7 +34,14 @@ export function chatgptPlanRequest(body: unknown): Record<string, unknown> {
   if (!isRecord(body)) throw agentDiagnostics.AGENT_R1021()
   const request: Record<string, unknown> = { ...body, store: false, stream: true }
   for (const field of rejectedFields) delete request[field]
-  if (Array.isArray(request.tools) && request.tools.some(tool => isRecord(tool) && rejectedTools.has(String(tool.type)))) {
+  // Only web search and namespaces of local function/custom tools are supported. The SDK cannot namespace its
+  // provider-defined custom tools, so reject those top-level tools rather than sending an unsupported request.
+  if (Array.isArray(request.tools) && request.tools.some(tool => {
+    if (!isRecord(tool)) return true
+    if (tool.type === "web_search" || tool.type === "web_search_preview") return false
+    return tool.type !== "namespace" || !Array.isArray(tool.tools)
+      || tool.tools.some(nested => !isRecord(nested) || (nested.type !== "function" && nested.type !== "custom"))
+  })) {
     throw agentDiagnostics.AGENT_R1019()
   }
   if (Array.isArray(request.input)) {
@@ -101,9 +104,9 @@ function mergeMetadata(left: SharedV4ProviderMetadata | undefined, right: Shared
 }
 
 /** Plan usage accepts only streamed requests, so a generate call reads the stream into one result. */
-async function collectStream(result: LanguageModelV4StreamResult): Promise<LanguageModelV4GenerateResult> {
+export async function collectStream(result: LanguageModelV4StreamResult): Promise<LanguageModelV4GenerateResult> {
   const content: LanguageModelV4Content[] = []
-  const open = new Map<string, { type: "text" | "reasoning", text: string, providerMetadata?: SharedV4ProviderMetadata }>()
+  const open = new Map<string, Extract<LanguageModelV4Content, { type: "text" | "reasoning" }>>()
   let warnings: SharedV4Warning[] = []
   let finishReason: LanguageModelV4FinishReason = { unified: "other", raw: undefined }
   let usage: LanguageModelV4Usage | undefined
@@ -114,8 +117,7 @@ async function collectStream(result: LanguageModelV4StreamResult): Promise<Langu
     const part = open.get(id)
     if (!part) return
     open.delete(id)
-    const providerMetadata = mergeMetadata(part.providerMetadata, metadata)
-    content.push({ type: part.type, text: part.text, ...(providerMetadata ? { providerMetadata } : {}) })
+    part.providerMetadata = mergeMetadata(part.providerMetadata, metadata)
   }
   for (;;) {
     const { done, value: part } = await reader.read()
@@ -124,9 +126,14 @@ async function collectStream(result: LanguageModelV4StreamResult): Promise<Langu
       case "stream-start": warnings = part.warnings; break
       case "response-metadata": response = { ...response, ...part }; break
       case "text-start":
-      case "reasoning-start":
-        open.set(part.id, { type: part.type === "text-start" ? "text" : "reasoning", text: "", providerMetadata: part.providerMetadata })
+      case "reasoning-start": {
+        const current: Extract<LanguageModelV4Content, { type: "text" | "reasoning" }> = {
+          type: part.type === "text-start" ? "text" : "reasoning", text: "", providerMetadata: part.providerMetadata,
+        }
+        open.set(part.id, current)
+        content.push(current)
         break
+      }
       case "text-delta":
       case "reasoning-delta": {
         const current = open.get(part.id)
@@ -152,7 +159,6 @@ async function collectStream(result: LanguageModelV4StreamResult): Promise<Langu
       default: content.push(part)
     }
   }
-  for (const id of [...open.keys()]) close(id, undefined)
   if (!usage) throw agentDiagnostics.AGENT_R1023()
   return {
     content, finishReason, usage, warnings,
