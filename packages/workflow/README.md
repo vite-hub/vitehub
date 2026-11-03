@@ -157,7 +157,7 @@ Inline run inspection uses weak references while execution is active. A reachabl
 A plain Vercel definition executes inline and does not survive a function restart. For durable execution, keep the same context-shaped handler and register a native Workflow DevKit entry:
 
 ```sh
-pnpm add workflow @workflow/builders
+pnpm add --save-exact workflow@5.2.3 @workflow/builders@5.0.6
 ```
 
 ```ts
