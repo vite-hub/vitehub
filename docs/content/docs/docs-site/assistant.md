@@ -1,6 +1,6 @@
 ---
 title: Add the docs assistant
-description: Answer reader questions from your pages with a ViteHub Agent that runs Codex on your ChatGPT plan, and change its instructions, model, pages, and limits.
+description: Answer reader questions from your pages with a ViteHub Agent on your ChatGPT plan, on Node.js or Cloudflare Workers, and change its instructions, model, pages, and limits.
 navigation.title: Docs assistant
 navigation.order: 4
 icon: i-lucide-message-square-text
@@ -8,11 +8,11 @@ icon: i-lucide-message-square-text
 
 The docs assistant answers reader questions from your Markdown pages, and links the pages that it used. It is a ViteHub [Agent](/docs/agents) preset, `docsAssistant`, so you change it with `defineAgent()` like any other Agent.
 
-By default it runs Codex on your ChatGPT plan. You sign in once with your ChatGPT account, and you need no API key. Read [Limits](#limits) before you put it on a public site.
+By default it runs on your ChatGPT plan. You sign in once with your ChatGPT account, and you need no API key. On Node.js it runs Codex. A Cloudflare Worker cannot start Codex, so a Worker build gets the same Agent with a [model-backed Driver](/docs/connections/chatgpt#use-a-model-backed-driver) on the same plan. Read [Limits](#limits) before you put it on a public site.
 
 ## Turn it on
 
-The assistant needs ViteHub Agents and [Connections](/docs/connections), and Codex in the app:
+The assistant needs ViteHub Agents and [Connections](/docs/connections). On Node.js it also needs Codex in the app. A Worker build does not:
 
 ```bash [commands/install-assistant]
 pnpm add vite-hub @vite-hub/agent @vite-hub/database drizzle-orm @openai/codex
@@ -30,14 +30,18 @@ export default defineNuxtConfig({
 })
 ```
 
+For Cloudflare Workers, set `preset: 'cloudflare'` instead of `'node'`.
+
 Add the Agent. It answers from the pages in `content/`:
 
-```ts [server/agents/docs.ts]
+```ts [server/agents/docs/agent.ts]
 import { docsAssistant } from '@vite-hub/docs/assistant'
 import { defineAgent } from 'vite-hub/agent'
 
-export default defineAgent({ extends: docsAssistant })
+export default defineAgent({ extends: docsAssistant, workspace: {} })
 ```
+
+`workspace: {}` says that this Agent owns the Workspace of the preset, the pages in `content/`. The build then bundles the pages, so the Agent reads them also on a host without a file system, such as a Worker.
 
 Add the Connection. It holds the ChatGPT grant and lets the `docs` Agent use it:
 
@@ -51,7 +55,7 @@ export default defineConnection({
 })
 ```
 
-Connections keeps the grant in the app Database, so add a Database Definition if the app has none:
+Connections keeps the grant in the app Database. When the app has only named Databases, choose one with `connections: { database: 'users' }`. Otherwise add a Database Definition if the app has none:
 
 ```ts [server/databases/config.ts]
 import { defineDatabase } from 'vite-hub/database'
@@ -73,17 +77,19 @@ Start the app, then sign in once from the app folder:
 pnpm vitehub connections connect chatgpt --url http://localhost:3000
 ```
 
+A deployed app needs its own grant. Set `connections: { management: true }`, which puts the Connections API behind the Console sign-in, and move the grant with [`vitehub connections export` and `import`](/docs/connections/chatgpt#move-the-grant-to-a-vm).
+
 Every page now shows an **Ask** button at the bottom right. `⌘I` (`Ctrl+I` on Windows and Linux) opens and closes the panel, and `Esc` closes it. From `lg` up, the panel is a column beside the page: drag its left edge to change the width, and double-click the edge to reset it. The browser keeps the width in a cookie. On narrower screens the panel is a sheet over the page. The panel shows the conversation. When the grant is missing, it shows the sign-in command. When the plan limit is reached or the account is not eligible, it says so.
 
 To open the panel from your own control, call `useDocsAssistant().toggle()`.
 
-Without `@openai/codex` in the app, the panel shows `AGENT_R1026` with the install command.
+On Node.js without `@openai/codex` in the app, the panel shows `AGENT_R1026` with the install command.
 
 ## What the preset sets
 
 | Part | Default | Change it with |
 | --- | --- | --- |
-| Driver | Codex on `chatgpt()`, through the `chatgpt` Connection | `driver: { gateway, model }` |
+| Driver | Codex on `chatgpt()`, through the `chatgpt` Connection. In a Worker build: `{ model: 'gpt-6.1-sol', gateway: chatgpt() }`. | `driver: { gateway, model }` |
 | Instructions | Answer only from the pages, link each page used, and say when the docs do not cover a question | `driver: { instructions }`. Your text comes after these rules. |
 | Pages | A read-only Workspace with `content/**/*.md` as the `pages` Source | `workspace: { sources: { pages: glob(...) } }` |
 | Channel | `web`, a `webChat()` at `/api/_vitehub/agents/docs/chat` | `channels: { web: webChat(...) }` |
@@ -136,9 +142,8 @@ The answer streams back. Without a ChatGPT grant, the stream has an error with `
 
 ## Limits
 
-- **Node.js host only.** Codex runs as a local process. A production build for Cloudflare Workers or another non-Node Nitro preset fails with [`DocsAssistantSetupError`](/docs/docs-site/limits-and-errors#docsassistantsetuperror) while `assistant` is on. Turn the assistant off for that build, for example `assistant: process.env.NITRO_PRESET !== 'cloudflare-module'`. The development server always runs on Node.
-- **ChatGPT plan in the development server only.** `vite-hub/nuxt` does not support Connections in production builds yet (`VITE_HUB_B0012`). An API key gateway does not need Connections.
+- **Worker builds.** The `workerd` and `worker` package conditions select the model-backed Driver. It reads the pages with the read-only Workspace shell (`ls`, `cat`, `rg`), which has no network. Pick its model from `vitehub connections models chatgpt` and set `driver: { model }`. An Agent that sets `codexDriver()` itself fails a Worker build with `AGENT_B0019`.
 - **Plan use.** OpenAI allows plan usage for open-source projects, personal apps that run locally, and selected private apps. Paid apps and remotely hosted apps must join OpenAI's waitlist first. One host holds one grant. See [ChatGPT plan usage](/docs/connections/chatgpt).
-- **Shell access.** Codex reads the pages with shell commands in a temporary copy. Its sandbox blocks the network and writes outside that copy. But it can read other files that the server user can read, and a reader can ask for them. Run a public assistant as a user that can read only the app.
-- **Rate limit.** The default limit is in process memory. It resets on restart and does not span processes. It counts questions for the whole site, so one reader can use the budget of the hour for everyone.
+- **Shell access on Node.js.** Codex reads the pages with shell commands in a temporary copy. Its sandbox blocks the network and writes outside that copy. But it can read other files that the server user can read, and a reader can ask for them. Run a public assistant as a user that can read only the app.
+- **Rate limit.** The default limit is in process memory. It resets on restart and does not span processes. In a Worker, each isolate counts on its own. It counts questions for the whole site, so one reader can use the budget of the hour for everyone.
 - **Budget.** Codex reports token use when an answer ends. The budget records an expensive answer in the Invocation. It does not stop it.
