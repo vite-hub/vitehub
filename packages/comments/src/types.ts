@@ -24,6 +24,7 @@ export type {
   CommentsDefinition,
   CommentsGitHubAccess,
   CommentsPeople,
+  CommentsReadAttachmentContext,
   CommentsStoreAttachmentContext,
   CommentSubjectDefinition,
   CommentsUser,

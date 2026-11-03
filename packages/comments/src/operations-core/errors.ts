@@ -86,6 +86,14 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
         ? "Move the tables once in a custom migration: run vitehub db generate --custom --name comments_one_model, put the SQL of commentsMigrationSql({ from: \"live\" }) from vite-hub/comments/database in it, then run vitehub db migrate. See https://vitehub.dev/docs/comments/configure#upgrade-to-one-model"
         : "Run vitehub db generate and vitehub db migrate, so the Database gets the comment tables of this version. See https://vitehub.dev/docs/comments/configure#upgrade-to-one-model",
     },
+    COMMENTS_R0020: {
+      why: ({ key }: { key: string }) => `No comment that you may read has the attachment ${JSON.stringify(key)}, or its file is gone.`,
+      fix: "Read the attachment through a message that lists its key, as a person who may read that thread.",
+    },
+    COMMENTS_R0021: {
+      why: "Comments stores attachments with storeAttachment, but has no readAttachment to read them back.",
+      fix: "Pass readAttachment to defineComments(), next to storeAttachment, and return the file of the key as a Blob.",
+    },
     COMMENTS_B0001: {
       why: ({ file }: { file: string }) => `${file} needs a Database, but the Database is off for this app.`,
       fix: "Remove `database: false` from vitehub(), or set `database: true`. vitehub() turns the Database on for comments when the option is unset.",

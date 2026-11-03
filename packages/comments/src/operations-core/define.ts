@@ -116,6 +116,13 @@ export interface CommentsStoreAttachmentContext {
   subject?: CommentSubject
 }
 
+export interface CommentsReadAttachmentContext {
+  /** The person who reads the file. Comments checked that they may read `thread`. */
+  user: CommentsUser | null
+  /** A thread with a message that lists the key, which the reader may read. */
+  thread: CommentThread
+}
+
 export interface CommentsDefinition {
   /**
    * Who may read, write, resolve, and delete. Return `true` to allow. Without it, see `defaultPolicy()`: everyone on
@@ -147,6 +154,12 @@ export interface CommentsDefinition {
    * file in the Blob store of the app under `comments/`.
    */
   storeAttachment?: (file: CommentsAttachmentFile, context: CommentsStoreAttachmentContext) => string | Promise<string>
+  /**
+   * Reads a file that `storeAttachment` stored, for `GET /attachments/<key>` and `comments.attachment`. Return a
+   * `Blob` (or a `File`) with its media type, or `null` when the file is gone. Comments checks first that the reader
+   * may read a thread whose messages list the key. Without it, Comments reads the Blob store of the app.
+   */
+  readAttachment?: (key: string, context: CommentsReadAttachmentContext) => Blob | null | Promise<Blob | null>
 }
 
 const marker: unique symbol = Symbol.for("vitehub.comments.definition")

@@ -424,7 +424,7 @@ The server checked each person in `users`. `link` is the app path that opens the
 
 ## Attach files
 
-A message can keep files: `attachments` holds their keys. The `comments.upload` operation stores a file and returns `{ key, name, type, size }`; pass the key in `attachments` of `comments.create` or `comments.reply`. A message with attachments may have no text. Uploads need `write` on the subject.
+A message can keep files: `attachments` holds their keys. The `comments.upload` operation, or `POST /api/_vitehub/comments/attachments`, stores a file and returns `{ key, name, type, size }`; pass the key in `attachments` of `comments.create` or `comments.reply`. A message with attachments may have no text. Uploads need `write` on the subject.
 
 Without an option, Comments stores the file in the [Blob](/docs/blob) store of the app, under `comments/<id>/<name>`. To store files yourself, such as with the other files of your app, return the key from `storeAttachment`:
 
@@ -437,10 +437,26 @@ export const comments = defineComments({
     // file: { name, type, size, data: Uint8Array }, already checked
     return await saveImage({ owner: user?.id, subject, ...file })
   },
+  // Pairs with storeAttachment: the file of a key, as a Blob with its media type, or null.
+  readAttachment: async (key, { user, thread }) => await readImage(key),
 })
 ```
 
-Comments checks the size and the type before it calls `storeAttachment`: at most 5 MB of PNG, JPEG, GIF, WebP, AVIF, PDF, or plain text. See [Limits](/docs/comments/limits-and-errors#limits). Comments does not serve attachments: show them with a route that checks `comments.can({ user, action: 'read', thread })` first. Without Blob and without `storeAttachment`, uploads fail with `COMMENTS_R0014`.
+Comments checks the size and the type before it calls `storeAttachment`: at most 5 MB of PNG, JPEG, GIF, WebP, AVIF, PDF, or plain text. See [Limits](/docs/comments/limits-and-errors#limits). Without Blob and without `storeAttachment`, uploads fail with `COMMENTS_R0014`.
+
+**Show attachments.** `GET /api/_vitehub/comments/attachments/<key>` answers the file to a person who may read a thread with a message that lists the key. Anyone else, and a key that no message lists yet, gets `404` with `COMMENTS_R0020`. It reads the file with `readAttachment`, else from the Blob store; with `storeAttachment` and no `readAttachment`, it answers `COMMENTS_R0021`. Build the URL with `transport.attachmentUrl(key)` of [`createRestTransport()`](/docs/comments/server-api#rest-transport), or `commentAttachmentUrl(key)`, and use it as the `src` of a thumbnail. The `comments.attachment` operation returns the same file in Base64, for the CLI.
+
+The answer keeps a browser from running the file:
+
+| Header | Value |
+| --- | --- |
+| `Content-Type` | The stored type, when Comments attaches that type. Any other type, such as SVG or HTML from your own `storeAttachment`, answers as `application/octet-stream`. |
+| `Content-Disposition` | `inline` for PNG, JPEG, GIF, WebP, and AVIF; `attachment` for PDF, text, and every other type, with the file name. |
+| `X-Content-Type-Options` | `nosniff` |
+| `Content-Security-Policy` | `default-src 'none'; sandbox` |
+| `Cache-Control` | `private, max-age=300` |
+
+A key is the right to read through any thread that lists it, so keep keys hard to guess. The keys of the Blob store carry a random id.
 
 ## Turn comment mode on and off
 

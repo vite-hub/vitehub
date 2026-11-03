@@ -38,6 +38,22 @@ export const attachmentTypes: readonly string[] = ["image/png", "image/jpeg", "i
 /** The parts of a Blob store that attachments use: `blob` of `@vite-hub/blob`. */
 export interface CommentsAttachmentStore {
   put: (pathname: string, body: Uint8Array, options: { contentType: string }) => Promise<readonly [unknown, unknown]>
+  get?: (pathname: string) => Promise<readonly [unknown, Blob | null | undefined]>
+}
+
+/** The media types that a browser may show inline. Every other file downloads. */
+const inlineTypes: readonly string[] = ["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif"]
+
+/** A file to answer, with the headers that keep a browser from running it. */
+export interface CommentsAttachmentBody {
+  key: string
+  name: string
+  /** The stored media type when Comments attaches that type, else `application/octet-stream`. */
+  type: string
+  size: number
+  /** Whether a browser may show it in the page: images other than SVG. */
+  inline: boolean
+  data: Blob
 }
 
 /** The pull request sync of `defineComments({ forge })`. */
@@ -443,4 +459,36 @@ export async function storeAttachment(runtime: CommentsRuntime, input: { name: s
     if (error) throw error
   }
   return { key, name, size: file.size, type }
+}
+
+/** The thread through which `user` may read the file of `key`, else `COMMENTS_R0020` as not found. */
+export async function attachmentThread(runtime: CommentsRuntime, key: string, readable: (thread: CommentThread) => Promise<boolean>): Promise<CommentThread> {
+  check(attachmentKey, key, "key")
+  for (const thread of await runtime.store.getByAttachment(key)) {
+    if (await readable(thread).catch(() => false)) return thread
+  }
+  throw fail(commentsErrorDiagnostics.COMMENTS_R0020({ key }), 404)
+}
+
+/**
+ * Reads the file of `key` with `readAttachment`, else from the Blob store, for a reader who may read `thread`. A
+ * stored type that Comments does not attach, such as SVG from an app's own hook, answers as a download.
+ */
+export async function readAttachment(runtime: CommentsRuntime, key: string, context: { user: CommentsUser | null, thread: CommentThread }): Promise<CommentsAttachmentBody> {
+  const { readAttachment: read, storeAttachment: store } = runtime.definition
+  let data: Blob | null | undefined
+  if (read) data = await read(key, { thread: context.thread, user: context.user ? { ...context.user } : null })
+  // Files that the app's own hook stored are not in the Blob store.
+  else if (store) throw fail(commentsErrorDiagnostics.COMMENTS_R0021(), 501)
+  else if (runtime.attachments?.get) {
+    const [error, found] = await runtime.attachments.get(key)
+    if (error) throw error
+    data = found
+  }
+  else throw fail(commentsErrorDiagnostics.COMMENTS_R0014(), 501)
+  if (!data) throw fail(commentsErrorDiagnostics.COMMENTS_R0020({ key }), 404)
+  const stored = data.type.toLowerCase().split(";", 1)[0]!.trim()
+  const type = attachmentTypes.includes(stored) ? stored : "application/octet-stream"
+  const name = safeName(data instanceof File && data.name ? data.name : key.split("/").at(-1) ?? "file")
+  return { data, inline: inlineTypes.includes(type), key, name, size: data.size, type }
 }

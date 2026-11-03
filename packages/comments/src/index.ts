@@ -344,3 +344,8 @@ export function installComments(comments: Comments, install: InstallCommentsOpti
 export function commentsRuntimeOf(comments: Comments): CommentsRuntime | undefined {
   return runtimes.get(comments)?.runtime
 }
+
+/** The runtime of a definition, or the one that the generated Nitro plugin builds on first use, for the overlay API. */
+export async function resolveCommentsRuntime(comments: Comments): Promise<CommentsRuntime | undefined> {
+  return runtimeOf(comments)
+}

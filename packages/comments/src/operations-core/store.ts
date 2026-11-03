@@ -158,6 +158,8 @@ export interface CommentsStore {
   getByNumber: (scope: string, n: number) => Promise<CommentThread | null>
   /** The thread that holds a message. */
   getByMessage: (messageId: string) => Promise<CommentThread | null>
+  /** The threads with a message that lists `key` in its `attachments`, at most 20. */
+  getByAttachment: (key: string) => Promise<CommentThread[]>
   /**
    * Inserts the thread and its first message together, with the next number of its scope. Several creators at once each
    * get their own number, and a number is never handed out twice.
@@ -329,6 +331,14 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
     async getByMessage(messageId) {
       const [row] = await db.select({ threadId: messages.threadId }).from(messages).where(eq(messages.id, messageId)).limit(1)
       return row ? find(row.threadId) : null
+    },
+    async getByAttachment(key) {
+      // `attachments` is a JSON list of strings, so the quoted key matches one whole entry. The parsed list decides.
+      const pattern = `%${JSON.stringify(key).replaceAll(/[\\%_]/g, character => `\\${character}`)}%`
+      const rows = await db.select({ threadId: messages.threadId, attachments: messages.attachments }).from(messages).where(sql`${messages.attachments} LIKE ${pattern} ESCAPE '\\'`).limit(20)
+      const ids = [...new Set(rows.filter(row => parseJson<string[]>(row.attachments, []).includes(key)).map(row => row.threadId))]
+      const found = await Promise.all(ids.map(id => find(id)))
+      return found.filter(thread => thread !== null)
     },
     async createThread(input) {
       for (let attempt = 0; attempt < allocationAttempts; attempt++) {

@@ -1,4 +1,5 @@
 import { commentsApiRoute } from "../page.ts"
+import { CommentsRestError, createCommentsRestRequest } from "../rest-transport.ts"
 
 import type { PinAnchor } from "../anchor.ts"
 import type { CommentContext, CommentMessage, CommentsGitHubAccess, CommentThread, CommentUser } from "../types.ts"
@@ -134,31 +135,19 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<ApiResult<
   return error ? [error, undefined] : [undefined, value.data]
 }
 
+/** The overlay talks to the Comments API through the same requests as `createRestTransport()`. */
+const send = createCommentsRestRequest({ route, guest: readGuest })
+
 /** The answer of a route that names people: the data, and the mentioned people by id. */
 async function request<T>(path: string, init: RequestInit = {}): Promise<ApiResult<{ data: T, people: Map<string, CommentUser> }>> {
-  const headers = new Headers(init.headers)
-  if (init.body) headers.set("content-type", "application/json")
-  const guest = readGuest()
-  if (guest) {
-    headers.set("x-vitehub-comments-guest-id", guest.id)
-    headers.set("x-vitehub-comments-guest-name", encodeURIComponent(guest.name))
-  }
-  let response: Response
   try {
-    response = await fetch(`${route}${path}`, { ...init, headers, credentials: "same-origin" })
+    const answer = await send<T>(path, init)
+    return [undefined, { data: answer.data, people: new Map(answer.people.map(entry => [entry.id, entry])) }]
   }
-  catch {
-    return [{ code: "COMMENTS_OFFLINE", why: "The server cannot be reached." }, undefined]
+  catch (error) {
+    if (error instanceof CommentsRestError) return [{ code: error.code, why: error.why, ...(error.fix ? { fix: error.fix } : {}) }, undefined]
+    throw error
   }
-  const value: unknown = await response.json().catch(() => undefined)
-  if (value && typeof value === "object") {
-    if ("error" in value && value.error && typeof value.error === "object") return [value.error as CommentsApiError, undefined]
-    if ("data" in value) {
-      const people = "people" in value && Array.isArray(value.people) ? value.people as CommentUser[] : []
-      return [undefined, { data: value.data as T, people: new Map(people.map(entry => [entry.id, entry])) }]
-    }
-  }
-  return [{ code: "COMMENTS_FAILED", why: `The server answered ${response.status}.` }, undefined]
 }
 
 const post = (body: unknown): RequestInit => ({ method: "POST", body: JSON.stringify(body) })
