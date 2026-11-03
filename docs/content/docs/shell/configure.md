@@ -42,6 +42,6 @@ To translate Shell calls into another runtime, implement a custom `ShellExecutio
 | `timeout` | `number` | `policy`, `exec` | Command timeout in milliseconds. `exec` overrides the policy value. |
 | `signal` | `AbortSignal` | `exec` | Cancels the command and provider-owned work, such as a controlled Source request. |
 | `cwd` | `string` | `exec` | Working directory when the provider supports CWD. |
-| `stdin` | `string` | `exec` | Standard input when the provider supports it. Just Bash ignores it. |
+| `stdin` | `string` | `exec` | Standard input when the provider supports it. Just Bash passes it to the script as standard input. |
 | `onStdout` | `function` | `exec` | Receives stdout. Streaming providers send chunks. |
 | `onStderr` | `function` | `exec` | Receives stderr. Streaming providers send chunks. |
