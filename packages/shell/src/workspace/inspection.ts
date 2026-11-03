@@ -11,6 +11,7 @@ import type { ExecutionBudget } from "@vite-hub/runtime"
 import type { ShellNetworkGrantExecutor } from "../providers/just-bash.ts"
 import type { WorkspaceShellFileSystem } from "./filesystem.ts"
 import type { SearchableShellWorkspace } from "./types.ts"
+import type { SimpleCommandNode, WordNode } from "just-bash"
 
 interface WorkspaceInspectionCommandOptions {
   budget?: ExecutionBudget
@@ -36,8 +37,8 @@ export async function runWorkspaceInspectionCommand(
     ? 30_000
     : normalizeOutputLength(options.maxOutputLength)
   const timeout = options.timeout ?? 30_000
-  // A substitution may contain controlled curl even when the outer command is echo.
-  const provider = options.networkGrants && (usesWorkspaceNetworkGrant(command) || usesShellSubstitution(command))
+  // Only controlled curl commands may replace the injected execution provider.
+  const provider = options.provider && options.networkGrants && await usesWorkspaceNetworkGrant(command)
     ? undefined
     : options.provider
   const chargeRejected = () => {
@@ -185,14 +186,37 @@ function preflightPipedSearchWithoutPath(command: string, broadSearchPaths: stri
   }
 }
 
-function usesWorkspaceNetworkGrant(command: string) {
+async function usesWorkspaceNetworkGrant(command: string) {
   try {
-    return analyzeWorkspaceInspectionCommand(command)
-      .some(segment => workspaceExecutable(segment.words)?.name === "curl")
+    const { Bash } = await import("just-bash/browser")
+    // The browser entry point exposes its parser through transform(), without executing the command.
+    return containsCurlCommand(new Bash({ commands: [] }).transform(command).ast)
   }
   catch {
     return false
   }
+}
+
+function containsCurlCommand(node: object): boolean {
+  if ("type" in node && node.type === "SimpleCommand") {
+    const { name } = node as SimpleCommandNode
+    if (name && staticCommandWord(name.parts) === "curl") return true
+  }
+  return Object.values(node).some(value => value && typeof value === "object" && containsCurlCommand(value))
+}
+
+function staticCommandWord(parts: WordNode["parts"]): string | undefined {
+  let word = ""
+  for (const part of parts) {
+    if (part.type === "Literal" || part.type === "SingleQuoted" || part.type === "Escaped") word += part.value
+    else if (part.type === "DoubleQuoted") {
+      const quoted = staticCommandWord(part.parts)
+      if (quoted === undefined) return undefined
+      word += quoted
+    }
+    else return undefined
+  }
+  return word
 }
 
 async function preflightWorkspaceInspectionCommand(command: string, fs: WorkspaceShellFileSystem, broadSearchPaths: string[] = [], cwd = workspaceMountPoint, signal?: AbortSignal): Promise<ShellObservation | undefined> {
