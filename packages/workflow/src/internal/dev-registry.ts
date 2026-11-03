@@ -30,7 +30,9 @@ function createWorkflowDevRegistryModule(registryFile: string, definitions: Disc
   return createWorkflowRegistryContents(registryFile, definitions.filter(isWorkflowDevDefinition), { workflow: importBase })
 }
 
-export function createWorkflowDevPluginModule(workflow: false | ResolvedWorkflowOptions, importBase = workflowPackageName): string {
+export function createWorkflowDevPluginModule(workflow: false | ResolvedWorkflowOptions | undefined, importBase = workflowPackageName): string {
+  // Provider Output builds own their registry; reserve a path without changing runtime state.
+  if (workflow === undefined) return "export default function viteHubWorkflowStartupPlugin() {}\n"
   return [
     "import { definePlugin } from \"nitro\"",
     `import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(`${importBase}/runtime/state`)}`,
@@ -57,7 +59,8 @@ export interface WorkflowDevRegistryFilesOptions {
   projectRoot: string
   /** Retain the startup path Nitro read before final Vite configuration. */
   pluginPath?: string
-  workflow: false | ResolvedWorkflowOptions
+  /** Undefined reserves an inert bootstrap until the final build configuration is known. */
+  workflow: false | ResolvedWorkflowOptions | undefined
 }
 
 export interface WorkflowDevRegistryFiles {

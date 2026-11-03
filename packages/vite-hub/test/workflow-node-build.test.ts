@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -21,6 +21,7 @@ async function freePort(): Promise<number> {
 async function postToBuiltServer(root: string, path: string, body: unknown): Promise<Response> {
   const port = await freePort();
   const server = spawn(process.execPath, [join(root, ".output/server/index.mjs")], {
+    cwd: root,
     env: { ...process.env, HOST: "127.0.0.1", PORT: String(port) },
     stdio: "ignore",
   });
@@ -43,8 +44,9 @@ async function postToBuiltServer(root: string, path: string, body: unknown): Pro
   }
 }
 
-it("runs a discovered Workflow from the built node server", async () => {
+it.each([true, false])("runs a discovered Workflow from only the deployed Node output (initial Workflow: %s)", async (initialWorkflow) => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-workflow-node-build-"));
+  const deploymentRoot = await mkdtemp(join(tmpdir(), "vitehub-workflow-node-deployment-"));
   try {
     await mkdir(join(root, "server/workflows/onboard-user"), { recursive: true });
     await mkdir(join(root, "server/api"), { recursive: true });
@@ -87,12 +89,19 @@ it("runs a discovered Workflow from the built node server", async () => {
     const { nitro } = (await import("nitro/vite" as string)) as { nitro: () => unknown };
     const builder = await createBuilder({
       logLevel: "silent",
-      plugins: [nitro() as never, vitehub({ preset: "node", workflow: true })],
+      workflow: initialWorkflow ? { provider: "vercel" } : false,
+      plugins: [
+        nitro() as never,
+        vitehub({ preset: "node", workflow: true }),
+        { name: "final-workflow-config", config: () => ({ workflow: { provider: "vercel" } }) },
+      ],
       root,
     });
     await builder.buildApp();
 
-    const response = await postToBuiltServer(root, "/api/onboard", { email: "ada@example.com" });
+    await rename(join(root, ".output"), join(deploymentRoot, ".output"));
+    await rm(root, { force: true, recursive: true, maxRetries: 3 });
+    const response = await postToBuiltServer(deploymentRoot, "/api/onboard", { email: "ada@example.com" });
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
@@ -102,5 +111,6 @@ it("runs a discovered Workflow from the built node server", async () => {
     });
   } finally {
     await rm(root, { force: true, recursive: true, maxRetries: 3 });
+    await rm(deploymentRoot, { force: true, recursive: true, maxRetries: 3 });
   }
 }, 120_000);
