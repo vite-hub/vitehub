@@ -160,6 +160,18 @@ app.use(
 
 Read the resolved defaults in your own components with `useViteHubUI()`.
 
+## Nuxt UI components
+
+The parts import the Nuxt UI components that they render, such as `UButton` and `UModal`, from `@nuxt/ui`. They do not look for them by name, so they work when the app registers Nuxt UI per template, as Nuxt does, or not at all. Icons are the exception in Nuxt: the Nuxt module, and `vite-hub/nuxt` when the app installs `@vite-hub/ui`, give the parts Nuxt UI's Nuxt icon, which reads the `@nuxt/icon` client bundle.
+
+To render other components, for example on a page without Nuxt UI, pass them by name:
+
+```ts [vite/components/src/main.ts]
+app.use(createViteHubUI({ components: { UButton: MyButton, UIcon: MyIcon } }));
+```
+
+A part uses the component given here first, then one that the app registered globally under the same name with `app.component()`, then Nuxt UI's.
+
 ## Theme
 
 The stylesheet maps its CSS variables to Nuxt UI tokens. Override them on any element to change one view:

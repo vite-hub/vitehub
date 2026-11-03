@@ -1,11 +1,12 @@
 import type { CommentsClient, CommentStatus, CommentSubject, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
-import { computed, defineComponent, h, nextTick, type PropType, ref, resolveComponent, type SlotsType } from "vue";
+import { computed, defineComponent, h, nextTick, type PropType, ref, type SlotsType } from "vue";
 import { type CommentsState, provideComments, useComments, useCommentsContext } from "../headless/comments.ts";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { threadRow } from "../internal/comment-row.ts";
 import { injectComments } from "../internal/comments-context.ts";
 import { CommentComposer, type CommentComposerSubmit } from "./comment-composer.ts";
 import { type CommentAttachmentUrl, CommentThread, type CommentThreadSlots } from "./comment-thread.ts";
+import { useUIComponent } from "../internal/nuxt-ui.ts";
 
 export type CommentPanelVariant = "docked" | "floating";
 
@@ -60,7 +61,7 @@ export const CommentPanel = defineComponent({
   // SAFETY: Vue uses Object as its runtime slots marker.
   slots: Object as SlotsType<CommentPanelSlots>,
   setup(props, { emit, slots }) {
-    const UButton = resolveComponent("UButton");
+    const UButton = useUIComponent("UButton");
     const inherited = props.comments ?? injectComments();
     if (!inherited && (!props.client || !props.subject)) {
       throw uiErrorDiagnostics.UI_R0002({

@@ -1,5 +1,5 @@
 import type { CommentMessage, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
-import { computed, defineComponent, h, nextTick, type PropType, ref, resolveComponent, type SlotsType, type VNode } from "vue";
+import { type Component, computed, defineComponent, h, nextTick, type PropType, ref, type SlotsType, type VNode } from "vue";
 import {
   consumedPointerEvents,
   pathOf,
@@ -17,6 +17,7 @@ import { AvatarStack } from "./avatar-stack.ts";
 import { CommentComposer, type CommentComposerSlots, type CommentComposerSubmit } from "./comment-composer.ts";
 import { Markdown } from "./markdown.ts";
 import { Marker, MarkerContent } from "./marker.ts";
+import { useUIComponent } from "../internal/nuxt-ui.ts";
 
 type Done = Promise<unknown> | void;
 
@@ -58,7 +59,7 @@ function reason(error: unknown): string {
 const fileName = (key: string) => key.split(/[/\\]/).at(-1) || key;
 
 // Shows the attachments of a message. A key with a URL and an image name, or no extension, shows as a thumbnail.
-function attachmentList(message: CommentMessage, url: CommentAttachmentUrl | undefined, icon: ReturnType<typeof resolveComponent>) {
+function attachmentList(message: CommentMessage, url: CommentAttachmentUrl | undefined, icon: Component) {
   if (message.attachments.length === 0) return null;
   return h(AttachmentGroup, { "data-slot": "comment-reply-attachments" }, () =>
     message.attachments.map((key) => {
@@ -106,8 +107,8 @@ export const CommentReply = defineComponent({
   // SAFETY: Vue uses Object as its runtime slots marker.
   slots: Object as SlotsType<CommentReplySlots & Pick<CommentComposerSlots, "mention-item">>,
   setup(props, { slots }) {
-    const UButton = resolveComponent("UButton");
-    const UIcon = resolveComponent("UIcon");
+    const UButton = useUIComponent("UButton");
+    const UIcon = useUIComponent("UIcon");
     const comments = injectComments();
     const editing = ref(false);
     const confirming = ref(false);
@@ -290,7 +291,7 @@ export const CommentThread = defineComponent({
   // SAFETY: Vue uses Object as its runtime slots marker.
   slots: Object as SlotsType<CommentThreadSlots>,
   setup(props, { emit, slots }) {
-    const UButton = resolveComponent("UButton");
+    const UButton = useUIComponent("UButton");
     const comments = injectComments();
     const root = ref<HTMLElement | null>(null);
     const reply = ref("");

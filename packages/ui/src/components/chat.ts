@@ -1,5 +1,5 @@
 import type { ChatStatus, UIMessage } from "ai";
-import { defineComponent, h, type PropType, resolveComponent } from "vue";
+import { defineComponent, h, type PropType } from "vue";
 import {
   MessageScrollerButton,
   MessageScrollerContent,
@@ -9,6 +9,7 @@ import {
 } from "../headless/message-scroller.ts";
 import { useViteHubUI } from "../config.ts";
 import { ChatMessage } from "./chat-message.ts";
+import { useUIComponent } from "../internal/nuxt-ui.ts";
 
 type Part = UIMessage["parts"][number];
 
@@ -46,7 +47,7 @@ export const Chat = defineComponent({
   },
   setup(props, { attrs, slots }) {
     const defaults = useViteHubUI();
-    const UButton = resolveComponent("UButton");
+    const UButton = useUIComponent("UButton");
     // A static dot and a text that changes: progress without a looping animation.
     const activity = () => {
       const label = chatActivity(props.messages, props.status);

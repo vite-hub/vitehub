@@ -1,8 +1,9 @@
 import type { CommentThread } from "@vite-hub/comments/client";
-import { defineComponent, h, type PropType, resolveComponent } from "vue";
+import { defineComponent, h, type PropType } from "vue";
 import { type CommentFilterState, type CommentsState, useCommentsContext } from "../headless/comments.ts";
 import { threadRow } from "../internal/comment-row.ts";
 import { AvatarStack, type AvatarStackPerson } from "./avatar-stack.ts";
+import { useUIComponent } from "../internal/nuxt-ui.ts";
 
 // The `comments` prop lets a part work outside `CommentLayer`. Inside it, the part uses the layer's state.
 const commentsProp = { type: Object as PropType<CommentsState> };
@@ -12,7 +13,7 @@ export const CommentFilters = defineComponent({
   name: "CommentFilters",
   props: { comments: commentsProp },
   setup(props) {
-    const UButton = resolveComponent("UButton");
+    const UButton = useUIComponent("UButton");
     const comments = useCommentsContext(props.comments);
     return () => {
       const button = (key: keyof CommentFilterState, label: string, count?: number) =>
@@ -49,7 +50,7 @@ export const CommentList = defineComponent({
   },
   emits: ["select"],
   setup(props, { emit }) {
-    const UButton = resolveComponent("UButton");
+    const UButton = useUIComponent("UButton");
     const comments = useCommentsContext(props.comments);
 
     function select(thread: CommentThread, event?: MouseEvent) {
@@ -127,7 +128,7 @@ export const CommentToolbar = defineComponent({
     people: { default: () => [], type: Array as PropType<AvatarStackPerson[]> },
   },
   setup(props, { slots }) {
-    const UButton = resolveComponent("UButton");
+    const UButton = useUIComponent("UButton");
     const comments = useCommentsContext(props.comments);
     return () => {
       const open = comments.pageThreads.value.length;
