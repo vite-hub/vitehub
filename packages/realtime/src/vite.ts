@@ -10,6 +10,7 @@ import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
 import { discoverRealtimeDefinitions } from "./discovery.ts"
 export { discoverRealtimeDefinitions } from "./discovery.ts"
 import { realtimeDurableObjectKey } from "./durable-key.ts"
+import { realtimeKeepalivePing, realtimeKeepalivePong } from "./protocol.ts"
 import { summarizeRealtimeDefinitions } from "./inspect.ts"
 
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
@@ -223,6 +224,8 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
           "export default (nitroApp) => {",
           "  nitroApp.hooks.hook(\"cloudflare:durable:init\", (_durable, { state, env }) => {",
           `    globalThis[Symbol.for(${JSON.stringify(realtimeDurableObjectKey)})] = { env, state }`,
+          "    // Answer the clients' keepalive without waking the Durable Object from hibernation.",
+          `    if (typeof WebSocketRequestResponsePair === "function") state.setWebSocketAutoResponse(new WebSocketRequestResponsePair(${JSON.stringify(realtimeKeepalivePing)}, ${JSON.stringify(realtimeKeepalivePong)}))`,
           "  })",
           "}",
           "",

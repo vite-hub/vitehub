@@ -512,6 +512,27 @@ describe("realtime server handler", () => {
     updateDocument.destroy()
   })
 
+  it("answers a keepalive ping with a pong", async () => {
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const handler = createRealtimeHandler(realtimeRegistry())
+    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/%40workspace?workspace=events", {
+      headers: { upgrade: "websocket" },
+    })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
+    const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
+    response.crossws.open(peer)
+    peer.send.mockClear()
+
+    response.crossws.message(peer, { uint8Array: () => new TextEncoder().encode("ping") })
+
+    expect(peer.send).toHaveBeenCalledExactlyOnceWith("pong")
+    expect(peer.close).not.toHaveBeenCalled()
+    expect(peer.publish).not.toHaveBeenCalled()
+  })
+
   it("closes peers that send truncated realtime frames", async () => {
     serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { realtimeDurableObjectKey } from "../src/durable-key.ts"
 
 const tempDirs: string[] = []
@@ -125,12 +125,88 @@ describe("hubRealtime", () => {
     const hooks: Array<(durable: unknown, context: { state: unknown, env: unknown }) => void> = []
     const { default: install } = await import(pathToFileURL(durable!).href) as { default: (nitroApp: unknown) => void }
     install({ hooks: { hook: (name: string, fn: (typeof hooks)[number]) => name === "cloudflare:durable:init" && hooks.push(fn) } })
-    const state = { storage: {} }
+    // Workerd answers the client's keepalive ping itself, without waking a hibernated Durable Object.
+    const autoResponses: unknown[] = []
+    vi.stubGlobal("WebSocketRequestResponsePair", class {
+      constructor(public request: string, public response: string) {}
+    })
+    const state = { storage: {}, setWebSocketAutoResponse: (pair: unknown) => autoResponses.push(pair) }
     const env = { DB: {} }
     for (const fn of hooks) fn({}, { state, env })
+    vi.unstubAllGlobals()
     expect(Reflect.get(globalThis, Symbol.for(realtimeDurableObjectKey))).toEqual({ env, state })
+    expect(autoResponses).toEqual([{ request: "ping", response: "pong" }])
     Reflect.deleteProperty(globalThis, Symbol.for(realtimeDurableObjectKey))
   })
+
+  it("answers keepalive pings in workerd without running the Durable Object", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
+    tempDirs.push(root)
+    await mkdir(join(root, "server/realtime"), { recursive: true })
+    await writeFile(join(root, "server/realtime/document.ts"), "export default {}\n")
+    const { hubRealtime } = await import("../src/vite.ts")
+    const config: { root: string, nitro: { plugins?: string[], preset: string } } = { root, nitro: { preset: "cloudflare" } }
+    await (hubRealtime().config as unknown as (config: Record<string, unknown>) => Promise<void>)(config)
+    const { readFile } = await import("node:fs/promises")
+    const plugin = await readFile(config.nitro.plugins!.find(file => file.endsWith("durable-object.mjs"))!, "utf8")
+    const { Miniflare } = await import("miniflare")
+    const runtime = new Miniflare({
+      compatibilityDate: "2026-07-30",
+      durableObjects: { ROOM: { className: "Room", useSQLite: true } },
+      modules: [
+        {
+          type: "ESModule",
+          path: "index.mjs",
+          contents: `import install from "./plugin.mjs"
+            const hooks = []
+            install({ hooks: { hook: (name, fn) => name === "cloudflare:durable:init" && hooks.push(fn) } })
+            export class Room {
+              constructor(state, env) {
+                this.state = state
+                this.messages = []
+                for (const fn of hooks) fn(this, { state, env })
+              }
+              fetch(request) {
+                if (request.headers.get("upgrade") !== "websocket") return Response.json(this.messages)
+                const [client, server] = Object.values(new WebSocketPair())
+                this.state.acceptWebSocket(server)
+                return new Response(null, { status: 101, webSocket: client })
+              }
+              webSocketMessage(socket, message) {
+                this.messages.push(message)
+                socket.send("seen")
+              }
+            }
+            export default {
+              fetch(request, env) { return env.ROOM.get(env.ROOM.idFromName("rooms")).fetch(request) },
+            }`,
+        },
+        { type: "ESModule", path: "plugin.mjs", contents: plugin },
+      ],
+    })
+    try {
+      const socket = (await runtime.dispatchFetch("https://example.com/", { headers: { upgrade: "websocket" } })).webSocket!
+      socket.accept()
+      const replies: unknown[] = []
+      const next = () => new Promise<void>(resolve => socket.addEventListener("message", (event) => {
+        replies.push(event.data)
+        resolve()
+      }, { once: true }))
+      let reply = next()
+      socket.send("ping")
+      await reply
+      reply = next()
+      socket.send("hello")
+      await reply
+      socket.close()
+
+      expect(replies).toEqual(["pong", "seen"])
+      await expect((await runtime.dispatchFetch("https://example.com/")).json()).resolves.toEqual(["hello"])
+    }
+    finally {
+      await runtime.dispose()
+    }
+  }, 30_000)
 
   it("loads the Yjs packages as one module graph in the Nitro environment", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
