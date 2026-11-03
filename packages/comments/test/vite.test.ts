@@ -7,6 +7,7 @@ import { VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
 import { createNitro } from "nitro/builder"
 import { H3 } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { resolveConfig } from "vite"
 
 import { commentsApiRoute } from "../src/page.ts"
 import { comments, componentNames, githubRepository, hubComments, readCommentsBuild, readCommentsComponents, readCommentsDatabase } from "../src/vite.ts"
@@ -338,6 +339,25 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
 
 describe("comments() without vite-hub", () => {
   const standalone = () => comments()[0] as Plugin
+
+  it("keeps dependency discovery for an explicitly inlined workerd service", async () => {
+    const root = await project({ "package.json": "{}" })
+    const config = await resolveConfig({
+      configFile: false,
+      logLevel: "silent",
+      root,
+      plugins: [standalone(), {
+        name: "nitro-service-stand-in",
+        configEnvironment(name) {
+          if (name === "api") return { consumer: "server", resolve: { conditions: ["workerd"] } }
+        },
+      }],
+      environments: { api: { resolve: { noExternal: true } } },
+    }, "serve")
+
+    expect(config.environments.api!.optimizeDeps.noDiscovery).toBe(false)
+    expect(config.environments.api!.optimizeDeps.exclude).toContain("nitro")
+  })
 
   it.each(["standalone", "vitehub"])("uses the build repository for the %s MCP session's GitHub fallback", async (setup) => {
     vi.stubEnv("GITHUB_REPOSITORY", "acme/app")

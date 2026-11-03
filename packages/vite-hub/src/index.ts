@@ -28,7 +28,7 @@ import { collapseWranglerConfigFile } from "@vite-hub/internal/build/cloudflare"
 import { describeDeploymentPlanOutput, finalizeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { denoServerPackagesPlugin, finalizeDenoDeploymentOutput, type DenoServerPackages } from "@vite-hub/internal/build/deno-runtime-packages"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
-import { createNoExternalAddition, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS, workerdDependencyConfig, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
@@ -684,6 +684,7 @@ function deploymentPlugins(
     {
       name: "vite-hub/deployment-settings",
       enforce: "pre",
+      configEnvironment: { order: "post", handler: workerdDependencyConfig },
       config: {
         order: "pre",
         handler(config, environment) {

@@ -6,7 +6,7 @@ import { promisify } from "node:util"
 
 import { addViteHubPageToolRoutes, viteHubPageToolsBase, viteHubPageToolsIndexHtml } from "@vite-hub/internal/build/page-tools"
 import { argumentExpression, objectProperties, scanModule, staticString, unwrapExpression } from "@vite-hub/internal/build/scan-module"
-import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, workerdDependencyConfig } from "@vite-hub/internal/build/vite"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { includedNitro } from "@vite-hub/internal/build/included-nitro"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
@@ -498,6 +498,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
 
   const integration: CommentsVitePlugin = {
     name: options.standalone ? "@vite-hub/comments" : "@vite-hub/comments/vite",
+    configEnvironment: options.standalone ? { order: "post", handler: workerdDependencyConfig } : undefined,
     nitro: options.standalone ? {
       async setup(nitro) {
         if (!projectRoot || !options.standalone) return

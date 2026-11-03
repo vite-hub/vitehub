@@ -2,6 +2,8 @@ import { statSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { basename, dirname, parse, resolve } from "node:path"
 
+import type { ConfigEnv, EnvironmentOptions } from "vite"
+
 type NoExternalValue = string | true | RegExp | (string | RegExp)[] | undefined
 type WatchIgnoredMatcher = string | RegExp | ((testString: string, ...args: unknown[]) => boolean)
 type WatchIgnoredValue = WatchIgnoredMatcher | WatchIgnoredMatcher[] | undefined
@@ -75,6 +77,14 @@ export function createNoExternalAddition(...packageNames: string[]) {
 
 export function isServerEnvironment(name: string, config: { consumer?: string }): boolean {
   return name === "ssr" || config.consumer === "server"
+}
+
+/** Nitro RC externalizes dependencies by default; explicit inlining still needs CommonJS pre-bundling in workerd. */
+export function workerdDependencyConfig(name: string, config: EnvironmentOptions, env: ConfigEnv): EnvironmentOptions | undefined {
+  if (env.command !== "serve" || !isServerEnvironment(name, config) || config.resolve?.noExternal !== true) return
+  if (!config.resolve.conditions?.some(condition => condition === "workerd" || condition === "worker")) return
+  // Keep Nitro's route-bearing app out of the pre-bundle and respect an app's explicit discovery setting.
+  return { optimizeDeps: { noDiscovery: config.optimizeDeps?.noDiscovery ?? false, exclude: ["nitro"] } }
 }
 
 export interface ProviderOutputEnvironmentOwner {
