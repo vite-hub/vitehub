@@ -70,6 +70,8 @@ describe("ChatGPT plan Connections", () => {
     await expect(runtime.complete({ state: callback.searchParams.get("state")!, code: callback.searchParams.get("code")!, clientId: callback.searchParams.get("client_id") ?? undefined }))
       .resolves.toMatchObject({ chatgpt: { plan: "enabled" } })
     await expect(chatgptTransfers(runtime).models({ actor: "user:host-managed", name: "chatgpt" })).resolves.toEqual([{ id: "gpt-6.1-sol", name: "GPT-6.1" }])
+    await expect(runtime.revoke({ name: "chatgpt" })).resolves.toMatchObject({ status: "revoked" })
+    expect(test.fake.state.revoked).toBe(1)
   })
 
   it.each(["identity", "account", "read", "persist"])("fences the old grant after a successful exchange followed by %s failure", async (failure) => {

@@ -240,11 +240,11 @@ function isLoginDefinition(definition: ConnectionDefinition): definition is Conn
 /** Create the Connections runtime. Applications normally use `useConnection()` instead. */
 export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): ConnectionsRuntime {
   const fetchProvider = options.fetch ?? ((input: Parameters<typeof fetch>[0], init?: RequestInit) => fetch(input, init))
-  // Cloudflare Workers reject `redirect: "error"`. `manual` with a status check refuses a redirect on every host.
+  // Runtime-owned requests refuse redirects on Workers too. Public Connection requests keep the caller's options.
   const request = async (input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> => {
     if (init?.redirect !== "error") return await fetchProvider(input, init)
     const response = await fetchProvider(input, { ...init, redirect: "manual" })
-    if (response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400)) throw new TypeError("The provider answered with a redirect.")
+    if (response.type === "opaqueredirect" || [301, 302, 303, 307, 308].includes(response.status)) throw new TypeError("The provider answered with a redirect.")
     return response
   }
   const scheduler = createRequestScheduler()
@@ -878,7 +878,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       const inherited = callerInheritedActors(options)
       const loaded = await definition(name)
       if (isChatGPTProvider(loaded.provider)) throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_CLIENT()
-      return { actor, definition: loaded, inherited, name, options, transport: createConnectionTransport(name, loaded, request, scheduler) }
+      return { actor, definition: loaded, inherited, name, options, transport: createConnectionTransport(name, loaded, fetchProvider, scheduler) }
     })())
     return {
       async call(action: string, input?: unknown, callOptions?: { signal?: AbortSignal }): Promise<unknown> {
@@ -1327,7 +1327,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       const stored = v.parse(approvalInputSchema, approval.input)
       const loaded = await definition(approval.name)
       const context: CallContext = {
-        transport: createConnectionTransport(approval.name, loaded, request, scheduler),
+        transport: createConnectionTransport(approval.name, loaded, fetchProvider, scheduler),
         actor: approval.actor,
         approved: true,
         approvedGrantId: stored.grantId,
