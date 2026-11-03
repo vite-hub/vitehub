@@ -1,12 +1,12 @@
 import { posix } from "node:path";
 
 import type {
-  SandboxExecOptions,
   SandboxFileEntry,
   SandboxProcess,
   SandboxResolvedToolchain,
   SandboxRuntimeOpenOptions,
   SandboxSession,
+  SandboxSpawnOptions,
 } from "../index.ts";
 import { sandboxErrorDiagnostics } from "../error-diagnostics.ts"
 import { shellQuote } from "./shell-quote.ts";
@@ -118,6 +118,8 @@ interface RuntimeCommandOptions {
   command: string;
   env?: Record<string, string>;
   timeout?: number;
+  /** Spawn only: keep process input open for runtimes that forward it on request. */
+  stdin?: boolean;
   workingDirectory?: string;
 }
 
@@ -225,11 +227,12 @@ export function createSandboxSession(
       : {}),
     ...(runtime.spawn
       ? {
-          async spawn(command: string, args: readonly string[] = [], options?: SandboxExecOptions) {
+          async spawn(command: string, args: readonly string[] = [], options?: SandboxSpawnOptions) {
             const process = await runtime.spawn!({
               abortSignal: operationSignal(options?.signal, options?.timeout),
               command: commandLine(command, args),
               env: options?.env ? { ...options.env } : undefined,
+              stdin: options?.stdin,
               timeout: options?.timeout,
               workingDirectory: options?.cwd ?? cwd,
             });
