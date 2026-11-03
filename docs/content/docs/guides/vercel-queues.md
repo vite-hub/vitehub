@@ -117,7 +117,9 @@ export async function enqueueWelcomes(emails: string[]) {
 }
 ```
 
-ViteHub gives every job an idempotency key, generated when you omit it. If Vercel does not accept one of the jobs, `sendBatch()` returns `QUEUE_PROVIDER_FAILED`, and `error.cause.results` has the result of each job in input order. Sending the same batch again is safe: Vercel drops the jobs it already accepted. `sendBatch()` needs `@vercel/queue` 0.10 or later.
+If Vercel rejects one of the jobs, `sendBatch()` returns `QUEUE_PROVIDER_FAILED`, and `error.cause.results` has the result of each job in input order. A request-level failure can happen after Vercel accepts jobs and does not include per-job results. `sendBatch()` needs `@vercel/queue` 0.10 or later.
+
+To retry safely after either failure, supply the same caller-provided `idempotencyKey` on every job from the first attempt, as in the example above. Vercel deduplicates jobs it already accepted using those keys. ViteHub generates a new key on each call when you omit it, so retrying without explicit keys can enqueue accepted jobs again.
 
 ### Choose the queue region
 

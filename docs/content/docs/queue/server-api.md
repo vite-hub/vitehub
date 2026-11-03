@@ -214,6 +214,8 @@ if (error) throw error
 | `send()` on Vercel | `Result<QueueSendResult, VercelQueueErrorCode>` | `QUEUE_PROVIDER_FAILED`, `QUEUE_PROVIDER_INVALID_RESPONSE`, `QUEUE_UNSUPPORTED_OPTION` |
 | `sendBatch()` on Vercel | `Result<QueueSendResult[], VercelQueueErrorCode>` | `QUEUE_PROVIDER_FAILED`, `QUEUE_PROVIDER_INVALID_RESPONSE` |
 
+For Vercel batch retries, supply the same caller-provided `idempotencyKey` on every job from the first attempt. Omitted keys are generated anew on each call and do not deduplicate retries, including retries after a request-level failure.
+
 ### `dynamicQueue`
 
 Use `dynamicQueue.run(name, payload, options?)`, `dynamicQueue.defer()`, or `dynamicQueue.get()` for names read from external input. These methods check at runtime that the Definition exists. They do not validate the payload shape, so validate external data in your application.

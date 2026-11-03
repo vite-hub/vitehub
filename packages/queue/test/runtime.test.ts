@@ -19,7 +19,7 @@ import { createVercelQueueRuntimeClient } from "../src/internal/runtime/vercel-c
 import { resolveVercelQueueRegion } from "../src/internal/vercel-region.ts"
 import { enterQueueRuntimeEvent, getQueueRuntimeClientFactory, getQueueRuntimeEvent, loadQueueDefinition, missingQueueDefinitionError, runWithQueueRuntimeEvent, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/internal/runtime/state.ts"
 
-import type { VercelQueueCallbackOptions } from "../src/types.ts"
+import type { VercelQueueCallbackOptions, VercelQueueSDK } from "../src/types.ts"
 
 const { run: runQueue, defer: deferQueue } = dynamicQueue
 
@@ -984,6 +984,70 @@ describe("vercel provider", () => {
     const [error, sent] = await client.sendBatch([{ body: 1 }, { body: 2 }])
     expect(sent).toBeUndefined()
     expect(error).toMatchObject({ code: "QUEUE_PROVIDER_FAILED", cause: { results } })
+  })
+
+  it.each(["mixed results", "a request-level error"])("reuses caller-provided Vercel batch keys after %s", async (failure) => {
+    const results = [
+      { messageId: "message-0", status: "sent" as const },
+      { messageId: "message-1", status: "sent" as const },
+    ]
+    const sendBatch = vi.fn<NonNullable<VercelQueueSDK["sendBatch"]>>().mockResolvedValue(results)
+    if (failure === "mixed results") {
+      sendBatch.mockResolvedValueOnce([
+        results[0]!,
+        { error: "Unavailable", retryable: true, status: "failed", statusCode: 503 },
+      ])
+    } else {
+      sendBatch.mockRejectedValueOnce(new Error("Connection lost after acceptance"))
+    }
+    const client = await createVercelQueueClient({
+      client: { handleCallback: vi.fn(), send: vi.fn(), sendBatch },
+      provider: "vercel",
+      topic: "topic--77656c636f6d65",
+    })
+    const items = [{ body: 1, idempotencyKey: "job-1" }, { body: 2, idempotencyKey: "job-2" }]
+
+    const [error] = await client.sendBatch(items)
+    expect(error).toMatchObject({ code: "QUEUE_PROVIDER_FAILED" })
+    await expect(client.sendBatch(items)).resolves.toEqual([undefined, [
+      { messageId: "message-0", status: "queued" },
+      { messageId: "message-1", status: "queued" },
+    ]])
+    expect(sendBatch.mock.calls.map(([, messages]) => messages.map(message => message.idempotencyKey))).toEqual([
+      ["job-1", "job-2"],
+      ["job-1", "job-2"],
+    ])
+  })
+
+  it("generates fresh keys when retrying a Vercel batch without caller-provided keys", async () => {
+    const sendBatch = vi.fn<NonNullable<VercelQueueSDK["sendBatch"]>>()
+      .mockResolvedValueOnce([
+        { messageId: "message-0", status: "sent" },
+        { error: "Unavailable", retryable: true, status: "failed", statusCode: 503 },
+      ])
+      .mockResolvedValue([
+        { messageId: "message-0-retry", status: "sent" },
+        { messageId: "message-1", status: "sent" },
+      ])
+    const client = await createVercelQueueClient({
+      client: { handleCallback: vi.fn(), send: vi.fn(), sendBatch },
+      provider: "vercel",
+      topic: "topic--77656c636f6d65",
+    })
+    const items = [{ body: 1 }, { body: 2 }]
+
+    const [error] = await client.sendBatch(items)
+    expect(error).toMatchObject({ code: "QUEUE_PROVIDER_FAILED" })
+    const [retryError] = await client.sendBatch(items)
+    expect(retryError).toBeUndefined()
+    expect(sendBatch).toHaveBeenCalledTimes(2)
+    const [first, retry] = sendBatch.mock.calls.map(([, messages]) => messages)
+    for (const [index, message] of first!.entries()) {
+      expect(message.idempotencyKey).toMatch(/^queue_/)
+      expect(retry![index]!.idempotencyKey).toMatch(/^queue_/)
+      expect(retry![index]!.idempotencyKey).not.toBe(message.idempotencyKey)
+    }
+    expect(items).toEqual([{ body: 1 }, { body: 2 }])
   })
 
   it("fails a Vercel batch explicitly when the client has no sendBatch", async () => {

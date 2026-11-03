@@ -86,7 +86,10 @@ export type VercelQueueBatchSendResult =
   | { messageId: null, status: "deferred" }
   | { error: string, retryable: boolean, status: "failed", statusCode: number }
 
-/** One job in `sendBatch()` of a Vercel QueueClient. `idempotencyKey` defaults to a generated id. */
+/**
+ * One job in `sendBatch()` of a Vercel QueueClient. Omitted `idempotencyKey` values are generated anew on each call.
+ * Supply a stable key from the first attempt to deduplicate retries.
+ */
 export interface VercelQueueSendBatchMessage<T = unknown> {
   body: T
   delaySeconds?: number
@@ -229,9 +232,10 @@ export interface VercelQueueClient<TPayload = unknown> extends QueueClientBase<"
   readonly topic: string
   send: (payload: TPayload, options?: QueueEnqueueOptions) => Promise<Result<QueueSendResult, VercelQueueErrorCode>>
   /**
-   * Sends 1 to 100 jobs in one `@vercel/queue` request. When any job is not accepted, it returns `QUEUE_PROVIDER_FAILED`
-   * with the per-job results in `error.cause.results`. Every job has an idempotency key, so sending the same batch again
-   * does not enqueue the accepted jobs twice.
+   * Sends 1 to 100 jobs in one `@vercel/queue` request. When any job fails, it returns `QUEUE_PROVIDER_FAILED`
+   * with the per-job results in `error.cause.results`. Request-level failures can occur after jobs are accepted.
+   * To retry safely, supply the same caller-provided `idempotencyKey` on every job from the first attempt.
+   * Generated keys change on each call and do not deduplicate retries.
    */
   sendBatch: (items: VercelQueueSendBatchMessage<TPayload>[], options?: VercelQueueSendBatchOptions) => Promise<Result<QueueSendResult[], VercelQueueErrorCode>>
   callback: <TMessage = unknown>(handler: VercelQueueMessageHandler<TMessage>, options?: VercelQueueCallbackOptions) => VercelQueueCallbackReturn
