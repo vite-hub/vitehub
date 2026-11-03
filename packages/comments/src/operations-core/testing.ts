@@ -150,6 +150,7 @@ function view(store: Store, user: CommentUser): MemoryTransport {
         scope,
         n,
         subject: copy(input.subject),
+        ...(input.metadata === undefined ? {} : { metadata: copy(input.metadata) }),
         ...(input.revision === undefined ? {} : { revision: input.revision }),
         anchor: copy(input.anchor),
         status: "open",

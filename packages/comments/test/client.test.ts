@@ -24,6 +24,18 @@ function setup() {
 afterEach(() => vi.restoreAllMocks())
 
 describe("createCommentsClient", () => {
+  it("preserves independent metadata copies in the memory transport", async () => {
+    const { store } = setup()
+    const metadata = { version: 3, emptyBody: true, category: "feedback" }
+    const created = await store.create({ subject, anchor, body: "First", metadata })
+    expect(created.metadata).toEqual(metadata)
+    metadata.version = 4
+    created.metadata!.category = "changed"
+    const stored = await store.get({ id: created.id })
+    expect(stored!.metadata).toEqual({ version: 3, emptyBody: true, category: "feedback" })
+    expect((await store.list({}))[0]!.metadata).toEqual(stored!.metadata)
+  })
+
   it.each(["mine", "mentions"] as const)("keeps transport-owned %s membership authoritative", async filter => {
     const store = createMemoryTransport({ user: ana });
     const included = await store.create({ subject, anchor, body: "Included", mentions: [ana.id] });

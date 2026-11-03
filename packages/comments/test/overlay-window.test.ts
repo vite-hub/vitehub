@@ -12,7 +12,7 @@ const tool = { id: "comments", label: "Comments", icon: "i-lucide-message-square
 /** The page tools session and the Comments API of a site where this person may `read`, and `comment` when `comment`. */
 function site(can: { read: boolean, comment: boolean }, realtime = false, threads: unknown[] = []) {
   vi.stubGlobal("fetch", vi.fn(async (input: string) => {
-    const path = String(input)
+    const path = new URL(String(input), location.href).pathname
     if (path === "/_vitehub/page/session") return Response.json({ tools: [tool] })
     if (path === "/api/_vitehub/comments/session") {
       return Response.json({ data: { user: { id: "ada", name: "Ada Lovelace" }, can: { ...can, resolve: can.comment }, realtime, content: false } })

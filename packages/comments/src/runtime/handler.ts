@@ -17,7 +17,7 @@ import type { Result, ResultError } from "@vite-hub/runtime"
 import type { H3Event } from "h3"
 import type { Comments } from "../index.ts"
 import type { CommentsGitHubLogin } from "./github-login.ts"
-import type { CommentAction, CommentContext, CommentsUser, CommentSubject, CommentThread, CommentUser } from "../types.ts"
+import type { CommentAction, CommentContext, CommentListCursor, CommentsUser, CommentSubject, CommentThread, CommentUser } from "../types.ts"
 import type { CommentsSessionOptions } from "./session.ts"
 
 /** One field address, as `parseContentField()` from `@vite-hub/content/client` reads it. */
@@ -253,9 +253,9 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
   }
 
   /** Who the overlay's person is and what they may do. The page tools session decides whether the overlay loads. */
-  async function session(event: H3Event): Promise<Response> {
+  async function session(event: H3Event, subject?: CommentSubject): Promise<Response> {
     const user = await resolveUser(event)
-    const [read, comment, resolve, remove] = await Promise.all((["read", "write", "resolve", "delete"] as const).map(action => can(event, user, action)))
+    const [read, comment, resolve, remove] = await Promise.all((["read", "write", "resolve", "delete"] as const).map(action => can(event, user, action, undefined, subject)))
     const github = options.githubLogin?.configured() ? options.githubLogin : undefined
     const pathname = new URL(requestOf(event).url).pathname
     const route = pathname.slice(0, pathname.indexOf(commentsRoute) + commentsRoute.length)
@@ -275,10 +275,10 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     })
   }
 
-  async function can(event: H3Event, user: CommentsUser | null | false, action: CommentAction, thread?: CommentThread): Promise<boolean> {
+  async function can(event: H3Event, user: CommentsUser | null | false, action: CommentAction, thread?: CommentThread, subject?: CommentSubject): Promise<boolean> {
     if (user === false) return false
     if (action !== "read" && await options.consoleSession?.(event, action).catch(() => false as const) === false) return false
-    return comments.can({ user, action, ...(thread ? { thread } : {}) })
+    return comments.can({ user, action, ...(thread ? { thread } : {}), ...(subject ? { subject } : {}) })
   }
 
   async function permissions(event: H3Event, user: CommentsUser | null, thread: CommentThread) {
@@ -392,27 +392,40 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     const path = url.pathname.slice(url.pathname.indexOf(commentsRoute) + commentsRoute.length).replace(/\/+$/, "") || "/"
     const parts = path.split("/").filter(Boolean)
     const method = request.method
+    const page = url.searchParams.get("page")
+    const subject: CommentSubject | undefined = page ? { kind: "page", id: normalizeCommentPage(page) } : undefined
     if (method !== "GET" && !sameOrigin(request)) return json({ error: { code: "COMMENTS_FORBIDDEN", why: "Comments requests must come from the site's own pages." } }, { status: 403 })
 
-    if (method === "GET" && path === "/session") return await session(event)
+    if (method === "GET" && path === "/session") return await session(event, subject)
     // Better Auth checks the origin of its own POST routes.
     if (path.startsWith("/auth/") && options.githubLogin) return await options.githubLogin.handle(event, path)
 
     if (path === "/threads") {
       if (method === "GET") {
-        const page = url.searchParams.get("page")
-        const subject: CommentSubject | undefined = page ? { kind: "page", id: normalizeCommentPage(page) } : undefined
         const [denied, allowed] = await access(event, "read", undefined, subject)
         if (denied) return failure(denied)
         const state = url.searchParams.get("status")
-        const [error, listed] = await comments.list({
-          subjectKind: "page",
-          ...(subject ? { subject } : {}),
-          ...(state === "open" || state === "resolved" ? { status: state } : {}),
-        })
-        if (error) return failure(error)
-        const readable = await Promise.all(listed.map(thread => can(event, allowed.user, "read", thread)))
-        const threads = listed.filter((_, index) => readable[index])
+        const limit = 200
+        const threads: CommentThread[] = []
+        let before: CommentListCursor | undefined
+        // Denied threads do not consume the readable page's limit.
+        while (threads.length < limit) {
+          const [error, listed] = await comments.list({
+            subjectKind: "page",
+            limit,
+            ...(before ? { before } : {}),
+            ...(subject ? { subject } : {}),
+            ...(state === "open" || state === "resolved" ? { status: state } : {}),
+          })
+          if (error) return failure(error)
+          const readable = await Promise.all(listed.map(thread => can(event, allowed.user, "read", thread)))
+          for (const [index, thread] of listed.entries()) {
+            if (readable[index] && threads.length < limit) threads.push(thread)
+          }
+          if (listed.length < limit) break
+          const last = listed.at(-1)!
+          before = { updatedAt: last.updatedAt, id: last.id }
+        }
         return json({ data: await Promise.all(threads.map(thread => permissions(event, allowed.user, thread))), people: await people(allowed.user, threads) })
       }
       if (method === "POST") {
@@ -486,9 +499,13 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     }
 
     if (method === "GET" && path === "/people") {
-      const [denied, allowed] = await access(event, "read")
+      const threadId = url.searchParams.get("thread")
+      const [missing, current] = threadId ? await thread(threadId) : [undefined, undefined]
+      if (missing) return failure(missing)
+      const target = current?.subject ?? subject
+      const [denied, allowed] = await access(event, "read", current, target)
       if (denied) return failure(denied)
-      return respond(await comments.people({ query: url.searchParams.get("q") ?? "", user: allowed.user }))
+      return respond(await comments.people({ query: url.searchParams.get("q") ?? "", user: allowed.user, ...(current ? { thread: current } : {}), ...(target ? { subject: target } : {}) }))
     }
 
     if (path === "/fields") {

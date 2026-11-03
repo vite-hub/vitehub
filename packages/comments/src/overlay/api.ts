@@ -179,7 +179,7 @@ function mentionIds(mentions: readonly OverlayMention[]): string[] {
 }
 
 export const api = {
-  session: () => call<CommentsSession>("/session"),
+  session: (page: string) => call<CommentsSession>(`/session?page=${encodeURIComponent(page)}`),
   async threads(page: string): Promise<ApiResult<PageThread[]>> {
     const [error, value] = await request<ApiThread[]>(`/threads?page=${encodeURIComponent(page)}`)
     if (error) return [error, undefined]
@@ -194,8 +194,9 @@ export const api = {
   reopen: (thread: string) => pin(`/threads/${encodeURIComponent(thread)}/reopen`, { method: "POST" }),
   remove: (thread: string) => call<null>(`/threads/${encodeURIComponent(thread)}`, { method: "DELETE" }),
   removeComment: (thread: string, comment: string) => call<null>(`/threads/${encodeURIComponent(thread)}/comments/${encodeURIComponent(comment)}`, { method: "DELETE" }),
-  async people(query: string): Promise<ApiResult<OverlayMention[]>> {
-    const [error, found] = await call<CommentUser[]>(`/people?q=${encodeURIComponent(query)}`)
+  async people(query: string, target: { page: string } | { thread: string }): Promise<ApiResult<OverlayMention[]>> {
+    const params = new URLSearchParams({ q: query, ...target })
+    const [error, found] = await call<CommentUser[]>(`/people?${params}`)
     return error ? [error, undefined] : [undefined, found.map(entry => ({ id: entry.id, name: entry.name ?? entry.id }))]
   },
   field: (field: string) => call<CommentsField>(`/fields?field=${encodeURIComponent(field)}`),
