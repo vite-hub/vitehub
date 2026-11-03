@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm"
 
+import { commentsErrorDiagnostics } from "./operations-core/errors.ts"
 import { commentsTables } from "./tables.ts"
 
 /**
@@ -168,4 +169,40 @@ export async function migrateComments(db: object, options: CommentsMigrationOpti
     throw new TypeError("[vitehub] migrateComments() needs a Drizzle database with batch() or transaction(), so a failure changes nothing.")
   }
   return { from: state, statements, ...(state === "live" ? { backup: liveThreadsBackup } : {}) }
+}
+
+/**
+ * Who keeps the comment tables of a Database up to date.
+ * - `comments`: Comments opened the Database itself, such as the SQLite file or D1 binding of `comments()`. Before the
+ *   first query of each process it runs `migrateComments()` and creates the tables that are missing.
+ * - `app`: the app's migrations do, as with a ViteHub Database. Before the first query of each process Comments reads
+ *   the tables, and fails with `COMMENTS_R0019` until a migration brings them to this version.
+ */
+export type CommentsSchemaOwner = "comments" | "app"
+
+/**
+ * A function that the store awaits before each query: it prepares or checks the tables once per process. A failure
+ * is not kept, so the next query tries again, and a Database that a migration fixed works without a restart.
+ */
+export function commentsSchemaGate(db: object, owner: CommentsSchemaOwner, options: CommentsMigrationOptions = {}): () => Promise<void> {
+  let ready: Promise<void> | undefined
+  async function prepare(): Promise<void> {
+    if (owner === "comments") {
+      await migrateComments(db, options)
+      // SAFETY: the Database that Comments opens is a Drizzle SQLite database with batch() and run().
+      const target = db as MigrationDatabase
+      if (target.batch) await target.batch(commentsTables.map(statement => target.run!(sql.raw(statement))))
+      else await runSqliteStatements(target, [...commentsTables])
+      return
+    }
+    const { state, missing } = await commentsSchemaState(db, options)
+    if (state !== "current") throw Object.assign(commentsErrorDiagnostics.COMMENTS_R0019({ state, missing }), { status: 503 })
+  }
+  return () => {
+    ready ??= prepare().catch((error: unknown) => {
+      ready = undefined
+      throw error
+    })
+    return ready
+  }
 }

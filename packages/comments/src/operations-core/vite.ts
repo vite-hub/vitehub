@@ -120,7 +120,7 @@ function writeIfChangedSync(file: string, contents: string): void {
 }
 
 /** The Nitro plugin that installs the comments runtime in each server process. */
-export function renderCommentsNitroPlugin(options: { auth: boolean, blob?: boolean, database?: string, development?: boolean, entry: string, imports: CommentsImports, overlayUrl?: string }): string {
+export function renderCommentsNitroPlugin(options: { auth: boolean, blob?: boolean, database?: string, development?: boolean, dialect?: "postgresql" | "sqlite", entry: string, imports: CommentsImports, overlayUrl?: string }): string {
   const name = options.database === undefined ? "undefined" : JSON.stringify(options.database)
   return [
     `import { databases } from ${JSON.stringify(options.imports.database)}`,
@@ -178,6 +178,8 @@ export function renderCommentsNitroPlugin(options: { auth: boolean, blob?: boole
     "      database: db,",
     "      tables: { commentCounters: schema.vitehubCommentCounters, commentMessages: schema.vitehubCommentMessages, commentThreads: schema.vitehubCommentThreads, commentForge: schema.vitehubCommentForge },",
     `      development: ${options.development === true},`,
+    // The app's migrations keep the tables; Comments checks them before the first query.
+    ...(options.dialect === "postgresql" ? ['      dialect: "postgresql",'] : []),
     ...(options.auth ? ["      users: createAuthUsers(() => getAuth()),"] : []),
     ...(options.blob ? ["      attachments: blob,"] : []),
     "    })",
@@ -227,7 +229,7 @@ export function hubComments(options: HubCommentsOptions = {}): CommentsVitePlugi
   const writeGenerated = (root: string, entry: string): { middleware?: string, plugin: string } => {
     const url = overlayUrl()
     const plugin = resolve(root, commentsNitroPluginPath)
-    writeIfChangedSync(plugin, renderCommentsNitroPlugin({ auth: options.auth === true, blob: options.blob === true, development, imports, entry, ...(options.database === undefined ? {} : { database: options.database }), ...(url === undefined ? {} : { overlayUrl: url }) }))
+    writeIfChangedSync(plugin, renderCommentsNitroPlugin({ auth: options.auth === true, blob: options.blob === true, development, imports, entry, ...(postgres ? { dialect: "postgresql" as const } : {}), ...(options.database === undefined ? {} : { database: options.database }), ...(url === undefined ? {} : { overlayUrl: url }) }))
     if (!url) return { plugin }
     const middleware = resolve(root, commentsOverlayMiddlewarePath)
     writeIfChangedSync(middleware, renderOverlayMiddleware(url))

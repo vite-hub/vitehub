@@ -364,19 +364,19 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
   const session = sessionWithGitHubLines(input.session ?? {}, input.imports, input.build?.repository, input.base)
   if (input.standalone) {
     const { where, fallback, node } = input.standalone
-    const options = [`name: "comments"`, "setup: commentsTables", ...(fallback ? [`fallback: ${JSON.stringify(fallback)}`] : [])]
+    const options = [`name: "comments"`, ...(fallback ? [`fallback: ${JSON.stringify(fallback)}`] : [])]
 
     return [
       `import { defineCommentsPlugin } from ${JSON.stringify(input.imports.runtime)}`,
       // A Worker build imports no node:sqlite.
       `import { connectDatabase } from ${JSON.stringify(node ? `${input.imports.connect}/node` : input.imports.connect)}`,
-      `import { commentsTables } from ${JSON.stringify(input.imports.database)}`,
       `import { comments } from ${JSON.stringify(pathToFileURL(input.definition).href)}`,
       ...session.imports,
       "",
       `const database = () => connectDatabase(${where === undefined ? "undefined" : JSON.stringify(where)}, { ${options.join(", ")} })`,
       "",
-      `export default defineCommentsPlugin({ comments, database, ${session.option}: ${session.value}, ${session.githubLogin ? "githubLogin, " : ""}development: ${input.development === true}, overlay: ${JSON.stringify(`${commentsRoute}/assets/overlay.js?v=${version}`)}, base: ${JSON.stringify(input.base ?? "")} })`,
+      // Comments opened this database itself, so it creates and migrates its tables before the first query.
+      `export default defineCommentsPlugin({ comments, database, schema: "comments", ${session.option}: ${session.value}, ${session.githubLogin ? "githubLogin, " : ""}development: ${input.development === true}, overlay: ${JSON.stringify(`${commentsRoute}/assets/overlay.js?v=${version}`)}, base: ${JSON.stringify(input.base ?? "")} })`,
       "",
     ].join("\n")
   }

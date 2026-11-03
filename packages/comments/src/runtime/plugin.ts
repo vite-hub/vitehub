@@ -32,6 +32,8 @@ export interface CommentsPluginOptions extends CommentsSessionOptions {
   users?: InstallCommentsOptions["users"]
   /** The Blob store for attachments, when the app has Blob. */
   attachments?: InstallCommentsOptions["attachments"]
+  /** Who keeps the tables up to date: `comments` for a Database that `comments()` opens itself. Default `app`. */
+  schema?: InstallCommentsOptions["schema"]
 }
 
 const runtimeKey = Symbol.for("vitehub.comments.installed")
@@ -54,6 +56,7 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
       installComments(options.comments, {
         database,
         development: options.development === true,
+        ...(options.schema ? { schema: options.schema } : {}),
         ...(options.users ? { users: options.users } : {}),
         ...(options.attachments ? { attachments: options.attachments } : {}),
       })

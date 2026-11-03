@@ -2,6 +2,7 @@ import { markCommentsDefinition } from "./operations-core/define.ts"
 import { commentsRuntime, hasCommentsRuntime, installCommentsRuntime } from "./operations-core/server.ts"
 import { can, createThread, editMessage, replyToThread, scopeOf, suggest } from "./operations-core/service.ts"
 import { createCommentsStore } from "./operations-core/store.ts"
+import { commentsSchemaGate } from "./migrate.ts"
 import { commentsSchema } from "./operations-core/database.ts"
 import { commentsErrors } from "./errors.ts"
 import { createForgeSync } from "./forge/sync.ts"
@@ -10,7 +11,8 @@ import { normalizeCommentPage } from "./page.ts"
 import type { Result } from "@vite-hub/runtime"
 import type { CommentAction, CommentsPolicyGate, CommentsUser } from "./operations-core/define.ts"
 import type { CommentsAttachmentStore, CommentsRuntime } from "./operations-core/service.ts"
-import type { CommentsDatabase, CommentsTables } from "./operations-core/store.ts"
+import type { CommentsDatabase, CommentsStore, CommentsTables } from "./operations-core/store.ts"
+import type { CommentsSchemaOwner } from "./migrate.ts"
 import type {
   CommentMessage,
   CommentSubject,
@@ -137,6 +139,8 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
         return [undefined, await withForge(current, await current.store.list({ ...rest, ...(subject ? { subject } : {}), limit }))]
       }
       catch (error) {
+        // Tables that a migration must move first are not an input problem.
+        if (Reflect.get(Object(error), "code") === "COMMENTS_R0019") throw error
         return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: error instanceof Error ? error.message : String(error) }), undefined]
       }
     },
@@ -273,6 +277,28 @@ export interface InstallCommentsOptions {
   attachments?: CommentsAttachmentStore
   /** Only the Vite dev server enables it, for the default guest policy. Without it, the operation context decides, else `false`. */
   development?: boolean
+  /**
+   * Who keeps the tables up to date. `"comments"`: Comments opened the Database itself, so it migrates and creates
+   * the tables before the first query. Default `"app"`: the app's migrations do, and Comments fails with
+   * `COMMENTS_R0019` until the tables match this version. See `CommentsSchemaOwner`.
+   */
+  schema?: CommentsSchemaOwner
+  /** The SQL dialect of `database`. Default `sqlite`: SQLite, libSQL, and D1. */
+  dialect?: "sqlite" | "postgresql"
+}
+
+/** The store, after the tables are ready: each method waits for `ready` first. */
+function gated(store: CommentsStore, ready: () => Promise<void>): CommentsStore {
+  const wrapped: Partial<Record<keyof CommentsStore, unknown>> = {}
+  for (const key of Object.keys(store) as Array<keyof CommentsStore>) {
+    const method = store[key] as (...args: unknown[]) => Promise<unknown>
+    wrapped[key] = async (...args: unknown[]) => {
+      await ready()
+      return method(...args)
+    }
+  }
+  // SAFETY: every key of the store maps to a wrapper with the same parameters and result.
+  return wrapped as CommentsStore
 }
 
 /**
@@ -281,7 +307,7 @@ export interface InstallCommentsOptions {
  */
 export function installComments(comments: Comments, install: InstallCommentsOptions): CommentsRuntime {
   const tables = install.tables ?? { commentCounters: commentsSchema.vitehubCommentCounters, commentMessages: commentsSchema.vitehubCommentMessages, commentThreads: commentsSchema.vitehubCommentThreads }
-  const store = createCommentsStore(install.database, tables)
+  const store = gated(createCommentsStore(install.database, tables), commentsSchemaGate(install.database, install.schema ?? "app", { dialect: install.dialect ?? "sqlite" }))
   // SAFETY: defineComments() sets this slot to the set of pending tasks before it freezes the object.
   const pending = Reflect.get(comments, pendingKey) as Set<Promise<unknown>> | undefined
   const track = (task: Promise<unknown>) => {

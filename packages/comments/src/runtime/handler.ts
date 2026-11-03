@@ -134,6 +134,15 @@ function failure(error: ResultError): Response {
   return json({ error }, { status: status(error.code) })
 }
 
+/** A thrown Comments diagnostic, such as `COMMENTS_R0019` for tables that need a migration, as the API's error object. */
+function diagnosticResponse(error: unknown): Response {
+  const code = Reflect.get(Object(error), "code")
+  const status = Reflect.get(Object(error), "status")
+  if (!(error instanceof Error) || typeof code !== "string" || !code.startsWith("COMMENTS_") || typeof status !== "number") throw error
+  const fix = Reflect.get(error, "fix")
+  return json({ error: { code, why: Reflect.get(error, "why") ?? error.message, ...(typeof fix === "string" ? { fix } : {}) } }, { status })
+}
+
 function respond<T>([error, data]: Result<T>): Response {
   return error ? failure(error) : json({ data: data ?? null })
 }
@@ -382,7 +391,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
 
   async function handle(event: H3Event) {
     const request = requestOf(event)
-    const response = await route(event, request)
+    const response = await route(event, request).catch(diagnosticResponse)
     // A change starts its pull request sync. Hosts that end work with the response keep it running until it ends.
     if (request.method !== "GET" && comments.options.forge) resolveWaitUntil(event, { preferHost: true })?.(comments.flush())
     return response

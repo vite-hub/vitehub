@@ -346,7 +346,9 @@ node --input-type=module -e "import { commentsMigrationSql } from 'vite-hub/comm
 
 A Database that already has the tables of the comment operations gets the new `metadata`, `context`, and `revision` columns and the `vitehub_comment_forge` table from a normal `vitehub db generate`.
 
-**A Database that `comments()` opens itself.** Run `migrateComments(db)` once with a Drizzle database of it. It reads the tables first, so a second run does nothing:
+Until the tables move, every Comments request fails with [`COMMENTS_R0019`](/docs/comments/operations/limits-and-errors) and status `503`. Its `fix` names this migration. Comments reads the tables once per server process, so after `vitehub db migrate` the next request works without a restart.
+
+**A Database that `comments()` opens itself.** The SQLite file, the `env:` libSQL URL, and the D1 binding of `comments()` belong to Comments, so it moves them itself: before the first query of each server process, it runs `migrateComments()` and creates the tables that are missing. Requests that arrive during the move wait for it. To move the tables before a deploy instead, run `migrateComments(db)` with a Drizzle database of it. It reads the tables first, so a second run does nothing:
 
 ```ts [scripts/migrate-comments.ts]
 import { createClient } from '@libsql/client'
@@ -358,7 +360,7 @@ console.log(await migrateComments(db))
 // { from: 'live', statements: [...], backup: 'vitehub_comment_threads_live' }
 ```
 
-For Cloudflare D1, write the SQL to a file and run it with `wrangler d1 execute COMMENTS --remote --file comments-one-model.sql`. Until a Database moves, `comments()` fails on its first request with `no such column: subject_kind`.
+For Cloudflare D1, you can also write the SQL to a file and run it with `wrangler d1 execute COMMENTS --remote --file comments-one-model.sql`.
 
 `migrateComments(db, { dialect: 'postgresql' })` adds the new columns to Postgres tables of the comment operations. The live-site model had no Postgres tables.
 
