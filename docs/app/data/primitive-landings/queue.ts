@@ -11,7 +11,7 @@ const setup: PrimitiveProjectFile = {
   language: "markdown",
   content: `# Queue on Cloudflare
 
-Use Node.js 22.18 or newer. Run pnpm install, then pnpm build.
+Use Node.js 22.22 or newer. Run pnpm install, then pnpm build.
 The build discovers the welcome-email Queue and emits provider configuration.
 The handler logs each delivery; replace it with your idempotent background work.
 

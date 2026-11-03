@@ -10,7 +10,7 @@ icon: i-lucide-rocket
 
 Fetch the rendered HTML of `https://example.com` with a browser running on Cloudflare. You will define one browser operation and expose it through an API route. The route returns the browser's native `Response`.
 
-You need Node.js 22.18 or newer, pnpm, a Vite application, and a Cloudflare account with Browser Run enabled. Run the commands from the app root. This example uses a remote browser even when Wrangler runs locally, so provider usage can incur charges. For a local Chromium process, see [Hosts](/docs/browser/hosts).
+You need Node.js 22.22 or newer, pnpm, a Vite application, and a Cloudflare account with Browser Run enabled. Run the commands from the app root. This example uses a remote browser even when Wrangler runs locally, so provider usage can incur charges. For a local Chromium process, see [Hosts](/docs/browser/hosts).
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure

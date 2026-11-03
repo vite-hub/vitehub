@@ -10,5 +10,5 @@
     "vite-hub": "workspace:*"
   },
   "devDependencies": { "vite": "catalog:vite", "vite-plus": "catalog:tooling" },
-  "engines": { "node": ">=22.18.0" }
+  "engines": { "node": ">=22.22.0" }
 }

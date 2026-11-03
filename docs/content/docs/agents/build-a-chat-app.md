@@ -17,7 +17,7 @@ Start with a deterministic Driver. Send `Hello` and see `Offline reply 1: Hello`
 
 The [complete source](https://github.com/vite-hub/vitehub/tree/main/fixtures/tutorials/chat-app) includes the app, a sample environment, and tests. This follows the finished-app structure of the [Nuxt UI chat tutorial](https://ui.nuxt.com/blog/how-to-build-an-ai-chat). It uses the current [ViteHub chat components](/docs/ui/blocks/chat-app).
 
-You need Node.js 22.19+ on 22.x, 24.11+ on 24.x, or 26+, Git, Corepack, and a writable local directory. Allow time for the first repository install and package build. The offline journey needs no provider account, API key, or paid request. Model mode needs a Vercel AI Gateway account and key, a network connection, and a model available to that account. Provider calls can cost money. Check current model pricing and set a provider budget before using that mode.
+You need Node.js 22.22+ on 22.x, 24.11+ on 24.x, or 26+, Git, Corepack, and a writable local directory. Allow time for the first repository install and package build. The offline journey needs no provider account, API key, or paid request. Model mode needs a Vercel AI Gateway account and key, a network connection, and a model available to that account. Provider calls can cost money. Check current model pricing and set a provider budget before using that mode.
 
 This is a personal, text-only app for one owner on one Node process. It deliberately leaves out public registration, attachments, tools, and resumable generation. Each completed turn saves the user message and answer together. A failed, stopped, or interrupted turn does not enter saved history.
 
@@ -70,7 +70,7 @@ The checkout already contains the finished files. Read and edit them as you foll
     "typescript": "6.0.3",
     "vue-tsc": "3.3.12"
   },
-  "engines": { "node": "^22.19.0 || ^24.11.0 || >=26.0.0" }
+  "engines": { "node": "^22.22.0 || ^24.11.0 || >=26.0.0" }
 }
 ```
 

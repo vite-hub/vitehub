@@ -35,7 +35,7 @@ pnpm add vite-hub
 
 A build with an enabled feature whose package is missing fails with the `pnpm add` command to run. Provider SDKs, such as `workflow` and `@workflow/builders` for Vercel Workflow or `@vercel/sandbox` for Sandbox Tasks, stay with their feature guides.
 
-You need Node.js 22.18 or newer, Vite 8 or newer, and an ESM package with `"type": "module"` or a `vite.config.mts` file. Hosted primitives and model providers can also require credentials, network access, and billed accounts. Their feature guides list those requirements before the first provider call.
+You need Node.js 22.22 or newer, Vite 8 or newer, and an ESM package with `"type": "module"` or a `vite.config.mts` file. Hosted primitives and model providers can also require credentials, network access, and billed accounts. Their feature guides list those requirements before the first provider call.
 
 ## Configure ViteHub
 

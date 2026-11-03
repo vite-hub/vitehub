@@ -19,7 +19,7 @@ imports. Some features need one more package, as
 
 ## Prerequisites
 
-- Node.js 22.18 or newer for Vite. For Nuxt, use Node.js 22.19+ on 22.x,
+- Node.js 22.22 or newer for Vite. For Nuxt, use Node.js 22.22+ on 22.x,
   24.11+ on 24.x, or 26+. On Node.js 22, features that open a local SQLite
   file, such as a `file:` Database, inline Console Auth, and Comments, print
   one `ExperimentalWarning` for `node:sqlite`. Node.js 24 prints no warning.
@@ -27,6 +27,10 @@ imports. Some features need one more package, as
 - pnpm. The examples use pnpm commands throughout.
 - Vite 8 or newer for the Vite path.
 - An existing Nuxt 4 app, version 4.5.2 or newer, for the Nuxt path.
+
+The `vite-hub` distribution, Comments, UI, and Docs require Node.js 22.22 because
+they install Nitro. Standalone packages without that dependency retain
+their Node.js 22.18 minimum.
 
 This setup and the first storage and Agent tutorials need no credentials.
 Hosted services and models can require accounts and incur charges. Their

@@ -344,8 +344,8 @@ jobs:
         working-directory: packages/agent
         run: vp test test/provider-agent.test.ts -t "restricts Codex credential home ACLs on Windows"
 
-  # The engines floor is Node.js 22.18. StackBlitz WebContainers run only
-  # Node.js 22. This job runs the tests that cover Node.js built-ins with
+  # The standalone package floor is Node.js 22.18; Nitro integrations require
+  # 22.22. StackBlitz WebContainers run only Node.js 22. This job covers built-ins with
   # different behavior on 22: fs glob, node:sqlite, module hooks, Response
   # brand checks, TextDecoder, and structuredClone.
   node-22:

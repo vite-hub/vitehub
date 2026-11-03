@@ -6,7 +6,7 @@ Read [Build an AI chat app with Nuxt and ViteHub](../../../docs/content/docs/age
 
 ## Setup
 
-Use Node.js 22.19+ on 22.x, 24.11+ on 24.x, or 26+, and the repository's pinned pnpm through Corepack. Keep the fixture in this checkout. Its `workspace:*` packages come from this source revision, while third-party dependencies are pinned in `package.json` and the root lockfile.
+Use Node.js 22.22+ on 22.x, 24.11+ on 24.x, or 26+, and the repository's pinned pnpm through Corepack. Keep the fixture in this checkout. Its `workspace:*` packages come from this source revision, while third-party dependencies are pinned in `package.json` and the root lockfile.
 
 From the repository root:
 
