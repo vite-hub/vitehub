@@ -7,7 +7,7 @@ import { defineCommentsPlugin } from "../src/runtime/plugin.ts"
 import { defineComments } from "../src/index.ts"
 import { createDatabase } from "./harness.ts"
 
-import type { CommentsDatabase } from "../src/store.ts"
+import type { CommentsDatabase } from "../src/operations-core/store.ts"
 import type { CommentsDatabaseRegistry } from "../src/runtime/database.ts"
 
 const failure = (code: string) => Object.assign(new Error(code), { code })

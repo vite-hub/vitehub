@@ -9,8 +9,9 @@ import { documentStyles, overlayStyles, pillBarStyles } from "./styles.ts"
 
 import type { ViteHubPageToolContext, ViteHubPageToolModule } from "@vite-hub/internal/runtime/page-tools-loader"
 import type { RealtimeRoom } from "@vite-hub/realtime/client"
-import type { CommentAnchor, CommentAuthor, CommentContext, CommentMention } from "../types.ts"
-import type { CommentsApiError, CommentsSession, PageThread } from "./api.ts"
+import type { PinAnchor } from "../anchor.ts"
+import type { CommentContext } from "../types.ts"
+import type { CommentsApiError, CommentsSession, OverlayMention as CommentMention, OverlayPerson as CommentAuthor, PageThread } from "./api.ts"
 
 type Mode = "view" | "comment" | "edit"
 
@@ -137,7 +138,7 @@ class CommentsOverlay extends HTMLElement {
   private threads: PageThread[] = []
   private mode: Mode = "view"
   private openThread?: string
-  private draft?: { anchor: CommentAnchor, context: CommentContext, x: number, y: number }
+  private draft?: { anchor: PinAnchor, context: CommentContext, x: number, y: number }
   private panel = false
   private pageWindow?: ReturnType<ViteHubPageToolContext["createWindow"]>
   private panelBody?: HTMLElement
@@ -176,7 +177,7 @@ class CommentsOverlay extends HTMLElement {
     this.restoreDocumentState()
     this.cleanups.push(() => this.documentStyle.remove())
 
-    const [error, session] = await api.session()
+    const [error, session] = await api.session(this.page)
     if (!this.active || error || !session.can.read) {
       if (bar) bar.hidden = true
       if (!this.active) return
@@ -870,18 +871,18 @@ class CommentsOverlay extends HTMLElement {
           h("time", { className: "time", datetime: comment.createdAt, title: new Date(comment.createdAt).toLocaleString() }, ago(comment.createdAt)),
           session.user && !session.user.guest && (can.delete || (can.comment && !comment.author.guest && comment.author.id === session.user.id)) && h("button", { className: "icon danger", title: "Delete", "aria-label": "Delete comment", onClick: () => void this.removeComment(thread, comment.id) }, icons.trash())),
         renderBody(comment.body, comment.mentions)))),
-      !resolved && can.comment && this.renderCompose("Reply", (body, mentions, name) => this.reply(thread, body, mentions, name)),
+      !resolved && can.comment && this.renderCompose("Reply", (body, mentions, name) => this.reply(thread, body, mentions, name), { thread: thread.id }),
     )
     return card
   }
 
   private renderComposer(): HTMLElement {
     return h("div", { className: "card", role: "dialog", "aria-label": "New comment", "data-card": "new" },
-      this.renderCompose("Comment", (body, mentions, name) => this.create(body, mentions, name), true))
+      this.renderCompose("Comment", (body, mentions, name) => this.create(body, mentions, name), { page: this.page }, true))
   }
 
   /** A text box with `@` suggestions, and a name field for guests. */
-  private renderCompose(label: string, submit: (body: string, mentions: CommentMention[], name?: HTMLInputElement) => Promise<void>, autofocus = false): HTMLElement {
+  private renderCompose(label: string, submit: (body: string, mentions: CommentMention[], name?: HTMLInputElement) => Promise<void>, target: { page: string } | { thread: string }, autofocus = false): HTMLElement {
     const mentions: CommentMention[] = []
     const needsName = !this.account() && !readGuest()
     const name = needsName ? h("input", { placeholder: "Your name", "aria-label": "Your name", maxlength: 64 }) : undefined
@@ -934,7 +935,7 @@ class CommentsOverlay extends HTMLElement {
         return
       }
       query = { start: before.length - match[2]!.length - 1, text: match[2]! }
-      const [error, people] = await api.people(match[2]!)
+      const [error, people] = await api.people(match[2]!, target)
       if (error || query?.text !== match[2]) return
       options = people
       selected = 0

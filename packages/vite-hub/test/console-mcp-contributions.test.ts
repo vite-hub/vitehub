@@ -72,7 +72,7 @@ describe("MCP owner contributions", () => {
     const result = await rpc({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "comments_reply", arguments: { id: thread!.id, body: "Fixed" } } })
     expect(result.body.result.isError).toBe(false)
     const [, updated] = await comments.get(thread!.id)
-    expect(updated?.comments.at(-1)).toMatchObject({ body: "Fixed", author: ada })
+    expect(updated?.messages.at(-1)).toMatchObject({ body: "Fixed", author: ada })
     installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["comments:read"] }) })
     const readOnly = await rpc({ jsonrpc: "2.0", id: 5, method: "tools/list" })
     expect(readOnly.body.result.tools.some((entry: { name: string }) => entry.name === "comments_reply")).toBe(false)

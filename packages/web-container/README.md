@@ -72,6 +72,7 @@ document.querySelector("iframe")!.src = url
 - Only one `run("dev")` may be active, including while it is spawning. Another call rejects until the process exits; call `kill()` and await `exit` before restarting it.
 - A run returns `output` (a stream that you read once), `exit` (the exit code), `text()` (the last 65,536 output characters after exit), `write(input)`, and `kill()`. The stream buffers up to 65,536 characters and drops excess output until its reader catches up, so an idle terminal cannot accumulate unlimited logs. Pass `signal` to kill it with an `AbortController`.
 - `container.preview.ready` resolves with the first server that becomes ready. It rejects if startup fails or the container is torn down before readiness. The WebContainer chooses the port, so read `url` and `port` from it instead of the port that the app asks for.
+- `container.on("server-ready", ({ url, port }) => …)` subscribes to every server readiness event, including custom commands and later restarts. It returns an unsubscribe function.
 - Show the preview in an `<iframe>` on the same page. The preview origin does not answer a `fetch()` from the page.
 - `container.fs` is the WebContainer file system API (`readFile`, `writeFile`, `readdir`, `mkdir`, `rm`, `watch`).
 - Only one container runs per page. Call `container.teardown()` before you boot another.

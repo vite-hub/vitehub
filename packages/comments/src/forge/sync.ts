@@ -1,17 +1,15 @@
 import { and, eq, inArray, isNotNull, isNull, like } from "drizzle-orm"
 
-import { commentsSchema } from "../database.ts"
+import { commentForge } from "../operations-core/database.ts"
 import { createGitHubClient, GitHubRequestError } from "./github.ts"
 import { commentMarker, renderComment, renderSummary, summaryMarker } from "./render.ts"
 import { recentGitHubToken } from "./tokens.ts"
 
-import type { CommentsDatabase, CommentsStore } from "../store.ts"
-import type { Comment, CommentForgeLink, CommentsForgeOptions, CommentsForgeTarget, CommentThread } from "../types.ts"
+import type { CommentsDatabase, CommentsStore } from "../operations-core/store.ts"
+import type { CommentForgeLink, CommentMessage, CommentsForgeOptions, CommentsForgeTarget, CommentThread } from "../types.ts"
 import type { GitHubClient, GitHubComment } from "./github.ts"
 
-const { vitehubCommentForge: links } = commentsSchema
-
-type LinkRow = typeof links.$inferSelect
+type LinkRow = typeof commentForge.$inferSelect
 
 /** How long a row that is being posted stays claimed, so a sync that died does not block the comment for good. */
 const claimTimeout = 60_000
@@ -40,7 +38,7 @@ function message(error: unknown): string {
 }
 
 function linkOf(thread: CommentThread, byId: ReadonlyMap<string, LinkRow>): CommentForgeLink | null {
-  const rows = thread.comments.map(comment => byId.get(comment.id))
+  const rows = thread.messages.map(comment => byId.get(comment.id))
   const first = rows[0]
   const target = first ?? rows.find(row => row !== undefined)
   if (!target) return null
@@ -72,8 +70,14 @@ function serial(): <T>(key: string, task: () => Promise<T>) => Promise<T> {
   }
 }
 
-export function createForgeSync(options: CommentsForgeOptions, input: { database: CommentsDatabase, store: CommentsStore, github?: GitHubClient }): ForgeSync {
-  const { database, store } = input
+export function createForgeSync(options: CommentsForgeOptions, input: { database: CommentsDatabase, store: CommentsStore, table?: typeof commentForge, github?: GitHubClient }): ForgeSync {
+  const { database } = input
+  const links = input.table ?? commentForge
+  // The sync reads threads by id and finds the thread of a message.
+  const store = {
+    get: async (id: string) => await input.store.getById(id) ?? undefined,
+    threadOf: async (messageId: string) => (await input.store.getByMessage(messageId))?.id,
+  }
   const github = input.github ?? createGitHubClient({ ...(options.apiUrl ? { apiUrl: options.apiUrl } : {}), ...(options.fetch ? { fetch: options.fetch } : {}) })
   const title = options.title ?? "Preview comments"
   const inOrder = serial()
@@ -193,7 +197,7 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
   }
 
   /** The person's own GitHub token: `token(author)`, else the token of their GitHub sign-in to Comments. */
-  async function authorToken(comment: Comment): Promise<string | undefined> {
+  async function authorToken(comment: CommentMessage): Promise<string | undefined> {
     if (comment.author.guest) return
     if (!options.token) return recentGitHubToken(comment.author.id)
     try {
@@ -205,7 +209,7 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
     }
   }
 
-  async function syncComment(thread: CommentThread, comment: Comment, existing: LinkRow | undefined, at: CommentsForgeTarget, appToken: () => Promise<string>): Promise<void> {
+  async function syncComment(thread: CommentThread, comment: CommentMessage, existing: LinkRow | undefined, at: CommentsForgeTarget, appToken: () => Promise<string>): Promise<void> {
     if (existing?.remoteId) {
       const body = renderComment(thread, comment, existing.postedAs ?? "app")
       const hash = digest(body)
@@ -229,7 +233,7 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
       }
       // A PATCH from an older isolate may finish last. Repair from the database before finishing this sync.
       const latest = await store.get(thread.id)
-      const edited = latest?.comments.find(item => item.id === comment.id)
+      const edited = latest?.messages.find(item => item.id === comment.id)
       if (latest && edited && renderComment(latest, edited, existing.postedAs ?? "app") !== body) {
         await syncComment(latest, edited, await row(comment.id), at, appToken)
       }
@@ -263,7 +267,7 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
       }
       const saved = await recordPosted(comment.id, at, posted, body, async () => token, postedAs)
       const latest = await store.get(thread.id)
-      const edited = latest?.comments.find(item => item.id === comment.id)
+      const edited = latest?.messages.find(item => item.id === comment.id)
       if (saved?.remoteId && latest && edited) await syncComment(latest, edited, saved, at, appToken)
     }
     catch (error) {
@@ -353,7 +357,7 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
       }
     }
     catch (error) {
-      const first = (await store.get(threadId))?.comments[0]
+      const first = (await store.get(threadId))?.messages[0]
       if (first) {
         await database.insert(links).values({ id: first.id, threadId, ...at, error: message(error), updatedAt: Date.now() }).onConflictDoNothing()
       }
@@ -363,12 +367,12 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
 
     // Another isolate may have removed the thread while the summary was being posted.
     thread = await store.get(threadId)
-    const live = new Set(thread?.comments.map(comment => comment.id) ?? [])
+    const live = new Set(thread?.messages.map(comment => comment.id) ?? [])
     for (const gone of rows.filter(item => !live.has(item.id))) {
       await removeLink(gone, token)
     }
     if (thread) {
-      for (const comment of thread.comments) {
+      for (const comment of thread.messages) {
         if (await store.threadOf(comment.id) !== threadId) continue
         await syncComment(thread, comment, rows.find(item => item.id === comment.id), at, token)
       }
@@ -377,7 +381,7 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
       while (true) {
         const latest = await store.get(threadId)
         if (!latest) break
-        const first = await row(latest.comments[0]?.id ?? "")
+        const first = await row(latest.messages[0]?.id ?? "")
         const resolved = latest.status === "resolved"
         if (!first?.nodeId || first.minimized === resolved) break
         try {
@@ -393,7 +397,7 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
     }
     // A deletion in another isolate can arrive while a comment POST is in flight. Its claim was retained above.
     const latest = await store.get(threadId)
-    const remaining = new Set(latest?.comments.map(comment => comment.id) ?? [])
+    const remaining = new Set(latest?.messages.map(comment => comment.id) ?? [])
     for (const gone of (await rowsOfThread(threadId)).filter(item => !remaining.has(item.id))) {
       await removeLink(gone, token)
     }
