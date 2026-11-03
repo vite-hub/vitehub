@@ -1,27 +1,36 @@
 import { defineOperation, operationAccessAllows } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
-import { builtinCommentSubjects } from "./define.ts"
+import { authorOf, guestFromHeaders } from "../identity.ts"
 import { commentsErrorDiagnostics } from "./errors.ts"
 import { isPagePath } from "./path.ts"
 import { commentsRuntime } from "./server.ts"
+import { attachmentThread, can, createThread, deniedError, editMessage, fail, maximumAttachmentBytes, maximumAttachments, maximumCommentBodyLength, maximumMentions, personOf, readAttachment, replyToThread, storeAttachment, suggest } from "./service.ts"
 
 import type { AnyOperation, OperationContext } from "@vite-hub/internal/operations"
-import type { CommentAction } from "./define.ts"
-import type { CommentsRuntime } from "./server.ts"
+import type { CommentAction, CommentsPolicyGate, CommentsUser } from "./define.ts"
+import type { CommentsAttachmentBody, CommentsRuntime } from "./service.ts"
 import type {
   CommentActor,
+  CommentAttachment,
+  CommentContext,
+  CommentCreateInput,
+  CommentDeleteInput,
+  CommentEditInput,
+  CommentGetInput,
   CommentListCursor,
+  CommentListQuery,
   CommentMessage,
+  CommentReplyInput,
+  CommentStatusInput,
+  CommentUploadInput,
+  CommentUsersInput,
   CommentSubject,
   CommentThread,
   CommentUser,
 } from "./types.ts"
 
-/** Longest message, in characters. */
-export const maximumCommentBodyLength = 10_000
-const maximumMentions = 20
-const maximumAttachments = 10
+export { maximumCommentBodyLength }
 const defaultLimit = 200
 const maximumLimit = 500
 const maximumSuggestions = 10
@@ -30,11 +39,20 @@ const minimumQuery = 2
 const authorizeConcurrency = 16
 
 const thousandths = v.pipe(v.number(), v.minValue(0), v.maxValue(1_000))
-const selector = v.pipe(v.string(), v.minLength(1), v.maxLength(500))
+const selector = v.pipe(v.string(), v.minLength(1), v.maxLength(2_048))
 const quote = v.pipe(v.string(), v.maxLength(2_000))
 const anchor = v.union([
   v.strictObject({ kind: v.literal("page") }),
-  v.strictObject({ kind: v.literal("element"), selector, x: thousandths, y: thousandths }),
+  v.strictObject({
+    field: v.optional(v.pipe(v.string(), v.maxLength(512))),
+    kind: v.literal("element"),
+    label: v.optional(v.pipe(v.string(), v.maxLength(200))),
+    page: v.optional(v.strictObject({ x: thousandths, y: v.pipe(v.number(), v.minValue(0), v.maxValue(1_000_000)) })),
+    selector,
+    viewport: v.optional(v.strictObject({ width: v.pipe(v.number(), v.minValue(0), v.maxValue(100_000)) })),
+    x: thousandths,
+    y: thousandths,
+  }),
   v.strictObject({ exact: v.pipe(v.string(), v.minLength(1), v.maxLength(2_000)), kind: v.literal("text"), prefix: quote, selector, suffix: quote }),
   v.pipe(
     v.strictObject({ height: v.pipe(v.number(), v.minValue(1), v.maxValue(1_000)), kind: v.literal("area"), selector, width: v.pipe(v.number(), v.minValue(1), v.maxValue(1_000)), x: thousandths, y: thousandths }),
@@ -47,37 +65,53 @@ const anchor = v.union([
   ),
 ])
 
-const subject = v.strictObject({ id: v.pipe(v.string(), v.minLength(1), v.maxLength(500)), kind: v.pipe(v.string(), v.minLength(1), v.maxLength(40)) })
+/** The anchor that `comments.create` takes, for the overlay API, which reads its input itself. */
+export const commentAnchorSchema: typeof anchor = anchor
+
+const subjectKind = v.pipe(v.string(), v.minLength(1), v.maxLength(40))
+const subject = v.strictObject({ id: v.pipe(v.string(), v.minLength(1), v.maxLength(500)), kind: subjectKind })
 const page = v.pipe(v.string(), v.check(isPagePath, 'A page is an app path that starts with one "/", such as "/pricing", without "?" or "#".'))
 const cursor = v.strictObject({ id: v.pipe(v.string(), v.minLength(1), v.maxLength(100)), updatedAt: v.number() })
 const text = v.pipe(v.string(), v.maxLength(maximumCommentBodyLength))
 const id = v.pipe(v.string(), v.minLength(1), v.maxLength(100))
 const mentions = v.optional(v.pipe(v.array(id), v.maxLength(maximumMentions)))
 const attachments = v.optional(v.pipe(v.array(v.pipe(v.string(), v.minLength(1), v.maxLength(500))), v.maxLength(maximumAttachments)))
+const metadata = v.optional(v.record(v.string(), v.union([v.string(), v.number(), v.boolean(), v.null()])))
+const revision = v.pipe(v.number(), v.integer(), v.minValue(0))
 const threadId = v.strictObject({ threadId: id })
-
-function fail(error: Error, status: number): Error {
-  return Object.assign(error, { status })
-}
-
-/** Public identity for stored comments and notifications; policies keep the full user. */
-function personOf(user: CommentUser): CommentUser {
-  return { id: user.id, ...(user.name ? { name: user.name } : {}), ...(user.image ? { image: user.image } : {}) }
-}
 
 function actorOf(actor: OperationContext["actor"]): CommentActor | undefined {
   return actor ? { id: actor.id, ...(actor.label ? { name: actor.label } : {}) } : undefined
 }
 
-interface Caller {
-  actor?: CommentActor
+/**
+ * Who calls a comment action, as the transport that received it checked: the operation RPC, the CLI, and MCP through
+ * the Console's access check, or the overlay API through the session of its request.
+ */
+export interface CommentsCaller {
   runtime: CommentsRuntime
-  user: CommentUser | null
+  /** The signed-in user, or null. A guest is null here; the request headers name it. */
+  user: CommentsUser | null
+  actor?: CommentActor
+  /** What the transport checked before, for the default policy. */
+  gate: CommentsPolicyGate
+  /** The request, for the guest headers of an anonymous writer. */
+  request?: Request
+  waitUntil?: (task: Promise<unknown>) => void
 }
 
-async function caller(context: OperationContext): Promise<Caller> {
+/** Operations run only after the Console admitted the call to the `comments` section, so the default policy trusts it. */
+async function caller(context: OperationContext): Promise<CommentsCaller> {
+  const runtime = await commentsRuntime()
   const actor = actorOf(context.actor)
-  return { runtime: await commentsRuntime(), user: context.user, ...(actor ? { actor } : {}) }
+  return {
+    gate: { console: true, development: runtime.development ?? context.development === true },
+    runtime,
+    user: context.user,
+    ...(actor ? { actor } : {}),
+    ...(context.request ? { request: context.request } : {}),
+    ...(context.waitUntil ? { waitUntil: context.waitUntil } : {}),
+  }
 }
 
 interface Target {
@@ -85,94 +119,30 @@ interface Target {
   thread?: CommentThread
 }
 
-/** Without an `authorize` policy nobody can do anything. */
-function policy(who: Caller): NonNullable<CommentsRuntime["definition"]["authorize"]> {
-  const { authorize } = who.runtime.definition
-  if (!authorize) throw fail(commentsErrorDiagnostics.COMMENTS_R0006(), 403)
-  return authorize
-}
-
 /** Asks the policy, with the thread and its subject, or the subject a thread would start on. */
-async function permitted(who: Caller, action: CommentAction, target: Target = {}, user: CommentUser | null = who.user): Promise<boolean> {
-  const subject = target.subject ?? target.thread?.subject
-  const actor = user === who.user ? who.actor : undefined
-  return Boolean(await policy(who)({ action, user: user ? { ...user } : null, ...(actor ? { actor } : {}), ...(target.thread ? { thread: target.thread } : {}), ...(subject ? { subject } : {}) }))
+async function permitted(who: CommentsCaller, action: CommentAction, target: Target = {}): Promise<boolean> {
+  return can(who.runtime, { action, user: who.user, ...(who.actor ? { actor: who.actor } : {}), ...target }, who.gate)
 }
 
-async function allow(who: Caller, action: CommentAction, target?: Target): Promise<void> {
-  if (!(await permitted(who, action, target))) throw fail(commentsErrorDiagnostics.COMMENTS_R0009({ action }), 403)
+async function allow(who: CommentsCaller, action: CommentAction, target?: Target): Promise<void> {
+  if (!(await permitted(who, action, target))) throw deniedError(who.runtime, action, who.user, who.gate)
 }
 
-function author(who: Caller): CommentUser {
-  if (!who.user) throw fail(commentsErrorDiagnostics.COMMENTS_R0012(), 401)
-  return personOf(who.user)
+/** The signed-in user, else the guest of the request, which only a policy that lets anonymous people write gets this far. */
+function author(who: CommentsCaller): CommentUser {
+  // A user without a name shows its email, else "Someone".
+  if (who.user) return personOf(authorOf(who.user))
+  const guest = who.request ? guestFromHeaders(who.request.headers) : undefined
+  if (!guest) throw fail(commentsErrorDiagnostics.COMMENTS_R0012(), 401)
+  return guest
 }
 
-function scopeOf(runtime: CommentsRuntime, target: CommentSubject): string {
-  const definition = [...builtinCommentSubjects, ...(runtime.definition.subjects ?? [])].reverse().find(candidate => candidate.kind === target.kind)
-  if (!definition) throw fail(commentsErrorDiagnostics.COMMENTS_R0008({ kind: target.kind }), 400)
-  if (target.kind === "page" && !isPagePath(target.id)) throw fail(commentsErrorDiagnostics.COMMENTS_R0007({ message: 'A page subject takes an app path that starts with one "/", such as "/pricing", without "?" or "#".' }), 400)
-  if (target.kind === "content" && !target.id.includes("/")) throw fail(commentsErrorDiagnostics.COMMENTS_R0007({ message: 'A content subject is "<collection>/<id>".' }), 400)
-  return definition.scope(target.id)
-}
-
-function escapeRegExp(value: string): string {
-  return value.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")
-}
-
-/** The mentioned ids must be real people, and the text must name each of them with `@name`. */
-async function checkMentions(who: Caller, body: string, ids: readonly string[] | undefined): Promise<CommentUser[]> {
-  const unique = [...new Set(ids ?? [])]
-  if (!unique.length) return []
-  const found = new Map((await (who.runtime.users ? who.runtime.users.byIds(unique) : who.runtime.store.knownUsersByIds(unique, thread => permitted(who, "read", { thread }).catch(() => false)))).map(person => [person.id, person]))
-  const people: CommentUser[] = []
-  for (const mentioned of unique) {
-    const person = found.get(mentioned)
-    if (!person) throw fail(commentsErrorDiagnostics.COMMENTS_R0007({ message: `The mentioned user ${JSON.stringify(mentioned)} does not exist.` }), 400)
-    const name = person.name ?? person.id
-    if (!new RegExp(`(^|[^\\p{L}\\p{N}\\p{M}_])@${escapeRegExp(name)}(?=$|[^\\p{L}\\p{N}\\p{M}_])`, "iu").test(body)) {
-      throw fail(commentsErrorDiagnostics.COMMENTS_R0007({ message: `The text does not name @${name}, but the comment mentions ${name}.` }), 400)
-    }
-    people.push(person)
-  }
-  return people
-}
-
-function cleanBody(body: string): string {
-  const trimmed = body.trim()
-  if (!trimmed) throw fail(commentsErrorDiagnostics.COMMENTS_R0005(), 400)
-  return trimmed
-}
-
-function newId(prefix: string): string {
-  return `${prefix}_${crypto.randomUUID()}`
-}
-
-/**
- * Runs `onMention` after the change is saved, for the mentioned people that may read the thread. The mention stays in
- * the text for the others. A failure never fails the comment.
- */
-function announce(who: Caller, context: OperationContext, thread: CommentThread, message: CommentMessage | undefined, mentioned: CommentUser[]): void {
-  const onMention = who.runtime.definition.onMention
-  if (!onMention || !message || !mentioned.length) return
-  const task = (async () => {
-    try {
-      const readers: CommentUser[] = []
-      for (const person of mentioned) {
-        if (await permitted(who, "read", { thread }, person).catch(() => false)) readers.push(personOf(person))
-      }
-      if (readers.length) await onMention({ mentioned: readers, message, thread })
-    }
-    catch (error) {
-      globalThis.console.error("[vitehub] comments onMention failed.", error)
-    }
-  })()
-  if (context.waitUntil) context.waitUntil(task)
+function writeOptions(who: CommentsCaller) {
+  return { gate: who.gate, user: who.user, ...(who.waitUntil ? { waitUntil: who.waitUntil } : {}) }
 }
 
 /** A thread that does not exist and one that the caller may not read look the same: not found. */
-async function load(who: Caller, threadIdValue: string): Promise<CommentThread> {
-  policy(who)
+async function load(who: CommentsCaller, threadIdValue: string): Promise<CommentThread> {
   const found = await who.runtime.store.getById(threadIdValue)
   if (!found || !(await permitted(who, "read", { thread: found }))) throw fail(commentsErrorDiagnostics.COMMENTS_R0002({ id: threadIdValue }), 404)
   return found
@@ -194,26 +164,61 @@ function cursorOf(thread: CommentThread): CommentListCursor {
   return { id: thread.id, updatedAt: thread.updatedAt }
 }
 
-function noAttachments(attachmentList: readonly string[] | undefined): void {
-  if (attachmentList?.length) throw fail(commentsErrorDiagnostics.COMMENTS_R0014(), 400)
+async function withForge(who: CommentsCaller, threads: CommentThread[]): Promise<CommentThread[]> {
+  return who.runtime.forge ? await who.runtime.forge.attach(threads) : threads
 }
 
-const list = defineOperation({
-  description: "List comment threads, newest first, filtered by subject, page, status, author, or mention. Pass the last thread as `before` for the next page.",
-  input: v.strictObject({
-    before: v.optional(cursor),
-    limit: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(maximumLimit))),
-    mentions: v.optional(v.boolean()),
-    mine: v.optional(v.boolean()),
-    page: v.optional(page),
-    status: v.optional(v.picklist(["open", "resolved"])),
-    subject: v.optional(subject),
-  }),
-  kind: "read",
-  name: "comments.list",
-  run: async (input, context): Promise<CommentThread[]> => {
-    const who = await caller(context)
-    policy(who)
+const listInput = v.strictObject({
+  before: v.optional(cursor),
+  limit: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(maximumLimit))),
+  mentions: v.optional(v.boolean()),
+  mine: v.optional(v.boolean()),
+  page: v.optional(page),
+  revision: v.optional(v.strictObject({ lte: revision })),
+  status: v.optional(v.picklist(["open", "resolved"])),
+  subject: v.optional(subject),
+  subjectKind: v.optional(subjectKind),
+})
+const getInput = v.union([v.strictObject({ id }), v.strictObject({ n: v.pipe(v.number(), v.integer(), v.minValue(1)), scope: v.pipe(v.string(), v.minLength(1), v.maxLength(200)) })])
+const createInput = v.strictObject({ anchor, attachments, body: text, mentions, metadata, revision: v.optional(revision), subject })
+const replyInput = v.strictObject({ attachments, body: text, mentions, threadId: id })
+const editInput = v.strictObject({ body: text, mentions, messageId: id, threadId: id })
+const deleteInput = v.strictObject({ messageId: v.optional(id), threadId: id })
+const usersInput = v.strictObject({
+  limit: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(maximumSuggestions))),
+  query: v.pipe(v.string(), v.maxLength(100)),
+  subject: v.optional(subject),
+  threadId: v.optional(id),
+})
+const uploadInput = v.strictObject({
+  data: v.pipe(v.string(), v.minLength(1)),
+  name: v.pipe(v.string(), v.minLength(1), v.maxLength(200)),
+  subject: v.optional(subject),
+  type: v.pipe(v.string(), v.minLength(1), v.maxLength(100)),
+})
+const attachmentInput = v.strictObject({ key: v.pipe(v.string(), v.minLength(1), v.maxLength(500)) })
+
+/** The inputs of the comment actions, for transports that read their input themselves, such as the overlay API. */
+export const commentInputSchemas = {
+  attachment: attachmentInput,
+  create: createInput,
+  delete: deleteInput,
+  edit: editInput,
+  get: getInput,
+  list: listInput,
+  reply: replyInput,
+  status: threadId,
+  upload: uploadInput,
+  users: usersInput,
+} as const
+
+/**
+ * The comment actions behind every surface. The operations (RPC, CLI, MCP) and the overlay API call the same
+ * functions, so one policy, one set of checks, and one set of errors serve them all. Each one checks `authorize` for
+ * its caller; the input must have passed `commentInputSchemas`.
+ */
+export const commentActions = {
+  async list(input: CommentListQuery, who: CommentsCaller): Promise<CommentThread[]> {
     const limit = input.limit ?? defaultLimit
     const readable: CommentThread[] = []
     let before = input.before
@@ -227,133 +232,164 @@ const list = defineOperation({
       if (threads.length < limit) break
       before = cursorOf(threads.at(-1)!)
     }
-    return readable
+    return withForge(who, readable)
   },
-  section: "comments",
-})
 
-const get = defineOperation({
-  description: "Read one comment thread by id, or by number inside its scope. A thread that does not exist or that you may not read is null.",
-  input: v.union([v.strictObject({ id }), v.strictObject({ n: v.pipe(v.number(), v.integer(), v.minValue(1)), scope: v.pipe(v.string(), v.minLength(1), v.maxLength(200)) })]),
-  kind: "read",
-  name: "comments.get",
-  run: async (input, context): Promise<CommentThread | null> => {
-    const who = await caller(context)
-    policy(who)
+  async get(input: CommentGetInput, who: CommentsCaller): Promise<CommentThread | null> {
     const found = "id" in input ? await who.runtime.store.getById(input.id) : await who.runtime.store.getByNumber(input.scope, input.n)
-    return found && await permitted(who, "read", { thread: found }) ? found : null
+    if (!found || !await permitted(who, "read", { thread: found })) return null
+    return (await withForge(who, [found]))[0]!
   },
-  section: "comments",
-})
 
-const create = defineOperation({
-  description: "Start a comment thread on a subject, such as a page, with an anchor and a first message.",
-  input: v.strictObject({ anchor, attachments, body: text, mentions, subject }),
-  kind: "write",
-  name: "comments.create",
-  run: async (input, context): Promise<CommentThread> => {
-    const who = await caller(context)
+  /** `context` is the page context that the overlay read and its transport checked. */
+  async create(input: CommentCreateInput & { context?: CommentContext }, who: CommentsCaller): Promise<CommentThread> {
     await allow(who, "read", { subject: input.subject })
     await allow(who, "write", { subject: input.subject })
-    noAttachments(input.attachments)
-    const person = author(who)
-    const body = cleanBody(input.body)
-    const mentioned = await checkMentions(who, body, input.mentions)
-    const now = Date.now()
-    const created = await who.runtime.store.createThread({
-      anchor: input.anchor,
-      attachments: [],
-      author: person,
-      body,
-      id: newId("message"),
-      mentions: mentioned.map(entry => entry.id),
-      now,
-      scope: scopeOf(who.runtime, input.subject),
-      subject: input.subject,
-      threadId: newId("thread"),
-      ...(who.actor ? { actor: who.actor } : {}),
-    })
-    announce(who, context, created, created.messages[0], mentioned)
-    return created
+    return createThread(who.runtime, { ...input, author: author(who), ...(who.actor ? { actor: who.actor } : {}) }, writeOptions(who))
   },
-  section: "comments",
-})
 
-const reply = defineOperation({
-  description: "Add a message to a comment thread.",
-  input: v.strictObject({ attachments, body: text, mentions, threadId: id }),
-  kind: "write",
-  name: "comments.reply",
-  run: async (input, context): Promise<CommentThread> => {
-    const who = await caller(context)
+  /** `allowResolved`: the operations keep a reply box on resolved threads, and a reply keeps the thread resolved. */
+  async reply(input: CommentReplyInput, who: CommentsCaller, options: { allowResolved?: boolean } = {}): Promise<{ thread: CommentThread, message: CommentMessage }> {
     const found = await load(who, input.threadId)
     await allow(who, "write", { thread: found })
-    noAttachments(input.attachments)
-    const person = author(who)
-    const body = cleanBody(input.body)
-    const mentioned = await checkMentions(who, body, input.mentions)
-    const messageId = newId("message")
-    const next = await who.runtime.store.addMessage(found.id, {
-      attachments: [],
-      author: person,
-      body,
-      id: messageId,
-      mentions: mentioned.map(entry => entry.id),
-      now: Date.now(),
+    return replyToThread(who.runtime, found, {
+      body: input.body,
+      author: author(who),
+      ...(input.mentions ? { mentions: input.mentions } : {}),
+      ...(input.attachments ? { attachments: input.attachments } : {}),
       ...(who.actor ? { actor: who.actor } : {}),
-    })
-    announce(who, context, next, next.messages.find(entry => entry.id === messageId), mentioned)
-    return next
+    }, { allowResolved: options.allowResolved === true, ...writeOptions(who) })
   },
-  section: "comments",
-})
 
-const edit = defineOperation({
-  description: "Change the text of your own message.",
-  input: v.strictObject({ body: text, mentions, messageId: id, threadId: id }),
-  kind: "write",
-  name: "comments.edit",
-  run: async (input, context): Promise<CommentThread> => {
-    const who = await caller(context)
+  async edit(input: CommentEditInput, who: CommentsCaller): Promise<CommentThread> {
     const found = await load(who, input.threadId)
     // An Agent edits only when the policy lets it write. Authors who are people always edit their own messages.
     if (who.actor) await allow(who, "write", { thread: found })
     const target = found.messages.find(entry => entry.id === input.messageId)
     if (!target) throw fail(commentsErrorDiagnostics.COMMENTS_R0003({ messageId: input.messageId }), 404)
-    // Nobody else edits a message.
-    if (!who.user || target.author.id !== who.user.id) throw fail(commentsErrorDiagnostics.COMMENTS_R0004(), 403)
-    const body = cleanBody(input.body)
-    const mentioned = await checkMentions(who, body, input.mentions)
-    const next = await who.runtime.store.editMessage(found.id, target.id, { body, mentions: mentioned.map(entry => entry.id), now: Date.now() })
-    announce(who, context, next, next.messages.find(entry => entry.id === target.id), mentioned.filter(entry => !target.mentions.includes(entry.id)))
+    // Nobody else edits a message, and a guest id proves nothing.
+    if (!who.user || who.user.guest === true || target.author.guest || target.author.id !== who.user.id) throw fail(commentsErrorDiagnostics.COMMENTS_R0004(), 403)
+    return editMessage(who.runtime, found, target.id, { body: input.body, ...(input.mentions ? { mentions: input.mentions } : {}) }, writeOptions(who))
+  },
+
+  async delete(input: CommentDeleteInput, who: CommentsCaller): Promise<CommentThread | null> {
+    const found = await load(who, input.threadId)
+    const target = input.messageId === undefined ? undefined : found.messages.find(entry => entry.id === input.messageId)
+    if (input.messageId !== undefined && !target) throw fail(commentsErrorDiagnostics.COMMENTS_R0003({ messageId: input.messageId }), 404)
+    const deletesThread = !target || target.id === found.messages[0]?.id
+    // People delete their own messages with `write`, and a thread only when every message in it is theirs. Everything
+    // else, every Agent, and every guest needs the `delete` action. A guest id never proves ownership.
+    const ownerId = who.user && !who.actor && who.user.guest !== true ? who.user.id : undefined
+    const owns = ownerId !== undefined && (deletesThread ? found.messages.every(entry => !entry.author.guest && entry.author.id === ownerId) : !target.author.guest && target.author.id === ownerId)
+    if (owns) await allow(who, "write", { thread: found })
+    else {
+      await allow(who, "delete", { thread: found })
+      if (!who.user || who.user.guest === true) throw fail(commentsErrorDiagnostics.COMMENTS_R0009({ action: "delete" }), 403)
+    }
+    if (deletesThread) {
+      const deleted = await who.runtime.store.deleteThread(found.id, owns ? ownerId : undefined)
+      if (deleted === false) throw fail(commentsErrorDiagnostics.COMMENTS_R0009({ action: "delete" }), 403)
+      who.runtime.forge?.changed(found.id)
+      return null
+    }
+    const next = await who.runtime.store.deleteMessage(found.id, target.id, Date.now())
+    who.runtime.forge?.changed(found.id)
     return next
   },
+
+  async setStatus(input: CommentStatusInput, who: CommentsCaller, status: "open" | "resolved"): Promise<CommentThread> {
+    const found = await load(who, input.threadId)
+    await allow(who, "resolve", { thread: found })
+    const next = await who.runtime.store.setStatus(found.id, status, author(who), Date.now())
+    who.runtime.forge?.changed(found.id)
+    return next
+  },
+
+  /** `minimum`: the shortest query that gets suggestions. The operations ask for two characters. */
+  async users(input: CommentUsersInput, who: CommentsCaller, options: { minimum?: number } = {}): Promise<CommentUser[]> {
+    const thread = input.threadId === undefined ? undefined : await load(who, input.threadId)
+    const target = thread ? { thread } : input.subject ? { subject: input.subject } : {}
+    await allow(who, "read", target)
+    // Only people who can write mention anyone, so only they get suggestions.
+    await allow(who, "write", target)
+    const query = input.query.trim()
+    if (query.length < (options.minimum ?? minimumQuery)) return []
+    return suggest(who.runtime, { gate: who.gate, limit: Math.min(input.limit ?? 5, maximumSuggestions), query, user: who.user, ...target })
+  },
+
+  async upload(input: CommentUploadInput, who: CommentsCaller): Promise<CommentAttachment> {
+    const target = input.subject ? { subject: input.subject } : {}
+    await allow(who, "read", target)
+    await allow(who, "write", target)
+    author(who)
+    return storeAttachment(who.runtime, input, who.user)
+  },
+
+  /** The file of an attachment key, for a caller who may read a thread whose messages list it. */
+  async attachment(input: { key: string }, who: CommentsCaller): Promise<CommentsAttachmentBody> {
+    const thread = await attachmentThread(who.runtime, input.key, candidate => permitted(who, "read", { thread: candidate }))
+    return readAttachment(who.runtime, input.key, { thread, user: who.user })
+  },
+}
+
+function base64(bytes: Uint8Array): string {
+  let binary = ""
+  for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
+  return btoa(binary)
+}
+
+const list = defineOperation({
+  description: "List comment threads, newest first, filtered by subject, page, status, author, mention, or subject revision. Pass the last thread as `before` for the next page.",
+  input: listInput,
+  kind: "read",
+  name: "comments.list",
+  run: async (input, context): Promise<CommentThread[]> => commentActions.list(input, await caller(context)),
+  section: "comments",
+})
+
+const get = defineOperation({
+  description: "Read one comment thread by id, or by number inside its scope. A thread that does not exist or that you may not read is null.",
+  input: getInput,
+  kind: "read",
+  name: "comments.get",
+  run: async (input, context): Promise<CommentThread | null> => commentActions.get(input, await caller(context)),
+  section: "comments",
+})
+
+const create = defineOperation({
+  description: "Start a comment thread on a subject, such as a page, with an anchor and a first message.",
+  input: createInput,
+  kind: "write",
+  name: "comments.create",
+  run: async (input, context): Promise<CommentThread> => commentActions.create(input, await caller(context)),
+  section: "comments",
+})
+
+const reply = defineOperation({
+  description: "Add a message to a comment thread. A resolved thread stays resolved.",
+  input: replyInput,
+  kind: "write",
+  name: "comments.reply",
+  // The comment UI keeps a reply box on resolved threads. A reply keeps the thread resolved.
+  run: async (input, context): Promise<CommentThread> => (await commentActions.reply(input, await caller(context), { allowResolved: true })).thread,
+  section: "comments",
+})
+
+const edit = defineOperation({
+  description: "Change the text of your own message.",
+  input: editInput,
+  kind: "write",
+  name: "comments.edit",
+  run: async (input, context): Promise<CommentThread> => commentActions.edit(input, await caller(context)),
   section: "comments",
 })
 
 const remove = defineOperation({
   description: "Delete a message, or the whole thread. Deleting the first message deletes the thread.",
-  input: v.strictObject({ messageId: v.optional(id), threadId: id }),
+  input: deleteInput,
   kind: "destructive",
   name: "comments.delete",
-  run: async (input, context): Promise<CommentThread | null> => {
-    const who = await caller(context)
-    const found = await load(who, input.threadId)
-    const target = input.messageId === undefined ? undefined : found.messages.find(entry => entry.id === input.messageId)
-    if (input.messageId !== undefined && !target) throw fail(commentsErrorDiagnostics.COMMENTS_R0003({ messageId: input.messageId }), 404)
-    const deletesThread = !target || target.id === found.messages[0]?.id
-    // People delete their own messages, and a thread only when every message in it is theirs. Everything else, and every
-    // Agent, needs the `delete` action.
-    const ownerId = who.user && !who.actor ? who.user.id : undefined
-    const owns = ownerId !== undefined && (deletesThread ? found.messages.every(entry => entry.author.id === ownerId) : target.author.id === ownerId)
-    if (!owns) await allow(who, "delete", { thread: found })
-    if (deletesThread) {
-      const deleted = await who.runtime.store.deleteThread(found.id, owns ? ownerId : undefined)
-      if (deleted === false) throw fail(commentsErrorDiagnostics.COMMENTS_R0009({ action: "delete" }), 403)
-      return null
-    }
-    return who.runtime.store.deleteMessage(found.id, target.id, Date.now())
-  },
+  run: async (input, context): Promise<CommentThread | null> => commentActions.delete(input, await caller(context)),
   section: "comments",
 })
 
@@ -363,31 +399,41 @@ function statusOperation(name: "comments.reopen" | "comments.resolve", status: "
     input: threadId,
     kind: "write",
     name,
-    run: async (input, context): Promise<CommentThread> => {
-      const who = await caller(context)
-      const found = await load(who, input.threadId)
-      await allow(who, "resolve", { thread: found })
-      return who.runtime.store.setStatus(found.id, status, author(who), Date.now())
-    },
+    run: async (input, context): Promise<CommentThread> => commentActions.setStatus(input, await caller(context), status),
     section: "comments",
   })
 }
 
 const users = defineOperation({
   description: "Find people to mention by name. Needs at least two characters, and the right to write.",
-  input: v.strictObject({ limit: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(maximumSuggestions))), query: v.pipe(v.string(), v.maxLength(100)) }),
+  input: usersInput,
   kind: "read",
   name: "comments.users",
-  run: async (input, context): Promise<CommentUser[]> => {
-    const who = await caller(context)
-    await allow(who, "read")
-    // Only people who can write mention anyone, so only they get suggestions.
-    await allow(who, "write")
-    const query = input.query.trim()
-    if (query.length < minimumQuery) return []
-    const limit = Math.min(input.limit ?? 5, maximumSuggestions)
-    const found = who.runtime.users ? await who.runtime.users.search(query, limit) : await who.runtime.store.knownUsers(query, limit, thread => permitted(who, "read", { thread }).catch(() => false))
-    return found.slice(0, limit).map(person => ({ id: person.id, ...(person.name ? { name: person.name } : {}), ...(person.image ? { image: person.image } : {}) }))
+  run: async (input, context): Promise<CommentUser[]> => commentActions.users(input, await caller(context)),
+  section: "comments",
+})
+
+const upload = defineOperation({
+  description: "Store a file to attach to a comment. Pass the returned key in `attachments` of comments.create or comments.reply.",
+  input: uploadInput,
+  kind: "write",
+  // Base64 of the largest file, and the rest of the call.
+  maxRequestBytes: Math.ceil(maximumAttachmentBytes / 3) * 4 + 4_096,
+  mcp: false,
+  name: "comments.upload",
+  run: async (input, context): Promise<CommentAttachment> => commentActions.upload(input, await caller(context)),
+  section: "comments",
+})
+
+const attachment = defineOperation({
+  description: "Read the file of an attachment key, Base64-encoded, from a thread that you may read.",
+  input: attachmentInput,
+  kind: "read",
+  mcp: false,
+  name: "comments.attachment",
+  run: async (input, context): Promise<CommentAttachment & { data: string, inline: boolean }> => {
+    const file = await commentActions.attachment(input, await caller(context))
+    return { data: base64(new Uint8Array(await file.data.arrayBuffer())), inline: file.inline, key: file.key, name: file.name, size: file.size, type: file.type }
   },
   section: "comments",
 })
@@ -402,13 +448,13 @@ const session = defineOperation({
     // A visitor who is not signed in gets no answer from the policy: the overlay asks on every page view, so the policy
     // does not run for each anonymous one, and nothing about the app leaks.
     if (!who.user) return { canRead: false, canWrite: false, user: null }
-    // Without a policy nobody may do anything, and a policy that cannot answer without a thread says no.
-    const can = (action: CommentAction) => who.runtime.definition.authorize ? permitted(who, action, { subject: input.subject }).catch(() => false) : Promise.resolve(false)
-    const [canRead, canWrite] = await Promise.all([can("read"), can("write")])
+    // A policy that cannot answer without a thread says no.
+    const allowed = (action: CommentAction) => permitted(who, action, input.subject ? { subject: input.subject } : {}).catch(() => false)
+    const [canRead, canWrite] = await Promise.all([allowed("read"), allowed("write")])
     return { canRead, canWrite: canRead && canWrite && operationAccessAllows(context.access, "comments", { kind: "write" }), user: personOf(who.user) }
   },
   section: "comments",
 })
 
 /** The comment operations. The Console, the CLI, MCP, and the comments client call them. */
-export const commentsOperations: readonly AnyOperation[] = [list, get, create, reply, edit, remove, statusOperation("comments.resolve", "resolved", "Mark a comment thread as resolved."), statusOperation("comments.reopen", "open", "Open a resolved comment thread again."), users, session]
+export const commentsOperations: readonly AnyOperation[] = [list, get, create, reply, edit, remove, statusOperation("comments.resolve", "resolved", "Mark a comment thread as resolved."), statusOperation("comments.reopen", "open", "Open a resolved comment thread again."), users, upload, attachment, session]

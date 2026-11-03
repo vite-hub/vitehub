@@ -3,6 +3,7 @@ export type { CommentsContent, CommentsContentField, CommentsHandlerOptions } fr
 export { defineCommentsPlugin, installedComments } from "./plugin.ts"
 export type { CommentsPluginOptions } from "./plugin.ts"
 export { selectCommentsDatabase } from "./database.ts"
+export { commentsDefinitionOf } from "./definition.ts"
 export type { CommentsDatabaseRegistry } from "./database.ts"
 export { commentsConsoleSession } from "./console-session.ts"
 export type { CommentsConsoleAccess } from "./console-session.ts"

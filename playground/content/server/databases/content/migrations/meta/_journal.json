@@ -50,6 +50,13 @@
       "when": 1793645816084,
       "tag": "0006_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1793704726710,
+      "tag": "0007_comments_one_model",
+      "breakpoints": true
     }
   ]
 }

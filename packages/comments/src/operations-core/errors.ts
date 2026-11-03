@@ -25,8 +25,8 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Write at least one character before you send.",
     },
     COMMENTS_R0006: {
-      why: "server/comments.ts defines no authorize policy, so nobody can read or write comments.",
-      fix: "Pass authorize to defineComments({ authorize }) and return true for the people and Agents that may take the action.",
+      why: "server/comments.ts defines no authorize policy, so a production build lets in only people signed in with GitHub who can push to the repository, and people that the Console admits to its Comments section. Other signed-in people, such as users of ViteHub Auth or identify, get nothing.",
+      fix: "Pass authorize to defineComments({ authorize }) and return true for the people and Agents that may take the action. See https://vitehub.dev/docs/comments/configure#decide-who-can-comment",
     },
     COMMENTS_R0007: {
       why: ({ message }: { message: string }) => message,
@@ -57,19 +57,49 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Check the connection and the app URL, then try again.",
     },
     COMMENTS_R0014: {
-      why: "Attachments are not supported yet: no operation uploads a file for a comment.",
-      fix: "Send the comment without attachments. They arrive with the upload operation.",
+      why: "Comments has no place to store attachments: the app has no Blob store and no storeAttachment hook.",
+      fix: "Turn on Blob with vitehub({ blob: true }), or pass storeAttachment to defineComments().",
     },
     COMMENTS_R0015: {
       why: "The comment list kept changing while its pages were loading.",
       fix: "Refresh again. The previous cache is kept until two complete scans agree.",
+    },
+    COMMENTS_R0016: {
+      why: "The thread is resolved, so it takes no new replies.",
+      fix: "Reopen the thread first, or pass { allowResolved: true } to comments.reply() when your UI allows replies to resolved threads.",
+    },
+    COMMENTS_R0017: {
+      why: ({ message }: { message: string }) => message,
+      fix: "Attach an image, a PDF, or a text file of at most 5 MB.",
+    },
+    COMMENTS_R0018: {
+      why: ({ message }: { message: string }) => message,
+      fix: "Check the input against the limits of comments: https://vitehub.dev/docs/comments/limits-and-errors",
+    },
+    COMMENTS_R0019: {
+      why: ({ state, missing }: { state: "empty" | "live" | "outdated", missing: readonly string[] }) => state === "live"
+        ? "The Database still has the comment tables of the live-site model (vitehub_comment_threads with number, page, and created_by), so Comments cannot read or write threads."
+        : state === "outdated"
+          ? `The vitehub_comment_threads table misses columns of this version: ${missing.join(", ")}.`
+          : "The Database has no comment tables.",
+      fix: ({ state }: { state: "empty" | "live" | "outdated" }) => state === "live"
+        ? "Move the tables once in a custom migration: run vitehub db generate --custom --name comments_one_model, put the SQL of commentsMigrationSql({ from: \"live\" }) from vite-hub/comments/database in it, then run vitehub db migrate. See https://vitehub.dev/docs/comments/configure#upgrade-to-one-model"
+        : "Run vitehub db generate and vitehub db migrate, so the Database gets the comment tables of this version. See https://vitehub.dev/docs/comments/configure#upgrade-to-one-model",
+    },
+    COMMENTS_R0020: {
+      why: ({ key }: { key: string }) => `No comment that you may read has the attachment ${JSON.stringify(key)}, or its file is gone.`,
+      fix: "Read the attachment through a message that lists its key, as a person who may read that thread.",
+    },
+    COMMENTS_R0021: {
+      why: "Comments stores attachments with storeAttachment, but has no readAttachment to read them back.",
+      fix: "Pass readAttachment to defineComments(), next to storeAttachment, and return the file of the key as a Blob.",
     },
     COMMENTS_B0001: {
       why: ({ file }: { file: string }) => `${file} needs a Database, but the Database is off for this app.`,
       fix: "Remove `database: false` from vitehub(), or set `database: true`. vitehub() turns the Database on for comments when the option is unset.",
     },
     COMMENTS_B0002: {
-      why: ({ file }: { file: string }) => `${file} must default-export defineComments().`,
+      why: ({ file }: { file: string }) => `${file} must export defineComments(), as \`comments\` or as the default export.`,
       fix: "Write `export default defineComments({ authorize })` in server/comments.ts.",
     },
   },

@@ -1,4 +1,7 @@
-import type { CommentAnchor } from "./types.ts"
+import type { ElementAnchor } from "./types.ts"
+
+/** The anchor of a pin that the overlay drops: an element anchor with every hint that `placeAnchor()` uses. */
+export type PinAnchor = ElementAnchor & Required<Pick<ElementAnchor, "label" | "page" | "viewport">>
 
 /** The attribute that Content's `contentField()` writes on an element that renders a field. */
 export const fieldAttribute = "data-content-field"
@@ -65,10 +68,11 @@ export function fieldElementOf(element: Element): Element | undefined {
 }
 
 /** The anchor of a point on an element, in client coordinates. */
-export function createAnchor(element: Element, clientX: number, clientY: number): CommentAnchor {
+export function createAnchor(element: Element, clientX: number, clientY: number): PinAnchor {
   const box = element.getBoundingClientRect()
   const field = fieldElementOf(element)?.getAttribute(fieldAttribute) ?? undefined
   return {
+    kind: "element",
     ...(field ? { field } : {}),
     selector: selectorOf(element),
     label: labelOf(element),
@@ -114,9 +118,9 @@ export type PlacedAnchor =
 
 /**
  * Where an anchor is now, in client coordinates: the Content field, then the CSS path if its label still matches,
- * then any element of that tag with the same label, then the page point.
+ * then any element of that tag with the same label, then the page point. An anchor without a label trusts the path.
  */
-export function placeAnchor(anchor: CommentAnchor): PlacedAnchor {
+export function placeAnchor(anchor: ElementAnchor): PlacedAnchor {
   let element: Element | undefined
   if (anchor.field) {
     element = query(attributeSelector(fieldAttribute, anchor.field))
@@ -126,17 +130,18 @@ export function placeAnchor(anchor: CommentAnchor): PlacedAnchor {
   }
   if (!element) {
     const byPath = query(anchor.selector)
-    if (byPath && sameLabel(byPath, anchor.label)) element = byPath
+    if (byPath && (anchor.label === undefined || sameLabel(byPath, anchor.label))) element = byPath
   }
-  element ??= findByLabel(anchor.label)
+  if (anchor.label !== undefined) element ??= findByLabel(anchor.label)
   if (element) {
     const box = element.getBoundingClientRect()
     if (!box.width && !box.height) return { state: "hidden", element }
     return { state: "exact", element, x: box.left + (anchor.x / 1000) * box.width, y: box.top + (anchor.y / 1000) * box.height }
   }
+  const page = anchor.page ?? { x: 0, y: 0 }
   return {
     state: "moved",
-    x: (anchor.page.x / 1000) * documentWidth() - window.scrollX,
-    y: anchor.page.y - window.scrollY,
+    x: (page.x / 1000) * documentWidth() - window.scrollX,
+    y: page.y - window.scrollY,
   }
 }
