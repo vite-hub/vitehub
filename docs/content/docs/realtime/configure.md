@@ -41,7 +41,7 @@ rooms.
 | Host | Authority | Live state | What survives a restart |
 | --- | --- | --- | --- |
 | Node, Docker (one process) | `memory` | In process memory. | Only what the document adapter saved. Unsaved edits from the last idle window are lost. |
-| Cloudflare Workers | `cloudflare` | Nitro's `cloudflare-durable` instance, one room per document, Yjs updates in its SQLite storage. | The full Yjs state, its seed, and whether it was saved. A woken room saves pending edits. |
+| Cloudflare Workers | `cloudflare` | Nitro's Cloudflare Durable Object instance, one room per document, Yjs updates in its SQLite storage. | The full Yjs state, its seed, and whether it was saved. A woken room saves pending edits. |
 | Vercel, Netlify, Deno Deploy | none | Not supported. | Builds that enable Realtime fail with `REALTIME_MISSING_AUTHORITY` or `REALTIME_AUTHORITY_CONFLICT`. |
 
 Serverless functions without a shared room cannot run Realtime. Polling a
