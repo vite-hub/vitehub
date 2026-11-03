@@ -1,4 +1,4 @@
-import type { CommandName } from "just-bash/browser"
+import type { BashOptions, CommandName } from "just-bash/browser"
 import type { IFileSystem } from "just-bash"
 
 import { analyzeShellCommand } from "../command/analyze.ts"
@@ -16,9 +16,16 @@ export interface JustBashFileSystem extends IFileSystem {
   readonly writeFs: boolean
 }
 
+export type JustBashExecutionLimits = NonNullable<BashOptions["executionLimits"]>
+export type JustBashExecutionLimitProfile = NonNullable<BashOptions["executionLimitProfile"]>
+
 export interface JustBashProviderOptions {
   commands?: string[]
   cwd?: string
+  /** Just Bash limits on loops, command count, call depth, output size, and similar runaway work. */
+  executionLimits?: JustBashExecutionLimits
+  /** Named Just Bash limit preset applied before `executionLimits`. Defaults to Just Bash's `normal`. */
+  executionLimitProfile?: JustBashExecutionLimitProfile
   fs: JustBashFileSystem
   networkGrants?: ShellNetworkGrantExecutor
 }
@@ -41,6 +48,8 @@ export interface ShellNetworkRequestResult {
 export function createJustBashProvider(options: JustBashProviderOptions): ShellExecutionProvider {
   const commands = options.commands?.slice()
   const networkGrants = options.networkGrants
+  const executionLimits = options.executionLimits && { ...options.executionLimits }
+  const executionLimitProfile = options.executionLimitProfile
   const boundary: ShellBoundary = {
     cwd: true,
     env: true,
@@ -90,6 +99,8 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
           // SAFETY: Just Bash filters its built-in registry by these names; unknown names do not register commands.
           commands: commands as CommandName[] | undefined,
           cwd,
+          executionLimitProfile,
+          executionLimits,
           fs: options.fs,
         })
         return await bash.exec(command, {

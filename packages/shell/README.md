@@ -89,6 +89,8 @@ The Just Bash `commands` list also applies to controlled `curl` requests. A Sour
 
 The provider copies the command list at creation. Later changes to the supplied list do not change its permissions or network boundary.
 
+Pass `executionLimits` or `executionLimitProfile: "hardened"` to bound Just Bash work such as loop iterations, command count, and retained bytes. Both options pass through to Just Bash and are copied at creation.
+
 The writable Workspace filesystem leaves content unchanged when a move resolves to the same source and destination. Missing sources fail. It rejects moves into descendants before changing content.
 
 Workspace filesystem adapters preserve binary output from redirection and `tee`. Their read, write, and append methods honor Just Bash encoding options.

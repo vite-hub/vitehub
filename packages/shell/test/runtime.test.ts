@@ -349,6 +349,23 @@ describe("@vite-hub/shell just-bash runtime", () => {
     expect(stop).toHaveBeenCalledOnce()
   })
 
+  it("applies Just Bash execution limits copied at provider creation", async () => {
+    const loop = "i=0; while [ $i -lt 100 ]; do i=$((i+1)); done; echo $i"
+    const fs = createReadonlyWorkspaceFs(new MemoryWorkspace({}))
+    const executionLimits = { maxLoopIterations: 10 }
+    const limited = createShellRuntime({ provider: createJustBashProvider({ executionLimits, fs }) })
+    executionLimits.maxLoopIterations = 1_000
+
+    await expect(limited.exec(loop)).resolves.toMatchObject({
+      exitCode: 126,
+      stderr: expect.stringContaining("too many iterations (10)"),
+    })
+    await expect(createShellRuntime({ provider: createJustBashProvider({ fs }) }).exec(loop)).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "100\n",
+    })
+  })
+
   it.each([{ commands: ["curl"] }, { commands: undefined }])("runs controlled curl through the just-bash provider network boundary with commands $commands", async ({ commands }) => {
     const workspace = new MemoryWorkspace({})
     const executeSourceRequest = vi.fn(async () => ({ content: "ok\n" }))

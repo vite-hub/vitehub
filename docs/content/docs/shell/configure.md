@@ -12,10 +12,20 @@ Shell providers implement `ShellExecutionProvider`. Shell has provider adapters,
 
 | Provider | Configure with | Boundary |
 | --- | --- | --- |
-| Just Bash | `createJustBashProvider({ fs, commands?, cwd?, networkGrants? })` | Runs `just-bash` against the filesystem adapter you provide. Network is off unless you pass `networkGrants`. No background or interactive processes. Output callbacks run once after the command ends. |
+| Just Bash | `createJustBashProvider({ fs, commands?, cwd?, executionLimits?, executionLimitProfile?, networkGrants? })` | Runs `just-bash` against the filesystem adapter you provide. Network is off unless you pass `networkGrants`. No background or interactive processes. Output callbacks run once after the command ends. |
 | Custom | A `ShellExecutionProvider` object | Implement `boundary`, `exec`, and optional `analyze` and `startProcess`. |
 
 Just Bash starts in `/workspace` when you omit `cwd`. A provider `cwd` sets the default directory, and an `exec` `cwd` takes precedence. The provider reports the selected directory in its observations, including controlled curl and timeout results. Set `cwd` when your custom filesystem uses another root.
+
+`executionLimits` and `executionLimitProfile` pass through to Just Bash. They bound in-process work that a timeout alone can't stop cheaply: loop iterations, command count, call depth, jq/awk/sed iterations, file traversal, and retained bytes. `executionLimitProfile: "hardened"` selects Just Bash's stricter preset, and `executionLimits` values override it. A command that exceeds a limit exits with code 126 and names the limit in stderr. The provider copies both options at creation.
+
+```ts
+const provider = createJustBashProvider({
+  fs,
+  executionLimitProfile: "hardened",
+  executionLimits: { maxLoopIterations: 10_000, maxCommandCount: 5_000 },
+})
+```
 
 Read `runtime.boundary` or `session.boundary` to check what the provider declares: CWD, env, filesystem mount point and write access, network, background and interactive processes, streaming, timeout enforcement, execution model, and output resource enforcement. These are provider declarations for portable inspection; they do not turn an in-process provider into an OS isolate.
 
