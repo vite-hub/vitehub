@@ -83,7 +83,7 @@ export const docsInstructions: AgentAdapterInstructions = { template: [docsRules
  * The parts of the docs assistant that do not depend on the host: a read-only Workspace with the pages in `content/`,
  * the `web` Chat Channel with the reader's current page, a site-wide rate limit, and Driver capacity.
  */
-export function defineDocsAssistant(driver: NonNullable<AgentSettings["driver"]>): WorkspaceAgentDefinition {
+export function defineDocsAssistant(driver: NonNullable<AgentSettings["driver"]>, capabilities: AgentCapabilityDefinition[] = []): WorkspaceAgentDefinition {
   return defineAgent({
     description: "Answers reader questions from the documentation pages.",
     driver,
@@ -106,7 +106,7 @@ export function defineDocsAssistant(driver: NonNullable<AgentSettings["driver"]>
         },
       }),
     },
-    capabilities: [docsRateLimit()],
+    capabilities: [docsRateLimit(), ...capabilities],
     budget: {
       // Usage is known when an answer finishes, so this records expensive answers. It does not stop one.
       tokens: 200_000,

@@ -124,7 +124,7 @@ describe("docsAssistant in a Worker build", () => {
     expect(Object.keys(worker)).toEqual(Object.keys(node))
     expect(worker.workspace.mode).toBe("read")
     expect(Object.keys(worker.workspace.sources)).toEqual(Object.keys(node.workspace.sources))
-    expect(worker.capabilities.map(capability => capability.id)).toEqual(["docs-rate-limit"])
+    expect(worker.capabilities.map(capability => capability.id)).toEqual(["docs-rate-limit", "workspace-shell"])
   })
 
   it("keeps the ChatGPT plan when a child changes the model or the instructions", () => {
