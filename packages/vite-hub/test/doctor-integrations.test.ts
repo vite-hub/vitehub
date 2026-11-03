@@ -220,7 +220,7 @@ describe("vitehub/valid-vitehub-options", () => {
     })).toEqual(Array(5).fill("VHUB0031"))
   })
 
-  it("reports connections in the Nuxt module, in the vitehub key and in inline options", async () => {
+  it("accepts connections in the Nuxt module, in the vitehub key and in inline options", async () => {
     expect(await codes(validViteHubOptions, {
       "nuxt.config.ts": lines(
         "export default defineNuxtConfig({",
@@ -228,7 +228,7 @@ describe("vitehub/valid-vitehub-options", () => {
         "  vitehub: { preset: \"node\", connections: { management: true } },",
         "})",
       ),
-    }, "nuxt")).toEqual(["VHUB0031", "VHUB0031"])
+    }, "nuxt")).toEqual([])
   })
 
   it("accepts valid options", async () => {
