@@ -286,7 +286,7 @@ For two-factor authentication, passkeys, or a custom sign-in UI, override the pa
 console: { auth: 'app', signInPage: '/sign-in' }
 ```
 
-The custom page receives `redirect`, such as `/sign-in?redirect=%2F_vitehub%2Fauth`. Return there after sign-in, accepting only paths on your origin. ViteHub adds the application's mount base. `auth: false` with an `authorize` that returns `401` uses `signInPage` in the same way. Independent Console Auth has its own page and does not take this override.
+The custom page receives `redirect`, such as `/sign-in?redirect=%2F_vitehub%2Fauth`. Return there after sign-in, accepting only paths on your origin. Only a page visit, a `GET` that accepts `text/html`, goes to the page. Other signed-out requests to `/_vitehub/**`, such as a script `fetch`, get `401`. ViteHub adds the application's mount base. `auth: false` with an `authorize` that returns `401` uses `signInPage` in the same way. Independent Console Auth has its own page and does not take this override.
 
 ### Use Console Auth
 

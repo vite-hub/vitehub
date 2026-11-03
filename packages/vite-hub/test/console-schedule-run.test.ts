@@ -8,7 +8,9 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import { defineSchedule } from "@vite-hub/schedule"
 import { scheduleOperations } from "@vite-hub/schedule/operations"
-import { resetScheduleRuntime } from "@vite-hub/schedule/runtime"
+import { createMemoryScheduleRunStore, resetScheduleRuntime } from "@vite-hub/schedule/runtime"
+import { readScheduleConsoleRecords } from "@vite-hub/schedule/runtime/console"
+import { installProcessScheduleRuntime } from "@vite-hub/schedule/runtime/process"
 import { resolveViteHubDispatchKey, signViteHubDispatch } from "@vite-hub/internal/dispatch"
 
 import { consoleDefinitionsKey, consoleDefinitionsRegistryKey, consoleDefinitionsRootKey, consoleSchedulesKey, consoleSchedulesRegistryKey, consoleSchedulesRootKey, consoleSectionsKey, consoleSectionsRegistryKey, consoleSectionsRootKey } from "../src/console/internal.ts"
@@ -131,6 +133,36 @@ describe("Console Schedule runs", () => {
     const catalog = await discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot: root, sections: ["schedules"] })
 
     expect(catalog.manualSchedules).toEqual([{ handler: join(root, "server/schedules/sync.ts"), name: "sync" }])
+  })
+
+  it("shows the time zone that the process runtime uses, when the source sets it with a constant", async () => {
+    const root = await temporaryRoot("vitehub-console-schedule-time-zone-")
+    const plugin = join(root, "console.mjs")
+    await mkdir(join(root, "server/schedules"), { recursive: true })
+    await writeFile(join(root, "server/schedules/brief.ts"), "import { defineSchedule } from 'vite-hub/schedule'\nconst COPENHAGEN = 'Europe/Copenhagen'\nexport default defineSchedule({ cron: '0 14 * * 1', timeZone: COPENHAGEN, handler() {} })\n")
+    const catalog = await discoverConsoleBuildCatalog({ discoveryRoot: root, projectRoot: root, sections: ["schedules"] })
+    await writeConsoleNitroPlugin(plugin, root, ["schedules"], [], catalog, [])
+    const generated = await readFile(plugin, "utf8")
+    expect(generated).toContain(`{ readScheduleConsoleRecords: vitehubConsoleRuntimeReader0 }`)
+    expect(generated).toContain(`import("vite-hub/_internal/schedule/runtime/console")`)
+    expect(generated).toContain(`{ "schedules": vitehubConsoleRuntimeReader0 }`)
+
+    const timeZone = (): Promise<string[]> => definitionsHandler({ method: "GET", req: { method: "GET", url: "http://localhost/api/_vitehub/console/definitions?section=schedules" } })
+      .then(content => content.kind === "record-table" ? content.records.map(record => `${record.cells.timing} / ${record.fields.find(field => field.label === "Time zone")?.value}`) : [])
+    installConsoleDefinitions(root, catalog.content, [], { schedules: readScheduleConsoleRecords })
+    expect(await timeZone()).toEqual(["0 14 * * 1 (Not a static string) / Not a static string"])
+
+    const zone = "Europe/Copenhagen"
+    const runtime = await installProcessScheduleRuntime({
+      registry: { brief: async () => ({ default: defineSchedule({ cron: "0 14 * * 1", handler() {}, timeZone: zone }) }) },
+      scheduleRunStore: createMemoryScheduleRunStore(),
+    })
+    try {
+      expect(await timeZone()).toEqual(["0 14 * * 1 (Europe/Copenhagen) / Europe/Copenhagen"])
+    }
+    finally {
+      await runtime.close()
+    }
   })
 
   it("marks runnable Schedule Definitions in the catalog", async () => {

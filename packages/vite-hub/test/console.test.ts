@@ -750,7 +750,7 @@ describe("Agent invocation console", () => {
       const resolved = { ...config, base: "/portal/" }
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(resolved)])
 
-      expect(resolved.nitro.handlers.filter(handler => handler.route.startsWith("/.well-known/"))).toEqual(applicationHandlers)
+      expect(resolved.nitro.handlers.filter(handler => handler.route?.startsWith("/.well-known/"))).toEqual(applicationHandlers)
       expect(resolved.nitro.handlers).toContainEqual(expect.objectContaining({ route: "/portal/_vitehub/mcp" }))
     }
     finally {
@@ -764,7 +764,7 @@ describe("Agent invocation console", () => {
     addConsoleRpcHandler(config, "/runtime", "/portal/", [], true)
 
     expect(config.handlers.map(handler => handler.route)).toEqual([
-      "/**",
+      undefined,
       "/portal/_vitehub/rpc/**",
       "/portal/_vitehub/env/manage",
       "/portal/_vitehub/schedules/run",
@@ -780,9 +780,9 @@ describe("Agent invocation console", () => {
     const applicationHandler = { handler: "/application/openid.js", route: "/.well-known/openid-configuration" }
     const config = { handlers: [applicationHandler] }
     addConsoleRpcHandler(config, "/runtime", "/portal/", [], true)
-    expect(config.handlers.filter(handler => handler.route.startsWith("/.well-known/oauth-"))).toHaveLength(4)
+    expect(config.handlers.filter(handler => handler.route?.startsWith("/.well-known/oauth-"))).toHaveLength(4)
     addConsoleRpcHandler(config, "/runtime", "/portal/")
-    expect(config.handlers.filter(handler => handler.route.startsWith("/.well-known/"))).toEqual([applicationHandler])
+    expect(config.handlers.filter(handler => handler.route?.startsWith("/.well-known/"))).toEqual([applicationHandler])
     expect(config.handlers.some(handler => handler.handler.endsWith("/mcp-discovery.js"))).toBe(false)
   })
 
@@ -1282,7 +1282,10 @@ describe("Agent invocation console", () => {
       expect(generated).toContain(`import("vite-hub/console/definitions")`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["schedules"])`)
-      expect(generated).not.toContain("vitehubConsoleRuntimeReader")
+      // The runtime reader reads the Definitions that the Process Runtime loaded. It does not import a handler itself.
+      expect(generated).toContain(`{ readScheduleConsoleRecords: vitehubConsoleRuntimeReader0 }`)
+      expect(generated).toContain(`import("vite-hub/_internal/schedule/runtime/console")`)
+      expect(generated).not.toContain("() => import(")
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"schedules":{"kind":"record-table","records":[{"cells":{"manual":"Yes","schedule":"daily","timing":"0 0 1 * 1"},"fields":[{"label":"Kind","value":"Static schedule"},{"label":"Cron","value":"0 0 1 * 1"},{"label":"Time zone","value":"UTC"},{"label":"Manual","value":"Enabled"},{"label":"File","value":"server/schedules/daily.ts"},{"label":"Source","value":"server-schedules"},`)
       expect(generated).toContain(`{"label":"File","value":"server/schedules/dynamic.ts"},{"label":"Source","value":"server-schedules"}`)
       expect(generated).not.toContain(`"Cron","value":"0 10 * * *"`)

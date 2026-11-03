@@ -228,6 +228,11 @@
       "import": "./dist/_internal/schedule/runtime.js",
       "default": "./dist/_internal/schedule/runtime.js"
     },
+    "./_internal/schedule/runtime/console": {
+      "types": "./dist/_internal/schedule/runtime/console.d.ts",
+      "import": "./dist/_internal/schedule/runtime/console.js",
+      "default": "./dist/_internal/schedule/runtime/console.js"
+    },
     "./_internal/schedule/runtime/kv": {
       "types": "./dist/_internal/schedule/runtime/kv.d.ts",
       "import": "./dist/_internal/schedule/runtime/kv.js",

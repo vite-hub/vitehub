@@ -34,6 +34,7 @@ export default defineConfig({
       "src/connect.ts",
       "src/connect/node.ts",
       "src/runtime/agent.ts",
+      "src/runtime/chunk-parameters.ts",
       "src/runtime/d1.ts",
       "src/runtime/default-database.ts",
       "src/runtime/default-database-postgresql.ts",
@@ -52,7 +53,7 @@ export default defineConfig({
       customExports(exports) {
         return normalizePackageExports({
           ...Object.fromEntries(
-            Object.entries(exports).filter(([key]) => !key.startsWith("./runtime/definition-")),
+            Object.entries(exports).filter(([key]) => !key.startsWith("./runtime/definition-") && key !== "./runtime/chunk-parameters"),
           ),
           "./virtual": {
             types: "./dist/virtual.d.ts",

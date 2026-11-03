@@ -1,18 +1,20 @@
 import { existsSync } from "node:fs"
 import { execFile as execFileCallback } from "node:child_process"
-import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises"
-import { createRequire } from "node:module"
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { delimiter, dirname, join, relative, resolve } from "node:path"
 import { promisify } from "node:util"
+import { pathToFileURL } from "node:url"
 
+import { build } from "vite"
 import { afterAll, describe, expect, it } from "vitest"
 
 import {
   acquireDenoDeploymentLock,
   assertSupportedRelocatedImports,
-  collectDenoRuntimePackageNames,
+  denoServerPackagesPlugin,
   finalizeDenoDeploymentOutput,
+  type DenoServerPackages,
 } from "../src/build/deno-runtime-packages.ts"
 
 const temporaryDirectories: string[] = []
@@ -28,6 +30,21 @@ async function temporaryDirectory(prefix: string) {
 }
 
 const execFile = promisify(execFileCallback)
+
+type FinalizeOptions = Parameters<typeof finalizeDenoDeploymentOutput>[0]
+
+/** Finalizes Deno output for a server bundle that keeps no package external unless the test says so. */
+function finalize(options: Omit<FinalizeOptions, "serverPackages"> & { serverPackages?: DenoServerPackages }): Promise<void> {
+  return finalizeDenoDeploymentOutput({ serverPackages: { bundledPackageDirs: [], externalImports: [] }, ...options })
+}
+
+/** Server packages for external imports from one importer; `true` marks a static import. */
+function serverImports(importer: string, imports: Record<string, boolean>, bundledPackageDirs: string[] = []): DenoServerPackages {
+  return {
+    bundledPackageDirs,
+    externalImports: Object.entries(imports).map(([specifier, required]) => ({ importer, required, specifier })),
+  }
+}
 
 async function writeJson(file: string, value: unknown): Promise<void> {
   await mkdir(dirname(file), { recursive: true })
@@ -69,143 +86,44 @@ function parseDeployInvocation(source: string): DeployInvocation {
 }
 
 describe("Deno deployment output", () => {
-  it("finds external packages without treating runtime protocols as npm packages", () => {
-    expect(
-      collectDenoRuntimePackageNames(
-        'import sharp from "sharp";import{image}from "minified-image";export{tool}from"minified-tool"; const tool = ready ? await import("@scope/tool/subpath") : undefined; module.exports = require("native-addon"); const commonjs = __require("commonjs-runtime"); import "node:path"; import "cloudflare:workers"\n//#region node_modules/.pnpm/native-addon@1.0.0/node_modules/native-addon/index.js\n/** @example const got = require("got") */',
-      ),
-    ).toEqual(["@scope/tool", "commonjs-runtime", "minified-image", "minified-tool", "native-addon", "sharp"])
+  it("records bundled packages and external imports from the server module graph", async () => {
+    const root = await temporaryDirectory("vitehub-deno-server-graph-")
+    const entry = join(root, "server.js")
+    await writeJson(join(root, "package.json"), { type: "module" })
+    for (const name of ["bundled-lib", "@scope/bundled"]) {
+      await writeRuntimePackage(root, name, { exports: "./index.js", type: "module" })
+      await writeFile(join(root, "node_modules", ...name.split("/"), "index.js"), `export default ${JSON.stringify(name)}\n`)
+    }
+    await writeFile(entry, [
+      'import bundled from "bundled-lib"',
+      'import scoped from "@scope/bundled"',
+      'import "static-external/subpath"',
+      'export const load = () => import("lazy-external")',
+      'const unused = () => import("shaken-external")',
+      "export default [bundled, scoped]",
+      "",
+    ].join("\n"))
+    let packages: DenoServerPackages | undefined
+
+    await build({
+      build: { rollupOptions: { external: ["lazy-external", "shaken-external", "static-external/subpath"] }, ssr: entry, write: false },
+      configFile: false,
+      logLevel: "silent",
+      plugins: [denoServerPackagesPlugin((result) => { packages = result })],
+      root,
+      ssr: { noExternal: true },
+    })
+
+    expect(packages).toEqual({
+      bundledPackageDirs: [join(root, "node_modules/@scope/bundled"), join(root, "node_modules/bundled-lib")],
+      externalImports: [
+        { importer: entry, required: true, specifier: "static-external/subpath" },
+        { importer: entry, required: false, specifier: "lazy-external" },
+      ],
+    })
   })
 
-  it("finds multiline static package imports", () => {
-    expect(collectDenoRuntimePackageNames(`
-import {
-  first,
-  second,
-} from "multiline-package"
-export {
-  third,
-} from "multiline-export"
-`)).toEqual(["multiline-export", "multiline-package"])
-  })
-
-  it("finds static package imports with Unicode bindings", () => {
-    expect(collectDenoRuntimePackageNames(`
-import café from "unicode-default"
-import * as 配置 from "unicode-namespace"
-import \\u0065scaped from "unicode-escaped-default"
-import * as \\u{914D}\\u7F6E from "unicode-escaped-namespace"
-export { 値 as value } from "unicode-export"
-`)).toEqual(["unicode-default", "unicode-escaped-default", "unicode-escaped-namespace", "unicode-export", "unicode-namespace"])
-  })
-
-  it("does not cross semicolonless statement boundaries while finding static imports", () => {
-    expect(collectDenoRuntimePackageNames(`
-const from = 0
-export default 1
-from
-"not-a-package"
-import {
-  value,
-} from "real-package"
-`)).toEqual(["real-package"])
-  })
-
-  it("finds literal dynamic imports with attributes", () => {
-    expect(collectDenoRuntimePackageNames(`
-await import("data-package", { with: { type: "json" } })
-await import("identifier-options", importOptions)
-await import("function-options", createImportOptions())
-await import(\`template-package\`)
-await import(\`escaped\\u002dtemplate-package\`)
-`)).toEqual(["data-package", "escaped-template-package", "function-options", "identifier-options", "template-package"])
-  })
-
-  it("does not read module calls from nested template text", () => {
-    expect(collectDenoRuntimePackageNames('const value = `outer ${`require("inert-runtime")`}`')).toEqual([])
-  })
-
-  it("finds packages loaded through createRequire aliases", () => {
-    expect(collectDenoRuntimePackageNames(`
-import { createRequire as makeRequire } from "node:module"
-const load = makeRequire(import.meta.url)
-load("aliased-runtime")
-load.resolve("@scope/aliased-resolve/entry")
-loader.load("member-runtime")
-const inert = 'load("inert-runtime")'
-`)).toEqual(["@scope/aliased-resolve", "aliased-runtime"])
-  })
-
-  it("finds CommonJS createRequire aliases and constant require templates", () => {
-    expect(collectDenoRuntimePackageNames(`
-const { createRequire: makeRequire } = require("node:module")
-const moduleApi = __require("module")
-const load = makeRequire(import.meta.url)
-const loadFromApi = moduleApi.createRequire(import.meta.url)
-load(\`template-runtime\`)
-loadFromApi("commonjs-runtime")
-require?.("optional-runtime")
-`)).toEqual(["commonjs-runtime", "optional-runtime", "template-runtime"])
-  })
-
-  it("finds createRequire aliases from bare, namespace, and default module imports", () => {
-    expect(collectDenoRuntimePackageNames(`
-import { createRequire as makeRequire } from "module"
-import * as moduleApi from "node:module"
-import moduleDefault from "node:module"
-const loadBare = makeRequire(import.meta.url)
-const loadNamespace = moduleApi.createRequire(import.meta.url)
-const loadDefault = moduleDefault.createRequire(import.meta.url)
-loadBare("bare-runtime")
-loadNamespace("namespace-runtime")
-loadDefault("default-runtime")
-`)).toEqual(["bare-runtime", "default-runtime", "namespace-runtime"])
-  })
-
-  it("finds createRequire aliases from combined module imports", () => {
-    expect(collectDenoRuntimePackageNames(`
-import moduleApi, { createRequire as makeRequire } from "node:module"
-import moduleDefault, * as moduleNamespace from "module"
-const load = makeRequire(import.meta.url)
-const loadFromNamespace = moduleNamespace.createRequire(import.meta.url)
-load("combined-module-runtime")
-loadFromNamespace("combined-namespace-runtime")
-void moduleApi
-void moduleDefault
-`)).toEqual(["combined-module-runtime", "combined-namespace-runtime"])
-  })
-
-  it("finds createRequire aliases from dynamic module imports", () => {
-    expect(collectDenoRuntimePackageNames(`
-const { createRequire: makeRequire } = await import("node:module")
-const moduleApi = await import("module")
-const load = makeRequire(import.meta.url)
-const loadFromApi = moduleApi.createRequire(import.meta.url)
-load("dynamic-destructured-runtime")
-loadFromApi("dynamic-namespace-runtime")
-`)).toEqual(["dynamic-destructured-runtime", "dynamic-namespace-runtime"])
-  })
-
-  it("ignores import- and require-shaped member calls", () => {
-    expect(collectDenoRuntimePackageNames(`
-loader.import("member-data", { with: { type: "json" } })
-loader . import("spaced-member-import")
-this.#import("private-member-data")
-loader.require("member-require")
-loader.__require("member-helper-require")
-loader.require.resolve("member-resolve")
-loader.__require.resolve("member-helper-resolve")
-loader?.require("optional-member-require")
-loader?.require.resolve("optional-member-resolve")
-loader . require("spaced-member-require")
-loader . __require("spaced-member-helper-require")
-loader . require . resolve("spaced-member-resolve")
-loader ?. require("spaced-optional-member-require")
-loader ?. require . resolve("spaced-optional-member-resolve")
-loader /* receiver */ . /* call */ require("commented-member-require")
-this.#require("private-member-require")
-`))
-      .toEqual([])
+  it("accepts import-shaped member calls in relocated entrypoints", () => {
     expect(() => assertSupportedRelocatedImports(`
 loader . import("member-package")
 loader . import(path)
@@ -213,7 +131,210 @@ loader /* receiver */ . /* call */ import(path)
 `, "application entrypoint")).not.toThrow()
   })
 
-  it("stages literal imports with expression options without resolving member calls", async () => {
+  it("records externals that Nitro 2 keeps as resolved files", () => {
+    // Nitro 2's externals plugin can keep an external as its resolved file path or file URL, and Rollup marks it `isExternal`.
+    const entry = "/app/server/api.ts"
+    const sharp = "file:///app/node_modules/.pnpm/sharp@1/node_modules/sharp/dist/index.mjs"
+    const lazy = "/app/node_modules/@scope/lazy/index.js"
+    const shaken = "/app/node_modules/shaken/index.js"
+    const unusedStatic = "/app/node_modules/missing-static/index.js"
+    const unusedDynamic = "file:///app/node_modules/missing-dynamic/index.js"
+    const modules = new Map([
+      [entry, { code: "", dynamicallyImportedIds: [lazy, unusedDynamic], importedIds: [sharp, shaken, unusedStatic], isExternal: false }],
+      [sharp, { code: null, dynamicallyImportedIds: [], importedIds: [], isExternal: true }],
+      [lazy, { code: null, dynamicallyImportedIds: [], importedIds: [], isExternal: true }],
+      [shaken, { code: "", dynamicallyImportedIds: [], importedIds: [], isExternal: false }],
+      [unusedStatic, { code: null, dynamicallyImportedIds: [], importedIds: [], isExternal: true }],
+      [unusedDynamic, { code: null, dynamicallyImportedIds: [], importedIds: [], isExternal: true }],
+    ])
+    let packages: DenoServerPackages | undefined
+    const plugin = denoServerPackagesPlugin((result) => { packages = result })
+
+    plugin.generateBundle.call({ getModuleInfo: id => modules.get(id) ?? null }, {}, {
+      "index.mjs": { code: "", dynamicImports: [lazy], imports: [sharp], moduleIds: [entry], modules: {}, type: "chunk" },
+    })
+
+    expect(packages).toEqual({
+      bundledPackageDirs: [],
+      externalImports: [
+        { importer: "/app/node_modules/.pnpm/sharp@1/node_modules/sharp/dist/index.mjs", required: true, specifier: "sharp" },
+        { importer: lazy, required: false, specifier: "@scope/lazy" },
+      ],
+    })
+  })
+
+  it("stages packages loaded through createRequire aliases in the server graph", async () => {
+    const root = await temporaryDirectory("vitehub-deno-create-require-alias-")
+    const entry = join(root, "server.js")
+    await writeJson(join(root, "package.json"), { type: "module" })
+    await writeRuntimePackage(root, "aliased-runtime")
+    await writeRuntimePackage(root, "unknown-base")
+    await writeFile(entry, [
+      'import { createRequire as makeRequire } from "node:module"',
+      "const load = makeRequire(import.meta.url)",
+      'load("aliased-runtime")',
+      'try { load("missing-probe") } catch {}',
+      'const unknown = makeRequire(globalThis.runtimeBase)',
+      'unknown("unknown-base")',
+      'load.resolve("resolve-only")',
+      'other.load("member-only")',
+      'const text = \'load("string-only")\'',
+      "console.log(text)",
+    ].join("\n"))
+    let packages: DenoServerPackages | undefined
+
+    await build({
+      build: { outDir: join(root, ".output/server"), rollupOptions: { output: { entryFileNames: "index.mjs" } }, ssr: entry },
+      configFile: false,
+      logLevel: "silent",
+      plugins: [denoServerPackagesPlugin((result) => { packages = result })],
+      root,
+      ssr: { noExternal: true },
+    })
+
+    expect(packages?.externalImports).toEqual([
+      { importer: entry, required: false, specifier: "aliased-runtime" },
+      { importer: entry, required: false, specifier: "missing-probe" },
+    ])
+    await finalize({ rootDir: root, serverPackages: packages })
+    await expect(readFile(join(root, ".output/node_modules/aliased-runtime/marker"), "utf8")).resolves.toBe("aliased-runtime")
+    expect(existsSync(join(root, ".output/node_modules/missing-probe"))).toBe(false)
+    expect(existsSync(join(root, ".output/node_modules/unknown-base"))).toBe(false)
+  })
+
+  it.each(["factory re-export", "exported require alias"])("stages createRequire calls across modules through %s", async (kind) => {
+    const root = await temporaryDirectory("vitehub-deno-cross-module-require-")
+    const entry = join(root, "consumer/index.js")
+    const factory = join(root, "factory/index.js")
+    const base = kind === "factory re-export" ? entry : factory
+    await writeJson(join(root, "package.json"), { type: "module" })
+    await writeRuntimePackage(root, "shared-runtime", { version: "1" })
+    await writeRuntimePackage(dirname(base), "shared-runtime", { version: "2" })
+    await mkdir(dirname(entry), { recursive: true })
+    await mkdir(dirname(factory), { recursive: true })
+    await writeFile(factory, kind === "factory re-export"
+      ? 'export { createRequire as makeRequire } from "node:module"\n'
+      : 'import { createRequire } from "node:module"\nexport const load = createRequire(import.meta.url)\n')
+    await writeFile(entry, [
+      kind === "factory re-export"
+        ? 'import { makeRequire } from "../factory/index.js"\nconst load = makeRequire(import.meta.url)'
+        : 'import { load } from "../factory/index.js"',
+      'export function retained() { return load("shared-runtime") }',
+      'function dead() { return load("shaken-runtime") }',
+      "",
+    ].join("\n"))
+    let packages: DenoServerPackages | undefined
+
+    await build({
+      build: { outDir: join(root, ".output/server"), rollupOptions: { output: { entryFileNames: "index.mjs" } }, ssr: entry },
+      configFile: false,
+      logLevel: "silent",
+      plugins: [denoServerPackagesPlugin((result) => { packages = result })],
+      root,
+      ssr: { noExternal: true },
+    })
+
+    expect(packages?.externalImports).toEqual([{ importer: base, required: false, specifier: "shared-runtime" }])
+    await finalize({ rootDir: root, serverPackages: packages })
+    const staged = JSON.parse(await readFile(join(root, ".output/node_modules/shared-runtime/package.json"), "utf8"))
+    expect(staged.version).toBe("2")
+    expect(existsSync(join(root, ".output/node_modules/shaken-runtime"))).toBe(false)
+  })
+
+  it("ignores a tree-shaken dynamic edge to a different installation of a retained static external", async () => {
+    const root = await temporaryDirectory("vitehub-deno-shaken-external-")
+    const unused = join(root, "unused/index.js")
+    const used = join(root, "used/index.js")
+    await writeRuntimePackage(dirname(unused), "shared-external", { version: "1" })
+    await writeRuntimePackage(dirname(used), "shared-external", { version: "2" })
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), 'import "shared-external"\n')
+    const modules = new Map([
+      [unused, { code: "", dynamicallyImportedIds: ["shared-external"], importedIds: [] }],
+      [used, { code: "", dynamicallyImportedIds: [], importedIds: ["shared-external"] }],
+    ])
+    let packages: DenoServerPackages | undefined
+
+    denoServerPackagesPlugin((result) => { packages = result }).generateBundle.call({ getModuleInfo: id => modules.get(id) ?? null }, {}, {
+      "index.mjs": { code: "", dynamicImports: [], imports: ["shared-external"], moduleIds: [unused, used], modules: {}, type: "chunk" },
+    })
+
+    expect(packages?.externalImports).toEqual([{ importer: used, required: true, specifier: "shared-external" }])
+    await finalize({ rootDir: root, serverPackages: packages })
+    const staged = JSON.parse(await readFile(join(root, ".output/node_modules/shared-external/package.json"), "utf8"))
+    expect(staged.version).toBe("2")
+  })
+
+  it.each(["path", "file URL", "relative URL"])("resolves createRequire calls from their %s base", async (kind) => {
+    const root = await temporaryDirectory("vitehub-deno-create-require-base-")
+    const entry = join(root, "server.js")
+    const base = join(root, "scope/entry.js")
+    await writeJson(join(root, "package.json"), { type: "module" })
+    await writeRuntimePackage(root, "scoped-runtime", { version: "1" })
+    await writeRuntimePackage(dirname(base), "scoped-runtime", { version: "2" })
+    const argument = kind === "path" ? JSON.stringify(base)
+      : kind === "file URL" ? JSON.stringify(pathToFileURL(base).href)
+      : 'new URL("./scope/entry.js", import.meta.url)'
+    await writeFile(entry, `import { createRequire as makeRequire } from "node:module"
+const load = makeRequire(${argument})
+console.log(load("scoped-runtime"))
+`)
+    let packages: DenoServerPackages | undefined
+
+    await build({
+      build: { outDir: join(root, ".output/server"), rollupOptions: { output: { entryFileNames: "index.mjs" } }, ssr: entry },
+      configFile: false,
+      logLevel: "silent",
+      plugins: [denoServerPackagesPlugin((result) => { packages = result })],
+      root,
+      ssr: { noExternal: true },
+    })
+
+    expect(packages?.externalImports).toEqual([{ importer: base, required: false, specifier: "scoped-runtime" }])
+    await finalize({ rootDir: root, serverPackages: packages })
+    const staged = JSON.parse(await readFile(join(root, ".output/node_modules/scoped-runtime/package.json"), "utf8"))
+    expect(staged.version).toBe("2")
+  })
+
+  it("ignores a tree-shaken createRequire call to a different installation", async () => {
+    const root = await temporaryDirectory("vitehub-deno-shaken-create-require-")
+    const entry = join(root, "server.js")
+    const unused = join(root, "unused/index.js")
+    const used = join(root, "used/index.js")
+    await writeJson(join(root, "package.json"), { type: "module" })
+    await writeRuntimePackage(dirname(unused), "shared-runtime", { version: "1" })
+    await writeRuntimePackage(dirname(used), "shared-runtime", { version: "2" })
+    await writeFile(unused, `import { createRequire } from "node:module"
+const load = createRequire(import.meta.url)
+function dead() { return load("shared-runtime") }
+export const retained = true
+`)
+    await writeFile(used, `import { createRequire } from "node:module"
+const load = createRequire(import.meta.url)
+export function retained() { return load("shared-runtime") }
+`)
+    await writeFile(entry, `import { retained } from "./unused/index.js"
+import { retained as load } from "./used/index.js"
+console.log(retained, load())
+`)
+    let packages: DenoServerPackages | undefined
+
+    await build({
+      build: { outDir: join(root, ".output/server"), rollupOptions: { output: { entryFileNames: "index.mjs" } }, ssr: entry },
+      configFile: false,
+      logLevel: "silent",
+      plugins: [denoServerPackagesPlugin((result) => { packages = result })],
+      root,
+      ssr: { noExternal: true },
+    })
+
+    expect(packages?.externalImports).toEqual([{ importer: used, required: false, specifier: "shared-runtime" }])
+    await finalize({ rootDir: root, serverPackages: packages })
+    const staged = JSON.parse(await readFile(join(root, ".output/node_modules/shared-runtime/package.json"), "utf8"))
+    expect(staged.version).toBe("2")
+  })
+
+  it("stages literal imports with import attributes without resolving member calls", async () => {
     const root = await temporaryDirectory("vitehub-deno-import-options-")
     await writeRuntimePackage(root, "data-package")
     await writeRuntimePackage(root, "commonjs-runtime")
@@ -229,11 +350,11 @@ loader.import("member-data", importOptions)
 loader . require("member-require")
 loader ?. require . resolve("member-resolve")
 class Loader { #import = () => {}; load() { this.#import("private-member-data", importOptions) } }
-await import("data-package", importOptions)
+await import("data-package", { with: { type: "json" } })
 `, "utf8")
     await writeFile(join(root, "main.ts"), 'await import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
 
-    await finalizeDenoDeploymentOutput({ rootDir: root })
+    await finalize({ rootDir: root })
 
     await expect(readFile(join(root, ".output/node_modules/data-package/marker"), "utf8")).resolves.toBe("data-package")
     await expect(readFile(join(root, ".output/node_modules/commonjs-runtime/marker"), "utf8")).resolves.toBe("commonjs-runtime")
@@ -242,69 +363,6 @@ await import("data-package", importOptions)
     expect(existsSync(join(root, ".output/node_modules/member-resolve"))).toBe(false)
     expect(existsSync(join(root, ".output/node_modules/private-member-data"))).toBe(false)
   })
-
-  it("ignores import comments", () => {
-    expect(collectDenoRuntimePackageNames('// import("fake")\nimport "real"')).toEqual(["real"])
-  })
-
-  it("ignores import-shaped strings and inline comments", () => {
-    expect(collectDenoRuntimePackageNames(`
-const requireText = 'require("missing-require")'
-const importText = \`import("missing-import")\`
-doThing() // import("missing-comment")
-import "real"
-`)).toEqual(["real"])
-  })
-
-  it("collects literal import.meta.resolve calls without matching inert or member text", () => {
-    expect(collectDenoRuntimePackageNames(`
-const resolveText = 'import.meta.resolve("missing-string")'
-// import.meta.resolve("missing-comment")
-loader.import.meta.resolve("missing-member")
-loader . import . meta . resolve("missing-spaced-member")
-import.meta.resolve("resolved-package")
-import.meta.resolve(\`template-resolved-package\`)
-import.meta.resolve(\`escaped\\u002dresolved-package\`)
-`)).toEqual(["escaped-resolved-package", "resolved-package", "template-resolved-package"])
-  })
-
-  it("ignores import-shaped regular expression literals", () => {
-    expect(collectDenoRuntimePackageNames(String.raw`
-const matcher = /import\("healthcheck"\)/
-const characterClass = /[\\/]require\("missing"\)/g
-if (ready) {} /import\("after-block"\)/.test(value)
-if (ready) { if (nested) {} } /import\("after-nested-if"\)/.test(value)
-switch (value) {} /import\("after-switch"\)/.test(value)
-try {} catch (error) {} /import\("after-catch"\)/.test(value)
-block: {} /import("after-labeled-block")/.test(value)
-label: { if (ready) {} } /import("after-nested-labeled-block")/.test(value)
-if (import("paren-)")) /import("after-import-parenthesis")/.test(value)
-if (ready) { import("brace-}") } /import("after-import-brace")/.test(value)
-try {} catch {} /import("after-optional-catch")/.test(value)
-while (ready) /require\("after-condition"\)/.test(value)
-try {} finally {} /import\("after-finally"\)/.test(value)
-function done() {} /import\("after-function"\)/.test(value)
-class Ready {} /require\("after-class"\)/.test(value)
-export default function() {} /import\("after-anonymous-function"\)/.test(value)
-export default class {} /require\("after-anonymous-class"\)/.test(value)
-import "real"
-`)).toEqual(["brace-}", "paren-)", "real"])
-  })
-
-  it("finds imports after division by masked literals", () => {
-    expect(collectDenoRuntimePackageNames('const ratio="1"/2;import("real-package")')).toEqual(["real-package"])
-    expect(collectDenoRuntimePackageNames('const ratio=/1//2;import("real-package")')).toEqual(["real-package"])
-    expect(collectDenoRuntimePackageNames('const ratio=i++/2;import("real-package")')).toEqual(["real-package"])
-    expect(collectDenoRuntimePackageNames('const ratio=i--/2;import("real-package")')).toEqual(["real-package"])
-    expect(collectDenoRuntimePackageNames('const ratio={ nested: {} }/import("division-package")')).toEqual(["division-package"])
-    expect(collectDenoRuntimePackageNames(`operand${" ".repeat(320)}/ import("spaced-division-package")`)).toEqual(["spaced-division-package"])
-  })
-
-  it("scans generated bundles without repeatedly flattening the complete prefix", () => {
-    const source = `${'const value = "inert import(\\"fake-package\\")";\n'.repeat(50_000)}${"\n".repeat(50_000)}import "real-package"`
-
-    expect(collectDenoRuntimePackageNames(source)).toEqual(["real-package"])
-  }, 2_000)
 
   it("stages explicit Deno Schedule entrypoints for local runs and deployment", async () => {
     const root = await temporaryDirectory("vitehub-deno-schedule-")
@@ -319,7 +377,7 @@ import "real"
     await writeFile(join(root, "server/instrumentation.ts"), 'Object.assign(globalThis, { instrumented: "application-helper" })\n', "utf8")
     await writeFile(join(root, "main.ts"), 'import "./server/instrumentation.ts"\nawait import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
 
-    await finalizeDenoDeploymentOutput({ rootDir: root })
+    await finalize({ rootDir: root })
 
     const applicationBundle = await readFile(join(root, ".output/main.ts"), "utf8")
     expect(applicationBundle).toMatch(/^\/\/ @ts-nocheck/)
@@ -350,7 +408,7 @@ import "real"
     await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), `globalThis.scheduleSource = ${JSON.stringify(publishedSource)}\n`, "utf8")
     await writeFile(join(root, "main.ts"), 'await import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
 
-    await finalizeDenoDeploymentOutput({ hasScheduleIntegration: true, rootDir: root })
+    await finalize({ hasScheduleIntegration: true, rootDir: root })
 
     const scheduleBundle = await readFile(join(root, ".output/schedule/deno-cron.mjs"), "utf8")
     const runtimeSource = scheduleBundle.match(/"(\.\/\.vitehub\/schedule\/sources\/workspace\/report\.txt)"/)?.[1]
@@ -367,7 +425,7 @@ import "real"
     await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "globalThis.scheduleLoaded = true\n", "utf8")
     await writeFile(join(root, "main.ts"), 'import "./schedule/deno-cron.mjs"\nawait import("./server/index.mjs")\n', "utf8")
 
-    await finalizeDenoDeploymentOutput({ rootDir: root })
+    await finalize({ rootDir: root })
 
     await expect(readFile(join(root, ".output/main.ts"), "utf8"))
       .resolves.toContain('import "./schedule/deno-cron.mjs"')
@@ -381,7 +439,7 @@ import "real"
     await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "void 0\n", "utf8")
     await writeFile(join(root, "main.ts"), 'import "./schedule/deno-cron.mjs"\n', "utf8")
 
-    await expect(finalizeDenoDeploymentOutput({ rootDir: root }))
+    await expect(finalize({ rootDir: root }))
       .rejects.toThrow('application entrypoint to import "./server/index.mjs"')
   })
 
@@ -396,7 +454,7 @@ import "real"
       'export async function startServer() { await import("./server/index.mjs") }',
     ].join("\n"), "utf8")
 
-    await expect(finalizeDenoDeploymentOutput({ hasScheduleIntegration: true, rootDir: root }))
+    await expect(finalize({ hasScheduleIntegration: true, rootDir: root }))
       .rejects.toThrow('application entrypoint to import "./schedule/deno-cron.mjs"')
   })
 
@@ -411,7 +469,7 @@ import "real"
       'await import("./server/index.mjs")',
     ].join("\n"), "utf8")
 
-    await expect(finalizeDenoDeploymentOutput({ hasScheduleIntegration: true, rootDir: root }))
+    await expect(finalize({ hasScheduleIntegration: true, rootDir: root }))
       .rejects.toThrow('application entrypoint to import "./schedule/deno-cron.mjs"')
   })
 
@@ -426,7 +484,7 @@ import "real"
       'await import("./server/index.mjs")',
     ].join("\n"), "utf8")
 
-    await expect(finalizeDenoDeploymentOutput({ rootDir: root }))
+    await expect(finalize({ rootDir: root }))
       .rejects.toThrow('application entrypoint to import "./schedule/deno-cron.mjs"')
   })
 
@@ -438,7 +496,7 @@ import "real"
     await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "void 0\n", "utf8")
     await writeFile(join(root, "main.ts"), 'if (globalThis.enabled)\n  await import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
 
-    await expect(finalizeDenoDeploymentOutput({ rootDir: root }))
+    await expect(finalize({ rootDir: root }))
       .rejects.toThrow('application entrypoint to import "./schedule/deno-cron.mjs"')
   })
 
@@ -458,7 +516,7 @@ import "real"
     await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), 'import config from "#config"\nglobalThis.scheduleConfig = config\n', "utf8")
     await writeFile(join(root, "main.ts"), 'import config from "#config"\nglobalThis.entryConfig = config\nawait import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
 
-    await finalizeDenoDeploymentOutput({ rootDir: root })
+    await finalize({ rootDir: root })
 
     await expect(readFile(join(root, ".output/main.ts"), "utf8")).resolves.toContain("mapped-config")
     await expect(readFile(join(root, ".output/schedule/deno-cron.mjs"), "utf8")).resolves.toContain("mapped-config")
@@ -492,7 +550,7 @@ import "real"
       "",
     ].join("\n"), "utf8")
 
-    await finalizeDenoDeploymentOutput({
+    await finalize({
       alias: [{ find: "#helper", replacement: join(helperDir, "src/index.ts") }],
       rootDir: root,
     })
@@ -526,9 +584,10 @@ import "real"
       "",
     ].join("\n"), "utf8")
 
-    await expect(finalizeDenoDeploymentOutput({
+    await expect(finalize({
       alias: [{ find: "#helper", replacement: join(helperDir, "src/index.ts") }],
       rootDir: root,
+      serverPackages: serverImports(join(root, "server/api.ts"), { "shared-runtime": true }),
     })).rejects.toThrow('Deno output imports "shared-runtime" from multiple package installations')
   })
 
@@ -540,12 +599,9 @@ import "real"
     await writeJson(join(first, "package.json"), { name: "shared-runtime", version: "1" })
     await writeJson(join(second, "package.json"), { name: "shared-runtime", version: "2" })
     await mkdir(join(root, ".output/server"), { recursive: true })
-    await writeFile(join(root, ".output/server/index.mjs"), [
-      `//#region ${relative(root, first).replaceAll("\\", "/")}/index.js`,
-      `//#region ${relative(root, second).replaceAll("\\", "/")}/index.js`,
-    ].join("\n"))
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n")
 
-    await expect(finalizeDenoDeploymentOutput({ rootDir: root })).resolves.toBeUndefined()
+    await expect(finalize({ rootDir: root, serverPackages: { bundledPackageDirs: [first, second], externalImports: [] } })).resolves.toBeUndefined()
     expect(existsSync(join(root, ".output/node_modules/shared-runtime"))).toBe(false)
   })
 
@@ -557,7 +613,7 @@ import "real"
     await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "void 0\n", "utf8")
     await writeFile(join(root, "main.ts"), 'await import(new URL("./helper.ts", import.meta.url).href)\n', "utf8")
 
-    await expect(finalizeDenoDeploymentOutput({ rootDir: root })).rejects.toThrow(
+    await expect(finalize({ rootDir: root })).rejects.toThrow(
       'unsupported computed local import "./helper.ts"',
     )
   })
@@ -570,7 +626,7 @@ import "real"
     await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "void 0\n", "utf8")
     await writeFile(join(root, "main.ts"), 'await import("./server/index.mjs")\n', "utf8")
 
-    await expect(finalizeDenoDeploymentOutput({ rootDir: root })).rejects.toThrow(
+    await expect(finalize({ rootDir: root })).rejects.toThrow(
       'application entrypoint to import "./schedule/deno-cron.mjs"',
     )
     expect(existsSync(join(root, ".output/main.ts"))).toBe(false)
@@ -588,7 +644,7 @@ import "real"
       "",
     ].join("\n"), "utf8")
 
-    await finalizeDenoDeploymentOutput({ rootDir: root })
+    await finalize({ rootDir: root })
 
     await expect(readFile(join(root, ".output/main.ts"), "utf8"))
       .resolves.toContain('new URL(`./schedule/deno-cron.mjs`, import.meta.url).href')
@@ -602,7 +658,7 @@ import "real"
     await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), 'await import(new URL("./helper.ts", import.meta.url).href)\n', "utf8")
     await writeFile(join(root, "main.ts"), 'await import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
 
-    await expect(finalizeDenoDeploymentOutput({ rootDir: root })).rejects.toThrow(
+    await expect(finalize({ rootDir: root })).rejects.toThrow(
       'Deno Schedule bundle contains an unsupported computed local import "./helper.ts"',
     )
     expect(existsSync(join(root, ".output/schedule/deno-cron.mjs"))).toBe(false)
@@ -616,7 +672,7 @@ import "real"
     await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "void 0\n", "utf8")
     await writeFile(join(root, "main.ts"), 'const base = import.meta.url\nawait import(new URL("./helper.ts", base).href)\n', "utf8")
 
-    await expect(finalizeDenoDeploymentOutput({ hasScheduleIntegration: true, rootDir: root })).rejects.toThrow(
+    await expect(finalize({ hasScheduleIntegration: true, rootDir: root })).rejects.toThrow(
       "unsupported computed import",
     )
   })
@@ -629,7 +685,7 @@ import "real"
     await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "void 0\n", "utf8")
     await writeFile(join(root, "main.ts"), 'await import("./helper.ts".slice(0))\n', "utf8")
 
-    await expect(finalizeDenoDeploymentOutput({ hasScheduleIntegration: true, rootDir: root })).rejects.toThrow(
+    await expect(finalize({ hasScheduleIntegration: true, rootDir: root })).rejects.toThrow(
       "unsupported computed import",
     )
   })
@@ -651,7 +707,7 @@ import "real"
     await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "void 0\n", "utf8")
     await writeFile(join(root, "main.ts"), '`${await import(new URL("./helper.ts", import.meta.url).href)}`\n', "utf8")
 
-    await expect(finalizeDenoDeploymentOutput({ hasScheduleIntegration: true, rootDir: root })).rejects.toThrow(
+    await expect(finalize({ hasScheduleIntegration: true, rootDir: root })).rejects.toThrow(
       'unsupported computed local import "./helper.ts"',
     )
   })
@@ -665,7 +721,7 @@ import "real"
     await writeFile(join(root, "helper.ts"), 'const base = import.meta.url\nawait import(new URL("./child.ts", base).href)\n', "utf8")
     await writeFile(join(root, "main.ts"), 'import "./helper.ts"\nawait import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
 
-    await expect(finalizeDenoDeploymentOutput({ hasScheduleIntegration: true, rootDir: root })).rejects.toThrow(
+    await expect(finalize({ hasScheduleIntegration: true, rootDir: root })).rejects.toThrow(
       "unsupported computed import",
     )
     expect(existsSync(join(root, ".output/main.ts"))).toBe(false)
@@ -679,7 +735,7 @@ import "real"
     await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "void 0\n", "utf8")
     await writeFile(join(root, "main.ts"), 'const example = `import(new URL("./example.ts", import.meta.url).href)`\n// import(new URL("./comment.ts", import.meta.url).href)\nawait import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
 
-    await expect(finalizeDenoDeploymentOutput({ hasScheduleIntegration: true, rootDir: root })).resolves.toBeUndefined()
+    await expect(finalize({ hasScheduleIntegration: true, rootDir: root })).resolves.toBeUndefined()
   })
 
   it("rejects custom alias resolvers only when a staged entrypoint uses the alias", async () => {
@@ -688,7 +744,7 @@ import "real"
     await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
     await writeFile(join(root, ".output/server/index.mjs"), "void 0\n", "utf8")
 
-    await expect(finalizeDenoDeploymentOutput({ rootDir: root })).resolves.toBeUndefined()
+    await expect(finalize({ rootDir: root })).resolves.toBeUndefined()
 
     await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), 'import "#server-only"\n', "utf8")
     await writeFile(join(root, "main.ts"), 'await import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
@@ -697,10 +753,10 @@ import "real"
       { customResolver: true, find: "#client-only", replacement: join(root, "client.ts") },
       { find: "#server-only", replacement: join(root, "server.ts") },
     ]
-    await expect(finalizeDenoDeploymentOutput({ alias, hasScheduleIntegration: true, rootDir: root })).resolves.toBeUndefined()
+    await expect(finalize({ alias, hasScheduleIntegration: true, rootDir: root })).resolves.toBeUndefined()
 
     alias[1]!.customResolver = true
-    await expect(finalizeDenoDeploymentOutput({ alias, hasScheduleIntegration: true, rootDir: root })).rejects.toThrow(
+    await expect(finalize({ alias, hasScheduleIntegration: true, rootDir: root })).rejects.toThrow(
       "uses customResolver",
     )
   })
@@ -716,7 +772,7 @@ import "real"
     await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), 'import image from "image-package"\nglobalThis.image = image\n', "utf8")
     await writeFile(join(root, "main.ts"), 'await import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
 
-    await finalizeDenoDeploymentOutput({ rootDir: root })
+    await finalize({ rootDir: root })
 
     expect(existsSync(join(root, ".output/node_modules/image-package/package.json"))).toBe(true)
     expect(existsSync(join(root, ".output/node_modules/image-package-linux-x64/package.json"))).toBe(true)
@@ -733,7 +789,7 @@ import "real"
     await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "void 0\n", "utf8")
     await writeFile(join(root, "main.ts"), 'import image from "image-package"\nglobalThis.image = image\nawait import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
 
-    await finalizeDenoDeploymentOutput({ rootDir: root })
+    await finalize({ rootDir: root })
 
     await expect(readFile(join(root, ".output/main.ts"), "utf8")).resolves.toContain('from "image-package"')
     expect(existsSync(join(root, ".output/node_modules/image-package/package.json"))).toBe(true)
@@ -752,42 +808,12 @@ import "real"
     await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), 'await import("schedule-data-package", { with: { type: "json" } })\nawait import(`schedule-template-package`)\n', "utf8")
     await writeFile(join(root, "main.ts"), 'await import("application-data-package", { with: { type: "json" } })\nawait import(`application-template-package`)\nawait import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
 
-    await finalizeDenoDeploymentOutput({ rootDir: root })
+    await finalize({ rootDir: root })
 
     expect(existsSync(join(root, ".output/node_modules/application-data-package/package.json"))).toBe(true)
     expect(existsSync(join(root, ".output/node_modules/schedule-data-package/package.json"))).toBe(true)
     expect(existsSync(join(root, ".output/node_modules/application-template-package/package.json"))).toBe(true)
     expect(existsSync(join(root, ".output/node_modules/schedule-template-package/package.json"))).toBe(true)
-  })
-
-  it("stages packages referenced through literal import.meta.resolve calls", async () => {
-    const root = await temporaryDirectory("vitehub-deno-import-meta-resolve-")
-    await mkdir(join(root, ".output/server"), { recursive: true })
-    await mkdir(join(root, ".vitehub/schedule"), { recursive: true })
-    await writeRuntimePackage(root, "application-resolve-package")
-    await writeRuntimePackage(root, "schedule-resolve-package")
-    await writeRuntimePackage(root, "server-resolve-package")
-    await writeFile(join(root, ".output/server/index.mjs"), 'globalThis.serverPackage = import.meta.resolve("server-resolve-package")\n', "utf8")
-    await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), 'globalThis.schedulePackage = import.meta.resolve("schedule-resolve-package")\n', "utf8")
-    await writeFile(join(root, "main.ts"), 'globalThis.applicationPackage = import.meta.resolve("application-resolve-package")\nawait import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
-
-    await finalizeDenoDeploymentOutput({ rootDir: root })
-
-    for (const name of ["application-resolve-package", "schedule-resolve-package", "server-resolve-package"]) {
-      expect(existsSync(join(root, ".output/node_modules", name, "package.json"))).toBe(true)
-    }
-  })
-
-  it("stages escaped literal imports from generated server output", async () => {
-    const root = await temporaryDirectory("vitehub-deno-server-template-package-")
-    await mkdir(join(root, ".output/server"), { recursive: true })
-    await writeRuntimePackage(root, "server-template-package")
-    await writeFile(join(root, ".output/server/index.mjs"), "await import(`server\\u002dtemplate-package`)\n", "utf8")
-
-    await finalizeDenoDeploymentOutput({ rootDir: root })
-
-    await expect(readFile(join(root, ".output/node_modules/server-template-package/marker"), "utf8"))
-      .resolves.toBe("server-template-package")
   })
 
   it("preserves regex aliases while staging Deno entrypoints", async () => {
@@ -800,7 +826,7 @@ import "real"
     await writeFile(join(root, "src/helper.ts"), 'export default "aliased"\n', "utf8")
     await writeFile(join(root, "main.ts"), 'import value from "virtual/helper"\nglobalThis.entryValue = value\nawait import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
 
-    await finalizeDenoDeploymentOutput({
+    await finalize({
       alias: [{ find: /^virtual\/(.*)$/, replacement: join(root, "src/$1") }],
       rootDir: root,
     })
@@ -828,7 +854,7 @@ import "real"
     await writeFile(join(root, "src/launch.ts"), 'export default "launch-condition"\n', "utf8")
     await writeFile(join(root, "src/default.ts"), 'export default "default-condition"\n', "utf8")
 
-    await finalizeDenoDeploymentOutput({ conditions: ["launch"], hasScheduleIntegration: true, rootDir: root })
+    await finalize({ conditions: ["launch"], hasScheduleIntegration: true, rootDir: root })
 
     for (const file of ["main.ts", "schedule/deno-cron.mjs"]) {
       const source = await readFile(join(root, ".output", file), "utf8")
@@ -853,7 +879,7 @@ import "real"
     await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "void 0\n", "utf8")
     await writeFile(join(root, "main.ts"), 'import field from "./field-package"\nimport extension from "./extension-target"\nglobalThis.values = [field, extension]\nawait import("./schedule/deno-cron.mjs")\nawait import("./server/index.mjs")\n', "utf8")
 
-    await finalizeDenoDeploymentOutput({ extensions: [".mts", ".js"], mainFields: ["browser", "main"], rootDir: root })
+    await finalize({ extensions: [".mts", ".js"], mainFields: ["browser", "main"], rootDir: root })
 
     const source = await readFile(join(root, ".output/main.ts"), "utf8")
     expect(source).toContain("browser-field")
@@ -869,7 +895,7 @@ import "real"
     await writeFile(join(root, ".vitehub/schedule/deno-cron.mjs"), "void 0\n", "utf8")
     await writeFile(join(root, "main.ts"), 'await Promise.all([import("./schedule/deno-cron.mjs"), import("./server/index.mjs")])\n', "utf8")
 
-    await expect(finalizeDenoDeploymentOutput({ rootDir: root })).resolves.toBeUndefined()
+    await expect(finalize({ rootDir: root })).resolves.toBeUndefined()
   })
 
   it("filters optional packages for Deno runtimes and hoists the selected closure once", async () => {
@@ -931,12 +957,9 @@ import "real"
     await writeRuntimePackage(root, "native-wasm32", { cpu: ["wasm32"] })
     await writeRuntimePackage(root, "native-win32-x64", { cpu: ["x64"], os: ["win32"] })
     await mkdir(join(root, ".output/server"), { recursive: true })
-    await writeFile(
-      join(root, ".output/server/index.mjs"),
-      '//#region node_modules/runtime-root/index.js\nimport "required-darwin"\n',
-    )
+    await writeFile(join(root, ".output/server/index.mjs"), 'import "runtime-root"\nimport "required-darwin"\n')
 
-    await finalizeDenoDeploymentOutput({ rootDir: root })
+    await finalize({ rootDir: root, serverPackages: serverImports(join(root, "server/api.ts"), { "required-darwin": true, "runtime-root": true }) })
 
     for (const name of [
       "native-any",
@@ -994,6 +1017,8 @@ load("@img/sharp-linux-x64/sharp.node")
     await writeJson(join(nativeDir, "package.json"), {
       name: "@img/sharp-linux-x64",
       version: "9.9.9",
+      cpu: ["x64"],
+      os: ["linux"],
       exports: { "./sharp.node": "./lib/sharp-linux-x64.node" },
       optionalDependencies: { "@img/sharp-libvips-linux-x64": "9.9.9" },
     })
@@ -1002,16 +1027,19 @@ load("@img/sharp-linux-x64/sharp.node")
     await writeJson(join(libvipsDir, "package.json"), {
       name: "@img/sharp-libvips-linux-x64",
       version: "9.9.9",
+      cpu: ["x64"],
+      os: ["linux"],
       exports: { "./lib": "./lib/index.js" },
     })
     await mkdir(join(libvipsDir, "lib"), { recursive: true })
     await writeFile(join(libvipsDir, "lib/index.js"), "export default {}\n", "utf8")
     await writeFile(join(libvipsDir, "lib/libvips-cpp.so.9"), "native", "utf8")
 
-    await finalizeDenoDeploymentOutput({ deploymentName: "package-default", rootDir })
+    await finalize({ deploymentName: "package-default", rootDir, serverPackages: { bundledPackageDirs: [sharpDir], externalImports: [] } })
 
     expect(existsSync(join(outputDir, "node_modules", "@img", "sharp-linux-x64", "lib/sharp-linux-x64.node"))).toBe(true)
     expect(existsSync(join(outputDir, "node_modules", "@img", "sharp-libvips-linux-x64", "lib/libvips-cpp.so.9"))).toBe(true)
+    expect(existsSync(join(outputDir, "node_modules", "sharp"))).toBe(false)
     await expect(
       readFile(join(outputDir, "deno.json"), "utf8").then(JSON.parse),
     ).resolves.toMatchObject({ nodeModulesDir: "manual" })
@@ -1033,7 +1061,7 @@ load("@img/sharp-linux-x64/sharp.node")
     await writeFile(join(root, ".output/node_modules/staged-runtime/marker"), "preserved", "utf8")
     await writeFile(join(root, ".output/server/index.mjs"), 'import "staged-runtime"\n', "utf8")
 
-    await finalizeDenoDeploymentOutput({ rootDir: root })
+    await finalize({ rootDir: root, serverPackages: serverImports(join(root, "server/api.ts"), { "staged-runtime": true }) })
 
     await expect(readFile(join(root, ".output/node_modules/staged-runtime/marker"), "utf8")).resolves.toBe("preserved")
   })
@@ -1045,7 +1073,7 @@ load("@img/sharp-linux-x64/sharp.node")
     await writeFile(join(root, ".output/server/index.mjs"), 'import "missing-runtime"\n', "utf8")
     await writeFile(join(root, ".output/deno.json"), "prior output\n", "utf8")
 
-    await expect(finalizeDenoDeploymentOutput({ rootDir: root })).rejects.toThrow(
+    await expect(finalize({ rootDir: root, serverPackages: serverImports(join(root, "server/api.ts"), { "missing-runtime": true }) })).rejects.toThrow(
       "Could not resolve package.json for missing-runtime",
     )
 
@@ -1053,145 +1081,32 @@ load("@img/sharp-linux-x64/sharp.node")
     expect((await readdir(root)).some(name => name.startsWith("..output.vitehub-"))).toBe(false)
   })
 
-  it("allows unresolved lazy feature packages but keeps other references required", async () => {
-    const optionalRoot = await temporaryDirectory("vitehub-deno-optional-dynamic-")
-    await writeJson(join(optionalRoot, "package.json"), {})
-    await mkdir(join(optionalRoot, ".output/server"), { recursive: true })
-    await writeFile(join(optionalRoot, ".output/server/index.mjs"), 'async function loadFeature() { return import("missing-feature") }\n')
+  it("skips unresolved dynamic server imports but requires static ones", async () => {
+    const root = await temporaryDirectory("vitehub-deno-optional-imports-")
+    const importer = join(root, "server/api.ts")
+    await writeJson(join(root, "package.json"), {})
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n")
 
-    await expect(finalizeDenoDeploymentOutput({ rootDir: optionalRoot })).resolves.toBeUndefined()
-
-    const requiredRoot = await temporaryDirectory("vitehub-deno-required-dynamic-")
-    await writeJson(join(requiredRoot, "package.json"), {})
-    await mkdir(join(requiredRoot, ".output/server"), { recursive: true })
-    for (const source of [
-      'await import("missing-feature")\n',
-      'const feature = import("missing-feature")\n',
-      '(() => import("missing-feature"))()\n',
-      'const noop = () => 0, feature = import("missing-feature")\n',
-    ]) {
-      await writeFile(join(requiredRoot, ".output/server/index.mjs"), source)
-
-      await expect(finalizeDenoDeploymentOutput({ rootDir: requiredRoot })).rejects.toThrow(
-        "Could not resolve package.json for missing-feature",
-      )
-    }
-  })
-
-  it("allows unresolved guarded require probes but keeps top-level requires required", async () => {
-    const optionalRoot = await temporaryDirectory("vitehub-deno-optional-require-")
-    await writeJson(join(optionalRoot, "package.json"), {})
-    await mkdir(join(optionalRoot, ".output/server"), { recursive: true })
-    await writeFile(join(optionalRoot, ".output/server/index.mjs"), 'try { require("missing-feature") } catch {}\n')
-
-    await expect(finalizeDenoDeploymentOutput({ rootDir: optionalRoot })).resolves.toBeUndefined()
-
-    const conciseRoot = await temporaryDirectory("vitehub-deno-concise-require-")
-    await writeJson(join(conciseRoot, "package.json"), {})
-    await mkdir(join(conciseRoot, ".output/server"), { recursive: true })
-    await writeFile(join(conciseRoot, ".output/server/index.mjs"), 'const load = () => require("missing-feature")\n')
-
-    await expect(finalizeDenoDeploymentOutput({ rootDir: conciseRoot })).resolves.toBeUndefined()
-
-    for (const source of [
-      'const load = () =>\n  require("missing-feature")\n',
-      'const load = () => (prepare(), require("missing-feature"))\n',
-      'const load = () => ({ feature: require("missing-feature") })\n',
-      'const load = () => true\n  && require("missing-feature")\n',
-    ]) {
-      await writeFile(join(conciseRoot, ".output/server/index.mjs"), source)
-      await expect(finalizeDenoDeploymentOutput({ rootDir: conciseRoot }), source).resolves.toBeUndefined()
-    }
-
-    const requiredRoot = await temporaryDirectory("vitehub-deno-required-require-")
-    await writeJson(join(requiredRoot, "package.json"), {})
-    await mkdir(join(requiredRoot, ".output/server"), { recursive: true })
-    await writeFile(join(requiredRoot, ".output/server/index.mjs"), 'const feature = { value: require("missing-feature") }\n')
-
-    await expect(finalizeDenoDeploymentOutput({ rootDir: requiredRoot })).rejects.toThrow(
+    await expect(finalize({ rootDir: root, serverPackages: serverImports(importer, { "missing-feature": false }) })).resolves.toBeUndefined()
+    await expect(finalize({ rootDir: root, serverPackages: serverImports(importer, { "missing-feature": true }) })).rejects.toThrow(
       "Could not resolve package.json for missing-feature",
     )
-
-    for (const source of [
-      '(() => { require("missing-feature") })()\n',
-      '(() => require("missing-feature"))()\n',
-      'const noop = () => 0, value = require("missing-feature")\n',
-      '(() => require("missing-feature")).call(null)\n',
-      '(() => require("missing-feature")).apply(null)\n',
-      '!function () { require("missing-feature") }()\n',
-      'try { require("missing-feature") } finally { cleanup() }\n',
-      'const lazy = () => 0\nrequire("missing-feature")\n',
-    ]) {
-      const eagerRoot = await temporaryDirectory("vitehub-deno-eager-require-")
-      await writeJson(join(eagerRoot, "package.json"), {})
-      await mkdir(join(eagerRoot, ".output/server"), { recursive: true })
-      await writeFile(join(eagerRoot, ".output/server/index.mjs"), source)
-
-      await expect(finalizeDenoDeploymentOutput({ rootDir: eagerRoot }), source).rejects.toThrow(
-        "Could not resolve package.json for missing-feature",
-      )
-    }
-
-    await writeFile(join(optionalRoot, ".output/server/index.mjs"), 'function load() { return require("missing-feature") }\n(ready)()\n')
-    await expect(finalizeDenoDeploymentOutput({ rootDir: optionalRoot })).resolves.toBeUndefined()
-  }, 15_000)
-
-  it("keeps guarded require probes optional when their block has a template literal", async () => {
-    const root = await temporaryDirectory("vitehub-deno-template-require-")
-    await writeJson(join(root, "package.json"), {})
-    await mkdir(join(root, ".output/server"), { recursive: true })
-    // NAPI-RS loaders, such as mdream's, check each binding's version inside its probe.
-    await writeFile(join(root, ".output/server/index.mjs"), `
-try {
-  const binding = require("missing-native")
-  if (binding.version !== "1") throw new Error(\`expected 1 but got \${binding.version}\`)
-} catch {}
-`)
-
-    await expect(finalizeDenoDeploymentOutput({ rootDir: root })).resolves.toBeUndefined()
-  })
-
-  it("classifies multiline concise-arrow dynamic imports by execution", async () => {
-    const root = await temporaryDirectory("vitehub-deno-concise-dynamic-")
-    await writeJson(join(root, "package.json"), {})
-    await mkdir(join(root, ".output/server"), { recursive: true })
-
-    for (const source of [
-      'const load = () =>\n  import("missing-feature")\n',
-      'const load = () => (prepare(), import("missing-feature"))\n',
-      'const load = () => ({ feature: import("missing-feature") })\n',
-    ]) {
-      await writeFile(join(root, ".output/server/index.mjs"), source)
-      await expect(finalizeDenoDeploymentOutput({ rootDir: root }), source).resolves.toBeUndefined()
-    }
-
-    for (const source of [
-      '(() => import("missing-feature")).call(null)\n',
-      '(() => import("missing-feature")).apply(null)\n',
-      'const lazy = () => 0\nimport("missing-feature")\n',
-    ]) {
-      await writeFile(join(root, ".output/server/index.mjs"), source)
-      await expect(finalizeDenoDeploymentOutput({ rootDir: root }), source).rejects.toThrow(
-        "Could not resolve package.json for missing-feature",
-      )
-    }
+    await expect(finalize({
+      rootDir: root,
+      serverPackages: {
+        bundledPackageDirs: [],
+        externalImports: [
+          { importer, required: false, specifier: "missing-feature" },
+          { importer: join(root, "server/other.ts"), required: true, specifier: "missing-feature/subpath" },
+        ],
+      },
+    })).rejects.toThrow("Could not resolve package.json for missing-feature")
   })
 
   it("rejects interpolated template imports before relocation", () => {
     expect(() => assertSupportedRelocatedImports('import(`runtime-${variant}`)', "application entrypoint"))
       .toThrow("contains an unsupported computed import")
-  })
-
-  it("keeps required dynamic packages required across split server chunks", async () => {
-    const root = await temporaryDirectory("vitehub-deno-required-dynamic-chunks-")
-    await writeJson(join(root, "package.json"), {})
-    await mkdir(join(root, ".output/server"), { recursive: true })
-    await writeFile(join(root, ".output/server/a-lazy.mjs"), 'async function loadFeature() { return import("missing-feature") }\n')
-    await writeFile(join(root, ".output/server/b-required.mjs"), 'await import("missing-feature")\n')
-
-    await expect(finalizeDenoDeploymentOutput({ rootDir: root })).rejects.toThrow(
-      "Could not resolve package.json for missing-feature",
-    )
   })
 
   it("recovers prior output left by an interrupted directory swap", async () => {
@@ -1202,7 +1117,7 @@ try {
     await writeFile(join(interruptedStage, "previous/server/index.mjs"), "void 0\n", "utf8")
     await writeFile(join(interruptedStage, "previous/prior-marker"), "recoverable", "utf8")
 
-    await finalizeDenoDeploymentOutput({ rootDir: root })
+    await finalize({ rootDir: root })
 
     await expect(readFile(join(root, ".output/prior-marker"), "utf8")).resolves.toBe("recoverable")
     expect(existsSync(interruptedStage)).toBe(false)
@@ -1217,7 +1132,7 @@ try {
     await mkdir(join(completedStage, "previous/server"), { recursive: true })
     await writeFile(join(completedStage, "previous/server/index.mjs"), "old output\n", "utf8")
 
-    await finalizeDenoDeploymentOutput({ rootDir: root })
+    await finalize({ rootDir: root })
 
     expect(existsSync(completedStage)).toBe(false)
   })
@@ -1231,7 +1146,7 @@ try {
     await mkdir(join(interruptedStage, "output/server"), { recursive: true })
     await writeFile(join(interruptedStage, "output/server/index.mjs"), "stale\n", "utf8")
 
-    await finalizeDenoDeploymentOutput({ rootDir: root })
+    await finalize({ rootDir: root })
 
     expect(existsSync(interruptedStage)).toBe(false)
   })
@@ -1244,7 +1159,7 @@ try {
     await mkdir(join(root, ".output.vitehub-lock"))
     await writeFile(join(root, ".output.vitehub-lock/owner"), `${process.pid}\n`, "utf8")
 
-    await expect(finalizeDenoDeploymentOutput({ rootDir: root }))
+    await expect(finalize({ rootDir: root }))
       .rejects.toThrow("already being finalized")
   })
 
@@ -1256,7 +1171,7 @@ try {
     await mkdir(join(root, ".output.vitehub-lock"))
     await writeFile(join(root, ".output.vitehub-lock/owner"), "2147483647\n", "utf8")
 
-    await finalizeDenoDeploymentOutput({ rootDir: root })
+    await finalize({ rootDir: root })
 
     expect(existsSync(join(root, ".output.vitehub-lock"))).toBe(false)
   })
@@ -1283,170 +1198,66 @@ try {
     await owner.value()
   })
 
-  it("uses the pnpm package from a bundle marker", async () => {
-    const root = await temporaryDirectory("vitehub-deno-pnpm-")
-    const bundled = join(root, "node_modules/.pnpm/sharp@2/node_modules/sharp/package.json")
-    await writeJson(join(root, "package.json"), {})
-    await writeJson(join(root, "node_modules/sharp/package.json"), { name: "sharp", version: "1" })
-    await writeJson(bundled, { name: "sharp", version: "2", optionalDependencies: { native: "2" } })
-    await writeJson(join(dirname(bundled), "node_modules/native/package.json"), { name: "native", version: "2" })
-    await mkdir(join(root, ".output/server"), { recursive: true })
-    await writeFile(join(root, ".output/server/index.ts"), `//#region node_modules/.pnpm/sharp@2/node_modules/sharp/index.js
-import "sharp"
-`)
-    await finalizeDenoDeploymentOutput({ rootDir: root })
-    await expect(readFile(join(root, ".output/node_modules/sharp/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "2" })
-    await expect(readFile(join(root, ".output/node_modules/native/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "2" })
-  })
-
-  it("keeps an owner-selected native package over the project-root installation", async () => {
+  it("resolves an external server import from the module that imports it", async () => {
     const root = await temporaryDirectory("vitehub-deno-owner-native-")
-    const owner = join(root, "node_modules/.pnpm/aaa-owner@2/node_modules/aaa-owner/package.json")
+    const owner = join(root, "node_modules/.pnpm/owner@2/node_modules/owner")
     await writeJson(join(root, "package.json"), {})
     await writeJson(join(root, "node_modules/zzz-native/package.json"), { name: "zzz-native", version: "1" })
-    await writeJson(owner, { name: "aaa-owner", optionalDependencies: { "zzz-native": "2" }, version: "2" })
-    await writeJson(join(dirname(owner), "node_modules/zzz-native/package.json"), { name: "zzz-native", version: "2" })
+    await writeJson(join(owner, "package.json"), { name: "owner", optionalDependencies: { "zzz-native": "2" }, version: "2" })
+    await writeJson(join(dirname(owner), "zzz-native/package.json"), { name: "zzz-native", version: "2" })
     await mkdir(join(root, ".output/server"), { recursive: true })
-    await writeFile(join(root, ".output/server/index.ts"), `//#region node_modules/.pnpm/aaa-owner@2/node_modules/aaa-owner/index.js
-import "aaa-owner"
-require("zzz-native")
-`)
+    await writeFile(join(root, ".output/server/index.mjs"), 'import "zzz-native"\n')
 
-    await finalizeDenoDeploymentOutput({ rootDir: root })
+    await finalize({ rootDir: root, serverPackages: serverImports(join(owner, "index.js"), { "zzz-native": true }, [owner]) })
 
     await expect(readFile(join(root, ".output/node_modules/zzz-native/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "2" })
+    expect(existsSync(join(root, ".output/node_modules/owner"))).toBe(false)
   })
 
-  it("preserves bundle-marker paths above a nested Vite root", async () => {
-    const workspace = await temporaryDirectory("vitehub-deno-monorepo-")
+  it("stages only the Deno platform binaries of bundled packages", async () => {
+    const workspace = await temporaryDirectory("vitehub-deno-bundled-native-")
     const root = join(workspace, "apps/api")
-    const bundledDir = join(workspace, "node_modules/.pnpm/sharp@2/node_modules/sharp")
+    const bundledDir = join(workspace, "node_modules/.pnpm/loader@2/node_modules/loader")
+    const dependencies = join(dirname(bundledDir))
     await writeJson(join(root, "package.json"), {})
-    await writeJson(join(bundledDir, "package.json"), { name: "sharp", optionalDependencies: { native: "2" }, version: "2" })
-    await writeJson(join(dirname(bundledDir), "node_modules/native/package.json"), { name: "native", version: "2" })
+    await writeJson(join(bundledDir, "package.json"), {
+      dependencies: { "loader-helper": "2" },
+      name: "loader",
+      optionalDependencies: {
+        "loader-darwin-arm64": "2",
+        "loader-feature": "2",
+        "loader-linux-x64-gnu": "2",
+        "loader-linux-x64-musl": "2",
+        "loader-missing": "2",
+      },
+      version: "2",
+    })
+    await writeJson(join(dependencies, "loader-helper/package.json"), { name: "loader-helper", version: "2" })
+    await writeJson(join(dependencies, "loader-darwin-arm64/package.json"), { cpu: ["arm64"], name: "loader-darwin-arm64", os: ["darwin"], version: "2" })
+    await writeJson(join(dependencies, "loader-feature/package.json"), { name: "loader-feature", version: "2" })
+    await writeJson(join(dependencies, "loader-linux-x64-gnu/package.json"), { cpu: ["x64"], name: "loader-linux-x64-gnu", os: ["linux"], version: "2" })
+    await writeJson(join(dependencies, "loader-linux-x64-musl/package.json"), { cpu: ["x64"], name: "loader-linux-x64-musl", os: ["linux"], version: "2" })
     await mkdir(join(root, ".output/server"), { recursive: true })
-    await writeFile(
-      join(root, ".output/server/index.ts"),
-      `//#region ${relative(root, bundledDir).replaceAll("\\", "/")}/index.js\n`,
-    )
+    await writeFile(join(root, ".output/server/index.mjs"), "void 0\n")
 
-    await finalizeDenoDeploymentOutput({ rootDir: root })
+    await finalize({ rootDir: root, serverPackages: { bundledPackageDirs: [bundledDir, join(workspace, "node_modules/removed")], externalImports: [] } })
 
-    await expect(readFile(join(root, ".output/node_modules/sharp/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "2" })
-    await expect(readFile(join(root, ".output/node_modules/native/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "2" })
+    await expect(readFile(join(root, ".output/node_modules/loader-linux-x64-gnu/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "2" })
+    for (const name of ["loader", "loader-darwin-arm64", "loader-feature", "loader-helper", "loader-linux-x64-musl", "loader-missing", "removed"]) {
+      expect(existsSync(join(root, ".output/node_modules", name)), name).toBe(false)
+    }
   })
 
-  it("stages a required package that also has a bundle marker", async () => {
-    const root = await temporaryDirectory("vitehub-deno-required-marker-")
+  it("stages a required package that is also bundled", async () => {
+    const root = await temporaryDirectory("vitehub-deno-required-bundled-")
     await writeJson(join(root, "package.json"), {})
     await writeJson(join(root, "node_modules/plain/package.json"), { name: "plain", version: "1" })
     await mkdir(join(root, ".output/server"), { recursive: true })
-    await writeFile(join(root, ".output/server/index.ts"), `//#region node_modules/plain/index.js
-import "plain"
-`)
+    await writeFile(join(root, ".output/server/index.mjs"), 'import "plain"\n')
 
-    await finalizeDenoDeploymentOutput({ rootDir: root })
+    await finalize({ rootDir: root, serverPackages: serverImports(join(root, "server/api.ts"), { plain: true }, [join(root, "node_modules/plain")]) })
 
     await expect(readFile(join(root, ".output/node_modules/plain/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "1" })
-  })
-
-  it("stages packages referenced through require.resolve", async () => {
-    const root = await temporaryDirectory("vitehub-deno-require-resolve-")
-    await writeJson(join(root, "package.json"), {})
-    await writeRuntimePackage(root, "direct-runtime")
-    await writeRuntimePackage(root, "@scope/bundled-runtime")
-    await mkdir(join(root, ".output/server"), { recursive: true })
-    await writeFile(join(root, ".output/server/index.mjs"), `
-require.resolve("direct-runtime", { paths: [process.cwd()] })
-__require.resolve("@scope/bundled-runtime/entry")
-`)
-
-    await finalizeDenoDeploymentOutput({ rootDir: root })
-
-    await expect(readFile(join(root, ".output/node_modules/direct-runtime/marker"), "utf8")).resolves.toBe("direct-runtime")
-    await expect(readFile(join(root, ".output/node_modules/@scope/bundled-runtime/marker"), "utf8")).resolves.toBe("@scope/bundled-runtime")
-  })
-
-  it("stages packages loaded through createRequire aliases", async () => {
-    const root = await temporaryDirectory("vitehub-deno-create-require-alias-")
-    await writeJson(join(root, "package.json"), {})
-    await writeRuntimePackage(root, "aliased-runtime")
-    await mkdir(join(root, ".output/server"), { recursive: true })
-    await writeFile(join(root, ".output/server/index.mjs"), `
-import { createRequire as makeRequire } from "node:module"
-const load = makeRequire(import.meta.url)
-load("aliased-runtime")
-`)
-
-    await finalizeDenoDeploymentOutput({ rootDir: root })
-
-    await expect(readFile(join(root, ".output/node_modules/aliased-runtime/marker"), "utf8")).resolves.toBe("aliased-runtime")
-  })
-
-  it("skips unresolved bundled packages loaded as optional createRequire probes", async () => {
-    const root = await temporaryDirectory("vitehub-deno-create-require-optional-")
-    await writeJson(join(root, "package.json"), {})
-    await mkdir(join(root, ".output/server"), { recursive: true })
-    await writeFile(join(root, ".output/server/index.mjs"), `
-//#region node_modules/.pnpm/@img+sharp-linux-x64@9.9.9/node_modules/@img/sharp-linux-x64/lib/sharp.js
-import { createRequire } from "node:module"
-const load = createRequire(import.meta.url)
-try { load("@img/sharp-linux-x64/sharp.node") } catch {}
-`)
-
-    await expect(finalizeDenoDeploymentOutput({ rootDir: root })).resolves.toBeUndefined()
-    expect(existsSync(join(root, ".output/node_modules/@img/sharp-linux-x64"))).toBe(false)
-  })
-
-  it("keeps bundle probes optional across split server chunks", async () => {
-    const root = await temporaryDirectory("vitehub-deno-create-require-chunks-")
-    await writeJson(join(root, "package.json"), {})
-    await mkdir(join(root, ".output/server"), { recursive: true })
-    await writeFile(join(root, ".output/server/00-probe.mjs"), `
-import { createRequire } from "node:module"
-const load = createRequire(import.meta.url)
-try { load("@img/sharp-linux-x64/sharp.node") } catch {}
-`)
-    await writeFile(join(root, ".output/server/99-bundle.mjs"), `
-//#region node_modules/.pnpm/@img+sharp-linux-x64@9.9.9/node_modules/@img/sharp-linux-x64/lib/sharp.js
-void 0
-`)
-
-    await expect(finalizeDenoDeploymentOutput({ rootDir: root })).resolves.toBeUndefined()
-    expect(existsSync(join(root, ".output/node_modules/@img/sharp-linux-x64"))).toBe(false)
-  })
-
-  it("keeps bundled createRequire probes optional when their bundle marker resolves", async () => {
-    const root = await temporaryDirectory("vitehub-deno-create-require-bundled-optional-")
-    await writeJson(join(root, "package.json"), {})
-    await writeRuntimePackage(root, "optional-native")
-    await mkdir(join(root, ".output/server"), { recursive: true })
-    await writeFile(join(root, ".output/server/index.mjs"), `
-//#region node_modules/optional-native/index.js
-import { createRequire } from "node:module"
-const load = createRequire(import.meta.url)
-try { load("optional-native") } catch {}
-`)
-
-    await finalizeDenoDeploymentOutput({ rootDir: root })
-
-    await expect(readFile(join(root, ".output/node_modules/optional-native/marker"), "utf8")).resolves.toBe("optional-native")
-  })
-
-  it("keeps bundled native probes optional when their recorded package disappears", async () => {
-    const root = await temporaryDirectory("vitehub-deno-missing-bundled-optional-")
-    const missingPackage = join(root, ".output/node_modules/optional-native")
-    await writeJson(join(root, "package.json"), {})
-    await mkdir(join(root, ".output/server"), { recursive: true })
-    await writeFile(join(root, ".output/server/index.mjs"), `
-//#region ${relative(root, missingPackage).replaceAll("\\", "/")}/index.js
-try { require("optional-native") } catch {}
-//#endregion
-`)
-
-    await finalizeDenoDeploymentOutput({ rootDir: root })
-
-    expect(existsSync(join(root, ".output/node_modules/optional-native"))).toBe(false)
   })
 
   it("copies pnpm-style dependency symlinks through the dependency walker", async () => {
@@ -1463,7 +1274,7 @@ try { require("optional-native") } catch {}
     await mkdir(join(root, ".output/server"), { recursive: true })
     await writeFile(join(root, ".output/server/index.ts"), 'import "plain"\n')
 
-    await finalizeDenoDeploymentOutput({ rootDir: root })
+    await finalize({ rootDir: root, serverPackages: serverImports(join(root, "server/api.ts"), { plain: true }) })
 
     await expect(readFile(join(root, ".output/node_modules/plain/node_modules/dependency/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "1" })
   })
@@ -1478,7 +1289,7 @@ try { require("optional-native") } catch {}
     await mkdir(join(root, ".output/server"), { recursive: true })
     await writeFile(join(root, ".output/server/index.ts"), 'import "peer-consumer-a"\nimport "peer-consumer-b"\n')
 
-    await finalizeDenoDeploymentOutput({ rootDir: root })
+    await finalize({ rootDir: root, serverPackages: serverImports(join(root, "server/api.ts"), { "peer-consumer-a": true, "peer-consumer-b": true }) })
 
     expect(existsSync(join(root, ".output/node_modules/shared-peer/package.json"))).toBe(true)
     expect(existsSync(join(root, ".output/node_modules/peer-consumer-a/node_modules/shared-peer"))).toBe(false)
@@ -1496,7 +1307,7 @@ try { require("optional-native") } catch {}
     await mkdir(join(root, ".output/server"), { recursive: true })
     await writeFile(join(root, ".output/server/index.ts"), 'import "peer-consumer-a"\nimport "peer-consumer-b"\n')
 
-    await expect(finalizeDenoDeploymentOutput({ rootDir: root })).rejects.toThrow("Conflicting runtime package installations for shared-peer")
+    await expect(finalize({ rootDir: root, serverPackages: serverImports(join(root, "server/api.ts"), { "peer-consumer-a": true, "peer-consumer-b": true }) })).rejects.toThrow("Conflicting runtime package installations for shared-peer")
   })
 
   it("keeps peer ownership when the matching root package was staged first", async () => {
@@ -1507,12 +1318,12 @@ try { require("optional-native") } catch {}
     await mkdir(join(root, ".output/server"), { recursive: true })
     await writeFile(join(root, ".output/server/index.ts"), 'import "shared-peer"\nimport "peer-consumer"\n')
 
-    await finalizeDenoDeploymentOutput({ rootDir: root })
+    await finalize({ rootDir: root, serverPackages: serverImports(join(root, "server/api.ts"), { "shared-peer": true, "peer-consumer": true }) })
 
     expect(existsSync(join(root, ".output/node_modules/shared-peer/package.json"))).toBe(true)
   })
 
-  it("does not let a skipped bundle marker claim required peer ownership", async () => {
+  it("does not let a bundled package claim required peer ownership", async () => {
     const root = await temporaryDirectory("vitehub-deno-package-peer-marker-")
     await writeJson(join(root, "package.json"), {})
     await writeRuntimePackage(root, "shared-peer", { version: "1.0.0" })
@@ -1520,11 +1331,9 @@ try { require("optional-native") } catch {}
     await writeJson(join(consumerDir, "package.json"), { name: "z-peer-consumer", peerDependencies: { "shared-peer": "^2" }, version: "1" })
     await writeJson(join(consumerDir, "node_modules/shared-peer/package.json"), { name: "shared-peer", version: "2.0.0" })
     await mkdir(join(root, ".output/server"), { recursive: true })
-    await writeFile(join(root, ".output/server/index.ts"), `//#region node_modules/shared-peer/index.js
-import "z-peer-consumer"
-`)
+    await writeFile(join(root, ".output/server/index.ts"), 'import "z-peer-consumer"\n')
 
-    await finalizeDenoDeploymentOutput({ rootDir: root })
+    await finalize({ rootDir: root, serverPackages: serverImports(join(root, "server/api.ts"), { "z-peer-consumer": true }, [join(root, "node_modules/shared-peer")]) })
 
     await expect(readFile(join(root, ".output/node_modules/shared-peer/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "2.0.0" })
   })
@@ -1540,7 +1349,7 @@ import "z-peer-consumer"
     await mkdir(join(root, ".output/server"), { recursive: true })
     await writeFile(join(root, ".output/server/index.ts"), 'import "peer-consumer-a"\nimport "peer-consumer-b"\n')
 
-    await finalizeDenoDeploymentOutput({ rootDir: root })
+    await finalize({ rootDir: root, serverPackages: serverImports(join(root, "server/api.ts"), { "peer-consumer-a": true, "peer-consumer-b": true }) })
 
     await expect(readFile(join(root, ".output/node_modules/shared-peer/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "1.1.0" })
   })
@@ -1556,7 +1365,7 @@ import "z-peer-consumer"
     await mkdir(join(root, ".output/server"), { recursive: true })
     await writeFile(join(root, ".output/server/index.ts"), 'import "peer-consumer-a"\nimport "peer-consumer-b"\n')
 
-    await expect(finalizeDenoDeploymentOutput({ rootDir: root })).rejects.toThrow("Conflicting runtime package installations for shared-peer")
+    await expect(finalize({ rootDir: root, serverPackages: serverImports(join(root, "server/api.ts"), { "peer-consumer-a": true, "peer-consumer-b": true }) })).rejects.toThrow("Conflicting runtime package installations for shared-peer")
   })
 
   it("accepts distinct peer installations for a bare workspace wildcard", async () => {
@@ -1570,7 +1379,7 @@ import "z-peer-consumer"
     await mkdir(join(root, ".output/server"), { recursive: true })
     await writeFile(join(root, ".output/server/index.ts"), 'import "peer-consumer-a"\nimport "peer-consumer-b"\n')
 
-    await finalizeDenoDeploymentOutput({ rootDir: root })
+    await finalize({ rootDir: root, serverPackages: serverImports(join(root, "server/api.ts"), { "peer-consumer-a": true, "peer-consumer-b": true }) })
 
     await expect(readFile(join(root, ".output/node_modules/shared-peer/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "1.1.0" })
   })
@@ -1585,7 +1394,7 @@ import "z-peer-consumer"
     await mkdir(join(root, ".output/server"), { recursive: true })
     await writeFile(join(root, ".output/server/index.ts"), 'import "shared-peer"\nimport "peer-consumer"\n')
 
-    await expect(finalizeDenoDeploymentOutput({ rootDir: root })).rejects.toThrow("Conflicting runtime package installations for shared-peer")
+    await expect(finalize({ rootDir: root, serverPackages: serverImports(join(root, "server/api.ts"), { "shared-peer": true, "peer-consumer": true }) })).rejects.toThrow("Conflicting runtime package installations for shared-peer")
   })
 
   it("does not copy nested development node_modules from runtime packages", async () => {
@@ -1599,56 +1408,31 @@ import "z-peer-consumer"
     await mkdir(join(root, ".output/server"), { recursive: true })
     await writeFile(join(root, ".output/server/index.ts"), 'import "plain"\n')
 
-    await finalizeDenoDeploymentOutput({ rootDir: root })
+    await finalize({ rootDir: root, serverPackages: serverImports(join(root, "server/api.ts"), { plain: true }) })
 
     await expect(readFile(join(root, ".output/node_modules/plain/marker"), "utf8")).resolves.toBe("plain")
     expect(existsSync(join(root, ".output/node_modules/plain/examples/vite/node_modules"))).toBe(false)
   })
 
-  it("does not demote imports found before bundle markers", async () => {
-    const root = await temporaryDirectory("vitehub-deno-import-before-marker-")
+  it("rejects external server imports of one package from different installations", async () => {
+    const root = await temporaryDirectory("vitehub-deno-external-conflict-")
+    const nestedDir = join(root, "packages/helper")
     await writeJson(join(root, "package.json"), {})
-    await writeJson(join(root, "node_modules/plain/package.json"), { name: "plain", version: "1" })
+    await writeJson(join(root, "node_modules/shared-runtime/package.json"), { name: "shared-runtime", version: "1" })
+    await writeJson(join(nestedDir, "node_modules/shared-runtime/package.json"), { name: "shared-runtime", version: "2" })
     await mkdir(join(root, ".output/server"), { recursive: true })
-    await writeFile(join(root, ".output/server/a-import.ts"), 'import "plain"\n')
-    await writeFile(join(root, ".output/server/b-marker.ts"), "//#region node_modules/plain/index.js\n")
+    await writeFile(join(root, ".output/server/index.mjs"), 'import "shared-runtime"\n')
 
-    await finalizeDenoDeploymentOutput({ rootDir: root })
-
-    await expect(readFile(join(root, ".output/node_modules/plain/package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({ version: "1" })
-  })
-
-  it("rejects a server import resolved beside a different bundle marker", async () => {
-    const root = await temporaryDirectory("vitehub-deno-cross-chunk-conflict-")
-    const bundledDir = join(root, "node_modules/.pnpm/shared-runtime@1/node_modules/shared-runtime")
-    const importedDir = join(root, ".output/server/nested/node_modules/shared-runtime")
-    await writeJson(join(root, "package.json"), {})
-    await writeJson(join(bundledDir, "package.json"), { name: "shared-runtime", version: "1" })
-    await writeJson(join(importedDir, "package.json"), { name: "shared-runtime", version: "2" })
-    await mkdir(join(root, ".output/server"), { recursive: true })
-    await writeFile(join(root, ".output/server/a-marker.mjs"), `//#region ${relative(root, bundledDir).replaceAll("\\", "/")}/index.js\n`)
-    await writeFile(join(root, ".output/server/nested/b-import.mjs"), 'import "shared-runtime"\n')
-
-    await expect(finalizeDenoDeploymentOutput({ rootDir: root }))
-      .rejects.toThrow('Deno output imports "shared-runtime" from multiple package installations')
-  })
-
-  it("rejects an external import beside a different bundle marker in the same file", async () => {
-    const root = await temporaryDirectory("vitehub-deno-same-chunk-conflict-")
-    const bundledDir = join(root, "node_modules/.pnpm/shared-runtime@1/node_modules/shared-runtime")
-    const importedDir = join(root, ".output/server/node_modules/shared-runtime")
-    await writeJson(join(root, "package.json"), {})
-    await writeJson(join(bundledDir, "package.json"), { name: "shared-runtime", version: "1" })
-    await writeJson(join(importedDir, "package.json"), { name: "shared-runtime", version: "2" })
-    await mkdir(join(root, ".output/server"), { recursive: true })
-    await writeFile(join(root, ".output/server/index.mjs"), [
-      `//#region ${relative(root, bundledDir).replaceAll("\\", "/")}/index.js`,
-      "//#endregion",
-      'import "shared-runtime"',
-    ].join("\n"))
-
-    await expect(finalizeDenoDeploymentOutput({ rootDir: root }))
-      .rejects.toThrow('Deno output imports "shared-runtime" from multiple package installations')
+    await expect(finalize({
+      rootDir: root,
+      serverPackages: {
+        bundledPackageDirs: [],
+        externalImports: [
+          { importer: join(root, "server/api.ts"), required: true, specifier: "shared-runtime" },
+          { importer: join(nestedDir, "src/index.ts"), required: true, specifier: "shared-runtime" },
+        ],
+      },
+    })).rejects.toThrow('Deno output imports "shared-runtime" from multiple package installations')
   })
 
   it("deploys ignored output from a complete temporary stage and cleans it", async () => {
@@ -1666,7 +1450,7 @@ import "z-peer-consumer"
       await writeFile(join(output, "server/index.mjs"), "void 0\n", "utf8")
       await writeFile(join(output, "node_modules/@img/sharp-linux-x64/lib/sharp-linux-x64.node"), "native", "utf8")
       await writeFile(join(output, "node_modules/@img/sharp-libvips-linux-x64/lib/libvips-cpp.so.8.17.3"), "native", "utf8")
-      await finalizeDenoDeploymentOutput({ rootDir: root })
+      await finalize({ rootDir: root })
 
       await execFile("git", ["init", "--quiet"], { cwd: root })
       const ignored = await execFile("git", ["check-ignore", "--no-index", ".output/server/index.mjs"], { cwd: root })
@@ -1746,10 +1530,6 @@ process.exit(process.env.VITEHUB_DENO_ALWAYS_FAIL === "1" || attempts === 0 ? 1 
   it("executes staged Sharp with Deno", async () => {
     const output = await temporaryDirectory("vitehub-deno-sharp-runtime-")
     const workspaceRoot = resolve(import.meta.dirname, "../../..")
-    const require = createRequire(import.meta.url)
-    const sharpEntry = await realpath(require.resolve("sharp"))
-    const sharpRoot = dirname(dirname(sharpEntry))
-    const sharpMarker = relative(workspaceRoot, sharpRoot).replaceAll("\\", "/")
     try {
       await mkdir(join(output, "server"), { recursive: true })
       const nativeProbe = process.platform === "linux" && process.arch === "x64"
@@ -1758,16 +1538,15 @@ const nativePath = require.resolve("@img/" + "sharp-linux-x64/sharp.node")
 if (!nativePath.endsWith("/@img/sharp-linux-x64/index.cjs")) throw new Error("Sharp's x64 native package did not resolve from the output root")
 `
         : ""
-      await writeFile(join(output, "server/index.mjs"), `//#region ${sharpMarker}/dist/index.mjs
-import { createRequire } from "node:module"
-import sharp from "../node_modules/sharp/dist/index.mjs"
+      await writeFile(join(output, "server/index.mjs"), `import { createRequire } from "node:module"
+import sharp from "sharp"
 
 ${nativeProbe}
 const png = await sharp({ create: { width: 1, height: 1, channels: 4, background: "#123456" } }).png().toBuffer()
 if (png[0] !== 0x89 || png[1] !== 0x50 || png[2] !== 0x4e || png[3] !== 0x47) throw new Error("Sharp did not produce a PNG")
 process.exit(0)
 `, "utf8")
-      await finalizeDenoDeploymentOutput({ outputDir: output, rootDir: workspaceRoot })
+      await finalize({ outputDir: output, rootDir: workspaceRoot, serverPackages: serverImports(import.meta.filename, { sharp: true }) })
       expect(await directorySize(join(output, "node_modules"))).toBeLessThan(64 * 1024 * 1024)
       expect(existsSync(join(output, "node_modules/@img/sharp-linux-x64/node_modules/@img/sharp-libvips-linux-x64"))).toBe(false)
 

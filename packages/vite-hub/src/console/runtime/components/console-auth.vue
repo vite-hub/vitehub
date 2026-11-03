@@ -189,7 +189,6 @@ function navigate(target: AuthConsolePage) {
   });
 }
 watch(page, () => {
-  closeOrganization();
   void refresh();
 });
 watch([search, filter], () => {
@@ -197,7 +196,7 @@ watch([search, filter], () => {
   timer = setTimeout(() => void refresh(), 200);
 });
 watch(offset, () => void refresh());
-// The open organization follows the URL, so Back closes it and a link opens it.
+// The destination URL owns the open organization, including history across Auth pages.
 watch(selectedOrgId, (id) => {
   if (!id) closeOrganization();
   else if (selectedOrg.value?.id !== id) void openOrganization(id);

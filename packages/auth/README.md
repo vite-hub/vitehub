@@ -301,6 +301,16 @@ client.$store.listen("$sessionSignal", () => {});
 
 Read [Better Auth's client docs](https://www.better-auth.com/docs/getting-started/concepts/client) for framework entrypoints and session helpers.
 
+## GitHub organization membership
+
+`isGitHubOrgMember(accessToken, org, { cacheMs, timeoutMs })` from `@vite-hub/auth` returns `true` only for an active membership. The token needs `read:org`. A pending invitation, a non-2xx response, a network error, or a timeout (default 5 seconds) returns `false`. There is no cache by default. With `cacheMs`, a successful check is kept in memory for that time per token and organization, under a SHA-256 key.
+
+```ts
+import { isGitHubOrgMember } from "@vite-hub/auth";
+
+const member = await isGitHubOrgMember(account.accessToken, "acme", { cacheMs: 300_000 });
+```
+
 ## Authenticated Agents
 
 Use `authenticated()` when an Agent should derive its Agent Invoker from the current Auth Session.

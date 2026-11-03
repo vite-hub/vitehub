@@ -13,6 +13,7 @@ icon: i-lucide-code-2
 | `createDatabaseAuthEventStore` from `@vite-hub/auth` | Create the opt-in SQLite or D1 [event log](/docs/auth/events). |
 | `getAuthEvents`, `listAuthEvents`, `aggregateAuthEvents` from `@vite-hub/auth/server` | Read events and daily counts from server code. |
 | `defineAuth` from `@vite-hub/auth` | Declare the Primary Auth Definition. |
+| `isGitHubOrgMember` from `@vite-hub/auth` | Check that a GitHub access token belongs to an active member of an organization. See [GitHub organization membership](#github-organization-membership). |
 | `stateless` from `@vite-hub/auth/presets` | Keep sessions in encrypted cookies, with no database. See [Sessions without a database](/docs/auth/configure#sessions-without-a-database). |
 | `hubAuth` from `@vite-hub/auth/vite` | Register Auth discovery, route exposure, and generated server aliases. |
 | `auth`, `getAuth`, `getAuthForRequest` from `@vite-hub/auth/server` | Access the Better Auth instance from server code. |
@@ -101,6 +102,23 @@ export const app = new H3()
 `auth`, `getAuth()`, `getAuthForRequest()`, and `assertAuthOrigin()` return the instance typed from your Auth Definition, with the endpoints and fields of its plugins. The Vite plugin registers the type of `server/auth.ts` in `.vitehub/types/auth.d.ts`, so `getAuthForRequest(event.req).api.listUsers` type-checks when the definition uses the `admin()` plugin, without a cast. For another definition, `getAuthForDefinition(definition)` infers the type from its argument, and `AuthFor<typeof definition>` from `@vite-hub/auth` names it.
 
 The `authorization` argument and the `getAuthorization(event)` result are a frozen `{ request, session, user }` object. Only the guard or the middleware creates it. A caller cannot pass its own value to the returned handler.
+
+### GitHub organization membership
+
+`isGitHubOrgMember(accessToken, org, options?)` returns `true` only when GitHub says the token's user is an active member of `org`. The token needs the `read:org` scope. A pending invitation, a non-2xx response, a network error, or a timeout returns `false`, so a failed check never admits a user. It uses only `fetch` and Web Crypto, so it runs on Node, Workers, and the other hosts.
+
+| Option | Default | Use |
+| --- | --- | --- |
+| `cacheMs` | No cache | Keep a successful check for this many milliseconds per token and organization. A failed check is never kept. The cache keys are SHA-256 digests, not tokens, and expired keys are removed. |
+| `timeoutMs` | `5000` | Give up on the GitHub request after this many milliseconds. |
+
+```ts [server/utils/members.ts]
+import { isGitHubOrgMember } from '@vite-hub/auth'
+
+export const isTeamMember = (token: string | null | undefined) => isGitHubOrgMember(token, 'acme', { cacheMs: 300_000 })
+```
+
+The cache is in memory, so each Worker isolate or server process has its own. Inline Console Auth with `org` uses the same check at sign-in, without a cache.
 
 ### Authorize access routes
 
