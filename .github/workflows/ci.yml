@@ -361,7 +361,7 @@ jobs:
           node-version: "22.18.0"
 
       - name: Require Node.js 22.18
-        run: node -e 'if (process.version !== "v22.18.0") throw new Error(`Expected Node.js v22.18.0, got ${process.version}`)'
+        run: node -e 'if (process.version !== "v22.18.0") throw new Error("Expected Node.js v22.18.0, got " + process.version)'
       - name: Build tested packages
         run: |
           for task in @vite-hub/rate-limit#build @vite-hub/sandbox#build @vite-hub/database#build @vite-hub/auth#build @vite-hub/agent#build vite-hub#build; do
