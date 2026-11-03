@@ -674,8 +674,13 @@ function deploymentPlugins(
     })
   }
   if (envPlugin) subscribeEnvPlugin(envPlugin)
-  // Nitro 3 names Deno Deploy output `deno-server`; Nuxt's Nitro 2 keeps `deno-deploy`.
-  const nitroPreset = plan.preset === "deno" ? "deno-server" : plan.nitroPreset
+  const resolveNitroPreset = (config: UserConfig | ResolvedConfig) => {
+    // Nuxt replays these hooks for Nitro 2, which retains its Deno and Durable Object preset names.
+    if ((config as { [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean })[VITEHUB_NITRO_CONFIG_CONTEXT] === true) {
+      return plan.preset === "cloudflare" && options.realtime ? "cloudflare-durable" : plan.nitroPreset
+    }
+    return plan.preset === "deno" ? "deno-server" : plan.nitroPreset
+  }
   return [
     {
       name: "vite-hub/deployment-settings",
@@ -683,6 +688,7 @@ function deploymentPlugins(
       config: {
         order: "pre",
         handler(config, environment) {
+          const nitroPreset = resolveNitroPreset(config)
           ;(config as { vitehub?: unknown }).vitehub = {
             ...cloneRecord((config as { vitehub?: unknown }).vitehub),
             preset: plan.preset,
@@ -729,6 +735,7 @@ function deploymentPlugins(
         // Resolve identity after ordinary plugins configure the application root.
         order: "post",
         handler(config, environment) {
+          const nitroPreset = resolveNitroPreset(config)
           const building = environment.command === "build"
           ;(config as { vitehub?: unknown }).vitehub = {
             ...cloneRecord((config as { vitehub?: unknown }).vitehub),
@@ -906,6 +913,7 @@ function deploymentPlugins(
         }
       },
       configResolved(config) {
+        const nitroPreset = resolveNitroPreset(config)
         // SAFETY: Vite preserves the user-defined Nitro field on the resolved config, while ResolvedConfig omits framework extensions from its type.
         const inspectionNitro = (config as ResolvedConfig & { nitro?: { rootDir?: string, output?: { dir?: string } } }).nitro
         deploymentRoot = resolve(inspectionNitro?.rootDir ?? config.root ?? process.cwd())
