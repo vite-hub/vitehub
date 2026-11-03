@@ -40,6 +40,7 @@ const error = shallowRef<unknown>();
 const loading = ref(false);
 const session = shallowRef<ConsoleCommentSession>();
 const canWrite = computed(() => session.value?.capabilities.reply === true);
+// What `comments.session` allows for this thread. The parts show only these controls; the operations check again.
 const can: CommentCan = (action, { message }) => {
   const capabilities = session.value?.capabilities;
   if (!capabilities) return false;
@@ -47,18 +48,16 @@ const can: CommentCan = (action, { message }) => {
   return capabilities[action];
 };
 const link = computed(() => thread.value ? operationLink(thread.value, props.view) : undefined);
-const user = shallowRef<CommentThreadModel["author"]>();
-const confirming = ref(false);
-const deleting = ref(false);
 
 // The panel shows one thread and needs no pins, keys, or deep links, so the state does not start. It still gives the
-// reply box the people to mention and the signed-in user.
+// reply box the people to mention, and the parts the signed-in user and what that user may do.
 const comments = useComments({
   autoStart: false,
+  can,
   client,
   hotkey: false,
   subject: () => thread.value?.subject ?? { id: "/", kind: "page" },
-  user: () => user.value,
+  user: () => session.value?.user,
 });
 provideComments(comments);
 
@@ -69,10 +68,6 @@ const open = computed({
   },
 });
 const title = computed(() => (thread.value ? `Comment ${thread.value.n}` : "Comment"));
-const deleteNote = computed(() => {
-  const count = thread.value?.messages.length ?? 0;
-  return count > 1 ? `Comment ${thread.value?.n} and its ${count} messages are deleted for everyone.` : `Comment ${thread.value?.n} is deleted for everyone.`;
-});
 const where = computed(() => (thread.value ? `On ${consoleCommentSubjectLabel(thread.value.subject)}` : "Loading the thread"));
 
 // Focus lands on the thread, as in CommentPanel, not on the first header button, whose tooltip would cover the title.
@@ -100,7 +95,6 @@ async function load(): Promise<void> {
     const currentSession = await readConsoleCommentSession(props.definitionsBase, found.subject, current.signal, found.id);
     if (current.signal.aborted) return;
     session.value = currentSession;
-    user.value = currentSession.user;
   } catch (cause) {
     if (current.signal.aborted) return;
     error.value = cause;
@@ -114,7 +108,6 @@ watch(
   () => {
     thread.value = undefined;
     session.value = undefined;
-    user.value = undefined;
     void load();
   },
   { immediate: true },
@@ -142,7 +135,8 @@ function gone(id: string): void {
   emit("close");
 }
 
-// CommentThread shows a failure of these handlers next to the reply box.
+// CommentThread shows a failure of these handlers next to the reply box. Deleting the first message deletes the thread,
+// and the part asks first.
 async function reply(body: string, mentions: string[]): Promise<void> {
   if (thread.value) await update(await comments.reply(thread.value.id, body, mentions));
 }
@@ -162,21 +156,6 @@ async function resolve(): Promise<void> {
 async function reopen(): Promise<void> {
   if (thread.value) await update(await comments.reopen(thread.value.id));
 }
-
-async function deleteThread(): Promise<void> {
-  const id = thread.value?.id;
-  if (!id || deleting.value) return;
-  deleting.value = true;
-  try {
-    await comments.remove(id);
-    confirming.value = false;
-    gone(id);
-  } catch (cause) {
-    toast.error(`Couldn't delete the thread. ${cause instanceof Error ? cause.message : "Try again."}`);
-  } finally {
-    deleting.value = false;
-  }
-}
 </script>
 
 <template>
@@ -194,9 +173,7 @@ async function deleteThread(): Promise<void> {
           :attachments="false"
           :dismissible="false"
           :read-only="loading"
-          :can="can"
           :thread="thread"
-          :user="user"
           :on-reply="reply"
           :on-edit="edit"
           :on-delete="remove"
@@ -207,9 +184,6 @@ async function deleteThread(): Promise<void> {
           <template #actions>
             <UTooltip v-if="link" text="Open page">
               <UButton aria-label="Open page" color="neutral" icon="i-lucide-external-link" size="xs" variant="ghost" :href="link" external target="_blank" rel="noreferrer" />
-            </UTooltip>
-            <UTooltip v-if="!loading && session?.capabilities.deleteThread" text="Delete thread">
-              <UButton aria-label="Delete thread" color="neutral" icon="i-lucide-trash-2" size="xs" variant="ghost" @click="confirming = true" />
             </UTooltip>
           </template>
           <template #anchor="{ thread: current }">
@@ -225,19 +199,6 @@ async function deleteThread(): Promise<void> {
       </div>
     </template>
   </USlideover>
-  <UModal v-model:open="confirming" title="Delete this thread?" :ui="{ content: 'sm:max-w-[440px]' }">
-    <template #body>
-      <p class="text-[13px] text-muted">
-        {{ deleteNote }} You can't undo this.
-      </p>
-    </template>
-    <template #footer>
-      <div class="flex w-full justify-end gap-2">
-        <UButton variant="ghost" label="Cancel" @click="confirming = false" />
-        <UButton color="error" label="Delete" :loading="deleting" @click="deleteThread" />
-      </div>
-    </template>
-  </UModal>
 </template>
 
 <style scoped>
