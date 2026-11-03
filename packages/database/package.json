@@ -160,7 +160,9 @@
   },
   "dependencies": {
     "@libsql/client": "catalog:database",
+    "@sqlite.org/sqlite-wasm": "catalog:database",
     "@vite-hub/runtime": "workspace:*",
+    "@vite-hub/web-container": "workspace:*",
     "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
     "jiti": "catalog:unjs",

@@ -64,6 +64,7 @@ export default defineConfig({
       "src/runtime/app.ts",
       "src/runtime/cache-bypass.ts",
       "src/runtime/cloudflare-env.ts",
+      "src/runtime/sqlite-wasm.ts",
       "src/runtime/cloudflare-hosted.ts",
       "src/runtime/h3-v1-request.ts",
       "src/runtime/mcp-tools.ts",
