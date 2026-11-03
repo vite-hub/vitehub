@@ -89,8 +89,8 @@ if (!claimed) throw createError({ statusCode: 409, statusMessage: 'Ticket alread
 
 | Method | Description |
 | --- | --- |
-| `kv.get<T>(key)` | Reads a value or returns `null`. |
-| `kv.getAndDelete<T>(key)` | Atomically returns and deletes a value on Upstash. |
+| `kv.get<T>(key, { type? })` | Reads a value or returns `null`. Pass `type` to convert it, see [Typed reads](#typed-reads). |
+| `kv.getAndDelete<T>(key, { type? })` | Atomically returns and deletes a value on Upstash. `{ type: 'text' }` returns the stored text. |
 | `kv.set<T>(key, value)` | Writes a value. |
 | `kv.setIfAbsent<T>(key, value, { ttl? })` | Atomically writes a value only when the key has none. Returns `true` when this call wrote it. Not on Cloudflare KV. |
 | `kv.has(key)` | Checks whether a key exists. |
@@ -102,6 +102,27 @@ if (!claimed) throw createError({ statusCode: 409, statusMessage: 'Ticket alread
 | `kv.store(name)` | Selects a named KV Store. |
 
 Every async method returns `[error, value]`. The type of `error.code` lists the codes that the method can return, and `error.why`, `error.fix`, and `error.docs` explain each failure. A provider failure has the code `KV_OPERATION_FAILED` and keeps the provider error in `cause`. Application code can log, retry, ignore, or translate the error without `try/catch`. Configuration errors, for example an unknown named store, throw. See [Limits and errors](/docs/kv/limits-and-errors) for each code.
+
+Keys are strings such as `users:alice` or `users/alice`, where `/` and `:` both separate segments. A key must have at least one segment and no `.` or `..` segment: `''`, `':'`, and `'a/../b'` return `KV_OPERATION_FAILED`.
+
+## Typed reads
+
+`kv.get()` parses a stored string as JSON by default, so a value written as the string `'123'` reads back as the number `123`, and `'true'` as `true`. Pass `type` when you need the value in a fixed form:
+
+```ts [server/invite.ts]
+const [error, code] = await kv.get('invite:alice', { type: 'text' })
+// code is the string '123456', not the number 123456
+```
+
+| `type` | Returns |
+| --- | --- |
+| `'text'` | The stored text as a `string`. An object or array value comes back as its JSON text. |
+| `'json'` | The parsed JSON value, as without `type`. |
+| `'bytes'` | A `Uint8Array`. |
+| `'blob'` | A `Blob`. |
+| `'stream'` | A `ReadableStream<Uint8Array>`. |
+
+The return type follows `type`, so `kv.get(key, { type: 'text' })` is `string | null`. A missing key is `null` for every `type`. `kv.getAndDelete()` accepts `{ type: 'text' }`. The Upstash client parses JSON before it returns a value, so on Upstash `'text'` returns the JSON text of that value.
 
 ## Application teardown
 

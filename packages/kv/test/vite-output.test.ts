@@ -65,6 +65,29 @@ async function readOutput(root: string): Promise<string> {
 }
 
 describe("KV Vite output", () => {
+  it("loads the published runtime and lazy operation handler in Node", async () => {
+    const rootDir = await createConsumerRoot()
+    await execFileAsync(process.execPath, ["--input-type=module", "--eval", `
+      import assert from "node:assert/strict"
+      import { disposeKVStores, kv } from "@vite-hub/kv"
+      import { kvOperations } from "@vite-hub/kv/operations"
+
+      try {
+        const [writeError] = await kv.set("token", "123456")
+        assert.ifError(writeError)
+        const [readError, text] = await kv.get("token", { type: "text" })
+        assert.ifError(readError)
+        assert.equal(text, "123456")
+        const get = kvOperations.find(operation => operation.name === "kv.get")
+        // Loading the lazy handler works; operations require the generated config that this Node consumer omits.
+        await assert.rejects(get.run({ key: "token" }), { code: "KV_DISABLED" })
+      }
+      finally {
+        await disposeKVStores()
+      }
+    `], { cwd: rootDir })
+  })
+
   it("keeps runtime chunks independent of the build-time Vite entry", async () => {
     const distDir = resolve(import.meta.dirname, "../dist")
     const files = (await readdir(distDir, { recursive: true, withFileTypes: true }))
