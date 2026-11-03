@@ -2928,11 +2928,13 @@ describe("ViteHub Nuxt integration", () => {
   })
 
   it.each([
-    [2, "deno", false, "deno-deploy"],
-    [3, "deno", false, "deno-server"],
-    [2, "cloudflare", true, "cloudflare-durable"],
-    [3, "cloudflare", true, "cloudflare-module"],
-  ] as const)("uses the installed Nuxt Nitro %s for %s with realtime %s", async (major, preset, realtime, expectedPreset) => {
+    [2, "nuxt", "deno", false, "deno-deploy"],
+    [2, "server builder", "deno", false, "deno-deploy"],
+    [3, "server builder", "deno", false, "deno-server"],
+    [2, "nuxt", "cloudflare", true, "cloudflare-durable"],
+    [2, "server builder", "cloudflare", true, "cloudflare-durable"],
+    [3, "server builder", "cloudflare", true, "cloudflare-module"],
+  ] as const)("uses the installed Nuxt Nitro %s via %s for %s with realtime %s", async (major, owner, preset, realtime, expectedPreset) => {
     const root = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-nitro-"))
     const writePackage = async (directory: string, manifest: object) => {
       await mkdir(directory, { recursive: true })
@@ -2942,17 +2944,24 @@ describe("ViteHub Nuxt integration", () => {
       const nuxtRoot = resolve(root, "node_modules/nuxt")
       await writePackage(nuxtRoot, {
         name: "nuxt",
-        dependencies: major === 2 ? { nitropack: "2.13.4" } : { "@nuxt/nitro-server": "5.0.0" },
+        dependencies: owner === "nuxt" ? { nitropack: "2.13.4" } : { "@nuxt/nitro-server": `${major + 2}.0.0` },
       })
       // The app's standalone Nitro must not override Nuxt's server dependency.
       await writePackage(resolve(root, "node_modules/nitro"), { name: "nitro", version: "3.0.261102-rc" })
-      if (major === 2) {
+      if (owner === "nuxt") {
         await writePackage(resolve(nuxtRoot, "node_modules/nitropack"), { name: "nitropack", version: "2.13.4" })
       }
       else {
-        const builderRoot = resolve(nuxtRoot, "node_modules/@nuxt/nitro-server")
-        await writePackage(builderRoot, { name: "@nuxt/nitro-server", dependencies: { nitro: "3.0.261102-rc" } })
-        await writePackage(resolve(builderRoot, "node_modules/nitro"), { name: "nitro", version: "3.0.261102-rc" })
+        // Model a hoisted Nuxt 4 builder alongside the app's standalone Nitro 3.
+        const builderRoot = resolve(major === 2 ? root : nuxtRoot, "node_modules/@nuxt/nitro-server")
+        await writePackage(builderRoot, {
+          name: "@nuxt/nitro-server",
+          dependencies: major === 2 ? { nitropack: "2.13.4" } : { nitro: "3.0.261102-rc" },
+        })
+        await writePackage(resolve(major === 2 ? root : builderRoot, `node_modules/${major === 2 ? "nitropack" : "nitro"}`), {
+          name: major === 2 ? "nitropack" : "nitro",
+          version: major === 2 ? "2.13.4" : "3.0.261102-rc",
+        })
       }
       const { nuxt, runNitroConfigHook } = createNuxt()
       nuxt.options.rootDir = root

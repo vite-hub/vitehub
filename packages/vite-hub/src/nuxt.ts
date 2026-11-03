@@ -224,11 +224,13 @@ function resolveNuxtNitroMajor(rootDir: string): 2 | 3 {
     const nuxtRequire = createRequire(appRequire.resolve("nuxt/package.json"))
     const nuxtPackage: unknown = nuxtRequire("./package.json")
     const dependencies = isRecord(nuxtPackage) && isRecord(nuxtPackage.dependencies) ? nuxtPackage.dependencies : {}
-    // Nuxt 5 loads Nitro through its server builder; resolve from that owner, not the app's Nitro.
+    // Current Nuxt 4 and 5 load Nitro through their server builder; resolve from that owner.
     const nitroRequire = dependencies["@nuxt/nitro-server"]
       ? createRequire(nuxtRequire.resolve("@nuxt/nitro-server/package.json"))
       : nuxtRequire
-    const nitroPackage: unknown = nitroRequire(dependencies.nitropack ? "nitropack/package.json" : "nitro/package.json")
+    const nitroOwnerPackage: unknown = nitroRequire("./package.json")
+    const nitroDependencies = isRecord(nitroOwnerPackage) && isRecord(nitroOwnerPackage.dependencies) ? nitroOwnerPackage.dependencies : {}
+    const nitroPackage: unknown = nitroRequire(nitroDependencies.nitropack ? "nitropack/package.json" : "nitro/package.json")
     return isRecord(nitroPackage) && typeof nitroPackage.version === "string" && nitroPackage.version.startsWith("3.") ? 3 : 2
   }
   catch {
