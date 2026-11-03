@@ -92,7 +92,9 @@ function missingRuntimeValueMessage(entry: RuntimeEnvEntry | RuntimeProviderEntr
   const supply = entry.source.kind === "env"
     ? `Set ${(entry.source.names || [entry.source.name]).join(" or ")}`
     : "Return it from the provider"
-  return `${path} is required and has no value. Server Env checks every declared value together, so this fails even when code reads only another value. ${supply}, give it a default, or declare it with optional: true.`
+  // A default is serialized into the generated server module, so a secret must not be told to use one.
+  const fix = entry.secret ? `${supply} or declare it with optional: true.` : `${supply}, give it a default, or declare it with optional: true.`
+  return `${path} is required and has no value. Server Env checks every declared value together, so this fails even when code reads only another value. ${fix}`
 }
 
 function resolvedRuntimeValue(entry: RuntimeEnvEntry | RuntimeProviderEntry, value: unknown, found: boolean, path: string, snapshot = false): unknown {

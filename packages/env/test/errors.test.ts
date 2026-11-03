@@ -84,8 +84,15 @@ describe("Env errors", () => {
       details: { path: "env.server.google.clientSecret", source: "env" },
     })
     expect(String(error.cause)).toContain(
-      "env.server.google.clientSecret is required and has no value. Server Env checks every declared value together, so this fails even when code reads only another value. Set VITEHUB_GOOGLE_CLIENT_SECRET or GOOGLE_CLIENT_SECRET, give it a default, or declare it with optional: true.",
+      "env.server.google.clientSecret is required and has no value. Server Env checks every declared value together, so this fails even when code reads only another value. Set VITEHUB_GOOGLE_CLIENT_SECRET or GOOGLE_CLIENT_SECRET or declare it with optional: true.",
     )
+  })
+
+  it("suggests a default only for a value that is not secret", () => {
+    const registry = createRuntimeRegistry({ region: env() })
+
+    const error = capture(() => resolveServerEnv(registry, { env: {} }))
+    expect(String(error.cause)).toContain("Set VITEHUB_REGION or REGION, give it a default, or declare it with optional: true.")
   })
 
   it("reports declaration misuse with Nostics and preserves schema errors", () => {
