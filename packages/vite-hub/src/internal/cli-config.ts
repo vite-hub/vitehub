@@ -3,6 +3,8 @@ import { createRequire } from "node:module"
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
+import { createCliDiscoveryNitroCloser } from "@vite-hub/internal/cli"
+
 import type { ConfigEnv, InlineConfig, ResolvedConfig } from "vite"
 
 const configExtensions = ["js", "mjs", "cjs", "ts", "mts", "cts"]
@@ -46,7 +48,13 @@ async function defaultResolveViteConfig(
   mode: string,
 ): Promise<Pick<ResolvedConfig, "plugins" | "root">> {
   const { resolveConfig } = await import("vite")
-  return await resolveConfig(inlineConfig, command, mode)
+  const nitro = createCliDiscoveryNitroCloser()
+  try {
+    return await resolveConfig({ ...inlineConfig, plugins: [...inlineConfig.plugins ?? [], nitro.plugin] }, command, mode)
+  }
+  finally {
+    await nitro.close()
+  }
 }
 
 export async function loadViteHubCliConfig(

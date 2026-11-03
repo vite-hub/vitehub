@@ -39,7 +39,6 @@ instead of one root barrel.
 | `@vite-hub/email` | Portable provider integration, built-in transports, runtime delivery, Dynamic Markdown composition, and test capture | `@vite-hub/email`, `@vite-hub/email/markdown`, `@vite-hub/email/server`, `@vite-hub/email/test`, `@vite-hub/email/vite` |
 | `@vite-hub/env` | Env Declarations, Public Env, Server Env, Secret Env, generated env access | `@vite-hub/env`, `@vite-hub/env/vite`, `@vite-hub/env/server`, `@vite-hub/env/secret` |
 | `@vite-hub/gateways` | AI gateways: Driver routes for Codex and Claude Code, AI SDK models with `languageModel()`, `ask()` for TypeSafe Jev, the `ask` question builders. No Agent, Vite, or Nitro code. | `@vite-hub/gateways`, `@vite-hub/gateways/ai-sdk` |
-| `@vite-hub/icons` | The ViteHub icon set as an Iconify collection with the prefix `vitehub`, one icon for each Server Primitive and Console area | `@vite-hub/icons` |
 | `@vite-hub/kv` | KV Runtime Helper and configured KV Stores | `@vite-hub/kv`, `@vite-hub/kv/vite` |
 | `@vite-hub/markdown-template` | Markdown files and strings with data bindings, conditions, and fragments | `@vite-hub/markdown-template` |
 | `@vite-hub/queue` | Queue Definitions, queue dispatch Runtime Helpers, provider queue output | `@vite-hub/queue`, `@vite-hub/queue/vite` |
@@ -50,6 +49,7 @@ instead of one root barrel.
 | `@vite-hub/shell` | Shell-shaped runtime execution providers and Workspace shell integration helpers | `@vite-hub/shell`, `@vite-hub/shell/workspace` |
 | `@vite-hub/source` | Source Definitions and Source Loaders for file, glob, markdown, GitHub, custom, and MCP resource retrieval | `@vite-hub/source`, `@vite-hub/source/*` |
 | `@vite-hub/ui` | AI SDK-native Vue and Nuxt components, headless message scrolling, shadcn/ui parts, and Pierre code views | `@vite-hub/ui`, `@vite-hub/ui/<name>`, `@vite-hub/ui/headless`, `@vite-hub/ui/nuxt`, `@vite-hub/ui/vite` |
+| `@vite-hub/web-container` | Browser WebContainer lifecycle, app commands, preview readiness, snapshots, scoped isolation headers, and connection metadata | `@vite-hub/web-container`, `@vite-hub/web-container/vite`, `@vite-hub/web-container/env`, `@vite-hub/web-container/connect` |
 | `@vite-hub/workflow` | Workflow Definitions, durable run state, step execution, provider workflow output | `@vite-hub/workflow`, `@vite-hub/workflow/vite` |
 | `@vite-hub/workspace` | Workspace Definitions, Workspace Stores, history contracts, Source Bindings, Workspace runtime facades, Workspace extensions | `@vite-hub/workspace`, `@vite-hub/workspace/vite`, `@vite-hub/workspace/runtime` |
 
@@ -59,6 +59,7 @@ instead of one root barrel.
 | --- | --- | --- |
 | `@vite-hub/cli` | Public CLI package | Loads Vite config and runs package-owned CLI namespaces. |
 | `@vite-hub/codemods` | Public CLI package | Migrates applications to ViteHub with `npx @vite-hub/codemods <codemod>`, for example from `nuxt-safe-runtime-config` to Env. |
+| `@vite-hub/icons` | Internal package | The ViteHub icon set (`i-vitehub-*`). `@vite-hub/ui` and the Console bundle it; it is not published. |
 | `@vite-hub/internal` | Internal package | Shared discovery, Provider Output, provisioning, runtime, and build helpers. |
 
 ## Package rules

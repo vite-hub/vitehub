@@ -58,6 +58,8 @@
       "@vite-hub/shell/*": ["../../packages/shell/src/*"],
       "@vite-hub/source": ["../../packages/source/src/index.ts"],
       "@vite-hub/source/*": ["../../packages/source/src/*"],
+      "@vite-hub/web-container": ["../../packages/web-container/src/index.ts"],
+      "@vite-hub/web-container/*": ["../../packages/web-container/src/*"],
       "@vite-hub/workflow": ["../../packages/workflow/src/index.ts"],
       "@vite-hub/workflow/*": ["../../packages/workflow/src/*"],
       "@vite-hub/workspace": ["../../packages/workspace/src/index.ts"],
