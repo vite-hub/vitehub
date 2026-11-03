@@ -95,6 +95,21 @@
       "import": "./dist/eve.js",
       "default": "./dist/eve.js"
     },
+    "./internal/workspace/internal/runtime/hosted": {
+      "types": "./dist/internal/workspace/internal/runtime/hosted.d.ts",
+      "import": "./dist/internal/workspace/internal/runtime/hosted.js",
+      "default": "./dist/internal/workspace/internal/runtime/hosted.js"
+    },
+    "./internal/workspace/internal/runtime/hosted-vercel-blob": {
+      "types": "./dist/internal/workspace/internal/runtime/hosted-vercel-blob.d.ts",
+      "import": "./dist/internal/workspace/internal/runtime/hosted-vercel-blob.js",
+      "default": "./dist/internal/workspace/internal/runtime/hosted-vercel-blob.js"
+    },
+    "./internal/workspace/runtime": {
+      "types": "./dist/internal/workspace/runtime.d.ts",
+      "import": "./dist/internal/workspace/runtime.js",
+      "default": "./dist/internal/workspace/runtime.js"
+    },
     "./invocations/d1": {
       "types": "./dist/invocations/d1.d.ts",
       "import": "./dist/invocations/d1.js",

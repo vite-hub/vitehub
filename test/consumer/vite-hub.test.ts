@@ -1609,7 +1609,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         readFile(join(appDir, ".vercel/output/config.json"), "utf8"),
       ])
       expect(agentRoute).toContain("vite-hub/_internal/agent")
-      expect(agentRoute).toContain("vite-hub/_internal/workspace/runtime")
+      expect(agentRoute).toContain("vite-hub/_internal/agent/internal/workspace/runtime")
       expect(authTypes).toContain("namespace ViteHub")
       expect(authServerTypes).toContain("vite-hub/auth/server")
       expect(blobPlugin).toContain("vite-hub/_internal/blob/runtime/state")
