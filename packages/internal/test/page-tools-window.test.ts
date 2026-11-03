@@ -112,6 +112,25 @@ describe("page tool window", () => {
     expect(host.style.colorScheme).toBe("")
   })
 
+  it("has an Open in new tab link only when the tool gives the window a URL", () => {
+    const signal = new AbortController().signal
+    createViteHubPageWindow({ id: "comments", title: "Comments", trigger: document.createElement("button"), signal })
+    let href: string | undefined = "http://site.test/_vitehub/schedules?record=nightly"
+    const window = createViteHubPageWindow({ id: "console", title: "Console", trigger: document.createElement("button"), signal, href: () => href })
+    const [plain, framed] = [...document.querySelectorAll<HTMLElement>("vitehub-window")].map(host => host.shadowRoot!)
+    expect(plain!.querySelector("header a")).toBeNull()
+    const link = framed!.querySelector<HTMLAnchorElement>("header a")!
+    expect([...framed!.querySelector("header")!.children].map(child => child.getAttribute("aria-label") ?? child.localName)).toEqual(["h2", "Open in new tab", "Expand window", "Minimize window"])
+    expect([link.href, link.target, link.rel, link.title, link.hidden]).toEqual([href, "_blank", "noopener", "Open in new tab", false])
+    // The window reads the URL again before the link is used, so it follows navigation inside the window.
+    href = "http://site.test/_vitehub/schedules?record=weekly"
+    link.dispatchEvent(new PointerEvent("pointerdown", { button: 1 }))
+    expect(link.href).toBe(href)
+    href = undefined
+    window.show()
+    expect([link.hidden, link.hasAttribute("href")]).toEqual([true, false])
+  })
+
   it("opens from the edge where the pill docks, follows it, and grows from the side away from the pill", () => {
     const signal = new AbortController().signal
     const first = createViteHubPageWindow({ id: "content", title: "Content", trigger: document.createElement("button"), signal })

@@ -19,6 +19,17 @@ const appearance = () => {
   }
   catch { return undefined }
 }
+/**
+ * The full page of what a Console window shows: the same route, query, and hash, without the `embed` frame mode. The
+ * window's **Open in new tab** link and the fallback link both use it.
+ */
+export function consolePageUrl(base: string, route: string, origin = location.origin): string {
+  const url = new URL(`${base}${route}`, origin)
+  // Filter the raw query, so the other parameters keep their exact text.
+  url.search = url.search.slice(1).split("&").filter(part => part && part.split("=")[0] !== "embed").join("&")
+  return url.href
+}
+
 const start: ViteHubPageToolModule["default"] = (context) => {
   const { bar, tool, signal } = context
   const shadow = bar.attachShadow({ mode: "open" })
@@ -45,7 +56,7 @@ const start: ViteHubPageToolModule["default"] = (context) => {
   let requested: string | undefined
   let loading: HTMLElement | undefined
   let loadTimer: ReturnType<typeof setTimeout> | undefined
-  const panel = context.createWindow({ id: `${base}:${tool.id}`, title: tool.label, trigger: button, colorScheme: appearance })
+  const panel = context.createWindow({ id: `${base}:${tool.id}`, title: tool.label, trigger: button, colorScheme: appearance, href: () => consolePageUrl(base, route) })
   const open = (path?: string) => {
     if (path) {
       const target = new URL(`${base}${path}`, location.origin)
@@ -55,10 +66,11 @@ const start: ViteHubPageToolModule["default"] = (context) => {
     if (!frame) {
       frame = document.createElement("iframe")
       frame.title = `${tool.label} editor`
-      const url = new URL(`${base}${requested ?? route}`, location.origin)
+      route = requested ?? route
+      requested = undefined
+      const url = new URL(`${base}${route}`, location.origin)
       url.searchParams.set("embed", "1")
       frame.src = url.href
-      requested = undefined
       const frameStyle = document.createElement("style")
       frameStyle.textContent = windowStyles
       loading = document.createElement("div")
@@ -67,7 +79,7 @@ const start: ViteHubPageToolModule["default"] = (context) => {
       status.setAttribute("role", "status")
       status.textContent = `Loading ${tool.label}…`
       const link = document.createElement("a")
-      link.href = url.href
+      link.href = consolePageUrl(base, route)
       link.target = "_blank"
       link.rel = "noopener"
       link.textContent = "Open in a new tab"
