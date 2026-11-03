@@ -1,5 +1,6 @@
 import { afterEach, expect, it } from "vitest"
-import type { LanguageModelV4StreamPart } from "@ai-sdk/provider"
+import type { LanguageModelV4, LanguageModelV4StreamPart } from "@ai-sdk/provider"
+import { generateText } from "ai"
 import * as v from "valibot"
 import { chatgpt as chatgptGateway, openai } from "@vite-hub/gateways"
 import { chatgpt } from "../../connections/src/chatgpt.ts"
@@ -9,12 +10,13 @@ import { createConnectionsRuntime } from "../../connections/src/runtime.ts"
 import { createChatGPTFake } from "../../connections/test/chatgpt-fake.ts"
 import { createStore } from "../../connections/test/helpers.ts"
 import { defineAgent, defineCapability, runAgent } from "../src/index.ts"
+import type { AgentCapabilityDefinition } from "../src/types.ts"
 import { chatgptPlanRequest, collectStream } from "../src/internal/chatgpt-model.ts"
 
 const cleanup: Array<() => Promise<void>> = []
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close() })
 
-async function fixture() {
+async function fixture(capabilities: AgentCapabilityDefinition[] = []) {
   const fake = await createChatGPTFake()
   cleanup.push(fake.close)
   const runtime = createConnectionsRuntime({
@@ -27,7 +29,7 @@ async function fixture() {
   const calls: string[] = []
   const agent = defineAgent({
     name: "assistant", runtime: false,
-    capabilities: [defineCapability({ id: "siwc-test", tools: { siwc_echo: { name: "siwc_echo", description: "Echo a value.", inputSchema: v.object({ text: v.string() }), execute: async ({ text }) => { calls.push(text); return text } } } })],
+    capabilities: [...capabilities, defineCapability({ id: "siwc-test", tools: { siwc_echo: { name: "siwc_echo", description: "Echo a value.", inputSchema: v.object({ text: v.string() }), execute: async ({ text }) => { calls.push(text); return text } } } })] as const,
     driver: { model: "gpt-6.1-sol", gateway: chatgptGateway(), instructions: "Reply with a short greeting." },
   })
   const host = {
@@ -63,6 +65,26 @@ it("runs the Agent's tools between plan requests", async () => {
   expect(JSON.stringify(test.fake.state.requests[1]?.input)).toContain("function_call_output")
   expect(test.fake.state.requests[1]).toMatchObject({ store: false, stream: true })
   expect(result).toMatchObject({ text: "Hello from the local ChatGPT fake." })
+})
+
+it("inherits the ChatGPT plan for capability models and preserves explicit model overrides", async () => {
+  const test = await fixture([defineCapability({
+    id: "inherited-model",
+    async resolve(context) {
+      const model = await context.model.resolve()
+      expect(model).toMatchObject({ provider: "chatgpt", modelId: "gpt-6.1-sol" })
+      const result = await generateText({ model: model as LanguageModelV4, prompt: "Capability greeting." })
+      expect(result.text).toBe("Hello from the local ChatGPT fake.")
+      // An explicit capability model keeps its own gateway selection.
+      expect(await context.model.resolve(() => "openai/other-model"))
+        .toMatchObject({ provider: "gateway", modelId: "openai/other-model" })
+    },
+  })])
+  expect(await test.run()).toMatchObject({ text: "Hello from the local ChatGPT fake." })
+  expect(test.fake.state.requests).toHaveLength(2)
+  expect(test.fake.state.requests[0]).toMatchObject({ model: "gpt-6.1-sol", store: false, stream: true })
+  expect(JSON.stringify(test.fake.state.requests[0]?.input)).toContain("Capability greeting.")
+  expect(test.fake.state.originators).toEqual(["My SIWC app", "My SIWC app"])
 })
 
 it("maps plan errors to the ChatGPT diagnostics", async () => {
