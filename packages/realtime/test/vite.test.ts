@@ -100,7 +100,7 @@ describe("hubRealtime", () => {
     await hook(config)
 
     expect(config.nitro).toMatchObject({
-      preset: "cloudflare-durable",
+      preset: "cloudflare-module",
       // Loaded on the first Realtime request, so the server (Tiptap, ProseMirror, Yjs) stays out of the Worker's start.
       handlers: [expect.objectContaining({ lazy: true, route: "/wiki/api/_vitehub/realtime/**" })],
       cloudflare: {

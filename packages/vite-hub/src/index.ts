@@ -567,6 +567,8 @@ type ResolvedBuildConfig = {
   preserveSymlinks: boolean
 }
 
+interface BundlerConfig { plugins?: unknown }
+
 function deploymentNitroModule(
   plan: DeploymentPlan,
   services: DeploymentServicesManifest,
@@ -579,9 +581,10 @@ function deploymentNitroModule(
   return (nitro: {
     hooks: {
       hook: ((name: "compiled", callback: () => Promise<void>) => void)
-        & ((name: "rollup:before", callback: (nitro: unknown, config: { plugins?: unknown }) => void) => void)
+        & ((name: "build:config", callback: (nitro: unknown, config: { rolldown?: BundlerConfig, rollup?: BundlerConfig }) => void) => void)
+        & ((name: "rollup:before", callback: (nitro: unknown, config: BundlerConfig) => void) => void)
     }
-    options: { cloudflare?: { deployConfig?: boolean }, commands: Record<string, unknown>, output: { dir: string, serverDir: string }, preset?: string, rootDir: string }
+    options: { builder?: string | false, cloudflare?: { deployConfig?: boolean }, commands: Record<string, unknown>, output: { dir: string, serverDir: string }, preset?: string, rootDir: string }
   }) => {
     if (deploymentPresetFromNitro(nitro.options.preset) !== plan.preset) return
     if (plan.preset === "cloudflare" && nitro.options.cloudflare?.deployConfig !== false && !isDeployCommandOwned()) {
@@ -595,10 +598,15 @@ function deploymentNitroModule(
     }
     let serverPackages: DenoServerPackages | undefined
     if (plan.output.packaging === "deno-node-modules") {
-      nitro.hooks.hook("rollup:before", (_nitro, config) => {
-        const plugins = Array.isArray(config.plugins) ? config.plugins : config.plugins ? [config.plugins] : []
-        config.plugins = [...plugins, denoServerPackagesPlugin((packages) => { serverPackages = packages })]
-      })
+      const addPackagesPlugin = (bundler: BundlerConfig | undefined) => {
+        if (!bundler) return
+        const plugins = Array.isArray(bundler.plugins) ? bundler.plugins : bundler.plugins ? [bundler.plugins] : []
+        bundler.plugins = [...plugins, denoServerPackagesPlugin((packages) => { serverPackages = packages })]
+      }
+      // Nitro 3 always resolves `builder` and passes `{ rolldown }` or `{ rollup }` to `build:config`. Nitro 2 has
+      // no `builder` option and only calls `rollup:before`, which Nitro 3 deprecates.
+      if (nitro.options.builder === undefined) nitro.hooks.hook("rollup:before", (_nitro, config) => addPackagesPlugin(config))
+      else nitro.hooks.hook("build:config", (_nitro, config) => addPackagesPlugin(config.rolldown ?? config.rollup))
     }
     nitro.hooks.hook("compiled", async () => {
       const outputDir = nitro.options.output.dir
@@ -666,7 +674,8 @@ function deploymentPlugins(
     })
   }
   if (envPlugin) subscribeEnvPlugin(envPlugin)
-  const nitroPreset = plan.preset === "cloudflare" && options.realtime ? "cloudflare-durable" : plan.nitroPreset
+  // Nitro 3 names Deno Deploy output `deno-server`; Nuxt's Nitro 2 keeps `deno-deploy`.
+  const nitroPreset = plan.preset === "deno" ? "deno-server" : plan.nitroPreset
   return [
     {
       name: "vite-hub/deployment-settings",

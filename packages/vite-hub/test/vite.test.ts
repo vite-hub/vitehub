@@ -1315,7 +1315,7 @@ describe("vitehub", () => {
     ["cloudflare", "cloudflare-module"],
     ["netlify", "netlify"],
     ["vercel", "vercel"],
-    ["deno", "deno-deploy"],
+    ["deno", "deno-server"],
     ["node", "node-server"],
   ] as const)("maps the %s deployment plan to Nitro %s", async (preset, nitroPreset) => {
     const config: Record<string, unknown> = preset === "deno"
@@ -1425,7 +1425,7 @@ describe("vitehub", () => {
     const config = await applyDeploymentConfig({ preset: "cloudflare", realtime: true })
 
     expect(config.nitro).toMatchObject({
-      preset: "cloudflare-durable",
+      preset: "cloudflare-module",
       cloudflare: {
         wrangler: {
           durable_objects: {
@@ -1716,7 +1716,7 @@ describe("vitehub", () => {
 
     expect(() => callHook(plugin.configResolved, [{
       command: "build",
-      nitro: { preset: "deno-deploy" },
+      nitro: { preset: "deno-server" },
       plugins: [],
       resolve: { alias: [{ customResolver, find: "#app", replacement: "/app/index.ts" }] },
     }])).not.toThrow()
@@ -1745,19 +1745,20 @@ describe("vitehub", () => {
     }
     callHook(output.configResolved, [{ ...resolvedConfig, nitro: nitroConfig }])
     let compiled: (() => Promise<void>) | undefined
-    const rollupConfig: { plugins?: unknown } = {}
+    const rolldownConfig: { plugins?: unknown } = {}
     const nitro = {
       hooks: {
         hook: vi.fn((name: string, callback: (...args: unknown[]) => unknown) => {
           // SAFETY: Nitro passes the compiled hook no arguments, and this test awaits it.
           if (name === "compiled") compiled = callback as () => Promise<void>
-          if (name === "rollup:before") callback(nitro, rollupConfig)
+          if (name === "build:config") callback(nitro, { builder: "vite", rolldown: rolldownConfig })
         }),
       },
       options: {
+        builder: "vite",
         commands: nitroConfig.commands,
         output: { dir: "/app/.output", serverDir: "/app/.output/server" },
-        preset: "deno_deploy",
+        preset: "deno_server",
         rootDir: "/app",
       },
     }
@@ -1768,7 +1769,7 @@ describe("vitehub", () => {
 
     await (compiled as () => Promise<void>)()
 
-    expect(rollupConfig.plugins).toEqual([{ name: "vitehub:deno-server-packages" }])
+    expect(rolldownConfig.plugins).toEqual([{ name: "vitehub:deno-server-packages" }])
     expect(integrationMocks.finalizeDenoDeploymentOutput).toHaveBeenCalledWith(expect.objectContaining({
       conditions: ["browser", "launch"],
       serverPackages: { bundledPackageDirs: [], externalImports: [] },

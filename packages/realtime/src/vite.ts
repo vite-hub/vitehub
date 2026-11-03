@@ -83,7 +83,7 @@ function record(value: unknown): Record<string, unknown> {
 }
 
 function configureCloudflareRealtime(nitro: NitroConfig): void {
-  nitro.preset = "cloudflare-durable"
+  nitro.preset = "cloudflare-module"
   const cloudflare = record(nitro.cloudflare)
   const wrangler = record(cloudflare.wrangler)
   const durableObjects = record(wrangler.durable_objects)
