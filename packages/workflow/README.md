@@ -142,7 +142,7 @@ export default defineEventHandler(async (event) => {
 The other runtime helpers are:
 
 - `deferWorkflow()` starts through the deferred provider path when available.
-- `cancelWorkflow()` cancels a native Vercel run.
+- `cancelWorkflow()` cancels a native Vercel run or a pending or running OpenWorkflow run.
 - `resumeWorkflowSignal()` resumes a registered Vercel Workflow DevKit hook token.
 - `createWorkflow()` creates a named handle with `run`, `defer`, `getRun`, and `cancel` methods.
 
