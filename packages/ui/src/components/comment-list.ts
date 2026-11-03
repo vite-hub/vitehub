@@ -1,8 +1,9 @@
 import type { CommentThread } from "@vite-hub/comments/client";
-import { defineComponent, h, type PropType } from "vue";
+import { defineComponent, h, type PropType, type SlotsType } from "vue";
 import { type CommentFilterState, type CommentsState, useCommentsContext } from "../headless/comments.ts";
 import { threadRow } from "../internal/comment-row.ts";
 import { AvatarStack, type AvatarStackPerson } from "./avatar-stack.ts";
+import type { CommentRowSlots } from "./comment-panel.ts";
 import { useUIComponent } from "../internal/nuxt-ui.ts";
 
 // The `comments` prop lets a part work outside `CommentLayer`. Inside it, the part uses the layer's state.
@@ -49,7 +50,9 @@ export const CommentList = defineComponent({
     navigate: { type: Function as PropType<(href: string) => void> },
   },
   emits: ["select"],
-  setup(props, { emit }) {
+  // SAFETY: Vue uses Object as its runtime slots marker.
+  slots: Object as SlotsType<CommentRowSlots>,
+  setup(props, { emit, slots }) {
     const UButton = useUIComponent("UButton");
     const comments = useCommentsContext(props.comments);
 
@@ -109,7 +112,7 @@ export const CommentList = defineComponent({
                       href: comments.link(thread),
                       onClick: (event: MouseEvent) => select(thread, event),
                     },
-                    threadRow(thread, { detached, site: comments.scope.value === "site" }),
+                    slots.row?.({ thread }) ?? threadRow(thread, { detached, preview: slots.preview?.({ thread }), site: comments.scope.value === "site" }),
                   ),
                 ]);
               }),

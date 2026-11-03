@@ -21,8 +21,19 @@ import { useUIComponent } from "../internal/nuxt-ui.ts";
 
 type Done = Promise<unknown> | void;
 
-/** Gives the URL of an attachment key, such as a Blob key. `undefined` shows the key as a file without a link. */
-export type CommentAttachmentUrl = (key: string) => string | undefined;
+/** An attachment as `attachmentUrl` describes it: its URL, and the file name and media type when the key does not say. */
+export interface CommentAttachmentLink {
+  url: string;
+  name?: string;
+  /** The media type, such as `image/png`. An `image/*` attachment shows as an image. */
+  type?: string;
+}
+
+/**
+ * Gives the URL of an attachment key, such as a Blob key, or the URL with its name and media type. `undefined` shows the
+ * key as a file without a link. An image shows as a thumbnail that opens full size.
+ */
+export type CommentAttachmentUrl = (key: string) => string | CommentAttachmentLink | undefined;
 
 /** The scope of the `body` and `attachments` slots of `CommentReply`. */
 export interface CommentReplySlotScope {
@@ -58,25 +69,37 @@ function reason(error: unknown): string {
 
 const fileName = (key: string) => key.split(/[/\\]/).at(-1) || key;
 
-// Shows the attachments of a message. A key with a URL and an image name, or no extension, shows as a thumbnail.
+// Shows the attachments of a message: images as thumbnails that open full size, and other files as chips. An attachment
+// is an image when its media type says so, or, without one, when its name has an image extension or none.
 function attachmentList(message: CommentMessage, url: CommentAttachmentUrl | undefined, icon: Component) {
   if (message.attachments.length === 0) return null;
-  return h(AttachmentGroup, { "data-slot": "comment-reply-attachments" }, () =>
-    message.attachments.map((key) => {
-      const name = fileName(key);
-      const href = url?.(key);
-      const extension = /\.([a-z0-9]+)$/i.exec(name)?.[1]?.toLowerCase();
-      const image = href !== undefined && (extension === undefined || imageExtensions.has(extension));
-      return h(Attachment, { key, size: "xs" }, () => [
-        h(AttachmentMedia, { variant: image ? "image" : "icon" }, () =>
-          image ? h(ImagePreview, { alt: name, compact: true, src: href }) : h(icon, { name: "i-ph-file-light" }),
-        ),
-        h(AttachmentContent, () =>
-          h(AttachmentTitle, () => (href && !image ? h("a", { href, rel: "noreferrer", target: "_blank" }, name) : name)),
-        ),
-      ]);
-    }),
-  );
+  const items = message.attachments.map((key) => {
+    const found = url?.(key);
+    const link = typeof found === "string" ? { url: found } : found;
+    const name = link?.name || fileName(key);
+    const extension = /\.([a-z0-9]+)$/i.exec(name)?.[1]?.toLowerCase();
+    const image = link !== undefined && (link.type ? link.type.startsWith("image/") : extension === undefined || imageExtensions.has(extension));
+    return { href: link?.url, image, key, name };
+  });
+  const images = items.filter((item) => item.image);
+  const files = items.filter((item) => !item.image);
+  return [
+    images.length > 0
+      ? h("div", { "data-slot": "comment-reply-images" }, images.map((item) => h(ImagePreview, { alt: item.name, key: item.key, src: item.href })))
+      : null,
+    files.length > 0
+      ? h(AttachmentGroup, { "data-slot": "comment-reply-attachments" }, () =>
+          files.map((item) =>
+            h(Attachment, { key: item.key, size: "xs" }, () => [
+              h(AttachmentMedia, { variant: "icon" }, () => h(icon, { name: "i-ph-file-light" })),
+              h(AttachmentContent, () =>
+                h(AttachmentTitle, () => (item.href ? h("a", { href: item.href, rel: "noreferrer", target: "_blank" }, item.name) : item.name)),
+              ),
+            ]),
+          ),
+        )
+      : null,
+  ];
 }
 
 // One message of a thread. The first message is the comment, and the rest are replies.

@@ -1,5 +1,5 @@
 import type { CommentsClient, CommentStatus, CommentSubject, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
-import { computed, defineComponent, h, nextTick, type PropType, ref, type SlotsType } from "vue";
+import { computed, defineComponent, h, nextTick, type PropType, ref, type SlotsType, type VNode } from "vue";
 import { type CommentsState, provideComments, useComments, useCommentsContext } from "../headless/comments.ts";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { threadRow } from "../internal/comment-row.ts";
@@ -13,7 +13,33 @@ export type CommentPanelVariant = "docked" | "floating";
 /** Turns files into attachment keys, such as Blob keys, before a comment or a reply is sent. */
 export type CommentUpload = (files: File[]) => Promise<string[]>;
 
-export type CommentPanelSlots = CommentThreadSlots;
+/** The scope of the `row` and `preview` slots of `CommentPanel` and `CommentList`. */
+export interface CommentRowSlotScope {
+  thread: CommentThreadModel;
+}
+
+/** The scope of the `group-header` slot: the label that `group` gave, and the threads under it. */
+export interface CommentGroupSlotScope {
+  group: string;
+  threads: CommentThreadModel[];
+}
+
+export type CommentRowSlots = {
+  /** The inside of one row of the list. Replaces the number, avatar, text, and facts. */
+  row?: (scope: CommentRowSlotScope) => VNode[];
+  /** The text of one row. Replaces the start of the first message, as plain text. */
+  preview?: (scope: CommentRowSlotScope) => VNode[];
+};
+
+export type CommentPanelSlots = CommentThreadSlots & CommentRowSlots & {
+  /** The heading of a group of rows. Replaces the label that `group` gave. */
+  "group-header"?: (scope: CommentGroupSlotScope) => VNode[];
+};
+
+/** Puts a thread under a heading of the list, such as `"From earlier versions"`. `undefined` keeps it in the first, unnamed group. */
+export type CommentGroup = (thread: CommentThreadModel) => string | undefined;
+
+const listSlots = new Set(["row", "preview", "group-header"]);
 
 function reason(error: unknown): string {
   return error instanceof Error ? error.message : "The comment could not be sent. Try again.";
@@ -56,6 +82,8 @@ export const CommentPanel = defineComponent({
     allowEmpty: { default: false, type: Boolean },
     /** People that messages may mention, on top of the people that the comments state knows. */
     people: { default: () => [], type: Array as PropType<CommentUser[]> },
+    /** Groups the rows under headings, in the order the groups first appear. Threads without a group come first. */
+    group: { type: Function as PropType<CommentGroup> },
   },
   emits: ["update:thread", "update:status", "select"],
   // SAFETY: Vue uses Object as its runtime slots marker.
@@ -133,7 +161,46 @@ export const CommentPanel = defineComponent({
       }
     }
 
-    const threadSlots = () => Object.fromEntries(Object.entries(slots).filter(([, slot]) => slot !== undefined));
+    const threadSlots = () => Object.fromEntries(Object.entries(slots).filter(([name, slot]) => slot !== undefined && !listSlots.has(name)));
+    const groups = computed(() => {
+      const found: Array<{ label: string | undefined; threads: CommentThreadModel[] }> = [];
+      for (const thread of rows.value) {
+        const label = props.group?.(thread);
+        let entry = found.find((group) => group.label === label);
+        if (!entry) found.push((entry = { label, threads: [] }));
+        entry.threads.push(thread);
+      }
+      // Threads without a group lead, so a heading such as "From earlier versions" sits below the current ones.
+      return found.sort((a, b) => Number(a.label !== undefined) - Number(b.label !== undefined));
+    });
+    const row = (thread: CommentThreadModel) =>
+      h("li", { key: thread.id }, [
+        h(
+          "button",
+          {
+            "data-slot": "comment-panel-item",
+            "data-status": thread.status,
+            "data-thread-id": thread.id,
+            onClick: () => select(thread),
+            type: "button",
+          },
+          slots.row?.({ thread }) ?? threadRow(thread, {
+            detached: state.positions.value.get(thread.id)?.detached === true,
+            preview: slots.preview?.({ thread }),
+            site: state.scope.value === "site",
+          }),
+        ),
+      ]);
+    const items = (threads: CommentThreadModel[], label: string, key?: string) => h("ol", { "aria-label": label, "data-slot": "comment-panel-items", key }, threads.map(row));
+    const grouped = () =>
+      groups.value.map(({ label, threads }) =>
+        label === undefined
+          ? items(threads, props.title, "ungrouped")
+          : h("section", { "aria-label": label, "data-slot": "comment-panel-group", key: label }, [
+              h("h3", { "data-slot": "comment-panel-group-header" }, slots["group-header"]?.({ group: label, threads }) ?? label),
+              items(threads, label),
+            ]),
+      );
 
     const list = () => {
       const counts = state.counts.value;
@@ -163,25 +230,9 @@ export const CommentPanel = defineComponent({
         ]),
         rows.value.length === 0
           ? h("p", { "data-slot": "comment-panel-empty", role: "status" }, empty)
-          : h(
-              "ol",
-              { "aria-label": props.title, "data-slot": "comment-panel-items" },
-              rows.value.map((thread) =>
-                h("li", { key: thread.id }, [
-                  h(
-                    "button",
-                    {
-                      "data-slot": "comment-panel-item",
-                      "data-status": thread.status,
-                      "data-thread-id": thread.id,
-                      onClick: () => select(thread),
-                      type: "button",
-                    },
-                    threadRow(thread, { detached: state.positions.value.get(thread.id)?.detached === true, site: state.scope.value === "site" }),
-                  ),
-                ]),
-              ),
-            ),
+          : props.group
+            ? h("div", { "data-slot": "comment-panel-groups" }, grouped())
+            : items(rows.value, props.title),
         props.readOnly
           ? null
           : h("div", { "data-slot": "comment-panel-composer" }, [

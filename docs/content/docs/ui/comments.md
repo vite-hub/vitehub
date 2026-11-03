@@ -153,6 +153,18 @@ Without a layer, give it a `client` and a `subject`, or a `comments` state. `var
 
 The panel keeps its own open thread. A click outside does not close it, because the panel stays on the screen.
 
+Each row shows the number, the author, the start of the first message as plain text, and facts such as the reply count. The `preview` slot replaces the text, and the `row` slot replaces the whole row. Both get `{ thread }`. To put some threads under a heading, give `group` a function that returns the heading of a thread, or `undefined` for none. Threads without a heading come first, then each group in the order it first appears. The `group-header` slot gets `{ group, threads }`:
+
+```vue
+<template>
+  <CommentPanel :group="(thread) => (thread.createdAt < publishedAt ? 'From earlier versions' : undefined)">
+    <template #preview="{ thread }">
+      {{ thread.messages[0]?.body || 'Suggested edit' }}
+    </template>
+  </CommentPanel>
+</template>
+```
+
 ## Mentions
 
 A composer finds people in this order:
@@ -192,7 +204,11 @@ async function upload(files: File[]): Promise<string[]> {
 </template>
 ```
 
-`attachmentUrl` turns a key into a URL. With it, an image attachment shows as a thumbnail that opens a larger preview, and another file shows as a link. Without it, the message shows the file names.
+`attachmentUrl` turns a key into a URL. With it, an image attachment shows as a thumbnail that opens the full image, and another file shows as a chip with a link. Without it, the message shows the file names. An attachment is an image when its name has an image extension, such as `.png`, or no extension. When the key does not say, return the media type with the URL:
+
+```ts
+const attachmentUrl = (key: string) => ({ url: `/api/files/${key}`, name: files[key]?.name, type: files[key]?.type });
+```
 
 ## Slots
 
@@ -207,6 +223,8 @@ The slots receive the data that they show:
 | `CommentReply` | `attachments` | `{ message }` | Instead of the default attachments. |
 | `CommentComposer` | `extra` | | Above the text field, for example a field for a suggested change. |
 | `CommentComposer` | `mention-item` | `{ person, active }` | Each person of the mention menu. |
+| `CommentPanel`, `CommentList` | `row`, `preview` | `{ thread }` | One row of the list, or its text. |
+| `CommentPanel` | `group-header` | `{ group, threads }` | The heading of a group of rows. See `group`. |
 
 `CommentThread` passes `body`, `attachments`, `extra`, and `mention-item` on to its messages and its reply box. `CommentPanel` passes every slot on to its thread, and `extra` and `mention-item` to its page box.
 
@@ -215,7 +233,7 @@ The slots receive the data that they show:
 
 ## Themes
 
-The parts use the Nuxt UI tokens, such as `--ui-bg`, `--ui-text`, `--ui-border`, and `--ui-primary`. Each comment surface reads them again, so a class on the surface, or on an element around it, themes only that surface. To show a dark panel on a light page, add Nuxt UI's `dark` class:
+The parts use the Nuxt UI tokens, such as `--ui-bg`, `--ui-text`, `--ui-border`, and `--ui-primary`. Each element of a part reads them where it renders, so a class on the surface, or on any element around it, themes only that surface. You do not set the `--vh-ui-*` tokens as well. To show a dark panel on a light page, add Nuxt UI's `dark` class:
 
 ```vue
 <template>
@@ -278,7 +296,7 @@ The overlay of a page. Renders a `div` with `data-slot="comment-layer"`. Give it
 | `navigate` | `(href: string) => void` | | Goes to the page of a thread that the list shows. Defaults to `location.assign`. |
 | `upload` | `(files: File[]) => Promise<string[]>` | | Stores attached files and returns their keys. Without it the boxes take no files. |
 | `accept` | `string` | | The file types that the boxes take, such as `image/*`. |
-| `attachmentUrl` | `(key: string) => string \| undefined` | | The URL of an attachment key. Image attachments show as thumbnails. |
+| `attachmentUrl` | `(key: string) => string \| { url, name?, type? } \| undefined` | | The URL of an attachment key, or the URL with its file name and media type. Images show as thumbnails that open full size, other files as links. |
 
 ### CommentPin
 
@@ -324,7 +342,7 @@ The handlers may return a promise. The thread waits for it. A reply clears its b
 | `users` | `(query: string) => Promise<CommentUser[]>` | | Finds people for `@mentions`. Defaults to the comments state. |
 | `attachments` | `boolean` | `true` | The reply box takes files. |
 | `accept` | `string` | | The file types that the reply box takes. |
-| `attachmentUrl` | `(key: string) => string \| undefined` | | The URL of an attachment key. Image attachments show as thumbnails. |
+| `attachmentUrl` | `(key: string) => string \| { url, name?, type? } \| undefined` | | The URL of an attachment key, or the URL with its file name and media type. Images show as thumbnails that open full size, other files as links. |
 | `navigation` | `"close" \| "back"` | `"close"` | `"back"` puts a Back button at the start of the header instead of Close. Both emit `close`. |
 | `dismissible` | `boolean` | `true` | A click outside the thread closes it. Turn it off in a panel. |
 | `onReply` | `(body: string, mentions: string[], files: File[]) => void \| Promise<unknown>` | | Sends a reply. |
@@ -366,7 +384,7 @@ Edit and Delete are shown when their respective handlers are supplied. An unchan
 | `confirmDelete` | `boolean` | `false` | Ask before Delete. A thread sets it on the first message. |
 | `people` | `CommentUser[]` | `[]` | People whose `@name` the message may hold, so an edit keeps their mentions and the body shows them as chips. |
 | `users` | `(query: string) => Promise<CommentUser[]>` | | Finds people for `@mentions` while editing. |
-| `attachmentUrl` | `(key: string) => string \| undefined` | | The URL of an attachment key. Image attachments show as thumbnails, other files as links. |
+| `attachmentUrl` | `(key: string) => string \| { url, name?, type? } \| undefined` | | The URL of an attachment key, or the URL with its file name and media type. Images show as thumbnails that open full size, other files as links. |
 | `onEdit` | `(messageId: string, body: string, mentions: string[]) => void \| Promise<unknown>` | | Saves the edit. |
 | `onDelete` | `(messageId: string) => void \| Promise<unknown>` | | Deletes the message. |
 
@@ -441,9 +459,10 @@ The list of threads, one thread, and a page box in one surface. Renders a `secti
 | `readOnly` | `boolean` | `false` | Hide the page box and every reply, edit, delete, and status control. |
 | `upload` | `(files: File[]) => Promise<string[]>` | | Stores attached files and returns their keys. Without it the boxes take no files. |
 | `accept` | `string` | | The file types that the boxes take. |
-| `attachmentUrl` | `(key: string) => string \| undefined` | | The URL of an attachment key. Image attachments show as thumbnails. |
+| `attachmentUrl` | `(key: string) => string \| { url, name?, type? } \| undefined` | | The URL of an attachment key, or the URL with its file name and media type. Images show as thumbnails that open full size, other files as links. |
 | `allowEmpty` | `boolean` | `false` | Send a new page comment that has files and no text. |
 | `people` | `CommentUser[]` | `[]` | People that messages may mention, on top of the people that the state knows. |
+| `group` | `(thread: CommentThread) => string \| undefined` | | The heading of the group of a row. Rows without a group come first. |
 
 #### Events
 
@@ -456,6 +475,12 @@ The list of threads, one thread, and a page box in one surface. Renders a `secti
 #### Slots
 
 Every slot of [CommentThread](#commentthread). `extra` and `mention-item` also go to the page box.
+
+| Slot | Scope | Description |
+| --- | --- | --- |
+| `row` | `{ thread }` | The inside of one row. Replaces the number, avatar, text, and facts. |
+| `preview` | `{ thread }` | The text of one row. Replaces the start of the first message. |
+| `group-header` | `{ group, threads }` | The heading of a group of rows. Replaces the text that `group` returned. |
 
 ### CommentToolbar
 
@@ -484,6 +509,13 @@ The side list of threads. Renders a `section` with `data-slot="comment-list"`. I
 | Event | Description |
 | --- | --- |
 | `select` | A row was clicked. Gets the thread. |
+
+#### Slots
+
+| Slot | Scope | Description |
+| --- | --- | --- |
+| `row` | `{ thread }` | The inside of one row. Replaces the number, avatar, text, and facts. |
+| `preview` | `{ thread }` | The text of one row. Replaces the start of the first message. |
 
 ### CommentFilters
 
