@@ -27,7 +27,7 @@ const provider = createJustBashProvider({
 })
 ```
 
-Controlled `curl` runs as a Just Bash command through the Source network grant, including in pipelines and substitutions. Interpreter limits apply to its returned output and command deadline. An interpreter deadline ends the command observation; use Shell policy or exec `timeout` to abort the Source request. Shell cancellation is forwarded to the Source request, while `maxOutputLength` truncates the returned output in characters. Source responses are buffered before interpreter output checks and Shell truncation; the Source executor must enforce response byte or memory limits while reading the response.
+Controlled `curl` runs as a Just Bash command through the Source network grant, including in pipelines and substitutions. Interpreter limits apply to its returned output and command deadline. Interpreter deadlines, Shell timeouts, and Shell cancellation abort the signal forwarded to the Source request. The Source executor must honor that signal. `maxOutputLength` truncates the returned output in characters. Source responses are buffered before interpreter output checks and Shell truncation; the Source executor must enforce response byte or memory limits while reading the response.
 
 Read `runtime.boundary` or `session.boundary` to check what the provider declares: CWD, env, filesystem mount point and write access, network, background and interactive processes, streaming, timeout enforcement, execution model, and output resource enforcement. These are provider declarations for portable inspection; they do not turn an in-process provider into an OS isolate.
 

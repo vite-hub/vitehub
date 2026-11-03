@@ -23,7 +23,7 @@ export interface JustBashProviderOptions {
   cwd?: string
   /**
    * Limits for commands evaluated by Just Bash, including loops, command count, call depth, and output size.
-   * Also applies to controlled curl output and command deadlines; use Shell `timeout` to abort Source requests.
+   * Also applies to controlled curl output and command deadlines; deadlines abort the Source request signal.
    */
   executionLimits?: JustBashExecutionLimits
   /** Just Bash preset applied before `executionLimits` (default: `normal`). */
@@ -90,8 +90,8 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
         const { Bash, defineCommand } = await import("just-bash/browser")
         let policyDenied = false
         // Just Bash parses the line and calls this for every `curl`, including inside pipelines and substitutions.
-        const curl = defineCommand("curl", async (args) => {
-          const curlResult = await runControlledCurl(args, { commands, networkGrants, signal: runOptions.signal })
+        const curl = defineCommand("curl", async (args, ctx) => {
+          const curlResult = await runControlledCurl(args, { commands, networkGrants, signal: ctx.signal ?? runOptions.signal })
           policyDenied ||= curlResult.policyDenied
           return curlResult
         })
@@ -346,9 +346,8 @@ async function withProviderTimeout(
   const controller = new AbortController()
   const abortListener = options.signal ? () => controller.abort(options.signal?.reason) : undefined
   if (abortListener) options.signal?.addEventListener("abort", abortListener, { once: true })
-  const runOptions = options.signal || typeof options.timeout === "number"
-    ? { ...options, signal: controller.signal }
-    : options
+  // Just Bash creates a cancellable command context only when exec receives a signal.
+  const runOptions = { ...options, signal: controller.signal }
   let timeout: ReturnType<typeof setTimeout> | undefined
   let onAbort: (() => void) | undefined
   const aborted = options.signal

@@ -438,6 +438,7 @@ describe("@vite-hub/shell just-bash runtime", () => {
       expected: { event: "command_finished", exitCode: 124, stderr: expect.stringContaining("execution deadline"), stdout: "" },
     },
   ])("applies interpreter and Shell controls to controlled curl $name", async ({ executionLimits, execOptions, expected }) => {
+    await import("just-bash/browser")
     vi.useFakeTimers()
     try {
       const executeSourceRequest = vi.fn(async (input: { signal?: AbortSignal }) => {
@@ -457,7 +458,7 @@ describe("@vite-hub/shell just-bash runtime", () => {
 
       await expect(pending).resolves.toMatchObject(expected)
       expect(executeSourceRequest).toHaveBeenCalledOnce()
-      if (execOptions.timeout === 5) {
+      if (execOptions.timeout === 5 || executionLimits.maxExecutionTimeMs !== undefined) {
         expect(executeSourceRequest.mock.calls[0]![0].signal?.aborted).toBe(true)
       }
     }
