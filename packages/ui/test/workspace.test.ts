@@ -11,6 +11,20 @@ import { useConnectStore } from "../src/workspace/connect-store.ts";
 import { bootChecklist, formatElapsed, WorkspaceBootStatus } from "../src/workspace/workspace-boot-status.ts";
 import { WorkspacePreview } from "../src/workspace/workspace-preview.ts";
 import { WorkspaceShell } from "../src/workspace/workspace-shell.ts";
+import { WorkspaceTerminal } from "../src/workspace/workspace-terminal.ts";
+
+const terminal = vi.hoisted(() => ({ reset: vi.fn(), write: vi.fn() }));
+vi.mock("@xterm/xterm", () => ({
+  Terminal: class {
+    reset = terminal.reset;
+    write = terminal.write;
+    loadAddon = vi.fn();
+    open = vi.fn();
+    onData = vi.fn();
+    dispose = vi.fn();
+  },
+}));
+vi.mock("@xterm/addon-fit", () => ({ FitAddon: class { fit = vi.fn(); } }));
 
 // A fake container: the tests control when each process exits.
 const fake = vi.hoisted(() => {
@@ -112,7 +126,10 @@ beforeEach(() => {
   sessionStorage.clear();
   localStorage.clear();
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
 describe("useWorkspace", () => {
   it("writes edits made before mount when the mount ends, and tracks modified files", async () => {
@@ -287,6 +304,19 @@ describe("useWorkspace", () => {
     wrapper.unmount();
   });
 
+  it("removes root files named after inherited object properties on replacement", async () => {
+    const files = { constructor: "source", toString: "text" };
+    const { workspace, wrapper } = mountWorkspace({ files, install: false, start: false });
+    await flushPromises();
+    fake.releaseBoot?.();
+    await flushPromises();
+    await workspace.setFiles({ "new.txt": "new" }, { mode: "replace" });
+    expect(Object.fromEntries(fake.disk)).toEqual({ "new.txt": "new" });
+    await workspace.reset();
+    expect(Object.fromEntries(fake.disk)).toEqual(files);
+    wrapper.unmount();
+  });
+
   it.each(["starting", "ready"])("keeps asynchronous errors visible from %s until recovery", async (stage) => {
     fake.autoReady = stage === "ready";
     const { workspace, wrapper } = mountWorkspace({ files: {}, install: false });
@@ -353,6 +383,48 @@ describe("useWorkspace", () => {
     wrapper.unmount();
   });
 
+  it("writes only new terminal output across character and chunk retention rollover", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("ResizeObserver", class { observe = vi.fn(); disconnect = vi.fn(); });
+    terminal.reset.mockClear();
+    terminal.write.mockClear();
+    const { workspace, wrapper } = mountWorkspace({ files: {}, install: false });
+    const screen = mount(defineComponent({
+      setup: () => () => h(WorkspaceTerminal, { output: workspace.logs.value }),
+    }));
+    await flushPromises();
+    fake.releaseBoot?.();
+    await flushPromises();
+    const output = fake.output[0]!;
+    output.enqueue("x".repeat(65_520));
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(50);
+    terminal.write.mockClear();
+
+    for (const chunk of ["first rollover\n", "second rollover\n"]) {
+      output.enqueue(chunk);
+      await flushPromises();
+      await vi.advanceTimersByTimeAsync(50);
+      expect(terminal.write.mock.calls).toEqual([[chunk]]);
+      expect(terminal.reset).not.toHaveBeenCalled();
+      terminal.write.mockClear();
+    }
+
+    for (let index = 0; index < 1005; index++) output.enqueue(`${index}\n`);
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(50);
+    expect(workspace.logs.value).toHaveLength(1000);
+    expect(terminal.reset).not.toHaveBeenCalled();
+    terminal.write.mockClear();
+    output.enqueue("after chunk rollover\n");
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(50);
+    expect(terminal.write.mock.calls).toEqual([["after chunk rollover\n"]]);
+    expect(terminal.reset).not.toHaveBeenCalled();
+    screen.unmount();
+    wrapper.unmount();
+  });
+
   it("collects process output in order", async () => {
     vi.useFakeTimers();
     const { workspace, wrapper } = mountWorkspace({ files: {}, install: false });
@@ -361,6 +433,28 @@ describe("useWorkspace", () => {
     await flushPromises();
     await vi.advanceTimersByTimeAsync(50);
     expect(workspace.logs.value.join("")).toBe("$ dev\n");
+    wrapper.unmount();
+  });
+});
+
+describe("WorkspaceTerminal", () => {
+  it("appends ordinary arrays and resets when they are replaced or cleared", async () => {
+    vi.stubGlobal("ResizeObserver", class { observe = vi.fn(); disconnect = vi.fn(); });
+    terminal.reset.mockClear();
+    terminal.write.mockClear();
+    const wrapper = mount(WorkspaceTerminal, { props: { output: ["first"] } });
+    await flushPromises();
+    expect(terminal.write.mock.calls).toEqual([["first"]]);
+    terminal.write.mockClear();
+    await wrapper.setProps({ output: ["first", "second"] });
+    expect(terminal.write.mock.calls).toEqual([["second"]]);
+    expect(terminal.reset).not.toHaveBeenCalled();
+    terminal.write.mockClear();
+    await wrapper.setProps({ output: ["replacement"] });
+    expect(terminal.write.mock.calls).toEqual([["replacement"]]);
+    expect(terminal.reset).toHaveBeenCalledTimes(1);
+    await wrapper.setProps({ output: [] });
+    expect(terminal.reset).toHaveBeenCalledTimes(2);
     wrapper.unmount();
   });
 });

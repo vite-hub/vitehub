@@ -246,10 +246,19 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
   }
 
   // Provider servers install the discovered Workflow registry in production.
-  // In `vite dev`, a generated Nitro plugin installs it and the resolved runtime configuration.
+  // In `vite dev`, and in builds for hosts without a Provider Output server
+  // (Node, Docker), a generated Nitro plugin installs it and the resolved
+  // runtime configuration.
+  function buildNeedsStartupRegistry(): boolean {
+    if (!internalOptions.hosting) return false
+    const outputs = resolveWorkflowProviderOutputs(workflow, internalOptions.hosting)
+    return !outputs.cloudflare && !outputs.vercel
+  }
+
   let devRootDir: string | undefined
   let devStartupPlugin: string | undefined
   let devWorkflow: ResolvedWorkflowOptions | undefined
+  let startupBuild = false
 
   function resolveDevWorkflow(): ResolvedWorkflowOptions | undefined {
     try {
@@ -261,9 +270,9 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     }
   }
 
-  async function writeDevRegistry(rootDir: string, workflow: false | ResolvedWorkflowOptions) {
+  async function writeDevRegistry(rootDir: string, workflow: false | ResolvedWorkflowOptions | undefined) {
     return await writeWorkflowDevRegistryFiles({
-      definitions: workflow === false ? [] : discoverWorkflowDevDefinitions(rootDir, serverDirs),
+      definitions: workflow ? discoverWorkflowDevDefinitions(rootDir, serverDirs) : [],
       importBase: internalOptions.importBase,
       projectRoot: rootDir,
       pluginPath: devStartupPlugin,
@@ -273,6 +282,8 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
 
   return {
     name: "@vite-hub/workflow/vite",
+    // Nuxt replays plugins by enforcement order; reserve this before its runtime bootstraps too.
+    enforce: "pre",
     config: {
       // Nitro reads `config.nitro` in its own `config` hook, so the plugin must be added first.
       order: "pre",
@@ -284,12 +295,13 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         // SAFETY: This private fallback field is written before Vite resolves the config.
         const buildConfig = config as typeof config & { __vitehubWorkflowServerDirs?: string[] }
         buildConfig.__vitehubWorkflowServerDirs = serverDirs
-        if (env.command !== "serve") return
         devWorkflow = resolveDevWorkflow()
+        startupBuild = env.command === "build"
+        if (startupBuild && !internalOptions.hosting) return
         const projectRoot = Reflect.get(config, VITEHUB_PROJECT_ROOT)
         devRootDir = resolveViteHubProjectRoot(resolve(config.root || process.cwd()), { projectRoot: typeof projectRoot === "string" ? projectRoot : undefined })
         // Reserve the startup plugin before Nitro reads config. Later hooks may enable Workflows.
-        const { plugin } = await writeDevRegistry(devRootDir, devWorkflow ?? false)
+        const { plugin } = await writeDevRegistry(devRootDir, startupBuild ? undefined : devWorkflow ?? false)
         devStartupPlugin = plugin
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
         kit.addPlugin(plugin, "start")
@@ -386,7 +398,9 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         const projectRoot = Reflect.get(config, VITEHUB_PROJECT_ROOT)
         devRootDir = resolveViteHubProjectRoot(config.root, { projectRoot: typeof projectRoot === "string" ? projectRoot : undefined })
         devWorkflow = resolveDevWorkflow()
-        await writeDevRegistry(devRootDir, devWorkflow ?? false)
+        await writeDevRegistry(devRootDir, startupBuild
+          ? devWorkflow && buildNeedsStartupRegistry() ? devWorkflow : undefined
+          : devWorkflow ?? false)
       }
     },
     configEnvironment(name, config) {

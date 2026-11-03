@@ -2,6 +2,9 @@ import { defineComponent, h, onBeforeUnmount, onMounted, type PropType, ref, wat
 
 type Terminal = import("@xterm/xterm").Terminal;
 
+/** Output chunks, optionally carrying the number of characters evicted from the start of a stream. */
+export type WorkspaceTerminalOutput = readonly string[] & { readonly offset?: number };
+
 function cssVariable(element: HTMLElement, name: string, fallback: string) {
   return getComputedStyle(element).getPropertyValue(name).trim() || fallback;
 }
@@ -10,8 +13,8 @@ function cssVariable(element: HTMLElement, name: string, fallback: string) {
 export const WorkspaceTerminal = defineComponent({
   name: "WorkspaceTerminal",
   props: {
-    /** Output chunks in order. New chunks at the end are written. A shorter or different array clears the terminal. */
-    output: { default: () => [], type: Array as PropType<readonly string[]> },
+    /** Output chunks in order. An `offset` preserves incremental writes when old chunks are evicted. Ordinary arrays clear the terminal when replaced. */
+    output: { default: () => [], type: Array as PropType<WorkspaceTerminalOutput> },
     label: { default: "Terminal output", type: String },
   },
   emits: {
@@ -21,18 +24,36 @@ export const WorkspaceTerminal = defineComponent({
   setup(props, { emit, expose }) {
     const host = ref<HTMLElement | null>(null);
     let terminal: Terminal | undefined;
-    let written: readonly string[] = [];
+    let written: WorkspaceTerminalOutput = [];
+    let cursor: number | undefined;
     let observer: ResizeObserver | undefined;
     let disposed = false;
 
-    function write(output: readonly string[]) {
+    function write(output: WorkspaceTerminalOutput) {
       if (!terminal) return;
-      const continues = output.length >= written.length && written.every((chunk, index) => output[index] === chunk);
-      if (!continues) {
-        terminal.reset();
-        written = [];
+      if (output.offset !== undefined) {
+        const end = output.offset + output.reduce((length, chunk) => length + chunk.length, 0);
+        if ((cursor !== undefined && (cursor > end || output.offset < (written.offset ?? 0))) || (cursor === undefined && written.length > 0)) {
+          terminal.reset();
+          cursor = undefined;
+        }
+        // Eviction changes the head of the array, but the cursor still identifies unwritten characters.
+        let skip = Math.max(0, (cursor ?? output.offset) - output.offset);
+        for (const chunk of output) {
+          if (skip < chunk.length) terminal.write(chunk.slice(skip));
+          skip = Math.max(0, skip - chunk.length);
+        }
+        cursor = end;
       }
-      for (const chunk of output.slice(written.length)) terminal.write(chunk);
+      else {
+        const continues = cursor === undefined && output.length >= written.length && written.every((chunk, index) => output[index] === chunk);
+        if (!continues) {
+          terminal.reset();
+          written = [];
+        }
+        for (const chunk of output.slice(written.length)) terminal.write(chunk);
+        cursor = undefined;
+      }
       written = output;
     }
 
@@ -73,7 +94,7 @@ export const WorkspaceTerminal = defineComponent({
       observer?.disconnect();
       terminal?.dispose();
     });
-    expose({ clear: () => { terminal?.reset(); written = []; } });
+    expose({ clear: () => { terminal?.reset(); written = []; cursor = undefined; } });
 
     return () => h("div", { class: "vh-ws-terminal", ref: host });
   },

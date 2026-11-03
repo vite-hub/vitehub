@@ -100,10 +100,10 @@ function createKVStorage(name = "default"): KVStorage {
     async clear(base, options) { return runKVOperation("clear", name, async storage => storage.clear(base, options)) },
     async del(key, options) { return runKVOperation("del", name, async storage => storage.removeItem(key, options)) },
     async get(key, options) { return runKVOperation("get", name, storage => storage.getItem(key, options)) },
-    async getAndDelete<T>(key: string) {
+    async getAndDelete(key, options) {
       return runKVOperation("getAndDelete", name, async (storage) => {
         if (!storage.getAndDeleteItem) throw kvErrorDiagnostics.KV_UNSUPPORTED_OPERATION({ operation: "getAndDelete", store: name })
-        return storage.getAndDeleteItem<T>(key)
+        return storage.getAndDeleteItem(key, options)
       }, ["KV_UNSUPPORTED_OPERATION"])
     },
     async has(key, options) { return runKVOperation("has", name, storage => storage.hasItem(key, options)) },

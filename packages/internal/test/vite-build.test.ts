@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
-import { mergeConfig } from "vite"
+import { mergeConfig, resolveConfig } from "vite"
 
 import {
   createNoExternalMerger,
@@ -19,9 +19,50 @@ import {
   resolveViteHubProjectRoot,
   VITEHUB_GENERATED_ROOT,
   VITEHUB_NITRO_CONFIG_CONTEXT,
+  workerdDependencyConfig,
 } from "../src/build/vite.ts"
 
 describe("Vite provider builds", () => {
+  it.each([undefined, true, false])("preserves app dependency options with noDiscovery: %s", async (noDiscovery) => {
+    const config = await resolveConfig({
+      configFile: false,
+      logLevel: "silent",
+      plugins: [{ name: "integration", configEnvironment: { order: "post", handler: workerdDependencyConfig } }],
+      environments: { nitro: {
+        consumer: "server",
+        resolve: { noExternal: true, conditions: ["worker"] },
+        optimizeDeps: { noDiscovery, include: ["app-included"], exclude: ["app-excluded"] },
+      } },
+    }, "serve")
+
+    expect(config.environments.nitro!.optimizeDeps).toMatchObject({
+      noDiscovery: noDiscovery ?? false,
+      include: ["app-included"],
+      exclude: ["app-excluded", "nitro"],
+    })
+  })
+
+  it.each([
+    { label: "Nitro RC defaults", command: "serve", consumer: "server", noExternal: [/^nitro(\/|$)/], conditions: ["workerd"] },
+    { label: "Node", command: "serve", consumer: "server", noExternal: true, conditions: ["node"] },
+    { label: "build", command: "build", consumer: "server", noExternal: true, conditions: ["workerd"] },
+    { label: "client", command: "serve", consumer: "client", noExternal: true, conditions: ["worker"] },
+  ] as const)("leaves $label dependency optimization alone", async ({ command, consumer, noExternal, conditions }) => {
+    const config = await resolveConfig({
+      configFile: false,
+      logLevel: "silent",
+      plugins: [{ name: "integration", configEnvironment: { order: "post", handler: workerdDependencyConfig } }],
+      environments: { custom: {
+        consumer,
+        resolve: { noExternal: noExternal === true ? true : [...noExternal], conditions: [...conditions] },
+        optimizeDeps: { noDiscovery: true },
+      } },
+    }, command)
+
+    expect(config.environments.custom!.optimizeDeps.noDiscovery).toBe(true)
+    expect(config.environments.custom!.optimizeDeps.exclude ?? []).not.toContain("nitro")
+  })
+
   it("loads ViteHub packages natively only in the Nitro environment of vite dev", () => {
     expect(loadsViteHubPackagesNatively("nitro", { command: "serve" })).toBe(true)
     expect(loadsViteHubPackagesNatively("nitro", { command: "build" })).toBe(false)

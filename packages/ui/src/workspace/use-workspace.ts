@@ -24,6 +24,7 @@ import {
   shallowRef,
   toValue,
 } from "vue";
+import type { WorkspaceTerminalOutput } from "./workspace-terminal.ts";
 
 /** Text files of the app, keyed by a relative path such as `server/routes/index.ts`. */
 export type WorkspaceFiles = Record<string, string>;
@@ -86,7 +87,7 @@ export interface Workspace {
   container: Readonly<ShallowRef<ViteHubWebContainer | undefined>>;
   previewUrl: Readonly<Ref<string | undefined>>;
   /** Recent output in order, limited to 65,536 characters and 1,000 chunks. The array is replaced when new output comes. */
-  logs: Readonly<ShallowRef<readonly string[]>>;
+  logs: Readonly<ShallowRef<WorkspaceTerminalOutput>>;
   /** `navigator.onLine`. An offline reader keeps their edits, but install needs a connection. */
   online: Readonly<Ref<boolean>>;
   boot: () => Promise<void>;
@@ -127,7 +128,7 @@ export function useWorkspace(options: UseWorkspaceOptions): Workspace {
   const fs = shallowRef<FileSystemAPI>();
   const container = shallowRef<ViteHubWebContainer>();
   const previewUrl = ref<string>();
-  const logs = shallowRef<readonly string[]>([]);
+  const logs = shallowRef<WorkspaceTerminalOutput>(Object.assign([], { offset: 0 }));
   const online = ref(typeof navigator === "undefined" ? true : navigator.onLine);
 
   const modified = computed(() => {
@@ -141,9 +142,11 @@ export function useWorkspace(options: UseWorkspaceOptions): Workspace {
   const logChunkLimit = 1000;
   const retainedLogs: string[] = [];
   let retainedLength = 0;
+  let logEnd = 0;
   let flushTimer: ReturnType<typeof setTimeout> | undefined;
   function appendLog(chunk: string) {
     if (disposed || !chunk) return;
+    logEnd += chunk.length;
     const tail = chunk.slice(-logLimit);
     retainedLogs.push(tail);
     retainedLength += tail.length;
@@ -162,7 +165,7 @@ export function useWorkspace(options: UseWorkspaceOptions): Workspace {
     // Copy once per flush rather than once per process chunk.
     flushTimer ??= setTimeout(() => {
       flushTimer = undefined;
-      logs.value = [...retainedLogs];
+      logs.value = Object.assign([...retainedLogs], { offset: logEnd - retainedLength });
     }, 32);
   }
 
@@ -182,7 +185,7 @@ export function useWorkspace(options: UseWorkspaceOptions): Workspace {
       const current = files.value;
       const conflictingDirectories = new Set<string>();
       for (const path of Object.keys(written)) {
-        if (path in current) continue;
+        if (Object.hasOwn(current, path)) continue;
         await target.rm(path, { force: true });
         delete written[path];
         let directory = parentDirectory(path);

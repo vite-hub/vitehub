@@ -1,1 +1,1 @@
-export { WorkspaceTerminal } from "./workspace/workspace-terminal.ts";
+export { WorkspaceTerminal, type WorkspaceTerminalOutput } from "./workspace/workspace-terminal.ts";
