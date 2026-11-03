@@ -119,14 +119,18 @@ export function commentsMcpTools(comments: Comments, options: CommentsSessionOpt
       },
       async call(input, context) {
         const user = await userFor(context, "read")
-        if (user === false || !await comments.can({ user, action: "read" }, gate)) return forbidden("read")
-        const status = input.status === "resolved" ? "resolved" : "open"
         const page = text(input.page)
+        const subject = page ? { kind: "page", id: normalizeCommentPage(page) } : undefined
+        if (user === false || !await comments.can({ user, action: "read", ...(subject ? { subject } : {}) }, gate)) return forbidden("read")
+        const status = input.status === "resolved" ? "resolved" : "open"
         const search = text(input.search)?.toLowerCase()
         const limit = Math.min(Math.max(Number(input.limit) || 25, 1), 100)
         const [error, listed] = await comments.list({ scope: commentsPageScope, subjectKind: "page", status, limit: search ? 500 : limit, ...(page ? { page: normalizeCommentPage(page) } : {}) })
         if (error) return failure(error.why)
-        const threads = listed.filter(thread => thread.subject.kind === "page")
+        const threads: CommentThread[] = []
+        for (const thread of listed) {
+          if (thread.subject.kind === "page" && await comments.can({ user, action: "read", thread }, gate)) threads.push(thread)
+        }
         const found = (search ? threads.filter(thread => thread.messages.some(message => message.body.toLowerCase().includes(search))) : threads).slice(0, limit)
         const line = (thread: CommentThread) => {
           const components = thread.context?.components?.map(component => component.name) ?? []

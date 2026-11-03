@@ -155,6 +155,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const tick = ref(0)
   const known = shallowRef<readonly CommentUser[]>([])
   const panelStatus = ref<CommentStatus>("open")
+  const panelThread = ref<string | null>(null)
   let room: RealtimeRoom | undefined
   // Counts the joins, so a join whose Realtime client loads after a newer join or `destroy()` drops itself.
   let joins = 0
@@ -187,7 +188,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     const user = me.value
     if (!user || needsName.value) return false
     const allowed = (thread as RestCommentThread).can ?? { comment: canComment, resolve: Boolean(session?.can.resolve), delete: Boolean(session?.can.delete) }
-    if (action === "reply") return allowed.comment
+    if (action === "reply") return thread.status === "open" && allowed.comment
     if (action === "resolve") return allowed.resolve
     // A guest id proves nothing, so a guest owns no message.
     const own = (entry: CommentMessage) => !user.guest && !entry.author.guest && entry.author.id === user.id
@@ -226,6 +227,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     (await transport.upload({ name: file.name, type: file.type, data: await base64(file), subject: { kind: "page", id: page.value } })).key))
 
   const edit = createInlineEdit({
+    page: () => page.value,
     openTool: async path => await context?.openTool("content", path) ?? false,
     contentPath: () => `${commentsApiRoute(import.meta.url).slice(0, -commentsRoute.length)}/_vitehub/content`,
     info: (text, link) => showToast({ text, kind: "info", link }),
@@ -394,14 +396,15 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       return () => {
         const nodes: Array<VNode | null> = []
         if (session?.can.read) {
-          nodes.push(h(CommentLayer, { comments: state, readOnly: !canComment || needsName.value, upload: canComment ? upload : undefined }, { default: () => [] }))
+          nodes.push(h(CommentLayer, { comments: state, readOnly: !me.value, upload: canComment ? upload : undefined }, { default: () => [] }))
           nodes.push(h("div", { class: "cursors" }, cursors()))
           nodes.push(h("div", { class: "outlines" }, outlines()))
           if (panelTarget.value) {
             nodes.push(h(Teleport, { to: panelTarget.value }, h(CommentPanel, {
               key: page.value,
               comments: state,
-              readOnly: !canComment || needsName.value,
+              readOnly: !me.value || (!state.threads.value.some(thread => thread.id === panelThread.value) && !canComment),
+              "onUpdate:thread": (value: string | null) => (panelThread.value = value),
               status: panelStatus.value,
               "onUpdate:status": (value: CommentStatus) => (panelStatus.value = value),
               title: page.value,
@@ -516,6 +519,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       // Routers may already have swapped the page. Keep the previous comments and draft until the person agrees.
       if (hasUnsentComment() && !window.confirm("Discard your unsent comment and show comments for the new page?")) return
       page.value = next
+      panelThread.value = null
       // The state lists the threads of the new page. The page then joins its room.
       leaveRoom()
     },

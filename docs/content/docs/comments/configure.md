@@ -320,7 +320,7 @@ All statements run in one batch or transaction, so a failure changes nothing.
 
 | Live-site field | One model |
 | --- | --- |
-| `number` | `n`, the same number |
+| `number` | `n`, the same number unless a legacy `site` scope already handed out numbers. Then page numbers move beyond that scope's highest issued number; its own numbers stay. |
 | scope `pages` and `page` | subject `{ kind: 'page', id: page }`, scope `site` |
 | scope `kind:id`, such as `drop:42` | subject `{ kind: 'drop', id: '42' }`, scope `drop:42`. Define the kind with `defineCommentSubject({ kind: 'drop', scope: id => \`drop:${id}\` })` so new threads take the same scope. The `page` of such a thread stays only in the backup table. |
 | other scopes | subject `{ kind: scope, id: page }` |

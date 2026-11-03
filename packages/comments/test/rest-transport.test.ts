@@ -79,6 +79,19 @@ describe("createRestTransport", () => {
     expect(await ada.list({ subject })).toEqual([])
   })
 
+  it("paginates beyond the first 200 page threads", async () => {
+    const { comments, as } = await setup()
+    const subject = { kind: "page", id: "/many" }
+    for (let index = 0; index < 205; index++) await comments.create({ subject, body: `Thread ${index}`, author: { id: "ada" } })
+    const transport = as("ada")
+    const first = await transport.list({ subject, limit: 200 })
+    expect(first).toHaveLength(200)
+    const last = first.at(-1)!
+    const second = await transport.list({ subject, limit: 200, before: { id: last.id, updatedAt: last.updatedAt } })
+    expect(second).toHaveLength(5)
+    expect(new Set([...first, ...second].map(thread => thread.id)).size).toBe(205)
+  })
+
   it("honours authorize for the user of each request", async () => {
     const { as } = await setup({ authorize: ({ user, action }) => action === "read" || user?.id === "ada" })
     const created = await as("ada").create({ subject: { kind: "drop", id: "1" }, anchor: { kind: "page" }, body: "Mine" })

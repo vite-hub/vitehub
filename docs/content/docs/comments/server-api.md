@@ -261,8 +261,8 @@ The routes run the same actions as the [comment operations](/docs/comments/opera
 | `POST /attachments` | `write` | Stores a file from `{ name, type, data, subject? }`, `data` in Base64, as `comments.upload` does. Returns `{ key, name, type, size }`. |
 | `GET /attachments/:key` | `read` on a thread with a message that lists the key | Answers the file. See [Attach files](/docs/comments/configure#attach-files). |
 | `GET /people?q=` | `read` | Returns the `@` suggestions. With `thread`, `page`, or `subjectKind` and `subjectId`, only the people who may be mentioned there. `limit` is at most 20. |
-| `GET /fields?field=` | `write`, and Content `write` | Reads the draft of one Content field: `{ field, value, editable, digest, collection, id }`. |
-| `POST /fields` | `write`, and Content `write` | Saves `{ field, value, ifDigest }` as a Content draft. Returns `{ field, value, digest }`. |
+| `GET /fields?page=&field=` | Page `write`, and Content `write` | Reads the draft of one Content field: `{ field, value, editable, digest, collection, id }`. The current `page` is required for its Comments policy. |
+| `POST /fields?page=` | Page `write`, and Content `write` | Saves `{ field, value, ifDigest }` as a Content draft. Returns `{ field, value, digest }`. Uses the same required `page` as the field read. |
 | `GET /auth/github?return=` | None | Starts [Sign in with GitHub](/docs/comments/configure#sign-in-with-github), then sends the person back to `return`, a path on the same site. |
 | `GET /auth/callback/github` | None | Where GitHub sends the person back. List it as the App's callback URL. |
 | `POST /auth/sign-out` | None | Ends the GitHub sign-in in this browser. |

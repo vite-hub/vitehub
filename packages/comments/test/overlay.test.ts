@@ -54,6 +54,56 @@ describe("the Comments overlay on the comment parts", () => {
     expect(requests.some(request => request.path === "/api/_vitehub/comments/session?page=%2Fpricing")).toBe(true)
   })
 
+  it.each(["layer", "panel"])("uses thread permissions in the %s even when page permissions differ", async (surface) => {
+    let threadId: string | undefined
+    const { shadow, bar, panel } = await site(ada, {
+      authorize: ({ action, thread }) => action === "read" || Boolean(thread),
+    }, async (comments) => {
+      threadId = (await comments.create({ page: "/pricing", anchor, body: "Thread grant", author: grace }))[1]!.id
+    })
+    expect(tool(bar, "Comment (C)")).toBeNull()
+    let root: ShadowRoot
+    if (surface === "layer") {
+      await vi.waitFor(() => expect(shadow.querySelector(`[data-thread-id="${threadId}"]`)).not.toBeNull())
+      shadow.querySelector<HTMLButtonElement>('[data-slot="comment-pin"]')!.click()
+      root = shadow
+    }
+    else {
+      tool(bar, "Comments on this page")!.click()
+      root = panel()!
+      await vi.waitFor(() => expect(root.querySelector('[data-slot="comment-panel-item"]')).not.toBeNull())
+      expect(composer(root, "Comment")).toBeNull()
+      root.querySelector<HTMLButtonElement>('[data-slot="comment-panel-item"]')!.click()
+    }
+    await vi.waitFor(() => expect(composer(root, "Reply")).not.toBeNull())
+    expect(root.querySelector('[aria-label="Resolve"]')).not.toBeNull()
+    expect(root.querySelector('[aria-label="Delete"]')).not.toBeNull()
+  })
+
+  it.each(["layer", "panel"])("hides thread-denied controls in the %s", async (surface) => {
+    const { shadow, bar, panel } = await site(ada, {
+      authorize: ({ action, thread }) => action === "read" || !thread,
+    }, async (comments) => {
+      await comments.create({ page: "/pricing", anchor, body: "Read only thread", author: grace })
+    })
+    let root: ShadowRoot
+    if (surface === "layer") {
+      await vi.waitFor(() => expect(shadow.querySelector('[data-slot="comment-pin"]')).not.toBeNull())
+      shadow.querySelector<HTMLButtonElement>('[data-slot="comment-pin"]')!.click()
+      root = shadow
+    }
+    else {
+      tool(bar, "Comments on this page")!.click()
+      root = panel()!
+      await vi.waitFor(() => expect(root.querySelector('[data-slot="comment-panel-item"]')).not.toBeNull())
+      root.querySelector<HTMLButtonElement>('[data-slot="comment-panel-item"]')!.click()
+    }
+    await vi.waitFor(() => expect(root.querySelector('[data-slot="comment-thread"]')).not.toBeNull())
+    expect(composer(root, "Reply")).toBeNull()
+    expect(root.querySelector('[aria-label="Resolve"]')).toBeNull()
+    expect(root.querySelector('[aria-label="Delete"]')).toBeNull()
+  })
+
   it.each(["layer", "panel"])("keeps mention targets through the %s and API", async (surface) => {
     let threadId: string | undefined
     const { shadow, bar, panel, comments } = await site(ada, {
@@ -260,6 +310,7 @@ describe("the Comments overlay on the comment parts", () => {
     const { shadow } = await startOverlay(tools)
     await vi.waitFor(() => expect(shadow.querySelector(`[aria-label="Comment ${second!.n}"][data-slot="comment-thread"]`)).not.toBeNull())
     expect(shadow.querySelector('[data-slot="comment-thread"]')!.textContent).toContain("Second, resolved")
+    expect(composer(shadow, "Reply")).toBeNull()
     expect(first!.n).not.toBe(second!.n)
   })
 

@@ -70,8 +70,8 @@ const post = (body: unknown): RequestInit => ({ method: "POST", body: JSON.strin
 /** The routes that are not comment threads: who the person is on a page, and the Content fields of inline edits. */
 export const api = {
   session: (page: string) => call<CommentsSession>(`/session?page=${encodeURIComponent(page)}`),
-  field: (field: string) => call<CommentsField>(`/fields?field=${encodeURIComponent(field)}`),
-  saveField: (input: { field: string, value: string, ifDigest: string }) => call<{ field: string, value: string, digest: string }>("/fields", post(input)),
+  field: (field: string, page: string) => call<CommentsField>(`/fields?page=${encodeURIComponent(page)}&field=${encodeURIComponent(field)}`),
+  saveField: (input: { field: string, value: string, ifDigest: string }, page: string) => call<{ field: string, value: string, digest: string }>(`/fields?page=${encodeURIComponent(page)}`, post(input)),
 }
 
 export interface OverlayTransportOptions {

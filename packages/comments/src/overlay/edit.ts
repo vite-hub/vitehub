@@ -4,6 +4,8 @@ import { api } from "./api.ts"
 import type { CommentsApiError } from "./api.ts"
 
 export interface InlineEditOptions {
+  /** The page whose policy allows this edit. Captured when editing starts, even if the router moves before save. */
+  page: () => string
   /** Opens the Content tool of the page tools at a document path. False when there is no such tool. */
   openTool: (path: string) => Promise<boolean>
   /** Where the Content Console is, for the toasts of a saved draft and of a field that is not plain text. */
@@ -19,7 +21,7 @@ export interface InlineEditOptions {
  * saves it as a Content draft. Escape restores the text.
  */
 export function createInlineEdit(options: InlineEditOptions) {
-  let editing: { element: HTMLElement, field: string, digest: string, original: string, initial: string } | undefined
+  let editing: { element: HTMLElement, field: string, page: string, digest: string, original: string, initial: string } | undefined
   let stop: (() => void) | undefined
 
   async function finish(save: boolean) {
@@ -27,7 +29,7 @@ export function createInlineEdit(options: InlineEditOptions) {
     if (!current) return
     editing = undefined
     stop?.()
-    const { element, field, digest, original, initial } = current
+    const { element, field, page, digest, original, initial } = current
     element.contentEditable = "inherit"
     element.removeAttribute("data-vitehub-editing")
     const value = (element.textContent ?? "").trim()
@@ -36,7 +38,7 @@ export function createInlineEdit(options: InlineEditOptions) {
       return
     }
     if (value === initial.trim()) return
-    const [error] = await api.saveField({ field, value, ifDigest: digest })
+    const [error] = await api.saveField({ field, value, ifDigest: digest }, page)
     if (error) {
       element.textContent = original
       return options.failed(error)
@@ -49,7 +51,8 @@ export function createInlineEdit(options: InlineEditOptions) {
     await finish(true)
     const field = element.getAttribute(fieldAttribute)
     if (!field) return
-    const [error, value] = await api.field(field)
+    const page = options.page()
+    const [error, value] = await api.field(field, page)
     if (error) return options.failed(error)
     const path = `/content/${encodeURIComponent(value.collection)}/${value.id.split("/").map(encodeURIComponent).join("/")}`
     if (await options.openTool(path)) return
@@ -57,7 +60,7 @@ export function createInlineEdit(options: InlineEditOptions) {
       options.info("This field is not plain text. Edit it in the Console.", ["Open Content", options.contentPath()])
       return
     }
-    editing = { element, field, digest: value.digest, original: element.textContent ?? "", initial: value.value }
+    editing = { element, field, page, digest: value.digest, original: element.textContent ?? "", initial: value.value }
     element.textContent = value.value
     element.setAttribute("data-vitehub-editing", "")
     element.contentEditable = "plaintext-only"

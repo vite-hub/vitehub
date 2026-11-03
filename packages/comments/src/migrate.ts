@@ -46,13 +46,17 @@ function migratedAuthorId(column: string): string {
 function liveToCurrent(): string[] {
   const subjectKind = "CASE WHEN `scope` = 'pages' THEN 'page' WHEN instr(`scope`, ':') > 1 THEN substr(`scope`, 1, instr(`scope`, ':') - 1) ELSE `scope` END"
   const subjectId = "CASE WHEN `scope` = 'pages' THEN `page` WHEN instr(`scope`, ':') > 1 THEN substr(`scope`, instr(`scope`, ':') + 1) ELSE `page` END"
+  // An app may already have a `site` scope. Keep its numbers and move pages beyond everything it ever handed out.
+  // With no such scope the offset is zero, so the usual migration preserves page numbers.
+  const siteLast = `max(coalesce((SELECT max(\`number\`) FROM \`${liveThreadsBackup}\` WHERE \`scope\` = 'site'), 0), coalesce((SELECT \`last_number\` FROM \`vitehub_comment_scope_counters\` WHERE \`scope\` = 'site'), 0))`
+  const numberOf = (column: string) => `${column} + CASE WHEN \`scope\` = 'pages' THEN ${siteLast} ELSE 0 END`
   return [
     `ALTER TABLE \`vitehub_comment_threads\` RENAME TO \`${liveThreadsBackup}\``,
     ...commentsTables,
     "CREATE TABLE IF NOT EXISTS `vitehub_comment_scope_counters` (`scope` text PRIMARY KEY NOT NULL, `last_number` integer NOT NULL)",
     [
       "INSERT INTO `vitehub_comment_threads` (`id`, `scope`, `n`, `subject_kind`, `subject_id`, `anchor`, `status`, `resolved_by`, `resolved_at`, `author_id`, `author_name`, `author_image`, `actor`, `metadata`, `context`, `revision`, `created_at`, `updated_at`)",
-      `SELECT \`id\`, ${scopeOf}, \`number\`, ${subjectKind}, ${subjectId},`,
+      `SELECT \`id\`, ${scopeOf}, ${numberOf("`number`")}, ${subjectKind}, ${subjectId},`,
       "CASE WHEN `anchor` IS NULL OR `anchor` = 'null' THEN '{\"kind\":\"page\"}' ELSE json_set(`anchor`, '$.kind', 'element') END,",
       "`status`, `resolved_by`, `resolved_at`,",
       `${migratedAuthorId("`created_by`")}, json_extract(\`created_by\`, '$.name'), json_extract(\`created_by\`, '$.image'),`,
@@ -66,8 +70,8 @@ function liveToCurrent(): string[] {
       `FROM \`vitehub_comments\` AS \`c\` WHERE \`c\`.\`thread_id\` IN (SELECT \`id\` FROM \`${liveThreadsBackup}\`)`,
     ].join(" "),
     // A number is handed out once: the next one follows the highest number that the scope ever had.
-    `INSERT INTO \`vitehub_comment_counters\` (\`scope\`, \`next\`) SELECT ${scopeOf}, max(\`number\`) + 1 FROM \`${liveThreadsBackup}\` GROUP BY 1 ON CONFLICT (\`scope\`) DO UPDATE SET \`next\` = max(\`next\`, excluded.\`next\`)`,
-    `INSERT INTO \`vitehub_comment_counters\` (\`scope\`, \`next\`) SELECT ${scopeOf}, \`last_number\` + 1 FROM \`vitehub_comment_scope_counters\` WHERE true ON CONFLICT (\`scope\`) DO UPDATE SET \`next\` = max(\`next\`, excluded.\`next\`)`,
+    `INSERT INTO \`vitehub_comment_counters\` (\`scope\`, \`next\`) SELECT ${scopeOf}, max(${numberOf("`number`")}) + 1 FROM \`${liveThreadsBackup}\` GROUP BY 1 ON CONFLICT (\`scope\`) DO UPDATE SET \`next\` = max(\`next\`, excluded.\`next\`)`,
+    `INSERT INTO \`vitehub_comment_counters\` (\`scope\`, \`next\`) SELECT ${scopeOf}, ${numberOf("`last_number`")} + 1 FROM \`vitehub_comment_scope_counters\` WHERE true ON CONFLICT (\`scope\`) DO UPDATE SET \`next\` = max(\`next\`, excluded.\`next\`)`,
   ]
 }
 

@@ -171,7 +171,7 @@ describe("Comments API", () => {
       [`/threads/${thread!.id}/comments`, { method: "POST", json: { body: "Reply" } }],
       [`/threads/${thread!.id}/resolve`, { method: "POST" }],
       [`/threads/${thread!.id}/reopen`, { method: "POST" }],
-      ["/fields", { method: "POST", json: { field: "about#hero.title", value: "Edit", ifDigest: "d1" } }],
+      ["/fields?page=/", { method: "POST", json: { field: "about#hero.title", value: "Edit", ifDigest: "d1" } }],
       [`/threads/${deletable!.id}/comments/${deletable!.messages[0]!.id}`, { method: "DELETE" }],
       [`/threads/${thread!.id}`, { method: "DELETE" }],
     ] as const) {
@@ -239,7 +239,7 @@ describe("Comments API", () => {
     content.runtime.can = canWrite
     const { call } = await setup({ consoleSession: session, content, options: { identify: undefined, authorize: () => true } })
     const headers = { "x-vitehub-comments-guest-id": "visitor", "x-vitehub-comments-guest-name": "Visitor" }
-    const saved = await call("/fields", { headers, method: "POST", json: { field: "about#hero.title", value: "Guest edit", ifDigest: "d1" } })
+    const saved = await call("/fields?page=/", { headers, method: "POST", json: { field: "about#hero.title", value: "Guest edit", ifDigest: "d1" } })
     expect(saved.response.status).toBe(allowAnonymous ? 200 : 403)
     if (!allowAnonymous) expect(saved.body.error?.code).toBe("COMMENTS_FIELD_FORBIDDEN")
     expect(canWrite).toHaveBeenCalledWith(expect.objectContaining({ user: undefined }))
@@ -404,6 +404,25 @@ describe("Comments API", () => {
     expect(invalid.body.error?.code).toBe("COMMENTS_INVALID_INPUT")
   })
 
+  it("attaches mention notifications to the request without Forge", async () => {
+    let finish!: () => void
+    const notification = new Promise<void>((resolve) => { finish = resolve })
+    const onMention = vi.fn(() => notification)
+    const comments = await createComments({ identify: () => ({ id: "ada" }), authorize: () => true, people: { byIds: async () => [{ id: "grace", name: "Grace" }], search: async () => [] }, onMention })
+    const waitUntil = vi.fn()
+    const handler = createCommentsHandler({ comments, realtime: false })
+    const response: unknown = await Reflect.apply(handler, undefined, [{
+      req: new Request(`${origin}/api/_vitehub/comments/threads`, { method: "POST", headers: { origin, "content-type": "application/json" }, body: JSON.stringify({ page: "/", body: "@Grace", mentions: ["grace"] }) }),
+      context: { waitUntil },
+    }])
+    expect(response).toBeInstanceOf(Response)
+    expect((response as Response).status).toBe(200)
+    expect(onMention).toHaveBeenCalledOnce()
+    expect(waitUntil).toHaveBeenCalledOnce()
+    finish()
+    await waitUntil.mock.calls[0]![0]
+  })
+
   it.each([false, true])("answers Nuxt 4 H3 1 events and retains forge work: %s", async (forge) => {
     const comments = await createComments({ identify: () => ({ id: "ada", name: "Ada" }), authorize: () => true, forge: forge ? { provider: "github" } : undefined })
     const work: Promise<unknown>[] = []
@@ -520,33 +539,49 @@ describe("Comments API", () => {
     expect((await remove(mine!.id)).status).toBe(200)
   })
 
+  it.each([false, true])("checks the active page for field reads and writes (context-free write: %s)", async (contextFree) => {
+    const content = fakeContent()
+    const { call } = await setup({ content, options: { authorize: ({ subject }) => subject ? subject.id === "/allowed" : contextFree } })
+    const field = encodeURIComponent("about#hero.title")
+    expect((await call(`/fields?field=${field}`)).response.status).toBe(400)
+    expect((await call("/fields", { method: "POST", json: { field: "about#hero.title", value: "No page", ifDigest: "d1" } })).response.status).toBe(400)
+    expect((await call(`/fields?page=/allowed/&field=${field}`)).response.status).toBe(200)
+    expect((await call(`/fields?page=/denied&field=${field}`)).response.status).toBe(403)
+    expect((await call("/fields?page=/denied", { method: "POST", json: { field: "about#hero.title", value: "Denied", ifDigest: "d1" } })).response.status).toBe(403)
+    expect(content.saves).toEqual([])
+    expect((await call("/fields?page=/allowed", { method: "POST", json: { field: "about#hero.title", value: "Allowed", ifDigest: "d1" } })).response.status).toBe(200)
+    expect(content.saves).toHaveLength(1)
+    const deniedContent = await setup({ content: fakeContent({ can: false }), options: { authorize: () => true } })
+    expect((await deniedContent.call(`/fields?page=/allowed&field=${field}`)).response.status).toBe(403)
+  })
+
   it("reads a Content field draft and saves an edit with ifDigest", async () => {
     const content = fakeContent()
     const { call } = await setup({ content })
-    const field = await call(`/fields?field=${encodeURIComponent("about#hero.title")}`)
+    const field = await call(`/fields?page=/&field=${encodeURIComponent("about#hero.title")}`)
     expect(field.body.data).toEqual({ field: "about#hero.title", value: "About us", editable: true, digest: "d1", collection: "about", id: "about" })
-    const saved = await call("/fields", { method: "POST", json: { field: "about#hero.title", value: "About Quiver", ifDigest: "d1" } })
+    const saved = await call("/fields?page=/", { method: "POST", json: { field: "about#hero.title", value: "About Quiver", ifDigest: "d1" } })
     expect(saved.body.data).toEqual({ field: "about#hero.title", value: "About Quiver", digest: "d2" })
     expect(content.saves).toEqual([{ id: "about", data: { hero: { title: "About Quiver", stats: [1, 2] } }, ifDigest: "d1" }])
-    const stale = await call("/fields", { method: "POST", json: { field: "about#hero.title", value: "Again", ifDigest: "d1" } })
+    const stale = await call("/fields?page=/", { method: "POST", json: { field: "about#hero.title", value: "Again", ifDigest: "d1" } })
     expect(stale.body.error?.code).toBe("COMMENTS_FIELD_CONFLICT")
   })
 
   it("refuses fields that are not text, unknown, or forbidden", async () => {
     const { call } = await setup({ content: fakeContent() })
-    expect((await call(`/fields?field=${encodeURIComponent("about#hero.stats")}`)).body.data).toMatchObject({ editable: false, value: null })
-    const notText = await call("/fields", { method: "POST", json: { field: "about#hero.stats", value: "x", ifDigest: "d1" } })
+    expect((await call(`/fields?page=/&field=${encodeURIComponent("about#hero.stats")}`)).body.data).toMatchObject({ editable: false, value: null })
+    const notText = await call("/fields?page=/", { method: "POST", json: { field: "about#hero.stats", value: "x", ifDigest: "d1" } })
     expect(notText.body.error?.code).toBe("COMMENTS_FIELD_NOT_EDITABLE")
-    expect((await call(`/fields?field=${encodeURIComponent("posts:a#title")}`)).body.error?.code).toBe("COMMENTS_FIELD_INVALID")
+    expect((await call(`/fields?page=/&field=${encodeURIComponent("posts:a#title")}`)).body.error?.code).toBe("COMMENTS_FIELD_INVALID")
     const denied = await setup({ content: fakeContent({ can: false }) })
-    expect((await denied.call(`/fields?field=${encodeURIComponent("about#hero.title")}`)).response.status).toBe(403)
-    expect((await (await setup()).call(`/fields?field=x`)).body.error?.code).toBe("COMMENTS_CONTENT_MISSING")
+    expect((await denied.call(`/fields?page=/&field=${encodeURIComponent("about#hero.title")}`)).response.status).toBe(403)
+    expect((await (await setup()).call(`/fields?page=/&field=x`)).body.error?.code).toBe("COMMENTS_CONTENT_MISSING")
   })
 
   it("names the holder when a Console edit lease blocks the save", async () => {
     const lease = new ViteHubError("CONTENT_LEASE_HELD", "held", { details: { holder: { user: { id: "g", name: "Grace" } } } })
     const { call } = await setup({ content: fakeContent({ fail: lease }) })
-    const locked = await call("/fields", { method: "POST", json: { field: "about#hero.title", value: "New", ifDigest: "d1" } })
+    const locked = await call("/fields?page=/", { method: "POST", json: { field: "about#hero.title", value: "New", ifDigest: "d1" } })
     expect(locked.response.status).toBe(423)
     expect(locked.body.error?.why).toContain("Grace")
   })

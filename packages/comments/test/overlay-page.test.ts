@@ -84,6 +84,17 @@ async function startEdit() {
 }
 
 describe("the Comments overlay on a page", () => {
+  it("keeps an inline edit's authorization page when the router navigates before save", async () => {
+    const { requests } = await open()
+    const title = await startEdit()
+    expect(api.field).toHaveBeenCalledWith("settings#title", "/")
+    history.pushState(null, "", "/next")
+    await vi.waitFor(() => expect(requests.some(request => request.path.includes("subjectId=%2Fnext"))).toBe(true))
+    title.textContent = "Edited on the original page"
+    title.dispatchEvent(new Event("blur"))
+    await vi.waitFor(() => expect(api.saveField).toHaveBeenCalledWith({ field: "settings#title", value: "Edited on the original page", ifDigest: "draft-digest" }, "/"))
+  })
+
   it.each(["body swap", "astro:before-swap", "turbo:before-render"])("saves the open inline edit on %s without a blur", async (event) => {
     await open()
     const title = await startEdit()
@@ -98,7 +109,7 @@ describe("the Comments overlay on a page", () => {
         expect(title.hasAttribute("data-vitehub-editing")).toBe(false)
       }
       before.replaceWith(next)
-      await vi.waitFor(() => expect(api.saveField).toHaveBeenCalledWith({ field: "settings#title", value: "Edited before navigation", ifDigest: "draft-digest" }))
+      await vi.waitFor(() => expect(api.saveField).toHaveBeenCalledWith({ field: "settings#title", value: "Edited before navigation", ifDigest: "draft-digest" }, "/"))
       expect(title.hasAttribute("data-vitehub-editing")).toBe(false)
     }
     finally {
