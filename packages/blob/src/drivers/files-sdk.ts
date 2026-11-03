@@ -209,16 +209,19 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
         const client = await files()
         // Providers with folders return them as common prefixes, so each page is one request.
         if (client.capabilities.delimiter !== false) {
+          const prefix = listOptions.prefix || ""
+          // Directory buckets require a folder prefix; filter partial names within their parent.
+          const providerPrefix = prefix && !prefix.endsWith("/") ? prefix.slice(0, prefix.lastIndexOf("/") + 1) : listOptions.prefix
           const result = await listPage(client, {
             cursor: listOptions.cursor,
             delimiter: "/",
             limit: listOptions.limit ?? 1000,
-            prefix: listOptions.prefix,
+            prefix: providerPrefix,
           })
           return {
-            blobs: result.items.map(mapFileInfo),
+            blobs: result.items.filter(item => item.key.startsWith(prefix)).map(mapFileInfo),
             cursor: result.cursor,
-            folders: [...result.prefixes ?? []].sort((left, right) => left.localeCompare(right)),
+            folders: (result.prefixes ?? []).filter(folder => folder.startsWith(prefix)).sort((left, right) => left.localeCompare(right)),
             hasMore: Boolean(result.cursor),
           }
         }

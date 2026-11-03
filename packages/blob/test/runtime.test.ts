@@ -950,6 +950,44 @@ describe("blob runtime", () => {
     ])
   })
 
+  it.each([
+    ["any", "doc", "", "docs/"],
+    ["slash", "docs", "", "docs/"],
+    ["any", "docs/re", "docs/", "docs/reports/"],
+    ["slash", "docs/re", "docs/", "docs/reports/"],
+  ] as const)("filters native %s listings for partial prefix %j", async (delimiter, prefix, parent, folder) => {
+    filesSdkMock.delimiter = delimiter
+    const matchingFile = { etag: "etag", key: `${prefix}adme.md`, lastModified: "2026-01-01T00:00:00.000Z", metadata: {}, size: 3, contentType: "text/markdown" }
+    filesSdkMock.list
+      .mockImplementationOnce(async (options) => {
+        const { prefix: providerPrefix } = options as { prefix?: string }
+        // S3 directory buckets reject a nonempty prefix unless it ends in a slash.
+        if (providerPrefix && !providerPrefix.endsWith("/")) throw new Error("Prefix must end in '/'.")
+        return {
+          cursor: "page-2",
+          items: [matchingFile, { ...matchingFile, key: `${parent}other.txt` }],
+          prefixes: [`${parent}other/`, folder],
+        }
+      })
+      .mockResolvedValueOnce({ cursor: "page-3", items: [], prefixes: [`${parent}other/`] })
+      .mockResolvedValueOnce({ items: [], prefixes: [folder] })
+    setBlobRuntimeConfig({ store: { bucket: "assets", driver: "s3" } })
+
+    const first = expectBlobSuccess(await blob.list({ folded: true, limit: 4, prefix }))
+    const second = expectBlobSuccess(await blob.list({ cursor: first.cursor, folded: true, limit: 4, prefix }))
+    const third = expectBlobSuccess(await blob.list({ cursor: second.cursor, folded: true, limit: 4, prefix }))
+
+    expect(first).toMatchObject({ cursor: "page-2", folders: [folder], hasMore: true })
+    expect(first.blobs.map(blob => blob.pathname)).toEqual([matchingFile.key])
+    expect(second).toMatchObject({ blobs: [], cursor: "page-3", folders: [], hasMore: true })
+    expect(third).toMatchObject({ blobs: [], folders: [folder], hasMore: false })
+    expect(filesSdkMock.list.mock.calls.map(([options]) => options)).toEqual([
+      { cursor: undefined, delimiter: "/", limit: 4, prefix: parent },
+      { cursor: "page-2", delimiter: "/", limit: 4, prefix: parent },
+      { cursor: "page-3", delimiter: "/", limit: 4, prefix: parent },
+    ])
+  })
+
   it("resumes folded files-sdk listings within and across provider pages", async () => {
     const items = (keys: string[]) => keys.map(key => ({
       etag: "etag",

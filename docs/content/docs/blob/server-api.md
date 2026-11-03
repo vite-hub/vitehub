@@ -95,6 +95,8 @@ Pass the cursor returned by `blob.list()` unchanged to the next list call on the
 
 With `folded: true`, files-sdk drivers whose provider has folders (S3 and S3-compatible stores, R2, GCS, Azure, Google Drive, Dropbox, Box, OneDrive, and Supabase) ask the provider for the folders, so each page is one provider request. A page then holds at most `limit` blobs and folders together. UploadThing has no folders, so ViteHub reads every key under `prefix` and folds them itself.
 
+With a partial prefix such as `docs/re`, a native page can be empty while `hasMore` is true. Continue with the returned cursor to reach the matching entries.
+
 ## Serve a transformed object
 
 Use `blob.serve()` in an application route when authorization or a database lookup decides which object to expose. It accepts Nuxt H3 v1 and Nitro H3 v2 events, sets content headers, and handles conditional GET and HEAD requests. Responses default to `private, no-cache`; set `cacheControl` to choose another policy.
