@@ -5,6 +5,7 @@ import { createMemoryScheduleRunStore } from "./store.ts"
 import type { ScheduleDefinitionRegistry, ScheduleRegistryDefinition, ScheduleRunStore } from "../types.ts"
 
 let runtimeRegistry: ScheduleDefinitionRegistry | undefined
+const processDefinitions = new Set<ReadonlyMap<string, ScheduleRegistryDefinition>>()
 let runtimeRegistryVersion = 0
 let runStore: ScheduleRunStore | undefined
 const loadedRegistryEntries = new Map<string, ScheduleRegistryDefinition | undefined>()
@@ -34,6 +35,16 @@ export function setScheduleRuntimeRegistry(registry: ScheduleDefinitionRegistry 
 
 export function getScheduleRuntimeRegistry(): ScheduleDefinitionRegistry | undefined {
   return runtimeRegistry
+}
+
+/** Publish only ready runtimes, retaining earlier snapshots until their controllers close. */
+export function registerProcessScheduleDefinitions(definitions: ReadonlyMap<string, ScheduleRegistryDefinition>): () => void {
+  processDefinitions.add(definitions)
+  return () => { processDefinitions.delete(definitions) }
+}
+
+export function getProcessScheduleDefinitions(): ReadonlyMap<string, ScheduleRegistryDefinition> | undefined {
+  return [...processDefinitions].at(-1)
 }
 
 export function setScheduleRunStore(store: ScheduleRunStore | undefined): void {
@@ -94,6 +105,7 @@ export async function loadScheduleDefinition(name: string): Promise<ScheduleRegi
 
 export function resetScheduleRuntime(): void {
   runtimeRegistry = undefined
+  processDefinitions.clear()
   runtimeRegistryVersion++
   runStore = undefined
   loadedRegistryEntries.clear()

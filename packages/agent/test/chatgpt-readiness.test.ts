@@ -8,7 +8,7 @@ vi.mock("../src/internal/provider-runtime-packages.ts", async (importOriginal) =
   resolveInstalledProviderExecutable: () => codex.executable,
 }))
 
-import { defineAgent, defineCapability, runAgent } from "../src/index.ts"
+import { codexDriver, defineAgent, defineCapability, runAgent } from "../src/index.ts"
 
 afterEach(() => {
   codex.executable = "/fake/codex"
@@ -21,7 +21,7 @@ function setup(connection: { status: string, plan: "enabled" | "disabled" }) {
     name: "docs", runtime: false,
     // A Capability with a prepare hook makes the Invocation check provider readiness first.
     capabilities: [defineCapability({ id: "setup", prepare })],
-    driver: { kind: "codex", gateway: chatgpt() },
+    driver: codexDriver({ gateway: chatgpt() }),
   })
   const host = {
     runtime: "vite" as const, memo: <T>(_key: string, create: () => T) => create(), waitUntil: () => undefined,
@@ -56,7 +56,7 @@ it("asks to install Codex when the app cannot resolve @openai/codex", async () =
   codex.executable = undefined
   const test = setup({ status: "connected", plan: "enabled" })
   await expect(test.run()).rejects.toMatchObject({
-    code: "AGENT_R1025",
+    code: "AGENT_R1026",
     fix: expect.stringContaining("@openai/codex"),
   })
   expect(test.prepare).not.toHaveBeenCalled()
@@ -64,7 +64,7 @@ it("asks to install Codex when the app cannot resolve @openai/codex", async () =
 })
 
 it("asks to install Codex when Codex is gone at launch", async () => {
-  const agent = defineAgent({ name: "docs", runtime: false, driver: { kind: "codex", gateway: chatgpt() } })
+  const agent = defineAgent({ name: "docs", runtime: false, driver: codexDriver({ gateway: chatgpt() }) })
   const host = {
     runtime: "vite" as const, memo: <T>(_key: string, create: () => T) => create(), waitUntil: () => undefined,
     capabilities: {
@@ -79,7 +79,7 @@ it("asks to install Codex when Codex is gone at launch", async () => {
     },
   }
   await expect(runAgent(agent, host, { prompt: "How do I install it?" })).rejects.toMatchObject({
-    code: "AGENT_R1025",
+    code: "AGENT_R1026",
     fix: expect.stringContaining("@openai/codex"),
   })
 })

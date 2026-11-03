@@ -73,6 +73,7 @@ import { defineMessageChannelInstructions } from "./internal/channels.ts"
 import { forgeAccessKey, type ForgeAccess } from "./internal/forge-access.ts"
 import { chatFinalReplyIntent, chatFinalReplyText, chatFinishDeliveryRegistrarKey, clearChatFinalReplyText, setChatFinalReplyText, setMessageChannelDeferredReplyTrace } from "./internal/chat-finish-delivery.ts"
 import type { ChatFinishDeliveryRegistrar } from "./internal/chat-finish-delivery.ts"
+import { withAgentChannelStatusDefinition } from "./internal/channel-status.ts"
 import { withAgentChannelSyncDefinition } from "./internal/channel-sync.ts"
 import { channelDeliveryHandlers } from "./internal/channel-delivery-handlers.ts"
 import { withAgentChannelHistoryDefinition } from "./internal/channel-history.ts"
@@ -83,6 +84,7 @@ import { getAgentChannelSyncDefinition } from "./internal/channel-sync.ts"
 import { channelsConsoleHost } from "./channels-console-host.ts"
 import {
   cleanupGmailMailbox,
+  clearGmailSkippedMessages,
   createGmailChannelSyncProvider,
   getGmailMessage,
   getGmailThread,
@@ -95,6 +97,7 @@ import {
   gmailMailboxHistoryId,
   gmailSettings,
   modifyGmailMessage,
+  readGmailChannelStatus,
   normalizeGmailLabelSettings,
   readGmailPush,
   syncGmailMailbox,
@@ -120,6 +123,7 @@ export {
   publishWorkspaceArtifacts,
   rewriteDeliveryArtifactMarkdown,
 } from "./delivery-artifacts.ts"
+export type { AgentChannelRetryingMessage, AgentChannelSkippedMessage, AgentChannelStatus } from "./internal/channel-status.ts"
 export { GmailApiError, createGmailOAuthClient, gmailEnvNames, gmailLabelPalette } from "./internal/gmail-channel.ts"
 export type {
   GmailCleanupRule,
@@ -3724,7 +3728,7 @@ function discordChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntime
 }
 
 /** The Discord Channel for an Agent. `discord.connector()` sends outbound messages through a `defineOutboundChannel()`. */
-export const discord: typeof discordChannel & { connector: typeof discordConnector } = Object.assign(discordChannel, { connector: discordConnector })
+export const discord: typeof discordChannel & { connector: typeof discordConnector } = /* @__PURE__ */ Object.assign(discordChannel, { connector: discordConnector })
 
 export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: GitHubChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods>, pullRequest: true | (GitHubPullRequestCommentEventOptions<TRuntimeConfig> & { workspace?: true | { mount?: string } }) }): AgentChannelDefinitionOf<TRuntimeConfig, "github", TData, TMethods> & { capabilities: readonly [AgentCapabilityDefinition<TRuntimeConfig> & { workspace: NonNullable<AgentCapabilityDefinition<TRuntimeConfig>["workspace"]> }, ...AgentCapabilityDefinition<TRuntimeConfig>[]] }
 export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: GitHubChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> & { pullRequest: true | (GitHubPullRequestCommentEventOptions<TRuntimeConfig> & { workspace?: true | { mount?: string } }) }): AgentChannelDefinitionOf<TRuntimeConfig, "github", TData, TMethods> & { capabilities: readonly [AgentCapabilityDefinition<TRuntimeConfig> & { workspace: NonNullable<AgentCapabilityDefinition<TRuntimeConfig>["workspace"]> }, ...AgentCapabilityDefinition<TRuntimeConfig>[]] }
@@ -3972,6 +3976,11 @@ export interface GmailChannelOptions<TRuntimeConfig extends AgentRuntimeConfig =
    * and message methods create a missing one on first use. Colors must come from `gmailLabelPalette`.
    */
   labels?: Record<string, GmailLabelSettings>
+  /**
+   * Syncs that try one failing message before the Channel skips it, so that later mail is not blocked.
+   * `vitehub channels status` lists skipped messages. Defaults to 5.
+   */
+  maxAttempts?: number
   /** Builds the Invocation prompt from a message. The default prompt lists the headers, then the body. */
   prompt?: (message: GmailMessage) => string
 }
@@ -4016,6 +4025,9 @@ function gmailOptionLabels<TRuntimeConfig extends AgentRuntimeConfig>(options: G
   const invalid = (detail: string) => agentDiagnostics.AGENT_R0940({ message: `[vitehub] gmail() ${detail}` })
   if (options.bodyLimit !== undefined && (!Number.isSafeInteger(options.bodyLimit) || options.bodyLimit < 1)) {
     throw invalid("bodyLimit must be a positive integer.")
+  }
+  if (options.maxAttempts !== undefined && (!Number.isSafeInteger(options.maxAttempts) || options.maxAttempts < 1)) {
+    throw invalid("maxAttempts must be a positive integer.")
   }
   if (options.hideUnmanagedLabels !== undefined && !hasRuntimeType(options.hideUnmanagedLabels, "boolean")) {
     throw invalid("hideUnmanagedLabels must be a boolean.")
@@ -4118,6 +4130,7 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
               bodyLimit,
               client,
               dispatch: dispatchReceived(context),
+              ...(options.maxAttempts ? { maxAttempts: options.maxAttempts } : {}),
               notificationHistoryId: push.historyId,
               state,
               ...(settings.pubsubTopic ? { topic: settings.pubsubTopic } : {}),
@@ -4142,6 +4155,7 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
             bodyLimit,
             client,
             dispatch: dispatchReceived(context),
+            ...(options.maxAttempts ? { maxAttempts: options.maxAttempts } : {}),
             notificationHistoryId: async () => await gmailMailboxHistoryId(client),
             state: context.channelState,
             throwOnDispatchFailure: true,
@@ -4183,7 +4197,11 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
     },
   })
   Object.defineProperty(channel, gmailChannelClient, { enumerable: true, value: resolveClient })
-  return withAgentChannelSyncDefinition<TRuntimeConfig, typeof channel>(defineMessageChannelInstructions(channel, gmailInstructions(labels)), {
+  const described = withAgentChannelStatusDefinition<TRuntimeConfig, typeof channel>(defineMessageChannelInstructions(channel, gmailInstructions(labels)), {
+    clear: clearGmailSkippedMessages,
+    read: readGmailChannelStatus,
+  })
+  return withAgentChannelSyncDefinition<TRuntimeConfig, typeof channel>(described, {
     provider: "gmail",
     async resolve(context) {
       const settings = await gmailChannelSettings(context)
@@ -4334,7 +4352,7 @@ function slackChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
 }
 
 /** The Slack Channel for an Agent. `slack.connector({ adapter })` sends outbound messages through a `defineOutboundChannel()`. */
-export const slack: typeof slackChannel & { connector: typeof slackConnector } = Object.assign(slackChannel, { connector: slackConnector })
+export const slack: typeof slackChannel & { connector: typeof slackConnector } = /* @__PURE__ */ Object.assign(slackChannel, { connector: slackConnector })
 
 function teamsChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>
 function teamsChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem>): AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>
@@ -4343,7 +4361,7 @@ function teamsChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
 }
 
 /** The Microsoft Teams Channel for an Agent. `teams.connector()` sends outbound messages through a `defineOutboundChannel()`. */
-export const teams: typeof teamsChannel & { connector: typeof teamsConnector } = Object.assign(teamsChannel, { connector: teamsConnector })
+export const teams: typeof teamsChannel & { connector: typeof teamsConnector } = /* @__PURE__ */ Object.assign(teamsChannel, { connector: teamsConnector })
 
 function telegramChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: TelegramChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "telegram", TData, TMethods>
 function telegramChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: TelegramChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem>): AgentChannelDefinitionOf<TRuntimeConfig, "telegram", TData, TMethods>
@@ -4422,7 +4440,7 @@ function telegramChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntim
 }
 
 /** The Telegram Channel for an Agent. `telegram.connector()` sends outbound messages through a `defineOutboundChannel()`. */
-export const telegram: typeof telegramChannel & { connector: typeof telegramConnector } = Object.assign(telegramChannel, { connector: telegramConnector })
+export const telegram: typeof telegramChannel & { connector: typeof telegramConnector } = /* @__PURE__ */ Object.assign(telegramChannel, { connector: telegramConnector })
 
 export function webChat<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody, TAuth = unknown, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: AgentWebChatChannelOptions<TRuntimeConfig, TBody, TAuth, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "web-chat", TData, TMethods>
 export function webChat<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody, TAuth = unknown, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: AgentWebChatChannelOptions<TRuntimeConfig, TBody, TAuth, TData, TMethods, THistoryItem>): AgentChannelDefinitionOf<TRuntimeConfig, "web-chat", TData, TMethods>

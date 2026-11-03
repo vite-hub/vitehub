@@ -77,7 +77,7 @@ Every page now shows an **Ask** button at the bottom right. `⌘I` (`Ctrl+I` on 
 
 To open the panel from your own control, call `useDocsAssistant().toggle()`.
 
-Without `@openai/codex` in the app, the panel shows `AGENT_R1025` with the install command.
+Without `@openai/codex` in the app, the panel shows `AGENT_R1026` with the install command.
 
 ## What the preset sets
 

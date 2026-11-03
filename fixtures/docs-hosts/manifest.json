@@ -7,6 +7,7 @@
   { "page": "getting-started/installation.md", "label": "output/health.json", "fixture": "installation/output/health.json", "verification": "json" },
   { "page": "frameworks-hosts/cloudflare.md", "label": "vite.config.ts", "fixture": "cloudflare/vite.config.ts", "verification": "build" },
   { "page": "frameworks-hosts/cloudflare.md", "label": "src/database.ts", "fixture": "cloudflare/src/database.ts", "verification": "typecheck" },
+  { "page": "frameworks-hosts/cloudflare.md", "label": "vite.config.ts", "fixture": "cloudflare/secrets-file/vite.config.ts", "verification": "typecheck" },
   { "page": "frameworks-hosts/cloudflare.md", "label": "vite.config.ts", "fixture": "cloudflare/rate-limit/vite.config.ts", "verification": "typecheck" },
   { "page": "frameworks-hosts/cloudflare.md", "label": "vite.config.ts", "fixture": "cloudflare/workspace/vite.config.ts", "verification": "typecheck" },
   { "page": "frameworks-hosts/cloudflare.md", "label": "vite.config.ts", "fixture": "cloudflare/browser/vite.config.ts", "verification": "typecheck" },

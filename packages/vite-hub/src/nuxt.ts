@@ -339,6 +339,7 @@ const nitroRuntimeResolverNames = new Set([
   "@vite-hub/kv/vite",
   "@vite-hub/markdown-template/vite",
   "@vite-hub/realtime/vite",
+  "vite-hub/optional-owner-imports",
   "vite-hub/unavailable-services",
 ])
 
