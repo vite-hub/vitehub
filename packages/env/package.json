@@ -136,7 +136,7 @@
   "peerDependencies": {
     "vite": "catalog:vite-compat",
     "drizzle-orm": "catalog:database",
-    "@vite-hub/agent": "workspace:*"
+    "@vite-hub/agent": "^0.2.0"
   },
   "peerDependenciesMeta": {
     "vite": {
