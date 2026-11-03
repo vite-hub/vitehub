@@ -87,11 +87,19 @@ function runtimeSourceOrigin(entry: RuntimeEnvEntry, env: RuntimeEnv, source: { 
   return conflict ? { conflict: true, via: "canonical" } : { via: "canonical" }
 }
 
+/** Server Env resolves every declaration together, so the message must say why reading another value fails. */
+function missingRuntimeValueMessage(entry: RuntimeEnvEntry | RuntimeProviderEntry, path: string): string {
+  const supply = entry.source.kind === "env"
+    ? `Set ${(entry.source.names || [entry.source.name]).join(" or ")}`
+    : "Return it from the provider"
+  return `${path} is required and has no value. Server Env checks every declared value together, so this fails even when code reads only another value. ${supply}, give it a default, or declare it with optional: true.`
+}
+
 function resolvedRuntimeValue(entry: RuntimeEnvEntry | RuntimeProviderEntry, value: unknown, found: boolean, path: string, snapshot = false): unknown {
   const resolved = found ? value : entry.default
   if (typeof resolved === "undefined") {
     if (entry.required) {
-      throw missingRequiredEnv(entry.source.kind, `Missing Runtime Env from ${entry.source.kind}.`, path)
+      throw missingRequiredEnv(entry.source.kind, missingRuntimeValueMessage(entry, path), path)
     }
     return undefined
   }

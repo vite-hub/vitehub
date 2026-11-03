@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 
 import { env, resolveServerEnv } from "../src/index.ts"
 import { envSourceFailed } from "../src/core/errors.ts"
-import { createSourceContext, resolveEnvEntries, validateEnvConfigShape } from "../src/core/resolve.ts"
+import { createRuntimeRegistry, createSourceContext, resolveEnvEntries, validateEnvConfigShape } from "../src/core/resolve.ts"
 import { parseSchema } from "../src/schema.ts"
 
 describe("Env errors", () => {
@@ -68,6 +68,24 @@ describe("Env errors", () => {
         source: { kind: "env", label: "env:TOKEN", name: "TOKEN", names: ["TOKEN", "TOKEN_FALLBACK"], serializable: true },
       },
     }, { env: { TOKEN: undefined, TOKEN_FALLBACK: "fallback" } })).toEqual({ token: "fallback" })
+  })
+
+  it("explains that a missing required value fails reads of its siblings", () => {
+    const registry = createRuntimeRegistry({
+      google: {
+        clientId: env({ default: "" }),
+        clientSecret: env({ secret: true }),
+      },
+    })
+
+    const error = capture(() => resolveServerEnv<{ google: { clientId: string } }>(registry, { env: {} }).google.clientId)
+    expect(error).toMatchObject({
+      code: "ENV_REQUIRED_MISSING",
+      details: { path: "env.server.google.clientSecret", source: "env" },
+    })
+    expect(String(error.cause)).toContain(
+      "env.server.google.clientSecret is required and has no value. Server Env checks every declared value together, so this fails even when code reads only another value. Set VITEHUB_GOOGLE_CLIENT_SECRET or GOOGLE_CLIENT_SECRET, give it a default, or declare it with optional: true.",
+    )
   })
 
   it("reports declaration misuse with Nostics and preserves schema errors", () => {
