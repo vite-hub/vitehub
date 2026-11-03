@@ -2,7 +2,10 @@ import { statSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { basename, dirname, parse, resolve } from "node:path"
 
+import type { NuxtServerDirOptions } from "./paths.ts"
 import type { ConfigEnv, EnvironmentOptions } from "vite"
+
+export type { NuxtServerDirOptions } from "./paths.ts"
 
 type NoExternalValue = string | true | RegExp | (string | RegExp)[] | undefined
 type WatchIgnoredMatcher = string | RegExp | ((testString: string, ...args: unknown[]) => boolean)
@@ -177,17 +180,6 @@ export const VITEHUB_APP_BASE_URL = "__vitehubAppBaseURL" as const
  * Later entries are Nuxt layers in Nuxt priority order.
  */
 export const VITEHUB_SERVER_DIRS = "__vitehubServerDirs" as const
-
-interface NuxtLayerDirectoryConfig {
-  rootDir?: string
-  serverDir?: string
-  srcDir?: string
-}
-
-/** The Nuxt options that locate the server directory of each layer. */
-export interface NuxtServerDirOptions extends NuxtLayerDirectoryConfig {
-  _layers?: ReadonlyArray<{ config?: NuxtLayerDirectoryConfig, cwd?: string }>
-}
 
 /**
  * Lists the server directory of the application and of each Nuxt layer it extends.

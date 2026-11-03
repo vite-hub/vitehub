@@ -255,8 +255,10 @@ export interface ConnectionsVitePluginOptions {
    * Without this module, development uses `"development"`.
    */
   actor?: string;
-  /** Module that exports the ViteHub Database as `db`. Set `false` when the app has no database. */
+  /** Module that exports the ViteHub Databases as `db` and `databases`. Set `false` when the app has no database. */
   database?: string | false;
+  /** The Database that stores grants, approvals, and activity. Defaults to `default`. */
+  databaseName?: string;
   /** Package that the generated handler imports from. */
   importBase?: string;
   /**
@@ -275,7 +277,7 @@ export interface ConnectionsVitePluginAPI {
 
 /** A `vitehub.databases` entry without tables: Connections create their SQLite tables with their own SQL. */
 export interface ConnectionsDatabaseUse {
-  database: "default";
+  database: string;
   dialect: "sqlite";
   name: "connections";
   reason: string;
@@ -285,7 +287,7 @@ export type ConnectionsVitePlugin = Plugin<ConnectionsVitePluginAPI> & {
   api: ConnectionsVitePluginAPI;
   vitehub: {
     cli: () => Promise<ViteHubCliContributor>;
-    /** The Database use that `@vite-hub/database` collects: Connections keep their data in the `default` Database. */
+    /** The Database use that `@vite-hub/database` collects: the Database that keeps Connection data. */
     databases: () => ConnectionsDatabaseUse[];
   };
   nitro: {
@@ -299,6 +301,7 @@ function renderRegistry(
   definitions: DiscoveredConnectionDefinition[],
   database: string | false,
   activityRetention: Required<ConnectionActivityRetention> | false,
+  databaseName = "default",
 ): string {
   return [
     `export const activityRetention = ${JSON.stringify(activityRetention)}`,
@@ -309,7 +312,9 @@ function renderRegistry(
     ),
     "",
     database
-      ? `export const database = () => import(${JSON.stringify(database)}).then(module => module.db)`
+      ? databaseName === "default"
+        ? `export const database = () => import(${JSON.stringify(database)}).then(module => module.db)`
+        : `export const database = () => import(${JSON.stringify(database)}).then(module => module.databases[${JSON.stringify(databaseName)}].db)`
       : "export const database = undefined",
     "export default registry",
     "",
@@ -369,6 +374,8 @@ function isConnectionDefinitionFile(
 export function hubConnections(options: ConnectionsVitePluginOptions = {}): ConnectionsVitePlugin {
   const importBase = options.importBase ?? "@vite-hub/connections";
   const database = options.database ?? false;
+  const databaseName = options.databaseName ?? "default";
+  if (!/^[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*$/i.test(databaseName)) throw new Error(`[vitehub] connections.database must be a Database name, such as "users". Got ${JSON.stringify(databaseName)}.`);
   const activityRetention = resolveActivityRetention(options.activityRetention);
   let resolved: ResolvedConfig | undefined;
   let definitions: DiscoveredConnectionDefinition[] = [];
@@ -400,7 +407,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
           const types = renderRegistryTypes(definitions);
           await Promise.all([
             writeFileIfChanged(resolve(projectRoot, generatedTypesPath), types),
-            ...(nitroRegistryFile ? [writeFileIfChanged(nitroRegistryFile, renderRegistry(definitions, database, activityRetention))] : []),
+            ...(nitroRegistryFile ? [writeFileIfChanged(nitroRegistryFile, renderRegistry(definitions, database, activityRetention, databaseName))] : []),
           ]);
           await recordGeneratedTypes(defaultProjectRoot, projectRoot, typeHash(types), generationSession);
           return;
@@ -418,7 +425,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
         const types = renderRegistryTypes(definitions);
         await Promise.all([
           writeFileIfChanged(resolve(projectRoot, generatedTypesPath), types),
-          ...(nitroRegistryFile ? [writeFileIfChanged(nitroRegistryFile, renderRegistry(definitions, database, activityRetention))] : []),
+          ...(nitroRegistryFile ? [writeFileIfChanged(nitroRegistryFile, renderRegistry(definitions, database, activityRetention, databaseName))] : []),
         ]);
         await recordGeneratedOwners(projectRoot, defaultProjectRoot, typeHash(types), generationSession, owners);
         await recordGeneratedTypes(defaultProjectRoot, projectRoot, typeHash(types), generationSession);
@@ -451,10 +458,10 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
         const { createConnectionsCliContributor } = await import("./cli.ts");
         return createConnectionsCliContributor();
       },
-      // `db` of the Database module is the `default` Database. Without a Database Definition, `@vite-hub/database`
-      // adds it for this use, and `vitehub inspect` shows the reason.
+      // Without a Database Definition, `@vite-hub/database` adds the `default` Database for this use, and
+      // `vitehub inspect` shows the reason.
       databases: () => database
-        ? [{ database: "default", dialect: "sqlite", name: "connections", reason: "Stores Connection grants, approvals, and activity." }]
+        ? [{ database: databaseName, dialect: "sqlite", name: "connections", reason: "Stores Connection grants, approvals, and activity." }]
         : [],
     },
     async config(config, environment) {
@@ -474,7 +481,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
       const handlerFile = resolve(generatedDir, "handler.ts");
       await writeFileIfChanged(
         nitroRegistryFile,
-        renderRegistry(discoverConnectionDefinitions({ rootDir: root, serverDirs }), database, activityRetention),
+        renderRegistry(discoverConnectionDefinitions({ rootDir: root, serverDirs }), database, activityRetention, databaseName),
       );
 
       const nitroInput: unknown = Reflect.get(config, "nitro");
@@ -613,7 +620,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
       if (id === CONNECTIONS_REGISTRY_ID) return resolvedConnectionsRegistryId;
     },
     load(id) {
-      if (id === resolvedConnectionsRegistryId) return renderRegistry(definitions, database, activityRetention);
+      if (id === resolvedConnectionsRegistryId) return renderRegistry(definitions, database, activityRetention, databaseName);
     },
   };
 }
