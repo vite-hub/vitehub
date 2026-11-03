@@ -83,6 +83,8 @@ export interface CloudflareSandboxStub {
     kill(signal?: string): Promise<void>;
     waitForExit(): Promise<{ exitCode: number }>;
   }>;
+  /** Server-sent events with the process's buffered output, then live output until it exits. */
+  streamProcessLogs?(processId: string): Promise<ReadableStream<Uint8Array>>;
   writeFile(
     path: string,
     contents: string,
@@ -278,7 +280,10 @@ function createCloudflareSession(
               cwd: commandOptions.workingDirectory ?? "/workspace",
               env: { ...baseEnv, ...commandOptions.env },
             }));
-            return cloudflareProcess(process);
+            const logs = stub.streamProcessLogs
+              ? request("streamProcessLogs", async () => await stub.streamProcessLogs!(process.id))
+              : undefined;
+            return cloudflareProcess(process, logs);
           },
         }
       : {}),
@@ -306,11 +311,16 @@ function encodeBase64(value: Uint8Array) {
   return btoa(binary);
 }
 
-function cloudflareProcess(process: Awaited<ReturnType<NonNullable<CloudflareSandboxStub["startProcess"]>>>): RuntimeProcess {
+function cloudflareProcess(
+  process: Awaited<ReturnType<NonNullable<CloudflareSandboxStub["startProcess"]>>>,
+  logs: Promise<ReadableStream<Uint8Array>> | undefined,
+): RuntimeProcess {
   const wait = process.waitForExit();
+  const output = logs
+    ? processLogStreams(logs)
+    : exitedProcessLogs(wait.then(async () => await process.getLogs()));
   return {
-    stderr: snapshotStream(async () => (await process.getLogs()).stderr),
-    stdout: snapshotStream(async () => (await process.getLogs()).stdout),
+    ...output,
     async kill(signal?: string) {
       await process.kill(signal);
     },
@@ -318,6 +328,72 @@ function cloudflareProcess(process: Awaited<ReturnType<NonNullable<CloudflareSan
       return await wait;
     },
   };
+}
+
+function exitedProcessLogs(logs: Promise<{ stderr: string; stdout: string }>) {
+  return {
+    stderr: snapshotStream(async () => (await logs).stderr),
+    stdout: snapshotStream(async () => (await logs).stdout),
+  };
+}
+
+interface CloudflareLogEvent {
+  data?: string;
+  type: string;
+}
+
+function processLogStreams(logs: Promise<ReadableStream<Uint8Array>>) {
+  const encoder = new TextEncoder();
+  const controllers: Partial<Record<"stderr" | "stdout", ReadableStreamDefaultController<Uint8Array>>> = {};
+  const open = new Set<"stderr" | "stdout">(["stderr", "stdout"]);
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  const output = (type: "stderr" | "stdout") => new ReadableStream<Uint8Array>({
+    start(controller) {
+      controllers[type] = controller;
+    },
+    async cancel() {
+      open.delete(type);
+      if (!open.size) await reader?.cancel();
+    },
+  });
+  const stderr = output("stderr");
+  const stdout = output("stdout");
+  const each = (action: (controller: ReadableStreamDefaultController<Uint8Array>) => void) => {
+    for (const type of open) action(controllers[type]!);
+    open.clear();
+  };
+  void (async () => {
+    reader = (await logs).getReader();
+    const decoder = new TextDecoder();
+    let buffered = "";
+    while (open.size) {
+      const { done, value } = await reader.read();
+      buffered += done ? decoder.decode() : decoder.decode(value, { stream: true });
+      const events = buffered.split(/\r?\n\r?\n/);
+      buffered = done ? "" : events.pop()!;
+      for (const event of events) {
+        const data = event.split(/\r?\n/)
+          .filter(line => line.startsWith("data:"))
+          .map(line => line.slice(5).replace(/^ /, ""))
+          .join("\n");
+        if (!data) continue;
+        const log = JSON.parse(data) as CloudflareLogEvent;
+        if ((log.type === "stdout" || log.type === "stderr") && log.data && open.has(log.type))
+          controllers[log.type]!.enqueue(encoder.encode(log.data));
+        else if (log.type === "exit")
+          each(controller => controller.close());
+        else if (log.type === "error")
+          throw new Error(`[vitehub] Cloudflare process log stream failed: ${log.data ?? "unknown error"}`);
+      }
+      if (done) break;
+    }
+    each(controller => controller.close());
+    await reader.cancel();
+  })().catch((error) => {
+    each(controller => controller.error(error));
+    void reader?.cancel(error).catch(() => undefined);
+  });
+  return { stderr, stdout };
 }
 
 async function abortable<T>(
