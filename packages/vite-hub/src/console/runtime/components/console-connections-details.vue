@@ -20,7 +20,6 @@ import ConsoleStatus from "./console-status.vue";
 const props = defineProps<{
   connection: ConnectionInspection;
   endpoint: string;
-  initialTab?: "activity" | "approvals" | "details";
   /** Open the API key form when the panel opens. */
   keyForm?: boolean;
   /** The Console page that the provider flow returns to. */
@@ -34,7 +33,8 @@ watch(
     current.value = connection;
   },
 );
-const tab = ref(props.initialTab ?? "details");
+/** The open tab. The Connections page keeps it in the URL. */
+const tab = defineModel<"activity" | "approvals" | "details">("tab", { default: "details" });
 const busy = ref(false);
 const error = ref<unknown>();
 const keyBlocked = ref(false);

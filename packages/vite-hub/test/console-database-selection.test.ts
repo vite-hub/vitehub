@@ -67,9 +67,8 @@ describe("Console database table selection", () => {
       state.sort = "id"
       state.direction = "desc"
       state.offset = 50
-      await nextTick()
-      await state.loadDatabase()
-      expect(state.tableRows).toEqual([{ id: "alice:50" }])
+      // The rows load again for the new filter, sort, and page.
+      await vi.waitFor(() => expect(state.tableRows).toEqual([{ id: "alice:50" }]))
       await state.openTable(table)
       await nextTick()
       if (table === "users") {

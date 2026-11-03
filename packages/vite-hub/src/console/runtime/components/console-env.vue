@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import type { ServerEnvDescriptionEntry } from "@vite-hub/env";
 import * as v from "valibot";
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
 
 import { consoleEnvName, groupConsoleEnv } from "../client/env-groups";
 import { indexEnvStatuses } from "../client/env-status";
 import { requestConsole } from "../client/request";
+import { queryChoice, queryFlag, querySelection, queryText, useConsoleQuery } from "../client/route-query";
 import { rememberConsoleSection } from "../sections";
 import ConsoleFrame from "./console-frame.vue";
 import ConsolePageHeader from "./console-page-header.vue";
@@ -48,11 +49,30 @@ const props = defineProps<{
   sectionsBase: string;
 }>();
 const entries = ref<readonly ServerEnvDescriptionEntry[]>([]);
-const search = ref("");
-const source = ref("all");
+// The search, source, open variable, and its management tab live in the URL, so a reload or a shared link opens the
+// same view.
+const { manage: managing, q: search, source, tab: manageTab, variable } = useConsoleQuery({
+  manage: queryFlag({ history: "push" }),
+  q: queryText(),
+  source: queryText({ fallback: "all" }),
+  tab: queryChoice(["credential", "activity", "access"], "credential", { history: "push" }),
+  variable: querySelection(),
+});
 /** After a status check, shows only the values that block the application. */
 const attentionOnly = ref(false);
-const selected = ref<ServerEnvDescriptionEntry>();
+// A variable without a disclosed path has no name for the URL. It stays open until another selection.
+const undisclosed = shallowRef<ServerEnvDescriptionEntry>();
+const selected = computed({
+  get: () => undisclosed.value ?? (variable.value ? entries.value.find((entry) => entry.path === variable.value) : undefined),
+  set: (entry: ServerEnvDescriptionEntry | undefined) => {
+    undisclosed.value = entry && !entry.path ? entry : undefined;
+    if (variable.value === entry?.path) return;
+    // Another variable opens with its details, not with the management of the last one.
+    variable.value = entry?.path;
+    managing.value = false;
+    manageTab.value = "credential";
+  },
+});
 const loading = ref(true);
 const failed = ref<unknown>();
 // Status is loaded on request because inspection can call providers.
@@ -134,9 +154,7 @@ async function refresh(includeStatus = false) {
       : undefined;
     if (!blockingCount.value) attentionOnly.value = false;
     if (!sourceItems.value.some((item) => item.value === source.value)) source.value = "all";
-    selected.value = selected.value
-      ? entries.value.find((entry) => entry.path === selected.value?.path)
-      : undefined;
+    if (undisclosed.value && !entries.value.includes(undisclosed.value)) undisclosed.value = undefined;
   } catch (cause) {
     if (current.signal.aborted) return;
     if (includeStatus && entries.value.length) {
@@ -294,7 +312,7 @@ onBeforeUnmount(() => request?.abort());
       :ui="{ title: 'font-mono text-sm', description: 'sr-only' }"
     >
       <template #body
-        ><ConsoleEnvDetails v-if="selected" :entry="selected" :endpoint="managementBase" :status="selected && status(selected)"
+        ><ConsoleEnvDetails v-if="selected" v-model:managing="managing" v-model:tab="manageTab" :entry="selected" :endpoint="managementBase" :status="selected && status(selected)"
       /></template>
     </USlideover>
   </ConsoleFrame>

@@ -4,7 +4,8 @@ import { computed, h, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import type { ConsoleDatabaseCell, ConsoleDatabaseRelationship, ConsoleDatabaseTable } from "./console-database-model";
-import { requestConsole } from "../client/request";
+import { ConsoleRequestError, requestConsole } from "../client/request";
+import { queryChoice, queryInteger, queryText, useConsoleQuery } from "../client/route-query";
 import { resolveConsoleRouteName } from "../console-route";
 import { rememberConsoleSection } from "../sections";
 import { consoleDatabaseNumericColumns, consoleDatabaseRequestQuery, consoleDatabaseRowFields, parseConsoleDatabase } from "./console-database-model";
@@ -35,12 +36,20 @@ const props = defineProps<{
 
 const route = useRoute();
 const router = useRouter();
+const dataRouteName = "vitehub-console-databases";
+const schemaRouteName = "vitehub-console-databases-schema";
 const sidebarOpen = ref(false);
-const filter = ref("");
-const appliedSearch = ref("");
-const sort = ref("");
-const direction = ref<"asc" | "desc">("asc");
-const offset = ref(0);
+// The filter, sort, and page live in the URL, so a reload or a shared link opens the same rows.
+const { dir: direction, offset, q: filter, sort } = useConsoleQuery({
+  dir: queryChoice(["asc", "desc"], "asc"),
+  offset: queryInteger(0, { history: "push" }),
+  q: queryText(),
+  sort: queryText(),
+}, {
+  active: current => [dataRouteName, schemaRouteName]
+    .some(name => current.name === resolveConsoleRouteName(current.name, name)),
+});
+const appliedSearch = ref(filter.value.trim());
 const database = ref<ReturnType<typeof parseConsoleDatabase>>();
 const loading = ref(true);
 const error = ref<unknown>();
@@ -51,8 +60,6 @@ let request: AbortController | undefined;
 let filterTimer: ReturnType<typeof setTimeout> | undefined;
 const defaultSort = "__vitehub_default__";
 
-const dataRouteName = "vitehub-console-databases";
-const schemaRouteName = "vitehub-console-databases-schema";
 const routeDatabase = computed(() =>
   Array.isArray(route.params.database) ? route.params.database[0] : route.params.database,
 );
@@ -179,17 +186,14 @@ function routeParams(databaseName: string, table?: string): Record<string, strin
   return { database: databaseName, table };
 }
 
+/** Another table or database opens with the filter, sort, and page of its URL. */
 function resetTableState(): void {
   if (filterTimer) {
     clearTimeout(filterTimer);
     filterTimer = undefined;
   }
   openRow.value = undefined;
-  filter.value = "";
-  appliedSearch.value = "";
-  sort.value = "";
-  direction.value = "asc";
-  offset.value = 0;
+  appliedSearch.value = filter.value.trim();
 }
 
 async function loadDatabase(): Promise<void> {
@@ -222,6 +226,7 @@ async function loadDatabase(): Promise<void> {
         await router.replace({
           name: resolveConsoleRouteName(route.name, dataRouteName),
           params: routeParams(value.database, table),
+          query: route.query,
         });
       }
     } else if (routeDatabase.value !== value.database) {
@@ -237,7 +242,13 @@ async function loadDatabase(): Promise<void> {
       requestError.name === "AbortError"
     )
       return;
-    if (request === controller) error.value = requestError;
+    if (request !== controller) return;
+    // A link can name a column that the table no longer has. The rows then load in the default order.
+    if (requestError instanceof ConsoleRequestError && requestError.status === 400 && sort.value && !database.value) {
+      sort.value = "";
+      return;
+    }
+    error.value = requestError;
   } finally {
     if (request === controller) {
       request = undefined;
@@ -251,7 +262,6 @@ async function openTable(name: string, replace = false): Promise<void> {
   if (!databaseName) return;
   sidebarOpen.value = false;
   if (props.view === "data" && routeDatabase.value === databaseName && routeTable.value === name) return;
-  resetTableState();
   const location = {
     name: resolveConsoleRouteName(route.name, dataRouteName),
     params: routeParams(databaseName, name),
@@ -262,7 +272,6 @@ async function openTable(name: string, replace = false): Promise<void> {
 async function openDatabase(value: unknown): Promise<void> {
   if (typeof value !== "string" || value === database.value?.database) return;
   sidebarOpen.value = false;
-  resetTableState();
   await router.push({
     name: resolveConsoleRouteName(route.name, dataRouteName),
     params: routeParams(value),
@@ -273,7 +282,6 @@ async function openSchema(): Promise<void> {
   const databaseName = database.value?.database ?? routeDatabase.value;
   if (!databaseName) return;
   sidebarOpen.value = false;
-  resetTableState();
   await router.push({
     name: resolveConsoleRouteName(route.name, schemaRouteName),
     params: { database: databaseName },
@@ -299,8 +307,6 @@ function applyFilter(): void {
     const value = filter.value.trim();
     if (value === appliedSearch.value) return;
     appliedSearch.value = value;
-    offset.value = 0;
-    void loadDatabase();
   }, 250);
 }
 
@@ -310,19 +316,16 @@ function setSort(value: unknown): void {
   if (nextSort === sort.value) return;
   sort.value = nextSort;
   offset.value = 0;
-  void loadDatabase();
 }
 
 function toggleDirection(): void {
   direction.value = direction.value === "asc" ? "desc" : "asc";
   offset.value = 0;
-  void loadDatabase();
 }
 
 function movePage(delta: -1 | 1): void {
   if (!database.value) return;
   offset.value = Math.max(0, offset.value + delta * database.value.limit);
-  void loadDatabase();
 }
 
 onMounted(() => {
@@ -330,13 +333,9 @@ onMounted(() => {
   void loadDatabase();
 });
 watch(filter, applyFilter);
-watch(
-  () => [route.params.database, route.params.table, props.view],
-  () => {
-    resetTableState();
-    void loadDatabase();
-  },
-);
+watch([routeDatabase, routeTable, () => props.view], resetTableState);
+// Back and Forward change the URL state without the controls, so the rows load again for any change.
+watch([routeDatabase, routeTable, () => props.view, appliedSearch, sort, direction, offset], () => void loadDatabase());
 onBeforeUnmount(() => {
   request?.abort();
   if (filterTimer) clearTimeout(filterTimer);
@@ -441,6 +440,7 @@ onBeforeUnmount(() => {
           <UInput
             v-model="filter"
             class="w-full sm:w-64"
+            @update:model-value="offset = 0"
             icon="i-lucide-search"
             size="sm"
             :placeholder="`Filter ${selectedTable.name}…`"
