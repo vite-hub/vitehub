@@ -998,6 +998,15 @@ describe("vitehub", () => {
     expect(() => vitehub({ email: true, preset: "node" })).toThrow("requires the Cloudflare deployment preset")
   })
 
+  it("treats auth: false and email: false as omitted", () => {
+    integrationMocks.hubAuth.mockClear()
+    integrationMocks.hubEmail.mockClear()
+
+    expect(pluginNames(vitehub({ auth: false, email: false, preset: "node" }))).toEqual(pluginNames(vitehub({ preset: "node" })))
+    expect(integrationMocks.hubAuth).not.toHaveBeenCalled()
+    expect(integrationMocks.hubEmail).not.toHaveBeenCalled()
+  })
+
   it("passes the active host to Workflow inference", () => {
     vitehub({ preset: "cloudflare", schedule: true, workflow: true })
 
