@@ -6,10 +6,9 @@ import { promisify } from "node:util"
 
 import { addViteHubPageToolRoutes, viteHubPageToolsBase, viteHubPageToolsIndexHtml } from "@vite-hub/internal/build/page-tools"
 import { argumentExpression, objectProperties, scanModule, staticString, unwrapExpression } from "@vite-hub/internal/build/scan-module"
-import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, workerdDependencyConfig } from "@vite-hub/internal/build/vite"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { includedNitro } from "@vite-hub/internal/build/included-nitro"
-import { nitroWorkerdDependencies } from "@vite-hub/internal/build/nitro-workerd-dependencies"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { viteHubPageToolsCookie, viteHubPageToolsQuery } from "@vite-hub/internal/runtime/page-tools-shared"
 import { parseDatabaseLocation } from "@vite-hub/database/config"
@@ -468,7 +467,7 @@ function hasViteHubComments(config: UserConfig): boolean {
 export function comments(options: CommentsOptions = {}): PluginOption[] {
   const plugin = hubComments({ standalone: options })
   plugin.apply = config => !hasViteHubComments(config)
-  return [plugin, { ...nitroWorkerdDependencies(), apply: config => !hasViteHubComments(config) }, ...includedNitro({ unless: hasViteHubComments })]
+  return [plugin, ...includedNitro({ unless: hasViteHubComments })]
 }
 
 export default comments
@@ -499,6 +498,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
 
   const integration: CommentsVitePlugin = {
     name: options.standalone ? "@vite-hub/comments" : "@vite-hub/comments/vite",
+    configEnvironment: options.standalone ? { order: "post", handler: workerdDependencyConfig } : undefined,
     nitro: options.standalone ? {
       async setup(nitro) {
         if (!projectRoot || !options.standalone) return
