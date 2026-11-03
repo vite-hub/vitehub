@@ -70,7 +70,7 @@ describe("vitehub() without a preset", () => {
     ["WORKERS_CI", "1", "cloudflare", "cloudflare-module"],
     ["VERCEL", "1", "vercel", "vercel"],
     ["NETLIFY", "true", "netlify", "netlify"],
-    ["DENO_DEPLOYMENT_ID", "abc123", "deno", "deno-deploy"],
+    ["DENO_DEPLOYMENT_ID", "abc123", "deno", "deno-server"],
   ] as const)("builds for the host that %s=%s names", async (name, value, preset, nitroPreset) => {
     for (const variable of hostVariables) vi.stubEnv(variable, "")
     vi.stubEnv(name, value)

@@ -67,7 +67,6 @@ export interface CodeEditorOptions {
   doc: string
   path: string
   readonly: boolean
-  label: string
   onChange: (doc: string) => void
 }
 
@@ -101,7 +100,7 @@ export function createCodeEditor(options: CodeEditorOptions): CodeEditor {
     theme,
     language.of([]),
     editable.of(editableExtension()),
-    EditorView.contentAttributes.of({ "aria-label": options.label }),
+    EditorView.contentAttributes.of({ "aria-label": `Edit ${path}` }),
     EditorView.updateListener.of((update) => {
       if (update.docChanged && !applying) options.onChange(update.state.doc.toString());
     }),

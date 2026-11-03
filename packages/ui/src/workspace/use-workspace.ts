@@ -85,7 +85,7 @@ export interface Workspace {
   fs: Readonly<ShallowRef<FileSystemAPI | undefined>>;
   container: Readonly<ShallowRef<ViteHubWebContainer | undefined>>;
   previewUrl: Readonly<Ref<string | undefined>>;
-  /** Terminal output chunks of every process, in order. The array is replaced when new output comes. */
+  /** Recent output in order, limited to 65,536 characters and 1,000 chunks. The array is replaced when new output comes. */
   logs: Readonly<ShallowRef<readonly string[]>>;
   /** `navigator.onLine`. An offline reader keeps their edits, but install needs a connection. */
   online: Readonly<Ref<boolean>>;
@@ -136,15 +136,33 @@ export function useWorkspace(options: UseWorkspaceOptions): Workspace {
     return [...paths].filter(path => initial[path] !== current[path]).sort();
   });
 
-  // Output comes in many small chunks during an install. Batch them so the array is copied once per frame, not once per chunk.
-  let pendingLogs: string[] = [];
+  // Bound the buffer before batching, including output that arrives between flushes.
+  const logLimit = 64 * 1024;
+  const logChunkLimit = 1000;
+  const retainedLogs: string[] = [];
+  let retainedLength = 0;
   let flushTimer: ReturnType<typeof setTimeout> | undefined;
   function appendLog(chunk: string) {
-    pendingLogs.push(chunk);
+    if (disposed || !chunk) return;
+    const tail = chunk.slice(-logLimit);
+    retainedLogs.push(tail);
+    retainedLength += tail.length;
+    while (retainedLogs.length > logChunkLimit || retainedLength > logLimit) {
+      const first = retainedLogs[0]!;
+      const excess = retainedLength - logLimit;
+      if (retainedLogs.length > logChunkLimit || first.length <= excess) {
+        retainedLogs.shift();
+        retainedLength -= first.length;
+      }
+      else {
+        retainedLogs[0] = first.slice(excess);
+        retainedLength -= excess;
+      }
+    }
+    // Copy once per flush rather than once per process chunk.
     flushTimer ??= setTimeout(() => {
       flushTimer = undefined;
-      logs.value = [...logs.value, ...pendingLogs];
-      pendingLogs = [];
+      logs.value = [...retainedLogs];
     }, 32);
   }
 
@@ -253,6 +271,7 @@ export function useWorkspace(options: UseWorkspaceOptions): Workspace {
           status.value = "error";
           return;
         }
+        if (failure.value) return;
       }
       catch (cause) {
         failure.value = { kind: "install", error: toError(cause) };
@@ -276,7 +295,16 @@ export function useWorkspace(options: UseWorkspaceOptions): Workspace {
           snapshot: options.snapshot,
           port: options.port,
           onStatus(next) {
-            status.value = next.stage;
+            if (disposed) return;
+            if (next.stage === "error") {
+              failure.value ??= {
+                kind: status.value === "installing" ? "install" : container.value ? "server" : "boot",
+                error: next.error ?? new Error("The workspace stopped unexpectedly."),
+              };
+              previewUrl.value = undefined;
+            }
+            // Only an explicit recovery action clears a failure, not a late status update.
+            status.value = failure.value ? "error" : next.stage;
             steps.value = next.steps;
           },
         });
@@ -284,13 +312,13 @@ export function useWorkspace(options: UseWorkspaceOptions): Workspace {
         container.value = target;
         fs.value = target.fs;
         target.on("server-ready", (server) => {
-          if (!serverActive || disposed) return;
+          if (!serverActive || disposed || failure.value) return;
           if (options.port !== undefined && server.port !== options.port) return;
           previewUrl.value = server.url;
           enter("ready");
         });
         await sync();
-        await installAndStart(target);
+        if (!failure.value) await installAndStart(target);
       }
       catch (cause) {
         const error = toError(cause);
@@ -320,9 +348,11 @@ export function useWorkspace(options: UseWorkspaceOptions): Workspace {
       if (disposed) return;
       const target = container.value;
       if (!target) return boot();
-      failure.value = undefined;
       await stopServer();
-      if (!disposed) await action(target);
+      if (!disposed) {
+        failure.value = undefined;
+        await action(target);
+      }
     });
     recovery = pending.catch(() => {});
     return pending;

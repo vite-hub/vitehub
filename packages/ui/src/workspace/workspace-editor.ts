@@ -25,7 +25,6 @@ export const WorkspaceEditor = defineComponent({
       host.value.replaceChildren();
       editor = createCodeEditor({
         doc: props.modelValue,
-        label: `Edit ${props.path}`,
         onChange: value => emit("update:modelValue", value),
         parent: host.value,
         path: props.path,

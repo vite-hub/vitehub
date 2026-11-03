@@ -13,7 +13,7 @@ export const SourceLanding = {
       framework: "vite",
       label: "Vite",
       files: [
-        { path: "package.json", language: "json", content: '{\n  "private": true,\n  "type": "module",\n  "scripts": {\n    "dev": "vite"\n  },\n  "dependencies": {\n    "vite": "^8.0.0",\n    "nitro": "3.0.260903-beta",\n    "vite-hub": "latest"\n  }\n}' },
+        { path: "package.json", language: "json", content: '{\n  "private": true,\n  "type": "module",\n  "scripts": {\n    "dev": "vite"\n  },\n  "dependencies": {\n    "vite": "^8.0.0",\n    "nitro": "3.0.261102-rc",\n    "vite-hub": "latest"\n  }\n}' },
         {
           path: "vite.config.ts",
           language: "typescript",
@@ -32,7 +32,7 @@ export const SourceLanding = {
       framework: "nitro",
       label: "Nitro",
       files: [
-        { path: "package.json", language: "json", content: '{\n  "private": true,\n  "type": "module",\n  "scripts": {\n    "dev": "nitro dev"\n  },\n  "dependencies": {\n    "nitro": "3.0.260903-beta",\n    "vite-hub": "latest"\n  }\n}' },
+        { path: "package.json", language: "json", content: '{\n  "private": true,\n  "type": "module",\n  "scripts": {\n    "dev": "nitro dev"\n  },\n  "dependencies": {\n    "nitro": "3.0.261102-rc",\n    "vite-hub": "latest"\n  }\n}' },
         {
           path: "nitro.config.ts",
           language: "typescript",
