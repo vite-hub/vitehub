@@ -1,5 +1,6 @@
 import { appendResponseHeader, defineEventHandler, getCookie, getRequestHeader, getRequestURL, setResponseHeader } from "h3";
-import { getDocsPageByPath } from "../../modules/vitehub-docs/runtime/utils/docs";
+import { docsTutorialNavigationCookie, findDocsPage } from "@vite-hub/docs";
+import manifest from "#docs/manifest";
 
 type CloudflareAssets = {
   fetch: (request: Request) => Promise<Response>;
@@ -63,14 +64,14 @@ export function shouldServePrerenderedAsset(input: {
 // This keeps Markdown negotiation and avoids slow server rendering of pages
 // that Nitro already prerendered.
 export default defineEventHandler(async (event) => {
-  const isTutorial = getDocsPageByPath(getRequestURL(event).pathname)?.codePanel === true;
+  const isTutorial = findDocsPage(manifest, getRequestURL(event).pathname)?.page.codePanel === true;
   if (isTutorial) {
     // The browser must request the layout again after the navigation cookie changes.
     setResponseHeader(event, "Cache-Control", "private, no-store");
     appendResponseHeader(event, "Vary", "Cookie");
     // Prerendered tutorials have no navigation. Render saved open layouts with the
     // request cookie so the server and client agree before hydration.
-    if (getCookie(event, "vh-tutorial-navigation") === "true") return;
+    if (getCookie(event, docsTutorialNavigationCookie) === "true") return;
   }
 
   const cloudflare = getCloudflareAssetRequest(event.context.cloudflare);

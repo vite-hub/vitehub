@@ -66,6 +66,8 @@ PromptInput (form, data-slot="prompt-input")
 
 Enter sends the message. Shift+Enter adds a new line. Text composed with an input method never sends. Enter does not trigger Stop or Retry.
 
+On a touch-only device, such as a phone, the on-screen keyboard has no Shift+Enter, so Enter adds a line and the Send button sends. The textarea's `enterkeyhint` names that key: `send` with a mouse or trackpad, `enter` on a touch-only device. The toolbar buttons get a 48px touch target around their 32px circle.
+
 ## Attachments
 
 The file picker and clipboard paste use the same path. A pasted image always becomes an attachment. Other pasted files become attachments only when the clipboard has no text. Set `multiple` to `false` to keep one file. A new file then replaces the current one.

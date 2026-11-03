@@ -1,5 +1,6 @@
 ---
 title: Auth
+layout: landing
 navigation.title: Overview
 description: Add sign-up, sign-in, and protected routes to your app with Better Auth, from one server file.
 navigation.order: 1

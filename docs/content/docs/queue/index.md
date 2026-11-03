@@ -1,5 +1,6 @@
 ---
 title: Queue
+layout: landing
 navigation.title: Overview
 description: Send slow work to a queue so your route can reply at once, and run that work later on Cloudflare or Vercel.
 navigation.order: 1

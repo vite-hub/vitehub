@@ -1,5 +1,5 @@
 import type { ChatStatus, FileUIPart } from "ai";
-import { computed, defineComponent, h, onBeforeUnmount, type PropType, ref, resolveComponent } from "vue";
+import { computed, defineComponent, h, onBeforeUnmount, onMounted, type PropType, ref, resolveComponent } from "vue";
 import { fileToUIPart } from "../composables/attachments.ts";
 import { nextPromptFiles } from "../internal/prompt-files.ts";
 import { ImagePreview } from "../internal/image-preview.ts";
@@ -56,6 +56,11 @@ export const PromptInput = defineComponent({
       !preparingFiles.value &&
       (props.modelValue.trim().length > 0 || props.files.length > 0),
     );
+    // Read after mount, so server and client render the same first markup.
+    const touch = ref(false);
+    onMounted(() => {
+      touch.value = touchOnly();
+    });
     let disposed = false;
     let nextBatch = 0;
     const convertedBatches = new Map<number, readonly FileUIPart[]>();
@@ -131,6 +136,8 @@ export const PromptInput = defineComponent({
           h("textarea", {
             "aria-label": attrs["aria-label"] ?? "Message",
             "data-slot": "prompt-input-textarea",
+            // The on-screen key names what Enter does.
+            enterkeyhint: touch.value ? "enter" : "send",
             onInput: (event: Event) => emit("update:modelValue", (event.target as HTMLTextAreaElement).value),
             // Enter sends and Shift+Enter adds a line. Composing text with an input method never sends. On a touch-only
             // device the on-screen keyboard has no Shift+Enter, so Enter adds a line and the send button sends.

@@ -1,5 +1,6 @@
 ---
 title: ViteHub documentation
+layout: landing
 description: Add server features to your Vite or Nuxt app, build an Agent, and deploy it on your chosen host.
 navigation: false
 icon: i-lucide-book-open

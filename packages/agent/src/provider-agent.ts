@@ -1,5 +1,6 @@
 import { isChatGPTGateway } from "@vite-hub/gateways/internal"
 import { chatgptCodexLaunchArgs, chatgptProviderError, chatgptTokenEnvironment, inspectChatGPTGateway } from "./internal/chatgpt-gateway.ts"
+import { withProviderStatusError } from "./internal/provider-status-error.ts"
 import { startChatGPTTransport } from "./internal/chatgpt-transport.ts"
 import { chatgptProtocolSource, chatgptSessionConfiguration } from "./internal/chatgpt-protocol.ts"
 import type { ChatGPTGateway } from "@vite-hub/gateways"
@@ -1497,7 +1498,7 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
   if (isChatGPTGateway(options.gateway)) {
     const status = await inspectChatGPTGateway(options.gateway, context)
     return resolveInstalledProviderExecutable("codex") ? status
-      : { ...status, readiness: "unavailable", reason: "Install @openai/codex in this app so the ChatGPT gateway can launch Codex." }
+      : withProviderStatusError({ ...status, readiness: "unavailable", reason: "Install @openai/codex in this app so the ChatGPT gateway can launch Codex." }, agentDiagnostics.AGENT_R1026())
   }
   const checkRequirements = inspectionOptions.checkRequirements !== false
   // The toolchain exists only after an invocation prepares its checkout.
@@ -2718,8 +2719,21 @@ function providerToolDetails(event: Extract<ProviderRuntimeEvent, { type: "item.
       : undefined,
     input: isCodexMcpTool ? item.arguments : isMcpTool && data?.input !== undefined ? data.input : event.payload.data,
     output: isCodexMcpTool ? item.result : isMcpTool && data?.result !== undefined ? data.result : event.payload.data ?? event.payload.detail,
-    title: isMcpTool && hasRuntimeType(title, "string") && title !== "MCP tool call" && title.trim() ? title : undefined,
+    title: isMcpTool && hasRuntimeType(title, "string") && title !== "MCP tool call" && title.trim()
+      ? title
+      : event.payload.itemType === "command_execution" ? commandTitle(data?.command) : undefined,
   }
+}
+
+// Codex wraps each command in a login shell. The inner command says what ran.
+const shellWrapper = /^(?:\/(?:usr\/)?bin\/)?(?:ba|z)?sh -l?c (?:'([\s\S]*)'|"([\s\S]*)")$/
+
+function commandTitle(command: unknown): string | undefined {
+  if (!hasRuntimeType(command, "string") || !command.trim()) return
+  const wrapped = shellWrapper.exec(command.trim())
+  if (!wrapped) return command.trim()
+  const [, single, double = ""] = wrapped
+  return single !== undefined ? single.replaceAll("'\\''", "'") : double.replaceAll(/\\(["\\$`])/g, "$1")
 }
 
 function providerToolActivity(
@@ -3340,7 +3354,7 @@ async function* runProvider<
       })
     }
     const providerExecutable = options.providerSettings?.binaryPath ?? resolveInstalledProviderExecutable(options.provider)
-    if (gateway?.chatgpt && !providerExecutable) throw agentDiagnostics.AGENT_R1015()
+    if (gateway?.chatgpt && !providerExecutable) throw agentDiagnostics.AGENT_R1026()
     const providerCommand = providerExecutable === undefined || (hasRuntimeType(providerExecutable, "string") && !providerExecutable.trim())
       ? (options.provider === "codex" ? "codex" : "claude")
       : providerExecutable

@@ -1,9 +1,38 @@
 import { defineNuxtConfig } from "nuxt/config";
 import { fileURLToPath } from "node:url";
+import { docsIcons } from "./app/utils/docs-sidebar-icons";
+import { capabilityReferences, expandCapabilityTools } from "./modules/vitehub-docs/capability-references";
 
 export default defineNuxtConfig({
-  extends: ["docus"],
-  modules: ["./modules/vitehub-docs", "@vite-hub/ui/nuxt", "nuxt-schema-org", "nuxt-link-checker"],
+  modules: ["@vite-hub/docs/nuxt", "./modules/vitehub-docs", "nuxt-schema-org", "nuxt-link-checker"],
+  docs: {
+    site: {
+      name: "ViteHub",
+      url: "https://vitehub.dev",
+      description: "Portable Agents for Vite, built on Server Primitives.",
+      logo: "/vitehub-mark.svg",
+      badge: { label: "alpha", tooltip: "Just a library where I test different solutions and agents. APIs break all the time." },
+    },
+    categories: ["Start", "Agents", "UI", "Data", "Compute", "Access", "Delivery", "Files", "Develop and deploy", "Reference"],
+    railExclude: ["Develop and deploy", "Reference"],
+    start: {
+      section: "getting-started",
+      links: [
+        { label: "All docs", to: "/docs", icon: "i-ph-squares-four-light" },
+        { label: "Tutorials", to: "/tutorials", icon: "i-ph-graduation-cap-light" },
+        { label: "Projects", to: "/projects", icon: "i-ph-folder-simple-light" },
+        { label: "Templates", to: "/templates", icon: "i-ph-layout-light" },
+      ],
+    },
+    socials: [{ label: "ViteHub on Discord", icon: "i-ph-discord-logo-light", to: "https://discord.gg/YTRDsRP3" }],
+    banner: "ViteHub is still experimental. Expect bugs and breaking changes.",
+    github: { repo: "vite-hub/vitehub", dir: "docs/content" },
+    icons: docsIcons,
+    mcp: { name: "vitehub", guide: "/docs/getting-started/ai-resources/mcp-server" },
+    sitemap: ["/tutorials", "/examples", "/projects", "/templates"],
+    // Agents read the tool contract of each `::agent-capability-tools` block that the site renders as a component.
+    rawMarkdown: async (markdown: string) => expandCapabilityTools(markdown, await capabilityReferences()),
+  },
   linkChecker: {
     failOnError: true,
     fetchRemoteUrls: false,
@@ -18,8 +47,11 @@ export default defineNuxtConfig({
     defaults: false,
   },
   agentDiscovery: {
-    // Pages with a Markdown twin. On Cloudflare these also run the Worker before static assets.
-    routes: ["/", "/docs", "/docs/**", "/about", "/contact", "/privacy"],
+    discovery: {
+      links: [
+        { href: "/openapi.json", rel: "service-desc", type: "application/vnd.oai.openapi+json", title: "OpenAPI document: every route this site serves to agents", anchor: "/" },
+      ],
+    },
     llms: {
       // Rules for every task, printed under the llms.txt description. Page-level detail lives in `::agent-only` blocks.
       details: [
@@ -37,10 +69,6 @@ export default defineNuxtConfig({
     },
   },
   llms: {
-    contentRawMarkdown: false,
-    domain: "https://vitehub.dev",
-    title: "ViteHub",
-    description: "Portable Agents for Vite, built on Server Primitives.",
     sections: [
       {
         title: "When to use ViteHub",
@@ -310,7 +338,8 @@ export default defineNuxtConfig({
     },
     prerender: {
       failOnError: true,
-      routes: ["/about", "/contact", "/openapi.json", "/privacy", "/robots.txt"],
+      // The docs module adds every content page. These are app routes.
+      routes: ["/openapi.json", "/robots.txt"],
     },
   },
   future: {

@@ -175,7 +175,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       let localNitroConfig: Record<string, unknown> | undefined
       let localRuntimeRefresh = Promise.resolve()
       let closed = false
-      let contributions: CollectedDatabaseContributions = { definitions: [], tables: [] }
+      let contributions: CollectedDatabaseContributions = { definitions: [], tables: [], uses: [] }
       const definitionFiles = new Set<string>()
       const contributionFiles = new Set<string>()
       const contributionWatchers = new Map<string, FSWatcher>()
@@ -433,7 +433,7 @@ async function installNitroLocalDatabaseRuntime(
   options: ResolvedDatabaseNuxtIntegrationOptions,
   serverDirs?: string[],
   d1?: ResolvedDatabaseNuxtD1Options,
-  contributions: CollectedDatabaseContributions = { definitions: [], tables: [] },
+  contributions: CollectedDatabaseContributions = { definitions: [], tables: [], uses: [] },
   resolvedRuntime?: ResolvedDBViteConfig,
 ) {
   const file = resolve(generatedRoot, generatedNitroLocalDatabaseRuntime)

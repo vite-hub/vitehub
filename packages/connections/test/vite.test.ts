@@ -4,8 +4,9 @@ import { stripTypeScriptTypes } from "node:module";
 import { Readable } from "node:stream";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite";
+import { VITEHUB_APP_BASE_URL, VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite";
 import { mergeConfig, resolveConfig } from "vite";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -52,6 +53,13 @@ describe("discoverConnectionDefinitions", () => {
 });
 
 describe("hubConnections", () => {
+  it("asks @vite-hub/database for the default SQLite Database when it has a Database module", () => {
+    expect(hubConnections({ database: "vite-hub/database/drizzle" }).vitehub.databases()).toEqual([
+      { database: "default", dialect: "sqlite", name: "connections", reason: "Stores Connection grants, approvals, and activity." },
+    ]);
+    expect(hubConnections().vitehub.databases()).toEqual([]);
+  });
+
   it.each(["@vite-hub/connections", "vite-hub/connections"])("writes the registry and mounts the management API through %s in development", async (importBase) => {
     const root = await createTempProject();
     const definition = await writeConnection(root, "server/connections/google.ts");
@@ -80,6 +88,19 @@ describe("hubConnections", () => {
     await expect(readFile(nitro.handlers[0]!.handler, "utf8")).resolves.toContain(
       `from "${importBase}/server"`,
     );
+  });
+
+  it("inlines a linked @vite-hub/connections in Nitro so it reads the generated registry", async () => {
+    const root = await createTempProject();
+    const config = { nitro: {}, root, [VITEHUB_NITRO_CONFIG_CONTEXT]: true };
+    await (hubConnections().config as unknown as ConfigHook)(config, { command: "serve", mode: "development" });
+    const { inline } = (config.nitro as { externals: { inline: unknown[] } }).externals;
+    // In this workspace the package resolves outside node_modules, like any linked package. Nitro 2 matches inline
+    // strings against the path and against the part after the last `node_modules/`.
+    const file = fileURLToPath(import.meta.resolve("@vite-hub/connections/server"));
+    const nitroMatches = (pattern: string) => file.startsWith(pattern) || file.split("node_modules/").pop()!.startsWith(pattern);
+    expect(nitroMatches("@vite-hub/connections")).toBe(false);
+    expect(inline.some(entry => typeof entry === "string" && nitroMatches(entry))).toBe(true);
   });
 
   it("hands the registry to the package that Node loads in vite dev", async () => {
@@ -178,6 +199,36 @@ describe("hubConnections", () => {
     const handler = await readFile(nitro.handlers[1]!.handler, "utf8");
     expect(handler).toContain('basePath: "/portal/_vitehub/connections"');
     expect(handler).not.toContain("/early/");
+  });
+
+  it("updates the handlers of a Nitro 2 instance at the Nuxt app base, not the assets base", async () => {
+    const root = await createTempProject();
+    const connections = hubConnections();
+    const initializedNitro = { options: { handlers: [] as Array<{ handler: string; route: string }> } };
+    // Nuxt serves Vite assets from /_nuxt/ and passes its app base separately.
+    const nuxtBase = { base: "/_nuxt/", [VITEHUB_APP_BASE_URL]: "/" };
+    const config = await resolveConfig({
+      root,
+      configFile: false,
+      ...nuxtBase,
+      plugins: [
+        { name: "nitro-context", enforce: "pre", config: config => {
+          Reflect.set(config, VITEHUB_NITRO_CONFIG_CONTEXT, true);
+          Reflect.set(config, "nitro", { handlers: [] });
+        } },
+        connections,
+        { name: "initialize-nitro", config: config => {
+          initializedNitro.options = structuredClone(Reflect.get(config, "nitro"));
+          connections.nitro.setup(initializedNitro);
+        } },
+      ],
+    }, "serve", "development");
+    expect(initializedNitro.options.handlers).toEqual(Reflect.get(config, "nitro").handlers);
+    expect(initializedNitro.options.handlers.map(handler => handler.route)).toEqual([
+      "/_vitehub/connections",
+      "/_vitehub/connections/connect/**",
+      "/_vitehub/connections/callback",
+    ]);
   });
 
   it("requires authenticated management configuration in production", async () => {

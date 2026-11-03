@@ -18,6 +18,11 @@ async function markdownFiles(directory: string): Promise<string[]> {
   return files
 }
 
+/** A tutorial sets `layout: tutorial` in its frontmatter. A guide can show that line in an example. */
+function isTutorial(source: string) {
+  return /^layout: tutorial$/m.test(/^---\n([\s\S]*?)\n---/.exec(source)?.[1] ?? "")
+}
+
 function labels(source: string) {
   return [...source.matchAll(/^```[^\n]*\[([^\]]+)\]/gm)].map(match => match[1])
 }
@@ -57,7 +62,7 @@ describe("multi-file tutorial examples", () => {
 
     for (const path of tutorials) {
       const source = await readFile(path, "utf8")
-      if (!source.includes("layout: tutorial")) continue
+      if (!isTutorial(source)) continue
 
       const virtualLabels = labels(source).filter(label => label.startsWith("commands/") || label.startsWith("output/"))
       expect(labels(source).filter(label => /^(Terminal|Response|Output)(?::|$)/.test(label)), path).toEqual([])
@@ -70,7 +75,7 @@ describe("multi-file tutorial examples", () => {
 
     for (const path of tutorials) {
       const source = await readFile(path, "utf8")
-      if (!source.includes("layout: tutorial")) continue
+      if (!isTutorial(source)) continue
 
       const tutorialLabels = labels(source)
       expect(new Set(tutorialLabels).size, path).toBe(tutorialLabels.length)

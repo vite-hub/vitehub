@@ -11,8 +11,8 @@ export interface CmsPresetOptions {
   access?: "roles"
   /**
    * Database that receives the Workspace history tables, and with the GitHub store only the editor sessions table.
-   * Defaults to the Database named `default`, or the only one. Without a Database Definition, the preset adds the
-   * `default` Database.
+   * Defaults to the Database named `default`, or the only one. Without a Database Definition, the tables go to the
+   * implicit `default` Database.
    */
   database?: string
   /** Blob store that holds file contents. Defaults to `default`. Not for the GitHub store. */
@@ -53,7 +53,7 @@ const cmsDefaultAuthorize: ContentAuthorize = async (context) => {
  * Store editable collections without wiring. `vitehub()` turns on Workspace, Database, and Blob when they are unset.
  * At build time `hubCms()` from `@vite-hub/cms/vite` adds a Workspace named `content` on the Blob + Database Store,
  * using the `default` Blob store and the default or only Database, and adds the Workspace history tables to that
- * Database. When the app has no Database Definition, it adds the `default` Database. `defineContent({ extends: cms })`
+ * Database. When the app has no Database Definition, that is the implicit `default` Database. `defineContent({ extends: cms })`
  * then uses that Workspace.
  *
  * With `repo` (or `store: "github"`) the Workspace is a GitHub repository instead: published content on one branch, drafts on

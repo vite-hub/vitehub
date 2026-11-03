@@ -6,6 +6,8 @@ import { parse } from "yaml";
 
 const docsRoot = resolve(import.meta.dirname, "..");
 const fixturesRoot = resolve(docsRoot, "../fixtures/tutorials");
+// The shared docs shell, including the tutorial layout, ships with @vite-hub/docs.
+const packageApp = resolve(docsRoot, "../packages/docs/runtime/app");
 
 function normalize(source: string) {
   return source.trim().replaceAll("\r\n", "\n");
@@ -77,28 +79,24 @@ describe("documentation tutorials", () => {
   });
 
   it("covers public packages that live outside a primitive section", async () => {
-    for (const page of [
-      "content/docs/ui/get-started.md",
-      "content/docs/agents/sandbox-tutorial.md",
-      "content/docs/reference/markdown-template-tutorial.md",
+    for (const [page, title] of [
+      ["content/docs/ui/get-started.md", "Get started"],
+      ["content/docs/agents/sandbox-tutorial.md", "Sandbox tutorial"],
+      ["content/docs/reference/markdown-template-tutorial.md", "Tutorial"],
     ]) {
       const source = await readFile(resolve(docsRoot, page), "utf8");
       expect(source, page).toContain("layout: tutorial");
-      expect(source, page).toContain(
-        page.endsWith("agents/sandbox-tutorial.md")
-          ? "navigation.title: Sandbox tutorial"
-          : "navigation.title: Tutorial",
-      );
+      expect(source, page).toContain(`navigation.title: ${title}`);
       expect(source, page).toContain("::tutorial-step");
       expect(source.match(/```[^\n]*\[[^\]]+\]/g)?.length || 0, page).toBeGreaterThan(0);
     }
   });
 
   it("keeps tutorial code inline at every viewport width", async () => {
-    const tutorial = await readFile(resolve(docsRoot, "app/components/DocsTutorial.vue"), "utf8");
-    const step = await readFile(resolve(docsRoot, "app/components/TutorialStep.vue"), "utf8");
+    const page = await readFile(resolve(packageApp, "components/DocsPage.vue"), "utf8");
+    const step = await readFile(resolve(packageApp, "components/content/TutorialStep.vue"), "utf8");
 
-    expect(tutorial).toContain('<DocsArticle :page="page" tutorial />');
+    expect(page).toContain('<DocsArticle :response="response" />');
     expect(step).toContain("<slot />");
     expect(step).not.toContain("display: none");
     expect(step).not.toContain("CodeTreeIntersection");
@@ -107,27 +105,25 @@ describe("documentation tutorials", () => {
   });
 
   it("shares a page outline and reading measure with regular docs", async () => {
-    const article = await readFile(resolve(docsRoot, "app/components/DocsArticle.vue"), "utf8");
+    const article = await readFile(resolve(packageApp, "components/DocsArticle.vue"), "utf8");
 
     expect(article).toContain('aria-label="Page outline"');
     expect(article).toContain('title="On this page"');
-    expect(article).toContain("props.page.body?.toc?.links");
+    expect(article).toContain("props.response.document.toc");
     expect(article).toContain("margin-inline: auto");
     expect(article).toContain("counter-reset: tutorial-step");
   });
 
   it("remounts the tutorial steps when navigating between packages", async () => {
-    const source = await readFile(resolve(docsRoot, "app/pages/docs/[...slug].vue"), "utf8");
-    expect(source).toContain(
-      '<DocsTutorial v-else-if="page && isTutorialPage" :key="page.path" :page="page" />',
-    );
+    const source = await readFile(resolve(packageApp, "components/DocsPage.vue"), "utf8");
+    expect(source).toContain(":key=\"page.layout === 'tutorial' ? page.path : undefined\"");
   });
 
   it("lists product tutorials through the top-level Tutorials page", async () => {
     const source = await readFile(resolve(docsRoot, "app/pages/tutorials.vue"), "utf8");
     const catalog = await readFile(resolve(docsRoot, "app/components/TutorialCatalog.vue"), "utf8");
 
-    expect(catalog).toContain("docsManifest.sections.flatMap");
+    expect(catalog).toContain("useDocsManifest().sections.flatMap");
     expect(catalog).toContain('page.layout === "tutorial"');
     expect(catalog).toContain("to: page.path");
     expect(catalog).toContain("<UBlogPosts");

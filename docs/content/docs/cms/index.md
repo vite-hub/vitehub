@@ -1,5 +1,6 @@
 ---
 title: CMS
+layout: landing
 navigation.title: Overview
 description: Store editable Markdown, JSON, and YAML documents from one file, edit them in the Console, and publish them to your site or to a pull request.
 navigation.order: 1

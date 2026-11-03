@@ -133,12 +133,14 @@ async function requiredPeerSpecs() {
     ...chatCatalog,
     ...vercelCatalog,
     ...workflowCatalog,
+    "@nuxt/ui": await installedVersion(join(repoRoot, "packages/docs/node_modules/@nuxt/ui/package.json")),
     ai: await installedVersion(join(repoRoot, "packages/ui/node_modules/ai/package.json")),
     "@types/json-schema": await installedVersion(join(repoRoot, "packages/agent/node_modules/@types/json-schema/package.json")),
     "@types/mdast": await installedVersion(join(repoRoot, "packages/agent/node_modules/@types/mdast/package.json")),
     "@types/node": await installedVersion(join(repoRoot, "node_modules/@types/node/package.json")),
     "drizzle-kit": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-kit/package.json")),
     "drizzle-orm": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-orm/package.json")),
+    nuxt: await installedVersion(join(repoRoot, "packages/docs/node_modules/nuxt/package.json")),
     postgres: await installedVersion(join(repoRoot, "packages/database/node_modules/postgres/package.json")),
     vite: requiredDependency(await readManifest(join(repoRoot, "fixtures/consumer/vite-hub/package.json")), "vite"),
     vue: await installedVersion(join(repoRoot, "packages/agent/node_modules/vue/package.json")),
@@ -851,6 +853,15 @@ describe("published declaration diagnostics", () => {
 
   it("keeps feature export peers available after the facade stops declaring them", () => {
     expect(optionalContractPeers("vite-hub")).toEqual(expect.arrayContaining(["evalite", "vitest"]))
+  })
+
+  it("provides install specs for Docs' required external peers", async () => {
+    const manifest = await readManifest(join(repoRoot, "packages/docs/package.json"))
+    const peerSpecs = await requiredPeerSpecs()
+    for (const name of Object.keys(manifest.peerDependencies || {})) {
+      if (manifest.peerDependenciesMeta?.[name]?.optional) continue
+      expect(peerSpecs, `Missing required peer spec for ${name}`).toHaveProperty(name)
+    }
   })
 
   it("provides install specs for Workflow's optional declaration peers", async () => {

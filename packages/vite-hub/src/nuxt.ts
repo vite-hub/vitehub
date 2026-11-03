@@ -1,4 +1,4 @@
-import { consoleD1Binding, consoleDatabaseUrl, resolveConsoleJournal, withDataDir, type ConsoleJournal } from "./storage-config.ts"
+import { consoleD1Binding, consoleDatabaseUrl, resolveConsoleJournal, withConnectionsDatabase, withDataDir, type ConsoleJournal } from "./storage-config.ts"
 import { readFileSync } from "node:fs"
 import { readFile, writeFile } from "node:fs/promises"
 import { findPackageJSON } from "node:module"
@@ -12,6 +12,7 @@ import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { resolveNuxtServerDirs, resolveViteHubProjectRoot, VITEHUB_APP_BASE_URL, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 import { removeViteHubDevServerFile, writeViteHubDevServerFile } from "@vite-hub/internal/cli"
 import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
+import { nitroGeneratedRelativeImports } from "./internal/nitro-generated-imports.ts"
 import { nitroOptionalPeers } from "./internal/nitro-optional-peers.ts"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
 import { normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
@@ -270,7 +271,10 @@ function nitroViteHubH3(generatedRoots: string[]) {
           try {
             const manifest = findPackageJSON(pathToFileURL(path), import.meta.url)
             const pkg: unknown = manifest ? JSON.parse(readFileSync(manifest, "utf8")) : undefined
-            owned = isRecord(pkg) && (pkg.name === "vite-hub" || (typeof pkg.name === "string" && pkg.name.startsWith("@vite-hub/"))
+            // A ViteHub package that lists h3 only for development, such as the `@vite-hub/docs` Nuxt module, writes
+            // its handlers for the host's Nitro through `#imports`, so they keep the host's H3.
+            const hostH3 = isRecord(pkg) && isRecord(pkg.devDependencies) && "h3" in pkg.devDependencies && !(isRecord(pkg.dependencies) && "h3" in pkg.dependencies)
+            owned = isRecord(pkg) && !hostH3 && (pkg.name === "vite-hub" || (typeof pkg.name === "string" && pkg.name.startsWith("@vite-hub/"))
               || (pkg.name === "nitro" && typeof pkg.version === "string" && pkg.version.startsWith("3."))
               || (pkg.name === "h3" && typeof pkg.version === "string" && pkg.version.startsWith("2.")))
           }
@@ -317,7 +321,7 @@ function normalizeGeneratedNitroPlugins(config: Record<string, unknown>, root: s
 function installNitroBuildPlugins(config: Record<string, unknown>, generatedRoots: string[], dev = false, sections: readonly string[] = []): void {
   const rollupConfig = (config.rollupConfig ??= {}) as Record<string, unknown>
   const plugins = (rollupConfig.plugins ??= []) as Array<{ name?: string }>
-  for (const plugin of [nitroCacheBypass(), nitroFileUrlResolver, nitroViteHubH3(generatedRoots), nitroOptionalPeers(config), consoleOperationFeatures(sections), ...dev ? [nitroCloudflareWorkersDev] : []]) {
+  for (const plugin of [nitroCacheBypass(), nitroFileUrlResolver, nitroGeneratedRelativeImports(generatedRoots), nitroViteHubH3(generatedRoots), nitroOptionalPeers(config), consoleOperationFeatures(sections), ...dev ? [nitroCloudflareWorkersDev] : []]) {
     if (!plugins.some(candidate => candidate.name === plugin.name)) plugins.unshift(plugin)
   }
 }
@@ -949,18 +953,14 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const rootDir = nuxt.options.rootDir || process.cwd()
   const projectRoot = resolveViteHubProjectRoot(rootDir)
   // The `cms` preset turns on Workspace, Database, and Blob. Nuxt knows the root here, so resolve it once.
-  const options = markCmsPresetFeaturesResolved(withDataDir(resolveCmsPresetFeatures({
+  const options = markCmsPresetFeaturesResolved(withConnectionsDatabase(withDataDir(resolveCmsPresetFeatures({
     ...moduleOptions,
     console: resolveConsoleOptions(moduleOptions.console),
     env: envOptions,
-  } as Parameters<typeof vitehub>[0], { projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) })))
+  } as Parameters<typeof vitehub>[0], { projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) }))))
   const consoleOptions = resolveConsoleOptions(options.console)
   if (options.connections && nuxt.options.dev === false) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0012({ message: "[vitehub] connections is not supported by the Nuxt module yet. Use the Vite plugin." })
-  }
-  // Only the Vite plugin enables the implicit default Database for Connections.
-  if (options.connections && !options.database) {
-    throw viteHubErrorDiagnostics.VITE_HUB_R0124({ message: "[vitehub] connections in the Nuxt module requires database and a Database Definition, because grants and activity are stored in the app database." })
   }
   const plan = resolveDeploymentPlan(moduleOptions.preset)
   const configuredOptions = options.database && nuxt.options.database && typeof nuxt.options.database === "object"
@@ -1487,43 +1487,47 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         const consoleAlias = (config.alias ??= {}) as Record<string, string>
         consoleAlias[consoleConnectionsActorId] = await writeConsoleConnectionsActor(viteRoot)
       }
-      const consoleCatalog = await discoverConsoleBuildCatalog({
-        contentImportBase: options.contentImportBase ?? "vite-hub/content",
-        databaseDiscoveryRoot: hasReplayedDatabaseDiscoveryRoot
-          ? replayedDatabaseDiscoveryRoot
-          : configuredDatabaseDiscoveryRoot,
-        discoveryRoot: viteRoot,
-        plugins: nuxt.options.vite?.plugins,
-        projectRoot,
-        queueDiscoveryRoot: rootDir,
-        rateLimitDiscoveryRoot: configuredProjectRoot(viteRoot, replayConfig.rateLimit ?? nuxt.options.vite?.rateLimit ?? options.rateLimit),
-        rateLimitScanDirs: configuredScanDirs(replayConfig.rateLimit ?? nuxt.options.vite?.rateLimit ?? options.rateLimit),
-        sections: consoleSections,
-        scheduleDiscoveryRoot: configuredProjectRoot(viteRoot, options.schedule),
-        serverDirs: resolveNuxtServerDirs(nuxt.options),
-        workspaceDiscoveryRoot: configuredProjectRoot(viteRoot, replayConfig.workspace ?? nuxt.options.vite?.workspace ?? options.workspace),
-        workflowDiscoveryRoot: rootDir,
-      })
-      await writeConsoleNitroPlugin(
-        generatedConsolePluginPath ?? resolveGeneratedConsolePlugin(projectRoot, resolvedConsoleFixture, consoleInvocationRootState),
-        projectRoot,
-        consoleSections,
-        consoleCatalog.agents,
-        consoleCatalog,
-        consoleBlobStores,
-        resolvedConsoleFixture,
-        consoleInvocationRootState.binding,
-        consoleInvokeEnabled && !resolvedConsoleFixture,
-        consoleOptions.observations,
-        () => !consoleInvocationRootState.closed,
-        replayedConsoleJournal,
-        registeredConsoleAuthMode(consoleAuthConfig(consoleOptions), Boolean(nuxt.options.dev)),
-        consoleOptions.retention,
-        consoleAccess,
-        runtimeCapabilityImports,
-        nuxt.options.dev === true,
-        nuxt.options.app?.baseURL,
-      )
+      // CLI discovery resolves no Console access, so its plugin would differ from the running dev server's and make
+      // that server rebuild. The Vite Console plugin skips this write in CLI discovery too.
+      if (!nuxt.options.vitehubCliDiscovery) {
+        const consoleCatalog = await discoverConsoleBuildCatalog({
+          contentImportBase: options.contentImportBase ?? "vite-hub/content",
+          databaseDiscoveryRoot: hasReplayedDatabaseDiscoveryRoot
+            ? replayedDatabaseDiscoveryRoot
+            : configuredDatabaseDiscoveryRoot,
+          discoveryRoot: viteRoot,
+          plugins: nuxt.options.vite?.plugins,
+          projectRoot,
+          queueDiscoveryRoot: rootDir,
+          rateLimitDiscoveryRoot: configuredProjectRoot(viteRoot, replayConfig.rateLimit ?? nuxt.options.vite?.rateLimit ?? options.rateLimit),
+          rateLimitScanDirs: configuredScanDirs(replayConfig.rateLimit ?? nuxt.options.vite?.rateLimit ?? options.rateLimit),
+          sections: consoleSections,
+          scheduleDiscoveryRoot: configuredProjectRoot(viteRoot, options.schedule),
+          serverDirs: resolveNuxtServerDirs(nuxt.options),
+          workspaceDiscoveryRoot: configuredProjectRoot(viteRoot, replayConfig.workspace ?? nuxt.options.vite?.workspace ?? options.workspace),
+          workflowDiscoveryRoot: rootDir,
+        })
+        await writeConsoleNitroPlugin(
+          generatedConsolePluginPath ?? resolveGeneratedConsolePlugin(projectRoot, resolvedConsoleFixture, consoleInvocationRootState),
+          projectRoot,
+          consoleSections,
+          consoleCatalog.agents,
+          consoleCatalog,
+          consoleBlobStores,
+          resolvedConsoleFixture,
+          consoleInvocationRootState.binding,
+          consoleInvokeEnabled && !resolvedConsoleFixture,
+          consoleOptions.observations,
+          () => !consoleInvocationRootState.closed,
+          replayedConsoleJournal,
+          registeredConsoleAuthMode(consoleAuthConfig(consoleOptions), Boolean(nuxt.options.dev)),
+          consoleOptions.retention,
+          consoleAccess,
+          runtimeCapabilityImports,
+          nuxt.options.dev === true,
+          nuxt.options.app?.baseURL,
+        )
+      }
     }
     Object.assign(config, mergeGeneratedSourceNitroConfig(config, generatedSourceHandlers))
     const externals = isRecord(config.externals) ? config.externals : {}

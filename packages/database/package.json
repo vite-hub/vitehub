@@ -95,6 +95,11 @@
       "import": "./dist/runtime/default-database.js",
       "default": "./dist/runtime/default-database.js"
     },
+    "./runtime/default-database-postgresql": {
+      "types": "./dist/runtime/default-database-postgresql.d.ts",
+      "import": "./dist/runtime/default-database-postgresql.js",
+      "default": "./dist/runtime/default-database-postgresql.js"
+    },
     "./runtime/hosted": {
       "types": "./dist/runtime/hosted.d.ts",
       "import": "./dist/runtime/hosted.js",

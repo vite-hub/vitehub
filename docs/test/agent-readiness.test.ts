@@ -1,36 +1,50 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { findDocsPage } from "@vite-hub/docs";
+import { createDocsManifest } from "@vite-hub/docs/server";
 import { viteHubOpenApi } from "../server/utils/openapi";
-import { rawMarkdownUrl, rewriteLlmsRawLinks } from "../modules/vitehub-docs/runtime/utils/llms-links";
 import { createCapabilityReferences } from "../modules/vitehub-docs/capability-references";
+import config from "../nuxt.config";
 
 const docsRoot = resolve(import.meta.dirname, "..");
+const packageRoot = resolve(docsRoot, "../packages/docs");
 const trustPages = ["about", "contact", "privacy"];
 
 describe("agent-ready HTTP contracts", () => {
-  it("negotiates Markdown through nuxt-agent-discovery from Docus", () => {
-    const config = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
+  it("negotiates Markdown through nuxt-agent-discovery from @vite-hub/docs", () => {
+    const source = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
     const workspace = readFileSync(resolve(docsRoot, "../pnpm-workspace.yaml"), "utf8");
+    const docsPackage = JSON.parse(readFileSync(resolve(packageRoot, "package.json"), "utf8"));
 
-    // Docus main includes nuxt-agent-discovery (nuxt-content/docus#1435), which is not released yet.
-    expect(workspace).toContain("docus: https://pkg.pr.new/docus@c229a86");
+    expect(config.modules?.[0]).toBe("@vite-hub/docs/nuxt");
+    // The docs module installs nuxt-llms and nuxt-agent-discovery, so the site does not list them.
+    expect(Object.keys(docsPackage.dependencies)).toEqual(expect.arrayContaining(["nuxt-agent-discovery", "nuxt-llms"]));
     // Local patch until nuxt-agent-discovery routes negotiated pages through the Cloudflare Worker.
     expect(workspace).toContain("nuxt-agent-discovery@0.7.0: patches/nuxt-agent-discovery@0.7.0.patch");
-    expect(config).toContain('routes: ["/", "/docs", "/docs/**", "/about", "/contact", "/privacy"]');
-    expect(config).not.toContain("routeRules:");
-    expect(config).toContain("contentRawMarkdown: false");
+    expect(workspace).not.toContain("docus");
+    // The docs module negotiates the root, the docs base, and every page outside it, so the site lists no routes.
+    expect(Reflect.get(config, "agentDiscovery")).not.toHaveProperty("routes");
+    const manifest = createDocsManifest({ dir: resolve(docsRoot, "content"), base: "/docs" });
+    expect(manifest.pages.map(page => page.path).filter(path => path !== "/")).toEqual(trustPages.map(page => `/${page}`));
+    expect(source).not.toContain("routeRules:");
+    expect(source).toContain('{ href: "/openapi.json", rel: "service-desc", type: "application/vnd.oai.openapi+json"');
   });
 
-  it("serves ViteHub-owned raw Markdown artifacts", () => {
-    const module = readFileSync(resolve(docsRoot, "modules/vitehub-docs/index.ts"), "utf8");
+  it("configures the ViteHub site through the docs options", () => {
+    expect(config.docs?.site).toMatchObject({ name: "ViteHub", url: "https://vitehub.dev", logo: "/vitehub-mark.svg" });
+    expect(config.docs?.github).toEqual({ repo: "vite-hub/vitehub", dir: "docs/content" });
+    expect(config.docs?.mcp).toMatchObject({ name: "vitehub" });
+    expect(config.docs?.sitemap).toEqual(["/tutorials", "/examples", "/projects", "/templates"]);
+    expect(typeof config.docs?.rawMarkdown).toBe("function");
+  });
 
-    expect(module).toContain('baseURL: "/raw"');
-    expect(module).toContain('dir: resolve(outputDir, "raw")');
-    expect(module).toContain('config.serverAssets.push({ baseName: "vitehub-raw", dir: resolve(outputDir, "raw") })');
-    expect(module).toContain("config.plugins.push(llmsRawLinksPlugin, agentOnlyDocumentsPlugin)");
-    expect(module).toContain("const manifest = writeDocsArtifacts({ capabilityReferences, docsRoot, outputDir });");
-    expect(module).toContain("const capabilityReferences = await createCapabilityReferences();");
+  it("serves raw Markdown copies from the docs package", () => {
+    const docsModule = readFileSync(resolve(packageRoot, "src/nuxt.ts"), "utf8");
+
+    expect(docsModule).toContain('addServerHandler({ route: "/raw/**", method: "get", handler: resolver.resolve("./runtime/server/raw.js") })');
+    expect(docsModule).toContain('{ baseName: "docs-raw", dir: rawDir }');
+    expect(docsModule).toContain("toRawMarkdown(options.rawMarkdown ? await options.rawMarkdown(source, page) : source, { siteUrl: `${config.site.url}${config.appBase.replace(/\\/+$/, \"\")}`, pagePath: page.path })");
   });
 
   it("derives Capability references from the real model-facing tools", async () => {
@@ -52,42 +66,18 @@ describe("agent-ready HTTP contracts", () => {
     expect(references["gmail.draft"]?.tools.map(tool => tool.name)).toEqual(["gmail_draft", "gmail_read", "gmail_search"]);
   });
 
-  it("keeps the compact index routed to raw Markdown", () => {
-    expect(rawMarkdownUrl("https://vitehub.dev/docs", "https://vitehub.dev")).toBe("https://vitehub.dev/raw/docs.md");
-    expect(rawMarkdownUrl("https://vitehub.dev/docs/", "https://vitehub.dev")).toBe("https://vitehub.dev/raw/docs.md");
-    expect(rawMarkdownUrl("/docs/kv#runtime", "https://vitehub.dev")).toBe(
-      "https://vitehub.dev/raw/docs/kv.md#runtime",
-    );
-    expect(rawMarkdownUrl("/guides", "https://vitehub.dev")).toBe("/guides");
-    expect(rawMarkdownUrl("https://vitehub.dev/privacy?source=llms", "https://vitehub.dev")).toBe(
-      "https://vitehub.dev/raw/privacy.md?source=llms",
-    );
-    expect(rawMarkdownUrl("/blog", "https://vitehub.dev")).toBe("/blog");
-    expect(rawMarkdownUrl("/pricing", "https://vitehub.dev")).toBe("/pricing");
-    expect(rawMarkdownUrl("https://example.com/docs", "https://vitehub.dev")).toBe("https://example.com/docs");
+  it("routes the llms.txt links on vitehub.dev to raw Markdown or machine resources", () => {
+    const source = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
+    const manifest = createDocsManifest({ dir: resolve(docsRoot, "content"), base: "/docs" });
+    const links = [...source.matchAll(/href: "https:\/\/vitehub\.dev(\/[^"]*)"/g)].map(match => match[1]!);
+    const machineResources = ["/openapi.json", "/.well-known/skills/vitehub/SKILL.md", "/mcp"];
 
-    const options = {
-      domain: "https://vitehub.dev",
-      sections: [{ links: [
-        { href: "https://vitehub.dev/docs/agents" },
-        { href: "https://vitehub.dev/guides" },
-        { href: "https://vitehub.dev/about" },
-        { href: "https://vitehub.dev/contact" },
-        { href: "https://vitehub.dev/privacy" },
-        { href: "https://vitehub.dev/" },
-        { href: "https://www.npmjs.com/package/vite-hub" },
-      ] }],
-    };
-    rewriteLlmsRawLinks(options);
-    expect(options.sections[0]?.links).toEqual([
-      { href: "https://vitehub.dev/raw/docs/agents.md" },
-      { href: "https://vitehub.dev/guides" },
-      { href: "https://vitehub.dev/raw/about.md" },
-      { href: "https://vitehub.dev/raw/contact.md" },
-      { href: "https://vitehub.dev/raw/privacy.md" },
-      { href: "https://vitehub.dev/" },
-      { href: "https://www.npmjs.com/package/vite-hub" },
-    ]);
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links.filter(link => !machineResources.includes(link))) {
+      expect(link).toMatch(/^\/raw\/.+\.md$/);
+      // Each raw link names a page that the build writes a raw copy for.
+      expect(findDocsPage(manifest, link.replace(/^\/raw/, "").replace(/\.md$/, "")), link).not.toBeNull();
+    }
   });
 
   it("documents only the llms indexes that the docs host serves", () => {
@@ -153,7 +143,7 @@ describe("ViteHub OpenAPI document", () => {
 describe("trust and developer discovery content", () => {
   it("publishes substantive About, Contact, and Privacy source pages", () => {
     for (const page of trustPages) {
-      const source = readFileSync(resolve(docsRoot, `content/trust/${page}.md`), "utf8");
+      const source = readFileSync(resolve(docsRoot, `content/${page}.md`), "utf8");
       expect(source.length, page).toBeGreaterThan(500);
       expect(source, page).toContain(`title: ${page === "privacy" ? "ViteHub privacy" : `${page[0]!.toUpperCase()}${page.slice(1)} ViteHub`}`);
       // The page header renders the title as the only H1.
@@ -162,12 +152,11 @@ describe("trust and developer discovery content", () => {
   });
 
   it("renders no site footer and keeps recovery links on the 404 page", () => {
-    const footer = readFileSync(resolve(docsRoot, "app/components/AppFooter.vue"), "utf8");
+    const app = readFileSync(resolve(packageRoot, "runtime/app/app.vue"), "utf8");
     const error = readFileSync(resolve(docsRoot, "app/error.vue"), "utf8");
 
-    // Docus renders AppFooter on every page. The override renders nothing.
-    expect(footer).not.toMatch(/<(?:UFooter|NuxtLink|a)\b/);
-    expect(error).not.toContain("<AppFooter");
+    expect(app).not.toMatch(/<(?:AppFooter|UFooter)\b/);
+    expect(error).not.toMatch(/<(?:AppFooter|UFooter)\b/);
     expect(error).toContain("label: \"Docs\", to: \"/docs\"");
     expect(error).toContain("<AppSearch");
     expect(error).toContain("llms.txt");

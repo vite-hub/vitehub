@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url"
 
 import {
   resolveViteHubProjectRoot,
+  VITEHUB_APP_BASE_URL,
   VITEHUB_NITRO_CONFIG_CONTEXT,
   VITEHUB_PROJECT_ROOT,
   VITEHUB_SERVER_DIRS,
@@ -1221,7 +1222,10 @@ export async function prepareSourceGeneration(options: SourceGenerationOptions):
   return (await prepareSourceArtifacts(options)).handlers
 }
 
-function applicationBaseURL(base: string | undefined): string {
+/** Nuxt serves Vite assets from `/_nuxt/`, so its Vite `base` is not the app base. `vite-hub/nuxt` passes the app base. */
+function applicationBaseURL(config: { base?: string }): string {
+  const configured: unknown = Reflect.get(config, VITEHUB_APP_BASE_URL)
+  const base = typeof configured === "string" ? configured : config.base
   return base?.startsWith("/") && !base.startsWith("//") ? base : "/"
 }
 
@@ -1481,7 +1485,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
             serverDirs: serverDirs?.slice(),
           })
           const contribution: SourcePluginConfig = {
-            define: { __VITEHUB_APP_BASE_URL__: JSON.stringify(applicationBaseURL(viteConfig.base)) },
+            define: { __VITEHUB_APP_BASE_URL__: JSON.stringify(applicationBaseURL(viteConfig)) },
             ...(nitro ? { nitro } : {}),
           }
           previousLifecycle?.close()
@@ -1527,7 +1531,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       if (refreshAuth instanceof Function) refreshAuthByRoot.set(projectRoot, () => refreshAuth())
       else refreshAuthByRoot.delete(projectRoot)
       viteConfig.define ??= {}
-      viteConfig.define.__VITEHUB_APP_BASE_URL__ = JSON.stringify(applicationBaseURL(config.base))
+      viteConfig.define.__VITEHUB_APP_BASE_URL__ = JSON.stringify(applicationBaseURL(config))
       const previousTransition = configurationTransitionByRoot.get(projectRoot) ?? Promise.resolve()
       const runTransition = async () => {
         const configuredState = configuredStateByRoot.get(projectRoot)

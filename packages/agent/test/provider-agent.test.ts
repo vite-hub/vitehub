@@ -13,6 +13,7 @@ import { describe, expect, it, vi } from "vitest"
 import { Diagnostic } from "nostics"
 import { z } from "zod"
 import type { StreamEvent } from "../src/messages.ts"
+import type { UIMessage } from "ai"
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import { createTraceEventLog, getViteHubErrorShape, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
@@ -89,6 +90,7 @@ import { getAgentTelemetryConfiguration, setAgentTelemetryConfiguration } from "
 import { provideBrowserRuntimeEnvironment } from "../src/internal/browser-runtime.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { finalizeUiMessageStreamOutput } from "../src/stream-output.ts"
+import { codexDocsAnswer } from "./fixtures/codex-docs-answer.ts"
 import { applyAgentToolPolicies, withAgentToolStepReporting, withJsonCompatibleToolOutputs } from "../src/tool-runtime.ts"
 import { prepareGitHubPullRequestWorkspace } from "../src/server/github-checkout.ts"
 import { commitGitHubPullRequestWorkspace, prepareGitHubRepairBase } from "../src/server/github-repair.ts"
@@ -6897,6 +6899,75 @@ cli_auth_credentials_store = "keyring"
     const output = await finalizeUiMessageStreamOutput(events, true, () => undefined)
 
     await expect(collect(output.value)).rejects.toThrow("Provider turn aborted: provider stopped")
+  })
+
+  it("keeps each Codex message in its own text part, in the order it ran", async () => {
+    const threadId = "thread-codex-docs-answer"
+    runtime(threadId, codexDocsAnswer.events(threadId))
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const events = await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never)
+    const output = await finalizeUiMessageStreamOutput(events, false, () => undefined)
+    const { readUIMessageStream } = await import("ai")
+    let parts: UIMessage["parts"] = []
+    // SAFETY: The finalized output of a provider stream is a UI message chunk stream.
+    for await (const message of readUIMessageStream({ stream: output.value as never })) parts = message.parts
+
+    expect(parts.filter(part => part.type !== "data-agent-event").map(part => part.type === "text" ? part.text : part.type)).toEqual([
+      codexDocsAnswer.noteText,
+      "tool-command_execution",
+      "tool-command_execution",
+      codexDocsAnswer.answerText,
+    ])
+  })
+
+  it("titles Codex command parts with the command that ran", async () => {
+    const threadId = "thread-codex-docs-command-titles"
+    runtime(threadId, codexDocsAnswer.events(threadId))
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const events = await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never)
+    const output = await finalizeUiMessageStreamOutput(events, false, () => undefined)
+    const { readUIMessageStream } = await import("ai")
+    let parts: UIMessage["parts"] = []
+    // SAFETY: The finalized output of a provider stream is a UI message chunk stream.
+    for await (const message of readUIMessageStream({ stream: output.value as never })) parts = message.parts
+
+    expect(parts.flatMap(part => part.type === "tool-command_execution" ? [part.title] : [])).toEqual([
+      "cat pages/docs/getting-started/install.md",
+      "rg -n 'Node.js 22|Node 22|node.*22|22' pages",
+    ])
+  })
+
+  it.each([
+    [String.raw`/bin/bash -lc 'echo '\''hi'\'''`, "echo 'hi'"],
+    [String.raw`/bin/zsh -lc "printf \"%s\" \$HOME"`, "printf \"%s\" $HOME"],
+    ["pnpm test", "pnpm test"],
+  ])("titles the command %s as %s", async (command, title) => {
+    const threadId = `thread-command-title-${title}`
+    runtime(threadId, [
+      event("item.started", threadId, { data: { command, toolName: "command_execution" }, itemType: "command_execution", title: command }, { itemId: "tool-1", turnId: "turn-1" }),
+      event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" }),
+    ])
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    const events = await collect(await createProviderAgentAdapter({ provider: "codex" }).stream!(context(threadId) as never))
+
+    expect(events[0]).toMatchObject({ title, type: "tool-call" })
+  })
+
+  it("ends a text part at a tool call so later text renders after the tool", async () => {
+    async function* events() {
+      yield { text: "Checking.", type: "text-delta" }
+      yield { id: "call-1", input: { query: "install" }, name: "search", type: "tool-call" }
+      yield { id: "call-1", name: "search", output: "found", type: "tool-result" }
+      yield { text: "Done.", type: "text-delta" }
+      yield { type: "finish" }
+    }
+    const output = await finalizeUiMessageStreamOutput(events(), false, () => undefined)
+    const { readUIMessageStream } = await import("ai")
+    let parts: UIMessage["parts"] = []
+    // SAFETY: The finalized output of an event stream is a UI message chunk stream.
+    for await (const message of readUIMessageStream({ stream: output.value as never })) parts = message.parts
+
+    expect(parts.map(part => part.type === "text" ? part.text : part.type)).toEqual(["Checking.", "tool-search", "Done."])
   })
 
   it("cancels when the provider emits no terminal event", async () => {

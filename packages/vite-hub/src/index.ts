@@ -120,6 +120,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/connections": true,
   "@vite-hub/content": true,
   "@vite-hub/database": true,
+  "@vite-hub/docs": true,
   "@vite-hub/email": true,
   "@vite-hub/env": true,
   "@vite-hub/gateways": true,
@@ -1329,7 +1330,6 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     operationsImports: {
       auth: "vite-hub/auth/server",
       database: "vite-hub/database/drizzle",
-      databaseDefinition: "vite-hub/database",
       databaseSchema: "vite-hub/comments/database",
       runtime: "vite-hub/comments/server",
     },
@@ -1422,7 +1422,6 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       blobDatabase: "vite-hub/workspace/blob-database",
       contentDatabase: "vite-hub/content/database",
       database: "vite-hub/database/drizzle",
-      databaseDefinition: "vite-hub/database",
       workspace: "vite-hub/workspace",
     },
   }))

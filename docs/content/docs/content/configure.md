@@ -47,7 +47,7 @@ Use a collection when people or Agents edit the content at runtime. Sources stay
 
 ### Store the collection
 
-Collections need a Workspace with retained history. The [CMS](/docs/cms) sets it up: `defineContent({ extends: cms })` turns on Workspace, Database, and Blob, adds a `content` Workspace on the [Blob + Database Store](/docs/workspace/configure#blob-database-store), and adds its history tables and the `contentSessionsSchema` table of [Editing together](/docs/content/editing-together) to your Database at build time. When the app has no Database Definition, the preset adds the `default` Database.
+Collections need a Workspace with retained history. The [CMS](/docs/cms) sets it up: `defineContent({ extends: cms })` turns on Workspace, Database, and Blob, adds a `content` Workspace on the [Blob + Database Store](/docs/workspace/configure#blob-database-store), and adds its history tables and the `contentSessionsSchema` table of [Editing together](/docs/content/editing-together) to your Database at build time. When the app has no Database Definition, the tables go to the implicit `default` Database.
 
 ```ts [server/content.ts]
 import { defineContent, documents } from 'vite-hub/content'
