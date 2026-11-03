@@ -1,4 +1,5 @@
 import type { Result } from "@vite-hub/runtime"
+import type { GetItemType, GetItemTypeMap } from "unstorage"
 
 export type KVDriver = "cloudflare-kv-binding" | "deno-kv" | "upstash" | "fs-lite"
 
@@ -84,6 +85,18 @@ export interface KVListOptions {
   prefix?: string
 }
 
+/** What `kv.get()` converts the stored value to: `text`, `json`, `bytes`, `stream`, or `blob`. */
+export type KVGetType = GetItemType
+
+/** The value type `kv.get()` returns for each {@link KVGetType}. */
+export type KVGetTypeMap = GetItemTypeMap
+
+/** Options of `kv.get()`. Other fields go to the driver. */
+export type KVGetOptions<K extends KVGetType | undefined = KVGetType | undefined> = Record<string, unknown> & { type?: K }
+
+/** A read value: the caller's `T` without a `type`, the converted type with one. */
+type KVValue<T, K> = K extends KVGetType ? KVGetTypeMap[K] : T
+
 export interface KVSetIfAbsentOptions {
   /** Seconds until the key expires. `fs-lite` never expires keys, so its key stays until you delete it. */
   ttl?: number
@@ -103,11 +116,15 @@ export interface KVListPage {
 export interface KVStorage {
   clear(base?: string, options?: unknown): Promise<Result<void, "KV_OPERATION_FAILED">>
   del(key: string, options?: unknown): Promise<Result<void, "KV_OPERATION_FAILED">>
+  /**
+   * Reads a value or returns `null`. Without `options.type`, a string value is parsed as JSON, so `"123"` reads back as `123`.
+   * `{ type: "text" }` returns the stored text, and `json`, `bytes`, `stream`, and `blob` convert it to that type.
+   */
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- KV values are intentionally caller-typed until schema-aware reads are added.
-  get<T = unknown>(key: string, options?: unknown): Promise<Result<T | null, "KV_OPERATION_FAILED">>
-  /** Atomically returns and deletes a value when the configured store supports it. */
+  get<T = unknown, K extends KVGetType | undefined = undefined>(key: string, options?: KVGetOptions<K>): Promise<Result<KVValue<T, K> | null, "KV_OPERATION_FAILED">>
+  /** Atomically returns and deletes a value when the configured store supports it. `{ type: "text" }` returns the stored text. */
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- KV values are intentionally caller-typed until schema-aware reads are added.
-  getAndDelete<T = unknown>(key: string): Promise<Result<T | null, "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
+  getAndDelete<T = unknown, K extends "text" | undefined = undefined>(key: string, options?: { type?: K }): Promise<Result<KVValue<T, K> | null, "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
   has(key: string, options?: unknown): Promise<Result<boolean, "KV_OPERATION_FAILED">>
   /** Atomically increments a counter. The TTL is applied only when the counter is created. */
   increment(key: string, ttl: number): Promise<Result<number, "KV_INVALID_TTL" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
