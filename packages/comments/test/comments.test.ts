@@ -25,12 +25,19 @@ describe("defineComments", () => {
     expect(reopened).toMatchObject({ status: "open", resolvedBy: null, resolvedAt: null })
   })
 
-  it("lists by page and status, newest activity first", async () => {
+  it("lists by page and status, newest activity first", async ({ onTestFinished }) => {
     const comments = await createComments()
+    // Give each activity a distinct timestamp instead of relying on wall-clock gaps.
+    vi.useFakeTimers({ toFake: ["Date"], now: 1_000 })
+    onTestFinished(() => { vi.useRealTimers() })
     const [, first] = await comments.create({ page: "/", anchor, body: "First", author: ada })
+    vi.setSystemTime(2_000)
     await comments.create({ page: "/about", anchor, body: "Elsewhere", author: ada })
+    vi.setSystemTime(3_000)
     const [, second] = await comments.create({ page: "/", anchor, body: "Second", author: ada })
+    vi.setSystemTime(4_000)
     await comments.resolve(second!.id, { by: ada })
+    vi.setSystemTime(5_000)
     await comments.reply(first!.id, { body: "Bump", author: grace })
 
     const [, home] = await comments.list({ page: "/" })

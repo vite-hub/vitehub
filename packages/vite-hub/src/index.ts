@@ -135,6 +135,8 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/shell": true,
   "@vite-hub/source": true,
   "@vite-hub/ui": true,
+  // Browser-only: generated server code never imports it.
+  "@vite-hub/web-container": false,
   "@vite-hub/workflow": true,
   "@vite-hub/workspace": true,
 } satisfies Record<FrameworkDependencyName, boolean>
