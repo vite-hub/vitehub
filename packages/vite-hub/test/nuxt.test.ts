@@ -542,6 +542,24 @@ describe("ViteHub Nuxt integration", () => {
     for (const [source] of facades) await expect(bundleFacade(source)).resolves.toBeDefined()
   })
 
+  it("leaves headless UI installations without the styled Nuxt runtime", async () => {
+    const hooks = registerHooks({
+      resolve(specifier, context, nextResolve) {
+        if (specifier === "@nuxt/ui" || specifier.startsWith("@nuxt/ui/")) throw new Error(`Cannot find package '${specifier}'`)
+        return nextResolve(specifier, context)
+      },
+    })
+    try {
+      const { nuxt, runIconHook } = createNuxt()
+      await viteHubNuxtModule({ console: false, env: false, preset: "node" }, nuxt)
+      expect(nuxt.options.plugins).toEqual([])
+      expect([...runIconHook()]).toEqual([])
+    }
+    finally {
+      hooks.deregister()
+    }
+  })
+
   it("gives the vite-hub/ui parts their Nuxt runtime and icons without @vite-hub/ui/nuxt", async () => {
     const { nuxt, runIconHook } = createNuxt()
     await viteHubNuxtModule({ console: false, env: false, preset: "node" }, nuxt)

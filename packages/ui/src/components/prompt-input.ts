@@ -38,6 +38,8 @@ export const PromptInput = defineComponent({
     accept: { type: String },
     attachments: { default: true, type: Boolean },
     files: { default: () => [], type: Array as PropType<readonly FileUIPart[]> },
+    /** Prevent adding and removing files while a consumer submits them. Text stays editable. */
+    filesDisabled: { default: false, type: Boolean },
     filterFiles: { type: Function as PropType<(files: readonly File[]) => readonly File[]> },
     modelValue: { default: "", type: String },
     multiple: { default: true, type: Boolean },
@@ -70,8 +72,11 @@ export const PromptInput = defineComponent({
     });
     const UButton = useUIComponent("UButton");
     const UIcon = useUIComponent("UIcon");
-    const remove = (index: number) => emit("update:files", props.files.filter((_, current) => current !== index));
+    const remove = (index: number) => {
+      if (!props.filesDisabled) emit("update:files", props.files.filter((_, current) => current !== index));
+    };
     const addFiles = async (input: FileList | Iterable<File>, onAccepted?: () => void) => {
+      if (props.filesDisabled) return;
       const batch = nextBatch++;
       pendingFiles.value++;
       try {
@@ -124,7 +129,7 @@ export const PromptInput = defineComponent({
             ),
             h(AttachmentContent, () => h(AttachmentTitle, () => label)),
             h(AttachmentActions, () =>
-              h(AttachmentAction, { "aria-label": `Remove ${file.filename ?? "attachment"}`, icon: "i-ph-x-light", onClick: () => remove(index) }),
+              h(AttachmentAction, { "aria-label": `Remove ${file.filename ?? "attachment"}`, disabled: props.filesDisabled, icon: "i-ph-x-light", onClick: () => remove(index) }),
             ),
           ]);
         }),
@@ -158,6 +163,7 @@ export const PromptInput = defineComponent({
               accept: props.accept,
               "aria-label": "Add attachment",
               class: "vh-visually-hidden",
+              disabled: props.filesDisabled,
               multiple: props.multiple,
               onChange: async (event: Event) => {
                 const target = event.currentTarget;
@@ -174,6 +180,7 @@ export const PromptInput = defineComponent({
                 "aria-label": "Add attachment",
                 class: "rounded-full",
                 color: "neutral",
+                disabled: props.filesDisabled,
                 icon: "i-ph-plus",
                 onClick: () => input.value?.click(),
                 size: "sm",

@@ -649,6 +649,60 @@ describe("thread permissions", () => {
 });
 
 describe("review fixes", () => {
+  it.each(["https://files.test/notes.txt", "/files/notes.txt", "blob:https://files.test/notes"])("keeps a supported attachment URL: %s", (url) => {
+    const wrapper = keep(mount(CommentReply, {
+      global,
+      props: { attachmentUrl: () => url, message: message("m1", { attachments: ["notes.txt"] }) },
+    }));
+    expect(wrapper.get("[data-slot=comment-reply-attachments] a").attributes("href")).toBe(url);
+  });
+
+  it.each(["javascript:alert(1)", "java\nscript:alert(1)", "data:text/html,<script>alert(1)</script>"])("renders an unsafe attachment URL as a file name: %s", (url) => {
+    const wrapper = keep(mount(CommentReply, {
+      global,
+      props: { attachmentUrl: () => ({ name: "notes.txt", url }), message: message("m1", { attachments: ["notes"] }) },
+    }));
+    expect(wrapper.find("[data-slot=comment-reply-attachments] a").exists()).toBe(false);
+    expect(wrapper.get("[data-slot=comment-reply-attachments]").text()).toBe("notes.txt");
+  });
+
+  it("keeps the submitted files fixed while a layer comment is being created", async () => {
+    const comments = client();
+    const create = comments.transport.create.bind(comments.transport);
+    let finish!: () => void;
+    vi.spyOn(comments.transport, "create").mockImplementation(async (input) => {
+      await new Promise<void>(resolve => { finish = resolve; });
+      return create(input);
+    });
+    let state!: ReturnType<typeof useComments>;
+    const wrapper = keep(mount(defineComponent({
+      setup() {
+        state = useComments({ client: comments, subject: pricing });
+        return () => h(CommentLayer, { comments: state, upload: async () => ["uploads/shot.png"] });
+      },
+    }), { attachTo: document.body, global }));
+    await vi.waitFor(() => expect(comments.status).toBe("ready"));
+    state.startDraft("page");
+    await flushPromises();
+    const shot = new File(["png"], "shot.png", { type: "image/png" });
+    addFiles(wrapper, [shot]);
+    await wrapper.get("textarea").setValue("Uploaded shot");
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+    expect(wrapper.get("input[type=file]").attributes("disabled")).toBeDefined();
+    expect(wrapper.get("[aria-label='Remove shot.png']").attributes("disabled")).toBeDefined();
+    addFiles(wrapper, [new File(["text"], "new.txt")]);
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(drop, "dataTransfer", { value: { files: [new File(["text"], "dropped.txt")], types: ["Files"] } });
+    wrapper.get("[data-slot=comment-composer]").element.dispatchEvent(drop);
+    await flushPromises();
+    expect(wrapper.getComponent(CommentComposer).props("files")).toEqual([shot]);
+    finish();
+    await flushPromises();
+    expect(state.draft.value).toBeNull();
+    expect(comments.threads[0]!.messages[0]!.attachments).toEqual(["uploads/shot.png"]);
+  });
+
   it("marks a mention whose name changed case after it was picked", async () => {
     const wrapper = keep(mount(CommentReply, { global, props: { message: message("m1", { body: "Hi @ben soto", mentions: ["ben"] }), people: [ben] } }));
     await vi.waitFor(() => expect(wrapper.find("[data-slot=comment-mention]").exists()).toBe(true));
@@ -713,6 +767,25 @@ describe("review fixes", () => {
     await flushPromises();
     expect(create).not.toHaveBeenCalled();
     expect(wrapper.get("textarea").element).toHaveProperty("value", "");
+  });
+
+  it("lets the next subject send while an upload for the old one never settles", async () => {
+    const upload = vi.fn((files: File[]) => (files[0]!.name === "stuck.png" ? new Promise<string[]>(() => {}) : Promise.resolve(files.map(file => `uploads/${file.name}`))));
+    const comments = client();
+    const subject = ref(pricing);
+    const wrapper = keep(mount(defineComponent({
+      setup: () => () => h(CommentPanel, { client: comments, subject: subject.value, upload }),
+    }), { attachTo: document.body, global }));
+    await vi.waitFor(() => expect(comments.status).toBe("ready"));
+    addFiles(wrapper, [new File(["png"], "stuck.png", { type: "image/png" })]);
+    await wrapper.get("textarea").setValue("About pricing");
+    await wrapper.get("form").trigger("submit");
+    subject.value = { id: "/about", kind: "page" };
+    await flushPromises();
+    await wrapper.get("textarea").setValue("About us");
+    await wrapper.get("form").trigger("submit");
+    await vi.waitFor(() => expect(comments.threads.map(item => item.messages[0]!.body)).toEqual(["About us"]));
+    expect(comments.threads[0]!.subject).toEqual({ id: "/about", kind: "page" });
   });
 
   it("sends a reply of files alone through a client", async () => {
