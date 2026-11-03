@@ -468,8 +468,8 @@ catalogs:
       version: 5.0.1
   workspace:
     isomorphic-git:
-      specifier: ^1.42.6
-      version: 1.42.6
+      specifier: ^1.44.10
+      version: 1.44.10
     minimatch:
       specifier: ^10.2.6
       version: 10.2.6
@@ -3474,7 +3474,7 @@ importers:
         version: 2.0.1-rc.33(crossws@0.4.12(srvx@1.0.5))(ocache@0.3.0)
       isomorphic-git:
         specifier: catalog:workspace
-        version: 1.42.6
+        version: 1.44.10
       jiti:
         specifier: catalog:unjs
         version: 2.7.0
@@ -14791,8 +14791,8 @@ packages:
     resolution: {integrity: sha512-FFUtZMpoZ8RqHS3XeXEmHWLA4thH+ZxCv2lOiPIn1Xc7CxrqhWzNSDzD+/chS/zbYezmiwWLdQC09JdQKmthOw==}
     engines: {node: '>=20'}
 
-  isomorphic-git@1.42.6:
-    resolution: {integrity: sha512-MJpYjxITU0k0CNzSE3hXmrsHEIyPO8puRf69cNg5Xim7uhRMU0wh+5VkxpJonhKdAqiy+KTDTQWxgAuTxySqeg==}
+  isomorphic-git@1.44.10:
+    resolution: {integrity: sha512-OMlkGP84A84E01mEuXXTzaVJtBqDpK8n8KevA229oVscY4SqgkQ20ByGudME5V6Y2wPpHbH7gYjY5dMK1PXFkQ==}
     engines: {node: '>=14.17'}
     hasBin: true
 
@@ -21728,7 +21728,7 @@ snapshots:
       git-url-parse: 16.1.0
       h3: 1.15.11
       hookable: 5.5.3
-      isomorphic-git: 1.42.6
+      isomorphic-git: 1.44.10
       jiti: 2.7.0
       json-schema-to-typescript-lite: 15.0.0
       mdast-util-to-hast: 13.2.1
@@ -21808,7 +21808,7 @@ snapshots:
       git-url-parse: 16.1.0
       h3: 1.15.11
       hookable: 5.5.3
-      isomorphic-git: 1.42.6
+      isomorphic-git: 1.44.10
       jiti: 2.7.0
       json-schema-to-typescript-lite: 15.0.0
       mdast-util-to-hast: 13.2.1
@@ -21888,7 +21888,7 @@ snapshots:
       git-url-parse: 16.1.0
       h3: 1.15.11
       hookable: 5.5.3
-      isomorphic-git: 1.42.6
+      isomorphic-git: 1.44.10
       jiti: 2.7.0
       json-schema-to-typescript-lite: 15.0.0
       mdast-util-to-hast: 13.2.1
@@ -21968,7 +21968,7 @@ snapshots:
       git-url-parse: 16.1.0
       h3: 1.15.11
       hookable: 5.5.3
-      isomorphic-git: 1.42.6
+      isomorphic-git: 1.44.10
       jiti: 2.7.0
       json-schema-to-typescript-lite: 15.0.0
       mdast-util-to-hast: 13.2.1
@@ -22048,7 +22048,7 @@ snapshots:
       git-url-parse: 16.1.0
       h3: 1.15.11
       hookable: 5.5.3
-      isomorphic-git: 1.42.6
+      isomorphic-git: 1.44.10
       jiti: 2.7.0
       json-schema-to-typescript-lite: 15.0.0
       mdast-util-to-hast: 13.2.1
@@ -34147,7 +34147,7 @@ snapshots:
 
   isexe@4.0.0: {}
 
-  isomorphic-git@1.42.6:
+  isomorphic-git@1.44.10:
     dependencies:
       async-lock: 1.4.1
       clean-git-ref: 2.0.1

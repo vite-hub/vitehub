@@ -585,7 +585,27 @@ describe("Cloudflare Artifacts workspace store", () => {
     await store.snapshot()
 
     expect(gitMock.statusMatrix).toHaveBeenCalledWith(expect.objectContaining({ ignored: true }))
-    expect(gitMock.add).toHaveBeenCalledWith(expect.objectContaining({ filepath: "private.txt", force: true }))
+    expect(gitMock.add).toHaveBeenCalledWith(expect.objectContaining({ filepath: ["private.txt"], force: true }))
+  })
+
+  it("stages every snapshot change in one add and one remove", async () => {
+    const store = await createStore({
+      create: vi.fn(),
+      get: vi.fn(async () => artifactsRepo()),
+    })
+    gitMock.statusMatrix.mockResolvedValueOnce([
+      ["a.md", 0, 2, 0],
+      ["b.md", 1, 2, 1],
+      ["gone.md", 1, 0, 1],
+      ["staged-gone.md", 0, 0, 2],
+      ["same.md", 1, 1, 1],
+    ])
+
+    await store.snapshot()
+
+    expect(gitMock.add.mock.calls).toEqual([[expect.objectContaining({ filepath: ["a.md", "b.md"], force: true })]])
+    expect(gitMock.remove.mock.calls).toEqual([[expect.objectContaining({ filepath: ["gone.md", "staged-gone.md"] })]])
+    expect(gitMock.commit).toHaveBeenCalledOnce()
   })
 
   it("round-trips file media types and metadata through the committed sidecar", async () => {
