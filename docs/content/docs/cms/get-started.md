@@ -90,7 +90,7 @@ Keep the server running. In another terminal, check the state of the post, then 
 
 ```bash [commands/status]
 pnpm vitehub content status posts
-curl http://localhost:5173/api/content/posts/<id>
+curl http://localhost:5173/api/content/get/posts/<id>
 ```
 
 `status` shows the post as `published`. `/api/content/**` serves only published documents, so a change that you save but do not publish stays out of the response.

@@ -114,7 +114,7 @@ catalogs:
     zod: ^4.6.7
   sandbox:
     "@cloudflare/sandbox": ^0.12.10
-    "@vercel/sandbox": ^3.5.1
+    "@vercel/sandbox": ^3.9.1
   shell:
     just-bash: ^3.6.0
     sh-syntax: 0.7.0
