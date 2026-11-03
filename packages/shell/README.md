@@ -89,6 +89,8 @@ The Just Bash `commands` list also applies to controlled `curl` requests. A Sour
 
 The provider copies the command list at creation. Later changes to the supplied list do not change its permissions or network boundary.
 
+Pass `executionLimits` or `executionLimitProfile: "hardened"` to bound Just Bash interpreter work such as loop iterations, command count, and retained bytes. Both options pass through to Just Bash and are copied at creation. Controlled `curl` runs as a Just Bash command through Source network grants, so interpreter output limits and command deadlines apply, including in pipelines and substitutions. Interpreter deadlines, Shell timeouts, and Shell cancellation abort the signal forwarded to the Source request. The Source executor must honor that signal. `maxOutputLength` truncates returned output characters. Source responses are buffered before interpreter output checks and Shell truncation; enforce response byte or memory limits while reading the response in the Source executor.
+
 The writable Workspace filesystem leaves content unchanged when a move resolves to the same source and destination. Missing sources fail. It rejects moves into descendants before changing content.
 
 Workspace filesystem adapters preserve binary output from redirection and `tee`. Their read, write, and append methods honor Just Bash encoding options.

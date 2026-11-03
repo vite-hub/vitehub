@@ -828,7 +828,7 @@ describe("vitehub", () => {
       workspaceDependencyRuntimeImports: {
         shellWorkspace: "vite-hub/shell/workspace",
       },
-      workspaceImportBase: "vite-hub/_internal/workspace",
+      workspaceImportBase: "vite-hub/_internal/agent/internal/workspace",
     })
     expect(integrationMocks.hubAgent).toHaveBeenCalledWith(expect.objectContaining({
       workspaceDependencyRuntimeImports: {
@@ -870,7 +870,7 @@ describe("vitehub", () => {
       workspaceDependencyRuntimeImports: {
         shellWorkspace: "vite-hub/shell/workspace",
       },
-      workspaceImportBase: "vite-hub/_internal/workspace",
+      workspaceImportBase: "vite-hub/_internal/agent/internal/workspace",
     })
     expect(integrationMocks.hubWorkflow).toHaveBeenCalledWith({}, expect.objectContaining({
       workspaceDependencyRuntimeImports: {
@@ -953,6 +953,18 @@ describe("vitehub", () => {
   it("requires the Agent package for observability without Agents", () => {
     vitehub({ preset: "node", observability: { service: "support" } })
     expect(assertFeaturePackages).toHaveBeenLastCalledWith(["agent"])
+  })
+
+  it.each([undefined, false] as const)("keeps Workspace-only Workflow imports independent of Agent (%s)", (agent) => {
+    vi.mocked(isPackageInstalled).withImplementation(name => name !== "@vite-hub/shell", () => {
+      const agentCallsBefore = integrationMocks.hubAgent.mock.calls.length
+      vitehub({ agent, preset: "node", workflow: true, workspace: true })
+      expect(integrationMocks.hubAgent).toHaveBeenCalledTimes(agentCallsBefore)
+      expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, expect.objectContaining({
+        workspaceDependencyRuntimeImports: {},
+        workspaceImportBase: "vite-hub/_internal/workspace",
+      }))
+    })
   })
 
   it("omits the Workspace Shell loader when the Shell package is absent", () => {

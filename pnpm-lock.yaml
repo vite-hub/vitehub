@@ -451,8 +451,8 @@ catalogs:
       specifier: ^1.11.0
       version: 1.11.0
     '@vercel/queue':
-      specifier: ^0.5.1
-      version: 0.5.1
+      specifier: ^0.11.0
+      version: 0.11.0
   workflow:
     '@workflow/builders':
       specifier: 5.0.1
@@ -468,8 +468,8 @@ catalogs:
       version: 5.0.1
   workspace:
     isomorphic-git:
-      specifier: ^1.42.6
-      version: 1.42.6
+      specifier: ^1.44.10
+      version: 1.44.10
     minimatch:
       specifier: ^10.2.6
       version: 10.2.6
@@ -529,7 +529,7 @@ importers:
         version: 2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25)
       '@vercel/queue':
         specifier: catalog:vercel
-        version: 0.5.1(@opentelemetry/api@1.9.1)
+        version: 0.11.0(@opentelemetry/api@1.9.1)
       '@vercel/sandbox':
         specifier: catalog:sandbox
         version: 3.9.1
@@ -2330,7 +2330,7 @@ importers:
         version: 3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0)
       '@vercel/queue':
         specifier: catalog:vercel
-        version: 0.5.1(@opentelemetry/api@1.9.1)
+        version: 0.11.0(@opentelemetry/api@1.9.1)
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -3474,7 +3474,7 @@ importers:
         version: 2.0.1-rc.33(crossws@0.4.12(srvx@1.0.5))(ocache@0.3.0)
       isomorphic-git:
         specifier: catalog:workspace
-        version: 1.42.6
+        version: 1.44.10
       jiti:
         specifier: catalog:unjs
         version: 2.7.0
@@ -10346,6 +10346,15 @@ packages:
     resolution: {integrity: sha512-ko6ATeRUlHZMB5hLFdC7+/Q1dI2f3NX3gZHxtpALdkxurwjD5HFHGWYF+4o+4SF0E47jg6KzcHknmRpHcKgJ5A==}
     engines: {node: '>= 20'}
 
+  '@vercel/queue@0.11.0':
+    resolution: {integrity: sha512-kdf7oOrVphPW2+eNk7KdwkjNnnWPR0/N/Ih4OvUG3/ocDWp7OwpraaW6uFhitVEQehpSt+iJsjOaZ2pH3DqbqQ==}
+    engines: {node: '>=20.0.0'}
+    peerDependencies:
+      '@opentelemetry/api': ^1.0.0
+    peerDependenciesMeta:
+      '@opentelemetry/api':
+        optional: true
+
   '@vercel/queue@0.5.1':
     resolution: {integrity: sha512-7gO8hOtIh15UDzbjCg7oJDOwY1Hs3XC4xSK6HjMVo93Ge3oEhPZJ18ogamwZTXwcFRYwvgN1vp2w3+zgqfIpoA==}
     engines: {node: '>=20.0.0'}
@@ -14791,8 +14800,8 @@ packages:
     resolution: {integrity: sha512-FFUtZMpoZ8RqHS3XeXEmHWLA4thH+ZxCv2lOiPIn1Xc7CxrqhWzNSDzD+/chS/zbYezmiwWLdQC09JdQKmthOw==}
     engines: {node: '>=20'}
 
-  isomorphic-git@1.42.6:
-    resolution: {integrity: sha512-MJpYjxITU0k0CNzSE3hXmrsHEIyPO8puRf69cNg5Xim7uhRMU0wh+5VkxpJonhKdAqiy+KTDTQWxgAuTxySqeg==}
+  isomorphic-git@1.44.10:
+    resolution: {integrity: sha512-OMlkGP84A84E01mEuXXTzaVJtBqDpK8n8KevA229oVscY4SqgkQ20ByGudME5V6Y2wPpHbH7gYjY5dMK1PXFkQ==}
     engines: {node: '>=14.17'}
     hasBin: true
 
@@ -21728,7 +21737,7 @@ snapshots:
       git-url-parse: 16.1.0
       h3: 1.15.11
       hookable: 5.5.3
-      isomorphic-git: 1.42.6
+      isomorphic-git: 1.44.10
       jiti: 2.7.0
       json-schema-to-typescript-lite: 15.0.0
       mdast-util-to-hast: 13.2.1
@@ -21808,7 +21817,7 @@ snapshots:
       git-url-parse: 16.1.0
       h3: 1.15.11
       hookable: 5.5.3
-      isomorphic-git: 1.42.6
+      isomorphic-git: 1.44.10
       jiti: 2.7.0
       json-schema-to-typescript-lite: 15.0.0
       mdast-util-to-hast: 13.2.1
@@ -21888,7 +21897,7 @@ snapshots:
       git-url-parse: 16.1.0
       h3: 1.15.11
       hookable: 5.5.3
-      isomorphic-git: 1.42.6
+      isomorphic-git: 1.44.10
       jiti: 2.7.0
       json-schema-to-typescript-lite: 15.0.0
       mdast-util-to-hast: 13.2.1
@@ -21968,7 +21977,7 @@ snapshots:
       git-url-parse: 16.1.0
       h3: 1.15.11
       hookable: 5.5.3
-      isomorphic-git: 1.42.6
+      isomorphic-git: 1.44.10
       jiti: 2.7.0
       json-schema-to-typescript-lite: 15.0.0
       mdast-util-to-hast: 13.2.1
@@ -22048,7 +22057,7 @@ snapshots:
       git-url-parse: 16.1.0
       h3: 1.15.11
       hookable: 5.5.3
-      isomorphic-git: 1.42.6
+      isomorphic-git: 1.44.10
       jiti: 2.7.0
       json-schema-to-typescript-lite: 15.0.0
       mdast-util-to-hast: 13.2.1
@@ -29001,6 +29010,15 @@ snapshots:
       '@vercel/cli-exec': 1.0.1
       jose: 5.10.0
 
+  '@vercel/queue@0.11.0(@opentelemetry/api@1.9.1)':
+    dependencies:
+      '@vercel/oidc': 3.8.10
+      minimatch: 10.2.6
+      mixpart: 0.0.6
+      picocolors: 1.1.1
+    optionalDependencies:
+      '@opentelemetry/api': 1.9.1
+
   '@vercel/queue@0.5.1(@opentelemetry/api@1.9.1)':
     dependencies:
       '@vercel/oidc': 3.8.10
@@ -34147,7 +34165,7 @@ snapshots:
 
   isexe@4.0.0: {}
 
-  isomorphic-git@1.42.6:
+  isomorphic-git@1.44.10:
     dependencies:
       async-lock: 1.4.1
       clean-git-ref: 2.0.1

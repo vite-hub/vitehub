@@ -92,7 +92,8 @@ const filesSdkMock = vi.hoisted(() => {
     ],
   }
   return {
-    list: vi.fn(async (_options?: unknown): Promise<typeof defaultPage & { cursor?: string }> => defaultPage),
+    delimiter: false as "any" | "slash" | false,
+    list: vi.fn(async (_options?: unknown): Promise<typeof defaultPage & { cursor?: string, prefixes?: string[] }> => defaultPage),
     minio: vi.fn(() => ({ provider: "minio" })),
     r2: vi.fn((options: unknown) => ({ options, provider: "r2" })),
     s3: vi.fn(() => ({ provider: "s3" })),
@@ -108,6 +109,10 @@ vi.mock("files-sdk", () => ({
 
     constructor(options: { adapter?: { options?: { access?: "private" | "public", token?: string }, provider?: string } } = {}) {
       this.adapter = options.adapter || {}
+    }
+
+    get capabilities() {
+      return { delimiter: this.adapter.provider === "vercel-blob" ? false : filesSdkMock.delimiter }
     }
 
     async delete(pathname: string) {
@@ -202,6 +207,7 @@ afterEach(() => {
   vercelBlobMock.head.mockClear()
   vercelBlobMock.list.mockClear()
   vercelBlobMock.put.mockClear()
+  filesSdkMock.delimiter = false
   filesSdkMock.list.mockReset().mockImplementation(async () => ({
     items: [
       {
@@ -919,6 +925,67 @@ describe("blob runtime", () => {
 
     const result = expectBlobSuccess(await blob.list({ folded: true, prefix }))
     expect(result).toMatchObject({ blobs: [], folders, hasMore: false })
+  })
+
+  it.each(["any", "slash"] as const)("folds files-sdk listings on the provider when the adapter supports delimiter %j", async (delimiter) => {
+    filesSdkMock.delimiter = delimiter
+    filesSdkMock.list
+      .mockResolvedValueOnce({
+        cursor: "page-2",
+        items: [{ etag: "etag", key: "docs/readme.md", lastModified: "2026-01-01T00:00:00.000Z", metadata: {}, size: 3, contentType: "text/markdown" }],
+        prefixes: ["docs/reports/", "docs/assets/"],
+      })
+      .mockResolvedValueOnce({ items: [], prefixes: ["docs/zz/"] })
+    setBlobRuntimeConfig({ store: { bucket: "assets", driver: "s3" } })
+
+    const firstPage = expectBlobSuccess(await blob.list({ folded: true, limit: 2, prefix: "docs/" }))
+    const secondPage = expectBlobSuccess(await blob.list({ cursor: firstPage.cursor, folded: true, limit: 2, prefix: "docs/" }))
+
+    expect(firstPage).toMatchObject({ cursor: "page-2", folders: ["docs/assets/", "docs/reports/"], hasMore: true })
+    expect(firstPage.blobs.map(blob => blob.pathname)).toEqual(["docs/readme.md"])
+    expect(secondPage).toMatchObject({ blobs: [], cursor: undefined, folders: ["docs/zz/"], hasMore: false })
+    expect(filesSdkMock.list.mock.calls.map(([options]) => options)).toEqual([
+      { cursor: undefined, delimiter: "/", limit: 2, prefix: "docs/" },
+      { cursor: "page-2", delimiter: "/", limit: 2, prefix: "docs/" },
+    ])
+  })
+
+  it.each([
+    ["any", "doc", "", "docs/"],
+    ["slash", "docs", "", "docs/"],
+    ["any", "docs/re", "docs/", "docs/reports/"],
+    ["slash", "docs/re", "docs/", "docs/reports/"],
+  ] as const)("filters native %s listings for partial prefix %j", async (delimiter, prefix, parent, folder) => {
+    filesSdkMock.delimiter = delimiter
+    const matchingFile = { etag: "etag", key: `${prefix}adme.md`, lastModified: "2026-01-01T00:00:00.000Z", metadata: {}, size: 3, contentType: "text/markdown" }
+    filesSdkMock.list
+      .mockImplementationOnce(async (options) => {
+        const { prefix: providerPrefix } = options as { prefix?: string }
+        // S3 directory buckets reject a nonempty prefix unless it ends in a slash.
+        if (providerPrefix && !providerPrefix.endsWith("/")) throw new Error("Prefix must end in '/'.")
+        return {
+          cursor: "page-2",
+          items: [matchingFile, { ...matchingFile, key: `${parent}other.txt` }],
+          prefixes: [`${parent}other/`, folder],
+        }
+      })
+      .mockResolvedValueOnce({ cursor: "page-3", items: [], prefixes: [`${parent}other/`] })
+      .mockResolvedValueOnce({ items: [], prefixes: [folder] })
+    setBlobRuntimeConfig({ store: { bucket: "assets", driver: "s3" } })
+
+    const first = expectBlobSuccess(await blob.list({ folded: true, limit: 4, prefix }))
+    const second = expectBlobSuccess(await blob.list({ cursor: first.cursor, folded: true, limit: 4, prefix }))
+    const third = expectBlobSuccess(await blob.list({ cursor: second.cursor, folded: true, limit: 4, prefix }))
+
+    expect(first).toMatchObject({ cursor: "page-2", folders: [folder], hasMore: true })
+    expect(first.blobs.map(blob => blob.pathname)).toEqual([matchingFile.key])
+    expect(second).toMatchObject({ blobs: [], cursor: "page-3", folders: [], hasMore: true })
+    expect(third).toMatchObject({ blobs: [], folders: [folder], hasMore: false })
+    expect(filesSdkMock.list.mock.calls.map(([options]) => options)).toEqual([
+      { cursor: undefined, delimiter: "/", limit: 4, prefix: parent },
+      { cursor: "page-2", delimiter: "/", limit: 4, prefix: parent },
+      { cursor: "page-3", delimiter: "/", limit: 4, prefix: parent },
+    ])
   })
 
   it("resumes folded files-sdk listings within and across provider pages", async () => {

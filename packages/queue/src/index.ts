@@ -37,6 +37,9 @@ export type {
   VercelQueueClient,
   VercelQueueErrorCode,
   VercelQueueRetryDirective,
+  VercelQueueBatchSendResult,
   VercelQueueRetryHandler,
+  VercelQueueSendBatchMessage,
+  VercelQueueSendBatchOptions,
   VercelQueueSendResult,
 } from "./types.ts"

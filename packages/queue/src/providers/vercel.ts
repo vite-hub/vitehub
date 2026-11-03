@@ -1,10 +1,10 @@
-import { normalizeQueueEnqueueInput } from "../enqueue.ts"
+import { createQueueMessageId, normalizeQueueEnqueueInput } from "../enqueue.ts"
 import { queueProviderResult } from "../errors.ts"
 import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 import { resolveVercelQueueRegion } from "../internal/vercel-region.ts"
 
 import type { Result } from "@vite-hub/runtime"
-import type { VercelQueueClient, VercelQueueProviderOptions, VercelQueueSDK } from "../types.ts"
+import type { QueueSendResult, VercelQueueBatchSendResult, VercelQueueClient, VercelQueueProviderOptions, VercelQueueSDK } from "../types.ts"
 
 function invalidVercelSendResponse(cause: unknown): Result<never, "QUEUE_PROVIDER_INVALID_RESPONSE"> {
   return [queueErrorDiagnostics.QUEUE_PROVIDER_INVALID_RESPONSE({ cause }), undefined]
@@ -68,6 +68,24 @@ function isVercelQueueSDK(value: unknown): value is VercelQueueSDK {
   return hasCallableMethod("send") && hasCallableMethod("handleCallback")
 }
 
+class VercelQueueBatchFailedError extends Error {
+  constructor(readonly results: readonly VercelQueueBatchSendResult[]) {
+    super(`@vercel/queue did not accept ${results.filter(result => result.status === "failed").length} of ${results.length} batch messages.`)
+    this.name = "VercelQueueBatchFailedError"
+  }
+}
+
+function parseVercelBatchResults(value: unknown, length: number): Result<QueueSendResult[], "QUEUE_PROVIDER_INVALID_RESPONSE"> {
+  if (!Array.isArray(value) || value.length !== length) return invalidVercelSendResponse(value)
+  const results: QueueSendResult[] = []
+  for (const entry of value) {
+    const [error, messageId] = parseVercelMessageId(entry)
+    if (error) return [error, undefined]
+    results.push({ status: "queued", messageId })
+  }
+  return [undefined, results]
+}
+
 function parseVercelMessageId(value: unknown): Result<string | undefined, "QUEUE_PROVIDER_INVALID_RESPONSE"> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return invalidVercelSendResponse(value)
 
@@ -123,6 +141,7 @@ async function loadVercelQueueClient(region: string | undefined): Promise<Vercel
     return {
       handleCallback: module.handleCallback as VercelQueueSDK["handleCallback"],
       send: module.send as VercelQueueSDK["send"],
+      ...(Object.hasOwn(module, "sendBatch") && isRuntimeFunction(module.sendBatch) ? { sendBatch: module.sendBatch as VercelQueueSDK["sendBatch"] } : {}),
     }
   }
 
@@ -159,6 +178,22 @@ export async function createVercelQueueClient(provider: VercelQueueProviderOptio
       const [responseError, messageId] = parseVercelMessageId(response)
       if (responseError) return [responseError, undefined]
       return [undefined, { status: "queued", messageId }]
+    },
+    async sendBatch(items, options) {
+      const messages = items.map(item => ({
+        delaySeconds: item.delaySeconds ?? options?.delaySeconds,
+        idempotencyKey: item.idempotencyKey || createQueueMessageId(),
+        payload: item.body,
+        retentionSeconds: item.retentionSeconds ?? options?.retentionSeconds,
+      }))
+      const [error, response] = await queueProviderResult("vercel", "send-batch", async () => {
+        if (!isRuntimeFunction(client.sendBatch)) throw new TypeError("The Vercel queue client has no `sendBatch()`. Install `@vercel/queue` 0.10 or later.")
+        const results = await client.sendBatch!(topic, messages)
+        if (Array.isArray(results) && results.some(result => result?.status === "failed")) throw new VercelQueueBatchFailedError(results)
+        return results
+      })
+      if (error) return [error, undefined]
+      return parseVercelBatchResults(response, messages.length)
     },
     callback: client.handleCallback.bind(client),
   }

@@ -99,6 +99,28 @@ export async function enqueueWelcome(email: string) {
 
 `idempotencyKey`, `region`, and `retentionSeconds` work only on Vercel. On Cloudflare, they return `QUEUE_UNSUPPORTED_OPTION` and ViteHub does not send the job.
 
+### Send many jobs in one request
+
+`sendBatch()` on the client from `getQueue()` sends 1 to 100 jobs in one `@vercel/queue` request. Each job takes `body` and its own `delaySeconds`, `idempotencyKey`, and `retentionSeconds`; the second argument sets `delaySeconds` and `retentionSeconds` for jobs that do not set them. The batch uses the client's region.
+
+```ts [server/utils/enqueue-welcomes.ts]
+import { getQueue } from 'vite-hub/queue'
+
+export async function enqueueWelcomes(emails: string[]) {
+  const queue = await getQueue('welcome-email')
+  const [error, results] = await queue.sendBatch(
+    emails.map(email => ({ body: { email }, idempotencyKey: `welcome:${email}` })),
+    { delaySeconds: 600 },
+  )
+  if (error) throw error
+  return results
+}
+```
+
+If Vercel rejects one of the jobs, `sendBatch()` returns `QUEUE_PROVIDER_FAILED`, and `error.cause.results` has the result of each job in input order. A request-level failure can happen after Vercel accepts jobs and does not include per-job results. `sendBatch()` needs `@vercel/queue` 0.10 or later.
+
+To retry safely after either failure, supply the same caller-provided `idempotencyKey` on every job from the first attempt, as in the example above. Vercel deduplicates jobs it already accepted using those keys. ViteHub generates a new key on each call when you omit it, so retrying without explicit keys can enqueue accepted jobs again.
+
 ### Choose the queue region
 
 Vercel keeps queue messages in one region. ViteHub reads the region from `queue.region`, then `QUEUE_REGION`, then `VERCEL_REGION`, then the region of the current Vercel request. To use one fixed region, set `QUEUE_REGION` in the Vercel project environment. If the installed `@vercel/queue` needs a region and ViteHub finds none, the send fails with `QUEUE_MISSING_REGION`. Read [Vercel region and topics](/docs/queue/configure#vercel-region-and-topics).
