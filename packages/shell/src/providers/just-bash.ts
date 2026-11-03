@@ -110,6 +110,7 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
           cwd,
           env: execOptions.env,
           signal: runOptions.signal,
+          stdin: execOptions.stdin,
         })
           .then(result => {
             const stdout = boundOutput(result.stdout, runOptions.maxOutputLength)
