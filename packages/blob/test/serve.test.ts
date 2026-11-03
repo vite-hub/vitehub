@@ -770,9 +770,10 @@ describe("Blob streams on an R2 binding", () => {
   let calls: Array<["get", Read] | ["head"]>
   let object: { body: Uint8Array, etag: string }
   let changeAfterGet: (() => void) | undefined
+  let contentType = "video/mp4"
   const describeObject = () => ({
     httpEtag: `"${object.etag}"`,
-    httpMetadata: { contentType: "video/mp4" },
+    httpMetadata: { contentType },
     key: "media/video.mp4",
     size: object.body.byteLength,
     uploaded: new Date(0),
@@ -789,6 +790,8 @@ describe("Blob streams on an R2 binding", () => {
       const start = !range ? 0 : "suffix" in range ? size - range.suffix : range.offset
       const end = !range || "suffix" in range || range.length === undefined ? size : range.offset + range.length
       if (range && ("suffix" in range ? range.suffix <= 0 || size === 0 : range.offset >= size)) {
+        changeAfterGet?.()
+        changeAfterGet = undefined
         throw new Error("get: The requested range is not satisfiable (10039)")
       }
       const bytes = object.body.slice(Math.max(0, start), end)
@@ -805,6 +808,7 @@ describe("Blob streams on an R2 binding", () => {
 
   beforeEach(() => {
     calls = []
+    contentType = "video/mp4"
     object = { body: encode("0123456789abcdefghij"), etag: "v1" }
     setActiveCloudflareEnv({ BLOB: bucket })
   })
@@ -884,5 +888,25 @@ describe("Blob streams on an R2 binding", () => {
     const { event, text } = await serve({ "if-range": "\"old\"", range: "bytes=0-1" })
     expect(text).toBe("ABCDEFGHIJ")
     expect(event.res.headers.get("content-length")).toBe("10")
+  })
+
+  it("reads again when the object grows to fit a range that R2 rejected", async () => {
+    changeAfterGet = () => {
+      object = { body: encode("0123456789abcdefghijKLMNO"), etag: "v2" }
+    }
+    const { event, text } = await serve({ range: "bytes=20-" })
+    expect(event.res.status).toBe(206)
+    expect(text).toBe("KLMNO")
+    expect(event.res.headers.get("content-range")).toBe("bytes 20-24/25")
+  })
+
+  it("reads again when a stale If-Range whole read finds another content type", async () => {
+    changeAfterGet = () => {
+      contentType = "video/webm"
+    }
+    const { event, text } = await serve({ "if-range": "\"old\"", range: "bytes=0-1" })
+    expect(text).toBe("0123456789abcdefghij")
+    expect(event.res.headers.get("content-type")).toBe("video/webm")
+    expect(calls).toHaveLength(4)
   })
 })

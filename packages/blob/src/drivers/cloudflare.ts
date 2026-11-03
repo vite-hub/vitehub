@@ -94,6 +94,10 @@ export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): Blob
       if (streamOptions.etag && object.httpEtag !== streamOptions.etag) return false
       const body = await driver.get(pathname)
       if (!body) return null
+      // Two calls are not one snapshot: a replacement between them makes serve() read again.
+      const after = await driver.head(pathname)
+      if (!after) return null
+      if (after.httpEtag !== object.httpEtag || after.contentType !== object.contentType) return false
       const { range } = streamOptions
       const bounds = range ? byteRangeBounds(range, body.size) : { start: 0, end: body.size - 1 }
       return { body: (bounds ? body.slice(bounds.start, bounds.end + 1) : new Blob([])).stream(), object: { ...object, size: body.size } }

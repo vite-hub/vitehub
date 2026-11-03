@@ -369,6 +369,10 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
             read = await driver.getStream(normalizedPath, { etag: object.httpEtag })
             if (read === false) return false
             if (!read) return
+            if (read.object.httpEtag !== object.httpEtag || read.object.contentType !== object.contentType) {
+              await read.body.cancel()
+              return false
+            }
           }
           headers.set("Accept-Ranges", "bytes")
           headers.set("Content-Type", object.contentType || guessContentType(normalizedPath))

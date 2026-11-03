@@ -1,3 +1,4 @@
+import { byteRangeBounds } from "../internal/byte-range.ts"
 import { getActiveCloudflareBinding } from "../runtime/state.ts"
 import { r2S3Endpoint, runtimeValue } from "./cloudflare-runtime.ts"
 
@@ -171,7 +172,8 @@ export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): Blob
         if (!range || !(error instanceof Error) || !error.message.includes("(10039)")) throw error
         object = await getBucket(options).head(pathname)
         if (!object) return null
-        if (etag && object.httpEtag !== etag) return false
+        // The object changed, or grew to fit the range, after the read: serve() reads again.
+        if ((etag && object.httpEtag !== etag) || byteRangeBounds(range, object.size ?? 0)) return false
         return { body: new Blob([]).stream(), object: { ...mapObject(object), size: object.size ?? 0 } }
       }
       if (!object) return null
