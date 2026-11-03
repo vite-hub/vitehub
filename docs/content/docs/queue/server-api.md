@@ -197,7 +197,7 @@ Use this in a request whose host provides `waitUntil`, when the response must no
 
 ### `getQueue(name)`
 
-Returns the provider-specific QueueClient for a discovered Queue Definition. It throws configuration errors. `send()` and the Cloudflare `sendBatch()` return `[error, result]`.
+Returns the provider-specific QueueClient for a discovered Queue Definition. It throws configuration errors. `send()` and `sendBatch()` return `[error, result]`.
 
 ```ts [examples/get-queue.ts]
 import { getQueue } from 'vite-hub/queue'
@@ -212,6 +212,7 @@ if (error) throw error
 | `send()` on Cloudflare | `Result<QueueSendResult, CloudflareQueueErrorCode>` | `QUEUE_PROVIDER_FAILED`, `QUEUE_UNSUPPORTED_OPTION` |
 | `sendBatch()` on Cloudflare | `Result<QueueSendResult[], CloudflareQueueErrorCode>` | `QUEUE_PROVIDER_FAILED`, `QUEUE_UNSUPPORTED_OPTION` |
 | `send()` on Vercel | `Result<QueueSendResult, VercelQueueErrorCode>` | `QUEUE_PROVIDER_FAILED`, `QUEUE_PROVIDER_INVALID_RESPONSE`, `QUEUE_UNSUPPORTED_OPTION` |
+| `sendBatch()` on Vercel | `Result<QueueSendResult[], VercelQueueErrorCode>` | `QUEUE_PROVIDER_FAILED`, `QUEUE_PROVIDER_INVALID_RESPONSE` |
 
 ### `dynamicQueue`
 

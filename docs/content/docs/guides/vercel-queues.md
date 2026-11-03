@@ -99,6 +99,26 @@ export async function enqueueWelcome(email: string) {
 
 `idempotencyKey`, `region`, and `retentionSeconds` work only on Vercel. On Cloudflare, they return `QUEUE_UNSUPPORTED_OPTION` and ViteHub does not send the job.
 
+### Send many jobs in one request
+
+`sendBatch()` on the client from `getQueue()` sends 1 to 100 jobs in one `@vercel/queue` request. Each job takes `body` and its own `delaySeconds`, `idempotencyKey`, and `retentionSeconds`; the second argument sets `delaySeconds` and `retentionSeconds` for jobs that do not set them. The batch uses the client's region.
+
+```ts [server/utils/enqueue-welcomes.ts]
+import { getQueue } from 'vite-hub/queue'
+
+export async function enqueueWelcomes(emails: string[]) {
+  const queue = await getQueue('welcome-email')
+  const [error, results] = await queue.sendBatch(
+    emails.map(email => ({ body: { email }, idempotencyKey: `welcome:${email}` })),
+    { delaySeconds: 600 },
+  )
+  if (error) throw error
+  return results
+}
+```
+
+ViteHub gives every job an idempotency key, generated when you omit it. If Vercel does not accept one of the jobs, `sendBatch()` returns `QUEUE_PROVIDER_FAILED`, and `error.cause.results` has the result of each job in input order. Sending the same batch again is safe: Vercel drops the jobs it already accepted. `sendBatch()` needs `@vercel/queue` 0.10 or later.
+
 ### Choose the queue region
 
 Vercel keeps queue messages in one region. ViteHub reads the region from `queue.region`, then `QUEUE_REGION`, then `VERCEL_REGION`, then the region of the current Vercel request. To use one fixed region, set `QUEUE_REGION` in the Vercel project environment. If the installed `@vercel/queue` needs a region and ViteHub finds none, the send fails with `QUEUE_MISSING_REGION`. Read [Vercel region and topics](/docs/queue/configure#vercel-region-and-topics).

@@ -947,6 +947,61 @@ describe("vercel provider", () => {
     expect(handleCallback).toHaveBeenCalledTimes(1)
   })
 
+  it("sends Vercel batches through sendBatch with an idempotency key on every job", async () => {
+    const sendBatch = vi.fn(async (_topic: string, messages: readonly unknown[]) => messages.map((_, index) => index === 1
+      ? { messageId: null, status: "deferred" as const }
+      : { messageId: `message-${index}`, status: "sent" as const }))
+    const client = await createVercelQueueClient({
+      client: { handleCallback: vi.fn(), send: vi.fn(), sendBatch },
+      provider: "vercel",
+      topic: "topic--77656c636f6d65",
+    })
+
+    await expect(client.sendBatch([
+      { body: { email: "ava@example.com" } },
+      { body: { email: "ben@example.com" }, delaySeconds: 5, idempotencyKey: "welcome-ben" },
+    ], { delaySeconds: 60, retentionSeconds: 3600 })).resolves.toEqual([undefined, [
+      { messageId: "message-0", status: "queued" },
+      { messageId: undefined, status: "queued" },
+    ]])
+    expect(sendBatch).toHaveBeenCalledExactlyOnceWith("topic--77656c636f6d65", [
+      { delaySeconds: 60, idempotencyKey: expect.stringMatching(/^queue_/), payload: { email: "ava@example.com" }, retentionSeconds: 3600 },
+      { delaySeconds: 5, idempotencyKey: "welcome-ben", payload: { email: "ben@example.com" }, retentionSeconds: 3600 },
+    ])
+  })
+
+  it("returns QUEUE_PROVIDER_FAILED with the per-job results when Vercel rejects a batch job", async () => {
+    const results = [
+      { messageId: "message-0", status: "sent" as const },
+      { error: "Payload too large", retryable: false, status: "failed" as const, statusCode: 413 },
+    ]
+    const client = await createVercelQueueClient({
+      client: { handleCallback: vi.fn(), send: vi.fn(), sendBatch: vi.fn(async () => results) },
+      provider: "vercel",
+      topic: "topic--77656c636f6d65",
+    })
+
+    const [error, sent] = await client.sendBatch([{ body: 1 }, { body: 2 }])
+    expect(sent).toBeUndefined()
+    expect(error).toMatchObject({ code: "QUEUE_PROVIDER_FAILED", cause: { results } })
+  })
+
+  it("fails a Vercel batch explicitly when the client has no sendBatch", async () => {
+    const client = await createVercelQueueClient({
+      client: { handleCallback: vi.fn(), send: vi.fn() },
+      provider: "vercel",
+      topic: "topic--77656c636f6d65",
+    })
+
+    const [error] = await client.sendBatch([{ body: 1 }])
+    expect(error).toMatchObject({ code: "QUEUE_PROVIDER_FAILED", cause: expect.objectContaining({ message: expect.stringContaining("sendBatch()") }) })
+  })
+
+  it("uses an installed @vercel/queue client that has stable sendBatch", async () => {
+    const { QueueClient } = await vi.importActual<typeof import("@vercel/queue")>("@vercel/queue")
+    expect(typeof new QueueClient({ region: "iad1" }).sendBatch).toBe("function")
+  })
+
   it("rejects inherited direct Vercel SDK clients", async () => {
     const inherited = {
       handleCallback: vi.fn(() => async () => new Response("inherited")),

@@ -181,7 +181,7 @@ catalogs:
   vercel:
     "@vercel/functions": ^3.9.11
     "@vercel/nft": ^1.11.0
-    "@vercel/queue": ^0.5.1
+    "@vercel/queue": ^0.11.0
   vite:
     vite: ^8.2.2
   vite-compat:

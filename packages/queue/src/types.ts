@@ -76,6 +76,30 @@ export interface VercelQueueSendResult {
   messageId?: string | null
 }
 
+interface VercelQueueBatchSendMessage extends Omit<VercelQueueSendOptions, "headers" | "region"> {
+  payload: unknown
+}
+
+/** Result of one message in a `@vercel/queue` `sendBatch()` request, in input order. */
+export type VercelQueueBatchSendResult =
+  | { messageId: string, status: "sent" }
+  | { messageId: null, status: "deferred" }
+  | { error: string, retryable: boolean, status: "failed", statusCode: number }
+
+/** One job in `sendBatch()` of a Vercel QueueClient. `idempotencyKey` defaults to a generated id. */
+export interface VercelQueueSendBatchMessage<T = unknown> {
+  body: T
+  delaySeconds?: number
+  idempotencyKey?: string
+  retentionSeconds?: number
+}
+
+/** Options that apply to every job of a Vercel `sendBatch()` unless the job sets its own. */
+export interface VercelQueueSendBatchOptions {
+  delaySeconds?: number
+  retentionSeconds?: number
+}
+
 type VercelQueueMessageHandler<T = unknown> = (payload: T, metadata?: unknown) => unknown | Promise<unknown>
 
 type VercelQueueCallbackReturn = (request: Request) => Promise<unknown> | unknown
@@ -83,6 +107,8 @@ type VercelQueueCallbackReturn = (request: Request) => Promise<unknown> | unknow
 export interface VercelQueueSDK {
   handleCallback: <TPayload = unknown>(handler: VercelQueueMessageHandler<TPayload>, options?: VercelQueueCallbackOptions) => VercelQueueCallbackReturn
   send: (topic: string, payload: unknown, options?: VercelQueueSendOptions) => Promise<VercelQueueSendResult>
+  /** `@vercel/queue` 0.10 and later. A custom client without it makes `sendBatch()` fail with `QUEUE_PROVIDER_FAILED`. */
+  sendBatch?: (topic: string, messages: readonly VercelQueueBatchSendMessage[]) => Promise<readonly VercelQueueBatchSendResult[]>
 }
 
 export interface QueueSharedOptions {
@@ -178,7 +204,7 @@ export type QueueErrorCode =
 /** Codes that `send()` and `sendBatch()` of a Cloudflare QueueClient return. */
 export type CloudflareQueueErrorCode = "QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION"
 
-/** Codes that `send()` of a Vercel QueueClient returns. */
+/** Codes that `send()` and `sendBatch()` of a Vercel QueueClient return. */
 export type VercelQueueErrorCode = QueueErrorCode
 
 interface QueueClientBase<P extends QueueProvider = QueueProvider> {
@@ -197,11 +223,17 @@ export interface CloudflareQueueClient<TPayload = unknown> extends QueueClientBa
 }
 
 /**
- * `send()` returns `[error, data]`. `error.code` is one of the codes in the method type.
+ * `send()` and `sendBatch()` return `[error, data]`. `error.code` is one of the codes in the method type.
  */
 export interface VercelQueueClient<TPayload = unknown> extends QueueClientBase<"vercel"> {
   readonly topic: string
   send: (payload: TPayload, options?: QueueEnqueueOptions) => Promise<Result<QueueSendResult, VercelQueueErrorCode>>
+  /**
+   * Sends 1 to 100 jobs in one `@vercel/queue` request. When any job is not accepted, it returns `QUEUE_PROVIDER_FAILED`
+   * with the per-job results in `error.cause.results`. Every job has an idempotency key, so sending the same batch again
+   * does not enqueue the accepted jobs twice.
+   */
+  sendBatch: (items: VercelQueueSendBatchMessage<TPayload>[], options?: VercelQueueSendBatchOptions) => Promise<Result<QueueSendResult[], VercelQueueErrorCode>>
   callback: <TMessage = unknown>(handler: VercelQueueMessageHandler<TMessage>, options?: VercelQueueCallbackOptions) => VercelQueueCallbackReturn
 }
 
