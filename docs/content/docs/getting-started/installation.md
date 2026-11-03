@@ -19,7 +19,8 @@ imports. Some features need one more package, as
 
 ## Prerequisites
 
-- Node.js 22.18 or newer. On Node.js 22, features that open a local SQLite
+- Node.js 22.18 or newer for Vite. For Nuxt, use Node.js 22.19+ on 22.x,
+  24.11+ on 24.x, or 26+. On Node.js 22, features that open a local SQLite
   file, such as a `file:` Database, inline Console Auth, and Comments, print
   one `ExperimentalWarning` for `node:sqlite`. Node.js 24 prints no warning.
   The behavior is the same.

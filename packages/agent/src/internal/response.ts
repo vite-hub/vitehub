@@ -4,7 +4,8 @@ import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 // invocation. This supports realms sharing that implementation without accepting
 // tags, copied methods, or objects inheriting Response.prototype. Unrelated Fetch
 // implementations must be converted to the host Response at their adapter boundary.
-const trustedResponseConstructors = new WeakSet<Function>([Response])
+const runtimeResponseConstructor = Response
+const trustedResponseConstructors = new WeakSet<Function>([runtimeResponseConstructor])
 
 /** Register an independently implemented Fetch Response constructor at an adapter boundary. */
 export function registerResponseConstructor(constructor: Function): void {
@@ -44,6 +45,8 @@ export function isResponse(value: unknown): value is Response {
     // has none of the implementation's internal state.
     const registeredConstructor = findTrustedResponseConstructor(constructor)
     if (!registeredConstructor) return false
+    // The host intrinsic already rejected this value; only foreign implementations need a fallback.
+    if (registeredConstructor === runtimeResponseConstructor) return false
     // Some registered Fetch implementations (including node-fetch) expose
     // `headers` as an own instance field rather than a prototype accessor.
     // The registered constructor identity is the provenance check in this

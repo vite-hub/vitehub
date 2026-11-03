@@ -379,7 +379,7 @@ jobs:
         working-directory: packages/auth
       - run: vp test test/console-auth.test.ts test/console-access-crossrealm-probe.test.ts test/nitro-optional-peers.test.ts
         working-directory: packages/vite-hub
-      - run: vp test test/agent-invocations-journal-file.test.ts test/codex-home-retention.test.ts test/github-install.test.ts test/provider-runtime-packages.test.ts test/optional-capabilities-import.test.ts test/windows-1252.test.ts test/gmail-channel.test.ts test/crossrealm-trigger-response.test.ts test/stream-output-cross-realm-response.test.ts test/invocations.test.ts
+      - run: vp test test/agent-invocations-journal-file.test.ts test/codex-home-retention.test.ts test/github-install.test.ts test/provider-runtime-packages.test.ts test/optional-capabilities-import.test.ts test/windows-1252.test.ts test/gmail-channel.test.ts test/response.test.ts test/crossrealm-trigger-response.test.ts test/stream-output-cross-realm-response.test.ts test/invocations.test.ts
         working-directory: packages/agent
 
   docs:
@@ -418,6 +418,7 @@ jobs:
       - package-tests-success
       - consumer-contracts-success
       - windows-agent-credentials
+      - node-22
       - docs
       - verify-providers
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
