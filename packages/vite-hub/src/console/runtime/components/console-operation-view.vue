@@ -109,16 +109,16 @@ onBeforeUnmount(() => controller?.abort());
         </div>
       </template>
       <template #body>
-        <div class="p-4">
+        <div class="flex flex-1 flex-col p-4">
           <ConsoleState v-if="error" :error="error" title="Couldn't load the list" :retry="load" />
-          <template v-else-if="loading && !items.length">
+          <div v-else-if="loading && !items.length">
             <USkeleton v-for="index in 5" :key="index" class="my-1 h-9 rounded-md" />
-          </template>
+          </div>
           <ConsoleState v-else-if="!items.length" :section="details.id" title="Nothing here yet" description="No item matches this filter." />
           <UEmpty
             v-else-if="!visibleItems.length"
             variant="naked"
-            class="py-12"
+            class="flex-1 py-12"
             icon="i-lucide-search"
             title="No matching items"
             :description="`Nothing matches “${search.trim()}”.`"
