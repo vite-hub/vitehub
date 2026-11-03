@@ -684,6 +684,22 @@ describe("hubWorkspace", () => {
     expect(pluginSource).not.toContain("configureCloudflareWorkspaceRuntime")
   })
 
+  it("gives a Nitro build outside Vite the bundled Workspace files, as Nuxt 4 builds", async () => {
+    const root = await createViteRoot()
+    await mkdir(join(root, "server", "workspaces", "pages"), { recursive: true })
+    await writeFile(join(root, "server", "workspaces", "pages", "config.ts"), `import { defineWorkspace } from "@vite-hub/workspace"\nexport default defineWorkspace({})\n`)
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const config = mergedConfigHook(hubWorkspace().config) as (
+      config: { nitro?: Record<string, unknown>, root: string },
+      env: { command: "build" | "serve", mode: string },
+    ) => Promise<{ nitro?: { alias?: Record<string, string> } }>
+    await expect(config({ nitro: {}, root }, { command: "build", mode: "production" })).resolves.toMatchObject({
+      nitro: { alias: { "#vitehub-workspace-assets-registry": join(root, ".vitehub/vite-runtime/workspace/assets/registry.mjs") } },
+    })
+    const served = await config({ nitro: {}, root }, { command: "serve", mode: "development" })
+    expect(served.nitro?.alias?.["#vitehub-workspace-assets-registry"]).toBeUndefined()
+  })
+
   it("installs hosted stores for discovered definitions with explicit local Nitro runtime config", async () => {
     const root = await createViteRoot()
     await mkdir(join(root, "server", "workspaces", "mirror"), { recursive: true })
