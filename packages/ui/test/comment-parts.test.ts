@@ -467,6 +467,25 @@ describe("CommentPanel", () => {
     expect(wrapper.find("[data-slot=comment-thread]").exists()).toBe(true);
   });
 
+  it("only opens threads in the current page scope, including after a subject change", async () => {
+    const about = { id: "/about", kind: "page" };
+    const { comments, wrapper } = await panel([thread(1), thread(2, { subject: about })], { thread: "thread-1" });
+    expect(wrapper.find("[data-slot=comment-thread]").exists()).toBe(true);
+    let finish!: (threads: CommentThreadModel[]) => void;
+    vi.spyOn(comments.transport, "list").mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+
+    await wrapper.setProps({ subject: about });
+    await flushPromises();
+    expect(wrapper.find("[data-slot=comment-thread]").exists()).toBe(false);
+
+    finish([thread(2, { subject: about })]);
+    await flushPromises();
+    expect(wrapper.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-2"]);
+
+    await wrapper.setProps({ thread: "thread-2" });
+    expect(wrapper.find("[data-slot=comment-thread]").exists()).toBe(true);
+  });
+
   it("comments on the whole page from the box at the bottom and clears it", async () => {
     const { comments, wrapper } = await panel([]);
     expect(wrapper.get("[data-slot=comment-panel-empty]").text()).toBe("No open comments.");

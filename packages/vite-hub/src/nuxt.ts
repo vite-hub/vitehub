@@ -171,8 +171,10 @@ type NuxtLike = {
     (name: "app:templatesGenerated", callback: (app: { components: Parameters<CommentsVitePlugin["api"]["setComponents"]>[0] }) => Promise<void>): void
     (name: "close" | "nitro:config", callback: ((config: Record<string, unknown>) => Promise<void>) | (() => Promise<void>)): void
     (name: "listen", callback: (server: unknown, listener: { url: string }) => void): void
+    (name: "modules:done", callback: () => void): void
   }
   options: {
+    _installedModules?: Array<{ meta: { name?: string } }>
     _layers?: NuxtServerDirOptions["_layers"]
     alias?: Record<string, string>
     app?: {
@@ -939,16 +941,21 @@ type ViteHubNuxtModule = {
 /**
  * An app that imports `vite-hub/ui` parts gets their runtime without adding `@vite-hub/ui/nuxt`: the plugin that gives
  * them Nuxt UI's Nuxt icon, and their icons in the `@nuxt/icon` client bundle. `@vite-hub/ui` owns both. Headless apps
- * do not need the optional Nuxt UI peer, so they must not receive a plugin that imports it.
+ * do not need the optional Nuxt UI peer or its module, so they must not receive a plugin that imports it.
  */
 async function installViteHubUIRuntime(nuxt: NuxtLike): Promise<void> {
   if (!nuxt.hook || !isPackageInstalled("@nuxt/ui")) return
   const ui = await importOptionalOwner("@vite-hub/ui", () => import("@vite-hub/ui/nuxt"))
   if (!ui) return
   const hook = nuxt.hook
-  ui.addViteHubUIRuntime({
-    hook: (name, callback) => Reflect.apply(hook, nuxt, [name, callback]),
-    options: { plugins: (nuxt.options.plugins ??= []) },
+  nuxt.hook("modules:done", () => {
+    // The package can be present for the Console alone. Only Nuxt UI's module generates its component themes.
+    // Wait until every module has installed, including modules that enable Nuxt UI after vite-hub/nuxt.
+    if (!nuxt.options._installedModules?.some(({ meta }) => meta.name === "@nuxt/ui")) return
+    ui.addViteHubUIRuntime({
+      hook: (name, callback) => Reflect.apply(hook, nuxt, [name, callback]),
+      options: { plugins: (nuxt.options.plugins ??= []) },
+    })
   })
 }
 
