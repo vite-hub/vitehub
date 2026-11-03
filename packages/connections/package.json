@@ -50,6 +50,11 @@
       "import": "./dist/chatgpt.js",
       "default": "./dist/chatgpt.js"
     },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js",
+      "default": "./dist/cli.js"
+    },
     "./google": {
       "types": "./dist/google.d.ts",
       "import": "./dist/google.js",

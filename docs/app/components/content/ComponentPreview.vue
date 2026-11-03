@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import highlighter from "#mdc-highlighter";
 import { useClipboard } from "@vueuse/core";
 import { computed, defineAsyncComponent, ref } from "vue";
 
@@ -142,20 +141,8 @@ const example = defineAsyncComponent(loader as () => Promise<{ default: object }
 const source = (exampleSources[examplePath] || "").trim();
 const sourceHeight = Math.min(32, source.split("\n").length * 1.5 + 2);
 const fileName = `${props.name}.vue`;
-const sourceFence = "`".repeat(
-  Math.max(3, ...Array.from(source.matchAll(/`+/g), ([match]) => match.length + 1)),
-);
-const sourceBlock = `${sourceFence}vue\n${source}\n${sourceFence}`;
-const sourceParserOptions = {
-  highlight: {
-    highlighter,
-    theme: {
-      light: "material-theme-lighter",
-      default: "material-theme",
-      dark: "material-theme-palenight",
-    },
-  },
-};
+// The source renders on the server and in the payload, so the client highlights only after client navigation.
+const { data: sourceLines } = await useAsyncData(`component-preview:${props.name}`, () => highlightCodeLines(source, "vue"));
 
 const { copy, copied, isSupported } = useClipboard({ copiedDuring: 1600, legacy: true });
 const copyLabel = computed(() => (copied.value ? "Copied" : `Copy ${fileName}`));
@@ -224,7 +211,9 @@ function resetExample() {
       class="component-preview-source border-t border-default"
       :style="{ height: `${sourceHeight}rem` }"
     >
-      <MDC :value="sourceBlock" :parser-options="sourceParserOptions" :tag="false" />
+      <ProsePre language="vue" :code="source" :class="['language-vue', highlightedPreClass]">
+        <code v-html="sourceLines" />
+      </ProsePre>
     </div>
   </div>
 </template>
@@ -276,7 +265,7 @@ function resetExample() {
 }
 
 /*
-  MDC renders the source through Nuxt UI's ProsePre, not the docs code block.
+  The source renders through Nuxt UI's ProsePre, not the docs code block.
   Its outer margin left a blank band above the code, and its copy button repeated the toolbar copy.
 */
 .component-preview-source > :deep(div) {

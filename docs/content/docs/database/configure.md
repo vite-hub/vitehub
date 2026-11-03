@@ -260,23 +260,38 @@ The Definition object that you import from its file keeps only its own `schema`.
 
 A contribution without `database` targets the Database named `default`, or the only Database when there is one. `resolveDefaultDatabase(names)` from `@vite-hub/database/config` applies the same rule, so a package can pick the same Database for its own runtime code. The Console uses it to choose its D1 journal.
 
-### Contribute a Database
+### Need the default Database
 
-When the application has no Database a package can use, the package can add a whole Database Definition. Write the Definition module, for example under `.vitehub/`, and return `{ name, definition, reason? }` from `vitehub.databases`, next to its tables. Here `definition` is the absolute path of the module, not a `{ module, export }` object:
+A package that needs a Database does not add one. It contributes its tables without `database`, or with `database: 'default'`. When the app has no Database Definition, the Database integration adds one empty `default` Database for every package that asks, in Vite and Nuxt. Its migrations go to `server/databases/migrations/`, and it uses the `dialect` of the contributions (SQLite when none sets one). The CMS preset, Comments, and Connections work this way.
+
+A package that keeps data with its own SQL and has no Drizzle tables contributes an entry without `definition`. ViteHub checks its Database and dialect as for tables:
 
 ```ts [my-package/vite.ts]
-import { discoverDatabaseDefinitions } from '@vite-hub/database/config'
+vitehub: {
+  databases: () => [{ name: 'my-package', database: 'default', dialect: 'sqlite', reason: 'Stores my-package state with its own SQL.' }],
+},
+```
 
+`vitehub inspect definitions --kind database` shows `Definition: Implicit` with the plugins that need the default Database, a `Contributed tables` field for each table contribution, and a `Used by` field for each entry without tables. When the app adds `server/databases/config.ts`, the contributions move to it and keep the same migrations directory. Contributions that need different dialects fail with `DATABASE_INVALID_CONTRIBUTION_TARGET`.
+
+### Contribute a Database
+
+A package that owns a Named Database can add a whole Database Definition. For the default Database, read [Need the default Database](#need-the-default-database) instead. Write the Definition module, for example under `.vitehub/`, and return `{ name, definition, reason? }` from `vitehub.databases`, next to its tables. Here `definition` is the absolute path of the module, not a `{ module, export }` object:
+
+```ts [my-package/vite.ts]
 // In the plugin object:
 vitehub: {
   databases: async ({ rootDir }) => {
-    const tables = { name: 'history', definition: { module: 'my-package/schema', export: 'historySchema' } }
-    if (discoverDatabaseDefinitions(rootDir).length) return [tables]
-    const definition = await writeDefinition(rootDir) // export default defineDatabase({ schema: {} })
-    return [{ name: 'default', definition, reason: 'my-package stores its history here because the app has no Database.' }, tables]
+    const definition = await writeDefinition(rootDir) // export default defineDatabase({ name: 'history', schema: {} })
+    return [
+      { name: 'history', definition, reason: 'my-package keeps its history in its own Database.' },
+      { name: 'history-tables', database: 'history', definition: { module: 'my-package/schema', export: 'historySchema' } },
+    ]
   },
 },
 ```
+
+A project cannot mix a default Database Definition with Named Database Definitions, so a contributed Named Database fits an app whose Databases are all named.
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -284,7 +299,7 @@ vitehub: {
 | `definition` | `string` | Absolute path of a module whose default export is `defineDatabase({ schema })`. A Named Database sets the same `name`. |
 | `reason` | `string` | Optional. Why the package adds the Database. `vitehub inspect` shows it. |
 
-A contributed Database works like one in `server/databases/`: `vitehub db generate` and `db migrate`, the runtime registry, `vitehub provision`, and `vitehub inspect definitions` include it. Inspection lists its `Contributed by`, `Reason`, and `Migrations` fields. Its migrations go where an application Definition with the same name keeps them, `server/databases/migrations/` for `default` and `server/databases/<name>/migrations/` otherwise, so adding that Definition later keeps the migration history. The [CMS](/docs/cms) uses this to add the `default` Database.
+A contributed Database works like one in `server/databases/`: `vitehub db generate` and `db migrate`, the runtime registry, `vitehub provision`, and `vitehub inspect definitions` include it. Inspection lists its `Contributed by`, `Reason`, and `Migrations` fields. Its migrations go where an application Definition with the same name keeps them, `server/databases/migrations/` for `default` and `server/databases/<name>/migrations/` otherwise, so adding that Definition later keeps the migration history.
 
 The factory context also has `rootDir`, the root that Database Definitions are discovered from, and `plugins`, the flat list of Vite plugins.
 
@@ -293,12 +308,12 @@ The factory context also has `rootDir`, the root that Database Definitions are d
 | Code | Cause |
 | --- | --- |
 | `DATABASE_DUPLICATE_TABLE` | Two plugins contribute tables with one `name`, or a contributed table uses the key or SQL table name of an application table or another contribution. |
-| `DATABASE_INVALID_CONTRIBUTION_TARGET` | The target Database does not exist, is ambiguous, or has a different dialect. |
+| `DATABASE_INVALID_CONTRIBUTION_TARGET` | The target Database does not exist, is ambiguous, or has a different dialect, or the contributions for the implicit default Database need different dialects. |
 | `DATABASE_INVALID_CONTRIBUTION` | The contribution shape or schema export is invalid, or a contributed Definition module does not exist. |
 | `DATABASE_DUPLICATE_DEFINITION` | Two plugins contribute different Definitions with one Database name, or the application already defines the contributed Database. |
 | `DATABASE_SCHEMA_LOAD_FAILED` | The contributed module cannot load. `vitehub db generate` fails; dev and builds print a warning. |
 
-`collectDatabaseContributions(plugins, context)` from `@vite-hub/database/vite` returns the validated `{ definitions, tables }`, and `resolveDatabaseContributionTargets(names, tables)` returns the target of each table contribution, for other build steps.
+`collectDatabaseContributions(plugins, context)` from `@vite-hub/database/vite` returns the validated `{ definitions, tables, uses }`, and `resolveDatabaseContributionTargets(names, tables)` returns the target of each table contribution or use, for other build steps.
 
 ## Connect without a Definition
 

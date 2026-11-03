@@ -1,5 +1,6 @@
 ---
 title: KV
+layout: landing
 navigation.title: Overview
 description: Save small values such as settings and flags under a key, and read them back from any server route.
 navigation.order: 1

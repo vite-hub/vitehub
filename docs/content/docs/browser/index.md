@@ -1,5 +1,6 @@
 ---
 title: Browser
+layout: landing
 navigation.title: Overview
 description: Load and control web pages in a Cloudflare browser from your server code, with no browser setup in your app.
 navigation.order: 1

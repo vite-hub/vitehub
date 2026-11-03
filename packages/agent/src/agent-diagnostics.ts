@@ -1495,6 +1495,10 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "The ChatGPT gateway requires ViteHub to own the Codex launch and its credentials.",
       fix: "Remove driver.launch, providerSettings.launchArgs, binaryPath, homePath, shadowHomePath and sandbox when using chatgpt(). Install @openai/codex in the app and use a local Codex Driver with Capability tools.",
     },
+    AGENT_R1026: {
+      why: "The ChatGPT gateway cannot find Codex in this app.",
+      fix: "Install @openai/codex in the app, for example pnpm add @openai/codex, and restart the server. The gateway does not run a codex command from PATH.",
+    },
     AGENT_R1016: {
       why: ({ problem }: { connection: string, problem: string }) => `The ChatGPT Connection cannot provide plan access (${problem}).`,
       fix: ({ connection }: { connection: string, problem: string }) => `Enable Connections, grant this Agent read access, and run vitehub connections connect ${connection}. For invalid-user, check OpenAI status before signing in again. No API key fallback is used.`,

@@ -1,5 +1,6 @@
 ---
 title: Rate Limit
+layout: landing
 navigation.title: Overview
 description: Add an API rate limiter to your server routes. Limit requests for each client or user, and reject the extra ones with HTTP 429 on Node or Cloudflare.
 seo.title: API rate limiter for Vite apps with ViteHub

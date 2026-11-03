@@ -107,7 +107,7 @@ describe("ChatGPT plan Connections", () => {
     const test = await setup()
     const attempt = await test.authorize()
     await expect(test.runtime.complete({ error: "access_denied", state: attempt.state, actor: "user:other" })).rejects.toMatchObject({ code: "CONNECTIONS_FORBIDDEN" })
-    await expect(test.runtime.complete({ error: "access_denied", state: attempt.state })).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_REQUEST" })
+    await expect(test.runtime.complete({ error: "access_denied", state: attempt.state })).rejects.toMatchObject({ code: "CONNECTIONS_AUTHORIZATION_EXPIRED" })
     const denied = await test.authorize()
     await expect(test.runtime.complete({ error: "access_denied", state: denied.state })).rejects.toMatchObject({ code: "CONNECTIONS_AUTHORIZATION_CANCELLED" })
   })

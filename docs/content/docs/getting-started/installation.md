@@ -161,6 +161,7 @@ the Vite and the Nuxt path.
 | Console with Agents | `@libsql/client drizzle-orm` |
 | Console sign-in with Better Auth | `@vite-hub/auth better-auth @better-auth/oauth-provider` |
 | `vite-hub/ui` | `@vite-hub/ui` |
+| `vite-hub/docs/*` | `@vite-hub/docs` |
 | `vite-hub/presets/*` | `@vite-hub/presets` |
 
 For example, an app with Agents and a Database runs:

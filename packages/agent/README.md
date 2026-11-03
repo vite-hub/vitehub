@@ -373,6 +373,12 @@ Public HTTP errors keep the `ViteHubError` mapping. An unrecognized diagnostic
 maps to the generic `INTERNAL` response. Approval and cancellation behavior does
 not change.
 
+A UI message stream error for a diagnostic with a fix starts with its code, for
+example `AGENT_R1016: The ChatGPT Connection cannot provide plan access (sign-in).`,
+so a chat client can show the fix. Diagnostics that wrap another layer's message
+keep that message. A stream that fails after it starts ends with one `error`
+frame and `data: [DONE]`, so every host ends the response.
+
 See [Errors and diagnostics](https://vitehub.dev/docs/reference/errors-diagnostics)
 for the code format and an application catalog example.
 

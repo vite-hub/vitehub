@@ -30,6 +30,7 @@ pnpm add vite-hub
 | Console with Agents | `@libsql/client drizzle-orm` |
 | Console sign-in with Better Auth | `@vite-hub/auth better-auth @better-auth/oauth-provider` |
 | `vite-hub/ui` | `@vite-hub/ui` |
+| `vite-hub/docs/*` | `@vite-hub/docs` |
 | `vite-hub/presets/*` | `@vite-hub/presets` |
 
 A build with an enabled feature whose package is missing fails with the `pnpm add` command to run. Provider SDKs, such as `workflow` and `@workflow/builders` for Vercel Workflow or `@vercel/sandbox` for Sandbox Tasks, stay with their feature guides.

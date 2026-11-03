@@ -1,10 +1,10 @@
-import { mkdirSync, writeFileSync } from "node:fs"
 import { copyFile, mkdir, readFile, readdir, rm } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { dirname, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
+import { writeFileIfChangedSync } from "@vite-hub/internal/definition-catalog"
 import { getHostingProvider, resolveHost, resolveHostPreset } from "@vite-hub/internal/hosting"
 import { contributeProviderRuntime, createProviderDeploymentOutputGenerationState, resetProviderOutputRuntime, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalAddition, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -44,6 +44,7 @@ export type {
   CollectedDatabaseContribution,
   CollectedDatabaseContributions,
   CollectedDatabaseDefinitionContribution,
+  CollectedDatabaseUse,
   DatabaseContributingPlugin,
   DatabaseContribution,
   DatabaseContributionContext,
@@ -51,8 +52,10 @@ export type {
   DatabaseContributionFactory,
   DatabaseContributionFields,
   DatabaseDefinitionContribution,
+  DatabaseUseContribution,
   DefaultDatabaseResolution,
   ResolvedDatabaseContribution,
+  ResolvedDatabaseUse,
 } from "./contributions.ts"
 
 const DB_INTERNAL_VIRTUAL_SCHEMA_ID = "virtual:vitehub/database/schema"
@@ -243,7 +246,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: ResolvedDBViteConfig | undefined
   let serverDirs: string[] | undefined
-  let contributions: CollectedDatabaseContributions = { definitions: [], tables: [] }
+  let contributions: CollectedDatabaseContributions = { definitions: [], tables: [], uses: [] }
   let contributionFiles = new Set<string>()
   let contributionDependencyFiles = new Set<string>()
   let contributionDirectories = new Set<string>()
@@ -325,8 +328,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   function installNitroPostgresRequestScope() {
     if (!nitroOptions || !runtimeConfig || !(usesPostgres(runtimeConfig) || usesD1ReadReplication(runtimeConfig)) || getHostingProvider(nitroOptions.preset) !== "cloudflare") return
     const handler = resolve(databaseRoot(), NITRO_REQUEST_SCOPE_MIDDLEWARE)
-    mkdirSync(dirname(handler), { recursive: true })
-    writeFileSync(handler, renderNitroRequestScopeMiddleware())
+    writeFileIfChangedSync(handler, renderNitroRequestScopeMiddleware())
     const handlers = nitroOptions.handlers ??= []
     if (!handlers.some(item => item.handler === handler)) handlers.unshift({ handler, middleware: true })
   }
@@ -341,8 +343,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       if (!flags.includes("nodejs_als")) flags.push("nodejs_als")
       wrangler.compatibility_flags = flags
     }
-    mkdirSync(dirname(handler), { recursive: true })
-    writeFileSync(handler, renderNitroRequestStatsMiddleware())
+    writeFileIfChangedSync(handler, renderNitroRequestStatsMiddleware())
     const handlers = nitroOptions.handlers ??= []
     if (!handlers.some(item => item.handler === handler)) handlers.unshift({ handler, middleware: true })
   }
@@ -354,8 +355,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     if (!nitroOptions || !runtimeConfig || !settings || nitroOptions.dev || (database && "nuxtHostResource" in database)) return
     const packageDir = computePackageDir(import.meta.url)
     const plugin = resolve(databaseRoot(), migrateOnStartPluginFile)
-    mkdirSync(dirname(plugin), { recursive: true })
-    writeFileSync(plugin, renderMigrateOnStartPlugin(runtimeConfig, {
+    writeFileIfChangedSync(plugin, renderMigrateOnStartPlugin(runtimeConfig, {
       ...settings,
       drizzleImport: resolveRuntimeModule(packageDir, "drizzle"),
       host: resolveHost({ nitro: nitroOptions }) ?? resolveHostPreset({ nitro: nitroOptions }),
@@ -438,7 +438,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       resolved = config
       providerOutput = useProviderOutputCatalog(config)
       contributions = resolvedOptions() === false
-        ? { definitions: [], tables: [] }
+        ? { definitions: [], tables: [], uses: [] }
         : await collectDatabaseContributions(config.plugins, { projectRoot: resolveViteHubProjectRoot(config.root), root: config.root, rootDir: databaseRoot(), serverDirs: databaseServerDirs() })
       const require = createRequire(pathToFileURL(resolve(databaseRoot(), "package.json")))
       contributionFiles = new Set(contributions.tables.flatMap(contribution => {

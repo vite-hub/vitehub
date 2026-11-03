@@ -3,12 +3,9 @@
   "private": true,
   "description": "Server primitives for Vite.",
   "type": "module",
-  "imports": {
-    "#vitehub-docs-manifest": "./.generated/docs-manifest.mjs"
-  },
   "scripts": {
-    "clean": "rm -rf .nuxt .output node_modules/.cache .generated",
-    "postinstall": "vp run --cache --filter @vite-hub/agent... --filter @vite-hub/ui... build && nuxi prepare",
+    "clean": "rm -rf .nuxt .output node_modules/.cache",
+    "postinstall": "vp run --cache --filter @vite-hub/agent... --filter @vite-hub/ui... --filter @vite-hub/docs... build && nuxi prepare",
     "pretest": "nuxi prepare",
     "dev": "nuxi dev",
     "build": "NODE_OPTIONS=--max-old-space-size=8192 nuxi build",
@@ -24,20 +21,20 @@
     "preview:cloudflare": "vp run build && vp dlx \"wrangler@4.147.0\" dev --config .output/server/wrangler.json"
   },
   "dependencies": {
-    "@nuxt/content": "catalog:nuxt",
     "@nuxt/icon": "^2.5.1",
     "@nuxt/ui": "catalog:nuxt",
     "@vite-hub/agent": "workspace:*",
+    "@vite-hub/docs": "workspace:*",
     "@vite-hub/ui": "workspace:*",
-    "vite-hub": "workspace:*",
     "@vueuse/core": "catalog:ui",
-    "ai": "catalog:ai",
     "agents": "catalog:ai",
-    "docus": "catalog:nuxt",
+    "ai": "catalog:ai",
     "h3": "catalog:h3-v1-compat",
     "motion-v": "catalog:ui",
     "nuxt": "catalog:nuxt",
     "nuxt-schema-org": "catalog:nuxt",
+    "shiki": "^4.5.0",
+    "vite-hub": "workspace:*",
     "yaml": "catalog:tooling"
   },
   "devDependencies": {

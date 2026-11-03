@@ -138,9 +138,22 @@ const plugin = {
 
 A Nuxt module adds the same plugin to `nuxt.options.vite.plugins` during setup.
 
-A package can also contribute a whole Database with `{ name, definition, reason? }`, where `definition` is the absolute path of a module that default exports `defineDatabase({ schema })`. Use it when the application has no Database the package can use. The contributed Database behaves like one in `server/databases/`, keeps its migrations where that Definition would (`server/databases/migrations/` for `default`), and shows `Contributed by`, `Reason`, and `Migrations` in `vitehub inspect`. A name that the application already defines fails with `DATABASE_DUPLICATE_DEFINITION`.
+A package that keeps data in a Database with its own SQL, and has no Drizzle tables, contributes an entry without `definition`: `{ name, reason?, database?, dialect? }`. ViteHub checks its target and dialect as for tables, and `vitehub inspect` lists it as `Used by`.
+
+A package can also contribute a whole Database with `{ name, definition, reason? }`, where `definition` is the absolute path of a module that default exports `defineDatabase({ schema })`. Use it for a named Database that the package owns. For the default Database, read [The default Database](#the-default-database). The contributed Database behaves like one in `server/databases/`, keeps its migrations where that Definition would (`server/databases/migrations/` for `default`), and shows `Contributed by`, `Reason`, and `Migrations` in `vitehub inspect`. A name that the application already defines fails with `DATABASE_DUPLICATE_DEFINITION`.
 
 Contributed tables are in the generated Drizzle schema, so `vitehub db generate` writes their migrations. They are also in `useDatabase(name).schema`, the generated types, `vitehub inspect`, and the Console. A contribution name, key, or SQL table name used twice fails with `DATABASE_DUPLICATE_TABLE`. A missing or ambiguous target fails with `DATABASE_INVALID_CONTRIBUTION_TARGET` and lists the Database names. `resolveDefaultDatabase(names)` from `@vite-hub/database/config` returns the same default or only Database.
+
+### The default Database
+
+A package that needs a Database does not add one. It contributes its tables, or a use without tables, and leaves `database` unset (or sets `"default"`). When the app has no Database Definition, the Database integration adds the implicit `default` Database once, for all of them, in Vite and in Nuxt:
+
+- It has no tables of its own, keeps migrations in `server/databases/migrations/`, and uses the `dialect` of the contributions for it (SQLite when none sets one). Two different dialects fail with `DATABASE_INVALID_CONTRIBUTION_TARGET`.
+- `vitehub inspect definitions --kind database` shows `Definition: Implicit` with the plugins that need it, and each contribution with its `reason`.
+- When the app adds `server/databases/config.ts`, the tables move to it and keep the same migrations directory.
+- Several Database Definitions without one named `default` are ambiguous for a contribution without `database`, and fail with `DATABASE_INVALID_CONTRIBUTION_TARGET` with the names to choose from.
+
+The CMS preset, Comments, and Connections use this rule.
 
 ## Remote D1 development
 

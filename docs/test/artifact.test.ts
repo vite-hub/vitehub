@@ -18,11 +18,12 @@ describe("Cloudflare docs artifact", () => {
   it.each([
     { name: "HTML docs", path: "/docs", status: 200, type: "text/html", content: "<title", accept: "text/html" },
     { name: "raw Markdown", path: "/raw/docs/getting-started.md", status: 200, type: "text/markdown", content: "# Introduction", accept: "text/markdown" },
-    { name: "sitemap", path: "/sitemap.xml", status: 200, type: "text/xml", content: "<urlset", accept: "*/*" },
+    { name: "sitemap", path: "/sitemap.xml", status: 200, type: "application/xml", content: "<urlset", accept: "*/*" },
     { name: "HTML 404", path: "/missing-docs-artifact-smoke", status: 404, type: "text/html", content: "Page not found", accept: "text/html" },
     { name: "static logo", path: "/vitehub-logo.svg", status: 200, type: "image/svg+xml", content: "<svg", accept: "*/*" },
     { name: "Markdown twin", path: "/docs/getting-started.md", status: 200, type: "text/markdown", content: "# Introduction", accept: "*/*" },
-    { name: "Markdown home", path: "/", status: 200, type: "text/markdown", content: "> Portable Agents for Vite", accept: "text/markdown" },
+    // The home page has its own Markdown copy, `content/index.md`. llms.txt stays the index of every page.
+    { name: "Markdown home", path: "/", status: 200, type: "text/markdown", content: "# The server layer for Vite apps", accept: "text/markdown" },
     { name: "Markdown 404", path: "/missing-docs-artifact-smoke", status: 404, type: "text/markdown", content: "404", accept: "text/markdown" },
   ])("serves $name", async ({ path, status, type, content, accept }) => {
     const response = await server.fetch(path, { headers: { accept } });
@@ -53,7 +54,8 @@ describe("Cloudflare docs artifact", () => {
     const robots = readFileSync(resolve(docsRoot, ".output/public/robots.txt"), "utf8");
     const config: unknown = JSON.parse(readFileSync(resolve(docsRoot, ".output/server/wrangler.json"), "utf8"));
     expect(config).toMatchObject({ assets: { run_worker_first: expect.arrayContaining(["!/robots.txt"]) } });
-    expect(robots).toMatch(/^User-agent: \*\s*\nAllow: \/\s*$/m);
+    // nuxt-agent-discovery adds a Content-Signal line that allows search, AI input, and AI training.
+    expect(robots).toMatch(/^User-agent: \*\s*\n(?:Content-Signal: [^\n]+\n)?Allow: \/\s*$/m);
     expect(robots).toMatch(/^Sitemap: https:\/\/vitehub\.dev\/sitemap\.xml\s*$/m);
 
     const response = await server.fetch("/robots.txt", {

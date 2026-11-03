@@ -4,11 +4,6 @@ import { usePreferredReducedMotion } from "@vueuse/core";
 // section manifest. The default slot renders in the right column: a `::product-files` file tree, a
 // `::code-group` whose tabs become a file list beside the code, or an interactive component.
 // The only action is Get started. The sidebar lists the other product pages.
-import { docsManifest, getDocsPageByPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
-import {
-  getDocsSectionForPath,
-  getDocsSectionSubpages,
-} from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
 
 const props = defineProps<{
   /** One sentence of 20 words or fewer, shown instead of the frontmatter description. */
@@ -26,10 +21,11 @@ const props = defineProps<{
   videoLabel?: string;
 }>();
 
-const route = useRoute();
-const page = computed(() => getDocsPageByPath(route.path));
-const section = computed(() => getDocsSectionForPath(docsManifest.sections, route.path));
-const subpages = computed(() => (section.value ? getDocsSectionSubpages(section.value) : []));
+const found = useDocsPage();
+const page = computed(() => found.value?.page ?? null);
+const section = useDocsSection();
+// Pages of the section other than its Overview, in sidebar order.
+const subpages = computed(() => section.value?.pages.filter(candidate => candidate.navigation && candidate.id !== "index") ?? []);
 const getStarted = computed(
   () => subpages.value.find((candidate) => candidate.id === "get-started") ?? subpages.value[0],
 );

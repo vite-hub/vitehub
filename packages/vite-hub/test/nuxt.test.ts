@@ -663,6 +663,7 @@ describe("ViteHub Nuxt integration", () => {
       "vite-hub/console-operation-features",
       "vite-hub/nitro-optional-peers",
       "vite-hub/nitro-h3",
+      "vite-hub/nitro-generated-relative-imports",
       "vite-hub/nitro-file-url",
       "vite-hub/nitro-cache-bypass",
       "existing-nitro-plugin",
@@ -1002,6 +1003,43 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
+  it("gives Nuxt Connections the implicit default Database when the app has no Database Definition", async () => {
+    const { vitehub } = await vi.importActual<typeof import("../src/index.ts")>("../src/index.ts")
+    mocks.vitehub.mockImplementation((options: Parameters<typeof vitehub>[0]) => vitehub(options).filter(
+      plugin => isTestRecord(plugin) && plugin.name === "@vite-hub/connections/vite",
+    ))
+    const application = createNuxt(true)
+    const definition = "/tmp/vitehub-nuxt/custom-server/databases/config.ts"
+    await rm(definition, { force: true })
+    await rm("/tmp/vitehub-nuxt/.vitehub/connections/database.ts", { force: true })
+    try {
+      await viteHubNuxtModule({ preset: "node", connections: true, console: { auth: false } }, application.nuxt)
+      const { collectDatabaseContributions } = await import("@vite-hub/database/vite")
+      const { discoverDatabaseDefinitions, isImplicitDefaultDatabase } = await import("@vite-hub/database/config")
+      const serverDirs = ["/tmp/vitehub-nuxt/custom-server"]
+      const contributions = await collectDatabaseContributions(application.nuxt.options.vite.plugins, {
+        projectRoot: "/tmp/vitehub-nuxt",
+        root: "/tmp/vitehub-nuxt/app",
+        rootDir: "/tmp/vitehub-nuxt",
+        serverDirs,
+      })
+      // Connections ask for the default Database. They do not add a Definition of their own.
+      expect(contributions.definitions).toEqual([])
+      expect(contributions.uses).toEqual([expect.objectContaining({ database: "default", dialect: "sqlite", name: "connections", plugin: "@vite-hub/connections/vite" })])
+      const discover = () => discoverDatabaseDefinitions("/tmp/vitehub-nuxt", { contributions, implicitDefault: true, serverDirs })
+      expect(discover().map(isImplicitDefaultDatabase)).toEqual([true])
+      await expect(readFile("/tmp/vitehub-nuxt/.vitehub/connections/database.ts", "utf8")).rejects.toThrow()
+
+      await mkdir(dirname(definition), { recursive: true })
+      await writeFile(definition, "export default defineDatabase({ schema: {} })\n")
+      expect(discover()).toEqual([expect.objectContaining({ handler: definition, name: "default" })])
+    }
+    finally {
+      await rm(definition, { force: true })
+      await application.runCloseHook()
+    }
+  })
+
   it.each(["/", "/portal/"])("publishes the Nuxt dev server with base %s, and removes the file on close", async (baseURL) => {
     const file = "/tmp/vitehub-nuxt/.vitehub/dev-server.json"
     await rm(file, { force: true })
@@ -1025,6 +1063,19 @@ describe("ViteHub Nuxt integration", () => {
     discovery.nuxt.options.vitehubCliDiscovery = true
     await viteHubNuxtModule({ preset: "node" }, discovery.nuxt)
     expect(discovery.listenHooks).toHaveLength(0)
+  })
+
+  it("leaves the dev server's Console plugin alone during CLI discovery", async () => {
+    const plugin = "/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs"
+    await rm(plugin, { force: true })
+    const discovery = createNuxt(true)
+    discovery.nuxt.options.vitehubCliDiscovery = true
+    await viteHubNuxtModule({ preset: "node", agent: true, console: { auth: false, authorize: hostManagedAuthorize } }, discovery.nuxt)
+    await discovery.runNitroConfigHook({})
+
+    // CLI discovery resolves no Console access, so a plugin that it wrote would differ and rebuild the dev server.
+    await expect(readFile(plugin, "utf8")).rejects.toThrow()
+    await discovery.runCloseHook()
   })
 
   it.each([true, false])("carries the Node data directory into the Nuxt Console bootstrap (dev: %s)", async (dev) => {
@@ -3272,6 +3323,7 @@ describe("ViteHub Nuxt integration", () => {
           expect.objectContaining({ name: "vite-hub/console-operation-features" }),
           expect.objectContaining({ name: "vite-hub/nitro-optional-peers" }),
           expect.objectContaining({ name: "vite-hub/nitro-h3" }),
+          expect.objectContaining({ name: "vite-hub/nitro-generated-relative-imports" }),
           expect.objectContaining({ name: "vite-hub/nitro-file-url" }),
           expect.objectContaining({ name: "vite-hub/nitro-cache-bypass" }),
         ],
@@ -4552,6 +4604,26 @@ describe("ViteHub Nuxt integration", () => {
     }
     expect(resolver.resolveId?.("h3", "/app/server/api/example.ts")).toBeUndefined()
     expect(resolver.resolveId?.("other", "/app/node_modules/vite-hub/dist/nuxt.js")).toBeUndefined()
+  })
+
+  it("leaves H3 to the host for a ViteHub Nuxt module whose handlers use the host's Nitro", async () => {
+    const directory = await mkdtemp("/tmp/vitehub-h3-host-")
+    try {
+      const root = resolve(directory, "node_modules/@vite-hub/docs")
+      const importer = resolve(root, "dist/runtime/server/page.js")
+      await mkdir(dirname(importer), { recursive: true })
+      // `#imports` becomes `h3` in the handler. On Nuxt 4 that must be H3 1, or `setHeader()` reads a missing `event.res`.
+      await writeFile(resolve(root, "package.json"), JSON.stringify({ name: "@vite-hub/docs", version: "0.1.0", devDependencies: { h3: "2.0.0" } }))
+      await writeFile(importer, "")
+      const fixture = createNuxt(false)
+      await viteHubNuxtModule({ preset: "node" }, fixture.nuxt)
+      const config: Record<string, unknown> = {}
+      await fixture.runNitroConfigHook(config)
+      const plugins = (config.rollupConfig as { plugins: Array<{ name: string, resolveId?: (id: string, importer: string) => string | undefined }> }).plugins
+      const resolver = plugins.find(plugin => plugin.name === "vite-hub/nitro-h3")!
+      expect(resolver.resolveId?.("h3", importer)).toBeUndefined()
+    }
+    finally { await rm(directory, { force: true, recursive: true }) }
   })
 
   it.each([

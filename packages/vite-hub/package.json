@@ -643,6 +643,21 @@
       "import": "./dist/deployment.js",
       "default": "./dist/deployment.js"
     },
+    "./docs": {
+      "types": "./dist/docs.d.ts",
+      "import": "./dist/docs.js",
+      "default": "./dist/docs.js"
+    },
+    "./docs/assistant": {
+      "types": "./dist/docs/assistant.d.ts",
+      "import": "./dist/docs/assistant.js",
+      "default": "./dist/docs/assistant.js"
+    },
+    "./docs/nuxt": {
+      "types": "./dist/docs/nuxt.d.ts",
+      "import": "./dist/docs/nuxt.js",
+      "default": "./dist/docs/nuxt.js"
+    },
     "./doctor": {
       "types": "./dist/doctor.d.ts",
       "import": "./dist/doctor.js",
@@ -1276,6 +1291,7 @@
     "@vite-hub/comments": "workspace:*",
     "@vite-hub/content": "workspace:*",
     "@vite-hub/database": "workspace:*",
+    "@vite-hub/docs": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/presets": "workspace:*",
     "@vite-hub/realtime": "workspace:*",
@@ -1337,6 +1353,7 @@
     "@vite-hub/comments": "workspace:*",
     "@vite-hub/content": "workspace:*",
     "@vite-hub/database": "workspace:*",
+    "@vite-hub/docs": "workspace:*",
     "@vite-hub/presets": "workspace:*",
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
@@ -1417,6 +1434,9 @@
       "optional": true
     },
     "@vite-hub/database": {
+      "optional": true
+    },
+    "@vite-hub/docs": {
       "optional": true
     },
     "@vite-hub/presets": {

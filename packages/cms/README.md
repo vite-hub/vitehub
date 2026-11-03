@@ -26,7 +26,7 @@ At build time `hubCms()` reads `server/content.ts` without running it, so import
 
 - writes the Workspace Definition to `.vitehub/content/workspace.mjs` and contributes it as the `content` Workspace (option `workspace`);
 - adds the `content-history` tables (Blob + Database store) and the `content-sessions` table to the default or only Database (option `database`);
-- adds the `default` Database in `.vitehub/content/database.ts` when the app has no Database Definition;
+- uses the implicit `default` Database of `@vite-hub/database` when the app has no Database Definition;
 - checks that Workspace, Database, and Blob are enabled and that the Blob store exists (option `blob`, default `default`);
 - restarts the dev server when the selection in `server/content.ts` changes.
 
@@ -60,7 +60,7 @@ export default defineAuth({ plugins: [admin(cmsAccess)] })
 
 ## Inspect
 
-`usesCms({ projectRoot, serverDirs })` and `cmsStore(...)` from `@vite-hub/cms/vite` read `server/content.ts` the same way, without running it. `vitehub inspect definitions --kind database` lists the tables and the Database that the CMS contributes, with `@vite-hub/cms/vite` as the contributor. `vitehub inspect definitions --kind cms` shows the store, the Workspace, and whether access uses the CMS roles, the app's `authorize`, or no policy.
+`usesCms({ projectRoot, serverDirs })` and `cmsStore(...)` from `@vite-hub/cms/vite` read `server/content.ts` the same way, without running it. `vitehub inspect definitions --kind database` lists the tables that the CMS contributes, with `@vite-hub/cms/vite` as the contributor, and names it as a reason for the implicit `default` Database. `vitehub inspect definitions --kind cms` shows the store, the Workspace, and whether access uses the CMS roles, the app's `authorize`, or no policy.
 
 ## Errors
 

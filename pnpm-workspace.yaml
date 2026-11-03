@@ -6,6 +6,7 @@ packages:
   - "packages/*/examples/*"
   - "playground/console"
   - "playground/content"
+  - "playground/docs"
   - "playground/logs"
 catalog:
   "@cloudflare/vitest-plugin": ^1.3.6
@@ -73,10 +74,8 @@ catalogs:
     # Includes the lazy Pele load in onmax/comark-ui#331; replace with its release when available.
     comark-ui: https://pkg.pr.new/comark-ui@0e2a4fd483dfad175645cec59619cec8d1364156
   nuxt:
-    "@nuxt/content": ^3.16.1
     "@nuxt/ui": ^4.12.0
     "@takumi-rs/core": 2.14.0
-    docus: https://pkg.pr.new/docus@c229a86
     nuxt: ^4.5.2
     nuxt-schema-org: ^6.4.3
   nuxt-compat:
@@ -227,5 +226,4 @@ packageExtensions:
 patchedDependencies:
   "@netlify/blobs@11.1.4": patches/@netlify__blobs@11.1.4.patch
   "@vercel/blob@2.8.0": patches/@vercel__blob@2.8.0.patch
-  docus@5.13.0: patches/docus@5.13.0.patch
   nuxt-agent-discovery@0.7.0: patches/nuxt-agent-discovery@0.7.0.patch

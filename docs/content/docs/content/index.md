@@ -1,5 +1,6 @@
 ---
 title: Content
+layout: landing
 navigation.title: Overview
 description: Turn Markdown files into pages your app can read, list, and search, and let people edit drafts and publish them.
 navigation.order: 1

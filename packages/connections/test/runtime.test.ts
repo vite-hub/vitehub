@@ -69,15 +69,16 @@ describe("connect", () => {
     expect(challenge).toBe(authorization.searchParams.get("code_challenge"))
 
     // A state is single use.
-    expect(await rejection(test.runtime.complete({ code: "code-1", state }))).toMatchObject({ code: "CONNECTIONS_INVALID_REQUEST" })
+    expect(await rejection(test.runtime.complete({ code: "code-1", state }))).toMatchObject({ code: "CONNECTIONS_AUTHORIZATION_EXPIRED" })
   })
 
   it("rejects an authorization callback at its exact expiry timestamp", async () => {
     const test = createTestRuntime()
-    const { state } = await test.runtime.authorize({ name: "mail", redirectUri: "http://127.0.0.1:8976/callback" })
+    const { expiresAt, state } = await test.runtime.authorize({ name: "mail", redirectUri: "http://127.0.0.1:8976/callback" })
+    expect(expiresAt).toBe(new Date(test.now.value + 10 * 60_000).toISOString())
 
     test.now.value += 10 * 60_000
-    await expect(test.runtime.complete({ code: "expired", state })).rejects.toMatchObject({ code: "CONNECTIONS_INVALID_REQUEST" })
+    await expect(test.runtime.complete({ code: "expired", state })).rejects.toMatchObject({ code: "CONNECTIONS_AUTHORIZATION_EXPIRED" })
     expect(test.provider.calls).toHaveLength(0)
   })
 

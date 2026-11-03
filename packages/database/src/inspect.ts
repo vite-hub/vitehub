@@ -7,7 +7,7 @@ import { discoverDatabaseDefinitions, isImplicitDefaultDatabase, readDatabaseDef
 import { loadContributedDatabaseSchema } from "./internal/schema-tables.ts"
 
 import type { ViteHubDefinitionField, ViteHubDefinitionSummary } from "@vite-hub/internal/inspect"
-import type { ResolvedDatabaseContribution } from "./contributions.ts"
+import type { ResolvedDatabaseContribution, ResolvedDatabaseUse } from "./contributions.ts"
 
 export interface DatabaseInspectionOptions {
   /** Without a Database Definition, list the implicit default Database that an enabled database uses. */
@@ -39,6 +39,16 @@ async function describeContributedTables(contribution: ResolvedDatabaseContribut
   return { label: "Contributed tables", value: [`${tables} from ${describeDatabaseContribution(contribution)}`, contribution.reason].filter(Boolean).join(". ") }
 }
 
+function describeUse(use: ResolvedDatabaseUse): ViteHubDefinitionField {
+  return { label: "Used by", value: [describeDatabaseContribution(use), use.reason].filter(Boolean).join(". ") }
+}
+
+// The implicit default Database exists for the contributions that need it, so name them.
+function describeImplicitDefault(needs: readonly (ResolvedDatabaseContribution | ResolvedDatabaseUse)[]): string {
+  const by = needs.length ? ` for ${[...new Set(needs.map(need => `plugin ${JSON.stringify(need.plugin)}`))].join(", ")}` : ""
+  return `Implicit. The app has no Database Definition, so ViteHub adds an empty default Database${by}. Add \`server/databases/config.ts\` to define it yourself.`
+}
+
 /**
  * Lists Database Definitions with their mode, non-default dialect, the tables their source declares, and the tables Vite plugins
  * contribute. Definitions are read from source without loading them.
@@ -51,20 +61,21 @@ export async function inspectDatabaseDefinitions(options: DatabaseInspectionOpti
     serverDirs: options.serverDirs,
   })
   const definitions = discoverDatabaseDefinitions(options.rootDir, {
-    definitions: contributions.definitions,
+    contributions,
     implicitDefault: options.implicitDefault,
     serverDirs: options.serverDirs,
   })
   const dialects = Object.fromEntries(definitions.map(definition => [definition.name, readDatabaseDefinitionDialect(definition.handler)]))
   // The build checks contribution dialects, so inspection does too.
   const contributionsByDatabase = resolveDatabaseContributionTargets(definitions.map(definition => definition.name), contributions.tables, dialects)
+  const usesByDatabase = resolveDatabaseContributionTargets(definitions.map(definition => definition.name), contributions.uses, dialects)
   return await Promise.all(definitions.map(async definition => ({
     fields: [
       { label: "Mode", value: definition.mode === "default" ? "Default" : "Named" },
       // SQLite is the default and stays implicit.
       ...(dialects[definition.name] === "postgresql" ? [{ label: "Dialect", value: "PostgreSQL" }] : []),
       ...isImplicitDefaultDatabase(definition)
-        ? [{ label: "Definition", value: "Implicit. The app has no Database Definition, so ViteHub uses an empty default Database. Add `server/databases/config.ts` to declare tables." }]
+        ? [{ label: "Definition", value: describeImplicitDefault([...contributionsByDatabase[definition.name] ?? [], ...usesByDatabase[definition.name] ?? []]) }]
         : [],
       { label: "Tables", value: describeTables(definition.schemaSources.map(source => source.handler)) },
       ...(readDatabaseDefinitionReadReplication(definition.handler) ?? options.readReplication)
@@ -77,6 +88,7 @@ export async function inspectDatabaseDefinitions(options: DatabaseInspectionOpti
         ? [{ label: "Schema sources", value: definition.schemaSources.map(source => relativeDefinitionFile(options.projectRoot, source.handler)).join(", ") }]
         : [],
       ...await Promise.all((contributionsByDatabase[definition.name] ?? []).map(contribution => describeContributedTables(contribution, options.rootDir))),
+      ...(usesByDatabase[definition.name] ?? []).map(describeUse),
     ],
     file: relativeDefinitionFile(options.projectRoot, definition.handler),
     name: definition.name,

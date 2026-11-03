@@ -192,7 +192,7 @@ describe("package manifest contracts", () => {
   it("publishes security reporting and project policy links", () => {
     const security = readFileSync(join(repoRoot, "SECURITY.md"), "utf8")
     const readme = readFileSync(join(repoRoot, "README.md"), "utf8")
-    const contact = readFileSync(join(repoRoot, "docs/content/trust/contact.md"), "utf8")
+    const contact = readFileSync(join(repoRoot, "docs/content/contact.md"), "utf8")
 
     expect(security).toContain("https://github.com/vite-hub/vitehub/security/advisories")
     expect(security).toContain("https://github.com/vite-hub/vitehub/issues/new")

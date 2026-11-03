@@ -42,6 +42,8 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/cms/access", { "@vite-hub/comments": "declaration", "better-auth": "both" }],
   ["@vite-hub/connections/agent", { "drizzle-orm": "both" }],
   ["@vite-hub/content/database", { "drizzle-orm": "both" }],
+  // The assistant preset is an Agent Definition on the ChatGPT gateway.
+  ["@vite-hub/docs/assistant", { "@vite-hub/agent": "both", "@vite-hub/gateways": "runtime" }],
   // Content owns its parser and Tiptap dependencies; only optional ViteHub integrations remain peers.
   ["@vite-hub/content/editor", { "@vite-hub/realtime": "declaration" }],
   // Realtime loads the editor, and the Realtime and Workspace runtimes that hold the live document.
@@ -109,7 +111,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
 
 // `vite-hub` declares the owner packages of opt-in features as optional peers. Its subpaths of such a feature, such as
 // `vite-hub/agent` and `vite-hub/_internal/agent`, need the owner package.
-const optionalFrameworkOwners = new Set(["agent", "auth", "cms", "comments", "content", "database", "presets", "realtime", "schedule", "shell", "ui", "workspace"])
+const optionalFrameworkOwners = new Set(["agent", "auth", "cms", "comments", "content", "database", "docs", "presets", "realtime", "schedule", "shell", "ui", "workspace"])
 
 function optionalPeersForExport(specifier: string, subpath: string) {
   const usage: Record<string, OptionalPeerUsage> = { ...optionalPeerUsage.get(specifier) }

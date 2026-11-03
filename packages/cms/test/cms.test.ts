@@ -151,8 +151,8 @@ describe("resolving the cms preset resources", () => {
       .toMatchObject({ blob: "media", database: "audit", databaseReason: "option", workspace: "site" })
   })
 
-  it("adds the default Database when the app has none", () => {
-    expect(resolveCmsPresetPlan(usage, choices([]), "/app")).toMatchObject({ database: "default", databaseReason: "preset" })
+  it("uses the implicit default Database when the app has none", () => {
+    expect(resolveCmsPresetPlan(usage, choices([]), "/app")).toMatchObject({ database: "default", databaseReason: "implicit" })
     expect(errorOf(() => resolveCmsPresetPlan({ file, options: { database: "blog" } }, choices([]), "/app")).message)
       .toContain("option database is \"blog\", but no Database Definition has that name. Database Definitions: none.")
   })
@@ -259,22 +259,18 @@ describe("hubCms()", () => {
     expect(await plugin.vitehub.databases({ projectRoot: root, root, rootDir: root })).toEqual([{ database: "default", definition: { export: "workspaceHistorySchema", module: "@vite-hub/workspace/blob-database" }, name: "content-history", reason: "Stores the history of Content documents." }, { database: "default", definition: { export: "contentSessionsSchema", module: "@vite-hub/content/database" }, name: "content-sessions", reason: "Stores presence and edit leases of Content documents." }])
   })
 
-  it("adds the default Database Definition when the app has none, and removes it once the app defines one", async () => {
+  it("contributes only its tables when the app has no Database Definition, so the Database primitive adds the default Database", async () => {
     const root = await project(presetContent, {})
-    const plugin = hubCms({ imports: { databaseDefinition: "vite-hub/database" } })
-    const definition = join(root, ".vitehub/content/database.ts")
-    expect(await plugin.vitehub.databases({ projectRoot: root, root, rootDir: root })).toEqual([
-      { definition, name: "default", reason: "\"server/content.ts\" uses the Content cms preset and the app has no Database Definition. Add server/databases/config.ts to define this Database yourself." },
+    const plugin = hubCms()
+    const tables = [
       { database: "default", definition: { export: "workspaceHistorySchema", module: "@vite-hub/workspace/blob-database" }, name: "content-history", reason: "Stores the history of Content documents." },
       { database: "default", definition: { export: "contentSessionsSchema", module: "@vite-hub/content/database" }, name: "content-sessions", reason: "Stores presence and edit leases of Content documents." },
-    ])
-    const generated = await readFile(definition, "utf8")
-    expect(generated).toContain("import { defineDatabase } from \"vite-hub/database\"")
-    expect(generated).toContain("export default defineDatabase({ schema: {} })")
+    ]
+    expect(await plugin.vitehub.databases({ projectRoot: root, root, rootDir: root })).toEqual(tables)
+    await expect(readFile(join(root, ".vitehub/content/database.ts"))).rejects.toThrow()
 
     await writeProjectFile(root, "server/databases/config.ts", "export default defineDatabase({ schema: {} })\n")
-    expect(await plugin.vitehub.databases({ projectRoot: root, root, rootDir: root })).toEqual([{ database: "default", definition: { export: "workspaceHistorySchema", module: "@vite-hub/workspace/blob-database" }, name: "content-history", reason: "Stores the history of Content documents." }, { database: "default", definition: { export: "contentSessionsSchema", module: "@vite-hub/content/database" }, name: "content-sessions", reason: "Stores presence and edit leases of Content documents." }])
-    await expect(readFile(definition)).rejects.toThrow()
+    expect(await plugin.vitehub.databases({ projectRoot: root, root, rootDir: root })).toEqual(tables)
   })
 
   it("reads whether server/content.ts uses the preset without running it", async () => {
@@ -428,7 +424,7 @@ describe("the cms preset on the GitHub store", () => {
 
   it("plans the GitHub store with its defaults, a Database, and no Blob store", () => {
     const plan = resolveCmsPresetPlan({ file, options: { store: "github", repo: "onmax/docs" } }, choices([]), "/app")
-    expect(plan).toMatchObject({ store: "github", database: "default", databaseReason: "preset", workspace: "content", github: { repo: "onmax/docs", branch: "main", draftBranch: "vitehub/content", root: "", publish: "commit" } })
+    expect(plan).toMatchObject({ store: "github", database: "default", databaseReason: "implicit", workspace: "content", github: { repo: "onmax/docs", branch: "main", draftBranch: "vitehub/content", root: "", publish: "commit" } })
     expect(plan.blob).toBeUndefined()
     expect(resolveCmsPresetPlan({ file, options: {} }, choices([]), "/app")).toMatchObject({ store: "blob-database", blob: "default" })
     expect(errorOf(() => resolveCmsPresetPlan({ file, options: { store: "github" } }, choices(["a", "b"]), "/app")).code).toBe("CONTENT_B0002")

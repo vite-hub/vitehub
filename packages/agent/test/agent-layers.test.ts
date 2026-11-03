@@ -1,3 +1,4 @@
+import { chatgpt, openai } from "@vite-hub/gateways"
 import { github } from "@vite-hub/workspace"
 import { normalizeWorkspaceSourcesMetadata } from "@vite-hub/workspace/source-metadata"
 import { describe, expect, it, vi } from "vitest"
@@ -79,6 +80,13 @@ describe("Agent definition layers", () => {
     expect(custom.__vitehubWorkspaceAgentOptions.driver).toEqual({ run })
     const claude = defineAgent({ extends: child, driver: claudeCodeDriver() })
     expect(claude.__vitehubWorkspaceAgentOptions.driver).toEqual(claudeCodeDriver())
+  })
+
+  it("replaces an inherited gateway as a whole", () => {
+    const base = defineAgent({ workspace: {}, driver: codexDriver({ gateway: chatgpt() }) })
+    const gateway = openai()
+    const child = defineAgent({ extends: base, driver: { gateway, model: "gpt-5.1-mini" } })
+    expect(child.__vitehubWorkspaceAgentOptions.driver).toEqual(codexDriver({ gateway, model: "gpt-5.1-mini" }))
   })
 
   it.each([
