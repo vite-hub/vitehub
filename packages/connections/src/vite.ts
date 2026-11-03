@@ -375,7 +375,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
   const importBase = options.importBase ?? "@vite-hub/connections";
   const database = options.database ?? false;
   const databaseName = options.databaseName ?? "default";
-  if (!/^[a-z][a-z0-9_-]*$/i.test(databaseName)) throw new Error(`[vitehub] connections.database must be a Database name, such as "users". Got ${JSON.stringify(databaseName)}.`);
+  if (!/^[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*$/i.test(databaseName)) throw new Error(`[vitehub] connections.database must be a Database name, such as "users". Got ${JSON.stringify(databaseName)}.`);
   const activityRetention = resolveActivityRetention(options.activityRetention);
   let resolved: ResolvedConfig | undefined;
   let definitions: DiscoveredConnectionDefinition[] = [];

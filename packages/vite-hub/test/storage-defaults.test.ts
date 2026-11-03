@@ -222,10 +222,14 @@ describe("Connections database default", () => {
     expect(pluginNames({ connections: true, preset: "node" })).toEqual(expect.arrayContaining(["@vite-hub/connections/vite", "@vite-hub/database/vite"]))
   })
 
-  it("passes the Database that connections.database names to Connections", () => {
-    const connections = (vitehub({ connections: { database: "users" }, preset: "node" }) as Array<Plugin & { vitehub?: { databases?: () => unknown } }>)
+  it.each(["users", "billing/archive", "audit.logs", "1users"])("passes the %s Database that connections.database names to Connections", (database) => {
+    const connections = (vitehub({ connections: { database }, preset: "node" }) as Array<Plugin & { vitehub?: { databases?: () => unknown } }>)
       .find(plugin => plugin.name === "@vite-hub/connections/vite")
-    expect(connections?.vitehub?.databases?.()).toEqual([expect.objectContaining({ database: "users", name: "connections" })])
+    expect(connections?.vitehub?.databases?.()).toEqual([expect.objectContaining({ database, name: "connections" })])
+  })
+
+  it("rejects an explicitly empty connections.database instead of selecting default", () => {
+    expect(() => vitehub({ connections: { database: "" }, preset: "node" })).toThrow("connections.database must be a Database name")
   })
 
   it("keeps configured database options", () => {
