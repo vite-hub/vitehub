@@ -2,6 +2,7 @@ import { getViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { describe, expect, it, vi } from "vitest"
 
 import { commentsMcpTools } from "../src/runtime/mcp.ts"
+import { defineCommentSubject } from "../src/index.ts"
 import { commentsConsoleSession } from "../src/runtime/console-session.ts"
 import { createCommentsHandler } from "../src/runtime/handler.ts"
 import { defineCommentsPlugin } from "../src/runtime/plugin.ts"
@@ -23,6 +24,15 @@ async function setup(options: DefineCommentsOptions = {}) {
 }
 
 describe("Comments MCP tools", () => {
+  it("fills the page limit when newer subjects share the site scope", async () => {
+    const { comments, call } = await setup({ subjects: [defineCommentSubject({ kind: "content", scope: () => "site" })] })
+    const [, page] = await comments.create({ page: "/pricing", body: "Page feedback", author: ada })
+    const [error, content] = await comments.create({ subject: { kind: "content", id: "pages/about" }, body: "Content feedback", author: ada })
+    expect(error).toBeUndefined()
+    await comments.reply(content!.id, { body: "Newer content activity", author: ada })
+    expect((await call("comments_list_threads", { limit: 1 })).structured).toMatchObject({ threads: [{ id: page!.id }] })
+  })
+
   it.each([true, false])("preserves action-aware Console grants after session reconciliation: %s", async (readOnly) => {
     const authorize = vi.fn(() => true)
     const comments = await createComments({ authorize })

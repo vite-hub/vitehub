@@ -14,7 +14,7 @@ function excerpt(text: string): string {
 export async function readCommentsConsoleRecords(): Promise<ViteHubConsoleRecord[]> {
   const comments = installedComments()
   if (!comments) return []
-  const [error, listed] = await comments.list({ scope: commentsPageScope, limit: 500 })
+  const [error, listed] = await comments.list({ scope: commentsPageScope, subjectKind: "page", limit: 500 })
   if (error) return []
   const threads = listed.filter(thread => thread.subject.kind === "page")
   const ordered = [...threads.filter(thread => thread.status === "open"), ...threads.filter(thread => thread.status !== "open")]

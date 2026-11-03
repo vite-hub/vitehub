@@ -405,6 +405,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
         const page = url.searchParams.get("page")
         const state = url.searchParams.get("status")
         const [error, listed] = await comments.list({
+          subjectKind: "page",
           ...(page ? { page: normalizeCommentPage(page) } : {}),
           ...(state === "open" || state === "resolved" ? { status: state } : {}),
         })

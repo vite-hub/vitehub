@@ -72,3 +72,28 @@ it("loads messages only for the threads inside the limit", async () => {
   const listed = await store.list({ scope: "site", limit: 1 })
   expect(listed.map(item => item.messages.map(entry => entry.body))).toEqual([["Older", "Bump"]])
 })
+
+it("removes threads before messages in transactions so an interleaved reply cannot survive", async () => {
+  const client = createClient({ url: ":memory:" })
+  try {
+    await client.executeMultiple(commentsMigration)
+    const db = new Proxy(drizzle(client), { get: (target, key, receiver) => key === "batch" ? undefined : Reflect.get(target, key, receiver) })
+    const store = createCommentsStore(db)
+    const first = await store.createThread(thread("Delete this"))
+    const other = await store.createThread({ ...thread("Keep this"), scope: "other" })
+    // Inject a reply at the message-deletion boundary, using the same thread-existence guard as addMessage.
+    // This reproduces the Postgres interleaving without relying on scheduler timing.
+    await client.execute(`CREATE TRIGGER interleaved_reply AFTER DELETE ON vitehub_comment_messages BEGIN
+      INSERT INTO vitehub_comment_messages (id, thread_id, body, author_id, mentions, attachments, created_at)
+      SELECT 'racing-reply', OLD.thread_id, 'Concurrent reply', 'grace', '[]', '[]', 1
+      FROM vitehub_comment_threads WHERE id = OLD.thread_id;
+    END`)
+    expect(await store.deleteScope("site")).toEqual([first.id])
+    expect((await client.execute({ sql: "SELECT id FROM vitehub_comment_messages WHERE thread_id = ?", args: [first.id] })).rows).toEqual([])
+    expect((await store.getById(other.id))?.messages).toHaveLength(1)
+    expect((await store.createThread(thread("Next"))).n).toBe(2)
+  }
+  finally {
+    client.close()
+  }
+})

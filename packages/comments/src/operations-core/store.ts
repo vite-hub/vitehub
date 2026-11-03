@@ -307,6 +307,7 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
       const before = query.before
       const where = [
         ...(subject ? [eq(threads.subjectKind, subject.kind), eq(threads.subjectId, subject.id)] : []),
+        ...(query.subjectKind === undefined ? [] : [eq(threads.subjectKind, query.subjectKind)]),
         ...(query.scope === undefined ? [] : [eq(threads.scope, query.scope)]),
         ...(query.status ? [eq(threads.status, query.status)] : []),
         ...(query.revision ? [lte(threads.revision, query.revision.lte)] : []),
@@ -435,9 +436,10 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
       }
       else if (typeof driver.transaction === "function") {
         await driver.transaction(async (target) => {
-          const [messagesOf, threadsOf] = remove(target)
-          await messagesOf
-          removed = await threadsOf
+          // Deleting locks the same rows as addMessage. A reply that already holds the lock finishes first;
+          // a later reply selects no thread. The next statement sees messages committed before deletion.
+          removed = await target.delete(threads).where(eq(threads.scope, scope)).returning({ id: threads.id })
+          for (const part of chunks(removed.map(row => row.id))) await target.delete(messages).where(inArray(messages.threadId, part))
         })
       }
       else {

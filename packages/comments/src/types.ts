@@ -76,6 +76,8 @@ export interface DefineCommentsOptions extends CommentsDefinition {
 
 export interface ListCommentThreadsOptions {
   subject?: CommentSubject
+  /** Only threads about this kind of subject, across all its ids. */
+  subjectKind?: string
   /** An app path. The same as a `page` subject. */
   page?: string
   /** Only the threads of this numbering scope, such as `site`. */

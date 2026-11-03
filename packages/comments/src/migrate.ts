@@ -95,11 +95,21 @@ export function commentsMigrationSql(options: CommentsMigrationOptions & { from:
 
 /** The Drizzle databases of SQLite, libSQL, D1, and Postgres, as far as the migration uses them. */
 interface MigrationDatabase {
-  all?: (query: ReturnType<typeof sql.raw>) => Promise<unknown[]>
-  run?: (query: ReturnType<typeof sql.raw>) => PromiseLike<unknown>
+  all?: (query: ReturnType<typeof sql.raw>) => unknown[] | PromiseLike<unknown[]>
+  run?: (query: ReturnType<typeof sql.raw>) => unknown
   execute?: (query: ReturnType<typeof sql.raw>) => PromiseLike<unknown>
   batch?: (queries: unknown[]) => Promise<unknown>
-  transaction?: (run: (target: MigrationDatabase) => Promise<void>) => Promise<unknown>
+  transaction?: (run: (target: MigrationDatabase) => void | Promise<void>) => unknown
+}
+
+/** Keep synchronous transaction callbacks synchronous, so their driver can roll back a later failure. */
+function runSqliteStatements(db: MigrationDatabase, statements: string[], start = 0): void | Promise<void> {
+  for (let index = start; index < statements.length; index++) {
+    const result = db.run!(sql.raw(statements[index]!))
+    if (typeof result === "object" && result !== null && "then" in result && typeof result.then === "function") {
+      return Promise.resolve(result).then(() => runSqliteStatements(db, statements, index + 1))
+    }
+  }
 }
 
 /** The first column of each row: libSQL and D1 return objects, the SQLite proxy returns arrays. */
@@ -143,12 +153,11 @@ export async function migrateComments(db: object, options: CommentsMigrationOpti
     })
   }
   else if (target.batch) {
+    // Async Drizzle SQLite drivers return lazy SQLiteRaw queries with _prepare(), suitable for batch().
     await target.batch(statements.map(statement => target.run!(sql.raw(statement))))
   }
   else if (target.transaction) {
-    await target.transaction(async (tx) => {
-      for (const statement of statements) await tx.run!(sql.raw(statement))
-    })
+    await target.transaction(tx => runSqliteStatements(tx, statements))
   }
   else {
     throw new TypeError("[vitehub] migrateComments() needs a Drizzle database with batch() or transaction(), so a failure changes nothing.")

@@ -83,10 +83,11 @@ async function expectMigrated(db: CommentsDatabase) {
 }
 
 describe("migrateComments", () => {
-  it("moves the live-site tables to one model, and keeps the old tables", async () => {
+  it.each(["batch", "transaction"])("moves the live-site tables to one model, and keeps the old tables via %s", async (driver) => {
     const { client, db } = await liveDatabase()
     expect((await commentsSchemaState(db)).state).toBe("live")
-    const migration = await migrateComments(db)
+    const target = driver === "batch" ? db : { all: db.all.bind(db), run: db.run.bind(db), transaction: db.transaction.bind(db) }
+    const migration = await migrateComments(target)
     expect(migration).toMatchObject({ from: "live", backup: "vitehub_comment_threads_live" })
     await expectMigrated(db)
     expect((await client.execute("SELECT count(*) AS count FROM vitehub_comment_threads_live")).rows[0]?.count).toBe(3)
@@ -105,10 +106,11 @@ describe("migrateComments", () => {
     expect((await client.execute("SELECT count(*) AS count FROM vitehub_comment_threads")).rows[0]?.count).toBe(2)
   })
 
-  it("changes nothing when a statement fails", async () => {
+  it.each(["batch", "transaction"])("changes nothing when a statement fails via %s", async (driver) => {
     const { client, db } = await liveDatabase()
     await client.execute("INSERT INTO vitehub_comment_threads (id, scope, number, page, anchor, status, created_by, created_at, updated_at) VALUES ('bad', 'pages', 9, '/', 'null', 'open', 'not json', 1, 1)")
-    await expect(migrateComments(db)).rejects.toThrow()
+    const target = driver === "batch" ? db : { all: db.all.bind(db), run: db.run.bind(db), transaction: db.transaction.bind(db) }
+    await expect(migrateComments(target)).rejects.toThrow()
     expect((await commentsSchemaState(db)).state).toBe("live")
     expect((await client.execute("SELECT name FROM sqlite_master WHERE name = 'vitehub_comment_messages'")).rows).toEqual([])
   })

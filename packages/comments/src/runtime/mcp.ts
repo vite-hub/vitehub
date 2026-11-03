@@ -122,7 +122,7 @@ export function commentsMcpTools(comments: Comments, options: CommentsSessionOpt
         const page = text(input.page)
         const search = text(input.search)?.toLowerCase()
         const limit = Math.min(Math.max(Number(input.limit) || 25, 1), 100)
-        const [error, listed] = await comments.list({ scope: commentsPageScope, status, limit: search ? 500 : limit, ...(page ? { page: normalizeCommentPage(page) } : {}) })
+        const [error, listed] = await comments.list({ scope: commentsPageScope, subjectKind: "page", status, limit: search ? 500 : limit, ...(page ? { page: normalizeCommentPage(page) } : {}) })
         if (error) return failure(error.why)
         const threads = listed.filter(thread => thread.subject.kind === "page")
         const found = (search ? threads.filter(thread => thread.messages.some(message => message.body.toLowerCase().includes(search))) : threads).slice(0, limit)
