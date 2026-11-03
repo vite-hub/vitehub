@@ -12,13 +12,16 @@ import type { WorkflowDefinitionRegistry, WorkflowProviderStep } from "../src/ty
 
 let rootDir: string
 let generatedCode: string
+let generatedSource: string
 
 beforeAll(async () => {
   const baseDir = new URL("../.vitest-tmp/", import.meta.url)
   await mkdir(baseDir, { recursive: true })
   rootDir = await mkdtemp(join(baseDir.pathname, "cloudflare-errors-"))
   const artifacts = await writeProviderEntries(rootDir, { provider: "cloudflare" })
-  generatedCode = (await transform(await readFile(artifacts.cloudflareWorkerFile, "utf8"), { format: "cjs" })).code
+  generatedSource = await readFile(artifacts.cloudflareWorkerFile, "utf8")
+  // The VM below has no ESM loader, so dynamic imports become require calls.
+  generatedCode = (await transform(generatedSource, { format: "cjs", supported: { "dynamic-import": false } })).code
 })
 
 afterAll(async () => {
@@ -57,6 +60,19 @@ function loadGeneratedDispatcher(registry: WorkflowDefinitionRegistry) {
   if (typeof dispatcher !== "function") throw new Error("Missing generated Workflow dispatcher")
   return { constructions, NonRetryableError, run: async (step: WorkflowProviderStep): Promise<unknown> => await dispatcher("reject", {}, { id: "run-reject" }, step) }
 }
+
+it("loads without cloudflare:workflows, as the Node.js prerender build of a Nuxt app does", () => {
+  expect(generatedSource).not.toMatch(/^import .*["']cloudflare:workflows["']/m)
+  const module = { exports: {} }
+  expect(() => runInNewContext(generatedCode, {
+    module,
+    require(id: string) {
+      if (id === "cloudflare:workflows") throw new Error("Only URLs with a scheme in: file, data, and node are supported")
+      if (id === "@vite-hub/workflow/runtime/cloudflare-vite") return { createWorkflowCloudflareWorker: () => ({}), installWorkflowCloudflareRuntime: () => {} }
+      return {}
+    },
+  })).not.toThrow()
+})
 
 const boundaries = ["root", "root step", "explicit step"] as const
 const stepOptions = { retries: { limit: 2, delay: "1 second" } }
