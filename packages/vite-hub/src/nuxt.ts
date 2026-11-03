@@ -410,7 +410,7 @@ async function finalizeNitroReplayPlugins(plugins: Plugin[], config: UserConfig)
   }
 }
 
-function nitroRuntimeResolver(plugin: Plugin): Plugin | undefined {
+function nitroRuntimeResolver(plugin: Plugin, config: Record<string, unknown>): Plugin | undefined {
   if (!nitroRuntimeResolverNames.has(plugin.name)) return
   const resolveId = pluginResolveIdHandler(plugin)
   const load = pluginLoadHandler(plugin)
@@ -420,8 +420,11 @@ function nitroRuntimeResolver(plugin: Plugin): Plugin | undefined {
     name: `vite-hub/nuxt-runtime-resolver:${plugin.name}`,
     ...(resolveId
       ? {
-          resolveId(...args) {
-            return resolveId.call(this, ...args)
+          resolveId(id, importer, options) {
+            // Nitro's development alias must reach its resolver instead of being externalized by a replayed hook.
+            if (id === "cloudflare:workers" && isRecord(config.alias) && typeof config.alias[id] === "string") return
+            // Nitro replays Vite hooks in a server build, but Rollup does not supply Vite's ssr flag.
+            return resolveId.call(this, id, importer, { ...options, ssr: true })
           },
         }
       : {}),
@@ -436,7 +439,7 @@ function nitroRuntimeResolver(plugin: Plugin): Plugin | undefined {
 }
 
 function installNitroRuntimeResolvers(config: Record<string, unknown>, plugins: Plugin[]): void {
-  const resolvers = plugins.map(nitroRuntimeResolver).filter((plugin): plugin is Plugin => Boolean(plugin))
+  const resolvers = plugins.map(plugin => nitroRuntimeResolver(plugin, config)).filter((plugin): plugin is Plugin => Boolean(plugin))
   if (!resolvers.length) return
 
   const rollupConfig = (config.rollupConfig ??= {}) as Record<string, unknown>

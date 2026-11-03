@@ -22,7 +22,7 @@ import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubComments } from "@vite-hub/comments/vite"
 import { env, hubEnv } from "@vite-hub/env/vite"
 import type { KVModuleOptions } from "@vite-hub/kv"
-import { resolveKVViteConfig } from "@vite-hub/kv/vite"
+import { hubKv, resolveKVViteConfig } from "@vite-hub/kv/vite"
 import type { QueueModuleOptions } from "@vite-hub/queue"
 import { hubRealtime } from "@vite-hub/realtime/vite"
 import { viteHubUIIcons } from "@vite-hub/ui/nuxt"
@@ -467,6 +467,28 @@ describe("ViteHub Nuxt integration", () => {
       expect(result("@scope/x", undefined, false)).toBe(external !== undefined)
       expect(result("vue", undefined, false)).toBe(false)
     }
+  })
+
+  it.each([false, true])("resolves unstorage's Cloudflare import during Nitro replay (dev: %s)", async (dev) => {
+    mocks.vitehub.mockReturnValue([hubKv({ driver: "cloudflare-kv-binding", binding: "KV" })])
+    const { nuxt, runNitroConfigHook } = createNuxt(dev)
+    await viteHubNuxtModule({ kv: true, preset: "cloudflare" }, nuxt)
+    const config: Record<string, unknown> = {}
+    await runNitroConfigHook(config)
+    const { plugins } = config.rollupConfig as { plugins: Plugin[] }
+    const resolver = plugins.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/kv/vite")
+    if (typeof resolver?.resolveId !== "function") throw new TypeError("Expected the Nitro KV resolver.")
+    // Rollup supplies isEntry, but no Vite ssr option.
+    const resolveImport = (importer: string) => Reflect.apply(resolver.resolveId as Function, {}, ["cloudflare:workers", importer, { isEntry: false }])
+    const result = await resolveImport("/app/node_modules/unstorage/dist/drivers/cloudflare-kv-binding.mjs")
+    if (dev) {
+      expect(result).toBeUndefined()
+      expect(config.alias).toHaveProperty("cloudflare:workers", expect.stringContaining("cloudflare-workers.dev.mjs"))
+    }
+    else {
+      expect(result).toEqual({ external: true, id: "cloudflare:workers" })
+    }
+    expect(await resolveImport("/app/server/api/example.ts")).toBeUndefined()
   })
 
   it("discovers Definitions in every Nuxt layer server directory, application first", async () => {

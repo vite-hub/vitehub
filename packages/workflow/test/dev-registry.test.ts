@@ -242,6 +242,41 @@ describe("Workflow dev registry", () => {
     expect(await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-registry.mjs"), "utf8")).toContain("welcome")
   })
 
+  it.each<{ initial: WorkflowModuleOptions, final: WorkflowModuleOptions, provider: string }>([
+    { initial: false, final: { provider: "vercel" }, provider: "vercel" },
+    { initial: { provider: "cloudflare" }, final: { provider: "openworkflow", sqlite: { path: ".data/workflow.sqlite" } }, provider: "openworkflow" },
+  ])("reserves the Node build bootstrap for a final $provider override", async ({ initial, final, provider }) => {
+    const projectRoot = await createApp()
+    const plugin = hubWorkflow(initial, { hosting: "node" })
+    const hook = plugin.config
+    if (!hook || typeof hook === "function") throw new TypeError("Expected config object hook")
+    const config: Record<string, unknown> = { root: projectRoot }
+    await (hook.handler as unknown as ConfigHook)(config, { command: "build", mode: "production" })
+    expect(config.nitro).toMatchObject({ plugins: [join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs")] })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: projectRoot, workflow: final })
+    const generated = await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")
+    expect(generated).toContain(`"provider":"${provider}"`)
+    expect(await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-registry.mjs"), "utf8")).toContain("welcome")
+  })
+
+  it.each([
+    { hosting: "cloudflare", workflow: {} },
+    { hosting: "vercel", workflow: {} },
+    { hosting: "node", workflow: { provider: "cloudflare" } },
+    { hosting: "node", workflow: false },
+  ] as const)("leaves the reserved build bootstrap inert for $hosting with $workflow", async ({ hosting, workflow }) => {
+    const projectRoot = await createApp()
+    const plugin = hubWorkflow({}, { hosting })
+    const hook = plugin.config
+    if (!hook || typeof hook === "function") throw new TypeError("Expected config object hook")
+    await (hook.handler as unknown as ConfigHook)({ root: projectRoot }, { command: "build", mode: "production" })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: projectRoot, workflow })
+    const generated = await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-plugin.mjs"), "utf8")
+    expect(generated).not.toContain("setWorkflowRuntimeConfig")
+    expect(generated).not.toContain("dev-registry.mjs")
+    expect(await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-registry.mjs"), "utf8")).not.toContain("welcome")
+  })
+
   it("keeps plugin options when config exposes an undefined Workflow value", async () => {
     const projectRoot = await createApp()
     const plugin = hubWorkflow({ provider: "vercel" })
