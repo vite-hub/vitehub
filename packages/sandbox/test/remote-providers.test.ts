@@ -3,7 +3,7 @@ import { runInNewContext } from "node:vm";
 
 import { createCloudflareRuntime, type CloudflareSandboxStub } from "../src/cloudflare.ts";
 import { resolveSandbox } from "../src/index.ts";
-import { createVercelRuntime, type VercelSandboxNetworkPolicy, type VercelSandboxInstance } from "../src/vercel.ts";
+import { createVercelRuntime, type VercelSandboxCommand, type VercelSandboxNetworkPolicy, type VercelSandboxInstance } from "../src/vercel.ts";
 
 afterEach(() => vi.useRealTimers());
 
@@ -31,18 +31,66 @@ describe("remote Sandbox providers", () => {
     expect(cleanup).toHaveBeenCalledTimes(2);
   });
 
+  it("streams Vercel process output before exit and forwards stdin only when requested", async () => {
+    const spawned: Array<{ stdin?: boolean }> = [];
+    const written: string[] = [];
+    let stdinClosed = 0;
+    let finish!: () => void;
+    const finished = new Promise<void>(resolve => finish = resolve);
+    const instance = vercelInstance();
+    instance.runCommand = async (options) => {
+      if (options.args?.[1] !== "provider") return vercelCommand("");
+      spawned.push({ stdin: options.stdin });
+      return {
+        ...vercelCommand(""),
+        async closeStdin() { stdinClosed++; },
+        async *logs() {
+          yield { data: "ready\n", stream: "stdout" as const };
+          await finished;
+          yield { data: "done\n", stream: "stderr" as const };
+        },
+        async stdout() { await finished; return "ready\n"; },
+        async wait() { await finished; return { exitCode: 0 }; },
+        async writeStdin(data) { written.push(new TextDecoder().decode(data)); },
+      };
+    };
+    const session = await (await resolveSandbox({ runtime: createVercelRuntime({ create: async () => instance }) }, {})).open();
+    try {
+      const child = await session.spawn!("provider", [], { stdin: true });
+      const stdout = child.stdout.getReader();
+      const firstChunk = await Promise.race([
+        stdout.read().then(chunk => new TextDecoder().decode(chunk.value)),
+        new Promise(resolve => setTimeout(resolve, 1000, "still buffered")),
+      ]);
+      expect(firstChunk).toBe("ready\n");
+
+      const stdin = child.stdin!.getWriter();
+      await stdin.write(new TextEncoder().encode("request\n"));
+      await stdin.close();
+      expect(written).toEqual(["request\n"]);
+      expect(stdinClosed).toBe(1);
+
+      finish();
+      await expect(new Response(child.stderr).text()).resolves.toBe("done\n");
+      await expect(child.wait()).resolves.toEqual({ code: 0 });
+
+      const withoutInput = await session.spawn!("provider");
+      expect(withoutInput.stdin).toBeUndefined();
+      expect(spawned).toEqual([{ stdin: true }, { stdin: undefined }]);
+      await withoutInput.wait();
+    }
+    finally {
+      await session.close();
+    }
+  });
+
   it.each(["cloudflare", "vercel"] as const)("uses the shared command listing through the %s Sandbox interface", async provider => {
     const output = "f\t7\t/workspace/with\ttab\0d\t0\t/workspace/nested\0";
     const stub = cloudflareStub(async command => ({
       exitCode: 0, stderr: "", stdout: command.startsWith("find ") ? output : "", success: true,
     }));
     const instance = vercelInstance();
-    instance.runCommand = async options => ({
-      async kill() {},
-      async stderr() { return ""; },
-      async stdout() { return options.args?.[1]?.startsWith("find ") ? output : ""; },
-      async wait() { return { exitCode: 0 }; },
-    });
+    instance.runCommand = async options => vercelCommand(options.args?.[1]?.startsWith("find ") ? output : "");
     const runtime = provider === "cloudflare"
       ? createCloudflareRuntime({ getSandbox: () => stub, namespace: namespace(stub) })
       : createVercelRuntime({ create: async () => instance });
@@ -447,13 +495,27 @@ function cloudflareStub(exec: CloudflareSandboxStub["exec"]): CloudflareSandboxS
   };
 }
 
+function vercelCommand(stdout: string): VercelSandboxCommand {
+  return {
+    async closeStdin() {},
+    async kill() {},
+    async *logs() {
+      if (stdout) yield { data: stdout, stream: "stdout" as const };
+    },
+    async stderr() { return ""; },
+    async stdout() { return stdout; },
+    async wait() { return { exitCode: 0 }; },
+    async writeStdin() {},
+  };
+}
+
 function vercelInstance(): VercelSandboxInstance {
   return {
     domain: port => `https://sandbox-${port}.example.com`,
     async mkDir() {},
     async readFileToBuffer() { return null; },
     async runCommand() {
-      return { async kill() {}, async stderr() { return ""; }, async stdout() { return ""; }, async wait() { return { exitCode: 0 }; } };
+      return vercelCommand("");
     },
     async stop() {},
     async writeFiles() {},

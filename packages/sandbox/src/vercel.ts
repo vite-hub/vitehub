@@ -9,7 +9,6 @@ import {
   openRemoteSandbox,
   remoteSandboxPlan,
   resolveRemoteEnvironment,
-  snapshotStream,
 } from "./internal/remote.ts";
 import type { RuntimeProcess, RuntimeSession } from "./internal/session.ts";
 import { shellQuote } from "./internal/shell-quote.ts";
@@ -60,10 +59,13 @@ export interface VercelSandboxCreateOptions {
 }
 
 export interface VercelSandboxCommand {
+  closeStdin(): Promise<void>;
   kill(): Promise<void>;
+  logs(): AsyncIterable<{ data: string; stream: "stderr" | "stdout" }>;
   stderr(): Promise<string>;
   stdout(): Promise<string>;
   wait(): Promise<{ exitCode: number }>;
+  writeStdin(data: Uint8Array): Promise<void>;
 }
 
 export interface VercelSandboxInstance {
@@ -89,6 +91,7 @@ export interface VercelSandboxInstance {
     detached?: boolean;
     env?: Record<string, string>;
     signal?: AbortSignal;
+    stdin?: boolean;
   }): Promise<VercelSandboxCommand>;
   stop?(options?: { blocking?: boolean; signal?: AbortSignal }): Promise<unknown>;
   writeFiles(
@@ -390,8 +393,9 @@ function createVercelSession(
         detached: true,
         env: { ...baseEnv, ...options.env },
         signal: options.abortSignal,
+        ...(options.stdin ? { stdin: true } : {}),
       });
-      return vercelProcess(process);
+      return vercelProcess(process, options.stdin);
     },
     async stop() {},
     async writeBinaryFile({ abortSignal, content, path }) {
@@ -405,11 +409,20 @@ function createVercelSession(
   };
 }
 
-function vercelProcess(process: VercelSandboxCommand): RuntimeProcess {
+function vercelProcess(process: VercelSandboxCommand, stdin: boolean | undefined): RuntimeProcess {
   const wait = process.wait();
+  const output = streamLogs(process.logs());
   return {
-    stderr: snapshotStream(async () => await process.stderr()),
-    stdout: snapshotStream(async () => await process.stdout()),
+    ...output,
+    ...(stdin
+      ? {
+          stdin: new WritableStream<Uint8Array>({
+            abort: async () => await process.closeStdin(),
+            close: async () => await process.closeStdin(),
+            write: async chunk => await process.writeStdin(chunk),
+          }),
+        }
+      : {}),
     async kill() {
       await process.kill();
     },
@@ -417,4 +430,31 @@ function vercelProcess(process: VercelSandboxCommand): RuntimeProcess {
       return await wait;
     },
   };
+}
+
+/** Splits the command log into live stdout and stderr streams. */
+function streamLogs(logs: AsyncIterable<{ data: string; stream: "stderr" | "stdout" }>) {
+  const encoder = new TextEncoder();
+  const open = new Map<"stderr" | "stdout", ReadableStreamDefaultController<Uint8Array>>();
+  const stream = (name: "stderr" | "stdout") => new ReadableStream<Uint8Array>({
+    cancel() {
+      open.delete(name);
+    },
+    start(controller) {
+      open.set(name, controller);
+    },
+  });
+  const output = { stderr: stream("stderr"), stdout: stream("stdout") };
+  void (async () => {
+    try {
+      for await (const line of logs) {
+        open.get(line.stream)?.enqueue(encoder.encode(line.data));
+        if (open.size === 0) return;
+      }
+      for (const controller of open.values()) controller.close();
+    } catch (error) {
+      for (const controller of open.values()) controller.error(error);
+    }
+  })();
+  return output;
 }
