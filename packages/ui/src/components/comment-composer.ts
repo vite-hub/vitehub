@@ -167,6 +167,7 @@ export const CommentComposer = defineComponent({
       }
     });
     function setFiles(next: File[]) {
+      if (props.busy) return;
       localFiles.value = next;
       hint.value = undefined;
       emit("update:files", next);
@@ -392,6 +393,7 @@ export const CommentComposer = defineComponent({
               "aria-label": labels[props.variant],
               attachments: attachmentsOn.value,
               files: fileParts.value,
+              filesDisabled: props.busy,
               filterFiles: (list: readonly File[]) => {
                 addFiles(list);
                 return [];

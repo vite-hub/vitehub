@@ -33,7 +33,7 @@ import { disabledKVConfigModule, disabledUpstashDriver, hasUpstashStore, upstash
 import { createConsoleCliNamespace } from "./console/cli.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./console/fixture.ts"
 import { createConsoleInvocationsIdentity, type ConsoleAuthMode } from "./console/internal.ts"
-import { importOptionalOwner, requireOptionalOwner } from "./internal/optional-owners.ts"
+import { importOptionalOwner, isPackageInstalled, requireOptionalOwner } from "./internal/optional-owners.ts"
 import { ownerModules } from "./internal/owner-modules.ts"
 import { discoverConsoleBuildCatalog } from "./console/build.ts"
 import { assertConsoleRetention, writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./console/plugin.ts"
@@ -938,11 +938,13 @@ type ViteHubNuxtModule = {
 
 /**
  * An app that imports `vite-hub/ui` parts gets their runtime without adding `@vite-hub/ui/nuxt`: the plugin that gives
- * them Nuxt UI's Nuxt icon, and their icons in the `@nuxt/icon` client bundle. `@vite-hub/ui` owns both.
+ * them Nuxt UI's Nuxt icon, and their icons in the `@nuxt/icon` client bundle. `@vite-hub/ui` owns both. Headless apps
+ * do not need the optional Nuxt UI peer, so they must not receive a plugin that imports it.
  */
 async function installViteHubUIRuntime(nuxt: NuxtLike): Promise<void> {
+  if (!nuxt.hook || !isPackageInstalled("@nuxt/ui")) return
   const ui = await importOptionalOwner("@vite-hub/ui", () => import("@vite-hub/ui/nuxt"))
-  if (!ui || !nuxt.hook) return
+  if (!ui) return
   const hook = nuxt.hook
   ui.addViteHubUIRuntime({
     hook: (name, callback) => Reflect.apply(hook, nuxt, [name, callback]),
