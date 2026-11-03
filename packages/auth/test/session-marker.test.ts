@@ -197,6 +197,30 @@ describe("session marker cookie", () => {
     expect(cleared).not.toMatch(/httponly/i)
   })
 
+  it("clears the page tools hint when a session starts or ends, and keeps it on a session refresh", async () => {
+    const definition = defineAuth({
+      emailAndPassword: { enabled: true },
+      runtime: { baseURL: origin, database: memoryAdapter({ account: [], session: [], user: [], verification: [] }), secret },
+      // Refresh the session on every read, so get-session sets the session cookie again with the same token.
+      session: { expiresIn: 3600, updateAge: 0 },
+    })
+    const reset = /^vitehub-tools=; Path=\/; Max-Age=0; SameSite=Lax$/
+    const signUp = await post(definition, "sign-up/email", account, "vitehub-tools=0")
+    expect(find(signUp, "vitehub-tools")).toMatch(reset)
+    const session = signUp.headers.getSetCookie().map(value => value.split(";")[0]).join("; ")
+    const signIn = await post(definition, "sign-in/email", { email: account.email, password: account.password }, "vitehub-tools=1")
+    expect(find(signIn, authSessionMarkerCookie)).toMatch(/^vitehub_session=1;/)
+    expect(find(signIn, "vitehub-tools")).toMatch(reset)
+
+    const refreshed = await handleAuthRequest(definition, new Request(`${origin}/api/auth/get-session`, { headers: { cookie: `${session}; vitehub-tools=1` } }))
+    expect(refreshed.status).toBe(200)
+    expect(find(refreshed, authSessionMarkerCookie)).toMatch(/^vitehub_session=1;/)
+    expect(find(refreshed, "vitehub-tools")).toBeUndefined()
+
+    const signOut = await post(definition, "sign-out", {}, `${session}; vitehub-tools=1`)
+    expect(find(signOut, "vitehub-tools")).toMatch(reset)
+  })
+
   it("leaves a response that does not touch the session cookie alone", async () => {
     const response = await handleAuthRequest(createDefinition(), new Request(`${origin}/api/auth/get-session`))
     expect(response.headers.getSetCookie().filter(cookie => cookie.startsWith(`${authSessionMarkerCookie}=`))).toEqual([])

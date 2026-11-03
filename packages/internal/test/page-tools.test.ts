@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { viteHubPageToolsIndexHtml } from "../src/build/page-tools.ts"
 import { hasViteHubPageToolsHint, injectPageToolsLoader, installViteHubPageTools, registerViteHubPageTool, respondViteHubPageSession, scriptNonce, viteHubPageSessionHandler } from "../src/runtime/page-tools.ts"
+import { viteHubPageToolsInlineScript } from "../src/runtime/page-tools-shared.ts"
 
 import type { ViteHubPageTool } from "../src/runtime/page-tools.ts"
 
@@ -31,7 +32,22 @@ function tool(id: string, people: string[]): ViteHubPageTool {
 
 const comments = tool("comments", ["ada", "ben"])
 const pill = { ...tool("console", ["ada"]), hotkey: "k" }
-const loaderTag = "<script type=\"module\" src=\"/_vitehub/page/assets/loader.js?v=10\" data-vitehub-page-tools></script>"
+const loaderTag = "<script type=\"module\" src=\"/_vitehub/page/assets/loader.js?v=11\" data-vitehub-page-tools></script>"
+const bootstrap = viteHubPageToolsInlineScript("")
+
+/**
+ * Runs the inline bootstrap of a page as a browser would, with this query and `document.cookie`, and returns the
+ * scripts that it imports.
+ */
+function runBootstrap(html: string, search: string, cookie: string): string[] {
+  const body = /<script type="module"[^>]*data-vitehub-page-tools>([^<]*)<\/script>/.exec(html)?.[1]
+  expect(body).toBeDefined()
+  const imported: string[] = []
+  // The bootstrap is ViteHub's own generated script. `load` stands in for the dynamic import.
+  const run = new Function("location", "document", "load", body!.replace("import(", "load("))
+  run({ search }, { cookie }, (script: string) => imported.push(script))
+  return imported
+}
 
 /** A Nitro 3 app whose fetch returns one HTML page, and counts its calls. */
 function nitro3App(html = "<html><body>Page</body></html>") {
@@ -39,7 +55,7 @@ function nitro3App(html = "<html><body>Page</body></html>") {
     calls: 0,
     fetch(_request: Request): Response {
       app.calls++
-      return new Response(html, { headers: { "content-type": "text/html" } })
+      return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } })
     },
   }
   return app
@@ -70,6 +86,9 @@ describe("hasViteHubPageToolsHint", () => {
     expect(hint("http://site.test/", "a=1; vitehub-tools=1")).toBe(true)
     expect(hint("http://site.test/")).toBe(false)
     expect(hint("http://site.test/", "vitehub-tools=0")).toBe(false)
+    // A new Auth session that the session route has not checked yet.
+    expect(hint("http://site.test/", "vitehub_session=1")).toBe(true)
+    expect(hint("http://site.test/", "vitehub_session=1; vitehub-tools=0")).toBe(false)
     // The old Comments hints are gone.
     expect(hint("http://site.test/?comments", "vitehub-comments=1")).toBe(false)
     expect(hint("http://site.test/_vitehub/content?vitehub", "vitehub-tools=1")).toBe(false)
@@ -91,7 +110,7 @@ describe("injectPageToolsLoader", () => {
   ])("leaves $encoding HTML and its headers unchanged", async ({ encoding, compress }) => {
     const bytes = new Uint8Array(compress("<html><body>Page</body></html>"))
     const response = new Response(bytes, { headers: {
-      "content-type": "text/html",
+      "content-type": "text/html; charset=utf-8",
       "content-encoding": encoding,
       "content-length": String(bytes.length),
       "cache-control": "public, max-age=3600",
@@ -120,8 +139,8 @@ describe("injectPageToolsLoader", () => {
     expect(scriptNonce(new Headers({ "content-security-policy": "default-src 'self' 'nonce-xyz'" }))).toBe("xyz")
     expect(scriptNonce(new Headers({ "content-security-policy": "script-src-elem 'nonce-elem'; script-src 'nonce-other'" }))).toBe("elem")
     expect(scriptNonce(new Headers())).toBeUndefined()
-    const page = new Response("<body></body>", { headers: { "content-type": "text/html", "content-security-policy": policy } })
-    expect(await injectPageToolsLoader(page).text()).toBe("<body><script type=\"module\" src=\"/_vitehub/page/assets/loader.js?v=10\" nonce=\"a1B2+c/3==\" data-vitehub-page-tools></script></body>")
+    const page = new Response("<body></body>", { headers: { "content-type": "text/html; charset=utf-8", "content-security-policy": policy } })
+    expect(await injectPageToolsLoader(page).text()).toBe("<body><script type=\"module\" src=\"/_vitehub/page/assets/loader.js?v=11\" nonce=\"a1B2+c/3==\" data-vitehub-page-tools></script></body>")
   })
 
   it.each([
@@ -135,7 +154,7 @@ describe("injectPageToolsLoader", () => {
       const response = streamed(chunks)
       response.headers.set("content-security-policy", policy)
       const html = await injectPageToolsLoader(response, "/portal").text()
-      expect(html).toBe(`<body>Page<script type="module" src="/portal/_vitehub/page/assets/loader.js?v=10"${nonce} data-vitehub-page-tools></script></body>`)
+      expect(html).toBe(`<body>Page<script type="module" src="/portal/_vitehub/page/assets/loader.js?v=11"${nonce} data-vitehub-page-tools></script></body>`)
     }
     // An external loader already in the response remains the sole loader.
     const external = streamed([loaderTag])
@@ -157,7 +176,7 @@ describe("injectPageToolsLoader", () => {
     expect(await injectPageToolsLoader(streamed(["<h1>Hi</h1>"])).text()).toBe(`<h1>Hi</h1>${loaderTag}`)
     const json = streamed(["{}"], "application/json")
     expect(injectPageToolsLoader(json)).toBe(json)
-    const missing = new Response("<body></body>", { headers: { "content-type": "text/html" }, status: 404 })
+    const missing = new Response("<body></body>", { headers: { "content-type": "text/html; charset=utf-8" }, status: 404 })
     expect(injectPageToolsLoader(missing)).toBe(missing)
   })
 
@@ -205,6 +224,108 @@ describe("injectPageToolsLoader", () => {
 })
 
 describe("installViteHubPageTools on Nitro 3", () => {
+  it.each(["", "?vitehub"])("uses a meta-only CSP nonce for a new page tools script with %s", async (search) => {
+    const head = '<head><meta content="script-src \'nonce-meta-nonce\' \'strict-dynamic\'" HTTP-EQUIV="Content-Security-Policy"></head>'
+    const html = `${head}<body>Page</body>`
+    for (const chunks of [[html], [...html]]) {
+      const app = { fetch: (_request: Request) => streamed(chunks) }
+      registerViteHubPageTool(app, comments)
+      installViteHubPageTools(app)
+      const page = await app.fetch(new Request(`http://site.test/${search}`))
+      const tag = search ? loaderTag.replace(" data-vitehub", ' nonce="meta-nonce" data-vitehub') : viteHubPageToolsInlineScript("", "meta-nonce")
+      expect(await page.text()).toBe(`${head}<body>Page${tag}</body>`)
+    }
+  })
+
+  it.each(["", "?vitehub"])("preserves byte HTML without an HTTP charset for requests with %s", async (search) => {
+    const bytes = Buffer.from('<meta charset="windows-1252"><body>café</body>', "latin1")
+    const original = new Response(bytes, { headers: { "content-type": "text/html", etag: "old", "cache-control": "public, max-age=60" } })
+    const app = { fetch: (_request: Request) => original }
+    registerViteHubPageTool(app, comments)
+    installViteHubPageTools(app)
+    const page = await app.fetch(new Request(`http://site.test/${search}`))
+    expect(page).toBe(original)
+    expect(new Uint8Array(await page.arrayBuffer())).toEqual(new Uint8Array(bytes))
+    expect([...page.headers]).toEqual([...original.headers])
+  })
+
+  it.each(["", "?vitehub"])("preserves a generated bootstrap's meta-CSP nonce for requests with %s", async (search) => {
+    const head = '<head><meta http-equiv="Content-Security-Policy" content="script-src \'nonce-meta-nonce\' \'strict-dynamic\'"></head>'
+    const html = `${head}<body>Page${viteHubPageToolsInlineScript("/portal", "meta-nonce")}</body>`
+    for (const chunks of [[html], [...html]]) {
+      const app = { fetch: (_request: Request) => streamed(chunks) }
+      registerViteHubPageTool(app, comments)
+      installViteHubPageTools(app, { base: "/portal" })
+      const page = await app.fetch(new Request(`http://site.test/portal/${search}`))
+      const tag = search ? loaderTag.replace('src="/_vitehub', 'src="/portal/_vitehub').replace(" data-vitehub", ' nonce="meta-nonce" data-vitehub') : viteHubPageToolsInlineScript("/portal", "meta-nonce")
+      expect(await page.text()).toBe(`${head}<body>Page${tag}</body>`)
+    }
+  })
+
+  it.each(["", "?vitehub"])("preserves legacy-encoded HTML for requests with %s", async (search) => {
+    const bytes = Buffer.from("<body>café</body>", "latin1")
+    const original = new Response(bytes, { headers: { "content-type": "text/html; charset=iso-8859-1", etag: "old", "cache-control": "public, max-age=60" } })
+    const app = { fetch: (_request: Request) => original }
+    registerViteHubPageTool(app, comments)
+    installViteHubPageTools(app)
+    const page = await app.fetch(new Request(`http://site.test/${search}`))
+    expect(page).toBe(original)
+    expect(new Uint8Array(await page.arrayBuffer())).toEqual(new Uint8Array(bytes))
+    expect([...page.headers]).toEqual([...original.headers])
+  })
+
+  it.each(["", "?vitehub"])("refreshes a prerendered bootstrap's nonce for requests with %s", async (search) => {
+    const html = `<body>Page${viteHubPageToolsInlineScript("/portal", "build-nonce")}</body>`
+    const app = { fetch: (_request: Request) => {
+      const page = streamed([...html])
+      page.headers.set("content-security-policy", "script-src 'nonce-request-nonce' 'strict-dynamic'")
+      return page
+    } }
+    registerViteHubPageTool(app, comments)
+    installViteHubPageTools(app, { base: "/portal" })
+    const page = await app.fetch(new Request(`http://site.test/portal/${search}`))
+    const tag = search ? loaderTag.replace('src="/_vitehub', 'src="/portal/_vitehub').replace(" data-vitehub", ' nonce="request-nonce" data-vitehub') : viteHubPageToolsInlineScript("/portal", "request-nonce")
+    expect(await page.text()).toBe(`<body>Page${tag}</body>`)
+  })
+
+  it.each(["", "?vitehub"])("does not validate transformed HTML against an upstream representation with %s", async (search) => {
+    const app = { fetch: (request: Request) => {
+      if (request.headers.has("if-none-match") || request.headers.has("if-modified-since")) return new Response(null, { status: 304 })
+      return new Response("<body>Page</body>", { headers: { "content-type": "text/html; charset=utf-8", etag: '"page"', "last-modified": "Mon, 02 Nov 2026 12:00:00 GMT", "content-length": "17", "cache-control": "public, max-age=60" } })
+    } }
+    registerViteHubPageTool(app, comments)
+    installViteHubPageTools(app)
+    const request = new Request(`http://site.test/${search}`, { headers: { accept: "text/html;q=0.5,application/xhtml+xml,*/*;q=0.8", "if-none-match": '"page"', "if-modified-since": "Mon, 02 Nov 2026 12:00:00 GMT" } })
+    const page = await app.fetch(request)
+    expect(page.status).toBe(200)
+    expect(await page.text()).toBe(`<body>Page${search ? loaderTag : bootstrap}</body>`)
+    expect(page.headers.has("etag")).toBe(false)
+    expect(page.headers.has("last-modified")).toBe(false)
+    expect(page.headers.has("content-length")).toBe(false)
+    expect(page.headers.get("cache-control")).toBe(search ? "private, no-store" : "public, max-age=60")
+    expect(request.headers.get("if-none-match")).toBe('"page"')
+  })
+
+  it.each([undefined, "*/*", "text/css,*/*;q=0.1", "application/rss+xml", "application/rss+xml, text/html;q=0", "text/html; Q=0.000, */*;q=1"])("keeps conditional requests for non-HTML resources on ordinary paths with Accept %s", async (accept) => {
+    const headers = new Headers({ "if-none-match": '"resource"', "if-modified-since": "Mon, 02 Nov 2026 12:00:00 GMT" })
+    if (accept) headers.set("accept", accept)
+    const original = new Response(null, { status: 304, headers: { "content-type": "application/rss+xml", etag: '"resource"', "cache-control": "public, max-age=60" } })
+    const app = { fetch: (request: Request) => {
+      expect([...request.headers]).toEqual([...headers])
+      return original
+    } }
+    registerViteHubPageTool(app, comments)
+    installViteHubPageTools(app)
+    expect(await app.fetch(new Request("http://site.test/feed", { headers }))).toBe(original)
+  })
+
+  it.each(["/api/page", "/_vitehub", "/outside"])("keeps conditional requests outside the page paths on %s", async (path) => {
+    const app = { fetch: (request: Request) => new Response(null, { status: request.headers.has("if-none-match") ? 304 : 200 }) }
+    registerViteHubPageTool(app, comments)
+    installViteHubPageTools(app, { base: path === "/outside" ? "/portal" : "" })
+    expect((await app.fetch(new Request(`http://site.test${path}`, { headers: { "if-none-match": '"page"' } }))).status).toBe(304)
+  })
+
   it("adds exactly one loader tag for any number of tools, with one fetch wrapper", async () => {
     const app = nitro3App()
     registerViteHubPageTool(app, comments)
@@ -228,15 +349,38 @@ describe("installViteHubPageTools on Nitro 3", () => {
     expect(await (await app.fetch(new Request("http://site.test/?vitehub"))).text()).toBe(`<html><body>Page${loaderTag}</body></html>`)
   })
 
-  it("adds nothing without the hint, or without a registered tool, and keeps the page cacheable", async () => {
+  it("adds nothing without a registered tool, and the bootstrap without the hint, and keeps the page cacheable", async () => {
     const app = nitro3App()
     installViteHubPageTools(app)
     const none = await app.fetch(new Request("http://site.test/?vitehub"))
     expect(await none.text()).toBe("<html><body>Page</body></html>")
     registerViteHubPageTool(app, comments)
     const response = await app.fetch(new Request("http://site.test/"))
-    expect(await response.text()).toBe("<html><body>Page</body></html>")
+    expect(await response.text()).toBe(`<html><body>Page${bootstrap}</body></html>`)
     expect(response.headers.get("cache-control")).toBeNull()
+  })
+
+  it("adds the bootstrap to prerendered pages, once, and it loads the loader only with the hint", async () => {
+    const spa = nitro3App(`<html><body>App${viteHubPageToolsInlineScript("/docs/")}</body></html>`)
+    registerViteHubPageTool(spa, comments)
+    installViteHubPageTools(spa, { base: "/docs/" })
+    const page = await spa.fetch(new Request("http://site.test/docs/guide", { headers: { "x-nitro-prerender": "/docs/guide" } }))
+    const html = await page.text()
+    expect(html).toBe(`<html><body>App${viteHubPageToolsInlineScript("/docs/")}</body></html>`)
+    expect(runBootstrap(html, "", "")).toEqual([])
+    expect(runBootstrap(html, "", "theme=dark; vitehub-tools=0")).toEqual([])
+    expect(runBootstrap(html, "?vitehub", "")).toEqual(["/docs/_vitehub/page/assets/loader.js?v=11"])
+    expect(runBootstrap(html, "", "vitehub-tools=1")).toEqual(["/docs/_vitehub/page/assets/loader.js?v=11"])
+    // Right after sign-in, Auth has set its marker and cleared the hint: the loader asks the session route once.
+    expect(runBootstrap(html, "", "vitehub_session=1")).toEqual(["/docs/_vitehub/page/assets/loader.js?v=11"])
+    expect(runBootstrap(html, "", "vitehub_session=1; vitehub-tools=0")).toEqual([])
+  })
+
+  it("gives the bootstrap the nonce of the page's Content Security Policy", async () => {
+    const app = { fetch: () => new Response("<body>Page</body>", { headers: { "content-type": "text/html; charset=utf-8", "content-security-policy": "script-src 'strict-dynamic' 'nonce-n2'" } }) }
+    registerViteHubPageTool(app, comments)
+    installViteHubPageTools(app)
+    expect(await (await app.fetch(new Request("http://site.test/"))).text()).toBe(`<body>Page${viteHubPageToolsInlineScript("", "n2")}</body>`)
   })
 
   it("answers the session for a Nuxt 5 event, an H3 2 event with a legacy node bridge", async () => {
@@ -262,13 +406,63 @@ describe("installViteHubPageTools on Nitro 3", () => {
 })
 
 describe("installViteHubPageTools on Nitro 2", () => {
+  it.each(["string", "bytes", "Response"])("uses a meta-only CSP nonce for a new page tools script in %s HTML", async (format) => {
+    for (const search of ["", "?vitehub"]) {
+      const app = nitro2App()
+      registerViteHubPageTool(app, comments)
+      installViteHubPageTools(app)
+      const respond = app.handlers.get("beforeResponse")![0] as (event: unknown, response: { body?: unknown }) => Promise<void>
+      const head = '<head><meta http-equiv="Content-Security-Policy" content="script-src \'nonce-meta-nonce\' \'strict-dynamic\'"></head>'
+      const html = `${head}<body>Page</body>`
+      const headers = new Map([["content-type", "text/html; charset=utf-8"]])
+      const response = { body: (format === "Response" ? new Response(html, { headers: Object.fromEntries(headers) }) : format === "bytes" ? new TextEncoder().encode(html) : html) as unknown }
+      await respond({ node: { req: { url: `/${search}`, headers: {} }, res: { getHeader: (name: string) => headers.get(name) } } }, response)
+      const tag = search ? loaderTag.replace(" data-vitehub", ' nonce="meta-nonce" data-vitehub') : viteHubPageToolsInlineScript("", "meta-nonce")
+      expect(response.body instanceof Response ? await response.body.text() : response.body).toBe(`${head}<body>Page${tag}</body>`)
+    }
+  })
+
+  it.each(["string", "bytes", "Response"])("preserves the meta-CSP nonce when replacing a generated bootstrap in %s HTML", async (format) => {
+    for (const search of ["", "?vitehub"]) {
+      const app = nitro2App()
+      registerViteHubPageTool(app, comments)
+      installViteHubPageTools(app)
+      const respond = app.handlers.get("beforeResponse")![0] as (event: unknown, response: { body?: unknown }) => Promise<void>
+      const head = '<head><meta http-equiv="Content-Security-Policy" content="script-src \'nonce-meta-nonce\' \'strict-dynamic\'"></head>'
+      const html = `${head}<body>Page${viteHubPageToolsInlineScript("", "meta-nonce")}</body>`
+      const headers = new Map([["content-type", "text/html; charset=utf-8"]])
+      const response = { body: (format === "Response" ? new Response(html, { headers: Object.fromEntries(headers) }) : format === "bytes" ? new TextEncoder().encode(html) : html) as unknown }
+      await respond({ node: { req: { url: `/${search}`, headers: {} }, res: { getHeader: (name: string) => headers.get(name) } } }, response)
+      const tag = search ? loaderTag.replace(" data-vitehub", ' nonce="meta-nonce" data-vitehub') : viteHubPageToolsInlineScript("", "meta-nonce")
+      expect(response.body instanceof Response ? await response.body.text() : response.body).toBe(`${head}<body>Page${tag}</body>`)
+    }
+  })
+
+  it.each([undefined, "*/*", "application/rss+xml", "application/rss+xml, text/html;q=0", "text/html; Q=0.000, */*;q=1"])("keeps resource validators on ordinary paths with Accept %s", async (accept) => {
+    const app = nitro2App()
+    registerViteHubPageTool(app, comments)
+    installViteHubPageTools(app)
+    const onRequest = app.handlers.get("request")![0] as (event: object) => void
+    const respond = app.handlers.get("beforeResponse")![0] as (event: unknown, response: { body?: unknown }) => Promise<void>
+    const headers: Record<string, string> = { "if-none-match": '"feed"', "if-modified-since": "Mon, 02 Nov 2026 12:00:00 GMT" }
+    if (accept) headers.accept = accept
+    const event = { web: { request: new Request("http://site.test/feed", { headers }) }, node: { req: { url: "/feed", headers: { ...headers } } } }
+    onRequest(event)
+    expect(Object.fromEntries(event.web.request.headers)).toEqual(headers)
+    expect(event.node.req.headers).toEqual(headers)
+    const original = new Response(null, { status: 304, headers: { "content-type": "application/rss+xml", etag: '"feed"' } })
+    const response = { body: original }
+    await respond(event, response)
+    expect(response.body).toBe(original)
+  })
+
   it.each([undefined, "script-src 'nonce-response'"])("uses Node's CSP only when the returned Response has none (%s)", async (responsePolicy) => {
     const app = nitro2App()
     registerViteHubPageTool(app, comments)
     registerViteHubPageTool(app, pill)
     installViteHubPageTools(app)
     const respond = app.handlers.get("beforeResponse")![0] as (event: unknown, response: { body?: unknown }) => void
-    const headers = new Headers({ "content-type": "text/html" })
+    const headers = new Headers({ "content-type": "text/html; charset=utf-8" })
     if (responsePolicy) headers.set("content-security-policy", responsePolicy)
     const response = { body: new Response("<body>Page</body>", { headers }) }
     respond({ node: {
@@ -302,7 +496,7 @@ describe("installViteHubPageTools on Nitro 2", () => {
       render(html, { event })
       expect(html.bodyAppend).toEqual([tags])
       const respond = app.handlers.get("beforeResponse")![0] as (event: unknown, response: { body?: unknown }) => void
-      const response = { body: new Response("<body>Page</body>", { headers: { "content-type": "text/html" } }) }
+      const response = { body: new Response("<body>Page</body>", { headers: { "content-type": "text/html; charset=utf-8" } }) }
       respond(event, response)
       expect(await response.body.text()).toBe(`<body>Page${tags}</body>`)
     }
@@ -323,33 +517,38 @@ describe("installViteHubPageTools on Nitro 2", () => {
       render(html, { event: { node: { req: { url, headers: {} }, res: { setHeader: (name: string, value: string) => { headers[name] = value } } } } })
       return html.bodyAppend
     }
-    expect(page("/")).toEqual([])
+    // Every other page, such as a prerendered one, gets the bootstrap and stays cacheable.
+    expect(page("/")).toEqual([bootstrap])
     expect(headers).toEqual({})
+    expect(page("/_vitehub/content")).toEqual([])
     expect(page("/?vitehub")).toEqual([loaderTag])
     expect(headers).toEqual({ "cache-control": "private, no-store" })
     const html = { bodyAppend: [] as string[] }
     render(html, { event: { node: { req: { url: "/?vitehub", headers: {} }, res: { setHeader() {}, getHeader: () => "script-src 'self' 'strict-dynamic' 'nonce-n1'" } } } })
     expect(html.bodyAppend[0]).toContain("nonce=\"n1\"")
+    render(html, { event: { node: { req: { url: "/", headers: {} }, res: { setHeader() {}, getHeader: () => "script-src 'self' 'strict-dynamic' 'nonce-n1'" } } } })
+    expect(html.bodyAppend[1]).toBe(viteHubPageToolsInlineScript("", "n1"))
   })
 
-  it("injects buffered HTML once and clears stale cache metadata", async () => {
+  it.each(["", "vitehub-tools=1"])("injects buffered HTML once and clears stale cache metadata with cookie '%s'", async (cookie) => {
     const app = nitro2App()
     registerViteHubPageTool(app, comments)
     installViteHubPageTools(app)
     const respond = app.handlers.get("beforeResponse")![0] as (event: unknown, response: { body?: unknown }) => Promise<void>
-    const headers = new Map<string, string>([["content-type", "text/html; charset=utf-8"], ["content-length", "26"], ["etag", "old"]])
+    const headers = new Map<string, string>([["content-type", "text/html; charset=utf-8"], ["content-length", "26"], ["etag", "old"], ["last-modified", "Mon, 02 Nov 2026 12:00:00 GMT"], ["cache-control", "public, max-age=60"]])
     const event = { node: {
-      req: { url: "/guide/", headers: { cookie: "vitehub-tools=1" } },
+      req: { url: "/guide/", headers: { cookie } },
       res: { getHeader: (key: string) => headers.get(key), setHeader: (key: string, value: string) => headers.set(key, value), removeHeader: (key: string) => headers.delete(key) },
     } }
     const response = { body: new TextEncoder().encode("<body>Page</body>") as unknown }
     await respond(event, response)
-    expect(response.body).toBe(`<body>Page${loaderTag}</body>`)
+    expect(response.body).toBe(`<body>Page${cookie ? loaderTag : bootstrap}</body>`)
     expect(headers.has("content-length")).toBe(false)
     expect(headers.has("etag")).toBe(false)
-    expect(headers.get("cache-control")).toBe("private, no-store")
+    expect(headers.has("last-modified")).toBe(false)
+    expect(headers.get("cache-control")).toBe(cookie ? "private, no-store" : "public, max-age=60")
     await respond(event, response)
-    expect(response.body).toBe(`<body>Page${loaderTag}</body>`)
+    expect(response.body).toBe(`<body>Page${cookie ? loaderTag : bootstrap}</body>`)
     headers.set("content-type", "image/png")
     const binary = { body: new Uint8Array([1, 2, 3]) }
     await respond(event, binary)
@@ -402,7 +601,7 @@ describe("installViteHubPageTools on Nitro 2", () => {
       res: { statusCode: 200, getHeader: (key: string) => headers.get(key), setHeader: (key: string, value: string) => headers.set(key, value), removeHeader: (key: string) => headers.delete(key) },
     } }
     await respond(event, response)
-    const expected = '<body>Page<script type="module" src="/portal/_vitehub/page/assets/loader.js?v=10" nonce="n1" data-vitehub-page-tools></script></body>'
+    const expected = '<body>Page<script type="module" src="/portal/_vitehub/page/assets/loader.js?v=11" nonce="n1" data-vitehub-page-tools></script></body>'
     expect(response.body).toBe(expected)
     expect(headers.has("etag")).toBe(false)
     expect(headers.get("cache-control")).toBe("private, no-store")
@@ -457,15 +656,48 @@ describe("installViteHubPageTools on Nitro 2", () => {
       respond({ node: { req: { url, headers: { cookie } } } }, response)
       return response.body
     }
-    const file = () => new Response("<html><body>Page</body></html>", { headers: { "content-type": "text/html", "cache-control": "public, max-age=3600" } })
-    const plain = file()
-    expect(send("/guide/", plain)).toBe(plain)
+    const file = () => new Response("<html><body>Page</body></html>", { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=3600" } })
+    const plain = send("/guide/", file())
+    expect(plain).toBeInstanceOf(Response)
+    if (!(plain instanceof Response)) return
+    expect(await plain.text()).toBe(`<html><body>Page${bootstrap}</body></html>`)
+    expect(plain.headers.get("cache-control")).toBe("public, max-age=3600")
     expect(send("/guide/", "<html></html>", "vitehub-tools=1")).toBe("<html></html>")
     const page = send("/guide/", file(), "theme=dark; vitehub-tools=1")
     expect(page).toBeInstanceOf(Response)
     if (!(page instanceof Response)) return
     expect(page.headers.get("cache-control")).toBe("private, no-store")
     expect(await page.text()).toBe(`<html><body>Page${loaderTag}</body></html>`)
+  })
+
+  it.each(["string", "bytes", "Response"])("prevents upstream 304s and removes stale validators from direct %s HTML", async (format) => {
+    const app = nitro2App()
+    registerViteHubPageTool(app, comments)
+    installViteHubPageTools(app)
+    const onRequest = app.handlers.get("request")![0] as (event: object) => void
+    const respond = app.handlers.get("beforeResponse")![0] as (event: unknown, response: { body?: unknown }) => Promise<void>
+    const headers = new Map([["content-type", "text/html; charset=utf-8"], ["etag", '"page"'], ["last-modified", "Mon, 02 Nov 2026 12:00:00 GMT"], ["content-length", "17"], ["cache-control", "public, max-age=60"]])
+    const event = {
+      web: { request: new Request("http://site.test/guide/", { headers: { accept: "text/html", "if-none-match": '"page"', "if-modified-since": "Mon, 02 Nov 2026 12:00:00 GMT" } }) },
+      node: {
+        req: { url: "/guide/", headers: { accept: "text/html", "if-none-match": '"page"', "if-modified-since": "Mon, 02 Nov 2026 12:00:00 GMT" } },
+        res: { statusCode: 200, getHeader: (name: string) => headers.get(name), removeHeader: (name: string) => headers.delete(name), setHeader: (name: string, value: string) => headers.set(name, value) },
+      },
+    }
+    onRequest(event)
+    const notModified = event.web.request.headers.has("if-none-match") || event.web.request.headers.has("if-modified-since") || "if-none-match" in event.node.req.headers || "if-modified-since" in event.node.req.headers
+    event.node.res.statusCode = notModified ? 304 : 200
+    const html = "<body>Page</body>"
+    const body = notModified ? "" : html
+    const response = { body: (format === "Response" ? new Response(notModified ? null : html, { status: event.node.res.statusCode, headers: Object.fromEntries(headers) }) : format === "bytes" ? new TextEncoder().encode(body) : body) as unknown }
+    await respond(event, response)
+    expect(event.node.res.statusCode).toBe(200)
+    expect(response.body instanceof Response ? await response.body.text() : response.body).toBe(`<body>Page${bootstrap}</body>`)
+    for (const name of ["etag", "last-modified", "content-length"]) {
+      expect(headers.has(name)).toBe(false)
+      if (response.body instanceof Response) expect(response.body.headers.has(name)).toBe(false)
+    }
+    expect(headers.get("cache-control")).toBe("public, max-age=60")
   })
 })
 
@@ -496,14 +728,14 @@ describe("GET /_vitehub/page/session", () => {
     expect(response.headers.get("set-cookie")).toContain("vitehub-tools=1")
   })
 
-  it("clears the hint cookie when no tool allows the visitor, also when a check throws", async () => {
+  it("sets the hint cookie to 0 when no tool allows the visitor, also when a check throws", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {})
     registerViteHubPageTool(app, comments)
     registerViteHubPageTool(app, { ...pill, allowed: async () => { throw new Error("session store down") } })
     const { body, response } = await session("person=eve")
     expect(body).toEqual({ tools: [] })
     expect(response.headers.get("cache-control")).toBe("private, no-store")
-    expect(response.headers.get("set-cookie")).toBe("vitehub-tools=; Path=/; Max-Age=0; SameSite=Lax")
+    expect(response.headers.get("set-cookie")).toBe("vitehub-tools=0; Path=/; Max-Age=2592000; SameSite=Lax")
     expect(console.error).toHaveBeenCalledOnce()
   })
 
@@ -573,7 +805,7 @@ describe("page tools below an app base", () => {
     const skipped = { bodyAppend: [] as string[] }
     render(skipped, { event: event("/_vitehub/content?vitehub") })
     expect(skipped.bodyAppend).toEqual([])
-    const response = { body: new Response("<body></body>", { headers: { "content-type": "text/html" } }) as unknown }
+    const response = { body: new Response("<body></body>", { headers: { "content-type": "text/html; charset=utf-8" } }) as unknown }
     respond(event("/served?vitehub"), response)
     expect(response.body).toBeInstanceOf(Response)
     if (response.body instanceof Response) expect(await response.body.text()).toBe(`<body>${baseTag}</body>`)
@@ -606,7 +838,7 @@ describe("per-app page tools", () => {
   it("isolates Nitro 3 loader injection and sessions across bundled copies, late registration and replacement", async () => {
     const makeApp = () => {
       const h3 = new H3().get("/_vitehub/page/session", event => viteHubPageSessionHandler(event))
-      h3.get("/", () => new Response("<body>Page</body>", { headers: { "content-type": "text/html" } }))
+      h3.get("/", () => new Response("<body>Page</body>", { headers: { "content-type": "text/html; charset=utf-8" } }))
       return { fetch: (request: Request) => h3.fetch(request) }
     }
     const appA = makeApp()
@@ -642,7 +874,7 @@ describe("per-app page tools", () => {
       const event = { node: { req: { url: "/?vitehub", headers: { host: "site.test", cookie: "person=ada" }, method: "GET", [Symbol.asyncIterator]: async function* () {} } } }
       const html = { bodyAppend: [] as string[] }
       render(html, { event })
-      const response = { body: new Response("<body>Page</body>", { headers: { "content-type": "text/html" } }) }
+      const response = { body: new Response("<body>Page</body>", { headers: { "content-type": "text/html; charset=utf-8" } }) }
       respond(event, response)
       event.node.req.url = "/_vitehub/page/session"
       onRequest(event)
@@ -691,7 +923,7 @@ describe("mounted page tool exclusions", () => {
     for (const path of ["/portal/_vitehub", "/portal/_vitehub/comments", "/portal/api", "/portal/api/data", "/portal/pricing"]) {
       const event = { node: { req: { url: path, headers: { cookie: "vitehub-tools=1" } } } }
       const html = { bodyAppend: [] as string[] }
-      const original = new Response("<body>Page</body>", { headers: { "content-type": "text/html" } })
+      const original = new Response("<body>Page</body>", { headers: { "content-type": "text/html; charset=utf-8" } })
       const response = { body: original }
       render(html, { event })
       respond(event, response)

@@ -145,7 +145,7 @@ On a development server, the Console is also a **ViteHub Console** entry in the 
 | Nuxt | A tab in Nuxt DevTools 3 and 4. |
 | Vite with [`@vitejs/devtools`](https://devtools.vite.dev) | An entry in the Vite DevTools dock, which Devframe renders. |
 
-The entry shows the same `/_vitehub` page in a frame. In development, the page lets frames of the same origin show it. A production build still refuses every frame.
+The entry shows the same `/_vitehub` page in a frame. In development, the page lets frames of the same origin show it. A production build refuses frames of a normal Console page. Only the [page window](#work-from-a-page) frames it, with `?embed=1`, after the Console access check.
 
 With independent Console Auth, the sign-in button opens authentication in the main browser page. Open DevTools again after signing in.
 
@@ -438,11 +438,23 @@ All Console paths in this guide use the application base: an explicit ViteHub ap
 
 ### Open the Console from the app's pages
 
-The ViteHub tools pill shows at the bottom of the app's pages when a page has the `?vitehub` query or the `vitehub-tools` cookie. Opening the Console sets that cookie for you. When the Console is on, the pill has a **Console** button that opens the Console in a floating window, next to page tools such as [Comments](/docs/comments/configure#turn-comment-mode-on-and-off).
+The ViteHub tools pill shows at the bottom of the app's pages for people that the Console lets in. It has a **Console** button that opens the Console in a floating window, next to page tools such as [Comments](/docs/comments/configure#turn-comment-mode-on-and-off).
 
-The link uses the same access check as the Console data routes, for any section. A person that the Console rejects does not get the link. An `authorize` result with at least one section, such as `{ sections: ['content'] }`, allows the link. With the development default, the Console and its link exist on the development server only. **Turn off ViteHub tools**, the **×** of the pill, clears the cookie and removes the pill. The ViteHub mark at the start of the pill collapses it to a small hexagon 2px from the edge of the screen, and the browser keeps it collapsed on the next pages until you select the mark again. Open windows and comment mode stay as they are. Drag the mark to dock the pill to another edge of the screen: top, right, bottom, or left, at the place where you release it. On the left and right edges the buttons stack, and windows open from the edge where the pill docks. The browser remembers the place on the next pages.
+With `auth: 'app'`, sign in to the app and open any page: the pill is there. You do not have to open `/_vitehub` first. It also shows when you open the Console, or a page with the `?vitehub` query.
 
-The check runs in `GET /_vitehub/page/session`. The Console serves that route and the page tools loader, so the link also works in an app without Comments. The link is only a shortcut. Every Console route checks access again.
+The button uses the same access check as the Console data routes, for any section. A person that the Console rejects does not get the pill. An `authorize` result with at least one section, such as `{ sections: ['content'] }`, allows it. With the development default, the Console and its button exist on the development server only. **Turn off ViteHub tools**, the **×** of the pill, removes the pill until you open the Console, use `?vitehub`, or sign in again. The ViteHub mark at the start of the pill collapses it to a small hexagon 2px from the edge of the screen, and the browser keeps it collapsed on the next pages until you select the mark again. Open windows and comment mode stay as they are. Drag the mark to dock the pill to another edge of the screen: top, right, bottom, or left, at the place where you release it. On the left and right edges the buttons stack, and windows open from the edge where the pill docks. The browser remembers the place on the next pages.
+
+Every HTML page of the app has a short inline script, the page tools bootstrap. It is in server-rendered pages and in prerendered pages, so it also works when a host serves the pages as static files, such as Cloudflare Workers static assets in front of the Worker. The bootstrap reads the URL and two cookies, and loads the page tools loader only when it finds one of these hints:
+
+| Hint | Set by |
+| --- | --- |
+| `?vitehub` in the URL | You. `?vitehub=console` also opens the Console window. |
+| `vitehub-tools=1` | `GET /_vitehub/page/session`, when a page tool allows you. |
+| `vitehub_session=1` and no `vitehub-tools` cookie | [App Auth](/docs/auth/configure#session-marker-cookie). It sets the marker on sign-in and clears `vitehub-tools`, so the next page asks the session route again. |
+
+Visitors without a hint get no request and no extra script. The loader calls `GET /_vitehub/page/session`, which runs the access check and sets `vitehub-tools=1` when a tool allows you, or `vitehub-tools=0` when none does. A signed-in person without access therefore causes one session request per session. Sign-out clears the cookie. The Console serves that route and the loader, so the pill also works in an app without Comments. The cookies are not `HttpOnly`, because the bootstrap reads them, and they hold no secret. The pill is only a shortcut. Every Console route checks access again.
+
+The bootstrap is an inline module script. When the page's Content Security Policy has a script nonce, the server gives the bootstrap that nonce. A policy without nonces that blocks inline scripts also blocks the bootstrap on prerendered pages: allow its hash, or use `?vitehub` on a page that the server renders, where the server adds the external loader instead.
 
 ### Start Agent Invocations
 
@@ -758,11 +770,11 @@ After opening the Console, return to any application page. The ViteHub pill stay
 
 Choose **Console** to open it in a floating window. **Content** appears only when Content is installed and your Console permissions include the full `content` grant. A `content:read` grant keeps Content available through **Console**. Choose **Select field**, then a page element marked with `contentField()`, to open that document in the same Content editor. While you select, an open Content window moves out of the way. <kbd>Esc</kbd>, a second **Select field**, or a click outside a field cancels and brings the window back. A click while you select never follows a link on the page. When the window was minimized, it stays minimized while you select, and only a picked field opens it. You can also browse collections with the keyboard inside the Content window. Content's own read, write, and publish policies still apply.
 
-Expand or minimize the window without losing the selected document or unsaved text. On a phone the editor fills the available screen. Client-side page navigation leaves the editor open on its current document. A full page reload cannot retain unsaved memory; the editor asks before leaving when it has unsaved changes. Window size and the selected editor route are remembered locally; document values are not stored by the pill.
+Expand or minimize the window without losing the selected document or unsaved text. **Open in new tab** in the title bar opens the page that the window shows in a full browser tab, with the same section, record, and filters. A middle-click or <kbd>Cmd</kbd>/<kbd>Ctrl</kbd>-click opens it in the background, and **Copy link** copies it. The window stays open with its unsaved text. On a phone the editor fills the available screen. Client-side page navigation leaves the editor open on its current document. A full page reload cannot retain unsaved memory; the editor asks before leaving when it has unsaved changes. Window size and the selected editor route are remembered locally; document values are not stored by the pill.
 
 The editor loads on first use. Production embedding uses a same-origin iframe and requires an accepted Console session. A normal Console page still denies framing; `?embed=1` permits same-origin framing only after the Console access check. Hosts must permit the same-origin frame in their own Content Security Policy.
 
-Comments uses the same expandable window for the current page's thread list and replies. When the Content editing tool is available, Comments' **Edit** action opens the document editor. Otherwise its existing plain-text field editing remains available according to the Comments and Content policies.
+Comments uses the same expandable window for the current page's thread list and replies. Its title bar has no **Open in new tab** link. When the Content editing tool is available, Comments' **Edit** action opens the document editor. Otherwise its existing plain-text field editing remains available according to the Comments and Content policies.
 
 ## Inspect logs
 

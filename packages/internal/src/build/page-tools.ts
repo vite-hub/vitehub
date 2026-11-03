@@ -75,10 +75,10 @@ export function viteHubPageToolsBase(config: unknown, env: Record<string, string
 }
 
 /**
- * Adds the page tools loader to the `index.html` of a single page app, for an owner's Vite `transformIndexHtml` hook.
- * The added module script loads `<base>/_vitehub/page/assets/loader.js` in the browser when the page has the hint: the
- * `?vitehub` query or the `vitehub-tools=1` cookie. It works where no server changes the HTML: in the Vite dev server,
- * and for a built `index.html` that a host serves as a static file. It returns `undefined` when the page already has
+ * Adds the page tools bootstrap to the `index.html` of a single page app, for an owner's Vite `transformIndexHtml` hook.
+ * The added module script loads `<base>/_vitehub/page/assets/loader.js` in the browser when the page has the hint, by
+ * the rule of `viteHubPageToolsWanted()`. It works where no server changes the HTML: in the Vite dev server, and for a
+ * built `index.html` that a host serves as a static file. It returns `undefined` when the page already has
  * the loader, so several owner packages add one script. `base` is the Vite `base`, such as `/portal/`.
  */
 export function viteHubPageToolsIndexHtml(html: string, base: string | undefined): string | undefined {

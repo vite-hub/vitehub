@@ -99,7 +99,7 @@ The presence rooms connect through Realtime, which checks the WebSocket origin i
 
 ## Caching
 
-Pages with the page tools loader go out with `cache-control: private, no-store`. Other pages keep the headers your app sets. A CDN that caches HTML by URL can serve a cached page to a browser with the `vitehub-tools` cookie, and that page has no loader. Bypass the cache for requests with the cookie, or open pages with `?vitehub`.
+Pages with the page tools loader go out with `cache-control: private, no-store`. Other pages keep the headers your app sets. They have the page tools bootstrap, which is the same for every visitor, so a CDN can cache them by URL: in a browser with the `vitehub-tools` cookie, the cached page loads the loader itself.
 
 ## Content Security Policy
 

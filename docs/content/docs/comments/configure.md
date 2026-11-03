@@ -135,7 +135,7 @@ See [Console sign-in](/docs/development/console) for `console-authorize.ts`. To 
 
 A `comments:read` grant allows reading threads and joining page presence. Creating, replying, resolving, reopening, deleting, and editing Content fields require the full `comments` grant as well as the Comments policy.
 
-When a person opens the Console, it calls `GET /_vitehub/page/session`. That sets the `vitehub-tools` cookie when the person may read comments, so the app's pages show the Comments toolbar from then on. Nobody else gets the cookie, so their pages have no Comments script.
+When a person signs in to the app with `auth: 'app'`, or opens the Console, the next page calls `GET /_vitehub/page/session`. That sets `vitehub-tools=1` when the person may read comments, so the app's pages show the Comments toolbar from then on. Other people get `vitehub-tools=0`, so their pages load no Comments script.
 
 | Console sign-in | Comment author |
 | --- | --- |
@@ -371,9 +371,9 @@ The API waits for `onComment` before it answers the browser. Keep it short, or s
 
 ## Turn comment mode on and off
 
-Comments is a ViteHub page tool. Comment mode starts when a person opens the [Console](#comment-as-the-console-team), or on any page with the `?vitehub` query, such as `https://example.com/pricing?vitehub`. `?vitehub=comments` does the same. The page then loads the page tools loader, which calls `GET /_vitehub/page/session`. That route runs the visitor check of each page tool. Comments allows the overlay when `authorize` allows `read`, or when it can offer GitHub sign-in or account switching. The sign-in prompt grants no access to threads. The route then sets the `vitehub-tools` cookie for 30 days, so every other page of the site opens in comment mode too. When no tool allows the person, the route clears the cookie and the loader stops. The cookie is only a hint. Every API request checks access again.
+Comments is a ViteHub page tool. Comment mode starts when a person opens the [Console](#comment-as-the-console-team), or on any page with the `?vitehub` query, such as `https://example.com/pricing?vitehub`. `?vitehub=comments` does the same. The page then loads the page tools loader, which calls `GET /_vitehub/page/session`. That route runs the visitor check of each page tool. Comments allows the overlay when `authorize` allows `read`, or when it can offer GitHub sign-in or account switching. The sign-in prompt grants no access to threads. The route then sets `vitehub-tools=1` for 30 days, so every other page of the site opens in comment mode too. When no tool allows the person, the route sets `vitehub-tools=0` and the loader stops. The cookie is only a hint. Every API request checks access again.
 
-The Comments toolbar is one segment of the ViteHub tools pill at the bottom of the page. When the app has the Console, the pill also shows a **Console** link for people that the Console lets in. The **×** button of the pill, **Turn off ViteHub tools**, ends comment mode. It turns all page tools off: it clears the cookie, removes the query, and removes the pill.
+The Comments toolbar is one segment of the ViteHub tools pill at the bottom of the page. When the app has the Console, the pill also shows a **Console** link for people that the Console lets in. The **×** button of the pill, **Turn off ViteHub tools**, ends comment mode. It turns all page tools off: it sets `vitehub-tools=0`, removes the query, and removes the pill.
 
 | Key | Action |
 | --- | --- |
@@ -382,11 +382,11 @@ The Comments toolbar is one segment of the ViteHub tools pill at the bottom of t
 | <kbd>Esc</kbd> | Close the open thread, or turn **Comment** and **Edit** off. |
 | <kbd>⌘</kbd> <kbd>Enter</kbd> | Send the comment. |
 
-Without the hint, the server returns each page unchanged: no script, no request, and no extra cache variant. With the hint, it adds one loader script, `<script type="module" src="/_vitehub/page/assets/loader.js?v=10">`, before `</body>` of HTML responses and sends them with `cache-control: private, no-store`. The loader imports the overlay only for people that the session route allows. With an application base such as `/portal/`, the loader and session URLs start with `/portal/_vitehub/page/`. Paths under `/_vitehub` and `/api` within that application never get the loader.
+Every HTML page gets a short inline script before `</body>`, the page tools bootstrap. It is the same for every visitor, so the page keeps its cache headers. In the browser, it loads the page tools loader only with a hint: the `?vitehub` query, `vitehub-tools=1`, or the [Auth session marker](/docs/auth/configure#session-marker-cookie) of a person who just signed in. Visitors without a hint make no request. With the hint, the server instead adds one loader script, `<script type="module" src="/_vitehub/page/assets/loader.js?v=11">`, and sends the page with `cache-control: private, no-store`. The loader imports the overlay only for people that the session route allows. With an application base such as `/portal/`, the loader and session URLs start with `/portal/_vitehub/page/`. Paths under `/_vitehub` and `/api` within that application never get the page tools.
 
-- Nitro 3 apps get the script from the server response. Nuxt 4 apps get it through Nitro's `render:html` hook, and also when a route returns the page as a `Response`.
-- A single-page app whose `index.html` Vite serves or builds gets a short inline check instead. The check loads the page tools loader in the browser when it finds the query or the cookie. It is in the built `index.html`, so it also works when a host serves that file as a static file. The server does not add a second loader to a page that has the check.
-- Other pages that a CDN serves from its cache or as static files never reach the server, so they do not get the loader. Use the query on a page that the server renders, or serve the prerendered files through a route.
+- Nitro 3 apps get the script from the server response. Nuxt 4 apps get it through Nitro's `render:html` hook, and the loader also when a route returns the page as a `Response`.
+- A single-page app whose `index.html` Vite serves or builds gets the bootstrap in `index.html`.
+- Prerendered pages get the bootstrap when they are rendered, so a host or a CDN that serves them as static files still shows the overlay. The server does not add a second script to a page that has one.
 
 ### Apps below a base path
 
@@ -394,28 +394,7 @@ When the app has a Vite `base`, such as `base: '/docs/'`, or a Nuxt `app.baseURL
 
 ViteHub registers these routes below the part of the base that Nitro does not add. When you also set Nitro `baseURL` to the same path, as Nuxt does for `app.baseURL`, Nitro adds the base and ViteHub adds nothing. A base that you set with `NUXT_APP_BASE_URL` when the server starts also works on Nuxt 4: the loader tag takes the base of each request.
 
-A prerendered site can keep its files and still show the overlay. Run the server first, and return the file from a route. In a Nuxt 4 app on Cloudflare, set `assets.run_worker_first` in `wrangler.jsonc` and read the file from the assets binding:
-
-```ts [server/middleware/pages.ts]
-import { defineEventHandler } from 'h3'
-
-export default defineEventHandler(async (event) => {
-  const { request, env } = event.context.cloudflare
-  if (request.method !== 'GET') return
-  let assetRequest = request
-  if (new URL(request.url).searchParams.has('vitehub') || /(?:^|;\s*)vitehub-tools=1(?:;|$)/.test(request.headers.get('cookie') || '')) {
-    const headers = new Headers(request.headers)
-    headers.delete('if-none-match')
-    headers.delete('if-modified-since')
-    assetRequest = new Request(request, { headers })
-  }
-  const file = await env.ASSETS.fetch(assetRequest)
-  // The page tools loader goes into this response for people with the hint. Everyone else gets the file unchanged.
-  if (file.status !== 404) return file
-})
-```
-
-Comment-mode requests remove cache validators before fetching the asset. Otherwise the binding can return a bodyless `304`, and the browser reuses a cached page without the overlay. Requests without the comment hint retain their validators.
+A prerendered site needs no extra route. Its pages have the bootstrap, so a Nuxt app on Cloudflare Workers can serve them as static assets, without `assets.run_worker_first`. Only the session route and the Comments API run in the Worker.
 
 The overlay is a custom element with a shadow root. Your CSS does not change it, and its CSS does not change your page.
 
