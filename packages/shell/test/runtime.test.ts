@@ -349,6 +349,21 @@ describe("@vite-hub/shell just-bash runtime", () => {
     expect(stop).toHaveBeenCalledOnce()
   })
 
+  it("passes exec stdin to Just Bash commands", async () => {
+    const runtime = createShellRuntime({
+      provider: createJustBashProvider({ fs: createReadonlyWorkspaceFs(new MemoryWorkspace({})) }),
+    })
+
+    await expect(runtime.exec("jq -r .name", { stdin: "{\"name\":\"vitehub\"}" })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "vitehub\n",
+    })
+    await expect(runtime.createSession().exec("wc -l", { stdin: "a\nb\n" })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: expect.stringMatching(/^\s*2\n$/),
+    })
+  })
+
   it.each([{ commands: ["curl"] }, { commands: undefined }])("runs controlled curl through the just-bash provider network boundary with commands $commands", async ({ commands }) => {
     const workspace = new MemoryWorkspace({})
     const executeSourceRequest = vi.fn(async () => ({ content: "ok\n" }))
