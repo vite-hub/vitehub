@@ -32,8 +32,8 @@ Create a GitHub App, install it on the repository, and list `https://<site>/api/
 import { defineComments } from "vite-hub/comments"
 
 export const comments = defineComments({
-  // Who may read, comment, and resolve. Without it, people signed in with GitHub who can push to the repository, and
-  // users of any other sign-in, may do everything; guests may on the dev server only.
+  // Who may read, comment, and resolve. Without it, a production build lets in only people signed in with GitHub who
+  // can push to the repository, and people that the Console admits to Comments; everyone may on the dev server.
   authorize: ({ user }) => user?.role === "editor",
 })
 ```

@@ -81,6 +81,8 @@ function summary(thread: CommentThread): Record<string, unknown> {
  * Without an event, the tools use the checked `context.user` directly. Replies and resolves show that user as the author.
  */
 export function commentsMcpTools(comments: Comments, options: CommentsSessionOptions = {}): ViteHubMcpTool[] {
+  // The ViteHub MCP server lists these tools only for people with Console access to Comments.
+  const gate = { console: Boolean(options.consoleSession) }
   async function userFor(context: ViteHubMcpToolContext, action: CommentAction): Promise<CommentsUser | null | false> {
     if (context.event === undefined || context.event === null) return commentsUser(context.user)
     // SAFETY: The MCP transport passes its request event to owner identity readers.
@@ -94,7 +96,7 @@ export function commentsMcpTools(comments: Comments, options: CommentsSessionOpt
     const [error, thread] = await comments.get(id)
     if (error) return failure(error.why)
     if (thread.subject.kind !== "page") return failure(`No thread ${id} on the app's pages.`)
-    if (!await comments.can({ user, action, thread })) return forbidden(action)
+    if (!await comments.can({ user, action, thread }, gate)) return forbidden(action)
     return { thread, grant: toolGrant.issue({ action, threadId: thread.id }) }
   }
 
@@ -117,7 +119,7 @@ export function commentsMcpTools(comments: Comments, options: CommentsSessionOpt
       },
       async call(input, context) {
         const user = await userFor(context, "read")
-        if (user === false || !await comments.can({ user, action: "read" })) return forbidden("read")
+        if (user === false || !await comments.can({ user, action: "read" }, gate)) return forbidden("read")
         const status = input.status === "resolved" ? "resolved" : "open"
         const page = text(input.page)
         const search = text(input.search)?.toLowerCase()

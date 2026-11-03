@@ -8,6 +8,7 @@ import { commentsErrors } from "../errors.ts"
 import { authorOf, guestFromHeaders } from "../identity.ts"
 import { commentsRuntimeOf } from "../index.ts"
 import { commentAnchorSchema } from "../operations-core/operations.ts"
+import { deniedForMissingPolicy } from "../operations-core/define.ts"
 import { contextSchema, mentionedPeople, maximumCommentBodyLength, maximumMentions } from "../operations-core/service.ts"
 import { commentsRoute, normalizeCommentPage } from "../page.ts"
 import { requestOf } from "./request.ts"
@@ -105,6 +106,7 @@ function status(code: string): number {
     case "COMMENTS_CONTENT_MISSING":
       return 404
     case "COMMENTS_FORBIDDEN":
+    case "COMMENTS_POLICY_MISSING":
     case "COMMENTS_FIELD_FORBIDDEN":
       return 403
     case "COMMENTS_RESOLVED":
@@ -175,6 +177,8 @@ function leaseHolder(error: unknown): string {
  */
 export function createCommentsHandler(options: CommentsHandlerOptions): ReturnType<typeof defineEventHandler> {
   const { comments } = options
+  // With the Console, every user here passed its Comments section access first.
+  const gate = { console: Boolean(options.consoleSession) }
 
   async function resolveUser(event: H3Event, action: CommentAction = "read"): Promise<CommentsUser | null | false> {
     return resolveCommentsUser(comments, event, {
@@ -183,9 +187,12 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     }, action)
   }
 
-  async function access(event: H3Event, action: CommentAction, thread?: CommentThread, subject?: CommentSubject): Promise<Result<{ user: CommentsUser | null, author: CommentUser | undefined, grant: ActionGrant }, "COMMENTS_FORBIDDEN">> {
+  async function access(event: H3Event, action: CommentAction, thread?: CommentThread, subject?: CommentSubject): Promise<Result<{ user: CommentsUser | null, author: CommentUser | undefined, grant: ActionGrant }, "COMMENTS_FORBIDDEN" | "COMMENTS_POLICY_MISSING">> {
     const user = await resolveUser(event, action)
-    if (user === false || !await comments.can({ user, action, ...(thread ? { thread } : {}), ...(subject ? { subject } : {}) })) return [commentsErrors.COMMENTS_FORBIDDEN({ action }), undefined]
+    if (user === false) return [commentsErrors.COMMENTS_FORBIDDEN({ action }), undefined]
+    if (!await comments.can({ user, action, ...(thread ? { thread } : {}), ...(subject ? { subject } : {}) }, gate)) {
+      return [deniedForMissingPolicy(comments.options, user, { ...gate, development: commentsRuntimeOf(comments)?.development === true }) ? commentsErrors.COMMENTS_POLICY_MISSING() : commentsErrors.COMMENTS_FORBIDDEN({ action }), undefined]
+    }
     // A user writes as itself; without one, a guest that named itself, when the policy lets anonymous people act.
     const author = user ? authorOf(user) : guestFromHeaders(requestOf(event).headers)
     return [undefined, { user, author, grant: actionGrant.issue({ action, threadId: thread?.id }) }]
@@ -278,7 +285,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
   async function can(event: H3Event, user: CommentsUser | null | false, action: CommentAction, thread?: CommentThread, subject?: CommentSubject): Promise<boolean> {
     if (user === false) return false
     if (action !== "read" && await options.consoleSession?.(event, action).catch(() => false as const) === false) return false
-    return comments.can({ user, action, ...(thread ? { thread } : {}), ...(subject ? { subject } : {}) })
+    return comments.can({ user, action, ...(thread ? { thread } : {}), ...(subject ? { subject } : {}) }, gate)
   }
 
   async function permissions(event: H3Event, user: CommentsUser | null, thread: CommentThread) {
@@ -289,7 +296,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
   /** The people that the threads mention, so the overlay shows their names. */
   async function people(user: CommentsUser | null, threads: readonly CommentThread[]): Promise<CommentUser[]> {
     const runtime = commentsRuntimeOf(comments)
-    return runtime ? await mentionedPeople(runtime, user, threads) : []
+    return runtime ? await mentionedPeople(runtime, user, threads, gate) : []
   }
 
   async function respondThread(event: H3Event, user: CommentsUser | null, [error, thread]: Result<CommentThread>): Promise<Response> {
@@ -303,7 +310,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     return found.subject.kind === "page" ? [undefined, found] : [commentsErrors.COMMENTS_NOT_FOUND({ id }), undefined]
   }
 
-  async function fieldTarget(event: H3Event, address: string): Promise<Result<{ collection: ContentCollectionLike, id: string, path: string[], document: ContentDocumentLike, author: CommentUser, user: CommentsUser | null }, "COMMENTS_CONTENT_MISSING" | "COMMENTS_FIELD_INVALID" | "COMMENTS_FIELD_FORBIDDEN" | "COMMENTS_FORBIDDEN">> {
+  async function fieldTarget(event: H3Event, address: string): Promise<Result<{ collection: ContentCollectionLike, id: string, path: string[], document: ContentDocumentLike, author: CommentUser, user: CommentsUser | null }, "COMMENTS_CONTENT_MISSING" | "COMMENTS_FIELD_INVALID" | "COMMENTS_FIELD_FORBIDDEN" | "COMMENTS_FORBIDDEN" | "COMMENTS_POLICY_MISSING">> {
     if (!options.content) return [commentsErrors.COMMENTS_CONTENT_MISSING(), undefined]
     const [denied, allowed] = await access(event, "write")
     if (denied) return [denied, undefined]
@@ -505,7 +512,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
       const target = current?.subject ?? subject
       const [denied, allowed] = await access(event, "read", current, target)
       if (denied) return failure(denied)
-      return respond(await comments.people({ query: url.searchParams.get("q") ?? "", user: allowed.user, ...(current ? { thread: current } : {}), ...(target ? { subject: target } : {}) }))
+      return respond(await comments.people({ query: url.searchParams.get("q") ?? "", user: allowed.user, gate, ...(current ? { thread: current } : {}), ...(target ? { subject: target } : {}) }))
     }
 
     if (path === "/fields") {

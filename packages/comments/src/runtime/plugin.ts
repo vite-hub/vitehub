@@ -73,7 +73,7 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
         // SAFETY: the page tools session passes the H3 event of its Nitro route, which the session readers accept.
         const user = await resolveCommentsUser(options.comments, event as H3Event, { ...options, session: options.session ?? options.githubLogin?.user })
         if (user === false) return false
-        return await options.comments.can({ user, action: "read" })
+        return await options.comments.can({ user, action: "read" }, { console: Boolean(options.consoleSession) })
           || Boolean(!options.comments.options.identify && options.githubLogin?.configured() && (!user || user.github))
       },
     })

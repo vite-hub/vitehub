@@ -43,7 +43,7 @@ export function commentsRealtime(comments: Comments, options: {
         : options.consoleSession
           ? consoleUser
           : await options.session?.(event).catch(() => null)
-      readers.set(event, await comments.can({ user: user ?? null, action: "read" }))
+      readers.set(event, await comments.can({ user: user ?? null, action: "read" }, { console: Boolean(options.consoleSession) }))
       // Browser WebSockets carry no guest headers. Keep Console guests' browser identities in awareness instead of
       // binding them to the shared session fallback. Custom identify results, including guests, remain server-bound.
       return user && (comments.options.identify || user.guest !== true) ? toRealtimeUser(user) : null

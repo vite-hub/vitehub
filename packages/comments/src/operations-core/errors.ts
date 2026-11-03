@@ -25,8 +25,8 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Write at least one character before you send.",
     },
     COMMENTS_R0006: {
-      why: "server/comments.ts defines no authorize policy, so nobody can read or write comments.",
-      fix: "Pass authorize to defineComments({ authorize }) and return true for the people and Agents that may take the action.",
+      why: "server/comments.ts defines no authorize policy, so a production build lets in only people signed in with GitHub who can push to the repository, and people that the Console admits to its Comments section. Other signed-in people, such as users of ViteHub Auth or identify, get nothing.",
+      fix: "Pass authorize to defineComments({ authorize }) and return true for the people and Agents that may take the action. See https://vitehub.dev/docs/comments/configure#decide-who-can-comment",
     },
     COMMENTS_R0007: {
       why: ({ message }: { message: string }) => message,

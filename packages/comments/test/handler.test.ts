@@ -51,7 +51,8 @@ function fakeContent(options: { can?: boolean, fail?: Error } = {}) {
 }
 
 async function setup(input: { user?: CommentsUser | null, options?: DefineCommentsOptions, content?: ReturnType<typeof fakeContent>, session?: CommentsHandlerOptions["session"], consoleSession?: CommentsHandlerOptions["consoleSession"] } = {}) {
-  const comments = await createComments({ identify: () => input.user === undefined ? { id: "ada", name: "Ada" } : input.user, ...input.options })
+  // Each test names its policy; the default policy has tests of its own.
+  const comments = await createComments({ identify: () => input.user === undefined ? { id: "ada", name: "Ada" } : input.user, authorize: () => true, ...input.options })
   const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({
     comments,
     session: input.session,
@@ -66,7 +67,7 @@ async function setup(input: { user?: CommentsUser | null, options?: DefineCommen
     if (init.json !== undefined) headers.set("content-type", "application/json")
     if (init.method && init.method !== "GET" && !headers.has("origin")) headers.set("origin", origin)
     const response = await app.fetch(new Request(`${origin}/api/_vitehub/comments${path}`, { ...init, headers, body: init.json === undefined ? init.body : JSON.stringify(init.json) }))
-    return { response, body: await response.json() as { data?: any, error?: { code: string, why: string } } }
+    return { response, body: await response.json() as { data?: any, error?: { code: string, why: string, fix?: string } } }
   }
   return { comments, call }
 }
@@ -280,8 +281,25 @@ describe("Comments API", () => {
     expect(body.data.user).toEqual({ id: "ada", name: "Ada" })
   })
 
+  it("asks for an authorize policy before it lets in a user of the app's own sign-in in a production build", async () => {
+    const { call } = await setup({ options: { authorize: undefined } })
+    const threads = await call("/threads?page=/")
+    expect(threads.response.status).toBe(403)
+    expect(threads.body.error).toMatchObject({ code: "COMMENTS_POLICY_MISSING", fix: expect.stringContaining("authorize") })
+    const session = await call("/session")
+    expect(session.body.data.can).toMatchObject({ read: false, comment: false })
+  })
+
+  it("lets in the people that the Console admitted, without an authorize policy", async () => {
+    const consoleUser = { id: "console-ada", name: "Ada" }
+    const { call } = await setup({ options: { authorize: undefined, identify: undefined }, consoleSession: async () => consoleUser })
+    const created = await call("/threads", { method: "POST", json: { page: "/", anchor, body: "From the Console team" } })
+    expect(created.response.status).toBe(200)
+    expect((await call("/threads?page=/")).body.data).toHaveLength(1)
+  })
+
   it("denies threads to an anonymous user by default", async () => {
-    const { call } = await setup({ user: null })
+    const { call } = await setup({ user: null, options: { authorize: undefined } })
     const session = await call("/session")
     expect(session.body.data.can.read).toBe(false)
     expect(session.response.headers.get("set-cookie")).toBeNull()
@@ -387,7 +405,7 @@ describe("Comments API", () => {
   })
 
   it.each([false, true])("answers Nuxt 4 H3 1 events and retains forge work: %s", async (forge) => {
-    const comments = await createComments({ identify: () => ({ id: "ada", name: "Ada" }), forge: forge ? { provider: "github" } : undefined })
+    const comments = await createComments({ identify: () => ({ id: "ada", name: "Ada" }), authorize: () => true, forge: forge ? { provider: "github" } : undefined })
     const work: Promise<unknown>[] = []
     const waitUntil = vi.fn((promise: Promise<unknown>) => { work.push(promise) })
     const handler = createCommentsHandler({ comments, realtime: false })

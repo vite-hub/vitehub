@@ -44,16 +44,17 @@ export const comments = defineComments({
 
 `thread` is the thread that the action changes. It is `undefined` for lists and for new threads; a new thread has `subject`. The same policy runs for the overlay, the [comment operations](/docs/comments/operations/configure), the Console, MCP, and Agents.
 
-Without `authorize`, the person decides:
+Without `authorize`, a production build lets in only people that a sign-in already checked. Anyone may be able to sign up to an app, so a user of ViteHub Auth or `identify` waits until you write a policy:
 
 | Person | Without `authorize` |
 | --- | --- |
-| Signed in [with GitHub](#sign-in-with-github) | May do everything when they can push to the repository of the build. Nothing otherwise. |
-| Signed in another way: `identify`, the Console, or ViteHub Auth | May do everything. |
-| Not signed in, on the dev server | May do everything, as a guest under a name they type. |
+| Signed in [with GitHub](#sign-in-with-github) | May do everything when they can push to the repository of the build. Nothing otherwise, also on the dev server. |
+| Admitted by the [Console](#comment-as-the-console-team) to its Comments section | May do everything that the Console grant allows. The comment operations, the CLI, and MCP always run after this check. |
+| Signed in with ViteHub Auth or `identify`, in a production build | Nothing. The API answers [`COMMENTS_POLICY_MISSING`](/docs/comments/limits-and-errors#comments_policy_missing), and the server log shows `COMMENTS_R0006` once. |
+| Anyone on the dev server | May do everything. People who are not signed in comment as guests under a name they type. |
 | Not signed in, in a production build | Nothing. |
 
-The default guest policy follows Vite's serve/build command. Production builds deny anonymous access regardless of the server's `NODE_ENV`.
+The dev server follows Vite's serve/build command, never the server's `NODE_ENV`. `defaultPolicy(user, { development, console })` from `vite-hub/comments` is this table as a function, so a policy of your own can fall back to it.
 
 The user comes from `identify`, else from the [Console](#comment-as-the-console-team) when the app has one, else from the ViteHub Auth session when the app has [Auth](/docs/auth), else from [Sign in with GitHub](#sign-in-with-github).
 

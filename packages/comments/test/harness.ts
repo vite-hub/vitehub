@@ -31,8 +31,9 @@ export async function createDatabase(): Promise<CommentsDatabase> {
   return drizzle(client) as unknown as CommentsDatabase
 }
 
+/** Comments on an in-memory Database. Tests name their own policy; `{ authorize: undefined }` tests the default one. */
 export async function createComments(options: DefineCommentsOptions = {}) {
-  const comments = defineComments(options)
+  const comments = defineComments({ authorize: () => true, ...options })
   installComments(comments, { database: await createDatabase() })
   return comments
 }

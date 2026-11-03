@@ -24,7 +24,7 @@ export default defineComments({
 
 Return `true` to allow. The policy runs for every operation, on every surface: the Console, the CLI, MCP, agents, and the overlay API.
 
-- Without `authorize`, the default policy of [Decide who can comment](/docs/comments/configure#decide-who-can-comment) applies: signed-in people may do everything, and anonymous people only on the dev server, as guests.
+- Without `authorize`, the default policy of [Decide who can comment](/docs/comments/configure#decide-who-can-comment) applies. The operations run only after the Console admitted the call to its Comments section, so those people may do everything that their grant allows. Anonymous people may only on the dev server, as guests.
 - Creating a thread asks `read`, then `write`, with its subject. Mention suggestions ask `read`, then `write`, without a thread or subject.
 - Every operation on a thread asks `read` for that thread first. A thread you may not read looks missing: `get` answers `null`, and `reply`, `edit`, `delete`, `resolve`, and `reopen` fail with `COMMENTS_R0002`, the same as for a thread that does not exist.
 - People edit their own messages and delete their own messages, once they may read the thread. Nobody else edits a message. An Agent has no such right, even when it acts for the author: `edit` needs `write`, and `delete` needs `delete`.

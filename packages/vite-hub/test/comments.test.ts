@@ -297,7 +297,7 @@ describe("comments in the CLI, the Console, and the browser transport", () => {
     expect((await value<CommentThread[]>(view.operation, open.input)).map(thread => thread.author.id)).toEqual(["ben"])
     signedIn = ana
     expect((await value<CommentThread[]>(view.operation, open.input)).map(thread => thread.author.id)).toEqual(["ana"])
-    // Without a policy, signed-in people read every thread.
+    // Without a policy, everyone the Console admits reads every thread.
     await setup(defineComments())
     expect(await value<CommentThread[]>(view.operation, {})).toEqual([])
   })

@@ -77,7 +77,7 @@ export default defineEventHandler(async (event) => {
 | `edit(messageId, { body, mentions? })` | The message, with the new text and `editedAt`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND`, `COMMENTS_INVALID_INPUT` |
 | `removeScope(scope)` | `{ removed }`, the number of threads it deleted with their messages. | `COMMENTS_NOT_INSTALLED` |
 | `people({ query, user, thread?, subject?, limit? })` | At most 20 people whose name contains `query`, that `user` may mention there. | `COMMENTS_NOT_INSTALLED` |
-| `can({ user, action, thread?, subject? })` | `true` when the `authorize` policy allows the action. | None |
+| `can({ user, action, thread?, subject? }, gate?)` | `true` when the `authorize` policy allows the action. Without `authorize`, [the default policy](/docs/comments/configure#decide-who-can-comment) decides; `gate` says what your server already checked: `{ development, console }`. | None |
 | `sync(threadId)` | Nothing. With `forge`, brings the thread's pull request comments in line now, and posts what failed before. | None |
 | `flush()` | Nothing. Waits for the pull request syncs and `onMention` calls that earlier changes started. | None |
 
@@ -267,7 +267,7 @@ The server sets the author of a message from the user of the request. A guest se
 | Status | Codes |
 | --- | --- |
 | `400` | `COMMENTS_INVALID_INPUT`, `COMMENTS_FIELD_INVALID` |
-| `403` | `COMMENTS_FORBIDDEN`, `COMMENTS_FIELD_FORBIDDEN` |
+| `403` | `COMMENTS_FORBIDDEN`, `COMMENTS_POLICY_MISSING`, `COMMENTS_FIELD_FORBIDDEN` |
 | `404` | `COMMENTS_NOT_FOUND`, `COMMENTS_CONTENT_MISSING`, `COMMENTS_SIGN_IN_OFF` |
 | `409` | `COMMENTS_RESOLVED`, `COMMENTS_FIELD_CONFLICT` |
 | `422` | `COMMENTS_FIELD_NOT_EDITABLE` |

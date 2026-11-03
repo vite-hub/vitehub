@@ -8,7 +8,7 @@ import { createForgeSync } from "./forge/sync.ts"
 import { normalizeCommentPage } from "./page.ts"
 
 import type { Result } from "@vite-hub/runtime"
-import type { CommentAction, CommentsUser } from "./operations-core/define.ts"
+import type { CommentAction, CommentsPolicyGate, CommentsUser } from "./operations-core/define.ts"
 import type { CommentsAttachmentStore, CommentsRuntime } from "./operations-core/service.ts"
 import type { CommentsDatabase, CommentsTables } from "./operations-core/store.ts"
 import type {
@@ -29,6 +29,7 @@ import type { CommentsPeople } from "./operations-core/define.ts"
 export { describeCommentContext } from "./context.ts"
 export { commentRoom, commentsPageScope, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "./page.ts"
 export { builtinCommentSubjects, defaultPolicy, defineCommentSubject } from "./operations-core/define.ts"
+export type { CommentsPolicyGate } from "./operations-core/define.ts"
 export { commentsErrorDiagnostics } from "./client-errors.ts"
 export type * from "./types.ts"
 
@@ -58,10 +59,13 @@ export interface Comments {
   edit(messageId: string, input: EditCommentInput): Promise<Result<CommentMessage, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND" | "COMMENTS_INVALID_INPUT">>>
   /** Deletes every thread of a numbering scope, such as when app code deletes the document that the scope names. */
   removeScope(scope: string): Promise<Result<{ removed: number }, Codes<"COMMENTS_NOT_INSTALLED">>>
-  /** Whether the `authorize` policy allows an action. Without a policy, see `defaultPolicy()`. */
-  can(context: { user: CommentsUser | null, action: CommentAction, thread?: CommentThread, subject?: CommentSubject }): Promise<boolean>
+  /**
+   * Whether the `authorize` policy allows an action. Without a policy, see `defaultPolicy()`. `gate` says what your
+   * server checked before, such as Console section access; a route of your own usually passes nothing.
+   */
+  can(context: { user: CommentsUser | null, action: CommentAction, thread?: CommentThread, subject?: CommentSubject }, gate?: CommentsPolicyGate): Promise<boolean>
   /** People that `@` suggests to `user`, at most 20: `people`, else Auth, else the authors of threads that `user` may read. */
-  people(context: { query: string, user: CommentsUser | null, thread?: CommentThread, subject?: CommentSubject, limit?: number }): Promise<Result<CommentUser[], Codes<"COMMENTS_NOT_INSTALLED">>>
+  people(context: { query: string, user: CommentsUser | null, thread?: CommentThread, subject?: CommentSubject, limit?: number, gate?: CommentsPolicyGate }): Promise<Result<CommentUser[], Codes<"COMMENTS_NOT_INSTALLED">>>
   /**
    * With `forge`: brings the thread's pull request comments in line with the thread now, and posts what failed
    * before. Every change starts this on its own; `flush()` waits for it.
@@ -236,15 +240,15 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
       for (const threadId of removed) current.forge?.changed(threadId)
       return [undefined, { removed: removed.length }]
     },
-    async can(context) {
+    async can(context, gate) {
       const current = await runtime()
-      return can(current ?? { definition: options }, context)
+      return can(current ?? { definition: options }, context, gate)
     },
-    async people({ query, user, thread, subject, limit = 20 }) {
+    async people({ query, user, thread, subject, limit = 20, gate }) {
       const current = await runtime()
       if (!current) return notInstalled()
       if (subject) scopeOf(current, subject)
-      return [undefined, await suggest(current, { limit: Math.min(Math.max(limit, 1), 20), query, user, ...(thread ? { thread } : {}), ...(subject ? { subject } : {}) })]
+      return [undefined, await suggest(current, { limit: Math.min(Math.max(limit, 1), 20), query, user, ...(gate ? { gate } : {}), ...(thread ? { thread } : {}), ...(subject ? { subject } : {}) })]
     },
     async sync(threadId) {
       await runtimes.get(comments)?.sync?.(threadId)

@@ -116,7 +116,7 @@ describe("Comments MCP tools", () => {
   })
 
   it("keeps anonymous callers anonymous for every action", async () => {
-    const { comments, call } = await setup()
+    const { comments, call } = await setup({ authorize: ({ user }) => user !== null })
     const [, thread] = await comments.create({ page: "/", anchor, body: "Private", author: ada })
     for (const [name, input] of [
       ["comments_list_threads", {}],
@@ -199,7 +199,7 @@ describe("Comments MCP tools", () => {
     expect(updated?.resolvedBy).toEqual({ id: "guest:ben", name: "Ben", guest: true })
     expect(seen).toEqual([person, person, null, null])
 
-    const privateComments = await createComments()
+    const privateComments = await createComments({ authorize: undefined })
     const [, privateThread] = await privateComments.create({ page: "/", anchor, body: "Private", author: ada })
     for (const tool of commentsMcpTools(privateComments, { consoleSession: guestSession })) {
       expect((await tool.call({ id: privateThread!.id, body: "Denied" }, { user: ada, event: request })).isError).toBe(true)

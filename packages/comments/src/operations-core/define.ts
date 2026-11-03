@@ -118,9 +118,9 @@ export interface CommentsStoreAttachmentContext {
 
 export interface CommentsDefinition {
   /**
-   * Who may read, write, resolve, and delete. Return `true` to allow. Without it: a person signed in with GitHub may
-   * do everything when they can push to the repository of the build; any other signed-in user may do everything;
-   * anonymous people may do everything as guests on the development server only.
+   * Who may read, write, resolve, and delete. Return `true` to allow. Without it, see `defaultPolicy()`: everyone on
+   * the development server; in a production build, people signed in with GitHub who can push to the repository, and
+   * people that the Console admits to its Comments section. Nobody else until you set it.
    */
   authorize?: CommentsAuthorize
   /** Subject kinds in addition to `page` (scope `site`) and `content` (scope `site`). */
@@ -178,12 +178,33 @@ export const builtinCommentSubjects: readonly CommentSubjectDefinition[] = [
   defineCommentSubject({ kind: "content", scope: () => "site" }),
 ]
 
+/** What the server checked about a request before the policy runs. */
+export interface CommentsPolicyGate {
+  /** Vite's serve command. The generated Nitro plugin records it; it never comes from `NODE_ENV`. */
+  development?: boolean
+  /**
+   * The Console admitted the person to its Comments section before Comments ran: the comment operations (RPC, CLI,
+   * MCP) and, in an app with the Console, the overlay API.
+   */
+  console?: boolean
+}
+
 /**
- * The policy without `authorize`, for every action: a person signed in with GitHub needs push access to the repository
- * of the build; any other signed-in user may; anonymous people may only on the development server, as guests.
- * `development` comes from Vite's command in the generated Nitro plugin, and defaults to false.
+ * The policy without `authorize`, for every action. On the development server, everyone may, anonymous people as
+ * guests. In a production build, only people that a sign-in already vetted: a person signed in with GitHub who can
+ * push to the repository of the build, or a person that the Console admitted to its Comments section. Users of
+ * ViteHub Auth or `identify` get nothing until `authorize` says who may, because any visitor may be able to sign up.
  */
-export function defaultPolicy(user: CommentsUser | null, development = false): boolean {
-  if (!user) return development
-  return user.github ? user.github.write : true
+export function defaultPolicy(user: CommentsUser | null, gate: CommentsPolicyGate = {}): boolean {
+  if (user?.github) return user.github.write
+  if (gate.development === true) return true
+  return user !== null && gate.console === true
+}
+
+/**
+ * Whether the default policy denied `user` only because `server/comments.ts` has no `authorize`: a signed-in person
+ * in a production build that neither GitHub nor the Console vetted. The diagnostics then name the missing policy.
+ */
+export function deniedForMissingPolicy(definition: Pick<CommentsDefinition, "authorize">, user: CommentsUser | null, gate: CommentsPolicyGate = {}): boolean {
+  return !definition.authorize && user !== null && user.guest !== true && !user.github && gate.development !== true && gate.console !== true
 }

@@ -33,7 +33,7 @@ A thread and its first message are written together: with `batch()` on libSQL an
 | `COMMENTS_R0003` | 404 | The message does not exist in the thread. |
 | `COMMENTS_R0004` | 403 | Only the author can edit a message. |
 | `COMMENTS_R0005` | 400 | The text is empty. |
-| `COMMENTS_R0006` | 403 | No longer returned: without `authorize`, the default policy applies. |
+| `COMMENTS_R0006` | 403 | `server/comments.ts` has no `authorize`, and the default policy refused a signed-in person that neither GitHub nor the Console checked. Add `authorize`. The overlay API answers `COMMENTS_POLICY_MISSING` for the same case. |
 | `COMMENTS_R0007` | 400 | A mention is not a real person, the text does not name them, or `canMention` refuses them. |
 | `COMMENTS_R0008` | 400 | The subject kind is not defined. |
 | `COMMENTS_R0009` | 403 | `authorize` returned false. |

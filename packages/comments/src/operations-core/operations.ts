@@ -5,7 +5,7 @@ import { guestFromHeaders } from "../identity.ts"
 import { commentsErrorDiagnostics } from "./errors.ts"
 import { isPagePath } from "./path.ts"
 import { commentsRuntime } from "./server.ts"
-import { can, createThread, editMessage, fail, maximumAttachmentBytes, maximumAttachments, maximumCommentBodyLength, maximumMentions, personOf, replyToThread, storeAttachment, suggest } from "./service.ts"
+import { can, createThread, deniedError, editMessage, fail, maximumAttachmentBytes, maximumAttachments, maximumCommentBodyLength, maximumMentions, personOf, replyToThread, storeAttachment, suggest } from "./service.ts"
 
 import type { AnyOperation, OperationContext } from "@vite-hub/internal/operations"
 import type { CommentAction, CommentsUser } from "./define.ts"
@@ -90,14 +90,18 @@ interface Target {
   thread?: CommentThread
 }
 
+/** Operations run only after the Console admitted the call to the `comments` section, so the default policy trusts it. */
+function gateOf(who: Caller) {
+  return { console: true, development: who.runtime.development ?? who.context.development === true }
+}
+
 /** Asks the policy, with the thread and its subject, or the subject a thread would start on. */
 async function permitted(who: Caller, action: CommentAction, target: Target = {}): Promise<boolean> {
-  const development = who.runtime.development ?? who.context.development
-  return can(who.runtime, { action, user: who.user, ...(who.actor ? { actor: who.actor } : {}), ...target }, development)
+  return can(who.runtime, { action, user: who.user, ...(who.actor ? { actor: who.actor } : {}), ...target }, gateOf(who))
 }
 
 async function allow(who: Caller, action: CommentAction, target?: Target): Promise<void> {
-  if (!(await permitted(who, action, target))) throw fail(commentsErrorDiagnostics.COMMENTS_R0009({ action }), 403)
+  if (!(await permitted(who, action, target))) throw deniedError(who.runtime, action, who.user, gateOf(who))
 }
 
 /** The signed-in user, else the guest of the request, which only a policy that lets anonymous people write gets this far. */
@@ -197,7 +201,7 @@ const create = defineOperation({
       ...input,
       author: author(who),
       ...(who.actor ? { actor: who.actor } : {}),
-    }, { user: who.user, ...(context.waitUntil ? { waitUntil: context.waitUntil } : {}) })
+    }, { gate: gateOf(who), user: who.user, ...(context.waitUntil ? { waitUntil: context.waitUntil } : {}) })
   },
   section: "comments",
 })
@@ -218,7 +222,7 @@ const reply = defineOperation({
       ...(input.attachments ? { attachments: input.attachments } : {}),
       ...(who.actor ? { actor: who.actor } : {}),
     // The comment UI keeps a reply box on resolved threads. A reply keeps the thread resolved.
-    }, { allowResolved: true, user: who.user, ...(context.waitUntil ? { waitUntil: context.waitUntil } : {}) })
+    }, { allowResolved: true, gate: gateOf(who), user: who.user, ...(context.waitUntil ? { waitUntil: context.waitUntil } : {}) })
     return thread
   },
   section: "comments",
@@ -238,7 +242,7 @@ const edit = defineOperation({
     if (!target) throw fail(commentsErrorDiagnostics.COMMENTS_R0003({ messageId: input.messageId }), 404)
     // Nobody else edits a message, and a guest id proves nothing.
     if (!who.user || who.user.guest === true || target.author.guest || target.author.id !== who.user.id) throw fail(commentsErrorDiagnostics.COMMENTS_R0004(), 403)
-    return editMessage(who.runtime, found, target.id, { body: input.body, ...(input.mentions ? { mentions: input.mentions } : {}) }, { user: who.user, ...(context.waitUntil ? { waitUntil: context.waitUntil } : {}) })
+    return editMessage(who.runtime, found, target.id, { body: input.body, ...(input.mentions ? { mentions: input.mentions } : {}) }, { gate: gateOf(who), user: who.user, ...(context.waitUntil ? { waitUntil: context.waitUntil } : {}) })
   },
   section: "comments",
 })
@@ -312,7 +316,7 @@ const users = defineOperation({
     await allow(who, "write", target)
     const query = input.query.trim()
     if (query.length < minimumQuery) return []
-    return suggest(who.runtime, { limit: Math.min(input.limit ?? 5, maximumSuggestions), query, user: who.user, ...target })
+    return suggest(who.runtime, { gate: gateOf(who), limit: Math.min(input.limit ?? 5, maximumSuggestions), query, user: who.user, ...target })
   },
   section: "comments",
 })

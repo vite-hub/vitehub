@@ -64,13 +64,15 @@ it("recognizes renamed exports and gives default exports precedence", async () =
   expect(commentsEntryMode(entry)).toBe("operations")
 })
 
-it("lets signed-in people in by default, and nobody anonymous outside development", async () => {
+it("lets in vetted people by default, and nobody anonymous outside development", async () => {
   const definition = defineComments()
   expect(isCommentsDefinition(definition)).toBe(true)
   expect(Object.isFrozen(definition)).toBe(true)
   expect(definition.options.authorize).toBeUndefined()
-  expect(await definition.can({ user: { id: "ana" }, action: "read" })).toBe(true)
+  expect(await definition.can({ user: { id: "ana" }, action: "read" })).toBe(false)
+  expect(await definition.can({ user: { id: "ana" }, action: "read" }, { console: true })).toBe(true)
   expect(await definition.can({ user: null, action: "read" })).toBe(false)
+  expect(await definition.can({ user: null, action: "read" }, { development: true })).toBe(true)
 })
 
 it("generates the live handler after Realtime contributes its presence room", async () => {

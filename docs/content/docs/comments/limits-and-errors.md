@@ -72,6 +72,10 @@ The `authorize` policy of `defineComments()` denied the action for this user. `w
 
 The API also returns this code for a `POST` or `DELETE` from another origin. Behind a proxy that ends TLS, set `X-Forwarded-Proto` and `X-Forwarded-Host`. See [Proxies that end TLS](/docs/comments/hosts#proxies-that-end-tls).
 
+### COMMENTS_POLICY_MISSING
+
+`server/comments.ts` has no `authorize`, so a production build refused a person who signed in with ViteHub Auth or `identify`. Without a policy, Comments lets in only people signed in with GitHub who can push to the repository, and people that the Console admits to its Comments section. Pass `authorize` to `defineComments()`, and return `true` for the people that may take the action. The status is `403`. The server log shows `COMMENTS_R0006` once. See [Decide who can comment](/docs/comments/configure#decide-who-can-comment).
+
 ### COMMENTS_SIGN_IN_OFF
 
 A request reached `/api/_vitehub/comments/auth/` on a server without the GitHub OAuth client. Set `VITEHUB_GITHUB_CLIENT_ID` and `VITEHUB_GITHUB_CLIENT_SECRET` on the server. See [Sign in with GitHub](/docs/comments/configure#sign-in-with-github).
