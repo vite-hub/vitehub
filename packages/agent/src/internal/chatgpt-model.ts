@@ -174,7 +174,8 @@ export async function collectStream(result: LanguageModelV4StreamResult): Promis
  */
 export function chatgptLanguageModel(gateway: ChatGPTGateway, modelId: string, context: AgentProviderCredentialContext): LanguageModelV4 {
   const doStream = async (options: LanguageModelV4CallOptions): Promise<LanguageModelV4StreamResult> => {
-    const credential = await resolveChatGPTCredential(gateway, { ...context, abortSignal: options.abortSignal ?? context.abortSignal })
+    const abortSignal = options.abortSignal ?? context.abortSignal
+    const credential = await resolveChatGPTCredential(gateway, { ...context, abortSignal })
     const { createOpenAI } = await import("@ai-sdk/openai")
     // The key is a placeholder: the fetch adds the grant to the one request that it allows.
     const model = createOpenAI({ name: "chatgpt", apiKey: "chatgpt-plan", baseURL: credential.api, fetch: chatgptPlanFetch(credential) }).responses(modelId)
@@ -183,6 +184,7 @@ export function chatgptLanguageModel(gateway: ChatGPTGateway, modelId: string, c
     try {
       const result = await model.doStream({
         ...options,
+        abortSignal,
         // Plan usage takes function tools in a namespace, as Codex sends them.
         ...(options.tools ? { tools: options.tools.map(tool => tool.type === "function" ? { ...tool, providerOptions: { ...tool.providerOptions, openai: { ...tool.providerOptions?.openai, namespace: toolNamespace } } } : tool) } : {}),
         maxOutputTokens: undefined,
@@ -204,7 +206,7 @@ export function chatgptLanguageModel(gateway: ChatGPTGateway, modelId: string, c
       }
     }
     catch (error) {
-      options.abortSignal?.throwIfAborted()
+      abortSignal?.throwIfAborted()
       throw planError(error, gateway.connection)
     }
   }

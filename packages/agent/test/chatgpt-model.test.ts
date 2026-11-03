@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from "vitest"
+import { afterEach, expect, it, vi } from "vitest"
 import type { LanguageModelV4, LanguageModelV4StreamPart } from "@ai-sdk/provider"
 import { generateText } from "ai"
 import * as v from "valibot"
@@ -9,7 +9,8 @@ import { useChatGPTCredential } from "../../connections/src/internal/agent-crede
 import { createConnectionsRuntime } from "../../connections/src/runtime.ts"
 import { createChatGPTFake } from "../../connections/test/chatgpt-fake.ts"
 import { createStore } from "../../connections/test/helpers.ts"
-import { defineAgent, defineCapability, runAgent } from "../src/index.ts"
+import { defineAgent, defineCapability, runAgent, streamAgent } from "../src/index.ts"
+import { progressSummary, title } from "../src/capabilities.ts"
 import type { AgentCapabilityDefinition } from "../src/types.ts"
 import { chatgptPlanRequest, collectStream } from "../src/internal/chatgpt-model.ts"
 
@@ -27,16 +28,18 @@ async function fixture(capabilities: AgentCapabilityDefinition[] = []) {
   const callback = await fake.callback(authorization.url)
   await runtime.complete({ state: callback.searchParams.get("state")!, code: callback.searchParams.get("code")!, clientId: callback.searchParams.get("client_id")! })
   const calls: string[] = []
+  const finish = vi.fn()
   const agent = defineAgent({
     name: "assistant", runtime: false,
     capabilities: [...capabilities, defineCapability({ id: "siwc-test", tools: { siwc_echo: { name: "siwc_echo", description: "Echo a value.", inputSchema: v.object({ text: v.string() }), execute: async ({ text }) => { calls.push(text); return text } } } })] as const,
     driver: { model: "gpt-6.1-sol", gateway: chatgptGateway(), instructions: "Reply with a short greeting." },
+    hooks: { "agent:finish": finish },
   })
   const host = {
     runtime: "vite" as const, memo: <T>(_key: string, create: () => T) => create(), waitUntil: () => undefined,
     capabilities: { connections: { runtime: () => runtime, useChatGPTCredential: useChatGPTCredential(runtime) } },
   }
-  return { calls, fake, run: () => runAgent(agent, host, { prompt: "Hello", context: { "chat.sessionId": "siwc-session" }, timeout: 30_000 }) }
+  return { calls, fake, finish, host, run: () => runAgent(agent, host, { prompt: "Hello", context: { "chat.sessionId": "siwc-session" }, timeout: 30_000 }) }
 }
 
 it("answers on the ChatGPT plan over HTTP with the request that plan usage accepts", async () => {
@@ -85,6 +88,61 @@ it("inherits the ChatGPT plan for capability models and preserves explicit model
   expect(test.fake.state.requests[0]).toMatchObject({ model: "gpt-6.1-sol", store: false, stream: true })
   expect(JSON.stringify(test.fake.state.requests[0]?.input)).toContain("Capability greeting.")
   expect(test.fake.state.originators).toEqual(["My SIWC app", "My SIWC app"])
+})
+
+it("uses the explicit title Driver's ChatGPT gateway and model", async () => {
+  const test = await fixture([title({ driver: { model: "gpt-title", gateway: chatgptGateway() } })])
+  expect(await test.run()).toMatchObject({ text: "Hello from the local ChatGPT fake." })
+  expect(test.finish.mock.calls[0]?.[0].extensions.get("title")).toEqual({ title: expect.stringContaining("Hello from the local ChatGPT fake") })
+  expect(test.fake.state.requests).toHaveLength(2)
+  expect(test.fake.state.requests).toContainEqual(expect.objectContaining({ model: "gpt-title", store: false, stream: true }))
+})
+
+it("uses the explicit progress-summary Driver's ChatGPT gateway and model", async () => {
+  const test = await fixture()
+  let summary: unknown
+  const agent = defineAgent({
+    name: "assistant", runtime: false,
+    capabilities: [progressSummary({ driver: { model: "gpt-progress", gateway: chatgptGateway() }, intervalMs: 0 })],
+    driver: { run: () => (async function* () {
+      yield { type: "reasoning-delta", id: "reasoning-1", delta: "Working" }
+      await vi.waitFor(() => expect(summary).toBe("Hello from the local ChatGPT fake."), { timeout: 5_000 })
+      yield { type: "finish" }
+    })() },
+  })
+  const stream = await streamAgent(agent, test.host, { prompt: "Hello" }) as AsyncIterable<{ type: string; data?: { summary?: string } }>
+  for await (const event of stream) {
+    if (event.type === "data-progress-summary") summary = event.data?.summary
+  }
+  expect(test.fake.state.requests).toHaveLength(1)
+  expect(test.fake.state.requests[0]).toMatchObject({ model: "gpt-progress", store: false, stream: true })
+}, 10_000)
+
+it.each([{ source: "inherited", explicit: false }, { source: "explicit", explicit: true }])("cancels the HTTP request with the $source capability signal", async ({ explicit }) => {
+  const test = await fixture([defineCapability({
+    id: "cancel-model",
+    async resolve(context) {
+      const inherited = new AbortController()
+      const override = new AbortController()
+      const active = explicit ? override : inherited
+      const model = await context.model.resolve(undefined, { abortSignal: inherited.signal }) as LanguageModelV4
+      const originalFetch = globalThis.fetch
+      const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+        if (String(input).endsWith("/responses")) {
+          active.abort(new Error("Capability cancelled"))
+          expect(init?.signal?.aborted).toBe(true)
+        }
+        return await originalFetch(input, init)
+      })
+      try {
+        await expect(generateText({ model, prompt: "Capability greeting.", maxRetries: 0, ...(explicit ? { abortSignal: override.signal } : {}) }))
+          .rejects.toThrow("Capability cancelled")
+      }
+      finally { fetch.mockRestore() }
+    },
+  })])
+  expect(await test.run()).toMatchObject({ text: "Hello from the local ChatGPT fake." })
+  expect(test.fake.state.requests).toHaveLength(1)
 })
 
 it("maps plan errors to the ChatGPT diagnostics", async () => {
