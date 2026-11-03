@@ -388,6 +388,30 @@ describe("createCommentsClient", () => {
 })
 
 describe("query reconciliation", () => {
+  it("keeps pushed threads within the subject kind and revision query", async () => {
+    const store = createMemoryTransport({ user: ana })
+    const client = createCommentsClient({ transport: store, user: ana, query: { subjectKind: "page", revision: { lte: 2 } } })
+    const stop = client.start()
+    try {
+      await vi.waitFor(() => expect(client.status).toBe("ready"))
+      const included = await store.create({ subject, anchor, body: "Included", revision: 2 })
+      const older = await store.create({ subject, anchor, body: "Older", revision: 0 })
+      await store.create({ subject, anchor, body: "Too new", revision: 3 })
+      await store.create({ subject, anchor, body: "No revision" })
+      await store.create({ subject: { kind: "content", id: "about" }, anchor, body: "Other kind", revision: 1 })
+      expect(client.threads.map(thread => thread.id)).toEqual([included.id, older.id])
+      expect((await store.list(client.query)).map(thread => thread.id)).toEqual([included.id, older.id])
+      await client.refresh()
+      expect(client.threads.map(thread => thread.id)).toEqual([included.id, older.id])
+      client.query = { subjectKind: "page", revision: { lte: 0 } }
+      expect(client.threads.map(thread => thread.id)).toEqual([older.id])
+      await store.reply({ threadId: included.id, body: "Still excluded" })
+      expect(client.threads.map(thread => thread.id)).toEqual([older.id])
+    } finally {
+      stop()
+    }
+  })
+
   it.each(["mine", "mentions"] as const)("preserves listed %s membership when mutation reconciliation fails", async filter => {
     const store = createMemoryTransport({ user: ana })
     const thread = await store.create({ subject, anchor, body: "Here @Ana", mentions: [ana.id] })

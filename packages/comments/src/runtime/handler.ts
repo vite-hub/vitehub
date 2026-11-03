@@ -400,18 +400,19 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
 
     if (path === "/threads") {
       if (method === "GET") {
-        const [denied, allowed] = await access(event, "read")
-        if (denied) return failure(denied)
         const page = url.searchParams.get("page")
+        const subject: CommentSubject | undefined = page ? { kind: "page", id: normalizeCommentPage(page) } : undefined
+        const [denied, allowed] = await access(event, "read", undefined, subject)
+        if (denied) return failure(denied)
         const state = url.searchParams.get("status")
         const [error, listed] = await comments.list({
           subjectKind: "page",
-          ...(page ? { page: normalizeCommentPage(page) } : {}),
+          ...(subject ? { subject } : {}),
           ...(state === "open" || state === "resolved" ? { status: state } : {}),
         })
         if (error) return failure(error)
-        // Without a page, every page thread. Threads on other subjects belong to the app's own UI.
-        const threads = page ? listed : listed.filter(thread => thread.subject.kind === "page")
+        const readable = await Promise.all(listed.map(thread => can(event, allowed.user, "read", thread)))
+        const threads = listed.filter((_, index) => readable[index])
         return json({ data: await Promise.all(threads.map(thread => permissions(event, allowed.user, thread))), people: await people(allowed.user, threads) })
       }
       if (method === "POST") {

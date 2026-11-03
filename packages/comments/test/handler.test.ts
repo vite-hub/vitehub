@@ -72,6 +72,34 @@ async function setup(input: { user?: CommentsUser | null, options?: DefineCommen
 }
 
 describe("Comments API", () => {
+  it.each([true, false])("authorizes the normalized page subject when general reads are allowed: %s", async (generalReads) => {
+    const { comments, call } = await setup({ options: {
+      authorize: ({ action, subject }) => action !== "read" || (subject ? subject.id === "/allowed" : generalReads),
+    } })
+    const author = { id: "ada", name: "Ada" }
+    const [, allowed] = await comments.create({ page: "/allowed", anchor, body: "Allowed", author })
+    await comments.create({ page: "/denied", anchor, body: "Denied", author })
+    const listed = await call("/threads?page=/allowed?preview=1")
+    expect(listed.response.status).toBe(200)
+    expect(listed.body.data.map((thread: { id: string }) => thread.id)).toEqual([allowed!.id])
+    expect((await call("/threads?page=/denied")).response.status).toBe(403)
+    if (generalReads) {
+      const all = await call("/threads")
+      expect(all.response.status).toBe(200)
+      expect(all.body.data.map((thread: { id: string }) => thread.id)).toEqual([allowed!.id])
+    }
+  })
+
+  it("checks each thread's read policy even when its page is readable", async () => {
+    const { comments, call } = await setup({ options: {
+      authorize: ({ action, thread }) => action !== "read" || !thread || thread.messages[0]?.body === "Allowed",
+    } })
+    const author = { id: "ada", name: "Ada" }
+    const [, allowed] = await comments.create({ page: "/", anchor, body: "Allowed", author })
+    await comments.create({ page: "/", anchor, body: "Denied", author })
+    expect((await call("/threads?page=/")).body.data.map((thread: { id: string }) => thread.id)).toEqual([allowed!.id])
+  })
+
   it.each([true, false])("preserves Console read-only access across HTTP routes: %s", async (readOnly) => {
     const user = { id: "ada", name: "Ada", role: "editor" }
     const session = commentsConsoleSession({

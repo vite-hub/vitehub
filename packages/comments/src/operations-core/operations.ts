@@ -57,7 +57,8 @@ const anchor = v.union([
 /** The anchor that `comments.create` takes, for the overlay API, which reads its input itself. */
 export const commentAnchorSchema: typeof anchor = anchor
 
-const subject = v.strictObject({ id: v.pipe(v.string(), v.minLength(1), v.maxLength(500)), kind: v.pipe(v.string(), v.minLength(1), v.maxLength(40)) })
+const subjectKind = v.pipe(v.string(), v.minLength(1), v.maxLength(40))
+const subject = v.strictObject({ id: v.pipe(v.string(), v.minLength(1), v.maxLength(500)), kind: subjectKind })
 const page = v.pipe(v.string(), v.check(isPagePath, 'A page is an app path that starts with one "/", such as "/pricing", without "?" or "#".'))
 const cursor = v.strictObject({ id: v.pipe(v.string(), v.minLength(1), v.maxLength(100)), updatedAt: v.number() })
 const text = v.pipe(v.string(), v.maxLength(maximumCommentBodyLength))
@@ -145,6 +146,7 @@ const list = defineOperation({
     revision: v.optional(v.strictObject({ lte: revision })),
     status: v.optional(v.picklist(["open", "resolved"])),
     subject: v.optional(subject),
+    subjectKind: v.optional(subjectKind),
   }),
   kind: "read",
   name: "comments.list",

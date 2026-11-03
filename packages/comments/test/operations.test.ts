@@ -8,6 +8,8 @@ import { defineComments } from "../src/index.ts"
 import { commentsOperations } from "../src/operations-core/operations.ts"
 import { createAuthUsers, installCommentsRuntime } from "../src/operations-core/server.ts"
 import { createCommentsStore } from "../src/operations-core/store.ts"
+import { createRpcTransport } from "../src/rpc.ts"
+import { createMemoryTransport } from "../src/testing.ts"
 import { commentsTables } from "../src/tables.ts"
 
 import type { OperationContext } from "@vite-hub/internal/operations"
@@ -40,6 +42,23 @@ it("scans past more than fifty hidden threads to fill a readable page", async ()
   const visible = await create(member, { ...input, body: "visible" })
   for (let i = 0; i < 51; i++) await create()
   expect(await call("comments.list", { limit: 1 })).toEqual({ ok: true, value: [visible] })
+})
+
+it.each(["rpc", "memory"])("filters subject kinds before limiting through the %s transport", async (kind) => {
+  const store = setup(defineComments({ authorize: () => true }))
+  const message = { attachments: [], author: member, body: "Page", id: "page-message", mentions: [], now: 1 }
+  const visible = await store.createThread({ ...message, anchor: { kind: "page" }, scope: "site", subject: page, threadId: "page" })
+  const content = await store.createThread({ ...message, id: "content-message", now: 2, anchor: { kind: "page" }, scope: "site", subject: { kind: "content", id: "about" }, threadId: "content" })
+  const transport = kind === "memory"
+    ? createMemoryTransport({ user: member, threads: [visible, content] })
+    : createRpcTransport({ fetch: async (_url, init) => {
+        const { operation, input } = JSON.parse(String(init?.body))
+        return Response.json(await call(operation, input))
+      } })
+  expect(await transport.list({ subjectKind: "page", limit: 1 })).toEqual([visible])
+  expect(await transport.list({ subjectKind: "content" })).toEqual([content])
+  expect(await transport.list({ subjectKind: "missing" })).toEqual([])
+  expect(await transport.list({ subjectKind: "page", subject: content.subject })).toEqual([])
 })
 
 it("refuses ownership-based deletion when another author replies after authorization", async () => {

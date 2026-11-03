@@ -87,7 +87,9 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
   const matchesQuery = (thread: CommentThread): boolean => {
     const user = options.user
     if (query.subject && (thread.subject.kind !== query.subject.kind || thread.subject.id !== query.subject.id)) return false
+    if (query.subjectKind !== undefined && thread.subject.kind !== query.subjectKind) return false
     if (query.page !== undefined && (thread.subject.kind !== "page" || thread.subject.id !== query.page)) return false
+    if (query.revision && (thread.revision === undefined || thread.revision > query.revision.lte)) return false
     if (query.status && thread.status !== query.status) return false
     if (user && query.mine && thread.author.id !== user.id) return false
     if (user && query.mentions && !thread.messages.some(message => message.mentions.includes(user.id))) return false

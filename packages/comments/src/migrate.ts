@@ -32,6 +32,11 @@ const addedColumns = { metadata: "text", context: "text", revision: "integer" } 
 
 const scopeOf = "CASE WHEN `scope` = 'pages' THEN 'site' ELSE `scope` END"
 
+function migratedAuthorId(column: string): string {
+  const id = `json_extract(${column}, '$.id')`
+  return `CASE WHEN json_extract(${column}, '$.guest') = 1 AND substr(${id}, 1, 6) <> 'guest:' THEN 'guest:' || ${id} ELSE ${id} END`
+}
+
 /**
  * Moves the live-site tables to the tables of one model, on SQLite, libSQL, and D1. It renames the threads table to
  * `vitehub_comment_threads_live`, creates the new tables, and copies every thread and comment. It deletes nothing:
@@ -49,13 +54,13 @@ function liveToCurrent(): string[] {
       `SELECT \`id\`, ${scopeOf}, \`number\`, ${subjectKind}, ${subjectId},`,
       "CASE WHEN `anchor` IS NULL OR `anchor` = 'null' THEN '{\"kind\":\"page\"}' ELSE json_set(`anchor`, '$.kind', 'element') END,",
       "`status`, `resolved_by`, `resolved_at`,",
-      "json_extract(`created_by`, '$.id'), json_extract(`created_by`, '$.name'), json_extract(`created_by`, '$.image'),",
+      `${migratedAuthorId("`created_by`")}, json_extract(\`created_by\`, '$.name'), json_extract(\`created_by\`, '$.image'),`,
       "NULL, `metadata`, `context`, NULL, `created_at`, `updated_at`",
       `FROM \`${liveThreadsBackup}\``,
     ].join(" "),
     [
       "INSERT INTO `vitehub_comment_messages` (`id`, `thread_id`, `body`, `author_id`, `author_name`, `author_image`, `actor`, `mentions`, `attachments`, `created_at`, `edited_at`)",
-      "SELECT `c`.`id`, `c`.`thread_id`, `c`.`body`, json_extract(`c`.`author`, '$.id'), json_extract(`c`.`author`, '$.name'), json_extract(`c`.`author`, '$.image'), NULL,",
+      `SELECT \`c\`.\`id\`, \`c\`.\`thread_id\`, \`c\`.\`body\`, ${migratedAuthorId("`c`.`author`")}, json_extract(\`c\`.\`author\`, '$.name'), json_extract(\`c\`.\`author\`, '$.image'), NULL,`,
       "coalesce((SELECT json_group_array(json_extract(`m`.`value`, '$.id')) FROM json_each(`c`.`mentions`) AS `m`), '[]'), '[]', `c`.`created_at`, `c`.`edited_at`",
       `FROM \`vitehub_comments\` AS \`c\` WHERE \`c\`.\`thread_id\` IN (SELECT \`id\` FROM \`${liveThreadsBackup}\`)`,
     ].join(" "),
