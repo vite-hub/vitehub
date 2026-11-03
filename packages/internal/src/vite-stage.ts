@@ -8,6 +8,7 @@ export interface ViteStageServer {
 
 export interface ViteStageServerConfig {
   appType: "custom"
+  envDir?: string | false
   logLevel: "silent"
   mode: string
   root: string
@@ -22,6 +23,8 @@ export interface ViteStageModule<TServer extends ViteStageServer> {
 export interface ViteStageServerInput {
   /** Environment that wins over values from stage-specific env files. */
   env: NodeJS.ProcessEnv
+  /** Resolved environment directory from the project's Vite configuration. */
+  envDir?: string | false
   rootDir: string
   stage: string
   /** Stream that receives config and stage-server logs. */
@@ -42,19 +45,18 @@ function replaceProcessEnv(entries: Iterable<[string, string]>): void {
   for (const [key, value] of entries) process.env[key] = value
 }
 
-async function runExclusive<TServer extends ViteStageServer, TResult>(
+async function runStageServer<TServer extends ViteStageServer, TResult>(
   vite: ViteStageModule<TServer>,
   input: ViteStageServerInput,
   callback: (server: TServer) => Promise<TResult>,
 ): Promise<TResult> {
   let server: TServer | undefined
-  const previousEnvironment = definedEntries(process.env)
   const selectedEnvironment = definedEntries(input.env)
   try {
-    replaceProcessEnv(selectedEnvironment)
     // Nitro and other plugins log to stdout while the server loads its config, so keep command output clean.
     server = await withStdoutOnStderr(async () => await vite.createServer({
       appType: "custom",
+      ...(input.envDir !== undefined ? { envDir: input.envDir } : {}),
       logLevel: "silent",
       mode: input.stage,
       root: input.rootDir,
@@ -67,12 +69,7 @@ async function runExclusive<TServer extends ViteStageServer, TResult>(
     return await callback(server)
   }
   finally {
-    try {
-      await withStdoutOnStderr(async () => await server?.close(), input.stderr)
-    }
-    finally {
-      replaceProcessEnv(previousEnvironment)
-    }
+    await withStdoutOnStderr(async () => await server?.close(), input.stderr)
   }
 }
 
@@ -89,6 +86,14 @@ export async function withViteStageServer<TServer extends ViteStageServer, TResu
   input: ViteStageServerInput,
   callback: (server: TServer) => Promise<TResult>,
 ): Promise<TResult> {
+  return await withViteStageEnvironment(input.env, async () => await runStageServer(vite, input, callback))
+}
+
+/** Load stage config and modules under the same serialized, temporary process environment. */
+export async function withViteStageEnvironment<TResult>(
+  env: NodeJS.ProcessEnv,
+  callback: () => Promise<TResult>,
+): Promise<TResult> {
   const carrier: QueueCarrier = globalThis
   const previous = carrier[viteStageQueueKey] ?? Promise.resolve()
   let release!: () => void
@@ -96,10 +101,14 @@ export async function withViteStageServer<TServer extends ViteStageServer, TResu
     release = resolve
   })
   await previous
+  const previousEnvironment = definedEntries(process.env)
+  const selectedEnvironment = definedEntries(env)
   try {
-    return await runExclusive(vite, input, callback)
+    replaceProcessEnv(selectedEnvironment)
+    return await callback()
   }
   finally {
+    replaceProcessEnv(previousEnvironment)
     release()
   }
 }
