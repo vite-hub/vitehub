@@ -1,5 +1,5 @@
 import type { CommentsClient, CommentStatus, CommentSubject, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
-import { computed, defineComponent, h, nextTick, type PropType, ref, type SlotsType, type VNode } from "vue";
+import { computed, defineComponent, h, nextTick, type PropType, ref, type SlotsType, type VNode, watch } from "vue";
 import { type CommentCan, type CommentsState, provideComments, useComments, useCommentsContext } from "../headless/comments.ts";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { threadRow } from "../internal/comment-row.ts";
@@ -144,13 +144,26 @@ export const CommentPanel = defineComponent({
     const attachmentsOn = computed(() => props.upload !== undefined && state.client.transport.supportsAttachments !== false);
     const keys = async (list: File[]) => (attachmentsOn.value && list.length > 0 && props.upload ? props.upload(list) : []);
 
+    // The page box belongs to one subject. Another subject starts with an empty box.
+    const subjectKey = () => `${state.subject.value.kind}\u0000${state.subject.value.id}`;
+    watch(subjectKey, () => {
+      body.value = "";
+      mentions.value = [];
+      files.value = [];
+      failure.value = undefined;
+    });
+
     async function send(submit: CommentComposerSubmit) {
       if (busy.value) return;
       busy.value = true;
       failure.value = undefined;
       const submitted = { body: body.value, files: files.value, mentions: mentions.value };
+      const subject = subjectKey();
       try {
-        await state.create({ attachments: await keys(submit.files), body: submit.body, mentions: submit.mentions });
+        const attachments = await keys(submit.files);
+        // A comment written on one page never goes to the next one, even when the subject changed during the upload.
+        if (subjectKey() !== subject) return;
+        await state.create({ attachments, body: submit.body, mentions: submit.mentions });
         if (body.value === submitted.body && files.value === submitted.files && mentions.value === submitted.mentions) {
           body.value = "";
           mentions.value = [];

@@ -62,10 +62,13 @@ const comments = useComments({
 });
 provideComments(comments);
 
+const threadView = ref<{ close: () => void } | null>(null);
 const open = computed({
   get: () => Boolean(props.id),
   set: (value: boolean) => {
-    if (!value) emit("close");
+    if (value) return;
+    if (threadView.value) threadView.value.close();
+    else emit("close");
   },
 });
 const title = computed(() => (thread.value ? `Comment ${thread.value.n}` : "Comment"));
@@ -112,6 +115,7 @@ async function load(): Promise<void> {
 watch(
   () => props.id,
   () => {
+    confirming.value = false;
     thread.value = undefined;
     session.value = undefined;
     user.value = undefined;
@@ -191,6 +195,7 @@ async function deleteThread(): Promise<void> {
         <p v-else-if="!thread" role="status" class="p-4 text-sm text-muted">Loading the thread…</p>
         <CommentThread
           v-else
+          ref="threadView"
           :attachments="false"
           :dismissible="false"
           :read-only="loading"

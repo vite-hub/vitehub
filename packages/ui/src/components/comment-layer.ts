@@ -256,9 +256,12 @@ export const CommentLayer = defineComponent({
                       draft.error = undefined;
                       draft.mentions = submit.mentions;
                       const submitted = draftFiles.value;
+                      const body = draft.body;
+                      const mentions = draft.mentions;
                       try {
                         const attachments = await keys(submit.files);
-                        if (state.draft.value !== draft) return;
+                        // The box stays editable during an upload. A changed draft is not what was sent, so it waits for another Enter.
+                        if (state.draft.value !== draft || draft.body !== body || draft.mentions !== mentions || draftFiles.value !== submitted) return;
                         draft.attachments = attachments;
                         if (await state.send() && draftFiles.value === submitted) draftFiles.value = [];
                       } catch (error) {

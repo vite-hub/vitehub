@@ -379,6 +379,8 @@ The handlers may return a promise. The thread waits for it. A reply clears its b
 | --- | --- |
 | `close` | Close or Back was pressed, or the reader clicked outside. |
 
+The component ref exposes `close()`. Call it when a containing dialog or panel requests dismissal so it checks for unsent replies and edits before emitting `close`, just as the header button does.
+
 #### Slots
 
 | Slot | Scope | Description |
