@@ -2,7 +2,11 @@ import { defineAgent, defineCapability } from "@vite-hub/agent"
 import { chatgpt, openai } from "@vite-hub/gateways"
 import { describe, expect, it } from "vitest"
 
+import { readFile } from "node:fs/promises"
+
 import { docsAssistant, docsPageFromBody, docsRateLimit } from "../src/assistant.ts"
+import { docsAssistantModel } from "../src/assistant-shared.ts"
+import { docsAssistant as workerDocsAssistant } from "../src/assistant-worker.ts"
 import { docsAssistantProblem } from "../runtime/app/composables/docs-assistant-problem.ts"
 
 type InstructionPart = string | ((context: { context: { get: (key: string) => unknown } }) => string | undefined)
@@ -106,6 +110,34 @@ describe("docsAssistant", () => {
     expect(options.capabilities).toEqual([limit])
     expect(options.capabilities[0]).not.toBe(resolved(docsAssistant).capabilities[0])
     expect(resolved(docsAssistant).workspace.sources.pages).toBe(pages)
+  })
+})
+
+describe("docsAssistant in a Worker build", () => {
+  it("runs a model-backed Driver on the same ChatGPT plan, with the same pages, rules, and limits", () => {
+    const options = resolved(workerDocsAssistant)
+    expect(options.driver).toMatchObject({ model: docsAssistantModel, gateway: chatgpt() })
+    expect(options.driver.kind).toBeUndefined()
+    expect(options.driver.instructions.template).toEqual(resolved(docsAssistant).driver.instructions.template)
+    const { driver: _worker, ...worker } = options
+    const { driver: _node, ...node } = resolved(docsAssistant)
+    expect(Object.keys(worker)).toEqual(Object.keys(node))
+    expect(worker.workspace.mode).toBe("read")
+    expect(Object.keys(worker.workspace.sources)).toEqual(Object.keys(node.workspace.sources))
+    expect(worker.capabilities.map(capability => capability.id)).toEqual(["docs-rate-limit"])
+  })
+
+  it("keeps the ChatGPT plan when a child changes the model or the instructions", () => {
+    const options = resolved(defineAgent({ extends: workerDocsAssistant, driver: { model: "gpt-5.4", instructions: "Answer in Spanish." } }))
+    expect(options.driver).toMatchObject({ model: "gpt-5.4", gateway: chatgpt() })
+    expect(options.driver.instructions).toEqual({ template: resolved(workerDocsAssistant).driver.instructions.template, content: "Answer in Spanish." })
+  })
+
+  it("is the export that Worker conditions resolve", async () => {
+    const manifest: unknown = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
+    expect(Reflect.get(Reflect.get(manifest as object, "exports"), "./assistant")).toMatchObject({
+      workerd: "./dist/assistant-worker.js", worker: "./dist/assistant-worker.js", default: "./dist/assistant.js",
+    })
   })
 })
 

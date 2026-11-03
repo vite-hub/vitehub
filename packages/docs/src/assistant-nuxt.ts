@@ -2,7 +2,7 @@ import type {} from "nuxt/schema"
 
 /** Only the host fields used here: Nuxt and @nuxt/kit can load different compatible schema versions. */
 interface DocsAssistantNuxt {
-  options: { modules: readonly unknown[], dev: boolean }
+  options: { modules: readonly unknown[] }
   hook: (name: "modules:done", callback: () => Promise<void>) => unknown
 }
 
@@ -11,12 +11,6 @@ interface ViteHubModuleOptions {
   agent?: unknown
   connections?: unknown
 }
-
-/**
- * Nitro presets that can start Codex. The ChatGPT plan gateway and the Codex Driver need a local Node.js process;
- * Cloudflare Workers, Deno, and other runtimes cannot start it.
- */
-const nodePresetPattern = /^node(?:[-_]|$)/
 
 /** The module name: a string entry, or the `getMeta()` name of an imported module function. */
 async function moduleName(module: unknown): Promise<unknown> {
@@ -57,6 +51,9 @@ export class DocsAssistantSetupError extends Error {
  * The assistant's Agent and its ChatGPT Connection are application files (`server/agents/<agent>.ts` and
  * `server/connections/chatgpt.ts`), because Agents and Connections are discovered from files. `DocsAssistant`, the panel
  * component, is registered only when this option is on.
+ *
+ * Any Nitro preset works. `docsAssistant` runs Codex on Node.js and a model-backed Driver in a Worker build. An Agent
+ * that sets a provider Driver itself fails a Worker build with `AGENT_B0019` from `@vite-hub/agent`.
  */
 export function setupDocsAssistant(nuxt: DocsAssistantNuxt, config: { assistant: { agent: string } | false }): void {
   const assistant = config.assistant
@@ -67,17 +64,6 @@ export function setupDocsAssistant(nuxt: DocsAssistantNuxt, config: { assistant:
       throw new DocsAssistantSetupError(
         `docs.assistant needs ViteHub Agents to answer from the "${assistant.agent}" Agent.`,
         `Add "vite-hub/nuxt" to modules and set vitehub: { agent: true, connections: true } in nuxt.config.ts, or set docs.assistant to false.`,
-      )
-    }
-    // `vite-hub/nuxt` sets the Nitro preset from its own `preset` option. A development server always runs on Node.
-    // Nuxt types `nitro` only when Nitro's types load.
-    const nitro: unknown = Reflect.get(nuxt.options, "nitro")
-    // `NITRO_PRESET` sets the preset of a build when the config does not.
-    const preset: unknown = (nitro && typeof nitro === "object" ? Reflect.get(nitro, "preset") : undefined) ?? process.env.NITRO_PRESET
-    if (!nuxt.options.dev && typeof preset === "string" && !nodePresetPattern.test(preset)) {
-      throw new DocsAssistantSetupError(
-        `docs.assistant runs Codex on the "${assistant.agent}" Agent, and Codex needs a Node.js host. The Nitro preset is "${preset}".`,
-        `Build for a Node.js host (vitehub: { preset: "node" }), or turn the assistant off for this build, for example docs: { assistant: process.env.NITRO_PRESET !== "${preset}" }.`,
       )
     }
   })
