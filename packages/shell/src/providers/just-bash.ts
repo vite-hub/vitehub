@@ -22,9 +22,12 @@ export type JustBashExecutionLimitProfile = NonNullable<BashOptions["executionLi
 export interface JustBashProviderOptions {
   commands?: string[]
   cwd?: string
-  /** Just Bash limits on loops, command count, call depth, output size, and similar runaway work. */
+  /**
+   * Limits for commands evaluated by Just Bash, including loops, command count, call depth, and output size.
+   * Controlled curl runs outside the interpreter; use Shell `timeout` and `maxOutputLength` for that path.
+   */
   executionLimits?: JustBashExecutionLimits
-  /** Named Just Bash limit preset applied before `executionLimits`. Defaults to Just Bash's `normal`. */
+  /** Just Bash preset applied before `executionLimits` (default: `normal`). Does not apply to controlled curl. */
   executionLimitProfile?: JustBashExecutionLimitProfile
   fs: JustBashFileSystem
   networkGrants?: ShellNetworkGrantExecutor

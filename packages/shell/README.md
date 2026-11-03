@@ -89,7 +89,7 @@ The Just Bash `commands` list also applies to controlled `curl` requests. A Sour
 
 The provider copies the command list at creation. Later changes to the supplied list do not change its permissions or network boundary.
 
-Pass `executionLimits` or `executionLimitProfile: "hardened"` to bound Just Bash work such as loop iterations, command count, and retained bytes. Both options pass through to Just Bash and are copied at creation.
+Pass `executionLimits` or `executionLimitProfile: "hardened"` to bound Just Bash interpreter work such as loop iterations, command count, and retained bytes. Both options pass through to Just Bash and are copied at creation. Controlled `curl` runs through Source network grants outside the interpreter, so neither option applies to it, including `maxOutputSize` and `maxExecutionTimeMs`. Use Shell policy or exec `timeout` for request duration and `maxOutputLength` for returned output characters. Source responses are buffered before truncation; enforce response byte or memory limits in the Source executor.
 
 The writable Workspace filesystem leaves content unchanged when a move resolves to the same source and destination. Missing sources fail. It rejects moves into descendants before changing content.
 

@@ -391,6 +391,49 @@ describe("@vite-hub/shell just-bash runtime", () => {
     })
   })
 
+  it.each([
+    {
+      name: "without Shell limits",
+      execOptions: {},
+      expected: { event: "command_finished", exitCode: 0, outputTruncated: false, stdout: "éé" },
+    },
+    {
+      name: "with a Shell character limit",
+      execOptions: { maxOutputLength: 1, timeout: 20 },
+      expected: { event: "command_finished", exitCode: 0, outputTruncated: true, stdout: "é\n[output truncated to 1 characters]\n" },
+    },
+    {
+      name: "with a Shell timeout",
+      execOptions: { timeout: 5 },
+      expected: { event: "command_timed_out", exitCode: null, timedOut: true, stdout: "" },
+    },
+  ])("uses Shell controls for controlled curl independently of interpreter limits $name", async ({ execOptions, expected }) => {
+    vi.useFakeTimers()
+    try {
+      const executeSourceRequest = vi.fn(async (input: { signal?: AbortSignal }) => {
+        await new Promise(resolve => setTimeout(resolve, 10))
+        input.signal?.throwIfAborted()
+        return { content: "éé" }
+      })
+      const provider = createJustBashProvider({
+        executionLimitProfile: "hardened",
+        executionLimits: { maxOutputSize: 1, maxExecutionTimeMs: 1 },
+        fs: createReadonlyWorkspaceFs(new MemoryWorkspace({})),
+        networkGrants: { executeSourceRequest },
+      })
+
+      const pending = provider.exec("curl https://portal.example.com/action", execOptions)
+      await vi.advanceTimersByTimeAsync(10)
+
+      await expect(pending).resolves.toMatchObject(expected)
+      expect(executeSourceRequest).toHaveBeenCalledOnce()
+      if (execOptions.timeout === 5) expect(executeSourceRequest.mock.calls[0]![0].signal?.aborted).toBe(true)
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("bounds controlled Source output before it reaches the Shell observation", async () => {
     const executeSourceRequest = vi.fn(async () => ({ content: "0123456789" }))
     const provider = createJustBashProvider({
