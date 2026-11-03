@@ -35,8 +35,8 @@ export type WorkspaceStatus = "idle" | WebContainerStage;
 export type WorkspaceFailure =
   | { kind: "unsupported", error: Error }
   | { kind: "boot", error: Error }
-  | { kind: "install", error: Error, exitCode: number }
-  | { kind: "server", error: Error, exitCode: number };
+  | { kind: "install", error: Error, exitCode?: number }
+  | { kind: "server", error: Error, exitCode?: number };
 
 export interface UseWorkspaceOptions {
   /** The files to mount. `reset()` goes back to them. */
@@ -151,7 +151,8 @@ export function useWorkspace(options: UseWorkspaceOptions): Workspace {
   let writes: Promise<void> = Promise.resolve();
   let booting: Promise<void> | undefined;
   let devRun: WebContainerRun | undefined;
-  let stopping = false;
+  let serverActive = false;
+  let recovery = Promise.resolve();
   let disposed = false;
 
   function sync(): Promise<void> {
@@ -159,10 +160,20 @@ export function useWorkspace(options: UseWorkspaceOptions): Workspace {
       const target = fs.value;
       if (!target) return;
       const current = files.value;
+      const conflictingDirectories = new Set<string>();
       for (const path of Object.keys(written)) {
         if (path in current) continue;
         await target.rm(path, { force: true });
         delete written[path];
+        let directory = parentDirectory(path);
+        while (directory) {
+          if (Object.keys(current).some(file => directory === file || directory?.startsWith(`${file}/`))) conflictingDirectories.add(directory);
+          directory = parentDirectory(directory);
+        }
+      }
+      // Remove empty owned directories from the leaves up before replacing them with a file.
+      for (const directory of [...conflictingDirectories].sort((a, b) => b.length - a.length)) {
+        await target.rm(directory, { force: true });
       }
       for (const [path, contents] of Object.entries(current)) {
         if (written[path] === contents) continue;
@@ -186,33 +197,63 @@ export function useWorkspace(options: UseWorkspaceOptions): Workspace {
     return value && Object.keys(value).length > 0 ? { ...value } : undefined;
   }
 
+  function enter(stage: WebContainerStage) {
+    const now = performance.now();
+    const previous = steps.value.map(step => step.ms === undefined ? { ...step, ms: now - step.startedAt } : step);
+    status.value = stage;
+    steps.value = [...previous, { stage, startedAt: now, ...(stage === "ready" ? { ms: 0 } : {}) }];
+  }
+
   async function startServer(target: ViteHubWebContainer) {
-    if (startCommand === false) return;
-    const run = await target.run(startCommand, { env: env() });
-    devRun = run;
-    pipe(run);
-    void run.exit.then((exitCode) => {
-      if (devRun !== run) return;
-      devRun = undefined;
-      if (stopping || disposed) return;
-      previewUrl.value = undefined;
-      failure.value = { kind: "server", exitCode, error: new Error(`The dev server exited with code ${exitCode}.`) };
+    if (disposed) return;
+    if (startCommand === false) {
+      enter("ready");
+      return;
+    }
+    serverActive = true;
+    enter("starting");
+    try {
+      const run = await target.run(startCommand, { env: env() });
+      if (disposed) {
+        run.kill();
+        return;
+      }
+      devRun = run;
+      pipe(run);
+      void run.exit.then((exitCode) => {
+        if (devRun !== run) return;
+        devRun = undefined;
+        serverActive = false;
+        if (disposed) return;
+        previewUrl.value = undefined;
+        failure.value = { kind: "server", exitCode, error: new Error(`The dev server exited with code ${exitCode}.`) };
+        status.value = "error";
+      });
+    }
+    catch (cause) {
+      serverActive = false;
+      failure.value = { kind: "server", error: toError(cause) };
       status.value = "error";
-    });
-    // `ready` rejects when the server fails before it is ready. The exit handler above reports that.
-    target.preview.ready.then((server) => {
-      if (devRun === run) previewUrl.value = server.url;
-    }, () => {});
+    }
   }
 
   async function installAndStart(target: ViteHubWebContainer) {
     failure.value = undefined;
     if (installCommand !== false) {
-      const run = await target.run(installCommand, { env: env() });
-      pipe(run);
-      const exitCode = await run.exit;
-      if (exitCode !== 0) {
-        failure.value = { kind: "install", exitCode, error: target.status.error ?? new Error(`npm install exited with code ${exitCode}.`) };
+      enter("installing");
+      try {
+        const run = await target.run(installCommand, { env: env() });
+        pipe(run);
+        const exitCode = await run.exit;
+        if (disposed) return;
+        if (exitCode !== 0) {
+          failure.value = { kind: "install", exitCode, error: target.status.error ?? new Error(`npm install exited with code ${exitCode}.`) };
+          status.value = "error";
+          return;
+        }
+      }
+      catch (cause) {
+        failure.value = { kind: "install", error: toError(cause) };
         status.value = "error";
         return;
       }
@@ -239,9 +280,10 @@ export function useWorkspace(options: UseWorkspaceOptions): Workspace {
         if (disposed) return target.teardown();
         container.value = target;
         fs.value = target.fs;
-        // The `server-ready` event moves a restarted server to `ready` only from `starting`. Track the URL here too.
-        target.on("status", (next) => {
-          if (next.stage === "ready" && target.preview.url) previewUrl.value = target.preview.url;
+        target.on("server-ready", (server) => {
+          if (!serverActive || disposed) return;
+          previewUrl.value = server.url;
+          enter("ready");
         });
         await sync();
         await installAndStart(target);
@@ -260,27 +302,34 @@ export function useWorkspace(options: UseWorkspaceOptions): Workspace {
 
   async function stopServer() {
     const run = devRun;
+    devRun = undefined;
+    serverActive = false;
+    previewUrl.value = undefined;
     if (!run) return;
-    stopping = true;
     run.kill();
     await run.exit.catch(() => {});
-    stopping = false;
-    previewUrl.value = undefined;
   }
 
-  async function install() {
-    const target = container.value;
-    if (!target) return boot();
-    await stopServer();
-    await installAndStart(target);
+  function recover(action: (target: ViteHubWebContainer) => Promise<void>) {
+    const pending = recovery.then(async () => {
+      if (booting) await booting;
+      if (disposed) return;
+      const target = container.value;
+      if (!target) return boot();
+      failure.value = undefined;
+      await stopServer();
+      if (!disposed) await action(target);
+    });
+    recovery = pending.catch(() => {});
+    return pending;
   }
 
-  async function restart() {
-    const target = container.value;
-    if (!target) return boot();
-    failure.value = undefined;
-    await stopServer();
-    await startServer(target);
+  function install() {
+    return recover(installAndStart);
+  }
+
+  function restart() {
+    return recover(startServer);
   }
 
   async function setFiles(next: WorkspaceFiles, setOptions: SetFilesOptions = {}) {

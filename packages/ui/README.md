@@ -92,8 +92,8 @@ const source = computed({
 - `env` is read on each run, so pass a getter or a computed, such as `useConnectStore().env(connect)`.
 - `WorkspaceShell` has the slots `#toolbar`, `#files`, `#editor`, `#terminal`, `#preview`, `#connect`, and `#overlay`. A tutorial shows Preview, Terminal, and Connect as tabs under the editor. A playground puts the terminal under the editor and the preview at the side. Split sizes are kept in localStorage under `storageKey`. Hidden tab panels stay mounted and are `inert`.
 - The preview origin does not answer a `fetch()` from the page, so `WorkspacePreview` shows it only in an iframe.
-- `ConnectPanel` takes the providers of `defineConnect()` and a state for each one. It emits `connect`, `disconnect`, `remove-all`, and `copy-command`. It does not store tokens. `useConnectStore()` keeps them in sessionStorage by default (`storage: "local" | "memory"` also work).
-- `BrowserSupportNotice` shows only when `supported` is `false`, and only on the client. Pass `workspace.support.value?.supported`.
+- `ConnectPanel` takes the providers of `defineConnect()` and a state for each one. It emits `connect` for pasted tokens and `oauth` with the provider definition (including its `app` or `clientId`) for the application to start authorization. It also emits `disconnect`, `remove-all`, and `copy-command`. It does not store tokens. `useConnectStore()` keeps them in sessionStorage by default (`storage: "local" | "memory"` also work), and falls back to memory when storage operations fail.
+- `BrowserSupportNotice` shows only when `supported` is `false`, and only on the client. Pass `workspace.support.value?.supported` and, when unsupported, its `reason` to distinguish missing page isolation from browser limitations.
 
 The demo page in `test/browser/page` shows every part in the tutorial layout. `pnpm --filter @vite-hub/ui test:browser` boots it with a real WebContainer in headless Chromium. It needs a Playwright Chromium and network access to StackBlitz and the npm registry. Set `WORKSPACE_TEST_PORT` to change its port (default `4796`) and `WORKSPACE_SCREENSHOTS=<dir>` to save a screenshot of each state.
 

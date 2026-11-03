@@ -734,7 +734,7 @@ describe("hubSandboxTask", () => {
       routes: ["example.com/*"],
     })
     await expect(readFile(join(rootDir, ".vitehub/sandbox-task/Dockerfile"), "utf8"))
-      .resolves.toMatch(/^FROM docker\.io\/cloudflare\/sandbox:\d[\s\S]*corepack@0\.34\.5[\s\S]*corepack enable pnpm yarn/)
+      .resolves.toMatch(/^FROM docker\.io\/cloudflare\/sandbox:1\.\d+\.\d+ AS sandbox-tools\n[\s\S]*FROM docker\.io\/library\/node:[\s\S]*COPY --from=sandbox-tools \/usr\/local\/bin\/sandbox-shim \/usr\/local\/bin\/sandbox-shim[\s\S]*corepack@0\.34\.5[\s\S]*corepack enable pnpm yarn[\s\S]*CMD \["sleep", "infinity"\]/)
 
     const configuredNitro = userConfig.nitro as typeof userConfig.nitro & {
       rollupConfig: {
@@ -750,14 +750,16 @@ describe("hubSandboxTask", () => {
     expect(configuredNitro.rollupConfig.external).toEqual(["application-runtime", "cloudflare:workers"])
     const rollupPlugin = configuredNitro.rollupConfig.plugins[1]
     expect(rollupPlugin.name).toBe("vitehub-sandbox-task-cloudflare-exports:Sandbox")
-    expect(rollupPlugin.load("\0virtual:vitehub-sandbox-task-cloudflare-exports"))
-      .toContain("export class Sandbox extends CloudflareSandbox")
-    expect(rollupPlugin.load("\0virtual:vitehub-sandbox-task-cloudflare-exports"))
-      .toContain("export { ContainerProxy } from '@cloudflare/sandbox'")
+    const exportsModule = rollupPlugin.load("\0virtual:vitehub-sandbox-task-cloudflare-exports")
+    expect(exportsModule).toContain("import { DurableObject } from 'cloudflare:workers'")
+    expect(exportsModule).toContain("import { Files, SandboxFileError } from '@cloudflare/sandbox'")
+    expect(exportsModule)
+      .toContain("export class Sandbox extends createCloudflareSandboxDurableObject({ DurableObject, Files, SandboxFileError })")
+    expect(exportsModule).not.toContain("ContainerProxy")
     expect(rollupPlugin.renderChunk("export default {}", { exports: ["default"], isEntry: true, fileName: "server.js" }).code)
-      .toContain(`export { Sandbox, ContainerProxy } from "./sandbox-task-cloudflare-exports.mjs"`)
+      .toContain(`export { Sandbox } from "./sandbox-task-cloudflare-exports.mjs"`)
     expect(rollupPlugin.renderChunk("export default {}", { exports: ["default"], isEntry: true, fileName: "entries/server.js" }).code)
-      .toContain(`export { Sandbox, ContainerProxy } from "../sandbox-task-cloudflare-exports.mjs"`)
+      .toContain(`export { Sandbox } from "../sandbox-task-cloudflare-exports.mjs"`)
   })
 
   it("preserves an application-owned Cloudflare Sandbox container", async () => {
@@ -798,28 +800,14 @@ describe("hubSandboxTask", () => {
     const [rollupPlugin] = (userConfig.nitro as typeof userConfig.nitro & {
       rollupConfig: { plugins: Array<{ renderChunk: (code: string, chunk: { exports: string[], fileName: string, isEntry: boolean }) => unknown }> }
     }).rollupConfig.plugins
-    expect(rollupPlugin.renderChunk("export class Sandbox {}", { exports: ["Sandbox"], isEntry: true, fileName: "index.mjs" }))
-      .toMatchObject({ code: expect.stringContaining(`export { ContainerProxy } from "./sandbox-task-cloudflare-exports.mjs"`) })
-    expect(rollupPlugin.renderChunk("class Worker {}; export { Worker as Sandbox }", { exports: ["Sandbox"], isEntry: true, fileName: "index.mjs" }))
-      .toMatchObject({ code: expect.stringContaining(`export { ContainerProxy } from "./sandbox-task-cloudflare-exports.mjs"`) })
+    expect(rollupPlugin.renderChunk("export class Sandbox {}", { exports: ["Sandbox"], isEntry: true, fileName: "index.mjs" })).toBeNull()
+    expect(rollupPlugin.renderChunk("class Worker {}; export { Worker as Sandbox }", { exports: ["Sandbox"], isEntry: true, fileName: "index.mjs" })).toBeNull()
     expect(rollupPlugin.renderChunk("class Sandbox {}; export { Sandbox as Worker }", { exports: ["Worker"], isEntry: true, fileName: "index.mjs" }))
-      .toMatchObject({ code: expect.stringContaining(`export { Sandbox, ContainerProxy } from "./sandbox-task-cloudflare-exports.mjs"`) })
-    expect(rollupPlugin.renderChunk("export class Sandbox {}; export { ContainerProxy }", { exports: ["Sandbox", "ContainerProxy"], isEntry: true, fileName: "index.mjs" })).toBeNull()
+      .toMatchObject({ code: expect.stringContaining(`export { Sandbox } from "./sandbox-task-cloudflare-exports.mjs"`) })
     expect(rollupPlugin.renderChunk("export * from './sandbox-task.mjs'", { exports: ["Other"], isEntry: true, fileName: "index.mjs" }))
-      .toMatchObject({ code: expect.stringContaining(`export { Sandbox, ContainerProxy }`) })
-    expect(rollupPlugin.renderChunk("export * from './sandbox-task.mjs'", { exports: ["Sandbox", "ContainerProxy"], isEntry: true, fileName: "index.mjs" })).toBeNull()
+      .toMatchObject({ code: expect.stringContaining(`export { Sandbox }`) })
+    expect(rollupPlugin.renderChunk("export * from './sandbox-task.mjs'", { exports: ["Sandbox"], isEntry: true, fileName: "index.mjs" })).toBeNull()
     expect(rollupPlugin.renderChunk("export default {}", { exports: ["default"], isEntry: false, fileName: "chunk.mjs" })).toBeNull()
-  })
-
-  it("rejects ContainerProxy as the Cloudflare Sandbox class name", async () => {
-    const rootDir = await createViteRoot()
-    const { hubSandboxTask } = await import("../../src/task/vite.ts")
-    const plugin = hubSandboxTask({ provider: "cloudflare", className: "ContainerProxy" })
-    const configHook = plugin.config as (config: Record<string, any>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
-    const userConfig = { root: rootDir, plugins: [{ name: "nitro:main" }], nitro: { preset: "cloudflare-module" } }
-
-    await expect(configHook(userConfig, { command: "build", mode: "production" }))
-      .rejects.toThrow('className "ContainerProxy" is reserved')
   })
 
   it("rejects conflicting Cloudflare container build contexts", async () => {

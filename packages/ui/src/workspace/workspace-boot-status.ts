@@ -65,9 +65,9 @@ const stateText: Record<BootStepState, string> = {
 function failureCopy(failure: WorkspaceFailure): { title: string, body: string } {
   switch (failure.kind) {
     case "install":
-      return { body: `npm install exited with code ${failure.exitCode}. The output shows which package failed.`, title: "Install failed" };
+      return { body: failure.exitCode === undefined ? failure.error.message : `npm install exited with code ${failure.exitCode}. The output shows which package failed.`, title: "Install failed" };
     case "server":
-      return { body: `The dev server exited with code ${failure.exitCode}. Your edits are kept.`, title: "The dev server stopped" };
+      return { body: failure.exitCode === undefined ? failure.error.message : `The dev server exited with code ${failure.exitCode}. Your edits are kept.`, title: "The dev server stopped" };
     case "unsupported":
       return { body: failure.error.message, title: "The live workspace does not run here" };
     case "boot":

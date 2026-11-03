@@ -16,6 +16,11 @@ import { WorkspaceShell } from "../src/workspace/workspace-shell.ts";
 const fake = vi.hoisted(() => {
   const state = {
     disk: new Map<string, string>(),
+    directories: new Set<string>(),
+    autoReady: true,
+    failNext: false,
+    ready: undefined as ((url: string) => void) | undefined,
+    serverListener: undefined as ((server: { url: string, port: number }) => void) | undefined,
     exits: [] as { command: unknown, env?: Record<string, string>, resolve: (code: number) => void }[],
     mountFiles: undefined as Record<string, string> | undefined,
     releaseBoot: undefined as (() => void) | undefined,
@@ -28,25 +33,48 @@ vi.mock("@vite-hub/web-container", () => ({
   checkWebContainerSupport: () => ({ supported: true }),
   async bootWebContainer(options: { files: Record<string, string>, onStatus: (status: WebContainerStatus) => void }) {
     fake.mountFiles = { ...options.files };
-    for (const [path, contents] of Object.entries(options.files)) fake.disk.set(path, contents);
+    for (const [path, contents] of Object.entries(options.files)) {
+      fake.disk.set(path, contents);
+      const parts = path.split("/");
+      while (parts.pop() && parts.length) fake.directories.add(parts.join("/"));
+    }
     options.onStatus({ stage: "booting", steps: [{ stage: "booting", startedAt: 0 }] });
     await new Promise<void>((resolve) => { fake.releaseBoot = resolve; });
     let ready: (value: { url: string, port: number }) => void = () => {};
     const readyPromise = new Promise<{ url: string, port: number }>((resolve) => { ready = resolve; });
+    let previewUrl: string | undefined;
+    fake.ready = (url) => {
+      previewUrl = url;
+      const server = { port: 3000, url };
+      ready(server);
+      fake.serverListener?.(server);
+    };
     return {
       status: { stage: "mounting", steps: [] },
-      preview: { ready: readyPromise, url: "https://preview.example" },
+      preview: { ready: readyPromise, get url() { return previewUrl; } },
       fs: {
-        mkdir: async () => {},
-        rm: async (path: string) => { fake.disk.delete(path); },
-        writeFile: async (path: string, contents: string) => { fake.disk.set(path, contents); },
+        mkdir: async (path: string) => { fake.directories.add(path); },
+        rm: async (path: string) => {
+          if ([...fake.disk.keys(), ...fake.directories].some(child => child.startsWith(`${path}/`))) throw new Error("ENOTEMPTY");
+          fake.disk.delete(path);
+          fake.directories.delete(path);
+        },
+        writeFile: async (path: string, contents: string) => {
+          if (fake.directories.has(path)) throw new Error("EISDIR");
+          fake.disk.set(path, contents);
+        },
       },
-      on: (_event: string, listener: (status: WebContainerStatus) => void) => { fake.statusListener = listener; return () => {}; },
+      on: (event: string, listener: never) => {
+        if (event === "server-ready") fake.serverListener = listener;
+        else fake.statusListener = listener;
+        return () => {};
+      },
       async run(command: unknown, options: { env?: Record<string, string> } = {}) {
+        if (fake.failNext) { fake.failNext = false; throw new Error("spawn failed"); }
         let resolve: (code: number) => void = () => {};
         const exit = new Promise<number>((done) => { resolve = done; });
         fake.exits.push({ command, env: options.env, resolve });
-        if (command === "dev") ready({ port: 3000, url: "https://preview.example" });
+        if (command !== "install" && fake.autoReady) fake.ready?.("https://preview.example");
         return { exit, kill: () => resolve(143), output: new ReadableStream<string>({ start(controller) { controller.enqueue(`$ ${String(command)}\n`); } }) };
       },
       teardown: () => {},
@@ -69,6 +97,12 @@ function mountWorkspace(options: Parameters<typeof useWorkspace>[0]) {
 
 beforeEach(() => {
   fake.disk.clear();
+  fake.directories.clear();
+  fake.autoReady = true;
+  fake.failNext = false;
+  fake.ready = undefined;
+  fake.serverListener = undefined;
+  fake.statusListener = undefined;
   fake.exits.length = 0;
   fake.mountFiles = undefined;
   fake.releaseBoot = undefined;
@@ -143,6 +177,85 @@ describe("useWorkspace", () => {
     await workspace.restart();
     await flushPromises();
     expect(workspace.failure.value).toBeUndefined();
+    wrapper.unmount();
+  });
+
+  it.each([
+    { install: false, start: false },
+    { install: "install", start: false },
+    { install: false, start: ["node", "server.js"] },
+  ] as const)("completes start mode $start with install $install", async ({ install, start }) => {
+    const { workspace, wrapper } = mountWorkspace({ files: {}, install, start });
+    await flushPromises();
+    fake.releaseBoot?.();
+    await flushPromises();
+    if (install !== false) {
+      fake.exits[0]?.resolve(0);
+      await flushPromises();
+    }
+    expect(workspace.status.value).toBe("ready");
+    wrapper.unmount();
+  });
+
+  it("keeps a restarted preview empty until the new server is ready", async () => {
+    const { workspace, wrapper } = mountWorkspace({ files: {}, install: false });
+    await flushPromises();
+    fake.releaseBoot?.();
+    await flushPromises();
+    expect(workspace.previewUrl.value).toBe("https://preview.example");
+    fake.autoReady = false;
+    await workspace.restart();
+    await flushPromises();
+    expect(workspace.previewUrl.value).toBeUndefined();
+    expect(workspace.status.value).toBe("starting");
+    fake.ready?.("https://replacement.example");
+    expect(workspace.previewUrl.value).toBe("https://replacement.example");
+    expect(workspace.status.value).toBe("ready");
+    wrapper.unmount();
+  });
+
+  it("serializes overlapping install and restart recovery", async () => {
+    const { workspace, wrapper } = mountWorkspace({ files: {} });
+    await flushPromises();
+    fake.releaseBoot?.();
+    await flushPromises();
+    fake.exits[0]?.resolve(0);
+    await flushPromises();
+    const installing = workspace.install();
+    const restarting = workspace.restart();
+    await flushPromises();
+    expect(fake.exits.map(run => run.command)).toEqual(["install", "dev", "install"]);
+    fake.exits[2]?.resolve(0);
+    await Promise.all([installing, restarting]);
+    expect(fake.exits.map(run => run.command)).toEqual(["install", "dev", "install", "dev", "dev"]);
+    wrapper.unmount();
+  });
+
+  it.each(["install", "server"] as const)("retries a %s spawn failure on the existing container", async (kind) => {
+    fake.failNext = true;
+    const { workspace, wrapper } = mountWorkspace({ files: {}, install: kind === "server" ? false : "install" });
+    await flushPromises();
+    fake.releaseBoot?.();
+    await flushPromises();
+    expect(workspace.failure.value).toMatchObject({ kind, error: { message: "spawn failed" } });
+    const retry = kind === "install" ? workspace.install() : workspace.restart();
+    await flushPromises();
+    if (kind === "install") fake.exits[0]?.resolve(0);
+    await retry;
+    expect(workspace.failure.value).toBeUndefined();
+    expect(workspace.status.value).toBe("ready");
+    wrapper.unmount();
+  });
+
+  it("replaces nested directories with a file and resets it", async () => {
+    const { workspace, wrapper } = mountWorkspace({ files: { "src/nested/main.ts": "original" }, install: false, start: false });
+    await flushPromises();
+    fake.releaseBoot?.();
+    await flushPromises();
+    await workspace.setFiles({ src: "replacement" }, { mode: "replace" });
+    expect(Object.fromEntries(fake.disk)).toEqual({ src: "replacement" });
+    await workspace.reset();
+    expect(Object.fromEntries(fake.disk)).toEqual({ "src/nested/main.ts": "original" });
     wrapper.unmount();
   });
 
@@ -229,6 +342,41 @@ describe("WorkspaceBootStatus", () => {
 });
 
 describe("ConnectPanel", () => {
+  it.each(["getItem", "setItem", "removeItem"] as const)("keeps credentials in memory when %s throws", (method) => {
+    const blocked = {
+      length: 0,
+      clear() {},
+      key: () => null,
+      getItem: () => null,
+      setItem() {},
+      removeItem() {},
+    };
+    blocked[method] = () => { throw new Error("Storage blocked"); };
+    vi.spyOn(window, "sessionStorage", "get").mockReturnValue(blocked);
+    const store = useConnectStore();
+    store.set("openai", "sk-memory");
+    expect(store.credentials.value).toEqual({ openai: "sk-memory" });
+    store.remove("openai");
+    expect(store.credentials.value).toEqual({});
+    store.clear();
+    vi.restoreAllMocks();
+  });
+
+  it.each([{ vercel: { clientId: "client" } }, { github: { app: "my-app" } }])("emits OAuth metadata for %j", async (config) => {
+    const connect = defineConnect(config);
+    const provider = connect.providers[0]!;
+    const wrapper = mount(ConnectPanel, { props: { connect } });
+    await wrapper.get(`[aria-label='Connect ${provider.name === "github" ? "GitHub" : "Vercel"}']`).trigger("click");
+    expect(wrapper.emitted("oauth")).toEqual([[provider]]);
+    expect(wrapper.find("input[type=password]").exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("Paste a token");
+    await wrapper.setProps({ states: { [provider.name]: { status: "error" } } });
+    expect(wrapper.text()).toContain("Sign in again");
+    await wrapper.get(`[aria-label='Connect ${provider.name === "github" ? "GitHub" : "Vercel"}']`).trigger("click");
+    expect(wrapper.emitted("oauth")).toEqual([[provider], [provider]]);
+    wrapper.unmount();
+  });
+
   const connect = defineConnect({ anthropic: true, cloudflare: { relay: "reader" }, github: true, openai: true, vercel: true });
 
   it("groups providers and shows one status line and one action per state", async () => {
@@ -308,6 +456,14 @@ describe("BrowserSupportNotice", () => {
 
     await wrapper.setProps({ browser: "unknown" });
     expect(wrapper.text()).toContain("does not run in this browser");
+  });
+
+  it("explains missing page isolation without recommending another browser", async () => {
+    const wrapper = mount(BrowserSupportNotice, { props: { supported: false, reason: "The page is not cross-origin isolated." } });
+    await nextTick();
+    expect(wrapper.text()).toContain("This page needs workspace setup");
+    expect(wrapper.text()).not.toContain("open this page in Chrome");
+    wrapper.unmount();
   });
 
   it("renders nothing on the server, so a supported browser never sees it flash", async () => {
