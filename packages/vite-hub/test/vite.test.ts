@@ -783,7 +783,6 @@ describe("vitehub", () => {
       "vite-hub/optional-owner-imports",
       "vite-hub/task",
       "vite-hub/nitro-cache-bypass",
-      "vite-hub/nitro-workerd-dependencies",
       "vite-hub/nitro-startup-chunks",
       "vite-hub/types",
       "vite-hub/nitro-order",

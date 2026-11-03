@@ -28,7 +28,6 @@ import { collapseWranglerConfigFile } from "@vite-hub/internal/build/cloudflare"
 import { describeDeploymentPlanOutput, finalizeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { denoServerPackagesPlugin, finalizeDenoDeploymentOutput, type DenoServerPackages } from "@vite-hub/internal/build/deno-runtime-packages"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
-import { nitroWorkerdDependencies } from "@vite-hub/internal/build/nitro-workerd-dependencies"
 import { createNoExternalAddition, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
@@ -1441,8 +1440,6 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   plugins.push(viteHubTaskPlugin())
   // Lets request-scoped checks, such as Content preview, keep a request out of Nitro's cache.
   plugins.push(nitroCacheBypass())
-  // Lets CommonJS dependencies run in the workerd dev server of the Cloudflare presets.
-  plugins.push(nitroWorkerdDependencies())
   // Keeps packages that load on demand, such as Chat adapters, out of the chunks that the server loads at startup.
   plugins.push(nitroStartupChunks())
   plugins.push(viteHubTypesPlugin({

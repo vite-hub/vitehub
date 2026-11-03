@@ -9,7 +9,6 @@ import { argumentExpression, objectProperties, scanModule, staticString, unwrapE
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { includedNitro } from "@vite-hub/internal/build/included-nitro"
-import { nitroWorkerdDependencies } from "@vite-hub/internal/build/nitro-workerd-dependencies"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { viteHubPageToolsCookie, viteHubPageToolsQuery } from "@vite-hub/internal/runtime/page-tools-shared"
 import { parseDatabaseLocation } from "@vite-hub/database/config"
@@ -468,7 +467,7 @@ function hasViteHubComments(config: UserConfig): boolean {
 export function comments(options: CommentsOptions = {}): PluginOption[] {
   const plugin = hubComments({ standalone: options })
   plugin.apply = config => !hasViteHubComments(config)
-  return [plugin, { ...nitroWorkerdDependencies(), apply: config => !hasViteHubComments(config) }, ...includedNitro({ unless: hasViteHubComments })]
+  return [plugin, ...includedNitro({ unless: hasViteHubComments })]
 }
 
 export default comments
