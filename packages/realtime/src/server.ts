@@ -107,7 +107,7 @@ const keepalivePing = new TextEncoder().encode(realtimeKeepalivePing)
 /** Marks the request that `refreshRealtimeDocument()` sends to a Durable Object. The Worker strips it from client requests. */
 const internalRefreshHeader = "x-vitehub-realtime-refresh"
 /**
- * The one Durable Object instance that holds every room. Nitro's `cloudflare-durable` entry hands each WebSocket upgrade
+ * The one Durable Object instance that holds every room. Nitro's Cloudflare entry hands each WebSocket upgrade
  * to this instance before the application runs, so saves, checkpoints, and refreshes must reach it too: a Durable
  * Object per room would have no peers and never match a room's state.
  */

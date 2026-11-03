@@ -57,7 +57,7 @@ Install the framework distribution and its server dependencies. These Nitro
 and H3 versions match the server integration used by ViteHub.
 
 ```bash [commands/install-vite]
-pnpm add vite-hub nitro@3.0.260903-beta h3@2.0.1-rc.33
+pnpm add vite-hub nitro@3.0.261102-rc h3@2.0.8
 pnpm add -D vite@^8 typescript@^6 @types/node@^24
 ```
 
