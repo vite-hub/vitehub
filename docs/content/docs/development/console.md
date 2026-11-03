@@ -146,7 +146,7 @@ On a development server, the Console is also a **ViteHub Console** entry in the 
 | Nuxt | A tab in Nuxt DevTools 3 and 4. |
 | Vite with [`@vitejs/devtools`](https://devtools.vite.dev) | An entry in the Vite DevTools dock, which Devframe renders. |
 
-The entry shows the same `/_vitehub` page in a frame. In development, the page lets frames of the same origin show it. A production build still refuses every frame.
+The entry shows the same `/_vitehub` page in a frame. In development, the page lets frames of the same origin show it. A production build refuses frames of a normal Console page. Only the [page window](#work-from-a-page) frames it, with `?embed=1`, after the Console access check.
 
 With independent Console Auth, the sign-in button opens authentication in the main browser page. Open DevTools again after signing in.
 
@@ -762,11 +762,11 @@ After opening the Console, return to any application page. The ViteHub pill stay
 
 Choose **Console** to open it in a floating window. **Content** appears only when Content is installed and your Console permissions include the full `content` grant. A `content:read` grant keeps Content available through **Console**. Choose **Select field**, then a page element marked with `contentField()`, to open that document in the same Content editor. While you select, an open Content window moves out of the way. <kbd>Esc</kbd>, a second **Select field**, or a click outside a field cancels and brings the window back. A click while you select never follows a link on the page. When the window was minimized, it stays minimized while you select, and only a picked field opens it. You can also browse collections with the keyboard inside the Content window. Content's own read, write, and publish policies still apply.
 
-Expand or minimize the window without losing the selected document or unsaved text. On a phone the editor fills the available screen. Client-side page navigation leaves the editor open on its current document. A full page reload cannot retain unsaved memory; the editor asks before leaving when it has unsaved changes. Window size and the selected editor route are remembered locally; document values are not stored by the pill.
+Expand or minimize the window without losing the selected document or unsaved text. **Open in new tab** in the title bar opens the page that the window shows in a full browser tab, with the same section, record, and filters. A middle-click or <kbd>Cmd</kbd>/<kbd>Ctrl</kbd>-click opens it in the background, and **Copy link** copies it. The window stays open with its unsaved text. On a phone the editor fills the available screen. Client-side page navigation leaves the editor open on its current document. A full page reload cannot retain unsaved memory; the editor asks before leaving when it has unsaved changes. Window size and the selected editor route are remembered locally; document values are not stored by the pill.
 
 The editor loads on first use. Production embedding uses a same-origin iframe and requires an accepted Console session. A normal Console page still denies framing; `?embed=1` permits same-origin framing only after the Console access check. Hosts must permit the same-origin frame in their own Content Security Policy.
 
-Comments uses the same expandable window for the current page's thread list and replies. When the Content editing tool is available, Comments' **Edit** action opens the document editor. Otherwise its existing plain-text field editing remains available according to the Comments and Content policies.
+Comments uses the same expandable window for the current page's thread list and replies. Its title bar has no **Open in new tab** link. When the Content editing tool is available, Comments' **Edit** action opens the document editor. Otherwise its existing plain-text field editing remains available according to the Comments and Content policies.
 
 ## Inspect logs
 

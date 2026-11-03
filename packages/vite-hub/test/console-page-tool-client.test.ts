@@ -6,7 +6,7 @@ import { loadViteHubPageTools } from "@vite-hub/internal/runtime/page-tools-load
 import { afterEach, expect, it, vi } from "vitest"
 import { createMemoryHistory, createRouter, isNavigationFailure } from "vue-router"
 
-import start from "../src/console/page/tool.ts"
+import start, { consolePageUrl } from "../src/console/page/tool.ts"
 
 it("remembers only the document actually opened when a leave guard cancels navigation", async () => {
   const router = createRouter({
@@ -158,4 +158,37 @@ it("moves the Content window out of the way while a field is selected, and bring
     expect(state()).toEqual([false, "false", false])
   }
   finally { for (const element of document.querySelectorAll("h1, a")) element.remove() }
+})
+
+it.each([
+  ["/schedules?embed=1&record=definition:content-publish#runs", "http://site.test/_vitehub/schedules?record=definition:content-publish#runs"],
+  ["/content/posts/hello?panel=history&embed=1&q=a%20b", "http://site.test/_vitehub/content/posts/hello?panel=history&q=a%20b"],
+  ["/?embed=1", "http://site.test/_vitehub/"],
+])("opens %s in a full tab without the frame mode", (route, href) => {
+  expect(consolePageUrl("/_vitehub", route, "http://site.test")).toBe(href)
+})
+
+it("links the window and the load fallback to the page that the window shows", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+  try {
+    history.replaceState(null, "", "/?vitehub")
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ tools: [
+      { id: "console", label: "Console", icon: "i-lucide-square-terminal", script: "/_vitehub/assets/page-tool.js" },
+    ] })))
+    await loadViteHubPageTools({ load: async () => ({ default: start }) })
+    document.querySelector("vitehub-tool")!.shadowRoot!.querySelector("button")!.click()
+    const shadow = document.querySelector<HTMLElement>("vitehub-window")!.shadowRoot!
+    const link = shadow.querySelector<HTMLAnchorElement>('header a[aria-label="Open in new tab"]')!
+    const frame = shadow.querySelector("iframe")!
+    vi.advanceTimersByTime(8000)
+    const fallback = shadow.querySelector<HTMLAnchorElement>(".loading a.shown")!
+    expect(fallback.href).toBe(link.href)
+    expect(new URL(link.href).searchParams.has("embed")).toBe(false)
+
+    // The Console reports each route with its query, and the link follows it.
+    dispatchEvent(new MessageEvent("message", { origin: location.origin, source: frame.contentWindow, data: { type: "vitehub:route", path: "/schedules?embed=1&record=definition:nightly" } }))
+    link.dispatchEvent(new FocusEvent("focus"))
+    expect(link.getAttribute("href")).toMatch(/^http:\/\/[^?]+\/schedules\?record=definition:nightly$/)
+  }
+  finally { vi.useRealTimers() }
 })
