@@ -403,7 +403,7 @@ onBeforeUnmount(() => {
             v-else-if="!selectedThread"
             variant="naked"
             class="py-16"
-            icon="i-lucide-messages-square"
+            icon="i-vitehub-channels"
             :title="selected ? 'Choose a thread' : 'Choose a Channel'"
             description="Read a whole conversation from the provider history, the transcripts, and the Agent's runs, then download it."
           />

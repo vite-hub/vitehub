@@ -154,7 +154,7 @@ onBeforeUnmount(() => { catalogRequest?.abort(); fileRequest?.abort(); });
         <ConsoleState
           v-else-if="!paths.length"
           section="skills"
-          icon="i-ph-books-light"
+          icon="i-vitehub-skills"
           :title="selectedAgent ? `No bundled Skills for ${selectedAgent}` : 'No bundled Skills'"
           description="Add a skills folder beside the Agent Definition. Its SKILL.md files and supporting files appear here."
         />

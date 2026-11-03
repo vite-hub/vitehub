@@ -28,7 +28,7 @@ import {
 import { consoleSectionRouteName, describeConsoleSectionRoutes, isConsoleSectionId } from "../sections";
 import App from "./app.vue";
 import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } from "./appearance";
-import { deferLucideIcons } from "./icons";
+import { addViteHubIcons, deferLucideIcons } from "./icons";
 import { createConsoleSectionLoader, loadConsoleNavigation, subscribeConsoleNavigation } from "./sections";
 
 const hostBase = consoleMountBase(window.location.pathname);
@@ -334,6 +334,7 @@ router.beforeEach(async (to) => {
 router.afterEach((to) => {
   document.title = String(to.meta.title ?? "ViteHub Console");
 });
+addViteHubIcons();
 deferLucideIcons();
 createApp(App)
   .provide(consoleAppearanceKey, appearance)

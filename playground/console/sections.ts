@@ -6,7 +6,7 @@ export const playgroundConsoleContributions = [
   {
     id: "auth",
     label: "Auth",
-    icon: "i-lucide-users-round",
+    icon: "i-vitehub-auth",
     description: "Manage users, sessions, organizations, and approved OAuth clients.",
     view: {
       kind: "auth-management",
@@ -15,7 +15,7 @@ export const playgroundConsoleContributions = [
   },
   {
     description: "Inspect messages that the development outbox captured.",
-    icon: "i-lucide-mail",
+    icon: "i-vitehub-email",
     id: "email",
     label: "Email",
     view: {
@@ -32,7 +32,7 @@ export const playgroundConsoleContributions = [
   },
   {
     description: "Inspect discovered Rate Limit policies and their source locations.",
-    icon: "i-lucide-gauge",
+    icon: "i-vitehub-rate-limit",
     id: "rate-limits",
     label: "Rate Limits",
     view: {
@@ -42,7 +42,7 @@ export const playgroundConsoleContributions = [
   },
   {
     description: "Inspect discovered Sandbox Task Definitions without starting runtime resources.",
-    icon: "i-lucide-container",
+    icon: "i-vitehub-sandbox",
     id: "sandbox-tasks",
     label: "Sandbox Tasks",
     view: {
@@ -52,7 +52,7 @@ export const playgroundConsoleContributions = [
   },
   {
     description: "Inspect discovered Workspace Definitions and their source roots.",
-    icon: "i-lucide-folder-kanban",
+    icon: "i-vitehub-workspace",
     id: "workspaces",
     label: "Workspaces",
     view: {
@@ -62,7 +62,7 @@ export const playgroundConsoleContributions = [
   },
   {
     description: "Inspect discovered Workflow Definitions and their source metadata.",
-    icon: "i-lucide-git-branch",
+    icon: "i-vitehub-workflow",
     id: "workflows",
     label: "Workflows",
     view: {
@@ -72,7 +72,7 @@ export const playgroundConsoleContributions = [
   },
   {
     description: "Inspect discovered Queue Definitions and their source metadata.",
-    icon: "i-lucide-inbox",
+    icon: "i-vitehub-queue",
     id: "queues",
     label: "Queues",
     view: {
@@ -82,7 +82,7 @@ export const playgroundConsoleContributions = [
   },
   {
     description: "Inspect Schedule Definitions.",
-    icon: "i-lucide-calendar-clock",
+    icon: "i-vitehub-schedule",
     id: "schedules",
     label: "Schedules",
     view: {

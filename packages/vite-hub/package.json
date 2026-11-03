@@ -1302,6 +1302,7 @@
     "@vite-hub/content": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/docs": "workspace:*",
+    "@vite-hub/icons": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/presets": "workspace:*",
     "@vite-hub/realtime": "workspace:*",

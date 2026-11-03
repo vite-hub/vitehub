@@ -187,14 +187,16 @@ The theme uses Geist, black, white, and zinc, square corners, hairline borders, 
 
 The shell uses Lucide, Phosphor, Simple Icons, and VS Code Icons. Install `@iconify-json/lucide`, `@iconify-json/ph`, `@iconify-json/simple-icons`, and `@iconify-json/vscode-icons` to serve them from your app. Without them, `@nuxt/icon` gets them from the Iconify API.
 
+The ViteHub icon set is already registered: write `i-vitehub-<name>`, such as `icon: i-vitehub-kv` in a `.navigation.yml` file. The rail draws these icons inline and moves them on hover. The [`@vite-hub/icons`](https://github.com/vite-hub/vitehub/tree/main/packages/icons) README lists every name.
+
 `icons` sets the icons of the navigation:
 
 | Key | Use |
 | --- | --- |
-| `rail` | Rail icon per section id. A [`@vite-hub/ui/primitive-rail`](/docs/ui) icon name, such as `reference`, or an Iconify name. |
+| `rail` | Rail icon per section id, such as `i-vitehub-reference`. It replaces the section icon in the rail only. |
 | `sections`, `pages` | Sidebar icon per section id or page path. It replaces the icon in the file. |
 | `aliases` | Replacement per icon name, so the sidebar keeps one icon style. |
-| `family` | Icon prefix of the sidebar, such as `i-ph-`. Other icons that `aliases` does not map show the fallback. |
+| `family` | Icon prefix of the sidebar, such as `i-ph-`, or a list of prefixes. Other icons that `aliases` does not map show the fallback. |
 | `page`, `section` | Fallback icons. |
 
 ## Replace a component

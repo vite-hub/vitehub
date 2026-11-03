@@ -251,7 +251,7 @@ onBeforeUnmount(() => request?.abort());
         <ConsoleState
           v-else-if="!entries.length"
           section="env"
-          icon="i-lucide-key-round"
+          icon="i-vitehub-env"
           title="No Server Env declared"
           description="Declare a value under env.server in the Vite config to inspect it here."
         />

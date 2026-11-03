@@ -122,7 +122,7 @@ export async function inspectScheduleConsoleRecords(options: ScheduleInspectionO
  */
 export const scheduleConsoleSection: ViteHubConsoleRuntimeRecordTableSection<ScheduleInspectionOptions> = {
   description: "Inspect Schedule Definitions.",
-  icon: "i-lucide-calendar-clock",
+  icon: "i-vitehub-schedule",
   id: "schedules",
   label: "Schedules",
   read: inspectScheduleConsoleRecords,

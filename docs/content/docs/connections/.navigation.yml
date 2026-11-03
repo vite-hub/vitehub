@@ -1,5 +1,5 @@
 title: Connections
-icon: i-lucide-plug
+icon: i-vitehub-connections
 order: 32
 category: Access
 related: [auth, env]

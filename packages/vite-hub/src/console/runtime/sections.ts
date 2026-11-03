@@ -1,5 +1,3 @@
-import type { PrimitiveIconName } from "@vite-hub/ui/primitive-rail"
-
 /** Sections that the Console UI in `vite-hub` renders with its own components. Owner packages contribute the others. */
 export const consoleBuiltinSectionIds = ["env", "connections", "agents", "skills", "usage", "channels", "logs", "blob", "databases", "kv"] as const
 
@@ -17,48 +15,48 @@ export interface ConsoleSectionDetails {
 
 /** Details of built-in sections. Contributed sections get their details from the navigation response. */
 export const consoleSectionDetails: Readonly<Record<ConsoleBuiltinSectionId, ConsoleSectionDetails>> = {
-  env: { description: "Inspect Server Env declarations and their providers.", icon: "i-lucide-key-round", label: "Env", routeName: "vitehub-console-env" },
+  env: { description: "Inspect Server Env declarations and their providers.", icon: "i-vitehub-env", label: "Env", routeName: "vitehub-console-env" },
   connections: {
     description: "Inspect and manage app-owned OAuth Connections.",
-    icon: "i-lucide-plug-zap",
+    icon: "i-vitehub-connections",
     label: "Connections",
     routeName: "vitehub-console-connections",
   },
   agents: {
     description: "Inspect Agent sessions and invocation details.",
-    icon: "i-lucide-bot",
+    icon: "i-vitehub-agent",
     label: "Agents",
     routeName: "vitehub-console-agents",
   },
-  skills: { description: "Inspect bundled Agent Skills and their files.", icon: "i-ph-books-light", label: "Skills", routeName: "vitehub-console-skills" },
-  logs: { description: "Read structured events from the connected log source.", icon: "i-lucide-logs", label: "Logs", routeName: "vitehub-console-logs" },
+  skills: { description: "Inspect bundled Agent Skills and their files.", icon: "i-vitehub-skills", label: "Skills", routeName: "vitehub-console-skills" },
+  logs: { description: "Read structured events from the connected log source.", icon: "i-vitehub-logs", label: "Logs", routeName: "vitehub-console-logs" },
   usage: {
     description: "Review token use and cost evidence over time.",
-    icon: "i-lucide-chart-column",
+    icon: "i-vitehub-usage",
     label: "Usage",
     routeName: "vitehub-console-usage",
   },
   channels: {
     description: "Read and export the conversations of Agent Channels.",
-    icon: "i-lucide-messages-square",
+    icon: "i-vitehub-channels",
     label: "Channels",
     routeName: "vitehub-console-channels",
   },
   blob: {
     description: "Inspect configured Blob stores and object metadata without downloading contents.",
-    icon: "i-lucide-file-box",
+    icon: "i-vitehub-blob",
     label: "Blob",
     routeName: "vitehub-console-blob",
   },
   databases: {
     description: "Inspect discovered Database Definitions and static schema metadata.",
-    icon: "i-lucide-database",
+    icon: "i-vitehub-database",
     label: "Databases",
     routeName: "vitehub-console-databases",
   },
   kv: {
     description: "Inspect configured KV stores without changing data.",
-    icon: "i-lucide-book-key",
+    icon: "i-vitehub-kv",
     label: "KV",
     routeName: "vitehub-console-kv",
   },
@@ -151,7 +149,7 @@ const primitive = (id: ConsoleSectionId, label: string, icon: string, slug: stri
  * of their owner descriptor because the Console only receives descriptors for enabled sections.
  */
 export const consolePrimitives: readonly ConsolePrimitive[] = [
-  primitive("auth", "Auth", "i-lucide-users-round", "auth", "Manage users, sessions, organizations, and approved OAuth clients."),
+  primitive("auth", "Auth", "i-vitehub-auth", "auth", "Manage users, sessions, organizations, and approved OAuth clients."),
   primitive("env", "Env", consoleSectionDetails.env.icon, "env", "Declare public, build-time, server runtime, and secret values behind typed accessors."),
   primitive("connections", "Connections", consoleSectionDetails.connections.icon, "connections", "Connect provider accounts with OAuth 2 or an API key and call their APIs with access rules."),
   primitive("agents", "Agents", consoleSectionDetails.agents.icon, "agents", "Define a server-side Agent, choose how it runs, and connect it to your application.", "getting-started/first-agent"),
@@ -159,54 +157,31 @@ export const consolePrimitives: readonly ConsolePrimitive[] = [
   primitive("logs", "Logs", consoleSectionDetails.logs.icon, "logs", "Read structured logs and diagnostic guidance from your existing pipeline."),
   primitive("usage", "Usage", consoleSectionDetails.usage.icon, "development/console", "Review the token use and cost that Agent Invocations record.", "agents"),
   primitive("channels", "Channels", consoleSectionDetails.channels.icon, "agents/channels", "Read and export the conversations that Agents have in Telegram, Slack, and other Channels.", "agents/channels"),
-  primitive("content", "Content", "i-lucide-file-pen-line", "content", "Edit Markdown documents with validated fields, drafts, publishing, and revision history."),
-  primitive("comments", "Comments", "i-lucide-message-square-text", "comments", "Pin comments to any page of the site, reply, resolve, and edit Content text in place."),
+  primitive("content", "Content", "i-vitehub-content", "content", "Edit Markdown documents with validated fields, drafts, publishing, and revision history."),
+  primitive("comments", "Comments", "i-vitehub-comments", "comments", "Pin comments to any page of the site, reply, resolve, and edit Content text in place."),
   primitive("blob", "Blob", consoleSectionDetails.blob.icon, "blob", "Store uploads, generated files, binary objects, and metadata with one object-storage API."),
   primitive("databases", "Databases", consoleSectionDetails.databases.icon, "database", "Define relational data with Drizzle and query it through generated imports."),
-  primitive("email", "Email", "i-lucide-mail", "email", "Send transactional email through a provider-neutral driver, with safe test capture."),
+  primitive("email", "Email", "i-vitehub-email", "email", "Send transactional email through a provider-neutral driver, with safe test capture."),
   primitive("kv", "KV", consoleSectionDetails.kv.icon, "kv", "Store and read small values by key through one key-value API."),
-  primitive("rate-limits", "Rate Limits", "i-lucide-gauge", "rate-limit", "Require request budgets through an H3 guard and atomic drivers."),
-  primitive("sandbox-tasks", "Sandbox Tasks", "i-lucide-container", "sandbox", "Run named package projects as Sandbox Tasks in an isolated Cloudflare or Vercel Sandbox."),
-  primitive("workspaces", "Workspaces", "i-lucide-folder-kanban", "workspace", "Build persistent file-tree state with rules, Source Bindings, snapshots, and diffs."),
-  primitive("workflows", "Workflows", "i-lucide-git-branch", "workflows", "Start provider-tracked long-running work with run ids, durable state, and steps."),
-  primitive("queues", "Queues", "i-lucide-inbox", "queue", "Define Queue Definitions, enqueue jobs, and choose a Cloudflare or Vercel provider."),
-  primitive("schedules", "Schedules", "i-lucide-calendar-clock", "schedule", "Declare static cron schedules and manage recurring Runtime Schedules."),
+  primitive("rate-limits", "Rate Limits", "i-vitehub-rate-limit", "rate-limit", "Require request budgets through an H3 guard and atomic drivers."),
+  primitive("sandbox-tasks", "Sandbox Tasks", "i-vitehub-sandbox", "sandbox", "Run named package projects as Sandbox Tasks in an isolated Cloudflare or Vercel Sandbox."),
+  primitive("workspaces", "Workspaces", "i-vitehub-workspace", "workspace", "Build persistent file-tree state with rules, Source Bindings, snapshots, and diffs."),
+  primitive("workflows", "Workflows", "i-vitehub-workflow", "workflows", "Start provider-tracked long-running work with run ids, durable state, and steps."),
+  primitive("queues", "Queues", "i-vitehub-queue", "queue", "Define Queue Definitions, enqueue jobs, and choose a Cloudflare or Vercel provider."),
+  primitive("schedules", "Schedules", "i-vitehub-schedule", "schedule", "Declare static cron schedules and manage recurring Runtime Schedules."),
 ]
 
 /** Guides that the Overview links next to the primitives. */
 export const consoleGuides: readonly { readonly description: string, readonly href: string, readonly icon: string, readonly label: string }[] = [
-  { description: "Enable the Console, inspect primitives, and protect its routes.", href: `${consoleDocsBase}/development/console`, icon: "i-lucide-book-open", label: "Console guide" },
-  { description: "Add local KV to a small Vite server and return one stored value.", href: `${consoleDocsBase}/getting-started/first-server-primitive`, icon: "i-lucide-rocket", label: "First Server Primitive" },
-  { description: "Vue components for chat, Agent Invocations, traces, diffs, and file trees.", href: `${consoleDocsBase}/ui`, icon: "i-lucide-blocks", label: "UI kit" },
-  { description: "Run package-owned development workflows through the local Vite config.", href: `${consoleDocsBase}/development/cli`, icon: "i-lucide-terminal", label: "CLI" },
+  { description: "Enable the Console, inspect primitives, and protect its routes.", href: `${consoleDocsBase}/development/console`, icon: "i-vitehub-docs", label: "Console guide" },
+  { description: "Add local KV to a small Vite server and return one stored value.", href: `${consoleDocsBase}/getting-started/first-server-primitive`, icon: "i-vitehub-start", label: "First Server Primitive" },
+  { description: "Vue components for chat, Agent Invocations, traces, diffs, and file trees.", href: `${consoleDocsBase}/ui`, icon: "i-vitehub-ui", label: "UI kit" },
+  { description: "Run package-owned development workflows through the local Vite config.", href: `${consoleDocsBase}/development/cli`, icon: "i-vitehub-development", label: "CLI" },
 ]
 
 /** Returns the documentation link of a section, or undefined for a contributed section that the Console does not know. */
 export function resolveConsoleSectionDocs(section: ConsoleSectionId): string | undefined {
   return consolePrimitives.find(entry => entry.id === section)?.docs
-}
-
-/** Rail icon of each known section. A contributed section with an unknown id uses the icon from its descriptor. */
-export const consoleSectionRailIcons: Readonly<Record<string, PrimitiveIconName>> = {
-  agents: "agent",
-  usage: "usage",
-  databases: "database",
-  kv: "kv",
-  blob: "blob",
-  workspaces: "workspace",
-  workflows: "workflow",
-  queues: "queue",
-  schedules: "schedule",
-  "sandbox-tasks": "sandbox",
-  env: "env",
-  connections: "connection",
-  email: "email",
-  "rate-limits": "rate-limit",
-}
-
-/** Returns the rail icon of a known section, or undefined for a contributed section that the Console does not know. */
-export function consoleSectionRailIcon(section: ConsoleSectionId): PrimitiveIconName | undefined {
-  return Object.hasOwn(consoleSectionRailIcons, section) ? consoleSectionRailIcons[section] : undefined
 }
 
 /** First key of every "Go to" chord, as in Linear and GitHub. */

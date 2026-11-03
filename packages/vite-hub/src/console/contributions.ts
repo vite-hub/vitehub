@@ -154,9 +154,10 @@ const registeredSections: readonly ConsoleRegisteredSection[] = [
 /**
  * Iconify names that the contributed sections use. Owner packages declare these icons outside the Console icon scan, so
  * the Console build (`console.vite.config.ts`) bundles this list. The prebuilt Console then never fetches an icon at
- * runtime.
+ * runtime. The client adds the whole `vitehub` set itself, so its `i-vitehub-*` icons are not in the list.
  */
 export const consoleContributedSectionIcons: readonly string[] = [...new Set(registeredSections.flatMap(section => [section.descriptor.icon, ...section.descriptor.pages?.map(page => page.icon) ?? []]))]
+  .filter(icon => !icon.startsWith("i-vitehub-"))
 
 export const consoleContributedSections: ReadonlyMap<ConsoleSectionId, ConsoleRegisteredSection> = new Map(
   registeredSections.map(section => [section.descriptor.id, section]),

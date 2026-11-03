@@ -1,5 +1,5 @@
 title: Rate Limit
-icon: i-lucide-gauge
+icon: i-vitehub-rate-limit
 order: 33
 category: Access
 related: [auth, kv]

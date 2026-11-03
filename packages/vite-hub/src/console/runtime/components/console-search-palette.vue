@@ -789,7 +789,7 @@ onBeforeUnmount(() => {
     </template>
     <!-- Items with the `section` slot show the same section icon as the rail and the Overview. -->
     <template #section-leading="{ item, ui }">
-      <ConsoleSectionIcon :section="item.section" :icon="item.icon" :class="ui.itemLeadingIcon()" />
+      <ConsoleSectionIcon :icon="item.icon" :class="ui.itemLeadingIcon()" />
     </template>
     <!-- Documents lead with their state dot, as in the Content list. The label next to it is for screen readers. -->
     <template #document-leading="{ item }">

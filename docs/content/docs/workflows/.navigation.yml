@@ -1,5 +1,5 @@
 title: Workflows
-icon: i-lucide-workflow
+icon: i-vitehub-workflow
 order: 21
 category: Compute
 related: [queue, schedule]

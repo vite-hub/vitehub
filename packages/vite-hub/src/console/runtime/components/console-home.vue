@@ -324,7 +324,7 @@ onBeforeUnmount(() => {
                     <UButton class="ms-auto" color="neutral" variant="link" size="xs" label="Try again" @click="loadRecentSessions" />
                   </li>
                   <li v-else-if="!sessionItems.length" class="vitehub-console__overview-row">
-                    <ConsoleSectionIcon section="agents" :icon="consoleSectionDetails.agents.icon" class="vitehub-console__overview-icon" />
+                    <ConsoleSectionIcon :icon="consoleSectionDetails.agents.icon" class="vitehub-console__overview-icon" />
                     <span class="vitehub-console__overview-description">No Agent sessions yet. Invoke an Agent to see its sessions here.</span>
                   </li>
                   <template v-else>
@@ -375,7 +375,7 @@ onBeforeUnmount(() => {
                         :aria-label="`Open ${section.label}`"
                         @click="openSection(section.routeName)"
                       />
-                      <ConsoleSectionIcon :section="section.id" :icon="section.icon" class="vitehub-console__overview-icon" />
+                      <ConsoleSectionIcon :icon="section.icon" class="vitehub-console__overview-icon" />
                       <span class="vitehub-console__overview-name">{{ section.label }}</span>
                       <span class="vitehub-console__overview-description" :title="section.description">{{ section.description }}</span>
                       <span class="vitehub-console__overview-meta">
@@ -408,7 +408,7 @@ onBeforeUnmount(() => {
                       target="_blank"
                       :aria-label="`Set up ${entry.label}`"
                     >
-                      <ConsoleSectionIcon :section="entry.id" :icon="entry.icon" class="vitehub-console__overview-icon" />
+                      <ConsoleSectionIcon :icon="entry.icon" class="vitehub-console__overview-icon" />
                       <span class="vitehub-console__overview-name">{{ entry.label }}</span>
                       <span class="vitehub-console__overview-description" :title="entry.pitch">{{ entry.pitch }}</span>
                       <span class="vitehub-console__overview-meta">

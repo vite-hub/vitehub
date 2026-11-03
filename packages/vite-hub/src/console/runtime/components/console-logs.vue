@@ -217,7 +217,7 @@ onBeforeUnmount(() => {
         <ConsoleState compact :error="error" title="Could not refresh logs" :retry="() => load()" />
       </div>
       <ConsoleState v-if="error && !entries.length" :error="error" title="Could not load logs" :retry="() => load()" />
-      <ConsoleState v-else-if="!source && !loading" section="logs" icon="i-lucide-logs" title="Connect a log source">
+      <ConsoleState v-else-if="!source && !loading" section="logs" icon="i-vitehub-logs" title="Connect a log source">
         <p class="max-w-sm text-xs leading-5 text-pretty text-muted">
           <ConsoleSetupHint :hint="{ message: 'Set `logs: true` to capture events in development, or set `logs.source` to a server module that reads your log backend.' }" />
         </p>
