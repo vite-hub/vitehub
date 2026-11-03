@@ -392,7 +392,7 @@ describe("mentions", () => {
     const field = textarea(wrapper);
     await field.setValue("Hi @be");
     await vi.waitFor(() => expect(wrapper.find("[data-slot=comment-composer-mentions]").exists()).toBe(true));
-    expect(wrapper.findAll("[data-slot=comment-composer-mention]").map((item) => item.text())).toEqual(["Ben Soto"]);
+    expect(wrapper.findAll("[data-slot=comment-composer-mention-name]").map((item) => item.text())).toEqual(["Ben Soto"]);
 
     await field.trigger("keydown", { key: "Enter" });
     await flushPromises();
@@ -410,7 +410,7 @@ describe("mentions", () => {
   it("closes the menu on Esc without closing the composer", async () => {
     const { wrapper } = await layer();
     await drop(wrapper);
-    await textarea(wrapper).setValue("@a");
+    await textarea(wrapper).setValue("@b");
     await vi.waitFor(() => expect(wrapper.find("[data-slot=comment-composer-mentions]").exists()).toBe(true));
 
     await textarea(wrapper).trigger("keydown", { key: "Escape" });
@@ -948,7 +948,7 @@ describe("thread actions", () => {
     await field.setValue("Second thought");
     request.finish();
     await flushPromises();
-    expect(onReply).toHaveBeenCalledWith("First reply", []);
+    expect(onReply).toHaveBeenCalledWith("First reply", [], []);
     expect(field.element).toHaveProperty("value", "Second thought");
   });
 
@@ -1476,7 +1476,7 @@ describe("comment boundaries", () => {
     await wrapper.setProps({ onReply });
     await field.trigger("keydown", { key: "Enter" });
     await flushPromises();
-    expect(onReply).toHaveBeenCalledWith("Please answer", []);
+    expect(onReply).toHaveBeenCalledWith("Please answer", [], []);
     expect(field.element).toHaveProperty("value", "");
   });
 
@@ -1498,6 +1498,9 @@ describe("comment boundaries", () => {
     mounted.push(wrapper);
     await wrapper.get("[aria-label=Edit]").trigger("click");
     await wrapper.get("textarea").setValue(body);
+    await flushPromises();
+    // `people` also feeds the mention menu, so close it first: Enter would pick `@Ann` instead of saving.
+    await wrapper.get("textarea").trigger("keydown", { key: "Escape" });
     await wrapper.get("textarea").trigger("keydown", { key: "Enter" });
     await flushPromises();
     expect(onEdit).toHaveBeenCalledWith("message-1", body, mentions);

@@ -48,6 +48,7 @@ const pages: Record<string, string> = {
   CommentFilters: "comments",
   CommentLayer: "comments",
   CommentList: "comments",
+  CommentPanel: "comments",
   CommentPin: "comments",
   CommentReply: "comments",
   CommentThread: "comments",

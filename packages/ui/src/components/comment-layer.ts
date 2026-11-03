@@ -8,7 +8,8 @@ import type { AvatarStackPerson } from "./avatar-stack.ts";
 import { CommentComposer, type CommentComposerSubmit } from "./comment-composer.ts";
 import { CommentList, CommentToolbar } from "./comment-list.ts";
 import { CommentPin } from "./comment-pin.ts";
-import { CommentThread } from "./comment-thread.ts";
+import type { CommentUpload } from "./comment-panel.ts";
+import { type CommentAttachmentUrl, CommentThread } from "./comment-thread.ts";
 
 const popoverWidth = 360;
 const popoverHeight = 420;
@@ -39,6 +40,12 @@ export const CommentLayer = defineComponent({
     subjectUrl: { type: Function as PropType<(subject: CommentSubject) => string | undefined> },
     /** Navigates to the page of a thread from the list. Defaults to `location.assign`. */
     navigate: { type: Function as PropType<(href: string) => void> },
+    /** Turns attached files into attachment keys. Without it the boxes take no files. */
+    upload: { type: Function as PropType<CommentUpload> },
+    /** The file types that the boxes take, such as `image/*`. */
+    accept: { type: String },
+    /** Gives the URL of an attachment key. With it, image attachments show as thumbnails. */
+    attachmentUrl: { type: Function as PropType<CommentAttachmentUrl> },
   },
   setup(props, { slots }) {
     const { client, subject } = props;
@@ -63,6 +70,12 @@ export const CommentLayer = defineComponent({
       user: () => props.user,
     });
     provideComments(state);
+    const draftFiles = ref<File[]>([]);
+    // The files belong to one draft. A new draft, or none, starts without them.
+    watch(() => state.draft.value, (next, previous) => {
+      if (next !== previous) draftFiles.value = [];
+    });
+    const keys = async (files: File[]) => (files.length > 0 && props.upload ? props.upload(files) : []);
 
     const user = computed(() => state.user.value);
     const pinned = computed(() => {
@@ -131,6 +144,9 @@ export const CommentLayer = defineComponent({
     // The thread tracks each action itself: it clears a box only after the handler succeeded, and shows a failure.
     const threadView = (thread: CommentThreadModel) =>
       h(CommentThread, {
+        accept: props.accept,
+        attachmentUrl: props.attachmentUrl,
+        attachments: props.upload !== undefined,
         key: thread.id,
         detached: state.positions.value.get(thread.id)?.detached === true,
         readOnly: props.readOnly,
@@ -138,7 +154,7 @@ export const CommentLayer = defineComponent({
         onDelete: (messageId: string) => state.remove(thread.id, messageId),
         onEdit: (messageId: string, body: string, mentions: string[]) => state.edit(thread.id, messageId, body, mentions),
         onReopen: () => state.reopen(thread.id),
-        onReply: (body: string, mentions: string[]) => state.reply(thread.id, body, mentions),
+        onReply: async (body: string, mentions: string[], files: File[]) => state.reply(thread.id, body, mentions, await keys(files)),
         // Resolving puts the thread away, as in Figma.
         onResolve: async () => {
           await state.resolve(thread.id);
@@ -221,15 +237,26 @@ export const CommentLayer = defineComponent({
                   "div",
                   { "data-slot": "comment-layer-popover" },
                   h(CommentComposer, {
+                    accept: props.accept,
+                    attachments: props.upload !== undefined,
                     busy: draft.busy,
                     error: draft.error,
                     mentions: draft.mentions,
                     modelValue: draft.body,
                     onCancel: () => state.cancelDraft(),
-                    onSubmit: (submit: CommentComposerSubmit) => {
+                    files: draftFiles.value,
+                    onSubmit: async (submit: CommentComposerSubmit) => {
                       draft.mentions = submit.mentions;
-                      void state.send();
+                      const submitted = draftFiles.value;
+                      try {
+                        draft.attachments = await keys(submit.files);
+                      } catch (error) {
+                        draft.error = error instanceof Error ? error.message : "The files could not be uploaded. Try again.";
+                        return;
+                      }
+                      if (await state.send() && draftFiles.value === submitted) draftFiles.value = [];
                     },
+                    "onUpdate:files": (value: File[]) => (draftFiles.value = value),
                     "onUpdate:mentions": (value: string[]) => (draft.mentions = value),
                     "onUpdate:modelValue": (value: string) => (draft.body = value),
                     people: user.value ? [user.value] : [],

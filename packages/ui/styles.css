@@ -2292,6 +2292,176 @@
     font-size: 0.75rem;
     margin: 0.375rem 0 0;
   }
+
+  /*
+   * The tokens are read again on each comment surface, so a class on the surface or on an ancestor that sets Nuxt UI
+   * tokens, such as Nuxt UI's `dark` class or `--ui-bg`, themes only that surface.
+   */
+  [data-comments-ui] {
+    --vh-ui-border: var(--ui-border, color-mix(in oklab, currentColor 14%, transparent));
+    --vh-ui-muted: var(--ui-text-muted, color-mix(in oklab, currentColor 68%, transparent));
+    --vh-ui-text: var(--ui-text, currentColor);
+    --vh-ui-bg: var(--ui-bg, Canvas);
+    --vh-ui-bg-elevated: var(--ui-bg-elevated, color-mix(in oklab, Canvas 96%, currentColor));
+    --vh-ui-bg-accented: var(--ui-bg-accented, color-mix(in oklab, Canvas 90%, currentColor));
+    --vh-ui-highlighted: var(--ui-text-highlighted, currentColor);
+    --vh-ui-inverted: var(--ui-text-inverted, Canvas);
+    --vh-ui-primary: var(--ui-primary, #2563eb);
+    --vh-ui-error: var(--ui-error, #df3030);
+    --vh-ui-warning: var(--ui-warning, #ad6500);
+  }
+
+  [data-slot="comment-mention"] {
+    background: var(--vh-comment-mention-bg, color-mix(in oklab, var(--vh-ui-bg-accented) 80%, transparent));
+    border-radius: calc(var(--vh-ui-radius) * 0.5);
+    color: var(--vh-ui-highlighted);
+    font-weight: 500;
+    padding: 0 0.125rem;
+  }
+
+  [data-slot="comment-mention"][data-self="true"] {
+    background: var(--vh-comment-mention-self-bg, color-mix(in oklab, var(--vh-ui-warning) 25%, transparent));
+  }
+
+  [data-slot="comment-composer-extra"] {
+    margin-block-end: 0.375rem;
+  }
+
+  [data-slot="comment-composer-mention"] {
+    align-items: center;
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  [data-slot="comment-composer-mention"] [data-slot="avatar-stack"] {
+    --vh-avatar-size: 1.25rem;
+  }
+
+  [data-slot="comment-composer"][data-dragging="true"] [data-slot="prompt-input-group"] {
+    border-color: var(--vh-ui-primary);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--vh-ui-primary) 20%, transparent);
+  }
+
+  [data-slot="comment-reply-attachments"] {
+    flex-wrap: wrap;
+    margin-top: 0.5rem;
+  }
+
+  [data-slot="comment-thread-actions"] {
+    align-items: center;
+    display: flex;
+    gap: 0.25rem;
+  }
+
+  [data-slot="comment-thread-after"] {
+    padding: 0 0.75rem 0.75rem;
+  }
+
+  /* CommentPanel: the list, one thread, and the page box in one surface. */
+  [data-slot="comment-panel"] {
+    background: var(--vh-ui-bg);
+    color: var(--vh-ui-text);
+    display: flex;
+    flex-direction: column;
+    font-size: 0.875rem;
+    min-height: 0;
+  }
+
+  [data-slot="comment-panel"][data-variant="docked"] {
+    border-inline-start: 1px solid var(--vh-ui-border);
+    height: 100%;
+  }
+
+  [data-slot="comment-panel"][data-variant="floating"] {
+    border: 1px solid var(--vh-ui-border);
+    border-radius: calc(var(--vh-ui-radius) * 1.5);
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.16);
+    max-height: min(36rem, calc(100dvh - 2rem));
+    overflow: hidden;
+    width: min(22.5rem, calc(100vw - 1rem));
+  }
+
+  [data-slot="comment-panel-header"] {
+    align-items: center;
+    border-block-end: 1px solid var(--vh-ui-border);
+    display: flex;
+    gap: 0.5rem;
+    justify-content: space-between;
+    padding: 0.5rem 0.5rem 0.5rem 0.75rem;
+  }
+
+  [data-slot="comment-panel-title"] {
+    color: var(--vh-ui-highlighted);
+    font-size: inherit;
+    font-weight: 600;
+    margin: 0;
+  }
+
+  [data-slot="comment-panel-filters"] {
+    display: flex;
+    gap: 0.25rem;
+  }
+
+  [data-slot="comment-panel-items"] {
+    flex: 1;
+    list-style: none;
+    margin: 0;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0;
+  }
+
+  [data-slot="comment-panel-item"] {
+    align-items: flex-start;
+    background: none;
+    border: 0;
+    border-block-end: 1px solid var(--vh-ui-border);
+    color: inherit;
+    cursor: pointer;
+    display: flex;
+    font: inherit;
+    gap: 0.5rem;
+    padding: 0.625rem 0.75rem;
+    text-align: start;
+    width: 100%;
+  }
+
+  [data-slot="comment-panel-item"]:is(:hover, :focus-visible) {
+    background: var(--vh-ui-bg-elevated);
+  }
+
+  [data-slot="comment-panel-item"]:focus-visible {
+    outline: 2px solid var(--vh-ui-ring);
+    outline-offset: -2px;
+  }
+
+  [data-slot="comment-panel-empty"] {
+    color: var(--vh-ui-muted);
+    flex: 1;
+    margin: 0;
+    padding: 1rem 0.75rem;
+  }
+
+  [data-slot="comment-panel-composer"] {
+    border-block-start: 1px solid var(--vh-ui-border);
+  }
+
+  /* The page box sits at the bottom, so its mention menu opens upward. */
+  [data-slot="comment-panel-composer"] [data-slot="comment-composer-mentions"] {
+    bottom: 100%;
+    margin: 0 0 0.25rem;
+    top: auto;
+  }
+
+  [data-slot="comment-panel"] > [data-slot="comment-thread"] {
+    flex: 1;
+    min-height: 0;
+  }
+
+  [data-slot="comment-panel"] > [data-slot="comment-thread"] [data-slot="comment-thread-messages"] {
+    flex: 1;
+    max-height: none;
+  }
 }
 
 /*

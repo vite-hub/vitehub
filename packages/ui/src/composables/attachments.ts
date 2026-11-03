@@ -1,6 +1,7 @@
 import type { FileUIPart } from "ai";
 import { computed, onScopeDispose, ref, type ComputedRef, type Ref } from "vue";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts"
+import { matchesAccept } from "../internal/prompt-files.ts";
 
 export interface PendingAttachment {
   file: File;
@@ -24,16 +25,6 @@ export interface AgentAttachments {
   inputProps: ComputedRef<{ accept?: string; multiple: boolean; type: "file" }>;
   remove: (id: string) => void;
   toFileParts: () => Promise<FileUIPart[]>;
-}
-
-function matchesAccept(file: File, accept: string | undefined): boolean {
-  if (!accept) return true;
-  return accept.split(",").some((entry) => {
-    const value = entry.trim();
-    if (value.startsWith(".")) return file.name.toLowerCase().endsWith(value.toLowerCase());
-    if (value.endsWith("/*")) return file.type.startsWith(value.slice(0, -1));
-    return file.type === value;
-  });
 }
 
 export function fileToDataUrl(file: File): Promise<string> {
