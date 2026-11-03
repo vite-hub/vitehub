@@ -1,10 +1,11 @@
-import { defineComponent, h, onBeforeUnmount, ref, Teleport, watch } from "vue";
+import { type App, defineComponent, h, onBeforeUnmount, ref, Teleport, watch } from "vue";
 import { icons } from "virtual:vitehub-ui-icons";
 
 /**
  * Stand-ins for the three Nuxt UI components that the comment parts use, for a page without Nuxt UI, such as the
- * comments overlay in a shadow root. Register them with `app.component()`, and build with `standaloneUI()` from
- * `standalone/vite.ts`. `standalone/styles.css` styles them.
+ * comments overlays in a shadow root. Register them with `registerStandaloneUI(app)`, and build with `standaloneUI()`
+ * from `standalone/vite.ts`, which also turns the parts' own Nuxt UI imports into these. `standalone/styles.css` styles
+ * them.
  */
 
 /** The icons of the parts, as SVG elements built from path data. Nuxt UI's `UIcon` would bring its icon runtime. */
@@ -108,3 +109,13 @@ export const UModal = defineComponent({
     };
   },
 });
+
+/**
+ * Registers the stand-ins on `app`, so the parts render them at once instead of loading their Nuxt UI imports on first
+ * render.
+ */
+export function registerStandaloneUI(app: App): void {
+  app.component("UButton", UButton);
+  app.component("UIcon", UIcon);
+  app.component("UModal", UModal);
+}
