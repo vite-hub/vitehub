@@ -53,6 +53,19 @@ describe("Nitro cache on KV", () => {
     })
   })
 
+  it("decodes a cached value once, so cached JSON strings stay strings", async () => {
+    const namespace = createNamespace()
+    const storage = createStorage()
+    storage.mount("cache", createKVCacheDriver())
+
+    await runWithActiveCloudflareEnv({ KV: namespace }, async () => {
+      await storage.setItem("cache:version", "\"123\"")
+      await storage.setItem("cache:count", "123")
+      expect(await storage.getItem("cache:version")).toBe("123")
+      expect(await storage.getItem("cache:count")).toBe(123)
+    })
+  })
+
   it.each(["", ":", "/", ":://"])("keeps an empty normalized base %j inside the default prefix", async (base) => {
     const namespace = createNamespace()
     const storage = createStorage()
