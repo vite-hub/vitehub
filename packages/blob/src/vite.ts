@@ -267,52 +267,76 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
   const cacheControl = Object.entries(headers ?? {}).findLast(([name]) => name.toLowerCase() === "cache-control")?.[1]
     ?? (serve.authorize ? "private, no-cache" : "public, max-age=0, s-maxage=0")
   return [
+    // Nuxt 4 runs H3 1 events and Nitro 3 runs H3 2 events, but an `h3` import from `.vitehub` can resolve the other
+    // major version. Only use what both event shapes have; `serve()` reads both.
     `import { blob, parseImageVariant } from '${importBase}'`,
+    `import type { BlobStorage } from '${importBase}'`,
     ...(serve.authorize ? [`import { ${serve.anonymous ? "withAnonymousAuthorization" : "withAuthorization"} } from ${JSON.stringify(AUTH_SERVER_ID)}`] : []),
     ...(authorizeModule ? [`import { authorize } from ${JSON.stringify(authorizeModule)}`] : []),
-    `import { createError, defineEventHandler, getQuery, getResponseStatus, getRouterParam, setResponseHeader${headers ? ", removeResponseHeader, setResponseHeaders" : ""} } from 'h3'`,
-    "import type { H3Event } from 'h3'",
+    "",
+    "type ServeEvent = Parameters<BlobStorage['serve']>[0]",
+    "type RouteEvent = ServeEvent & { context: { params?: Record<string, string | undefined> }, path: string, url?: unknown }",
     "",
     `const storeName = ${JSON.stringify(serve.store)}`,
-    ...(headers ? [`const responseHeaders = ${JSON.stringify(headers)}`] : []),
+    ...(headers
+      ? [
+          `const responseHeaders = ${JSON.stringify(headers)}`,
+          "",
+          "// An H3 1 event has no `url` and writes its response through `node.res`.",
+          "function eventResponseHeaders(event: RouteEvent): Pick<Headers, 'delete' | 'set'> {",
+          "  if (!isH3V1Event(event)) return event.res.headers",
+          "  const response = event.node.res",
+          "  return { delete: name => response.removeHeader(name), set: (name, value) => { response.setHeader(name, value) } }",
+          "}",
+          "",
+          "function isH3V1Event(event: RouteEvent): event is RouteEvent & Extract<ServeEvent, { node: unknown }> {",
+          "  return event.url === undefined",
+          "}",
+        ]
+      : []),
     "",
-    "async function serveBlob(event: H3Event) {",
-    "  const pathname = getRouterParam(event, '_', { decode: false }) || ''",
-    "  if (!pathname) throw createError({ statusCode: 404, statusMessage: 'Blob not found' })",
+    "async function serveBlob(event: RouteEvent) {",
+    "  const pathname = event.context.params?._ || ''",
+    "  if (!pathname) return Response.json({ error: 'Blob not found.' }, { status: 404 })",
     "  // ?w=&h=&fit=&fmt=&q=&crop= selects an image variant. Invalid values are client errors.",
     `  const options: { variant?: NonNullable<ReturnType<typeof parseImageVariant>>, cacheControl: string } = { cacheControl: ${JSON.stringify(cacheControl)} }`,
     "  try {",
-    "    const variant = parseImageVariant(getQuery(event))",
+    "    const variant = parseImageVariant(new URL(event.path, 'http://localhost').searchParams)",
     "    if (variant) options.variant = variant",
     "  }",
     "  catch (error) {",
-    "    throw createError({ cause: error, statusCode: 400, statusMessage: error instanceof Error ? error.message : 'Invalid image variant' })",
+    "    return Response.json({ error: error instanceof Error ? error.message : 'Invalid image variant' }, { status: 400 })",
     "  }",
-    ...(headers ? ["  setResponseHeaders(event, responseHeaders)"] : []),
+    ...(headers
+      ? [
+          "  const headers = eventResponseHeaders(event)",
+          "  for (const [name, value] of Object.entries(responseHeaders)) headers.set(name, value)",
+          "  const clearHeaders = () => { for (const name of Object.keys(responseHeaders)) headers.delete(name) }",
+        ]
+      : []),
     "  try {",
     "    const [error, stream] = await blob.store(storeName).serve(event, pathname, options)",
-    "    if (error?.code === 'BLOB_NOT_FOUND') throw createError({ cause: error, statusCode: 404, statusMessage: 'Blob not found' })",
-    "    if (error) throw error",
-    // H3 2 merges event headers over returned values. Keep the final policy on the event.
-    `    setResponseHeader(event, 'Cache-Control', ${JSON.stringify(cacheControl)})`,
-    // H3 2 adds Content-Length: 0 to null values, which is incorrect for an unchanged object.
-    "    if (stream === null && getResponseStatus(event) === 304) return new Response(null, { status: 304 })",
-    "    return stream",
+    // `serve()` keeps the Cache-Control policy on the event, because H3 2 merges event headers over returned values.
+    // It returns null only for a 304. H3 2 adds Content-Length: 0 to a null value, which is incorrect for an unchanged object.
+    "    if (!error) return stream ?? new Response(null, { status: 304 })",
+    "    if (error.code !== 'BLOB_NOT_FOUND') throw error",
     "  }",
     "  catch (error) {",
-    ...(headers ? ["    for (const name of Object.keys(responseHeaders)) removeResponseHeader(event, name)"] : []),
+    ...(headers ? ["    clearHeaders()"] : []),
     "    throw error",
     "  }",
+    ...(headers ? ["  clearHeaders()"] : []),
+    "  return Response.json({ error: 'Blob not found.' }, { status: 404 })",
     "}",
     "",
     ...(serve.authorize
       ? [
           "// Authorize before the store read and before conditional request handling.",
           serve.anonymous
-            ? "export default defineEventHandler(withAnonymousAuthorization(authorize, (event: H3Event) => serveBlob(event)))"
-            : `export default defineEventHandler(withAuthorization(${authorizeModule ? "authorize" : "true"}, (event: H3Event) => serveBlob(event)))`,
+            ? "export default withAnonymousAuthorization(authorize, (event: RouteEvent) => serveBlob(event))"
+            : `export default withAuthorization(${authorizeModule ? "authorize" : "true"}, (event: RouteEvent) => serveBlob(event))`,
         ]
-      : ["export default defineEventHandler(serveBlob)"]),
+      : ["export default serveBlob"]),
     "",
   ].join("\n")
 }

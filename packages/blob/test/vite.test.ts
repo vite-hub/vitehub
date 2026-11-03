@@ -31,11 +31,13 @@ const execFileAsync = promisify(execFile)
 const workspaceRoot = resolve(import.meta.dirname, "../../..")
 const nuxtH3 = join(dirname(createRequire(import.meta.resolve("nitropack/package.json")).resolve("h3/package.json")), "dist/index.mjs")
 
-function h3Runtime(nuxt: boolean): import("esbuild").Plugin {
+// The `h3` that a generated route resolves from the app can be another major version than the host runs. A Nuxt 4 app
+// that does not depend on `h3` resolves H3 2 while Nitro 2 runs H3 1, so resolve the other version here.
+function appRootH3(nuxt: boolean): import("esbuild").Plugin {
   return {
-    name: "test-host-h3",
+    name: "test-app-root-h3",
     setup(build) {
-      build.onResolve({ filter: /^h3$/ }, () => ({ path: nuxt ? nuxtH3 : fileURLToPath(import.meta.resolve("h3")) }))
+      build.onResolve({ filter: /^h3$/ }, () => ({ path: nuxt ? fileURLToPath(import.meta.resolve("h3")) : nuxtH3 }))
     },
   }
 }
@@ -1035,15 +1037,12 @@ describe("hubBlob", () => {
     expect(handler).not.toContain("from 'nitro/cache'")
     expect(handler).toContain("const storeName = \"media\"")
     expect(handler).toContain("const responseHeaders = {\"Cache-Control\":\"public, max-age=300\",\"X-Content-Type-Options\":\"nosniff\"}")
-    expect(handler).toContain("getRouterParam(event, '_', { decode: false })")
-    expect(handler).toContain("setResponseHeaders(event, responseHeaders)")
+    // Nuxt resolves `h3` imports from `.vitehub` to H3 2, but its Nitro 2 routes receive H3 1 events.
+    expect(handler).not.toMatch(/from ['"]h3['"]/)
+    expect(handler).toContain("for (const [name, value] of Object.entries(responseHeaders)) headers.set(name, value)")
     expect(handler).toContain("blob.store(storeName).serve(event, pathname, options)")
-    expect(handler).toContain("error?.code === 'BLOB_NOT_FOUND'")
-    expect(handler).toContain("statusCode: 404")
-    expect(handler).toContain("for (const name of Object.keys(responseHeaders)) removeResponseHeader(event, name)")
-    expect(handler).toContain("throw error")
-    expect(handler).toContain("defineEventHandler(serveBlob)")
-    expect(handler.indexOf("setResponseHeaders(event, responseHeaders)")).toBeLessThan(
+    expect(handler).toContain("export default serveBlob")
+    expect(handler.indexOf("headers.set(name, value)")).toBeLessThan(
       handler.indexOf("blob.store(storeName).serve(event, pathname, options)"),
     )
   })
@@ -1096,7 +1095,7 @@ describe("hubBlob", () => {
         nodePaths: [join(workspaceRoot, "node_modules")],
         outfile: artifactFile,
         platform: "node",
-        plugins: [h3Runtime(nuxt), {
+        plugins: [appRootH3(nuxt), {
           name: "blob-route-stub",
           setup(build) {
             build.onResolve({ filter: /^virtual:blob-test$/ }, () => ({
@@ -1188,7 +1187,7 @@ describe("hubBlob", () => {
         nodePaths: [join(workspaceRoot, "node_modules")],
         outfile: artifactFile,
         platform: "node",
-        plugins: [h3Runtime(nuxt), {
+        plugins: [appRootH3(nuxt), {
           name: "blob-authorize-route-stub",
           setup(build) {
             build.onResolve({ filter: /^virtual:blob-test$/ }, args => ({
@@ -1260,7 +1259,7 @@ describe("hubBlob", () => {
         } as never)
         const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
         expect(handler).toContain("import { withAuthorization } from \"#vitehub/auth/server\"")
-        expect(handler).toContain("withAuthorization(true, (event: H3Event) => serveBlob(event))")
+        expect(handler).toContain("withAuthorization(true, (event: RouteEvent) => serveBlob(event))")
 
         const request = await bundleServeRoute(root, "public, max-age=3600")
         const anonymous = await request("u1/meal.jpg")
@@ -1313,7 +1312,7 @@ describe("hubBlob", () => {
         } as never)
         const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
         expect(handler).toContain(`import { authorize } from ${JSON.stringify(join(root, "server", `blob${extension}`))}`)
-        expect(handler).toContain("withAuthorization(authorize, (event: H3Event) => serveBlob(event))")
+        expect(handler).toContain("withAuthorization(authorize, (event: RouteEvent) => serveBlob(event))")
 
         const request = await bundleServeRoute(root)
         const own = await request("u1/meal.jpg", { cookie: "session=u1" })
@@ -1352,7 +1351,7 @@ describe("hubBlob", () => {
         } as never)
         const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
         expect(handler).toContain("import { withAnonymousAuthorization } from \"#vitehub/auth/server\"")
-        expect(handler).toContain("withAnonymousAuthorization(authorize, (event: H3Event) => serveBlob(event))")
+        expect(handler).toContain("withAnonymousAuthorization(authorize, (event: RouteEvent) => serveBlob(event))")
 
         const request = await bundleServeRoute(root, "public, max-age=3600", "/f")
         const shared = await request("public/meal.jpg")
@@ -1438,7 +1437,7 @@ describe("hubBlob", () => {
         } as never)
         const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
         expect(handler).not.toContain(JSON.stringify(join(root, "server", "blob.ts")))
-        expect(handler).toContain("withAuthorization(true, (event: H3Event) => serveBlob(event))")
+        expect(handler).toContain("withAuthorization(true, (event: RouteEvent) => serveBlob(event))")
       }
       finally {
         await rm(root, { force: true, recursive: true })
