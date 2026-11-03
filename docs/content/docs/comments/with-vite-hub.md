@@ -21,7 +21,7 @@ icon: i-lucide-users
 
 In this tutorial, you turn on Comments in a ViteHub app, pin a comment, open the page in a second browser to see each other's cursors, and change a Content heading on the page. Then you publish the draft from the Console.
 
-You need Node.js 24.15 or newer, pnpm, and a Vite application that uses Vue and TypeScript. Run the commands from its root. This example uses a local SQLite Database and a memory room authority, and needs no provider account. It lets anyone comment and edit, so keep it on your computer. [Decide who can comment](/docs/comments/configure#decide-who-can-comment) before you deploy.
+You need Node.js 22.18 or newer, pnpm, and a Vite application that uses Vue and TypeScript. Run the commands from its root. This example uses a local SQLite Database and a memory room authority, and needs no provider account. It lets anyone comment and edit, so keep it on your computer. [Decide who can comment](/docs/comments/configure#decide-who-can-comment) before you deploy.
 
 ::tutorial-step{title="Turn on Comments"}
 ## Turn on Comments

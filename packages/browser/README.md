@@ -9,7 +9,7 @@
 
 Browser Definitions and actions currently use Cloudflare Browser Run. Low-level clients can instead start a local Chromium process on a trusted Node host.
 
-The package requires Node.js 24.15 or newer.
+The package requires Node.js 22.18 or newer.
 
 ## Choose the package
 

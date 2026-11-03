@@ -9,7 +9,7 @@ icon: i-lucide-rocket
 
 Add Comments to a Vite app with one plugin, and pin a comment on a page. Then let your team sign in with GitHub, and deploy the app on Node. You need no ViteHub app, no Database, and no login of your own.
 
-You need Node.js 24.15 or newer, pnpm, and a Vite application. Run the commands from its root. The last two steps also need a GitHub repository for the app, and a GitHub account that can create a GitHub App.
+You need Node.js 22.18 or newer, pnpm, and a Vite application. Run the commands from its root. The last two steps also need a GitHub repository for the app, and a GitHub account that can create a GitHub App.
 
 ::tutorial-step{title="Turn on Comments"}
 ## Turn on Comments

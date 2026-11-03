@@ -45,7 +45,7 @@ function setup(nuxt: boolean): PrimitiveProjectFile {
     content: `# Database setup
 
 ${nuxt ? "Start from a Nuxt 4.5.2 or newer application." : "Use Vite 8 with Nitro 3's Vite integration for server execution."}
-Requires Node.js 24.15 or newer.
+Requires Node.js 22.18 or newer.
 
 \`\`\`sh
 pnpm add vite-hub @vite-hub/database drizzle-orm

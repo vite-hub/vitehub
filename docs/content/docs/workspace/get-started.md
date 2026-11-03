@@ -11,7 +11,7 @@ icon: i-lucide-rocket
 
 List Markdown files from a local Source, then add a draft to the Workspace's writable file tree. A Workspace combines files with access rules and tracks changes as a diff. The read route and write route will ask for different access modes.
 
-You need Node.js 24.15 or newer, pnpm, and a Vite application. Run the commands from its root. This example uses the default local store. Read [Hosts](/docs/workspace/hosts) before choosing storage for a deployed app.
+You need Node.js 22.18 or newer, pnpm, and a Vite application. Run the commands from its root. This example uses the default local store. Read [Hosts](/docs/workspace/hosts) before choosing storage for a deployed app.
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure

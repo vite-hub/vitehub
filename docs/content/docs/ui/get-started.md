@@ -10,7 +10,7 @@ icon: i-lucide-rocket
 
 Render a short chat with one question and one reply. You will install the Nuxt module and pass an AI SDK message array to `Chat`. This first page uses local messages so you can check the UI before connecting an Agent.
 
-You need Node.js 24.15 or newer, pnpm, and a Nuxt application. Run the commands from its root. For Vue with Vite, follow [Installation](/docs/ui/installation) first. The UI package renders your app's state; your app still owns fetching, routes, and message storage.
+You need Node.js 22.18 or newer, pnpm, and a Nuxt application. Run the commands from its root. For Vue with Vite, follow [Installation](/docs/ui/installation) first. The UI package renders your app's state; your app still owns fetching, routes, and message storage.
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure

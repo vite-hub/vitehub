@@ -11,7 +11,7 @@ navigation.kind: Tutorial
 
 Open a Sandbox on your own Node host, write a text file, and run Node to read it. The response will contain `Sandbox is ready`. A Sandbox prepares an execution session with a private Home, declared environment, and boot checks.
 
-You need Node.js 24.15 or newer, pnpm, and a Vite server application. Run the commands from its root. A trusted-host Sandbox shares the host's filesystem and process authority. Use [Sandbox](/docs/sandbox) when untrusted code needs provider-managed isolation.
+You need Node.js 22.18 or newer, pnpm, and a Vite server application. Run the commands from its root. A trusted-host Sandbox shares the host's filesystem and process authority. Use [Sandbox](/docs/sandbox) when untrusted code needs provider-managed isolation.
 
 ::tutorial-step{title="Install the Sandbox package"}
 ## Install the Sandbox package

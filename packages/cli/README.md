@@ -23,7 +23,7 @@ pnpm add -D @vite-hub/cli vite
 pnpm vitehub --help
 ```
 
-`@vite-hub/cli` requires Node.js 24 or newer. The current `vite-hub` distribution requires Node.js 24.15 or newer.
+`@vite-hub/cli` requires Node.js 22.18 or newer. The current `vite-hub` distribution requires Node.js 22.18 or newer.
 
 Print the installed CLI version without loading project config:
 

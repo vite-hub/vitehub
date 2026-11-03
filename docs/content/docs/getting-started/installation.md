@@ -19,7 +19,10 @@ imports. Some features need one more package, as
 
 ## Prerequisites
 
-- Node.js 24.15 or newer.
+- Node.js 22.18 or newer. On Node.js 22, features that open a local SQLite
+  file, such as a `file:` Database, inline Console Auth, and Comments, print
+  one `ExperimentalWarning` for `node:sqlite`. Node.js 24 prints no warning.
+  The behavior is the same.
 - pnpm. The examples use pnpm commands throughout.
 - Vite 8 or newer for the Vite path.
 - An existing Nuxt 4 app, version 4.5.2 or newer, for the Nuxt path.

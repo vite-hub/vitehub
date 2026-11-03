@@ -10,7 +10,7 @@ icon: i-lucide-rocket
 
 Connect a Google account, then list its Gmail labels from a server route. Connections stores the OAuth grant in your app database and adds the credential to provider requests. Your route receives the label data without reading a token.
 
-You need Node.js 24.15 or newer, pnpm, and a Vite application. Connections enable [Database](/docs/database/get-started) and use its Default Database. You do not need a Database Definition. You also need a Google OAuth client with Gmail API access and a test account permitted by its consent screen. Run the commands from the app root. This example reads labels and does not send or change mail.
+You need Node.js 22.18 or newer, pnpm, and a Vite application. Connections enable [Database](/docs/database/get-started) and use its Default Database. You do not need a Database Definition. You also need a Google OAuth client with Gmail API access and a test account permitted by its consent screen. Run the commands from the app root. This example reads labels and does not send or change mail.
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure

@@ -32,7 +32,7 @@ console.log(observation.stdout);
       private: true,
       type: "module",
       scripts: { start: "node shell.ts" },
-      engines: { node: ">=24.0.0" },
+      engines: { node: ">=22.18.0" },
       dependencies: { "vite-hub": "^0.0.4", "just-bash": "^3.6.0" },
     }, null, 2),
   },
@@ -41,7 +41,7 @@ console.log(observation.stdout);
     language: "markdown",
     content: `# Shell runtime example
 
-Run \`pnpm install\`, then \`pnpm start\` with Node.js 24 or later.
+Run \`pnpm install\`, then \`pnpm start\` with Node.js 22.18 or later.
 
 This server-side example uses the Shell runtime and an explicit Just Bash provider.
 The same API can be called from server code in a Vite, Nitro, or Nuxt application.

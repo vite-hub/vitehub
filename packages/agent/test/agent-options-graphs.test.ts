@@ -333,9 +333,9 @@ interface GrowableOptionBuffer extends SharedArrayBuffer {
   readonly maxByteLength: number
   grow(byteLength: number): void
 }
-// SAFETY: Node 24 implements these ES2024 constructors; the repository targets older TypeScript library declarations.
+// SAFETY: Node.js 22.18 and newer implement these ES2024 constructors; the repository targets older TypeScript library declarations.
 const ResizableOptionBuffer = ArrayBuffer as unknown as { new (byteLength: number, options: { maxByteLength: number }): ResizableOptionBuffer }
-// SAFETY: Node 24 implements growable SharedArrayBuffer with this constructor contract.
+// SAFETY: Node.js 22.18 and newer implement growable SharedArrayBuffer with this constructor contract.
 const GrowableOptionBuffer = SharedArrayBuffer as unknown as { new (byteLength: number, options: { maxByteLength: number }): GrowableOptionBuffer }
 
 it.each(["resizable", "growable"] as const)("preserves %s buffers and view length behavior atomically", kind => {

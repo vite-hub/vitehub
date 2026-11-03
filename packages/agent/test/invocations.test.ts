@@ -17,6 +17,8 @@ import type { AgentInvocationListOptions } from "../src/invocations.ts"
 import type { AgentInvocationStore } from "../src/server.ts"
 import type { Client } from "@libsql/client"
 
+const nodeMajor = Number(process.versions.node.split(".")[0])
+
 const outcomeObservationNames = new Set(["agent.invocation.finish", "agent.stream.error"])
 
 function runtime(runId: string, annotations?: Record<string, boolean | number | string | null>) {
@@ -2424,7 +2426,8 @@ describe("Agent Invocations", () => {
     expect(valueOf).not.toHaveBeenCalled()
   })
 
-  it("serializes public Blob, File, and boxed primitive payload values before persistence", async () => {
+  // Node.js 22 structuredClone() turns a File into a Blob, so the payload stays private there.
+  it.skipIf(nodeMajor < 24)("serializes public Blob, File, and boxed primitive payload values before persistence", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("remaining-structured-public-payload"))
     if (!journal) throw new Error("Expected the invocation journal to be configured.")

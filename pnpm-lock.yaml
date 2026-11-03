@@ -2622,6 +2622,9 @@ importers:
       pathe:
         specifier: catalog:unjs
         version: 2.0.3
+      picomatch:
+        specifier: catalog:workspace
+        version: 4.0.7
       semver:
         specifier: ^7.8.5
         version: 7.8.5
@@ -2641,6 +2644,9 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
+      '@types/picomatch':
+        specifier: catalog:tooling
+        version: 4.0.3
       '@types/semver':
         specifier: ^7.8.0
         version: 7.8.0
