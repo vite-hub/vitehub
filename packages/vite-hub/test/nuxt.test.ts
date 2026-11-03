@@ -2653,6 +2653,32 @@ describe("ViteHub Nuxt integration", () => {
     expect(nitroHandlerRoutes(nitroOptions(development.nuxt))).not.toContain("/**")
   })
 
+  it("resolves Console file paths from the Nuxt rootDir when the Vite root is the app folder", async () => {
+    const authorize = "/tmp/vitehub-nuxt/server/console-authorize.ts"
+    const server = "/tmp/vitehub-nuxt/server/console-auth.ts"
+    await mkdir("/tmp/vitehub-nuxt/server", { recursive: true })
+    await writeFile(authorize, "export default () => true\n")
+    await writeFile(server, "export default {}\n")
+    try {
+      // Nuxt sets the Vite root to srcDir, which is `app/` in a Nuxt 4 app.
+      const production = createNuxt(false)
+      production.nuxt.options.vite.root = production.nuxt.options.srcDir
+      await viteHubNuxtModule({ console: { auth: false, authorize: "./server/console-authorize.ts" }, preset: "node" }, production.nuxt)
+      await production.runNitroConfigHook(nitroOptions(production.nuxt))
+      expect(await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).toContain(pathToFileURL(authorize).href)
+
+      const development = createNuxt(true)
+      development.nuxt.options.vite.root = development.nuxt.options.srcDir
+      await viteHubNuxtModule({ console: { auth: { server: "./server/console-auth.ts" } }, preset: "node" }, development.nuxt)
+      await development.runNitroConfigHook(nitroOptions(development.nuxt))
+      expect(await readFile("/tmp/vitehub-nuxt/app/.vitehub/nitro/console/auth-definition.mjs", "utf8")).toContain(pathToFileURL(server).href)
+    }
+    finally {
+      await Promise.all([authorize, server].map(file => rm(file, { force: true })))
+      await rm("/tmp/vitehub-nuxt/app/.vitehub", { force: true, recursive: true })
+    }
+  })
+
   it("refreshes the Nuxt client handler when an imported local module changes", async () => {
     const directory = await mkdtemp(fileURLToPath(new URL("../.vitehub-nuxt-console-auth-", import.meta.url)))
     try {
