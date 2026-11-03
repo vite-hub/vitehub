@@ -29,3 +29,13 @@ export function detectPreset(env: Record<string, string | undefined> = process.e
   }
   return providerPresets.find(([name]) => env[name]?.trim())?.[1]
 }
+
+/**
+ * Adds the `module` export condition to a Cloudflare build. Vite resolves server code with it, and Nitro does not.
+ * Without it, a package that keeps its ESM build under `module`, such as `@opentelemetry/semantic-conventions` (which
+ * Better Auth imports), ships its whole CommonJS build in the Worker instead of the few exports that the app uses.
+ */
+export function cloudflareExportConditions(conditions: unknown): string[] {
+  const current = Array.isArray(conditions) ? conditions.filter((condition): condition is string => String(condition) === condition) : []
+  return current.includes("module") || current.includes("!module") ? current : [...current, "module"]
+}
