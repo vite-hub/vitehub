@@ -7,9 +7,9 @@ import { createWorkflowRegistryContents, workflowPackageName } from "./vite-buil
 import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions } from "../types.ts"
 
 // Provider servers install the discovered Workflow registry in production. In
-// `vite dev`, the app runs in the Nitro dev runtime, so the Vite plugin writes
-// the registry and a Nitro plugin that installs it and the runtime config at startup. Build output
-// never contains these files.
+// `vite dev`, and in builds for hosts without a Provider Output server (Node,
+// Docker), the Vite plugin writes the registry and a Nitro plugin that installs
+// it and the runtime config at startup.
 export const workflowDevGeneratedDir = ".vitehub/nitro/workflow"
 const devRegistryFile = "dev-registry.mjs"
 const devPluginFile = "dev-plugin.mjs"
