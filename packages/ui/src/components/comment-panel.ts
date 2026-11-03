@@ -70,7 +70,7 @@ export const CommentPanel = defineComponent({
     // SAFETY: the check above leaves `client` and `subject` defined whenever no state was found.
     // A panel of its own has no comment mode, so it takes no hotkey.
     const state = useCommentsContext(inherited ?? useComments({ client: props.client!, hotkey: false, subject: () => props.subject!, user: () => props.user }));
-    if (!inherited) provideComments(state);
+    provideComments(state);
 
     const root = ref<HTMLElement | null>(null);
     const localThread = ref<string | null>(null);
@@ -230,6 +230,7 @@ export const CommentPanel = defineComponent({
         readOnly: props.readOnly,
         thread,
         user: state.user.value,
+        users: (query: string) => state.users(query, thread.id),
       }, threadSlots());
 
     return () =>

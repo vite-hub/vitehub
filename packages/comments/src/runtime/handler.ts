@@ -268,7 +268,9 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
   /** Who the overlay's person is and what they may do. The page tools session decides whether the overlay loads. */
   async function session(event: H3Event): Promise<Response> {
     const user = await resolveUser(event)
-    const [read, comment, resolve, remove] = await Promise.all((["read", "write", "resolve", "delete"] as const).map(action => can(event, user, action)))
+    const page = new URL(requestOf(event).url).searchParams.get("page")
+    const subject = page ? { kind: "page", id: normalizeCommentPage(page) } : undefined
+    const [read, comment, resolve, remove] = await Promise.all((["read", "write", "resolve", "delete"] as const).map(action => can(event, user, action, undefined, subject)))
     const github = options.githubLogin?.configured() ? options.githubLogin : undefined
     const pathname = new URL(requestOf(event).url).pathname
     const route = pathname.slice(0, pathname.indexOf(commentsRoute) + commentsRoute.length)
@@ -288,10 +290,10 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     })
   }
 
-  async function can(event: H3Event, user: CommentsUser | null | false, action: CommentAction, thread?: CommentThread): Promise<boolean> {
+  async function can(event: H3Event, user: CommentsUser | null | false, action: CommentAction, thread?: CommentThread, subject?: CommentSubject): Promise<boolean> {
     if (user === false) return false
     if (action !== "read" && await options.consoleSession?.(event, action).catch(() => false as const) === false) return false
-    return comments.can({ user, action, ...(thread ? { thread } : {}) })
+    return comments.can({ user, action, ...(thread ? { thread } : {}), ...(subject ? { subject } : {}) })
   }
 
   async function permissions(event: H3Event, user: CommentsUser | null, thread: CommentThread) {
@@ -436,9 +438,10 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
 
     if (path === "/threads") {
       if (method === "GET") {
-        const [denied, allowed] = await access(event, "read")
-        if (denied) return failure(denied)
         const page = url.searchParams.get("page")
+        const subject = page ? { kind: "page", id: normalizeCommentPage(page) } : undefined
+        const [denied, allowed] = await access(event, "read", undefined, subject)
+        if (denied) return failure(denied)
         const state = url.searchParams.get("status")
         const [error, listed] = await comments.list({
           ...(page ? { page: normalizeCommentPage(page) } : {}),
@@ -446,7 +449,10 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
         })
         if (error) return failure(error)
         // Without a page, every page thread. Threads on other subjects belong to the app's own UI.
-        const threads = page ? listed : listed.filter(thread => thread.subject.kind === "page")
+        const threads: CommentThread[] = []
+        for (const thread of listed) {
+          if (thread.subject.kind === "page" && await can(event, allowed.user, "read", thread)) threads.push(thread)
+        }
         return json({ data: await Promise.all(threads.map(thread => permissions(event, allowed.user, thread))), people: await people(allowed.user, threads) })
       }
       if (method === "POST") {
@@ -541,9 +547,14 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     }
 
     if (method === "GET" && path === "/people") {
-      const [denied, allowed] = await access(event, "read")
+      const threadId = url.searchParams.get("threadId")
+      const [missing, current] = threadId ? await thread(threadId) : [undefined, undefined]
+      if (missing) return failure(missing)
+      const page = url.searchParams.get("page")
+      const subject = !current && page ? { kind: "page", id: normalizeCommentPage(page) } : undefined
+      const [denied, allowed] = await access(event, "read", current, subject)
       if (denied) return failure(denied)
-      return respond(await comments.people({ query: url.searchParams.get("q") ?? "", user: allowed.user }))
+      return respond(await comments.people({ query: url.searchParams.get("q") ?? "", user: allowed.user, ...(current ? { thread: current } : {}), ...(subject ? { subject } : {}) }))
     }
 
     if (path === "/fields") {

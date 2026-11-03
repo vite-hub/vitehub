@@ -72,6 +72,46 @@ async function setup(input: { user?: CommentsUser | null, options?: DefineCommen
 }
 
 describe("Comments API", () => {
+  it("checks overlay session permissions against its normalized page subject", async () => {
+    const { call } = await setup({ options: { authorize: ({ subject }) => subject?.id === "/pricing" } })
+    expect((await call("/session?page=/pricing/")).body.data.can).toEqual({ read: true, comment: true, resolve: true, delete: true })
+    expect((await call("/session?page=/private")).body.data.can.read).toBe(false)
+  })
+
+  it("denies page lists and filters global lists by subject and thread read access", async () => {
+    const { comments, call } = await setup({ options: {
+      authorize: ({ action, subject, thread }) => action !== "read" || (subject?.id !== "/private" && thread?.messages[0]?.body !== "Hidden thread"),
+    } })
+    await comments.create({ page: "/private", body: "Private page", author: { id: "ada" } })
+    const [, visible] = await comments.create({ page: "/pricing", body: "Visible thread", author: { id: "ada" } })
+    await comments.create({ page: "/pricing", body: "Hidden thread", author: { id: "ada" } })
+    expect((await call("/threads?page=/private")).response.status).toBe(403)
+    for (const path of ["/threads", "/threads?page=/pricing"]) {
+      expect((await call(path)).body.data.map((thread: { id: string }) => thread.id)).toEqual([visible!.id])
+    }
+  })
+
+  it("authorizes mention lookups for their page or loaded thread", async () => {
+    const ada = { id: "ada", name: "Ada" }
+    const grace = { id: "grace", name: "Grace" }
+    const { comments, call } = await setup({ options: {
+      people: { search: async () => [ada, grace], byIds: async () => [ada, grace] },
+      authorize: ({ subject }) => subject?.id === "/pricing",
+      canMention: ({ person, thread }) => thread ? person.id === "ada" : person.id === "grace",
+    } })
+    const [, thread] = await comments.create({ page: "/pricing", body: "Existing", author: ada })
+    expect((await call("/people?q=&page=/pricing")).body.data).toEqual([grace])
+    expect((await call(`/people?q=&threadId=${thread!.id}`)).body.data).toEqual([ada])
+    expect((await call("/people?q=&page=/private")).response.status).toBe(403)
+    expect((await call("/people?q=&threadId=missing")).response.status).toBe(404)
+  })
+
+  it("allows page lists when read requires a page subject", async () => {
+    const { comments, call } = await setup({ options: { authorize: ({ subject }) => subject?.id === "/pricing" } })
+    const [, visible] = await comments.create({ page: "/pricing", body: "Visible", author: { id: "ada" } })
+    expect((await call("/threads?page=/pricing")).body.data?.map((thread: { id: string }) => thread.id)).toEqual([visible!.id])
+  })
+
   it.each([true, false])("preserves Console read-only access across HTTP routes: %s", async (readOnly) => {
     const user = { id: "ada", name: "Ada", role: "editor" }
     const session = commentsConsoleSession({

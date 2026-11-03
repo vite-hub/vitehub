@@ -115,7 +115,7 @@ const thread = (id: string) => `/threads/${encodeURIComponent(id)}`
 
 /** The routes that are not comment threads: who the person is, and the Content fields of inline edits. */
 export const api = {
-  session: () => call<CommentsSession>("/session"),
+  session: (page?: string) => call<CommentsSession>(`/session${page ? `?page=${encodeURIComponent(page)}` : ""}`),
   field: (field: string) => call<CommentsField>(`/fields?field=${encodeURIComponent(field)}`),
   saveField: (input: { field: string, value: string, ifDigest: string }) => call<{ field: string, value: string, digest: string }>("/fields", post(input)),
 }
@@ -195,7 +195,12 @@ export function createOverlayTransport(options: OverlayTransportOptions): Requir
     },
     resolve: input => changed<CommentThread>(`${thread(input.threadId)}/resolve`, { method: "POST" }),
     reopen: input => changed<CommentThread>(`${thread(input.threadId)}/reopen`, { method: "POST" }),
-    users: input => data<CommentUser[]>(`/people?q=${encodeURIComponent(input.query)}`),
+    users(input) {
+      const search = new URLSearchParams({ q: input.query })
+      if (input.threadId) search.set("threadId", input.threadId)
+      else if (input.subject?.kind === "page") search.set("page", input.subject.id)
+      return data<CommentUser[]>(`/people?${search}`)
+    },
     upload: (input: CommentUploadInput) => data<CommentAttachment>("/uploads", post({
       name: input.name,
       type: input.type,
