@@ -1,0 +1,2 @@
+/* `vite-hub/ui/styles.css` is the stylesheet of the installed `@vite-hub/ui`, so the two cannot differ. */
+@import "@vite-hub/ui/styles.css";
