@@ -189,7 +189,7 @@ export const contentConsoleSection: ViteHubConsoleDocumentEditorSection<ContentC
   description: "Edit, publish, and restore Content documents.",
   entry: options => findContentCollectionsEntry(options),
   inspect: options => inspectContentSetup(options),
-  icon: "i-lucide-file-pen-line",
+  icon: "i-vitehub-content",
   id: "content",
   label: "Content",
   pages: [

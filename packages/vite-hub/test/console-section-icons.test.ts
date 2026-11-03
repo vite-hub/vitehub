@@ -3,7 +3,10 @@ import { join, resolve } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
+import { resolvePrimitiveIconName } from "@vite-hub/ui/primitive-rail"
+
 import { consoleContributedSectionIcons, consoleContributedSections } from "../src/console/contributions.ts"
+import { consolePrimitives } from "../src/console/runtime/sections.ts"
 
 // The package `test` script builds first. This directory holds the prebuilt Console that applications serve.
 const consoleAssetRoot = resolve(import.meta.dirname, "../dist/console/runtime/public/console")
@@ -14,11 +17,15 @@ interface BundledIconCollection {
   prefix: string
 }
 
-/** Reads the Iconify collections that Nuxt UI inlines as `JSON.parse(`[...]`)` in the Console entry. */
-function readBundledIcons(): Set<string> {
+function readConsoleEntry(): string {
   const entry = readdirSync(consoleAssetRoot).find(file => /^console-.+\.js$/.test(file))
   if (!entry) throw new Error(`Console entry is missing in ${consoleAssetRoot}. Build vite-hub first.`)
-  const code = readFileSync(join(consoleAssetRoot, entry), "utf8")
+  return readFileSync(join(consoleAssetRoot, entry), "utf8")
+}
+
+/** Reads the Iconify collections that Nuxt UI inlines as `JSON.parse(`[...]`)` in the Console entry. */
+function readBundledIcons(): Set<string> {
+  const code = readConsoleEntry()
   const icons = new Set<string>()
   for (const match of code.matchAll(/JSON\.parse\(`(\[\{"prefix":[\s\S]*?\}\])`\)/g)) {
     const collections: BundledIconCollection[] = JSON.parse(match[1]!.replace(/\\([\\`$])/g, "$1"))
@@ -32,18 +39,24 @@ function readBundledIcons(): Set<string> {
 }
 
 describe("Console section icons", () => {
-  it("lists the icon of every contributed section", () => {
+  it("draws every known section with the ViteHub icon set", () => {
+    const outside = consolePrimitives.filter(entry => !resolvePrimitiveIconName(entry.icon)).map(entry => `${entry.id}: ${entry.icon}`)
+    expect(outside).toEqual([])
+  })
+
+  it("lists the contributed section icons that are not in the ViteHub set", () => {
     for (const section of consoleContributedSections.values()) {
-      expect(consoleContributedSectionIcons).toContain(section.descriptor.icon)
+      if (!section.descriptor.icon.startsWith("i-vitehub-")) expect(consoleContributedSectionIcons).toContain(section.descriptor.icon)
     }
+    expect(consoleContributedSectionIcons.filter(icon => icon.startsWith("i-vitehub-"))).toEqual([])
   })
 
   it("bundles every contributed section icon in the prebuilt Console", () => {
     const bundled = readBundledIcons()
     expect(bundled.has("i-lucide-moon")).toBe(true)
-    const missing = [...consoleContributedSections.values()]
-      .map(section => section.descriptor.icon)
-      .filter(icon => !bundled.has(icon))
+    const missing = consoleContributedSectionIcons.filter(icon => !bundled.has(icon))
     expect(missing).toEqual([])
+    // The client adds the whole ViteHub set with `addCollection`, outside the Nuxt UI bundle.
+    expect(readConsoleEntry()).toMatch(/prefix:\s*["`]vitehub["`]/)
   })
 })

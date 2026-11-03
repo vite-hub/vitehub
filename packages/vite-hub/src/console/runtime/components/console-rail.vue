@@ -283,7 +283,7 @@ onBeforeUnmount(() => {
             :label="section.label"
             @click="open(section.routeName)"
           >
-            <ConsoleSectionIcon :section="section.id" :icon="section.icon" class="size-[1.125rem]" />
+            <ConsoleSectionIcon :icon="section.icon" class="size-[1.125rem]" />
           </PrimitiveRailItem>
         </UTooltip>
       </PrimitiveRailGroup>

@@ -335,7 +335,7 @@ onBeforeUnmount(() => {
           />
           <ConsoleState
             v-else-if="description && !description.storage.enabled && page !== 'overview'"
-            icon="i-lucide-users-round"
+            icon="i-vitehub-auth"
             title="No stored Auth data"
             :description="description.storage.reason"
           />

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { isPrimitiveIconName, PrimitiveRail, PrimitiveRailGroup, PrimitiveRailItem } from "@vite-hub/ui/primitive-rail"
+import { PrimitiveRail, PrimitiveRailGroup, PrimitiveRailItem, resolvePrimitiveIconName } from "@vite-hub/ui/primitive-rail"
 import { NuxtLink } from "#components"
 import { docsRailGroups, docsSectionHome } from "#docs/navigation"
 
@@ -15,10 +15,11 @@ const { categories, railExclude, site, start } = useDocsConfig()
 const currentSection = useDocsSection()
 const icons = useDocsIcons()
 // One rail group for each catalog category. Sections without a category stay reachable in a last group.
-// Each section shows a rail icon by name when the rail has one, and its Iconify icon otherwise.
+// A section icon from the ViteHub set (`i-vitehub-kv`, or `kv` in the `rail` option) renders inline, so it can move on
+// hover. Any other Iconify icon renders through UIcon.
 const groups = docsRailGroups(useDocsManifest(), categories, railExclude).map(sections => sections.map((section) => {
   const icon = icons.rail(section)
-  return { section, to: docsSectionHome(section), icon, railIcon: isPrimitiveIconName(icon) ? icon : null }
+  return { section, to: docsSectionHome(section), icon, railIcon: resolvePrimitiveIconName(icon) ?? null }
 }))
 const brand = site.badge ? `${site.name} ${site.badge.label}` : site.name
 

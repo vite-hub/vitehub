@@ -7,7 +7,7 @@ import type { ViteHubConsoleRuntimeRecordTableSection } from "@vite-hub/internal
  */
 export const emailConsoleSection: ViteHubConsoleRuntimeRecordTableSection = {
   description: "Inspect messages that the development outbox captured.",
-  icon: "i-lucide-mail",
+  icon: "i-vitehub-email",
   id: "email",
   label: "Email",
   runtime: { export: "readEmailOutboxConsoleRecords", module: "@vite-hub/email/runtime/console" },

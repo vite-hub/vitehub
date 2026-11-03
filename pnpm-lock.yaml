@@ -2084,6 +2084,21 @@ importers:
         specifier: catalog:tooling
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(@vitest/browser-preview@4.1.11)(happy-dom@21.0.3)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
+  packages/icons:
+    devDependencies:
+      '@types/node':
+        specifier: catalog:tooling
+        version: 24.19.1
+      typescript:
+        specifier: catalog:tooling
+        version: 6.0.3
+      vite-plus:
+        specifier: catalog:tooling
+        version: 0.3.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(esbuild@0.28.2)(happy-dom@21.0.3)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)
+      vitest:
+        specifier: catalog:tooling
+        version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(@vitest/browser-preview@4.1.11)(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(happy-dom@21.0.3)
+
   packages/internal:
     dependencies:
       '@standard-schema/spec':
@@ -2880,6 +2895,9 @@ importers:
       '@vite-hub/comments':
         specifier: workspace:*
         version: link:../comments
+      '@vite-hub/icons':
+        specifier: workspace:*
+        version: link:../icons
       comark:
         specifier: catalog:markdown-ui
         version: 0.8.1(katex@0.18.11)(shiki@4.5.0)
@@ -3215,6 +3233,9 @@ importers:
       '@vite-hub/docs':
         specifier: workspace:*
         version: link:../docs
+      '@vite-hub/icons':
+        specifier: workspace:*
+        version: link:../icons
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal

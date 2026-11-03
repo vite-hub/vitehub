@@ -23,7 +23,7 @@ export function inspectQueueDefinitions(options: QueueInspectionOptions): ViteHu
 /** Console section that lists discovered Queue Definitions. `vitehub inspect definitions` reads the same data. */
 export const queueConsoleSection: ViteHubConsoleSectionContribution<QueueInspectionOptions> = {
   description: "Inspect discovered Queue Definitions and their source metadata.",
-  icon: "i-lucide-inbox",
+  icon: "i-vitehub-queue",
   id: "queues",
   label: "Queues",
   read: inspectQueueDefinitions,

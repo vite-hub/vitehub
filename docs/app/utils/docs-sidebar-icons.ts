@@ -2,10 +2,11 @@ import type { DocsIcons } from "@vite-hub/docs";
 
 /**
  * Icons of the docs rail and sidebar, passed to the `docs.icons` option in `nuxt.config.ts`.
- * The sidebar shows light Phosphor icons only, so frontmatter icons map to that set.
+ * Sections use the ViteHub set (`i-vitehub-*` in each `.navigation.yml`), the same icons as the Console. Pages show light
+ * Phosphor icons only, so their frontmatter icons map to that set.
  */
 export const docsIcons: Partial<DocsIcons> = {
-  family: "i-ph-",
+  family: ["i-ph-", "i-vitehub-"],
   page: "i-ph-file-text-light",
   section: "i-ph-folder-light",
   /** Frontmatter icons map to the light Phosphor set so every sidebar page row shares one style. */
@@ -91,10 +92,6 @@ export const docsIcons: Partial<DocsIcons> = {
   },
   sections: {
     "ai-resources": "i-ph-brain-light",
-    "development": "i-ph-wrench-light",
-    "frameworks-hosts": "i-ph-plug-light",
-    "getting-started": "i-ph-book-open-light",
-    "reference": "i-ph-book-bookmark-light",
   },
   pages: {
     "/docs/agents": "i-ph-activity-light",
@@ -104,40 +101,5 @@ export const docsIcons: Partial<DocsIcons> = {
     "/docs/getting-started": "i-ph-book-open-light",
     "/docs/getting-started/server-primitives": "i-ph-cube-light",
     "/docs/reference": "i-ph-package-light",
-  },
-  /** Rail icon of each docs section, from the `@vite-hub/ui/primitive-rail` icon family. The Console uses the same icons. */
-  rail: {
-    "agents": "agent",
-    "auth": "auth",
-    "blob": "blob",
-    "browser": "browser",
-    "channels": "channel",
-    // The CMS stores Content collections, so it shares the Content icon until @vite-hub/ui/primitive-rail has its own.
-    "cms": "content",
-    // No comment icon exists in @vite-hub/ui/primitive-rail yet; the speech bubble of Channels is the closest.
-    "comments": "channel",
-    "connections": "connection",
-    "content": "content",
-    "database": "database",
-    "development": "development",
-    // No docs icon exists in @vite-hub/ui/primitive-rail yet; the open book of Reference is the closest, and Reference is not in the rail.
-    "docs-site": "reference",
-    "email": "email",
-    "env": "env",
-    "frameworks-hosts": "hosts",
-    "getting-started": "start",
-    "kv": "kv",
-    "logs": "usage",
-    "queue": "queue",
-    "rate-limit": "rate-limit",
-    "realtime": "realtime",
-    "reference": "reference",
-    "sandbox": "sandbox",
-    "schedule": "schedule",
-    "shell": "shell",
-    "source": "source",
-    "ui": "ui",
-    "workflows": "workflow",
-    "workspace": "workspace",
   },
 };

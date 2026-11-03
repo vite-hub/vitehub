@@ -164,7 +164,7 @@ onBeforeUnmount(() => request?.abort());
         <ConsoleState
           v-else-if="!connections.length"
           section="connections"
-          icon="i-lucide-plug"
+          icon="i-vitehub-connections"
           title="No Connections yet"
           description="Connections are defined in code. Add a file to server/connections/, then connect it here."
         >
