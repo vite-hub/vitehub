@@ -60,6 +60,8 @@ describe("Console section contributions", () => {
       view: { columns: [{ key: "status", label: "Status" }], kind: "record-table", notice: "Only the last 50 runs are shown." },
     })
     expect("read" in descriptor).toBe(false)
+    const filtered = describeViteHubConsoleSection({ ...table, view: { ...table.view, columns: [{ filter: true, key: "status", label: "Status" }] } })
+    expect(filtered.view).toEqual({ columns: [{ filter: true, key: "status", label: "Status" }], kind: "record-table", notice: "Only the last 50 runs are shown." })
     expect(JSON.parse(JSON.stringify(describeViteHubConsoleSection(catalog)))).toEqual({
       description: "Inspect discovered Widget Definitions.",
       icon: "i-ph-cube-light",

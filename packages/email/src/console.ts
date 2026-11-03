@@ -16,7 +16,7 @@ export const emailConsoleSection: ViteHubConsoleRuntimeRecordTableSection = {
       { key: "subject", label: "Subject" },
       { key: "to", label: "To" },
       { key: "provider", label: "Provider" },
-      { key: "delivery", label: "Delivery" },
+      { filter: true, key: "delivery", label: "Delivery" },
       { key: "captured", label: "Captured" },
     ],
     kind: "record-table",

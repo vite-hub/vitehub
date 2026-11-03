@@ -16,6 +16,8 @@ export interface ConsoleDefinitionSummary {
 }
 
 export interface ConsoleRecordColumn {
+  /** The table filters by the values of this column. */
+  filter?: boolean
   key: string
   label: string
 }
@@ -261,7 +263,8 @@ function parseConsoleSectionView(value: unknown): ConsoleSectionView | undefined
   if (view.kind !== "record-table" || !Array.isArray(view.columns)) return undefined
   const columns = view.columns.flatMap((entry) => {
     const column = record(entry)
-    return text(column?.key) && text(column.label) ? [{ key: column.key, label: column.label }] : []
+    if (!text(column?.key) || !text(column.label)) return []
+    return [column.filter === true ? { filter: true, key: column.key, label: column.label } : { key: column.key, label: column.label }]
   })
   return { columns, kind: "record-table", notice: view.notice }
 }
