@@ -48,6 +48,15 @@ describe("types", () => {
     expectTypeOf(config.kv).toMatchTypeOf<KVModuleOptions | undefined>()
   })
 
+  it("types kv.get() and kv.getAndDelete() by their type option", () => {
+    expectTypeOf(kv.get("code", { type: "text" })).toEqualTypeOf<Promise<Result<string | null, "KV_OPERATION_FAILED">>>()
+    expectTypeOf(kv.get("code", { type: "bytes" })).toEqualTypeOf<Promise<Result<Uint8Array | null, "KV_OPERATION_FAILED">>>()
+    expectTypeOf(kv.get<{ theme: string }>("settings")).toEqualTypeOf<Promise<Result<{ theme: string } | null, "KV_OPERATION_FAILED">>>()
+    expectTypeOf(kv.getAndDelete("code", { type: "text" })).toEqualTypeOf<Promise<Result<string | null, "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>>()
+    // @ts-expect-error getAndDelete() converts only to text.
+    void kv.getAndDelete("code", { type: "bytes" })
+  })
+
   it("exposes the intended kv runtime surface", () => {
     expectTypeOf(kv.clear).returns.toEqualTypeOf<Promise<Result<void, "KV_OPERATION_FAILED">>>()
     expectTypeOf(kv.del).returns.toEqualTypeOf<Promise<Result<void, "KV_OPERATION_FAILED">>>()

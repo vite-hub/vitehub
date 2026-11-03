@@ -13,7 +13,7 @@ export interface RuntimeStorage {
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This mirrors unstorage's caller-typed read contract.
   getItem<T = unknown>(key: string, options?: unknown): Promise<T | null>
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This mirrors the KV caller-typed read contract.
-  getAndDeleteItem?<T = unknown>(key: string): Promise<T | null>
+  getAndDeleteItem?<T = unknown>(key: string, options?: { type?: "text" }): Promise<T | null>
   getKeys(base?: string, options?: unknown): Promise<string[]>
   incrementItem?(key: string, ttl: number): Promise<number>
   listKeys(options: KVListOptions): Promise<KVListPage>
@@ -32,6 +32,12 @@ function deserializeValue(value: unknown) {
   if (typeof value !== "string") return value
   // doctor-disable-next-line typescript/boundaries/no-unvalidated-deserialization -- This is the decoder used by unstorage's ordinary read path.
   return destr(value)
+}
+
+// Matches unstorage's `{ type: "text" }` read. Upstash parses JSON before it returns a value, so stringify it back.
+function toText(value: unknown): string | null {
+  if (value === null || value === undefined) return null
+  return typeof value === "string" ? value : JSON.stringify(value)
 }
 
 function isPrimitive(value: unknown) {
@@ -67,9 +73,10 @@ export function createHostedKVStorage(config: false | ResolvedKVModuleOptions | 
   const incrementItem = driver.incrementItem
   if (getAndDeleteItem) {
     // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This implements RuntimeStorage's caller-typed atomic read contract.
-    storage.getAndDeleteItem = async <T = unknown>(key: string): Promise<T | null> => {
-      // SAFETY: destr mirrors the caller-typed transformation used by storage.getItem.
-      return deserializeValue(await getAndDeleteItem(normalizeKey(key))) as T | null
+    storage.getAndDeleteItem = async <T = unknown>(key: string, options?: { type?: "text" }): Promise<T | null> => {
+      const value = await getAndDeleteItem(normalizeKey(key))
+      // SAFETY: kv.getAndDelete() types a `type: "text"` read as string; otherwise destr mirrors the caller-typed storage.getItem read.
+      return (options?.type === "text" ? toText(value) : deserializeValue(value)) as T | null
     }
   }
   if (incrementItem) storage.incrementItem = (key, ttl) => incrementItem(normalizeKey(key), ttl)
