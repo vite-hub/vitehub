@@ -4,29 +4,10 @@ The ViteHub icon set as an [Iconify](https://iconify.design/) collection with th
 
 ## Use
 
-In a Nuxt app with `@vite-hub/ui/nuxt` or `@vite-hub/docs/nuxt`, the collection is already registered. Write the icon name:
+This package is private: it is not published to npm. `@vite-hub/ui` and the Console bundle it, so a Nuxt app with `@vite-hub/ui/nuxt` or `@vite-hub/docs/nuxt` has the collection registered. Write the icon name:
 
 ```vue
 <UIcon name="i-vitehub-kv" />
-```
-
-In another Nuxt app, add the collection to `@nuxt/icon`:
-
-```ts [nuxt.config.ts]
-import { icons } from "@vite-hub/icons"
-
-export default defineNuxtConfig({
-  icon: { customCollections: [icons] },
-})
-```
-
-In a Vue app with `@iconify/vue`, add it once before you mount:
-
-```ts
-import { addCollection } from "@iconify/vue"
-import { icons } from "@vite-hub/icons"
-
-addCollection(icons)
 ```
 
 ## Icons

@@ -135,6 +135,8 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/shell": true,
   "@vite-hub/source": true,
   "@vite-hub/ui": true,
+  // Browser-only: generated server code never imports it.
+  "@vite-hub/web-container": false,
   "@vite-hub/workflow": true,
   "@vite-hub/workspace": true,
 } satisfies Record<FrameworkDependencyName, boolean>
@@ -893,7 +895,8 @@ function deploymentPlugins(
             // SAFETY: The KV integration reads this optional top-level Vite setting too.
             const kv = (config as typeof config & { kv?: KVModuleOptions }).kv ?? options.kv
             const cacheStorage = resolveCacheStorage(options.cache, plan.preset, Boolean(kv))
-            nitro = applyCacheStorage(nitro, cacheStorage)
+            const nitroVersion = (config as { [VITEHUB_NITRO_MAJOR_VERSION]?: 2 | 3 })[VITEHUB_NITRO_MAJOR_VERSION] ?? 3
+            nitro = applyCacheStorage(nitro, cacheStorage, nitroVersion)
           }
           ;(config as { nitro?: unknown }).nitro = nitro
         },
