@@ -157,7 +157,8 @@ export interface CommentsDefinition {
   /**
    * Reads a file that `storeAttachment` stored, for `GET /attachments/<key>` and `comments.attachment`. Return a
    * `Blob` (or a `File`) with its media type, or `null` when the file is gone. Comments checks first that the reader
-   * may read a thread whose messages list the key. Without it, Comments reads the Blob store of the app.
+   * may read a thread whose messages list the key. Without it, Comments reads only its upload keys under
+   * `comments/<uuid>/<name>` in the Blob store of the app. Use this hook to authorize reads of other app files.
    */
   readAttachment?: (key: string, context: CommentsReadAttachmentContext) => Blob | null | Promise<Blob | null>
 }

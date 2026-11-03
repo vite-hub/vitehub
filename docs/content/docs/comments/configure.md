@@ -456,7 +456,7 @@ The answer keeps a browser from running the file:
 | `Content-Security-Policy` | `default-src 'none'; sandbox` |
 | `Cache-Control` | `private, max-age=300` |
 
-A key is the right to read through any thread that lists it, so keep keys hard to guess. The keys of the Blob store carry a random id.
+A key is the right to read through any thread that lists it, so keep keys hard to guess. The keys of the Blob store carry a random id. Without `readAttachment`, Comments reads only its own upload keys, `comments/<uuid>/<name>`, so a message that lists another file of your Blob store does not open it; such a key answers `COMMENTS_R0020`.
 
 ## Turn comment mode on and off
 

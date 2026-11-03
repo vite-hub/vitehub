@@ -481,6 +481,10 @@ export async function readAttachment(runtime: CommentsRuntime, key: string, cont
   // Files that the app's own hook stored are not in the Blob store.
   else if (store) throw fail(commentsErrorDiagnostics.COMMENTS_R0021(), 501)
   else if (runtime.attachments?.get) {
+    // Only Comments uploads belong to this reader. App files need readAttachment to check their own access.
+    if (!/^comments\/[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}\/\w[\w.-]{0,99}$/.test(key)) {
+      throw fail(commentsErrorDiagnostics.COMMENTS_R0020({ key }), 404)
+    }
     const [error, found] = await runtime.attachments.get(key)
     if (error) throw error
     data = found

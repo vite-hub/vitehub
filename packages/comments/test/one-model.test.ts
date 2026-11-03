@@ -1,10 +1,12 @@
 // @vitest-environment node
 import { createOperationRegistry, runOperation } from "@vite-hub/internal/operations"
+import { H3 } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineComments, defineCommentSubject, installComments } from "../src/index.ts"
 import { commentsOperations } from "../src/operations-core/operations.ts"
 import { installCommentsRuntime } from "../src/operations-core/server.ts"
+import { createCommentsHandler } from "../src/runtime/handler.ts"
 import { ada, createDatabase, grace } from "./harness.ts"
 
 import type { OperationContext } from "@vite-hub/internal/operations"
@@ -46,6 +48,33 @@ describe("attachments", () => {
     const uploaded = await call("comments.upload", { name: "notes.txt", type: "text/plain; charset=utf-8", data: btoa("hello") })
     expect(uploaded).toMatchObject({ ok: true, value: { key: expect.stringMatching(/^comments\/[\w-]+\/notes\.txt$/), type: "text/plain", size: 5 } })
     expect(put).toHaveBeenCalledWith(expect.stringMatching(/^comments\//), new TextEncoder().encode("hello"), { contentType: "text/plain" })
+  })
+
+  it.each(["private/payroll.txt", "comments/../private/payroll.txt", "comments/%2e%2e/private/payroll.txt"])("does not read an app Blob through a message reference: %s", async (key) => {
+    const get = vi.fn(async () => [undefined, new Blob(["private contents"], { type: "text/plain" })] as const)
+    const comments = await setup({}, { attachments: { put: vi.fn(), get } })
+    await comments.create({ subject: page, body: "See attached", author: ada, attachments: [key] })
+    expect(await call("comments.attachment", { key })).toMatchObject({ ok: false, code: "COMMENTS_R0020", status: 404 })
+    const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false }))
+    expect((await app.fetch(new Request(`http://site.test/api/_vitehub/comments/attachments/${key}`))).status).toBe(404)
+    expect(get).not.toHaveBeenCalled()
+  })
+
+  it("reads a default Blob upload after a message references it", async () => {
+    const files = new Map<string, Blob>()
+    const comments = await setup({}, { attachments: {
+      put: async (key, data, options) => {
+        files.set(key, new Blob([data.slice()], { type: options.contentType }))
+        return [undefined, {}]
+      },
+      get: async key => [undefined, files.get(key)],
+    } })
+    const uploaded = await call("comments.upload", { name: "notes.txt", type: "text/plain", data: btoa("hello") })
+    expect(uploaded.ok).toBe(true)
+    if (!uploaded.ok) throw new Error("Upload failed")
+    const key = String(Reflect.get(Object(uploaded.value), "key"))
+    await comments.create({ subject: page, body: "", author: ada, attachments: [key] })
+    expect(await call("comments.attachment", { key })).toMatchObject({ ok: true, value: { key, data: btoa("hello"), type: "text/plain" } })
   })
 
   it("refuses files it cannot store, of other types, or over 5 MB", async () => {
