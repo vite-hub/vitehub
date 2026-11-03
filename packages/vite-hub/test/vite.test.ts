@@ -691,6 +691,26 @@ describe("vitehub", () => {
     }
   })
 
+  it("keeps dependency discovery for an explicitly inlined workerd service", async () => {
+    const config = await resolveConfig({
+      configFile: false,
+      logLevel: "silent",
+      plugins: [
+        dependencyPluginByName(vitehub({ preset: "cloudflare" }), "vite-hub/deployment-settings"),
+        {
+          name: "nitro-service-stand-in",
+          configEnvironment(name) {
+            if (name === "api") return { consumer: "server", resolve: { conditions: ["workerd"] } }
+          },
+        },
+      ],
+      environments: { api: { resolve: { noExternal: true } } },
+    }, "serve")
+
+    expect(config.environments.api!.optimizeDeps.noDiscovery).toBe(false)
+    expect(config.environments.api!.optimizeDeps.exclude).toContain("nitro")
+  })
+
   it("includes Nitro once, and steps aside when the app adds nitro()", () => {
     const included = (vitehub({ preset: "node" }).flat() as Plugin[]).filter(isIncludedNitroPlugin)
     const main = included.find(plugin => plugin.name === "nitro:main")!
@@ -784,7 +804,6 @@ describe("vitehub", () => {
       "vite-hub/optional-owner-imports",
       "vite-hub/task",
       "vite-hub/nitro-cache-bypass",
-      "vite-hub/nitro-workerd-dependencies",
       "vite-hub/nitro-startup-chunks",
       "vite-hub/types",
       "vite-hub/nitro-order",
