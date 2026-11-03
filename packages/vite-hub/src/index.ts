@@ -388,7 +388,7 @@ export interface ViteHubOptions {
   console?: boolean | ConsoleOptions
   /** Drizzle Databases in `server/databases/`. Without a Database Definition, an enabled database is one empty default Database. */
   database?: boolean | DBModulePublicOptions
-  email?: true | EmailVitePluginOptions
+  email?: boolean | EmailVitePluginOptions
   env?: false | EnvIntegrationOptions
   kv?: boolean | KVModuleOptions
   /** Read an existing log source, or inspect a bounded Evlog buffer during development. */
