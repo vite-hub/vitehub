@@ -301,6 +301,92 @@ describe("remote Sandbox providers", () => {
     await expect(opening).rejects.toBe(reason);
   });
 
+  it("streams Cloudflare spawn output until the process exits", async () => {
+    let finish!: () => void;
+    const exited = new Promise<void>(resolve => finish = resolve);
+    let emit!: (event: Record<string, unknown>) => void;
+    let end!: () => void;
+    const logs = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const encoder = new TextEncoder();
+        emit = event => controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+        end = () => controller.close();
+      },
+    });
+    const stub: CloudflareSandboxStub = {
+      ...cloudflareStub(async () => ({ exitCode: 0, stderr: "", stdout: "", success: true })),
+      async startProcess() {
+        return {
+          async getLogs() { return { stderr: "", stdout: "first\n" }; },
+          id: "process-1",
+          async kill() {},
+          async waitForExit() {
+            await exited;
+            return { exitCode: 3 };
+          },
+        };
+      },
+      async streamProcessLogs(processId) {
+        expect(processId).toBe("process-1");
+        return logs;
+      },
+    };
+    const sandbox = await resolveSandbox({
+      runtime: { getSandbox: () => stub, kind: "cloudflare", namespace: namespace(stub) },
+    }, {});
+    const session = await sandbox.open();
+    const process = await session.spawn!("long-running");
+    const stdout = new Response(process.stdout).text();
+    const stderr = new Response(process.stderr).text();
+
+    emit({ type: "process_info", processId: "process-1" });
+    emit({ data: "first\n", type: "stdout" });
+    await new Promise(resolve => setTimeout(resolve, 10));
+    emit({ data: "second\n", type: "stdout" });
+    emit({ data: "warning\n", type: "stderr" });
+    emit({ exitCode: 3, type: "exit" });
+    end();
+    finish();
+
+    await expect(stdout).resolves.toBe("first\nsecond\n");
+    await expect(stderr).resolves.toBe("warning\n");
+    await expect(process.wait()).resolves.toEqual({ code: 3 });
+    await session.close();
+  });
+
+  it("reads Cloudflare spawn logs after exit when the stub cannot stream them", async () => {
+    let output = "first\n";
+    let finish!: () => void;
+    const exited = new Promise<void>(resolve => finish = resolve);
+    const stub: CloudflareSandboxStub = {
+      ...cloudflareStub(async () => ({ exitCode: 0, stderr: "", stdout: "", success: true })),
+      async startProcess() {
+        return {
+          async getLogs() { return { stderr: "", stdout: output }; },
+          id: "process-1",
+          async kill() {},
+          async waitForExit() {
+            await exited;
+            return { exitCode: 0 };
+          },
+        };
+      },
+    };
+    const sandbox = await resolveSandbox({
+      runtime: { getSandbox: () => stub, kind: "cloudflare", namespace: namespace(stub) },
+    }, {});
+    const session = await sandbox.open();
+    const process = await session.spawn!("long-running");
+    const stdout = new Response(process.stdout).text();
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+    output += "second\n";
+    finish();
+
+    await expect(stdout).resolves.toBe("first\nsecond\n");
+    await session.close();
+  });
+
   it("normalizes authority from tagged remote runtimes", async () => {
     const stub = cloudflareStub(async () => ({ exitCode: 0, stderr: "", stdout: "", success: true }));
     const cloudflare = await resolveSandbox({
