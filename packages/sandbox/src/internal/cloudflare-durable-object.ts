@@ -41,12 +41,12 @@ export interface CloudflareDurableObjectState {
 
 /** The part of `@cloudflare/sandbox` `Files` this Durable Object uses. */
 export interface CloudflareSandboxFiles {
-  mkdir(path: string, options?: { recursive?: boolean }): Promise<void>;
-  readFile(path: string): Promise<Response>;
-  remove(path: string, options?: { force?: boolean; recursive?: boolean }): Promise<void>;
-  rename(source: string, destination: string): Promise<void>;
-  stat(path: string): Promise<unknown>;
-  writeFile(path: string, content: Uint8Array): Promise<void>;
+  mkdir(path: string, options?: { cwd?: string; recursive?: boolean }): Promise<void>;
+  readFile(path: string, options?: { cwd?: string }): Promise<Response>;
+  remove(path: string, options?: { cwd?: string; force?: boolean; recursive?: boolean }): Promise<void>;
+  rename(source: string, destination: string, options?: { cwd?: string }): Promise<void>;
+  stat(path: string, options?: { cwd?: string }): Promise<unknown>;
+  writeFile(path: string, content: Uint8Array, options?: { cwd?: string }): Promise<void>;
 }
 
 export interface CloudflareSandboxDurableObjectDependencies {
@@ -62,8 +62,9 @@ export interface CloudflareSandboxConfiguration {
 
 const configurationKey = "vitehub:configuration";
 const defaultSleepAfter = 10 * 60_000;
-// The Container API has no "never" timeout; a week outlives any Sandbox Task run.
-const keepAliveTimeout = 7 * 24 * 60 * 60_000;
+// The Container API has no "never" timeout; use its maximum supported idle duration.
+const keepAliveTimeout = 6 * 60 * 60_000;
+const fileOptions = { cwd: "/workspace" };
 // Output kept per stream for replay to late readers. Older output is dropped beyond this.
 const maxBufferedOutput = 8 * 1024 * 1024;
 const signals: Record<string, number> = { HUP: 1, INT: 2, KILL: 9, QUIT: 3, TERM: 15, USR1: 10, USR2: 12 };
@@ -204,15 +205,17 @@ export function createCloudflareSandboxDurableObject(
 
     async exec(command: string, options: { cwd?: string; env?: Record<string, string | undefined>; timeout?: number } = {}) {
       const container = await this.#running();
-      const abort = new AbortController();
-      const timer = options.timeout ? setTimeout(() => abort.abort(), options.timeout) : undefined;
+      let timedOut = false;
+      const timer = options.timeout ? setTimeout(() => { timedOut = true; }, options.timeout) : undefined;
       try {
-        const process = await container.exec(["/bin/bash", "-c", command], {
-          ...execOptions(options),
-          signal: abort.signal,
-        });
+        const commandLine = ["/bin/bash", "-c", command];
+        // Native exec cancellation only kills bash. GNU timeout also stops its descendants,
+        // escalating to SIGKILL if they ignore SIGTERM, so output() can finish draining.
+        const process = await container.exec(options.timeout
+          ? ["timeout", "--kill-after=1s", `${options.timeout / 1000}s`, ...commandLine]
+          : commandLine, execOptions(options));
         const output = await process.output();
-        if (abort.signal.aborted) throw new Error(`Command timed out after ${options.timeout}ms.`);
+        if (timedOut) throw new Error(`Command timed out after ${options.timeout}ms.`);
         const decoder = new TextDecoder();
         return {
           exitCode: output.exitCode,
@@ -226,13 +229,13 @@ export function createCloudflareSandboxDurableObject(
     }
 
     async deleteFile(path: string) {
-      await (await this.#fileOperations()).remove(path);
+      await (await this.#fileOperations()).remove(path, fileOptions);
       return { success: true };
     }
 
     async exists(path: string) {
       try {
-        await (await this.#fileOperations()).stat(path);
+        await (await this.#fileOperations()).stat(path, fileOptions);
         return { exists: true };
       } catch (error) {
         if (missing(error)) return { exists: false };
@@ -241,19 +244,19 @@ export function createCloudflareSandboxDurableObject(
     }
 
     async mkdir(path: string, options: { recursive?: boolean } = {}) {
-      await (await this.#fileOperations()).mkdir(path, { recursive: options.recursive });
+      await (await this.#fileOperations()).mkdir(path, { ...fileOptions, recursive: options.recursive });
       return { success: true };
     }
 
     async moveFile(source: string, destination: string) {
-      await (await this.#fileOperations()).rename(source, destination);
+      await (await this.#fileOperations()).rename(source, destination, fileOptions);
       return { success: true };
     }
 
     async readFile(path: string, options: { encoding?: string } = {}) {
       let response: Response;
       try {
-        response = await (await this.#fileOperations()).readFile(path);
+        response = await (await this.#fileOperations()).readFile(path, fileOptions);
       } catch (error) {
         if (missing(error)) return { content: "", success: false };
         throw error;
@@ -267,7 +270,7 @@ export function createCloudflareSandboxDurableObject(
 
     async writeFile(path: string, contents: string, options: { encoding?: string } = {}) {
       const bytes = options.encoding === "base64" ? decodeBase64(contents) : new TextEncoder().encode(contents);
-      await (await this.#fileOperations()).writeFile(path, bytes);
+      await (await this.#fileOperations()).writeFile(path, bytes, fileOptions);
       return { success: true };
     }
 
@@ -280,7 +283,6 @@ export function createCloudflareSandboxDurableObject(
       const id = crypto.randomUUID();
       const record = new SandboxProcessRecord(process);
       this.#processes.set(id, record);
-      void record.exited.finally(() => this.#processes.delete(id)).catch(() => undefined);
       // Workers RPC turns these functions into stubs, so the caller keeps talking to this process.
       return {
         id,
@@ -294,7 +296,11 @@ export function createCloudflareSandboxDurableObject(
     async streamProcessLogs(processId: string) {
       const record = this.#processes.get(processId);
       if (!record) throw new Error(`Process ${processId} is not running in this Sandbox.`);
-      return record.stream();
+      const stream = record.stream();
+      // Keep even an already-exited process addressable until this follow-up RPC attaches.
+      // The stream and process stubs retain the record after the lookup entry is removed.
+      void record.exited.finally(() => this.#processes.delete(processId)).catch(() => undefined);
+      return stream;
     }
 
     #container() {

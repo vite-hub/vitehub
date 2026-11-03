@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { posix } from "node:path";
+import { spawn } from "node:child_process";
 
 import { createCloudflareRuntime } from "../src/cloudflare.ts";
 import { resolveSandbox } from "../src/index.ts";
@@ -83,12 +84,14 @@ function fakeContainer() {
       if (command[2] !== "long-running") {
         queueMicrotask(() => {
           stdout.enqueue(encoder.encode(`${options?.cwd}|${options?.env?.NAME ?? ""}|${command.join(" ")}`));
+          stderr.enqueue(encoder.encode("warning\n"));
           execution.exit(0);
         });
       }
       return process;
     },
     async setInactivityTimeout(duration) {
+      if (Number(duration) > 6 * 60 * 60_000) throw new RangeError("Inactivity timeout exceeds six hours");
       timeouts.push(Number(duration));
     },
     start(options) {
@@ -102,28 +105,35 @@ function fakeContainer() {
 function fakeFiles() {
   const files = new Map<string, Uint8Array>();
   const directories = new Set(["/", "/workspace"]);
+  const absolute = (path: string, options?: { cwd?: string }) => {
+    if (!posix.isAbsolute(path) && !options?.cwd) throw new TypeError("cwd is required when path is relative");
+    return posix.resolve(options?.cwd ?? "/", path);
+  };
   class Files implements CloudflareSandboxFiles {
-    async mkdir(path: string) {
-      directories.add(posix.normalize(path));
+    async mkdir(path: string, options?: { cwd?: string }) {
+      directories.add(absolute(path, options));
     }
-    async readFile(path: string) {
-      const content = files.get(path);
+    async readFile(path: string, options?: { cwd?: string }) {
+      const content = files.get(absolute(path, options));
       if (!content) throw new FileError("ENOENT");
       return new Response(content);
     }
-    async remove(path: string) {
-      if (!files.delete(path)) throw new FileError("ENOENT");
+    async remove(path: string, options?: { cwd?: string }) {
+      if (!files.delete(absolute(path, options))) throw new FileError("ENOENT");
     }
-    async rename(source: string, destination: string) {
+    async rename(source: string, destination: string, options?: { cwd?: string }) {
+      source = absolute(source, options);
+      destination = absolute(destination, options);
       files.set(destination, files.get(source)!);
       files.delete(source);
     }
-    async stat(path: string) {
+    async stat(path: string, options?: { cwd?: string }) {
+      path = absolute(path, options);
       if (!files.has(path) && !directories.has(path)) throw new FileError("ENOENT");
       return {};
     }
-    async writeFile(path: string, content: Uint8Array) {
-      files.set(path, content);
+    async writeFile(path: string, content: Uint8Array, options?: { cwd?: string }) {
+      files.set(absolute(path, options), content);
     }
   }
   return { Files, directories, files };
@@ -161,7 +171,7 @@ function setup(cloudflare?: Parameters<typeof createCloudflareRuntime>[0]["cloud
     },
   };
   const runtime = createCloudflareRuntime({ cloudflare, namespace, sandboxId: "Task-1" });
-  return { container, executions, files, names, runtime, storage, timeouts };
+  return { container, executions, files, names, objects, runtime, storage, timeouts };
 }
 
 describe("Cloudflare Sandbox Durable Object", () => {
@@ -175,7 +185,7 @@ describe("Cloudflare Sandbox Durable Object", () => {
     expect(timeouts).toEqual([30_000]);
 
     const result = await session.exec("echo", ["hi"], { env: { NAME: "value" } });
-    expect(result.stdout).toBe("/workspace|value|/bin/bash -c 'echo' 'hi'");
+    expect(result.stdout).toBe("/workspace|value|timeout --kill-after=1s 180s /bin/bash -c 'echo' 'hi'");
     expect(executions.at(-1)!.options).toMatchObject({ cwd: "/workspace", env: { NAME: "value" } });
 
     await session.files.write("/workspace/a.txt", new TextEncoder().encode("hello"));
@@ -191,6 +201,94 @@ describe("Cloudflare Sandbox Durable Object", () => {
 
     await session.close();
     expect(container.destroyed).toBe(1);
+  });
+
+  it("resolves relative file operations against /workspace", async () => {
+    const { files, runtime, timeouts } = setup();
+    const session = await (await resolveSandbox({ runtime }, {})).open();
+    expect(timeouts).toEqual([600_000]);
+    await session.files.mkdir("input", { recursive: true });
+    await expect(session.files.exists("input")).resolves.toBe(true);
+    await session.files.write("input/a.txt", new TextEncoder().encode("relative"));
+    expect(files.has("/workspace/input/a.txt")).toBe(true);
+    await expect(session.files.read("input/a.txt")).resolves.toEqual(new TextEncoder().encode("relative"));
+    await expect(session.files.read("input/missing.txt")).resolves.toBeNull();
+    await expect(session.files.exists("input/missing.txt")).resolves.toBe(false);
+    await session.files.move!("input/a.txt", "/workspace/input/b.txt");
+    await session.files.move!("/workspace/input/b.txt", "input/c.txt");
+    await session.files.remove("input/c.txt");
+    await expect(session.files.exists("input/c.txt")).resolves.toBe(false);
+    await session.close();
+  });
+
+  it("replays stdout and stderr when a process exits before log attachment", async () => {
+    const { objects, runtime } = setup();
+    const session = await (await resolveSandbox({ runtime }, {})).open();
+    const object = objects.get("Task-1")!;
+    const command = await object.startProcess("short-command");
+    await expect(command.waitForExit()).resolves.toEqual({ exitCode: 0 });
+    const events = await new Response(await object.streamProcessLogs(command.id)).text();
+    expect(events).toContain("short-command");
+    expect(events).toContain('"type":"stderr"');
+    expect(events).toContain('"type":"exit"');
+
+    const process = await session.spawn!("short-command");
+    await expect(new Response(process.stdout).text()).resolves.toContain("short-command");
+    await expect(new Response(process.stderr).text()).resolves.toBe("warning\n");
+    await expect(process.wait()).resolves.toEqual({ code: 0 });
+    await session.close();
+  });
+
+  it.skipIf(process.platform === "win32")("times out shell descendants and finishes collecting output", async () => {
+    const { container, objects, runtime } = setup();
+    const session = await (await resolveSandbox({ runtime }, {})).open();
+    const children: ReturnType<typeof spawn>[] = [];
+    container.exec = async (command, options) => {
+      const child = spawn(command[0]!, command.slice(1), { detached: true });
+      children.push(child);
+      const stdout: Buffer[] = [];
+      const stderr: Buffer[] = [];
+      child.stdout!.on("data", chunk => stdout.push(chunk));
+      child.stderr!.on("data", chunk => stderr.push(chunk));
+      const exitCode = new Promise<number>((resolve, reject) => {
+        child.on("exit", code => resolve(code ?? 137));
+        child.on("error", reject);
+      });
+      const closed = new Promise<void>(resolve => child.on("close", () => resolve()));
+      options?.signal?.addEventListener("abort", () => child.kill());
+      return {
+        exitCode,
+        stderr: null,
+        stdin: null,
+        stdout: null,
+        kill: signal => { child.kill(signal); },
+        async output() {
+          await closed;
+          return { exitCode: await exitCode, stderr: new Uint8Array(Buffer.concat(stderr)).buffer, stdout: new Uint8Array(Buffer.concat(stdout)).buffer };
+        },
+      };
+    };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      // GNU timeout reserves these codes too; an early command exit must retain its status.
+      for (const exitCode of [124, 137]) {
+        await expect(objects.get("Task-1")!.exec(`exit ${exitCode}`, { timeout: 10_000 }))
+          .resolves.toMatchObject({ exitCode, success: false });
+      }
+      const deadline = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Descendants kept output open")), 2_000);
+      });
+      await expect(Promise.race([
+        objects.get("Task-1")!.exec("sleep 600 & wait", { timeout: 50 }),
+        deadline,
+      ])).rejects.toThrow("Command timed out after 50ms.");
+    } finally {
+      clearTimeout(timer);
+      for (const child of children) {
+        try { process.kill(-child.pid!, "SIGKILL"); } catch {}
+      }
+      await session.close();
+    }
   });
 
   it("streams spawned output live, forwards stdin and reports the exit code", async () => {
@@ -224,12 +322,13 @@ describe("Cloudflare Sandbox Durable Object", () => {
   });
 
   it("does not open stdin unless the caller asks, and maps signal names", async () => {
-    const { executions, runtime } = setup({ keepAlive: true });
+    const { executions, runtime, timeouts } = setup({ keepAlive: true });
     const sandbox = await resolveSandbox({ runtime }, {});
     const session = await sandbox.open();
     const process = await session.spawn!("long-running");
     const execution = executions.at(-1)!;
 
+    expect(timeouts).toEqual([21_600_000]);
     expect(execution.options?.stdin).toBeUndefined();
     expect(process.stdin).toBeUndefined();
     await process.kill("SIGINT");
