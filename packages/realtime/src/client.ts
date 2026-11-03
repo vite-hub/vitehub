@@ -5,6 +5,7 @@ import { WebsocketProvider } from "y-websocket"
 import * as Y from "yjs"
 
 import { resolveRealtimeApplicationPath } from "./application-path.ts"
+import { keepRealtimeSocketAlive } from "./keepalive.ts"
 import { createRealtimeIdentity, getRealtimePeople } from "./presence.ts"
 import {
   decodeRealtimeControlPayload,
@@ -80,6 +81,7 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
     document = new Y.Doc()
     provider = new WebsocketProvider(url(), room, document, { disableBc: true, params: {} })
     const current = provider
+    keepRealtimeSocketAlive(current)
     current.messageHandlers[messageRealtimeControl] = (_encoder, decoder) => {
       // SAFETY: y-websocket passes the lib0 decoder positioned after the message type.
       const control = decodeRealtimeControlPayload(decoder as decoding.Decoder)
@@ -121,6 +123,7 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
       params: { workspace: "events" },
     })
     changes.awareness.setLocalState(null)
+    keepRealtimeSocketAlive(changes)
     changes.messageHandlers[messageWorkspaceChange] = (_encoder, decoder) => {
       // SAFETY: y-websocket passes the lib0 decoder positioned after the message type.
       const change = decodeWorkspaceChangePayload(decoder as decoding.Decoder)

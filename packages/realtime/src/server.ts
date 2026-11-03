@@ -53,6 +53,8 @@ import {
   messageQueryAwareness,
   messageWorkspaceChange,
   realtimeForbiddenWriteCloseCode,
+  realtimeKeepalivePing,
+  realtimeKeepalivePong,
   realtimeReadOnlyCode,
   realtimeResetCloseCode,
   realtimeSourceChangedCode,
@@ -101,6 +103,7 @@ const durableUpdateCompactionInterval = 128
 const maxSaveRetryMs = 60_000
 const holdIntervalMs = 60_000
 const messageSync = 0
+const keepalivePing = new TextEncoder().encode(realtimeKeepalivePing)
 /** Marks the request that `refreshRealtimeDocument()` sends to a Durable Object. The Worker strips it from client requests. */
 const internalRefreshHeader = "x-vitehub-realtime-refresh"
 /**
@@ -1517,6 +1520,11 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
       message(peer, message: WebSocketMessage) {
         if (!room.peers.has(peer)) return
         const data = message.uint8Array()
+        // On Cloudflare the Durable Object answers the keepalive itself, so it reaches this hook only on other hosts.
+        if (data.byteLength === keepalivePing.byteLength && data.every((byte, index) => byte === keepalivePing[index])) {
+          peer.send(realtimeKeepalivePong)
+          return
+        }
         if (data.byteLength > maxMessageBytes) {
           peer.close(4400, "Realtime message exceeds 1 MiB.")
           return
