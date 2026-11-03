@@ -299,6 +299,7 @@ export const CommentPanel = defineComponent({
         readOnly: props.readOnly,
         thread,
         user: state.user.value,
+        users: (query: string) => state.users(query, thread.id),
       }, threadSlots());
 
     return () =>

@@ -48,6 +48,89 @@ async function site(user: CommentsUser | null = ada, options: Parameters<typeof 
 const composer = (root: ParentNode, label: string) => root.querySelector<HTMLTextAreaElement>(`textarea[aria-label="${label}"]`)
 
 describe("the Comments overlay on the comment parts", () => {
+  it("loads the toolbar for a page allowed by a subject-aware policy", async () => {
+    const { bar, requests } = await site(ada, { authorize: ({ subject }) => subject?.id === "/pricing" })
+    expect(bar.hidden).toBe(false)
+    expect(requests.some(request => request.path === "/api/_vitehub/comments/session?page=%2Fpricing")).toBe(true)
+  })
+
+  it.each(["layer", "panel"])("keeps mention targets through the %s and API", async (surface) => {
+    let threadId: string | undefined
+    const { shadow, bar, panel, comments } = await site(ada, {
+      canMention: ({ person, subject, thread }) => person.id === "grace" && subject?.id === "/pricing" && (threadId ? thread?.id === threadId : !thread),
+    })
+    let root: ShadowRoot
+    if (surface === "layer") {
+      press(document.body, "c")
+      await clickPage(shadow, 60, 20)
+      root = shadow
+    }
+    else {
+      tool(bar, "Comments on this page")!.click()
+      root = panel()!
+    }
+    const label = "Comment"
+    await vi.waitFor(() => expect(composer(root, label)).not.toBeNull())
+    const input = composer(root, label)!
+    await type(input, "@gra")
+    await vi.waitFor(() => expect(root.querySelector('[role="option"]')?.textContent).toContain("Grace Hopper"))
+    root.querySelector('[role="option"]')!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))
+    await vi.waitFor(() => expect(input.value).toBe("@Grace Hopper "))
+    press(input, "Enter")
+    await vi.waitFor(async () => expect((await comments.list())[1]).toHaveLength(1))
+    const created = (await comments.list())[1]![0]!
+    threadId = created.id
+    expect(created.messages[0]!.mentions).toEqual(["grace"])
+    if (surface === "layer") {
+      await vi.waitFor(() => expect(root.querySelector('[data-slot="comment-pin"]')).not.toBeNull())
+      root.querySelector<HTMLButtonElement>('[data-slot="comment-pin"]')!.click()
+    }
+    else {
+      await vi.waitFor(() => expect(root.querySelector('[data-slot="comment-panel-item"]')).not.toBeNull())
+      root.querySelector<HTMLButtonElement>('[data-slot="comment-panel-item"]')!.click()
+    }
+    await vi.waitFor(() => expect(composer(root, "Reply")).not.toBeNull())
+    const reply = composer(root, "Reply")!
+    await type(reply, "@gra")
+    await vi.waitFor(() => expect(root.querySelector('[role="option"]')?.textContent).toContain("Grace Hopper"))
+    root.querySelector('[role="option"]')!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))
+    await vi.waitFor(() => expect(reply.value).toBe("@Grace Hopper "))
+    press(reply, "Enter")
+    await vi.waitFor(async () => expect((await comments.get(created.id))[1]!.messages).toHaveLength(2))
+    expect((await comments.get(created.id))[1]!.messages[1]!.mentions).toEqual(["grace"])
+  })
+
+  it.each(["layer", "panel"])("protects an attachment-only %s draft on exit and navigation", async (surface) => {
+    const confirm = vi.fn(() => false)
+    vi.stubGlobal("confirm", confirm)
+    const { shadow, bar, panel, context } = await site()
+    let root: ShadowRoot
+    if (surface === "layer") {
+      press(document.body, "c")
+      await clickPage(shadow, 60, 20)
+      root = shadow
+    }
+    else {
+      tool(bar, "Comments on this page")!.click()
+      root = panel()!
+    }
+    await vi.waitFor(() => expect(root.querySelector('input[type="file"]')).not.toBeNull())
+    const input = root.querySelector<HTMLInputElement>('input[type="file"]')!
+    Object.defineProperty(input, "files", { configurable: true, value: [new File(["image"], "draft.png", { type: "image/png" })] })
+    input.dispatchEvent(new Event("change", { bubbles: true }))
+    await vi.waitFor(() => expect(root.textContent).toContain("draft.png"))
+    const beforeExit = (context.beforeExit.mock.calls as unknown as Array<[() => boolean]>)[0]![0]
+    expect(beforeExit()).toBe(false)
+    expect(confirm).toHaveBeenCalledOnce()
+    confirm.mockClear()
+    history.pushState(null, "", "/next")
+    await vi.waitFor(() => expect(confirm).toHaveBeenCalledOnce())
+    expect(root.textContent).toContain("draft.png")
+    confirm.mockReturnValue(true)
+    history.replaceState(null, "", "/next")
+    await vi.waitFor(() => expect(root.textContent).not.toContain("draft.png"))
+  })
+
   it("comments on an element with the overlay's anchor hints and the page context", async () => {
     const { shadow, bar, comments } = await site()
     press(document.body, "c")

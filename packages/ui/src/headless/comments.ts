@@ -151,7 +151,8 @@ export interface CommentsState {
   remove: (threadId: string, messageId?: string) => Promise<CommentThread | null>;
   resolve: (threadId: string) => Promise<CommentThread>;
   reopen: (threadId: string) => Promise<CommentThread>;
-  users: (query: string) => Promise<CommentUser[]>;
+  /** Finds people for a reply or edit in `threadId`, or for a new thread on the current subject. */
+  users: (query: string, threadId?: string) => Promise<CommentUser[]>;
   /** The URL that opens the thread: its page with `?comment=<n>`. */
   link: (thread: CommentThread) => string;
   /** Measures every pin again. The state does it on scroll, resize, and DOM changes. */
@@ -546,8 +547,8 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     add(user.value);
     return [...known.values()];
   });
-  async function users(query: string): Promise<CommentUser[]> {
-    const result = await client.users({ query });
+  async function users(query: string, threadId?: string): Promise<CommentUser[]> {
+    const result = await client.users({ query, ...(threadId ? { threadId } : { subject: subject.value }) });
     if (result.some(person => found.value.get(person.id) !== person)) {
       const next = new Map(found.value);
       for (const person of result) next.set(person.id, person);

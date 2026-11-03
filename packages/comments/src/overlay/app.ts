@@ -365,6 +365,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
           nodes.push(h("div", { class: "outlines" }, outlines()))
           if (panelTarget.value) {
             nodes.push(h(Teleport, { to: panelTarget.value }, h(CommentPanel, {
+              key: page.value,
               comments: state,
               readOnly: !canComment || needsName.value,
               status: panelStatus.value,
@@ -469,15 +470,19 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   if (session && !session.can.read) denied(session)
   else if (options.failure) showToast({ text: options.failure.why, kind: "error", action: ["Close", options.exit] }, true)
 
+  const hasUnsentComment = () => [shadow, panelTarget.value?.getRootNode()].some(node =>
+    node instanceof ShadowRoot && node.querySelector("[data-slot='comment-composer'][data-dirty='true']") !== null)
+
   return {
     app,
-    hasUnsentComment: () => [shadow, panelTarget.value?.getRootNode()].some(node =>
-      node instanceof ShadowRoot && [...node.querySelectorAll<HTMLTextAreaElement>("textarea")].some(input => input.value.trim().length > 0)),
+    hasUnsentComment,
     showPanel,
     setMode,
     finishEdit: edit.finish,
     navigated(next) {
       if (next === page.value) return
+      // Routers may already have swapped the page. Keep the previous comments and draft until the person agrees.
+      if (hasUnsentComment() && !window.confirm("Discard your unsent comment and show comments for the new page?")) return
       page.value = next
       // The state lists the threads of the new page. The page then joins its room.
       room?.destroy()
