@@ -34,12 +34,6 @@ function deserializeValue(value: unknown) {
   return destr(value)
 }
 
-// Matches unstorage's `{ type: "text" }` read. Upstash parses JSON before it returns a value, so stringify it back.
-function toText(value: unknown): string | null {
-  if (value === null || value === undefined) return null
-  return typeof value === "string" ? value : JSON.stringify(value)
-}
-
 function isPrimitive(value: unknown) {
   return value === null || (typeof value !== "object" && typeof value !== "function")
 }
@@ -76,7 +70,7 @@ export function createHostedKVStorage(config: false | ResolvedKVModuleOptions | 
     storage.getAndDeleteItem = async <T = unknown>(key: string, options?: { type?: "text" }): Promise<T | null> => {
       const value = await getAndDeleteItem(normalizeKey(key))
       // SAFETY: kv.getAndDelete() types a `type: "text"` read as string; otherwise destr mirrors the caller-typed storage.getItem read.
-      return (options?.type === "text" ? toText(value) : deserializeValue(value)) as T | null
+      return (options?.type === "text" ? value : deserializeValue(value)) as T | null
     }
   }
   if (incrementItem) storage.incrementItem = (key, ttl) => incrementItem(normalizeKey(key), ttl)

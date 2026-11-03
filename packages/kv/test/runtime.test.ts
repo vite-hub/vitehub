@@ -278,8 +278,8 @@ describe("kv runtime", () => {
   it("reads numeric-looking strings back as text with { type: \"text\" }", async () => {
     process.env.KV_REST_API_URL = "https://upstash.example.com"
     process.env.KV_REST_API_TOKEN = "upstash-token"
-    // The Upstash client parses JSON before it returns, so a stored "123456" arrives as a number.
-    upstashGetdel = vi.fn(async () => 123456)
+    // The Upstash adapter keeps raw text so both read paths decode it only when requested.
+    upstashGetdel = vi.fn(async () => "123456")
     const { kv } = await import("../src/runtime/storage.ts")
 
     expectKVSuccess(await kv.set("invite", "123456"))
@@ -287,8 +287,10 @@ describe("kv runtime", () => {
     expect(expectKVSuccess(await kv.get("invite", { type: "text" }))).toBe("123456")
     expect(expectKVSuccess(await kv.get("missing", { type: "text" }))).toBeNull()
     expect(expectKVSuccess(await kv.getAndDelete("code", { type: "text" }))).toBe("123456")
-    upstashGetdel.mockResolvedValueOnce({ singleUse: true })
+    upstashGetdel.mockResolvedValueOnce('{"singleUse":true}')
     expect(expectKVSuccess(await kv.getAndDelete("verification", { type: "text" }))).toBe('{"singleUse":true}')
+    upstashGetdel.mockResolvedValueOnce("null")
+    expect(expectKVSuccess(await kv.getAndDelete("null-token", { type: "text" }))).toBe("null")
     upstashGetdel.mockResolvedValueOnce(null)
     expect(expectKVSuccess(await kv.getAndDelete("used", { type: "text" }))).toBeNull()
   })
