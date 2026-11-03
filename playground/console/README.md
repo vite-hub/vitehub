@@ -37,6 +37,8 @@ CONSOLE_TEST_URL=http://127.0.0.1:3087 node --test packages/vite-hub/test/consol
 
 The check uses installed Playwright Chromium, the real Console components, and intercepted RPC responses with nine synthetic documents. Saves and publishes change only the fixture in that browser test. It covers delayed and failed loads, retry, empty filters, Rich hydration, mode switching, failed saves and publishes, keyboard controls, and mobile layouts. Set `CONSOLE_TEST_ARTIFACTS` to a project-local directory to save screenshots and element bounds. Stop the dev server when the check ends.
 
+`packages/vite-hub/test/console-empty-states.browser.mjs` uses the same server. It answers some RPC calls with empty results or a failure and checks that the empty and error states of Env, Blob, Email, Workspaces, and KV sit in the middle of their pane, on desktop and narrow screens.
+
 To see an error state, set the `playground-fail` cookie to `<route>=<status>` pairs. A route is the path after
 `/api/_vitehub/console/`, and it also matches the paths under it:
 

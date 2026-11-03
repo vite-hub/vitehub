@@ -425,14 +425,15 @@ onBeforeUnmount(() => request?.abort());
       <!-- Only the load state is announced. A live region around the whole list would read every refreshed row. -->
       <!-- Mount empty so assistive technology registers the status before its text changes. -->
       <p class="sr-only" role="status">{{ hasMounted && loading && !content ? "Loading…" : "" }}</p>
-      <div class="min-h-0 flex-1 overflow-y-auto">
+      <div class="flex min-h-0 flex-1 flex-col overflow-y-auto">
         <div v-if="loading && !content" class="mx-auto grid w-full max-w-3xl gap-3 p-4 sm:p-6" aria-busy="true">
           <USkeleton class="h-4 w-40" />
           <USkeleton v-for="index in 5" :key="index" class="h-9 w-full" />
         </div>
         <template v-else-if="!catalogView">
           <ConsoleState v-if="error" :error="error" :title="`Couldn't load ${sectionDetails.label}`" :retry="loadDefinitions" />
-          <main v-else class="mx-auto grid w-full max-w-5xl content-start gap-4 p-4 sm:p-6">
+          <!-- Without rows, the empty state takes the free height above the notice, so it sits in the middle of the pane. -->
+          <main v-else class="mx-auto grid w-full max-w-5xl flex-1 gap-4 p-4 sm:p-6" :class="visibleRecords.length ? 'content-start' : 'grid-rows-[1fr_auto]'">
             <UEmpty
               v-if="!records.length"
               variant="naked"
@@ -511,7 +512,7 @@ onBeforeUnmount(() => request?.abort());
         <UEmpty
           v-else-if="!selectedDefinition"
           variant="naked"
-          class="py-16"
+          class="flex-1 py-16"
           :icon="sectionDetails.icon"
           title="No definition selected"
           :description="entries.length ? 'Choose one from the sidebar to see its metadata.' : 'Nothing to show yet.'"

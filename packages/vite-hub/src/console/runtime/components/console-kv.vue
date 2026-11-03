@@ -471,7 +471,7 @@ onBeforeUnmount(() => {
           <UEmpty
             v-else-if="selectedValue && !selectedValue.found"
             variant="naked"
-            class="py-16"
+            class="flex-1 py-16"
             icon="i-lucide-key-round"
             title="This key no longer exists"
             description="Someone deleted it after the list loaded. Refresh to load the current keys."
@@ -513,7 +513,7 @@ onBeforeUnmount(() => {
           <UEmpty
             v-else-if="!listLoading"
             variant="naked"
-            class="py-16"
+            class="flex-1 py-16"
             icon="i-lucide-database"
             :title="keys.length ? 'No key selected' : 'This store is empty'"
             :description="keys.length ? 'Choose a key to see its value.' : 'Keys show here when the application writes them.'"

@@ -441,7 +441,7 @@ onBeforeUnmount(() => {
   </div>
 
   <p class="sr-only" role="status">{{ publishing ? 'Publishing changes…' : loading ? 'Loading documents…' : error ? 'Documents could not be loaded.' : `${page?.total ?? 0} documents` }}</p>
-  <div class="min-h-0 flex-1 overflow-y-auto" :aria-busy="loading || loadingMore || publishing">
+  <div class="flex min-h-0 flex-1 flex-col overflow-y-auto" :aria-busy="loading || loadingMore || publishing">
     <UAlert
       v-if="publishProblem"
       class="m-4"
@@ -465,7 +465,7 @@ onBeforeUnmount(() => {
     />
     <UEmpty
       v-if="!loading && !error && !items.length"
-      class="m-4 py-12"
+      class="m-4 flex-1 py-12"
       icon="i-lucide-file-text"
       :title="emptyState?.title ?? `No ${collection.label.toLowerCase()} yet`"
       :description="emptyState?.description ?? (collection.access.write ? 'Create the first document.' : 'Documents appear here when someone saves one.')"

@@ -561,7 +561,7 @@ defineExpose({
       </div>
     </ConsolePageToolbar>
 
-    <div class="min-h-0 flex-1 overflow-y-auto" :class="mode === 'page' ? 'p-4' : 'p-3'">
+    <div class="flex min-h-0 flex-1 flex-col overflow-y-auto" :class="mode === 'page' ? 'p-4' : 'p-3'">
       <ConsoleState v-if="error" :error="error" :compact="mode === 'picker'" title="Could not load files" :retry="() => load()" />
       <div v-else-if="loading && !items.length && !folders.length" class="vitehub-media-grid" aria-busy="true">
         <USkeleton v-for="index in 12" :key="index" class="aspect-square rounded-md" />
@@ -590,7 +590,7 @@ defineExpose({
         <UEmpty
           v-if="!items.length && !searching && !folders.length"
           variant="naked"
-          class="py-16"
+          class="flex-1 py-16"
           :icon="folder ? 'i-lucide-folder-open' : 'i-lucide-images'"
           :title="folder ? 'This folder is empty' : 'No media yet'"
           :description="emptyDescription ?? (canWrite ? 'Drop files anywhere here, or upload them.' : 'Files that editors upload show here.')"

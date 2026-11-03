@@ -242,7 +242,7 @@ onBeforeUnmount(() => request?.abort());
         </div>
       </ConsolePageToolbar>
 
-      <div class="min-h-0 flex-1 overflow-y-auto">
+      <div class="flex min-h-0 flex-1 flex-col overflow-y-auto">
         <ConsoleState v-if="failed" :error="failed" title="Could not load Env declarations" :retry="() => refresh()" />
         <div v-else-if="loading && !entries.length" class="mx-auto grid w-full max-w-4xl gap-2 p-4 sm:p-6" aria-busy="true">
           <USkeleton class="mb-1 h-4 w-32" />
@@ -255,7 +255,7 @@ onBeforeUnmount(() => request?.abort());
           title="No Server Env declared"
           description="Declare a value under env.server in the Vite config to inspect it here."
         />
-        <p v-else-if="!rows.length" class="py-16 text-center text-[13px] text-muted">
+        <p v-else-if="!rows.length" class="my-auto py-16 text-center text-[13px] text-muted">
           {{ attentionOnly && !search.trim() ? "No values match the filters." : `No variables match “${search.trim() || source}”.` }}
         </p>
         <main v-else class="mx-auto grid w-full max-w-4xl gap-6 p-4 sm:p-6">
