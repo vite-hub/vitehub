@@ -91,17 +91,16 @@ export function cmsCan(user: CmsUser | null | undefined, permissions: CmsPermiss
  */
 export const cmsContentAuthorize: ContentAuthorize = ({ user, action }) => cmsCan(user, { content: [action] })
 
-/** The `comment` permission of each Comments action. Operations Comments name creating `write`. Only `publisher` and `admin` delete. */
+/** The `comment` permission of each Comments action. Only `publisher` and `admin` delete. */
 const commentPermissions: Readonly<Record<CommentsAuthorizeContext["action"], CmsStatements["comment"][number]>> = {
   read: "read",
-  comment: "create",
   write: "create",
   resolve: "resolve",
   delete: "delete",
 }
 
 /**
- * `defineComments({ authorize })` from the CMS roles: `read` needs `comment:read`, `comment` needs `comment:create`,
+ * `defineComments({ authorize })` from the CMS roles: `read` needs `comment:read`, `write` needs `comment:create`,
  * `resolve` needs `comment:resolve`, and deleting others' comments or threads needs `comment:delete`.
  */
 export function cmsCommentsAuthorize(context: Pick<CommentsAuthorizeContext, "user" | "action">): boolean {
