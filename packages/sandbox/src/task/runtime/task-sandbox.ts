@@ -9,6 +9,8 @@ export interface TaskSandbox {
   readonly id: string
   readonly files: SandboxFiles
   readonly provider: SandboxTaskExecutionProvider
+  /** The runner closes this Sandbox after the run, which removes its files with it. */
+  readonly closesAfterRun: boolean
   close(): Promise<void>
   exec(
     command: string,
@@ -24,12 +26,14 @@ export interface TaskSandbox {
 export function createTaskSandbox(
   session: SandboxSession,
   provider: SandboxTaskExecutionProvider,
+  closesAfterRun: boolean,
 ): TaskSandbox {
   return {
     executionAuthority: session.executionAuthority,
     id: session.id,
     files: session.files,
     provider,
+    closesAfterRun,
     async close() {
       await session.close()
     },
