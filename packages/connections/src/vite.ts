@@ -538,7 +538,9 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
               ? `const handle = createConnectionsHandler({ actor, basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`
               : `const handle = createConnectionsHandler({ actor: "development", basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`,
             "",
-            "export default (event: { req?: Request, node?: { req?: IncomingMessage & { socket: { encrypted?: boolean } } } }) => {",
+            // Nitro 2 on Workers, which Nuxt 4 builds, gives a request mock that keeps the body in `body` and cannot be
+            // iterated. A Node.js server gives a real IncomingMessage.
+            "export default (event: { req?: Request, node?: { req?: IncomingMessage & { body?: Uint8Array | string, socket: { encrypted?: boolean } } } }) => {",
             "  const raw = event.req ?? event.node?.req",
             "  if (!raw) return handle(new Request('http://localhost/'), event)",
             "  if (raw instanceof Request) return handle(raw, event)",
@@ -549,7 +551,8 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
             "  const protocol = firstHeader('x-forwarded-proto') ?? (raw.socket?.encrypted ? 'https' : 'http')",
             "  const method = raw.method ?? 'GET'",
             "  const init: RequestInit & { duplex?: 'half' } = { method, headers }",
-            "  if (method !== 'GET' && method !== 'HEAD') {",
+            "  if (method !== 'GET' && method !== 'HEAD' && raw.body !== undefined) init.body = raw.body",
+            "  else if (method !== 'GET' && method !== 'HEAD') {",
             "    const iterator = raw[Symbol.asyncIterator]()",
             "    init.body = new ReadableStream({ async pull(controller) { try { const next = await iterator.next(); if (next.done) controller.close(); else controller.enqueue(next.value) } catch (error) { controller.error(error) } } })",
             "    init.duplex = 'half'",

@@ -289,6 +289,12 @@ describe("hubConnections", () => {
       expect(request.url).toBe("https://secure.example/callback");
       expect(request.body).toBeNull();
     }
+    // Nitro 2 on Cloudflare Workers, which Nuxt 4 builds, gives a mock that holds the body and cannot be iterated.
+    const workerRequest = {
+      body: Buffer.from(body), headers: { host: "docs.example", "x-forwarded-proto": "https" }, method: "POST", url: "/_vitehub/connections", socket: {},
+      [Symbol.asyncIterator]: () => { throw new Error("Readable.asyncIterator is not implemented yet!") },
+    }
+    expect(await adapt({ node: { req: workerRequest } }).request.text()).toBe(body)
     const web = new Request("https://public.example/_vitehub/connections", { method: "POST", body });
     const webEvent = { req: web };
     expect(adapt(webEvent)).toEqual({ request: web, event: webEvent });

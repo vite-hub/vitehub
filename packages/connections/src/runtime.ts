@@ -239,7 +239,14 @@ function isLoginDefinition(definition: ConnectionDefinition): definition is Conn
 
 /** Create the Connections runtime. Applications normally use `useConnection()` instead. */
 export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): ConnectionsRuntime {
-  const request = options.fetch ?? ((input: Parameters<typeof fetch>[0], init?: RequestInit) => fetch(input, init))
+  const fetchProvider = options.fetch ?? ((input: Parameters<typeof fetch>[0], init?: RequestInit) => fetch(input, init))
+  // Cloudflare Workers reject `redirect: "error"`. `manual` with a status check refuses a redirect on every host.
+  const request = async (input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> => {
+    if (init?.redirect !== "error") return await fetchProvider(input, init)
+    const response = await fetchProvider(input, { ...init, redirect: "manual" })
+    if (response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400)) throw new TypeError("The provider answered with a redirect.")
+    return response
+  }
   const scheduler = createRequestScheduler()
   const hostId = options.chatgptHostId ?? (async () => (await import("./internal/chatgpt-host.ts")).chatgptHostId((await getStore()).secrets))
   const now = options.now ?? Date.now

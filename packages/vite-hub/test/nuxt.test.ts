@@ -981,7 +981,7 @@ describe("ViteHub Nuxt integration", () => {
     )
   })
 
-  it.each([true, false])("preserves Nuxt Connections development navigation and production rejection (dev: %s)", async (dev) => {
+  it.each([true, false])("keeps Nuxt Connections development navigation and builds Connections for production (dev: %s)", async (dev) => {
     const application = createNuxt(dev)
     try {
       const configure = () => viteHubNuxtModule({
@@ -990,10 +990,6 @@ describe("ViteHub Nuxt integration", () => {
         database: true,
         console: dev ? { auth: false } : { auth: false, authorize: hostManagedAuthorize },
       }, application.nuxt)
-      if (!dev) {
-        await expect(configure()).rejects.toThrow("connections is not supported by the Nuxt module yet")
-        return
-      }
       await configure()
       const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
       expect(generated.includes('"connections"')).toBe(dev)
@@ -2523,15 +2519,19 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
-  it("rejects Connections in production Nuxt applications", async () => {
+  it("accepts Connections in production Nuxt applications", async () => {
     const production = createNuxt(false)
-
-    await expect(viteHubNuxtModule({
-      connections: { management: true },
-      database: true,
-      console: { auth: false, authorize: hostManagedAuthorize },
-      preset: "node",
-    }, production.nuxt)).rejects.toThrow("connections is not supported by the Nuxt module yet")
+    try {
+      await expect(viteHubNuxtModule({
+        connections: { management: true },
+        database: true,
+        console: { auth: false, authorize: hostManagedAuthorize },
+        preset: "node",
+      }, production.nuxt)).resolves.toBeUndefined()
+    }
+    finally {
+      await production.runCloseHook()
+    }
   })
 
   it.each(["none", "console-auth"] as const)("resolves the Nuxt Connections management actor with %s", async (source) => {
