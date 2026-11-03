@@ -20,6 +20,8 @@ export const BrowserSupportNotice = defineComponent({
   props: {
     /** The support result, such as `workspace.support.value?.supported`. The notice shows only when it is `false`. */
     supported: { default: undefined, type: Boolean as PropType<boolean | undefined> },
+    /** Pass the support check's reason to distinguish page configuration from browser limitations. */
+    reason: { default: undefined, type: String },
     /** Overrides the browser that the notice names. Detected from the user agent by default. */
     browser: { default: undefined, type: String as PropType<UnsupportedBrowser> },
     /** The link that Copy link copies. Defaults to the current page. */
@@ -62,11 +64,14 @@ export const BrowserSupportNotice = defineComponent({
     return () => {
       if (!mounted.value || props.supported !== false) return null;
       const browser = props.browser ?? detected.value;
+      const isolation = props.reason?.includes("not cross-origin isolated") === true;
       return h("aside", { "aria-labelledby": `${whyId}-title`, class: "vh-ws-support", ref: root }, [
         icon("monitor", "vh-ws-icon vh-ws-support-icon"),
         h("div", { class: "vh-ws-support-text" }, [
-          h("p", { class: "vh-ws-support-title", id: `${whyId}-title` }, browser === "safari" ? "The live workspace does not run in Safari" : "The live workspace does not run in this browser"),
-          h("p", { class: "vh-ws-muted" }, "This tutorial still works as text. To edit and run the code next to each step, open this page in Chrome, Edge, or Firefox on a desktop."),
+          h("p", { class: "vh-ws-support-title", id: `${whyId}-title` }, isolation ? "This page needs workspace setup" : browser === "safari" ? "The live workspace does not run in Safari" : "The live workspace does not run in this browser"),
+          h("p", { class: "vh-ws-muted" }, isolation
+            ? "This tutorial still works as text. The site owner needs to enable cross-origin isolation for the live workspace."
+            : "This tutorial still works as text. To edit and run the code next to each step, open this page in Chrome, Edge, or Firefox on a desktop."),
           h("div", { class: "vh-ws-actions" }, [
             h("button", { class: "vh-ws-button", type: "button", onClick: copy }, [icon(copied.value ? "check" : "copy"), copied.value ? "Copied" : "Copy link"]),
             h("div", { class: "vh-ws-popover-anchor" }, [
@@ -79,7 +84,7 @@ export const BrowserSupportNotice = defineComponent({
                 onKeydown: (event: KeyboardEvent) => { if (event.key === "Escape") why.value = false; },
               }, "Why?"),
               why.value
-                ? h("p", { class: "vh-ws-popover", id: whyId, role: "note" }, browser === "safari"
+                ? h("p", { class: "vh-ws-popover", id: whyId, role: "note" }, isolation ? props.reason : browser === "safari"
                     ? "Safari does not support the browser isolation that WebContainers need to run Node.js in a tab."
                     : "This browser does not support the browser isolation that WebContainers need to run Node.js in a tab.")
                 : undefined,

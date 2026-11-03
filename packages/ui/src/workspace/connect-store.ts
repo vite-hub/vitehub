@@ -32,9 +32,9 @@ function browserStorage(kind: "session" | "local" | "memory"): Storage | undefin
 }
 
 function read(storage: Storage | undefined, key: string): ConnectCredentials {
-  const raw = storage?.getItem(key);
-  if (!raw) return {};
   try {
+    const raw = storage?.getItem(key);
+    if (!raw) return {};
     const value: unknown = JSON.parse(raw);
     if (!value || typeof value !== "object") return {};
     return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
@@ -53,8 +53,13 @@ export function useConnectStore(options: UseConnectStoreOptions = {}): ConnectSt
   function save(next: ConnectCredentials) {
     credentials.value = next;
     if (!storage) return;
-    if (Object.keys(next).length === 0) storage.removeItem(key);
-    else storage.setItem(key, JSON.stringify(next));
+    try {
+      if (Object.keys(next).length === 0) storage.removeItem(key);
+      else storage.setItem(key, JSON.stringify(next));
+    }
+    catch {
+      // The in-memory credentials still work when persistence is blocked or full.
+    }
   }
 
   return {

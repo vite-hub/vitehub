@@ -78,6 +78,7 @@ Object.assign(window, { workspace });
     <article class="demo-lesson">
       <h1>Serve a page</h1>
       <BrowserSupportNotice
+        :reason="query.get('notice') || workspace.support.value?.supported !== false ? undefined : workspace.support.value.reason"
         :supported="query.get('notice') ? false : workspace.support.value?.supported"
         :browser="query.get('notice') === 'safari' ? 'safari' : undefined"
       />

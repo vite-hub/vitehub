@@ -60,6 +60,7 @@ export const ConnectProviderRow = defineComponent({
   },
   emits: {
     connect: (token: string) => typeof token === "string",
+    oauth: (provider: ConnectProvider) => provider.auth === "oauth",
     disconnect: () => true,
     "copy-command": (command: string) => typeof command === "string",
   },
@@ -95,7 +96,7 @@ export const ConnectProviderRow = defineComponent({
         case "connected":
           return h("span", { class: "vh-ws-connected" }, [icon("check"), h("span", { class: "vh-ws-sr-only" }, "Connected: "), account ? `${account} · ` : "", env]);
         case "error":
-          return h("span", { class: "vh-ws-error" }, message ?? `${label.value} rejected the token. Paste a new one.`);
+          return h("span", { class: "vh-ws-error" }, message ?? (props.provider.auth === "oauth" ? `${label.value} connection failed. Sign in again.` : `${label.value} rejected the token. Paste a new one.`));
         case "blocked":
           return h("span", { class: "vh-ws-error" }, message ?? `${label.value} blocked the request.`);
         case "needs-relay":
@@ -103,7 +104,7 @@ export const ConnectProviderRow = defineComponent({
         case "unavailable":
           return h("span", message ?? "Run this step on your machine.");
         case "idle":
-          return h("span", message ?? "Paste a token");
+          return h("span", message ?? (props.provider.auth === "oauth" ? "Sign in to connect" : "Paste a token"));
       }
     }
 
@@ -125,6 +126,9 @@ export const ConnectProviderRow = defineComponent({
           return command ? copyButton(command, copy) : undefined;
         case "error":
         case "idle":
+          if (props.provider.auth === "oauth") {
+            return h("button", { "aria-label": `Connect ${label.value}`, class: "vh-ws-button", type: "button", onClick: () => emit("oauth", props.provider) }, "Connect");
+          }
           return open.value
             ? undefined
             : h("button", { "aria-label": `Connect ${label.value}`, class: "vh-ws-button", type: "button", onClick: startEdit }, status === "error" ? "Paste a new token" : "Connect");
@@ -140,7 +144,7 @@ export const ConnectProviderRow = defineComponent({
         ]),
         h("div", { class: "vh-ws-provider-action" }, action()),
       ]),
-      open.value
+      open.value && props.provider.auth === "token"
         ? h("form", { class: "vh-ws-token-form", onSubmit: submit }, [
             h("label", { class: "vh-ws-token-label", for: inputId }, `${label.value} token`),
             h("div", { class: "vh-ws-token-row" }, [
@@ -183,6 +187,7 @@ export const ConnectPanel = defineComponent({
   },
   emits: {
     connect: (provider: ConnectProviderName, token: string) => typeof provider === "string" && typeof token === "string",
+    oauth: (provider: ConnectProvider) => provider.auth === "oauth",
     disconnect: (provider: ConnectProviderName) => typeof provider === "string",
     "remove-all": () => true,
     "copy-command": (command: string) => typeof command === "string",
@@ -205,6 +210,7 @@ export const ConnectPanel = defineComponent({
             relayUrl: props.relayUrl,
             state: props.states[provider.name],
             onConnect: (token: string) => emit("connect", provider.name, token),
+            onOauth: (provider: ConnectProvider) => emit("oauth", provider),
             onDisconnect: () => emit("disconnect", provider.name),
             "onCopy-command": (command: string) => emit("copy-command", command),
           }))),
