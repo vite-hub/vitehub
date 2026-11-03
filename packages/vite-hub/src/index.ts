@@ -877,7 +877,8 @@ function deploymentPlugins(
             // SAFETY: The KV integration reads this optional top-level Vite setting too.
             const kv = (config as typeof config & { kv?: KVModuleOptions }).kv ?? options.kv
             const cacheStorage = resolveCacheStorage(options.cache, plan.preset, Boolean(kv))
-            nitro = applyCacheStorage(nitro, cacheStorage)
+            const nitroVersion = VITEHUB_NITRO_CONFIG_CONTEXT in config && config[VITEHUB_NITRO_CONFIG_CONTEXT] === true ? 2 : 3
+            nitro = applyCacheStorage(nitro, cacheStorage, nitroVersion)
           }
           ;(config as { nitro?: unknown }).nitro = nitro
         },
