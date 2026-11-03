@@ -1,0 +1,146 @@
+import { EventEmitter } from "node:events"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
+import { bootWebContainer } from "../src/index.ts"
+import type { WebContainerStatus } from "../src/index.ts"
+
+const api = vi.hoisted(() => ({ boot: vi.fn() }))
+vi.mock("@webcontainer/api", () => ({ WebContainer: api }))
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (error: Error) => void
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no })
+  return { promise, resolve, reject }
+}
+
+function fixture() {
+  const exited = deferred<number>()
+  const process = {
+    output: new ReadableStream<string>({ start(controller) { controller.close() } }),
+    input: new WritableStream<string>(),
+    exit: exited.promise,
+    kill: vi.fn(() => exited.resolve(143)),
+  }
+  const events = new EventEmitter()
+  const container = {
+    fs: {},
+    mount: vi.fn(async () => {}),
+    spawn: vi.fn(async () => process),
+    teardown: vi.fn(),
+    on: events.on.bind(events),
+  }
+  api.boot.mockResolvedValue(container)
+  return { container, events, process, exited }
+}
+
+beforeEach(() => {
+  vi.stubGlobal("document", {})
+  vi.stubGlobal("crossOriginIsolated", true)
+})
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
+
+describe("WebContainer lifecycle", () => {
+  it.each(["files", "snapshot"] as const)("frees the container when mounting %s fails", async (source) => {
+    const { container } = fixture()
+    const error = new Error("mount failed")
+    container.mount.mockRejectedValueOnce(error)
+    const statuses: WebContainerStatus[] = []
+    await expect(bootWebContainer({
+      ...(source === "files" ? { files: { "index.js": "" } } : { snapshot: new Uint8Array() }),
+      onStatus: status => statuses.push(status),
+    })).rejects.toBe(error)
+    expect(container.teardown).toHaveBeenCalledOnce()
+    expect(statuses.at(-1)).toMatchObject({ stage: "error", error })
+  })
+
+  it.each(["install", "dev"] as const)("completes the %s stage and rejects readiness if spawn fails", async (command) => {
+    const { container } = fixture()
+    const error = new Error("cwd does not exist")
+    container.spawn.mockRejectedValueOnce(error)
+    const app = await bootWebContainer()
+    const rejected = vi.fn()
+    void app.preview.ready.catch(rejected)
+    await expect(app.run(command)).rejects.toBe(error)
+    expect(app.status).toMatchObject({ stage: "error", error })
+    expect(app.status.steps.at(-2)?.ms).toEqual(expect.any(Number))
+    expect(rejected).toHaveBeenCalledWith(error)
+  })
+
+  it.each(["before", "during"])("kills a process aborted %s spawn and removes its listener on exit", async (when) => {
+    const { container, process } = fixture()
+    const spawning = deferred<typeof process>()
+    container.spawn.mockReturnValueOnce(spawning.promise)
+    const app = await bootWebContainer()
+    const controller = new AbortController()
+    const removed = vi.spyOn(controller.signal, "removeEventListener")
+    if (when === "before") controller.abort()
+    const running = app.run(["node", "script.js"], { signal: controller.signal })
+    if (when === "during") controller.abort()
+    spawning.resolve(process)
+    const run = await running
+    expect(process.kill).toHaveBeenCalledOnce()
+    await expect(run.exit).resolves.toBe(143)
+    expect(removed).toHaveBeenCalledWith("abort", expect.any(Function))
+  })
+
+  it("kills a process aborted after spawn", async () => {
+    const { process } = fixture()
+    const app = await bootWebContainer()
+    const controller = new AbortController()
+    const run = await app.run(["node", "script.js"], { signal: controller.signal })
+    controller.abort()
+    expect(process.kill).toHaveBeenCalledOnce()
+    await expect(run.exit).resolves.toBe(143)
+  })
+
+  it("rejects readiness with the status error when dev exits before server-ready", async () => {
+    const { exited } = fixture()
+    const app = await bootWebContainer()
+    const rejected = vi.fn()
+    void app.preview.ready.catch(rejected)
+    const run = await app.run("dev")
+    exited.resolve(1)
+    await run.exit
+    await Promise.resolve()
+    expect(app.status.stage).toBe("error")
+    expect(rejected).toHaveBeenCalledWith(app.status.error)
+  })
+
+  it("rejects readiness with the status error on a container error", async () => {
+    const { events } = fixture()
+    const app = await bootWebContainer()
+    const rejected = vi.fn()
+    void app.preview.ready.catch(rejected)
+    events.emit("error", { message: "runtime failed" })
+    await Promise.resolve()
+    expect(app.status).toMatchObject({ stage: "error", error: { message: "runtime failed" } })
+    expect(rejected).toHaveBeenCalledWith(app.status.error)
+  })
+
+  it("rejects pending readiness on teardown", async () => {
+    const { container } = fixture()
+    const app = await bootWebContainer()
+    const rejected = vi.fn()
+    void app.preview.ready.catch(rejected)
+    app.teardown()
+    await Promise.resolve()
+    expect(rejected).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringMatching(/torn down/) }))
+    expect(container.teardown).toHaveBeenCalledOnce()
+  })
+
+  it("keeps first readiness resolved across later lifecycle events", async () => {
+    const { events, exited } = fixture()
+    const app = await bootWebContainer()
+    const run = await app.run("dev")
+    events.emit("server-ready", 3000, "https://first.example")
+    await expect(app.preview.ready).resolves.toEqual({ port: 3000, url: "https://first.example" })
+    events.emit("server-ready", 3001, "https://second.example")
+    events.emit("error", { message: "later failure" })
+    exited.resolve(1)
+    await run.exit
+    app.teardown()
+    await expect(app.preview.ready).resolves.toEqual({ port: 3000, url: "https://first.example" })
+    expect(app.preview.url).toBe("https://second.example")
+  })
+})

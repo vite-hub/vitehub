@@ -82,7 +82,7 @@ export interface WebContainerPreview {
   /** The URL of the latest server that became ready. */
   readonly url: string | undefined
   readonly port: number | undefined
-  /** Resolves when the first server becomes ready. The port is the one the WebContainer picks, not always the one the app asks for. */
+  /** Resolves when the first server becomes ready; rejects on startup failure or teardown before readiness. The port is the one the WebContainer picks, not always the one the app asks for. */
   ready: Promise<WebContainerPreviewServer>
 }
 
@@ -131,16 +131,23 @@ const commandStages: Partial<Record<string, WebContainerStage>> = { install: "in
 export function toFileSystemTree(files: WebContainerFiles): FileSystemTree {
   const root: FileSystemTree = {}
   for (const [path, contents] of Object.entries(files)) {
-    const parts = path.split("/").filter(part => part && part !== ".")
+    const segments = path.split("/")
+    if (path.startsWith("/") || segments.includes("..")) throw new TypeError(`Invalid WebContainer file path: ${path}`)
+    const parts = segments.filter(part => part && part !== ".")
     const name = parts.pop()
-    if (!name || parts.includes("..")) throw new TypeError(`Invalid WebContainer file path: ${path}`)
+    if (!name) throw new TypeError(`Invalid WebContainer file path: ${path}`)
     let tree = root
     for (const part of parts) {
-      const node = tree[part] ??= { directory: {} }
+      let node = Object.hasOwn(tree, part) ? tree[part] : undefined
+      if (!node) {
+        node = { directory: {} }
+        Object.defineProperty(tree, part, { value: node, enumerable: true, configurable: true, writable: true })
+      }
       if (!("directory" in node)) throw new TypeError(`WebContainer path ${path} goes through the file ${part}.`)
       tree = node.directory
     }
-    tree[name] = { file: { contents } }
+    if (Object.hasOwn(tree, name) && "directory" in tree[name]) throw new TypeError(`WebContainer path ${path} replaces the directory ${name}.`)
+    Object.defineProperty(tree, name, { value: { file: { contents } }, enumerable: true, configurable: true, writable: true })
   }
   return root
 }
@@ -189,6 +196,7 @@ function wrapProcess(spawned: Awaited<ReturnType<StackBlitzWebContainer["spawn"]
   const collected = own.pipeTo(new WritableStream({ write(chunk) { chunks.push(chunk) } })).catch(() => {})
   const kill = () => spawned.kill()
   signal?.addEventListener("abort", kill, { once: true })
+  if (signal?.aborted) kill()
   const exit = spawned.exit.finally(() => signal?.removeEventListener("abort", kill))
   return {
     output,
@@ -222,33 +230,51 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
     throw error
   }
 
-  let container: StackBlitzWebContainer
+  let booted: StackBlitzWebContainer | undefined
   try {
     status.enter("booting")
     const { WebContainer } = await import("@webcontainer/api")
-    container = await WebContainer.boot({ coep: options.coep ?? "credentialless", workdirName: options.workdirName })
+    booted = await WebContainer.boot({ coep: options.coep ?? "credentialless", workdirName: options.workdirName })
     if (options.snapshot || options.files) {
       status.enter("mounting")
-      if (options.snapshot) await container.mount(options.snapshot)
-      if (options.files) await container.mount(toFileSystemTree(options.files))
+      if (options.snapshot) await booted.mount(options.snapshot)
+      if (options.files) await booted.mount(toFileSystemTree(options.files))
     }
     status.finish(status.current.stage)
   }
   catch (cause) {
     const error = cause instanceof Error ? cause : new Error(String(cause))
+    booted?.teardown()
     status.fail("error", error)
     throw error
   }
+  const container = booted
 
   let server: WebContainerPreviewServer | undefined
   let resolveReady!: (server: WebContainerPreviewServer) => void
-  const ready = new Promise<WebContainerPreviewServer>((resolve) => { resolveReady = resolve })
+  let rejectReady!: (error: Error) => void
+  let readySettled = false
+  const ready = new Promise<WebContainerPreviewServer>((resolve, reject) => { resolveReady = resolve; rejectReady = reject })
+  // Readiness is optional: consumers may use status events without awaiting it.
+  void ready.catch(() => {})
+  function rejectPendingReady(error: Error) {
+    if (readySettled) return
+    readySettled = true
+    rejectReady(error)
+  }
+  function fail(error: Error) {
+    rejectPendingReady(error)
+    status.fail("error", error)
+  }
   container.on("server-ready", (port, url) => {
     server = { port, url }
-    resolveReady(server)
+    if (!readySettled) {
+      readySettled = true
+      resolveReady(server)
+    }
     if (status.current.stage === "starting") status.enter("ready")
   })
-  container.on("error", ({ message }) => status.fail("error", new Error(message)))
+  container.on("error", ({ message }) => fail(new Error(message)))
 
   return {
     get status() { return status.current },
@@ -262,17 +288,25 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
       const [file, ...args] = typeof command === "string" ? commandLines[command] : command
       const stage = typeof command === "string" ? commandStages[command] : undefined
       if (stage) status.enter(stage)
-      const spawned = await container.spawn(file, args, { cwd: runOptions.cwd, env: runOptions.env })
+      let spawned: Awaited<ReturnType<StackBlitzWebContainer["spawn"]>>
+      try {
+        spawned = await container.spawn(file, args, { cwd: runOptions.cwd, env: runOptions.env })
+      }
+      catch (cause) {
+        const error = cause instanceof Error ? cause : new Error(String(cause))
+        if (stage) fail(error)
+        throw error
+      }
       const run = wrapProcess(spawned, runOptions.signal)
       if (stage === "installing") {
         void run.exit.then(async (code) => {
           if (code === 0) return status.finish("installing")
-          status.fail("error", new Error(`npm install exited with code ${code}.\n${(await run.text()).slice(-2000)}`))
+          fail(new Error(`npm install exited with code ${code}.\n${(await run.text()).slice(-2000)}`))
         })
       }
       if (stage === "starting") {
         void run.exit.then((code) => {
-          if (status.current.stage === "starting") status.fail("error", new Error(`The dev server exited with code ${code} before it was ready.`))
+          if (!readySettled) fail(new Error(`The dev server exited with code ${code} before it was ready.`))
         })
       }
       return run
@@ -286,6 +320,7 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
       return () => status.listeners.delete(listener)
     },
     teardown() {
+      rejectPendingReady(new Error("The WebContainer was torn down before the preview was ready."))
       status.listeners.clear()
       container.teardown()
     },

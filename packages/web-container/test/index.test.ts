@@ -18,6 +18,29 @@ describe("toFileSystemTree", () => {
     expect(() => toFileSystemTree({ "../secret": "x" })).toThrow(/Invalid WebContainer file path/)
     expect(() => toFileSystemTree({ "a": "x", "a/b": "y" })).toThrow(/goes through the file a/)
   })
+
+  it.each(["/etc/passwd", "..", "directory/..", "a/../b", "", ".", "./"])("rejects invalid relative path %j", (path) => {
+    expect(() => toFileSystemTree({ [path]: "x" })).toThrow(/Invalid WebContainer file path/)
+  })
+
+  it("rejects a file replacing an existing directory", () => {
+    expect(() => toFileSystemTree({ "a/b": "nested", "a": "file" })).toThrow(/directory a/)
+  })
+
+  it("preserves property names as own file and directory entries", () => {
+    const tree = toFileSystemTree(Object.fromEntries([
+      ["__proto__", "root"],
+      ["nested/__proto__", "nested"],
+      ["constructor/toString", "leaf"],
+      ["toString/file", "other"],
+    ]))
+    expect(Object.getPrototypeOf(tree)).toBe(Object.prototype)
+    expect(Object.hasOwn(tree, "__proto__")).toBe(true)
+    expect(tree.__proto__).toEqual({ file: { contents: "root" } })
+    expect(tree.nested).toEqual({ directory: Object.fromEntries([["__proto__", { file: { contents: "nested" } }]]) })
+    expect(tree.constructor).toEqual({ directory: { toString: { file: { contents: "leaf" } } } })
+    expect(tree.toString).toEqual({ directory: { file: { file: { contents: "other" } } } })
+  })
 })
 
 describe("bootWebContainer outside an isolated page", () => {
