@@ -44,7 +44,7 @@ import { isConsoleConnectionsEnabled, resolveConsoleSectionIds, type ConsoleSect
 import { consoleContributedSections, consoleDocumentEditorSectionIds, discoverConsoleEntrySections, isConsoleContributedSectionId } from "./console/contributions.ts"
 import { consoleNuxtDevToolsTab, type ConsoleNuxtDevToolsTab } from "./console/devtools.ts"
 import { addConsolePageHandlers, addConsoleRpcHandler, mountPath } from "./console/nitro.ts"
-import { consoleAuthMiddlewareFile, consoleConnectionsActorId, registeredConsoleAuthMode, resolveConsoleAuthConfig, writeConsoleAuthHandlers, writeConsoleConnectionsActor } from "./console/auth-build.ts"
+import { consoleAuthMiddlewareFile, consoleConnectionsActorId, registeredConsoleAuthMode, resolveConsoleAuthConfig, writeConsoleAuthHandlers, writeConsoleConnectionsActor, type ConsoleAuthConfig } from "./console/auth-build.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
 import { assertConsoleAccess, assertConsoleProductionAccess, closeConsoleInvocationRootState, consoleAuthConfig, consoleOpenAccessBuildWarning, resolveConsoleOptions, configureConsoleFixtureLifecycle, consoleInvocationRootPlugin, createConsoleInvocationRootState, generatedConsolePluginRegistration, resolveConsoleAccessBuild, resolveGeneratedConsolePlugin, type ConsoleInvocationRootState, updateConsoleInvocationRootState } from "./console/vite.ts"
 
@@ -68,6 +68,14 @@ function hasDefaultAgentInvocations(agent: Parameters<typeof vitehub>[0]["agent"
 type ViteHubNuxtOptions = Omit<Parameters<typeof vitehub>[0], "database" | "env"> & {
   database?: boolean | Exclude<DatabaseNuxtIntegrationOptions, false>
   env?: false | EnvIntegrationOptions & EnvViteConfigOptions
+}
+
+/** Console Auth file paths in nuxt.config.ts resolve from rootDir, like Nuxt's serverDir. Discovery stays on the Vite root. */
+function resolveConsoleAuthPaths(rootDir: string, auth: ConsoleAuthConfig | undefined): ConsoleAuthConfig | undefined {
+  if (!auth || ("provider" in auth && auth.provider === "cloudflare-access")) return auth
+  const client = auth.client ? { client: resolve(rootDir, auth.client) } : {}
+  if ("provider" in auth) return { ...auth, ...client }
+  return { ...auth, ...client, ...(auth.server ? { server: resolve(rootDir, auth.server) } : {}) }
 }
 
 function configuredProjectRoot(root: string, value: unknown): string | undefined {
@@ -1082,7 +1090,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         appAuth,
         base: nuxt.options.app?.baseURL,
         handlers: consoleAuthMode ? { auth: consoleAuthMode, middleware: consoleAuthMiddlewareFile(viteRoot) } : undefined,
-        root: viteRoot,
+        // `console.authorize` is a path in nuxt.config.ts, so it resolves from rootDir, not from the Vite root (srcDir).
+        root: rootDir,
         sections: consoleSections,
       })
       const openAccessWarning = nuxt.options.dev ? undefined : consoleOpenAccessBuildWarning(configuredConsole, plan.preset)
@@ -1373,7 +1382,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     if (options.env !== false) await envPlugin?.api?.prepareTypes?.(replayConfig.env, viteRoot)
     consoleWorkflowConfigResolved = true
     if (consoleOptions) {
-      const configuredConsoleAuth = consoleAuthConfig(consoleOptions)
+      const configuredConsoleAuth = resolveConsoleAuthPaths(rootDir, consoleAuthConfig(consoleOptions))
       const resolvedConsoleAuthBase = configuredConsoleAuth ? resolveConsoleAuthConfig(viteRoot, configuredConsoleAuth, plan.preset) : undefined
       const developmentSecretEnvKey = (replayConfig as typeof replayConfig & { __vitehubEnvDevelopmentSecretEnvKey?: string }).__vitehubEnvDevelopmentSecretEnvKey
       const resolvedConsoleAuth = resolvedConsoleAuthBase && "provider" in resolvedConsoleAuthBase && resolvedConsoleAuthBase.provider === "github"

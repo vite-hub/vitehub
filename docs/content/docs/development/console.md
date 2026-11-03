@@ -280,6 +280,8 @@ import { defineConsoleAuthorize } from 'vite-hub/console/auth'
 export default defineConsoleAuthorize(({ user }) => user?.role === 'admin')
 ```
 
+A relative `authorize` path resolves from the project root (the folder of `nuxt.config.ts` or `vite.config.ts`). In a Nuxt 4 app, `./server/console-authorize.ts` is the file next to the `app/` folder, not inside it.
+
 For two-factor authentication, passkeys, or a custom sign-in UI, override the page. The built-in page does not complete two-factor challenges:
 
 ```ts [vite.config.ts]
@@ -358,7 +360,7 @@ export default defineConsoleAuthClient({
 })
 ```
 
-Use `console.auth.server` or `console.auth.client` for a file in another location. An explicit path conflicts with the corresponding discovered file. Client code does not authorize requests.
+Use `console.auth.server` or `console.auth.client` for a file in another location. A relative path resolves from the project root, the same as `authorize`. An explicit path conflicts with the corresponding discovered file. Client code does not authorize requests.
 
 On Cloudflare, use `console: { auth: { provider: 'cloudflare-access' } }` with a Cloudflare Access application. See [Cloudflare](/docs/frameworks-hosts/cloudflare).
 
