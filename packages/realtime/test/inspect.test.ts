@@ -69,7 +69,7 @@ export default defineRealtime({
       "server/realtime/docs.ts": `export default { document: { workspace: "docs" }, persistence: false }`,
     })
     const plugin = hubRealtime({ authority: "cloudflare", projectRoot: root })
-    const config = { nitro: { preset: "cloudflare-durable" }, root }
+    const config = { nitro: { preset: "cloudflare-module" }, root }
     await (plugin.config as (config: object, environment: object) => Promise<void>)(config, { command: "serve", mode: "development" })
     const contributor = typeof plugin.vitehub.inspect === "function" ? await plugin.vitehub.inspect() : plugin.vitehub.inspect
     const [summary] = await contributor!.definitions![0]!.list()

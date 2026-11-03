@@ -29,7 +29,7 @@ import { describeDeploymentPlanOutput, finalizeDeploymentPlanOutput } from "@vit
 import { denoServerPackagesPlugin, finalizeDenoDeploymentOutput, type DenoServerPackages } from "@vite-hub/internal/build/deno-runtime-packages"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
 import { nitroWorkerdDependencies } from "@vite-hub/internal/build/nitro-workerd-dependencies"
-import { createNoExternalAddition, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_MAJOR_VERSION, VITEHUB_SERVER_DIRS, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
@@ -135,6 +135,8 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/shell": true,
   "@vite-hub/source": true,
   "@vite-hub/ui": true,
+  // Browser-only: generated server code never imports it.
+  "@vite-hub/web-container": false,
   "@vite-hub/workflow": true,
   "@vite-hub/workspace": true,
 } satisfies Record<FrameworkDependencyName, boolean>
@@ -576,6 +578,8 @@ type ResolvedBuildConfig = {
   preserveSymlinks: boolean
 }
 
+interface BundlerConfig { plugins?: unknown }
+
 function deploymentNitroModule(
   plan: DeploymentPlan,
   services: DeploymentServicesManifest,
@@ -588,9 +592,10 @@ function deploymentNitroModule(
   return (nitro: {
     hooks: {
       hook: ((name: "compiled", callback: () => Promise<void>) => void)
-        & ((name: "rollup:before", callback: (nitro: unknown, config: { plugins?: unknown }) => void) => void)
+        & ((name: "build:config", callback: (nitro: unknown, config: { rolldown?: BundlerConfig, rollup?: BundlerConfig }) => void) => void)
+        & ((name: "rollup:before", callback: (nitro: unknown, config: BundlerConfig) => void) => void)
     }
-    options: { cloudflare?: { deployConfig?: boolean }, commands: Record<string, unknown>, output: { dir: string, serverDir: string }, preset?: string, rootDir: string }
+    options: { builder?: string | false, cloudflare?: { deployConfig?: boolean }, commands: Record<string, unknown>, output: { dir: string, serverDir: string }, preset?: string, rootDir: string }
   }) => {
     if (deploymentPresetFromNitro(nitro.options.preset) !== plan.preset) return
     if (plan.preset === "cloudflare" && nitro.options.cloudflare?.deployConfig !== false && !isDeployCommandOwned()) {
@@ -604,10 +609,15 @@ function deploymentNitroModule(
     }
     let serverPackages: DenoServerPackages | undefined
     if (plan.output.packaging === "deno-node-modules") {
-      nitro.hooks.hook("rollup:before", (_nitro, config) => {
-        const plugins = Array.isArray(config.plugins) ? config.plugins : config.plugins ? [config.plugins] : []
-        config.plugins = [...plugins, denoServerPackagesPlugin((packages) => { serverPackages = packages })]
-      })
+      const addPackagesPlugin = (bundler: BundlerConfig | undefined) => {
+        if (!bundler) return
+        const plugins = Array.isArray(bundler.plugins) ? bundler.plugins : bundler.plugins ? [bundler.plugins] : []
+        bundler.plugins = [...plugins, denoServerPackagesPlugin((packages) => { serverPackages = packages })]
+      }
+      // Nitro 3 always resolves `builder` and passes `{ rolldown }` or `{ rollup }` to `build:config`. Nitro 2 has
+      // no `builder` option and only calls `rollup:before`, which Nitro 3 deprecates.
+      if (nitro.options.builder === undefined) nitro.hooks.hook("rollup:before", (_nitro, config) => addPackagesPlugin(config))
+      else nitro.hooks.hook("build:config", (_nitro, config) => addPackagesPlugin(config.rolldown ?? config.rollup))
     }
     nitro.hooks.hook("compiled", async () => {
       const outputDir = nitro.options.output.dir
@@ -675,7 +685,13 @@ function deploymentPlugins(
     })
   }
   if (envPlugin) subscribeEnvPlugin(envPlugin)
-  const nitroPreset = plan.preset === "cloudflare" && options.realtime ? "cloudflare-durable" : plan.nitroPreset
+  const resolveNitroPreset = (config: UserConfig | ResolvedConfig) => {
+    // Nitro 2 retains the Deno and Durable Object preset names removed in Nitro 3.
+    if ((config as { [VITEHUB_NITRO_MAJOR_VERSION]?: number })[VITEHUB_NITRO_MAJOR_VERSION] === 2) {
+      return plan.preset === "cloudflare" && options.realtime ? "cloudflare-durable" : plan.nitroPreset
+    }
+    return plan.preset === "deno" ? "deno-server" : plan.nitroPreset
+  }
   return [
     {
       name: "vite-hub/deployment-settings",
@@ -683,6 +699,7 @@ function deploymentPlugins(
       config: {
         order: "pre",
         handler(config, environment) {
+          const nitroPreset = resolveNitroPreset(config)
           ;(config as { vitehub?: unknown }).vitehub = {
             ...cloneRecord((config as { vitehub?: unknown }).vitehub),
             preset: plan.preset,
@@ -729,6 +746,7 @@ function deploymentPlugins(
         // Resolve identity after ordinary plugins configure the application root.
         order: "post",
         handler(config, environment) {
+          const nitroPreset = resolveNitroPreset(config)
           const building = environment.command === "build"
           ;(config as { vitehub?: unknown }).vitehub = {
             ...cloneRecord((config as { vitehub?: unknown }).vitehub),
@@ -877,7 +895,8 @@ function deploymentPlugins(
             // SAFETY: The KV integration reads this optional top-level Vite setting too.
             const kv = (config as typeof config & { kv?: KVModuleOptions }).kv ?? options.kv
             const cacheStorage = resolveCacheStorage(options.cache, plan.preset, Boolean(kv))
-            nitro = applyCacheStorage(nitro, cacheStorage)
+            const nitroVersion = (config as { [VITEHUB_NITRO_MAJOR_VERSION]?: 2 | 3 })[VITEHUB_NITRO_MAJOR_VERSION] ?? 3
+            nitro = applyCacheStorage(nitro, cacheStorage, nitroVersion)
           }
           ;(config as { nitro?: unknown }).nitro = nitro
         },
@@ -906,6 +925,7 @@ function deploymentPlugins(
         }
       },
       configResolved(config) {
+        const nitroPreset = resolveNitroPreset(config)
         // SAFETY: Vite preserves the user-defined Nitro field on the resolved config, while ResolvedConfig omits framework extensions from its type.
         const inspectionNitro = (config as ResolvedConfig & { nitro?: { rootDir?: string, output?: { dir?: string } } }).nitro
         deploymentRoot = resolve(inspectionNitro?.rootDir ?? config.root ?? process.cwd())
