@@ -63,9 +63,9 @@ catalogs:
   h3-v1-compat:
     h3: ^1.15.11
   markdown:
-    "@comark/html": 0.7.0
+    "@comark/html": 0.8.1
     "@types/mdast": ^4.0.4
-    comark: 0.7.0
+    comark: 0.8.1
   # Content/UI need the matching renderer stack; other consumers retain their parser behavior.
   markdown-ui:
     "@comark/html": 0.8.1
@@ -113,7 +113,7 @@ catalogs:
     valibot: ^1.5.0
     zod: ^4.6.7
   sandbox:
-    "@cloudflare/sandbox": ^0.12.10
+    "@cloudflare/sandbox": ^1.0.3
     "@vercel/sandbox": ^3.9.1
   shell:
     just-bash: ^3.6.0

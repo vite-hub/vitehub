@@ -25,6 +25,15 @@ it.each(["/other/*", "/other/(.*)", "/other/:path+", "/other/:path*", "/_vitehub
   expect(validateAgentStaticRoute("/_vitehub/agent/invocations/dev", [{ route }], "development invocation", "/_vitehub/agent")).toBe("/_vitehub/agent/invocations/dev")
 })
 
+it("allows a child catch-all that requires at least one segment", () => {
+  expect(validateAgentStaticRoute("/api/ready", [{ route: "/api/ready/:path+" }])).toBe("/api/ready")
+  expect(() => validateAgentStaticRoute("/api/ready/child", [{ route: "/api/ready/:path+" }])).toThrow(/route conflicts/)
+})
+
+it("rejects a child catch-all that also matches an empty path", () => {
+  expect(() => validateAgentStaticRoute("/api/ready", [{ route: "/api/ready/:path*" }])).toThrow(/route conflicts/)
+})
+
 it.each(["/_vitehub/**", "/**"])("allows enclosing %s only for the reserved dev route", (route) => {
   expect(validateAgentStaticRoute("/_vitehub/agent/invocations/dev", [{ route }], "development invocation", "/_vitehub/agent")).toBe("/_vitehub/agent/invocations/dev")
   expect(() => validateAgentStaticRoute("/_vitehub/agent/invocations/dev", [{ route }])).toThrow(/route conflicts/)

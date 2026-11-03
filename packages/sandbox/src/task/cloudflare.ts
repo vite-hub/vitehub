@@ -1,5 +1,6 @@
-import { createRequire } from 'node:module'
+import { readFileSync } from 'node:fs'
 import { writeFileIfChanged } from '@vite-hub/internal/definition-catalog'
+import { resolvePathSync } from 'mlly'
 import { dirname, join, relative, resolve } from 'pathe'
 import type { Plugin } from 'rollup'
 import type {
@@ -17,11 +18,19 @@ export const defaultCloudflareSandboxBinding = 'SANDBOX'
 export const defaultCloudflareSandboxClassName = 'Sandbox'
 export const defaultCloudflareSandboxMigrationTag = 'v1'
 const defaultCloudflareSandboxMaxInstances = 12
-const require = createRequire(import.meta.url)
+const cloudflareSandboxNodeImage = '24-bookworm-slim'
+// The command-line tools the 0.x cloudflare/sandbox image installed.
+const cloudflareSandboxPackages = 'ca-certificates curl file git jq procps unzip wget zip'
+const durableObjectModule = '@vite-hub/sandbox/_internal/cloudflare'
+
+// @cloudflare/sandbox 1.0 exports only the `import` condition, so `require.resolve` cannot find it.
+function resolveModule(id: string) {
+  return resolvePathSync(id, { conditions: ['workerd', 'worker', 'import', 'default'], url: import.meta.url })
+}
 
 function resolveCloudflareSandboxEntrypoint() {
   try {
-    return require.resolve('@cloudflare/sandbox')
+    return resolveModule('@cloudflare/sandbox')
   }
   catch {
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0003({ message: '[vitehub] The Cloudflare Sandbox provider requires @cloudflare/sandbox. Install a supported version before building.' })
@@ -30,7 +39,7 @@ function resolveCloudflareSandboxEntrypoint() {
 
 function resolveCloudflareSandboxVersion() {
   const entry = resolveCloudflareSandboxEntrypoint()
-  const pkg = require(join(entry, '..', '..', 'package.json'))
+  const pkg = JSON.parse(readFileSync(join(entry, '..', '..', 'package.json'), 'utf8'))
   if (typeof pkg?.version !== 'string')
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0004({ message: '[vitehub] Could not resolve the installed @cloudflare/sandbox version.' })
   return pkg.version
@@ -44,8 +53,6 @@ export type CloudflareSandboxEntrypointOptions = {
 }
 
 function resolveCloudflareSandboxEntrypointOptions(options: CloudflareSandboxEntrypointOptions = {}) {
-  if (options.className === 'ContainerProxy')
-    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0005({ message: '[vitehub] Cloudflare Sandbox className "ContainerProxy" is reserved by @cloudflare/sandbox. Configure a different className.' })
   return {
     binding: options.binding || defaultCloudflareSandboxBinding,
     className: options.className || defaultCloudflareSandboxClassName,
@@ -127,6 +134,7 @@ export function configureCloudflareSandbox(target: MutableCloudflareTarget, opti
 function createCloudflareSandboxRollupPlugin(options: CloudflareSandboxEntrypointOptions = {}): Plugin {
   const { className } = resolveCloudflareSandboxEntrypointOptions(options)
   const cloudflareSandboxEntrypoint = resolveCloudflareSandboxEntrypoint()
+  const durableObjectEntrypoint = resolveModule(durableObjectModule)
   const moduleId = 'virtual:vitehub-sandbox-task-cloudflare-exports'
   const resolvedModuleId = '\0virtual:vitehub-sandbox-task-cloudflare-exports'
 
@@ -144,14 +152,17 @@ function createCloudflareSandboxRollupPlugin(options: CloudflareSandboxEntrypoin
         return resolvedModuleId
       if (id === '@cloudflare/sandbox')
         return cloudflareSandboxEntrypoint
+      if (id === durableObjectModule)
+        return durableObjectEntrypoint
     },
     load(id) {
       if (id === resolvedModuleId) {
         return [
-          `import { Sandbox as CloudflareSandbox } from '@cloudflare/sandbox'`,
-          `export { ContainerProxy } from '@cloudflare/sandbox'`,
+          `import { DurableObject } from 'cloudflare:workers'`,
+          `import { Files, SandboxFileError } from '@cloudflare/sandbox'`,
+          `import { createCloudflareSandboxDurableObject } from '${durableObjectModule}'`,
           ``,
-          `export class ${className} extends CloudflareSandbox {}`,
+          `export class ${className} extends createCloudflareSandboxDurableObject({ DurableObject, Files, SandboxFileError }) {}`,
           ``,
         ].join('\n')
       }
@@ -160,7 +171,7 @@ function createCloudflareSandboxRollupPlugin(options: CloudflareSandboxEntrypoin
       if (!chunk.isEntry)
         return null
       const exportedNames = new Set(chunk.exports)
-      const missingExports = [className, 'ContainerProxy'].filter(name => !exportedNames.has(name))
+      const missingExports = [className].filter(name => !exportedNames.has(name))
       if (!missingExports.length)
         return null
       const exportsPath = relative(dirname(chunk.fileName), 'sandbox-task-cloudflare-exports.mjs').replace(/\\/g, '/')
@@ -194,8 +205,14 @@ export async function writeCloudflareSandboxDockerfile(serverDir: string) {
   await writeFileIfChanged(
     dockerfilePath,
     [
-      `FROM docker.io/cloudflare/sandbox:${resolveCloudflareSandboxVersion()}`,
-      'RUN npm install --global corepack@0.34.5 && corepack enable pnpm yarn',
+      `FROM docker.io/cloudflare/sandbox:${resolveCloudflareSandboxVersion()} AS sandbox-tools`,
+      '',
+      `FROM docker.io/library/node:${cloudflareSandboxNodeImage}`,
+      `RUN apt-get update && apt-get install -y --no-install-recommends ${cloudflareSandboxPackages} && rm -rf /var/lib/apt/lists/*`,
+      'COPY --from=sandbox-tools /usr/local/bin/sandbox-shim /usr/local/bin/sandbox-shim',
+      'RUN npm install --global corepack@0.34.5 && corepack enable pnpm yarn && mkdir -p /workspace',
+      'WORKDIR /workspace',
+      'CMD ["sleep", "infinity"]',
       '',
     ].join('\n'),
   )
