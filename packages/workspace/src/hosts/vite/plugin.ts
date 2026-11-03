@@ -1734,7 +1734,11 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         const nitro = mergeNitroWorkspaceConfig((config as ViteConfigWithWorkspaceNitro).nitro, env?.command === "serve")
         // Nuxt 4 bundles the server with Nitro 2 outside Vite, so `resolveId` below never sees the assets registry. The
         // alias gives that bundle the files that `buildStart` writes, for hosts without a file system.
-        if (env?.command === "build") nitro.alias = { ...nitro.alias, [WORKSPACE_ASSETS_REGISTRY_ID]: resolve(roots.projectRoot, workspaceAssetsRegistryPath) }
+        if (env?.command === "build") {
+          // The Nitro types of the host decide the alias type, so read it as a plain record.
+          const alias: unknown = nitro.alias
+          nitro.alias = { ...(alias && typeof alias === "object" ? alias : {}), [WORKSPACE_ASSETS_REGISTRY_ID]: resolve(roots.projectRoot, workspaceAssetsRegistryPath) }
+        }
         for (const artifactConfig of artifacts) configureCloudflareArtifacts(nitro, artifactConfig)
         if (usesCloudflareRuntime) configureCloudflareNitroRuntime(nitro)
         // Replace the Nitro config in place. A returned Nitro config would repeat its arrays when Vite merges it.
