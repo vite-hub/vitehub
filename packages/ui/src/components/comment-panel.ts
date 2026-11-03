@@ -1,6 +1,6 @@
 import type { CommentsClient, CommentStatus, CommentSubject, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
 import { computed, defineComponent, h, nextTick, type PropType, ref, type SlotsType, type VNode } from "vue";
-import { type CommentsState, provideComments, useComments, useCommentsContext } from "../headless/comments.ts";
+import { type CommentCan, type CommentsState, provideComments, useComments, useCommentsContext } from "../headless/comments.ts";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { threadRow } from "../internal/comment-row.ts";
 import { injectComments } from "../internal/comments-context.ts";
@@ -82,6 +82,8 @@ export const CommentPanel = defineComponent({
     allowEmpty: { default: false, type: Boolean },
     /** People that messages may mention, on top of the people that the comments state knows. */
     people: { default: () => [], type: Array as PropType<CommentUser[]> },
+    /** What the signed-in user may do in a thread. Defaults to the `can` of the comments state. */
+    can: { type: Function as PropType<CommentCan> },
     /** Groups the rows under headings, in the order the groups first appear. Threads without a group come first. */
     group: { type: Function as PropType<CommentGroup> },
   },
@@ -267,6 +269,7 @@ export const CommentPanel = defineComponent({
         accept: props.accept,
         attachmentUrl: props.attachmentUrl,
         attachments: attachmentsOn.value,
+        can: props.can,
         detached: state.positions.value.get(thread.id)?.detached === true,
         dismissible: false,
         key: thread.id,

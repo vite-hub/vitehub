@@ -11,6 +11,7 @@ import { mentionPlugin, mentionTag } from "../internal/comment-mentions.ts";
 import { displayName, toPerson } from "../internal/comment-person.ts";
 import { timeAgo } from "../internal/comment-time.ts";
 import { injectComments } from "../internal/comments-context.ts";
+import { type CommentCan, type CommentThreadAction, defaultCommentCan } from "../headless/comments.ts";
 import { ImagePreview } from "../internal/image-preview.ts";
 import { Attachment, AttachmentContent, AttachmentGroup, AttachmentMedia, AttachmentTitle } from "./attachment.ts";
 import { AvatarStack } from "./avatar-stack.ts";
@@ -111,8 +112,10 @@ export const CommentReply = defineComponent({
     message: { required: true, type: Object as PropType<CommentMessage> },
     /** The signed-in user. A mention of them looks different. Defaults to the user of the comments state. */
     user: { type: Object as PropType<CommentUser> },
-    /** The signed-in user may edit and delete this message. */
+    /** The signed-in user may edit this message. */
     editable: { default: false, type: Boolean },
+    /** The signed-in user may delete this message. Defaults to `editable`. */
+    deletable: { default: undefined, type: Boolean },
     /** The message, and its author, show in one line without actions. */
     compact: { default: false, type: Boolean },
     /** Deleting asks first. Deleting the first message of a thread deletes the whole thread, so a thread sets it there. */
@@ -193,6 +196,8 @@ export const CommentReply = defineComponent({
       if (await run(() => props.onEdit?.(props.message.id, submit.body, savedMentions))
         && draft.value === submitted && mentions.value === submittedMentions) editing.value = false;
     }
+    const canEdit = () => props.editable && props.onEdit !== undefined;
+    const canDelete = () => (props.deletable ?? props.editable) && props.onDelete !== undefined;
     async function remove() {
       if (!props.onDelete) return;
       if (await run(() => props.onDelete?.(props.message.id))) confirming.value = false;
@@ -249,10 +254,10 @@ export const CommentReply = defineComponent({
               : null,
             !editing.value && error.value ? h("p", { "data-slot": "comment-reply-error", role: "alert" }, error.value) : null,
           ]),
-          props.editable && !editing.value && !confirming.value && !props.compact
+          (canEdit() || canDelete()) && !editing.value && !confirming.value && !props.compact
             ? h("div", { "data-slot": "comment-reply-actions" }, [
-                props.onEdit ? h(UButton, { "aria-label": "Edit", color: "neutral", icon: "i-ph-pencil-simple-light", onClick: startEdit, size: "xs", variant: "ghost" }) : null,
-                props.onDelete ? h(UButton, {
+                canEdit() ? h(UButton, { "aria-label": "Edit", color: "neutral", icon: "i-ph-pencil-simple-light", onClick: startEdit, size: "xs", variant: "ghost" }) : null,
+                canDelete() ? h(UButton, {
                   "aria-label": "Delete",
                   color: "neutral",
                   icon: "i-ph-trash-light",
@@ -281,6 +286,8 @@ export const CommentThread = defineComponent({
     preview: { default: false, type: Boolean },
     /** Keep the full thread readable without reply, edit, delete, or status controls. */
     readOnly: { default: false, type: Boolean },
+    /** What the signed-in user may do: reply, resolve, edit, or delete. Defaults to the `can` of the comments state. */
+    can: { type: Function as PropType<CommentCan> },
     /** Show a reply as being sent, on top of the thread's own tracking. */
     busy: { default: false, type: Boolean },
     /** An error to show, on top of the ones from the handlers. */
@@ -325,6 +332,8 @@ export const CommentThread = defineComponent({
     const composer = ref<{ focus: () => void } | null>(null);
 
     const user = computed(() => props.user ?? comments?.user.value);
+    const allowed = (action: CommentThreadAction, message?: CommentMessage) =>
+      !props.readOnly && (props.can ?? comments?.can ?? defaultCommentCan(user.value))(action, { message, thread: props.thread });
     const people = computed(() => {
       const seen = new Map<string, CommentUser>();
       for (const person of [...props.people, props.thread.author, ...props.thread.messages.map((message) => message.author), ...(user.value ? [user.value] : [])]) {
@@ -417,7 +426,7 @@ export const CommentThread = defineComponent({
             h("span", { "data-slot": "comment-thread-title" }, `Comment ${thread.n}`),
             h("span", { "data-slot": "comment-thread-spacer" }),
             slots.actions ? h("div", { "data-slot": "comment-thread-actions" }, slots.actions({ thread })) : null,
-            props.readOnly ? null : h(UButton, {
+            !allowed("resolve") ? null : h(UButton, {
               "aria-label": resolved ? "Reopen" : "Resolve",
               color: "neutral",
               icon: resolved ? "i-ph-arrow-counter-clockwise" : "i-ph-check",
@@ -436,7 +445,8 @@ export const CommentThread = defineComponent({
               h(CommentReply, {
                 attachmentUrl: props.attachmentUrl,
                 confirmDelete: index === 0,
-                editable: !props.readOnly && message.author.id === user.value?.id,
+                deletable: allowed("delete", message),
+                editable: allowed("edit", message),
                 key: message.id,
                 message,
                 onDelete: props.onDelete,
@@ -453,7 +463,7 @@ export const CommentThread = defineComponent({
               : null,
             slots.after ? h("div", { "data-slot": "comment-thread-after" }, slots.after({ thread })) : null,
           ]),
-          props.readOnly ? null : h(CommentComposer, {
+          !allowed("reply") ? null : h(CommentComposer, {
             accept: props.accept,
             attachments: props.attachments,
             autofocus: false,

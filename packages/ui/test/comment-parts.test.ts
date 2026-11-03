@@ -597,3 +597,46 @@ describe("CommentPanel rows", () => {
     expect(custom.get("[data-slot=comment-panel-group-header]").text()).toBe("From earlier versions (1)");
   });
 });
+
+describe("thread permissions", () => {
+  const own = thread(1, { messages: [message("m1", { author: ana }), message("m2", { author: ben, threadId: "thread-1" })] });
+  const labels = (wrapper: VueWrapper) => wrapper.findAll("button[aria-label]").map(button => button.attributes("aria-label"));
+
+  it("lets a signed-in user reply and resolve, and edit and delete their own messages", () => {
+    const wrapper = keep(mount(CommentThread, { global, props: { onDelete: () => {}, onEdit: () => {}, thread: own, user: ana } }));
+    expect(labels(wrapper)).toEqual(expect.arrayContaining(["Resolve", "Edit", "Delete"]));
+    expect(wrapper.findAll("[data-slot=comment-reply-actions]")).toHaveLength(1);
+    expect(wrapper.find("[data-slot=comment-composer]").exists()).toBe(true);
+  });
+
+  it("shows no controls to a reader without a user", () => {
+    const wrapper = keep(mount(CommentThread, { global, props: { onDelete: () => {}, onEdit: () => {}, thread: own } }));
+    expect(labels(wrapper)).not.toContain("Resolve");
+    expect(wrapper.find("[data-slot=comment-reply-actions]").exists()).toBe(false);
+    expect(wrapper.find("[data-slot=comment-composer]").exists()).toBe(false);
+  });
+
+  it("follows the can prop over the comments state", () => {
+    const can = (action: string) => action === "reply" || action === "delete";
+    const wrapper = keep(mount(CommentThread, { global, props: { can, onDelete: () => {}, onEdit: () => {}, thread: own, user: ana } }));
+    expect(labels(wrapper)).not.toContain("Resolve");
+    expect(labels(wrapper)).not.toContain("Edit");
+    expect(labels(wrapper).filter(label => label === "Delete")).toHaveLength(2);
+  });
+
+  it("takes can from useComments() inside a layer or panel", async () => {
+    const comments = createCommentsClient({ transport: createMemoryTransport({ threads: [own], user: ben, users: [ana, ben] }), user: ben });
+    const wrapper = keep(mount(defineComponent({
+      setup() {
+        // Only the author of a thread resolves it, and nobody deletes.
+        const state = useComments({ can: (action, { thread: item }) => (action === "resolve" ? item.author.id === ben.id : action !== "delete"), client: comments, subject: pricing });
+        return () => h(CommentPanel, { comments: state, thread: "thread-1" });
+      },
+    }), { attachTo: document.body, global }));
+    await vi.waitFor(() => expect(wrapper.find("[data-slot=comment-thread]").exists()).toBe(true));
+    expect(labels(wrapper)).not.toContain("Resolve");
+    expect(labels(wrapper)).toContain("Edit");
+    expect(labels(wrapper)).not.toContain("Delete");
+    expect(wrapper.find("[data-slot=comment-thread] [data-slot=comment-composer]").exists()).toBe(true);
+  });
+});

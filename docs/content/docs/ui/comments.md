@@ -129,6 +129,7 @@ comments.people.value; // The people that the state knows, for mention names.
 | `uiRoot` | The document or the shadow root that holds the comment UI. Composers with text are looked up there. Defaults to the document. |
 | `subjectUrl` | The URL of the page that a subject lives on, for the link of a thread. Page subjects use their id as the path. Give it for other subjects, or their link is the current page. |
 | `autoStart` | Load the threads and listen for keys on mount. Default `true`. Call `start()` yourself when `false`. |
+| `can` | What the signed-in user may do in a thread. See [Permissions](#permissions). |
 
 ## Side panel
 
@@ -164,6 +165,25 @@ Each row shows the number, the author, the start of the first message as plain t
   </CommentPanel>
 </template>
 ```
+
+## Permissions
+
+A thread shows Resolve, Reopen, Edit, Delete, and the reply box only to a user who may use them. By default a signed-in user may reply to and resolve any thread, and edit and delete their own messages; a reader without a user gets none of the controls. Give `useComments()` a `can` function with your own rules, and every part of the state follows them:
+
+```ts
+const comments = useComments({
+  client,
+  subject,
+  // `action` is "reply", "resolve", "edit", or "delete". `message` is set for "edit" and "delete".
+  can: (action, { thread, message }) => {
+    if (action === "resolve") return isManager.value || thread.author.id === me.value.id;
+    if (action === "delete") return isManager.value || message?.author.id === me.value.id;
+    return action === "reply" || message?.author.id === me.value.id;
+  },
+});
+```
+
+`CommentLayer`, `CommentPanel`, and `CommentThread` also take `can` as a prop, which wins over the state. `readOnly` hides every control. The controls are only what the reader sees: the server still checks each request.
 
 ## Mentions
 
@@ -293,6 +313,7 @@ The overlay of a page. Renders a `div` with `data-slot="comment-layer"`. Give it
 | `hotkey` | `string \| false` | `"c"` | The key of comment mode. |
 | `readOnly` | `boolean` | `false` | Hide reply, edit, delete, and status controls in threads. |
 | `subjectUrl` | `(subject: CommentSubject) => string \| undefined` | | The URL of the page of a subject, for the links of threads that are not page threads. |
+| `can` | `(action, { thread, message }) => boolean` | | What the signed-in user may do in a thread. Defaults to the `can` of the state. See [Permissions](#permissions). |
 | `navigate` | `(href: string) => void` | | Goes to the page of a thread that the list shows. Defaults to `location.assign`. |
 | `upload` | `(files: File[]) => Promise<string[]>` | | Stores attached files and returns their keys. Without it the boxes take no files. |
 | `accept` | `string` | | The file types that the boxes take, such as `image/*`. |
@@ -335,6 +356,7 @@ The handlers may return a promise. The thread waits for it. A reply clears its b
 | `user` | `CommentUser` | | The signed-in user. Their messages can be edited and deleted. |
 | `preview` | `boolean` | `false` | A read-only card with the comment and the reply count. |
 | `readOnly` | `boolean` | `false` | Keep the full thread readable without reply, edit, delete, or status controls. |
+| `can` | `(action, { thread, message }) => boolean` | | What the signed-in user may do: `reply`, `resolve`, `edit`, or `delete`. Defaults to the `can` of the comments state, else to [the default rules](#permissions). |
 | `busy` | `boolean` | `false` | Show a reply as being sent, on top of the thread's own tracking. |
 | `error` | `string` | | An error to show, on top of the ones from the handlers. |
 | `detached` | `boolean` | `false` | The place of the thread is no longer on the page. |
@@ -379,7 +401,8 @@ Edit and Delete are shown when their respective handlers are supplied. An unchan
 | --- | --- | --- | --- |
 | `message` | `CommentMessage` | Required | The message. |
 | `user` | `CommentUser` | | The signed-in user. Their mention chip has `data-self="true"`. Defaults to the user of the comments state. |
-| `editable` | `boolean` | `false` | Show Edit and Delete when their respective handlers are supplied. |
+| `editable` | `boolean` | `false` | Show Edit when `onEdit` is given. |
+| `deletable` | `boolean` | | Show Delete when `onDelete` is given. Defaults to `editable`. |
 | `compact` | `boolean` | `false` | Clamp the body to three lines, without actions. |
 | `confirmDelete` | `boolean` | `false` | Ask before Delete. A thread sets it on the first message. |
 | `people` | `CommentUser[]` | `[]` | People whose `@name` the message may hold, so an edit keeps their mentions and the body shows them as chips. |
@@ -457,6 +480,7 @@ The list of threads, one thread, and a page box in one surface. Renders a `secti
 | `status` | `"open" \| "resolved"` | | Which threads the list shows. Use `v-model:status`. Defaults to `"open"`. |
 | `title` | `string` | `"Comments"` | The heading of the list. |
 | `readOnly` | `boolean` | `false` | Hide the page box and every reply, edit, delete, and status control. |
+| `can` | `(action, { thread, message }) => boolean` | | What the signed-in user may do in a thread. Defaults to the `can` of the state. |
 | `upload` | `(files: File[]) => Promise<string[]>` | | Stores attached files and returns their keys. Without it the boxes take no files. |
 | `accept` | `string` | | The file types that the boxes take. |
 | `attachmentUrl` | `(key: string) => string \| { url, name?, type? } \| undefined` | | The URL of an attachment key, or the URL with its file name and media type. Images show as thumbnails that open full size, other files as links. |
