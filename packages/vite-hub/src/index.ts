@@ -347,6 +347,12 @@ export interface ViteHubCloudflareOptions {
   secretsFile?: string
 }
 
+/** `connections` options of `vitehub()`. */
+export type ViteHubConnectionsOptions = Omit<ConnectionsVitePluginOptions, "database" | "databaseName" | "importBase"> & {
+  /** The Database that stores grants, approvals, and activity, such as `"users"`. Defaults to `default`. */
+  database?: string
+}
+
 export interface ViteHubOptions {
   /** Module specifier used by the application's `defineContent` import. */
   contentImportBase?: string
@@ -382,8 +388,11 @@ export interface ViteHubOptions {
   channels?: boolean | ChannelsVitePluginOptions
   /** Options for the `cloudflare` preset. Other presets ignore them. */
   cloudflare?: ViteHubCloudflareOptions
-  /** App-owned OAuth and API key Connections in `server/connections/`. They store grants in the default Database and enable `database` when it is unset. */
-  connections?: boolean | ConnectionsVitePluginOptions
+  /**
+   * App-owned OAuth and API key Connections in `server/connections/`. They store grants in the `default` Database, or
+   * in the Database that `database` names, and enable `database` when it is unset.
+   */
+  connections?: boolean | ViteHubConnectionsOptions
   /** The ViteHub Console at `/_vitehub`. Off by default. `true` reuses app Auth and its server access policy. Explicit options: `{ auth: false }`, `{ auth: "app" }`, or a Console Auth config. */
   console?: boolean | ConsoleOptions
   /** Drizzle Databases in `server/databases/`. Without a Database Definition, an enabled database is one empty default Database. */
@@ -1296,9 +1305,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     if (options.connections !== true && options.connections.management && !configuredConsole) {
       throw viteHubErrorDiagnostics.VITE_HUB_R0126({ message: '[vitehub] connections.management requires the Console. Set console: { auth: "app" }, console: { auth: { ... } }, or console: { auth: false }.' })
     }
-    const connectionsOptions: ConnectionsVitePluginOptions = options.connections === true
-      ? { database: "vite-hub/database/drizzle", importBase: "vite-hub/connections" }
-      : { ...options.connections, database: "vite-hub/database/drizzle", importBase: "vite-hub/connections" }
+    const { database: databaseName, ...connections } = options.connections === true ? {} : options.connections
+    const connectionsOptions: ConnectionsVitePluginOptions = { ...connections, database: "vite-hub/database/drizzle", ...(databaseName !== undefined ? { databaseName } : {}), importBase: "vite-hub/connections" }
     // The Console actor module checks the Console or app Auth session in every management route.
     if (!connectionsOptions.actor && configuredConsole && consoleSections.includes("connections")) connectionsOptions.actor = consoleConnectionsActorId
     plugins.push(hubConnections(connectionsOptions))

@@ -244,7 +244,7 @@ The preset allows every method on the provider's `mcp` endpoint without approval
 | Option | Default | Description |
 | --- | --- | --- |
 | `activityRetention` | `{ maxAgeMs: 1209600000, maxRecords: 10000 }` | How long the database keeps activity. See [Activity retention](#activity-retention). |
-| `database` | `'default'` | Database that stores grants and activity. |
+| `database` | `'default'` | Database that stores grants and activity. An app with only named Databases sets one of them, such as `'users'`. |
 | `encryptionKey` | `env({ secret: true, optional: true, source: env.source('VITEHUB_CONNECTIONS_KEY') })` | Secret Env declaration for the key. It cannot use `env.provider()` or a default. |
 | `projectRoot` | Vite root | Where ViteHub discovers `server/connections/`. |
 
