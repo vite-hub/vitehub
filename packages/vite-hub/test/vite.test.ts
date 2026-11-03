@@ -828,7 +828,7 @@ describe("vitehub", () => {
       workspaceDependencyRuntimeImports: {
         shellWorkspace: "vite-hub/shell/workspace",
       },
-      workspaceImportBase: "vite-hub/_internal/workspace",
+      workspaceImportBase: "vite-hub/_internal/agent/internal/workspace",
     })
     expect(integrationMocks.hubAgent).toHaveBeenCalledWith(expect.objectContaining({
       workspaceDependencyRuntimeImports: {
@@ -870,7 +870,7 @@ describe("vitehub", () => {
       workspaceDependencyRuntimeImports: {
         shellWorkspace: "vite-hub/shell/workspace",
       },
-      workspaceImportBase: "vite-hub/_internal/workspace",
+      workspaceImportBase: "vite-hub/_internal/agent/internal/workspace",
     })
     expect(integrationMocks.hubWorkflow).toHaveBeenCalledWith({}, expect.objectContaining({
       workspaceDependencyRuntimeImports: {

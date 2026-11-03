@@ -1270,7 +1270,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       },
       workflowImportBase: `${generatedImportBase}/workflow`,
       workspaceDependencyRuntimeImports,
-      workspaceImportBase: `${generatedImportBase}/workspace`,
+      workspaceImportBase: `${generatedImportBase}/agent/internal/workspace`,
     } as AgentModuleOptions))
   }
   if (options.browser) plugins.push(hubBrowser(options.browser === true ? undefined : options.browser))
@@ -1388,7 +1388,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       providerImportAliases,
       includeUserAppEntry: options.workflow !== undefined && options.workflow !== false,
       workspaceDependencyRuntimeImports,
-      workspaceImportBase: `${generatedImportBase}/workspace`,
+      workspaceImportBase: `${generatedImportBase}/agent/internal/workspace`,
       },
     ))
   }

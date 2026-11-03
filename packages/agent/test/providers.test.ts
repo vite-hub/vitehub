@@ -700,7 +700,7 @@ describe("agent Vite plugin", () => {
           sandboxTaskRuntimeState: "vite-hub/_internal/sandbox/task/runtime/state",
           shellWorkspace: "vite-hub/shell/workspace",
         },
-        workspaceImportBase: "vite-hub/_internal/workspace",
+        workspaceImportBase: "vite-hub/_internal/agent/internal/workspace",
       } as never)
       const filteredConfigResolvedHook: unknown = filteredPlugin.configResolved
       // SAFETY: hubAgent installs the same configResolved hook contract for filtered plugins.
@@ -721,7 +721,7 @@ describe("agent Vite plugin", () => {
       )
       expect(filteredRoute).toContain('workflow: () => import("vite-hub/_internal/workflow")')
       expect(filteredRoute).toContain(
-        'import { setWorkspaceDependencyRuntimeLoaders as vitehubSetWorkspaceDependencyRuntimeLoaders } from "vite-hub/_internal/workspace/runtime"',
+        'import { setWorkspaceDependencyRuntimeLoaders as vitehubSetWorkspaceDependencyRuntimeLoaders } from "vite-hub/_internal/agent/internal/workspace/runtime"',
       )
       expect(filteredRoute).toContain('sandboxTask: () => import("@vite-hub/sandbox/task")')
 

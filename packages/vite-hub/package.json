@@ -68,6 +68,21 @@
       "import": "./dist/_internal/agent/eve.js",
       "default": "./dist/_internal/agent/eve.js"
     },
+    "./_internal/agent/internal/workspace/internal/runtime/hosted": {
+      "types": "./dist/_internal/agent/internal/workspace/internal/runtime/hosted.d.ts",
+      "import": "./dist/_internal/agent/internal/workspace/internal/runtime/hosted.js",
+      "default": "./dist/_internal/agent/internal/workspace/internal/runtime/hosted.js"
+    },
+    "./_internal/agent/internal/workspace/internal/runtime/hosted-vercel-blob": {
+      "types": "./dist/_internal/agent/internal/workspace/internal/runtime/hosted-vercel-blob.d.ts",
+      "import": "./dist/_internal/agent/internal/workspace/internal/runtime/hosted-vercel-blob.js",
+      "default": "./dist/_internal/agent/internal/workspace/internal/runtime/hosted-vercel-blob.js"
+    },
+    "./_internal/agent/internal/workspace/runtime": {
+      "types": "./dist/_internal/agent/internal/workspace/runtime.d.ts",
+      "import": "./dist/_internal/agent/internal/workspace/runtime.js",
+      "default": "./dist/_internal/agent/internal/workspace/runtime.js"
+    },
     "./_internal/agent/operations": {
       "types": "./dist/_internal/agent/operations.d.ts",
       "import": "./dist/_internal/agent/operations.js",
