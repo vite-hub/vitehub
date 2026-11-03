@@ -308,7 +308,7 @@ set. Cloudflare requires `cache.namespaceId`, or an existing `CACHE` namespace
 with an ID in `nitro.cloudflare.wrangler.kv_namespaces`, so the generated
 deployment always names a real namespace. The `netlify` preset has no
 default cache store, so `cache: true` fails the build there. A `cache` mount
-that you set in `nitro.storage` takes precedence.
+that you set in `nitro.kv` (`nitro.storage` in Nuxt) takes precedence.
 
 To share the app's KV store instead, on any preset, set
 `cache: { driver: "kv" }` with `kv` enabled. Cache keys get the `nitro-cache:`
