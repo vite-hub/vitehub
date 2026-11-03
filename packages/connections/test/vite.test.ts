@@ -301,6 +301,37 @@ describe("hubConnections", () => {
     expect(handle).toHaveBeenLastCalledWith(web, webEvent);
   });
 
+  it.each(["node-server", "cloudflare-module"])("preserves the Nuxt app base in production H3 requests on %s", async (preset) => {
+    const root = await createTempProject();
+    const config = { nitro: { preset, handlers: [] as Array<{ handler: string }> }, root, base: "/_nuxt/", [VITEHUB_APP_BASE_URL]: "/portal/", [VITEHUB_NITRO_CONFIG_CONTEXT]: true };
+    await (hubConnections({ management: { actor: "#app/connections-actor" } }).config as unknown as ConfigHook)(config, { command: "build", mode: "production" });
+    const handlers = config.nitro.handlers;
+    const source = await readFile(handlers[0]!.handler, "utf8");
+    expect(source).toContain('basePath: "/portal/_vitehub/connections"');
+    const handle = vi.fn((request: Request, event: unknown) => ({ request, event }));
+    const code = source.replace(/^import .*\n/gm, "").replace(/^const handle = .*\n/m, "").replace("export default", "const generated =");
+    const adapt = new Function("handle", `return (function() { ${stripTypeScriptTypes(code)} return generated })()`)(handle) as (event: unknown) => { request: Request, event: unknown };
+    for (const [method, url] of [
+      ["POST", "/_vitehub/connections?test=1"],
+      ["GET", "/_vitehub/connections/connect/mail?return=%2Fportal%2F"],
+      ["GET", "/_vitehub/connections/callback?code=test&state=test"],
+    ]) {
+      const body = method === "POST" ? JSON.stringify({ action: "list" }) : "";
+      const raw = {
+        headers: { host: "docs.example", "x-forwarded-proto": "https" },
+        method, url, originalUrl: `/portal${url}`, socket: {},
+      };
+      const req = preset === "node-server"
+        ? Object.assign(Readable.from([Buffer.from(body)]), raw)
+        : { ...raw, body: Buffer.from(body), [Symbol.asyncIterator]: () => { throw new Error("Readable.asyncIterator is not implemented yet!") } };
+      const event = { node: { req } };
+      const result = adapt(event);
+      expect(result.request.url).toBe(`https://docs.example/portal${url}`);
+      expect(result.event).toBe(event);
+      expect(await result.request.text()).toBe(body);
+    }
+  });
+
   it("checks every development request with the actor module, or the development policy without one", async () => {
     const handlerFor = async (plugin: ReturnType<typeof hubConnections>, command: "build" | "serve") => {
       const root = await createTempProject();

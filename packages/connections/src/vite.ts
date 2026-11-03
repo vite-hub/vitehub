@@ -540,7 +540,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
             "",
             // Nitro 2 on Workers, which Nuxt 4 builds, gives a request mock that keeps the body in `body` and cannot be
             // iterated. A Node.js server gives a real IncomingMessage.
-            "export default (event: { req?: Request, node?: { req?: IncomingMessage & { body?: Uint8Array | string, socket: { encrypted?: boolean } } } }) => {",
+            "export default (event: { req?: Request, node?: { req?: IncomingMessage & { body?: Uint8Array | string, originalUrl?: string, socket: { encrypted?: boolean } } } }) => {",
             "  const raw = event.req ?? event.node?.req",
             "  if (!raw) return handle(new Request('http://localhost/'), event)",
             "  if (raw instanceof Request) return handle(raw, event)",
@@ -557,7 +557,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
             "    init.body = new ReadableStream({ async pull(controller) { try { const next = await iterator.next(); if (next.done) controller.close(); else controller.enqueue(next.value) } catch (error) { controller.error(error) } } })",
             "    init.duplex = 'half'",
             "  }",
-            "  const request = new Request(new URL(raw.url ?? '/', `${protocol === 'https' ? 'https' : 'http'}://${host}`), init)",
+            "  const request = new Request(new URL(raw.originalUrl || raw.url || '/', `${protocol === 'https' ? 'https' : 'http'}://${host}`), init)",
             "  return handle(request, event)",
             "}",
             "",
