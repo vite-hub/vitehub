@@ -60,6 +60,21 @@ describe("hubConnections", () => {
     expect(hubConnections().vitehub.databases()).toEqual([]);
   });
 
+  it("keeps Connection data in a named Database", async () => {
+    const plugin = hubConnections({ database: "vite-hub/database/drizzle", databaseName: "users" });
+    expect(plugin.vitehub.databases()).toEqual([
+      { database: "users", dialect: "sqlite", name: "connections", reason: "Stores Connection grants, approvals, and activity." },
+    ]);
+    const root = await createTempProject();
+    const config = { nitro: {}, root, [VITEHUB_NITRO_CONFIG_CONTEXT]: true };
+    await (plugin.config as unknown as ConfigHook)(config, { command: "serve", mode: "development" });
+    const nitro = config.nitro as { alias: Record<string, string> };
+    await expect(readFile(nitro.alias[CONNECTIONS_REGISTRY_ID]!, "utf8")).resolves.toContain(
+      'export const database = () => import("vite-hub/database/drizzle").then(module => module.databases["users"].db)',
+    );
+    expect(() => hubConnections({ databaseName: "users\"); x(" })).toThrow("connections.database must be a Database name");
+  });
+
   it.each(["@vite-hub/connections", "vite-hub/connections"])("writes the registry and mounts the management API through %s in development", async (importBase) => {
     const root = await createTempProject();
     const definition = await writeConnection(root, "server/connections/google.ts");

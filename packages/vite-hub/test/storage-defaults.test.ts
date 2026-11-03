@@ -222,6 +222,12 @@ describe("Connections database default", () => {
     expect(pluginNames({ connections: true, preset: "node" })).toEqual(expect.arrayContaining(["@vite-hub/connections/vite", "@vite-hub/database/vite"]))
   })
 
+  it("passes the Database that connections.database names to Connections", () => {
+    const connections = (vitehub({ connections: { database: "users" }, preset: "node" }) as Array<Plugin & { vitehub?: { databases?: () => unknown } }>)
+      .find(plugin => plugin.name === "@vite-hub/connections/vite")
+    expect(connections?.vitehub?.databases?.()).toEqual([expect.objectContaining({ database: "users", name: "connections" })])
+  })
+
   it("keeps configured database options", () => {
     const database = { connection: { url: "file:/data/database/sqlite.db" } }
     expect(withConnectionsDatabase({ connections: true, database, preset: "node" }).database).toBe(database)
