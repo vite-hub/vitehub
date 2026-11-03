@@ -22,9 +22,9 @@ const kvCacheDriver: string = fileURLToPath(import.meta.resolve("vite-hub/_inter
 type KVCacheMount = { driver: typeof kvCacheDriver, base: string }
 
 export interface ResolvedCacheStorage {
-  /** Nitro `storage.cache` mount for production output. */
+  /** Nitro cache mount for production output. */
   storage: Exclude<CacheOptions, { driver: "kv" }> | KVCacheMount
-  /** Nitro `devStorage.cache` mount. Development keeps cache entries on the local filesystem, or in the app's dev KV store. */
+  /** Development and prerendering use the local filesystem, or the app's dev KV store. */
   devStorage: { driver: "fs-lite", base: string } | KVCacheMount
   /** Wrangler KV namespace that backs the Cloudflare mount. */
   cloudflareNamespace?: { binding: string, id?: string }
@@ -106,12 +106,25 @@ export function resolveCacheStorage(cache: true | CacheOptions, preset: Deployme
 }
 
 /** Add the cache mounts to a Nitro config without replacing a `cache` mount that the application set. */
-export function applyCacheStorage(nitro: Record<string, unknown>, cache: ResolvedCacheStorage): Record<string, unknown> {
-  const storage = isPlainObject(nitro.storage) ? { ...nitro.storage } : {}
-  const devStorage = isPlainObject(nitro.devStorage) ? { ...nitro.devStorage } : {}
+export function applyCacheStorage(nitro: Record<string, unknown>, cache: ResolvedCacheStorage, nitroVersion: 2 | 3 = 3): Record<string, unknown> {
+  const key = nitroVersion === 2 ? "storage" : "kv"
+  const configured = nitro[key]
+  const storage = isPlainObject(configured) ? { ...configured } : {}
+  storage.cache ??= isPlainObject(nitro.storage) ? nitro.storage.cache : undefined
   storage.cache ??= cache.storage
-  devStorage.cache ??= cache.devStorage
-  const next: Record<string, unknown> = { ...nitro, devStorage, storage }
+  const next: Record<string, unknown> = { ...nitro, [key]: storage }
+  if (nitroVersion === 2) {
+    const devStorage = isPlainObject(nitro.devStorage) ? { ...nitro.devStorage } : {}
+    devStorage.cache ??= cache.devStorage
+    next.devStorage = devStorage
+  } else {
+    for (const environment of ["$development", "$prerender"]) {
+      const config = isPlainObject(nitro[environment]) ? { ...nitro[environment] } : {}
+      const kv = isPlainObject(config.kv) ? { ...config.kv } : {}
+      kv.cache ??= cache.devStorage
+      next[environment] = { ...config, kv }
+    }
+  }
   const namespace = cache.cloudflareNamespace
   if (!namespace || storage.cache !== cache.storage) return next
 
