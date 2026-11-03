@@ -1,6 +1,6 @@
 import * as v from "valibot"
 
-import { builtinCommentSubjects, defaultPolicy } from "./define.ts"
+import { builtinCommentSubjects, defaultPolicy, deniedForMissingPolicy } from "./define.ts"
 import { commentsErrorDiagnostics } from "./errors.ts"
 import { isPagePath } from "./path.ts"
 import { guestIdPrefix } from "./store.ts"
@@ -9,6 +9,7 @@ import type {
   CommentsAuthorizeContext,
   CommentsDefinition,
   CommentsPeople,
+  CommentsPolicyGate,
   CommentSubjectDefinition,
   CommentsUser,
 } from "./define.ts"
@@ -37,6 +38,22 @@ export const attachmentTypes: readonly string[] = ["image/png", "image/jpeg", "i
 /** The parts of a Blob store that attachments use: `blob` of `@vite-hub/blob`. */
 export interface CommentsAttachmentStore {
   put: (pathname: string, body: Uint8Array, options: { contentType: string }) => Promise<readonly [unknown, unknown]>
+  get?: (pathname: string) => Promise<readonly [unknown, Blob | null | undefined]>
+}
+
+/** The media types that a browser may show inline. Every other file downloads. */
+const inlineTypes: readonly string[] = ["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif"]
+
+/** A file to answer, with the headers that keep a browser from running it. */
+export interface CommentsAttachmentBody {
+  key: string
+  name: string
+  /** The stored media type when Comments attaches that type, else `application/octet-stream`. */
+  type: string
+  size: number
+  /** Whether a browser may show it in the page: images other than SVG. */
+  inline: boolean
+  data: Blob
 }
 
 /** The pull request sync of `defineComments({ forge })`. */
@@ -97,23 +114,47 @@ export function scopeOf(runtime: CommentsRuntime, target: CommentSubject): strin
   return definition.scope(target.id)
 }
 
-/** The policy, or the default policy without one. Only `true` allows. */
-export async function can(runtime: Pick<CommentsRuntime, "definition" | "development">, context: CommentsAuthorizeContext, development = runtime.development): Promise<boolean> {
+/**
+ * The one access policy of every surface: `authorize`, else `defaultPolicy()`. Only `true` allows. `gate` says what the
+ * server checked before, such as the Console's section access; `development` defaults to the runtime's.
+ */
+export async function can(runtime: Pick<CommentsRuntime, "definition" | "development">, context: CommentsAuthorizeContext, gate: CommentsPolicyGate = {}): Promise<boolean> {
   const { authorize } = runtime.definition
   const subject = context.subject ?? context.thread?.subject
   const full = { ...context, user: context.user ? { ...context.user } : null, ...(subject ? { subject } : {}) }
-  if (!authorize) return defaultPolicy(full.user, development)
-  return await authorize(full) === true
+  const checked = { ...gate, development: gate.development ?? runtime.development === true }
+  if (authorize) return await authorize(full) === true
+  if (defaultPolicy(full.user, checked)) return true
+  if (deniedForMissingPolicy(runtime.definition, full.user, checked)) warnMissingPolicy()
+  return false
+}
+
+let warned = false
+
+/** Says once per process, in the server log, that signed-in people wait for an `authorize` policy. */
+function warnMissingPolicy(): void {
+  if (warned) return
+  warned = true
+  const diagnostic = commentsErrorDiagnostics.COMMENTS_R0006()
+  globalThis.console.warn(`[vitehub] ${diagnostic.code}: ${diagnostic.why} ${diagnostic.fix}`)
+}
+
+/** The diagnostic of a denied action: `COMMENTS_R0006` when only the missing `authorize` denied it, else `COMMENTS_R0009`. */
+export function deniedError(runtime: Pick<CommentsRuntime, "definition" | "development">, action: string, user: CommentsUser | null, gate: CommentsPolicyGate = {}): Error {
+  const checked = { ...gate, development: gate.development ?? runtime.development === true }
+  if (deniedForMissingPolicy(runtime.definition, user, checked)) return fail(commentsErrorDiagnostics.COMMENTS_R0006(), 403)
+  return fail(commentsErrorDiagnostics.COMMENTS_R0009({ action }), 403)
 }
 
 /** Whether `user` may mention `person`: `canMention`, else whether `person` may read the thread. */
-async function mayMention(runtime: CommentsRuntime, user: CommentsUser | null, found: CommentUser, target: { thread?: CommentThread, subject?: CommentSubject }): Promise<boolean> {
+async function mayMention(runtime: CommentsRuntime, user: CommentsUser | null, found: CommentUser, target: { thread?: CommentThread, subject?: CommentSubject, gate?: CommentsPolicyGate }): Promise<boolean> {
   const subject = target.subject ?? target.thread?.subject
   const person = { ...found }
   const context = { person, user, ...(target.thread ? { thread: target.thread } : {}), ...(subject ? { subject } : {}) }
   try {
     if (runtime.definition.canMention) return await runtime.definition.canMention(context) === true
-    return await can(runtime, { action: "read", user: { ...person }, ...(target.thread ? { thread: target.thread } : {}), ...(subject ? { subject } : {}) })
+    // The person signed in the same way as the writer, so the writer's gate stands for them.
+    return await can(runtime, { action: "read", user: { ...person }, ...(target.thread ? { thread: target.thread } : {}), ...(subject ? { subject } : {}) }, target.gate)
   }
   catch {
     return false
@@ -121,10 +162,10 @@ async function mayMention(runtime: CommentsRuntime, user: CommentsUser | null, f
 }
 
 /** Where `@` finds people: `people`, else Auth, else the authors of threads that `reader` may read. */
-function peopleOf(runtime: CommentsRuntime, reader: CommentsUser | null): CommentsPeople {
+function peopleOf(runtime: CommentsRuntime, reader: CommentsUser | null, gate?: CommentsPolicyGate): CommentsPeople {
   const explicit = runtime.definition.people ?? runtime.users
   if (explicit) return explicit
-  const readable = (thread: CommentThread) => can(runtime, { action: "read", thread, user: reader }).catch(() => false)
+  const readable = (thread: CommentThread) => can(runtime, { action: "read", thread, user: reader }, gate).catch(() => false)
   return {
     byIds: ids => runtime.store.knownUsersByIds(ids, readable),
     search: (query, limit) => runtime.store.knownUsers(query, limit, readable),
@@ -132,8 +173,8 @@ function peopleOf(runtime: CommentsRuntime, reader: CommentsUser | null): Commen
 }
 
 /** People that `@` suggests to `user`, without the ones that may not be mentioned in the thread. */
-export async function suggest(runtime: CommentsRuntime, input: { query: string, limit: number, user: CommentsUser | null, thread?: CommentThread, subject?: CommentSubject }): Promise<CommentUser[]> {
-  const found = await peopleOf(runtime, input.user).search(input.query, input.limit * 2)
+export async function suggest(runtime: CommentsRuntime, input: { query: string, limit: number, user: CommentsUser | null, thread?: CommentThread, subject?: CommentSubject, gate?: CommentsPolicyGate }): Promise<CommentUser[]> {
+  const found = await peopleOf(runtime, input.user, input.gate).search(input.query, input.limit * 2)
   const needle = input.query.trim().toLowerCase()
   const people: CommentUser[] = []
   for (const person of found) {
@@ -145,10 +186,10 @@ export async function suggest(runtime: CommentsRuntime, input: { query: string, 
 }
 
 /** The people that the messages of `threads` mention, so a UI can show their names. */
-export async function mentionedPeople(runtime: CommentsRuntime, reader: CommentsUser | null, threads: readonly CommentThread[]): Promise<CommentUser[]> {
+export async function mentionedPeople(runtime: CommentsRuntime, reader: CommentsUser | null, threads: readonly CommentThread[], gate?: CommentsPolicyGate): Promise<CommentUser[]> {
   const ids = [...new Set(threads.flatMap(thread => thread.messages.flatMap(message => message.mentions)))]
   if (!ids.length) return []
-  return (await peopleOf(runtime, reader).byIds(ids)).map(personOf)
+  return (await peopleOf(runtime, reader, gate).byIds(ids)).map(personOf)
 }
 
 function escapeRegExp(value: string): string {
@@ -156,11 +197,11 @@ function escapeRegExp(value: string): string {
 }
 
 /** The mentioned ids must be real people that `user` may mention there, and the text must name each one with `@name`. */
-export async function checkMentions(runtime: CommentsRuntime, input: { body: string, ids: readonly string[] | undefined, user: CommentsUser | null, thread?: CommentThread, subject?: CommentSubject }): Promise<CommentUser[]> {
+export async function checkMentions(runtime: CommentsRuntime, input: { body: string, ids: readonly string[] | undefined, user: CommentsUser | null, thread?: CommentThread, subject?: CommentSubject, gate?: CommentsPolicyGate }): Promise<CommentUser[]> {
   const unique = [...new Set(input.ids ?? [])]
   if (!unique.length) return []
   if (unique.length > maximumMentions) throw fail(commentsErrorDiagnostics.COMMENTS_R0007({ message: `A message mentions at most ${maximumMentions} people.` }), 400)
-  const found = new Map((await peopleOf(runtime, input.user).byIds(unique)).map(person => [person.id, person]))
+  const found = new Map((await peopleOf(runtime, input.user, input.gate).byIds(unique)).map(person => [person.id, person]))
   const people: CommentUser[] = []
   for (const mentioned of unique) {
     const person = found.get(mentioned)
@@ -294,6 +335,8 @@ export interface CreateThreadInput {
 export interface WriteOptions {
   /** The person whose `@` suggestions the mentions came from. Default: the author. */
   user?: CommentsUser | null
+  /** What the server checked about `user`, for the mention checks. */
+  gate?: CommentsPolicyGate
   waitUntil?: (task: Promise<unknown>) => void
 }
 
@@ -306,7 +349,7 @@ export async function createThread(runtime: CommentsRuntime, input: CreateThread
   const attachments = attachmentsOf(input.attachments)
   const body = cleanBody(runtime, { attachments, body: input.body, subject: input.subject, ...(metadata ? { metadata } : {}) })
   const user = options.user === undefined ? { ...input.author } : options.user
-  const mentioned = await checkMentions(runtime, { body, ids: input.mentions, subject: input.subject, user })
+  const mentioned = await checkMentions(runtime, { body, ids: input.mentions, subject: input.subject, user, ...(options.gate ? { gate: options.gate } : {}) })
   const created = await runtime.store.createThread({
     anchor: input.anchor ?? { kind: "page" },
     attachments,
@@ -342,7 +385,7 @@ export async function replyToThread(runtime: CommentsRuntime, thread: CommentThr
   const attachments = attachmentsOf(input.attachments)
   const body = cleanBody(runtime, { attachments, body: input.body, subject: thread.subject, ...(thread.metadata ? { metadata: thread.metadata } : {}) })
   const user = options.user === undefined ? { ...input.author } : options.user
-  const mentioned = await checkMentions(runtime, { body, ids: input.mentions, thread, user })
+  const mentioned = await checkMentions(runtime, { body, ids: input.mentions, thread, user, ...(options.gate ? { gate: options.gate } : {}) })
   const id = newId("message")
   let next: CommentThread
   try {
@@ -372,7 +415,7 @@ export async function editMessage(runtime: CommentsRuntime, thread: CommentThrea
   const target = thread.messages.find(entry => entry.id === messageId)
   if (!target) throw fail(commentsErrorDiagnostics.COMMENTS_R0003({ messageId }), 404)
   const body = cleanBody(runtime, { attachments: target.attachments, body: input.body, subject: thread.subject, ...(thread.metadata ? { metadata: thread.metadata } : {}) })
-  const mentioned = await checkMentions(runtime, { body, ids: input.mentions, thread, user: options.user })
+  const mentioned = await checkMentions(runtime, { body, ids: input.mentions, thread, user: options.user, ...(options.gate ? { gate: options.gate } : {}) })
   const next = await runtime.store.editMessage(thread.id, target.id, { body, mentions: mentioned.map(person => person.id), now: Date.now() })
   const fresh = mentioned.filter(person => !target.mentions.includes(person.id))
   await announce(runtime, next, next.messages.find(entry => entry.id === target.id), mentioned, fresh, { comment: false, ...(options.waitUntil ? { waitUntil: options.waitUntil } : {}) })
@@ -416,4 +459,36 @@ export async function storeAttachment(runtime: CommentsRuntime, input: { name: s
     if (error) throw error
   }
   return { key, name, size: file.size, type }
+}
+
+/** The thread through which `user` may read the file of `key`, else `COMMENTS_R0020` as not found. */
+export async function attachmentThread(runtime: CommentsRuntime, key: string, readable: (thread: CommentThread) => Promise<boolean>): Promise<CommentThread> {
+  check(attachmentKey, key, "key")
+  for (const thread of await runtime.store.getByAttachment(key)) {
+    if (await readable(thread).catch(() => false)) return thread
+  }
+  throw fail(commentsErrorDiagnostics.COMMENTS_R0020({ key }), 404)
+}
+
+/**
+ * Reads the file of `key` with `readAttachment`, else from the Blob store, for a reader who may read `thread`. A
+ * stored type that Comments does not attach, such as SVG from an app's own hook, answers as a download.
+ */
+export async function readAttachment(runtime: CommentsRuntime, key: string, context: { user: CommentsUser | null, thread: CommentThread }): Promise<CommentsAttachmentBody> {
+  const { readAttachment: read, storeAttachment: store } = runtime.definition
+  let data: Blob | null | undefined
+  if (read) data = await read(key, { thread: context.thread, user: context.user ? { ...context.user } : null })
+  // Files that the app's own hook stored are not in the Blob store.
+  else if (store) throw fail(commentsErrorDiagnostics.COMMENTS_R0021(), 501)
+  else if (runtime.attachments?.get) {
+    const [error, found] = await runtime.attachments.get(key)
+    if (error) throw error
+    data = found
+  }
+  else throw fail(commentsErrorDiagnostics.COMMENTS_R0014(), 501)
+  if (!data) throw fail(commentsErrorDiagnostics.COMMENTS_R0020({ key }), 404)
+  const stored = data.type.toLowerCase().split(";", 1)[0]!.trim()
+  const type = attachmentTypes.includes(stored) ? stored : "application/octet-stream"
+  const name = safeName(data instanceof File && data.name ? data.name : key.split("/").at(-1) ?? "file")
+  return { data, inline: inlineTypes.includes(type), key, name, size: data.size, type }
 }

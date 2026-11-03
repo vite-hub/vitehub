@@ -164,7 +164,7 @@ describe("the Comments overlay on the comment parts", () => {
     press(composer(shadow, "Comment")!, "Enter")
     await vi.waitFor(async () => expect((await comments.list())[1]).toHaveLength(1))
     expect(stored).toEqual([{ name: "shot.png", type: "image/png", size: 9 }])
-    expect(requests.find(request => request.path.endsWith("/uploads"))?.body).toMatchObject({ name: "shot.png", type: "image/png", page: "/pricing" })
+    expect(requests.find(request => request.path.endsWith("/attachments"))?.body).toMatchObject({ name: "shot.png", type: "image/png", subject: { kind: "page", id: "/pricing" } })
     expect((await comments.list())[1]![0]!.messages[0]!.attachments).toEqual(["files/shot.png"])
   })
 

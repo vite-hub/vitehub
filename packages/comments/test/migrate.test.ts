@@ -1,12 +1,16 @@
 import { readFileSync } from "node:fs"
 
 import { createClient } from "@libsql/client"
+import { createOperationRegistry, runOperation } from "@vite-hub/internal/operations"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { commentsMigrationSql, commentsSchemaState, migrateComments } from "../src/database.ts"
 import { defineComments, defineCommentSubject, installComments } from "../src/index.ts"
+import { commentsOperations } from "../src/operations.ts"
+import { installCommentsRuntime } from "../src/operations-core/server.ts"
+import { createCommentsStore } from "../src/operations-core/store.ts"
 import { ada, anchor, grace, liveCommentsMigration } from "./harness.ts"
 
 import type { CommentsDatabase } from "../src/operations-core/store.ts"
@@ -15,9 +19,12 @@ const clients: ReturnType<typeof createClient>[] = []
 
 afterEach(() => {
   for (const client of clients.splice(0)) client.close()
+  installCommentsRuntime(() => { throw new Error("not installed") })
 })
 
 const guest = { id: "guest:7", name: "Visitor", guest: true }
+const legacyGuest = { id: ada.id, name: "Guest Ada", image: "/guest.png", guest: true }
+const migratedGuest = { ...legacyGuest, id: `guest:${legacyGuest.id}` }
 const context = { url: "https://example.com/pricing", components: [{ name: "PricingCard" }] }
 
 /** A Database with the tables of the live-site model and threads that it wrote. */
@@ -40,6 +47,8 @@ async function liveDatabase() {
   await comment("c3", "t2", "From a guest", guest, [], 150)
   await thread("t3", "drop:42", 1, "/d/42", null, { metadata: { dropId: "42", version: 2, quote: null } })
   await comment("c4", "t3", "On the doc", ada)
+  await thread("t4", "pages", 4, "/guest", anchor, { author: legacyGuest })
+  await comment("c5", "t4", "A guest with a signed-in person's id", legacyGuest)
   // The scope handed out number 5 before its thread went away.
   await client.execute("INSERT INTO vitehub_comment_scope_counters (scope, last_number) VALUES ('pages', 5), ('drop:42', 1)")
   await client.execute("INSERT INTO vitehub_comment_forge (id, thread_id, repository, pull_request, remote_id, updated_at) VALUES ('c1', 't1', 'acme/site', 7, '99', 100)")
@@ -72,6 +81,18 @@ async function expectMigrated(db: CommentsDatabase) {
   ])
   const [, fromGuest] = await comments.get("t2")
   expect(fromGuest).toMatchObject({ n: 3, author: guest, anchor: { kind: "element", field: "about#hero.title" }, messages: [{ author: guest }] })
+  const [, legacy] = await comments.get("t4")
+  expect(legacy).toMatchObject({ author: migratedGuest, messages: [{ id: "c5", author: migratedGuest }] })
+  const registry = createOperationRegistry([{ operations: commentsOperations }])
+  installCommentsRuntime({ definition: { authorize: ({ action }) => action !== "delete" }, store: createCommentsStore(db) })
+  for (const [name, input] of [
+    ["comments.edit", { threadId: "t4", messageId: "c5", body: "Impersonated" }],
+    ["comments.delete", { threadId: "t4", messageId: "c5" }],
+    ["comments.delete", { threadId: "t4" }],
+  ] as const) {
+    expect(await runOperation(registry, name, input, { access: { mode: "auth", sections: "all" }, surface: "console", user: ada }))
+      .toMatchObject({ ok: false, status: 403, code: name === "comments.edit" ? "COMMENTS_R0004" : "COMMENTS_R0009" })
+  }
   const [, drop] = await comments.get("t3")
   expect(drop).toMatchObject({ scope: "drop:42", n: 1, subject: { kind: "drop", id: "42" }, anchor: { kind: "page" }, metadata: { dropId: "42", version: 2, quote: null } })
   // Numbers continue after the highest one that each scope handed out, also on the new kinds of subject.
@@ -83,14 +104,15 @@ async function expectMigrated(db: CommentsDatabase) {
 }
 
 describe("migrateComments", () => {
-  it("moves the live-site tables to one model, and keeps the old tables", async () => {
+  it.each(["batch", "transaction"])("moves the live-site tables to one model, and keeps the old tables via %s", async (driver) => {
     const { client, db } = await liveDatabase()
     expect((await commentsSchemaState(db)).state).toBe("live")
-    const migration = await migrateComments(db)
+    const target = driver === "batch" ? db : { all: db.all.bind(db), run: db.run.bind(db), transaction: db.transaction.bind(db) }
+    const migration = await migrateComments(target)
     expect(migration).toMatchObject({ from: "live", backup: "vitehub_comment_threads_live" })
     await expectMigrated(db)
-    expect((await client.execute("SELECT count(*) AS count FROM vitehub_comment_threads_live")).rows[0]?.count).toBe(3)
-    expect((await client.execute("SELECT count(*) AS count FROM vitehub_comments")).rows[0]?.count).toBe(4)
+    expect((await client.execute("SELECT count(*) AS count FROM vitehub_comment_threads_live")).rows[0]?.count).toBe(4)
+    expect((await client.execute("SELECT count(*) AS count FROM vitehub_comments")).rows[0]?.count).toBe(5)
     expect((await client.execute("SELECT count(*) AS count FROM vitehub_comment_scope_counters")).rows[0]?.count).toBe(2)
   })
 
@@ -102,13 +124,14 @@ describe("migrateComments", () => {
     await comments.remove("t3")
     expect(await migrateComments(db)).toEqual({ from: "current", statements: [] })
     expect((await comments.get("t3"))[0]?.code).toBe("COMMENTS_NOT_FOUND")
-    expect((await client.execute("SELECT count(*) AS count FROM vitehub_comment_threads")).rows[0]?.count).toBe(2)
+    expect((await client.execute("SELECT count(*) AS count FROM vitehub_comment_threads")).rows[0]?.count).toBe(3)
   })
 
-  it("changes nothing when a statement fails", async () => {
+  it.each(["batch", "transaction"])("changes nothing when a statement fails via %s", async (driver) => {
     const { client, db } = await liveDatabase()
     await client.execute("INSERT INTO vitehub_comment_threads (id, scope, number, page, anchor, status, created_by, created_at, updated_at) VALUES ('bad', 'pages', 9, '/', 'null', 'open', 'not json', 1, 1)")
-    await expect(migrateComments(db)).rejects.toThrow()
+    const target = driver === "batch" ? db : { all: db.all.bind(db), run: db.run.bind(db), transaction: db.transaction.bind(db) }
+    await expect(migrateComments(target)).rejects.toThrow()
     expect((await commentsSchemaState(db)).state).toBe("live")
     expect((await client.execute("SELECT name FROM sqlite_master WHERE name = 'vitehub_comment_messages'")).rows).toEqual([])
   })
@@ -182,21 +205,22 @@ describe("the custom migration of a ViteHub Database", () => {
   const migrations = new URL("../../../playground/content/server/databases/content/migrations/", import.meta.url)
   const migration = (name: string) => readFileSync(new URL(name, migrations), "utf8")
 
-  it("moves the threads of the playground's live-site migrations", async () => {
+  it.each([ada, guest, legacyGuest])("moves authors %j from the playground's live-site migrations", async (author) => {
     const client = createClient({ url: ":memory:" })
     clients.push(client)
     for (const name of ["0002_comments.sql", "0003_comments_context.sql", "0004_comments_scope.sql", "0005_comments_scope_counters.sql"]) {
       await client.executeMultiple(migration(name).replaceAll("--> statement-breakpoint", ""))
     }
-    await client.execute({ sql: "INSERT INTO vitehub_comment_threads (id, scope, number, page, anchor, status, created_by, created_at, updated_at) VALUES ('t', 'pages', 2, '/', ?, 'open', ?, 1, 1)", args: [JSON.stringify(anchor), JSON.stringify(ada)] })
-    await client.execute({ sql: "INSERT INTO vitehub_comments (id, thread_id, body, mentions, author, created_at) VALUES ('c', 't', 'Hello', '[]', ?, 1)", args: [JSON.stringify(ada)] })
+    await client.execute({ sql: "INSERT INTO vitehub_comment_threads (id, scope, number, page, anchor, status, created_by, created_at, updated_at) VALUES ('t', 'pages', 2, '/', ?, 'open', ?, 1, 1)", args: [JSON.stringify(anchor), JSON.stringify(author)] })
+    await client.execute({ sql: "INSERT INTO vitehub_comments (id, thread_id, body, mentions, author, created_at) VALUES ('c', 't', 'Hello', '[]', ?, 1)", args: [JSON.stringify(author)] })
     await client.executeMultiple(migration("0007_comments_one_model.sql").replaceAll("--> statement-breakpoint", ""))
     // SAFETY: libSQL implements the batch contract of the Database runtime.
     const db = drizzle(client) as unknown as CommentsDatabase
     expect((await commentsSchemaState(db)).state).toBe("current")
     const comments = defineComments()
     installComments(comments, { database: db })
-    expect((await comments.get("t"))[1]).toMatchObject({ n: 2, subject: { kind: "page", id: "/" }, messages: [{ id: "c", body: "Hello" }] })
+    const expectedAuthor = author === legacyGuest ? migratedGuest : author
+    expect((await comments.get("t"))[1]).toMatchObject({ n: 2, subject: { kind: "page", id: "/" }, author: expectedAuthor, messages: [{ id: "c", body: "Hello", author: expectedAuthor }] })
     expect((await comments.create({ page: "/", anchor, body: "Next", author: ada }))[1]?.n).toBe(3)
   })
 })

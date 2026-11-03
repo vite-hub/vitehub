@@ -19,6 +19,7 @@ const browser = new Browser({
         beforeAsyncRequest: async ({ request, window }) => {
           const path = new URL(request.url).pathname
           if (path === `${base}/api/_vitehub/comments/session`) {
+            if (new URL(request.url).searchParams.get("page") !== "/articles/example") throw new Error("The session must authorize the current page")
             return window.Response.json({ data: {
               user: { id: "ada", name: "Ada" },
               can: { read: true, comment: true, resolve: true },

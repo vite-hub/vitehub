@@ -77,7 +77,7 @@ export default defineEventHandler(async (event) => {
 | `edit(messageId, { body, mentions? })` | The message, with the new text and `editedAt`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND`, `COMMENTS_INVALID_INPUT` |
 | `removeScope(scope)` | `{ removed }`, the number of threads it deleted with their messages. | `COMMENTS_NOT_INSTALLED` |
 | `people({ query, user, thread?, subject?, limit? })` | At most 20 people whose name contains `query`, that `user` may mention there. | `COMMENTS_NOT_INSTALLED` |
-| `can({ user, action, thread?, subject? })` | `true` when the `authorize` policy allows the action. | None |
+| `can({ user, action, thread?, subject? }, gate?)` | `true` when the `authorize` policy allows the action. Without `authorize`, [the default policy](/docs/comments/configure#decide-who-can-comment) decides; `gate` says what your server already checked: `{ development, console }`. | None |
 | `sync(threadId)` | Nothing. With `forge`, brings the thread's pull request comments in line now, and posts what failed before. | None |
 | `flush()` | Nothing. Waits for the pull request syncs and `onMention` calls that earlier changes started. | None |
 
@@ -242,21 +242,25 @@ The Console shows the context in each thread's fields. `describeCommentContext(c
 
 ## HTTP routes
 
-The overlay calls the Comments API at `/api/_vitehub/comments`. Each answer is JSON, `{ data }` or `{ error }`, with `cache-control: private, no-store`. `error` has `code`, `why`, `fix`, and `docs`. Threads and messages have the [types above](#threads-and-messages). Routes that answer threads or messages also send `people`: the people that they mention, with their names. The API shows and changes only threads on `page` subjects.
+The overlay and [`createRestTransport()`](#rest-transport) call the Comments API at `/api/_vitehub/comments`. Each answer is JSON, `{ data }` or `{ error }`, with `cache-control: private, no-store`. `error` has `code`, `why`, `fix`, and `docs`. Threads and messages have the [types above](#threads-and-messages); a thread also has `can: { comment, resolve, delete }` for the reader. Routes that answer threads or messages also send `people`: the people that they mention, with their names.
+
+The routes run the same actions as the [comment operations](/docs/comments/operations/server-api), with the same checks, for the user of the request. They need no Console access, so guests and people that `identify` signs in, such as readers of a share link, can use them. They serve threads on every subject that `authorize` lets the reader see, not only `page` subjects.
 
 | Route | Needs | Does |
 | --- | --- | --- |
-| `GET /session` | None | Returns `{ user, can: { read, comment, resolve }, realtime, content }`, plus `signIn: { provider, url }` for a person who can sign in with GitHub, and `github` with `signOut` for a person signed in with GitHub. It sets no cookie: `GET /_vitehub/page/session` owns the `vitehub-tools` hint. |
-| `GET /threads?page=&status=` | `read` | Lists threads, as `list()` does. |
-| `POST /threads` | `write` | Starts a thread from `{ page, anchor, context?, body, mentions?, attachments? }`. `mentions` are ids; `attachments` are keys from `POST /uploads`. |
-| `GET /threads/:id` | `read` | Returns one thread. |
-| `POST /threads/:id/comments` | `write` | Replies with `{ body, mentions?, attachments? }`. |
-| `PATCH /threads/:id/comments/:messageId` | `write`, and only the author | Changes the text with `{ body, mentions? }`. Returns the thread. |
+| `GET /session?page=` | None | Returns `{ user, can: { read, comment, resolve, delete }, realtime, content }` for the page, plus `signIn: { provider, url }` for a person who can sign in with GitHub, and `github` with `signOut` for a person signed in with GitHub. `can.delete` says the person may delete other people's comments. It sets no cookie: `GET /_vitehub/page/session` owns the `vitehub-tools` hint. |
+| `GET /threads` | `read` | Lists the threads that the reader may read, as `comments.list` does. Search parameters: `page`, or `subjectKind` with `subjectId`, or `subjectKind` alone; `status`, `mine`, `mentions`, `revision` (at most this revision), `limit`, and `beforeId` with `beforeUpdatedAt` for the next page. `403` when the reader may not read the filter. |
+| `GET /threads/:id` | `read` | One thread, or `null` when it does not exist or the reader may not read it. |
+| `GET /scopes/:scope/threads/:n` | `read` | Thread `#n` of a scope, such as `site`, or `null`. |
+| `POST /threads` | `read` and `write` | Starts a thread from the input of `comments.create`: `{ subject, anchor?, body, mentions?, attachments?, metadata?, revision? }`. `page` may replace `subject`, and a page thread may carry the `context` that the overlay read. `mentions` are ids. |
+| `POST /threads/:id/comments` | `write` | Replies with `{ body, mentions?, attachments? }`. Returns the message as `data` and the thread as `thread`. A resolved thread answers `COMMENTS_RESOLVED`. |
+| `PATCH /threads/:id/comments/:messageId` | Your own message | Changes its text with `{ body, mentions? }`. Returns the thread. |
 | `POST /threads/:id/resolve`, `POST /threads/:id/reopen` | `resolve` | Resolves or reopens the thread. |
-| `DELETE /threads/:id` | `delete` | Deletes the thread. |
-| `DELETE /threads/:id/comments/:messageId` | `write` for your own message, `delete` for any other | Deletes one message. |
-| `GET /people?q=` | `read` | Returns the `@` suggestions. |
-| `POST /uploads` | `write` | Stores `{ name, type, data, page? }`, the file in Base64, with the checks of `comments.upload`. Returns `{ key, name, type, size }`. |
+| `DELETE /threads/:id` | `write` when every message is yours, else `delete` | Deletes the thread. Returns `null`. |
+| `DELETE /threads/:id/comments/:messageId` | `write` for your own message, `delete` for any other | Deletes one message, or the thread for its first message. Returns the thread, or `null`. |
+| `POST /attachments` | `write` | Stores a file from `{ name, type, data, subject? }`, `data` in Base64, as `comments.upload` does. Returns `{ key, name, type, size }`. |
+| `GET /attachments/:key` | `read` on a thread with a message that lists the key | Answers the file. See [Attach files](/docs/comments/configure#attach-files). |
+| `GET /people?q=` | `read` | Returns the `@` suggestions. With `thread`, `page`, or `subjectKind` and `subjectId`, only the people who may be mentioned there. `limit` is at most 20. |
 | `GET /fields?field=` | `write`, and Content `write` | Reads the draft of one Content field: `{ field, value, editable, digest, collection, id }`. |
 | `POST /fields` | `write`, and Content `write` | Saves `{ field, value, ifDigest }` as a Content draft. Returns `{ field, value, digest }`. |
 | `GET /auth/github?return=` | None | Starts [Sign in with GitHub](/docs/comments/configure#sign-in-with-github), then sends the person back to `return`, a path on the same site. |
@@ -270,15 +274,46 @@ The server sets the author of a message from the user of the request. A guest se
 | Status | Codes |
 | --- | --- |
 | `400` | `COMMENTS_INVALID_INPUT`, `COMMENTS_FIELD_INVALID` |
-| `403` | `COMMENTS_FORBIDDEN`, `COMMENTS_FIELD_FORBIDDEN` |
-| `404` | `COMMENTS_NOT_FOUND`, `COMMENTS_CONTENT_MISSING`, `COMMENTS_SIGN_IN_OFF` |
+| `403` | `COMMENTS_FORBIDDEN`, `COMMENTS_POLICY_MISSING`, `COMMENTS_FIELD_FORBIDDEN` |
+| `404` | `COMMENTS_NOT_FOUND`, `COMMENTS_CONTENT_MISSING`, `COMMENTS_SIGN_IN_OFF`, `COMMENTS_R0020` |
 | `409` | `COMMENTS_RESOLVED`, `COMMENTS_FIELD_CONFLICT` |
 | `422` | `COMMENTS_FIELD_NOT_EDITABLE` |
 | `423` | `COMMENTS_FIELD_LOCKED` |
 | `502` | `COMMENTS_SIGN_IN_FAILED` |
-| `503` | `COMMENTS_NOT_INSTALLED` |
+| `413`, `415` | `COMMENTS_INVALID_INPUT` for a file that is too large or of a type that Comments does not attach |
+| `501` | `COMMENTS_R0014`, `COMMENTS_R0021`: no place to store or read attachments |
+| `503` | `COMMENTS_NOT_INSTALLED`, `COMMENTS_R0019` |
 
 The overlay script is a static file at `/api/_vitehub/comments/assets/overlay.js`.
+
+### REST transport
+
+`createRestTransport()` from `vite-hub/comments/client` is a [`CommentsTransport`](/docs/comments/operations/server-api#browser-transport) over these routes, for an app's own comment UI. Unlike the RPC transport, it needs no Console access, so it serves guests and share-link readers too.
+
+```ts [app/comments.ts]
+import { createCommentsClient, createRestTransport } from 'vite-hub/comments/client'
+
+const transport = createRestTransport({
+  // A share link's token, which `identify` reads on the server. A function runs before each request.
+  headers: () => ({ 'x-share-token': shareToken() }),
+  // The name that a guest typed, when `authorize` lets anonymous people write.
+  guest: () => readGuest(),
+})
+const client = createCommentsClient({ transport, user, query: { subject: { kind: 'drop', id: '42' } } })
+
+// A thumbnail of an attachment: the URL checks that the reader may read its thread.
+const src = transport.attachmentUrl(thread.messages[0].attachments[0])
+```
+
+| Option | Default | Use |
+| --- | --- | --- |
+| `base` | The page origin | The app origin and mount, such as `/portal`. |
+| `headers` | None | Headers, or a function that returns them, for each request. |
+| `guest` | None | `{ id, name }`, or a function that returns it, sent as the guest headers. |
+| `credentials` | `same-origin` | Sends the session cookie. |
+| `fetch` | `globalThis.fetch` | For tests, or a server. |
+
+A failed request throws `CommentsRestError` with the `code`, `why`, `fix`, and `status` of the answer. `commentAttachmentUrl(key, base?)` builds the same URL as `transport.attachmentUrl()`. The overlay sends its requests through the same code.
 
 ## Content field addresses
 

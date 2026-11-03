@@ -1,4 +1,3 @@
-import { commentsOverlayAssets } from "./comments-overlay/assets.ts"
 import { consoleD1Binding, consoleDatabaseUrl, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
 import { applyCacheStorage, resolveCacheStorage, type CacheOptions } from "./cache.ts"
 import { existsSync, readFileSync } from "node:fs"
@@ -347,6 +346,12 @@ export interface ViteHubCloudflareOptions {
   secretsFile?: string
 }
 
+/** `connections` options of `vitehub()`. */
+export type ViteHubConnectionsOptions = Omit<ConnectionsVitePluginOptions, "database" | "databaseName" | "importBase"> & {
+  /** The Database that stores grants, approvals, and activity, such as `"users"`. Defaults to `default`. */
+  database?: string
+}
+
 export interface ViteHubOptions {
   /** Module specifier used by the application's `defineContent` import. */
   contentImportBase?: string
@@ -382,8 +387,11 @@ export interface ViteHubOptions {
   channels?: boolean | ChannelsVitePluginOptions
   /** Options for the `cloudflare` preset. Other presets ignore them. */
   cloudflare?: ViteHubCloudflareOptions
-  /** App-owned OAuth and API key Connections in `server/connections/`. They store grants in the default Database and enable `database` when it is unset. */
-  connections?: boolean | ConnectionsVitePluginOptions
+  /**
+   * App-owned OAuth and API key Connections in `server/connections/`. They store grants in the `default` Database, or
+   * in the Database that `database` names, and enable `database` when it is unset.
+   */
+  connections?: boolean | ViteHubConnectionsOptions
   /** The ViteHub Console at `/_vitehub`. Off by default. `true` reuses app Auth and its server access policy. Explicit options: `{ auth: false }`, `{ auth: "app" }`, or a Console Auth config. */
   console?: boolean | ConsoleOptions
   /** Drizzle Databases in `server/databases/`. Without a Database Definition, an enabled database is one empty default Database. */
@@ -396,7 +404,7 @@ export interface ViteHubOptions {
   /** Agent telemetry, request logs, and papercut reports through evlog. Read it at runtime with `useObservability()`. */
   observability?: ObservabilityOptions
   queue?: boolean
-  /** Database, SQL dialect, and page overlay for the default-export Comments operations. */
+  /** Database, SQL dialect, and `overlay: false` (no page tool) for Comments in `server/comments.ts`. */
   comments?: Pick<HubCommentsOptions, "database" | "dialect" | "overlay">
   rateLimit?: boolean | RateLimitModuleOptions
   realtime?: boolean | RealtimeModuleOptions
@@ -1279,9 +1287,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     if (options.connections !== true && options.connections.management && !configuredConsole) {
       throw viteHubErrorDiagnostics.VITE_HUB_R0126({ message: '[vitehub] connections.management requires the Console. Set console: { auth: "app" }, console: { auth: { ... } }, or console: { auth: false }.' })
     }
-    const connectionsOptions: ConnectionsVitePluginOptions = options.connections === true
-      ? { database: "vite-hub/database/drizzle", importBase: "vite-hub/connections" }
-      : { ...options.connections, database: "vite-hub/database/drizzle", importBase: "vite-hub/connections" }
+    const { database: databaseName, ...connections } = options.connections === true ? {} : options.connections
+    const connectionsOptions: ConnectionsVitePluginOptions = { ...connections, database: "vite-hub/database/drizzle", ...(databaseName !== undefined ? { databaseName } : {}), importBase: "vite-hub/connections" }
     // The Console actor module checks the Console or app Auth session in every management route.
     if (!connectionsOptions.actor && configuredConsole && consoleSections.includes("connections")) connectionsOptions.actor = consoleConnectionsActorId
     plugins.push(hubConnections(connectionsOptions))
@@ -1322,18 +1329,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   // Comments in `server/comments.ts`: threads in the Database, the overlay on pages in comment mode, and page presence
   // rooms where Realtime has an authority. Inert without the file, and absent without its package.
-  const overlayAssets = options.console === false || options.comments?.overlay === false ? undefined : commentsOverlayAssets()
-  const usesCms = ownerModules.cmsVite?.usesCms ?? (() => false)
   const commentsPlugin = ownerModules.commentsVite?.hubComments({
     ...options.comments,
-    ...(overlayAssets ? { overlayAssets, overlayDevOnly: devOperationsOnly, overlayEdit: usesCms } : {}),
-    operationsImports: {
-      auth: "vite-hub/auth/server",
-      blob: "vite-hub/blob",
-      database: "vite-hub/database/drizzle",
-      databaseSchema: "vite-hub/comments/database",
-      runtime: "vite-hub/comments/server",
-    },
     auth: Boolean(options.auth),
     // Attachments go to the app's Blob store.
     blob: blobEnabled,
@@ -1341,6 +1338,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     ...(options.console ? { console: { module: "vite-hub/console/sections" } } : {}),
     imports: {
       auth: "vite-hub/comments/runtime/auth",
+      blob: "vite-hub/blob",
       contentClient: "vite-hub/content/client",
       database: "vite-hub/comments/database",
       databases: "vite-hub/database/drizzle",

@@ -2,15 +2,17 @@ import { markCommentsDefinition } from "./operations-core/define.ts"
 import { commentsRuntime, hasCommentsRuntime, installCommentsRuntime } from "./operations-core/server.ts"
 import { can, createThread, editMessage, replyToThread, scopeOf, suggest } from "./operations-core/service.ts"
 import { createCommentsStore } from "./operations-core/store.ts"
+import { commentsSchemaGate } from "./migrate.ts"
 import { commentsSchema } from "./operations-core/database.ts"
 import { commentsErrors } from "./errors.ts"
 import { createForgeSync } from "./forge/sync.ts"
 import { normalizeCommentPage } from "./page.ts"
 
 import type { Result } from "@vite-hub/runtime"
-import type { CommentAction, CommentsUser } from "./operations-core/define.ts"
+import type { CommentAction, CommentsPolicyGate, CommentsUser } from "./operations-core/define.ts"
 import type { CommentsAttachmentStore, CommentsRuntime } from "./operations-core/service.ts"
-import type { CommentsDatabase, CommentsTables } from "./operations-core/store.ts"
+import type { CommentsDatabase, CommentsStore, CommentsTables } from "./operations-core/store.ts"
+import type { CommentsSchemaOwner } from "./migrate.ts"
 import type {
   CommentMessage,
   CommentSubject,
@@ -29,6 +31,7 @@ import type { CommentsPeople } from "./operations-core/define.ts"
 export { describeCommentContext } from "./context.ts"
 export { commentRoom, commentsPageScope, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "./page.ts"
 export { builtinCommentSubjects, defaultPolicy, defineCommentSubject } from "./operations-core/define.ts"
+export type { CommentsPolicyGate } from "./operations-core/define.ts"
 export { commentsErrorDiagnostics } from "./client-errors.ts"
 export type * from "./types.ts"
 
@@ -58,10 +61,13 @@ export interface Comments {
   edit(messageId: string, input: EditCommentInput): Promise<Result<CommentMessage, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND" | "COMMENTS_INVALID_INPUT">>>
   /** Deletes every thread of a numbering scope, such as when app code deletes the document that the scope names. */
   removeScope(scope: string): Promise<Result<{ removed: number }, Codes<"COMMENTS_NOT_INSTALLED">>>
-  /** Whether the `authorize` policy allows an action. Without a policy, see `defaultPolicy()`. */
-  can(context: { user: CommentsUser | null, action: CommentAction, thread?: CommentThread, subject?: CommentSubject }): Promise<boolean>
+  /**
+   * Whether the `authorize` policy allows an action. Without a policy, see `defaultPolicy()`. `gate` says what your
+   * server checked before, such as Console section access; a route of your own usually passes nothing.
+   */
+  can(context: { user: CommentsUser | null, action: CommentAction, thread?: CommentThread, subject?: CommentSubject }, gate?: CommentsPolicyGate): Promise<boolean>
   /** People that `@` suggests to `user`, at most 20: `people`, else Auth, else the authors of threads that `user` may read. */
-  people(context: { query: string, user: CommentsUser | null, thread?: CommentThread, subject?: CommentSubject, limit?: number }): Promise<Result<CommentUser[], Codes<"COMMENTS_NOT_INSTALLED">>>
+  people(context: { query: string, user: CommentsUser | null, thread?: CommentThread, subject?: CommentSubject, limit?: number, gate?: CommentsPolicyGate }): Promise<Result<CommentUser[], Codes<"COMMENTS_NOT_INSTALLED">>>
   /**
    * With `forge`: brings the thread's pull request comments in line with the thread now, and posts what failed
    * before. Every change starts this on its own; `flush()` waits for it.
@@ -133,6 +139,8 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
         return [undefined, await withForge(current, await current.store.list({ ...rest, ...(subject ? { subject } : {}), limit }))]
       }
       catch (error) {
+        // Tables that a migration must move first are not an input problem.
+        if (Reflect.get(Object(error), "code") === "COMMENTS_R0019") throw error
         return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: error instanceof Error ? error.message : String(error) }), undefined]
       }
     },
@@ -236,15 +244,15 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
       for (const threadId of removed) current.forge?.changed(threadId)
       return [undefined, { removed: removed.length }]
     },
-    async can(context) {
+    async can(context, gate) {
       const current = await runtime()
-      return can(current ?? { definition: options }, context)
+      return can(current ?? { definition: options }, context, gate)
     },
-    async people({ query, user, thread, subject, limit = 20 }) {
+    async people({ query, user, thread, subject, limit = 20, gate }) {
       const current = await runtime()
       if (!current) return notInstalled()
       if (subject) scopeOf(current, subject)
-      return [undefined, await suggest(current, { limit: Math.min(Math.max(limit, 1), 20), query, user, ...(thread ? { thread } : {}), ...(subject ? { subject } : {}) })]
+      return [undefined, await suggest(current, { limit: Math.min(Math.max(limit, 1), 20), query, user, ...(gate ? { gate } : {}), ...(thread ? { thread } : {}), ...(subject ? { subject } : {}) })]
     },
     async sync(threadId) {
       await runtimes.get(comments)?.sync?.(threadId)
@@ -269,6 +277,28 @@ export interface InstallCommentsOptions {
   attachments?: CommentsAttachmentStore
   /** Only the Vite dev server enables it, for the default guest policy. Without it, the operation context decides, else `false`. */
   development?: boolean
+  /**
+   * Who keeps the tables up to date. `"comments"`: Comments opened the Database itself, so it migrates and creates
+   * the tables before the first query. Default `"app"`: the app's migrations do, and Comments fails with
+   * `COMMENTS_R0019` until the tables match this version. See `CommentsSchemaOwner`.
+   */
+  schema?: CommentsSchemaOwner
+  /** The SQL dialect of `database`. Default `sqlite`: SQLite, libSQL, and D1. */
+  dialect?: "sqlite" | "postgresql"
+}
+
+/** The store, after the tables are ready: each method waits for `ready` first. */
+function gated(store: CommentsStore, ready: () => Promise<void>): CommentsStore {
+  const wrapped: Partial<Record<keyof CommentsStore, unknown>> = {}
+  for (const key of Object.keys(store) as Array<keyof CommentsStore>) {
+    const method = store[key] as (...args: unknown[]) => Promise<unknown>
+    wrapped[key] = async (...args: unknown[]) => {
+      await ready()
+      return method(...args)
+    }
+  }
+  // SAFETY: every key of the store maps to a wrapper with the same parameters and result.
+  return wrapped as CommentsStore
 }
 
 /**
@@ -277,7 +307,7 @@ export interface InstallCommentsOptions {
  */
 export function installComments(comments: Comments, install: InstallCommentsOptions): CommentsRuntime {
   const tables = install.tables ?? { commentCounters: commentsSchema.vitehubCommentCounters, commentMessages: commentsSchema.vitehubCommentMessages, commentThreads: commentsSchema.vitehubCommentThreads }
-  const store = createCommentsStore(install.database, tables)
+  const store = gated(createCommentsStore(install.database, tables), commentsSchemaGate(install.database, install.schema ?? "app", { dialect: install.dialect ?? "sqlite" }))
   // SAFETY: defineComments() sets this slot to the set of pending tasks before it freezes the object.
   const pending = Reflect.get(comments, pendingKey) as Set<Promise<unknown>> | undefined
   const track = (task: Promise<unknown>) => {
@@ -313,4 +343,9 @@ export function installComments(comments: Comments, install: InstallCommentsOpti
 /** The runtime that `installComments()` connected, for the overlay API and the MCP tools. */
 export function commentsRuntimeOf(comments: Comments): CommentsRuntime | undefined {
   return runtimes.get(comments)?.runtime
+}
+
+/** The runtime of a definition, or the one that the generated Nitro plugin builds on first use, for the overlay API. */
+export async function resolveCommentsRuntime(comments: Comments): Promise<CommentsRuntime | undefined> {
+  return runtimeOf(comments)
 }

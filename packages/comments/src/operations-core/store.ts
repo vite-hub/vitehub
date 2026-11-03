@@ -158,6 +158,8 @@ export interface CommentsStore {
   getByNumber: (scope: string, n: number) => Promise<CommentThread | null>
   /** The thread that holds a message. */
   getByMessage: (messageId: string) => Promise<CommentThread | null>
+  /** The threads with a message that lists `key` in its `attachments`, at most 20. */
+  getByAttachment: (key: string) => Promise<CommentThread[]>
   /**
    * Inserts the thread and its first message together, with the next number of its scope. Several creators at once each
    * get their own number, and a number is never handed out twice.
@@ -307,6 +309,7 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
       const before = query.before
       const where = [
         ...(subject ? [eq(threads.subjectKind, subject.kind), eq(threads.subjectId, subject.id)] : []),
+        ...(query.subjectKind === undefined ? [] : [eq(threads.subjectKind, query.subjectKind)]),
         ...(query.scope === undefined ? [] : [eq(threads.scope, query.scope)]),
         ...(query.status ? [eq(threads.status, query.status)] : []),
         ...(query.revision ? [lte(threads.revision, query.revision.lte)] : []),
@@ -328,6 +331,14 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
     async getByMessage(messageId) {
       const [row] = await db.select({ threadId: messages.threadId }).from(messages).where(eq(messages.id, messageId)).limit(1)
       return row ? find(row.threadId) : null
+    },
+    async getByAttachment(key) {
+      // `attachments` is a JSON list of strings, so the quoted key matches one whole entry. The parsed list decides.
+      const pattern = `%${JSON.stringify(key).replaceAll(/[\\%_]/g, character => `\\${character}`)}%`
+      const rows = await db.select({ threadId: messages.threadId, attachments: messages.attachments }).from(messages).where(sql`${messages.attachments} LIKE ${pattern} ESCAPE '\\'`).limit(20)
+      const ids = [...new Set(rows.filter(row => parseJson<string[]>(row.attachments, []).includes(key)).map(row => row.threadId))]
+      const found = await Promise.all(ids.map(id => find(id)))
+      return found.filter(thread => thread !== null)
     },
     async createThread(input) {
       for (let attempt = 0; attempt < allocationAttempts; attempt++) {
@@ -435,9 +446,10 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
       }
       else if (typeof driver.transaction === "function") {
         await driver.transaction(async (target) => {
-          const [messagesOf, threadsOf] = remove(target)
-          await messagesOf
-          removed = await threadsOf
+          // Deleting locks the same rows as addMessage. A reply that already holds the lock finishes first;
+          // a later reply selects no thread. The next statement sees messages committed before deletion.
+          removed = await target.delete(threads).where(eq(threads.scope, scope)).returning({ id: threads.id })
+          for (const part of chunks(removed.map(row => row.id))) await target.delete(messages).where(inArray(messages.threadId, part))
         })
       }
       else {

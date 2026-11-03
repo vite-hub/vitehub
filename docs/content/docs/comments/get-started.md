@@ -54,7 +54,7 @@ Open `http://localhost:5173/?vitehub`. The `?vitehub` query turns on the ViteHub
 5. Type `@` in a reply. The list shows the people that you may mention there. As a guest it is empty: nobody can mention a guest. After your team signs in, in the next step, `@` suggests the people who commented before, and the server checks each mention.
 6. Select **Resolve**, the check mark on the thread. The pin goes away. Open the thread list from the toolbar and select **Resolved** to see it again.
 
-On the dev server, anyone may comment as a guest under a name they type. A production build lets nobody in until you choose who may comment. That is the next step.
+On the dev server, anyone may comment as a guest under a name they type. A production build lets in only the people that you choose. The next step lets in everyone who can push to the repository.
 
 Resize the window. The pin stays on the heading, because it is stored relative to the element, not to the window. Stop the dev server and start it again: the thread is still there, in the SQLite file.
 

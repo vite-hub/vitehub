@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm"
 
+import { commentsErrorDiagnostics } from "./operations-core/errors.ts"
 import { commentsTables } from "./tables.ts"
 
 /**
@@ -32,6 +33,11 @@ const addedColumns = { metadata: "text", context: "text", revision: "integer" } 
 
 const scopeOf = "CASE WHEN `scope` = 'pages' THEN 'site' ELSE `scope` END"
 
+function migratedAuthorId(column: string): string {
+  const id = `json_extract(${column}, '$.id')`
+  return `CASE WHEN json_extract(${column}, '$.guest') = 1 AND substr(${id}, 1, 6) <> 'guest:' THEN 'guest:' || ${id} ELSE ${id} END`
+}
+
 /**
  * Moves the live-site tables to the tables of one model, on SQLite, libSQL, and D1. It renames the threads table to
  * `vitehub_comment_threads_live`, creates the new tables, and copies every thread and comment. It deletes nothing:
@@ -49,13 +55,13 @@ function liveToCurrent(): string[] {
       `SELECT \`id\`, ${scopeOf}, \`number\`, ${subjectKind}, ${subjectId},`,
       "CASE WHEN `anchor` IS NULL OR `anchor` = 'null' THEN '{\"kind\":\"page\"}' ELSE json_set(`anchor`, '$.kind', 'element') END,",
       "`status`, `resolved_by`, `resolved_at`,",
-      "json_extract(`created_by`, '$.id'), json_extract(`created_by`, '$.name'), json_extract(`created_by`, '$.image'),",
+      `${migratedAuthorId("`created_by`")}, json_extract(\`created_by\`, '$.name'), json_extract(\`created_by\`, '$.image'),`,
       "NULL, `metadata`, `context`, NULL, `created_at`, `updated_at`",
       `FROM \`${liveThreadsBackup}\``,
     ].join(" "),
     [
       "INSERT INTO `vitehub_comment_messages` (`id`, `thread_id`, `body`, `author_id`, `author_name`, `author_image`, `actor`, `mentions`, `attachments`, `created_at`, `edited_at`)",
-      "SELECT `c`.`id`, `c`.`thread_id`, `c`.`body`, json_extract(`c`.`author`, '$.id'), json_extract(`c`.`author`, '$.name'), json_extract(`c`.`author`, '$.image'), NULL,",
+      `SELECT \`c\`.\`id\`, \`c\`.\`thread_id\`, \`c\`.\`body\`, ${migratedAuthorId("`c`.`author`")}, json_extract(\`c\`.\`author\`, '$.name'), json_extract(\`c\`.\`author\`, '$.image'), NULL,`,
       "coalesce((SELECT json_group_array(json_extract(`m`.`value`, '$.id')) FROM json_each(`c`.`mentions`) AS `m`), '[]'), '[]', `c`.`created_at`, `c`.`edited_at`",
       `FROM \`vitehub_comments\` AS \`c\` WHERE \`c\`.\`thread_id\` IN (SELECT \`id\` FROM \`${liveThreadsBackup}\`)`,
     ].join(" "),
@@ -95,11 +101,21 @@ export function commentsMigrationSql(options: CommentsMigrationOptions & { from:
 
 /** The Drizzle databases of SQLite, libSQL, D1, and Postgres, as far as the migration uses them. */
 interface MigrationDatabase {
-  all?: (query: ReturnType<typeof sql.raw>) => Promise<unknown[]>
-  run?: (query: ReturnType<typeof sql.raw>) => PromiseLike<unknown>
+  all?: (query: ReturnType<typeof sql.raw>) => unknown[] | PromiseLike<unknown[]>
+  run?: (query: ReturnType<typeof sql.raw>) => unknown
   execute?: (query: ReturnType<typeof sql.raw>) => PromiseLike<unknown>
   batch?: (queries: unknown[]) => Promise<unknown>
-  transaction?: (run: (target: MigrationDatabase) => Promise<void>) => Promise<unknown>
+  transaction?: (run: (target: MigrationDatabase) => void | Promise<void>) => unknown
+}
+
+/** Keep synchronous transaction callbacks synchronous, so their driver can roll back a later failure. */
+function runSqliteStatements(db: MigrationDatabase, statements: string[], start = 0): void | Promise<void> {
+  for (let index = start; index < statements.length; index++) {
+    const result = db.run!(sql.raw(statements[index]!))
+    if (typeof result === "object" && result !== null && "then" in result && typeof result.then === "function") {
+      return Promise.resolve(result).then(() => runSqliteStatements(db, statements, index + 1))
+    }
+  }
 }
 
 /** The first column of each row: libSQL and D1 return objects, the SQLite proxy returns arrays. */
@@ -143,15 +159,50 @@ export async function migrateComments(db: object, options: CommentsMigrationOpti
     })
   }
   else if (target.batch) {
+    // Async Drizzle SQLite drivers return lazy SQLiteRaw queries with _prepare(), suitable for batch().
     await target.batch(statements.map(statement => target.run!(sql.raw(statement))))
   }
   else if (target.transaction) {
-    await target.transaction(async (tx) => {
-      for (const statement of statements) await tx.run!(sql.raw(statement))
-    })
+    await target.transaction(tx => runSqliteStatements(tx, statements))
   }
   else {
     throw new TypeError("[vitehub] migrateComments() needs a Drizzle database with batch() or transaction(), so a failure changes nothing.")
   }
   return { from: state, statements, ...(state === "live" ? { backup: liveThreadsBackup } : {}) }
+}
+
+/**
+ * Who keeps the comment tables of a Database up to date.
+ * - `comments`: Comments opened the Database itself, such as the SQLite file or D1 binding of `comments()`. Before the
+ *   first query of each process it runs `migrateComments()` and creates the tables that are missing.
+ * - `app`: the app's migrations do, as with a ViteHub Database. Before the first query of each process Comments reads
+ *   the tables, and fails with `COMMENTS_R0019` until a migration brings them to this version.
+ */
+export type CommentsSchemaOwner = "comments" | "app"
+
+/**
+ * A function that the store awaits before each query: it prepares or checks the tables once per process. A failure
+ * is not kept, so the next query tries again, and a Database that a migration fixed works without a restart.
+ */
+export function commentsSchemaGate(db: object, owner: CommentsSchemaOwner, options: CommentsMigrationOptions = {}): () => Promise<void> {
+  let ready: Promise<void> | undefined
+  async function prepare(): Promise<void> {
+    if (owner === "comments") {
+      await migrateComments(db, options)
+      // SAFETY: the Database that Comments opens is a Drizzle SQLite database with batch() and run().
+      const target = db as MigrationDatabase
+      if (target.batch) await target.batch(commentsTables.map(statement => target.run!(sql.raw(statement))))
+      else await runSqliteStatements(target, [...commentsTables])
+      return
+    }
+    const { state, missing } = await commentsSchemaState(db, options)
+    if (state !== "current") throw Object.assign(commentsErrorDiagnostics.COMMENTS_R0019({ state, missing }), { status: 503 })
+  }
+  return () => {
+    ready ??= prepare().catch((error: unknown) => {
+      ready = undefined
+      throw error
+    })
+    return ready
+  }
 }

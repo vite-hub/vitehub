@@ -51,7 +51,8 @@ function fakeContent(options: { can?: boolean, fail?: Error } = {}) {
 }
 
 async function setup(input: { user?: CommentsUser | null, options?: DefineCommentsOptions, content?: ReturnType<typeof fakeContent>, session?: CommentsHandlerOptions["session"], consoleSession?: CommentsHandlerOptions["consoleSession"] } = {}) {
-  const comments = await createComments({ identify: () => input.user === undefined ? { id: "ada", name: "Ada" } : input.user, ...input.options })
+  // Each test names its policy; the default policy has tests of its own.
+  const comments = await createComments({ identify: () => input.user === undefined ? { id: "ada", name: "Ada" } : input.user, authorize: () => true, ...input.options })
   const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({
     comments,
     session: input.session,
@@ -66,12 +67,89 @@ async function setup(input: { user?: CommentsUser | null, options?: DefineCommen
     if (init.json !== undefined) headers.set("content-type", "application/json")
     if (init.method && init.method !== "GET" && !headers.has("origin")) headers.set("origin", origin)
     const response = await app.fetch(new Request(`${origin}/api/_vitehub/comments${path}`, { ...init, headers, body: init.json === undefined ? init.body : JSON.stringify(init.json) }))
-    return { response, body: await response.json() as { data?: any, error?: { code: string, why: string } } }
+    return { response, body: await response.json() as { data?: any, error?: { code: string, why: string, fix?: string } } }
   }
   return { comments, call }
 }
 
 describe("Comments API", () => {
+  it("uses the normalized current page for session permissions", async () => {
+    const { call } = await setup({ options: {
+      authorize: ({ subject }) => subject?.kind === "page" && subject.id === "/allowed",
+    } })
+    expect((await call("/session?page=/allowed/?preview=1")).body.data.can).toEqual({ read: true, comment: true, resolve: true, delete: true })
+    expect((await call("/session?page=/denied")).body.data.can).toEqual({ read: false, comment: false, resolve: false, delete: false })
+    expect((await call("/session")).body.data.can.read).toBe(false)
+  })
+
+  it("pages past denied threads for page and unfiltered HTTP lists", async () => {
+    const { comments, call } = await setup({ options: {
+      authorize: ({ action, thread }) => action !== "read" || !thread || thread.messages[0]?.body === "Allowed",
+    } })
+    const author = { id: "ada", name: "Ada" }
+    const [, allowed] = await comments.create({ page: "/", anchor, body: "Allowed", author })
+    for (let i = 0; i < 201; i++) await comments.create({ page: "/", anchor, body: "Denied", author })
+    for (const path of ["/threads?page=/", "/threads"]) {
+      const listed = await call(path)
+      expect(listed.response.status).toBe(200)
+      expect(listed.body.data.map((thread: { id: string }) => thread.id)).toEqual([allowed!.id])
+    }
+  })
+
+  it.each([false, true])("uses the compose page or thread for mention suggestions (custom canMention: %s)", async (custom) => {
+    const grace = { id: "grace", name: "Grace" }
+    const canMention = vi.fn(({ subject }: Parameters<NonNullable<DefineCommentsOptions["canMention"]>>[0]) => subject?.id === "/allowed")
+    const { comments, call } = await setup({ options: {
+      authorize: ({ action, subject }) => action !== "read" || subject?.id === "/allowed",
+      people: { search: async () => [grace], byIds: async () => [grace] },
+      ...(custom ? { canMention } : {}),
+    } })
+    const author = { id: "ada", name: "Ada" }
+    const [, allowed] = await comments.create({ page: "/allowed", anchor, body: "Allowed", author })
+    const [, denied] = await comments.create({ page: "/denied", anchor, body: "Denied", author })
+    const page = await call("/people?q=gr&page=/allowed/?preview=1")
+    expect(page.response.status).toBe(200)
+    expect(page.body.data).toEqual([grace])
+    const reply = await call(`/people?q=gr&thread=${allowed!.id}`)
+    expect(reply.response.status).toBe(200)
+    expect(reply.body.data).toEqual([grace])
+    if (custom) {
+      expect(canMention).toHaveBeenCalledWith(expect.objectContaining({ subject: { kind: "page", id: "/allowed" }, person: grace }))
+      expect(canMention).toHaveBeenCalledWith(expect.objectContaining({ thread: expect.objectContaining({ id: allowed!.id }) }))
+    }
+    expect((await call("/people?q=gr&page=/denied")).response.status).toBe(403)
+    expect((await call(`/people?q=gr&thread=${denied!.id}`)).response.status).toBe(403)
+    expect((await call("/people?q=gr&thread=missing")).response.status).toBe(404)
+  })
+
+  it.each([true, false])("authorizes the normalized page subject when general reads are allowed: %s", async (generalReads) => {
+    const { comments, call } = await setup({ options: {
+      authorize: ({ action, subject }) => action !== "read" || (subject ? subject.id === "/allowed" : generalReads),
+    } })
+    const author = { id: "ada", name: "Ada" }
+    const [, allowed] = await comments.create({ page: "/allowed", anchor, body: "Allowed", author })
+    await comments.create({ page: "/denied", anchor, body: "Denied", author })
+    const listed = await call("/threads?page=/allowed?preview=1")
+    expect(listed.response.status).toBe(200)
+    expect(listed.body.data.map((thread: { id: string }) => thread.id)).toEqual([allowed!.id])
+    expect((await call("/threads?page=/denied")).response.status).toBe(403)
+    if (generalReads) {
+      const all = await call("/threads")
+      expect(all.response.status).toBe(200)
+      expect(all.body.data.map((thread: { id: string }) => thread.id)).toEqual([allowed!.id])
+    }
+  })
+
+  it("checks each thread's read policy even when its page is readable", async () => {
+    const { comments, call } = await setup({ options: {
+      authorize: ({ action, thread }) => action !== "read" || !thread || thread.messages[0]?.body === "Allowed",
+    } })
+    const author = { id: "ada", name: "Ada" }
+    const [, allowed] = await comments.create({ page: "/", anchor, body: "Allowed", author })
+    await comments.create({ page: "/", anchor, body: "Denied", author })
+    expect((await call("/threads?page=/")).body.data.map((thread: { id: string }) => thread.id)).toEqual([allowed!.id])
+  })
+
   it.each([true, false])("preserves Console read-only access across HTTP routes: %s", async (readOnly) => {
     const user = { id: "ada", name: "Ada", role: "editor" }
     const session = commentsConsoleSession({
@@ -203,8 +281,25 @@ describe("Comments API", () => {
     expect(body.data.user).toEqual({ id: "ada", name: "Ada" })
   })
 
+  it("asks for an authorize policy before it lets in a user of the app's own sign-in in a production build", async () => {
+    const { call } = await setup({ options: { authorize: undefined } })
+    const threads = await call("/threads?page=/")
+    expect(threads.response.status).toBe(403)
+    expect(threads.body.error).toMatchObject({ code: "COMMENTS_POLICY_MISSING", fix: expect.stringContaining("authorize") })
+    const session = await call("/session")
+    expect(session.body.data.can).toMatchObject({ read: false, comment: false })
+  })
+
+  it("lets in the people that the Console admitted, without an authorize policy", async () => {
+    const consoleUser = { id: "console-ada", name: "Ada" }
+    const { call } = await setup({ options: { authorize: undefined, identify: undefined }, consoleSession: async () => consoleUser })
+    const created = await call("/threads", { method: "POST", json: { page: "/", anchor, body: "From the Console team" } })
+    expect(created.response.status).toBe(200)
+    expect((await call("/threads?page=/")).body.data).toHaveLength(1)
+  })
+
   it("denies threads to an anonymous user by default", async () => {
-    const { call } = await setup({ user: null })
+    const { call } = await setup({ user: null, options: { authorize: undefined } })
     const session = await call("/session")
     expect(session.body.data.can.read).toBe(false)
     expect(session.response.headers.get("set-cookie")).toBeNull()
@@ -310,7 +405,7 @@ describe("Comments API", () => {
   })
 
   it.each([false, true])("answers Nuxt 4 H3 1 events and retains forge work: %s", async (forge) => {
-    const comments = await createComments({ identify: () => ({ id: "ada", name: "Ada" }), forge: forge ? { provider: "github" } : undefined })
+    const comments = await createComments({ identify: () => ({ id: "ada", name: "Ada" }), authorize: () => true, forge: forge ? { provider: "github" } : undefined })
     const work: Promise<unknown>[] = []
     const waitUntil = vi.fn((promise: Promise<unknown>) => { work.push(promise) })
     const handler = createCommentsHandler({ comments, realtime: false })
@@ -462,7 +557,7 @@ describe("Comments API", () => {
     const [, thread] = await comments.create({ page: "/", anchor, body: "Typo herre", author: { id: "ada", name: "Ada" } })
     const messageId = thread!.messages[0]!.id
     expect((await call(`/threads/${thread!.id}`)).body.data).toMatchObject({ id: thread!.id, messages: [{ body: "Typo herre" }], can: { comment: true } })
-    expect((await call("/threads/missing")).response.status).toBe(404)
+    expect((await call("/threads/missing")).body.data).toBeNull()
     const edited = await call(`/threads/${thread!.id}/comments/${messageId}`, { method: "PATCH", json: { body: "Typo here" } })
     expect(edited.body.data).toMatchObject({ id: thread!.id, messages: [{ body: "Typo here", editedAt: expect.any(Number) }] })
     user = { id: "grace", name: "Grace" }
@@ -471,16 +566,16 @@ describe("Comments API", () => {
     expect((await comments.get(thread!.id))[1]!.messages[0]!.body).toBe("Typo here")
   })
 
-  it("stores uploads with the checks of comments.upload, and attaches their keys", async () => {
+  it("stores attachments with the checks of comments.upload, and attaches their keys", async () => {
     const stored: string[] = []
     const { comments, call } = await setup({ options: { storeAttachment: (file, context) => {
       stored.push(`${file.name} ${file.type} ${file.size} ${context.subject?.id}`)
       return `uploads/${file.name}`
     } } })
-    const uploaded = await call("/uploads", { method: "POST", json: { name: "shot.png", type: "image/png", data: btoa("png"), page: "/pricing/" } })
+    const uploaded = await call("/attachments", { method: "POST", json: { name: "shot.png", type: "image/png", data: btoa("png"), subject: { kind: "page", id: "/pricing" } } })
     expect(uploaded.body.data).toEqual({ key: "uploads/shot.png", name: "shot.png", type: "image/png", size: 3 })
     expect(stored).toEqual(["shot.png image/png 3 /pricing"])
-    const svg = await call("/uploads", { method: "POST", json: { name: "x.svg", type: "image/svg+xml", data: btoa("<svg/>") } })
+    const svg = await call("/attachments", { method: "POST", json: { name: "x.svg", type: "image/svg+xml", data: btoa("<svg/>") } })
     expect([svg.response.status, svg.body.error?.code]).toEqual([415, "COMMENTS_R0017"])
     const created = await call("/threads", { method: "POST", json: { page: "/pricing", anchor, body: "", attachments: ["uploads/shot.png"] } })
     expect(created.body.data.messages[0]).toMatchObject({ body: "", attachments: ["uploads/shot.png"] })
@@ -488,11 +583,11 @@ describe("Comments API", () => {
     expect((await comments.get(created.body.data.id))[1]!.messages[1]!.attachments).toEqual(["uploads/log.txt"])
   })
 
-  it("refuses uploads without a place to store them, or from a person who may not write", async () => {
+  it("refuses attachments without a place to store them, or from a person who may not write", async () => {
     const plain = await setup()
-    const missing = await plain.call("/uploads", { method: "POST", json: { name: "a.txt", type: "text/plain", data: btoa("a") } })
+    const missing = await plain.call("/attachments", { method: "POST", json: { name: "a.txt", type: "text/plain", data: btoa("a") } })
     expect([missing.response.status, missing.body.error?.code]).toEqual([501, "COMMENTS_R0014"])
     const reader = await setup({ options: { authorize: ({ action }) => action === "read", storeAttachment: () => "never" } })
-    expect((await reader.call("/uploads", { method: "POST", json: { name: "a.txt", type: "text/plain", data: btoa("a") } })).response.status).toBe(403)
+    expect((await reader.call("/attachments", { method: "POST", json: { name: "a.txt", type: "text/plain", data: btoa("a") } })).response.status).toBe(403)
   })
 })

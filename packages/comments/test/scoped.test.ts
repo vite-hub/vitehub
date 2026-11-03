@@ -72,8 +72,9 @@ describe("threads on subjects of the app", () => {
     expect(seen.map(context => context.subject?.kind)).toEqual(["page", "doc"])
   })
 
-  it("keeps threads on other subjects out of the page API and the MCP tools", async () => {
-    const comments = await withDocs({ identify: () => ({ id: "ada", name: "Ada" }) })
+  it("shows threads on other subjects through the Comments API only as authorize allows, and keeps them out of the MCP page tools", async () => {
+    // The policy keeps documents to their app routes: no access through the Comments API.
+    const comments = await withDocs({ identify: () => ({ id: "ada", name: "Ada" }), authorize: ({ subject }) => subject?.kind !== "doc" })
     const [, scoped] = await comments.create({ subject: doc("1"), body: "Private to the app", author: ada })
     await comments.create({ page: "/", anchor, body: "On the page", author: ada })
     const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false }))
@@ -82,10 +83,18 @@ describe("threads on subjects of the app", () => {
     expect(listed.data.map((thread: { subject: { kind: string } }) => thread.subject.kind)).toEqual(["page"])
     expect((await call(`/threads/${scoped!.id}/resolve`, { method: "POST" })).error?.code).toBe("COMMENTS_NOT_FOUND")
     expect((await call(`/threads/${scoped!.id}`, { method: "DELETE" })).error?.code).toBe("COMMENTS_NOT_FOUND")
+    expect((await call(`/threads/${scoped!.id}`)).data).toBeNull()
 
-    const tools = Object.fromEntries(commentsMcpTools(comments).map(tool => [tool.name, tool]))
+    // A policy that lets people read documents opens them through the same routes, for an app's own UI.
+    const open = await withDocs({ identify: () => ({ id: "ada", name: "Ada" }), authorize: () => true })
+    const [, doc1] = await open.create({ subject: doc("1"), body: "Shared", author: ada })
+    const openApp = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments: open, realtime: false }))
+    const openList = await (await openApp.fetch(new Request("http://site.test/api/_vitehub/comments/threads?subjectKind=doc&subjectId=1"))).json() as { data: Array<{ id: string }> }
+    expect(openList.data.map(thread => thread.id)).toEqual([doc1!.id])
+
+    const tools = Object.fromEntries(commentsMcpTools(open).map(tool => [tool.name, tool]))
     const context = { user: { id: "ada", name: "Ada" }, event: undefined }
-    expect((await tools.comments_list_threads!.call({}, context)).text).not.toContain("Private to the app")
-    expect((await tools.comments_get_thread!.call({ id: scoped!.id }, context)).isError).toBe(true)
+    expect((await tools.comments_list_threads!.call({}, context)).text).not.toContain("Shared")
+    expect((await tools.comments_get_thread!.call({ id: doc1!.id }, context)).isError).toBe(true)
   })
 })

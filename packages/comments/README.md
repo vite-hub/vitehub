@@ -17,7 +17,7 @@ export default defineConfig({ plugins: [comments()] })
 
 There is nothing else to set up. `comments()` adds Nitro as the server unless the app has it, serves the Comments API, and keeps threads in `.vitehub/data/comments.sqlite`, a file that it opens with Node's built-in `node:sqlite` and creates the tables in. On the dev server, anyone may comment as a guest. Open any page with `?vitehub`.
 
-A production build connects to `DATABASE_URL`, `TURSO_DATABASE_URL`, or a Cloudflare D1 binding `DB`, whichever the server has. Or point it somewhere: `comments({ database: "d1:COMMENTS" })`, `"env:COMMENTS_DATABASE_URL"`, or `"file:./data/comments.sqlite"` on Node. Comments creates its tables there on first use, so there is no migration.
+A production build connects to `DATABASE_URL`, `TURSO_DATABASE_URL`, or a Cloudflare D1 binding `DB`, whichever the server has. Or point it somewhere: `comments({ database: "d1:COMMENTS" })`, `"env:COMMENTS_DATABASE_URL"`, or `"file:./data/comments.sqlite"` on Node. Comments creates its tables there on first use, and moves the tables of an earlier version before its first query, so there is no migration to run.
 
 ### Sign in with GitHub
 
@@ -32,15 +32,15 @@ Create a GitHub App, install it on the repository, and list `https://<site>/api/
 import { defineComments } from "vite-hub/comments"
 
 export const comments = defineComments({
-  // Who may read, comment, and resolve. Without it, people signed in with GitHub who can push to the repository, and
-  // users of any other sign-in, may do everything; guests may on the dev server only.
+  // Who may read, comment, and resolve. Without it, a production build lets in only people signed in with GitHub who
+  // can push to the repository, and people that the Console admits to Comments; everyone may on the dev server.
   authorize: ({ user }) => user?.role === "editor",
 })
 ```
 
 ViteHub then adds the `vitehub_comment_threads`, `vitehub_comment_messages`, `vitehub_comment_counters`, and `vitehub_comment_forge` tables to the default Database (or the only one, or `defineComments({ database: "name" })`; without a Database Definition, the implicit `default` Database of `@vite-hub/database`), serves `/api/_vitehub/comments/**`, and adds a Comments section to the Console. Apply the tables with `vitehub db generate` and `vitehub db migrate`.
 
-A Database with the tables of the earlier live-site model must move them once: see [Upgrade to one model](https://vitehub.dev/docs/comments/configure#upgrade-to-one-model). `migrateComments(db)` from `@vite-hub/comments/database` moves them in place and keeps the old tables as a backup.
+A ViteHub Database with the tables of the earlier live-site model must move them once in a migration: see [Upgrade to one model](https://vitehub.dev/docs/comments/configure#upgrade-to-one-model). Until then every Comments request fails with `COMMENTS_R0019`, whose `fix` names `commentsMigrationSql({ from: "live" })`. `migrateComments(db)` from `@vite-hub/comments/database` moves them in place and keeps the old tables as a backup.
 
 Comments is a ViteHub page tool. Open any page with `?vitehub`, or `?vitehub=comments`. The server adds the page tools loader to that page. The loader calls `GET /_vitehub/page/session`, which allows Comments when `authorize` allows `read` or offers GitHub sign-in or account switching, and sets the `vitehub-tools` cookie so later pages open in comment mode too. The loader then draws the ViteHub tools pill at the bottom of the page and imports the overlay. The overlay draws its toolbar in its segment of the pill, and its pins, cursors, and cards in `<vitehub-comments>`. The pill's **×** button turns the page tools off, so the toolbar has no close button of its own. A short note then says how to turn them on again, with **Undo**. The cookie is a hint, never a credential: every Comments route checks `authorize` again. A request without the hint gets the page with a short inline bootstrap that loads the loader in the browser only when the hint is there, so prerendered pages that a host serves as static files work too. Opening the Console calls the same session route, so the Console's people see the toolbar on the app's pages. The session route and the loader do not need the Console.
 
@@ -127,7 +127,7 @@ With access to the Content page tool, selecting **Edit** and a marked field open
 
 The overlay, the server API, the comment operations, the browser client, the Console, and MCP share one model: threads on a subject, numbered `n` in a scope, with Markdown `messages`, mentions as ids, `metadata`, an optional subject `revision`, and attachments. One `authorize` policy decides on every surface.
 
-A named `comments` export from `server/comments.ts` serves the overlay API and presence rooms; a default export serves the comment operations through the RPC. See [Comment operations](https://vitehub.dev/docs/comments/operations/get-started). Both keep threads in the same tables: `commentsSchema` from `/database`, or `commentsPostgresSchema` from `/database/postgres`.
+`server/comments.ts` exports one definition, as `comments` or as the default export. Either form runs every surface: the overlay and the Comments API, presence rooms, the MCP tools, and the comment operations of the Console, the CLI, and MCP. See [Comment operations](https://vitehub.dev/docs/comments/operations/get-started). Threads live in `commentsSchema` from `/database`, or `commentsPostgresSchema` from `/database/postgres` with `vitehub({ comments: { dialect: "postgresql" } })`.
 
 ## Browser client
 
@@ -139,7 +139,7 @@ This package holds what the server and the UI share:
 - `@vite-hub/comments/client` has no framework. It makes anchors, finds them again, and calls the comment operations through a transport.
 - `@vite-hub/comments/testing` has `createMemoryTransport()` for tests and docs examples.
 
-The Vue parts are in `@vite-hub/ui/comments`. Use `createRpcTransport()` from `@vite-hub/comments/rpc` with Comments Operations, or supply a transport for your backend. The overlay uses the anchoring API of `@vite-hub/comments/anchor`, which writes `element` anchors with placement hints.
+The Vue parts are in `@vite-hub/ui/comments`. Use `createRestTransport()` from `@vite-hub/comments/client` for the Comments API, which guests and share-link readers can use too, or `createRpcTransport()` from `@vite-hub/comments/rpc` for the operations RPC, which needs Console access. `transport.attachmentUrl(key)` of the REST transport is the URL of an attachment for people who may read its thread. The overlay uses the anchoring API of `@vite-hub/comments/anchor`, which writes `element` anchors with placement hints.
 
 ## Anchors
 

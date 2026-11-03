@@ -24,6 +24,7 @@ export type {
   CommentsDefinition,
   CommentsGitHubAccess,
   CommentsPeople,
+  CommentsReadAttachmentContext,
   CommentsStoreAttachmentContext,
   CommentSubjectDefinition,
   CommentsUser,
@@ -76,6 +77,8 @@ export interface DefineCommentsOptions extends CommentsDefinition {
 
 export interface ListCommentThreadsOptions {
   subject?: CommentSubject
+  /** Only threads about this kind of subject, across all its ids. */
+  subjectKind?: string
   /** An app path. The same as a `page` subject. */
   page?: string
   /** Only the threads of this numbering scope, such as `site`. */
@@ -131,6 +134,7 @@ export type CommentsErrorCode =
   | "COMMENTS_NOT_FOUND"
   | "COMMENTS_INVALID_INPUT"
   | "COMMENTS_FORBIDDEN"
+  | "COMMENTS_POLICY_MISSING"
   | "COMMENTS_RESOLVED"
   | "COMMENTS_CONTENT_MISSING"
   | "COMMENTS_FIELD_INVALID"

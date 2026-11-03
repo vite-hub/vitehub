@@ -44,16 +44,17 @@ export const comments = defineComments({
 
 `thread` is the thread that the action changes. It is `undefined` for lists and for new threads; a new thread has `subject`. The same policy runs for the overlay, the [comment operations](/docs/comments/operations/configure), the Console, MCP, and Agents.
 
-Without `authorize`, the person decides:
+Without `authorize`, a production build lets in only people that a sign-in already checked. Anyone may be able to sign up to an app, so a user of ViteHub Auth or `identify` waits until you write a policy:
 
 | Person | Without `authorize` |
 | --- | --- |
-| Signed in [with GitHub](#sign-in-with-github) | May do everything when they can push to the repository of the build. Nothing otherwise. |
-| Signed in another way: `identify`, the Console, or ViteHub Auth | May do everything. |
-| Not signed in, on the dev server | May do everything, as a guest under a name they type. |
+| Signed in [with GitHub](#sign-in-with-github) | May do everything when they can push to the repository of the build. Nothing otherwise, also on the dev server. |
+| Admitted by the [Console](#comment-as-the-console-team) to its Comments section | May do everything that the Console grant allows. The comment operations, the CLI, and MCP always run after this check. |
+| Signed in with ViteHub Auth or `identify`, in a production build | Nothing. The API answers [`COMMENTS_POLICY_MISSING`](/docs/comments/limits-and-errors#comments_policy_missing), and the server log shows `COMMENTS_R0006` once. |
+| Anyone on the dev server | May do everything. People who are not signed in comment as guests under a name they type. |
 | Not signed in, in a production build | Nothing. |
 
-The default guest policy follows Vite's serve/build command. Production builds deny anonymous access regardless of the server's `NODE_ENV`.
+The dev server follows Vite's serve/build command, never the server's `NODE_ENV`. `defaultPolicy(user, { development, console })` from `vite-hub/comments` is this table as a function, so a policy of your own can fall back to it.
 
 The user comes from `identify`, else from the [Console](#comment-as-the-console-team) when the app has one, else from the ViteHub Auth session when the app has [Auth](/docs/auth), else from [Sign in with GitHub](#sign-in-with-github).
 
@@ -345,7 +346,9 @@ node --input-type=module -e "import { commentsMigrationSql } from 'vite-hub/comm
 
 A Database that already has the tables of the comment operations gets the new `metadata`, `context`, and `revision` columns and the `vitehub_comment_forge` table from a normal `vitehub db generate`.
 
-**A Database that `comments()` opens itself.** Run `migrateComments(db)` once with a Drizzle database of it. It reads the tables first, so a second run does nothing:
+Until the tables move, every Comments request fails with [`COMMENTS_R0019`](/docs/comments/operations/limits-and-errors) and status `503`. Its `fix` names this migration. Comments reads the tables once per server process, so after `vitehub db migrate` the next request works without a restart.
+
+**A Database that `comments()` opens itself.** The SQLite file, the `env:` libSQL URL, and the D1 binding of `comments()` belong to Comments, so it moves them itself: before the first query of each server process, it runs `migrateComments()` and creates the tables that are missing. Requests that arrive during the move wait for it. To move the tables before a deploy instead, run `migrateComments(db)` with a Drizzle database of it. It reads the tables first, so a second run does nothing:
 
 ```ts [scripts/migrate-comments.ts]
 import { createClient } from '@libsql/client'
@@ -357,7 +360,7 @@ console.log(await migrateComments(db))
 // { from: 'live', statements: [...], backup: 'vitehub_comment_threads_live' }
 ```
 
-For Cloudflare D1, write the SQL to a file and run it with `wrangler d1 execute COMMENTS --remote --file comments-one-model.sql`. Until a Database moves, `comments()` fails on its first request with `no such column: subject_kind`.
+For Cloudflare D1, you can also write the SQL to a file and run it with `wrangler d1 execute COMMENTS --remote --file comments-one-model.sql`.
 
 `migrateComments(db, { dialect: 'postgresql' })` adds the new columns to Postgres tables of the comment operations. The live-site model had no Postgres tables.
 
@@ -421,7 +424,7 @@ The server checked each person in `users`. `link` is the app path that opens the
 
 ## Attach files
 
-A message can keep files: `attachments` holds their keys. The `comments.upload` operation stores a file and returns `{ key, name, type, size }`; pass the key in `attachments` of `comments.create` or `comments.reply`. A message with attachments may have no text. Uploads need `write` on the subject.
+A message can keep files: `attachments` holds their keys. The `comments.upload` operation, or `POST /api/_vitehub/comments/attachments`, stores a file and returns `{ key, name, type, size }`; pass the key in `attachments` of `comments.create` or `comments.reply`. A message with attachments may have no text. Uploads need `write` on the subject.
 
 Without an option, Comments stores the file in the [Blob](/docs/blob) store of the app, under `comments/<id>/<name>`. To store files yourself, such as with the other files of your app, return the key from `storeAttachment`:
 
@@ -434,10 +437,26 @@ export const comments = defineComments({
     // file: { name, type, size, data: Uint8Array }, already checked
     return await saveImage({ owner: user?.id, subject, ...file })
   },
+  // Pairs with storeAttachment: the file of a key, as a Blob with its media type, or null.
+  readAttachment: async (key, { user, thread }) => await readImage(key),
 })
 ```
 
-Comments checks the size and the type before it calls `storeAttachment`: at most 5 MB of PNG, JPEG, GIF, WebP, AVIF, PDF, or plain text. See [Limits](/docs/comments/limits-and-errors#limits). Comments does not serve attachments: show them with a route that checks `comments.can({ user, action: 'read', thread })` first. Without Blob and without `storeAttachment`, uploads fail with `COMMENTS_R0014`.
+Comments checks the size and the type before it calls `storeAttachment`: at most 5 MB of PNG, JPEG, GIF, WebP, AVIF, PDF, or plain text. See [Limits](/docs/comments/limits-and-errors#limits). Without Blob and without `storeAttachment`, uploads fail with `COMMENTS_R0014`.
+
+**Show attachments.** `GET /api/_vitehub/comments/attachments/<key>` answers the file to a person who may read a thread with a message that lists the key. Anyone else, and a key that no message lists yet, gets `404` with `COMMENTS_R0020`. It reads the file with `readAttachment`, else from the Blob store; with `storeAttachment` and no `readAttachment`, it answers `COMMENTS_R0021`. Build the URL with `transport.attachmentUrl(key)` of [`createRestTransport()`](/docs/comments/server-api#rest-transport), or `commentAttachmentUrl(key)`, and use it as the `src` of a thumbnail. The `comments.attachment` operation returns the same file in Base64, for the CLI.
+
+The answer keeps a browser from running the file:
+
+| Header | Value |
+| --- | --- |
+| `Content-Type` | The stored type, when Comments attaches that type. Any other type, such as SVG or HTML from your own `storeAttachment`, answers as `application/octet-stream`. |
+| `Content-Disposition` | `inline` for PNG, JPEG, GIF, WebP, and AVIF; `attachment` for PDF, text, and every other type, with the file name. |
+| `X-Content-Type-Options` | `nosniff` |
+| `Content-Security-Policy` | `default-src 'none'; sandbox` |
+| `Cache-Control` | `private, max-age=300` |
+
+A key is the right to read through any thread that lists it, so keep keys hard to guess. The keys of the Blob store carry a random id.
 
 ## Turn comment mode on and off
 

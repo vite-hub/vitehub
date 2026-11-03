@@ -90,9 +90,15 @@ describe("defineComments", () => {
     log.mockRestore()
   })
 
-  it("lets signed-in users act by default, and follows authorize", async () => {
+  it("lets in only vetted people by default, and follows authorize", async () => {
     expect(await defineComments().can({ user: null, action: "read" })).toBe(false)
-    expect(await defineComments().can({ user: { id: "ada" }, action: "resolve" })).toBe(true)
+    // A user of the app's own sign-in waits for a policy in a production build, but not on the dev server.
+    expect(await defineComments().can({ user: { id: "ada" }, action: "resolve" })).toBe(false)
+    expect(await defineComments().can({ user: { id: "ada" }, action: "resolve" }, { development: true })).toBe(true)
+    // The Console admitted them, or GitHub says they can push.
+    expect(await defineComments().can({ user: { id: "ada" }, action: "resolve" }, { console: true })).toBe(true)
+    expect(await defineComments().can({ user: { id: "ada", github: { login: "ada", write: true } }, action: "delete" })).toBe(true)
+    expect(await defineComments().can({ user: null, action: "read" }, { console: true })).toBe(false)
     const editorsOnly = defineComments({ authorize: ({ user, action }) => action === "read" || user?.role === "editor" })
     expect(await editorsOnly.can({ user: null, action: "read" })).toBe(true)
     expect(await editorsOnly.can({ user: { id: "w", role: "writer" }, action: "write" })).toBe(false)

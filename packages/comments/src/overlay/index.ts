@@ -58,7 +58,7 @@ class CommentsOverlay extends HTMLElement {
     this.restoreDocumentState()
     this.cleanups.push(() => this.documentStyle.remove())
 
-    const [error, session] = await api.session()
+    const [error, session] = await api.session(normalizeCommentPage(location.pathname))
     const allowed = this.active && !error && session.can.read
     if (bar) bar.hidden = !allowed
     if (!this.active) return

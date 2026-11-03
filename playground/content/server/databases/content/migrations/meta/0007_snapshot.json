@@ -1752,30 +1752,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "vitehub_comment_scope_counters": {
-      "name": "vitehub_comment_scope_counters",
-      "columns": {
-        "scope": {
-          "name": "scope",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "last_number": {
-          "name": "last_number",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "vitehub_comment_threads": {
       "name": "vitehub_comment_threads",
       "columns": {
@@ -1791,19 +1767,24 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": "'pages'"
+          "autoincrement": false
         },
-        "number": {
-          "name": "number",
+        "n": {
+          "name": "n",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": 0
+          "autoincrement": false
         },
-        "page": {
-          "name": "page",
+        "subject_kind": {
+          "name": "subject_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "subject_id": {
+          "name": "subject_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -1816,29 +1797,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "context": {
-          "name": "context",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "metadata": {
-          "name": "metadata",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "status": {
           "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_by": {
-          "name": "created_by",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -1853,6 +1813,55 @@
         },
         "resolved_at": {
           "name": "resolved_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "author_id": {
+          "name": "author_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "author_name": {
+          "name": "author_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "author_image": {
+          "name": "author_image",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "actor": {
+          "name": "actor",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "context": {
+          "name": "context",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,
@@ -1874,25 +1883,26 @@
         }
       },
       "indexes": {
-        "vitehub_comment_threads_page": {
-          "name": "vitehub_comment_threads_page",
-          "columns": [
-            "page",
-            "status"
-          ],
-          "isUnique": false
-        },
-        "vitehub_comment_threads_number": {
-          "name": "vitehub_comment_threads_number",
+        "vitehub_comment_threads_scope_n": {
+          "name": "vitehub_comment_threads_scope_n",
           "columns": [
             "scope",
-            "number"
+            "n"
           ],
           "isUnique": true
         },
-        "vitehub_comment_threads_updated": {
-          "name": "vitehub_comment_threads_updated",
+        "vitehub_comment_threads_subject": {
+          "name": "vitehub_comment_threads_subject",
           "columns": [
+            "subject_kind",
+            "subject_id"
+          ],
+          "isUnique": false
+        },
+        "vitehub_comment_threads_status": {
+          "name": "vitehub_comment_threads_status",
+          "columns": [
+            "status",
             "updated_at"
           ],
           "isUnique": false
@@ -1903,8 +1913,8 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "vitehub_comments": {
-      "name": "vitehub_comments",
+    "vitehub_comment_messages": {
+      "name": "vitehub_comment_messages",
       "columns": {
         "id": {
           "name": "id",
@@ -1927,6 +1937,34 @@
           "notNull": true,
           "autoincrement": false
         },
+        "author_id": {
+          "name": "author_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "author_name": {
+          "name": "author_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "author_image": {
+          "name": "author_image",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "actor": {
+          "name": "actor",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "mentions": {
           "name": "mentions",
           "type": "text",
@@ -1934,8 +1972,8 @@
           "notNull": true,
           "autoincrement": false
         },
-        "author": {
-          "name": "author",
+        "attachments": {
+          "name": "attachments",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -1957,8 +1995,8 @@
         }
       },
       "indexes": {
-        "vitehub_comments_thread": {
-          "name": "vitehub_comments_thread",
+        "vitehub_comment_messages_thread": {
+          "name": "vitehub_comment_messages_thread",
           "columns": [
             "thread_id",
             "created_at"
@@ -1966,21 +2004,31 @@
           "isUnique": false
         }
       },
-      "foreignKeys": {
-        "vitehub_comments_thread_id_vitehub_comment_threads_id_fk": {
-          "name": "vitehub_comments_thread_id_vitehub_comment_threads_id_fk",
-          "tableFrom": "vitehub_comments",
-          "columnsFrom": [
-            "thread_id"
-          ],
-          "tableTo": "vitehub_comment_threads",
-          "columnsTo": [
-            "id"
-          ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "vitehub_comment_counters": {
+      "name": "vitehub_comment_counters",
+      "columns": {
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "next": {
+          "name": "next",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
         }
       },
+      "indexes": {},
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}

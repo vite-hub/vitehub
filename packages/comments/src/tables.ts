@@ -1,8 +1,8 @@
 /**
  * The tables of `commentsSchema` as SQLite statements that are safe to run on every start. A database that Comments
  * opens itself gets them on first use; a ViteHub Database gets the same tables from `vitehub db generate` instead.
- * On a database that still has the tables of the live-site model, the subject index fails with
- * "no such column: subject_kind": run `migrateComments()` once.
+ * A database that still has the tables of the live-site model needs `migrateComments()` first; `installComments()`
+ * runs it with `schema: "comments"`.
  */
 export const commentsTables: readonly string[] = [
   "CREATE TABLE IF NOT EXISTS `vitehub_comment_threads` (`id` text PRIMARY KEY NOT NULL, `scope` text NOT NULL, `n` integer NOT NULL, `subject_kind` text NOT NULL, `subject_id` text NOT NULL, `anchor` text NOT NULL, `status` text NOT NULL, `resolved_by` text, `resolved_at` integer, `author_id` text NOT NULL, `author_name` text, `author_image` text, `actor` text, `metadata` text, `context` text, `revision` integer, `created_at` integer NOT NULL, `updated_at` integer NOT NULL)",

@@ -203,6 +203,8 @@ export interface CommentThread {
 
 export interface CommentListQuery {
   subject?: CommentSubject
+  /** Only threads about this kind of subject, across all its ids. */
+  subjectKind?: string
   /** An app path. The same as a `page` subject. */
   page?: string
   status?: CommentStatus
