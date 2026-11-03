@@ -138,6 +138,13 @@ function stampOf(path: string): string | undefined {
   }
 }
 
+function assertNoWal(path: string) {
+  const stamp = stampOf(`${path}-wal`)
+  if (stamp && !stamp.startsWith("0:")) {
+    throw new WasmSqliteError(`Cannot open ${path} with SQLite WASM while its WAL file contains data. Checkpoint the WAL and close the native SQLite connections before retrying.`, "SQLITE_BUSY", 5)
+  }
+}
+
 function toError(error: unknown, sqlite3: Sqlite3 | undefined): WasmSqliteError {
   if (error instanceof WasmSqliteError) return error
   const message = error instanceof Error ? error.message : String(error)
@@ -147,20 +154,24 @@ function toError(error: unknown, sqlite3: Sqlite3 | undefined): WasmSqliteError 
 }
 
 function openDatabase(sqlite3: Sqlite3, path: string | undefined): { db: Database, stamp: string | undefined } {
+  if (path) assertNoWal(path)
   const db = new sqlite3.oo1.DB(":memory:", "c")
   if (!path) return { db, stamp: undefined }
   mkdirSync(dirname(path), { recursive: true })
   const stamp = stampOf(path)
   if (!stamp || stamp.startsWith("0:")) return { db, stamp }
   const bytes = new Uint8Array(readFileSync(path))
-  // A file that native SQLite left in WAL mode has file format 2. An in-memory database cannot use WAL, so read it as a rollback-journal file.
+  // With no pending WAL, a WAL-mode main file is safe to read as a rollback-journal file in memory.
   if (bytes.length >= 20 && bytes[18] === 2 && bytes[19] === 2) {
     bytes[18] = 1
     bytes[19] = 1
   }
-  const pointer = sqlite3.wasm.allocFromTypedArray(bytes)
+  // sqlite3_deserialize recommends at least 20 zero bytes of padding for malformed input.
+  const buffer = new Uint8Array(bytes.length + 20)
+  buffer.set(bytes)
+  const pointer = sqlite3.wasm.allocFromTypedArray(buffer)
   const flags = sqlite3.capi.SQLITE_DESERIALIZE_FREEONCLOSE | sqlite3.capi.SQLITE_DESERIALIZE_RESIZEABLE
-  const rc = sqlite3.capi.sqlite3_deserialize(db.pointer!, "main", pointer, bytes.length, bytes.length, flags)
+  const rc = sqlite3.capi.sqlite3_deserialize(db.pointer!, "main", pointer, bytes.length, buffer.length, flags)
   if (rc !== 0) {
     db.close()
     throw new WasmSqliteError(`Could not read the SQLite file ${path}.`, sqlite3.capi.sqlite3_js_rc_str(rc) || "SQLITE_ERROR", rc)
@@ -268,6 +279,9 @@ export function createWasmSqliteClient(options: WasmSqliteClientOptions): WasmSq
       const opened = openDatabase(loaded, path)
       database.db = opened.db
       database.fileStamp = opened.stamp
+    }).catch((error) => {
+      database.ready = undefined
+      throw error
     })
     await database.ready
     return loaded
@@ -285,6 +299,8 @@ export function createWasmSqliteClient(options: WasmSqliteClientOptions): WasmSq
   // Another process may have written the file. Read it again before the next statement outside a transaction.
   function reloadIfChanged(loaded: Sqlite3) {
     if (!path || inTransaction()) return
+    // WAL commits may not change the main file's stamp.
+    assertNoWal(path)
     const stamp = stampOf(path)
     if (stamp === database.fileStamp || stamp === undefined) return
     const opened = openDatabase(loaded, path)
@@ -295,6 +311,7 @@ export function createWasmSqliteClient(options: WasmSqliteClientOptions): WasmSq
 
   function flush() {
     if (!path || inTransaction()) return
+    assertNoWal(path)
     const bytes = sqlite3!.capi.sqlite3_js_db_export(db())
     const temporary = `${path}.${process.pid}.tmp`
     writeFileSync(temporary, bytes)
@@ -355,9 +372,9 @@ export function createWasmSqliteClient(options: WasmSqliteClientOptions): WasmSq
 
   async function exclusive<T>(work: () => T): Promise<T> {
     if (closed) throw new WasmSqliteError("The client is closed", "CLIENT_CLOSED")
-    const loaded = await ready()
     const release = await acquire()
     try {
+      const loaded = await ready()
       reloadIfChanged(loaded)
       return work()
     }
@@ -416,7 +433,6 @@ export function createWasmSqliteClient(options: WasmSqliteClientOptions): WasmSq
     }),
     async transaction(mode = "write") {
       if (closed) throw new WasmSqliteError("The client is closed", "CLIENT_CLOSED")
-      const loaded = await ready()
       const release = await acquire()
       let done = false
       const end = () => {
@@ -431,6 +447,7 @@ export function createWasmSqliteClient(options: WasmSqliteClientOptions): WasmSq
         }
       }
       try {
+        const loaded = await ready()
         reloadIfChanged(loaded)
         run(beginStatement(mode))
       }
@@ -470,21 +487,20 @@ export function createWasmSqliteClient(options: WasmSqliteClientOptions): WasmSq
       return undefined
     },
     async reconnect() {
-      if (closed) throw new WasmSqliteError("The client is closed", "CLIENT_CLOSED")
-      await ready()
+      await exclusive(() => {})
     },
     close() {
       if (closed) return
       closed = true
       database.clients--
       if (database.clients > 0) return
-      if (path && sharedDatabases.get(path) === database) sharedDatabases.delete(path)
-      // Statements still queued run first, then the database closes.
-      const ready = database.ready
-      void database.lock.then(async () => {
-        await ready?.catch(() => undefined)
+      // Keep the entry available to reopened clients until all admitted work has finished.
+      const lock = database.lock
+      void lock.then(() => {
+        if (database.clients > 0 || database.lock !== lock) return
         database.db?.close()
         database.db = undefined
+        if (path && sharedDatabases.get(path) === database) sharedDatabases.delete(path)
       })
     },
   }

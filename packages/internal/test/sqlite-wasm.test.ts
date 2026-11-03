@@ -60,6 +60,53 @@ describe("createWasmSqliteClient", () => {
     second.close()
   })
 
+  it("keeps one database when the last client closes during a transaction and another opens", async () => {
+    const path = join(dir, "reopen.sqlite")
+    const url = `file:${path}`
+    const client = createWasmSqliteClient({ url })
+    await client.execute("CREATE TABLE t (n INTEGER)")
+    const transaction = await client.transaction("write")
+    await transaction.execute("INSERT INTO t VALUES (1)")
+    client.close()
+
+    const reopened = createWasmSqliteClient({ url })
+    const inserted = reopened.execute("INSERT INTO t VALUES (2)")
+    // Let the reopened client reach the old transaction's lock before committing.
+    await new Promise<void>(resolve => setImmediate(resolve))
+    try {
+      await transaction.commit()
+      await inserted
+      expect((await reopened.execute("SELECT n FROM t ORDER BY n")).rows.map(row => row.n)).toEqual([1, 2])
+      const native = new DatabaseSync(path)
+      try {
+        expect(native.prepare("SELECT n FROM t ORDER BY n").all()).toEqual([{ n: 1 }, { n: 2 }])
+      }
+      finally {
+        native.close()
+      }
+    }
+    finally {
+      transaction.close()
+      reopened.close()
+    }
+  })
+
+  it("finishes queued work when a client closes before initialization", async () => {
+    const url = `file:${join(dir, "initializing.sqlite")}`
+    const client = createWasmSqliteClient({ url })
+    const created = client.execute("CREATE TABLE t (n INTEGER)")
+    client.close()
+    const reopened = createWasmSqliteClient({ url })
+    try {
+      await created
+      await reopened.execute("INSERT INTO t VALUES (1)")
+      expect((await reopened.execute("SELECT n FROM t")).rows.map(row => row.n)).toEqual([1])
+    }
+    finally {
+      reopened.close()
+    }
+  })
+
   it("commits and rolls back transactions and batches", async () => {
     const path = join(dir, "tx.sqlite")
     const client = createWasmSqliteClient({ url: `file:${path}` })
@@ -110,6 +157,62 @@ describe("createWasmSqliteClient", () => {
     client.close()
   })
 
+  it("rejects a file with uncheckpointed WAL commits without replacing it", async () => {
+    const path = join(dir, "wal.sqlite")
+    const native = new DatabaseSync(path)
+    native.exec("CREATE TABLE t (n INTEGER); PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; INSERT INTO t VALUES (7)")
+    const original = await readFile(path)
+    const wal = await readFile(`${path}-wal`)
+    const client = createWasmSqliteClient({ url: `file:${path}` })
+    try {
+      await expect(client.execute("SELECT n FROM t")).rejects.toMatchObject({ code: "SQLITE_BUSY" })
+      await expect(client.execute("INSERT INTO t VALUES (8)")).rejects.toMatchObject({ code: "SQLITE_BUSY" })
+      expect(await readFile(path)).toEqual(original)
+      expect(await readFile(`${path}-wal`)).toEqual(wal)
+      expect(native.prepare("SELECT n FROM t").all()).toEqual([{ n: 7 }])
+    }
+    finally {
+      client.close()
+      native.close()
+    }
+
+    // Closing the native connection checkpoints its WAL, so the file is safe to import again.
+    const reopened = createWasmSqliteClient({ url: `file:${path}` })
+    try {
+      expect((await reopened.execute("SELECT n FROM t")).rows.map(row => row.n)).toEqual([7])
+    }
+    finally {
+      reopened.close()
+    }
+  })
+
+  it("rejects WAL commits made after a client opened, even if the main file did not change", async () => {
+    const path = join(dir, "external-wal.sqlite")
+    const client = createWasmSqliteClient({ url: `file:${path}` })
+    await client.execute("CREATE TABLE t (n INTEGER)")
+    const native = new DatabaseSync(path)
+    try {
+      native.exec("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0")
+      // Import the WAL-mode main file before any WAL frames exist.
+      await client.execute("SELECT n FROM t")
+      const original = await readFile(path)
+      native.exec("INSERT INTO t VALUES (7)")
+      expect(await readFile(path)).toEqual(original)
+      await expect(client.execute("SELECT n FROM t")).rejects.toMatchObject({ code: "SQLITE_BUSY" })
+      await expect(client.execute("INSERT INTO t VALUES (8)")).rejects.toMatchObject({ code: "SQLITE_BUSY" })
+      expect(await readFile(path)).toEqual(original)
+    }
+    finally {
+      native.close()
+    }
+    try {
+      expect((await client.execute("SELECT n FROM t")).rows.map(row => row.n)).toEqual([7])
+    }
+    finally {
+      client.close()
+    }
+  })
+
   it("rejects a file that is not SQLite", async () => {
     const path = join(dir, "broken.sqlite")
     await writeFile(path, "not a database, but long enough to have a header field")
@@ -117,6 +220,23 @@ describe("createWasmSqliteClient", () => {
     await expect(client.execute("SELECT 1")).rejects.toMatchObject({ name: "LibsqlError" })
     client.close()
     expect(await readFile(path, "utf8")).toContain("not a database")
+  })
+
+  it("rejects a truncated SQLite file without replacing the malformed input", async () => {
+    const path = join(dir, "truncated.sqlite")
+    const native = new DatabaseSync(path)
+    native.exec("CREATE TABLE t (n INTEGER); INSERT INTO t VALUES (1)")
+    native.close()
+    const truncated = (await readFile(path)).subarray(0, 100)
+    await writeFile(path, truncated)
+    const client = createWasmSqliteClient({ url: `file:${path}` })
+    try {
+      await expect(client.execute("SELECT n FROM t")).rejects.toMatchObject({ name: "LibsqlError" })
+      expect(await readFile(path)).toEqual(truncated)
+    }
+    finally {
+      client.close()
+    }
   })
 })
 
