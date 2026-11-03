@@ -349,6 +349,23 @@ describe("@vite-hub/shell just-bash runtime", () => {
     expect(stop).toHaveBeenCalledOnce()
   })
 
+  it("applies Just Bash execution limits copied at provider creation", async () => {
+    const loop = "i=0; while [ $i -lt 100 ]; do i=$((i+1)); done; echo $i"
+    const fs = createReadonlyWorkspaceFs(new MemoryWorkspace({}))
+    const executionLimits = { maxLoopIterations: 10 }
+    const limited = createShellRuntime({ provider: createJustBashProvider({ executionLimits, fs }) })
+    executionLimits.maxLoopIterations = 1_000
+
+    await expect(limited.exec(loop)).resolves.toMatchObject({
+      exitCode: 126,
+      stderr: expect.stringContaining("too many iterations (10)"),
+    })
+    await expect(createShellRuntime({ provider: createJustBashProvider({ fs }) }).exec(loop)).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "100\n",
+    })
+  })
+
   it("passes exec stdin to Just Bash commands", async () => {
     const runtime = createShellRuntime({
       provider: createJustBashProvider({ fs: createReadonlyWorkspaceFs(new MemoryWorkspace({})) }),
@@ -387,6 +404,67 @@ describe("@vite-hub/shell just-bash runtime", () => {
       method: "POST",
       url: "https://portal.example.com/runtime/inventory-health",
     })
+  })
+
+  it.each([
+    {
+      name: "without Shell limits",
+      executionLimits: {},
+      execOptions: {},
+      expected: { event: "command_finished", exitCode: 0, outputTruncated: false, stdout: "éé" },
+    },
+    {
+      name: "with a Shell character limit",
+      executionLimits: {},
+      execOptions: { maxOutputLength: 1, timeout: 20 },
+      expected: { event: "command_finished", exitCode: 0, outputTruncated: true, stdout: "é\n[output truncated to 1 characters]\n" },
+    },
+    {
+      name: "with a Shell timeout",
+      executionLimits: {},
+      execOptions: { timeout: 5 },
+      expected: { event: "command_timed_out", exitCode: null, timedOut: true, stdout: "" },
+    },
+    {
+      name: "with an interpreter byte limit",
+      executionLimits: { maxOutputSize: 1 },
+      execOptions: {},
+      expected: { event: "command_finished", exitCode: 126, stderr: expect.stringContaining("executionLimits.maxOutputSize"), stdout: "" },
+    },
+    {
+      name: "with an interpreter deadline",
+      executionLimits: { maxExecutionTimeMs: 1 },
+      execOptions: {},
+      expected: { event: "command_finished", exitCode: 124, stderr: expect.stringContaining("execution deadline"), stdout: "" },
+    },
+  ])("applies interpreter and Shell controls to controlled curl $name", async ({ executionLimits, execOptions, expected }) => {
+    await import("just-bash/browser")
+    vi.useFakeTimers()
+    try {
+      const executeSourceRequest = vi.fn(async (input: { signal?: AbortSignal }) => {
+        await new Promise(resolve => setTimeout(resolve, 10))
+        input.signal?.throwIfAborted()
+        return { content: "éé" }
+      })
+      const provider = createJustBashProvider({
+        executionLimitProfile: "hardened",
+        executionLimits,
+        fs: createReadonlyWorkspaceFs(new MemoryWorkspace({})),
+        networkGrants: { executeSourceRequest },
+      })
+
+      const pending = provider.exec("curl https://portal.example.com/action", execOptions)
+      await vi.advanceTimersByTimeAsync(10)
+
+      await expect(pending).resolves.toMatchObject(expected)
+      expect(executeSourceRequest).toHaveBeenCalledOnce()
+      if (execOptions.timeout === 5 || executionLimits.maxExecutionTimeMs !== undefined) {
+        expect(executeSourceRequest.mock.calls[0]![0].signal?.aborted).toBe(true)
+      }
+    }
+    finally {
+      vi.useRealTimers()
+    }
   })
 
   it("bounds controlled Source output before it reaches the Shell observation", async () => {

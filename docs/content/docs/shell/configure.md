@@ -12,10 +12,22 @@ Shell providers implement `ShellExecutionProvider`. Shell has provider adapters,
 
 | Provider | Configure with | Boundary |
 | --- | --- | --- |
-| Just Bash | `createJustBashProvider({ fs, commands?, cwd?, networkGrants? })` | Runs `just-bash` against the filesystem adapter you provide. Network is off unless you pass `networkGrants`. No background or interactive processes. Output callbacks run once after the command ends. |
+| Just Bash | `createJustBashProvider({ fs, commands?, cwd?, executionLimits?, executionLimitProfile?, networkGrants? })` | Runs `just-bash` against the filesystem adapter you provide. Network is off unless you pass `networkGrants`. No background or interactive processes. Output callbacks run once after the command ends. |
 | Custom | A `ShellExecutionProvider` object | Implement `boundary`, `exec`, and optional `analyze` and `startProcess`. |
 
 Just Bash starts in `/workspace` when you omit `cwd`. A provider `cwd` sets the default directory, and an `exec` `cwd` takes precedence. The provider reports the selected directory in its observations, including controlled curl and timeout results. Set `cwd` when your custom filesystem uses another root.
+
+`executionLimits` and `executionLimitProfile` pass through to the Just Bash interpreter. They bound interpreter work that a timeout alone can't stop cheaply: loop iterations, command count, call depth, jq/awk/sed iterations, file traversal, and retained bytes. `executionLimitProfile: "hardened"` selects Just Bash's stricter preset, and `executionLimits` values override it. Resource-limit failures exit with code 126 and name the limit in stderr; execution deadlines exit with code 124. The provider copies both options at creation.
+
+```ts
+const provider = createJustBashProvider({
+  fs,
+  executionLimitProfile: "hardened",
+  executionLimits: { maxLoopIterations: 10_000, maxCommandCount: 5_000 },
+})
+```
+
+Controlled `curl` runs as a Just Bash command through the Source network grant, including in pipelines and substitutions. Interpreter limits apply to its returned output and command deadline. Interpreter deadlines, Shell timeouts, and Shell cancellation abort the signal forwarded to the Source request. The Source executor must honor that signal. `maxOutputLength` truncates the returned output in characters. Source responses are buffered before interpreter output checks and Shell truncation; the Source executor must enforce response byte or memory limits while reading the response.
 
 Read `runtime.boundary` or `session.boundary` to check what the provider declares: CWD, env, filesystem mount point and write access, network, background and interactive processes, streaming, timeout enforcement, execution model, and output resource enforcement. These are provider declarations for portable inspection; they do not turn an in-process provider into an OS isolate.
 

@@ -1,4 +1,4 @@
-import type { CommandName, ExecResult } from "just-bash/browser"
+import type { BashOptions, CommandName, ExecResult } from "just-bash/browser"
 import type { IFileSystem } from "just-bash"
 
 import { analyzeShellCommand } from "../command/analyze.ts"
@@ -15,9 +15,19 @@ export interface JustBashFileSystem extends IFileSystem {
   readonly writeFs: boolean
 }
 
+export type JustBashExecutionLimits = NonNullable<BashOptions["executionLimits"]>
+export type JustBashExecutionLimitProfile = NonNullable<BashOptions["executionLimitProfile"]>
+
 export interface JustBashProviderOptions {
   commands?: string[]
   cwd?: string
+  /**
+   * Limits for commands evaluated by Just Bash, including loops, command count, call depth, and output size.
+   * Also applies to controlled curl output and command deadlines; deadlines abort the Source request signal.
+   */
+  executionLimits?: JustBashExecutionLimits
+  /** Just Bash preset applied before `executionLimits` (default: `normal`). */
+  executionLimitProfile?: JustBashExecutionLimitProfile
   fs: JustBashFileSystem
   networkGrants?: ShellNetworkGrantExecutor
 }
@@ -40,6 +50,8 @@ export interface ShellNetworkRequestResult {
 export function createJustBashProvider(options: JustBashProviderOptions): ShellExecutionProvider {
   const commands = options.commands?.slice()
   const networkGrants = options.networkGrants
+  const executionLimits = options.executionLimits && { ...options.executionLimits }
+  const executionLimitProfile = options.executionLimitProfile
   const boundary: ShellBoundary = {
     cwd: true,
     env: true,
@@ -78,8 +90,8 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
         const { Bash, defineCommand } = await import("just-bash/browser")
         let policyDenied = false
         // Just Bash parses the line and calls this for every `curl`, including inside pipelines and substitutions.
-        const curl = defineCommand("curl", async (args) => {
-          const curlResult = await runControlledCurl(args, { commands, networkGrants, signal: runOptions.signal })
+        const curl = defineCommand("curl", async (args, ctx) => {
+          const curlResult = await runControlledCurl(args, { commands, networkGrants, signal: ctx.signal ?? runOptions.signal })
           policyDenied ||= curlResult.policyDenied
           return curlResult
         })
@@ -88,6 +100,8 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
           commands: commands as CommandName[] | undefined,
           customCommands: [curl],
           cwd,
+          executionLimitProfile,
+          executionLimits,
           fs: options.fs,
         })
         return await bash.exec(command, {
@@ -332,9 +346,8 @@ async function withProviderTimeout(
   const controller = new AbortController()
   const abortListener = options.signal ? () => controller.abort(options.signal?.reason) : undefined
   if (abortListener) options.signal?.addEventListener("abort", abortListener, { once: true })
-  const runOptions = options.signal || typeof options.timeout === "number"
-    ? { ...options, signal: controller.signal }
-    : options
+  // Just Bash creates a cancellable command context only when exec receives a signal.
+  const runOptions = { ...options, signal: controller.signal }
   let timeout: ReturnType<typeof setTimeout> | undefined
   let onAbort: (() => void) | undefined
   const aborted = options.signal
