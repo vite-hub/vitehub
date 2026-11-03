@@ -86,23 +86,15 @@ describe("Comments in a built Nitro 3 app", () => {
       }
       const subject = { id: "/pricing", kind: "page" }
 
-      // The overlay: the loader tag is in the SPA page and in a server-rendered page, once, and the files are served for good.
-      const tag = /<script type="module" src="(\/_vitehub\/comments\/loader\.[\w-]+\.js\?f=(overlay\.[\w-]+\.js))"><\/script>/
+      // The overlay is the `comments` page tool: each page gets the page tools bootstrap once, also a server-rendered one.
       const home = await (await server.fetch("/")).text()
-      const found = tag.exec(home)
-      expect(found, home).not.toBeNull()
-      expect(home.match(/comments\/loader\./g)).toHaveLength(1)
+      expect(home.match(/data-vitehub-page-tools/g), home).toHaveLength(1)
       const rendered = await (await server.fetch("/ssr")).text()
-      expect(rendered).toBe(`<html><body><h1>Rendered</h1>${found![0]}${viteHubPageToolsInlineScript("")}</body></html>`)
+      expect(rendered).toBe(`<html><body><h1>Rendered</h1>${viteHubPageToolsInlineScript("")}</body></html>`)
       expect(await call("comments.session", { subject })).toEqual({ canRead: true, canWrite: true, user: { id: "ana", name: "Ana" } })
-      for (const file of [found![1]!.split("?")[0]!, `/_vitehub/comments/${found![2]!}`]) {
-        const asset = await server.fetch(file)
-        expect(asset.status, file).toBe(200)
-        expect(asset.headers.get("content-type")).toContain("javascript")
-        expect(asset.headers.get("cache-control")).toMatch(/max-age=31536000/)
-      }
-      // The Console page is HTML too, and gets no overlay.
-      expect(await (await server.fetch("/_vitehub")).text()).not.toContain("comments/loader.")
+      const overlay = await server.fetch("/api/_vitehub/comments/assets/overlay.js")
+      expect(overlay.status).toBe(200)
+      expect(overlay.headers.get("content-type")).toContain("javascript")
 
       const created = await call<CommentThread>("comments.create", { anchor: { kind: "page" }, body: "Too small.", subject })
       expect(created).toMatchObject({ author: { id: "ana", name: "Ana" }, n: 1, status: "open", subject })
@@ -114,37 +106,18 @@ describe("Comments in a built Nitro 3 app", () => {
       expect(resolved.status).toBe("resolved")
       expect(await call<CommentThread[]>("comments.list", { status: "open" })).toEqual([])
       expect((await call<CommentThread[]>("comments.list", { status: "resolved" })).map(thread => thread.id)).toEqual([created.id])
+
+      // One server/comments.ts: the Comments API of the overlay reads and writes the same threads as the operations.
+      const api = async (path: string, init: RequestInit = {}) => await server.fetch(`/api/_vitehub/comments${path}`, { ...init, headers: { "content-type": "application/json", "x-test-user": "ana", ...init.headers } })
+      const overApi = await (await api("/threads?page=/pricing&status=resolved")).json() as { data: CommentThread[] }
+      expect(overApi.data.map(thread => thread.id)).toEqual([created.id])
+      const reopened = await (await api(`/threads/${created.id}/reopen`, { method: "POST" })).json() as { data: CommentThread }
+      expect(reopened.data.status).toBe("open")
+      expect((await call<CommentThread[]>("comments.list", { status: "open" })).map(thread => thread.id)).toEqual([created.id])
     }
     finally {
       server.close()
     }
-  }, 240_000)
-
-  it.each([undefined, false] as const)("omits the production overlay when console is %s", async (console) => {
-    const root = await createProject({
-      "index.html": "<!doctype html><html><body><main>ok</main></body></html>",
-      "package.json": JSON.stringify({ name: "comments-no-rpc", private: true, type: "module" }),
-      "server/comments.ts": "import { defineComments } from 'vite-hub/comments'\nexport default defineComments({ authorize: () => true })\n",
-      "server/routes/ssr.ts": "export default () => new Response('<html><body>Rendered</body></html>', { headers: { 'content-type': 'text/html' } })\n",
-    })
-    process.chdir(root)
-    const { nitro } = await import("nitro/vite")
-    const builder = await createBuilder({
-      cacheDir: `${root}.vite-cache`, logLevel: "silent", root,
-      plugins: [vitehub({ console, preset: "node" }), nitro()],
-    })
-    await builder.buildApp()
-    const server = await startBuiltServer(root, {})
-    try {
-      for (const path of ["/", "/ssr"]) {
-        const response = await server.fetch(path)
-        expect(response.status).toBe(200)
-        expect(await response.text()).not.toContain("/_vitehub/comments/loader.")
-      }
-      const entries = await readdir(join(root, ".output/public/_vitehub/comments")).catch(() => [])
-      expect(entries).toEqual([])
-    }
-    finally { server.close() }
   }, 240_000)
 
   it("fails the build with COMMENTS_B0001 when the app sets database: false, and leaves apps without comments alone", async () => {

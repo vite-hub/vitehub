@@ -127,7 +127,7 @@ With access to the Content page tool, selecting **Edit** and a marked field open
 
 The overlay, the server API, the comment operations, the browser client, the Console, and MCP share one model: threads on a subject, numbered `n` in a scope, with Markdown `messages`, mentions as ids, `metadata`, an optional subject `revision`, and attachments. One `authorize` policy decides on every surface.
 
-A named `comments` export from `server/comments.ts` serves the overlay API and presence rooms; a default export serves the comment operations through the RPC. See [Comment operations](https://vitehub.dev/docs/comments/operations/get-started). Both keep threads in the same tables: `commentsSchema` from `/database`, or `commentsPostgresSchema` from `/database/postgres`.
+`server/comments.ts` exports one definition, as `comments` or as the default export. Either form runs every surface: the overlay and the Comments API, presence rooms, the MCP tools, and the comment operations of the Console, the CLI, and MCP. See [Comment operations](https://vitehub.dev/docs/comments/operations/get-started). Threads live in `commentsSchema` from `/database`, or `commentsPostgresSchema` from `/database/postgres` with `vitehub({ comments: { dialect: "postgresql" } })`.
 
 ## Browser client
 

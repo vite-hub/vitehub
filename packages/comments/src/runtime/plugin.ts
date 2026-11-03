@@ -21,7 +21,7 @@ export interface CommentsPluginOptions extends CommentsSessionOptions {
    * Path of the overlay script below the app base, such as `/api/_vitehub/comments/assets/overlay.js`. The page tools
    * loader imports it for people that may read comments.
    */
-  overlay: string
+  overlay: string | false
   /** The app base, such as `/portal/`. The page tools use it for the loader tag of Nitro 3 pages. Default: the root. */
   base?: string
   /** Vite's serve/build identity, recorded by the generated plugin. Defaults to false. */
@@ -34,6 +34,9 @@ export interface CommentsPluginOptions extends CommentsSessionOptions {
   attachments?: InstallCommentsOptions["attachments"]
   /** Who keeps the tables up to date: `comments` for a Database that `comments()` opens itself. Default `app`. */
   schema?: InstallCommentsOptions["schema"]
+  /** The tables of a Postgres Database. Default: the SQLite tables. */
+  tables?: InstallCommentsOptions["tables"]
+  dialect?: InstallCommentsOptions["dialect"]
 }
 
 const runtimeKey = Symbol.for("vitehub.comments.installed")
@@ -57,6 +60,8 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
         database,
         development: options.development === true,
         ...(options.schema ? { schema: options.schema } : {}),
+        ...(options.tables ? { tables: options.tables } : {}),
+        ...(options.dialect ? { dialect: options.dialect } : {}),
         ...(options.users ? { users: options.users } : {}),
         ...(options.attachments ? { attachments: options.attachments } : {}),
       })
@@ -66,11 +71,14 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
     // The ViteHub MCP server at `/_vitehub/mcp` lists them for people with Console access to Comments.
     registerViteHubMcpTools("comments", commentsMcpTools(options.comments, { session: options.session, consoleSession: options.consoleSession }))
 
+    // `overlay: false` leaves the page tool out; the API, the operations, and the Console stay.
+    if (options.overlay === false) return
+    const script = options.overlay
     registerViteHubPageTool(nitroApp, {
       id: "comments",
       label: "Comments",
       icon: "i-lucide-message-square-text",
-      script: options.overlay,
+      script,
       lazy: true,
       async allowed({ event }) {
         // SAFETY: the page tools session passes the H3 event of its Nitro route, which the session readers accept.

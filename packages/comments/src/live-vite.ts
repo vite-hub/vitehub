@@ -45,6 +45,8 @@ export interface CommentsImports {
   contentClient: string
   /** Exports `connectDatabase`, for Workers. Its `/node` subpath also opens SQLite files. */
   connect: string
+  /** Exports `blob`, the Blob store that attachments go to when the app has Blob. */
+  blob: string
 }
 
 /** Options of `comments()`, for apps that use Comments without `vite-hub`. */
@@ -85,6 +87,14 @@ export interface CommentsVitePluginOptions {
    * SQLite file that it opens itself, and signs people in with GitHub.
    */
   standalone?: CommentsOptions
+  /** The Database Definition that receives the tables. Default: `defineComments({ database })`, else the default or only Database. */
+  database?: string
+  /** SQL dialect of that Database. `postgresql` uses the Postgres tables. Default `sqlite`: SQLite, libSQL, and D1. */
+  dialect?: "postgresql" | "sqlite"
+  /** Store attachments in the app's Blob store. Default `false`: uploads need `defineComments({ storeAttachment })`. */
+  blob?: boolean
+  /** `false` leaves the overlay out: no `comments` page tool. The API, the operations, and the Console stay. */
+  overlay?: false
 }
 
 export interface CommentsRealtimeContributionContext {
@@ -122,6 +132,7 @@ const defaultImports: CommentsImports = {
   databases: "@vite-hub/database/drizzle",
   contentClient: "@vite-hub/content/client",
   connect: "@vite-hub/comments/runtime/connect",
+  blob: "@vite-hub/blob",
 }
 
 /**
@@ -134,6 +145,7 @@ export async function readCommentsDatabase(file: string): Promise<string | undef
   if (module.errors.length) return
   const bindings = new Set<string>()
   const factories = new Set(["defineComments"])
+  let defaultCall: ReturnType<typeof unwrapExpression> | undefined
   for (const statement of module.program.body) {
     if (statement.type === "ImportDeclaration" && statement.importKind !== "type" && ["vite-hub/comments", "@vite-hub/comments"].includes(statement.source.value)) {
       for (const specifier of statement.specifiers) {
@@ -141,6 +153,13 @@ export async function readCommentsDatabase(file: string): Promise<string | undef
         const name = specifier.imported.type === "Identifier" ? specifier.imported.name : specifier.imported.value
         if (name === "defineComments") factories.add(specifier.local.name)
       }
+    }
+    // `export default defineComments({ … })`, or `export default comments`.
+    if (statement.type === "ExportDefaultDeclaration") {
+      const value = unwrapExpression(statement.declaration as Parameters<typeof unwrapExpression>[0])
+      if (value.type === "Identifier") bindings.add(value.name)
+      else if (value.type === "CallExpression" && value.callee.type === "Identifier") defaultCall = value
+      continue
     }
     if (statement.type !== "ExportNamedDeclaration" || statement.source) continue
     if (statement.declaration?.type === "VariableDeclaration") {
@@ -153,23 +172,25 @@ export async function readCommentsDatabase(file: string): Promise<string | undef
       if (name === "comments" && specifier.local.type === "Identifier") bindings.add(specifier.local.name)
     }
   }
+  const databaseOf = (call: ReturnType<typeof unwrapExpression>): string | undefined => {
+    if (call.type !== "CallExpression" || call.callee.type !== "Identifier" || !factories.has(call.callee.name)) return
+    const options = argumentExpression(call.arguments[0])
+    if (options?.type !== "ObjectExpression") return
+    for (const property of objectProperties(options).reverse()) {
+      // A later spread or dynamic key may replace an earlier Database option.
+      if (property.key === undefined) return
+      if (property.key !== "database") continue
+      if (property.node.type !== "Property" || property.node.kind !== "init" || property.node.method) return
+      return staticString(property.value)
+    }
+  }
+  if (defaultCall) return databaseOf(defaultCall)
   for (const statement of module.program.body) {
     const declaration = statement.type === "ExportNamedDeclaration" ? statement.declaration : statement
     if (declaration?.type !== "VariableDeclaration") continue
     for (const binding of declaration.declarations) {
       if (binding.id.type !== "Identifier" || !bindings.has(binding.id.name) || !binding.init) continue
-      const call = unwrapExpression(binding.init)
-      if (call.type !== "CallExpression" || call.callee.type !== "Identifier" || !factories.has(call.callee.name)) continue
-      const options = argumentExpression(call.arguments[0])
-      if (options?.type !== "ObjectExpression") return
-      for (const property of objectProperties(options).reverse()) {
-        // A later spread or dynamic key may replace an earlier Database option.
-        if (property.key === undefined) return
-        if (property.key !== "database") continue
-        if (property.node.type !== "Property" || property.node.kind !== "init" || property.node.method) return
-        return staticString(property.value)
-      }
-      return
+      return databaseOf(unwrapExpression(binding.init))
     }
   }
 }
@@ -298,6 +319,15 @@ export async function readCommentsComponents(root: string, limit = 5000, resolve
 
 const version = "4"
 
+/** Generated lines that read the definition of `server/comments.ts`: its `comments` export, else its default export. */
+function definitionLines(definition: string, runtime: string): string[] {
+  return [
+    `import * as definitionModule from ${JSON.stringify(pathToFileURL(definition).href)}`,
+    `import { commentsDefinitionOf } from ${JSON.stringify(runtime)}`,
+    `const comments = commentsDefinitionOf(definitionModule, ${JSON.stringify(definition)})`,
+  ]
+}
+
 /** Generated session reader: the Console user of a request, else the ViteHub Auth user. */
 function sessionLines(options: CommentsVitePluginOptions, imports: CommentsImports): { imports: string[], option: "session" | "consoleSession", value: string } {
   if (options.console) {
@@ -338,7 +368,7 @@ export function renderCommentsHandler(input: { definition: string, content?: str
   return [
     `import { createCommentsHandler${githubLogin ? ", createCommentsGitHubLogin" : ""} } from ${JSON.stringify(input.imports.runtime)}`,
     `import components from "./components.mjs"`,
-    `import { comments } from ${JSON.stringify(pathToFileURL(input.definition).href)}`,
+    ...definitionLines(input.definition, input.imports.runtime),
     ...session.imports,
     ...(input.content
       ? [
@@ -362,6 +392,8 @@ export function renderCommentsHandler(input: { definition: string, content?: str
 
 export function renderCommentsPlugin(input: { definition: string, database?: string, session?: CommentsVitePluginOptions, imports: CommentsImports, standalone?: StandaloneDatabase, development?: boolean, build?: CommentBuild, base?: string }): string {
   const session = sessionWithGitHubLines(input.session ?? {}, input.imports, input.build?.repository, input.base)
+  const postgres = input.session?.dialect === "postgresql"
+  const overlay = input.session?.overlay === false ? "false" : JSON.stringify(`${commentsRoute}/assets/overlay.js?v=${version}`)
   if (input.standalone) {
     const { where, fallback, node } = input.standalone
     const options = [`name: "comments"`, ...(fallback ? [`fallback: ${JSON.stringify(fallback)}`] : [])]
@@ -370,13 +402,13 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
       `import { defineCommentsPlugin } from ${JSON.stringify(input.imports.runtime)}`,
       // A Worker build imports no node:sqlite.
       `import { connectDatabase } from ${JSON.stringify(node ? `${input.imports.connect}/node` : input.imports.connect)}`,
-      `import { comments } from ${JSON.stringify(pathToFileURL(input.definition).href)}`,
+      ...definitionLines(input.definition, input.imports.runtime),
       ...session.imports,
       "",
       `const database = () => connectDatabase(${where === undefined ? "undefined" : JSON.stringify(where)}, { ${options.join(", ")} })`,
       "",
       // Comments opened this database itself, so it creates and migrates its tables before the first query.
-      `export default defineCommentsPlugin({ comments, database, schema: "comments", ${session.option}: ${session.value}, ${session.githubLogin ? "githubLogin, " : ""}development: ${input.development === true}, overlay: ${JSON.stringify(`${commentsRoute}/assets/overlay.js?v=${version}`)}, base: ${JSON.stringify(input.base ?? "")} })`,
+      `export default defineCommentsPlugin({ comments, database, schema: "comments", ${session.option}: ${session.value}, ${session.githubLogin ? "githubLogin, " : ""}development: ${input.development === true}, overlay: ${overlay}, base: ${JSON.stringify(input.base ?? "")} })`,
       "",
     ].join("\n")
   }
@@ -384,14 +416,27 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
   return [
     `import { defineCommentsPlugin, selectCommentsDatabase } from ${JSON.stringify(input.imports.runtime)}`,
     `import { databases } from ${JSON.stringify(input.imports.databases)}`,
-    `import { comments } from ${JSON.stringify(pathToFileURL(input.definition).href)}`,
+    ...definitionLines(input.definition, input.imports.runtime),
     ...session.imports,
     "",
     `const database = () => selectCommentsDatabase(databases${input.database ? `, ${JSON.stringify(input.database)}` : ""})`,
     "",
     // With Auth, `@` suggests the users of Auth.
     ...(input.session?.auth ? [`import { commentsAuthUsers } from ${JSON.stringify(input.imports.auth)}`] : []),
-    `export default defineCommentsPlugin({ comments, database, ${session.option}: ${session.value}, ${session.githubLogin ? "githubLogin, " : ""}${input.session?.auth ? "users: commentsAuthUsers, " : ""}development: ${input.development === true}, overlay: ${JSON.stringify(`${commentsRoute}/assets/overlay.js?v=${version}`)}, base: ${JSON.stringify(input.base ?? "")} })`,
+    ...(input.session?.blob ? [`import { blob } from ${JSON.stringify(input.imports.blob)}`] : []),
+    ...(postgres ? [`import { commentsPostgresSchema as schema } from ${JSON.stringify(`${input.imports.database}/postgres`)}`] : []),
+    `export default defineCommentsPlugin({ ${[
+      "comments",
+      "database",
+      `${session.option}: ${session.value}`,
+      ...(session.githubLogin ? ["githubLogin"] : []),
+      ...(input.session?.auth ? ["users: commentsAuthUsers"] : []),
+      ...(input.session?.blob ? ["attachments: blob"] : []),
+      ...(postgres ? ["dialect: \"postgresql\"", "tables: { commentCounters: schema.vitehubCommentCounters, commentMessages: schema.vitehubCommentMessages, commentThreads: schema.vitehubCommentThreads, commentForge: schema.vitehubCommentForge }"] : []),
+      `development: ${input.development === true}`,
+      `overlay: ${overlay}`,
+      `base: ${JSON.stringify(input.base ?? "")}`,
+    ].join(", ")} })`,
     "",
   ].join("\n")
 }
@@ -535,7 +580,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         await mkdir(context.directory, { recursive: true })
         await writeFile(file, [
           `import { commentsRealtime } from ${JSON.stringify(imports.realtime)}`,
-          `import { comments } from ${JSON.stringify(pathToFileURL(definition).href)}`,
+          ...definitionLines(definition, imports.runtime),
           ...session.imports,
           "",
           `export default commentsRealtime(comments, { ${session.option}: ${session.value} })`,
@@ -570,11 +615,12 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         const root = projectRoot ?? context.projectRoot ?? context.rootDir ?? context.root ?? process.cwd()
         const definition = findCommentsEntry(root, serverDirs ?? context.serverDirs?.slice())
         if (!definition) return []
-        const database = await readCommentsDatabase(definition)
+        const database = options.database ?? await readCommentsDatabase(definition)
+        const postgres = options.dialect === "postgresql"
         return [{
           ...(database ? { database } : {}),
-          definition: { export: "commentsSchema", module: imports.database },
-          dialect: "sqlite",
+          definition: postgres ? { export: "commentsPostgresSchema", module: `${imports.database}/postgres` } : { export: "commentsSchema", module: imports.database },
+          dialect: postgres ? "postgresql" : "sqlite",
           name: "comments",
           reason: "Stores the comment threads of `server/comments.ts`.",
         }]
@@ -605,7 +651,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         const pageSession = join(directory, "page-session.mjs")
         componentsFile = join(directory, "components.mjs")
         const build = await readCommentsBuild(projectRoot)
-        const pluginInput = { definition, database: await readCommentsDatabase(definition), session: options, imports, build, base, development }
+        const pluginInput = { definition, database: options.database ?? await readCommentsDatabase(definition), session: options, imports, build, base, development }
         await Promise.all([
           writeFile(handler, renderCommentsHandler({ definition, content: findContentEntry(projectRoot, serverDirs), session: options, realtime, imports, build, base })),
           writeComponents(),

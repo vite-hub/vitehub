@@ -101,4 +101,4 @@ Start with one plugin. Add more when you need it, without changing what you have
 
 ## Comments through Operations
 
-To store numbered threads on custom subjects and authorize each CLI, MCP, Console, or browser operation, use a [default-export Comments Definition](/docs/comments/operations/get-started). The named `comments` export described above keeps the live-site overlay API. Use one entry form per application; they install different Database schemas.
+The same `server/comments.ts` also runs the [comment operations](/docs/comments/operations/get-started): numbered threads on subjects of your own, for the CLI, MCP, the Console, and your own UI. Export the definition as `comments` or as the default export; both run every surface on the same tables.

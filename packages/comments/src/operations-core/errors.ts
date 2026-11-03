@@ -99,7 +99,7 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Remove `database: false` from vitehub(), or set `database: true`. vitehub() turns the Database on for comments when the option is unset.",
     },
     COMMENTS_B0002: {
-      why: ({ file }: { file: string }) => `${file} must default-export defineComments().`,
+      why: ({ file }: { file: string }) => `${file} must export defineComments(), as \`comments\` or as the default export.`,
       fix: "Write `export default defineComments({ authorize })` in server/comments.ts.",
     },
   },

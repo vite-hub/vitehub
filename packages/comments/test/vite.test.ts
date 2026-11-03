@@ -124,7 +124,7 @@ describe("hubComments", () => {
     const without = hubComments()
     await configure(without, await project({}))
     const transform = (plugin: ReturnType<typeof hubComments>, page: string) => (plugin.transformIndexHtml as { handler: (html: string) => string | undefined }).handler(page)
-    expect(transform(without, html)).toBe(html)
+    expect(transform(without, html)).toBeUndefined()
     const plugin = hubComments()
     await configure(plugin, await project({ "server/comments.ts": "export const comments = defineComments()" }), "build", { base: "/portal/" })
     const page = transform(plugin, html)

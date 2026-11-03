@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url"
 import { afterEach, expect, it } from "vitest"
 import { resolveConfig } from "vite"
 import { hubDb } from "@vite-hub/database/vite"
-import { commentsEntryMode, hubComments } from "../src/vite.ts"
+import { hubComments, readCommentsDatabase } from "../src/vite.ts"
 import { defineComments } from "../src/index.ts"
 import { isCommentsDefinition } from "../src/operations-core/define.ts"
 
@@ -13,55 +13,41 @@ const projects: string[] = []
 afterEach(async () => { await Promise.all(projects.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
 
 it.each([
-  { form: "default", source: "export default defineComments()" },
-  { form: "named", source: "export const comments = defineComments()" },
-  { form: "named", source: "export const comments = defineComments(); export type { Options as default }" },
-  { form: "named", source: "export const comments = defineComments(); export { type Options as default }" },
-  { form: "named", source: "export const comments = defineComments(); export default interface Options {}" },
-])("installs only the $form entry's runtime and tables: $source", async ({ form, source }) => {
+  "export default defineComments()",
+  "export const comments = defineComments()",
+  "export const comments = defineComments(); export type { Options as default }",
+  "export const comments = defineComments(); export default interface Options {}",
+])("runs every surface from one definition, whatever its export: %s", async (source) => {
   const root = await mkdtemp(join(tmpdir(), "comments-entry-"))
   projects.push(root)
   await mkdir(join(root, "server"))
-  const entry = join(root, "server/comments.ts")
-  await writeFile(entry, source)
-  expect(commentsEntryMode(entry)).toBe(form === "default" ? "operations" : "live")
+  await writeFile(join(root, "server/comments.ts"), source)
   const plugin = hubComments({ database: "main" })
   const config = { root }
   const hook = plugin.config
   if (!hook || typeof hook === "function") throw new Error("Expected a config handler")
   await hook.handler.call({} as never, config, { command: "build", mode: "production" })
   const tables = await plugin.vitehub.databases({ plugins: [], projectRoot: root, rootDir: root, root })
-  expect(tables).toHaveLength(1)
-  expect(tables[0]?.definition).toMatchObject({ export: "commentsSchema" })
+  expect(tables).toEqual([expect.objectContaining({ database: "main", definition: { export: "commentsSchema", module: "@vite-hub/comments/database" } })])
   const contributions = plugin.vitehub.operations
   const operations = typeof contributions === "function" ? await contributions() : contributions
-  expect(operations).toHaveLength(form === "default" ? 1 : 0)
+  expect(operations).toEqual([expect.objectContaining({ export: "commentsOperations" })])
+  // The overlay API, presence, the page tool, and MCP share the runtime that the operations use.
   const pluginSource = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
-  expect(pluginSource).toContain(form === "default" ? "validateCommentsDefinition(app.default" : "defineCommentsPlugin({ comments,")
+  expect(pluginSource).toContain("commentsDefinitionOf(definitionModule,")
+  expect(await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")).toContain("commentsDefinitionOf(definitionModule,")
 })
 
-it.each([
-  "export type { Options as comments }",
-  "export { type Options as comments }",
-  "export declare const comments: Options",
-])("does not select the live runtime for a type-only comments export: %s", async (source) => {
+it("reads the Database name of either export form", async () => {
   const root = await mkdtemp(join(tmpdir(), "comments-entry-"))
   projects.push(root)
   const entry = join(root, "comments.ts")
-  await writeFile(entry, source)
-  expect(commentsEntryMode(entry)).toBe("operations")
-})
-
-it("recognizes renamed exports and gives default exports precedence", async () => {
-  const root = await mkdtemp(join(tmpdir(), "comments-entry-"))
-  projects.push(root)
-  const entry = join(root, "comments.ts")
-  await writeFile(entry, "const site = {}; export { site as comments }")
-  expect(commentsEntryMode(entry)).toBe("live")
-  await writeFile(entry, "const site = {}; export { site as comments, site as default }")
-  expect(commentsEntryMode(entry)).toBe("operations")
-  await writeFile(entry, "export const unrelated = {}")
-  expect(commentsEntryMode(entry)).toBe("operations")
+  await writeFile(entry, "export default defineComments({ database: 'comments' })")
+  expect(await readCommentsDatabase(entry)).toBe("comments")
+  await writeFile(entry, "const c = defineComments({ database: 'named' }); export { c as comments }")
+  expect(await readCommentsDatabase(entry)).toBe("named")
+  await writeFile(entry, "const c = defineComments({ database: 'other' }); export default c")
+  expect(await readCommentsDatabase(entry)).toBe("other")
 })
 
 it("lets in vetted people by default, and nobody anonymous outside development", async () => {
@@ -79,9 +65,11 @@ it("generates the live handler after Realtime contributes its presence room", as
   const root = await mkdtemp(join(tmpdir(), "comments-entry-"))
   projects.push(root)
   await mkdir(join(root, "server"))
-  await writeFile(join(root, "server/comments.ts"), "export const comments = defineComments()")
+  await writeFile(join(root, "server/comments.ts"), `import { defineComments } from ${JSON.stringify(pathToFileURL(join(import.meta.dirname, "../src/index.ts")).href)}\nexport const comments = defineComments()`)
   const comments = hubComments()
   await resolveConfig({ configFile: false, root, logLevel: "silent", plugins: [
+    // Comments needs a Database.
+    { name: "@vite-hub/database/vite" },
     {
       name: "realtime-contribution",
       enforce: "pre",
