@@ -1543,3 +1543,31 @@ describe("comment boundaries", () => {
     }
   });
 });
+
+
+it("gates thread actions independently, including moderation and owner edits without replies", async () => {
+  const item = thread(1)
+  item.messages.push({ ...item.messages[0]!, id: "other", author: ben })
+  const onResolve = vi.fn().mockRejectedValue(new Error("Policy changed"))
+  const wrapper = mount(CommentThread, { attachTo: document.body, global, props: {
+    thread: item, user: ana, onEdit: vi.fn(), onDelete: vi.fn(), onReply: vi.fn(), onResolve,
+    permissions: { reply: false, resolve: true, edit: id => id === "message-1", delete: id => id === "other" },
+  } })
+  mounted.push(wrapper)
+  const messages = wrapper.findAll("[data-slot=comment-reply]")
+  expect(wrapper.find("textarea").exists()).toBe(false)
+  expect(messages[0]!.find("[aria-label=Edit]").exists()).toBe(true)
+  expect(messages[0]!.find("[aria-label=Delete]").exists()).toBe(false)
+  expect(messages[1]!.find("[aria-label=Edit]").exists()).toBe(false)
+  expect(messages[1]!.find("[aria-label=Delete]").exists()).toBe(true)
+  await wrapper.get("[aria-label=Resolve]").trigger("click")
+  await flushPromises()
+  expect(wrapper.get("[role=alert]").text()).toBe("Policy changed")
+  await wrapper.setProps({ permissions: { reply: true, resolve: false, edit: () => false, delete: () => false } })
+  expect(wrapper.find("[aria-label=Resolve]").exists()).toBe(false)
+  expect(wrapper.find("textarea").exists()).toBe(true)
+  expect(wrapper.find("[aria-label=Edit]").exists()).toBe(false)
+  expect(wrapper.find("[aria-label=Delete]").exists()).toBe(false)
+  await wrapper.setProps({ readOnly: true })
+  expect(wrapper.find("textarea").exists()).toBe(false)
+})

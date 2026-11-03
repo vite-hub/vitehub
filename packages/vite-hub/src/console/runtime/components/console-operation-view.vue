@@ -72,16 +72,10 @@ const detail = computed(() => view.value.detail);
 const openColumn = computed(() => view.value.columns.find(column => column.format === "excerpt") ?? view.value.columns[0]);
 const itemId = (item: Record<string, unknown>) => String(operationValue(item, "id"));
 const selectedItem = computed(() => items.value.find(item => itemId(item) === selectedId.value));
-const selectedLink = computed(() => selectedItem.value ? operationLink(selectedItem.value, view.value) : undefined);
 
-/** Put a changed item in the list, where the panel changed it. */
-function replaceItem(next: object): void {
-  const id = String(operationValue(next, "id"));
-  items.value = items.value.map(item => itemId(item) === id ? { ...next } : item);
-}
-
-function removeItem(id: string): void {
-  items.value = items.value.filter(item => itemId(item) !== id);
+/** Reload through the operation so its filters, ordering, and pagination still apply after a mutation. */
+function refreshItems(): void {
+  void load();
 }
 
 function choose(id: string): void {
@@ -185,10 +179,10 @@ onBeforeUnmount(() => controller?.abort());
       :id="selectedId"
       :definitions-base="definitionsBase"
       :initial="selectedItem"
-      :link="selectedLink"
-      @changed="replaceItem"
+      :view="view"
+      @changed="refreshItems"
       @close="selectedId = undefined"
-      @removed="removeItem"
+      @removed="refreshItems"
     />
   </ConsoleFrame>
 </template>

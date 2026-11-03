@@ -257,6 +257,8 @@ export const CommentThread = defineComponent({
     preview: { default: false, type: Boolean },
     /** Keep the full thread readable without reply, edit, delete, or status controls. */
     readOnly: { default: false, type: Boolean },
+    /** Optional action permissions. Without them, authors edit/delete their messages and every thread allows replies/status changes. */
+    permissions: { type: Object as PropType<{ reply: boolean; resolve: boolean; edit: (messageId: string) => boolean; delete: (messageId: string) => boolean }> },
     /** Show a reply as being sent, on top of the thread's own tracking. */
     busy: { default: false, type: Boolean },
     /** An error to show, on top of the ones from the handlers. */
@@ -393,7 +395,7 @@ export const CommentThread = defineComponent({
             h("span", { "data-slot": "comment-thread-title" }, `Comment ${thread.n}`),
             h("span", { "data-slot": "comment-thread-spacer" }),
             slots.actions ? h("div", { "data-slot": "comment-thread-actions" }, slots.actions({ thread })) : null,
-            props.readOnly ? null : h(UButton, {
+            props.readOnly || props.permissions?.resolve === false ? null : h(UButton, {
               "aria-label": resolved ? "Reopen" : "Resolve",
               color: "neutral",
               icon: resolved ? "i-ph-arrow-counter-clockwise" : "i-ph-check",
@@ -412,11 +414,11 @@ export const CommentThread = defineComponent({
               h(CommentReply, {
                 attachmentUrl: props.attachmentUrl,
                 confirmDelete: index === 0,
-                editable: !props.readOnly && message.author.id === user.value?.id,
+                editable: !props.readOnly && (props.permissions ? props.permissions.edit(message.id) || props.permissions.delete(message.id) : message.author.id === user.value?.id),
                 key: message.id,
                 message,
-                onDelete: props.onDelete,
-                onEdit: props.onEdit,
+                onDelete: props.permissions && !props.permissions.delete(message.id) ? undefined : props.onDelete,
+                onEdit: props.permissions && !props.permissions.edit(message.id) ? undefined : props.onEdit,
                 people: people.value,
                 user: user.value,
                 users: props.users,
@@ -429,7 +431,10 @@ export const CommentThread = defineComponent({
               : null,
             slots.after ? h("div", { "data-slot": "comment-thread-after" }, slots.after({ thread })) : null,
           ]),
-          props.readOnly ? null : h(CommentComposer, {
+          props.permissions?.reply === false && (failure.value ?? props.error)
+            ? h("p", { role: "alert" }, failure.value ?? props.error)
+            : null,
+          props.readOnly || props.permissions?.reply === false ? null : h(CommentComposer, {
             accept: props.accept,
             attachments: props.attachments,
             autofocus: false,

@@ -101,7 +101,7 @@ describe("operation view", () => {
       expect(url).toBe("/portal/_vitehub/rpc/__call")
       const body = JSON.parse(String(init?.body))
       calls.push(body)
-      if (body.operation === "comments.session") return Response.json({ ok: true, value: { canRead: true, canWrite: false, user: { id: "u1", name: "Ann" } } })
+      if (body.operation === "comments.session") return Response.json({ ok: true, value: { canRead: true, canWrite: false, capabilities: { reply: false, resolve: true, deleteThread: false, edit: ["m1"], delete: ["m2"] }, user: { id: "u1", name: "Ann" } } })
       if (body.operation === "comments.reply") return Response.json({ code: "COMMENTS_R0009", message: "You may not write here.", ok: false, status: 403 }, { status: 403 })
       return Response.json({ ok: true, value: { id: "t1" } })
     })
@@ -114,13 +114,13 @@ describe("operation view", () => {
       { input: { query: "an" }, operation: "comments.users" },
       { input: { body: "Hi @Ann", mentions: ["u1"], threadId: "t1" }, operation: "comments.reply" },
     ])
-    expect(await readConsoleCommentSession("/portal/api/_vitehub/console/definitions", { id: "/pricing", kind: "page" })).toEqual({ canWrite: false, user: { id: "u1", name: "Ann" } })
-    expect(calls.at(-1)).toEqual({ input: { subject: { id: "/pricing", kind: "page" } }, operation: "comments.session" })
+    expect(await readConsoleCommentSession("/portal/api/_vitehub/console/definitions", { id: "/pricing", kind: "page" }, undefined, "t1")).toEqual({ canWrite: false, capabilities: { reply: false, resolve: true, deleteThread: false, edit: ["m1"], delete: ["m2"] }, user: { id: "u1", name: "Ann" } })
+    expect(calls.at(-1)).toEqual({ input: { subject: { id: "/pricing", kind: "page" }, threadId: "t1" }, operation: "comments.session" })
   })
 
   it("reads a signed-out comments session as read-only", async () => {
     vi.stubGlobal("fetch", async () => Response.json({ ok: true, value: { canRead: false, canWrite: false, user: null } }))
-    expect(await readConsoleCommentSession("/api/_vitehub/console/definitions", { id: "/", kind: "page" })).toEqual({ canWrite: false, user: undefined })
+    expect(await readConsoleCommentSession("/api/_vitehub/console/definitions", { id: "/", kind: "page" })).toEqual({ canWrite: false, capabilities: { reply: false, resolve: false, deleteThread: false, edit: [], delete: [] }, user: undefined })
   })
 
   it("opens only list items that have the fields of a thread", () => {

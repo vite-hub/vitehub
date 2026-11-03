@@ -23,9 +23,10 @@ export function consoleCommentsTransport(path: string): CommentsTransport {
   }
 }
 
-/** What the Console user may do with the threads of one subject. */
+/** The Console identity and capabilities for one thread. */
 export interface ConsoleCommentSession {
   canWrite: boolean
+  capabilities: { reply: boolean, resolve: boolean, deleteThread: boolean, edit: string[], delete: string[] }
   user: CommentUser | undefined
 }
 
@@ -33,11 +34,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
 }
 
-/** Ask `comments.session` who the Console user is and whether they may write on `subject`. */
-export async function readConsoleCommentSession(path: string, subject: CommentSubject, signal?: AbortSignal): Promise<ConsoleCommentSession> {
-  const value = await requestConsoleOperation(path, "comments.session", { subject }, signal ? { signal } : {})
+/** Ask `comments.session` for the Console identity and, with `threadId`, action-specific capabilities. */
+export async function readConsoleCommentSession(path: string, subject: CommentSubject, signal?: AbortSignal, threadId?: string): Promise<ConsoleCommentSession> {
+  const value = await requestConsoleOperation(path, "comments.session", { subject, ...(threadId ? { threadId } : {}) }, signal ? { signal } : {})
   const user = isRecord(value) && isRecord(value.user) && typeof value.user.id === "string" ? value.user : undefined
+  const capabilities = isRecord(value) && isRecord(value.capabilities) ? value.capabilities : {}
+  const ids = (value: unknown): string[] => Array.isArray(value) ? value.filter((id): id is string => typeof id === "string") : []
   return {
+    capabilities: {
+      delete: ids(capabilities.delete),
+      deleteThread: capabilities.deleteThread === true,
+      edit: ids(capabilities.edit),
+      reply: capabilities.reply === true,
+      resolve: capabilities.resolve === true,
+    },
     canWrite: isRecord(value) && value.canWrite === true,
     // SAFETY: `comments.session` answers with a `CommentUser`, and the check above keeps its string `id`.
     user: user as CommentUser | undefined,

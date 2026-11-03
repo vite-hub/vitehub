@@ -103,8 +103,16 @@ export function callCommentsFixture(operation: string, input: Record<string, unk
     }
     case "comments.get":
       return ok(find(input) ?? null)
-    case "comments.session":
-      return ok({ canRead: true, canWrite: true, user: maxi })
+    case "comments.session": {
+      const thread = find(input)
+      return ok({ canRead: true, canWrite: true, user: maxi, capabilities: {
+        delete: thread?.messages.map(message => message.id) ?? [],
+        deleteThread: true,
+        edit: thread?.messages.filter(message => message.author.id === maxi.id).map(message => message.id) ?? [],
+        reply: true,
+        resolve: true,
+      } })
+    }
     case "comments.users": {
       const query = String(input.query ?? "").trim().toLowerCase()
       return ok(query.length < 2 ? [] : people.filter(person => person.name?.toLowerCase().includes(query)))

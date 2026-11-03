@@ -237,3 +237,38 @@ it("uses Auth user fields to authorize mentions and keeps suggestions public", a
   expect(onMention.mock.calls[0]?.[0].mentioned).toEqual([{ id: ben.id, name: ben.name }])
   expect(await call("comments.users", { query: "be" })).toEqual({ ok: true, value: [{ id: ben.id, name: ben.name }, { id: guest.id, name: guest.name }] })
 })
+
+
+it("reports thread actions independently of writing, including ownership and root deletion", async () => {
+  const store = setup(defineComments({ authorize: () => true }))
+  const thread = await create()
+  const mixed = await store.addMessage(thread.id, { author: admin, body: "Admin reply", id: "admin-reply", attachments: [], mentions: [], now: Date.now() })
+  await store.addMessage(thread.id, { author: member, body: "My reply", id: "own-reply", attachments: [], mentions: [], now: Date.now() })
+  installComments({ definition: defineComments({ authorize: ({ action, thread }) => Boolean(thread) && (action === "read" || action === "resolve") }), store })
+  expect(await call("comments.session", { threadId: thread.id })).toMatchObject({ ok: true, value: {
+    canWrite: false,
+    capabilities: { reply: false, resolve: true, deleteThread: false, edit: [thread.messages[0]!.id, "own-reply"], delete: ["own-reply"] },
+  } })
+  expect(await call("comments.resolve", { threadId: thread.id })).toMatchObject({ ok: true })
+  expect(await call("comments.reply", { body: "Denied", threadId: thread.id })).toMatchObject({ ok: false, status: 403 })
+  expect(await call("comments.edit", { body: "Allowed", messageId: thread.messages[0]!.id, threadId: thread.id })).toMatchObject({ ok: true })
+  expect(await call("comments.delete", { messageId: "own-reply", threadId: thread.id })).toMatchObject({ ok: true })
+  expect(await call("comments.delete", { messageId: thread.messages[0]!.id, threadId: thread.id })).toMatchObject({ ok: false, status: 403 })
+  expect((await store.getById(mixed.id))?.messages).toHaveLength(2)
+})
+
+it("does not grant resolve or delete from write permission and respects operation access", async () => {
+  const store = setup(defineComments({ authorize: () => true }))
+  const thread = await create(admin)
+  installComments({ definition: defineComments({ authorize: ({ action }) => action === "read" || action === "write" }), store })
+  expect(await call("comments.session", { threadId: thread.id })).toMatchObject({ ok: true, value: {
+    capabilities: { reply: true, resolve: false, deleteThread: false, edit: [], delete: [] },
+  } })
+  installComments({ definition: defineComments({ authorize: () => true }), store })
+  const result = await runOperation(registry, "comments.session", { threadId: thread.id }, {
+    access: { mode: "auth", sections: ["comments:read"] }, user: admin,
+    development: false, surface: "console", request: new Request("https://example.com/"),
+  })
+  expect(result).toMatchObject({ ok: true, value: { capabilities: { reply: false, resolve: false, deleteThread: false, edit: [], delete: [] } } })
+  expect(await call("comments.session", { threadId: thread.id }, admin)).toMatchObject({ ok: true, value: { capabilities: { deleteThread: true, delete: [thread.messages[0]!.id], edit: [thread.messages[0]!.id] } } })
+})

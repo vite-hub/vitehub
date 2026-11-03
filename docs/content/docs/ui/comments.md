@@ -315,6 +315,7 @@ The handlers may return a promise. The thread waits for it. A reply clears its b
 | `user` | `CommentUser` | | The signed-in user. Their messages can be edited and deleted. |
 | `preview` | `boolean` | `false` | A read-only card with the comment and the reply count. |
 | `readOnly` | `boolean` | `false` | Keep the full thread readable without reply, edit, delete, or status controls. |
+| `permissions` | `{ reply: boolean; resolve: boolean; edit: (messageId: string) => boolean; delete: (messageId: string) => boolean }` | | Control each action independently. Without it, authors edit and delete their messages, and reply and status controls are shown. `readOnly` hides every control. |
 | `busy` | `boolean` | `false` | Show a reply as being sent, on top of the thread's own tracking. |
 | `error` | `string` | | An error to show, on top of the ones from the handlers. |
 | `detached` | `boolean` | `false` | The place of the thread is no longer on the page. |
@@ -399,7 +400,7 @@ The box for a new comment, a reply, or an edit. It wraps [Prompt Input](/docs/ui
 | `users` | `(query: string) => Promise<CommentUser[]>` | | Finds people for `@mentions`. Defaults to the comments state, else to `people`. See [Mentions](#mentions). |
 | `attachments` | `boolean` | `true` | Take files from paste, drop, and the file button. An edit never takes files. |
 | `accept` | `string` | | The file types to take, as the `accept` of a file input. |
-| `allowEmpty` | `boolean` | on for a reply | Send files without text. |
+| `allowEmpty` | `boolean` | | Send files without text. Defaults to on for a reply, off for a new comment. |
 
 #### Events
 

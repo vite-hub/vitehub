@@ -11,6 +11,9 @@ import {
   isConsoleCommentThread,
   readConsoleCommentSession,
 } from "../client/comment-thread";
+import type { ConsoleCommentSession } from "../client/comment-thread";
+import type { ConsoleOperationView } from "../definitions";
+import { operationLink } from "../client/operation-view";
 import { useConsoleToast } from "../client/toast";
 import ConsoleState from "./console-state.vue";
 
@@ -25,8 +28,8 @@ const props = defineProps<{
   id?: string;
   /** The thread as the list has it, so the panel opens without a request. */
   initial?: Record<string, unknown>;
-  /** The page that the thread is on, for the Open page button. */
-  link?: string;
+  /** Derive the page link even when this thread is outside the active list filter. */
+  view: ConsoleOperationView;
 }>();
 const emit = defineEmits<{ close: []; changed: [thread: CommentThreadModel]; removed: [id: string] }>();
 
@@ -35,7 +38,15 @@ const client = createCommentsClient({ refreshOnFocus: false, transport: consoleC
 const thread = shallowRef<CommentThreadModel>();
 const error = shallowRef<unknown>();
 const loading = ref(false);
-const canWrite = ref(false);
+const session = shallowRef<ConsoleCommentSession>();
+const canWrite = computed(() => session.value?.capabilities.reply === true);
+const permissions = computed(() => ({
+  reply: canWrite.value,
+  resolve: session.value?.capabilities.resolve === true,
+  edit: (id: string) => session.value?.capabilities.edit.includes(id) === true,
+  delete: (id: string) => session.value?.capabilities.delete.includes(id) === true,
+}));
+const link = computed(() => thread.value ? operationLink(thread.value, props.view) : undefined);
 const user = shallowRef<CommentThreadModel["author"]>();
 const confirming = ref(false);
 const deleting = ref(false);
@@ -86,10 +97,10 @@ async function load(): Promise<void> {
     if (current.signal.aborted) return;
     if (!found) throw new Error("This thread was deleted, or you may not read it.");
     thread.value = found;
-    const session = await readConsoleCommentSession(props.definitionsBase, found.subject, current.signal);
+    const currentSession = await readConsoleCommentSession(props.definitionsBase, found.subject, current.signal, found.id);
     if (current.signal.aborted) return;
-    canWrite.value = session.canWrite;
-    user.value = session.user;
+    session.value = currentSession;
+    user.value = currentSession.user;
   } catch (cause) {
     if (current.signal.aborted) return;
     error.value = cause;
@@ -102,7 +113,7 @@ watch(
   () => props.id,
   () => {
     thread.value = undefined;
-    canWrite.value = false;
+    session.value = undefined;
     user.value = undefined;
     void load();
   },
@@ -110,9 +121,19 @@ watch(
 );
 onBeforeUnmount(() => controller?.abort());
 
-function update(next: CommentThreadModel): void {
+async function update(next: CommentThreadModel): Promise<void> {
+  if (props.id !== next.id) return;
   thread.value = next;
   emit("changed", next);
+  session.value = undefined;
+  const current = controller;
+  try {
+    const currentSession = await readConsoleCommentSession(props.definitionsBase, next.subject, current?.signal, next.id);
+    if (props.id === next.id && !current?.signal.aborted) session.value = currentSession;
+  } catch (cause) {
+    // The mutation succeeded. A failed capability refresh must not leave a reply looking unsent.
+    if (props.id === next.id && !current?.signal.aborted) error.value = cause;
+  }
 }
 
 function gone(id: string): void {
@@ -123,23 +144,23 @@ function gone(id: string): void {
 
 // CommentThread shows a failure of these handlers next to the reply box.
 async function reply(body: string, mentions: string[]): Promise<void> {
-  if (thread.value) update(await comments.reply(thread.value.id, body, mentions));
+  if (thread.value) await update(await comments.reply(thread.value.id, body, mentions));
 }
 async function edit(messageId: string, body: string, mentions: string[]): Promise<void> {
-  if (thread.value) update(await comments.edit(thread.value.id, messageId, body, mentions));
+  if (thread.value) await update(await comments.edit(thread.value.id, messageId, body, mentions));
 }
 async function remove(messageId: string): Promise<void> {
   const id = thread.value?.id;
   if (!id) return;
   const next = await comments.remove(id, messageId);
-  if (next) update(next);
+  if (next) await update(next);
   else gone(id);
 }
 async function resolve(): Promise<void> {
-  if (thread.value) update(await comments.resolve(thread.value.id));
+  if (thread.value) await update(await comments.resolve(thread.value.id));
 }
 async function reopen(): Promise<void> {
-  if (thread.value) update(await comments.reopen(thread.value.id));
+  if (thread.value) await update(await comments.reopen(thread.value.id));
 }
 
 async function deleteThread(): Promise<void> {
@@ -172,7 +193,8 @@ async function deleteThread(): Promise<void> {
           v-else
           :attachments="false"
           :dismissible="false"
-          :read-only="loading || !canWrite"
+          :read-only="loading"
+          :permissions="permissions"
           :thread="thread"
           :user="user"
           :on-reply="reply"
@@ -186,7 +208,7 @@ async function deleteThread(): Promise<void> {
             <UTooltip v-if="link" text="Open page">
               <UButton aria-label="Open page" color="neutral" icon="i-lucide-external-link" size="xs" variant="ghost" :href="link" external target="_blank" rel="noreferrer" />
             </UTooltip>
-            <UTooltip v-if="canWrite" text="Delete thread">
+            <UTooltip v-if="!loading && session?.capabilities.deleteThread" text="Delete thread">
               <UButton aria-label="Delete thread" color="neutral" icon="i-lucide-trash-2" size="xs" variant="ghost" @click="confirming = true" />
             </UTooltip>
           </template>
@@ -198,7 +220,7 @@ async function deleteThread(): Promise<void> {
           </template>
         </CommentThread>
         <p v-if="thread && !loading && !canWrite" class="border-t border-default px-3 py-2 text-xs text-muted">
-          You can read this thread. The app's <code>authorize</code> policy does not let you reply or resolve it.
+          You can read this thread. The app's <code>authorize</code> policy does not let you reply to it.
         </p>
       </div>
     </template>
