@@ -301,6 +301,23 @@ async function packWorkspacePackages(packDir: string, packageNames?: Set<string>
   return specs
 }
 
+async function usePackedPeerManifests(appDir: string, specs: Record<string, string>) {
+  // pnpm 10 can resolve an optional peer's dependency graph from registry metadata
+  // even when overrides select a tarball. Keep that graph on the exact release too.
+  const manifests = Object.fromEntries(await Promise.all(Object.values(specs).map(async (spec) => {
+    const manifest = await packedManifest(spec.slice("file:".length))
+    return [`${manifest.name}@${manifest.version}`, manifest]
+  })))
+  await writeFile(join(appDir, ".pnpmfile.cjs"), [
+    `const manifests = ${JSON.stringify(manifests)}`,
+    "module.exports = { hooks: { readPackage(manifest) {",
+    "  const packed = manifests[`${manifest.name}@${manifest.version}`]",
+    "  return packed ? structuredClone(packed) : manifest",
+    "} } }",
+    "",
+  ].join("\n"), "utf8")
+}
+
 function workspaceConfig(specs: Record<string, string>, additionalOverrides: Record<string, string> = {}) {
   const overrides = Object.entries({
     ...specs,
@@ -1373,6 +1390,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       await assertOnlyViteHubDependencies(appDir, fixtureViteHubPackages)
 
       const specs = await packWorkspacePackages(packDir)
+      await usePackedPeerManifests(appDir, specs)
       await writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs), "utf8")
       await run("pnpm", ["install", "--no-hoist", "--strict-peer-dependencies"], appDir)
 
