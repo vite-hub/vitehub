@@ -21,6 +21,33 @@ it.each(["manual", "error"] as const)("preserves fetch redirect %s through appro
   expect(fetch.mock.calls.at(-1)?.[1]?.redirect).toBe(redirect)
 })
 
+it("returns a conditional fetch's 304 response with redirect: error", async () => {
+  const definition = mailConnection({ "agent:labeller": { read: true } })
+  const test = createTestRuntime(definition)
+  const fetch = vi.fn(test.provider.fetch)
+  const runtime = createConnectionsRuntime({ definitions: { mail: definition }, fetch, store: test.store, now: () => test.now.value })
+  await connect({ ...test, runtime })
+  fetch.mockResolvedValueOnce(new Response(null, { status: 304 }))
+  const response = await runtime.client("mail", { access: agentEnvAccess({ name: "labeller" }) }).fetch("https://mail.example.com/mail/v1/users/me/labels", {
+    headers: { "if-none-match": '"labels-v1"' },
+    redirect: "error",
+  })
+  expect(response.status).toBe(304)
+  expect(fetch.mock.calls.at(-1)?.[1]?.redirect).toBe("error")
+})
+
+it.each([301, 302, 303, 307, 308, 304])("handles a runtime-owned token response with status %s", async (status) => {
+  const definition = mailConnection()
+  const test = createTestRuntime(definition)
+  const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(null, { status, headers: { location: "https://other.example/token" } }))
+  const runtime = createConnectionsRuntime({ definitions: { mail: definition }, fetch, store: test.store, now: () => test.now.value })
+  const connected = connect({ ...test, runtime })
+  if (status === 304) await expect(connected).rejects.toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED" })
+  else await expect(connected).rejects.toThrow("The provider answered with a redirect.")
+  expect(fetch).toHaveBeenCalledTimes(1)
+  expect(fetch.mock.calls[0]?.[1]?.redirect).toBe("manual")
+})
+
 it("keeps OAuth state, PKCE, client, redirect, and scopes authoritative over provider extras", async () => {
   const definition = mailConnection()
   const test = createTestRuntime({

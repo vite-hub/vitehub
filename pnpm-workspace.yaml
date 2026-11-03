@@ -113,7 +113,7 @@ catalogs:
     valibot: ^1.5.0
     zod: ^4.6.7
   sandbox:
-    "@cloudflare/sandbox": ^0.12.10
+    "@cloudflare/sandbox": ^1.0.3
     "@vercel/sandbox": ^3.9.1
   shell:
     just-bash: ^3.6.0

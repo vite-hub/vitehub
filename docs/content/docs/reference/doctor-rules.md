@@ -864,7 +864,6 @@ The `vitehub()` options in `vite.config.ts`, or the `vitehub` key and inline `vi
 - `sandboxTask: { ... }` turns Sandbox Tasks off. ViteHub turns them on only for `true`.
 - `queue: { ... }` ignores its fields. The preset selects the Queue provider.
 - In Vite, `vitehub({ env: { server, public, define } })` ignores these sections. They belong to the top-level `env` key of the Vite config.
-- In Nuxt, `connections` is not supported yet. `nuxt dev` runs, but `nuxt build` fails with `VITE_HUB_B0012`.
 
 ```ts [vite.config.ts]
 // Invalid
