@@ -638,12 +638,41 @@ describe("contentSource", () => {
     await expect(source.getItemRaw("logo.png")).resolves.toEqual(Uint8Array.of(1))
   })
 
-  it("preserves adapted source options across fresh load adapters", () => {
+  it.each(["registered", "native"] as const)("preserves adapted source options across fresh load adapters (%s)", async (kind) => {
+    registerSources({
+      options: {
+        name: "options",
+        async getKeys() { return ["start.md"] },
+        async getItem(key) { return { key, content: "# Start" } },
+      },
+    })
     const schema = { properties: { title: { type: "string" } }, type: "object" } as const
-    const source = contentSource(contentSource("options" as SourceName, { prefix: "/base", schema }), { prefix: "/docs" })
-    const content = defineContent({ sources: { docs: source } })
+    const input = kind === "registered" ? "options" as SourceName : {
+      keys: () => ["start.md"],
+      getItem: () => "# Start",
+      getItemRaw: () => "# Start",
+    }
+    const adapted = contentSource(input, { prefix: "/base", schema, url: "/:id" })
+    const source = contentSource(adapted, { prefix: "/docs" })
+    const content = defineContent({
+      sources: {
+        docs: source,
+        overridden: contentSource(adapted, { prefix: "/other", url: ({ id }) => `/custom/${id}` }),
+      },
+      seo: { sitemap: true },
+      route: false,
+      logger: false,
+    })
 
-    expect(content.getSource("docs")).toMatchObject({ prefix: "/docs", schema })
+    try {
+      expect(content.getSource("docs")).toMatchObject({ prefix: "/docs", schema })
+      expect(await content.sitemap()).toEqual([
+        { collection: "docs", id: "docs/start", loc: "/docs/start" },
+        { collection: "overridden", id: "other/start", loc: "/custom/other/start" },
+      ])
+    } finally {
+      await content.dispose()
+    }
   })
 
   it("rejects source and sources together", () => {

@@ -266,7 +266,7 @@ export function contentSourceUrl(input: ContentSourceInput | undefined): Content
 
 /** Adapt a Source to Comark Content, opening a fresh reader for each definition load. */
 export function contentSource(input: ContentSourceInput, options: ContentSourceOptions = {}): ComarkContentSource {
-  const { url, ...comarkOptions } = options
+  const { url = contentSourceUrl(input), ...comarkOptions } = options
   if (url !== undefined && !isRuntimeFunction(url) && (String(url) !== url || !url.startsWith("/") || url.startsWith("//"))) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] contentSource({ url }) must be a path that starts with /, such as '/:id', or a function, received ${JSON.stringify(url)}.` })
   }
