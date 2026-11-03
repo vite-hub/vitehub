@@ -178,6 +178,8 @@ export const ConnectPanel = defineComponent({
     /** The state of each provider. A provider without state is `idle`, or `needs-relay` when it needs one. */
     states: { default: () => ({}), type: Object as PropType<Partial<Record<ConnectProviderName, ConnectProviderState>>> },
     relayUrl: { default: undefined, type: String },
+    /** The text when `connect` has no providers. */
+    empty: { default: "No accounts needed.", type: String },
   },
   emits: {
     connect: (provider: ConnectProviderName, token: string) => typeof provider === "string" && typeof token === "string",
@@ -188,7 +190,9 @@ export const ConnectPanel = defineComponent({
   setup(props, { emit }) {
     const panelId = useId();
     const anyConnected = computed(() => Object.values(props.states).some(state => state?.status === "connected"));
-    return () => h("div", { class: "vh-ws-connect" }, [
+    return () => props.connect.providers.length === 0
+      ? h("div", { class: "vh-ws-connect vh-ws-connect--empty" }, [icon("check"), h("p", props.empty)])
+      : h("div", { class: "vh-ws-connect" }, [
       ...groups.map(({ kind, label }) => {
         const providers = props.connect.providers.filter(provider => provider.kind === kind);
         if (providers.length === 0) return undefined;

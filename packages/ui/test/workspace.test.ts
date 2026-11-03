@@ -261,6 +261,12 @@ describe("ConnectPanel", () => {
     expect(wrapper.get("footer").text()).toContain("ViteHub servers never receive them.");
   });
 
+  it("says when a page needs no accounts", () => {
+    const wrapper = mount(ConnectPanel, { props: { connect: defineConnect({}), empty: "No accounts needed for this step." } });
+    expect(wrapper.text()).toBe("No accounts needed for this step.");
+    expect(wrapper.find("footer").exists()).toBe(false);
+  });
+
   it("asks for a token in a labeled password input", async () => {
     const wrapper = mount(ConnectPanel, { attachTo: document.body, props: { connect } });
     await wrapper.get("[aria-label='Connect Anthropic']").trigger("click");

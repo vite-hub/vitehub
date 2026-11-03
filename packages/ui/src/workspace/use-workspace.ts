@@ -53,6 +53,8 @@ export interface UseWorkspaceOptions {
    * @default "dev"
    */
   start?: WebContainerCommand | false;
+  /** The port that the dev server listens on, such as `3000` for `vite --port 3000`. Other servers do not become the preview. */
+  port?: number;
   /** Environment variables for the install and start processes, such as `connectEnv(connect, credentials)`. Read again on each run. */
   env?: MaybeRefOrGetter<Record<string, string> | undefined>;
   /**
@@ -231,6 +233,7 @@ export function useWorkspace(options: UseWorkspaceOptions): Workspace {
         const target = await bootWebContainer({
           files: written,
           snapshot: options.snapshot,
+          port: options.port,
           onStatus(next) {
             status.value = next.stage;
             steps.value = next.steps;

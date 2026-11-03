@@ -4,6 +4,10 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
+import { buildRunnableTutorial, createZip, readWorkspaceVersions, resolveManifest, tutorialStepFiles } from "../modules/tutorials/build";
+import { runnableTutorials } from "../modules/tutorials/list";
+import { parseCurl, splitTutorialDocument } from "../app/utils/runnable-tutorial";
+
 const docsRoot = resolve(import.meta.dirname, "..");
 const fixturesRoot = resolve(docsRoot, "../fixtures/tutorials");
 // The shared docs shell, including the tutorial layout, ships with @vite-hub/docs.
@@ -120,12 +124,12 @@ describe("documentation tutorials", () => {
   });
 
   it("lists product tutorials through the top-level Tutorials page", async () => {
-    const source = await readFile(resolve(docsRoot, "app/pages/tutorials.vue"), "utf8");
+    const source = await readFile(resolve(docsRoot, "app/pages/tutorials/index.vue"), "utf8");
     const catalog = await readFile(resolve(docsRoot, "app/components/TutorialCatalog.vue"), "utf8");
 
     expect(catalog).toContain("useDocsManifest().sections.flatMap");
     expect(catalog).toContain('page.layout === "tutorial"');
-    expect(catalog).toContain("to: page.path");
+    expect(catalog).toContain("`/tutorials/${runnable.get(page.path)!.slug}` : page.path");
     expect(catalog).toContain("<UBlogPosts");
     expect(catalog).toContain("<UBlogPost");
     expect(source).toContain("<TutorialCatalog />");
@@ -183,5 +187,79 @@ describe("documentation tutorials", () => {
       expect(codeBlocks(source, "commands/dev"), page).toEqual(["pnpm dev"]);
       expect(codeBlocks(source, "commands/build"), page).toEqual(["pnpm build\npnpm start"]);
     }
+  });
+
+});
+
+describe("runnable tutorials", () => {
+  const repoRoot = resolve(docsRoot, "..");
+  const build = async (index: number) => buildRunnableTutorial({
+    source: runnableTutorials[index]!,
+    contentDir: resolve(docsRoot, "content"),
+    fixturesDir: fixturesRoot,
+    versions: await readWorkspaceVersions(repoRoot),
+  });
+
+  it.each(runnableTutorials.map((tutorial, index) => [tutorial.slug, index] as const))("builds %s from its lesson and its fixture", async (slug, index) => {
+    const tutorial = await build(index);
+    const lesson = await readFile(resolve(docsRoot, `content${tutorial.page}.md`), "utf8");
+    const installation = await readFile(resolve(docsRoot, "content/docs/getting-started/installation.md"), "utf8");
+
+    // The docs page links to this copy, and the steps are the page's steps.
+    expect(lesson).toContain(`::run-tutorial{to="/tutorials/${slug}"}`);
+    expect(tutorial.steps.map(step => step.title)).toEqual([...lesson.matchAll(/^::tutorial-step\{title="([^"]+)"\}/gm)].map(match => match[1]));
+
+    // Step 1 starts from the app of Installation. Every file code block of a step is the fixture file.
+    expect(normalize(tutorial.files["vite.config.ts"]!)).toEqual(codeBlocks(installation, "vite.config.ts")[0]);
+    for (const step of tutorial.steps) {
+      for (const [path, contents] of Object.entries(step.files)) {
+        expect(normalize(contents)).toEqual(normalize(await readFile(resolve(fixturesRoot, runnableTutorials[index]!.fixture, path), "utf8")));
+      }
+    }
+
+    // The last solution is the whole fixture, so the workspace ends where `tutorial-fixture.test.ts` builds and runs.
+    const final = tutorialStepFiles(tutorial, tutorial.steps.length - 1, "solution");
+    for (const path of Object.keys(final)) {
+      if (path === "package.json") continue;
+      expect(normalize(final[path]!), path).toEqual(normalize(await readFile(resolve(fixturesRoot, runnableTutorials[index]!.fixture, path), "utf8")));
+    }
+    expect(tutorialStepFiles(tutorial, 1, "start")).toEqual(tutorialStepFiles(tutorial, 0, "solution"));
+  });
+
+  it("installs from npm, not from this repository", async () => {
+    const manifest = JSON.parse((await build(1)).files["package.json"]!);
+    const specifiers = Object.values({ ...manifest.dependencies, ...manifest.devDependencies }) as string[];
+    expect(specifiers.filter(specifier => /^(?:catalog|workspace):/.test(specifier))).toEqual([]);
+    expect(manifest.dependencies["vite-hub"]).toMatch(/^\^\d+\.\d+\.\d+/);
+    expect(() => resolveManifest(JSON.stringify({ dependencies: { missing: "catalog:none" } }), { catalogs: {}, packages: {} })).toThrow(/pnpm catalog/);
+  });
+
+  it("zips the starter with the files of step 1", async () => {
+    const tutorial = await build(0);
+    const zip = Buffer.from(createZip(tutorialStepFiles(tutorial, 0, "start"), tutorial.slug));
+    expect(zip.subarray(0, 4).readUInt32LE(0)).toBe(0x04034B50);
+    expect(zip.toString("latin1")).toContain("first-server-primitive/vite.config.ts");
+    expect(zip.toString("latin1")).not.toContain("server/api/settings.post.ts");
+  });
+
+  it("splits the lesson into its steps", () => {
+    const parts = splitTutorialDocument(["intro", ["tutorial-step", { title: "One" }], "between", ["tutorial-step", { title: "Two" }], "outro"]);
+    expect(parts).toEqual({ intro: ["intro"], steps: [["tutorial-step", { title: "One" }], ["tutorial-step", { title: "Two" }]], outro: ["outro"] });
+  });
+
+  it("runs the request blocks of a lesson, and nothing else", () => {
+    expect(parseCurl(`curl -X POST http://localhost:3000/api/greet \\
+  -H 'content-type: application/json' \\
+  -d '{"name":"Ada"}'`)).toEqual({ method: "POST", url: "http://localhost:3000/api/greet", headers: { "content-type": "application/json" }, body: '{"name":"Ada"}' });
+    expect(parseCurl("curl http://localhost:3000/api/health")).toMatchObject({ method: "GET" });
+    expect(parseCurl("curl https://example.com")).toBeUndefined();
+    expect(parseCurl("pnpm dev")).toBeUndefined();
+  });
+
+  it("isolates only the tutorial pages", async () => {
+    const module = await readFile(resolve(docsRoot, "modules/tutorials/index.ts"), "utf8");
+    expect(module).toContain(`"/tutorials": { headers: { ...webContainerHeaders } }`);
+    expect(module).toContain(`"/tutorials/**": { headers: { ...webContainerHeaders } }`);
+    expect(module.match(/headers: \{ \.\.\.webContainerHeaders \}/g)).toHaveLength(2);
   });
 });

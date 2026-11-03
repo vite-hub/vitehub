@@ -45,6 +45,11 @@ export interface BootWebContainerOptions {
   coep?: "credentialless" | "require-corp"
   /** Folder name of the working directory. */
   workdirName?: string
+  /**
+   * The port of the server to preview, such as the `--port` of `vite dev`. Other servers, such as the workers that a
+   * dev server starts on random ports, then do not become the preview. Without it, the first server is the preview.
+   */
+  port?: number
   /** Called on every status change, from the first check on. */
   onStatus?: (status: WebContainerStatus) => void
 }
@@ -82,7 +87,7 @@ export interface WebContainerPreview {
   /** The URL of the latest server that became ready. */
   readonly url: string | undefined
   readonly port: number | undefined
-  /** Resolves when the first server becomes ready; rejects on startup failure or teardown before readiness. The port is the one the WebContainer picks, not always the one the app asks for. */
+  /** Resolves when the first server, or the server on `port`, becomes ready. Rejects on startup failure or teardown before readiness. */
   ready: Promise<WebContainerPreviewServer>
 }
 
@@ -286,6 +291,7 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
     status.fail("error", error)
   }
   container.on("server-ready", (port, url) => {
+    if (options.port !== undefined && port !== options.port) return
     serverReadyCount++
     server = { port, url }
     if (!readySettled) {

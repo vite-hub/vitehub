@@ -21,6 +21,9 @@ Continue in that project directory. The configuration below uses the Vite
 and Nitro path. In Nuxt, put the same ViteHub options in your module config;
 the Agent Definition and server route stay the same.
 
+::run-tutorial{to="/tutorials/first-agent"}
+::
+
 ::tutorial-step{title="Enable Agents"}
 ## Enable Agents
 
