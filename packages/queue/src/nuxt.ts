@@ -1,11 +1,12 @@
 import { resolve } from "node:path"
 
-import { resolveNuxtServerDirs, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
+import { resolveNuxtServerDirs } from "@vite-hub/internal/build/vite"
 
 import { createQueueNitroConfig, hubQueue } from "./vite.ts"
 
 import type { QueueModuleOptions } from "./types.ts"
 import type { QueueVitePlugin } from "./vite.ts"
+import type { NuxtServerDirOptions } from "@vite-hub/internal/build/paths"
 
 export type QueueNuxtModuleOptions = QueueModuleOptions
 
