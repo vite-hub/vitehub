@@ -63,6 +63,8 @@ export interface UseCommentsOptions {
   subject: MaybeRefOrGetter<CommentSubject>;
   /** The signed-in user. Defaults to `client.user`. */
   user?: MaybeRefOrGetter<CommentUser | undefined>;
+  /** People that the app already knows, such as the ones that a server answer named. Their mentions show as chips. */
+  people?: MaybeRefOrGetter<readonly CommentUser[]>;
   /** Where anchors are looked up. Defaults to the document. */
   root?: MaybeRefOrGetter<ParentNode | undefined>;
   /** The query parameter that deep-links a thread. Default `"comment"`. */
@@ -85,7 +87,7 @@ export interface CommentsState {
   readonly client: CommentsClient;
   readonly subject: ComputedRef<CommentSubject>;
   readonly user: ComputedRef<CommentUser | undefined>;
-  /** Every person the state knows: the user, the authors of threads, and the people that `users()` found. Mentions get their names here. */
+  /** Every person the state knows: the user, the authors of threads, the people that `users()` found, and `people`. Mentions get their names here. */
   readonly people: ComputedRef<CommentUser[]>;
   /** Comment mode: a click drops a pin. */
   readonly active: Ref<boolean>;
@@ -242,10 +244,15 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     if (selection && !selection.isCollapsed && selection.rangeCount > 0) {
       const container = selection.getRangeAt(0).commonAncestorContainer;
       const element = container instanceof Element ? container : container.parentElement;
-      if (element && !ignore(element)) {
+      // A selection that the page removed since, such as after a router swapped the body, has nothing to anchor to.
+      if (element?.isConnected && !ignore(element)) {
         const rect = selection.getRangeAt(0).getBoundingClientRect();
-        startDraft(selection, { point: { x: rect.left, y: rect.top } });
-        selection.removeAllRanges();
+        try {
+          startDraft(selection, { point: { x: rect.left, y: rect.top } });
+          selection.removeAllRanges();
+        } catch {
+          // Comment mode stays on, and a click drops the pin.
+        }
       }
     }
   }
@@ -507,6 +514,7 @@ export function useComments(options: UseCommentsOptions): CommentsState {
       if (person && (!known.has(person.id) || person.name)) known.set(person.id, person);
     };
     for (const person of found.value.values()) add(person);
+    for (const person of toValue(options.people) ?? []) add(person);
     for (const thread of threads.value) {
       add(thread.author);
       add(thread.resolvedBy);

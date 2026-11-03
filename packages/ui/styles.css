@@ -1927,9 +1927,9 @@
     color: var(--vh-ui-text);
     font-size: 0.875rem;
     left: 0.5rem;
-    max-height: min(32rem, calc(100dvh - 2rem));
     max-width: calc(100vw - 1rem);
-    overflow-y: auto;
+    /* The messages scroll inside the thread, so the mention menu of a box can open past the card's edge. */
+    overflow: visible;
     position: absolute;
     top: 0.5rem;
     width: 22.5rem;
@@ -2446,8 +2446,9 @@
     border-block-start: 1px solid var(--vh-ui-border);
   }
 
-  /* The page box sits at the bottom, so its mention menu opens upward. */
-  [data-slot="comment-panel-composer"] [data-slot="comment-composer-mentions"] {
+  /* The page box and the reply box sit at the bottom, so their mention menus open upward. */
+  [data-slot="comment-panel-composer"] [data-slot="comment-composer-mentions"],
+  [data-slot="comment-thread"] > [data-slot="comment-composer"] [data-slot="comment-composer-mentions"] {
     bottom: 100%;
     margin: 0 0 0.25rem;
     top: auto;

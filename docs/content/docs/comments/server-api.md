@@ -248,12 +248,15 @@ The overlay calls the Comments API at `/api/_vitehub/comments`. Each answer is J
 | --- | --- | --- |
 | `GET /session` | None | Returns `{ user, can: { read, comment, resolve }, realtime, content }`, plus `signIn: { provider, url }` for a person who can sign in with GitHub, and `github` with `signOut` for a person signed in with GitHub. It sets no cookie: `GET /_vitehub/page/session` owns the `vitehub-tools` hint. |
 | `GET /threads?page=&status=` | `read` | Lists threads, as `list()` does. |
-| `POST /threads` | `write` | Starts a thread from `{ page, anchor, context?, body, mentions? }`. `mentions` are ids. |
-| `POST /threads/:id/comments` | `write` | Replies with `{ body, mentions? }`. |
+| `POST /threads` | `write` | Starts a thread from `{ page, anchor, context?, body, mentions?, attachments? }`. `mentions` are ids; `attachments` are keys from `POST /uploads`. |
+| `GET /threads/:id` | `read` | Returns one thread. |
+| `POST /threads/:id/comments` | `write` | Replies with `{ body, mentions?, attachments? }`. |
+| `PATCH /threads/:id/comments/:messageId` | `write`, and only the author | Changes the text with `{ body, mentions? }`. Returns the thread. |
 | `POST /threads/:id/resolve`, `POST /threads/:id/reopen` | `resolve` | Resolves or reopens the thread. |
 | `DELETE /threads/:id` | `delete` | Deletes the thread. |
 | `DELETE /threads/:id/comments/:messageId` | `write` for your own message, `delete` for any other | Deletes one message. |
 | `GET /people?q=` | `read` | Returns the `@` suggestions. |
+| `POST /uploads` | `write` | Stores `{ name, type, data, page? }`, the file in Base64, with the checks of `comments.upload`. Returns `{ key, name, type, size }`. |
 | `GET /fields?field=` | `write`, and Content `write` | Reads the draft of one Content field: `{ field, value, editable, digest, collection, id }`. |
 | `POST /fields` | `write`, and Content `write` | Saves `{ field, value, ifDigest }` as a Content draft. Returns `{ field, value, digest }`. |
 | `GET /auth/github?return=` | None | Starts [Sign in with GitHub](/docs/comments/configure#sign-in-with-github), then sends the person back to `return`, a path on the same site. |

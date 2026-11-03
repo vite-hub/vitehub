@@ -77,12 +77,15 @@ describe("viteHubPageToolsIndexHtml", () => {
     const page = viteHubPageToolsIndexHtml(html, "/")!
     expect(run(page, "/")).toEqual([])
     expect(run(page, "/", "theme=dark")).toEqual([])
-    expect(run(page, "/?vitehub")).toEqual(["/_vitehub/page/assets/loader.js?v=13"])
-    expect(run(page, "/pricing", "theme=dark; vitehub-tools=1")).toEqual(["/_vitehub/page/assets/loader.js?v=13"])
+    expect(run(page, "/?vitehub")).toEqual(["/_vitehub/page/assets/loader.js?v=14"])
+    expect(run(page, "/pricing", "theme=dark; vitehub-tools=1")).toEqual(["/_vitehub/page/assets/loader.js?v=14"])
+    // A link to a comment thread loads the tools too, also after the person turned them off.
+    expect(run(page, "/pricing?comment=3", "vitehub-tools=0")).toEqual(["/_vitehub/page/assets/loader.js?v=14"])
+    expect(run(page, "/pricing?commentary=3")).toEqual([])
   })
 
   it("imports the loader below the Vite base", () => {
-    expect(run(viteHubPageToolsIndexHtml(html, "/portal/")!, "/portal/?vitehub")).toEqual(["/portal/_vitehub/page/assets/loader.js?v=13"])
-    expect(run(viteHubPageToolsIndexHtml("<p>No body</p>", "./")!, "/?vitehub")).toEqual(["/_vitehub/page/assets/loader.js?v=13"])
+    expect(run(viteHubPageToolsIndexHtml(html, "/portal/")!, "/portal/?vitehub")).toEqual(["/portal/_vitehub/page/assets/loader.js?v=14"])
+    expect(run(viteHubPageToolsIndexHtml("<p>No body</p>", "./")!, "/?vitehub")).toEqual(["/_vitehub/page/assets/loader.js?v=14"])
   })
 })

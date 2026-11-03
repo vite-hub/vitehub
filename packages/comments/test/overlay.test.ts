@@ -1,485 +1,197 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { connectRealtimeRoom } from "@vite-hub/realtime/client"
 
-import * as page from "../src/page.ts"
-import { api } from "../src/overlay/api.ts"
+import { readGuest, saveGuest } from "../src/overlay/api.ts"
+import { clickPage, pageTools, press, serveComments, startOverlay, tool, type } from "./overlay-harness.ts"
 
-import type { PageThread } from "../src/overlay/api.ts"
+import type { CommentsUser, ElementAnchor } from "../src/types.ts"
 
-vi.mock("../src/overlay/api.ts", () => ({
-  api: { session: vi.fn(), threads: vi.fn(), reply: vi.fn(), remove: vi.fn(), removeComment: vi.fn(), field: vi.fn(), saveField: vi.fn(), people: vi.fn() },
-  readGuest: () => undefined,
-  saveGuest: vi.fn(),
+vi.mock("@vite-hub/realtime/client", () => ({
+  connectRealtimeRoom: vi.fn(() => ({ states: () => new Map(), people: () => [], onUpdate: vi.fn(), onChange: vi.fn(), notify: vi.fn(), setLocal: vi.fn(), destroy: vi.fn() })),
 }))
 
-const room = vi.hoisted(() => ({
-  states: vi.fn(() => new Map<number, Record<string, unknown>>()),
-  people: () => [],
-  onUpdate: vi.fn(),
-  onChange: vi.fn(),
-  notify: vi.fn(),
-  destroy: vi.fn(),
-}))
-vi.mock("@vite-hub/realtime/client", () => ({ connectRealtimeRoom: vi.fn(() => room) }))
+const ada = { id: "ada", name: "Ada Lovelace" }
+const grace = { id: "grace", name: "Grace Hopper" }
+const anchor = { kind: "element", selector: "main > h1", x: 500, y: 500 } satisfies ElementAnchor
 
-let pill: HTMLElement
-let bar: HTMLElement
-let overlay: HTMLElement
-let shadow: ShadowRoot
-let windowBody: HTMLElement
-
-function deferred<T>() {
-  let resolve!: (value: T) => void
-  const promise = new Promise<T>((done) => { resolve = done })
-  return { promise, resolve }
-}
-
-function thread(): PageThread {
-  const author = { id: "ada", name: "Ada" }
-  const now = new Date().toISOString()
-  return {
-    id: "thread", page: "/", status: "open", createdBy: author, resolvedBy: null, updatedAt: now,
-    anchor: { kind: "element", selector: "h1", label: "h1 Published", x: 500, y: 500, page: { x: 10, y: 10 }, viewport: { width: 1024 } },
-    comments: [{ id: "root", threadId: "thread", body: "First comment", mentions: [], author, createdAt: now }],
-  }
-}
-
-beforeEach(async () => {
+beforeEach(() => {
   vi.clearAllMocks()
-  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] })
-  vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 200, 40))
-  document.body.innerHTML = '<h1 data-content-field="settings#title">Published</h1>'
+  localStorage.clear()
+  history.replaceState(null, "", "/pricing")
+  document.body.innerHTML = '<main><h1 data-content-field="pricing#title">Pricing</h1><p>Plans</p></main>'
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(10, 10, 200, 40))
   Object.defineProperty(document, "elementsFromPoint", { configurable: true, value: () => [document.querySelector("h1")!] })
-  vi.mocked(api.session).mockResolvedValue([undefined, {
-    user: { id: "ada", name: "Ada" }, can: { read: true, comment: true, resolve: false }, realtime: true, content: true,
-  }])
-  vi.mocked(api.threads).mockImplementation(async () => [undefined, [thread()]])
-  vi.mocked(api.removeComment).mockResolvedValue([undefined, null])
-  vi.mocked(api.remove).mockResolvedValue([{ code: "COMMENTS_FORBIDDEN", why: "Resolve permission required" }, undefined])
-  vi.mocked(api.field).mockResolvedValue([undefined, { field: "settings#title", value: "Unpublished", editable: true, digest: "draft-digest", collection: "settings", id: "settings" }])
-  vi.mocked(api.saveField).mockResolvedValue([undefined, { field: "settings#title", value: "Published", digest: "saved-digest" }])
-  room.states.mockReturnValue(new Map())
-  const { default: start } = await import("../src/overlay/index.ts")
-  mountBar()
-  start(context())
-  overlay = document.querySelector<HTMLElement>("vitehub-comments")!
-  shadow = overlay.shadowRoot!
-  await vi.waitFor(() => expect(shadow.querySelector(".pin-button")).not.toBeNull())
 })
 
 afterEach(() => {
-  overlay.remove()
-  document.documentElement.removeAttribute("data-theme")
-  document.documentElement.style.colorScheme = ""
-  history.replaceState(null, "", "/")
-  vi.useRealTimers()
-  vi.restoreAllMocks()
+  for (const element of document.querySelectorAll("vitehub-comments, vitehub-pill")) element.remove()
+  document.documentElement.className = ""
   Reflect.deleteProperty(document, "elementsFromPoint")
-  document.body.replaceChildren()
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
 
-function mountBar() {
-  pill?.remove()
-  pill = document.createElement("vitehub-pill")
-  bar = document.createElement("vitehub-tool")
-  pill.append(bar)
-  document.body.append(pill)
+/** A site where `user` is signed in, and Ada and Grace may be mentioned. */
+async function site(user: CommentsUser | null = ada, options: Parameters<typeof serveComments>[0] = {}, before?: (comments: Awaited<ReturnType<typeof serveComments>>["comments"]) => Promise<unknown>) {
+  const server = await serveComments({
+    identify: () => user,
+    people: { search: async () => [ada, grace], byIds: async ids => [ada, grace].filter(person => ids.includes(person.id)) },
+    ...options,
+  })
+  await before?.(server.comments)
+  const tools = pageTools()
+  const { shadow, overlay, cleanup } = await startOverlay(tools)
+  await vi.waitFor(() => expect(tool(tools.bar, "Comments on this page")).not.toBeNull())
+  return { ...server, ...tools, shadow, overlay, cleanup }
 }
 
-function context() {
-  return {
-    tool: { id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "/overlay.js" },
-    bar, signal: new AbortController().signal, open: false, exit: vi.fn(),
-    onOpen: vi.fn(), beforeExit: vi.fn(), openTool: vi.fn(async () => false),
-    createWindow: vi.fn(() => {
-      windowBody = document.createElement("div")
-      document.body.append(windowBody)
-      return { body: windowBody, show: vi.fn(), hide: vi.fn(), destroy: vi.fn() }
-    }),
-  }
-}
+const composer = (root: ParentNode, label: string) => root.querySelector<HTMLTextAreaElement>(`textarea[aria-label="${label}"]`)
 
-function createOverlay() {
-  mountBar()
-  const element = document.createElement("vitehub-comments")
-  Reflect.set(element, "context", context())
-  return element
-}
-
-function openThread() {
-  shadow.querySelector<HTMLButtonElement>(".pin-button")!.click()
-}
-
-async function startEdit() {
-  const title = document.querySelector("h1")!
-  const edit = bar.shadowRoot!.querySelector<HTMLButtonElement>('[title="Edit text (E)"]')!
-  if (edit.getAttribute("aria-pressed") !== "true") edit.click()
-  title.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 10, clientY: 10 }))
-  await vi.waitFor(() => expect(title.textContent).toBe("Unpublished"))
-  return title
-}
-
-describe("Comments overlay", () => {
-  it.each(["body swap", "astro:before-swap", "turbo:before-render"])("saves the active inline edit on %s without relying on blur", async (event) => {
-    document.documentElement.append(pill)
-    const title = await startEdit()
-    title.textContent = "Edited before navigation"
-    const before = document.body
-    const next = document.createElement("body")
-    next.innerHTML = '<h1 data-content-field="settings#title">Next page</h1>'
-    try {
-      if (event !== "body swap") {
-        document.dispatchEvent(new Event(event))
-        expect(api.saveField).toHaveBeenCalledOnce()
-        expect(title.hasAttribute("data-vitehub-editing")).toBe(false)
-      }
-      before.replaceWith(next)
-      await vi.waitFor(() => expect(api.saveField).toHaveBeenCalledWith({ field: "settings#title", value: "Edited before navigation", ifDigest: "draft-digest" }))
-      expect(title.hasAttribute("data-vitehub-editing")).toBe(false)
-      expect(document.querySelector("h1")!.textContent).toBe("Next page")
-      await startEdit()
-      document.querySelector("h1")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
-      expect(api.saveField).toHaveBeenCalledOnce()
-    }
-    finally {
-      next.replaceWith(before)
-      pill.remove()
-    }
+describe("the Comments overlay on the comment parts", () => {
+  it("comments on an element with the overlay's anchor hints and the page context", async () => {
+    const { shadow, bar, comments } = await site()
+    press(document.body, "c")
+    await vi.waitFor(() => expect(tool(bar, "Comment (C)")!.getAttribute("aria-pressed")).toBe("true"))
+    expect(document.documentElement.classList.contains("vitehub-comment-mode")).toBe(true)
+    await clickPage(shadow, 60, 20)
+    await vi.waitFor(() => expect(composer(shadow, "Comment")).not.toBeNull())
+    const input = composer(shadow, "Comment")!
+    await type(input, "Make the title shorter")
+    press(input, "Enter")
+    await vi.waitFor(async () => expect((await comments.list())[1]).toHaveLength(1))
+    const [thread] = (await comments.list())[1]!
+    expect(thread!.messages[0]!.body).toBe("Make the title shorter")
+    expect(thread!.subject).toEqual({ kind: "page", id: "/pricing" })
+    expect(thread!.anchor).toMatchObject({ kind: "element", field: "pricing#title", label: "h1 Pricing", x: 250, y: 250 })
+    expect(thread!.context).toMatchObject({ url: `${location.origin}/pricing`, element: { tag: "h1", name: "Pricing" } })
+    await vi.waitFor(() => expect(shadow.querySelector(`[data-slot="comment-pin"][data-thread-id="${thread!.id}"]`)).not.toBeNull())
   })
 
-  it.each(["comment", "edit"])("restores %s styling after an Astro root/head/body swap and a Turbo head merge", async (mode) => {
-    document.documentElement.append(pill)
-    const selector = mode === "comment" ? '[title="Comment (C)"]' : '[title="Edit text (E)"]'
-    bar.shadowRoot!.querySelector<HTMLButtonElement>(selector)!.click()
-    const style = document.head.querySelector("style[data-vitehub-comments]")!
-    const before = document.body
-    const next = document.createElement("body")
-    next.innerHTML = '<h1 data-content-field="settings#title">Next page</h1>'
-    try {
-      // Astro copies the incoming html attributes and removes unmatched head elements before swapping the body.
-      document.documentElement.className = "next-page"
-      style.remove()
-      before.replaceWith(next)
-      await vi.waitFor(() => {
-        expect(document.documentElement.classList.contains(`vitehub-${mode}-mode`)).toBe(true)
-        expect(style.parentElement).toBe(document.head)
-      })
-      expect(document.documentElement.classList.contains("next-page")).toBe(true)
-      expect(bar.shadowRoot!.querySelector(selector)!.getAttribute("aria-pressed")).toBe("true")
-      expect(room.destroy).not.toHaveBeenCalled()
-      // Turbo can remove the stylesheet without changing the root attributes or the URL.
-      style.remove()
-      await vi.waitFor(() => expect(style.parentElement).toBe(document.head))
-      expect(document.head.querySelectorAll("style[data-vitehub-comments]")).toHaveLength(1)
-    }
-    finally {
-      overlay.remove()
-      document.documentElement.className = ""
-      next.replaceWith(before)
-      pill.remove()
-    }
-  })
-
-  it("keeps the overlay, unsent reply, listeners and polling alive through a body swap", async () => {
-    // The real loader retains the toolbar separately from the router's body.
-    document.documentElement.append(pill)
-    openThread()
-    const input = shadow.querySelector<HTMLTextAreaElement>('textarea[aria-label="Reply"]')!
-    input.value = "Unsent reply"
-    input.dispatchEvent(new Event("input"))
-    const before = document.body
-    const next = document.createElement("body")
-    next.innerHTML = '<h1 data-content-field="settings#title">Next page</h1>'
-    try {
-      before.replaceWith(next)
-      expect(room.destroy).not.toHaveBeenCalled()
-      expect(overlay.isConnected).toBe(true)
-      expect(shadow.querySelector('textarea[aria-label="Reply"]')).toBe(input)
-      expect(input.value).toBe("Unsent reply")
-      await vi.advanceTimersByTimeAsync(30_000)
-      expect(api.threads).toHaveBeenCalledTimes(2)
-      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }))
-      expect(shadow.querySelector(".card")).toBeNull()
-    }
-    finally {
-      // Also allow the failing regression to clean up without reconnecting an already stopped overlay.
-      if (!overlay.isConnected) overlay.remove()
-      next.replaceWith(before)
-      pill.remove()
-    }
-  })
-
-  it("does not resume startup when the pill exits during the session request", async () => {
-    overlay.remove()
-    vi.clearAllMocks()
-    const pending = deferred<Awaited<ReturnType<typeof api.session>>>()
-    vi.mocked(api.session).mockReturnValueOnce(pending.promise)
-    const pushState = history.pushState
-    const replaceState = history.replaceState
-    const { default: start } = await import("../src/overlay/index.ts")
-    mountBar()
-    const controller = new AbortController()
-    const cleanup = start({
-      tool: { id: "comments", label: "Comments", icon: "", script: "/overlay.js" },
-      bar, signal: controller.signal, open: false, exit: vi.fn(),
-      createWindow: () => { throw new Error("Unexpected retained window") },
-      openTool: vi.fn(async () => false), onOpen: vi.fn(), beforeExit: vi.fn(),
+  it("replies with an @mention, shows the chip, and resolves the thread", async () => {
+    let created: { id: string } | undefined
+    const { shadow, comments, requests } = await site(ada, {}, async (comments) => {
+      created = (await comments.create({ page: "/pricing", anchor, body: "First comment", author: ada }))[1]
     })
-    overlay = document.querySelector<HTMLElement>("vitehub-comments")!
-    controller.abort()
-    if (typeof cleanup === "function") cleanup()
-    pill.remove()
-    pending.resolve([undefined, { user: null, can: { read: true, comment: true, resolve: false }, realtime: true, content: false }])
-    await pending.promise
-    expect(overlay.isConnected).toBe(false)
-    expect(api.threads).not.toHaveBeenCalled()
-    expect(connectRealtimeRoom).not.toHaveBeenCalled()
-    expect(history.pushState).toBe(pushState)
-    expect(history.replaceState).toBe(replaceState)
-    expect(vi.getTimerCount()).toBe(0)
-    expect(document.querySelector("style[data-vitehub-comments]")).toBeNull()
+    await vi.waitFor(() => expect(shadow.querySelector('[data-slot="comment-pin"]')).not.toBeNull())
+    shadow.querySelector<HTMLButtonElement>('[data-slot="comment-pin"]')!.click()
+    await vi.waitFor(() => expect(composer(shadow, "Reply")).not.toBeNull())
+    const input = composer(shadow, "Reply")!
+    await type(input, "@gra")
+    await vi.waitFor(() => expect(shadow.querySelector('[role="option"]')).not.toBeNull())
+    expect(shadow.querySelector('[role="option"]')!.textContent).toContain("Grace Hopper")
+    shadow.querySelector('[role="option"]')!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))
+    await vi.waitFor(() => expect(input.value).toBe("@Grace Hopper "))
+    await type(input, "@Grace Hopper can you check?")
+    press(input, "Enter")
+    await vi.waitFor(async () => expect((await comments.get(created!.id))[1]!.messages).toHaveLength(2))
+    const reply = (await comments.get(created!.id))[1]!.messages[1]!
+    expect(reply).toMatchObject({ body: "@Grace Hopper can you check?", mentions: ["grace"] })
+    expect(requests.find(request => request.path.endsWith("/comments") && request.method === "POST")?.body).toMatchObject({ mentions: ["grace"] })
+    await vi.waitFor(() => expect(shadow.querySelector('[data-slot="comment-mention"]')?.textContent).toBe("@Grace Hopper"))
+
+    shadow.querySelector<HTMLButtonElement>('[aria-label="Resolve"]')!.click()
+    await vi.waitFor(async () => expect((await comments.get(created!.id))[1]!.status).toBe("resolved"))
+    await vi.waitFor(() => expect(shadow.querySelector('[data-slot="comment-pin"]')).toBeNull())
   })
 
-  it.each(["dark", "light"])("follows the host's data-theme=%s on mount and when it changes", async (theme) => {
-    overlay.remove()
-    const opposite = theme === "dark" ? "light" : "dark"
-    document.documentElement.style.colorScheme = opposite
-    document.documentElement.dataset.theme = theme
-    overlay = createOverlay()
-    document.body.append(overlay)
-    shadow = overlay.shadowRoot!
-    const root = shadow.querySelector<HTMLElement>(".root")!
-    expect(root.dataset.theme).toBe(theme)
-
-    document.documentElement.dataset.theme = opposite
-    await vi.waitFor(() => expect(root.dataset.theme).toBe(opposite))
-    document.documentElement.style.colorScheme = theme
-    delete document.documentElement.dataset.theme
-    await vi.waitFor(() => expect(root.dataset.theme).toBe(theme))
+  it("asks a guest for a name before comment mode, then sends it in the guest headers", async () => {
+    const { shadow, bar, comments, requests } = await site(null, { authorize: () => true })
+    tool(bar, "Comment (C)")!.click()
+    await vi.waitFor(() => expect(shadow.querySelector('input[aria-label="Your name"]')).not.toBeNull())
+    expect(shadow.querySelector("[data-slot='comment-layer-overlay']")).toBeNull()
+    const name = shadow.querySelector<HTMLInputElement>('input[aria-label="Your name"]')!
+    await type(name, "  Ana García ")
+    name.closest("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
+    await vi.waitFor(() => expect(shadow.querySelector("[data-slot='comment-layer-overlay']")).not.toBeNull())
+    expect(readGuest()?.name).toBe("Ana García")
+    await clickPage(shadow, 60, 20)
+    await vi.waitFor(() => expect(composer(shadow, "Comment")).not.toBeNull())
+    await type(composer(shadow, "Comment")!, "From a guest")
+    press(composer(shadow, "Comment")!, "Enter")
+    await vi.waitFor(async () => expect((await comments.list())[1]).toHaveLength(1))
+    const sent = requests.find(request => request.method === "POST" && request.path.endsWith("/threads"))!
+    expect(sent.headers.get("x-vitehub-comments-guest-id")).toBe(readGuest()!.id)
+    expect(decodeURIComponent(sent.headers.get("x-vitehub-comments-guest-name")!)).toBe("Ana García")
+    expect((await comments.list())[1]![0]!.author).toEqual({ id: `guest:${readGuest()!.id}`, name: "Ana García", guest: true })
   })
 
-  it.each(["normal", "light dark"])("follows the system preference with color-scheme: %s", (scheme) => {
-    overlay.remove()
-    let prefersDark = true
-    const media = matchMedia("(prefers-color-scheme: dark)")
-    vi.spyOn(media, "matches", "get").mockImplementation(() => prefersDark)
-    vi.spyOn(globalThis, "matchMedia").mockReturnValue(media)
-    document.documentElement.style.colorScheme = scheme
-    overlay = createOverlay()
-    document.body.append(overlay)
-    const root = overlay.shadowRoot!.querySelector<HTMLElement>(".root")!
-    expect(root.dataset.theme).toBe("dark")
-
-    prefersDark = false
-    media.dispatchEvent(new Event("change"))
-    expect(root.dataset.theme).toBe("light")
+  it("keeps a signed-in person on their account, without guest headers", async () => {
+    saveGuest("Old guest name")
+    const { shadow, comments, requests } = await site()
+    press(document.body, "c")
+    await clickPage(shadow, 60, 20)
+    await vi.waitFor(() => expect(composer(shadow, "Comment")).not.toBeNull())
+    expect(shadow.querySelector('input[aria-label="Your name"]')).toBeNull()
+    await type(composer(shadow, "Comment")!, "Signed in")
+    press(composer(shadow, "Comment")!, "Enter")
+    await vi.waitFor(async () => expect((await comments.list())[1]).toHaveLength(1))
+    expect((await comments.list())[1]![0]!.author).toEqual(ada)
+    const sent = requests.find(request => request.method === "POST" && request.path.endsWith("/threads"))!
+    // The server prefers the account; the headers of an earlier guest session change nothing.
+    expect(sent.headers.get("x-vitehub-comments-guest-id")).toBe(readGuest()!.id)
   })
 
-  it("uses the loaded thread permissions for replies and resolution", async () => {
-    overlay.remove()
-    vi.mocked(api.session).mockResolvedValue([undefined, {
-      user: { id: "ada", name: "Ada" }, can: { read: true, comment: false, resolve: false }, realtime: true, content: true,
-    }])
-    vi.mocked(api.threads).mockResolvedValue([undefined, [{ ...thread(), can: { comment: true, resolve: true } }]])
-    overlay = createOverlay()
-    document.body.append(overlay)
-    shadow = overlay.shadowRoot!
-    await vi.waitFor(() => expect(shadow.querySelector(".pin-button")).not.toBeNull())
-    openThread()
-    expect(shadow.querySelector('[aria-label="Resolve"]')).not.toBeNull()
-    expect(shadow.querySelector('textarea[aria-label="Reply"]')).not.toBeNull()
-    expect(bar.shadowRoot!.querySelector('[title="Edit text (E)"]')).toBeNull()
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "e", bubbles: true }))
-    expect(document.documentElement.classList.contains("vitehub-edit-mode")).toBe(false)
-    document.querySelector("h1")!.dispatchEvent(new MouseEvent("click", { bubbles: true }))
-    expect(api.field).not.toHaveBeenCalled()
+  it("opens the thread of a ?comment=<n> link, also a resolved one", async () => {
+    const server = await serveComments({ identify: () => ada })
+    const [, first] = await server.comments.create({ page: "/pricing", anchor, body: "First", author: ada })
+    const [, second] = await server.comments.create({ page: "/pricing", anchor: { ...anchor, x: 100 }, body: "Second, resolved", author: ada })
+    await server.comments.resolve(second!.id, { by: ada })
+    history.replaceState(null, "", `/pricing?comment=${second!.n}`)
+    const tools = pageTools()
+    const { shadow } = await startOverlay(tools)
+    await vi.waitFor(() => expect(shadow.querySelector(`[aria-label="Comment ${second!.n}"][data-slot="comment-thread"]`)).not.toBeNull())
+    expect(shadow.querySelector('[data-slot="comment-thread"]')!.textContent).toContain("Second, resolved")
+    expect(first!.n).not.toBe(second!.n)
   })
 
-  it("discards superseded navigation joins", async () => {
-    const older = deferred<Awaited<ReturnType<typeof api.threads>>>()
-    const newer = deferred<Awaited<ReturnType<typeof api.threads>>>()
-    vi.mocked(api.threads).mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise)
-    const initialJoins = vi.mocked(connectRealtimeRoom).mock.calls.length
-    history.pushState(null, "", "/older")
-    await vi.waitFor(() => expect(api.threads).toHaveBeenCalledWith("/older"))
-    history.pushState(null, "", "/newer")
-    await vi.waitFor(() => expect(api.threads).toHaveBeenCalledWith("/newer"))
-    newer.resolve([undefined, []])
-    await vi.waitFor(() => expect(connectRealtimeRoom).toHaveBeenCalledTimes(initialJoins + 1))
-    older.resolve([undefined, []])
-    await older.promise
-    await new Promise(resolve => setTimeout(resolve, 0))
-    expect(connectRealtimeRoom).toHaveBeenCalledTimes(initialJoins + 1)
+  it("uploads files through comments.upload and sends their keys", async () => {
+    const stored: Array<{ name: string, type: string, size: number }> = []
+    const { shadow, comments, requests } = await site(ada, {
+      storeAttachment: (file) => {
+        stored.push({ name: file.name, type: file.type, size: file.size })
+        return `files/${file.name}`
+      },
+    })
+    press(document.body, "c")
+    await clickPage(shadow, 60, 20)
+    await vi.waitFor(() => expect(composer(shadow, "Comment")).not.toBeNull())
+    const file = new File(["png bytes"], "shot.png", { type: "image/png" })
+    const picker = shadow.querySelector<HTMLInputElement>('[data-slot="comment-layer-popover"] input[type="file"]')!
+    Object.defineProperty(picker, "files", { configurable: true, value: [file] })
+    picker.dispatchEvent(new Event("change", { bubbles: true }))
+    await type(composer(shadow, "Comment")!, "With a screenshot")
+    await vi.waitFor(() => expect(shadow.querySelector('[data-slot="comment-layer-popover"] [data-slot="attachment"]')).not.toBeNull())
+    press(composer(shadow, "Comment")!, "Enter")
+    await vi.waitFor(async () => expect((await comments.list())[1]).toHaveLength(1))
+    expect(stored).toEqual([{ name: "shot.png", type: "image/png", size: 9 }])
+    expect(requests.find(request => request.path.endsWith("/uploads"))?.body).toMatchObject({ name: "shot.png", type: "image/png", page: "/pricing" })
+    expect((await comments.list())[1]![0]!.messages[0]!.attachments).toEqual(["files/shot.png"])
   })
 
-  it("keeps a successful reply when an older poll finishes afterward", async () => {
-    openThread()
-    const pending = deferred<Awaited<ReturnType<typeof api.threads>>>()
-    vi.mocked(api.threads).mockReturnValueOnce(pending.promise)
-    await vi.advanceTimersByTimeAsync(30_000)
-    const input = shadow.querySelector<HTMLTextAreaElement>('textarea[aria-label="Reply"]')!
-    input.value = "New reply"
-    vi.mocked(api.reply).mockResolvedValue([undefined, { ...thread().comments[0]!, id: "reply", body: input.value }])
-    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }))
-    await vi.waitFor(() => expect(shadow.querySelector(".messages")?.textContent).toContain("New reply"))
-    pending.resolve([undefined, [thread()]])
-    await pending.promise
-    await new Promise(resolve => setTimeout(resolve, 0))
-    expect(shadow.querySelector(".messages")?.textContent).toContain("New reply")
+  it("lists the page's threads in the pill's window with Open and Resolved", async () => {
+    const server = await serveComments({ identify: () => ada })
+    await server.comments.create({ page: "/pricing", anchor, body: "Open one", author: ada })
+    const [, done] = await server.comments.create({ page: "/pricing", anchor, body: "Done one", author: ada })
+    await server.comments.resolve(done!.id, { by: ada })
+    const tools = pageTools()
+    const { shadow } = await startOverlay(tools)
+    await vi.waitFor(() => expect(tool(tools.bar, "Comments on this page")!.textContent).toBe("1"))
+    tool(tools.bar, "Comments on this page")!.click()
+    const panel = tools.panel()!
+    await vi.waitFor(() => expect(panel.querySelectorAll('[data-slot="comment-panel-item"]')).toHaveLength(1))
+    expect(panel.textContent).toContain("Open one")
+    panel.querySelector<HTMLButtonElement>('[data-slot="comment-panel-filter"][data-state="off"]')!.click()
+    await vi.waitFor(() => expect(panel.textContent).toContain("Done one"))
+    // Resolved pins show on the page while the list shows resolved threads.
+    await vi.waitFor(() => expect(shadow.querySelectorAll('[data-slot="comment-pin"][data-status="resolved"]')).toHaveLength(1))
   })
 
-  it("refreshes the thread panel after remote replies and resolution", async () => {
-    bar.shadowRoot!.querySelector<HTMLButtonElement>('[aria-label="Comments on this page, 1 open thread"]')!.click()
-    const panel = windowBody.firstElementChild!.shadowRoot!
-    const updated = thread()
-    updated.comments.push({ ...updated.comments[0]!, id: "reply", body: "Remote reply" })
-    vi.mocked(api.threads).mockResolvedValue([undefined, [updated]])
-    await vi.advanceTimersByTimeAsync(30_000)
-    expect(panel.querySelector(".panel")?.textContent).toContain("1 reply")
-    vi.mocked(api.threads).mockResolvedValue([undefined, [{ ...updated, status: "resolved" }]])
-    await vi.advanceTimersByTimeAsync(30_000)
-    expect(panel.querySelector(".panel-item")).toBeNull()
-  })
-
-  it("keeps selected reply mentions when polling rebuilds the retained panel", async () => {
-    const person = { id: "grace", name: "Grace Hopper" }
-    vi.mocked(api.people).mockResolvedValue([undefined, [person]])
-    bar.shadowRoot!.querySelector<HTMLButtonElement>('[title="Comments on this page"]')!.click()
-    const panel = windowBody.firstElementChild!.shadowRoot!
-    panel.querySelector<HTMLButtonElement>(".panel-item")!.click()
-    const input = panel.querySelector<HTMLTextAreaElement>("textarea")!
-    input.value = "@gra"
-    input.setSelectionRange(input.value.length, input.value.length)
-    input.dispatchEvent(new Event("input", { bubbles: true }))
-    await vi.waitFor(() => expect(panel.querySelector('[role="option"]')).not.toBeNull())
-    panel.querySelector<HTMLButtonElement>('[role="option"]')!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))
-
-    const updated = thread()
-    updated.comments.push({ ...updated.comments[0]!, id: "remote", body: "Remote reply" })
-    vi.mocked(api.threads).mockResolvedValue([undefined, [updated]])
-    await vi.advanceTimersByTimeAsync(30_000)
-    const restored = panel.querySelector<HTMLTextAreaElement>("textarea")!
-    expect(restored).not.toBe(input)
-    expect(restored.value).toBe("@Grace Hopper ")
-    vi.mocked(api.reply).mockResolvedValue([undefined, { ...updated.comments[0]!, id: "reply", body: restored.value.trim(), mentions: [person] }])
-    restored.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true }))
-    await vi.waitFor(() => expect(api.reply).toHaveBeenCalledWith("thread", { body: "@Grace Hopper", mentions: [person] }))
-  })
-
-  it("submits only once while a keyboard request is pending", async () => {
-    openThread()
-    const pending = deferred<Awaited<ReturnType<typeof api.reply>>>()
-    vi.mocked(api.reply).mockReturnValue(pending.promise)
-    const input = shadow.querySelector<HTMLTextAreaElement>('textarea[aria-label="Reply"]')!
-    input.value = "One reply"
-    const submit = () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }))
-    submit()
-    input.dispatchEvent(new Event("input"))
-    submit()
-    expect(api.reply).toHaveBeenCalledTimes(1)
-    pending.resolve([undefined, { ...thread().comments[0]!, id: "reply", body: input.value }])
-    await vi.waitFor(() => expect(shadow.querySelector(".messages")?.textContent).toContain("One reply"))
-  })
-
-  it.each(['"><image href="x" onerror="alert(document.domain)"/><!--', "#A1b2C3"])("renders remote cursor color safely: %s", (color) => {
-    room.states.mockReturnValue(new Map([[1, {
-      user: { id: "guest:remote", name: "Visitor", color },
-      cursor: { selector: "h1", x: 500, y: 500 },
-    }]]))
-    openThread()
-    const fill = shadow.querySelector(".cursor svg path")?.getAttribute("fill")
-    expect(fill).toMatch(/^#[\da-f]{6}$/i)
-    if (color === "#A1b2C3") expect(fill).toBe(color)
-    expect(shadow.querySelector(".cursor image")).toBeNull()
-    expect(shadow.querySelector(".cursor [onerror]")).toBeNull()
-  })
-
-  it("shows a reply immediately after polling refreshes an open composer", async () => {
-    openThread()
-    const input = shadow.querySelector<HTMLTextAreaElement>('textarea[aria-label="Reply"]')!
-    input.value = "Reply after polling"
-    input.dispatchEvent(new Event("input"))
-    await vi.advanceTimersByTimeAsync(30_000)
-    expect(api.threads).toHaveBeenCalledTimes(2)
-    expect(shadow.querySelector('textarea[aria-label="Reply"]')).toBe(input)
-    const root = thread().comments[0]!
-    vi.mocked(api.reply).mockResolvedValue([undefined, { ...root, id: "reply", body: input.value }])
-    shadow.querySelector<HTMLButtonElement>(".card .primary")!.click()
-    await vi.waitFor(() => expect(shadow.querySelector(".messages")?.textContent).toContain("Reply after polling"))
-    expect(shadow.querySelector<HTMLTextAreaElement>('textarea[aria-label="Reply"]')!.value).toBe("")
-  })
-
-  it("lets an author delete their first comment through the comment endpoint", async () => {
-    openThread()
-    shadow.querySelector<HTMLButtonElement>('[aria-label="Delete comment"]')!.click()
-    await vi.waitFor(() => expect(api.removeComment).toHaveBeenCalledWith("thread", "root"))
-    expect(api.remove).not.toHaveBeenCalled()
-    expect(shadow.querySelector(".pin-button")).toBeNull()
-  })
-
-  it.each([null, { id: "moderator", name: "Moderator" }, { id: "guest:console", name: "Guest", guest: true }])("shows deletion only to authenticated users with delete permission: %j", async (user) => {
-    const authenticated = Boolean(user && !user.guest)
-    overlay.remove()
-    vi.mocked(api.session).mockResolvedValue([undefined, {
-      user,
-      can: { read: true, comment: !authenticated, resolve: true, delete: true }, realtime: false, content: false,
-    }])
-    vi.mocked(api.threads).mockResolvedValue([undefined, [{ ...thread(), can: { comment: !authenticated, resolve: true, delete: true } }]])
-    overlay = createOverlay()
-    document.body.append(overlay)
-    shadow = overlay.shadowRoot!
-    await vi.waitFor(() => expect(shadow.querySelector(".pin-button")).not.toBeNull())
-    openThread()
-    const button = shadow.querySelector<HTMLButtonElement>('[aria-label="Delete comment"]')
-    expect(Boolean(button)).toBe(authenticated)
-    if (authenticated) {
-      button!.click()
-      await vi.waitFor(() => expect(api.removeComment).toHaveBeenCalledWith("thread", "root"))
-    }
-  })
-
-  it("hides deletion of others' comments from a resolver without delete permission", async () => {
-    overlay.remove()
-    vi.mocked(api.threads).mockResolvedValue([undefined, [{ ...thread(), createdBy: { id: "writer", name: "Writer" }, comments: [{ ...thread().comments[0]!, author: { id: "writer", name: "Writer" } }], can: { comment: true, resolve: true, delete: false } }]])
-    overlay = createOverlay()
-    document.body.append(overlay)
-    shadow = overlay.shadowRoot!
-    await vi.waitFor(() => expect(shadow.querySelector(".pin-button")).not.toBeNull())
-    openThread()
-    expect(shadow.querySelector('[aria-label="Resolve"]')).not.toBeNull()
-    expect(shadow.querySelector('[aria-label="Delete comment"]')).toBeNull()
-  })
-
-  it("links a saved draft to Content below the app base", async () => {
-    vi.spyOn(page, "commentsApiRoute").mockReturnValue("/portal/api/_vitehub/comments")
-    const title = await startEdit()
-    title.textContent = "Updated"
-    title.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
-    await vi.waitFor(() => expect(shadow.querySelector('a[href="/portal/_vitehub/content"]')?.textContent).toBe("Review and publish"))
-  })
-
-  it("links non-editable fields to Content below the app base", async () => {
-    vi.spyOn(page, "commentsApiRoute").mockReturnValue("/portal/api/_vitehub/comments")
-    vi.mocked(api.field).mockResolvedValue([undefined, { field: "settings#title", value: null, editable: false, digest: "draft", collection: "settings", id: "settings" }])
-    bar.shadowRoot!.querySelector<HTMLButtonElement>('[title="Edit text (E)"]')!.click()
-    document.querySelector("h1")!.dispatchEvent(new MouseEvent("click", { bubbles: true }))
-    await vi.waitFor(() => expect(shadow.querySelector('a[href="/portal/_vitehub/content"]')?.textContent).toBe("Open Content"))
-  })
-
-  it("saves a draft edit back to the published text", async () => {
-    const title = await startEdit()
-    title.textContent = "Published"
-    title.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
-    await vi.waitFor(() => expect(api.saveField).toHaveBeenCalledWith({ field: "settings#title", value: "Published", ifDigest: "draft-digest" }))
-  })
-
-  it("restores published text on cancellation and leaves an unchanged draft unsaved", async () => {
-    const title = await startEdit()
-    title.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
-    expect(title.textContent).toBe("Published")
-    await startEdit()
-    title.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
-    expect(api.saveField).not.toHaveBeenCalled()
+  it("shows the Sign in with GitHub prompt to a person who may not read", async () => {
+    await serveComments({ identify: () => null, authorize: () => false })
+    const tools = pageTools()
+    const { shadow } = await startOverlay(tools)
+    await vi.waitFor(() => expect(shadow.querySelector(".toast")).not.toBeNull())
+    expect(tools.bar.hidden).toBe(true)
+    expect(shadow.querySelector(".toast")!.textContent).toContain("Comments are only for the site's team")
   })
 })

@@ -455,4 +455,44 @@ describe("Comments API", () => {
     expect(locked.response.status).toBe(423)
     expect(locked.body.error?.why).toContain("Grace")
   })
+
+  it("reads one thread, and lets only its author edit a message", async () => {
+    let user: CommentsUser = { id: "ada", name: "Ada" }
+    const { comments, call } = await setup({ options: { identify: () => user, authorize: () => true } })
+    const [, thread] = await comments.create({ page: "/", anchor, body: "Typo herre", author: { id: "ada", name: "Ada" } })
+    const messageId = thread!.messages[0]!.id
+    expect((await call(`/threads/${thread!.id}`)).body.data).toMatchObject({ id: thread!.id, messages: [{ body: "Typo herre" }], can: { comment: true } })
+    expect((await call("/threads/missing")).response.status).toBe(404)
+    const edited = await call(`/threads/${thread!.id}/comments/${messageId}`, { method: "PATCH", json: { body: "Typo here" } })
+    expect(edited.body.data).toMatchObject({ id: thread!.id, messages: [{ body: "Typo here", editedAt: expect.any(Number) }] })
+    user = { id: "grace", name: "Grace" }
+    const other = await call(`/threads/${thread!.id}/comments/${messageId}`, { method: "PATCH", json: { body: "Not mine" } })
+    expect(other.response.status).toBe(403)
+    expect((await comments.get(thread!.id))[1]!.messages[0]!.body).toBe("Typo here")
+  })
+
+  it("stores uploads with the checks of comments.upload, and attaches their keys", async () => {
+    const stored: string[] = []
+    const { comments, call } = await setup({ options: { storeAttachment: (file, context) => {
+      stored.push(`${file.name} ${file.type} ${file.size} ${context.subject?.id}`)
+      return `uploads/${file.name}`
+    } } })
+    const uploaded = await call("/uploads", { method: "POST", json: { name: "shot.png", type: "image/png", data: btoa("png"), page: "/pricing/" } })
+    expect(uploaded.body.data).toEqual({ key: "uploads/shot.png", name: "shot.png", type: "image/png", size: 3 })
+    expect(stored).toEqual(["shot.png image/png 3 /pricing"])
+    const svg = await call("/uploads", { method: "POST", json: { name: "x.svg", type: "image/svg+xml", data: btoa("<svg/>") } })
+    expect([svg.response.status, svg.body.error?.code]).toEqual([415, "COMMENTS_R0017"])
+    const created = await call("/threads", { method: "POST", json: { page: "/pricing", anchor, body: "", attachments: ["uploads/shot.png"] } })
+    expect(created.body.data.messages[0]).toMatchObject({ body: "", attachments: ["uploads/shot.png"] })
+    await call(`/threads/${created.body.data.id}/comments`, { method: "POST", json: { body: "And a log", attachments: ["uploads/log.txt"] } })
+    expect((await comments.get(created.body.data.id))[1]!.messages[1]!.attachments).toEqual(["uploads/log.txt"])
+  })
+
+  it("refuses uploads without a place to store them, or from a person who may not write", async () => {
+    const plain = await setup()
+    const missing = await plain.call("/uploads", { method: "POST", json: { name: "a.txt", type: "text/plain", data: btoa("a") } })
+    expect([missing.response.status, missing.body.error?.code]).toEqual([501, "COMMENTS_R0014"])
+    const reader = await setup({ options: { authorize: ({ action }) => action === "read", storeAttachment: () => "never" } })
+    expect((await reader.call("/uploads", { method: "POST", json: { name: "a.txt", type: "text/plain", data: btoa("a") } })).response.status).toBe(403)
+  })
 })

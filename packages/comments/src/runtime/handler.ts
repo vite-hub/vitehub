@@ -8,7 +8,7 @@ import { commentsErrors } from "../errors.ts"
 import { authorOf, guestFromHeaders } from "../identity.ts"
 import { commentsRuntimeOf } from "../index.ts"
 import { commentAnchorSchema } from "../operations-core/operations.ts"
-import { contextSchema, mentionedPeople, maximumCommentBodyLength, maximumMentions } from "../operations-core/service.ts"
+import { contextSchema, mentionedPeople, maximumAttachmentBytes, maximumAttachments, maximumCommentBodyLength, maximumMentions, storeAttachment } from "../operations-core/service.ts"
 import { commentsRoute, normalizeCommentPage } from "../page.ts"
 import { requestOf } from "./request.ts"
 import { resolveCommentsUser } from "./session.ts"
@@ -87,8 +87,17 @@ const fieldEditGrant = defineGrant("vitehub.comments.field-edit", (input: { coll
 const pageSchema = v.pipe(v.string(), v.startsWith("/", "A page starts with `/`."), v.maxLength(1024))
 const bodySchema = v.pipe(v.string(), v.maxLength(maximumCommentBodyLength, "Keep a comment under 10,000 characters."))
 const mentionsSchema = v.optional(v.pipe(v.array(v.pipe(v.string(), v.minLength(1), v.maxLength(256))), v.maxLength(maximumMentions, `Mention at most ${maximumMentions} people in one comment.`)), [])
-const createBody = v.object({ page: pageSchema, anchor: commentAnchorSchema, context: v.optional(contextSchema), body: bodySchema, mentions: mentionsSchema })
-const replyBody = v.object({ body: bodySchema, mentions: mentionsSchema })
+const attachmentsSchema = v.optional(v.pipe(v.array(v.pipe(v.string(), v.minLength(1), v.maxLength(500))), v.maxLength(maximumAttachments, `Attach at most ${maximumAttachments} files to one comment.`)), [])
+const createBody = v.object({ page: pageSchema, anchor: commentAnchorSchema, context: v.optional(contextSchema), body: bodySchema, mentions: mentionsSchema, attachments: attachmentsSchema })
+const replyBody = v.object({ body: bodySchema, mentions: mentionsSchema, attachments: attachmentsSchema })
+const editBody = v.object({ body: bodySchema, mentions: mentionsSchema })
+// The input of `comments.upload`: the file in Base64, and the page of its thread.
+const uploadBody = v.object({
+  name: v.pipe(v.string(), v.minLength(1), v.maxLength(200)),
+  type: v.pipe(v.string(), v.minLength(1), v.maxLength(100)),
+  data: v.pipe(v.string(), v.minLength(1), v.maxLength(Math.ceil(maximumAttachmentBytes / 3) * 4)),
+  page: v.optional(pageSchema),
+})
 
 /** The first issue as one sentence, for `COMMENTS_INVALID_INPUT`. */
 function describeIssue(issues: readonly v.BaseIssue<unknown>[]): string {
@@ -213,6 +222,10 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
       spend(grant, ["delete"], threadId)
       return comments.remove(threadId)
     },
+    edit: (grant: ActionGrant, threadId: string, messageId: string, input: Parameters<Comments["edit"]>[1]) => {
+      spend(grant, ["write"], threadId)
+      return comments.edit(messageId, input)
+    },
     // Authors delete their own messages with `write`; moderators need `delete` for others' messages.
     removeComment: (grant: ActionGrant, threadId: string, messageId: string) => {
       spend(grant, ["write", "delete"], threadId)
@@ -318,6 +331,29 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     const document = await collection.get(id, { ref: "draft" })
     if (!document) return [commentsErrors.COMMENTS_FIELD_INVALID({ field: address }), undefined]
     return [undefined, { collection, id, path: parsed.field.split("."), document, author: allowed.author, user: allowed.user }]
+  }
+
+  /** Stores a file for `attachments`, with the checks of `comments.upload`. The page names the subject of its thread. */
+  async function upload(event: H3Event): Promise<Response> {
+    const parsed = v.safeParse(uploadBody, await readJson(event))
+    if (!parsed.success) return invalid(parsed.issues)
+    const { page, ...file } = parsed.output
+    const subject = page ? { kind: "page", id: normalizeCommentPage(page) } : undefined
+    const [denied, allowed] = await access(event, "write", undefined, subject)
+    if (denied) return failure(denied)
+    if (!allowed.author) return failure(commentsErrors.COMMENTS_FORBIDDEN({ action: "write" }))
+    const runtime = commentsRuntimeOf(comments)
+    if (!runtime) return failure(commentsErrors.COMMENTS_NOT_INSTALLED())
+    try {
+      return json({ data: await storeAttachment(runtime, { ...file, ...(subject ? { subject } : {}) }, allowed.user) })
+    }
+    catch (cause) {
+      // The checks of `storeAttachment` fail with a diagnostic: a file type, size, or store that Comments refuses.
+      if (cause instanceof Error && "code" in cause && typeof cause.code === "string" && cause.code.startsWith("COMMENTS_R")) {
+        return json({ error: { code: cause.code, why: cause.message, ...("fix" in cause && typeof cause.fix === "string" ? { fix: cause.fix } : {}) } }, { status: "status" in cause && typeof cause.status === "number" ? cause.status : 400 })
+      }
+      throw cause
+    }
   }
 
   async function readField(event: H3Event, address: string): Promise<Response> {
@@ -440,11 +476,32 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
       }
     }
 
+    if (method === "POST" && path === "/uploads") return await upload(event)
+
     if (parts[0] === "threads" && parts[1]) {
       const id = decodeURIComponent(parts[1])
       const [missing, current] = await thread(id)
       if (missing) return failure(missing)
       const action = parts[2]
+      if (method === "GET" && !action) {
+        const [denied, allowed] = await access(event, "read", current)
+        if (denied) return failure(denied)
+        return await respondThread(event, allowed.user, [undefined, current])
+      }
+      if (method === "PATCH" && action === "comments" && parts[3]) {
+        const messageId = decodeURIComponent(parts[3])
+        const message = current.messages.find(candidate => candidate.id === messageId)
+        if (!message) return failure(commentsErrors.COMMENTS_NOT_FOUND({ id: messageId }))
+        const parsed = v.safeParse(editBody, await readJson(event))
+        if (!parsed.success) return invalid(parsed.issues)
+        const [denied, allowed] = await access(event, "write", current)
+        if (denied) return failure(denied)
+        // Only the author edits a message. A guest id never proves who wrote it.
+        if (!allowed.user || allowed.user.guest || message.author.guest || message.author.id !== allowed.user.id) return failure(commentsErrors.COMMENTS_FORBIDDEN({ action: "write" }))
+        const [error] = await writes.edit(allowed.grant, id, messageId, parsed.output)
+        if (error) return failure(error)
+        return await respondThread(event, allowed.user, await comments.get(id))
+      }
       if (method === "POST" && action === "comments") {
         const parsed = v.safeParse(replyBody, await readJson(event))
         if (!parsed.success) return invalid(parsed.issues)

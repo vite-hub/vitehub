@@ -69,6 +69,8 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
       icon: "i-lucide-message-square-text",
       script: options.overlay,
       lazy: true,
+      // A link to a thread, `<page>?comment=<n>`, opens it.
+      param: "comment",
       async allowed({ event }) {
         // SAFETY: the page tools session passes the H3 event of its Nitro route, which the session readers accept.
         const user = await resolveCommentsUser(options.comments, event as H3Event, { ...options, session: options.session ?? options.githubLogin?.user })

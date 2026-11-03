@@ -125,7 +125,7 @@ describe("the Comments page tool", () => {
     await vi.waitFor(() => expect(comment(bar)).toBeTruthy())
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "c" }))
     expect(document.documentElement.classList.contains("vitehub-comment-mode")).toBe(true)
-    expect(comment(bar)!.getAttribute("aria-pressed")).toBe("true")
+    await vi.waitFor(() => expect(comment(bar)!.getAttribute("aria-pressed")).toBe("true"))
     comment(bar)!.click()
     expect(document.documentElement.classList.contains("vitehub-comment-mode")).toBe(false)
   })
