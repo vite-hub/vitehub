@@ -41,18 +41,19 @@ Each page keeps its view in the query string, so a reload, a shared link, Back a
 
 | Page | Query parameters |
 | --- | --- |
-| Agents | `capability`, `triggeredBy`, `details=open` or `details=max`, `tab`, `file`. The Agent and the session are in the path. `sessions=open` opens the session list on a narrow screen when the page loads. |
+| Agents | `q` searches session titles and IDs. `capability`, `triggeredBy`, `details=open` or `details=max`, `tab`, `file`. The Agent and the session are in the path. `sessions=open` opens the session list on a narrow screen when the page loads. |
 | Auth | `q`, `filter`, `offset`, `user`, `org`. Activity: `group`, `userId`, `cursor`. |
 | Blob | `store`, `folder`, `file`, `q`, `type`, `vitehub=1`. |
-| Channels | `agent`, `channel`, `thread`. |
-| Comments | `filter`. |
+| Channels | `agent`, `channel`, `thread`, and `q` for the thread search. |
+| Comments | `q` searches the page, the author, and the text. `filter.status`, or `filter` in the operation view. |
 | Connections | `q`, `connection`, `tab`. |
 | Content | List: `q`, `state`, `sort`, `filter.<field>`. Editor: `preview`, `panel`. Media: `folder`, `file`, `q`, `type`. |
 | Databases | `q`, `sort`, `dir`, `offset`. The database and the table are in the path. |
 | Env | `q`, `source`, `variable`, `manage=1`, `tab`. |
 | KV | `store`, `key`, `q`. |
 | Logs | `q`, `level`, `view`, `entry`. |
-| Queues, Schedules, Workflows, and other catalogs | `definition`, or `record` for a record table. Rate Limits: `key`, the key that was read. |
+| Queues, Schedules, Workflows, and other catalogs | `q` searches names. `definition`, or `record` for a record table. Rate Limits: `key`, the key that was read. |
+| Email and other record tables | `q` searches the id and every cell, such as the recipient. `filter.<column>` filters a column that the owner marks with `filter: true`, such as `filter.delivery=Failed`. |
 | Skills | `agent`, `path`. |
 | Usage | `window`, `section`, `metric`, `breakdown`, `agent`, `status`, `search`. |
 

@@ -104,6 +104,17 @@ it("writes a changed filter and closes the details panel", async () => {
   expect(state.detailsOpen).toBe(false)
 })
 
+it("searches sessions by title or ID and keeps the search when another session opens", async () => {
+  const { router, state } = await mountAgents("/agents/support/invocations/i1?q=label")
+  const search = state as unknown as AgentsState & { matchesSessionSearch: (item: { id: string, title?: string }) => boolean, sessionSearch: string }
+  expect(search.sessionSearch).toBe("label")
+  expect(search.matchesSessionSearch({ id: "ainv_1", title: "Label follow-up issues" })).toBe(true)
+  expect(search.matchesSessionSearch({ id: "ainv_label", title: "Other" })).toBe(true)
+  expect(search.matchesSessionSearch({ id: "ainv_2", title: "Triage" })).toBe(false)
+  await state.selectInvocation({ agent: "support", id: "i2" })
+  await vi.waitFor(() => expect(router.currentRoute.value.fullPath).toBe("/agents/support/invocations/i2?q=label"))
+})
+
 it.each(["open", "max"])("opens the default Details surface from details=%s", async (details) => {
   const { state } = await mountAgents(`/agents/support/invocations/i1?details=${details}`)
   expect(state.detailsOpen).toBe(true)

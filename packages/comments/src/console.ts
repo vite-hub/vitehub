@@ -20,7 +20,7 @@ export const commentsConsoleSection: ViteHubConsoleRuntimeRecordTableSection<{ p
       { key: "page", label: "Page" },
       { key: "author", label: "Author" },
       { key: "replies", label: "Replies" },
-      { key: "status", label: "Status" },
+      { filter: true, key: "status", label: "Status" },
       { key: "updated", label: "Last activity" },
     ],
     kind: "record-table",
