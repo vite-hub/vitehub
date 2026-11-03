@@ -50,4 +50,4 @@ export default defineConfig({
 })
 ```
 
-Cache keys get the `nitro-cache:` prefix, so they stay apart from the app's keys. `base` changes the prefix. Development uses the dev KV Store too. Nitro passes each entry's `maxAge` as the TTL: Cloudflare KV keeps an entry at least 60 seconds, Upstash and Deno KV expire it on time, and `fs-lite` keeps the file until it is overwritten. Nitro checks the entry's age on every read, so an entry that outlives its TTL is never served as fresh. The option fails the build when `kv` is not enabled. A `cache` mount in `nitro.storage` takes precedence.
+Cache keys get the `nitro-cache:` prefix, so they stay apart from the app's keys. `base` changes the prefix. Development uses the dev KV Store too. Nitro passes each entry's `maxAge` as the TTL: Cloudflare KV keeps an entry at least 60 seconds, Upstash and Deno KV expire it on time, and `fs-lite` keeps the file until it is overwritten. Nitro checks the entry's age on every read, so an entry that outlives its TTL is never served as fresh. The option fails the build when `kv` is not enabled. A `cache` mount in `nitro.kv` (`nitro.storage` in Nuxt) takes precedence.
