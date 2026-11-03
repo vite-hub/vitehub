@@ -1,5 +1,5 @@
 import type { CommentMessage, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
-import { computed, defineComponent, h, nextTick, type PropType, ref, resolveComponent } from "vue";
+import { computed, defineComponent, h, nextTick, type PropType, ref, resolveComponent, type SlotsType, type VNode } from "vue";
 import {
   consumedPointerEvents,
   pathOf,
@@ -7,17 +7,75 @@ import {
   swallowNextClick,
   useDocumentPointerDown,
 } from "../internal/comment-outside.ts";
+import { mentionPlugin, mentionTag } from "../internal/comment-mentions.ts";
 import { displayName, toPerson } from "../internal/comment-person.ts";
 import { timeAgo } from "../internal/comment-time.ts";
+import { injectComments } from "../internal/comments-context.ts";
+import { ImagePreview } from "../internal/image-preview.ts";
+import { Attachment, AttachmentContent, AttachmentGroup, AttachmentMedia, AttachmentTitle } from "./attachment.ts";
 import { AvatarStack } from "./avatar-stack.ts";
-import { CommentComposer, type CommentComposerSubmit } from "./comment-composer.ts";
+import { CommentComposer, type CommentComposerSlots, type CommentComposerSubmit } from "./comment-composer.ts";
 import { Markdown } from "./markdown.ts";
 import { Marker, MarkerContent } from "./marker.ts";
 
 type Done = Promise<unknown> | void;
 
+/** Gives the URL of an attachment key, such as a Blob key. `undefined` shows the key as a file without a link. */
+export type CommentAttachmentUrl = (key: string) => string | undefined;
+
+/** The scope of the `body` and `attachments` slots of `CommentReply`. */
+export interface CommentReplySlotScope {
+  message: CommentMessage;
+}
+
+export type CommentReplySlots = {
+  /** The text of the message. Replaces the Markdown body with its mention chips. */
+  body?: (scope: CommentReplySlotScope) => VNode[];
+  /** The attachments of the message. Replaces the default thumbnails. */
+  attachments?: (scope: CommentReplySlotScope) => VNode[];
+};
+
+/** The scope of the `actions`, `anchor`, and `after` slots of `CommentThread`. */
+export interface CommentThreadSlotScope {
+  thread: CommentThreadModel;
+}
+
+export type CommentThreadSlots = CommentReplySlots & CommentComposerSlots & {
+  /** More buttons in the header, before Resolve. */
+  actions?: (scope: CommentThreadSlotScope) => VNode[];
+  /** What the thread is about. Replaces the default quote of the selected text. */
+  anchor?: (scope: CommentThreadSlotScope) => VNode[];
+  /** Below the messages and above the reply box. */
+  after?: (scope: CommentThreadSlotScope) => VNode[];
+};
+
+const imageExtensions = new Set(["apng", "avif", "bmp", "gif", "heic", "jpeg", "jpg", "png", "svg", "webp"]);
+
 function reason(error: unknown): string {
   return error instanceof Error ? error.message : "That did not work. Try again.";
+}
+
+const fileName = (key: string) => key.split(/[/\\]/).at(-1) || key;
+
+// Shows the attachments of a message. A key with a URL and an image name, or no extension, shows as a thumbnail.
+function attachmentList(message: CommentMessage, url: CommentAttachmentUrl | undefined, icon: ReturnType<typeof resolveComponent>) {
+  if (message.attachments.length === 0) return null;
+  return h(AttachmentGroup, { "data-slot": "comment-reply-attachments" }, () =>
+    message.attachments.map((key) => {
+      const name = fileName(key);
+      const href = url?.(key);
+      const extension = /\.([a-z0-9]+)$/i.exec(name)?.[1]?.toLowerCase();
+      const image = href !== undefined && (extension === undefined || imageExtensions.has(extension));
+      return h(Attachment, { key, size: "xs" }, () => [
+        h(AttachmentMedia, { variant: image ? "image" : "icon" }, () =>
+          image ? h(ImagePreview, { alt: name, compact: true, src: href }) : h(icon, { name: "i-ph-file-light" }),
+        ),
+        h(AttachmentContent, () =>
+          h(AttachmentTitle, () => (href && !image ? h("a", { href, rel: "noreferrer", target: "_blank" }, name) : name)),
+        ),
+      ]);
+    }),
+  );
 }
 
 // One message of a thread. The first message is the comment, and the rest are replies.
@@ -27,28 +85,58 @@ export const CommentReply = defineComponent({
   name: "CommentReply",
   props: {
     message: { required: true, type: Object as PropType<CommentMessage> },
+    /** The signed-in user. A mention of them looks different. Defaults to the user of the comments state. */
+    user: { type: Object as PropType<CommentUser> },
     /** The signed-in user may edit and delete this message. */
     editable: { default: false, type: Boolean },
     /** The message, and its author, show in one line without actions. */
     compact: { default: false, type: Boolean },
     /** Deleting asks first. Deleting the first message of a thread deletes the whole thread, so a thread sets it there. */
     confirmDelete: { default: false, type: Boolean },
-    /** People whose `@name` the message may hold, so an edit keeps their mentions. */
+    /** People whose `@name` the message may hold, so an edit keeps their mentions and the body marks them. */
     people: { default: () => [], type: Array as PropType<CommentUser[]> },
     users: { type: Function as PropType<(query: string) => Promise<CommentUser[]>> },
+    /** Gives the URL of an attachment key. With it, image attachments show as thumbnails. */
+    attachmentUrl: { type: Function as PropType<CommentAttachmentUrl> },
     /** Saves an edit. Gets `(messageId, body, mentions)`. */
     onEdit: { type: Function as PropType<(messageId: string, body: string, mentions: string[]) => Done> },
     /** Deletes the message. Gets `(messageId)`. */
     onDelete: { type: Function as PropType<(messageId: string) => Done> },
   },
-  setup(props) {
+  // SAFETY: Vue uses Object as its runtime slots marker.
+  slots: Object as SlotsType<CommentReplySlots & Pick<CommentComposerSlots, "mention-item">>,
+  setup(props, { slots }) {
     const UButton = resolveComponent("UButton");
+    const UIcon = resolveComponent("UIcon");
+    const comments = injectComments();
     const editing = ref(false);
     const confirming = ref(false);
     const busy = ref(false);
     const error = ref<string | undefined>();
     const draft = ref("");
     const mentions = ref<string[]>([]);
+
+    const self = () => props.user?.id ?? comments?.user.value?.id;
+    // A mention chip. It marks only a person that the message really mentions, so typed component syntax stays text.
+    const MentionChip = defineComponent({
+      props: { label: { default: "", type: String }, user: { default: "", type: String } },
+      setup(chip) {
+        return () =>
+          props.message.mentions.includes(chip.user)
+            ? h("span", { "data-self": chip.user === self() ? "true" : undefined, "data-slot": "comment-mention" }, `@${chip.label}`)
+            : `@${chip.label}`;
+      },
+    });
+    const bodyComponents = { [mentionTag]: MentionChip };
+    const bodyPlugins = computed(() => {
+      const known = new Map<string, CommentUser>();
+      for (const person of [...(comments?.people.value ?? []), ...props.people, ...(props.user ? [props.user] : [])]) known.set(person.id, person);
+      const named = props.message.mentions.flatMap((id) => {
+        const person = known.get(id);
+        return person ? [{ id, name: displayName(person) }] : [];
+      });
+      return [mentionPlugin(named)];
+    });
 
     async function run(task: () => Done): Promise<boolean> {
       if (busy.value) return false;
@@ -120,8 +208,14 @@ export const CommentReply = defineComponent({
                   people: props.people,
                   users: props.users,
                   variant: "edit",
-                })
-              : h(Markdown, { "data-slot": "comment-reply-body", value: message.body }),
+                }, slots["mention-item"] ? { "mention-item": slots["mention-item"] } : undefined)
+              : (slots.body?.({ message }) ?? h(Markdown, {
+                  components: bodyComponents,
+                  "data-slot": "comment-reply-body",
+                  plugins: bodyPlugins.value,
+                  value: message.body,
+                })),
+            editing.value || props.compact ? null : (slots.attachments?.({ message }) ?? attachmentList(message, props.attachmentUrl, UIcon)),
             confirming.value
               ? h("div", { "aria-label": "Confirm delete", "data-slot": "comment-reply-confirm", role: "group" }, [
                   h("p", "Delete this comment and every reply to it?"),
@@ -169,9 +263,22 @@ export const CommentThread = defineComponent({
     error: { type: String },
     /** The thread is no longer on the page, so no pin shows where it was. */
     detached: { default: false, type: Boolean },
+    /** People that messages may mention, on top of the authors of the thread. Their mentions show as chips. */
+    people: { default: () => [], type: Array as PropType<CommentUser[]> },
     users: { type: Function as PropType<(query: string) => Promise<CommentUser[]>> },
-    /** Sends a reply. Gets `(body, mentions)`. */
-    onReply: { type: Function as PropType<(body: string, mentions: string[]) => Done> },
+    /** The reply box takes files. `onReply` gets them. */
+    attachments: { default: true, type: Boolean },
+    /** The file types that the reply box takes, such as `image/*`. */
+    accept: { type: String },
+    /** Gives the URL of an attachment key. With it, image attachments show as thumbnails. */
+    attachmentUrl: { type: Function as PropType<CommentAttachmentUrl> },
+    /** `"back"` shows a Back button at the start of the header instead of Close, for a thread inside a list. Both emit `close`. */
+    // SAFETY: Vue's runtime constructor cannot express this string literal union.
+    navigation: { default: "close", type: String as PropType<"close" | "back"> },
+    /** A click outside the thread closes it. Turn it off when the thread is part of a panel. */
+    dismissible: { default: true, type: Boolean },
+    /** Sends a reply. Gets `(body, mentions, files)`. */
+    onReply: { type: Function as PropType<(body: string, mentions: string[], files: File[]) => Done> },
     /** Saves an edited message. Gets `(messageId, body, mentions)`. */
     onEdit: { type: Function as PropType<(messageId: string, body: string, mentions: string[]) => Done> },
     /** Deletes a message. Gets `(messageId)`. Deleting the first message deletes the thread. */
@@ -180,27 +287,33 @@ export const CommentThread = defineComponent({
     onReopen: { type: Function as PropType<() => Done> },
   },
   emits: ["close"],
-  setup(props, { emit }) {
+  // SAFETY: Vue uses Object as its runtime slots marker.
+  slots: Object as SlotsType<CommentThreadSlots>,
+  setup(props, { emit, slots }) {
     const UButton = resolveComponent("UButton");
+    const comments = injectComments();
     const root = ref<HTMLElement | null>(null);
     const reply = ref("");
     const mentions = ref<string[]>([]);
+    const files = ref<File[]>([]);
     const sending = ref(false);
     const failure = ref<string | undefined>();
     const composer = ref<{ focus: () => void } | null>(null);
 
+    const user = computed(() => props.user ?? comments?.user.value);
     const people = computed(() => {
       const seen = new Map<string, CommentUser>();
-      for (const person of [props.thread.author, ...props.thread.messages.map((message) => message.author), ...(props.user ? [props.user] : [])]) {
+      for (const person of [...props.people, props.thread.author, ...props.thread.messages.map((message) => message.author), ...(user.value ? [user.value] : [])]) {
         seen.set(person.id, person);
       }
       return [...seen.values()];
     });
+    const participants = computed(() => [...new Set([props.thread.author.id, ...props.thread.messages.map((message) => message.author.id)])]);
 
     // A click outside closes the thread, unless a reply is half written: then that box shakes.
     useDocumentPointerDown((event) => {
       const path = pathOf(event);
-      if (props.preview || !root.value || path.includes(root.value)) return;
+      if (props.preview || !props.dismissible || !root.value || path.includes(root.value)) return;
       if (path.some((element) => element.matches("[data-slot='comment-pin']")) || consumedPointerEvents.has(event)) return;
       consumedPointerEvents.add(event);
       const where = root.value.getRootNode();
@@ -216,11 +329,13 @@ export const CommentThread = defineComponent({
       failure.value = undefined;
       const submitted = reply.value;
       const submittedMentions = mentions.value;
+      const submittedFiles = files.value;
       try {
-        await props.onReply(submit.body, [...submit.mentions]);
-        if (reply.value === submitted && mentions.value === submittedMentions) {
+        await props.onReply(submit.body, [...submit.mentions], [...submit.files]);
+        if (reply.value === submitted && mentions.value === submittedMentions && files.value === submittedFiles) {
           reply.value = "";
           mentions.value = [];
+          files.value = [];
         }
         void nextTick(() => composer.value?.focus());
       } catch (cause) {
@@ -245,6 +360,16 @@ export const CommentThread = defineComponent({
       emit("close");
     }
 
+    const replySlots = () => ({
+      ...(slots.body ? { body: slots.body } : {}),
+      ...(slots.attachments ? { attachments: slots.attachments } : {}),
+      ...(slots["mention-item"] ? { "mention-item": slots["mention-item"] } : {}),
+    });
+    const composerSlots = () => ({
+      ...(slots.extra ? { extra: slots.extra } : {}),
+      ...(slots["mention-item"] ? { "mention-item": slots["mention-item"] } : {}),
+    });
+
     return () => {
       const { thread } = props;
       const resolved = thread.status === "resolved";
@@ -253,17 +378,21 @@ export const CommentThread = defineComponent({
       if (props.preview) {
         const replies = thread.messages.length - 1;
         return h("div", { "data-slot": "comment-thread", "data-preview": "true", "data-status": thread.status }, [
-          first ? h(CommentReply, { compact: true, message: first }) : null,
+          first ? h(CommentReply, { compact: true, message: first, people: people.value, user: user.value }, slots.body ? { body: slots.body } : undefined) : null,
           replies > 0 ? h("p", { "data-slot": "comment-thread-count" }, `${replies} ${replies === 1 ? "reply" : "replies"}`) : null,
         ]);
       }
+      const back = props.navigation === "back";
+      const anchor = slots.anchor ? slots.anchor({ thread }) : quote ? h("blockquote", { "data-slot": "comment-thread-quote" }, quote) : null;
       return h(
         "section",
         { "aria-label": `Comment ${thread.n}`, "data-slot": "comment-thread", "data-status": thread.status, ref: root, role: "dialog", tabindex: -1 },
         [
           h("header", { "data-slot": "comment-thread-header" }, [
+            back ? h(UButton, { "aria-label": "Back to comments", color: "neutral", icon: "i-ph-arrow-left", onClick: close, size: "xs", variant: "ghost" }) : null,
             h("span", { "data-slot": "comment-thread-title" }, `Comment ${thread.n}`),
             h("span", { "data-slot": "comment-thread-spacer" }),
+            slots.actions ? h("div", { "data-slot": "comment-thread-actions" }, slots.actions({ thread })) : null,
             props.readOnly ? null : h(UButton, {
               "aria-label": resolved ? "Reopen" : "Resolve",
               color: "neutral",
@@ -272,48 +401,56 @@ export const CommentThread = defineComponent({
               size: "xs",
               variant: "ghost",
             }),
-            h(UButton, { "aria-label": "Close", color: "neutral", icon: "i-ph-x-light", onClick: close, size: "xs", variant: "ghost" }),
+            back ? null : h(UButton, { "aria-label": "Close", color: "neutral", icon: "i-ph-x-light", onClick: close, size: "xs", variant: "ghost" }),
           ]),
           h("div", { "data-slot": "comment-thread-messages" }, [
-            quote ? h("blockquote", { "data-slot": "comment-thread-quote" }, quote) : null,
+            anchor,
             props.detached
               ? h("p", { "data-slot": "comment-thread-detached", role: "status" }, "The place of this comment is no longer on the page.")
               : null,
             ...thread.messages.map((message, index) =>
               h(CommentReply, {
+                attachmentUrl: props.attachmentUrl,
                 confirmDelete: index === 0,
-                editable: !props.readOnly && message.author.id === props.user?.id,
+                editable: !props.readOnly && message.author.id === user.value?.id,
                 key: message.id,
                 message,
                 onDelete: props.onDelete,
                 onEdit: props.onEdit,
                 people: people.value,
+                user: user.value,
                 users: props.users,
-              }),
+              }, replySlots()),
             ),
             resolved
               ? h(Marker, { variant: "separator" }, () =>
                   h(MarkerContent, () => `Resolved${thread.resolvedBy ? ` by ${displayName(thread.resolvedBy)}` : ""}`),
                 )
               : null,
+            slots.after ? h("div", { "data-slot": "comment-thread-after" }, slots.after({ thread })) : null,
           ]),
           props.readOnly ? null : h(CommentComposer, {
+            accept: props.accept,
+            attachments: props.attachments,
             autofocus: false,
             busy: props.busy || sending.value,
             error: failure.value ?? props.error,
+            files: files.value,
             guard: false,
             mentions: mentions.value,
             modelValue: reply.value,
             onCancel: close,
             onSubmit: send,
+            participants: participants.value,
+            "onUpdate:files": (value: File[]) => (files.value = value),
             "onUpdate:mentions": (value: string[]) => (mentions.value = value),
             "onUpdate:modelValue": (value: string) => (reply.value = value),
             people: people.value,
             ref: composer,
-            user: props.user,
+            user: user.value,
             users: props.users,
             variant: "reply",
-          }),
+          }, composerSlots()),
         ],
       );
     };

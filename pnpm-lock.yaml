@@ -659,6 +659,9 @@ importers:
       '@vite-hub/agent':
         specifier: workspace:*
         version: link:../packages/agent
+      '@vite-hub/comments':
+        specifier: workspace:*
+        version: link:../packages/comments
       '@vite-hub/docs':
         specifier: workspace:*
         version: link:../packages/docs

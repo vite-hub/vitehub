@@ -7,6 +7,7 @@ export const viteHubUIIcons: readonly string[] = [
   "lucide:x",
   "ph:arrow-clockwise",
   "ph:arrow-counter-clockwise",
+  "ph:arrow-left",
   "ph:arrow-up",
   "ph:chat-circle",
   "ph:check",

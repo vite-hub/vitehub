@@ -1,8 +1,7 @@
 import type { CommentThread } from "@vite-hub/comments/client";
 import { defineComponent, h, type PropType, resolveComponent } from "vue";
 import { type CommentFilterState, type CommentsState, useCommentsContext } from "../headless/comments.ts";
-import { timeAgo } from "../internal/comment-time.ts";
-import { displayName, toPerson } from "../internal/comment-person.ts";
+import { threadRow } from "../internal/comment-row.ts";
 import { AvatarStack, type AvatarStackPerson } from "./avatar-stack.ts";
 
 // The `comments` prop lets a part work outside `CommentLayer`. Inside it, the part uses the layer's state.
@@ -39,11 +38,6 @@ export const CommentFilters = defineComponent({
     };
   },
 });
-
-function preview(thread: CommentThread): string {
-  const text = thread.anchor.kind === "text" ? thread.anchor.exact : "";
-  return thread.messages[0]?.body ?? text;
-}
 
 // The side list of threads for this page or the whole site. A click opens the thread on this page, or goes to the page of the thread.
 export const CommentList = defineComponent({
@@ -102,10 +96,7 @@ export const CommentList = defineComponent({
               "ol",
               { "data-slot": "comment-list-items" },
               rows.map((thread) => {
-                const position = comments.positions.value.get(thread.id);
-                const detached = position?.detached === true;
-                const replies = thread.messages.length - 1;
-                const person = toPerson(thread.author);
+                const detached = comments.positions.value.get(thread.id)?.detached === true;
                 return h("li", { key: thread.id }, [
                   h(
                     "a",
@@ -117,21 +108,7 @@ export const CommentList = defineComponent({
                       href: comments.link(thread),
                       onClick: (event: MouseEvent) => select(thread, event),
                     },
-                    [
-                      h("span", { "data-slot": "comment-list-number" }, String(thread.n)),
-                      h(AvatarStack, { "aria-hidden": "true", people: [person], size: "sm" }),
-                      h("span", { "data-slot": "comment-list-body" }, [
-                        h("span", { "data-slot": "comment-list-text" }, preview(thread)),
-                        h("span", { "data-slot": "comment-list-meta" }, [
-                          h("span", displayName(thread.author)),
-                          h("span", timeAgo(thread.updatedAt)),
-                          replies > 0 ? h("span", `${replies} ${replies === 1 ? "reply" : "replies"}`) : null,
-                          thread.status === "resolved" ? h("span", "Resolved") : null,
-                          detached ? h("span", { "data-slot": "comment-list-detached" }, "Detached") : null,
-                          comments.scope.value === "site" && thread.subject.kind === "page" ? h("span", thread.subject.id) : null,
-                        ]),
-                      ]),
-                    ],
+                    threadRow(thread, { detached, site: comments.scope.value === "site" }),
                   ),
                 ]);
               }),

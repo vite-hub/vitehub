@@ -24,6 +24,7 @@
     "@nuxt/icon": "^2.5.1",
     "@nuxt/ui": "catalog:nuxt",
     "@vite-hub/agent": "workspace:*",
+    "@vite-hub/comments": "workspace:*",
     "@vite-hub/docs": "workspace:*",
     "@vite-hub/ui": "workspace:*",
     "@vueuse/core": "catalog:ui",
