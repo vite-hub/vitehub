@@ -187,10 +187,10 @@ catalogs:
   vite-compat:
     vite: ">=8.0.0"
   workflow:
-    "@workflow/builders": 5.0.1
+    "@workflow/builders": 5.0.7
     cron-schedule: ^6.0.0
     openworkflow: ^0.9.2
-    workflow: 5.0.1
+    workflow: 5.3.0
   workspace:
     isomorphic-git: ^1.44.10
     minimatch: ^10.2.6
