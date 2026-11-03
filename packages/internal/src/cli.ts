@@ -145,6 +145,29 @@ export async function withStdoutOnStderr<T>(run: () => Promise<T>, stderr: ViteH
   }
 }
 
+interface ClosableNitro {
+  close: () => Promise<void>
+}
+
+/**
+ * A Vite plugin for CLI discovery that collects the Nitro instances that Vite's config hooks create, and `close()` to stop them.
+ * Nitro's Vite plugin starts its dev env runner (a worker thread, or Miniflare for Cloudflare) while Vite resolves a `serve`
+ * config. Discovery never uses that runner. If it stays open, the process does not exit by itself, and when the CLI
+ * then calls `process.exit()`, a StackBlitz WebContainer stops running later processes such as `vite`.
+ */
+export function createCliDiscoveryNitroCloser(): { close: () => Promise<void>, plugin: { name: string, nitro: { setup: (nitro: ClosableNitro) => void } } } {
+  const instances: ClosableNitro[] = []
+  return {
+    close: async () => {
+      await Promise.all(instances.splice(0).map(nitro => nitro.close()))
+    },
+    plugin: {
+      name: "vite-hub/cli-discovery-nitro",
+      nitro: { setup: nitro => { instances.push(nitro) } },
+    },
+  }
+}
+
 /** Returns the unredirected process stdout writer for payload output. */
 export function getStableStdoutWrite(): typeof process.stdout.write {
   const current = process.stdout.write

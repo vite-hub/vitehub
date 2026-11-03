@@ -1346,7 +1346,7 @@ describe("vitehub", () => {
     ["deno", false, 3, "deno-server"],
     ["cloudflare", true, 3, "cloudflare-module"],
   ] as const)("selects the %s preset with realtime %s on Nitro %s during Nuxt config replay", async (preset, realtime, nitroMajorVersion, nitroPreset) => {
-    const plugins = vitehub({ preset, realtime })
+    const plugins = vitehub({ cache: { driver: "kv" }, kv: true, preset, realtime })
     const settings = dependencyPluginByName(plugins, "vite-hub/deployment-settings")
     const deployment = dependencyPluginByName(plugins, "vite-hub/deployment-preset")
     const output = dependencyPluginByName(plugins, "vite-hub/deployment-output")
@@ -1364,6 +1364,8 @@ describe("vitehub", () => {
         expect(config.nitro.preset).toBe(nitroPreset)
         await callHook(deployment.config, [config, { command: "build", mode: "production" }])
         expect(config.nitro.preset).toBe(nitroPreset)
+        expect(config.nitro).toHaveProperty(nitroMajorVersion === 2 ? "storage.cache.driver" : "kv.cache.driver", kvCacheDriver)
+        expect(config.nitro).toHaveProperty(nitroMajorVersion === 2 ? "devStorage.cache.driver" : "$development.kv.cache.driver", kvCacheDriver)
         expect(() => callHook(output.configResolved, [config])).not.toThrow()
       }
     }
@@ -1383,8 +1385,8 @@ describe("vitehub", () => {
     )
 
     expect(config.nitro).toMatchObject({
-      devStorage: { cache: { base: ".vitehub/data/cache", driver: "fs-lite" } },
-      storage: { cache: storage },
+      $development: { kv: { cache: { base: ".vitehub/data/cache", driver: "fs-lite" } } },
+      kv: { cache: storage },
     })
     if (preset === "cloudflare") {
       expect(config.nitro).toHaveProperty("cloudflare.wrangler.kv_namespaces", [{ binding: "CACHE", id: "cache-id" }])
@@ -1394,10 +1396,10 @@ describe("vitehub", () => {
   it("keeps an application cache mount and other KV namespaces", async () => {
     const config = await applyDeploymentConfig(
       { cache: true, preset: "cloudflare" },
-      { nitro: { cloudflare: { wrangler: { kv_namespaces: [{ binding: "KV", id: "kv-id" }] } }, storage: { cache: { driver: "memory" } } } },
+      { nitro: { cloudflare: { wrangler: { kv_namespaces: [{ binding: "KV", id: "kv-id" }] } }, kv: { cache: { driver: "memory" } } } },
     )
 
-    expect(config.nitro).toHaveProperty("storage.cache", { driver: "memory" })
+    expect(config.nitro).toHaveProperty("kv.cache", { driver: "memory" })
     expect(config.nitro).toHaveProperty("cloudflare.wrangler.kv_namespaces", [{ binding: "KV", id: "kv-id" }])
   })
 
@@ -1405,7 +1407,7 @@ describe("vitehub", () => {
     const config = await applyDeploymentConfig({ cache: { driver: "kv" }, kv: true, preset: "cloudflare" })
     const mount = { base: "nitro-cache", driver: kvCacheDriver }
 
-    expect(config.nitro).toMatchObject({ devStorage: { cache: mount }, storage: { cache: mount } })
+    expect(config.nitro).toMatchObject({ $development: { kv: { cache: mount } }, kv: { cache: mount } })
     await expect(applyDeploymentConfig({ cache: { driver: "kv" }, preset: "cloudflare" })).rejects.toThrow("`kv` is not enabled")
   })
 
@@ -1413,7 +1415,7 @@ describe("vitehub", () => {
     const options = { cache: { driver: "kv" as const }, kv: true, preset: "node" as const }
     await expect(applyDeploymentConfig(options, { kv: false }, command)).rejects.toThrow("`kv` is not enabled")
     await expect(applyDeploymentConfig({ ...options, kv: false }, { kv: { driver: "fs-lite" } }, command)).resolves.toHaveProperty(
-      "nitro.storage.cache.driver", kvCacheDriver,
+      "nitro.kv.cache.driver", kvCacheDriver,
     )
   })
 
@@ -1422,7 +1424,7 @@ describe("vitehub", () => {
     const config = { kv: { binding: "APP_KV", driver: "cloudflare-kv-binding" } satisfies KVModuleOptions }
     await callHook(dependencyPluginByName(plugins, "vite-hub/deployment-preset").config, [config, { command: "build", mode: "production" }])
 
-    expect(config).toHaveProperty("nitro.storage.cache.driver", kvCacheDriver)
+    expect(config).toHaveProperty("nitro.kv.cache.driver", kvCacheDriver)
     expect.soft(pluginNames(plugins)).toContain("@vite-hub/kv/vite")
     expect.soft(pluginNames(plugins)).not.toContain("@vite-hub/kv/optional-peers")
 
@@ -1435,8 +1437,8 @@ describe("vitehub", () => {
     const config = await applyDeploymentConfig({ cache: true, dataDir: "/tmp/vitehub-data", preset: "node" })
 
     expect(config.nitro).toMatchObject({
-      devStorage: { cache: { base: "/tmp/vitehub-data/cache", driver: "fs-lite" } },
-      storage: { cache: { base: "/tmp/vitehub-data/cache", driver: "fs-lite" } },
+      $development: { kv: { cache: { base: "/tmp/vitehub-data/cache", driver: "fs-lite" } } },
+      kv: { cache: { base: "/tmp/vitehub-data/cache", driver: "fs-lite" } },
     })
   })
 

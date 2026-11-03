@@ -2938,9 +2938,6 @@ importers:
       '@vite-hub/comments':
         specifier: workspace:*
         version: link:../comments
-      '@vite-hub/icons':
-        specifier: workspace:*
-        version: link:../icons
       '@vite-hub/web-container':
         specifier: workspace:*
         version: link:../web-container
@@ -3002,6 +2999,9 @@ importers:
       '@vite-hub/content':
         specifier: workspace:*
         version: link:../content
+      '@vite-hub/icons':
+        specifier: workspace:*
+        version: link:../icons
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
