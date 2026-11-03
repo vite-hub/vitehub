@@ -238,7 +238,7 @@ export async function collectDatabaseContributions(
       if (isUseEntry(entry)) {
         const use = readUseContribution(entry, plugin)
         const existing = uses.get(use.name)
-        if (existing && existing.plugin !== use.plugin) {
+        if (existing) {
           throw databaseErrorDiagnostics.DATABASE_INVALID_CONTRIBUTION({ problem: `[vitehub] Plugins ${JSON.stringify(existing.plugin)} and ${JSON.stringify(use.plugin)} both contributed the Database use ${JSON.stringify(use.name)}.` })
         }
         uses.set(use.name, use)
@@ -265,6 +265,12 @@ export async function collectDatabaseContributions(
     key: "databases",
     kind: "Database tables",
   })
+  for (const table of tables) {
+    const use = uses.get(table.name)
+    if (use) {
+      throw databaseErrorDiagnostics.DATABASE_INVALID_CONTRIBUTION({ problem: `[vitehub] Database contribution ${JSON.stringify(table.name)} is contributed more than once: ${describeTarget(table)} and ${describeTarget(use)}.` })
+    }
+  }
   return {
     definitions: [...definitions.values()].sort(byName),
     tables,

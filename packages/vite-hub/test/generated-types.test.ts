@@ -805,7 +805,6 @@ export const content = defineContent({ route: publicRoute, source: { async items
     await write("false")
     const handlers = await sourcePlugin().api.prepareSources({ projectRoot: root })
     expect(handlers).toEqual(expect.arrayContaining([
-      { handler: join(root, ".vitehub/content/preview.mjs"), plugin: true },
       { handler: join(root, ".vitehub/content/sitemap.mjs"), method: "get", route: "/sitemap.xml" },
       { handler: join(root, ".vitehub/content/robots.mjs"), method: "get", route: "/robots.txt" },
     ]))
@@ -813,6 +812,25 @@ export const content = defineContent({ route: publicRoute, source: { async items
     await expect(readFile(join(root, ".vitehub/content/route.mjs"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
     await write("true")
     expect(await sourcePlugin().api.prepareSources({ projectRoot: root })).toContainEqual({ handler: join(root, ".vitehub/content/route.mjs"), route: "/api/content/**" })
+  })
+
+  it("adds the Content preview plugin only when defineContent() can have collections", async () => {
+    const { root } = await createNestedProject()
+    await mkdir(join(root, "server"), { recursive: true })
+    const file = join(root, "server/content.ts")
+    const preview = { handler: join(root, ".vitehub/content/preview.mjs"), plugin: true }
+    const write = async (options: string) => await writeFile(file, `import { defineContent } from "vite-hub/content"
+export const content = defineContent(${options})
+`)
+    // Previews read drafts of collections. A plugin without them would only load Content when the server starts.
+    await write("{ sources: { docs: { async items() { return [] } } } }")
+    expect(await sourcePlugin().api.prepareSources({ projectRoot: root })).not.toContainEqual(preview)
+    await expect(readFile(preview.handler, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    await write(`{ workspace: "content", collections: { posts } }`)
+    expect(await sourcePlugin().api.prepareSources({ projectRoot: root })).toContainEqual(preview)
+    await write("{ sources: { docs: { async items() { return [] } } } }")
+    expect(await sourcePlugin().api.prepareSources({ projectRoot: root })).not.toContainEqual(preview)
+    await expect(readFile(preview.handler, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("generates /sitemap.xml and /robots.txt when defineContent() sets seo", async () => {

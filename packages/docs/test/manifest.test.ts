@@ -32,6 +32,15 @@ function manifestOf(files: Record<string, string>, base = "/docs"): DocsManifest
 }
 
 describe("createDocsManifest", () => {
+  it.each([
+    ["docs/start/guide.md", "docs/start/guide/index.md"],
+    ["docs/start.md", "docs/start/index.md"],
+    ["about.md", "about/index.md"],
+  ])("rejects duplicate routes from %s and %s", (first, second) => {
+    expect(() => manifestOf({ [first]: "---\ntitle: First\n---\n# First", [second]: "---\ntitle: Second\n---\n# Second" })).toThrow(DocsContentError)
+    expect(() => manifestOf({ [first]: "---\ntitle: First\n---\n# First", [second]: "---\ntitle: Second\n---\n# Second" })).toThrow(new RegExp(`${first}.*${second}|${second}.*${first}`))
+  })
+
   it("reads sections, ordered pages, and pages outside the base", () => {
     const manifest = manifestOf({
       "docs/index.md": "---\ntitle: ViteHub docs\nnavigation.order: 0\n---\n\nStart here.\n",

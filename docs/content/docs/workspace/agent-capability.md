@@ -28,11 +28,11 @@ Without `mode`, `workspaceShell()` uses read mode and requires only read access 
 Provider Drivers can also run configured executables in write mode:
 
 ```ts [server/agents/coder.ts]
-import { defineAgent } from 'vite-hub/agent'
+import { codexDriver, defineAgent } from 'vite-hub/agent'
 import { workspaceShell } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
-  driver: { kind: 'codex' },
+  driver: codexDriver(),
   workspace: { mode: 'write' },
   capabilities: [workspaceShell({ commands: ['git'], mode: 'write', timeout: 30_000 })],
 })

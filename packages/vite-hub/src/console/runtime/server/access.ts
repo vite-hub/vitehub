@@ -5,6 +5,7 @@ import { consoleMountBase } from "../console-route.ts"
 import { consoleDiagnosticBody, isConsoleImpersonationRejection, type ConsoleDiagnosticCode } from "../diagnostics.ts"
 import { markBearerRejection, mcpChallenge, resolveConsoleOAuth, verifyConsoleBearer, type ConsoleOAuthConfig, type ConsoleOAuthState } from "./bearer.ts"
 import { consoleRequestError, consoleRequestURL, isConsoleDevelopmentRuntime, type ConsoleRequestEvent } from "./request.ts"
+import { loadConsoleRuntime } from "./runtime.ts"
 
 import type { OperationContext } from "@vite-hub/internal/operations"
 import type { ConsoleAuthorize, ConsoleUser } from "../../auth-types.ts"
@@ -164,16 +165,27 @@ export function consoleAppSignIn(event: ConsoleRequestEvent): Promise<Response> 
   }
 }
 
+/** Whether a GET or HEAD explicitly accepts a Console HTML page with nonzero quality. */
+export function isConsolePageVisit(event: ConsoleRequestEvent): boolean {
+  const method = (event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET").toUpperCase()
+  if (method !== "GET" && method !== "HEAD") return false
+  return consoleRequest(event).headers.get("accept")?.split(",").some((range) => {
+    const [type, ...parameters] = range.split(";")
+    if (type?.trim().toLowerCase() !== "text/html") return false
+    const quality = parameters.find(parameter => /^\s*q\s*=/i.test(parameter))?.split("=")[1]
+    return quality === undefined || Number(quality) > 0
+  }) === true
+}
+
 /**
  * Send a signed-out visit to a Console page to the sign-in page of the installed policy. The `redirect` query parameter
  * is the Console page that the visitor asked for. Returns `undefined` when the policy has no sign-in page, the request
- * does not read a page, or the authentication check does not answer `401`. Responses from `console.authorize` pass through.
+ * is not a page visit, or the authentication check does not answer `401`. Responses from `console.authorize` pass through.
  */
 export async function consoleSignInRedirect(event: ConsoleRequestEvent): Promise<Response | undefined> {
   const url = consoleRequestURL(event)
   const page = consoleSignInPage(url.pathname)
-  const method = (event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET").toUpperCase()
-  if (!page || (method !== "GET" && method !== "HEAD")) return undefined
+  if (!page || !isConsolePageVisit(event)) return undefined
   const access = await checkPageAccess(event)
   if (!isRuntimeResponse(access)) return undefined
   const policy = scope[policyKey]
@@ -192,14 +204,16 @@ export async function consoleSignInRedirect(event: ConsoleRequestEvent): Promise
 
 /**
  * Check a visit to a Console page with the access check of the data routes. Returns `undefined` when the page may open:
- * the check accepts the request, or the authentication check answers `401` and the Console shows its signed-out state. Otherwise returns the
- * rejection. `app` is `true` when `console.authorize` returned it, so the page sends it as it is.
+ * the check accepts the request, or the authentication check answers `401` to a page visit and the Console shows its
+ * signed-out state. Otherwise returns the rejection. `raw` is `true` when the page sends it as it is: `console.authorize`
+ * returned it, or it is the `401` for a request that is not a page visit.
  */
-export async function consolePageRejection(event: ConsoleRequestEvent): Promise<{ app: boolean, response: Response } | undefined> {
+export async function consolePageRejection(event: ConsoleRequestEvent): Promise<{ raw: boolean, response: Response } | undefined> {
   const access = await checkPageAccess(event)
   if (!isRuntimeResponse(access)) return undefined
-  const app = authorizeResponses.has(access)
-  return access.status === 401 && !app ? undefined : { app, response: access }
+  if (authorizeResponses.has(access)) return { raw: true, response: access }
+  if (access.status !== 401) return { raw: false, response: access }
+  return isConsolePageVisit(event) ? undefined : { raw: true, response: access }
 }
 
 /** The access check of a page visit, once per request: the sign-in middleware and the page handler both read it. */
@@ -545,8 +559,8 @@ export async function consoleAllowsRequest(event: unknown, section?: ConsoleSect
 }
 
 /**
- * Wraps a Console server handler so it runs only after the installed access policy accepts the request.
- * Otherwise the wrapper returns the rejection `Response`. Without an installed policy, it returns `500`.
+ * Wraps a Console server handler so it runs only after the installed access policy accepts the request, and after the
+ * Console runtime has loaded. Otherwise the wrapper returns the rejection `Response`. Without an installed policy, it returns `500`.
  */
 export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
   handler: ConsoleGuardedHandler<TEvent, TResult>,
@@ -578,6 +592,8 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
         checkedEvents.set(event, access)
       }
     }
+    // Only an accepted request loads the Console runtime, so a rejected one costs no more than the check.
+    await loadConsoleRuntime()
     return handler(event, access)
   }
   routeScopes.set(route, declared)

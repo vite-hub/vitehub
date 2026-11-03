@@ -124,7 +124,7 @@ function createMemoryBucket() {
     },
     async get(key: string) {
       const object = objects.get(key)
-      return object ? { ...describe(key), arrayBuffer: async () => object.body.slice().buffer } : null
+      return object ? { ...describe(key), arrayBuffer: async () => object.body.slice().buffer, body: new Blob([object.body]).stream() } : null
     },
     async head(key: string) {
       return objects.has(key) ? describe(key) : null

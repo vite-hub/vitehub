@@ -5782,22 +5782,16 @@ describe("agent message protocol", () => {
     expect(Object.values(first.channels || {}).every(channel => hasRuntimeType(channel, "object"))).toBe(true)
   })
 
-  it("normalizes built-in Channel settings under their canonical names", async () => {
+  it("rejects built-in Channel settings without their factory", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const agent = defineAgent({
+
+    expect(() => defineAgent({
       channels: {
-        telegram: {
-          allowedUserIds: [123],
-          messages: { delivery: "manual", triggerHistory: "none" },
-        },
+        // @ts-expect-error A Channel is a definition from its factory, not built-in Channel settings.
+        telegram: { allowedUserIds: [123] },
       },
       driver: { run: () => "ok" },
-    })
-
-    expect(agent.channels?.telegram).toMatchObject({
-      kind: "telegram",
-      messages: { delivery: "manual", triggerHistory: "none" },
-    })
+    })).toThrow('Channel "telegram" must be an Agent Channel definition')
   })
 
   it("lets usage() request OpenRouter usage metadata", async () => {
@@ -5862,7 +5856,7 @@ describe("agent message protocol", () => {
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       channels: { support: { messages: false } as never },
       driver: { run: () => "ok" },
-    })).toThrow('Channel "support" must be an Agent Channel definition or use a built-in Channel name')
+    })).toThrow('Channel "support" must be an Agent Channel definition. Create it with a factory')
   })
 
   it("rejects invalid Channel factory results with the Channel id", async () => {

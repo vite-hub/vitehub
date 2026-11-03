@@ -217,7 +217,8 @@ export type ViteHubConsoleRuntimeRecordReader = () => MaybePromise<readonly Vite
 
 /**
  * A record table that also reads records at request time. The Console shows the build-time records of `read` first,
- * then the records of the `runtime` reader. A runtime record replaces a build-time record with the same id.
+ * then the records of the `runtime` reader. A runtime record updates the build-time record with the same id: its cells
+ * and fields replace the build-time ones with the same key or label.
  */
 export interface ViteHubConsoleRuntimeRecordTableSection<TOptions = void> extends ViteHubConsoleSectionDescriptor<ViteHubConsoleRecordTableView> {
   /** Reads build-time records on the server. When omitted, the section has only runtime records. */

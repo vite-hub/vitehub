@@ -40,7 +40,7 @@ function runQueuePlugin(source: string, options: { dev?: boolean, env?: Record<s
     .replaceAll("import.meta.prerender", "false")
     .replace("export default ", "return ")
   // SAFETY: The generated plugin module returns its default export after the replacements above.
-  const plugin = new Function("resumeWebhookQueues", "warmWebhookRoutes", "waitUntilFromEvent", "drainInlineChatInvocations", "onShutdown", "webhookQueueShutdown", "process", "setTimeout", "onAgentRoutesLoad", body)(
+  const plugin = new Function("resumeWebhookQueues", "warmWebhookRoutes", "waitUntilFromEvent", "drainInlineChatInvocations", "onShutdown", "webhookQueueShutdown", "process", "setTimeout", "onAgentRoutesLoad", "registerChannelTaskQueueStarter", body)(
     () => queueStop,
     async () => {},
     () => undefined,
@@ -50,6 +50,7 @@ function runQueuePlugin(source: string, options: { dev?: boolean, env?: Record<s
     { env: options.env ?? {} },
     (callback: () => void) => callback(),
     () => {},
+    () => () => {},
   ) as (app: { hooks: { hook: () => void } }) => void
   plugin({ hooks: { hook: () => {} } })
   return { drainChat, drains, queueStop, webhookQueueShutdown }
@@ -60,7 +61,7 @@ const context = (timeoutMs: number) => ({ signal: new AbortController().signal, 
 describe("generated Agent shutdown drains", () => {
   it("registers the chat and queue drains with ViteHub shutdown on a persistent server", async () => {
     const source = await generateQueuePlugin({ shutdown: { drainMs: 45_000 } })
-    expect(source).toContain('import { drainInlineChatInvocations, onAgentRoutesLoad, onShutdown, webhookQueueShutdown } from "@vite-hub/agent/server/internal"')
+    expect(source).toContain('import { drainInlineChatInvocations, onAgentRoutesLoad, registerChannelTaskQueueStarter, onShutdown, webhookQueueShutdown } from "@vite-hub/agent/server/internal"')
     expect(source).not.toContain("SIGTERM")
     expect(source).not.toContain("process.exit")
 
