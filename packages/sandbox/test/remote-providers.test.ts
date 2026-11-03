@@ -3,7 +3,7 @@ import { runInNewContext } from "node:vm";
 
 import { createCloudflareRuntime, type CloudflareSandboxStub } from "../src/cloudflare.ts";
 import { resolveSandbox } from "../src/index.ts";
-import { createVercelRuntime, type VercelSandboxNetworkPolicy, type VercelSandboxInstance } from "../src/vercel.ts";
+import { createVercelRuntime, type VercelSandboxCommand, type VercelSandboxNetworkPolicy, type VercelSandboxInstance } from "../src/vercel.ts";
 
 afterEach(() => vi.useRealTimers());
 
@@ -31,18 +31,201 @@ describe("remote Sandbox providers", () => {
     expect(cleanup).toHaveBeenCalledTimes(2);
   });
 
+  it("streams Vercel process output before exit and forwards stdin only when requested", async () => {
+    const spawned: Array<{ stdin?: boolean }> = [];
+    const written: string[] = [];
+    let stdinClosed = 0;
+    let finish!: () => void;
+    const finished = new Promise<void>(resolve => finish = resolve);
+    const instance = vercelInstance();
+    instance.runCommand = async (options) => {
+      if (options.args?.[1] !== "provider") return vercelCommand("");
+      spawned.push({ stdin: options.stdin });
+      return {
+        ...vercelCommand(""),
+        async closeStdin() { stdinClosed++; },
+        async *logs() {
+          yield { data: "ready\n", stream: "stdout" as const };
+          await finished;
+          yield { data: "done\n", stream: "stderr" as const };
+        },
+        async stdout() { await finished; return "ready\n"; },
+        async wait() { await finished; return { exitCode: 0 }; },
+        async writeStdin(data) { written.push(new TextDecoder().decode(data)); },
+      };
+    };
+    const session = await (await resolveSandbox({ runtime: createVercelRuntime({ create: async () => instance }) }, {})).open();
+    try {
+      const child = await session.spawn!("provider", [], { stdin: true });
+      const stdout = child.stdout.getReader();
+      const firstChunk = await Promise.race([
+        stdout.read().then(chunk => new TextDecoder().decode(chunk.value)),
+        new Promise(resolve => setTimeout(resolve, 1000, "still buffered")),
+      ]);
+      expect(firstChunk).toBe("ready\n");
+
+      const stdin = child.stdin!.getWriter();
+      await stdin.write(new TextEncoder().encode("request\n"));
+      await stdin.close();
+      expect(written).toEqual(["request\n"]);
+      expect(stdinClosed).toBe(1);
+
+      finish();
+      await expect(new Response(child.stderr).text()).resolves.toBe("done\n");
+      await expect(child.wait()).resolves.toEqual({ code: 0 });
+
+      const withoutInput = await session.spawn!("provider");
+      expect(withoutInput.stdin).toBeUndefined();
+      expect(spawned).toEqual([{ stdin: true }, { stdin: undefined }]);
+      await withoutInput.wait();
+    }
+    finally {
+      await session.close();
+    }
+  });
+
+  it.each(["stderr", "stdout"] as const)("bounds unread Vercel %s without blocking the other channel", async (unread) => {
+    const consumed = unread === "stderr" ? "stdout" : "stderr";
+    const { child, session } = await spawnVercelCommand({
+      ...vercelCommand(""),
+      async *logs() {
+        // Eight MiB of UTF-8 output must not remain queued in the unread channel.
+        for (let index = 0; index < 128; index++) {
+          yield { data: "é".repeat(32 * 1024), stream: unread };
+        }
+        yield { data: "still live\n", stream: consumed };
+      },
+    });
+    try {
+      await expect(new Response(child[consumed]).text()).resolves.toBe("still live\n");
+      await expect(child[unread].getReader().read()).rejects.toThrow(`${unread} exceeded the 1048576-byte output buffer limit`);
+    } finally {
+      await session.close();
+    }
+  });
+
+  it("bounds Vercel output when a reader stops keeping up", async () => {
+    let resume!: () => void;
+    const resumed = new Promise<void>(resolve => resume = resolve);
+    const { child, session } = await spawnVercelCommand({
+      ...vercelCommand(""),
+      async *logs() {
+        yield { data: "first\n", stream: "stderr" as const };
+        await resumed;
+        for (let index = 0; index < 128; index++) {
+          yield { data: "x".repeat(64 * 1024), stream: "stderr" as const };
+        }
+        yield { data: "still live\n", stream: "stdout" as const };
+      },
+    });
+    try {
+      const reader = child.stderr.getReader();
+      expect(new TextDecoder().decode((await reader.read()).value)).toBe("first\n");
+      resume();
+      await expect(new Response(child.stdout).text()).resolves.toBe("still live\n");
+      await expect(reader.read()).rejects.toThrow("stderr exceeded the 1048576-byte output buffer limit");
+    } finally {
+      resume();
+      await session.close();
+    }
+  });
+
+  it.each([
+    { label: "multi-megabyte", data: "x".repeat(4 * 1024 * 1024) },
+    { label: "multibyte", data: "é".repeat(768 * 1024) },
+  ])("bounds encoding allocations for oversized $label Vercel log entries", async ({ data }) => {
+    let resume!: () => void;
+    const resumed = new Promise<void>(resolve => resume = resolve);
+    const prefix = "queued\n";
+    const { child, session } = await spawnVercelCommand({
+      ...vercelCommand(""),
+      async *logs() {
+        await resumed;
+        yield { data: prefix, stream: "stderr" as const };
+        yield { data, stream: "stderr" as const };
+        yield { data: "still live\n", stream: "stdout" as const };
+      },
+    });
+    const encode = vi.spyOn(TextEncoder.prototype, "encode");
+    const encodeInto = vi.spyOn(TextEncoder.prototype, "encodeInto");
+    try {
+      resume();
+      await expect(new Response(child.stdout).text()).resolves.toBe("still live\n");
+      await expect(child.stderr.getReader().read()).rejects.toMatchObject({ code: "SANDBOX_R0159" });
+      const capacity = 1024 * 1024 - prefix.length;
+      for (const [index, [input]] of encode.mock.calls.entries()) {
+        if (input === data) expect(encode.mock.results[index]!.value.byteLength).toBeLessThanOrEqual(capacity);
+      }
+      for (const [input, destination] of encodeInto.mock.calls) {
+        if (input === data) expect(destination.byteLength).toBeLessThanOrEqual(capacity);
+      }
+    } finally {
+      encode.mockRestore();
+      encodeInto.mockRestore();
+      await session.close();
+    }
+  });
+
+  it.each(["stderr", "stdout"] as const)("keeps Vercel %s live after cancelling its sibling", async (consumed) => {
+    let resume!: () => void;
+    const resumed = new Promise<void>(resolve => resume = resolve);
+    const cancelled = consumed === "stderr" ? "stdout" : "stderr";
+    const { child, session } = await spawnVercelCommand({
+      ...vercelCommand(""),
+      async *logs() {
+        await resumed;
+        yield { data: "ignored\n", stream: cancelled };
+        yield { data: "still live\n", stream: consumed };
+      },
+    });
+    try {
+      await child[cancelled].cancel();
+      resume();
+      await expect(new Response(child[consumed]).text()).resolves.toBe("still live\n");
+    } finally {
+      resume();
+      await session.close();
+    }
+  });
+
+  it("closes the Vercel log iterator when both channels are cancelled during a pending read", async () => {
+    let signal: AbortSignal | undefined;
+    let resume!: () => void;
+    const closed = vi.fn();
+    const { child, session } = await spawnVercelCommand({
+      ...vercelCommand(""),
+      async *logs(options?: { signal?: AbortSignal }) {
+        signal = options?.signal;
+        try {
+          await new Promise<void>((resolve) => {
+            resume = resolve;
+            signal?.addEventListener("abort", () => resolve(), { once: true });
+          });
+          yield { data: "late output", stream: "stdout" as const };
+        } finally {
+          closed();
+        }
+      },
+    });
+    try {
+      await child.stdout.cancel();
+      expect(closed).not.toHaveBeenCalled();
+      await child.stderr.cancel();
+      expect(closed).toHaveBeenCalledOnce();
+      expect(signal?.aborted).toBe(true);
+    } finally {
+      resume();
+      await session.close();
+    }
+  });
+
   it.each(["cloudflare", "vercel"] as const)("uses the shared command listing through the %s Sandbox interface", async provider => {
     const output = "f\t7\t/workspace/with\ttab\0d\t0\t/workspace/nested\0";
     const stub = cloudflareStub(async command => ({
       exitCode: 0, stderr: "", stdout: command.startsWith("find ") ? output : "", success: true,
     }));
     const instance = vercelInstance();
-    instance.runCommand = async options => ({
-      async kill() {},
-      async stderr() { return ""; },
-      async stdout() { return options.args?.[1]?.startsWith("find ") ? output : ""; },
-      async wait() { return { exitCode: 0 }; },
-    });
+    instance.runCommand = async options => vercelCommand(options.args?.[1]?.startsWith("find ") ? output : "");
     const runtime = provider === "cloudflare"
       ? createCloudflareRuntime({ getSandbox: () => stub, namespace: namespace(stub) })
       : createVercelRuntime({ create: async () => instance });
@@ -116,6 +299,135 @@ describe("remote Sandbox providers", () => {
     controller.abort(reason);
 
     await expect(opening).rejects.toBe(reason);
+  });
+
+  it("streams Cloudflare spawn output until the process exits", async () => {
+    let finish!: () => void;
+    const exited = new Promise<void>(resolve => finish = resolve);
+    let emit!: (event: Record<string, unknown>) => void;
+    let end!: () => void;
+    const logs = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const encoder = new TextEncoder();
+        emit = event => controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+        end = () => controller.close();
+      },
+    });
+    const stub: CloudflareSandboxStub = {
+      ...cloudflareStub(async () => ({ exitCode: 0, stderr: "", stdout: "", success: true })),
+      async startProcess() {
+        return {
+          async getLogs() { return { stderr: "", stdout: "first\n" }; },
+          id: "process-1",
+          async kill() {},
+          async waitForExit() {
+            await exited;
+            return { exitCode: 3 };
+          },
+        };
+      },
+      async streamProcessLogs(processId) {
+        expect(processId).toBe("process-1");
+        return logs;
+      },
+    };
+    const sandbox = await resolveSandbox({
+      runtime: { getSandbox: () => stub, kind: "cloudflare", namespace: namespace(stub) },
+    }, {});
+    const session = await sandbox.open();
+    const process = await session.spawn!("long-running");
+    const stdout = new Response(process.stdout).text();
+    const stderr = new Response(process.stderr).text();
+
+    emit({ type: "process_info", processId: "process-1" });
+    emit({ data: "first\n", type: "stdout" });
+    await new Promise(resolve => setTimeout(resolve, 10));
+    emit({ data: "second\n", type: "stdout" });
+    emit({ data: "warning\n", type: "stderr" });
+    emit({ exitCode: 3, type: "exit" });
+    end();
+    finish();
+
+    await expect(stdout).resolves.toBe("first\nsecond\n");
+    await expect(stderr).resolves.toBe("warning\n");
+    await expect(process.wait()).resolves.toEqual({ code: 3 });
+    await session.close();
+  });
+
+  it.each(["stderr", "stdout"] as const)("bounds unread Cloudflare %s without blocking the other channel", async (unread) => {
+    const consumed = unread === "stderr" ? "stdout" : "stderr";
+    const encoder = new TextEncoder();
+    const event = (value: Record<string, unknown>) => encoder.encode(`data: ${JSON.stringify(value)}\n\n`);
+    const stub: CloudflareSandboxStub = {
+      ...cloudflareStub(async () => ({ exitCode: 0, stderr: "", stdout: "", success: true })),
+      async startProcess() {
+        return {
+          async getLogs() { return { stderr: "", stdout: "" }; },
+          id: "process-1",
+          async kill() {},
+          async waitForExit() { return { exitCode: 0 }; },
+        };
+      },
+      async streamProcessLogs() {
+        let index = 0;
+        return new ReadableStream<Uint8Array>({
+          pull(controller) {
+            // Eight MiB of UTF-8 output must not remain queued in the unread channel.
+            if (index < 128) controller.enqueue(event({ data: "é".repeat(32 * 1024), type: unread }));
+            else if (index === 128) controller.enqueue(event({ data: "still live\n", type: consumed }));
+            else {
+              controller.enqueue(event({ exitCode: 0, type: "exit" }));
+              controller.close();
+            }
+            index++;
+          },
+        });
+      },
+    };
+    const sandbox = await resolveSandbox({
+      runtime: { getSandbox: () => stub, kind: "cloudflare", namespace: namespace(stub) },
+    }, {});
+    const session = await sandbox.open();
+    try {
+      const process = await session.spawn!("noisy");
+      await expect(new Response(process[consumed]).text()).resolves.toBe("still live\n");
+      await expect(process[unread].getReader().read()).rejects.toMatchObject({ code: "SANDBOX_R0159" });
+    } finally {
+      await session.close();
+    }
+  });
+
+  it("reads Cloudflare spawn logs after exit when the stub cannot stream them", async () => {
+    let output = "first\n";
+    let finish!: () => void;
+    const exited = new Promise<void>(resolve => finish = resolve);
+    const stub: CloudflareSandboxStub = {
+      ...cloudflareStub(async () => ({ exitCode: 0, stderr: "", stdout: "", success: true })),
+      async startProcess() {
+        return {
+          async getLogs() { return { stderr: "", stdout: output }; },
+          id: "process-1",
+          async kill() {},
+          async waitForExit() {
+            await exited;
+            return { exitCode: 0 };
+          },
+        };
+      },
+    };
+    const sandbox = await resolveSandbox({
+      runtime: { getSandbox: () => stub, kind: "cloudflare", namespace: namespace(stub) },
+    }, {});
+    const session = await sandbox.open();
+    const process = await session.spawn!("long-running");
+    const stdout = new Response(process.stdout).text();
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+    output += "second\n";
+    finish();
+
+    await expect(stdout).resolves.toBe("first\nsecond\n");
+    await session.close();
   });
 
   it("normalizes authority from tagged remote runtimes", async () => {
@@ -447,13 +759,34 @@ function cloudflareStub(exec: CloudflareSandboxStub["exec"]): CloudflareSandboxS
   };
 }
 
+async function spawnVercelCommand(command: VercelSandboxCommand) {
+  const instance = vercelInstance();
+  instance.runCommand = async options => options.args?.[1] === "provider" ? command : vercelCommand("");
+  const session = await (await resolveSandbox({ runtime: createVercelRuntime({ create: async () => instance }) }, {})).open();
+  return { child: await session.spawn!("provider"), session };
+}
+
+function vercelCommand(stdout: string): VercelSandboxCommand {
+  return {
+    async closeStdin() {},
+    async kill() {},
+    async *logs() {
+      if (stdout) yield { data: stdout, stream: "stdout" as const };
+    },
+    async stderr() { return ""; },
+    async stdout() { return stdout; },
+    async wait() { return { exitCode: 0 }; },
+    async writeStdin() {},
+  };
+}
+
 function vercelInstance(): VercelSandboxInstance {
   return {
     domain: port => `https://sandbox-${port}.example.com`,
     async mkDir() {},
     async readFileToBuffer() { return null; },
     async runCommand() {
-      return { async kill() {}, async stderr() { return ""; }, async stdout() { return ""; }, async wait() { return { exitCode: 0 }; } };
+      return vercelCommand("");
     },
     async stop() {},
     async writeFiles() {},

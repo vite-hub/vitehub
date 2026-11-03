@@ -54,6 +54,6 @@ With `publish: 'pr'`, separate runtime instances reserve the selected documents 
 | `WORKSPACE_CONFLICT` | On the GitHub store, `publish()` named a document that the draft and `branch` both changed (`details.ref` is `published`). | Review the published version, then save with `ifPublishedDigest`. See [Changed on both sides](#changed-on-both-sides). |
 | `WORKSPACE_R0072` | The GitHub store has no repository or no token at its first request. | Set `repo` or `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, and `VITEHUB_GITHUB_TOKEN`. |
 | `WORKSPACE_B0003` | Another Workspace already uses the preset's Workspace name. | Rename one, or pass `[cms, { workspace }]`. |
-| `DATABASE_B0010` | The Database Definition already lists the history tables. | Remove them from the Definition. See [Migrate from manual wiring](/docs/cms/configure#migrate-from-manual-wiring). |
+| `DATABASE_DUPLICATE_TABLE` | The Database Definition already lists the history tables. | Remove them from the Definition. See [Migrate from manual wiring](/docs/cms/configure#migrate-from-manual-wiring). |
 
 [Content errors](/docs/content/limits-and-errors#errors) lists every other code that the collections raise, such as `CONTENT_INVALID` and `CONTENT_LEASE_HELD`.
