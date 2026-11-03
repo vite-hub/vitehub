@@ -77,6 +77,8 @@ export function createRpcTransport(options: RpcTransportOptions = {}): CommentsT
     })
   }
   return {
+    // The runtime rejects attachment keys until it has an upload operation.
+    supportsAttachments: false,
     create: (input: CommentCreateInput) => call<CommentThread>("comments.create", input),
     delete: (input: CommentDeleteInput) => call<CommentThread | null>("comments.delete", input),
     edit: (input: CommentEditInput) => call<CommentThread>("comments.edit", input),

@@ -156,8 +156,8 @@ export const CommentComposer = defineComponent({
       return part;
     };
     const fileParts = computed(() => files.value.map(partOf));
-    function setFiles(next: File[]) {
-      for (const file of files.value) {
+    watch(() => [...files.value], (next, previous) => {
+      for (const file of previous) {
         const part = parts.get(file);
         if (part && !next.includes(file)) {
           URL.revokeObjectURL(part.url);
@@ -165,6 +165,8 @@ export const CommentComposer = defineComponent({
           parts.delete(file);
         }
       }
+    });
+    function setFiles(next: File[]) {
       localFiles.value = next;
       hint.value = undefined;
       emit("update:files", next);

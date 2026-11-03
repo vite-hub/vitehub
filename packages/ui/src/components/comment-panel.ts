@@ -70,7 +70,7 @@ export const CommentPanel = defineComponent({
     // SAFETY: the check above leaves `client` and `subject` defined whenever no state was found.
     // A panel of its own has no comment mode, so it takes no hotkey.
     const state = useCommentsContext(inherited ?? useComments({ client: props.client!, hotkey: false, subject: () => props.subject!, user: () => props.user }));
-    if (!inherited) provideComments(state);
+    provideComments(state);
 
     const root = ref<HTMLElement | null>(null);
     const localThread = ref<string | null>(null);
@@ -110,7 +110,8 @@ export const CommentPanel = defineComponent({
         [...rowsOf].find((row) => row.dataset.threadId === id)?.focus();
       });
     }
-    const keys = async (list: File[]) => (list.length > 0 && props.upload ? props.upload(list) : []);
+    const attachmentsOn = computed(() => props.upload !== undefined && state.client.transport.supportsAttachments !== false);
+    const keys = async (list: File[]) => (attachmentsOn.value && list.length > 0 && props.upload ? props.upload(list) : []);
 
     async function send(submit: CommentComposerSubmit) {
       if (busy.value) return;
@@ -186,7 +187,7 @@ export const CommentPanel = defineComponent({
               h(CommentComposer, {
                 accept: props.accept,
                 allowEmpty: props.allowEmpty,
-                attachments: props.upload !== undefined,
+                attachments: attachmentsOn.value,
                 autofocus: false,
                 busy: busy.value,
                 error: failure.value,
@@ -213,7 +214,7 @@ export const CommentPanel = defineComponent({
       h(CommentThread, {
         accept: props.accept,
         attachmentUrl: props.attachmentUrl,
-        attachments: props.upload !== undefined,
+        attachments: attachmentsOn.value,
         detached: state.positions.value.get(thread.id)?.detached === true,
         dismissible: false,
         key: thread.id,

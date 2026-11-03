@@ -7,11 +7,13 @@ import {
   type CommentUser,
 } from "@vite-hub/comments/client";
 import { createMemoryTransport } from "@vite-hub/comments/testing";
+import { createRpcTransport } from "@vite-hub/comments/rpc";
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defineComponent, h, ref } from "vue";
 import {
   CommentComposer,
+  CommentLayer,
   CommentPanel,
   CommentReply,
   CommentThread,
@@ -106,6 +108,14 @@ describe("mention ranking", () => {
     expect(rankPeople(people, "avi").map(person => person.id)).toEqual(["jose"]);
   });
 
+  it("uses the same case folding on Turkish hosts", () => {
+    const lower = String.prototype.toLocaleLowerCase;
+    vi.spyOn(String.prototype, "toLocaleLowerCase").mockImplementation(function (this: string) {
+      return lower.call(this, "tr");
+    });
+    expect(rankPeople([{ id: "ibrahim", name: "İbrahim" }], "i").map(person => person.id)).toEqual(["ibrahim"]);
+  });
+
   it("puts people of the conversation first in each group and leaves out the signed-in user", () => {
     expect(rankPeople(people, "", { participants: ["jose"], exclude: "ana" }).map(person => person.id)).toEqual(["jose", "sofia", "ben"]);
   });
@@ -197,6 +207,24 @@ describe("composer mentions", () => {
 describe("composer attachments", () => {
   const shot = new File(["png"], "shot.png", { type: "image/png" });
   const notes = new File(["text"], "notes.txt", { type: "text/plain" });
+
+  it("revokes previews when a controlled file list is cleared or mutated", async () => {
+    const files = ref([shot, notes]);
+    const wrapper = keep(mount(defineComponent({ setup: () => () => h(CommentComposer, { autofocus: false, files: files.value }) }), { global }));
+    await flushPromises();
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(2);
+    files.value.splice(0, 1);
+    await flushPromises();
+    expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1);
+    files.value = [];
+    await flushPromises();
+    expect(URL.revokeObjectURL).toHaveBeenCalledTimes(2);
+    files.value = [shot];
+    await flushPromises();
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(3);
+    wrapper.unmount();
+    expect(URL.revokeObjectURL).toHaveBeenCalledTimes(3);
+  });
 
   it("sends the picked files with the text", async () => {
     const wrapper = keep(mount(CommentComposer, { attachTo: document.body, global, props: { autofocus: false, guard: false, modelValue: "See this" } }));
@@ -355,6 +383,22 @@ describe("thread slots", () => {
 });
 
 describe("CommentPanel", () => {
+  it.each([false, true])("provides its explicit state to children with ancestor=%s", async (ancestor) => {
+    const selected = client([thread(1, { messages: [message("m1", { body: "Hello @Ben Soto", mentions: ["ben"], author: ben })] })]);
+    const wrapper = keep(mount(defineComponent({
+      setup() {
+        if (ancestor) provideComments(useComments({ client: createCommentsClient({ transport: createMemoryTransport({ user: ana, users: [ana, jose] }), user: ana }), subject: pricing }));
+        const comments = useComments({ client: selected, subject: pricing });
+        return () => h(CommentPanel, { comments });
+      },
+    }), { attachTo: document.body, global }));
+    await vi.waitFor(() => expect(selected.status).toBe("ready"));
+    await wrapper.get("textarea").setValue("@be");
+    await vi.waitFor(() => expect(wrapper.findAll("[data-slot=comment-composer-mention-name]").map(item => item.text())).toEqual(["Ben Soto", "Sofía Benítez"]));
+    await wrapper.get("[data-slot=comment-panel-item]").trigger("click");
+    await vi.waitFor(() => expect(wrapper.find("[data-slot=comment-mention]").text()).toBe("@Ben Soto"));
+  });
+
   async function panel(threads: CommentThreadModel[], props: Record<string, unknown> = {}) {
     const comments = client(threads);
     const wrapper = keep(mount(CommentPanel, { attachTo: document.body, global, props: { client: comments, subject: pricing, ...props } }));
@@ -430,5 +474,62 @@ describe("CommentPanel", () => {
     }));
     await vi.waitFor(() => expect(wrapper.find(".own-action").exists()).toBe(true));
     expect(wrapper.get(".own-action").text()).toBe("1");
+  });
+});
+
+describe("layer draft uploads", () => {
+  it.each([false, true])("guards an upload and ignores a replaced draft=%s", async (replace) => {
+    let finish!: (keys: string[]) => void;
+    const upload = vi.fn(() => new Promise<string[]>(resolve => { finish = resolve; }));
+    const comments = client();
+    const create = vi.spyOn(comments.transport, "create");
+    let state!: ReturnType<typeof useComments>;
+    const wrapper = keep(mount(defineComponent({
+      setup() {
+        state = useComments({ client: comments, subject: pricing });
+        return () => h(CommentLayer, { comments: state, upload });
+      },
+    }), { attachTo: document.body, global }));
+    await vi.waitFor(() => expect(comments.status).toBe("ready"));
+    state.startDraft("page");
+    await flushPromises();
+    addFiles(wrapper, [new File(["png"], "shot.png", { type: "image/png" })]);
+    await wrapper.get("textarea").setValue("Uploaded shot");
+    await wrapper.get("form").trigger("submit");
+    await wrapper.get("form").trigger("submit");
+    expect(upload).toHaveBeenCalledTimes(1);
+    if (replace) {
+      state.cancelDraft();
+      await flushPromises();
+      state.startDraft("page");
+      state.draft.value!.body = "Replacement draft";
+    }
+    finish(["uploads/shot.png"]);
+    await flushPromises();
+    expect(create).toHaveBeenCalledTimes(replace ? 0 : 1);
+    if (replace) expect(state.draft.value).toMatchObject({ attachments: [], body: "Replacement draft" });
+    else expect(comments.threads[0]!.messages[0]!.attachments).toEqual(["uploads/shot.png"]);
+  });
+});
+
+describe("RPC attachments", () => {
+  it.each([CommentPanel, CommentLayer])("disables uploads in $name for the shipped RPC transport", async Component => {
+    const transport = createRpcTransport({ fetch: async () => Response.json({ ok: true, value: [] }) });
+    const comments = createCommentsClient({ transport, user: ana });
+    const upload = vi.fn(async () => ["uploads/shot.png"]);
+    let state!: ReturnType<typeof useComments>;
+    const wrapper = keep(mount(defineComponent({
+      setup() {
+        state = useComments({ client: comments, subject: pricing });
+        return () => h(Component, { comments: state, upload });
+      },
+    }), { attachTo: document.body, global }));
+    await vi.waitFor(() => expect(comments.status).toBe("ready"));
+    if (Component === CommentLayer) {
+      state.startDraft("page");
+      await flushPromises();
+    }
+    expect(wrapper.find("input[type=file]").exists()).toBe(false);
+    expect(upload).not.toHaveBeenCalled();
   });
 });

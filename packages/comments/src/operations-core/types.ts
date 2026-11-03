@@ -74,7 +74,7 @@ export interface CommentMessage {
   actor?: CommentActor
   /** Ids of the users mentioned in `body`. */
   mentions: string[]
-  /** Blob keys. Always empty for now: attachments come with the upload operation. */
+  /** Blob keys. The shipped RPC runtime leaves this empty until it has an upload operation. */
   attachments: string[]
   /** Milliseconds since the epoch. */
   createdAt: number
@@ -172,6 +172,8 @@ export type CommentEvent =
  * A mutation returns the thread as it is afterwards, and `delete` returns `null` when the thread is gone.
  */
 export interface CommentsTransport {
+  /** Whether the server accepts attachment keys. Defaults to true for custom transports. */
+  supportsAttachments?: boolean
   list: (query: CommentListQuery) => Promise<CommentThread[]>
   get: (input: CommentGetInput) => Promise<CommentThread | null>
   create: (input: CommentCreateInput) => Promise<CommentThread>

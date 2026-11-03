@@ -7,6 +7,8 @@ afterEach(() => vi.unstubAllGlobals())
 describe("files-sdk driver", () => {
   it("encodes folded cursors without Node globals", async () => {
     class FakeFiles {
+      capabilities = { delimiter: false }
+
       async list() {
         return {
           cursor: "next",

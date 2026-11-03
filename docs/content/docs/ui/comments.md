@@ -176,6 +176,8 @@ A composer takes files from the clipboard, from a drop on the box, and from the 
 
 `CommentThread` passes the files to `onReply` as the third argument. `CommentLayer` and `CommentPanel` take files only when you give them `upload`: a function that stores the files and returns their keys, such as Blob keys. They send the keys as the `attachments` of the message.
 
+The transport must accept attachment keys. The shipped `createRpcTransport()` does not support them yet, so a layer or panel using it keeps file controls disabled even with `upload`. Custom transports can set `supportsAttachments: false` to do the same; otherwise they accept attachments by default.
+
 ```vue
 <script setup lang="ts">
 async function upload(files: File[]): Promise<string[]> {
@@ -400,7 +402,7 @@ The box for a new comment, a reply, or an edit. It wraps [Prompt Input](/docs/ui
 | `users` | `(query: string) => Promise<CommentUser[]>` | | Finds people for `@mentions`. Defaults to the comments state, else to `people`. See [Mentions](#mentions). |
 | `attachments` | `boolean` | `true` | Take files from paste, drop, and the file button. An edit never takes files. |
 | `accept` | `string` | | The file types to take, as the `accept` of a file input. |
-| `allowEmpty` | `boolean` | | Send files without text. Defaults to on for a reply, off for a new comment. |
+| `allowEmpty` | `boolean` | | Send files without text. Defaults to on for a reply and off for a new comment. |
 
 #### Events
 
