@@ -271,21 +271,21 @@ describe("hubConnections", () => {
     // Execute the generated adapter with a recording handler at its Web Request boundary.
     const handle = vi.fn((request: Request, event: unknown) => ({ request, event }));
     const code = source.replace(/^import .*\n/gm, "").replace(/^const handle = .*\n/m, "").replace("export default", "const generated =");
-    const adapt = new Function("Readable", "handle", `return (function() { ${stripTypeScriptTypes(code)} return generated })()`)(Readable, handle) as (event: unknown) => { request: Request, event: unknown };
+    const adapt = new Function("Readable", "handle", `return (function() { ${stripTypeScriptTypes(code)} return generated })()`)(Readable, handle) as (event: unknown) => Promise<{ request: Request, event: unknown }>;
     const body = JSON.stringify({ action: "list" });
     const raw = Object.assign(Readable.from([Buffer.from(body.slice(0, 8)), Buffer.from(body.slice(8))]), {
       headers: { host: "internal:3000", "x-forwarded-host": "public.example:8443, proxy", "x-forwarded-proto": "https, http", "content-type": "application/json" },
       method: "POST", url: "/_vitehub/connections?test=1", socket: {},
     });
     const event = { node: { req: raw } };
-    const result = adapt(event);
+    const result = await adapt(event);
     expect(result.event).toBe(event);
     expect(result.request.url).toBe("https://public.example:8443/_vitehub/connections?test=1");
     expect(result.request.headers.get("content-type")).toBe("application/json");
     expect(await result.request.text()).toBe(body);
 
     for (const method of ["GET", "HEAD"]) {
-      const request = adapt({ node: { req: { headers: { host: "secure.example" }, method, url: "/callback", socket: { encrypted: true } } } }).request;
+      const { request } = await adapt({ node: { req: { headers: { host: "secure.example" }, method, url: "/callback", socket: { encrypted: true } } } });
       expect(request.url).toBe("https://secure.example/callback");
       expect(request.body).toBeNull();
     }
@@ -294,10 +294,10 @@ describe("hubConnections", () => {
       body: Buffer.from(body), headers: { host: "docs.example", "x-forwarded-proto": "https" }, method: "POST", url: "/_vitehub/connections", socket: {},
       [Symbol.asyncIterator]: () => { throw new Error("Readable.asyncIterator is not implemented yet!") },
     }
-    expect(await adapt({ node: { req: workerRequest } }).request.text()).toBe(body)
+    expect(await (await adapt({ node: { req: workerRequest } })).request.text()).toBe(body)
     const web = new Request("https://public.example/_vitehub/connections", { method: "POST", body });
     const webEvent = { req: web };
-    expect(adapt(webEvent)).toEqual({ request: web, event: webEvent });
+    expect(await adapt(webEvent)).toEqual({ request: web, event: webEvent });
     expect(handle).toHaveBeenLastCalledWith(web, webEvent);
   });
 
@@ -310,7 +310,7 @@ describe("hubConnections", () => {
     expect(source).toContain('basePath: "/portal/_vitehub/connections"');
     const handle = vi.fn((request: Request, event: unknown) => ({ request, event }));
     const code = source.replace(/^import .*\n/gm, "").replace(/^const handle = .*\n/m, "").replace("export default", "const generated =");
-    const adapt = new Function("handle", `return (function() { ${stripTypeScriptTypes(code)} return generated })()`)(handle) as (event: unknown) => { request: Request, event: unknown };
+    const adapt = new Function("handle", `return (function() { ${stripTypeScriptTypes(code)} return generated })()`)(handle) as (event: unknown) => Promise<{ request: Request, event: unknown }>;
     for (const [method, url] of [
       ["POST", "/_vitehub/connections?test=1"],
       ["GET", "/_vitehub/connections/connect/mail?return=%2Fportal%2F"],
@@ -325,10 +325,46 @@ describe("hubConnections", () => {
         ? Object.assign(Readable.from([Buffer.from(body)]), raw)
         : { ...raw, body: Buffer.from(body), [Symbol.asyncIterator]: () => { throw new Error("Readable.asyncIterator is not implemented yet!") } };
       const event = { node: { req } };
-      const result = adapt(event);
+      const result = await adapt(event);
       expect(result.request.url).toBe(`https://docs.example/portal${url}`);
       expect(result.event).toBe(event);
       expect(await result.request.text()).toBe(body);
+    }
+    for (const prefix of ["//", "\\\\", "/\\"]) {
+      const { request } = await adapt({ node: { req: {
+        headers: { host: "docs.example", "x-forwarded-proto": "https" }, method: "GET", socket: {},
+        originalUrl: `${prefix}other.example/portal/_vitehub/connections`, url: "/_vitehub/connections",
+      } } });
+      expect(request.url).toBe("https://docs.example/other.example/portal/_vitehub/connections");
+    }
+  });
+
+  it.each(["node-server", "cloudflare-module"])("reuses H3 body caches after middleware consumes the stream on %s", async (preset) => {
+    const root = await createTempProject();
+    const config = { nitro: { preset, handlers: [] as Array<{ handler: string }> }, root, [VITEHUB_NITRO_CONFIG_CONTEXT]: true };
+    await (hubConnections({ management: { actor: "#app/connections-actor" } }).config as unknown as ConfigHook)(config, { command: "build", mode: "production" });
+    const source = await readFile(config.nitro.handlers[0]!.handler, "utf8");
+    const handle = vi.fn((request: Request, event: unknown) => ({ request, event }));
+    const code = source.replace(/^import .*\n/gm, "").replace(/^const handle = .*\n/m, "").replace("export default", "const generated =");
+    const adapt = new Function("handle", `return (function() { ${stripTypeScriptTypes(code)} return generated })()`)(handle) as (event: unknown) => Promise<{ request: Request, event: unknown }>;
+    const body = JSON.stringify({ action: "list" });
+    for (const [key, stored] of [
+      ["_requestBody", Promise.resolve(Buffer.from(body))],
+      ["_requestBody", { action: "list" }],
+      [Symbol.for("h3RawBody"), Buffer.from(body)],
+      ["rawBody", body],
+    ] as const) {
+      const stream = Readable.from([Buffer.from(body)]);
+      for await (const _chunk of stream) { /* middleware has already read the raw body */ }
+      const raw = { headers: { host: "docs.example", "content-type": "application/json" }, method: "POST", url: "/_vitehub/connections", socket: {} };
+      const req = preset === "node-server"
+        ? Object.assign(stream, raw)
+        : { ...raw, [Symbol.asyncIterator]: () => { throw new Error("Readable.asyncIterator is not implemented yet!") } };
+      const event = { node: { req } };
+      Reflect.set(key === "_requestBody" ? event : req, key, stored);
+      const result = await adapt(event);
+      expect(result.event).toBe(event);
+      expect(await result.request.json()).toEqual({ action: "list" });
     }
   });
 
