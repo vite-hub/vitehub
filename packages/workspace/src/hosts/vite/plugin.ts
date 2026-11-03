@@ -42,6 +42,7 @@ const WORKSPACE_PACKAGE_NAME = "@vite-hub/workspace"
 const WORKSPACES_ID = "#vitehub/workspaces"
 const WORKSPACE_PREFIX = "#vitehub/workspaces/"
 const WORKSPACE_ASSETS_REGISTRY_ID = "#vitehub-workspace-assets-registry"
+const workspaceAssetsRegistryPath = ".vitehub/vite-runtime/workspace/assets/registry.mjs"
 const WORKSPACE_REGISTRY_ID = "#vitehub-workspace-registry"
 const RESOLVED_WORKSPACES_ID = `\0${WORKSPACES_ID}`
 const RESOLVED_WORKSPACE_PREFIX = `\0${WORKSPACE_PREFIX}`
@@ -1731,6 +1732,9 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         const usesCloudflareRuntime = usesCloudflareArtifacts || getHostingProvider(resolvedHosting) === "cloudflare"
         await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, runtimeOptions, definitions, usesCloudflareRuntime, importBase, definitionOverrides)
         const nitro = mergeNitroWorkspaceConfig((config as ViteConfigWithWorkspaceNitro).nitro, env?.command === "serve")
+        // Nuxt 4 bundles the server with Nitro 2 outside Vite, so `resolveId` below never sees the assets registry. The
+        // alias gives that bundle the files that `buildStart` writes, for hosts without a file system.
+        if (env?.command === "build") nitro.alias = { ...nitro.alias, [WORKSPACE_ASSETS_REGISTRY_ID]: resolve(roots.projectRoot, workspaceAssetsRegistryPath) }
         for (const artifactConfig of artifacts) configureCloudflareArtifacts(nitro, artifactConfig)
         if (usesCloudflareRuntime) configureCloudflareNitroRuntime(nitro)
         // Replace the Nitro config in place. A returned Nitro config would repeat its arrays when Vite merges it.
@@ -1762,7 +1766,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         rootDir: roots.projectRoot,
       })
       if (resolvedOptions) contributions = await collectPluginWorkspaceContributions(config.plugins, roots, serverDirs)
-      assetsRegistryFile = resolve(roots.projectRoot, ".vitehub/vite-runtime/workspace/assets/registry.mjs")
+      assetsRegistryFile = resolve(roots.projectRoot, workspaceAssetsRegistryPath)
       await initializeWorkspaceAssetRegistry(assetsRegistryFile)
       await refreshManifest(roots)
     },
