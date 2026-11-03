@@ -805,6 +805,53 @@ describe("workflow runtime", () => {
     expect(openWorkflowMock.cancelWorkflowRun).not.toHaveBeenCalled()
   })
 
+  it.each(["completed", "failed", "canceled"])("returns the terminal OpenWorkflow run when it becomes %s during cancellation", async (status) => {
+    setWorkflowRuntimeConfig({ provider: "openworkflow", sqlite: { path: ":memory:" } })
+    const workflow = createWorkflow("cancel-race", async () => "done")
+    const started = await workflow.run()
+    const stored = openWorkflowMock.runs.get(started.id)
+    await vi.waitFor(() => expect(stored).toMatchObject({ output: expect.anything(), status: "completed" }))
+    stored.status = "running"
+    openWorkflowMock.cancelWorkflowRun.mockImplementationOnce(async () => {
+      stored.status = status
+      throw new Error(`Cannot cancel workflow run ${started.id} with status ${status}`)
+    })
+
+    await expect(workflow.cancel(started.id)).resolves.toMatchObject({
+      id: started.id,
+      provider: "openworkflow",
+      status: status === "canceled" ? "cancelled" : status,
+    })
+    expect(openWorkflowMock.cancelWorkflowRun).toHaveBeenCalledExactlyOnceWith(started.id)
+  })
+
+  it.each(["pending", "running", "unknown", "missing", "foreign", "unreadable"])("preserves the OpenWorkflow cancellation error when the fresh read is %s", async (state) => {
+    const config = { provider: "openworkflow", sqlite: { path: ":memory:" } } satisfies Parameters<typeof getOpenWorkflowRuntime>[0]
+    setWorkflowRuntimeConfig(config)
+    const workflow = createWorkflow("cancel-error", async () => "done")
+    const started = await workflow.run()
+    const stored = openWorkflowMock.runs.get(started.id)
+    const runtime = await getOpenWorkflowRuntime(config)
+    await vi.waitFor(() => expect(stored).toMatchObject({ output: expect.anything(), status: "completed" }))
+    stored.status = "running"
+    const cause = new Error("provider-secret:cancel")
+    openWorkflowMock.cancelWorkflowRun.mockImplementationOnce(async () => {
+      if (state === "missing") openWorkflowMock.runs.delete(started.id)
+      else if (state === "foreign") {
+        stored.workflowName = "another-workflow"
+        stored.status = "completed"
+      }
+      else if (state === "unreadable") {
+        vi.spyOn(runtime.backend, "getWorkflowRun").mockRejectedValueOnce(new Error("provider-secret:get"))
+      }
+      else stored.status = state
+      throw cause
+    })
+
+    await expectProviderFailure(workflow.cancel(started.id), cause, { operation: "cancel", provider: "openworkflow" })
+    expect(openWorkflowMock.cancelWorkflowRun).toHaveBeenCalledExactlyOnceWith(started.id)
+  })
+
   it("wraps Cloudflare workflow handlers with provider steps", async () => {
     const stepDo = vi.fn(async (_name: string, _options: unknown, run: () => unknown) => await run())
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.

@@ -46,7 +46,7 @@ DevKit assign it as shown in [Add a durable Vercel entry](/docs/workflows/config
 | `runWorkflow(name, payload?, options?)` | Starts a Workflow Run immediately. |
 | `deferWorkflow(name, payload?, options?)` | Starts a run through the deferred provider path when available. |
 | `getWorkflowRun(name, id)` | Reads the current run state. |
-| `cancelWorkflow(name, id)` | Cancels a durable Vercel run. |
+| `cancelWorkflow(name, id)` | Cancels a native Vercel run or a pending or running OpenWorkflow run. |
 | `resumeWorkflowSignal(token, payload)` | Resumes a Vercel operation using a registered Workflow DevKit hook token. |
 | `createWorkflow(name, options?)` | Returns a handle with `run`, `defer`, `getRun`, and `cancel`. |
 

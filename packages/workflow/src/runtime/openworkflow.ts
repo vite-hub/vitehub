@@ -358,7 +358,15 @@ export async function cancelOpenWorkflowRun<TPayload = unknown, TResult = unknow
   const current = await getOpenWorkflowRun<TPayload, TResult>(config, name, id)
   if (current.status === "unknown" || terminalOpenWorkflowStatuses.has(current.status)) return current
   const runtime = await getOpenWorkflowRuntime(config)
-  await runWorkflowProviderOperation("openworkflow", "cancel", () => runtime.client.cancelWorkflowRun(id))
+  try {
+    await runWorkflowProviderOperation("openworkflow", "cancel", () => runtime.client.cancelWorkflowRun(id))
+  }
+  catch (error) {
+    // A worker may finish between the initial read and OpenWorkflow's atomic cancellation update.
+    const latest = await getOpenWorkflowRun<TPayload, TResult>(config, name, id).catch(() => undefined)
+    if (latest && terminalOpenWorkflowStatuses.has(latest.status)) return latest
+    throw error
+  }
   return await getOpenWorkflowRun<TPayload, TResult>(config, name, id)
 }
 
