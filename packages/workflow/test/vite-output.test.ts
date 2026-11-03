@@ -238,7 +238,7 @@ it("seeds provider source retention with Workflow Definition handlers and steps"
   await expect(readFile(retained.resolve(mixedDependency), "utf8")).resolves.toContain('value = "retained"')
 })
 
-it("preserves literal parent Agent Workflow references without retaining their targets", async () => {
+it("preserves literal parent Agent Workflow references without retaining their targets", { timeout: buildOutputTestTimeout }, async () => {
   const container = await createWorkspaceTempDir("vitehub-workflow-parent-instructions-")
   const rootDir = join(container, "apps", "web")
   const agentRoot = join(rootDir, "server", "agents", "review")
