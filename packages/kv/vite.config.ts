@@ -5,6 +5,8 @@ import { normalizePackageExports } from "@vite-hub/internal/package-exports"
 export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
+    // unstorage's root declarations import every driver's options. Unused drivers must not pull optional SDK types into KV's declarations.
+    treeshake: { moduleSideEffects: id => !id.startsWith("unstorage/drivers/") },
     deps: {
       neverBundle: ["vite", "#vitehub/kv/config", "@vite-hub/kv", "@cloudflare/workers-types", "@vite-hub/kv/runtime/cloudflare-kv", "@vite-hub/kv/runtime/upstash-driver", /^unstorage\//],
       alwaysBundle: [/^@vite-hub\/internal/, "unstorage"],
