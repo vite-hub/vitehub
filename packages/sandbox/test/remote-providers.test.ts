@@ -130,6 +130,42 @@ describe("remote Sandbox providers", () => {
     }
   });
 
+  it.each([
+    { label: "multi-megabyte", data: "x".repeat(4 * 1024 * 1024) },
+    { label: "multibyte", data: "é".repeat(768 * 1024) },
+  ])("bounds encoding allocations for oversized $label Vercel log entries", async ({ data }) => {
+    let resume!: () => void;
+    const resumed = new Promise<void>(resolve => resume = resolve);
+    const prefix = "queued\n";
+    const { child, session } = await spawnVercelCommand({
+      ...vercelCommand(""),
+      async *logs() {
+        await resumed;
+        yield { data: prefix, stream: "stderr" as const };
+        yield { data, stream: "stderr" as const };
+        yield { data: "still live\n", stream: "stdout" as const };
+      },
+    });
+    const encode = vi.spyOn(TextEncoder.prototype, "encode");
+    const encodeInto = vi.spyOn(TextEncoder.prototype, "encodeInto");
+    try {
+      resume();
+      await expect(new Response(child.stdout).text()).resolves.toBe("still live\n");
+      await expect(child.stderr.getReader().read()).rejects.toMatchObject({ code: "SANDBOX_R0159" });
+      const capacity = 1024 * 1024 - prefix.length;
+      for (const [index, [input]] of encode.mock.calls.entries()) {
+        if (input === data) expect(encode.mock.results[index]!.value.byteLength).toBeLessThanOrEqual(capacity);
+      }
+      for (const [input, destination] of encodeInto.mock.calls) {
+        if (input === data) expect(destination.byteLength).toBeLessThanOrEqual(capacity);
+      }
+    } finally {
+      encode.mockRestore();
+      encodeInto.mockRestore();
+      await session.close();
+    }
+  });
+
   it.each(["stderr", "stdout"] as const)("keeps Vercel %s live after cancelling its sibling", async (consumed) => {
     let resume!: () => void;
     const resumed = new Promise<void>(resolve => resume = resolve);

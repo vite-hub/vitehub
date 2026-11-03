@@ -468,14 +468,16 @@ function streamLogs(command: VercelSandboxCommand) {
         if (entry.done) break;
         const line = entry.value;
         const controller = open.get(line.stream);
-        if (!controller) continue;
-        const chunk = encoder.encode(line.data);
-        if (chunk.byteLength === 0) continue;
-        if (chunk.byteLength > (controller.desiredSize ?? 0)) {
+        if (!controller || line.data.length === 0) continue;
+        // Bound the encoding allocation even when a single SDK entry is oversized.
+        const chunk = new Uint8Array(Math.min(line.data.length * 3, controller.desiredSize ?? 0));
+        const { read, written } = encoder.encodeInto(line.data, chunk);
+        if (read < line.data.length) {
           controller.error(sandboxErrorDiagnostics.SANDBOX_R0159({ message: `Vercel ${line.stream} exceeded the ${bufferLimit}-byte output buffer limit. Consume both streams concurrently or cancel unused output.` }));
           open.delete(line.stream);
         } else {
-          controller.enqueue(chunk);
+          // Do not retain unused encoding capacity in the stream queue.
+          controller.enqueue(written === chunk.byteLength ? chunk : chunk.slice(0, written));
         }
       }
       for (const controller of open.values()) controller.close();
