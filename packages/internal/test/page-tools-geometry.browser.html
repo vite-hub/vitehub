@@ -90,7 +90,37 @@
       toolWindow.destroy()
       exit()
     }
-    result.textContent = `PASS: ${cases} dock states align at default and oversized window sizes, with zero, low and asymmetric safe areas; expanded windows stay within safe bounds`
+    // The mark only translates to the hexagon, so the bar keeps its size and the resize glide never cancels the morph.
+    for (const edge of ["top", "right", "bottom", "left"]) {
+      localStorage.removeItem(collapsedKey)
+      localStorage.setItem(dockKey, JSON.stringify({ edge, at: 50 }))
+      document.cookie = "vitehub-tools=1; Path=/"
+      await loadViteHubPageTools({ load: async () => ({ default(context) {
+        exit = context.exit
+        context.bar.append(Object.assign(document.createElement("button"), { textContent: "Content" }))
+      } }) })
+      const pill = document.querySelector("vitehub-pill")
+      const toolbar = pill.shadowRoot.querySelector("div")
+      const mark = pill.shadowRoot.querySelector("button.mark")
+      const size = [toolbar.offsetWidth, toolbar.offsetHeight].join("x")
+      for (const collapsed of [true, false]) {
+        mark.click()
+        await new Promise(requestAnimationFrame)
+        await new Promise(requestAnimationFrame)
+        assert([toolbar.offsetWidth, toolbar.offsetHeight].join("x") === size, `${edge} collapsed=${collapsed}: the bar keeps its size`)
+        const morph = toolbar.getAnimations().find(animation => animation.transitionProperty === "clip-path")
+        assert(morph?.playState === "running", `${edge} collapsed=${collapsed}: the clip morph runs`)
+        await morph.finished
+        if (collapsed) {
+          const box = toolbar.getBoundingClientRect()
+          const center = mark.getBoundingClientRect()
+          assert(Math.abs(center.x + center.width / 2 - box.x - box.width / 2) < 1 && Math.abs(center.y + center.height / 2 - box.y - box.height / 2) < 1, `${edge}: the mark is on the hexagon`)
+        }
+      }
+      cases++
+      exit()
+    }
+    result.textContent = `PASS: ${cases} dock states align at default and oversized window sizes, with zero, low and asymmetric safe areas; expanded windows stay within safe bounds; the hexagon morph keeps the bar size on every edge`
   } catch (error) {
     result.textContent = `FAIL: ${error.stack}`
     throw error

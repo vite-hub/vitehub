@@ -58,10 +58,13 @@ function startOf(module: unknown): ViteHubPageToolModule["default"] | undefined 
 // the edge and stays 16px inside both ends. On the left and right edges its buttons stack. Collapsed, the glass is the
 // ViteHub hexagon (24px high, the mark's 20:18; 40px on touch screens), 2px from the edge, so it covers almost nothing
 // of the page. The bar keeps its layout and only its clip changes, so the morph never reflows: 12 clip points go from
-// the bar's rectangle (border-radius rounds it) to the hexagon with softened corners, at the center of the bar, while
-// the bar moves so that the hexagon lands on the edge. Collapsing fades the tools out first (80ms) and closes the shape
-// 40ms in, so it never cuts through a label.
-const pillBar = "polygon(0 0,0 0,100% 0,100% 0,100% 50%,100% 50%,100% 100%,100% 100%,0 100%,0 100%,0 50%,0 50%)"
+// the bar to the hexagon with softened corners, at the center of the bar, while the bar moves so that the hexagon lands
+// on the edge. The bar's corner points cut 6px corners that stay outside the 12px border-radius, so the shape keeps
+// soft corners at every frame instead of square ones that round only at the end. The shape grows from its center and
+// shrinks from its ends, so the mark and the exit button at the ends of the bar fade with their own timing. Collapsing
+// fades the ends out in 40ms and the tools in 80ms, and closes the shape 40ms in, so it never cuts through a label.
+// Expanding shows the tools from 80ms and the ends from 120ms, when the shape has reached them.
+const pillBar = "polygon(0 6px,6px 0,calc(100% - 6px) 0,100% 6px,100% 50%,100% 50%,100% calc(100% - 6px),calc(100% - 6px) 100%,6px 100%,0 calc(100% - 6px),0 50%,0 50%)"
 const hexagonPoints: Array<[number, number, number, number]> = [
   [-0.235, -1.01, -1, 1.72], [-0.235, 2, -1, 0], [0.235, -2, -1, 0], [0.235, 1.01, -1, 1.72],
   [0.5, -1.01, 0, -1.72], [0.5, -1.01, 0, 1.72], [0.235, 1.01, 1, -1.72], [0.235, -2, 1, 0],
@@ -69,8 +72,8 @@ const hexagonPoints: Array<[number, number, number, number]> = [
 ]
 const pillHexagon = `polygon(${hexagonPoints.map(([x, dx, y, dy]) => `calc(50% + var(--vitehub-hex-w) * ${x} + ${dx}px) calc(50% + var(--vitehub-hex-h) * ${y / 2} + ${dy}px)`).join(",")})`
 const along = (size: string) => `calc(var(--start) + ${size} / 2 + (100% - var(--start) - var(--end) - ${size}) * var(--at) / 100)`
-const pillStyles = `:host{all:initial;position:fixed;z-index:2147483001;pointer-events:none;filter:drop-shadow(0 8px 24px rgb(0 0 0/25%));color-scheme:dark;font:500 12px/1 ui-sans-serif,system-ui,sans-serif;color:#d4d4d4;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;--vitehub-pill-text:#d4d4d4;--vitehub-pill-strong:#fafafa;--vitehub-pill-muted:#a3a3a3;--vitehub-pill-hover:rgb(255 255 255/8%);--vitehub-pill-on:#fafafa;--vitehub-pill-on-text:#0a0a0a;--vitehub-pill-line:rgb(255 255 255/12%);--vitehub-pill-surface:#111;--vitehub-pill-flow:row;--vitehub-pill-ease:cubic-bezier(.32,.72,0,1);--vitehub-hex-h:24px;--vitehub-hex-w:calc(var(--vitehub-hex-h) * 10 / 9);--vitehub-pill-morph:320ms;--vitehub-pill-fade:opacity 180ms ease-out 80ms,visibility 0s;--at:50;--margin:16px;--safe-top:env(safe-area-inset-top,0px);--safe-right:env(safe-area-inset-right,0px);--safe-bottom:env(safe-area-inset-bottom,0px);--safe-left:env(safe-area-inset-left,0px);transition-property:left,top,right,bottom,translate;transition-duration:var(--vitehub-pill-morph);transition-timing-function:var(--vitehub-pill-ease);transition-delay:var(--vitehub-pill-wait,0s)}
-:host([collapsed]){--margin:2px;--vitehub-pill-morph:240ms;--vitehub-pill-wait:40ms;--vitehub-pill-fade:opacity 80ms ease-out,visibility 0s 80ms}
+const pillStyles = `:host{all:initial;position:fixed;z-index:2147483001;pointer-events:none;filter:drop-shadow(0 8px 24px rgb(0 0 0/25%));color-scheme:dark;font:500 12px/1 ui-sans-serif,system-ui,sans-serif;color:#d4d4d4;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;--vitehub-pill-text:#d4d4d4;--vitehub-pill-strong:#fafafa;--vitehub-pill-muted:#a3a3a3;--vitehub-pill-hover:rgb(255 255 255/8%);--vitehub-pill-on:#fafafa;--vitehub-pill-on-text:#0a0a0a;--vitehub-pill-line:rgb(255 255 255/12%);--vitehub-pill-surface:#111;--vitehub-pill-flow:row;--vitehub-pill-ease:cubic-bezier(.32,.72,0,1);--vitehub-hex-h:24px;--vitehub-hex-w:calc(var(--vitehub-hex-h) * 10 / 9);--vitehub-pill-morph:280ms;--vitehub-pill-fade:opacity 160ms ease-out 80ms,visibility 0s;--vitehub-pill-fade-end:opacity 160ms ease-out 120ms,visibility 0s;--at:50;--margin:16px;--safe-top:env(safe-area-inset-top,0px);--safe-right:env(safe-area-inset-right,0px);--safe-bottom:env(safe-area-inset-bottom,0px);--safe-left:env(safe-area-inset-left,0px);transition-property:left,top,right,bottom,translate;transition-duration:var(--vitehub-pill-morph);transition-timing-function:var(--vitehub-pill-ease);transition-delay:var(--vitehub-pill-wait,0s)}
+:host([collapsed]){--margin:2px;--vitehub-pill-morph:240ms;--vitehub-pill-wait:40ms;--vitehub-pill-fade:opacity 80ms ease-out,visibility 0s 80ms;--vitehub-pill-fade-end:opacity 40ms ease-out,visibility 0s 40ms}
 :host(:is([edge=top],[edge=bottom])){left:${along("0px")};--start:max(var(--margin),var(--safe-left));--end:max(var(--margin),var(--safe-right));--x:calc(var(--at) * -1%)}
 :host(:is([edge=left],[edge=right])){top:${along("0px")};--start:max(var(--margin),var(--safe-top));--end:max(var(--margin),var(--safe-bottom));--y:calc(var(--at) * -1%);--vitehub-pill-flow:column}
 :host([edge=bottom]){bottom:max(16px,var(--safe-bottom))}
@@ -97,18 +100,18 @@ div{position:relative;box-sizing:border-box;max-width:calc(100vw - 32px);max-hei
 :host([collapsed]) ::slotted(*),:host([collapsed]) .exit{opacity:0;visibility:hidden}
 ${viteHubPillButtonStyles}
 button{flex-shrink:0;padding:0}
-.exit{position:sticky;right:0;bottom:0;transition:background-color 150ms,color 150ms,scale 150ms,var(--vitehub-pill-fade)}
+.exit{position:sticky;right:0;bottom:0;transition:background-color 150ms,color 150ms,scale 150ms,var(--vitehub-pill-fade-end)}
 .mark{position:sticky;left:0;top:0;z-index:1;cursor:grab;touch-action:none}
 :host([dragging]) .mark{cursor:grabbing}
 .mark,.mark[aria-expanded=true]{background:none;color:var(--vitehub-pill-strong)}
 @media(hover:hover){.mark:hover{background:var(--vitehub-pill-hover)}}
-.mark svg{width:16px;height:16px;transition:opacity 180ms ease-out 80ms,scale 180ms ease-out 80ms}
-:host([collapsed]) .mark svg{opacity:0;scale:.6;transition-duration:80ms;transition-delay:0s;transition-timing-function:ease-out}
+.mark svg{width:16px;height:16px;transition:opacity 160ms ease-out 120ms,scale 160ms ease-out 120ms}
+:host([collapsed]) .mark svg{opacity:0;scale:.6;transition-duration:40ms;transition-delay:0s;transition-timing-function:ease-out}
 :host([collapsed]) .mark:is(:hover,:active){background:none;scale:none}
-:host([collapsed]) .mark{position:absolute;left:50%;top:50%;translate:-50% -50%;transition:position 0s 80ms allow-discrete,left 0s 80ms,top 0s 80ms,translate 0s 80ms}
+:host([collapsed]) .mark{translate:var(--vitehub-mark-x,0) var(--vitehub-mark-y,0);transition:translate 0s 80ms}
 :host([collapsed]) .mark::before{content:"";position:absolute;inset:-8px}
 @media(any-pointer:coarse){:host{--vitehub-hex-h:40px}}
-@media(prefers-reduced-motion:reduce){:host,div,::slotted(*),.exit,.mark svg{transition:none}}`
+@media(prefers-reduced-motion:reduce){:host,div,::slotted(*),.exit,.mark svg,:host([collapsed]) .mark{transition:none}}`
 
 /** The key in `localStorage` that keeps the pill collapsed to the ViteHub mark, on this page and the next ones. */
 const collapsedKey = "vitehub-tools-collapsed"
@@ -233,6 +236,10 @@ function mountPill(tools: ViteHubPageToolInfo[], exit: () => void, signal: Abort
     const collapsed = pill.hasAttribute("collapsed")
     const thickness = collapsed ? vertical() ? hexagonSize(pill).width : hexagonSize(pill).height : vertical() ? toolbar.offsetWidth : toolbar.offsetHeight
     dockViteHubPageWindows({ ...next, collapsed, thickness })
+    // Collapsed, the mark moves to the hexagon at the bar's center. It only translates, so the bar keeps its size and
+    // the clip morph is not cut short by the resize animation below.
+    mark.style.setProperty("--vitehub-mark-x", `${toolbar.clientWidth / 2 - mark.offsetLeft - mark.offsetWidth / 2}px`)
+    mark.style.setProperty("--vitehub-mark-y", `${toolbar.clientHeight / 2 - mark.offsetTop - mark.offsetHeight / 2}px`)
   }
   // Dragging the mark docks the pill to the edge under the pointer and keeps the mark under it. A press that moves less
   // than 4px is a click.
@@ -294,8 +301,7 @@ function mountPill(tools: ViteHubPageToolInfo[], exit: () => void, signal: Abort
   }
   const resized = new ResizeObserver(() => {
     const before = { parts, box }
-    for (const animation of toolbar.getAnimations({ subtree: false })) animation.cancel()
-    for (const part of before.parts.keys()) for (const animation of part.getAnimations()) if (animation.id === "vitehub-pill-glide") animation.cancel()
+    for (const part of [toolbar, ...before.parts.keys()]) for (const animation of part.getAnimations()) if (animation.id === "vitehub-pill-glide") animation.cancel()
     measure()
     place(dock)
     if (!before.box.width || pill.hasAttribute("collapsed") || pill.hasAttribute("dragging") || matchMedia("(prefers-reduced-motion: reduce)").matches) return
