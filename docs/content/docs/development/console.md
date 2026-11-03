@@ -439,11 +439,23 @@ All Console paths in this guide use the application base: an explicit ViteHub ap
 
 ### Open the Console from the app's pages
 
-The ViteHub tools pill shows at the bottom of the app's pages when a page has the `?vitehub` query or the `vitehub-tools` cookie. Opening the Console sets that cookie for you. When the Console is on, the pill has a **Console** button that opens the Console in a floating window, next to page tools such as [Comments](/docs/comments/configure#turn-comment-mode-on-and-off).
+The ViteHub tools pill shows at the bottom of the app's pages for people that the Console lets in. It has a **Console** button that opens the Console in a floating window, next to page tools such as [Comments](/docs/comments/configure#turn-comment-mode-on-and-off).
 
-The link uses the same access check as the Console data routes, for any section. A person that the Console rejects does not get the link. An `authorize` result with at least one section, such as `{ sections: ['content'] }`, allows the link. With the development default, the Console and its link exist on the development server only. **Turn off ViteHub tools**, the **×** of the pill, clears the cookie and removes the pill. The ViteHub mark at the start of the pill collapses it to a small hexagon 2px from the edge of the screen, and the browser keeps it collapsed on the next pages until you select the mark again. Open windows and comment mode stay as they are. Drag the mark to dock the pill to another edge of the screen: top, right, bottom, or left, at the place where you release it. On the left and right edges the buttons stack, and windows open from the edge where the pill docks. The browser remembers the place on the next pages.
+With `auth: 'app'`, sign in to the app and open any page: the pill is there. You do not have to open `/_vitehub` first. It also shows when you open the Console, or a page with the `?vitehub` query.
 
-The check runs in `GET /_vitehub/page/session`. The Console serves that route and the page tools loader, so the link also works in an app without Comments. The link is only a shortcut. Every Console route checks access again.
+The button uses the same access check as the Console data routes, for any section. A person that the Console rejects does not get the pill. An `authorize` result with at least one section, such as `{ sections: ['content'] }`, allows it. With the development default, the Console and its button exist on the development server only. **Turn off ViteHub tools**, the **×** of the pill, removes the pill until you open the Console, use `?vitehub`, or sign in again. The ViteHub mark at the start of the pill collapses it to a small hexagon 2px from the edge of the screen, and the browser keeps it collapsed on the next pages until you select the mark again. Open windows and comment mode stay as they are. Drag the mark to dock the pill to another edge of the screen: top, right, bottom, or left, at the place where you release it. On the left and right edges the buttons stack, and windows open from the edge where the pill docks. The browser remembers the place on the next pages.
+
+Every HTML page of the app has a short inline script, the page tools bootstrap. It is in server-rendered pages and in prerendered pages, so it also works when a host serves the pages as static files, such as Cloudflare Workers static assets in front of the Worker. The bootstrap reads the URL and two cookies, and loads the page tools loader only when it finds one of these hints:
+
+| Hint | Set by |
+| --- | --- |
+| `?vitehub` in the URL | You. `?vitehub=console` also opens the Console window. |
+| `vitehub-tools=1` | `GET /_vitehub/page/session`, when a page tool allows you. |
+| `vitehub_session=1` and no `vitehub-tools` cookie | [App Auth](/docs/auth/configure#session-marker-cookie). It sets the marker on sign-in and clears `vitehub-tools`, so the next page asks the session route again. |
+
+Visitors without a hint get no request and no extra script. The loader calls `GET /_vitehub/page/session`, which runs the access check and sets `vitehub-tools=1` when a tool allows you, or `vitehub-tools=0` when none does. A signed-in person without access therefore causes one session request per session. Sign-out clears the cookie. The Console serves that route and the loader, so the pill also works in an app without Comments. The cookies are not `HttpOnly`, because the bootstrap reads them, and they hold no secret. The pill is only a shortcut. Every Console route checks access again.
+
+The bootstrap is an inline module script. When the page's Content Security Policy has a script nonce, the server gives the bootstrap that nonce. A policy without nonces that blocks inline scripts also blocks the bootstrap on prerendered pages: allow its hash, or use `?vitehub` on a page that the server renders, where the server adds the external loader instead.
 
 ### Start Agent Invocations
 

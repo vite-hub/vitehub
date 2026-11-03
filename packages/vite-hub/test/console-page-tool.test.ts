@@ -42,7 +42,7 @@ afterEach(() => {
 describe("the Console page tool", () => {
   it.each(["comments-first", "console-first"])("excludes mounted Console and API pages regardless of installation order (%s)", async (order) => {
     const html = "<body>Page</body>"
-    const app = { fetch: (_request: Request) => new Response(html, { headers: { "content-type": "text/html" } }) }
+    const app = { fetch: (_request: Request) => new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } }) }
     registerViteHubPageTool(app, { id: "comments", label: "Comments", icon: "comments", script: "/comments.js", allowed: async () => true })
     if (order === "comments-first") installViteHubPageTools(app)
     installConsolePageTool(app, { base: "/portal/" })
@@ -63,7 +63,7 @@ describe("the Console page tool", () => {
   })
 
   it("is denied when the Console access policy rejects the request", async () => {
-    await expect(sessionTools({ mode: "open", authorize: async () => false })).resolves.toMatchObject({ body: { tools: [] }, cookie: expect.stringContaining("Max-Age=0") })
+    await expect(sessionTools({ mode: "open", authorize: async () => false })).resolves.toMatchObject({ body: { tools: [] }, cookie: expect.stringContaining("vitehub-tools=0;") })
     await expect(sessionTools({ mode: "open", authorize: async () => ({ sections: [] }) })).resolves.toMatchObject({ body: { tools: [] } })
     const check = async () => Response.json({ ok: false }, { status: 401 })
     await expect(sessionTools({ mode: "auth", check })).resolves.toMatchObject({ body: { tools: [] } })
@@ -170,7 +170,7 @@ describe("the Console Nitro configuration", () => {
       // A single page app gets one loader below the base, also with Comments.
       const transform = plugin.transformIndexHtml as (html: string) => string | undefined
       const page = transform("<html><body></body></html>")
-      expect(page).toContain(`import("${path}/_vitehub/page/assets/loader.js?v=10")`)
+      expect(page).toContain(`import("${path}/_vitehub/page/assets/loader.js?v=11")`)
       expect(transform(page!)).toBeUndefined()
       const script = page?.match(/<script[^>]*>([\s\S]*?)<\/script>/)?.[1]
       if (!script) throw new TypeError("Expected a page tools loader script")
@@ -185,7 +185,7 @@ describe("the Console Nitro configuration", () => {
         // Replace only the dynamic import so the browser's hint gate runs without fetching a browser module.
         runInNewContext(script.replace("import(", "load("), { URLSearchParams, location: { search }, document: { cookie }, load })
         expect(load).toHaveBeenCalledTimes(imports)
-        if (imports) expect(load).toHaveBeenCalledWith(`${path}/_vitehub/page/assets/loader.js?v=10`)
+        if (imports) expect(load).toHaveBeenCalledWith(`${path}/_vitehub/page/assets/loader.js?v=11`)
       }
     }
     finally {

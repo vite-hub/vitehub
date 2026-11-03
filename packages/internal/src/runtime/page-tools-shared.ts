@@ -6,8 +6,47 @@
 /** The query that turns the page tools on for a page. `?vitehub=<tool id>` also opens that tool. */
 export const viteHubPageToolsQuery = "vitehub"
 
-/** The cookie that keeps the page tools on, on the next pages. It is a hint, never a credential. */
+/**
+ * The cookie that remembers the session route's answer for this browser: `1` when a tool allows the person, `0` when
+ * none does or the person turned the tools off. It is a hint, never a credential, and it is not HttpOnly, because the
+ * page's bootstrap script reads it.
+ */
 export const viteHubPageToolsCookie = "vitehub-tools"
+
+/**
+ * The cookie that tells page scripts that an app Auth session exists. `@vite-hub/auth` sets it to `1` next to the
+ * session cookie and clears it on sign-out. It is not HttpOnly and holds no secret.
+ */
+export const viteHubSessionMarkerCookie = "vitehub_session"
+
+const hintMaxAge = 60 * 60 * 24 * 30
+
+/** The `Set-Cookie` value that stores the session route's answer for 30 days. */
+export function viteHubPageToolsHintCookie(allowed: boolean): string {
+  return `${viteHubPageToolsCookie}=${allowed ? 1 : 0}; Path=/; Max-Age=${hintMaxAge}; SameSite=Lax`
+}
+
+/**
+ * The `Set-Cookie` value that forgets the session route's answer. Auth sends it when a session starts or ends, so the
+ * next page asks the session route again for the new person.
+ */
+export const viteHubPageToolsResetCookie: string = `${viteHubPageToolsCookie}=; Path=/; Max-Age=0; SameSite=Lax`
+
+/**
+ * Whether a page loads the page tools loader, from its query string and its `Cookie` header or `document.cookie`:
+ * - the `?vitehub` query, or
+ * - `vitehub-tools=1`, the session route allowed this person, or
+ * - `vitehub_session=1` without any `vitehub-tools` cookie: a person signed in and the session route has not answered
+ *   for this session yet.
+ *
+ * `vitehub-tools=0` stops the last case, so a signed-in person without access causes one session request per session.
+ */
+export function viteHubPageToolsWanted(search: string, cookie: string): boolean {
+  if (new URLSearchParams(search).has(viteHubPageToolsQuery)) return true
+  const parts = cookie.split(";").map(part => part.trim())
+  if (parts.includes(`${viteHubPageToolsCookie}=1`)) return true
+  return parts.includes(`${viteHubSessionMarkerCookie}=1`) && !parts.some(part => part.startsWith(`${viteHubPageToolsCookie}=`))
+}
 
 /**
  * The URL prefix of the built page tools scripts, such as the loader. It is not `/_vitehub/page`: Nitro answers 404 for
@@ -22,7 +61,7 @@ export const viteHubPageSessionPath = "/_vitehub/page/session"
  * The URL of the loader script, below the app base. Its version query changes when the loader changes, so caches keep
  * it 5 minutes.
  */
-export const viteHubPageToolsLoader = "/_vitehub/page/assets/loader.js?v=10"
+export const viteHubPageToolsLoader = "/_vitehub/page/assets/loader.js?v=11"
 
 /**
  * The buttons of the pill and of each tool's segment. The pill is always the dark review toolbar of Drop, so it reads
@@ -43,13 +82,21 @@ button svg{width:14px;height:14px;flex:none}
 /** The attribute of the script that loads the page tools. A page that has it does not get a second one. */
 export const viteHubPageToolsMarker = "data-vitehub-page-tools"
 
-/** The generated SPA check's opening tag, so the server can recognize it when replacing the check. */
+/** The bootstrap's opening tag, so the server can recognize the generated bootstrap when it replaces it. */
 export const viteHubPageToolsInlineStart: string = `<script type="module" ${viteHubPageToolsMarker}>`
 
-/** The exact generated SPA hint check, shared with the server's replacement check. */
-export function viteHubPageToolsInlineScript(base: string | undefined): string {
-  const hint = `new URLSearchParams(location.search).has(${JSON.stringify(viteHubPageToolsQuery)})||document.cookie.split("; ").includes(${JSON.stringify(`${viteHubPageToolsCookie}=1`)})`
-  return `${viteHubPageToolsInlineStart}if(${hint})import(${JSON.stringify(`${viteHubBasePath(base)}${viteHubPageToolsLoader}`)})</script>`
+/**
+ * The exact page tools bootstrap: an inline module script that imports `<base>/_vitehub/page/assets/loader.js` only
+ * when `viteHubPageToolsWanted()` is true in the browser. Without the hint it makes no request. Vite adds it to a
+ * single page app's `index.html`, and the server adds it to every rendered and prerendered page, so static hosts serve
+ * it too. A `nonce` goes on the tag for a Content Security Policy with nonces.
+ */
+export function viteHubPageToolsInlineScript(base: string | undefined, nonce?: string): string {
+  const query = JSON.stringify(viteHubPageToolsQuery)
+  const tools = JSON.stringify(`${viteHubPageToolsCookie}=`)
+  const hint = `new URLSearchParams(location.search).has(${query})||c.includes(${JSON.stringify(`${viteHubPageToolsCookie}=1`)})||c.includes(${JSON.stringify(`${viteHubSessionMarkerCookie}=1`)})&&!c.some(p=>p.startsWith(${tools}))`
+  const start = nonce ? `<script type="module" nonce="${nonce}" ${viteHubPageToolsMarker}>` : viteHubPageToolsInlineStart
+  return `${start}const c=document.cookie.split("; ");if(${hint})import(${JSON.stringify(`${viteHubBasePath(base)}${viteHubPageToolsLoader}`)})</script>`
 }
 
 /**

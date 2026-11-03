@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises"
 import { delimiter, join } from "node:path"
 
+import { viteHubPageToolsInlineScript } from "@vite-hub/internal/runtime/page-tools-shared"
 import { createBuilder, resolveConfig } from "vite"
 import { describe, expect, it } from "vitest"
 
@@ -92,7 +93,7 @@ describe("Comments in a built Nitro 3 app", () => {
       expect(found, home).not.toBeNull()
       expect(home.match(/comments\/loader\./g)).toHaveLength(1)
       const rendered = await (await server.fetch("/ssr")).text()
-      expect(rendered).toMatch(/<h1>Rendered<\/h1><script type="module" src="\/_vitehub\/comments\/loader\.[\w-]+\.js\?f=overlay\.[\w-]+\.js"><\/script><\/body>/)
+      expect(rendered).toBe(`<html><body><h1>Rendered</h1>${found![0]}${viteHubPageToolsInlineScript("")}</body></html>`)
       expect(await call("comments.session", { subject })).toEqual({ canRead: true, canWrite: true, user: { id: "ana", name: "Ana" } })
       for (const file of [found![1]!.split("?")[0]!, `/_vitehub/comments/${found![2]!}`]) {
         const asset = await server.fetch(file)
