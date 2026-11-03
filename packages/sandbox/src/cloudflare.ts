@@ -18,8 +18,7 @@ import {
 } from "./internal/cloudflare-transport.ts";
 import { markBuiltInSandboxRuntime } from "./internal/runtime.ts";
 import { sandboxErrorDiagnostics } from "./error-diagnostics.ts"
-
-const cloudflareSandboxPackage = "@cloudflare/sandbox";
+import type { CloudflareSandboxDurableObject } from "./internal/cloudflare-durable-object.ts";
 
 export interface CloudflareSandboxOptions {
   cloudflare?: {
@@ -76,11 +75,13 @@ export interface CloudflareSandboxStub {
   }>;
   startProcess?(
     command: string,
-    options?: { cwd?: string; env?: Record<string, string> },
+    options?: { cwd?: string; env?: Record<string, string>; stdin?: boolean },
   ): Promise<{
     getLogs(): Promise<{ stderr: string; stdout: string }>;
     id: string;
     kill(signal?: string): Promise<void>;
+    /** Process input, when the stub was asked for it with `stdin: true`. */
+    stdin?: WritableStream<Uint8Array>;
     waitForExit(): Promise<{ exitCode: number }>;
   }>;
   /** Server-sent events with the process's buffered output, then live output until it exits. */
@@ -115,7 +116,7 @@ export function createCloudflareRuntime(options: CloudflareSandboxOptions): Sand
     async open(input, openOptions) {
       const env = await resolveRemoteEnvironment(input, {});
       const id = openOptions?.id ?? options.sandboxId ?? `vitehub-${crypto.randomUUID()}`;
-      const getSandbox = options.getSandbox ?? await loadCloudflareSandbox();
+      const getSandbox = options.getSandbox ?? getCloudflareSandbox;
       const stub = getSandbox(options.namespace, id, options.cloudflare);
       const runtimeSession = createCloudflareSession(id, stub, env, options.hostname);
       return await openRemoteSandbox(input, runtimeSession, {
@@ -128,14 +129,40 @@ export function createCloudflareRuntime(options: CloudflareSandboxOptions): Sand
   });
 }
 
-async function loadCloudflareSandbox() {
-  try {
-    const { getSandbox } = await import(/* @vite-ignore */ cloudflareSandboxPackage);
-    // SAFETY: the optional package's public getSandbox export implements this adapter contract.
-    return getSandbox as NonNullable<CloudflareSandboxOptions["getSandbox"]>;
-  } catch (error) {
-    throw sandboxErrorDiagnostics.SANDBOX_R0021({ message: `[vitehub] The cloudflare Sandbox runtime requires @cloudflare/sandbox: ${error instanceof Error ? error.message : error}` });
-  }
+/**
+ * Reaches the Sandbox Durable Object that the ViteHub Cloudflare host integration exports.
+ * @cloudflare/sandbox 1.0 has no `getSandbox`; the generated class implements this stub over RPC.
+ */
+function getCloudflareSandbox(
+  namespace: CloudflareDurableObjectNamespace,
+  id: string,
+  options: CloudflareSandboxOptions["cloudflare"] = {},
+): CloudflareSandboxStub {
+  // SAFETY: the namespace binds the generated class, whose RPC methods implement CloudflareSandboxDurableObject.
+  const target = namespace.get(namespace.idFromName(options.normalizeId ? id.toLowerCase() : id)) as CloudflareSandboxDurableObject;
+  let configured: Promise<void> | undefined;
+  const ready = async () => {
+    configured ??= target.configure({ keepAlive: options.keepAlive, sleepAfter: options.sleepAfter })
+      .catch((error: unknown) => {
+        configured = undefined;
+        throw error;
+      });
+    await configured;
+  };
+  // List each method: a Durable Object stub answers every property name, and the session
+  // only falls back to shell commands for methods the stub lacks (listFiles, exposePort).
+  return {
+    deleteFile: async path => (await ready(), await target.deleteFile(path)),
+    destroy: async () => (await ready(), await target.destroy()),
+    exec: async (command, execOptions) => (await ready(), await target.exec(command, execOptions)),
+    exists: async path => (await ready(), await target.exists(path)),
+    mkdir: async (path, mkdirOptions) => (await ready(), await target.mkdir(path, mkdirOptions)),
+    moveFile: async (source, destination) => (await ready(), await target.moveFile(source, destination)),
+    readFile: async (path, readOptions) => (await ready(), await target.readFile(path, readOptions)),
+    startProcess: async (command, processOptions) => (await ready(), await target.startProcess(command, processOptions)),
+    streamProcessLogs: async processId => (await ready(), await target.streamProcessLogs(processId)),
+    writeFile: async (path, contents, writeOptions) => (await ready(), await target.writeFile(path, contents, writeOptions)),
+  };
 }
 
 function createCloudflareSession(
@@ -273,12 +300,14 @@ function createCloudflareSession(
             abortSignal?: AbortSignal;
             command: string;
             env?: Record<string, string>;
+            stdin?: boolean;
             workingDirectory?: string;
           }) {
             commandOptions.abortSignal?.throwIfAborted();
             const process = await request("startProcess", async () => await stub.startProcess!(commandOptions.command, {
               cwd: commandOptions.workingDirectory ?? "/workspace",
               env: { ...baseEnv, ...commandOptions.env },
+              ...(commandOptions.stdin ? { stdin: true } : {}),
             }));
             const logs = stub.streamProcessLogs
               ? request("streamProcessLogs", async () => await stub.streamProcessLogs!(process.id))
@@ -321,6 +350,7 @@ function cloudflareProcess(
     : exitedProcessLogs(wait.then(async () => await process.getLogs()));
   return {
     ...output,
+    ...(process.stdin ? { stdin: process.stdin } : {}),
     async kill(signal?: string) {
       await process.kill(signal);
     },
