@@ -143,6 +143,7 @@ The answer streams back. Without a ChatGPT grant, the stream has an error with `
 ## Limits
 
 - **Worker builds.** The `workerd` and `worker` package conditions select the model-backed Driver. It reads the pages with the read-only Workspace shell (`ls`, `cat`, `rg`), which has no network. Pick its model from `vitehub connections models chatgpt` and set `driver: { model }`. An Agent that sets `codexDriver()` itself fails a Worker build with `AGENT_B0019`.
+- **ChatGPT plan.** Connections work in Nuxt development and production builds. An API key gateway does not need Connections.
 - **Plan use.** OpenAI allows plan usage for open-source projects, personal apps that run locally, and selected private apps. Paid apps and remotely hosted apps must join OpenAI's waitlist first. One host holds one grant. See [ChatGPT plan usage](/docs/connections/chatgpt).
 - **Shell access on Node.js.** Codex reads the pages with shell commands in a temporary copy. Its sandbox blocks the network and writes outside that copy. But it can read other files that the server user can read, and a reader can ask for them. Run a public assistant as a user that can read only the app.
 - **Rate limit.** The default limit is in process memory. It resets on restart and does not span processes. In a Worker, each isolate counts on its own. It counts questions for the whole site, so one reader can use the budget of the hour for everyone.

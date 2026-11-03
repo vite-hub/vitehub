@@ -58,6 +58,22 @@ describe("ChatGPT plan Connections", () => {
     expect(test.fake.state.registrations).toBe(1)
   })
 
+  it("signs in and lists models with a fetch that rejects redirect: error, like Cloudflare Workers", async () => {
+    const test = await setup()
+    const workerFetch: typeof fetch = async (input, init) => {
+      if (init?.redirect === "error") throw new TypeError("Invalid redirect value, must be one of \"follow\" or \"manual\".")
+      return await test.fake.fetch(input, init)
+    }
+    const runtime = createConnectionsRuntime({ ...test.options, fetch: workerFetch })
+    const attempt = await runtime.authorize({ name: "chatgpt", redirectUri: "http://127.0.0.1:1455/callback" })
+    const callback = await test.fake.callback(attempt.url)
+    await expect(runtime.complete({ state: callback.searchParams.get("state")!, code: callback.searchParams.get("code")!, clientId: callback.searchParams.get("client_id") ?? undefined }))
+      .resolves.toMatchObject({ chatgpt: { plan: "enabled" } })
+    await expect(chatgptTransfers(runtime).models({ actor: "user:host-managed", name: "chatgpt" })).resolves.toEqual([{ id: "gpt-6.1-sol", name: "GPT-6.1" }])
+    await expect(runtime.revoke({ name: "chatgpt" })).resolves.toMatchObject({ status: "revoked" })
+    expect(test.fake.state.revoked).toBe(1)
+  })
+
   it.each(["identity", "account", "read", "persist"])("fences the old grant after a successful exchange followed by %s failure", async (failure) => {
     const test = await setup()
     await test.connect()
