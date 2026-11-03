@@ -130,6 +130,7 @@ vi.mock("@vite-hub/workspace/vite", () => ({ hubWorkspace: integrationMocks.hubW
 vi.mock("../src/task/vite.ts", () => ({ viteHubTaskPlugin: integrationMocks.viteHubTask }))
 
 import type { KVModuleOptions } from "@vite-hub/kv"
+import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 import { resolveConfig, type Plugin, type PluginOption } from "vite"
 import type { ConsoleViteDevTools } from "../src/console/devtools.ts"
 import { contributeProviderDeploymentOutput, useProviderOutputCatalog } from "../../internal/src/build/deployment-output.ts"
@@ -1335,6 +1336,35 @@ describe("vitehub", () => {
         modules: [expect.any(Function)],
         rollupConfig: { output: { chunkFileNames: "chunks/[name].mjs", entryFileNames: "index.mjs" } },
       })
+    }
+  })
+
+  it.each([
+    ["deno", false, "deno-deploy"],
+    ["cloudflare", true, "cloudflare-durable"],
+  ] as const)("preserves the %s Nitro 2 preset during Nuxt config replay", async (preset, realtime, nitroPreset) => {
+    const plugins = vitehub({ preset, realtime })
+    const settings = dependencyPluginByName(plugins, "vite-hub/deployment-settings")
+    const deployment = dependencyPluginByName(plugins, "vite-hub/deployment-preset")
+    const output = dependencyPluginByName(plugins, "vite-hub/deployment-output")
+    try {
+      vi.stubEnv("NITRO_PRESET", nitroPreset)
+      vi.stubEnv("SERVER_PRESET", nitroPreset)
+      for (const initialPreset of [undefined, nitroPreset]) {
+        const config = {
+          [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+          command: "build",
+          nitro: { preset: initialPreset },
+        }
+        await callHook(settings.config, [config, { command: "build", mode: "production" }])
+        expect(config.nitro.preset).toBe(nitroPreset)
+        await callHook(deployment.config, [config, { command: "build", mode: "production" }])
+        expect(config.nitro.preset).toBe(nitroPreset)
+        expect(() => callHook(output.configResolved, [config])).not.toThrow()
+      }
+    }
+    finally {
+      vi.unstubAllEnvs()
     }
   })
 
