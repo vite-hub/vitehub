@@ -1,7 +1,6 @@
-import { connectRealtimeRoom } from "@vite-hub/realtime/client"
 import { CommentLayer, CommentPanel } from "@vite-hub/ui/comments"
 import { useComments } from "@vite-hub/ui/headless"
-import { UButton, UIcon, UModal } from "@vite-hub/ui/standalone/nuxt-ui"
+import { registerStandaloneUI, UButton } from "@vite-hub/ui/standalone/nuxt-ui"
 import standaloneCss from "@vite-hub/ui/standalone/styles.css?inline"
 import uiCss from "@vite-hub/ui/styles.css?inline"
 import { computed, createApp, defineComponent, h, nextTick, ref, shallowRef, Teleport, toRaw, watch } from "vue"
@@ -16,8 +15,10 @@ import { overlayStyles, panelStyles } from "./styles.ts"
 
 import type { ViteHubPageToolContext } from "@vite-hub/internal/runtime/page-tools-loader"
 import type { RealtimeRoom } from "@vite-hub/realtime/client"
+import type { CommentCan } from "@vite-hub/ui/headless"
 import type { App, VNode } from "vue"
-import type { CommentAnchor, CommentContext, CommentEvent, CommentStatus, CommentUser } from "../types.ts"
+import type { RestCommentThread } from "../rest-transport.ts"
+import type { CommentAnchor, CommentContext, CommentEvent, CommentMessage, CommentStatus, CommentUser } from "../types.ts"
 import type { CommentsApiError, CommentsSession } from "./api.ts"
 
 interface Cursor {
@@ -155,6 +156,8 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const known = shallowRef<readonly CommentUser[]>([])
   const panelStatus = ref<CommentStatus>("open")
   let room: RealtimeRoom | undefined
+  // Counts the joins, so a join whose Realtime client loads after a newer join or `destroy()` drops itself.
+  let joins = 0
   let pageWindow: ReturnType<ViteHubPageToolContext["createWindow"]> | undefined
   let toastTimer: ReturnType<typeof setTimeout> | undefined
   const listeners = new Set<(event: CommentEvent) => void>()
@@ -175,6 +178,26 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   const me = computed<CommentUser | undefined>(() => account() ?? (guest.value ? { id: `guest:${guest.value.id}`, name: guest.value.name, guest: true } : undefined))
   const canComment = Boolean(session?.can.comment)
   const needsName = computed(() => canComment && !me.value)
+
+  /**
+   * What this person may do in a thread, for the parts' controls. Each thread from the API carries `can` for its own
+   * policy check, and the session's answer stands in until it does. The server checks every change again.
+   */
+  const can: CommentCan = (action, { thread, message }) => {
+    const user = me.value
+    if (!user || needsName.value) return false
+    const allowed = (thread as RestCommentThread).can ?? { comment: canComment, resolve: Boolean(session?.can.resolve), delete: Boolean(session?.can.delete) }
+    if (action === "reply") return allowed.comment
+    if (action === "resolve") return allowed.resolve
+    // A guest id proves nothing, so a guest owns no message.
+    const own = (entry: CommentMessage) => !user.guest && !entry.author.guest && entry.author.id === user.id
+    if (!message) return false
+    if (action === "edit") return own(message)
+    // People delete their own messages, and a thread when every message in it is theirs. Moderators, with `delete`,
+    // delete anyone's.
+    const owns = thread.messages[0]?.id === message.id ? thread.messages.every(own) : own(message)
+    return owns ? allowed.comment : allowed.delete === true && !user.guest
+  }
 
   const transport = createOverlayTransport({
     contextOf: input => contexts.get(input.anchor) ?? captureContext(undefined),
@@ -239,17 +262,27 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   }
   const mode = computed<Mode>(() => editing.value ? "edit" : state?.active.value ? "comment" : "view")
 
-  function joinRoom(reconnect = false) {
+  // The Realtime client, with Yjs, is a chunk of its own: only a site with presence loads it, after the threads.
+  async function joinRoom(reconnect = false) {
     if (!session?.realtime || !host.isConnected || context?.signal.aborted || (room && !reconnect)) return
+    const join = ++joins
+    // Presence is extra: when its chunk does not load, the comments still work without it.
+    const realtime = await import("@vite-hub/realtime/client").catch(() => undefined)
+    if (!realtime || join !== joins || !host.isConnected || context?.signal.aborted) return
     room?.destroy()
     const identity = account() ?? (guest.value ? { id: `guest:${guest.value.id}`, name: `${guest.value.name} (guest)` } : undefined)
     const baseURL = commentsApiRoute(import.meta.url).slice(0, -commentsRoute.length)
-    const joined = connectRealtimeRoom(commentsRealtimeDefinition, commentRoom(page.value), { identity, changes: true, baseURL })
+    const joined = realtime.connectRealtimeRoom(commentsRealtimeDefinition, commentRoom(page.value), { identity, changes: true, baseURL })
     joined.onUpdate(() => tick.value++)
     joined.onChange((change) => {
       if ("path" in change && change.path === commentRoom(page.value)) refresh()
     })
     room = joined
+  }
+  function leaveRoom() {
+    joins++
+    room?.destroy()
+    room = undefined
   }
 
   function showPanel() {
@@ -275,7 +308,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   function nameGuest(name: string) {
     guest.value = saveGuest(name)
     naming.value = false
-    joinRoom(true)
+    void joinRoom(true)
     setMode("comment")
   }
 
@@ -329,6 +362,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
         people: known,
         hotkey: false,
         ignore: ignored,
+        can,
         uiRoot: () => shadow,
         autoStart: Boolean(session?.can.read),
       })
@@ -336,7 +370,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       watch(mode, value => options.onMode(value), { immediate: true, flush: "sync" })
       // Presence starts once the page's threads are listed, as on each new page.
       watch(() => state.status.value, (status) => {
-        if (status === "ready" && !room) joinRoom()
+        if (status === "ready" && !room) void joinRoom()
       })
       watch(() => state.counts.value.open, () => tick.value++)
       // The list's Open and Resolved switch also shows resolved pins, as Show resolved did.
@@ -463,9 +497,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
   }
 
   const app = createApp(Overlay)
-  app.component("UButton", UButton)
-  app.component("UIcon", UIcon)
-  app.component("UModal", UModal)
+  registerStandaloneUI(app)
   app.mount(root)
   if (session && !session.can.read) denied(session)
   else if (options.failure) showToast({ text: options.failure.why, kind: "error", action: ["Close", options.exit] }, true)
@@ -485,8 +517,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
       if (hasUnsentComment() && !window.confirm("Discard your unsent comment and show comments for the new page?")) return
       page.value = next
       // The state lists the threads of the new page. The page then joins its room.
-      room?.destroy()
-      room = undefined
+      leaveRoom()
     },
     refresh,
     pointer(event, target) {
@@ -525,8 +556,7 @@ export function mountOverlay(options: OverlayAppOptions): OverlayControl {
     },
     destroy() {
       clearTimeout(toastTimer)
-      room?.destroy()
-      room = undefined
+      leaveRoom()
       app.unmount()
       pageWindow?.destroy()
     },

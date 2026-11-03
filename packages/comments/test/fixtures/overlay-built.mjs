@@ -46,12 +46,33 @@ try {
     }
     close() {}
   }
-  const overlay = new SourceTextModule(await readFile(new URL("../../dist/overlay/overlay.js", import.meta.url), "utf8"), {
-    context: page.mainFrame.window,
-    initializeImportMeta(meta) { meta.url = `https://site.test${base}/api/_vitehub/comments/assets/overlay.js?v=2` },
-  })
-  await overlay.link(() => { throw new Error("The built overlay must be self-contained") })
-  await overlay.evaluate()
+  // The overlay and its chunks load from the asset directory only. Presence loads the Realtime chunk with `import()`.
+  const assets = `https://site.test${base}/api/_vitehub/comments/assets/`
+  const modules = new Map()
+  const moduleOf = (url) => {
+    const name = new URL(url).pathname.slice(new URL(assets).pathname.length)
+    if (!modules.has(name)) {
+      modules.set(name, readFile(new URL(`../../dist/overlay/${name}`, import.meta.url), "utf8").then(source => new SourceTextModule(source, {
+        context: page.mainFrame.window,
+        identifier: url,
+        initializeImportMeta(meta) { meta.url = name === "overlay.js" ? `${assets}overlay.js?v=2` : url },
+        importModuleDynamically: async (specifier, referrer) => await ready((await link(specifier, referrer)).identifier),
+      })))
+    }
+    return modules.get(name)
+  }
+  const link = async (specifier, referrer) => {
+    const url = new URL(specifier, referrer.identifier).href
+    if (!url.startsWith(assets)) throw new Error(`The built overlay must be self-contained, but imports ${specifier}`)
+    return await moduleOf(url)
+  }
+  const ready = async (url) => {
+    const module = await moduleOf(url)
+    if (module.status === "unlinked") await module.link(link)
+    if (module.status === "linked") await module.evaluate()
+    return module
+  }
+  const overlay = await ready(`${assets}overlay.js`)
   overlay.namespace.default({
     tool: { id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: `${base}/api/_vitehub/comments/assets/overlay.js` },
     bar: page.mainFrame.document.createElement("div"),

@@ -6,8 +6,9 @@ import { overlayAliases, standaloneUI } from "./overlay.aliases.ts"
 
 const root = import.meta.dirname
 
-// The overlay that the page tools loader imports, at `/api/_vitehub/comments/assets/overlay.js`. Nitro serves it as a
-// public asset, so it is one self-contained module: Vue, the comment parts of `@vite-hub/ui`, and their styles.
+// The overlay that the page tools loader imports, at `/api/_vitehub/comments/assets/overlay.js`. Nitro serves the
+// directory as public assets. `overlay.js` holds Vue, the comment parts of `@vite-hub/ui`, and their styles. The
+// Realtime client of presence, with Yjs, is a hashed chunk next to it that only sites with presence load.
 export default defineConfig({
   configFile: false,
   define: {
@@ -19,14 +20,15 @@ export default defineConfig({
   plugins: [standaloneUI()],
   resolve: { alias: overlayAliases, dedupe: ["vue"] },
   build: {
-    emptyOutDir: false,
+    // Only this build writes here, so old chunks go.
+    emptyOutDir: true,
     minify: true,
     outDir: resolve(root, "dist/overlay"),
     rolldownOptions: {
       input: { overlay: resolve(root, "src/overlay/index.ts") },
       // The loader imports the default export.
       preserveEntrySignatures: "exports-only",
-      output: { codeSplitting: false, entryFileNames: "[name].js" },
+      output: { chunkFileNames: "[name]-[hash].js", entryFileNames: "[name].js" },
     },
     target: "es2022",
   },

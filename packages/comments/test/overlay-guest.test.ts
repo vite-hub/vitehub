@@ -54,8 +54,8 @@ describe("guests of the Comments overlay", () => {
     await type(name, "Ana García")
     name.closest("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
     const guest = readGuest()!
+    await vi.waitFor(() => expect(connectRealtimeRoom).toHaveBeenCalledTimes(2))
     expect(room.destroy).toHaveBeenCalledTimes(1)
-    expect(connectRealtimeRoom).toHaveBeenCalledTimes(2)
     expect(identity(1)).toEqual({ id: `guest:${guest.id}`, name: "Ana García (guest)" })
   })
 

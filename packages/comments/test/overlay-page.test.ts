@@ -39,8 +39,8 @@ async function open(options: { content?: boolean } = {}) {
   if (options.content !== false) {
     // The Content runtime is the Console's. These tests answer its two field routes.
     const session = api.session
-    vi.spyOn(api, "session").mockImplementation(async () => {
-      const [error, value] = await session()
+    vi.spyOn(api, "session").mockImplementation(async (page) => {
+      const [error, value] = await session(page)
       return error ? [error, undefined] : [undefined, { ...value, content: true }]
     })
   }

@@ -576,7 +576,7 @@ describe("Comments API", () => {
     expect(uploaded.body.data).toEqual({ key: "uploads/shot.png", name: "shot.png", type: "image/png", size: 3 })
     expect(stored).toEqual(["shot.png image/png 3 /pricing"])
     const svg = await call("/attachments", { method: "POST", json: { name: "x.svg", type: "image/svg+xml", data: btoa("<svg/>") } })
-    expect([svg.response.status, svg.body.error?.code]).toEqual([415, "COMMENTS_R0017"])
+    expect([svg.response.status, svg.body.error?.code]).toEqual([415, "COMMENTS_INVALID_INPUT"])
     const created = await call("/threads", { method: "POST", json: { page: "/pricing", anchor, body: "", attachments: ["uploads/shot.png"] } })
     expect(created.body.data.messages[0]).toMatchObject({ body: "", attachments: ["uploads/shot.png"] })
     await call(`/threads/${created.body.data.id}/comments`, { method: "POST", json: { body: "And a log", attachments: ["uploads/log.txt"] } })

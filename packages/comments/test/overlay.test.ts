@@ -177,6 +177,42 @@ describe("the Comments overlay on the comment parts", () => {
     await vi.waitFor(() => expect(shadow.querySelector('[data-slot="comment-pin"]')).toBeNull())
   })
 
+  describe("deleting other people's messages", () => {
+    let created: { id: string } | undefined
+    const seed = async (comments: Awaited<ReturnType<typeof serveComments>>["comments"]) => {
+      created = (await comments.create({ page: "/pricing", anchor, body: "Ada's comment", author: ada }))[1]
+      await comments.reply(created!.id, { body: "Grace's reply", author: grace })
+    }
+    const deletes = (shadow: ShadowRoot) => [...shadow.querySelectorAll('[data-slot="comment-reply"]')].map(reply => reply.querySelector('[aria-label="Delete"]') !== null)
+    const open = async (shadow: ShadowRoot) => {
+      await vi.waitFor(() => expect(shadow.querySelector('[data-slot="comment-pin"]')).not.toBeNull())
+      shadow.querySelector<HTMLButtonElement>('[data-slot="comment-pin"]')!.click()
+      await vi.waitFor(() => expect(shadow.querySelectorAll('[data-slot="comment-reply"]')).toHaveLength(2))
+    }
+
+    it("shows a member Delete only on their own reply, since Ada's first message would take Grace's reply with it", async () => {
+      const { shadow } = await site(grace, { authorize: ({ action }) => action !== "delete" }, seed)
+      await open(shadow)
+      expect(deletes(shadow)).toEqual([false, true])
+    })
+
+    it("lets a moderator with `delete` delete anyone's message", async () => {
+      const { shadow, comments } = await site(ada, { authorize: () => true }, seed)
+      await open(shadow)
+      await vi.waitFor(() => expect(deletes(shadow)).toEqual([true, true]))
+      shadow.querySelectorAll<HTMLButtonElement>('[data-slot="comment-reply"] [aria-label="Delete"]')[1]!.click()
+      await vi.waitFor(async () => expect((await comments.get(created!.id))[1]!.messages.map(message => message.body)).toEqual(["Ada's comment"]))
+    })
+
+    it("refuses it on the server without `delete`", async () => {
+      const { comments, fetch } = await serveComments({ identify: () => grace, authorize: ({ action }) => action !== "delete" })
+      const [, thread] = await comments.create({ page: "/pricing", anchor, body: "Ada's comment", author: ada })
+      const response = await fetch(`/api/_vitehub/comments/threads/${thread!.id}/comments/${thread!.messages[0]!.id}`, { method: "DELETE" })
+      expect(response.status).toBe(403)
+      expect((await comments.get(thread!.id))[1]!.messages).toHaveLength(1)
+    })
+  })
+
   it("asks a guest for a name before comment mode, then sends it in the guest headers", async () => {
     const { shadow, bar, comments, requests } = await site(null, { authorize: () => true })
     tool(bar, "Comment (C)")!.click()
