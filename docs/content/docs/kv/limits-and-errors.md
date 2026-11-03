@@ -57,6 +57,8 @@ The `cursor` of `kv.list()` expired, is in use by another call, belongs to anoth
 
 The provider failed. `error.why` names the operation and the store. Read `error.cause` for the provider error. A retry can help when the provider is available again.
 
+An invalid key returns this code too, before ViteHub calls the provider: an empty key such as `''` or `':'`, or a key with a `.` or `..` segment such as `'a/../b'`. `error.cause.message` is `[unstorage] Invalid key: ""` with the key. A retry cannot help; use another key.
+
 ### KV_UNSUPPORTED_OPERATION
 
 `getAndDelete()` and `increment()` need atomic operations. Only the `upstash` driver supports them. Deno KV, Cloudflare KV, and `fs-lite` return this code. For request budgets, use the [Rate Limit primitive](/docs/rate-limit).

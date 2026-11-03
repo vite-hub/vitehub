@@ -456,7 +456,9 @@ The answer keeps a browser from running the file:
 | `Content-Security-Policy` | `default-src 'none'; sandbox` |
 | `Cache-Control` | `private, max-age=300` |
 
-A key is the right to read through any thread that lists it, so keep keys hard to guess. The keys of the Blob store carry a random id. Without `readAttachment`, Comments reads only its own upload keys, `comments/<uuid>/<name>`, so a message that lists another file of your Blob store does not open it; such a key answers `COMMENTS_R0020`.
+A key is the right to read through any thread that lists it, so keep keys hard to guess. The keys of the Blob store carry a random id. Without `readAttachment`, Comments reads only its own uploads: it saves an ownership record at `comments/<uuid>/.upload.json` with the exact file key and a SHA-256 digest, and checks both before answering the file. A message that lists an app file, even at a matching `comments/<uuid>/<name>` path, answers `COMMENTS_R0020`. Replacing an uploaded file with different contents also makes it unreadable.
+
+Keep these ownership records with the files when copying or backing up Blob storage. Uploads from versions without records must be uploaded again, or read through an app's `readAttachment` hook that checks their access.
 
 ## Turn comment mode on and off
 

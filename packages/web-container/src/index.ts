@@ -94,7 +94,8 @@ export interface ViteHubWebContainer {
   run: (command: WebContainerCommand, options?: WebContainerRunOptions) => Promise<WebContainerRun>
   /** Serializes the working directory to a binary snapshot that `bootWebContainer({ snapshot })` mounts. */
   export: (options?: { path?: string, excludes?: string[], includes?: string[] }) => Promise<Uint8Array>
-  on: (event: "status", listener: (status: WebContainerStatus) => void) => () => void
+  on(event: "status", listener: (status: WebContainerStatus) => void): () => void
+  on(event: "server-ready", listener: (server: WebContainerPreviewServer) => void): () => void
   /** Stops every process and frees the container. Boot a new one afterwards if needed. */
   teardown: () => void
 }
@@ -343,7 +344,15 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
       const { path = ".", ...rest } = exportOptions
       return container.export(path, { ...rest, format: "binary" })
     },
-    on(_event, listener) {
+    on(...args:
+      | [event: "status", listener: (status: WebContainerStatus) => void]
+      | [event: "server-ready", listener: (server: WebContainerPreviewServer) => void]
+    ) {
+      if (args[0] === "server-ready") {
+        const listener = args[1]
+        return container.on("server-ready", (port, url) => listener({ port, url }))
+      }
+      const listener = args[1]
       status.listeners.add(listener)
       return () => status.listeners.delete(listener)
     },

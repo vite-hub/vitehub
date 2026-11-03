@@ -173,6 +173,7 @@ type NuxtLike = {
     (name: "listen", callback: (server: unknown, listener: { url: string }) => void): void
   }
   options: {
+    _installedModules?: Array<{ meta?: { name?: string } }>
     _layers?: NuxtServerDirOptions["_layers"]
     alias?: Record<string, string>
     app?: {
@@ -408,7 +409,7 @@ async function finalizeNitroReplayPlugins(plugins: Plugin[], config: UserConfig)
   }
 }
 
-function nitroRuntimeResolver(plugin: Plugin): Plugin | undefined {
+function nitroRuntimeResolver(plugin: Plugin, config: Record<string, unknown>): Plugin | undefined {
   if (!nitroRuntimeResolverNames.has(plugin.name)) return
   const resolveId = pluginResolveIdHandler(plugin)
   const load = pluginLoadHandler(plugin)
@@ -418,8 +419,11 @@ function nitroRuntimeResolver(plugin: Plugin): Plugin | undefined {
     name: `vite-hub/nuxt-runtime-resolver:${plugin.name}`,
     ...(resolveId
       ? {
-          resolveId(...args) {
-            return resolveId.call(this, ...args)
+          resolveId(id, importer, options) {
+            // Nitro's development alias must reach its resolver instead of being externalized by a replayed hook.
+            if (id === "cloudflare:workers" && isRecord(config.alias) && typeof config.alias[id] === "string") return
+            // Nitro replays Vite hooks in a server build, but Rollup does not supply Vite's ssr flag.
+            return resolveId.call(this, id, importer, { ...options, ssr: true })
           },
         }
       : {}),
@@ -434,7 +438,7 @@ function nitroRuntimeResolver(plugin: Plugin): Plugin | undefined {
 }
 
 function installNitroRuntimeResolvers(config: Record<string, unknown>, plugins: Plugin[]): void {
-  const resolvers = plugins.map(nitroRuntimeResolver).filter((plugin): plugin is Plugin => Boolean(plugin))
+  const resolvers = plugins.map(plugin => nitroRuntimeResolver(plugin, config)).filter((plugin): plugin is Plugin => Boolean(plugin))
   if (!resolvers.length) return
 
   const rollupConfig = (config.rollupConfig ??= {}) as Record<string, unknown>
@@ -963,17 +967,21 @@ type ViteHubNuxtModule = {
 /**
  * An app that imports `vite-hub/ui` parts gets their runtime without adding `@vite-hub/ui/nuxt`: the plugin that gives
  * them Nuxt UI's Nuxt icon, and their icons in the `@nuxt/icon` client bundle. `@vite-hub/ui` owns both. Headless apps
- * do not need the optional Nuxt UI peer, so they must not receive a plugin that imports it.
+ * do not enable the Nuxt UI module, so they must not receive a plugin that imports its generated themes.
  */
 async function installViteHubUIRuntime(nuxt: NuxtLike): Promise<void> {
   if (!nuxt.hook || !isPackageInstalled("@nuxt/ui")) return
-  const ui = await importOptionalOwner("@vite-hub/ui", () => import("@vite-hub/ui/nuxt"))
-  if (!ui) return
   const hook = nuxt.hook
-  ui.addViteHubUIRuntime({
-    hook: (name, callback) => Reflect.apply(hook, nuxt, [name, callback]),
-    options: { plugins: (nuxt.options.plugins ??= []) },
-  })
+  // Nuxt UI may be enabled after ViteHub, including by another module such as @vite-hub/ui/nuxt.
+  Reflect.apply(hook, nuxt, ["modules:done", async () => {
+    if (!nuxt.options._installedModules?.some(module => module.meta?.name === "@nuxt/ui")) return
+    const ui = await importOptionalOwner("@vite-hub/ui", () => import("@vite-hub/ui/nuxt"))
+    if (!ui) return
+    ui.addViteHubUIRuntime({
+      hook: (name, callback) => Reflect.apply(hook, nuxt, [name, callback]),
+      options: { plugins: (nuxt.options.plugins ??= []) },
+    })
+  }])
 }
 
 const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(inlineOptions, nuxtInstance): Promise<void> {

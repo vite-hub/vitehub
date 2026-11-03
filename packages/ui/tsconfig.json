@@ -11,5 +11,5 @@
     }
   },
   "include": ["src/**/*.ts", "src/**/*.d.ts", "test/**/*.ts", "test/**/*.test-d.ts"],
-  "exclude": ["dist", "node_modules"]
+  "exclude": ["dist", "node_modules", "test/browser"]
 }

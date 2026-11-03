@@ -31,7 +31,10 @@ function fixture(chunks: string[] = []) {
     mount: vi.fn(async () => {}),
     spawn: vi.fn(async () => process),
     teardown: vi.fn(),
-    on: events.on.bind(events),
+    on(event: string, listener: (...args: unknown[]) => void) {
+      events.on(event, listener)
+      return () => events.off(event, listener)
+    },
   }
   api.boot.mockResolvedValue(container)
   return { container, events, process, exited }
@@ -44,6 +47,26 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
 describe("WebContainer lifecycle", () => {
+  it("reports each server-ready event for custom commands and supports unsubscribing", async () => {
+    const { events, exited } = fixture()
+    const app = await bootWebContainer()
+    const listener = vi.fn()
+    const unsubscribe = app.on("server-ready", listener)
+    const run = await app.run(["node", "server.js"])
+    events.emit("server-ready", 3000, "https://first.example")
+    events.emit("server-ready", 3001, "https://second.example")
+    expect(listener.mock.calls).toEqual([
+      [{ port: 3000, url: "https://first.example" }],
+      [{ port: 3001, url: "https://second.example" }],
+    ])
+    unsubscribe()
+    events.emit("server-ready", 3002, "https://third.example")
+    expect(listener).toHaveBeenCalledTimes(2)
+    exited.resolve(0)
+    await run.exit
+    app.teardown()
+  })
+
   it("bounds captured text and unread output for a chatty process", async () => {
     const limit = 64 * 1024
     const { exited } = fixture(["a".repeat(limit), "b".repeat(limit), "tail"])
