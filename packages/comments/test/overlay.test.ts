@@ -39,10 +39,9 @@ function thread(): PageThread {
   const author = { id: "ada", name: "Ada" }
   const now = new Date().toISOString()
   return {
-    id: "thread", scope: "pages", number: 1, metadata: null, page: "/", status: "open", createdBy: author, resolvedBy: null, resolvedAt: null,
-    createdAt: now, updatedAt: now, context: null,
-    anchor: { selector: "h1", label: "h1 Published", x: 500, y: 500, page: { x: 10, y: 10 }, viewport: { width: 1024 } },
-    comments: [{ id: "root", threadId: "thread", body: "First comment", mentions: [], author, createdAt: now, editedAt: null }],
+    id: "thread", page: "/", status: "open", createdBy: author, resolvedBy: null, updatedAt: now,
+    anchor: { kind: "element", selector: "h1", label: "h1 Published", x: 500, y: 500, page: { x: 10, y: 10 }, viewport: { width: 1024 } },
+    comments: [{ id: "root", threadId: "thread", body: "First comment", mentions: [], author, createdAt: now }],
   }
 }
 
@@ -122,6 +121,21 @@ async function startEdit() {
 }
 
 describe("Comments overlay", () => {
+  it("requests session permissions for the current page", () => {
+    expect(api.session).toHaveBeenCalledWith("/")
+  })
+
+  it("passes the current page when suggesting mentions in a new thread", async () => {
+    vi.mocked(api.people).mockResolvedValue([undefined, []])
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "c", bubbles: true }))
+    document.querySelector("h1")!.dispatchEvent(new MouseEvent("click", { clientX: 10, clientY: 10, bubbles: true }))
+    const input = shadow.querySelector<HTMLTextAreaElement>("textarea")!
+    input.value = "@gr"
+    input.setSelectionRange(input.value.length, input.value.length)
+    input.dispatchEvent(new Event("input", { bubbles: true }))
+    await vi.waitFor(() => expect(api.people).toHaveBeenCalledWith("gr", { page: "/" }))
+  })
+
   it.each(["body swap", "astro:before-swap", "turbo:before-render"])("saves the active inline edit on %s without relying on blur", async (event) => {
     document.documentElement.append(pill)
     const title = await startEdit()
@@ -354,6 +368,7 @@ describe("Comments overlay", () => {
     input.setSelectionRange(input.value.length, input.value.length)
     input.dispatchEvent(new Event("input", { bubbles: true }))
     await vi.waitFor(() => expect(panel.querySelector('[role="option"]')).not.toBeNull())
+    expect(api.people).toHaveBeenCalledWith("gra", { thread: "thread" })
     panel.querySelector<HTMLButtonElement>('[role="option"]')!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))
 
     const updated = thread()

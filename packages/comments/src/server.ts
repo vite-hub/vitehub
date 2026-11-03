@@ -1,1 +1,8 @@
 export * from "./operations-core/server.ts"
+export * from "./operations-core/operations.ts"
+export * from "./operations-core/rpc.ts"
+export { createCommentsStore } from "./operations-core/store.ts"
+export type { CommentsDatabase, CommentsStore, CommentsTables } from "./operations-core/store.ts"
+export { validateCommentsDefinition } from "./operations-core/define.ts"
+export { installComments } from "./index.ts"
+export type { InstallCommentsOptions } from "./index.ts"

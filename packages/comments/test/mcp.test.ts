@@ -2,6 +2,7 @@ import { getViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { describe, expect, it, vi } from "vitest"
 
 import { commentsMcpTools } from "../src/runtime/mcp.ts"
+import { defineCommentSubject } from "../src/index.ts"
 import { commentsConsoleSession } from "../src/runtime/console-session.ts"
 import { createCommentsHandler } from "../src/runtime/handler.ts"
 import { defineCommentsPlugin } from "../src/runtime/plugin.ts"
@@ -23,6 +24,15 @@ async function setup(options: DefineCommentsOptions = {}) {
 }
 
 describe("Comments MCP tools", () => {
+  it("fills the page limit when newer subjects share the site scope", async () => {
+    const { comments, call } = await setup({ subjects: [defineCommentSubject({ kind: "content", scope: () => "site" })] })
+    const [, page] = await comments.create({ page: "/pricing", body: "Page feedback", author: ada })
+    const [error, content] = await comments.create({ subject: { kind: "content", id: "pages/about" }, body: "Content feedback", author: ada })
+    expect(error).toBeUndefined()
+    await comments.reply(content!.id, { body: "Newer content activity", author: ada })
+    expect((await call("comments_list_threads", { limit: 1 })).structured).toMatchObject({ threads: [{ id: page!.id }] })
+  })
+
   it.each([true, false])("preserves action-aware Console grants after session reconciliation: %s", async (readOnly) => {
     const authorize = vi.fn(() => true)
     const comments = await createComments({ authorize })
@@ -38,7 +48,7 @@ describe("Comments MCP tools", () => {
     expect(consoleAuthorize.mock.calls.map(([context]) => context.kind)).toEqual(["read", "read", "write", "write"])
     expect(authorize).toHaveBeenCalledTimes(readOnly ? 2 : 4)
     const [, after] = await comments.get(thread!.id)
-    expect(after?.comments).toHaveLength(readOnly ? 1 : 2)
+    expect(after?.messages).toHaveLength(readOnly ? 1 : 2)
     expect(after?.status).toBe(readOnly ? "open" : "resolved")
   })
 
@@ -56,7 +66,7 @@ describe("Comments MCP tools", () => {
     expect(identify).not.toHaveBeenCalled()
     expect(authorize).not.toHaveBeenCalled()
     const [, after] = await comments.get(thread!.id)
-    expect(after?.comments).toHaveLength(1)
+    expect(after?.messages).toHaveLength(1)
     expect(after?.status).toBe("open")
   })
 
@@ -78,7 +88,7 @@ describe("Comments MCP tools", () => {
     expect(identify).not.toHaveBeenCalled()
     expect(authorize).not.toHaveBeenCalled()
     const [, after] = await comments.get(thread!.id)
-    expect(after?.comments).toHaveLength(1)
+    expect(after?.messages).toHaveLength(1)
     expect(after?.status).toBe("open")
   })
 
@@ -106,7 +116,7 @@ describe("Comments MCP tools", () => {
   })
 
   it("keeps anonymous callers anonymous for every action", async () => {
-    const { comments, call } = await setup()
+    const { comments, call } = await setup({ authorize: ({ user }) => user !== null })
     const [, thread] = await comments.create({ page: "/", anchor, body: "Private", author: ada })
     for (const [name, input] of [
       ["comments_list_threads", {}],
@@ -117,7 +127,7 @@ describe("Comments MCP tools", () => {
       expect((await call(name, input, null)).isError).toBe(true)
     }
     const [, after] = await comments.get(thread!.id)
-    expect(after?.comments).toHaveLength(1)
+    expect(after?.messages).toHaveLength(1)
     expect(after?.status).toBe("open")
   })
 
@@ -153,7 +163,7 @@ describe("Comments MCP tools", () => {
       expect((await tool.call(inputs[index]!, { user })).isError).toBeUndefined()
     }
     const [, after] = await comments.get(thread!.id)
-    expect(after?.comments.at(-1)?.author).toEqual({ id: "ben", name: "Ben" })
+    expect(after?.messages.at(-1)?.author).toEqual({ id: "ben", name: "Ben" })
     expect(after?.resolvedBy).toEqual({ id: "ben", name: "Ben" })
     expect((await tools[3]!.call({ id: thread!.id, resolved: false }, { user })).isError).toBeUndefined()
     expect(seen).toEqual(Array(5).fill(user))
@@ -174,7 +184,7 @@ describe("Comments MCP tools", () => {
     expect((await tools[2]!.call({ id: thread!.id, body: "Fixed" }, { user: null, event: event() })).isError).toBeUndefined()
     expect((await tools[3]!.call({ id: thread!.id }, { user: null, event: event() })).isError).toBeUndefined()
     const [, after] = await comments.get(thread!.id)
-    expect(after?.comments.at(-1)?.author).toEqual({ id: person.id, name: person.name })
+    expect(after?.messages.at(-1)?.author).toEqual({ id: person.id, name: person.name })
     expect(after?.resolvedBy).toEqual({ id: person.id, name: person.name })
 
     const guestSession = commentsConsoleSession({ authorize: async () => true, user: async () => null, identify: async () => ({ id: "guest-12345678-1234-4123-8123-123456789abc" }) })
@@ -185,17 +195,17 @@ describe("Comments MCP tools", () => {
     expect((await guestTools[2]!.call({ id: thread!.id, body: "Thanks" }, { user: ada, event: request })).isError).toBeUndefined()
     expect((await guestTools[3]!.call({ id: thread!.id }, { user: ada, event: request })).isError).toBeUndefined()
     const [, updated] = await comments.get(thread!.id)
-    expect(updated?.comments.at(-1)?.author).toEqual({ id: "guest:ben", name: "Ben", guest: true })
+    expect(updated?.messages.at(-1)?.author).toEqual({ id: "guest:ben", name: "Ben", guest: true })
     expect(updated?.resolvedBy).toEqual({ id: "guest:ben", name: "Ben", guest: true })
     expect(seen).toEqual([person, person, null, null])
 
-    const privateComments = await createComments()
+    const privateComments = await createComments({ authorize: undefined })
     const [, privateThread] = await privateComments.create({ page: "/", anchor, body: "Private", author: ada })
     for (const tool of commentsMcpTools(privateComments, { consoleSession: guestSession })) {
       expect((await tool.call({ id: privateThread!.id, body: "Denied" }, { user: ada, event: request })).isError).toBe(true)
     }
     const [, unchanged] = await privateComments.get(privateThread!.id)
-    expect(unchanged?.comments).toHaveLength(1)
+    expect(unchanged?.messages).toHaveLength(1)
     expect(unchanged?.status).toBe("open")
   })
 
@@ -225,7 +235,7 @@ describe("Comments MCP tools", () => {
     const resolved = await call("comments_resolve_thread", { id: thread!.id })
     expect(resolved.text).toBe(`Thread ${thread!.id} is resolved.`)
     const [, after] = await comments.get(thread!.id)
-    expect(after?.comments.at(-1)?.author).toEqual({ id: "ben", name: "Ben" })
+    expect(after?.messages.at(-1)?.author).toEqual({ id: "ben", name: "Ben" })
     expect(after?.resolvedBy).toEqual({ id: "ben", name: "Ben" })
     expect((await call("comments_resolve_thread", { id: thread!.id, resolved: false })).text).toBe(`Thread ${thread!.id} is open.`)
   })
@@ -235,7 +245,7 @@ describe("Comments MCP tools", () => {
     const [, thread] = await comments.create({ page: "/", anchor, body: "Hi", author: ada })
     const viewer = { id: "cy", name: "Cy" }
     expect((await call("comments_get_thread", { id: thread!.id }, viewer)).isError).toBeUndefined()
-    expect(await call("comments_reply", { id: thread!.id, body: "No" }, viewer)).toEqual({ text: expect.stringContaining("denied `comment` for this user"), isError: true })
+    expect(await call("comments_reply", { id: thread!.id, body: "No" }, viewer)).toEqual({ text: expect.stringContaining("denied `write` for this user"), isError: true })
     expect((await call("comments_get_thread", { id: "missing" })).isError).toBe(true)
     expect((await call("comments_reply", { id: thread!.id }, undefined)).isError).toBe(true)
   })

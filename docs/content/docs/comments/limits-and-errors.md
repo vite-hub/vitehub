@@ -1,6 +1,6 @@
 ---
 title: Comments limits and errors
-description: Comment, mention, list, and refresh limits for Comments, and the fix for each error code.
+description: Message, mention, attachment, metadata, list, and refresh limits for Comments, and the fix for each error code.
 navigation.title: Limits and errors
 navigation.order: 8
 icon: i-lucide-circle-alert
@@ -30,9 +30,13 @@ Build errors throw when Vite reads the config. When the build cannot choose the 
 
 | Limit | Value |
 | --- | --- |
-| Comment body | 1 to 4,000 characters of plain text, after trimming |
-| Mentions in one comment | 20 |
+| Message body | Up to 10,000 characters of Markdown, after trimming. Empty only with an attachment, or on a subject whose `emptyBody` allows it |
+| Mentions in one message | 20. Each one is the id of a person that the text names with `@`, and that `canMention` allows |
 | `@` suggestions | 20 |
+| Attachments in one message | 10 keys of up to 500 characters |
+| Attachment file | 5 MB. `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `image/avif`, `application/pdf`, or `text/plain`. SVG and HTML are refused, because a browser runs their scripts |
+| Thread `metadata` | 50 keys of up to 64 characters. Values are strings of up to 4,000 characters, numbers, booleans, or `null` |
+| Thread `revision` | A whole number from 0 |
 | Threads in one `list()` call | 200 by default, 500 at most |
 | Threads in the Console section | The 500 with the newest activity |
 | Page path | 1,024 characters, starting with `/` |
@@ -64,9 +68,13 @@ The input of `create()` or `reply()`, or the body of an API request, is not vali
 
 ### COMMENTS_FORBIDDEN
 
-The `authorize` policy of `defineComments()` denied the action for this user. `why` names the action: `read`, `comment`, or `resolve`. Sign in as a user that the policy allows, or change `authorize` in `server/comments.ts`. See [Decide who can comment](/docs/comments/configure#decide-who-can-comment).
+The `authorize` policy of `defineComments()` denied the action for this user. `why` names the action: `read`, `write`, `resolve`, or `delete`. Sign in as a user that the policy allows, or change `authorize` in `server/comments.ts`. See [Decide who can comment](/docs/comments/configure#decide-who-can-comment).
 
 The API also returns this code for a `POST` or `DELETE` from another origin. Behind a proxy that ends TLS, set `X-Forwarded-Proto` and `X-Forwarded-Host`. See [Proxies that end TLS](/docs/comments/hosts#proxies-that-end-tls).
+
+### COMMENTS_POLICY_MISSING
+
+`server/comments.ts` has no `authorize`, so a production build refused a person who signed in with ViteHub Auth or `identify`. Without a policy, Comments lets in only people signed in with GitHub who can push to the repository, and people that the Console admits to its Comments section. Pass `authorize` to `defineComments()`, and return `true` for the people that may take the action. The status is `403`. The server log shows `COMMENTS_R0006` once. See [Decide who can comment](/docs/comments/configure#decide-who-can-comment).
 
 ### COMMENTS_SIGN_IN_OFF
 
