@@ -22,7 +22,7 @@ export interface DocsIcons {
   aliases: Record<string, string>
   /**
    * Icon prefix of the sidebar, such as `i-ph-`, or several prefixes, such as `["i-ph-", "i-vitehub-"]`. An icon outside
-   * them that `aliases` does not map shows the fallback icon, so the sidebar keeps one style. Empty allows every icon.
+   * them that `aliases` does not map shows the fallback icon, so the sidebar keeps one style. `""` or `[]` allows every icon.
    */
   family: string | string[]
   /** Icon of a page without one. */
@@ -150,7 +150,8 @@ export function docsRelatedSections(manifest: DocsManifest, section: DocsSection
 function iconOf(icons: DocsIcons, icon: string | null, fallback: string): string {
   if (!icon) return fallback
   const family = typeof icons.family === "string" ? [icons.family] : icons.family
-  return icons.aliases[icon] ?? (family.some(prefix => icon.startsWith(prefix)) ? icon : fallback)
+  const allowed = family.length === 0 || family.some(prefix => icon.startsWith(prefix))
+  return icons.aliases[icon] ?? (allowed ? icon : fallback)
 }
 
 /** Sidebar icon of a page. */

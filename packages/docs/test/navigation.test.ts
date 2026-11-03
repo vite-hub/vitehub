@@ -209,6 +209,7 @@ describe("docs icons", () => {
     expect(docsSectionIcon(mixed, { id: "queue", icon: "i-vitehub-queue" })).toBe("i-vitehub-queue")
     expect(docsPageIcon(mixed, { path: "/docs/kv/api", icon: "i-ph-code-light" })).toBe("i-ph-code-light")
     expect(docsSectionIcon(mixed, { id: "other", icon: "i-lucide-box" })).toBe("i-ph-folder-light")
+    expect(docsSectionIcon({ ...icons, family: [] }, { id: "other", icon: "i-lucide-box" })).toBe("i-lucide-box")
   })
 
   it("uses the rail map and falls back to the sidebar icon", () => {
