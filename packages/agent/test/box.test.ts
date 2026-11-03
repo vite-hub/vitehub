@@ -513,6 +513,44 @@ describe("Agent Sandbox relay", () => {
     }
   })
 
+  it("asks the Sandbox runtime to keep provider input open", async () => {
+    const root = await temporaryRoot()
+    const spawnOptions: unknown[] = []
+    const child = {
+      kill: async () => undefined,
+      stderr: new ReadableStream<Uint8Array>({ start: controller => controller.close() }),
+      stdin: new WritableStream<Uint8Array>(),
+      stdout: new ReadableStream<Uint8Array>({ start: controller => controller.close() }),
+      wait: async () => ({ code: 0 }),
+    }
+    const relay = await startProviderSandboxRelay({
+      // SAFETY: The relay reads only the Sandbox cwd and spawn in this fixture.
+      sandbox: {
+        session: { cwd: "/sandbox/work" },
+        spawn: async (_command: string, _args: string[], options: unknown) => {
+          spawnOptions.push(options)
+          return child
+        },
+      } as unknown as ProviderSandboxSession,
+      command: "provider",
+      diagnosticPath: join(root, "diagnostic.json"),
+      environment: () => ({}),
+      launchRoot: root,
+      localRoot: join(root, "local"),
+    })
+    const launcher = spawn(relay.launcher, [], { stdio: ["pipe", "ignore", "ignore"] })
+    const closed = new Promise<number | null>(resolve => launcher.once("close", resolve))
+    try {
+      launcher.stdin.end()
+      expect(await closed).toBe(0)
+      expect(spawnOptions).toEqual([expect.objectContaining({ stdin: true })])
+    }
+    finally {
+      launcher.kill("SIGKILL")
+      await relay.close()
+    }
+  })
+
   it("stops a Sandbox process that starts after its relay connection closed", async () => {
     const root = await temporaryRoot()
     let started: (() => void) | undefined
