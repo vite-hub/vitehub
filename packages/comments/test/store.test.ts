@@ -1,12 +1,19 @@
 import { createClient } from "@libsql/client"
 import { drizzle } from "drizzle-orm/libsql"
-import { expect, it } from "vitest"
+import { afterEach, beforeEach, expect, it, vi } from "vitest"
 
 import { createCommentsStore } from "../src/store.ts"
 import { ada, anchor, commentsMigration, grace } from "./harness.ts"
 
 import type { Client } from "@libsql/client"
 import type { CommentsDatabase } from "../src/store.ts"
+
+// Each write gets its own millisecond, so the newest-activity order does not fall back to random IDs.
+beforeEach(() => {
+  let now = Date.UTC(2026, 0, 1)
+  vi.spyOn(Date, "now").mockImplementation(() => now += 1_000)
+})
+afterEach(() => vi.restoreAllMocks())
 
 /** A store whose database counts its calls to libSQL. Each call is one round trip, such as one D1 request. */
 async function countedStore() {
