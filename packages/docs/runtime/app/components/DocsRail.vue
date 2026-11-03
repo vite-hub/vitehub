@@ -107,13 +107,13 @@ onBeforeUnmount(() => {
 <style scoped>
 /* The shared rail styles the current item by aria-current="page". The docs rail uses "true", so it repeats that style. */
 .vh-docs-rail :deep(.vh-primitive-rail__item[aria-current="true"]) {
-  background: var(--vh-ui-bg-accented);
-  color: var(--vh-ui-highlighted);
+  background: var(--vh-bg-accented);
+  color: var(--vh-highlighted);
 }
 
 @media (hover: hover) {
   .vh-docs-rail :deep(.vh-primitive-rail__item[aria-current="true"]:hover) {
-    background: var(--vh-ui-bg-accented);
+    background: var(--vh-bg-accented);
   }
 }
 

@@ -184,7 +184,7 @@ The stylesheet maps its CSS variables to Nuxt UI tokens. Override them on any el
 }
 ```
 
-The variables are `--vh-ui-radius`, `--vh-ui-border`, `--vh-ui-text`, `--vh-ui-muted`, `--vh-ui-dimmed`, `--vh-ui-bg`, `--vh-ui-bg-muted`, `--vh-ui-bg-elevated`, `--vh-ui-error`, `--vh-ui-info`, `--vh-ui-success`, and `--vh-ui-warning`.
+The variables are `--vh-ui-radius`, `--vh-ui-border`, `--vh-ui-text`, `--vh-ui-muted`, `--vh-ui-dimmed`, `--vh-ui-highlighted`, `--vh-ui-inverted`, `--vh-ui-bg`, `--vh-ui-bg-muted`, `--vh-ui-bg-elevated`, `--vh-ui-bg-accented`, `--vh-ui-primary`, `--vh-ui-ring`, `--vh-ui-error`, `--vh-ui-info`, `--vh-ui-success`, and `--vh-ui-warning`. The stylesheet sets none of them: unset, each one follows its Nuxt UI token, such as `--ui-border`, where the part renders. So an element that sets Nuxt UI tokens, such as one with the `dark` class, themes the parts inside it without these variables.
 
 `--vh-ui-radius` is the corner radius of framed parts, such as `CodeBlock` and `CodeView`. It defaults to Nuxt UI's `rounded-lg`, twice `--ui-radius`. Smaller and larger corners, such as those of `Bubble` and `PromptInput`, derive from it, so one value changes them all.
 
