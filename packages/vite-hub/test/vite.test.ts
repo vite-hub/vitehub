@@ -130,7 +130,7 @@ vi.mock("@vite-hub/workspace/vite", () => ({ hubWorkspace: integrationMocks.hubW
 vi.mock("../src/task/vite.ts", () => ({ viteHubTaskPlugin: integrationMocks.viteHubTask }))
 
 import type { KVModuleOptions } from "@vite-hub/kv"
-import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
+import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_MAJOR_VERSION } from "@vite-hub/internal/build/vite"
 import { resolveConfig, type Plugin, type PluginOption } from "vite"
 import type { ConsoleViteDevTools } from "../src/console/devtools.ts"
 import { contributeProviderDeploymentOutput, useProviderOutputCatalog } from "../../internal/src/build/deployment-output.ts"
@@ -1341,10 +1341,12 @@ describe("vitehub", () => {
   })
 
   it.each([
-    ["deno", false, "deno-deploy"],
-    ["cloudflare", true, "cloudflare-durable"],
-  ] as const)("preserves the %s Nitro 2 preset during Nuxt config replay", async (preset, realtime, nitroPreset) => {
-    const plugins = vitehub({ preset, realtime })
+    ["deno", false, 2, "deno-deploy"],
+    ["cloudflare", true, 2, "cloudflare-durable"],
+    ["deno", false, 3, "deno-server"],
+    ["cloudflare", true, 3, "cloudflare-module"],
+  ] as const)("selects the %s preset with realtime %s on Nitro %s during Nuxt config replay", async (preset, realtime, nitroMajorVersion, nitroPreset) => {
+    const plugins = vitehub({ cache: { driver: "kv" }, kv: true, preset, realtime })
     const settings = dependencyPluginByName(plugins, "vite-hub/deployment-settings")
     const deployment = dependencyPluginByName(plugins, "vite-hub/deployment-preset")
     const output = dependencyPluginByName(plugins, "vite-hub/deployment-output")
@@ -1354,6 +1356,7 @@ describe("vitehub", () => {
       for (const initialPreset of [undefined, nitroPreset]) {
         const config = {
           [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+          [VITEHUB_NITRO_MAJOR_VERSION]: nitroMajorVersion,
           command: "build",
           nitro: { preset: initialPreset },
         }
@@ -1361,6 +1364,8 @@ describe("vitehub", () => {
         expect(config.nitro.preset).toBe(nitroPreset)
         await callHook(deployment.config, [config, { command: "build", mode: "production" }])
         expect(config.nitro.preset).toBe(nitroPreset)
+        expect(config.nitro).toHaveProperty(nitroMajorVersion === 2 ? "storage.cache.driver" : "kv.cache.driver", kvCacheDriver)
+        expect(config.nitro).toHaveProperty(nitroMajorVersion === 2 ? "devStorage.cache.driver" : "$development.kv.cache.driver", kvCacheDriver)
         expect(() => callHook(output.configResolved, [config])).not.toThrow()
       }
     }

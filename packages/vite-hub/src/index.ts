@@ -29,7 +29,7 @@ import { describeDeploymentPlanOutput, finalizeDeploymentPlanOutput } from "@vit
 import { denoServerPackagesPlugin, finalizeDenoDeploymentOutput, type DenoServerPackages } from "@vite-hub/internal/build/deno-runtime-packages"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
 import { nitroWorkerdDependencies } from "@vite-hub/internal/build/nitro-workerd-dependencies"
-import { createNoExternalAddition, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_MAJOR_VERSION, VITEHUB_SERVER_DIRS, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
@@ -675,8 +675,8 @@ function deploymentPlugins(
   }
   if (envPlugin) subscribeEnvPlugin(envPlugin)
   const resolveNitroPreset = (config: UserConfig | ResolvedConfig) => {
-    // Nuxt replays these hooks for Nitro 2, which retains its Deno and Durable Object preset names.
-    if ((config as { [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean })[VITEHUB_NITRO_CONFIG_CONTEXT] === true) {
+    // Nitro 2 retains the Deno and Durable Object preset names removed in Nitro 3.
+    if ((config as { [VITEHUB_NITRO_MAJOR_VERSION]?: number })[VITEHUB_NITRO_MAJOR_VERSION] === 2) {
       return plan.preset === "cloudflare" && options.realtime ? "cloudflare-durable" : plan.nitroPreset
     }
     return plan.preset === "deno" ? "deno-server" : plan.nitroPreset
@@ -884,7 +884,7 @@ function deploymentPlugins(
             // SAFETY: The KV integration reads this optional top-level Vite setting too.
             const kv = (config as typeof config & { kv?: KVModuleOptions }).kv ?? options.kv
             const cacheStorage = resolveCacheStorage(options.cache, plan.preset, Boolean(kv))
-            const nitroVersion = VITEHUB_NITRO_CONFIG_CONTEXT in config && config[VITEHUB_NITRO_CONFIG_CONTEXT] === true ? 2 : 3
+            const nitroVersion = (config as { [VITEHUB_NITRO_MAJOR_VERSION]?: 2 | 3 })[VITEHUB_NITRO_MAJOR_VERSION] ?? 3
             nitro = applyCacheStorage(nitro, cacheStorage, nitroVersion)
           }
           ;(config as { nitro?: unknown }).nitro = nitro

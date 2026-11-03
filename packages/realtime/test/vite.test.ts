@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
+import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_MAJOR_VERSION } from "@vite-hub/internal/build/vite"
 import { realtimeDurableObjectKey } from "../src/durable-key.ts"
 
 const tempDirs: string[] = []
@@ -89,9 +89,10 @@ describe("hubRealtime", () => {
   })
 
   it.each([
-    [false, "cloudflare-module"],
-    [true, "cloudflare-durable"],
-  ] as const)("uses Nitro's Durable Object transport for Cloudflare realtime (Nuxt replay: %s)", async (nuxt, preset) => {
+    [false, 3, "cloudflare-module"],
+    [true, 2, "cloudflare-durable"],
+    [true, 3, "cloudflare-module"],
+  ] as const)("uses Nitro's Durable Object transport for Cloudflare realtime (Nuxt replay: %s, Nitro %s)", async (nuxt, nitroMajorVersion, preset) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
     tempDirs.push(root)
     await mkdir(join(root, "server/realtime"), { recursive: true })
@@ -99,7 +100,7 @@ describe("hubRealtime", () => {
 
     const { hubRealtime } = await import("../src/vite.ts")
     const plugin = hubRealtime()
-    const config = { [VITEHUB_NITRO_CONFIG_CONTEXT]: nuxt, base: "/wiki/", root, nitro: { preset: "cloudflare" } }
+    const config = { [VITEHUB_NITRO_CONFIG_CONTEXT]: nuxt, [VITEHUB_NITRO_MAJOR_VERSION]: nitroMajorVersion, base: "/wiki/", root, nitro: { preset: "cloudflare" } }
     const hook = plugin.config as unknown as (config: Record<string, unknown>) => Promise<void>
     await hook(config)
 
