@@ -36,7 +36,10 @@ export async function runWorkspaceInspectionCommand(
     ? 30_000
     : normalizeOutputLength(options.maxOutputLength)
   const timeout = options.timeout ?? 30_000
-  const provider = options.networkGrants && usesWorkspaceNetworkGrant(command) ? undefined : options.provider
+  // A substitution may contain controlled curl even when the outer command is echo.
+  const provider = options.networkGrants && (usesWorkspaceNetworkGrant(command) || usesShellSubstitution(command))
+    ? undefined
+    : options.provider
   const chargeRejected = () => {
     if (!options.budgetCharged) options.budget?.recordToolCall(new TextEncoder().encode(command).byteLength)
   }
@@ -370,7 +373,8 @@ function searchNoMatchFeedback(command: string, result: ShellObservation, broadS
 function preflightUnsupportedWorkspaceCommand(command: string, commands?: string[], strictProvider = false): ShellObservation | undefined {
   const syntax = preflightUnsupportedWorkspaceSyntax(command, commands, strictProvider)
   if (syntax) return syntax
-  if (!strictProvider && usesCompoundShellSyntax(command)) return undefined
+  // Just Bash enforces its command registry inside substitutions and compound commands.
+  if (!strictProvider && (usesShellSubstitution(command) || usesCompoundShellSyntax(command))) return undefined
   if (!commands) return undefined
   const allowed = new Set([...commands, "cd", "false", "true"])
   for (const segment of analyzeWorkspaceInspectionCommand(command)) {
@@ -382,7 +386,7 @@ function preflightUnsupportedWorkspaceCommand(command: string, commands?: string
 
 function preflightUnsupportedWorkspaceSyntax(command: string, commands?: string[], strictProvider = false): ShellObservation | undefined {
   if (usesShellSubstitution(command)) {
-    if (strictProvider || commands) return unsupportedWorkspaceCommandFeedback(command, "shell substitution", commands)
+    if (strictProvider) return unsupportedWorkspaceCommandFeedback(command, "shell substitution", commands)
     return undefined
   }
   if (usesCompoundShellSyntax(command)) {
