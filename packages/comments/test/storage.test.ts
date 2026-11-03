@@ -11,6 +11,8 @@ import { commentsSchema, commentsTables } from "../src/database.ts"
 import { defineComments, installComments } from "../src/index.ts"
 import { ada, anchor, grace } from "./harness.ts"
 
+import type { CommentsDatabase } from "../src/operations-core/store.ts"
+
 const directories: string[] = []
 
 function tempFile(): string {
@@ -22,7 +24,8 @@ function tempFile(): string {
 /** Comments as `comments()` connects it: its tables, created on first use. */
 function open(where: string) {
   const comments = defineComments()
-  installComments(comments, { database: connectDatabase(where, { name: "comments", setup: commentsTables }) })
+  // SAFETY: the SQLite proxy database of connectDatabase() has the methods and batch contract that the store uses.
+  installComments(comments, { database: connectDatabase(where, { name: "comments", setup: commentsTables }) as unknown as CommentsDatabase })
   return comments
 }
 
@@ -40,18 +43,18 @@ describe("comments on a database that it connects itself", () => {
 
     const [, threads] = await open(file).list({ page: "/pricing" })
     expect(threads).toHaveLength(1)
-    expect(threads![0]).toMatchObject({ number: 1, status: "resolved", resolvedBy: grace })
-    expect(threads![0]!.comments.map(comment => comment.body)).toEqual(["Too small.", "Agreed."])
+    expect(threads![0]).toMatchObject({ n: 1, status: "resolved", resolvedBy: grace })
+    expect(threads![0]!.messages.map(message => message.body)).toEqual(["Too small.", "Agreed."])
   })
 
-  it("numbers threads in order and deletes a thread with its comments", async () => {
+  it("numbers threads in order and deletes a thread with its messages", async () => {
     const comments = open(":memory:")
     await comments.create({ page: "/", anchor, body: "One.", author: ada })
     const [, second] = await comments.create({ page: "/", anchor, body: "Two.", author: ada })
-    expect(second!.number).toBe(2)
+    expect(second!.n).toBe(2)
     await comments.remove(second!.id)
     const [, threads] = await comments.list()
-    expect(threads!.map(thread => thread.number)).toEqual([1])
+    expect(threads!.map(thread => thread.n)).toEqual([1])
   })
 
   it("seeds counters for existing files and preserves them after deleting threads and reopening", async () => {
@@ -60,18 +63,18 @@ describe("comments on a database that it connects itself", () => {
     for (let index = 0; index < 3; index += 1) {
       const [error, thread] = await comments.create({ page: "/", anchor, body: "Hello", author: ada })
       expect(error).toBeUndefined()
-      expect(thread!.number).toBe(index + 1)
+      expect(thread!.n).toBe(index + 1)
     }
-    // Simulate a file from before durable scope counters were introduced.
+    // Simulate a file whose counters are gone: numbering starts after the highest thread.
     const sqlite = new DatabaseSync(file)
-    sqlite.exec("DROP TABLE vitehub_comment_scope_counters")
+    sqlite.exec("DELETE FROM vitehub_comment_counters")
     sqlite.close()
 
     const upgraded = open(file)
-    expect((await upgraded.create({ page: "/", anchor, body: "After upgrade", author: ada }))[1]?.number).toBe(4)
-    await upgraded.removeScope("pages")
+    expect((await upgraded.create({ page: "/", anchor, body: "After upgrade", author: ada }))[1]?.n).toBe(4)
+    await upgraded.removeScope("site")
     const restarted = open(file)
-    expect((await restarted.create({ page: "/", anchor, body: "After restart", author: ada }))[1]?.number).toBe(5)
+    expect((await restarted.create({ page: "/", anchor, body: "After restart", author: ada }))[1]?.n).toBe(5)
   })
 
   it("returns inserted rows, so a pull request sync can claim a comment once", async () => {

@@ -1,305 +1,316 @@
-import * as v from "valibot"
-
-import { defineComments as defineOperationsComments } from "./operations-core/define.ts"
-import type { CommentsDefinition } from "./operations-core/define.ts"
-import type { DefineCommentsOptions } from "./definition.ts"
-
+import { markCommentsDefinition } from "./operations-core/define.ts"
+import { commentsRuntime, hasCommentsRuntime, installCommentsRuntime } from "./operations-core/server.ts"
+import { can, createThread, editMessage, replyToThread, scopeOf, suggest } from "./operations-core/service.ts"
+import { createCommentsStore } from "./operations-core/store.ts"
+import { commentsSchema } from "./operations-core/database.ts"
 import { commentsErrors } from "./errors.ts"
-import { commentsPageScope, normalizeCommentPage } from "./page.ts"
-import { createThreadSchema, describeIssue, editSchema, replySchema, scopeSchema } from "./schema.ts"
-import { createCommentsStore } from "./store.ts"
 import { createForgeSync } from "./forge/sync.ts"
+import { normalizeCommentPage } from "./page.ts"
 
 import type { Result } from "@vite-hub/runtime"
-import type { ForgeSync } from "./forge/sync.ts"
-import type { CommentsDatabase, CommentsStore } from "./store.ts"
+import type { CommentAction, CommentsUser } from "./operations-core/define.ts"
+import type { CommentsAttachmentStore, CommentsRuntime } from "./operations-core/service.ts"
+import type { CommentsDatabase, CommentsTables } from "./operations-core/store.ts"
 import type {
-  Comment,
-  CommentAuthor,
-  CommentMention,
-  CommentsAuthorizeContext,
-  CommentsErrorCode,
-  CommentsUser,
+  CommentMessage,
+  CommentSubject,
   CommentThread,
+  CommentUser,
   CreateCommentThreadInput,
-  DefineCommentsOptions as LiveCommentsOptions,
+  CommentsErrorCode,
+  DefineCommentsOptions,
   EditCommentInput,
   ListCommentThreadsOptions,
   ReplyInput,
   ReplyOptions,
 } from "./types.ts"
+import type { CommentsPeople } from "./operations-core/define.ts"
 
 export { describeCommentContext } from "./context.ts"
 export { commentRoom, commentsPageScope, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "./page.ts"
+export { builtinCommentSubjects, defaultPolicy, defineCommentSubject } from "./operations-core/define.ts"
+export { commentsErrorDiagnostics } from "./client-errors.ts"
 export type * from "./types.ts"
 
 type Codes<T extends CommentsErrorCode> = T
 
-/** The Comments runtime of an app: the `comments` export of `server/comments.ts`. */
+/** The Comments runtime of an app: the export of `server/comments.ts`. */
 export interface Comments {
-  readonly options: LiveCommentsOptions
-  /** Threads with their comments, newest activity first. */
-  list(options?: ListCommentThreadsOptions): Promise<Result<CommentThread[], Codes<"COMMENTS_NOT_INSTALLED">>>
+  readonly options: DefineCommentsOptions
+  /** Threads with their messages, newest activity first. */
+  list(options?: ListCommentThreadsOptions): Promise<Result<CommentThread[], Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_INVALID_INPUT">>>
   get(id: string): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
-  /** The thread that holds a comment, for a route that has only the comment id. */
-  getByComment(commentId: string): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
-  /** Thread `#number` of a scope. */
-  getByNumber(scope: string, number: number): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
-  /**
-   * Starts a thread with its first comment, numbered next in its scope. Runs `onComment`. A thread of the `"pages"`
-   * scope needs an `anchor`; other scopes keep their own anchor in `metadata`.
-   */
+  /** The thread that holds a message, for a route that has only the message id. */
+  getByMessage(messageId: string): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
+  /** Thread `#n` of a numbering scope, such as `site`. */
+  getByNumber(scope: string, n: number): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
+  /** Starts a thread with its first message, numbered next in the scope of its subject. Runs `onComment`. */
   create(input: CreateCommentThreadInput): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_INVALID_INPUT">>>
-  /** Adds a comment to an open thread. Runs `onComment`. */
-  reply(threadId: string, input: ReplyInput, options?: ReplyOptions): Promise<Result<Comment, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND" | "COMMENTS_INVALID_INPUT" | "COMMENTS_RESOLVED">>>
-  resolve(threadId: string, options: { by: CommentAuthor }): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
+  /** Adds a message to an open thread. Runs `onComment`. */
+  reply(threadId: string, input: ReplyInput, options?: ReplyOptions): Promise<Result<CommentMessage, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND" | "COMMENTS_INVALID_INPUT" | "COMMENTS_RESOLVED">>>
+  resolve(threadId: string, options: { by: CommentUser }): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
   reopen(threadId: string): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
-  /** Deletes a thread and all its comments. */
+  /** Deletes a thread and all its messages. */
   remove(threadId: string): Promise<Result<void, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
-  /** Deletes one comment. Deleting the first comment deletes the thread. */
-  removeComment(commentId: string): Promise<Result<void, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
-  /** Changes the text of a comment and sets `editedAt`. */
-  edit(commentId: string, input: EditCommentInput): Promise<Result<Comment, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND" | "COMMENTS_INVALID_INPUT">>>
-  /** Deletes every thread of a scope, such as when app code deletes the document that the scope names. */
+  /** Deletes one message. Deleting the first message deletes the thread. */
+  removeMessage(messageId: string): Promise<Result<void, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
+  /** Changes the text of a message and sets `editedAt`. */
+  edit(messageId: string, input: EditCommentInput): Promise<Result<CommentMessage, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND" | "COMMENTS_INVALID_INPUT">>>
+  /** Deletes every thread of a numbering scope, such as when app code deletes the document that the scope names. */
   removeScope(scope: string): Promise<Result<{ removed: number }, Codes<"COMMENTS_NOT_INSTALLED">>>
-  /**
-   * Whether the `authorize` policy allows an action. Without a policy, see `defaultPolicy()`. `scope` defaults to the
-   * thread's, else `"pages"`.
-   */
-  can(context: Omit<CommentsAuthorizeContext, "scope"> & { scope?: string }): Promise<boolean>
-  /**
-   * People that `@` suggests: the `people` option, or the authors of earlier comments in the scope, `"pages"` by
-   * default, so names from an app's own scopes never reach the overlay.
-   */
-  people(context: { query: string, user: CommentsAuthorizeContext["user"], scope?: string }): Promise<Result<CommentMention[], Codes<"COMMENTS_NOT_INSTALLED">>>
+  /** Whether the `authorize` policy allows an action. Without a policy, see `defaultPolicy()`. */
+  can(context: { user: CommentsUser | null, action: CommentAction, thread?: CommentThread, subject?: CommentSubject }): Promise<boolean>
+  /** People that `@` suggests to `user`, at most 20: `people`, else Auth, else the authors of threads that `user` may read. */
+  people(context: { query: string, user: CommentsUser | null, thread?: CommentThread, subject?: CommentSubject, limit?: number }): Promise<Result<CommentUser[], Codes<"COMMENTS_NOT_INSTALLED">>>
   /**
    * With `forge`: brings the thread's pull request comments in line with the thread now, and posts what failed
    * before. Every change starts this on its own; `flush()` waits for it.
    */
   sync(threadId: string): Promise<void>
-  /** Waits for the pull request syncs that earlier changes started. On Cloudflare, pass it to `waitUntil`. */
+  /** Waits for the pull request syncs and `onMention` calls that earlier changes started. On Cloudflare, pass it to `waitUntil`. */
   flush(): Promise<void>
 }
 
-/**
- * The policy without `authorize`, for every action: a person signed in with GitHub needs push access to the repository
- * of the build; any other signed-in user may; anonymous people may only on the development server, as guests.
- * `development` comes from Vite's command in the generated Nitro plugin, and defaults to false.
- */
-export function defaultPolicy(user: CommentsUser | null, development = false): boolean {
-  if (!user) return development
-  return user.github ? user.github.write : true
+interface Installed {
+  runtime: CommentsRuntime
+  sync?: (threadId: string) => Promise<void>
 }
 
-const runtimes = new WeakMap<Comments, { store: CommentsStore, forge?: ForgeSync, development: boolean }>()
+const runtimes = new WeakMap<Comments, Installed>()
 
 /**
- * Defines Comments for the app. A default export from `server/comments.ts` selects numbered, authorized Operations.
- * A named `comments` export selects the live-site API, overlay, and presence rooms.
+ * The runtime of a definition. The generated Nitro plugin of the comment operations builds it on first use, so a
+ * server API call before any operation builds it too.
  */
-export function defineComments(input?: DefineCommentsOptions): Comments & CommentsDefinition
-// Accept already-typed policies for either runtime without changing inline policy inference.
-export function defineComments<T>(input: T & (T extends LiveCommentsOptions | CommentsDefinition ? unknown : never)): Comments & CommentsDefinition
-export function defineComments(configuration: DefineCommentsOptions | LiveCommentsOptions | CommentsDefinition = {}): Comments & CommentsDefinition {
-  // Each runtime calls only its own context variant; the shared factory stores both policies independently.
-  const input = configuration as DefineCommentsOptions
-  const options: LiveCommentsOptions = {
-    ...input,
-    authorize: input.authorize ? context => input.authorize!(context) : undefined,
-  }
-  const store = () => runtimes.get(comments)?.store
-  const pending = new Set<Promise<void>>()
+async function runtimeOf(comments: Comments): Promise<CommentsRuntime | undefined> {
+  const installed = runtimes.get(comments)?.runtime
+  if (installed || !hasCommentsRuntime()) return installed
+  const built = await commentsRuntime().catch(() => undefined)
+  return built?.definition === comments.options ? built : undefined
+}
 
-  /** Starts the pull request sync of a thread after a change. Errors are logged; the next change tries again. */
-  function changed(threadId: string): void {
-    const forge = runtimes.get(comments)?.forge
-    if (!forge) return
-    const task: Promise<void> = forge.sync(threadId)
-      .catch(error => console.error(`[vitehub] Comments could not sync thread ${threadId} to its pull request:`, error))
-      .finally(() => pending.delete(task))
-    pending.add(task)
-  }
+/** A thread that someone deleted during the change: the store reads it again and finds nothing. */
+function gone(error: unknown): undefined {
+  if (error instanceof Error && Reflect.get(error, "code") === "COMMENTS_R0002") return undefined
+  throw error
+}
 
-  async function withForge(threads: CommentThread[]): Promise<CommentThread[]> {
-    const forge = runtimes.get(comments)?.forge
-    return forge ? await forge.attach(threads) : threads
+/** Diagnostics of the shared core, as the `[error, data]` codes of the server API. */
+function resultError(error: unknown, id: string): ReturnType<typeof commentsErrors.COMMENTS_NOT_FOUND> | ReturnType<typeof commentsErrors.COMMENTS_INVALID_INPUT> | ReturnType<typeof commentsErrors.COMMENTS_RESOLVED> {
+  const code = error instanceof Error ? Reflect.get(error, "code") : undefined
+  if (code === "COMMENTS_R0002" || code === "COMMENTS_R0003") return commentsErrors.COMMENTS_NOT_FOUND({ id })
+  if (code === "COMMENTS_R0016") return commentsErrors.COMMENTS_RESOLVED()
+  if (typeof code === "string" && ["COMMENTS_R0005", "COMMENTS_R0007", "COMMENTS_R0008", "COMMENTS_R0017", "COMMENTS_R0018"].includes(code)) {
+    return commentsErrors.COMMENTS_INVALID_INPUT({ issue: error instanceof Error ? error.message : String(error) })
   }
+  throw error
+}
+
+/** Defines Comments for the app: the access policy, the people, the hooks, and the trusted server API. */
+export function defineComments(options: DefineCommentsOptions = {}): Comments {
+  const pending = new Set<Promise<unknown>>()
+  const runtime = () => runtimeOf(comments)
   const notInstalled = (): [ReturnType<typeof commentsErrors.COMMENTS_NOT_INSTALLED>, undefined] => [commentsErrors.COMMENTS_NOT_INSTALLED(), undefined]
   const notFound = (id: string): [ReturnType<typeof commentsErrors.COMMENTS_NOT_FOUND>, undefined] => [commentsErrors.COMMENTS_NOT_FOUND({ id }), undefined]
 
-  async function notify(thread: CommentThread, comment: Comment): Promise<void> {
-    if (!options.onComment) return
-    try {
-      await options.onComment({ thread, comment, mentions: comment.mentions })
-    }
-    catch (error) {
-      console.error("[vitehub] Comments onComment failed:", error)
-    }
+  async function withForge(current: CommentsRuntime, threads: CommentThread[]): Promise<CommentThread[]> {
+    return current.forge ? await current.forge.attach(threads) : threads
+  }
+
+  async function one(current: CommentsRuntime, found: CommentThread | null, id: string): Promise<Result<CommentThread, "COMMENTS_NOT_FOUND">> {
+    return found ? [undefined, (await withForge(current, [found]))[0]!] : notFound(id)
   }
 
   const comments: Comments = {
     options,
     async list(query = {}) {
-      const current = store()
+      const current = await runtime()
       if (!current) return notInstalled()
-      const limit = Math.min(Math.max(query.limit ?? 200, 1), 500)
-      return [undefined, await withForge(await current.list({ scope: query.scope, page: query.page === undefined ? undefined : normalizeCommentPage(query.page), status: query.status, limit }))]
+      const limit = Math.min(Math.max(Math.trunc(query.limit ?? 200), 1), 500)
+      const { page, ...rest } = query
+      const subject = query.subject ?? (page === undefined ? undefined : { id: normalizeCommentPage(page), kind: "page" })
+      try {
+        return [undefined, await withForge(current, await current.store.list({ ...rest, ...(subject ? { subject } : {}), limit }))]
+      }
+      catch (error) {
+        return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: error instanceof Error ? error.message : String(error) }), undefined]
+      }
     },
     async get(id) {
-      const current = store()
+      const current = await runtime()
       if (!current) return notInstalled()
-      const [thread] = await withForge([await current.get(id)].filter(found => found !== undefined))
-      return thread ? [undefined, thread] : notFound(id)
+      return one(current, await current.store.getById(id), id)
     },
-    async getByComment(commentId) {
-      const current = store()
+    async getByMessage(messageId) {
+      const current = await runtime()
       if (!current) return notInstalled()
-      const threadId = await current.threadOf(commentId)
-      const [thread] = await withForge([threadId ? await current.get(threadId) : undefined].filter(found => found !== undefined))
-      return thread ? [undefined, thread] : notFound(commentId)
+      return one(current, await current.store.getByMessage(messageId), messageId)
     },
-    async getByNumber(scope, number) {
-      const current = store()
+    async getByNumber(scope, n) {
+      const current = await runtime()
       if (!current) return notInstalled()
-      const [thread] = await withForge([await current.getByNumber(scope, number)].filter(found => found !== undefined))
-      return thread ? [undefined, thread] : notFound(`${scope}#${number}`)
+      return one(current, await current.store.getByNumber(scope, n), `${scope}#${n}`)
     },
-    async create(input) {
-      const current = store()
+    async create({ page, subject, ...input }) {
+      const current = await runtime()
       if (!current) return notInstalled()
-      const parsed = v.safeParse(createThreadSchema, input)
-      if (!parsed.success) return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: describeIssue(parsed.issues) }), undefined]
-      if (parsed.output.scope === commentsPageScope && !parsed.output.anchor) {
-        return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: "anchor: A thread on a page needs an anchor." }), undefined]
+      const target = subject ?? (page === undefined ? undefined : { id: normalizeCommentPage(page), kind: "page" })
+      if (!target) return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: "subject: Give a subject, or a page." }), undefined]
+      try {
+        return [undefined, await createThread(current, { ...input, subject: target })]
       }
-      const thread = await current.create({ ...parsed.output, page: normalizeCommentPage(parsed.output.page) })
-      await notify(thread, thread.comments[0]!)
-      changed(thread.id)
-      return [undefined, thread]
+      catch (error) {
+        const failure = resultError(error, target.id)
+        return [failure.code === "COMMENTS_NOT_FOUND" ? commentsErrors.COMMENTS_INVALID_INPUT({ issue: failure.why }) : failure, undefined] as [ReturnType<typeof commentsErrors.COMMENTS_INVALID_INPUT>, undefined]
+      }
     },
     async reply(threadId, input, replyOptions = {}) {
-      const current = store()
+      const current = await runtime()
       if (!current) return notInstalled()
-      const parsed = v.safeParse(replySchema, input)
-      if (!parsed.success) return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: describeIssue(parsed.issues) }), undefined]
-      const result = await current.reply(threadId, parsed.output, replyOptions)
-      if ("error" in result) return result.error === "resolved" ? [commentsErrors.COMMENTS_RESOLVED(), undefined] : notFound(threadId)
-      const { comment, thread } = result
-      await notify(thread, comment)
-      changed(threadId)
-      return [undefined, comment]
+      const found = await current.store.getById(threadId)
+      if (!found) return notFound(threadId)
+      try {
+        const { message } = await replyToThread(current, found, input, { allowResolved: replyOptions.allowResolved === true })
+        return [undefined, message]
+      }
+      catch (error) {
+        return [resultError(error, threadId), undefined]
+      }
     },
     async resolve(threadId, { by }) {
-      const current = store()
+      const current = await runtime()
       if (!current) return notInstalled()
-      const thread = await current.setStatus(threadId, "resolved", by)
-      if (thread) changed(threadId)
-      return thread ? [undefined, thread] : notFound(threadId)
+      if (!await current.store.getById(threadId)) return notFound(threadId)
+      const thread = await current.store.setStatus(threadId, "resolved", by, Date.now()).catch(gone)
+      if (!thread) return notFound(threadId)
+      current.forge?.changed(threadId)
+      return [undefined, thread]
     },
     async reopen(threadId) {
-      const current = store()
+      const current = await runtime()
       if (!current) return notInstalled()
-      const thread = await current.setStatus(threadId, "open", null)
-      if (thread) changed(threadId)
-      return thread ? [undefined, thread] : notFound(threadId)
+      if (!await current.store.getById(threadId)) return notFound(threadId)
+      const thread = await current.store.setStatus(threadId, "open", { id: "" }, Date.now()).catch(gone)
+      if (!thread) return notFound(threadId)
+      current.forge?.changed(threadId)
+      return [undefined, thread]
     },
     async remove(threadId) {
-      const current = store()
+      const current = await runtime()
       if (!current) return notInstalled()
-      if (!await current.get(threadId)) return notFound(threadId)
-      await current.removeThread(threadId)
-      changed(threadId)
+      if (!await current.store.getById(threadId)) return notFound(threadId)
+      await current.store.deleteThread(threadId)
+      current.forge?.changed(threadId)
       return [undefined, undefined]
     },
-    async removeComment(commentId) {
-      const current = store()
+    async removeMessage(messageId) {
+      const current = await runtime()
       if (!current) return notInstalled()
-      const threadId = await current.threadOf(commentId)
-      if (!threadId) return notFound(commentId)
-      const thread = await current.get(threadId)
-      if (thread?.comments[0]?.id === commentId) await current.removeThread(threadId)
-      else await current.removeComment(commentId)
-      changed(threadId)
+      const thread = await current.store.getByMessage(messageId)
+      if (!thread) return notFound(messageId)
+      if (thread.messages[0]?.id === messageId) await current.store.deleteThread(thread.id)
+      else await current.store.deleteMessage(thread.id, messageId, Date.now()).catch(gone)
+      current.forge?.changed(thread.id)
       return [undefined, undefined]
     },
-    async edit(commentId, input) {
-      const current = store()
+    async edit(messageId, input) {
+      const current = await runtime()
       if (!current) return notInstalled()
-      const parsed = v.safeParse(editSchema, input)
-      if (!parsed.success) return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: describeIssue(parsed.issues) }), undefined]
-      const comment = await current.edit(commentId, parsed.output)
-      if (comment) changed(comment.threadId)
-      return comment ? [undefined, comment] : notFound(commentId)
+      const thread = await current.store.getByMessage(messageId)
+      if (!thread) return notFound(messageId)
+      const author = thread.messages.find(message => message.id === messageId)!.author
+      try {
+        const next = await editMessage(current, thread, messageId, input, { user: author.guest ? null : { ...author } })
+        return [undefined, next.messages.find(message => message.id === messageId)!]
+      }
+      catch (error) {
+        const failure = resultError(error, messageId)
+        return [failure.code === "COMMENTS_RESOLVED" ? commentsErrors.COMMENTS_INVALID_INPUT({ issue: failure.why }) : failure, undefined]
+      }
     },
     async removeScope(scope) {
-      const current = store()
+      const current = await runtime()
       if (!current) return notInstalled()
-      if (!v.is(scopeSchema, scope)) return [undefined, { removed: 0 }]
-      const removed = await current.removeScope(scope)
-      for (const threadId of removed) changed(threadId)
+      if (!scope || scope.length > 256) return [undefined, { removed: 0 }]
+      const removed = await current.store.deleteScope(scope)
+      for (const threadId of removed) current.forge?.changed(threadId)
       return [undefined, { removed: removed.length }]
     },
     async can(context) {
-      if (!options.authorize) return defaultPolicy(context.user, runtimes.get(comments)?.development)
-      const scope = context.scope ?? context.thread?.scope ?? commentsPageScope
-      const decision = await options.authorize({ ...context, scope })
-      return context.action === "delete" ? decision === true : decision !== false
+      const current = await runtime()
+      return can(current ?? { definition: options }, context)
     },
-    async people({ query, user, scope = commentsPageScope }) {
-      const current = store()
+    async people({ query, user, thread, subject, limit = 20 }) {
+      const current = await runtime()
       if (!current) return notInstalled()
-      const all = options.people ? await options.people({ query, user }) : await current.authors(scope, 50)
-      const needle = query.trim().toLowerCase()
-      return [undefined, all.filter(person => !needle || person.name.toLowerCase().includes(needle)).slice(0, 20).map(({ id, name }) => ({ id, name }))]
+      if (subject) scopeOf(current, subject)
+      return [undefined, await suggest(current, { limit: Math.min(Math.max(limit, 1), 20), query, user, ...(thread ? { thread } : {}), ...(subject ? { subject } : {}) })]
     },
     async sync(threadId) {
-      await runtimes.get(comments)?.forge?.sync(threadId)
+      await runtimes.get(comments)?.sync?.(threadId)
     },
     async flush() {
       while (pending.size) await Promise.all(pending)
     },
   }
-  return Object.freeze(Object.assign(comments, defineOperationsComments({
-    ...input,
-    authorize: input.authorize ? async context => await input.authorize!(context) === true : undefined,
-  })))
+  Reflect.set(comments, pendingKey, pending)
+  return Object.freeze(markCommentsDefinition(comments))
+}
+
+const pendingKey: unique symbol = Symbol.for("vitehub.comments.pending")
+
+export interface InstallCommentsOptions {
+  database: CommentsDatabase
+  /** The tables of the Database schema, so a Postgres Database uses its own. Default: the SQLite tables. */
+  tables?: CommentsTables & { commentForge?: typeof commentsSchema.vitehubCommentForge }
+  /** The Auth adapter for `@` suggestions, when the app has Auth and no `people`. */
+  users?: CommentsPeople
+  /** The Blob store for attachments, when the app has one and no `storeAttachment`. */
+  attachments?: CommentsAttachmentStore
+  /** Only the Vite dev server enables it, for the default guest policy. Without it, the operation context decides, else `false`. */
+  development?: boolean
 }
 
 /**
- * Connects a Comments definition to its Database. The generated Nitro plugin calls it when the server starts; call it
- * yourself only in tests or outside ViteHub. Only the Vite dev server enables `development`; it defaults to false.
+ * Connects a Comments definition to its Database, for the server API, the overlay API, and the comment operations.
+ * The generated Nitro plugin calls it when the server starts; call it yourself only in tests or outside ViteHub.
  */
-export function installComments(comments: Comments, runtime: { database: CommentsDatabase, development?: boolean }): void {
-  const store = createCommentsStore(runtime.database)
-  const forge = comments.options.forge ? createForgeSync(comments.options.forge, { database: runtime.database, store }) : undefined
-  runtimes.set(comments, { store, forge, development: runtime.development === true })
+export function installComments(comments: Comments, install: InstallCommentsOptions): CommentsRuntime {
+  const tables = install.tables ?? { commentCounters: commentsSchema.vitehubCommentCounters, commentMessages: commentsSchema.vitehubCommentMessages, commentThreads: commentsSchema.vitehubCommentThreads }
+  const store = createCommentsStore(install.database, tables)
+  // SAFETY: defineComments() sets this slot to the set of pending tasks before it freezes the object.
+  const pending = Reflect.get(comments, pendingKey) as Set<Promise<unknown>> | undefined
+  const track = (task: Promise<unknown>) => {
+    if (!pending) return
+    const tracked = task.catch(() => undefined).finally(() => pending.delete(tracked))
+    pending.add(tracked)
+  }
+  const runtime: CommentsRuntime = {
+    background: track,
+    definition: comments.options,
+    ...(install.development === undefined ? {} : { development: install.development }),
+    store,
+    ...(install.users ? { users: install.users } : {}),
+    ...(install.attachments ? { attachments: install.attachments } : {}),
+  }
+  let sync: Installed["sync"]
+  if (comments.options.forge) {
+    const forge = createForgeSync(comments.options.forge, { database: install.database, store, ...(install.tables?.commentForge ? { table: install.tables.commentForge } : {}) })
+    sync = forge.sync
+    runtime.forge = {
+      attach: forge.attach,
+      changed(threadId) {
+        track(forge.sync(threadId).catch(error => console.error(`[vitehub] Comments could not sync thread ${threadId} to its pull request:`, error)))
+      },
+    }
+  }
+  runtimes.set(comments, { runtime, ...(sync ? { sync } : {}) })
+  // The comment operations of the Console, the CLI, and MCP share the runtime.
+  installCommentsRuntime(runtime)
+  return runtime
 }
 
-export { builtinCommentSubjects, defineCommentSubject } from "./operations-core/define.ts"
-export type { CommentAction, CommentMentionEvent, CommentsAuthorize, CommentsDefinition, CommentSubjectDefinition } from "./operations-core/define.ts"
-export type { DefineCommentsOptions, CommentsAuthorizeContext } from "./definition.ts"
-export { commentsErrorDiagnostics } from "./client-errors.ts"
-export type {
-  CommentUser,
-  CommentActor,
-  CommentStatus,
-  CommentSubject,
-  PageAnchor,
-  ElementAnchor,
-  TextAnchor,
-  AreaAnchor,
-  ImageAnchor,
-  CommentAnchor as ClientCommentAnchor,
-  CommentMessage,
-  CommentThread as ClientCommentThread,
-  CommentListQuery,
-  CommentGetInput,
-  CommentCreateInput,
-  CommentReplyInput,
-  CommentEditInput,
-  CommentDeleteInput,
-  CommentStatusInput,
-  CommentUsersInput,
-  CommentEvent,
-  CommentsTransport,
-} from "./client-types.ts"
+/** The runtime that `installComments()` connected, for the overlay API and the MCP tools. */
+export function commentsRuntimeOf(comments: Comments): CommentsRuntime | undefined {
+  return runtimes.get(comments)?.runtime
+}

@@ -57,12 +57,24 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Check the connection and the app URL, then try again.",
     },
     COMMENTS_R0014: {
-      why: "Attachments are not supported yet: no operation uploads a file for a comment.",
-      fix: "Send the comment without attachments. They arrive with the upload operation.",
+      why: "Comments has no place to store attachments: the app has no Blob store and no storeAttachment hook.",
+      fix: "Turn on Blob with vitehub({ blob: true }), or pass storeAttachment to defineComments().",
     },
     COMMENTS_R0015: {
       why: "The comment list kept changing while its pages were loading.",
       fix: "Refresh again. The previous cache is kept until two complete scans agree.",
+    },
+    COMMENTS_R0016: {
+      why: "The thread is resolved, so it takes no new replies.",
+      fix: "Reopen the thread first, or pass { allowResolved: true } to comments.reply() when your UI allows replies to resolved threads.",
+    },
+    COMMENTS_R0017: {
+      why: ({ message }: { message: string }) => message,
+      fix: "Attach an image, a PDF, or a text file of at most 5 MB.",
+    },
+    COMMENTS_R0018: {
+      why: ({ message }: { message: string }) => message,
+      fix: "Check the input against the limits of comments: https://vitehub.dev/docs/comments/limits-and-errors",
     },
     COMMENTS_B0001: {
       why: ({ file }: { file: string }) => `${file} needs a Database, but the Database is off for this app.`,

@@ -32,7 +32,7 @@ it.each([
   await hook.handler.call({} as never, config, { command: "build", mode: "production" })
   const tables = await plugin.vitehub.databases({ plugins: [], projectRoot: root, rootDir: root, root })
   expect(tables).toHaveLength(1)
-  expect(tables[0]?.definition).toMatchObject({ export: form === "default" ? "commentsOperationsSchema" : "commentsSchema" })
+  expect(tables[0]?.definition).toMatchObject({ export: "commentsSchema" })
   const contributions = plugin.vitehub.operations
   const operations = typeof contributions === "function" ? await contributions() : contributions
   expect(operations).toHaveLength(form === "default" ? 1 : 0)
@@ -64,11 +64,11 @@ it("recognizes renamed exports and gives default exports precedence", async () =
   expect(commentsEntryMode(entry)).toBe("operations")
 })
 
-it("keeps the factory's live default and the operations' deny-by-default policy", async () => {
+it("lets signed-in people in by default, and nobody anonymous outside development", async () => {
   const definition = defineComments()
   expect(isCommentsDefinition(definition)).toBe(true)
   expect(Object.isFrozen(definition)).toBe(true)
-  expect(definition.authorize).toBeUndefined()
+  expect(definition.options.authorize).toBeUndefined()
   expect(await definition.can({ user: { id: "ana" }, action: "read" })).toBe(true)
   expect(await definition.can({ user: null, action: "read" })).toBe(false)
 })
@@ -108,5 +108,5 @@ it("discovers the operations schema through the real Database plugin", async () 
   const schemaPath = database.api.getConfig()?.generatedSchemaFilesByDatabase.default
   if (!schemaPath) throw new Error("Comments did not contribute a default Database")
   const schema = await readFile(schemaPath, "utf8")
-  expect(schema).toContain("commentsOperationsSchema")
+  expect(schema).toContain("commentsSchema")
 })

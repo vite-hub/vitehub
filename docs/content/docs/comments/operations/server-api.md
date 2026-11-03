@@ -62,6 +62,6 @@ pnpm vitehub comments resolve --thread-id thread_123
 | `vite-hub/comments` | `defineComments()`, `defineCommentSubject()`, and the types. |
 | `vite-hub/comments/client` | Anchors and the client. |
 | `vite-hub/comments/rpc` | `createRpcTransport()`. |
-| `vite-hub/comments/database` | `commentsOperationsSchema` for SQLite, libSQL, and D1. |
+| `vite-hub/comments/database` | `commentsSchema` for SQLite, libSQL, and D1, and `migrateComments()`. |
 | `vite-hub/comments/database/postgres` | `commentsPostgresSchema`. |
 | `vite-hub/comments/server` | `installComments()` and `createCommentsStore()`, for apps that wire the runtime themselves. |

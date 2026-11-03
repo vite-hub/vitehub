@@ -9,8 +9,9 @@ import { documentStyles, overlayStyles, pillBarStyles } from "./styles.ts"
 
 import type { ViteHubPageToolContext, ViteHubPageToolModule } from "@vite-hub/internal/runtime/page-tools-loader"
 import type { RealtimeRoom } from "@vite-hub/realtime/client"
-import type { CommentAnchor, CommentAuthor, CommentContext, CommentMention } from "../types.ts"
-import type { CommentsApiError, CommentsSession, PageThread } from "./api.ts"
+import type { PinAnchor } from "../anchor.ts"
+import type { CommentContext } from "../types.ts"
+import type { CommentsApiError, CommentsSession, OverlayMention as CommentMention, OverlayPerson as CommentAuthor, PageThread } from "./api.ts"
 
 type Mode = "view" | "comment" | "edit"
 
@@ -137,7 +138,7 @@ class CommentsOverlay extends HTMLElement {
   private threads: PageThread[] = []
   private mode: Mode = "view"
   private openThread?: string
-  private draft?: { anchor: CommentAnchor, context: CommentContext, x: number, y: number }
+  private draft?: { anchor: PinAnchor, context: CommentContext, x: number, y: number }
   private panel = false
   private pageWindow?: ReturnType<ViteHubPageToolContext["createWindow"]>
   private panelBody?: HTMLElement

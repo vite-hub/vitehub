@@ -296,7 +296,7 @@ export async function readCommentsComponents(root: string, limit = 5000, resolve
   return components
 }
 
-const version = "3"
+const version = "4"
 
 /** Generated session reader: the Console user of a request, else the ViteHub Auth user. */
 function sessionLines(options: CommentsVitePluginOptions, imports: CommentsImports): { imports: string[], option: "session" | "consoleSession", value: string } {
@@ -389,7 +389,9 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
     "",
     `const database = () => selectCommentsDatabase(databases${input.database ? `, ${JSON.stringify(input.database)}` : ""})`,
     "",
-    `export default defineCommentsPlugin({ comments, database, ${session.option}: ${session.value}, ${session.githubLogin ? "githubLogin, " : ""}development: ${input.development === true}, overlay: ${JSON.stringify(`${commentsRoute}/assets/overlay.js?v=${version}`)}, base: ${JSON.stringify(input.base ?? "")} })`,
+    // With Auth, `@` suggests the users of Auth.
+    ...(input.session?.auth ? [`import { commentsAuthUsers } from ${JSON.stringify(input.imports.auth)}`] : []),
+    `export default defineCommentsPlugin({ comments, database, ${session.option}: ${session.value}, ${session.githubLogin ? "githubLogin, " : ""}${input.session?.auth ? "users: commentsAuthUsers, " : ""}development: ${input.development === true}, overlay: ${JSON.stringify(`${commentsRoute}/assets/overlay.js?v=${version}`)}, base: ${JSON.stringify(input.base ?? "")} })`,
     "",
   ].join("\n")
 }

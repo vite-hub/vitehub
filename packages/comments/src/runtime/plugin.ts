@@ -6,8 +6,8 @@ import { resolveCommentsUser } from "./session.ts"
 import { commentsMcpTools } from "./mcp.ts"
 
 import type { H3Event } from "h3"
-import type { Comments } from "../index.ts"
-import type { CommentsDatabase } from "../store.ts"
+import type { Comments, InstallCommentsOptions } from "../index.ts"
+import type { CommentsDatabase } from "../operations-core/store.ts"
 import type { CommentsGitHubLogin } from "./github-login.ts"
 import type { CommentsSessionOptions } from "./session.ts"
 
@@ -28,9 +28,13 @@ export interface CommentsPluginOptions extends CommentsSessionOptions {
   development?: boolean
   /** What the server log says when `database()` returns nothing. */
   missingDatabase?: string
+  /** The Auth users for `@` suggestions, when the app has Auth. */
+  users?: InstallCommentsOptions["users"]
+  /** The Blob store for attachments, when the app has Blob. */
+  attachments?: InstallCommentsOptions["attachments"]
 }
 
-const runtimeKey = Symbol.for("vitehub.comments.runtime")
+const runtimeKey = Symbol.for("vitehub.comments.installed")
 
 /** The Comments definition that the Nitro plugin installed, for the Console reader. */
 export function installedComments(): Comments | undefined {
@@ -46,7 +50,14 @@ export function installedComments(): Comments | undefined {
 export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp: unknown) => void {
   return (nitroApp) => {
     const database = options.database()
-    if (database) installComments(options.comments, { database, development: options.development })
+    if (database) {
+      installComments(options.comments, {
+        database,
+        development: options.development === true,
+        ...(options.users ? { users: options.users } : {}),
+        ...(options.attachments ? { attachments: options.attachments } : {}),
+      })
+    }
     else console.warn(options.missingDatabase ?? "[vitehub] Comments has no Database. Enable one with `vitehub({ database: true })`, or set `defineComments({ database })` to a Database name.")
     Reflect.set(globalThis, runtimeKey, options.comments)
     // The ViteHub MCP server at `/_vitehub/mcp` lists them for people with Console access to Comments.

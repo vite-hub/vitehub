@@ -35,6 +35,8 @@ function displayPath(file: string, root: string): string {
 /** Import paths of the generated runtime. The `vite-hub` integration passes its own subpaths, so the module resolves from the app. */
 export interface CommentsImports {
   auth: string
+  /** Exports `blob`, the Blob store that attachments go to when the app has Blob. */
+  blob: string
   database: string
   databaseSchema: string
   operations: string
@@ -48,6 +50,8 @@ export interface HubCommentsOptions {
   dialect?: "postgresql" | "sqlite"
   /** Find people through the app Auth for @mentions. Default `false`: the authors that comments know. */
   auth?: boolean
+  /** Store attachments in the app's Blob store. Default `false`: uploads need `defineComments({ storeAttachment })`. */
+  blob?: boolean
   /**
    * The overlay on the pages of the app: a loader that downloads the comment UI only for visitors who may read comments.
    * `false` turns it off. `paths` and `exclude` are globs relative to the app base. Default: every page.
@@ -68,6 +72,7 @@ export interface HubCommentsOptions {
 
 const defaultImports: CommentsImports = {
   auth: "@vite-hub/auth/server",
+  blob: "@vite-hub/blob",
   database: "@vite-hub/database/drizzle",
   databaseSchema: "@vite-hub/comments/database",
   operations: "@vite-hub/comments/operations",
@@ -115,12 +120,13 @@ function writeIfChangedSync(file: string, contents: string): void {
 }
 
 /** The Nitro plugin that installs the comments runtime in each server process. */
-export function renderCommentsNitroPlugin(options: { auth: boolean, database?: string, entry: string, imports: CommentsImports, overlayUrl?: string }): string {
+export function renderCommentsNitroPlugin(options: { auth: boolean, blob?: boolean, database?: string, development?: boolean, entry: string, imports: CommentsImports, overlayUrl?: string }): string {
   const name = options.database === undefined ? "undefined" : JSON.stringify(options.database)
   return [
     `import { databases } from ${JSON.stringify(options.imports.database)}`,
-    `import { createAuthUsers, createCommentsStore, installComments, validateCommentsDefinition } from ${JSON.stringify(options.imports.runtime)}`,
+    `import { createAuthUsers, installComments, installCommentsRuntime, validateCommentsDefinition } from ${JSON.stringify(options.imports.runtime)}`,
     ...(options.auth ? [`import { getAuth } from ${JSON.stringify(options.imports.auth)}`] : []),
+    ...(options.blob ? [`import { blob } from ${JSON.stringify(options.imports.blob)}`] : []),
     `import * as app from ${JSON.stringify(pathToFileURL(options.entry).href)}`,
     "",
     `const definition = validateCommentsDefinition(app.default, ${JSON.stringify(options.entry)})`,
@@ -165,13 +171,16 @@ export function renderCommentsNitroPlugin(options: { auth: boolean, database?: s
         ]),
     `export default function viteHubComments(${options.overlayUrl === undefined ? "" : "nitroApp"}) {`,
     ...(options.overlayUrl === undefined ? [] : ["  addOverlay(nitroApp)"]),
-    "  installComments(() => {",
+    "  // The Database connects on first use, so a Worker builds the runtime with the binding of its first request.",
+    "  installCommentsRuntime(() => {",
     "    const { db, schema } = entry()",
-    "    return {",
-    "      definition,",
-    "      store: createCommentsStore(db, { commentCounters: schema.commentCounters, commentMessages: schema.commentMessages, commentThreads: schema.commentThreads }),",
+    "    return installComments(definition, {",
+    "      database: db,",
+    "      tables: { commentCounters: schema.vitehubCommentCounters, commentMessages: schema.vitehubCommentMessages, commentThreads: schema.vitehubCommentThreads, commentForge: schema.vitehubCommentForge },",
+    `      development: ${options.development === true},`,
     ...(options.auth ? ["      users: createAuthUsers(() => getAuth()),"] : []),
-    "    }",
+    ...(options.blob ? ["      attachments: blob,"] : []),
+    "    })",
     "  })",
     "}",
     "",
@@ -211,12 +220,14 @@ export function hubComments(options: HubCommentsOptions = {}): CommentsVitePlugi
   const overlayOptions: CommentsOverlayOptions = options.overlay || {}
   let mount = ""
   let edit = false
+  // Vite's serve command, for the default guest policy. Production builds never let guests in by default.
+  let development = false
   const overlayUrl = () => assets ? loaderUrl(mount, assets, { ...overlayOptions, edit }) : undefined
   /** The runtime plugin and the middleware carry the loader URL, which depends on the mount. */
   const writeGenerated = (root: string, entry: string): { middleware?: string, plugin: string } => {
     const url = overlayUrl()
     const plugin = resolve(root, commentsNitroPluginPath)
-    writeIfChangedSync(plugin, renderCommentsNitroPlugin({ auth: options.auth === true, imports, entry, ...(options.database === undefined ? {} : { database: options.database }), ...(url === undefined ? {} : { overlayUrl: url }) }))
+    writeIfChangedSync(plugin, renderCommentsNitroPlugin({ auth: options.auth === true, blob: options.blob === true, development, imports, entry, ...(options.database === undefined ? {} : { database: options.database }), ...(url === undefined ? {} : { overlayUrl: url }) }))
     if (!url) return { plugin }
     const middleware = resolve(root, commentsOverlayMiddlewarePath)
     writeIfChangedSync(middleware, renderOverlayMiddleware(url))
@@ -229,6 +240,7 @@ export function hubComments(options: HubCommentsOptions = {}): CommentsVitePlugi
       order: "pre",
       async handler(config, env) {
         assets = options.overlay === false || (options.overlayDevOnly && env?.command !== "serve") ? undefined : options.overlayAssets
+        development = env?.command === "serve" && !env.isPreview
         // SAFETY: Vite passes its user config with ViteHub's shared keys attached.
         const viteConfig = config as CommentsPluginConfig
         projectRoot = viteConfig[VITEHUB_PROJECT_ROOT] ? resolve(viteConfig[VITEHUB_PROJECT_ROOT]) : resolveViteHubProjectRoot(viteConfig.root || process.cwd())
@@ -295,7 +307,7 @@ export function hubComments(options: HubCommentsOptions = {}): CommentsVitePlugi
       async databases() {
         if (!discover()) return []
         return [{
-          definition: { export: postgres ? "commentsPostgresSchema" : "commentsOperationsSchema", module: postgres ? `${imports.databaseSchema}/postgres` : imports.databaseSchema },
+          definition: { export: postgres ? "commentsPostgresSchema" : "commentsSchema", module: postgres ? `${imports.databaseSchema}/postgres` : imports.databaseSchema },
           name: "comments",
           reason: "Stores the comment threads and messages of server/comments.ts.",
           ...(options.database === undefined ? {} : { database: options.database }),

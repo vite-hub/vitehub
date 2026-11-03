@@ -22,9 +22,9 @@ export default defineComments({
 | `thread` | The thread, when the action is about one. Not set for `create`, `list`, and `users`. |
 | `subject` | What the action is about: the subject of `thread`, the subject that `create` starts a thread on, or the subject that a `list` filters by. Not set for a `list` with no filter and for `users`. |
 
-Return `true` to allow. The policy runs for every operation, on every surface: the Console, the CLI, MCP, and agents.
+Return `true` to allow. The policy runs for every operation, on every surface: the Console, the CLI, MCP, agents, and the overlay API.
 
-- Without `authorize`, nobody can read or write. Calls fail with `COMMENTS_R0006`, and the Console list shows that error with its fix.
+- Without `authorize`, the default policy of [Decide who can comment](/docs/comments/configure#decide-who-can-comment) applies: signed-in people may do everything, and anonymous people only on the dev server, as guests.
 - Creating a thread asks `read`, then `write`, with its subject. Mention suggestions ask `read`, then `write`, without a thread or subject.
 - Every operation on a thread asks `read` for that thread first. A thread you may not read looks missing: `get` answers `null`, and `reply`, `edit`, `delete`, `resolve`, and `reopen` fail with `COMMENTS_R0002`, the same as for a thread that does not exist.
 - People edit their own messages and delete their own messages, once they may read the thread. Nobody else edits a message. An Agent has no such right, even when it acts for the author: `edit` needs `write`, and `delete` needs `delete`.
@@ -60,21 +60,24 @@ export default defineComments({
 
 ## Mentions
 
-A message mentions people by id, and its text names each one with `@name`. The server checks both: the id must belong to a real person, and the text must contain `@` and that person's name. Where people come from:
+A message mentions people by id, and its text names each one with `@name`. The server checks three things: the id must belong to a real person, the text must contain `@` and that person's name, and `canMention` must allow them, by default when they may read the thread. Where people come from:
 
-- With [Auth](/docs/auth), `users()` and the mention check read the Better Auth users. `users()` searches their name, and returns only `id`, `name`, and `image`.
-- Without Auth, they are the authors that comments know, and only those with a thread that you may read.
+- With `people`, the people that it finds.
+- With [Auth](/docs/auth), the Better Auth users. `users()` searches their name, and returns only `id`, `name`, and `image`.
+- Without both, the authors that comments know, and only those with a thread that you may read.
+
+`users({ query, threadId?, subject? })` leaves out the people that `canMention` refuses for that thread or subject. See [Mention people](/docs/comments/configure#mention-people).
 
 ```ts [server/comments.ts]
 export default defineComments({
   authorize: ({ user }) => Boolean(user),
-  onMention: async ({ thread, message, mentioned }) => {
-    await notify(mentioned, `/pricing?comment=${thread.n}`, message.body)
+  onMention: async ({ users, message, link }) => {
+    await notify(users, link, message.body)
   },
 })
 ```
 
-`onMention` runs after the comment is saved, through `waitUntil` where the host has it. A failure is logged and never fails the comment. It receives only the people that the message mentions for the first time and that `authorize({ action: 'read', user: <mentioned>, thread })` lets read the thread. The mention stays in the text for the others.
+`onMention` runs once for each saved message, through `waitUntil` where the host has it. A failure is logged and never fails the comment. It receives the people that the message mentions for the first time, and `link`, the app path that opens the thread. `comments.reply` replies to a resolved thread too, and the thread stays resolved: the comment UI keeps a reply box there.
 
 ## Overlay
 
@@ -112,4 +115,4 @@ With `server/comments.ts` and no `database` option, `vitehub()` turns the Databa
 vitehub({ comments: { database: 'main' } })
 ```
 
-For Postgres set `comments: { dialect: 'postgresql' }`. To wire the tables yourself, import `commentsOperationsSchema` from `vite-hub/comments/database` (SQLite, libSQL, D1) or `commentsPostgresSchema` from `vite-hub/comments/database/postgres`, and add it to your Database Definition.
+For Postgres set `comments: { dialect: 'postgresql' }`. To wire the tables yourself, import `commentsSchema` from `vite-hub/comments/database` (SQLite, libSQL, D1) or `commentsPostgresSchema` from `vite-hub/comments/database/postgres`, and add it to your Database Definition.

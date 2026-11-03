@@ -4,12 +4,15 @@ import { createOperationRegistry, runOperation } from "@vite-hub/internal/operat
 import { drizzle } from "drizzle-orm/libsql"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 
-import { defineComments } from "../src/operations-core/define.ts"
+import { defineComments } from "../src/index.ts"
 import { commentsOperations } from "../src/operations-core/operations.ts"
-import { createAuthUsers, createCommentsStore, installComments } from "../src/operations-core/server.ts"
+import { createAuthUsers, installCommentsRuntime } from "../src/operations-core/server.ts"
+import { createCommentsStore } from "../src/operations-core/store.ts"
+import { commentsTables } from "../src/tables.ts"
 
 import type { OperationContext } from "@vite-hub/internal/operations"
-import type { CommentsDefinition } from "../src/operations-core/define.ts"
+import type { Comments } from "../src/index.ts"
+import type { CommentsPeople } from "../src/types.ts"
 import type { CommentCreateInput, CommentThread } from "../src/operations-core/types.ts"
 
 const registry = createOperationRegistry([{ operations: commentsOperations }])
@@ -22,19 +25,14 @@ let client: ReturnType<typeof createClient>
 
 beforeEach(async () => {
   client = createClient({ url: ":memory:" })
-  for (const sql of [
-    "create table vitehub_comment_threads (id text primary key, scope text not null, n integer not null, subject_kind text not null, subject_id text not null, anchor text not null, status text not null, resolved_by text, resolved_at integer, author_id text not null, author_name text, author_image text, actor text, created_at integer not null, updated_at integer not null)",
-    "create unique index vitehub_comment_threads_scope_n on vitehub_comment_threads (scope, n)",
-    "create table vitehub_comment_counters (scope text primary key, next integer not null)",
-    "create table vitehub_comment_messages (id text primary key, thread_id text not null, body text not null, author_id text not null, author_name text, author_image text, actor text, mentions text not null, attachments text not null, created_at integer not null, edited_at integer)",
-  ]) await client.execute(sql)
+  for (const sql of commentsTables) await client.execute(sql)
 })
 
 afterEach(async () => {
   vi.restoreAllMocks()
   await Promise.all(pending.splice(0))
   client.close()
-  installComments(() => { throw new Error("not installed") })
+  installCommentsRuntime(() => { throw new Error("not installed") })
 })
 
 it("scans past more than fifty hidden threads to fill a readable page", async () => {
@@ -86,9 +84,9 @@ it("gives each same-millisecond mutation a strictly newer timestamp", async () =
   expect([created, replied, edited, resolved, reopened, deleted].map(thread => thread.updatedAt)).toEqual([1, 2, 3, 4, 5, 6])
 })
 
-function setup(definition: CommentsDefinition) {
+function setup(comments: Comments, users?: CommentsPeople) {
   const store = createCommentsStore(drizzle(client))
-  installComments({ definition, store })
+  installCommentsRuntime({ definition: comments.options, store, ...(users ? { users } : {}) })
   return store
 }
 
@@ -159,10 +157,8 @@ it("returns only the public session identity", async () => {
 })
 
 it("checks read access before searching mention suggestions", async () => {
-  const definition = defineComments({ authorize: ({ action }) => action !== "read" })
-  const store = setup(definition)
   const search = vi.fn(async () => [member])
-  installComments({ definition, store, users: { byIds: async () => [], search } })
+  setup(defineComments({ authorize: ({ action }) => action !== "read" }), { byIds: async () => [], search })
   expect(await call("comments.users", { query: "an" })).toMatchObject({ ok: false, status: 403, code: "COMMENTS_R0009" })
   expect(search).not.toHaveBeenCalled()
 })
@@ -226,14 +222,15 @@ it("uses Auth user fields to authorize mentions and keeps suggestions public", a
   const ben = { id: "ben", name: "Ben", role: "member", email: "ben@example.com" }
   const guest = { id: "guest", name: "Guest", role: "guest", email: "guest@example.com" }
   const onMention = vi.fn()
-  const definition = defineComments({ authorize: ({ action, user }) => action !== "read" || user?.role === "member", onMention })
-  const store = setup(definition)
   const users = createAuthUsers(() => ({ $context: Promise.resolve({ internalAdapter: { listUsers: async () => [ben, guest] } }) }))
-  installComments({ definition, store, users })
-  await create(member, { ...input, body: "Hello @Ben and @Guest.", mentions: [ben.id, guest.id] })
+  setup(defineComments({ authorize: ({ action, user }) => action !== "read" || user?.role === "member", onMention }), users)
+  // People that may not read the thread may not be mentioned in it.
+  expect(await call("comments.create", { ...input, body: "Hello @Ben and @Guest.", mentions: [ben.id, guest.id] })).toMatchObject({ ok: false, code: "COMMENTS_R0007", message: expect.stringContaining("Guest may not be mentioned here.") })
+  const thread = await create(member, { ...input, body: "Hello @Ben.", mentions: [ben.id] })
   await Promise.all(pending)
   expect(onMention).toHaveBeenCalledOnce()
-  expect(onMention.mock.calls[0]?.[0].mentioned.map((person: { id: string }) => person.id)).toEqual([ben.id])
-  expect(onMention.mock.calls[0]?.[0].mentioned).toEqual([{ id: ben.id, name: ben.name }])
-  expect(await call("comments.users", { query: "be" })).toEqual({ ok: true, value: [{ id: ben.id, name: ben.name }, { id: guest.id, name: guest.name }] })
+  expect(onMention.mock.calls[0]?.[0]).toEqual({ users: [{ id: ben.id, name: ben.name }], message: thread.messages[0], thread, link: `/pricing?comment=${thread.n}` })
+  // Suggestions leave out the people that may not be mentioned, and keep only public fields.
+  expect(await call("comments.users", { query: "e" })).toEqual({ ok: true, value: [] })
+  expect(await call("comments.users", { query: "be" })).toEqual({ ok: true, value: [{ id: ben.id, name: ben.name }] })
 })

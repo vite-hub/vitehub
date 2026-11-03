@@ -7,7 +7,8 @@ import { afterEach, describe, expect, it } from "vitest"
 import { resolveConfig } from "vite"
 import type { InlineConfig } from "vite"
 
-import { defineComments, validateCommentsDefinition } from "../src/operations-core/define.ts"
+import { validateCommentsDefinition } from "../src/operations-core/define.ts"
+import { defineComments } from "../src/index.ts"
 import { injectLoader, loaderTag, loaderUrl, mountPath, renderOverlayMiddleware, scriptNonce } from "../src/overlay.ts"
 import { commentsNitroPluginPath, hubComments } from "../src/vite.ts"
 
@@ -22,7 +23,7 @@ async function project(): Promise<string> {
   roots.push(root)
   await writeFile(join(root, "package.json"), "{}")
   await mkdir(join(root, "server"))
-  await writeFile(join(root, "server", "comments.ts"), `import { defineComments } from ${JSON.stringify(new URL("../src/operations-core/define.ts", import.meta.url).href)}\nexport default defineComments()\n`)
+  await writeFile(join(root, "server", "comments.ts"), `import { defineComments } from ${JSON.stringify(new URL("../src/index.ts", import.meta.url).href)}\nexport default defineComments()\n`)
   return root
 }
 
@@ -437,8 +438,8 @@ describe("hubComments overlay", () => {
     expect(generated).toContain("render:html")
     const hooks = new Map<string, (html: { bodyAppend: string[] }, context?: unknown) => void>()
     const source = generated.replaceAll(/^import .*$/gm, "").replace("export default function", "function").replace(/const databaseName[\s\S]*?\nconst overlayUrl/, "const overlayUrl")
-    const run = new Function("installComments", "databases", "createCommentsStore", "app", "validateCommentsDefinition", `${source}\nreturn viteHubComments`)
-    const viteHubComments = run(() => undefined, {}, () => undefined, { default: defineComments() }, validateCommentsDefinition) as (app: unknown) => void
+    const run = new Function("installComments", "installCommentsRuntime", "databases", "app", "validateCommentsDefinition", `${source}\nreturn viteHubComments`)
+    const viteHubComments = run(() => undefined, () => undefined, {}, { default: defineComments() }, validateCommentsDefinition) as (app: unknown) => void
     viteHubComments({ hooks: { hook: (name: string, handler: (html: { bodyAppend: string[] }, context?: unknown) => void) => hooks.set(name, handler) } })
     const html = { bodyAppend: [] as string[] }
     hooks.get("render:html")!(html)

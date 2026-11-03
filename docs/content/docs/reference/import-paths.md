@@ -191,7 +191,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/channels/server` | Channels Runtime | Server-only discovered named delivery. |
 | `@vite-hub/comments` | Comments Package | `defineComments()`, `installComments()`, the runtime methods, and portable types. |
 | `@vite-hub/comments/anchor` | Comments Package | Browser helpers that create and place [anchors](/docs/comments/server-api#anchors) of pins. |
-| `@vite-hub/comments/database` | Comments Package | `commentsSchema` for the live-site API, or `commentsOperationsSchema` for numbered Comment operations. |
+| `@vite-hub/comments/database` | Comments Package | `commentsSchema`, the tables of Comments, and `migrateComments()` with `commentsMigrationSql()` to move the tables of the live-site model. |
 | `@vite-hub/comments/realtime` and `@vite-hub/comments/runtime` | Comments Package | The presence room definition, the Comments API handler, and the Nitro plugin that generated output imports. |
 | `@vite-hub/connections` and `@vite-hub/connections/google` | Connections Package | Connection Definitions, `apiKey()`, the Google preset, and typed Gmail Operations. |
 | `@vite-hub/connections/chatgpt` | Connections Package | The `chatgpt()` Connection provider for signing in with a ChatGPT plan. |

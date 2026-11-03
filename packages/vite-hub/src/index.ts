@@ -1329,11 +1329,14 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     ...(overlayAssets ? { overlayAssets, overlayDevOnly: devOperationsOnly, overlayEdit: usesCms } : {}),
     operationsImports: {
       auth: "vite-hub/auth/server",
+      blob: "vite-hub/blob",
       database: "vite-hub/database/drizzle",
       databaseSchema: "vite-hub/comments/database",
       runtime: "vite-hub/comments/server",
     },
     auth: Boolean(options.auth),
+    // Attachments go to the app's Blob store.
+    blob: blobEnabled,
     // With the Console, its people are the people of Comments, and opening the Console turns comment mode on.
     ...(options.console ? { console: { module: "vite-hub/console/sections" } } : {}),
     imports: {

@@ -51,7 +51,8 @@ Open `http://localhost:5173/?vitehub`. The `?vitehub` query turns on the ViteHub
 2. Click a heading on the page. A comment box opens at that point.
 3. Type your name, then a comment, and press <kbd>⌘</kbd> <kbd>Enter</kbd>. A numbered pin shows where you clicked.
 4. Select the pin, write a reply, and send it.
-5. Select **Resolve**, the check mark on the thread. The pin goes away. Open the thread list from the toolbar and select **Show resolved** to see it again.
+5. Type `@` in a reply. The list shows the people that you may mention there. As a guest it is empty: nobody can mention a guest. After your team signs in, in the next step, `@` suggests the people who commented before, and the server checks each mention.
+6. Select **Resolve**, the check mark on the thread. The pin goes away. Open the thread list from the toolbar and select **Show resolved** to see it again.
 
 On the dev server, anyone may comment as a guest under a name they type. A production build lets nobody in until you choose who may comment. That is the next step.
 
