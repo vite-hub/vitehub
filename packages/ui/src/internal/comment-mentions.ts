@@ -22,7 +22,7 @@ export function mentionQuery(text: string, caret: number): { start: number; quer
 }
 
 /** Lower case without accents, so `jose` finds `José`. */
-export const fold = (text: string): string => text.normalize("NFD").replace(/\p{M}/gu, "").toLocaleLowerCase();
+export const fold = (text: string): string => text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
 
 export interface RankPeopleOptions {
   /** Ids of people in the conversation. They come first in each group. */
