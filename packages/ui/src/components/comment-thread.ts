@@ -331,7 +331,7 @@ export const CommentThread = defineComponent({
   emits: ["close"],
   // SAFETY: Vue uses Object as its runtime slots marker.
   slots: Object as SlotsType<CommentThreadSlots>,
-  setup(props, { emit, slots }) {
+  setup(props, { emit, expose, slots }) {
     const UButton = useUIComponent("UButton");
     const comments = injectComments();
     const root = ref<HTMLElement | null>(null);
@@ -403,6 +403,8 @@ export const CommentThread = defineComponent({
       if (root.value && shakeDirtyComposers(root.value)) return;
       emit("close");
     }
+    // Containers route their own dismissal through the same guard as the header button.
+    expose({ close });
 
     const replySlots = () => ({
       ...(slots.body ? { body: slots.body } : {}),
