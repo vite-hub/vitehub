@@ -750,7 +750,7 @@ describe("Agent invocation console", () => {
       const resolved = { ...config, base: "/portal/" }
       await callPluginHook(plugin.configResolved, {}, [withViteLogger(resolved)])
 
-      expect(resolved.nitro.handlers.filter(handler => handler.route.startsWith("/.well-known/"))).toEqual(applicationHandlers)
+      expect(resolved.nitro.handlers.filter(handler => handler.route?.startsWith("/.well-known/"))).toEqual(applicationHandlers)
       expect(resolved.nitro.handlers).toContainEqual(expect.objectContaining({ route: "/portal/_vitehub/mcp" }))
     }
     finally {
@@ -764,7 +764,7 @@ describe("Agent invocation console", () => {
     addConsoleRpcHandler(config, "/runtime", "/portal/", [], true)
 
     expect(config.handlers.map(handler => handler.route)).toEqual([
-      "/**",
+      undefined,
       "/portal/_vitehub/rpc/**",
       "/portal/_vitehub/env/manage",
       "/portal/_vitehub/schedules/run",
@@ -780,9 +780,9 @@ describe("Agent invocation console", () => {
     const applicationHandler = { handler: "/application/openid.js", route: "/.well-known/openid-configuration" }
     const config = { handlers: [applicationHandler] }
     addConsoleRpcHandler(config, "/runtime", "/portal/", [], true)
-    expect(config.handlers.filter(handler => handler.route.startsWith("/.well-known/oauth-"))).toHaveLength(4)
+    expect(config.handlers.filter(handler => handler.route?.startsWith("/.well-known/oauth-"))).toHaveLength(4)
     addConsoleRpcHandler(config, "/runtime", "/portal/")
-    expect(config.handlers.filter(handler => handler.route.startsWith("/.well-known/"))).toEqual([applicationHandler])
+    expect(config.handlers.filter(handler => handler.route?.startsWith("/.well-known/"))).toEqual([applicationHandler])
     expect(config.handlers.some(handler => handler.handler.endsWith("/mcp-discovery.js"))).toBe(false)
   })
 

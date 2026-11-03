@@ -84,20 +84,22 @@ describe("MCP owner contributions", () => {
     const config = { handlers: [...handlers] }
     addConsoleRpcHandler(config, "/runtime", "/portal/", [], true)
     for (const handler of handlers) expect(config.handlers).toContainEqual(handler)
-    expect(config.handlers.filter(handler => handler.route.endsWith("/**") && handler.route.startsWith("/.well-known/"))).toEqual(handlers)
+    expect(config.handlers.filter(handler => handler.route?.endsWith("/**") && handler.route.startsWith("/.well-known/"))).toEqual(handlers)
     expect(config.handlers[0]?.handler).toBe("/runtime/server/mcp-discovery.js")
   })
 
   it.each(["oauth-protected-resource", "oauth-authorization-server"])("delegates the application-owned bare %s route through config replay", async (name) => {
     const route = `/.well-known/${name}`
     const application = { route, handler: "/app/metadata.js", method: "get" }
-    const config: { handlers: typeof application[]; virtual?: Record<string, unknown> } = { handlers: [application], virtual: { "virtual:app": "export default 1" } }
+    const config: { handlers: typeof application[]; plugins?: string[]; virtual?: Record<string, unknown> } = { handlers: [application], virtual: { "virtual:app": "export default 1" } }
     installConsoleAccess({ mode: "auth", oauth: { path: "/_vitehub/mcp", auth: () => { throw new Error("Application discovery must bypass Console Auth") } } })
     for (const base of ["/", "/portal/"]) {
       addConsoleRpcHandler(config, "/runtime", base, [], true)
       expect(config.handlers).toContainEqual(application)
       expect(config.handlers.filter(handler => handler.route === route)).toEqual([application])
-      expect(config.handlers[0]).toMatchObject({ middleware: true, route: "/**" })
+      expect(config.handlers[0]).toMatchObject({ middleware: true })
+      // Nitro 3 uses global middleware; Nitro 2 also needs the origin-root request hook below.
+      expect(config.handlers[0]?.route).toBeUndefined()
       const source = config.virtual?.[config.handlers[0]!.handler]
       if (typeof source !== "string") throw new TypeError("Missing configured discovery middleware")
       // Load the generated wrapper against its source entry, without requiring a distribution build.
@@ -105,11 +107,23 @@ describe("MCP owner contributions", () => {
       const module = await import(/* @vite-ignore */ `data:text/javascript,${encodeURIComponent(source.replace(JSON.stringify("/runtime/server/mcp-discovery.js"), JSON.stringify(entry)))}`)
       const request = new Request(`http://app.test${route}`)
       await expect(module.default({ req: request })).resolves.toBeUndefined()
+      const pluginId = "/runtime/server/mcp-discovery-nitro2.js"
+      expect(config.plugins?.filter(plugin => plugin === pluginId)).toHaveLength(1)
+      const pluginSource = config.virtual?.[pluginId]
+      if (typeof pluginSource !== "string") throw new TypeError("Missing configured discovery plugin")
+      const plugin = await import(/* @vite-ignore */ `data:text/javascript,${encodeURIComponent(pluginSource.replace(JSON.stringify("/runtime/server/mcp-discovery.js"), JSON.stringify(entry)))}`)
+      const hook = vi.fn()
+      plugin.default({ h3App: {}, hooks: { hook } })
+      await expect(hook.mock.calls[0]![1]({ req: request })).resolves.toBeUndefined()
+      hook.mockClear()
+      plugin.default({ hooks: { hook } })
+      expect(hook).not.toHaveBeenCalled()
       expect(config.handlers).toContainEqual(expect.objectContaining({ route: `${route}/**`, handler: expect.stringMatching(/mcp-(metadata|authorization-server)\.js$/) }))
     }
     addConsoleRpcHandler(config, "/runtime", "/portal/", [], false)
     expect(config.handlers).toContainEqual(application)
     expect(config.virtual).toEqual({ "virtual:app": "export default 1" })
+    expect(config.plugins).not.toContain("/runtime/server/mcp-discovery-nitro2.js")
   })
 
   it.each(["/", "/portal/"])("routes GET probes to MCP with base %s", async (base) => {

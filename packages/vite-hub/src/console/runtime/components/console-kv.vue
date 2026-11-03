@@ -4,6 +4,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { appendUniqueConsoleKeys, requestConsole } from "../client/request";
+import { queryText, useConsoleQuery } from "../client/route-query";
 import { useConsoleToast } from "../client/toast";
 import { isConsoleSectionReadOnly } from "../client/read-only";
 import { rememberConsoleSection } from "../sections";
@@ -77,7 +78,8 @@ let applyingRouteSelection = false;
 const storeItems = computed(() => stores.value.map((store) => ({ label: store, value: store })));
 /** The KV route truncates large values at this size. */
 const valueLimit = 256 * 1024;
-const keyFilter = ref("");
+// The filter lives in the URL with the store and key, so a reload or a shared link opens the same view.
+const { q: keyFilter } = useConsoleQuery({ q: queryText() });
 // The filter narrows the loaded keys. Load more to search further in a large store.
 const visibleKeys = computed(() => {
   const filter = keyFilter.value.trim().toLowerCase();

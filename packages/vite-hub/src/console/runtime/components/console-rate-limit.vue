@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import { peekConsoleRateLimit, resetConsoleRateLimit } from "../client/rate-limit";
 import type { ConsoleRateLimitPeek } from "../client/rate-limit";
+import { querySelection, useConsoleQuery } from "../client/route-query";
 import { useConsoleToast } from "../client/toast";
 
 /**
@@ -18,7 +19,9 @@ const props = defineProps<{
 }>();
 
 const toast = useConsoleToast();
-const key = ref("");
+// The key that was read lives in the URL, so a reload or a shared link reads the same counter again.
+const { key: readKey } = useConsoleQuery({ key: querySelection({ history: "replace" }) });
+const key = ref(readKey.value ?? "");
 const peeked = ref<ConsoleRateLimitPeek>();
 // Inspection may redact the echoed key. Keep the successful request's identity for mutations.
 const peekedKey = ref<string>();
@@ -56,6 +59,7 @@ async function peek(): Promise<void> {
     if (request === controller) {
       peeked.value = result;
       peekedKey.value = current;
+      readKey.value = current;
     }
   } catch (failure) {
     if (failure instanceof Error && failure.name === "AbortError") return;
@@ -89,13 +93,25 @@ async function confirmReset(): Promise<void> {
   }
 }
 
-// A counter belongs to its Rate Limit, so another selection starts empty.
-watch(() => props.name, () => {
+function clearResult(): void {
   request?.abort();
+  request = undefined;
   loading.value = false;
   peeked.value = undefined;
   peekedKey.value = undefined;
   error.value = undefined;
+}
+
+// Wait for both the catalog's selection and the restored key before reading the destination counter.
+watch([() => props.name, readKey], ([name, current], [previousName]) => {
+  // A successful peek writes its key to the URL; it already has the result.
+  if (name === previousName && current !== undefined && current === peekedKey.value) return;
+  clearResult();
+  key.value = current ?? "";
+  if (key.value) void peek();
+}, { flush: "post" });
+onMounted(() => {
+  if (key.value) void peek();
 });
 onBeforeUnmount(() => request?.abort());
 </script>

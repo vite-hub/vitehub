@@ -216,7 +216,7 @@ describe("the Console below a Nitro baseURL", () => {
         expect(routes).toContain("/.well-known/oauth-protected-resource")
         expect(routes).toContain("/.well-known/oauth-authorization-server")
       }
-      expect(routes?.some(route => route.startsWith("/portal/"))).toBe(false)
+      expect(routes?.some(route => route?.startsWith("/portal/"))).toBe(false)
       expect(config.nitro?.publicAssets.map(asset => asset.baseURL)).toEqual(["/_vitehub/assets", "/_vitehub/.well-known/skills", "/_vitehub/page/assets"])
     }
     finally {

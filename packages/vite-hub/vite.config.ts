@@ -83,6 +83,7 @@ const runtimeEntries = [
   "src/console/runtime/client/problem.ts",
   "src/console/runtime/client/rate-limit.ts",
   "src/console/runtime/client/read-only.ts",
+  "src/console/runtime/client/route-query.ts",
   "src/console/runtime/client/schedule-run.ts",
   "src/console/runtime/client/schema-form.ts",
   "src/console/runtime/client/sign-in.ts",
@@ -451,6 +452,7 @@ export default defineConfig({
           delete exports["./console/runtime/client/problem"];
           delete exports["./console/runtime/client/rate-limit"];
           delete exports["./console/runtime/client/read-only"];
+          delete exports["./console/runtime/client/route-query"];
           delete exports["./console/runtime/client/schedule-run"];
           delete exports["./console/runtime/client/schema-form"];
           delete exports["./console/runtime/client/sign-in"];
