@@ -289,7 +289,11 @@ function vercelFixture() {
 
 function command(stdout: string): VercelSandboxCommand {
   return {
+    async closeStdin() {},
     async kill() {},
+    async *logs() {
+      yield { data: stdout, stream: "stdout" as const };
+    },
     async stderr() {
       return "";
     },
@@ -299,6 +303,7 @@ function command(stdout: string): VercelSandboxCommand {
     async wait() {
       return { exitCode: 0 };
     },
+    async writeStdin() {},
   };
 }
 

@@ -18,7 +18,7 @@ const DEFAULT_PARALLEL_SAFE_PACKAGES = Object.freeze([
 // under one of these paths runs the tests of the named packages.
 const OUTSIDE_TEST_INPUTS = Object.freeze([
   ["docs/content/", ["@vite-hub/ui", "vite-hub"]],
-  ["fixtures/tutorials/", ["@vite-hub/agent"]],
+  ["fixtures/tutorials/", ["@vite-hub/agent", "vite-hub"]],
   ["playground/console/", ["vite-hub"]],
   ["playground/vite/", ["@vite-hub/blob", "@vite-hub/internal", "@vite-hub/queue", "@vite-hub/workflow"]],
 ])
