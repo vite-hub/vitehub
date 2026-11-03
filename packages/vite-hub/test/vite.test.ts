@@ -130,6 +130,7 @@ vi.mock("@vite-hub/workspace/vite", () => ({ hubWorkspace: integrationMocks.hubW
 vi.mock("../src/task/vite.ts", () => ({ viteHubTaskPlugin: integrationMocks.viteHubTask }))
 
 import type { KVModuleOptions } from "@vite-hub/kv"
+import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_MAJOR_VERSION } from "@vite-hub/internal/build/vite"
 import { resolveConfig, type Plugin, type PluginOption } from "vite"
 import type { ConsoleViteDevTools } from "../src/console/devtools.ts"
 import { contributeProviderDeploymentOutput, useProviderOutputCatalog } from "../../internal/src/build/deployment-output.ts"
@@ -1315,7 +1316,7 @@ describe("vitehub", () => {
     ["cloudflare", "cloudflare-module"],
     ["netlify", "netlify"],
     ["vercel", "vercel"],
-    ["deno", "deno-deploy"],
+    ["deno", "deno-server"],
     ["node", "node-server"],
   ] as const)("maps the %s deployment plan to Nitro %s", async (preset, nitroPreset) => {
     const config: Record<string, unknown> = preset === "deno"
@@ -1336,6 +1337,38 @@ describe("vitehub", () => {
         modules: [expect.any(Function)],
         rollupConfig: { output: { chunkFileNames: "chunks/[name].mjs", entryFileNames: "index.mjs" } },
       })
+    }
+  })
+
+  it.each([
+    ["deno", false, 2, "deno-deploy"],
+    ["cloudflare", true, 2, "cloudflare-durable"],
+    ["deno", false, 3, "deno-server"],
+    ["cloudflare", true, 3, "cloudflare-module"],
+  ] as const)("selects the %s preset with realtime %s on Nitro %s during Nuxt config replay", async (preset, realtime, nitroMajorVersion, nitroPreset) => {
+    const plugins = vitehub({ preset, realtime })
+    const settings = dependencyPluginByName(plugins, "vite-hub/deployment-settings")
+    const deployment = dependencyPluginByName(plugins, "vite-hub/deployment-preset")
+    const output = dependencyPluginByName(plugins, "vite-hub/deployment-output")
+    try {
+      vi.stubEnv("NITRO_PRESET", nitroPreset)
+      vi.stubEnv("SERVER_PRESET", nitroPreset)
+      for (const initialPreset of [undefined, nitroPreset]) {
+        const config = {
+          [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+          [VITEHUB_NITRO_MAJOR_VERSION]: nitroMajorVersion,
+          command: "build",
+          nitro: { preset: initialPreset },
+        }
+        await callHook(settings.config, [config, { command: "build", mode: "production" }])
+        expect(config.nitro.preset).toBe(nitroPreset)
+        await callHook(deployment.config, [config, { command: "build", mode: "production" }])
+        expect(config.nitro.preset).toBe(nitroPreset)
+        expect(() => callHook(output.configResolved, [config])).not.toThrow()
+      }
+    }
+    finally {
+      vi.unstubAllEnvs()
     }
   })
 
@@ -1425,7 +1458,7 @@ describe("vitehub", () => {
     const config = await applyDeploymentConfig({ preset: "cloudflare", realtime: true })
 
     expect(config.nitro).toMatchObject({
-      preset: "cloudflare-durable",
+      preset: "cloudflare-module",
       cloudflare: {
         wrangler: {
           durable_objects: {
@@ -1716,7 +1749,7 @@ describe("vitehub", () => {
 
     expect(() => callHook(plugin.configResolved, [{
       command: "build",
-      nitro: { preset: "deno-deploy" },
+      nitro: { preset: "deno-server" },
       plugins: [],
       resolve: { alias: [{ customResolver, find: "#app", replacement: "/app/index.ts" }] },
     }])).not.toThrow()
@@ -1745,19 +1778,20 @@ describe("vitehub", () => {
     }
     callHook(output.configResolved, [{ ...resolvedConfig, nitro: nitroConfig }])
     let compiled: (() => Promise<void>) | undefined
-    const rollupConfig: { plugins?: unknown } = {}
+    const rolldownConfig: { plugins?: unknown } = {}
     const nitro = {
       hooks: {
         hook: vi.fn((name: string, callback: (...args: unknown[]) => unknown) => {
           // SAFETY: Nitro passes the compiled hook no arguments, and this test awaits it.
           if (name === "compiled") compiled = callback as () => Promise<void>
-          if (name === "rollup:before") callback(nitro, rollupConfig)
+          if (name === "build:config") callback(nitro, { builder: "vite", rolldown: rolldownConfig })
         }),
       },
       options: {
+        builder: "vite",
         commands: nitroConfig.commands,
         output: { dir: "/app/.output", serverDir: "/app/.output/server" },
-        preset: "deno_deploy",
+        preset: "deno_server",
         rootDir: "/app",
       },
     }
@@ -1768,7 +1802,7 @@ describe("vitehub", () => {
 
     await (compiled as () => Promise<void>)()
 
-    expect(rollupConfig.plugins).toEqual([{ name: "vitehub:deno-server-packages" }])
+    expect(rolldownConfig.plugins).toEqual([{ name: "vitehub:deno-server-packages" }])
     expect(integrationMocks.finalizeDenoDeploymentOutput).toHaveBeenCalledWith(expect.objectContaining({
       conditions: ["browser", "launch"],
       serverPackages: { bundledPackageDirs: [], externalImports: [] },
