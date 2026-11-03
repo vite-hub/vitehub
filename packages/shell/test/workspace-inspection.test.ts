@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
+import { createJustBashProvider } from "../src/providers/just-bash.ts"
 import {
   createReadonlyWorkspaceFs,
   createWritableWorkspaceFs,
@@ -9,6 +10,124 @@ import {
 import { MemoryWorkspace } from "./workspace-test-utils.ts"
 
 describe("@vite-hub/shell workspace inspection", () => {
+  it.each([false, true])("runs controlled curl substitution with an injected provider: %s", async (injectProvider) => {
+    const workspace = new MemoryWorkspace({})
+    const fs = createReadonlyWorkspaceFs(workspace)
+    const provider = createJustBashProvider({ fs })
+    const exec = vi.spyOn(provider, "exec")
+    const executeSourceRequest = vi.fn(async () => ({ content: "{\"status\":\"green\"}\n" }))
+
+    await expect(runWorkspaceInspectionCommand(workspace, "echo \"status=$(curl https://portal.example.com/runtime/health | jq -r .status)\"", {
+      commands: ["curl", "echo", "jq"],
+      fs,
+      networkGrants: { executeSourceRequest },
+      provider: injectProvider ? provider : undefined,
+    })).resolves.toMatchObject({
+      event: "command_finished",
+      exitCode: 0,
+      stdout: "status=green\n",
+    })
+    expect(executeSourceRequest).toHaveBeenCalledExactlyOnceWith({
+      method: "GET",
+      url: "https://portal.example.com/runtime/health",
+    })
+    expect(exec).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    "curl https://portal.example.com/runtime/health",
+    "cd . && curl https://portal.example.com/runtime/health",
+    'echo "`curl https://portal.example.com/runtime/health`"',
+    "cat <(curl https://portal.example.com/runtime/health)",
+    "cat < <(curl https://portal.example.com/runtime/health)",
+    "echo \"$('curl' https://portal.example.com/runtime/health)\"",
+    'echo "$(cu"rl" https://portal.example.com/runtime/health)"',
+  ])("routes controlled curl through Source grants with an injected provider: %s", async (command) => {
+    const workspace = new MemoryWorkspace({})
+    const fs = createReadonlyWorkspaceFs(workspace)
+    const provider = createJustBashProvider({ fs })
+    const exec = vi.spyOn(provider, "exec")
+    const executeSourceRequest = vi.fn(async () => ({ content: "green\n" }))
+
+    await expect(runWorkspaceInspectionCommand(workspace, command, {
+      commands: ["cat", "curl", "echo"],
+      fs,
+      networkGrants: { executeSourceRequest },
+      provider,
+    })).resolves.toMatchObject({
+      event: "command_finished",
+      exitCode: 0,
+      stdout: "green\n",
+    })
+    expect(executeSourceRequest).toHaveBeenCalledExactlyOnceWith({
+      method: "GET",
+      url: "https://portal.example.com/runtime/health",
+    })
+    expect(exec).not.toHaveBeenCalled()
+  })
+
+  it.each(["allowlist", "grant", "header"])("preserves curl %s denials inside substitution", async (denial) => {
+    const workspace = new MemoryWorkspace({})
+    const executeSourceRequest = vi.fn(async () => ({ content: "private" }))
+    const flags = denial === "header" ? "-H 'Authorization: x' " : ""
+
+    await expect(runWorkspaceInspectionCommand(workspace, `echo "$(curl ${flags}https://portal.example.com/runtime/health)"`, {
+      commands: denial === "allowlist" ? ["echo"] : ["curl", "echo"],
+      fs: createReadonlyWorkspaceFs(workspace),
+      networkGrants: denial === "grant" ? undefined : { executeSourceRequest },
+    })).resolves.toMatchObject({
+      event: "policy_denied",
+      stdout: expect.not.stringContaining("private"),
+    })
+    expect(executeSourceRequest).not.toHaveBeenCalled()
+  })
+
+  it("keeps substitution away from injected providers without Source request grants", async () => {
+    const workspace = new MemoryWorkspace({})
+    const fs = createReadonlyWorkspaceFs(workspace)
+    const provider = createJustBashProvider({ fs })
+    const exec = vi.spyOn(provider, "exec")
+
+    await expect(runWorkspaceInspectionCommand(workspace, "echo \"$(curl https://portal.example.com/runtime/health)\"", {
+      commands: ["curl", "echo"],
+      fs,
+      provider,
+    })).resolves.toMatchObject({
+      event: "policy_denied",
+      exitCode: 126,
+      stderr: expect.stringContaining("Unsupported workspace shell command: shell substitution"),
+    })
+    expect(exec).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    'cat "$(pwd)/README.md"',
+    'cat "`pwd`/README.md"',
+    "cat <(pwd)",
+    'echo "$(printf curl)"',
+    'echo "$(pwd)" # curl',
+    "echo \"$(echo '$(curl https://portal.example.com/runtime/health)')\"",
+  ])("preserves injected provider substitution denial with Source grants: %s", async (command) => {
+    const workspace = new MemoryWorkspace({ "README.md": "# Docs\n" })
+    const fs = createReadonlyWorkspaceFs(workspace)
+    const provider = createJustBashProvider({ fs })
+    const exec = vi.spyOn(provider, "exec")
+    const executeSourceRequest = vi.fn(async () => ({ content: "private" }))
+
+    await expect(runWorkspaceInspectionCommand(workspace, command, {
+      commands: ["cat", "curl", "echo", "printf", "pwd"],
+      fs,
+      networkGrants: { executeSourceRequest },
+      provider,
+    })).resolves.toMatchObject({
+      event: "policy_denied",
+      exitCode: 126,
+      stderr: expect.stringContaining("Unsupported workspace shell command: shell substitution"),
+    })
+    expect(exec).not.toHaveBeenCalled()
+    expect(executeSourceRequest).not.toHaveBeenCalled()
+  })
+
   it("preserves an infinite output limit", async () => {
     const workspace = new MemoryWorkspace({
       "large.txt": "x".repeat(30_001),
