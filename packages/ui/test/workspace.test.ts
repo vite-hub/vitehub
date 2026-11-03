@@ -22,6 +22,7 @@ const fake = vi.hoisted(() => {
     ready: undefined as ((url: string) => void) | undefined,
     serverListener: undefined as ((server: { url: string, port: number }) => void) | undefined,
     exits: [] as { command: unknown, env?: Record<string, string>, resolve: (code: number) => void }[],
+    output: [] as ReadableStreamDefaultController<string>[],
     mountFiles: undefined as Record<string, string> | undefined,
     releaseBoot: undefined as (() => void) | undefined,
     statusListener: undefined as ((status: WebContainerStatus) => void) | undefined,
@@ -32,6 +33,7 @@ const fake = vi.hoisted(() => {
 vi.mock("@vite-hub/web-container", () => ({
   checkWebContainerSupport: () => ({ supported: true }),
   async bootWebContainer(options: { files: Record<string, string>, onStatus: (status: WebContainerStatus) => void }) {
+    fake.statusListener = options.onStatus;
     fake.mountFiles = { ...options.files };
     for (const [path, contents] of Object.entries(options.files)) {
       fake.disk.set(path, contents);
@@ -75,7 +77,7 @@ vi.mock("@vite-hub/web-container", () => ({
         const exit = new Promise<number>((done) => { resolve = done; });
         fake.exits.push({ command, env: options.env, resolve });
         if (command !== "install" && fake.autoReady) fake.ready?.("https://preview.example");
-        return { exit, kill: () => resolve(143), output: new ReadableStream<string>({ start(controller) { controller.enqueue(`$ ${String(command)}\n`); } }) };
+        return { exit, kill: () => resolve(143), output: new ReadableStream<string>({ start(controller) { fake.output.push(controller); controller.enqueue(`$ ${String(command)}\n`); } }) };
       },
       teardown: () => {},
     };
@@ -104,6 +106,7 @@ beforeEach(() => {
   fake.serverListener = undefined;
   fake.statusListener = undefined;
   fake.exits.length = 0;
+  fake.output.length = 0;
   fake.mountFiles = undefined;
   fake.releaseBoot = undefined;
   sessionStorage.clear();
@@ -256,6 +259,72 @@ describe("useWorkspace", () => {
     expect(Object.fromEntries(fake.disk)).toEqual({ src: "replacement" });
     await workspace.reset();
     expect(Object.fromEntries(fake.disk)).toEqual({ "src/nested/main.ts": "original" });
+    wrapper.unmount();
+  });
+
+  it.each(["starting", "ready"])("keeps asynchronous errors visible from %s until recovery", async (stage) => {
+    fake.autoReady = stage === "ready";
+    const { workspace, wrapper } = mountWorkspace({ files: {}, install: false });
+    await flushPromises();
+    fake.releaseBoot?.();
+    await flushPromises();
+    expect(workspace.status.value).toBe(stage);
+
+    const error = new Error("Container disconnected");
+    fake.statusListener?.({ error, stage: "error", steps: [] });
+    expect(workspace.failure.value).toEqual({ error, kind: "server" });
+    expect(workspace.previewUrl.value).toBeUndefined();
+    fake.ready?.("https://late.example");
+    expect(workspace.status.value).toBe("error");
+    expect(workspace.previewUrl.value).toBeUndefined();
+
+    fake.autoReady = true;
+    await workspace.restart();
+    expect(workspace.failure.value).toBeUndefined();
+    expect(workspace.status.value).toBe("ready");
+    wrapper.unmount();
+  });
+
+  it("does not start a server after an asynchronous install error", async () => {
+    const { workspace, wrapper } = mountWorkspace({ files: {} });
+    await flushPromises();
+    fake.releaseBoot?.();
+    await flushPromises();
+    const error = new Error("Container disconnected during install");
+    fake.statusListener?.({ error, stage: "error", steps: [] });
+    fake.exits[0]?.resolve(0);
+    await flushPromises();
+    expect(workspace.failure.value).toEqual({ error, kind: "install" });
+    expect(workspace.status.value).toBe("error");
+    expect(fake.exits.map(run => run.command)).toEqual(["install"]);
+
+    const retry = workspace.install();
+    await flushPromises();
+    fake.exits[1]?.resolve(0);
+    await retry;
+    expect(workspace.failure.value).toBeUndefined();
+    expect(workspace.status.value).toBe("ready");
+    wrapper.unmount();
+  });
+
+  it("bounds retained output for large chunks and long-running processes", async () => {
+    vi.useFakeTimers();
+    const { workspace, wrapper } = mountWorkspace({ files: {}, install: false });
+    await flushPromises();
+    fake.releaseBoot?.();
+    await flushPromises();
+    const output = fake.output[0]!;
+    output.enqueue("x".repeat(70_000));
+    output.enqueue("newest\n");
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(50);
+    expect(workspace.logs.value.join("")).toBe(`${"x".repeat(65_536 - 7)}newest\n`);
+
+    for (let index = 0; index < 1100; index++) output.enqueue(`${index}\n`);
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(50);
+    expect(workspace.logs.value).toHaveLength(1000);
+    expect(workspace.logs.value.join("")).toBe(Array.from({ length: 1000 }, (_, index) => `${index + 100}\n`).join(""));
     wrapper.unmount();
   });
 
