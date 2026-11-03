@@ -5,7 +5,7 @@ import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 import isBlob from "../internal/is-blob.ts"
 
 import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, BlobSignedRequest, BlobSignOptions, ResolvedBlobStoreConfig } from "../types.ts"
-import type { Adapter, FileInfo, Files } from "files-sdk"
+import type { Adapter, FileInfo, Files, ListOptions, ListResult } from "files-sdk"
 
 type FilesCtor = typeof import("files-sdk").Files
 type FilesInstance = Files<Adapter>
@@ -121,6 +121,18 @@ async function signRequest(client: FilesInstance, driver: string, pathname: stri
   return { headers: upload.headers ?? {}, method: "PUT", url: upload.url }
 }
 
+async function listPage(client: FilesInstance, listOptions: ListOptions): Promise<ListResult> {
+  try {
+    return await client.list(listOptions)
+  }
+  catch (error) {
+    if (error instanceof Error && /ENOTDIR/.test(error.message)) {
+      throw Object.assign(error, { code: "ENOTDIR" })
+    }
+    throw error
+  }
+}
+
 async function getUploadUrl(client: FilesInstance, pathname: string): Promise<string | undefined> {
   try {
     return await client.url(pathname)
@@ -195,6 +207,22 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
     async list(listOptions: BlobListOptions = {}): Promise<BlobListResult> {
       if (listOptions.folded) {
         const client = await files()
+        // Providers with folders return them as common prefixes, so each page is one request.
+        if (client.capabilities.delimiter !== false) {
+          const result = await listPage(client, {
+            cursor: listOptions.cursor,
+            delimiter: "/",
+            limit: listOptions.limit ?? 1000,
+            prefix: listOptions.prefix,
+          })
+          return {
+            blobs: result.items.map(mapFileInfo),
+            cursor: result.cursor,
+            folders: [...result.prefixes ?? []].sort((left, right) => left.localeCompare(right)),
+            hasMore: Boolean(result.cursor),
+          }
+        }
+
         const prefix = listOptions.prefix || ""
         const limit = listOptions.limit ?? 1000
         const initialCursor = decodeFoldedCursor(listOptions.cursor)
@@ -207,20 +235,11 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
         let nextCursor: string | undefined
 
         while (blobs.length < limit) {
-          let result
-          try {
-            result = await client.list({
-              cursor: providerCursor,
-              limit: 1000,
-              prefix: listOptions.prefix,
-            })
-          }
-          catch (error) {
-            if (error instanceof Error && /ENOTDIR/.test(error.message)) {
-              throw Object.assign(error, { code: "ENOTDIR" })
-            }
-            throw error
-          }
+          const result = await listPage(client, {
+            cursor: providerCursor,
+            limit: 1000,
+            prefix: listOptions.prefix,
+          })
 
           if (start > 0 && start >= result.items.length) {
             throw new TypeError("Invalid Blob cursor.")
@@ -269,20 +288,11 @@ export function createFilesSdkDriver<TOptions extends ResolvedBlobStoreConfig>(
         }
       }
 
-      let result
-      try {
-        result = await (await files()).list({
-          cursor: listOptions.cursor,
-          limit: listOptions.limit ?? 1000,
-          prefix: listOptions.prefix,
-        })
-      }
-      catch (error) {
-        if (error instanceof Error && /ENOTDIR/.test(error.message)) {
-          throw Object.assign(error, { code: "ENOTDIR" })
-        }
-        throw error
-      }
+      const result = await listPage(await files(), {
+        cursor: listOptions.cursor,
+        limit: listOptions.limit ?? 1000,
+        prefix: listOptions.prefix,
+      })
 
       return {
         blobs: result.items.map(mapFileInfo),
