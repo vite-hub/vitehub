@@ -12,6 +12,7 @@ import {
   resolveViteHubProjectRoot,
   VITEHUB_GENERATED_ROOT,
   VITEHUB_NITRO_CONFIG_CONTEXT,
+  VITEHUB_NITRO_MAJOR_VERSION,
   VITEHUB_PROJECT_ROOT,
   VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite"
@@ -2963,6 +2964,60 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     await viteHubNuxtModule({ preset }, nuxt)
 
     expect(nitroOptions(nuxt)).toMatchObject({ preset: nitroPreset })
+  })
+
+  it.each([
+    [2, "nuxt", "deno", false, "deno-deploy"],
+    [2, "server builder", "deno", false, "deno-deploy"],
+    [3, "server builder", "deno", false, "deno-server"],
+    [2, "nuxt", "cloudflare", true, "cloudflare-durable"],
+    [2, "server builder", "cloudflare", true, "cloudflare-durable"],
+    [3, "server builder", "cloudflare", true, "cloudflare-module"],
+  ] as const)("uses the installed Nuxt Nitro %s via %s for %s with realtime %s", async (major, owner, preset, realtime, expectedPreset) => {
+    const root = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-nitro-"))
+    const writePackage = async (directory: string, manifest: object) => {
+      await mkdir(directory, { recursive: true })
+      await writeFile(resolve(directory, "package.json"), JSON.stringify(manifest))
+    }
+    try {
+      const nuxtRoot = resolve(root, "node_modules/nuxt")
+      await writePackage(nuxtRoot, {
+        name: "nuxt",
+        dependencies: owner === "nuxt" ? { nitropack: "2.13.4" } : { "@nuxt/nitro-server": `${major + 2}.0.0` },
+      })
+      // The app's standalone Nitro must not override Nuxt's server dependency.
+      await writePackage(resolve(root, "node_modules/nitro"), { name: "nitro", version: "3.0.261102-rc" })
+      if (owner === "nuxt") {
+        await writePackage(resolve(nuxtRoot, "node_modules/nitropack"), { name: "nitropack", version: "2.13.4" })
+      }
+      else {
+        // Model a hoisted Nuxt 4 builder alongside the app's standalone Nitro 3.
+        const builderRoot = resolve(major === 2 ? root : nuxtRoot, "node_modules/@nuxt/nitro-server")
+        await writePackage(builderRoot, {
+          name: "@nuxt/nitro-server",
+          dependencies: major === 2 ? { nitropack: "2.13.4" } : { nitro: "3.0.261102-rc" },
+        })
+        await writePackage(resolve(major === 2 ? root : builderRoot, `node_modules/${major === 2 ? "nitropack" : "nitro"}`), {
+          name: major === 2 ? "nitropack" : "nitro",
+          version: major === 2 ? "2.13.4" : "3.0.261102-rc",
+        })
+      }
+      const { nuxt, runNitroConfigHook } = createNuxt()
+      nuxt.options.rootDir = root
+      nuxt.options.buildDir = resolve(root, ".nuxt")
+      nuxt.options.serverDir = resolve(root, "server")
+      await viteHubNuxtModule({ console: false, preset, realtime }, nuxt)
+      expect(nitroOptions(nuxt).preset).toBe(expectedPreset)
+      expect(nuxt.options.vite).toHaveProperty(VITEHUB_NITRO_MAJOR_VERSION, major)
+      await runNitroConfigHook({ ...nitroOptions(nuxt) })
+      expect(mocks.sandboxTaskHook).toHaveBeenCalledWith(expect.objectContaining({
+        [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
+        [VITEHUB_NITRO_MAJOR_VERSION]: major,
+      }), expect.anything())
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 
   it("detects the Nitro preset from the host's build variables when preset is omitted", async () => {

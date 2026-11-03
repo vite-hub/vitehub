@@ -1,7 +1,7 @@
 import { consoleD1Binding, consoleDatabaseUrl, resolveConsoleJournal, withConnectionsDatabase, withDataDir, type ConsoleJournal } from "./storage-config.ts"
 import { readFileSync } from "node:fs"
 import { readFile, writeFile } from "node:fs/promises"
-import { findPackageJSON } from "node:module"
+import { createRequire, findPackageJSON } from "node:module"
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
@@ -9,7 +9,7 @@ import { parseJSONC, parseTOML } from "confbox"
 import { transform } from "esbuild"
 import { findNearestFile } from "pkg-types"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
-import { resolveNuxtServerDirs, resolveViteHubProjectRoot, VITEHUB_APP_BASE_URL, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
+import { resolveNuxtServerDirs, resolveViteHubProjectRoot, VITEHUB_APP_BASE_URL, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_MAJOR_VERSION, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 import { removeViteHubDevServerFile, writeViteHubDevServerFile } from "@vite-hub/internal/cli"
 import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { nitroGeneratedRelativeImports } from "./internal/nitro-generated-imports.ts"
@@ -217,6 +217,27 @@ type NuxtLike = {
 const agentVueComposables = ["useAgent", "useAgentInvocation", "useAgentInvocations", "useChat"]
 const h3RuntimeRoot = dirname(fileURLToPath(import.meta.resolve("h3/package.json")))
 const cloudflareTypes = fileURLToPath(new URL("./cloudflare-types.d.ts", import.meta.url))
+
+function resolveNuxtNitroMajor(rootDir: string): 2 | 3 {
+  try {
+    const appRequire = createRequire(resolve(rootDir, "package.json"))
+    const nuxtRequire = createRequire(appRequire.resolve("nuxt/package.json"))
+    const nuxtPackage: unknown = nuxtRequire("./package.json")
+    const dependencies = isRecord(nuxtPackage) && isRecord(nuxtPackage.dependencies) ? nuxtPackage.dependencies : {}
+    // Current Nuxt 4 and 5 load Nitro through their server builder; resolve from that owner.
+    const nitroRequire = dependencies["@nuxt/nitro-server"]
+      ? createRequire(nuxtRequire.resolve("@nuxt/nitro-server/package.json"))
+      : nuxtRequire
+    const nitroOwnerPackage: unknown = nitroRequire("./package.json")
+    const nitroDependencies = isRecord(nitroOwnerPackage) && isRecord(nitroOwnerPackage.dependencies) ? nitroOwnerPackage.dependencies : {}
+    const nitroPackage: unknown = nitroRequire(nitroDependencies.nitropack ? "nitropack/package.json" : "nitro/package.json")
+    return isRecord(nitroPackage) && typeof nitroPackage.version === "string" && nitroPackage.version.startsWith("3.") ? 3 : 2
+  }
+  catch {
+    // Preserve Nuxt 4's mapping when called without an installed Nuxt host (for example during discovery).
+    return 2
+  }
+}
 
 function emailTemplateResolver(root: string): Plugin {
   return {
@@ -794,6 +815,7 @@ async function applyNitroConfig(
   nitroConfig: Record<string, unknown>,
   nuxt: NuxtLike,
   projectRoot: string,
+  nitroMajorVersion: 2 | 3,
 ) {
   const incomingNoExternals = typeof nitroConfig.noExternals === "boolean" ? nitroConfig.noExternals : undefined
   const environment = {
@@ -813,6 +835,7 @@ async function applyNitroConfig(
   }, nuxt.options.vite ?? {}) as UserConfig & EnvViteUserConfig & {
     [VITEHUB_GENERATED_ROOT]?: string
     [VITEHUB_NITRO_CONFIG_CONTEXT]?: true
+    [VITEHUB_NITRO_MAJOR_VERSION]?: 2 | 3
     [VITEHUB_PROJECT_ROOT]?: string
     [VITEHUB_SERVER_DIRS]?: string[]
     [VITEHUB_APP_BASE_URL]?: string
@@ -833,6 +856,7 @@ async function applyNitroConfig(
   const restoreReplayOwnership = () => {
     config[VITEHUB_GENERATED_ROOT] = generatedRoot
     config[VITEHUB_NITRO_CONFIG_CONTEXT] = true
+    config[VITEHUB_NITRO_MAJOR_VERSION] = nitroMajorVersion
     config[VITEHUB_PROJECT_ROOT] = projectRoot
     config[VITEHUB_APP_BASE_URL] = nuxt.options.app?.baseURL || "/"
     if (serverDirs) config[VITEHUB_SERVER_DIRS] = serverDirs
@@ -959,6 +983,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     ? Object.fromEntries(Object.entries(configuredEnv).filter(([key]) => !["define", "public", "server"].includes(key)))
     : configuredEnv
   const rootDir = nuxt.options.rootDir || process.cwd()
+  const nitroMajorVersion = resolveNuxtNitroMajor(rootDir)
   const projectRoot = resolveViteHubProjectRoot(rootDir)
   // The `cms` preset turns on Workspace, Database, and Blob. Nuxt knows the root here, so resolve it once.
   const options = markCmsPresetFeaturesResolved(withConnectionsDatabase(withDataDir(resolveCmsPresetFeatures({
@@ -987,9 +1012,9 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     !nuxt.options.dev,
   )
   const nitro = (nuxt.options.nitro ??= {})
-  const nitroPreset = plan.preset === "cloudflare" && options.realtime
-    ? "cloudflare-durable"
-    : plan.nitroPreset
+  const nitroPreset = nitroMajorVersion === 2
+    ? plan.preset === "cloudflare" && options.realtime ? "cloudflare-durable" : plan.nitroPreset
+    : plan.preset === "deno" ? "deno-server" : plan.nitroPreset
   if (typeof nitro.preset === "string" && normalizeNitroPreset(nitro.preset) !== nitroPreset) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0009({ message: "[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with nitro.preset " + JSON.stringify(nitro.preset) + "." })
   }
@@ -1104,6 +1129,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const viteConfig = nuxt.options.vite as UserConfig & EnvViteUserConfig & {
     [VITEHUB_GENERATED_ROOT]?: string
     [VITEHUB_NITRO_CONFIG_CONTEXT]?: true
+    [VITEHUB_NITRO_MAJOR_VERSION]?: 2 | 3
     [VITEHUB_PROJECT_ROOT]?: string
     [VITEHUB_SERVER_DIRS]?: string[]
     [VITEHUB_APP_BASE_URL]?: string
@@ -1327,6 +1353,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   viteConfig[VITEHUB_GENERATED_ROOT] = join(nuxt.options.buildDir, "vitehub")
   viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT] = true
+  viteConfig[VITEHUB_NITRO_MAJOR_VERSION] = nitroMajorVersion
   viteConfig[VITEHUB_PROJECT_ROOT] = projectRoot
   viteConfig[VITEHUB_APP_BASE_URL] = nuxt.options.app?.baseURL || "/"
   const viteServerDirs = resolveNuxtServerDirs(nuxt.options)
@@ -1375,7 +1402,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       config: replayConfig,
       hasReplayedDatabaseDiscoveryRoot,
       replayedDatabaseDiscoveryRoot,
-    } = await applyNitroConfig(replayPlugins, config, nuxt, projectRoot)
+    } = await applyNitroConfig(replayPlugins, config, nuxt, projectRoot, nitroMajorVersion)
     if (options.env !== false) await envPlugin?.api?.prepareTypes?.(replayConfig.env, viteRoot)
     consoleWorkflowConfigResolved = true
     if (consoleOptions) {

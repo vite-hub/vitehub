@@ -49,7 +49,7 @@ Requires Node.js 24.15 or newer.
 
 \`\`\`sh
 pnpm add vite-hub @vite-hub/database drizzle-orm
-pnpm add -D @vite-hub/cli drizzle-kit${nuxt ? "" : " vite@^8 nitro@3.0.260903-beta"}
+pnpm add -D @vite-hub/cli drizzle-kit${nuxt ? "" : " vite@^8 nitro@3.0.261102-rc"}
 pnpm vitehub db generate
 pnpm vitehub db migrate
 pnpm ${nuxt ? "nuxt" : "vite"} dev

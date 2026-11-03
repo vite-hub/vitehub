@@ -102,8 +102,14 @@ async function run(command: string, args: string[], cwd: string) {
   }
 }
 
-function workspaceConfig(specs: Record<string, string>) {
-  const overrides = Object.entries(specs)
+async function workspaceConfig(specs: Record<string, string>) {
+  const nuxtUi = createRequire(await realpath(join(repoRoot, "packages/ui/node_modules/@nuxt/ui/package.json")))
+  // Keep Nuxt UI and Reka UI on the tested virtualizer: a fresh resolution can
+  // select a Vue adapter before its exact virtual-core dependency is published.
+  const overrides = Object.entries({
+    ...specs,
+    "@tanstack/vue-virtual": await installedVersion(nuxtUi.resolve("@tanstack/vue-virtual/package.json")),
+  })
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([name, spec]) => `  ${JSON.stringify(name)}: ${JSON.stringify(spec)}`)
   return ["packages:", "  - .", "overrides:", ...overrides, ""].join("\n")
@@ -271,7 +277,7 @@ async function writeConsumer(appDir: string, specs: Record<string, string>) {
       private: true,
       type: "module",
     }, null, 2), "utf8"),
-    writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs), "utf8"),
+    writeFile(join(appDir, "pnpm-workspace.yaml"), await workspaceConfig(specs), "utf8"),
   ])
 }
 
@@ -440,7 +446,7 @@ async function importPackagesWithoutDeclarationPeer(
         private: true,
         type: "module",
       }, null, 2), "utf8"),
-      writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs), "utf8"),
+      writeFile(join(appDir, "pnpm-workspace.yaml"), await workspaceConfig(specs), "utf8"),
     ])
     await run("corepack", ["pnpm", "install", "--ignore-scripts"], appDir)
     await importSpecifiers(appDir, contracts.map(contract => contract.specifier))
@@ -545,7 +551,7 @@ async function exercisePackagesWithoutOptionalPeers(root: string, specs: Record<
         private: true,
         type: "module",
       }, null, 2), "utf8"),
-      writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs), "utf8"),
+      writeFile(join(appDir, "pnpm-workspace.yaml"), await workspaceConfig(specs), "utf8"),
     ])
     await run("corepack", ["pnpm", "install", "--ignore-scripts"], appDir)
     await importPackageWithoutRootFallback(appDir, info, false)
