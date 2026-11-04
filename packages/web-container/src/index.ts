@@ -294,7 +294,7 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
     status.fail("error", error)
   }
   const defaultPort = String(options.port ?? 3000)
-  const previewPorts = new Set([Number(defaultPort)])
+  const previewPorts = new Map<number, number>()
   container.on("server-ready", (port, url) => {
     if (!previewPorts.has(port)) return
     serverReadyCount++
@@ -326,18 +326,26 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
       const readyCountAtStart = serverReadyCount
       if (stage) status.enter(stage)
       const env = { PORT: defaultPort, ...runOptions.env }
-      previewPorts.add(Number(env.PORT))
+      const previewPort = Number(env.PORT)
+      previewPorts.set(previewPort, (previewPorts.get(previewPort) ?? 0) + 1)
+      function releasePreviewPort() {
+        const remaining = previewPorts.get(previewPort)! - 1
+        if (remaining) previewPorts.set(previewPort, remaining)
+        else previewPorts.delete(previewPort)
+      }
       let spawned: Awaited<ReturnType<StackBlitzWebContainer["spawn"]>>
       try {
         spawned = await container.spawn(file, args, { cwd: runOptions.cwd, env })
       }
       catch (cause) {
+        releasePreviewPort()
         const error = cause instanceof Error ? cause : new Error(String(cause))
         if (stage === "starting") devRunning = false
         if (stage) fail(error)
         throw error
       }
       const run = wrapProcess(spawned, runOptions.signal)
+      void run.exit.then(releasePreviewPort, releasePreviewPort)
       if (stage === "installing") {
         void run.exit.then(async (code) => {
           if (code === 0) return status.finish("installing")

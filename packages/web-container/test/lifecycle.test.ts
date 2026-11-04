@@ -279,6 +279,67 @@ describe("WebContainer lifecycle", () => {
     await expect(app.preview.ready).resolves.toEqual({ port: 3001, url: "https://start.example" })
   })
 
+  it("does not preview the default port after install exits and dev overrides PORT", async () => {
+    const { container, events, process, exited } = fixture()
+    const app = await bootWebContainer()
+    const install = await app.run("install")
+    exited.resolve(0)
+    await install.exit
+
+    container.spawn.mockResolvedValueOnce({ ...process, output: new ReadableStream<string>({ start(controller) { controller.close() } }), exit: deferred<number>().promise })
+    await app.run("dev", { env: { PORT: "4000" } })
+    events.emit("server-ready", 3000, "https://worker.example")
+    expect(app.preview.url).toBeUndefined()
+    expect(app.status.stage).toBe("starting")
+    events.emit("server-ready", 4000, "https://app.example")
+    await expect(app.preview.ready).resolves.toEqual({ port: 4000, url: "https://app.example" })
+  })
+
+  it.each([0, 1])("does not preview a custom run's port after it exits with code %s", async (code) => {
+    const { container, events, process, exited } = fixture()
+    const app = await bootWebContainer()
+    const first = await app.run(["node", "server.js"], { env: { PORT: "3001" } })
+    exited.resolve(code)
+    await first.exit
+
+    container.spawn.mockResolvedValueOnce({ ...process, output: new ReadableStream<string>({ start(controller) { controller.close() } }), exit: deferred<number>().promise })
+    await app.run("dev", { env: { PORT: "4000" } })
+    events.emit("server-ready", 3001, "https://old.example")
+    expect(app.preview.url).toBeUndefined()
+    expect(app.status.stage).toBe("starting")
+    events.emit("server-ready", 4000, "https://app.example")
+    await expect(app.preview.ready).resolves.toEqual({ port: 4000, url: "https://app.example" })
+  })
+
+  it("does not preview the port of a run that failed to spawn", async () => {
+    const { container, events } = fixture()
+    const app = await bootWebContainer()
+    container.spawn.mockRejectedValueOnce(new Error("spawn failed"))
+    await expect(app.run(["node", "server.js"], { env: { PORT: "3001" } })).rejects.toThrow("spawn failed")
+    await app.run("dev", { env: { PORT: "4000" } })
+    events.emit("server-ready", 3001, "https://failed.example")
+    expect(app.preview.url).toBeUndefined()
+    events.emit("server-ready", 4000, "https://app.example")
+    await expect(app.preview.ready).resolves.toEqual({ port: 4000, url: "https://app.example" })
+  })
+
+  it("keeps a shared port eligible until every run on it exits", async () => {
+    const { container, events, process, exited } = fixture()
+    const app = await bootWebContainer()
+    const first = await app.run(["node", "first.js"], { env: { PORT: "3001" } })
+    const secondExit = deferred<number>()
+    container.spawn.mockResolvedValueOnce({ ...process, output: new ReadableStream<string>({ start(controller) { controller.close() } }), exit: secondExit.promise })
+    const second = await app.run(["node", "second.js"], { env: { PORT: "3001" } })
+    exited.resolve(0)
+    await first.exit
+    events.emit("server-ready", 3001, "https://active.example")
+    await expect(app.preview.ready).resolves.toEqual({ port: 3001, url: "https://active.example" })
+    secondExit.resolve(0)
+    await second.exit
+    events.emit("server-ready", 3001, "https://stale.example")
+    expect(app.preview.url).toBe("https://active.example")
+  })
+
   it("previews only the server on the given port", async () => {
     const { container, events } = fixture()
     const app = await bootWebContainer({ port: 4000 })
