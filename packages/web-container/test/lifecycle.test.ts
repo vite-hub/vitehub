@@ -255,4 +255,17 @@ describe("WebContainer lifecycle", () => {
     await expect(app.preview.ready).resolves.toEqual({ port: 3000, url: "https://first.example" })
     expect(app.preview.url).toBe("https://second.example")
   })
+
+  it("previews only the server on the given port", async () => {
+    const { events } = fixture()
+    const app = await bootWebContainer({ port: 3000 })
+    await app.run("dev")
+    // Nitro starts its dev workers on random ports before Vite listens on 3000.
+    events.emit("server-ready", 49877, "https://worker.example")
+    expect(app.preview.url).toBeUndefined()
+    expect(app.status.stage).toBe("starting")
+    events.emit("server-ready", 3000, "https://app.example")
+    await expect(app.preview.ready).resolves.toEqual({ port: 3000, url: "https://app.example" })
+    expect(app.status.stage).toBe("ready")
+  })
 })

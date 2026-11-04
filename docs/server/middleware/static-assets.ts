@@ -91,6 +91,9 @@ export default defineEventHandler(async (event) => {
     // `_headers` already sets it for some pages.
     const vary = new Set((headers.get("Vary") ?? "").split(",").map(value => value.trim()).filter(Boolean));
     headers.set("Vary", [...vary.add("Accept").add("User-Agent")].join(", "));
+    // The asset response replaces the one that Nitro started, so it must carry the route rule headers too, such as
+    // the cross-origin isolation of `/tutorials/**`.
+    for (const [name, value] of Object.entries(getRouteRules(event).headers ?? {})) headers.set(name, value);
     if (isTutorial) {
       headers.set("Cache-Control", "private, no-store");
       headers.append("Vary", "Cookie");
