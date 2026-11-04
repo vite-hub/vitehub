@@ -36,7 +36,7 @@ async function expectPageToUseFixture(pagePath: string, fixture: string, labels:
 
 describe("documentation tutorials", () => {
   it("adds only the owner packages of opt-in features next to the framework distribution", async () => {
-    for (const [fixture, owners] of [["agents", ["@vite-hub/agent"]], ["first-agent", ["@vite-hub/agent"]], ["server-primitives", []]] as const) {
+    for (const [fixture, owners] of [["agents", ["@vite-hub/agent"]], ["first-agent", ["@vite-hub/agent"]], ["server-primitives", []], ["decisions", []]] as const) {
       const manifest = JSON.parse(
         await readFile(resolve(fixturesRoot, fixture, "package.json"), "utf8"),
       );
@@ -152,6 +152,18 @@ describe("documentation tutorials", () => {
       "vite.config.ts",
       "server/agents/greeting.ts",
       "server/api/greet.post.ts",
+    ]);
+  });
+
+  it("keeps the Decisions tutorial on its fixture", async () => {
+    await expectPageToUseFixture("content/docs/decisions/get-started.md", "decisions", [
+      "server/utils/word-gateway.ts",
+      "server/utils/forecast-choices.ts",
+      "server/api/choices.post.ts",
+      "vite.config.ts",
+      "index.html",
+      "src/main.ts",
+      "src/App.vue",
     ]);
   });
 
