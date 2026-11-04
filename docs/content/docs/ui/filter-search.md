@@ -33,6 +33,7 @@ import { useChoices } from "vite-hub/decisions/vue";
 const filters = useFilters();
 
 const choices = useChoices<typeof forecast>({
+  onClear: () => filters.reset(),
   onSelect: (selection) => filters.apply(selection),
   resolve: (text, { signal }) => $fetch("/api/choices/forecast", { body: { text }, method: "POST", signal }),
 });
@@ -43,7 +44,7 @@ const choices = useChoices<typeof forecast>({
 </template>
 ```
 
-Enter sends the text. Escape clears it and cancels a request that is still running. `FilterSearch` never calls `resolve`, so a test that passes a stub object needs no network.
+Enter sends the text. Escape clears it and cancels a request that is still running. Escape calls `clear()`, which calls your `onClear`, so reset your own filters there. `FilterSearch` never calls `resolve`, so a test that passes a stub object needs no network.
 
 ## Composition
 
