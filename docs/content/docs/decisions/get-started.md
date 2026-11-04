@@ -21,7 +21,7 @@ pnpm add vue
 pnpm add -D @vitejs/plugin-vue
 ```
 
-::run-tutorial{to="/tutorials/decisions"}
+::run-tutorial{to="/learn/decisions"}
 ::
 
 ::tutorial-step{title="Declare your options"}
