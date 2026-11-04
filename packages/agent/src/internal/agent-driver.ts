@@ -46,6 +46,8 @@ export type NormalizedAgentDriver<
 > = { capacity?: AgentDriverCapacityOptions } & (
   | {
     execution?: AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS>
+    /** The ChatGPT plan gateway. `model` is then a model ID from the Connection's catalog. */
+    gateway?: ChatGPTGateway
     instructions?: AgentAdapterInstructions<TRuntimeConfig>
     kind: "model"
     model: AgentModelResolver<TRuntimeConfig>
@@ -173,10 +175,24 @@ export function normalizeAgentDriverCapacity(value: unknown): AgentDriverCapacit
   return normalized
 }
 
-const modelDriverKeys = new Set(["capacity", "execution", "instructions", "maxRetries", "model", "output"])
+const modelDriverKeys = new Set(["capacity", "execution", "gateway", "instructions", "maxRetries", "model", "output"])
 const providerDriverKeys = new Set(["capacity", "credentialProfile", "credentials", "cwd", "env", "execution", "gateway", "instructions", "kind", "launch", "model", "output", "permissions", "providerSettings", "reasoningEffort", "reasoningSummary", "requirements", "retention", "sessionStorePath", "toolchain"])
 const runDriverKeys = new Set(["capacity", "output", "run"])
 const askDriverKeys = new Set(["ask", "capacity", "gateway"])
+
+/**
+ * A model-backed Driver takes the ChatGPT plan gateway, with a model ID. Another gateway gives the model itself:
+ * `model: languageModel(gateway, id)`, so an app bundles only the AI SDK provider that it uses.
+ */
+function modelDriverGateway(value: unknown, model: unknown): ChatGPTGateway {
+  if (!isChatGPTGateway(value)) {
+    throw agentDiagnostics.AGENT_R0976({ message: "[vitehub] defineAgent({ driver: { model, gateway } }) accepts only chatgpt() as gateway. For another gateway, set model: languageModel(gateway, id) from vite-hub/gateways/ai-sdk." })
+  }
+  if (!isRuntimeString(model) || !model.trim() || model !== model.trim()) {
+    throw agentDiagnostics.AGENT_R0514({ message: "[vitehub] defineAgent({ driver: { model, gateway: chatgpt() } }) needs model to be a model ID, such as \"gpt-5.5\". List the IDs with vitehub connections models chatgpt." })
+  }
+  return Object.freeze({ ...value })
+}
 
 function isResolver(value: unknown): value is { resolve: (...args: never[]) => unknown } {
   return isPlainObject(value) && isRuntimeFunction(value.resolve)
@@ -469,11 +485,13 @@ function normalizeExplicitAgentDriver(driver: unknown): NormalizedAgentDriver {
     if (driver.maxRetries !== undefined && execution?.callSettings?.maxRetries !== undefined) {
       throw agentDiagnostics.AGENT_R0495({ message: "[vitehub] defineAgent({ driver }) accepts maxRetries either directly or in execution.callSettings, not both." })
     }
+    const gateway = driver.gateway === undefined ? undefined : modelDriverGateway(driver.gateway, driver.model)
     return {
       capacity,
       execution: driver.maxRetries === undefined
         ? execution
         : { ...execution, callSettings: { ...execution?.callSettings, maxRetries: driver.maxRetries } },
+      ...(gateway ? { gateway } : {}),
       // SAFETY: The typed AgentSettings boundary establishes the model instructions contract.
       instructions: driver.instructions as AgentAdapterInstructions | undefined,
       kind: "model",

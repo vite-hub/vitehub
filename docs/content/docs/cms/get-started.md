@@ -9,7 +9,7 @@ icon: i-lucide-rocket
 
 Add a `posts` collection to a Vite app with the `cms` preset. Create its tables, write a post in the Console, and publish it. You write no Workspace, no Database Definition, and no schema.
 
-You need Node.js 24.15 or newer, pnpm, and a Vite application. Run the commands from its root.
+You need Node.js 22.22 or newer, pnpm, and a Vite application. Run the commands from its root.
 
 ::tutorial-step{title="Install and turn on ViteHub"}
 ## Install and turn on ViteHub

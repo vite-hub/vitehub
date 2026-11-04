@@ -2221,12 +2221,19 @@ function defineBaseAgent<
   })
   // Capabilities and Channels that contribute a Workspace reach this point through createWorkspaceAgentDefinition.
   if (sandbox !== undefined) validateAgentSandbox(sandbox, driver, { hasWorkspace: Boolean(workspace) })
+  const modelGateway = driver.kind === "model" ? driver.gateway : undefined
+  const inheritedModel: AgentModelResolver<TRuntimeConfig> | undefined = driver.kind === "model"
+    ? modelGateway
+      ? async context => (await import("./internal/chatgpt-model.ts")).chatgptLanguageModel(modelGateway, String(driver.model), context)
+      : driver.model
+    : undefined
   let providerAdapter: Promise<AgentAdapter<CALL_OPTIONS>> | undefined
   const resolveBaseAgent: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS> = async (context) => {
     const resolvedAdapter = driver.kind === "model"
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       ? (await import("./ai-sdk.ts")).createAiSdkAdapter({
           execution: driver.execution,
+          gateway: driver.gateway,
           instructions: driver.instructions,
           model: driver.model,
         } as never) as AgentAdapter<CALL_OPTIONS>
@@ -2266,7 +2273,7 @@ function defineBaseAgent<
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const definition = {
     [baseAgentDriver]: driver,
-    ...(driver.kind === "model" ? { [baseAgentModel]: driver.model } : {}),
+    ...(driver.kind === "model" ? { [baseAgentModel]: inheritedModel } : {}),
     [baseAgentDriverKind]: driver.kind,
     ...(driver.output ? { [baseAgentOutput]: driver.output } : {}),
     ...(options.data ? { [baseAgentData]: options.data } : {}),

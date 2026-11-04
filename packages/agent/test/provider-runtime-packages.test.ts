@@ -33,6 +33,8 @@ vi.mock("node:module", async () => {
 
 import { resolveInstalledProviderExecutable, resolveProviderRuntimePackages } from "../src/internal/provider-runtime-packages.ts"
 
+const nodeMajor = Number(process.versions.node.split(".")[0])
+
 const tempDirs: string[] = []
 
 async function createProject(options: {
@@ -164,7 +166,8 @@ describe("Provider runtime packages", () => {
     }
   })
 
-  it("preserves provider packages reached through a customized resolver", async () => {
+  // Node.js 22 require.resolve() does not run module.registerHooks resolve hooks.
+  it.skipIf(nodeMajor < 24)("preserves provider packages reached through a customized resolver", async () => {
     const claudeTarget = "@anthropic-ai/claude-agent-sdk-linux-x64"
     const codexTarget = "@openai/codex-linux-x64"
     const store = await createProject({ claude: true, claudeTarget, codex: true, codexTarget })

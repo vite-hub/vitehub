@@ -15,6 +15,8 @@ const workspaceRoot = resolve(packageRoot, "../..")
 const fixtureRoot = join(packageRoot, "fixtures", "published-types")
 const tsc = resolve(workspaceRoot, "node_modules/typescript/bin/tsc")
 const childProcessTimeout = 15_000
+// A fresh consumer resolves and links hundreds of packages, even with a warm store.
+const installTimeout = 120_000
 const packedPackages = await packedWorkspacePackages(workspaceRoot, [
   "agent",
   "auth",
@@ -30,21 +32,21 @@ const packedPackages = await packedWorkspacePackages(workspaceRoot, [
 ])
 let consumerRoot: string | undefined
 
-async function runPnpm(args: string[], cwd: string): Promise<void> {
+async function runPnpm(args: string[], cwd: string, timeout = childProcessTimeout): Promise<void> {
   try {
     const npmExecPath = process.env.npm_execpath
     if (npmExecPath?.includes("pnpm")) {
       await execFileAsync(process.execPath, [npmExecPath, ...args], {
         cwd,
         killSignal: "SIGKILL",
-        timeout: childProcessTimeout,
+        timeout,
       })
       return
     }
     await execFileAsync("corepack", ["pnpm", ...args], {
       cwd,
       killSignal: "SIGKILL",
-      timeout: childProcessTimeout,
+      timeout,
     })
   }
   catch (error) {
@@ -72,8 +74,8 @@ beforeAll(async () => {
     "--ignore-scripts",
     "--no-frozen-lockfile",
     "--config.blockExoticSubdeps=false",
-  ], consumerRoot)
-}, 45_000)
+  ], consumerRoot, installTimeout)
+}, installTimeout + 2 * childProcessTimeout)
 
 afterAll(async () => {
   if (consumerRoot) await rm(consumerRoot, { force: true, recursive: true })

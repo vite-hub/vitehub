@@ -4,6 +4,9 @@ import { mkdir, realpath } from "node:fs/promises"
 import { basename, dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { createWasmSqliteClient } from "@vite-hub/internal/runtime/sqlite-wasm"
+import { isWebContainer } from "@vite-hub/web-container/env"
+
 import { parseAgentStateQueueEntry } from "../internal/state-queue.ts"
 import { parseAgentWebhookQueueDelivery } from "../internal/webhook-queue.ts"
 import { isRuntimeBigInt, isRuntimeObject, isRuntimeString } from "../internal/runtime-value.ts"
@@ -1109,6 +1112,8 @@ export function createLibsqlAgentState(options: LibsqlAgentStateOptions): ViteHu
       const directory = dirname(filePath)
       if (directory && directory !== ".") await mkdir(directory, { recursive: true })
     }
+    // A WebContainer cannot load native libSQL. SQLite WASM keeps the file in memory and writes it after each commit, so it has no WAL to configure.
+    if (filePath && isWebContainer()) return createWasmSqliteClient({ url: options.url! }) as LibsqlAgentStateClient
     const { createClient } = await import("@libsql/client")
     // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
     const opened = createClient({ authToken: options.authToken, url: options.url! }) as LibsqlAgentStateClient

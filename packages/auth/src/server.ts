@@ -2,6 +2,7 @@ import { createAuthConsole, type AuthConsole } from "./console-runtime.ts";
 import type { AuthConsoleHostOptions, AuthConsoleOptions } from "./console-types.ts";
 import discoveredDefinition from "#vitehub/auth/definition"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
+import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 import { betterAuth } from "better-auth"
 import { resolveAuthMountPath } from "./application-path.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
@@ -466,24 +467,7 @@ function reject(response: Response): AuthCheck {
 }
 
 
-const nativeResponseStatus = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
 const nativeResponseClone = Object.getOwnPropertyDescriptor(Response.prototype, "clone")?.value
-
-/**
- * Return whether `value` is a Response of this runtime.
- * The native `status` getter checks the internal Response slot, so a proxy, a copied prototype, an object tagged `Response`,
- * and a Response from another Fetch implementation all fail. The check reads no property of `value`.
- */
-function isRuntimeResponse(value: unknown): value is Response {
-  if (!nativeResponseStatus || value === null || typeof value !== "object") return false
-  try {
-    Reflect.apply(nativeResponseStatus, value, [])
-    return true
-  }
-  catch {
-    return false
-  }
-}
 
 /**
  * A Response of this runtime with an own `then` would be assimilated as a thenable by the host that awaits it.

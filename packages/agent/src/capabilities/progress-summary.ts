@@ -280,6 +280,7 @@ async function generateWithDriver(
   // SAFETY: The normalized AI SDK driver fields satisfy the adapter definition contract.
   const adapter = createAiSdkAdapter({
     execution: driver.execution,
+    gateway: driver.gateway,
     instructions,
     model: driver.model,
   } as never)
