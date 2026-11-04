@@ -28,6 +28,10 @@ vi.mock("#imports", async () => {
   }
 })
 vi.mock("#docs/content", () => ({ content: undefined }))
+// The app's `parser` module: a Comark plugin that adds a paragraph, so the test sees which parser ran.
+vi.mock("#docs/parser", () => ({
+  default: { plugins: [{ name: "app-plugin", post: (state: { tree: { nodes: unknown[] } }) => void state.tree.nodes.push(["p", {}, "Added by the app plugin"]) }] },
+}))
 vi.mock("#docs/manifest", async () => {
   const { createDocsManifest } = await import("../src/manifest.ts")
   return { default: createDocsManifest({ dir: resolve(import.meta.dirname, "fixtures/content"), base: "/docs" }) }
@@ -112,6 +116,18 @@ describe("sitemap route", () => {
   })
 })
 
+
+describe("parser option", () => {
+  const app = new H3().get("/api/_docs/page/**", page).get("/api/_docs/search.json", search)
+
+  it("parses the page route and search with the app's Comark plugins", async () => {
+    getItem.mockImplementation(async key => readFileSync(resolve(import.meta.dirname, "fixtures/content", key), "utf8"))
+    const response = await app.fetch(new Request("https://docs.example.com/api/_docs/page/docs/kv.json"))
+    expect((await response.json()).document.nodes).toContainEqual(["p", {}, "Added by the app plugin"])
+    const index = await app.fetch(new Request("https://docs.example.com/api/_docs/search.json"))
+    expect(await index.json()).toContainEqual(expect.objectContaining({ id: expect.stringMatching(/^\/docs\/kv/), content: expect.stringContaining("Added by the app plugin") }))
+  })
+})
 
 describe("docs resources below an application base", () => {
   const based = new H3()

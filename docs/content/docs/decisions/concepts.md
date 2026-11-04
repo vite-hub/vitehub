@@ -61,7 +61,7 @@ Raise `option` when a wrong chip costs more than a missing chip. Change both wit
 
 ## The model never invents a value
 
-The model does not write the answer. It answers fixed questions about your options: for each option, "include, exclude, or none?" ViteHub builds those questions from your groups. It maps the answers back to your option values.
+The model does not write the answer. It answers fixed questions about your options. For a multi-select group, each option gets an "include, exclude, or none?" question. For a non-empty single-select group, one question asks which option to choose, or none. ViteHub builds those questions from your groups. It maps the answers back to your option values.
 
 So every value in the selection is one of your values. The model cannot return a supplier that you did not list. If the text names something that is not in the options, the option is not included. If the text needs something the options cannot express, such as "orders over 500", `resolve()` returns `DECISIONS_R0004` instead of a guess.
 
@@ -71,7 +71,7 @@ A chat model writes free text. You must parse it, check it, and handle wrong sha
 
 - A typed result. No parsing and no schema repair.
 - A number you can threshold. You decide how sure is sure enough.
-- One question for each option, so a bad answer for one option cannot change another.
+- Separate questions for each multi-select option and each non-empty single-select group.
 
 The cost is scope. A decision model chooses among options. It does not compare numbers, write text, or call tools. Use an [Agent](/docs/agents) when you need those.
 
