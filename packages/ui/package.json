@@ -268,6 +268,7 @@
   },
   "devDependencies": {
     "@iconify-json/ph": "catalog:ui",
+    "@nuxt/schema": "4.6.3",
     "@nuxt/ui": "catalog:nuxt",
     "@pierre/diffs": "1.5.2",
     "@pierre/theme": "2.0.0",
