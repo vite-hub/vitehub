@@ -1,7 +1,7 @@
 import * as v from "valibot"
 import { describe, expect, it, vi } from "vitest"
 
-import { callOperation, collectOperationContributions, createOperationRegistry, defineOperation, operationCliPath, operationInputJsonSchema, operationToolName, projectRootHash, runOperation } from "../src/operations.ts"
+import { callOperation, collectOperationContributions, createOperationRegistry, defineOperation, operationCliPath, operationInputJsonSchema, operationListed, operationSection, operationToolName, projectRootHash, runOperation } from "../src/operations.ts"
 
 import type { OperationContext } from "../src/operations.ts"
 
@@ -62,6 +62,66 @@ describe("operations", () => {
     const registry = createOperationRegistry([{ operations: [dynamic] }])
     expect(await runOperation(registry, "demo.dynamic", { section: "a" }, context(["a"]))).toMatchObject({ ok: true })
     expect(await runOperation(registry, "demo.dynamic", { section: "b" }, context(["a"]))).toMatchObject({ ok: false, status: 403 })
+  })
+
+  it.each(["demo:media", "demo:read", "demo:media:read"])("reserves %s for grants instead of static section ids", (section) => {
+    expect(() => defineOperation({ ...greet, section })).toThrow("section ids cannot contain ':'")
+    expect(() => defineOperation({ ...greet, scope: () => "store", section })).toThrow("section ids cannot contain ':'")
+  })
+
+  it.each(["read", "write"] as const)("refuses colon-bearing dynamic sections for %s calls", async (kind) => {
+    const run = vi.fn(() => "done")
+    const dynamic = defineOperation({ ...greet, input: v.object({ section: v.string() }), kind, run, section: input => input.section })
+    const registry = createOperationRegistry([{ operations: [dynamic] }])
+    for (const section of ["demo:media", "demo:read", "demo:media:read"]) {
+      for (const access of [context(["demo"]), context([section]), context([`${section}:read`]), context("all")]) {
+        expect(await runOperation(registry, "demo.greet", { section }, access)).toMatchObject({ ok: false, status: 403 })
+      }
+      expect(operationSection(dynamic, { section })).toBeUndefined()
+    }
+    expect(run).not.toHaveBeenCalled()
+    expect(await runOperation(registry, "demo.greet", { section: "demo" }, context(["demo"]))).toMatchObject({ ok: true })
+    expect(await runOperation(registry, "demo.greet", { section: "demo" }, context(["demo:read"]))).toMatchObject({ ok: kind === "read" })
+  })
+
+  it("limits a scoped grant to its scope, and lets the section grant every scope", async () => {
+    const scoped = { description: "Use a store.", input: v.object({ store: v.optional(v.string()) }), name: "demo.store", run: () => "done", scope: (input: { store?: string }) => input.store ?? "default", section: "demo" } as const
+    const read = defineOperation({ ...scoped, kind: "read" })
+    const write = defineOperation({ ...scoped, kind: "write", name: "demo.save" })
+    const registry = createOperationRegistry([{ operations: [read, write] }])
+    expect(operationSection(read, { store: "media" })).toBe("demo:media")
+    // A scope that reads like a read-only grant, or that has a separator, needs the whole section.
+    expect(operationSection(read, { store: "read" })).toBe("demo")
+    expect(operationSection(read, { store: "a:b" })).toBe("demo")
+
+    const media = context(["demo:media"])
+    expect(await runOperation(registry, "demo.save", { store: "media" }, media)).toEqual({ ok: true, value: "done" })
+    const refused = await runOperation(registry, "demo.save", {}, media)
+    expect(refused).toMatchObject({ code: "INTERNAL_R0023", ok: false, status: 403 })
+    expect(refused.ok === false && refused.message).toContain('"demo:default"')
+    expect(refused.ok === false && refused.message).toContain('"demo" (every scope)')
+    expect(await runOperation(registry, "demo.save", { store: "read" }, media)).toMatchObject({ ok: false, status: 403 })
+
+    const mediaRead = context(["demo:media:read"])
+    expect(await runOperation(registry, "demo.store", { store: "media" }, mediaRead)).toMatchObject({ ok: true })
+    expect(await runOperation(registry, "demo.save", { store: "media" }, mediaRead)).toMatchObject({ ok: false, status: 403 })
+
+    for (const sections of [["demo"], "all"] as const) {
+      expect(await runOperation(registry, "demo.save", { store: "private" }, context(sections === "all" ? sections : [...sections]))).toMatchObject({ ok: true })
+    }
+    expect(await runOperation(registry, "demo.store", { store: "private" }, context(["demo:read"]))).toMatchObject({ ok: true })
+    expect(await runOperation(registry, "demo.save", { store: "private" }, context(["demo:read"]))).toMatchObject({ ok: false, status: 403 })
+
+    // Tool lists show a scoped operation when one scope is granted. The call checks its scope again.
+    expect(operationListed(media.access, write, write)).toBe(true)
+    expect(operationListed(mediaRead.access, write, write)).toBe(false)
+    expect(operationListed(mediaRead.access, read, read)).toBe(true)
+    expect(operationListed(context(["other:media"]).access, read, read)).toBe(false)
+    expect(operationListed(media.access, greet, greet)).toBe(false)
+  })
+
+  it("rejects a scope without a section id", () => {
+    expect(() => defineOperation({ description: "Scope.", input: v.object({}), kind: "read", name: "demo.scope", run: () => null, scope: () => "a", section: false })).toThrow("scope must be a function")
   })
 
   it("denies an unresolved dynamic section even with access to all sections", async () => {
