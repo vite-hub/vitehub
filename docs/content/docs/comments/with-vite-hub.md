@@ -50,7 +50,7 @@ export default defineConfig({
 })
 ```
 
-Add `server/comments.ts`. It exports the definition as `comments`, or as the default export. Without the file, `vitehub({ comments: true })` turns Comments on with the default policy. Without `authorize`, guests may comment only on the dev server. This policy allows everyone, so the next steps also work in a preview build. People without an account comment as guests under a name they type.
+Add `server/comments.ts`. It exports the definition as `comments`, or as the default export. Without the file, the Console or `vitehub({ comments: true })` turns Comments on with the default policy. Without `authorize`, guests may comment only on the dev server. This policy allows everyone, so the next steps also work in a preview build. People without an account comment as guests under a name they type.
 
 ```ts [server/comments.ts]
 import { defineComments } from 'vite-hub/comments'

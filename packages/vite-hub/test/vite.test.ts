@@ -385,7 +385,7 @@ describe("vitehub", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-agent-workflow-"))
     try {
       const plugin = dependencyPluginByName(
-        vitehub({ agent: true, console: { auth: false }, preset: "node" }),
+        vitehub({ agent: true, comments: false, console: { auth: false }, preset: "node" }),
         "vite-hub/console",
       )
       const config: Record<string, unknown> = { root }
@@ -414,7 +414,7 @@ describe("vitehub", () => {
         throw new Error("unresolved Workflow discovery")
       })
       const plugin = dependencyPluginByName(
-        vitehub({ console: { auth: false }, preset: "node", workflow: true }),
+        vitehub({ comments: false, console: { auth: false }, preset: "node", workflow: true }),
         "vite-hub/console",
       )
       const config: Record<string, unknown> = { root }
@@ -463,7 +463,7 @@ describe("vitehub", () => {
       for (const [name, kv] of [["omitted", undefined], ["disabled", false]] as const) {
         const inactiveRoot = join(root, name)
         const inactive = dependencyPluginByName(
-          vitehub({ console: { auth: false }, kv, preset: "node" }),
+          vitehub({ comments: false, console: { auth: false }, kv, preset: "node" }),
           "vite-hub/console",
         )
         const inactiveConfig: Record<string, unknown> = { root: inactiveRoot }
@@ -478,7 +478,7 @@ describe("vitehub", () => {
       }
 
       const named = dependencyPluginByName(
-        vitehub({ console: { auth: false }, kv: true, preset: "node" }),
+        vitehub({ comments: false, console: { auth: false }, kv: true, preset: "node" }),
         "vite-hub/console",
       )
       const namedConfig: Record<string, unknown> = { root }
@@ -498,7 +498,7 @@ describe("vitehub", () => {
 
       const disabledRoot = join(root, "disabled")
       const disabled = dependencyPluginByName(
-        vitehub({ console: { auth: false }, kv: true, preset: "node" }),
+        vitehub({ comments: false, console: { auth: false }, kv: true, preset: "node" }),
         "vite-hub/console",
       )
       const config: Record<string, unknown> = { root: disabledRoot }
@@ -521,7 +521,7 @@ describe("vitehub", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-blob-stores-"))
     try {
       const plugin = dependencyPluginByName(
-        vitehub({ blob: true, console: { auth: false }, preset: "node" }),
+        vitehub({ blob: true, comments: false, console: { auth: false }, preset: "node" }),
         "vite-hub/console",
       )
       const config: Record<string, unknown> = { root }

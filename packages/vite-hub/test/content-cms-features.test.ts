@@ -72,13 +72,14 @@ it("turns the Database on for the comments option without server/comments.ts", a
   expect(resolveCmsPresetFeatures({ comments: true }, { projectRoot: root })).toEqual({ comments: true, database: true })
   expect(resolveCmsPresetFeatures({ comments: true, database: false }, { projectRoot: root })).toEqual({ comments: true, database: false })
   expect(resolveCmsPresetFeatures({}, { projectRoot: root })).toEqual({})
-  let selected: { comments?: true, database?: unknown } | undefined
-  await resolveConfig({
-    root,
-    configFile: false,
-    plugins: withCmsPresetPlugins({ comments: true as const }, resolved => [{ name: "selected-services", config: () => { selected = resolved } }]),
-  }, "build")
-  expect(selected).toEqual({ comments: true, database: true })
+})
+
+it("leaves the Database off for server/comments.ts with comments: false", async () => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-comments-off-"))
+  roots.push(root)
+  await mkdir(join(root, "server"))
+  await writeFile(join(root, "server/comments.ts"), "export default defineComments({})")
+  expect(resolveCmsPresetFeatures({ comments: false }, { projectRoot: root })).toEqual({ comments: false })
 })
 
 it.each([

@@ -207,9 +207,11 @@ describe("docs Comments", () => {
     expect(dependencies["vite-hub/nuxt"]).toEqual({ optional: true, defaults: { comments: { database: "docs", overlay: false } } })
   })
 
-  it("turns Comments off with comments: false in the docs key or the inline options", async () => {
-    expect(await moduleDependencies(app(["vite-hub/nuxt", "@vite-hub/docs/nuxt"], { comments: false }))).not.toHaveProperty("vite-hub/nuxt")
-    expect(await moduleDependencies(app(["vite-hub/nuxt", [docsModule, { comments: false }]]))).not.toHaveProperty("vite-hub/nuxt")
+  it("turns Comments off, also the Console's default, with comments: false in the docs key or the inline options", async () => {
+    const off = { optional: true, defaults: { comments: false } }
+    expect((await moduleDependencies(app(["vite-hub/nuxt", "@vite-hub/docs/nuxt"], { comments: false })))["vite-hub/nuxt"]).toEqual(off)
+    expect((await moduleDependencies(app(["vite-hub/nuxt", [docsModule, { comments: false }]])))["vite-hub/nuxt"]).toEqual(off)
+    expect(await moduleDependencies(app(["@vite-hub/docs/nuxt"], { comments: false }))).not.toHaveProperty("vite-hub/nuxt")
   })
 
   it("has no Comments without vite-hub/nuxt, and fails the build when docs asks for them", async () => {

@@ -14,7 +14,7 @@ it.each([
   ["dist/console/runtime/server/rpc.js", true],
 ] as const)("bundles %s with enabled operations (rpcOnly: %s)", async (entry, rpcOnly) => {
   for (const enabled of [false, true]) {
-    const plugin = vitehub({ preset: "node", agent: enabled, database: enabled, ...rpcOnly ? {} : { console: { auth: false } } }).flat()
+    const plugin = vitehub({ preset: "node", agent: enabled, database: enabled, ...rpcOnly ? {} : { comments: false, console: { auth: false } } }).flat()
       .find((option): option is Plugin => option !== null && typeof option === "object" && "name" in option && option.name === "vite-hub/console")
     const transform = typeof plugin?.transform === "function" ? plugin.transform : plugin?.transform?.handler
     if (!transform) throw new Error("Expected the Console operation transform.")

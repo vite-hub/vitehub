@@ -46,7 +46,7 @@ export function resolveCmsPresetFeatures<T extends CmsPresetFeatureOptions>(opti
   const store = hasUnsetCmsPresetFeature(options) ? cmsStore(project) : undefined
   if (store) return withCmsPresetFeatures(options, store)
   // Comments need the Database only.
-  return options.database === undefined && (options.comments || usesComments(project)) ? { ...options, database: true } : options
+  return options.database === undefined && options.comments !== false && (options.comments || usesComments(project)) ? { ...options, database: true } : options
 }
 
 /** Marks options whose `cms` preset features are resolved, so `vitehub()` does not resolve them again. */
@@ -188,10 +188,8 @@ function composeVariants(plain: unknown[], alt: unknown[], selects: (config: Cms
  */
 export function withCmsPresetPlugins<T extends CmsPresetFeatureOptions>(options: T, create: (options: T) => PluginOption[]): PluginOption[] {
   if (resolvedFeatureOptions.has(options)) return create(options)
-  // The `comments` option needs the Database whatever the project has.
-  if (options.comments && options.database === undefined) options = { ...options, database: true }
   const cmsUnset = hasUnsetCmsPresetFeature(options)
-  const commentsUnset = options.database === undefined
+  const commentsUnset = options.database === undefined && options.comments !== false
   if (!cmsUnset && !commentsUnset) return create(options)
   const attempt = (variant: T): unknown[] | { error: unknown } => {
     try {
