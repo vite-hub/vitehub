@@ -104,7 +104,8 @@ export interface OperationDefinition<Input, Output> {
   description: string
   /**
    * Console section that grants access, such as `content`. `false`: any Console user. A function reads the section
-   * from the input, for operations that serve several sections.
+   * from the input, for operations that serve several sections. Section ids cannot contain `:`; it is reserved for
+   * scope and read-only grants. A function that returns an invalid id denies the call.
    */
   section: string | false | ((input: Input) => string | undefined)
   /**
@@ -196,7 +197,7 @@ function checkDefinition(definition: unknown): void {
   if (String(name) !== name || !nameFormat.test(name)) throw invalidDefinition(name, "the name must look like `section.verb`, in lower case.")
   if (String(definition.description) !== definition.description || !definition.description) throw invalidDefinition(name, "add a one sentence description.")
   const { section } = definition
-  if (section !== false && !(section instanceof Function) && (String(section) !== section || !section)) throw invalidDefinition(name, "section must be a Console section id, a function, or false.")
+  if (section !== false && !(section instanceof Function) && !isSectionId(section)) throw invalidDefinition(name, "section must be a Console section id, a function, or false; section ids cannot contain ':'.")
   if (definition.scope !== undefined && (!(definition.scope instanceof Function) || String(section) !== section)) throw invalidDefinition(name, "scope must be a function, and it needs a section id.")
   if (!kinds.has(String(definition.kind))) throw invalidDefinition(name, 'kind must be "read", "write", or "destructive".')
   const input = definition.input
@@ -448,9 +449,14 @@ export async function parseOperationInput(operation: AnyOperation, input: unknow
  */
 export function operationSection(operation: Pick<AnyOperation, "scope" | "section">, input: unknown): string | false | undefined {
   const section = operation.section
-  // SAFETY: Callers pass input that the operation schema accepted.
-  if (section instanceof Function) return (section as (value: unknown) => string | undefined)(input)
-  if (section === false || !operation.scope) return section
+  if (section instanceof Function) {
+    // SAFETY: Callers pass input that the operation schema accepted.
+    const resolved = (section as (value: unknown) => string | undefined)(input)
+    return isSectionId(resolved) ? resolved : undefined
+  }
+  if (section === false) return section
+  if (!isSectionId(section)) return undefined
+  if (!operation.scope) return section
   // SAFETY: Callers pass input that the operation schema accepted.
   const scope = (operation.scope as (value: unknown) => string | undefined)(input)
   return isSectionScope(scope) ? `${section}:${scope}` : section
@@ -459,8 +465,12 @@ export function operationSection(operation: Pick<AnyOperation, "scope" | "sectio
 /** The suffix of a section grant that allows only reads, such as `"kv:read"`. */
 export const readOnlySectionSuffix = ":read"
 
+function isSectionId(section: unknown): section is string {
+  return typeof section === "string" && section !== "" && !section.includes(":")
+}
+
 function isSectionScope(scope: unknown): scope is string {
-  return String(scope) === scope && scope !== "" && scope !== "read" && !scope.includes(":")
+  return isSectionId(scope) && scope !== "read"
 }
 
 /** `"blob:media"` → `["blob:media", "blob"]`: a grant of the section covers each of its scopes. */

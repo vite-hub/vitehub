@@ -64,6 +64,26 @@ describe("operations", () => {
     expect(await runOperation(registry, "demo.dynamic", { section: "b" }, context(["a"]))).toMatchObject({ ok: false, status: 403 })
   })
 
+  it.each(["demo:media", "demo:read", "demo:media:read"])("reserves %s for grants instead of static section ids", (section) => {
+    expect(() => defineOperation({ ...greet, section })).toThrow("section ids cannot contain ':'")
+    expect(() => defineOperation({ ...greet, scope: () => "store", section })).toThrow("section ids cannot contain ':'")
+  })
+
+  it.each(["read", "write"] as const)("refuses colon-bearing dynamic sections for %s calls", async (kind) => {
+    const run = vi.fn(() => "done")
+    const dynamic = defineOperation({ ...greet, input: v.object({ section: v.string() }), kind, run, section: input => input.section })
+    const registry = createOperationRegistry([{ operations: [dynamic] }])
+    for (const section of ["demo:media", "demo:read", "demo:media:read"]) {
+      for (const access of [context(["demo"]), context([section]), context([`${section}:read`]), context("all")]) {
+        expect(await runOperation(registry, "demo.greet", { section }, access)).toMatchObject({ ok: false, status: 403 })
+      }
+      expect(operationSection(dynamic, { section })).toBeUndefined()
+    }
+    expect(run).not.toHaveBeenCalled()
+    expect(await runOperation(registry, "demo.greet", { section: "demo" }, context(["demo"]))).toMatchObject({ ok: true })
+    expect(await runOperation(registry, "demo.greet", { section: "demo" }, context(["demo:read"]))).toMatchObject({ ok: kind === "read" })
+  })
+
   it("limits a scoped grant to its scope, and lets the section grant every scope", async () => {
     const scoped = { description: "Use a store.", input: v.object({ store: v.optional(v.string()) }), name: "demo.store", run: () => "done", scope: (input: { store?: string }) => input.store ?? "default", section: "demo" } as const
     const read = defineOperation({ ...scoped, kind: "read" })
