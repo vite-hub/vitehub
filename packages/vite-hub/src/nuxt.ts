@@ -174,7 +174,7 @@ type NuxtLike = {
     (name: "modules:done", callback: () => void): void
   }
   options: {
-    _installedModules?: Array<{ meta?: { name?: string } }>
+    _installedModules?: Array<{ meta: { name?: string } }>
     _layers?: NuxtServerDirOptions["_layers"]
     alias?: Record<string, string>
     app?: {
@@ -968,21 +968,22 @@ type ViteHubNuxtModule = {
 /**
  * An app that imports `vite-hub/ui` parts gets their runtime without adding `@vite-hub/ui/nuxt`: the plugin that gives
  * them Nuxt UI's Nuxt icon, and their icons in the `@nuxt/icon` client bundle. `@vite-hub/ui` owns both. Headless apps
- * do not enable the Nuxt UI module, so they must not receive a plugin that imports its generated themes.
+ * do not need the optional Nuxt UI peer or its module, so they must not receive a plugin that imports it.
  */
 async function installViteHubUIRuntime(nuxt: NuxtLike): Promise<void> {
   if (!nuxt.hook || !isPackageInstalled("@nuxt/ui")) return
+  const ui = await importOptionalOwner("@vite-hub/ui", () => import("@vite-hub/ui/nuxt"))
+  if (!ui) return
   const hook = nuxt.hook
-  // Nuxt UI may be enabled after ViteHub, including by another module such as @vite-hub/ui/nuxt.
-  Reflect.apply(hook, nuxt, ["modules:done", async () => {
-    if (!nuxt.options._installedModules?.some(module => module.meta?.name === "@nuxt/ui")) return
-    const ui = await importOptionalOwner("@vite-hub/ui", () => import("@vite-hub/ui/nuxt"))
-    if (!ui) return
+  nuxt.hook("modules:done", () => {
+    // The package can be present for the Console alone. Only Nuxt UI's module generates its component themes.
+    // Wait until every module has installed, including modules that enable Nuxt UI after vite-hub/nuxt.
+    if (!nuxt.options._installedModules?.some(({ meta }) => meta.name === "@nuxt/ui")) return
     ui.addViteHubUIRuntime({
       hook: (name, callback) => Reflect.apply(hook, nuxt, [name, callback]),
       options: { plugins: (nuxt.options.plugins ??= []) },
     })
-  }])
+  })
 }
 
 const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(inlineOptions, nuxtInstance): Promise<void> {

@@ -127,7 +127,6 @@ import { optionalOwnerImportsPlugin } from "../src/internal/owner-modules.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
 function createNuxt(dev = false, plugins: PluginOption[] = []) {
-  const modulesDoneHooks: Array<() => Promise<void>> = []
   const componentsExtendHooks: Array<(components: Array<{ pascalName: string, filePath: string }>) => Promise<void>> = []
   const templatesGeneratedHooks: Array<(app: { components: Array<{ pascalName: string, filePath: string }> }) => Promise<void>> = []
   const builderWatchHooks: Array<(event: string, path: string) => Promise<void>> = []
@@ -138,11 +137,12 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
   const doctorExtensionHooks: Array<(entries: string[]) => void> = []
   const devtoolsCustomTabsHooks: Array<(tabs: unknown[]) => void> = []
   const iconHooks: Array<(icons: Set<string>) => void> = []
+  const modulesDoneHooks: Array<() => void> = []
   const nuxt = {
     callHook: vi.fn(async (_name: "restart") => {}),
-    hook(name: "modules:done" | "components:extend" | "app:templatesGenerated" | "builder:watch" | "close" | "devtools:customTabs" | "doctor:extendExtensions" | "icon:clientBundleIcons" | "listen" | "nitro:config" | "vite:serverCreated", callback: (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((entries: string[]) => void) | ((server: unknown, listener: { url: string }) => void) | ((icons: Set<string>) => void)) {
-      if (name === "modules:done") modulesDoneHooks.push(callback as () => Promise<void>)
-      else if (name === "icon:clientBundleIcons") iconHooks.push(callback as (icons: Set<string>) => void)
+    hook(name: "components:extend" | "app:templatesGenerated" | "builder:watch" | "close" | "devtools:customTabs" | "doctor:extendExtensions" | "icon:clientBundleIcons" | "listen" | "modules:done" | "nitro:config" | "vite:serverCreated", callback: (() => void) | (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((entries: string[]) => void) | ((server: unknown, listener: { url: string }) => void) | ((icons: Set<string>) => void)) {
+      if (name === "icon:clientBundleIcons") iconHooks.push(callback as (icons: Set<string>) => void)
+      else if (name === "modules:done") modulesDoneHooks.push(callback as () => void)
       else if (name === "components:extend") componentsExtendHooks.push(callback as (typeof componentsExtendHooks)[number])
       else if (name === "app:templatesGenerated") templatesGeneratedHooks.push(callback as (typeof templatesGeneratedHooks)[number])
       else if (name === "listen") listenHooks.push(callback as (typeof listenHooks)[number])
@@ -188,9 +188,6 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
     nitroConfigHooks,
     nuxt,
     viteServerCreatedHooks,
-    async runModulesDoneHook() {
-      for (const hook of modulesDoneHooks) await hook()
-    },
     async runComponentScan(components: Array<{ pascalName: string, filePath: string }>) {
       for (const hook of componentsExtendHooks) await hook(components)
       for (const hook of templatesGeneratedHooks) await hook({ components })
@@ -214,6 +211,9 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       const icons = new Set<string>()
       for (const hook of iconHooks) hook(icons)
       return icons
+    },
+    runModulesDoneHook() {
+      for (const hook of modulesDoneHooks) hook()
     },
     runDoctorExtensionsHook() {
       const entries: string[] = []
@@ -579,9 +579,8 @@ describe("ViteHub Nuxt integration", () => {
       },
     })
     try {
-      const { nuxt, runIconHook, runModulesDoneHook } = createNuxt()
+      const { nuxt, runIconHook } = createNuxt()
       await viteHubNuxtModule({ console: false, env: false, preset: "node" }, nuxt)
-      await runModulesDoneHook()
       expect(nuxt.options.plugins).toEqual([])
       expect([...runIconHook()]).toEqual([])
     }
@@ -590,21 +589,21 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
-  it("leaves an available but disabled Nuxt UI module out of the app", async () => {
+  it("skips the styled runtime when Nuxt UI is installed but its module is not enabled", async () => {
     const { nuxt, runIconHook, runModulesDoneHook } = createNuxt()
     await viteHubNuxtModule({ console: false, env: false, preset: "node" }, nuxt)
-    await runModulesDoneHook()
+    runModulesDoneHook()
     expect(nuxt.options.plugins).toEqual([])
     expect([...runIconHook()]).toEqual([])
   })
 
-  it.each(["before", "after"])("gives the vite-hub/ui parts their runtime when Nuxt UI is enabled %s ViteHub", async (order) => {
+  it.each([false, true])("gives the vite-hub/ui parts their Nuxt runtime and icons when Nuxt UI installs later: %s", async (later) => {
     const { nuxt, runIconHook, runModulesDoneHook } = createNuxt()
-    if (order === "before") nuxt.options._installedModules.push({ meta: { name: "@nuxt/ui" } })
+    if (!later) nuxt.options._installedModules.push({ meta: { name: "@nuxt/ui" } })
     await viteHubNuxtModule({ console: false, env: false, preset: "node" }, nuxt)
     await viteHubNuxtModule({ console: false, env: false, preset: "node" }, nuxt)
-    if (order === "after") nuxt.options._installedModules.push({ meta: { name: "@nuxt/ui" } })
-    await runModulesDoneHook()
+    if (later) nuxt.options._installedModules.push({ meta: { name: "@nuxt/ui" } })
+    runModulesDoneHook()
     const runtime = nuxt.options.plugins.filter(plugin => String(typeof plugin === "string" ? plugin : plugin.src).endsWith("/ui/dist/runtime/nuxt-plugin.js"))
     expect(runtime).toHaveLength(1)
     // The list that @vite-hub/ui generates from the icons its sources name, so a new icon of a part needs no change here.
