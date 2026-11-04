@@ -2435,7 +2435,15 @@
 
   [data-slot="comment-panel-filters"] {
     display: flex;
+    flex: 1;
     gap: 0.25rem;
+  }
+
+  [data-slot="comment-panel-actions"] {
+    align-items: center;
+    display: flex;
+    gap: 0.25rem;
+    margin-block: -0.25rem;
   }
 
   [data-slot="comment-panel-items"] {
@@ -2478,8 +2486,64 @@
     padding: 1rem 0.75rem;
   }
 
-  [data-slot="comment-panel-composer"] {
+  [data-slot="comment-panel-composer"],
+  [data-slot="comment-thread"] > [data-slot="comment-composer"] {
     border-block-start: 1px solid var(--vh-border);
+  }
+
+  /* At the bottom of a panel or a thread the box is one row under the divider: attach, the text, send. The divider
+     already bounds it, so the field has no border of its own. */
+  :is([data-slot="comment-panel-composer"], [data-slot="comment-thread"]) > [data-slot="comment-composer"] {
+    padding: 0.375rem;
+
+    & [data-slot="prompt-input-group"] {
+      align-items: flex-end;
+      background: transparent;
+      border-color: transparent;
+      border-radius: 0;
+      box-shadow: none;
+      flex-flow: row wrap;
+      gap: 0.25rem;
+    }
+
+    & [data-slot="prompt-input-attachments"] {
+      flex-basis: 100%;
+      padding: 0.25rem 0.25rem 0;
+    }
+
+    & [data-slot="prompt-input-textarea"] {
+      flex: 1;
+      min-height: 2rem;
+      min-width: 0;
+      order: 1;
+      padding: 0.25rem;
+      width: auto;
+    }
+
+    & [data-slot="prompt-input-toolbar"] {
+      display: contents;
+    }
+
+    & [data-slot="prompt-input-spacer"] {
+      display: none;
+    }
+
+    & [data-slot="prompt-input-toolbar"] > button:last-child {
+      order: 2;
+    }
+
+    & [data-slot="prompt-input-toolbar"] > button:not(:last-child) {
+      box-shadow: none;
+      color: var(--vh-muted);
+
+      &:not(:hover, :focus-visible) {
+        background: transparent;
+      }
+    }
+
+    &[data-dragging="true"] [data-slot="prompt-input-group"] {
+      border-radius: var(--vh-radius);
+    }
   }
 
   /* The page box and the reply box sit at the bottom, so their mention menus open upward. */

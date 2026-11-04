@@ -525,6 +525,24 @@ describe("CommentPanel", () => {
     await vi.waitFor(() => expect(wrapper.find(".own-action").exists()).toBe(true));
     expect(wrapper.get(".own-action").text()).toBe("1");
   });
+
+  it("puts list-actions on the list's top row, and not on a thread's", async () => {
+    const comments = client([thread(1)]);
+    const wrapper = keep(mount(CommentPanel, {
+      global,
+      props: { client: comments, subject: pricing },
+      slots: { "list-actions": () => h("button", { class: "close-panel" }, "Close") },
+    }));
+    await vi.waitFor(() => expect(comments.status).toBe("ready"));
+    await flushPromises();
+    expect(wrapper.find("[data-slot=comment-panel-header] [data-slot=comment-panel-actions] .close-panel").exists()).toBe(true);
+    // The box shows no avatar: whoever writes is the reader.
+    expect(wrapper.find("[data-slot=comment-panel-composer] [data-slot=avatar-stack]").exists()).toBe(false);
+
+    await wrapper.get("[data-slot=comment-panel-item]").trigger("click");
+    await flushPromises();
+    expect(wrapper.find(".close-panel").exists()).toBe(false);
+  });
 });
 
 describe("layer draft uploads", () => {
