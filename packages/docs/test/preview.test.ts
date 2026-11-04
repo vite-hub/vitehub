@@ -66,7 +66,7 @@ async function navigate(path: string) {
     const response = await mounted.fetch(new Request(`https://docs.example.com${url}`))
     return { data: vue.ref(response.ok ? await response.json() : null) }
   })
-  const useSeoMeta = vi.fn()
+  const useDocsSeo = vi.fn()
   const exports: { default?: vue.Component } = {}
   runInNewContext(componentScript, {
     exports,
@@ -82,10 +82,10 @@ async function navigate(path: string) {
     useFetch,
     createError: (error: object) => Object.assign(new Error("Page not found"), error),
     useHead: vi.fn(),
-    useSeoMeta,
+    useDocsSeo,
   })
   const component = { ...exports.default, render: () => null }
-  return { useFetch, useSeoMeta, render: () => renderToString(vue.createSSRApp(component)) }
+  return { useFetch, useDocsSeo, render: () => renderToString(vue.createSSRApp(component)) }
 }
 
 const editedKv: DocsContentDocument = {
@@ -156,12 +156,12 @@ describe("page route with Content drafts", () => {
   it("loads a draft-only page during client navigation", async () => {
     state.active = true
     state.drafts.set("docs/kv/new-page", { id: "docs/kv/new-page", url: "/docs/kv/new-page", data: { title: "New page" }, body: "Only a draft.\n" })
-    const { useFetch, useSeoMeta, render } = await navigate("/docs/kv/new-page")
+    const { useFetch, useDocsSeo, render } = await navigate("/docs/kv/new-page")
 
     await expect(render()).resolves.toBeDefined()
     expect(useFetch).toHaveBeenCalledWith("/portal/api/_docs/page/docs/kv/new-page.json", { key: "docs:/docs/kv/new-page" })
     expect(get).toHaveBeenCalledWith("docs/kv/new-page")
-    expect(useSeoMeta).toHaveBeenCalledWith(expect.objectContaining({ title: "New page" }))
+    expect(useDocsSeo).toHaveBeenCalledWith(expect.objectContaining({ title: "New page" }))
   })
 
   it("returns a fatal 404 after requesting a missing page during client navigation", async () => {

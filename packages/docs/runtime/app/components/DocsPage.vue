@@ -19,11 +19,13 @@ const isStandalone = !response.section && !isRoot
 
 // Agents can fetch the Markdown twin of the page instead of the HTML.
 useHead({ link: [{ rel: "alternate", type: "text/markdown", href: `${site.url}${docsAppPath(docsRawPath(page.path), appBase)}` }] })
-useSeoMeta({
+const section = manifest.sections.find(candidate => candidate.id === response.section)
+useDocsSeo({
   title: page.seo?.title ?? page.sourceTitle,
-  ogTitle: page.seo?.title ?? page.sourceTitle,
-  description: page.seo?.description ?? page.description ?? undefined,
-  ogDescription: page.seo?.description ?? page.description ?? undefined,
+  description: page.seo?.description ?? page.description,
+  section: section && { title: section.title, path: docsAppPath(section.path, appBase) },
+  image: page.seo?.image,
+  type: isRoot || page.layout === "landing" ? "page" : "article",
 })
 </script>
 
