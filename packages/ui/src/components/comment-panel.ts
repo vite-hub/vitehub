@@ -2,7 +2,7 @@ import type { CommentsClient, CommentStatus, CommentSubject, CommentThread as Co
 import { computed, defineComponent, h, nextTick, type PropType, ref, type SlotsType, type VNode, watch } from "vue";
 import { type CommentCan, type CommentsState, provideComments, useComments, useCommentsContext } from "../headless/comments.ts";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
-import { threadRow } from "../internal/comment-row.ts";
+import { rowSlotScope, threadRow } from "../internal/comment-row.ts";
 import { injectComments } from "../internal/comments-context.ts";
 import { CommentComposer, type CommentComposerSubmit } from "./comment-composer.ts";
 import { type CommentAttachmentUrl, CommentThread, type CommentThreadSlots } from "./comment-thread.ts";
@@ -16,6 +16,8 @@ export type CommentUpload = (files: File[]) => Promise<string[]>;
 /** The scope of the `row` and `preview` slots of `CommentPanel` and `CommentList`. */
 export interface CommentRowSlotScope {
   thread: CommentThreadModel;
+  /** The text that the row shows without a `preview` slot: the first message as plain text, else the quoted text. */
+  text: string;
 }
 
 /** The scope of the `group-header` slot: the label that `group` gave, and the threads under it. */
@@ -27,7 +29,7 @@ export interface CommentGroupSlotScope {
 export type CommentRowSlots = {
   /** The inside of one row of the list. Replaces the number, avatar, text, and facts. */
   row?: (scope: CommentRowSlotScope) => VNode[];
-  /** The text of one row. Replaces the start of the first message, as plain text. */
+  /** The text of one row. Replaces the start of the first message, as plain text. Render `text` to keep it for some rows. */
   preview?: (scope: CommentRowSlotScope) => VNode[];
 };
 
@@ -203,9 +205,9 @@ export const CommentPanel = defineComponent({
             onClick: () => select(thread),
             type: "button",
           },
-          slots.row?.({ thread }) ?? threadRow(thread, {
+          slots.row?.(rowSlotScope(thread)) ?? threadRow(thread, {
             detached: state.positions.value.get(thread.id)?.detached === true,
-            preview: slots.preview?.({ thread }),
+            preview: slots.preview?.(rowSlotScope(thread)),
             site: state.scope.value === "site",
           }),
         ),
