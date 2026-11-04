@@ -16,7 +16,6 @@ import {
 import { queryChoice, querySelection, queryText, useConsoleQuery } from "../client/route-query";
 import { consolePrimitives, rememberConsoleSection } from "../sections";
 import ConsoleConnectionsDetails from "./console-connections-details.vue";
-import ConsoleFrame from "./console-frame.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleSearch from "./console-search.vue";
@@ -109,7 +108,6 @@ onBeforeUnmount(() => request?.abort());
 </script>
 
 <template>
-  <ConsoleFrame active="connections" :sections-base="sectionsBase">
     <ConsoleSearch
       :agents-base="agentsBase"
       :definitions-base="definitionsBase"
@@ -296,5 +294,4 @@ export default defineConnection({
           @changed="refresh"
       /></template>
     </USlideover>
-  </ConsoleFrame>
 </template>

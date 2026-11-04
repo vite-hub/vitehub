@@ -7,6 +7,14 @@ import { isConsoleDevelopmentBuild } from "./development.ts"
 
 import type { ConsoleRequestEvent } from "./request.ts";
 
+// The ViteHub mark of the rail's home item, so the first paint already has the rail of the loaded Console.
+const consoleMarkSvg = '<svg class="vitehub-console-boot__mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 18" aria-hidden="true"><path fill="currentColor" d="M19.734 8.156 15.576.844A1.66 1.66 0 0 0 14.135 0H5.819C5.226 0 4.677.32 4.38.844L.222 8.156a1.71 1.71 0 0 0 0 1.688l4.158 7.312c.297.523.846.844 1.439.844h8.316c.593 0 1.142-.32 1.438-.844l4.158-7.312c.3-.523.3-1.165.003-1.688Z"/></svg>'
+
+// Lucide's loader-circle, the icon of the app's loading panel.
+const consoleSpinnerSvg = '<svg class="size-4 motion-safe:animate-spin" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>'
+
+// Before the script runs, the page draws the rail and an empty page panel with the Console stylesheet. The app mounts
+// the same shapes, so the layout does not change between the first paint and the first page.
 const page = `<!doctype html>
 <html lang="en">
   <head>
@@ -19,7 +27,7 @@ const page = `<!doctype html>
     <link rel="stylesheet" href="/_vitehub/assets/__VITEHUB_CONSOLE_STYLE_ASSET__">
   </head>
   <body>
-    <div id="app"><p role="status" style="padding:2rem;font:14px/1.5 system-ui">Opening Console…</p><noscript>Enable JavaScript to use the Console.</noscript></div>
+    <div id="app"><div class="vitehub-console-boot"><div class="vh-primitive-rail"><div class="vh-primitive-rail__surface"><div class="vh-primitive-rail__header"><span class="vh-primitive-rail__item"><span class="vh-primitive-rail__icon">${consoleMarkSvg}</span></span></div></div></div><div class="vitehub-console-boot__panel"><div class="vitehub-console-boot__header"></div><p role="status" class="vitehub-console-opening">${consoleSpinnerSvg}Opening Console…</p><noscript class="vitehub-console-opening">Enable JavaScript to use the Console.</noscript></div></div></div>
     <script type="module" src="/api/_vitehub/console/client.js"></script>
     <script type="module" src="/_vitehub/assets/__VITEHUB_CONSOLE_SCRIPT_ASSET__"></script>
   </body>

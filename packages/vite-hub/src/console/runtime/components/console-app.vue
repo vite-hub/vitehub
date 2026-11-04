@@ -38,7 +38,6 @@ import { isConsoleSignInRequired, isRetryableConsoleRequestError, requestConsole
 import { queryChoice, querySelection, queryText, useConsoleQuery, writeConsoleQuery } from "../client/route-query";
 import { useConsoleConnectionUnavailable } from "./console-connection";
 import { rememberConsoleSection } from "../sections";
-import ConsoleFrame from "./console-frame.vue";
 import ConsoleConnectionState from "./console-connection-state.vue";
 import ConsoleState from "./console-state.vue";
 import ConsoleInvocationComposer from "./console-invocation-composer.vue";
@@ -1059,7 +1058,6 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <ConsoleFrame :active="isUsageRoute ? 'usage' : 'agents'" :sections-base="sectionsBase">
     <UDashboardSidebar
       v-if="!isUsageRoute"
       id="agent-sessions"
@@ -1594,7 +1592,6 @@ onBeforeUnmount(() => {
         </div>
       </template>
     </UDashboardPanel>
-  </ConsoleFrame>
 </template>
 
 <style>

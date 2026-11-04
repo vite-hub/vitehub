@@ -22,7 +22,6 @@ import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDet
 import { consoleSignInURL } from "../client/sign-in";
 import { recentTimestamp } from "../client/time";
 import ConsoleConnectAgent from "./console-connect-agent.vue";
-import ConsoleFrame from "./console-frame.vue";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleSectionIcon from "./console-section-icon.vue";
@@ -195,7 +194,6 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <ConsoleFrame :sections-base="sectionsBase">
 
     <ConsoleSearch
       :agents-base="agentsBase"
@@ -256,7 +254,9 @@ onBeforeUnmount(() => {
               </span>
               <div class="min-w-0">
                 <h1 class="truncate text-base font-semibold tracking-tight text-highlighted">
-                  {{ installedNavigation?.projectName || "ViteHub Console" }}
+                  <!-- The name comes with the sections, so a placeholder holds its line instead of a name that then changes. -->
+                  <USkeleton v-if="loading" class="my-0.5 h-5 w-40 rounded-sm" />
+                  <template v-else>{{ installedNavigation?.projectName || "ViteHub Console" }}</template>
                 </h1>
                 <p class="text-sm text-muted">
                   {{ loading ? "Loading the enabled primitives…" : summary }}
@@ -442,7 +442,6 @@ onBeforeUnmount(() => {
         </main>
       </template>
     </UDashboardPanel>
-  </ConsoleFrame>
 </template>
 
 <style>

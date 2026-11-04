@@ -13,7 +13,6 @@ import { isConsoleSectionReadOnly } from "../client/read-only";
 import { rememberConsoleSection } from "../sections";
 import { consoleStatusValue } from "../client/format";
 import { consoleInitials } from "../client/presence";
-import ConsoleFrame from "./console-frame.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsolePropertyList from "./console-property-list.vue";
@@ -296,7 +295,6 @@ onBeforeUnmount(() => request?.abort());
 </script>
 
 <template>
-  <ConsoleFrame :active="section" :sections-base="sectionsBase">
     <!-- Records list in the page table, so only Definition catalogs need a sidebar. -->
     <UDashboardSidebar
       v-if="catalogView"
@@ -603,5 +601,4 @@ onBeforeUnmount(() => request?.abort());
         </article>
       </template>
     </USlideover>
-  </ConsoleFrame>
 </template>

@@ -4,7 +4,6 @@ import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch 
 import type { ConsoleContributedSection, ConsoleOperationView } from "../definitions";
 import { loadOperationItems, operationCell, operationLink, operationValue } from "../client/operation-view";
 import { querySelection, queryText, useConsoleQuery } from "../client/route-query";
-import ConsoleFrame from "./console-frame.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
@@ -95,7 +94,6 @@ onBeforeUnmount(() => controller?.abort());
 </script>
 
 <template>
-  <ConsoleFrame :active="details.id" :sections-base="sectionsBase">
     <ConsoleSearch :agents-base="`${apiBase}/agents`" :definitions-base="definitionsBase" :kv-base="`${apiBase}/kv`" :search-base="`${apiBase}/search`" :sections-base="sectionsBase" />
     <UDashboardPanel :id="`console-${details.id}`" :ui="{ body: 'min-h-0 gap-0 overflow-auto p-0' }">
       <template #header>
@@ -192,5 +190,4 @@ onBeforeUnmount(() => controller?.abort());
       @close="selectedId = undefined"
       @removed="refreshItems"
     />
-  </ConsoleFrame>
 </template>

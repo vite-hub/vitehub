@@ -13,7 +13,6 @@ import ConsoleDocumentDashboard from "./console-document-dashboard.vue";
 import ConsoleDocumentEditor from "./console-document-editor.vue";
 import ConsoleDocumentList from "./console-document-list.vue";
 import ConsoleDocumentSettings from "./console-document-settings.vue";
-import ConsoleFrame from "./console-frame.vue";
 import ConsoleMediaLibrary from "./console-media-library.vue";
 import ConsoleMediaPicker from "./console-media-picker.vue";
 import ConsolePageHeader from "./console-page-header.vue";
@@ -238,7 +237,6 @@ watch(changes, () => void loadOverview());
 </script>
 
 <template>
-  <ConsoleFrame :active="section" :sections-base="sectionsBase">
     <UDashboardSidebar
       id="console-navigation"
       v-model:open="sidebarOpen"
@@ -476,5 +474,4 @@ watch(changes, () => void loadOverview());
       </template>
     </UDashboardPanel>
     <ConsoleMediaPicker v-if="hasMedia" ref="mediaPicker" :client="mediaClient" :section="section" />
-  </ConsoleFrame>
 </template>

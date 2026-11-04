@@ -9,7 +9,6 @@ import { useConsoleToast } from "../client/toast";
 import { isConsoleSectionReadOnly } from "../client/read-only";
 import { rememberConsoleSection } from "../sections";
 import { consoleBytes } from "../client/format";
-import ConsoleFrame from "./console-frame.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleSearch from "./console-search.vue";
@@ -412,7 +411,6 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <ConsoleFrame active="kv" :sections-base="sectionsBase">
     <ConsoleSearch
       :agents-base="agentsBase"
       :definitions-base="definitionsBase"
@@ -535,5 +533,4 @@ onBeforeUnmount(() => {
         </div>
       </template>
     </UModal>
-  </ConsoleFrame>
 </template>
