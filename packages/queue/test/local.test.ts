@@ -1,6 +1,7 @@
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { setImmediate } from "node:timers/promises"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -263,6 +264,81 @@ describe("local queue inspection", () => {
 })
 
 describe("local queue review regressions", () => {
+  it("waits for a failed reservation before accepting an overlapping idempotent send", async () => {
+    const handler = vi.fn(async () => {})
+    const engine = engineFor({ welcome: { handler } })
+    const client = createLocalQueueClient(engine, "welcome")
+    await engine.start()
+    let rejectWrite!: (error: Error) => void
+    let writing!: () => void
+    const started = new Promise<void>(resolve => { writing = resolve })
+    vi.mocked(writeFile).mockImplementationOnce(() => {
+      writing()
+      return new Promise((_, reject) => { rejectWrite = reject })
+    })
+
+    const first = client.send(1, { idempotencyKey: "signup-ada" })
+    await started
+    let accepted = false
+    const second = client.send(2, { idempotencyKey: "signup-ada" }).then(result => {
+      accepted = !result[0]
+      return result
+    })
+    await setImmediate()
+    const acceptedBeforePersistence = accepted
+    rejectWrite(new Error("ENOSPC: no space left on device"))
+
+    const [[firstError], [secondError, sent]] = await Promise.all([first, second])
+    expect(firstError).toMatchObject({ code: "QUEUE_PROVIDER_FAILED" })
+    expect(acceptedBeforePersistence).toBe(false)
+    expect(secondError).toBeUndefined()
+    expect(sent?.status).toBe("queued")
+    await vi.waitFor(() => expect(handler).toHaveBeenCalledWith(expect.objectContaining({ payload: 2 })))
+    await vi.waitFor(async () => expect(await storedJobs()).toEqual([]))
+    engine.close()
+  })
+
+  it("deduplicates repeated keys within a batch", async () => {
+    const handler = vi.fn(async () => {})
+    const engine = engineFor({ welcome: { handler } })
+    const client = createLocalQueueClient(engine, "welcome")
+
+    const [error, sent] = await client.sendBatch([
+      { body: 1, idempotencyKey: "signup-ada" },
+      { body: 2, idempotencyKey: "signup-ada" },
+      { body: 3, idempotencyKey: "signup-grace" },
+    ], { delaySeconds: 60 })
+
+    engine.close()
+    expect(error).toBeUndefined()
+    expect(sent?.[1].messageId).toBe(sent?.[0].messageId)
+    expect(sent?.[2].messageId).not.toBe(sent?.[0].messageId)
+    expect(await storedJobs()).toHaveLength(2)
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it("does not consume attempts when the pre-handler write fails", async () => {
+    const handler = vi.fn(async () => {})
+    const engine = engineFor({ welcome: { handler } })
+    const actual = (await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")).writeFile
+    let failures = 0
+    vi.mocked(writeFile).mockImplementation(async (path, data, options) => {
+      const job = JSON.parse(String(data)) as { attempts: number, state: string }
+      if (job.state === "pending" && job.attempts > 0 && failures < localQueueMaxAttempts + 1) {
+        failures++
+        throw new Error("ENOSPC: no space left on device")
+      }
+      return await actual(path, data, options)
+    })
+
+    await engine.enqueue("welcome", [{ id: "job-1", payload: {} }])
+
+    await vi.waitFor(() => expect(handler).toHaveBeenCalledWith(expect.objectContaining({ attempts: 1 })))
+    expect(failures).toBe(localQueueMaxAttempts + 1)
+    await vi.waitFor(async () => expect(await storedJobs()).toEqual([]))
+    engine.close()
+  })
+
   it("runs one job for overlapping sends with the same idempotencyKey", async () => {
     const handler = vi.fn(async () => {})
     const client = createLocalQueueClient(engineFor({ welcome: { handler } }), "welcome")
@@ -374,5 +450,37 @@ describe("local queue review regressions", () => {
     engine.close()
 
     expect((await engineFor({}).status()).queues.welcome?.dead).toBe(localQueueDeadLimit)
+  })
+
+  it("redelivers after restart when neither completion operation can reach disk", async () => {
+    const handler = vi.fn(async () => {})
+    const engine = engineFor({ welcome: { handler } })
+    const actual = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+    let completionFailed = false
+    vi.mocked(rm).mockImplementation(async (path, options) => {
+      if (String(path).endsWith(".json")) throw new Error("EIO: cannot delete job")
+      return await actual.rm(path, options)
+    })
+    vi.mocked(writeFile).mockImplementation(async (path, data, options) => {
+      if ((JSON.parse(String(data)) as { state: string }).state === "done") {
+        completionFailed = true
+        throw new Error("EIO: cannot save completion")
+      }
+      return await actual.writeFile(path, data, options)
+    })
+
+    await engine.enqueue("welcome", [{ id: "job-1", payload: {} }])
+    await vi.waitFor(() => expect(completionFailed).toBe(true))
+    expect(handler).toHaveBeenCalledOnce()
+    expect(await storedJobs()).toEqual([expect.objectContaining({ attempts: 1, state: "pending" })])
+    engine.close()
+    vi.mocked(rm).mockImplementation(actual.rm)
+    vi.mocked(writeFile).mockImplementation(actual.writeFile)
+
+    const second = engineFor({ welcome: { handler } })
+    await second.start()
+    await vi.waitFor(() => expect(handler).toHaveBeenLastCalledWith(expect.objectContaining({ attempts: 2 })))
+    await vi.waitFor(async () => expect(await storedJobs()).toEqual([]))
+    second.close()
   })
 })

@@ -120,6 +120,7 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
   // Accepted jobs whose files are not written yet. They hold their idempotency key, but they do not run.
   const writingKeys = new Set<string>()
   const concurrency = new Map<string, number>()
+  let enqueueTail = Promise.resolve()
   let started: Promise<void> | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
   let closed = false
@@ -209,8 +210,9 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
         await markDead(job, { message: "[vitehub] The process stopped during the last attempt of this job.", name: "Error" })
         return
       }
-      job.attempts += 1
-      await persist(job)
+      const attempts = job.attempts + 1
+      await persist({ ...job, attempts })
+      job.attempts = attempts
       let handled = false
       try {
         const definition = await options.load(job.queue)
@@ -283,50 +285,54 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
     },
     async enqueue(queue, entries) {
       await this.start()
-      // From here to the first await, no other send can run. The new jobs go into the map in this step, so an
-      // overlapping send with the same idempotency key finds them.
-      const now = Date.now()
-      const created: StoredJob[] = []
-      const ids: string[] = []
-      for (const entry of entries) {
-        // Only a job that can still run holds its key. A dead job does not block a new send.
-        const duplicate = entry.idempotencyKey === undefined
-          ? undefined
-          : [...jobs.values()].find(job => job.queue === queue && job.state === "pending" && job.idempotencyKey === entry.idempotencyKey)
-        if (duplicate) {
-          ids.push(duplicate.id)
-          continue
+      // Wait through persistence and rollback before another send can reuse an idempotency key.
+      const enqueued = enqueueTail.then(async () => {
+        const now = Date.now()
+        const created: StoredJob[] = []
+        const ids: string[] = []
+        for (const entry of entries) {
+          // Only a job that can still run holds its key. Include jobs admitted earlier in this batch.
+          const duplicate = entry.idempotencyKey === undefined
+            ? undefined
+            : [...jobs.values(), ...created].find(job => job.queue === queue && job.state === "pending" && job.idempotencyKey === entry.idempotencyKey)
+          if (duplicate) {
+            ids.push(duplicate.id)
+            continue
+          }
+          const job: StoredJob = {
+            attempts: 0,
+            availableAt: now + delayMs(entry.delaySeconds),
+            enqueuedAt: now,
+            id: entry.id,
+            ...(entry.idempotencyKey === undefined ? {} : { idempotencyKey: entry.idempotencyKey }),
+            key: randomUUID(),
+            ...toStoredPayload(entry.payload),
+            queue,
+            state: "pending",
+          }
+          created.push(job)
+          ids.push(job.id)
         }
-        const job: StoredJob = {
-          attempts: 0,
-          availableAt: now + delayMs(entry.delaySeconds),
-          enqueuedAt: now,
-          id: entry.id,
-          ...(entry.idempotencyKey === undefined ? {} : { idempotencyKey: entry.idempotencyKey }),
-          key: randomUUID(),
-          ...toStoredPayload(entry.payload),
-          queue,
-          state: "pending",
+        for (const job of created) {
+          jobs.set(job.key, job)
+          writingKeys.add(job.key)
         }
-        created.push(job)
-        ids.push(job.id)
-      }
-      for (const job of created) {
-        jobs.set(job.key, job)
-        writingKeys.add(job.key)
-      }
-      // `send()` returns after the files exist, so an accepted job survives a crash right after it.
-      const written = await Promise.allSettled(created.map(persist))
-      for (const job of created) writingKeys.delete(job.key)
-      const failed = written.find(result => result.status === "rejected")
-      if (failed) {
-        // The send fails as a whole. Remove every file of it, so a retry does not store the jobs two times.
-        for (const job of created) jobs.delete(job.key)
-        await Promise.allSettled(created.map(unlink))
-        throw failed.reason
-      }
-      schedule()
-      return ids
+        // `send()` returns after the files exist, so an accepted job survives a crash right after it.
+        const written = await Promise.allSettled(created.map(persist))
+        for (const job of created) writingKeys.delete(job.key)
+        const failed = written.find(result => result.status === "rejected")
+        if (failed) {
+          // The send fails as a whole. Remove every file of it, so a retry does not store the jobs two times.
+          for (const job of created) jobs.delete(job.key)
+          await Promise.allSettled(created.map(unlink))
+          throw failed.reason
+        }
+        schedule()
+        return ids
+      })
+      // A failed send releases admission too, so later calls can retry the key.
+      enqueueTail = enqueued.then(() => undefined, () => undefined)
+      return enqueued
     },
     start() {
       started ??= recover()
