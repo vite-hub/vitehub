@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import { runnableTutorials } from "#build/runnable-tutorials.mjs";
 
 const search = ref("");
 const selectedCategory = ref("All topics");
 
+const runnable = new Map(runnableTutorials.map(tutorial => [tutorial.page, tutorial]));
 const tutorials = useDocsManifest().sections.flatMap(section => section.pages
   .filter(page => page.layout === "tutorial")
   .map(page => ({
@@ -10,8 +12,10 @@ const tutorials = useDocsManifest().sections.flatMap(section => section.pages
     description: page.description || "",
     product: section.title,
     project: page.tutorial === "project",
+    // A tutorial with a fixture opens beside a live workspace.
+    runnable: runnable.has(page.path),
     title: page.sourceTitle || page.title,
-    to: page.path,
+    to: runnable.has(page.path) ? `/tutorials/${runnable.get(page.path)!.slug}` : page.path,
   })),
 );
 const categories = ["All topics", ...new Set(tutorials.map(tutorial => tutorial.category))];
@@ -25,16 +29,22 @@ const matches = computed(() => {
 });
 const groups = computed(() => [
   {
+    id: "runnable",
+    title: "Run in your browser",
+    description: "Edit and run each step beside the lesson, with no install on your machine. The workspace needs Chrome, Edge, or Firefox on a desktop.",
+    tutorials: matches.value.filter(tutorial => tutorial.runnable),
+  },
+  {
     id: "projects",
     title: "Build an application",
     description: "Complete projects with runnable source. Each step adds a feature and shows how to check it.",
-    tutorials: matches.value.filter(tutorial => tutorial.project),
+    tutorials: matches.value.filter(tutorial => tutorial.project && !tutorial.runnable),
   },
   {
     id: "quickstarts",
     title: "Learn one feature",
     description: "Short quickstarts from the Docs. Start here to try one API before adding it to your app.",
-    tutorials: matches.value.filter(tutorial => !tutorial.project),
+    tutorials: matches.value.filter(tutorial => !tutorial.project && !tutorial.runnable),
   },
 ].filter(group => group.tutorials.length));
 
