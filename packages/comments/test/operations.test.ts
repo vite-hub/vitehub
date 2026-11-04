@@ -2,9 +2,10 @@
 import { createClient } from "@libsql/client"
 import { createOperationRegistry, runOperation } from "@vite-hub/internal/operations"
 import { drizzle } from "drizzle-orm/libsql"
+import { H3Event } from "h3"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 
-import { defineComments } from "../src/index.ts"
+import { defineComments, installComments } from "../src/index.ts"
 import { commentsOperations } from "../src/operations-core/operations.ts"
 import { createAuthUsers, installCommentsRuntime } from "../src/operations-core/server.ts"
 import { createCommentsStore } from "../src/operations-core/store.ts"
@@ -14,7 +15,8 @@ import { commentsTables } from "../src/tables.ts"
 
 import type { OperationContext } from "@vite-hub/internal/operations"
 import type { Comments } from "../src/index.ts"
-import type { CommentsPeople } from "../src/types.ts"
+import type { CommentsDatabase } from "../src/operations-core/store.ts"
+import type { CommentsPeople, CommentsUser } from "../src/types.ts"
 import type { CommentCreateInput, CommentThread } from "../src/operations-core/types.ts"
 
 const registry = createOperationRegistry([{ operations: commentsOperations }])
@@ -310,4 +312,31 @@ it.each([false, true])("matches owner deletion capabilities to the write policy 
     capabilities: { reply: write, deleteThread: write, delete: write ? [thread.messages[0]!.id] : [] },
   } })
   expect(await call("comments.delete", { threadId: thread.id })).toMatchObject(write ? { ok: true } : { ok: false, status: 403 })
+})
+
+it("gives authorize the user that identify builds for the request, not the Console user", async () => {
+  type DropUser = CommentsUser & { identity?: { role: string } }
+  const seen: Array<DropUser | null> = []
+  const comments = defineComments({
+    // The app's own session: the Console user carries no `identity`.
+    identify: ({ event }) => event.req.headers.get("x-person") === "admin" ? { id: "admin", name: "Admin", identity: { role: "admin" } } : null,
+    authorize: ({ user }) => {
+      seen.push(user as DropUser | null)
+      return (user as DropUser | null)?.identity?.role === "admin"
+    },
+  })
+  // SAFETY: The libSQL Drizzle database implements the batch contract that ViteHub Databases expose.
+  installComments(comments, { database: drizzle(client) as unknown as CommentsDatabase })
+  const request = new Request("http://site.test/_vitehub/rpc/__call", { headers: { "x-person": "admin" } })
+  const context = { access: { mode: "auth", sections: "all" }, surface: "console", user: { id: "admin", name: "Admin" }, request, event: new H3Event(request) } satisfies OperationContext
+  const created = await runOperation(registry, "comments.create", input, context)
+  expect(created).toMatchObject({ ok: true, value: { author: { id: "admin", name: "Admin" } } })
+  expect(await runOperation(registry, "comments.list", {}, context)).toMatchObject({ ok: true, value: [{ id: (created as { value: CommentThread }).value.id }] })
+  expect(seen.length).toBeGreaterThan(0)
+  expect(seen.every(user => user?.identity?.role === "admin")).toBe(true)
+
+  // A call without a request, such as an agent's, has no user for identify to build, so it reads nothing.
+  const { event: _event, request: _request, ...agent } = context
+  expect(await runOperation(registry, "comments.list", {}, { ...agent, surface: "agent" })).toEqual({ ok: true, value: [] })
+  expect(seen.at(-1)).toBeNull()
 })

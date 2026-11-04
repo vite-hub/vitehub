@@ -67,6 +67,11 @@ export interface CommentsForgeHooks {
 /** Everything that the comment operations, the server API, and the overlay API share. */
 export interface CommentsRuntime {
   definition: CommentsDefinition
+  /**
+   * The app's `identify`, given the server event of a call. With it, the comment operations ask it for the user, as
+   * the overlay API does, instead of taking the Console's user.
+   */
+  identify?: (event: unknown) => Promise<CommentsUser | null>
   store: CommentsStore
   /** The Auth adapter. `people` wins over it. Without both, `@` finds the authors that the store knows. */
   users?: CommentsPeople
