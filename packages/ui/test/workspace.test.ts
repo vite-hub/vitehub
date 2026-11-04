@@ -234,6 +234,31 @@ describe("useWorkspace", () => {
     wrapper.unmount();
   });
 
+  it("ignores other server ports before readiness and after restart", async () => {
+    fake.autoReady = false;
+    const { workspace, wrapper } = mountWorkspace({ files: {}, install: false, port: 3000 });
+    await flushPromises();
+    fake.releaseBoot?.();
+    await flushPromises();
+
+    fake.serverListener?.({ port: 4321, url: "https://worker.example" });
+    expect(workspace.previewUrl.value).toBeUndefined();
+    expect(workspace.status.value).toBe("starting");
+    fake.ready?.("https://preview.example");
+    expect(workspace.previewUrl.value).toBe("https://preview.example");
+    fake.serverListener?.({ port: 4321, url: "https://worker.example" });
+    expect(workspace.previewUrl.value).toBe("https://preview.example");
+
+    await workspace.restart();
+    fake.serverListener?.({ port: 4321, url: "https://worker.example" });
+    expect(workspace.previewUrl.value).toBeUndefined();
+    expect(workspace.status.value).toBe("starting");
+    fake.ready?.("https://replacement.example");
+    expect(workspace.previewUrl.value).toBe("https://replacement.example");
+    expect(workspace.status.value).toBe("ready");
+    wrapper.unmount();
+  });
+
   it("serializes overlapping install and restart recovery", async () => {
     const { workspace, wrapper } = mountWorkspace({ files: {} });
     await flushPromises();
@@ -570,6 +595,12 @@ describe("ConnectPanel", () => {
     await wrapper.findAll("button").find(button => button.text() === "Remove all")?.trigger("click");
     expect(wrapper.emitted("remove-all")).toHaveLength(1);
     expect(wrapper.get("footer").text()).toContain("ViteHub servers never receive them.");
+  });
+
+  it("says when a page needs no accounts", () => {
+    const wrapper = mount(ConnectPanel, { props: { connect: defineConnect({}), empty: "No accounts needed for this step." } });
+    expect(wrapper.text()).toBe("No accounts needed for this step.");
+    expect(wrapper.find("footer").exists()).toBe(false);
   });
 
   it("asks for a token in a labeled password input", async () => {
