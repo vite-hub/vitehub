@@ -3,7 +3,7 @@ import { computed, defineAsyncComponent, h, onBeforeUnmount, onMounted, ref, sha
 import { useRoute, useRouter } from "vue-router";
 
 import { consoleErrorMessage, consoleListQueryFor, createConsoleDocumentsClient } from "../client/documents";
-import { clearConsoleDocumentCaches, consoleDocumentCacheIdentity } from "../client/document-cache";
+import { clearConsoleDocumentCaches } from "../client/document-cache";
 import { provideConsoleMediaPicker } from "../client/media";
 import { consoleMediaBase, consoleMediaTransformable, consoleMediaUrl, consoleMediaVariantUrl, createConsoleMediaClient, isConsoleMediaPathname } from "../client/media-library";
 import { ConsoleRequestError, isConsoleSignInRequired, requestConsole } from "../client/request";
@@ -74,33 +74,6 @@ const overviewLoading = ref(false);
 const overviewError = ref<unknown>();
 let overviewRequest = 0;
 let collectionsRequest = 0;
-let cacheRequest = 0;
-let cacheIdentity: string | undefined;
-
-// Restore the last responses only after validating the session that owns them, then refresh in the background.
-const cacheKey = computed(() => `vitehub.console.documents:${props.documentsBase}:${section.value}`);
-function readCache(): { definitions?: unknown, overview?: unknown } {
-  try {
-    if (!cacheIdentity) return {};
-    const value: unknown = JSON.parse(sessionStorage.getItem(cacheKey.value) ?? "null");
-    return value instanceof Object && Reflect.get(value, "identity") === cacheIdentity
-      ? { definitions: Reflect.get(value, "definitions"), overview: Reflect.get(value, "overview") } : {};
-  }
-  catch {
-    return {};
-  }
-}
-function writeCache(entry: { definitions?: unknown, overview?: unknown }): void {
-  try {
-    if (cacheIdentity) sessionStorage.setItem(cacheKey.value, JSON.stringify({ identity: cacheIdentity, ...readCache(), ...entry }));
-  }
-  catch {
-    // A full or blocked storage only costs the instant layout of the next visit.
-  }
-}
-function isConsoleDocumentOverview(value: unknown): value is ConsoleDocumentOverview {
-  return value instanceof Object && Array.isArray(Reflect.get(value, "collections")) && Array.isArray(Reflect.get(value, "activity"));
-}
 function applyDefinitions(definitions: unknown): boolean {
   const content = parseConsoleSectionContent(definitions, section.value);
   if (!content || content.kind !== "document-editor") return false;
@@ -108,12 +81,6 @@ function applyDefinitions(definitions: unknown): boolean {
   setup.value = content.setup;
   return true;
 }
-function showCached(): void {
-  const cached = readCache();
-  if (cached.definitions !== undefined && applyDefinitions(cached.definitions)) loading.value = false;
-  if (isConsoleDocumentOverview(cached.overview)) overview.value = cached.overview;
-}
-
 function clearDocumentData(): void {
   collections.value = [];
   setup.value = undefined;
@@ -124,7 +91,6 @@ function discardUnauthorizedData(requestError: unknown): void {
   if (!(requestError instanceof ConsoleRequestError) || ![401, 403].includes(requestError.status)) return;
   clearConsoleDocumentCaches();
   clearDocumentData();
-  cacheIdentity = undefined;
   // A concurrent successful response must not reinstall data after access was denied.
   ++collectionsRequest;
   ++overviewRequest;
@@ -245,14 +211,17 @@ const editorDocumentId = computed(() => (collection.value?.kind === "singleton" 
 
 async function loadCollections(): Promise<void> {
   const current = ++collectionsRequest;
-  // Cached collections stay on screen while they refresh.
   if (!collections.value.length) loading.value = true;
   try {
     const definitions = await requestConsole(props.definitionsBase, { query: { section: section.value } });
     if (current !== collectionsRequest) return;
     if (!applyDefinitions(definitions)) throw new Error("The Console returned invalid collections.");
-    writeCache({ definitions });
+    loading.value = false;
     error.value = undefined;
+    // A Settings link can be followed while loading, then disappear when no singleton is readable.
+    if (route.meta.consolePage && !page.value) {
+      await router.replace({ name: mainRouteName(), params: { collection: "", document: [] }, query: {} });
+    }
     // Without an index page, the section root opens the first collection.
     if (!collectionName.value && !page.value && collections.value[0]) {
       await router.replace({ name: mainRouteName(), params: { collection: collections.value[0].name, document: [] }, query: {} });
@@ -275,7 +244,6 @@ async function loadOverview(): Promise<void> {
     const result = await client.value.overview();
     if (current !== overviewRequest) return;
     overview.value = result;
-    writeCache({ overview: result });
     overviewError.value = undefined;
   }
   catch (requestError) {
@@ -288,16 +256,10 @@ async function loadOverview(): Promise<void> {
   }
 }
 
-async function reload(): Promise<void> {
-  const current = ++cacheRequest;
-  ++collectionsRequest;
-  ++overviewRequest;
-  const identity = await consoleDocumentCacheIdentity(props.sectionsBase);
-  if (current !== cacheRequest) return;
-  if (identity !== cacheIdentity) clearDocumentData();
-  cacheIdentity = identity;
-  if (!identity) clearConsoleDocumentCaches();
-  showCached();
+function reload(): void {
+  // Identity alone cannot validate a saved grant. Only current authorized responses populate this page.
+  clearConsoleDocumentCaches();
+  clearDocumentData();
   void loadCollections();
   void loadOverview();
 }
@@ -321,7 +283,6 @@ watch(section, () => {
 });
 watch(changes, () => void loadOverview());
 onBeforeUnmount(() => {
-  ++cacheRequest;
   ++collectionsRequest;
   ++overviewRequest;
 });
