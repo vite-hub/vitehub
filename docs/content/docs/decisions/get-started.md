@@ -2,6 +2,7 @@
 title: Turn a sentence into filters
 description: Build a filter box that reads "nord parts except vak supply" and fills your own chips. It runs offline, with no API key.
 layout: tutorial
+codePanel: true
 navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
@@ -19,6 +20,9 @@ You need Node.js 22.22 or newer, pnpm, and the app from [Installation](/docs/get
 pnpm add vue
 pnpm add -D @vitejs/plugin-vue
 ```
+
+::run-tutorial{to="/tutorials/decisions"}
+::
 
 ::tutorial-step{title="Declare your options"}
 ## Declare your options
