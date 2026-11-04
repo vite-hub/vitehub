@@ -44,7 +44,7 @@ export const consoleSectionDetails: Readonly<Record<ConsoleBuiltinSectionId, Con
   },
   "mcp-client": {
     description: "Connect to MCP servers as yourself, then call their tools, resources, and prompts.",
-    icon: "i-lucide-cable",
+    icon: "i-vitehub-connections",
     label: "MCP client",
     routeName: "vitehub-console-mcp-client",
   },

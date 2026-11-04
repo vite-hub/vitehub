@@ -72,7 +72,19 @@ const router = createRouter({
       },
     },
     // Authorization servers send the browser here after an MCP sign-in (`consoleMcpCallbackPath`).
-    { component: ConsoleMcpCallback, name: "vitehub-console-mcp-client-callback", path: "/mcp-client/callback", meta: { consoleSection: "mcp-client", title: "MCP client · ViteHub Console" }, props: { sectionsBase } },
+    {
+      component: ConsoleMcpCallback,
+      name: "vitehub-console-mcp-client-callback",
+      path: "/mcp-client/callback",
+      meta: { consoleSection: "mcp-client", title: "MCP client · ViteHub Console" },
+      props: {
+        agentsBase: consolePath("/api/_vitehub/console/agents"),
+        definitionsBase: consolePath("/api/_vitehub/console/definitions"),
+        kvBase: consolePath("/api/_vitehub/console/kv"),
+        searchBase: consolePath("/api/_vitehub/console/search"),
+        sectionsBase,
+      },
+    },
     {
       component: ConsoleHome,
       name: "vitehub-console",
