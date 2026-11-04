@@ -10,7 +10,7 @@ icon: i-lucide-rocket
 
 Build a two-step onboarding Workflow and start it from an API route. One step creates a sample user; the next returns a sample welcome result. Neither step calls a database or sends an email yet. You will get a run id that identifies this execution.
 
-You need Node.js 22.18 or newer, pnpm, and a Vite application. Run the commands from its root. Local execution runs inline and needs no provider account. Select a [durable provider](/docs/workflows/hosts) before relying on a run surviving a server restart.
+You need Node.js 22.22 or newer, pnpm, and a Vite application. Run the commands from its root. Local execution runs inline and needs no provider account. Select a [durable provider](/docs/workflows/hosts) before relying on a run surviving a server restart.
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure

@@ -57,12 +57,12 @@
   "devEngines": {
     "runtime": {
       "name": "node",
-      "version": "^22.18.0 || >=24.11.0",
+      "version": "^22.22.0 || >=24.11.0",
       "onFail": "error"
     }
   },
   "engines": {
-    "node": "^22.18.0 || >=24.11.0"
+    "node": "^22.22.0 || >=24.11.0"
   },
   "packageManager": "pnpm@10.34.6"
 }
