@@ -307,6 +307,7 @@ export const CommentThread = defineComponent({
     detached: { default: false, type: Boolean },
     /** People that messages may mention, on top of the authors of the thread. Their mentions show as chips. */
     people: { default: () => [], type: Array as PropType<CommentUser[]> },
+    /** Finds people for `@mentions`. Defaults to the comments state, searching the people who may be mentioned in this thread. */
     users: { type: Function as PropType<(query: string) => Promise<CommentUser[]>> },
     /** The reply box takes files. `onReply` gets them. */
     attachments: { default: true, type: Boolean },
@@ -343,6 +344,8 @@ export const CommentThread = defineComponent({
     const composer = ref<{ focus: () => void } | null>(null);
 
     const user = computed(() => props.user ?? comments?.user.value);
+    // Mentions in a reply or an edit go in this thread, so the search asks for the people that may be mentioned there.
+    const users = computed(() => props.users ?? (comments ? (query: string) => comments.users(query, props.thread.id) : undefined));
     const allowed = (action: CommentThreadAction, message?: CommentMessage) =>
       !props.readOnly && (props.can ?? comments?.can ?? defaultCommentCan(user.value))(action, { message, thread: props.thread });
     const people = computed(() => {
@@ -466,7 +469,7 @@ export const CommentThread = defineComponent({
                 onEdit: props.onEdit,
                 people: people.value,
                 user: user.value,
-                users: props.users,
+                users: users.value,
               }, replySlots()),
             ),
             resolved
@@ -498,7 +501,7 @@ export const CommentThread = defineComponent({
             people: people.value,
             ref: composer,
             user: user.value,
-            users: props.users,
+            users: users.value,
             variant: "reply",
           }, composerSlots()),
         ],

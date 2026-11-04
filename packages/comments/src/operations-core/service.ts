@@ -67,6 +67,11 @@ export interface CommentsForgeHooks {
 /** Everything that the comment operations, the server API, and the overlay API share. */
 export interface CommentsRuntime {
   definition: CommentsDefinition
+  /**
+   * The app's `identify`, given the server event of a call. With it, the comment operations ask it for the user, as
+   * the overlay API does, instead of taking the Console's user.
+   */
+  identify?: (event: unknown) => Promise<CommentsUser | null>
   store: CommentsStore
   /** The Auth adapter. `people` wins over it. Without both, `@` finds the authors that the store knows. */
   users?: CommentsPeople
@@ -475,9 +480,14 @@ export async function storeAttachment(runtime: CommentsRuntime, input: { name: s
 /** The thread through which `user` may read the file of `key`, else `COMMENTS_R0020` as not found. */
 export async function attachmentThread(runtime: CommentsRuntime, key: string, readable: (thread: CommentThread) => Promise<boolean>): Promise<CommentThread> {
   check(attachmentKey, key, "key")
-  for (const thread of await runtime.store.getByAttachment(key)) {
-    if (await readable(thread).catch(() => false)) return thread
-  }
+  let cursor: string | undefined
+  do {
+    const page = await runtime.store.getByAttachment(key, cursor)
+    for (const thread of page.threads) {
+      if (await readable(thread).catch(() => false)) return thread
+    }
+    cursor = page.cursor
+  } while (cursor)
   throw fail(commentsErrorDiagnostics.COMMENTS_R0020({ key }), 404)
 }
 

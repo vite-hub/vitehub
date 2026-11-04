@@ -46,7 +46,7 @@ Comments is a ViteHub page tool. Open any page with `?vitehub`, or `?vitehub=com
 
 A single page app whose `index.html` Vite serves or builds gets a short inline check in that file. It imports the loader in the browser when the page has the query or the cookie, so a built `index.html` that a host serves as a static file also gets the tools. When the app has a Vite `base` or a Nuxt `app.baseURL`, such as `/docs/`, every path follows it: `/docs/_vitehub/page/session`, `/docs/_vitehub/page/assets/loader.js`, and `/docs/api/_vitehub/comments/**`. The loader and the overlay find the base from their own URL, including the overlay's Realtime presence and live update connections.
 
-When the app has the Console, its Comments section controls access, and opening the Console enables the toolbar on the app's pages. Custom `identify` runs after that access check. Without the Console, custom `identify` takes precedence over ViteHub Auth, and Comments reads the Auth session only when `identify` is absent.
+Custom `identify` names the user of every surface, and `authorize` decides; Comments then reads neither the Auth session nor the Console's access. Without `identify`, when the app has the Console, its Comments section controls access, and opening the Console enables the toolbar on the app's pages. Otherwise Comments reads the Auth session.
 
 Console `comments:read` access allows reading threads and joining presence. Writes also require full `comments` access and the Comments policy.
 

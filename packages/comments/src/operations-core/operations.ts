@@ -100,14 +100,21 @@ export interface CommentsCaller {
   waitUntil?: (task: Promise<unknown>) => void
 }
 
-/** Operations run only after the Console admitted the call to the `comments` section, so the default policy trusts it. */
+/**
+ * Operations run only after the Console admitted the call to the `comments` section. With `identify`, the app names
+ * the user from the request of the call, as in the overlay API, and `authorize` decides; a call without a request,
+ * such as an agent's, has no user. Without `identify`, the user is the Console's, and the default policy trusts it.
+ */
 async function caller(context: OperationContext): Promise<CommentsCaller> {
   const runtime = await commentsRuntime()
   const actor = actorOf(context.actor)
+  const development = runtime.development ?? context.development === true
+  const identity = runtime.identify
+    ? { gate: { development }, user: context.event === undefined ? null : await runtime.identify(context.event) }
+    : { gate: { console: true, development }, user: context.user }
   return {
-    gate: { console: true, development: runtime.development ?? context.development === true },
+    ...identity,
     runtime,
-    user: context.user,
     ...(actor ? { actor } : {}),
     ...(context.request ? { request: context.request } : {}),
     ...(context.waitUntil ? { waitUntil: context.waitUntil } : {}),

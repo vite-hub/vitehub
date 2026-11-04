@@ -17,6 +17,7 @@ const denied: CommentsSession = {
 }
 
 afterEach(() => {
+  vi.unstubAllGlobals()
   document.querySelector("vitehub-comments")?.remove()
   document.body.replaceChildren()
   vi.restoreAllMocks()
@@ -37,7 +38,7 @@ async function open(search: string, session = denied) {
     openTool: vi.fn(async () => false), onOpen: vi.fn(), beforeExit: vi.fn(),
   })
   const overlay = document.querySelector("vitehub-comments")!
-  await Promise.resolve()
+  await vi.waitFor(() => expect(overlay.shadowRoot?.querySelector(".toast, [data-slot='comment-layer']")).toBeTruthy())
   return overlay
 }
 
@@ -66,7 +67,7 @@ it("offers account switching while keeping the denied segment hidden", async () 
 })
 
 it("renders GitHub sign-out in the pill segment with no separate exit", async () => {
-  vi.spyOn(api, "threads").mockResolvedValue([undefined, []])
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ data: [] })))
   const overlay = await open("", {
     ...denied,
     user: { id: "ada", name: "Ada" },
@@ -76,6 +77,7 @@ it("renders GitHub sign-out in the pill segment with no separate exit", async ()
   })
   const bar = document.querySelector<HTMLElement>("vitehub-tool")!
   expect(bar.hidden).toBe(false)
+  await vi.waitFor(() => expect(bar.shadowRoot?.querySelector('[aria-label="Sign out @ada"]')).not.toBeNull())
   expect(bar.shadowRoot?.querySelector('[aria-label="Sign out @ada"]')).not.toBeNull()
   expect(overlay.shadowRoot?.querySelector('[aria-label="Sign out @ada"]')).toBeNull()
   expect(bar.shadowRoot?.querySelector('[aria-label="Leave comment mode"]')).toBeNull()

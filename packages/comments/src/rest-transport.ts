@@ -39,6 +39,8 @@ export interface RestTransportOptions {
   credentials?: RequestCredentials
   /** Replaces `fetch`, for tests or a server. */
   fetch?: typeof fetch
+  /** Runs after each answer that has data, such as to learn the names of the people that it mentions. */
+  onAnswer?: (answer: CommentsRestAnswer<unknown>) => void
 }
 
 /** A failed request of the Comments API: the code, `why`, and `fix` of the error object, and the HTTP status. */
@@ -110,13 +112,15 @@ export function createCommentsRestRequest(options: RestTransportOptions & { rout
       throw new CommentsRestError({ code: typeof code === "string" ? code : "COMMENTS_R0013", why: typeof why === "string" ? why : `The server answered ${response.status}.`, ...(typeof fix === "string" ? { fix } : {}), status: response.status })
     }
     if (isRecord(value) && "data" in value) {
-      return {
+      const answer: CommentsRestAnswer<T> = {
         // SAFETY: each route answers with the data type that its caller names.
         data: value.data as T,
         people: Array.isArray(value.people) ? value.people as CommentUser[] : [],
         // SAFETY: a reply answers with the thread that it changed.
         ...(isRecord(value.thread) ? { thread: value.thread as unknown as RestCommentThread } : {}),
       }
+      options.onAnswer?.(answer)
+      return answer
     }
     throw new CommentsRestError({ code: "COMMENTS_R0013", why: `The server answered ${response.status} without data.`, status: response.status })
   }

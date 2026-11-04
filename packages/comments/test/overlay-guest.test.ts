@@ -1,137 +1,82 @@
 // @vitest-environment happy-dom
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { connectRealtimeRoom } from "@vite-hub/realtime/client"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { readGuest, saveGuest } from "../src/overlay/api.ts"
+import { pageTools, serveComments, startOverlay, tool, type } from "./overlay-harness.ts"
 
-import type { CommentsSession } from "../src/overlay/api.ts"
+import type { CommentsUser } from "../src/types.ts"
 
 vi.mock("@vite-hub/realtime/client", () => ({
-  connectRealtimeRoom: vi.fn(() => ({
-    states: () => new Map(),
-    people: () => [],
-    onUpdate: vi.fn(),
-    onChange: vi.fn(),
-    notify: vi.fn(),
-    destroy: vi.fn(),
-  })),
+  connectRealtimeRoom: vi.fn(() => ({ states: () => new Map(), people: () => [], onUpdate: vi.fn(), onChange: vi.fn(), notify: vi.fn(), setLocal: vi.fn(), destroy: vi.fn() })),
 }))
 
 beforeEach(() => {
   vi.clearAllMocks()
   localStorage.clear()
+  history.replaceState(null, "", "/")
   document.body.innerHTML = "<h1>Page title</h1>"
-  Object.defineProperty(document, "elementsFromPoint", { configurable: true, value: () => [document.querySelector("h1")!] })
-  vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 200, 40))
 })
 
 afterEach(() => {
-  document.querySelector("vitehub-comments")?.remove()
-  document.querySelector("vitehub-pill")?.remove()
-  Reflect.deleteProperty(document, "elementsFromPoint")
-  vi.restoreAllMocks()
+  for (const element of document.querySelectorAll("vitehub-comments, vitehub-pill")) element.remove()
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
 
-async function compose(user: CommentsSession["user"], realtime = false) {
-  const requests: RequestInit[] = []
-  vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
-    if (new URL(url, location.href).pathname.endsWith("/session")) return Response.json({ data: { user, can: { read: true, comment: true, resolve: true }, content: false, realtime } })
-    if (init?.method === "POST") {
-      requests.push(init)
-      return Response.json({ error: { code: "COMMENTS_FAILED", why: "Fixture keeps the composer open." } })
-    }
-    return Response.json({ data: [] })
-  }))
-  const { default: start } = await import("../src/overlay/index.ts")
-  const pill = document.createElement("vitehub-pill")
-  const bar = document.createElement("vitehub-tool")
-  pill.append(bar)
-  document.body.append(pill)
-  start({
-    tool: { id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "/overlay.js" },
-    bar, signal: new AbortController().signal, open: false, exit: vi.fn(),
-    createWindow: () => { throw new Error("Unexpected retained window") },
-    openTool: vi.fn(async () => false), onOpen: vi.fn(), beforeExit: vi.fn(),
-  })
-  const shadow = document.querySelector("vitehub-comments")!.shadowRoot!
-  await vi.waitFor(() => expect(bar.shadowRoot!.querySelector(".toolbar button:not([aria-busy])")).not.toBeNull())
-  if (realtime) await vi.waitFor(() => expect(connectRealtimeRoom).toHaveBeenCalledTimes(1))
-  document.dispatchEvent(new KeyboardEvent("keydown", { key: "c", bubbles: true }))
-  document.querySelector("h1")!.dispatchEvent(new MouseEvent("click", { clientX: 10, clientY: 10, bubbles: true }))
-  const input = shadow.querySelector<HTMLTextAreaElement>("textarea")!
-  input.value = "Please fix this title"
-  input.dispatchEvent(new Event("input"))
-  const button = shadow.querySelector<HTMLButtonElement>(".compose button.primary")!
-  return { requests, shadow, button }
+/** A site with presence, where `user` is who the server says, and anyone may comment. */
+async function join(user: CommentsUser | null) {
+  await serveComments({ identify: () => user, authorize: () => true }, { realtime: true })
+  const tools = pageTools()
+  const { shadow } = await startOverlay(tools)
+  await vi.waitFor(() => expect(connectRealtimeRoom).toHaveBeenCalledTimes(1))
+  return { ...tools, shadow }
 }
 
-describe("Console guest comment authors", () => {
-  it("lets Realtime generate a distinct identity for an unnamed Console guest", async () => {
-    await compose(null, true)
-    expect(connectRealtimeRoom).toHaveBeenCalledTimes(1)
-    expect(vi.mocked(connectRealtimeRoom).mock.calls[0]![2]?.identity).toBeUndefined()
+const identity = (call: number) => vi.mocked(connectRealtimeRoom).mock.calls[call]![2]?.identity
+
+describe("guests of the Comments overlay", () => {
+  it("lets Realtime pick an identity for a guest without a name", async () => {
+    await join(null)
+    expect(identity(0)).toBeUndefined()
   })
 
-  it("rejoins the active room with the saved identity after the first name is entered", async () => {
-    const { requests, shadow, button } = await compose(null, true)
-    const initialRoom = vi.mocked(connectRealtimeRoom).mock.results[0]!.value
-    shadow.querySelector<HTMLInputElement>('input[aria-label="Your name"]')!.value = "Ana García"
-    button.click()
-    await vi.waitFor(() => expect(requests).toHaveLength(1))
+  it("rejoins the room with the guest's name once they give it", async () => {
+    const { bar, shadow } = await join(null)
+    const room = vi.mocked(connectRealtimeRoom).mock.results[0]!.value
+    tool(bar, "Comment (C)")!.click()
+    await vi.waitFor(() => expect(shadow.querySelector('input[aria-label="Your name"]')).not.toBeNull())
+    const name = shadow.querySelector<HTMLInputElement>('input[aria-label="Your name"]')!
+    // An empty name keeps the card open.
+    name.closest("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
+    expect(readGuest()).toBeUndefined()
+    expect(shadow.activeElement).toBe(name)
+    await type(name, "Ana García")
+    name.closest("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }))
     const guest = readGuest()!
-    expect(initialRoom.destroy).toHaveBeenCalledTimes(1)
-    expect(connectRealtimeRoom).toHaveBeenCalledTimes(2)
-    expect(vi.mocked(connectRealtimeRoom).mock.calls[1]![2]?.identity).toEqual({ id: `guest:${guest.id}`, name: "Ana García (guest)" })
+    await vi.waitFor(() => expect(connectRealtimeRoom).toHaveBeenCalledTimes(2))
+    expect(room.destroy).toHaveBeenCalledTimes(1)
+    expect(identity(1)).toEqual({ id: `guest:${guest.id}`, name: "Ana García (guest)" })
   })
 
-  it("uses the saved browser identity when a Console guest joins on a later page", async () => {
+  it("uses the name this browser saved on an earlier page", async () => {
     const guest = saveGuest("Ana García")
-    await compose(null, true)
-    expect(vi.mocked(connectRealtimeRoom).mock.calls[0]![2]?.identity).toEqual({ id: `guest:${guest.id}`, name: "Ana García (guest)" })
-  })
-
-  it("saves the entered guest name and sends a distinct guest identity", async () => {
-    const { requests, shadow, button } = await compose(null)
-    shadow.querySelector<HTMLInputElement>('input[aria-label="Your name"]')!.value = "  Ana García  "
-    button.click()
-    await vi.waitFor(() => expect(requests).toHaveLength(1))
-    const guest = readGuest()!
-    expect(guest.name).toBe("Ana García")
-    expect(guest.id).not.toBe("console")
-    const headers = new Headers(requests[0]!.headers)
-    expect(headers.get("x-vitehub-comments-guest-id")).toBe(guest.id)
-    expect(decodeURIComponent(headers.get("x-vitehub-comments-guest-name")!)).toBe("Ana García")
-  })
-
-  it("requires a name from a new Console guest", async () => {
-    const { requests, shadow, button } = await compose(null)
-    button.click()
-    expect(requests).toHaveLength(0)
-    expect(readGuest()).toBeUndefined()
-    expect(shadow.activeElement).toBe(shadow.querySelector('input[aria-label="Your name"]'))
-  })
-
-  it("keeps signed-in Console users on their account identity", async () => {
-    const { requests, shadow, button } = await compose({ id: "editor-1", name: "Editor" }, true)
+    const { bar, shadow } = await join(null)
+    expect(identity(0)).toEqual({ id: `guest:${guest.id}`, name: "Ana García (guest)" })
+    tool(bar, "Comment (C)")!.click()
+    await vi.waitFor(() => expect(shadow.querySelector("[data-slot='comment-layer-overlay']")).not.toBeNull())
     expect(shadow.querySelector('input[aria-label="Your name"]')).toBeNull()
-    button.click()
-    await vi.waitFor(() => expect(requests).toHaveLength(1))
-    expect(new Headers(requests[0]!.headers).has("x-vitehub-comments-guest-id")).toBe(false)
-    expect(readGuest()).toBeUndefined()
-    expect(connectRealtimeRoom).toHaveBeenCalledTimes(1)
-    expect(vi.mocked(connectRealtimeRoom).mock.calls[0]![2]?.identity).toEqual({ id: "editor-1", name: "Editor" })
   })
 
-  it("keeps server-identified guests on their existing identity", async () => {
-    const user = { id: "external-guest", name: "Invited reviewer", guest: true }
-    const { requests, shadow, button } = await compose(user, true)
+  it.each([
+    { id: "editor-1", name: "Editor" },
+    { id: "external-guest", name: "Invited reviewer", guest: true },
+  ])("keeps the identity that the server gave: %j", async (user) => {
+    const { bar, shadow } = await join(user)
+    expect(identity(0)).toEqual(user)
+    tool(bar, "Comment (C)")!.click()
+    await vi.waitFor(() => expect(shadow.querySelector("[data-slot='comment-layer-overlay']")).not.toBeNull())
     expect(shadow.querySelector('input[aria-label="Your name"]')).toBeNull()
-    button.click()
-    await vi.waitFor(() => expect(requests).toHaveLength(1))
-    expect(new Headers(requests[0]!.headers).has("x-vitehub-comments-guest-id")).toBe(false)
     expect(readGuest()).toBeUndefined()
-    expect(connectRealtimeRoom).toHaveBeenCalledTimes(1)
-    expect(vi.mocked(connectRealtimeRoom).mock.calls[0]![2]?.identity).toEqual(user)
   })
 })

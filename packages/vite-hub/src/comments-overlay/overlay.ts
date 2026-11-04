@@ -4,8 +4,9 @@ import { CommentLayer, CommentList, CommentToolbar } from "@vite-hub/ui/comments
 import { createApp, defineComponent, h, shallowRef, watch } from "vue"
 import type { App } from "vue"
 
+import { registerStandaloneUI, UIcon } from "@vite-hub/ui/standalone/nuxt-ui"
+
 import css from "./overlay.css?inline"
-import { UButton, UIcon } from "./shim.ts"
 import type { MountOptions, OverlayControl } from "./loader-core.ts"
 
 export interface OverlayHandle extends OverlayControl {
@@ -158,8 +159,7 @@ export function mount(options: MountOptions): OverlayHandle {
   })
 
   const app = createApp(Overlay)
-  app.component("UButton", UButton)
-  app.component("UIcon", UIcon)
+  registerStandaloneUI(app)
   app.mount(root)
   document.body.append(host)
 

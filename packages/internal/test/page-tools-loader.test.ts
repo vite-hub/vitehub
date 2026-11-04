@@ -106,7 +106,7 @@ describe("loadViteHubPageTools", () => {
     const fetch = session({ tools: [comments] })
     const { load, started } = modules()
     await expect(loadViteHubPageTools({ load })).resolves.toEqual([comments])
-    expect(fetch).toHaveBeenCalledWith("/_vitehub/page/session", { credentials: "same-origin", headers: { accept: "application/json" } })
+    expect(fetch).toHaveBeenCalledWith("/_vitehub/page/session?page=%2Fpricing", { credentials: "same-origin", headers: { accept: "application/json" } })
     expect(load.mock.calls).toEqual([["/comments.js"]])
     expect(started.map(context => [context.tool.id, context.open, context.signal.aborted])).toEqual([["comments", false, false]])
   })
@@ -118,7 +118,7 @@ describe("loadViteHubPageTools", () => {
     page("/portal/?vitehub")
     const fetch = session({ tools: [] })
     await loadViteHubPageTools({ load: modules().load, session: "/portal/_vitehub/page/session" })
-    expect(fetch).toHaveBeenCalledWith("/portal/_vitehub/page/session", { credentials: "same-origin", headers: { accept: "application/json" } })
+    expect(fetch).toHaveBeenCalledWith("/portal/_vitehub/page/session?page=%2Fportal%2F", { credentials: "same-origin", headers: { accept: "application/json" } })
   })
 
   it("does nothing more when no tool is allowed, or when the session fails", async () => {
@@ -374,6 +374,19 @@ describe("loadViteHubPageTools", () => {
     expect(document.querySelector("vitehub-pill")).toBeNull()
     expect(document.cookie).toContain("vitehub-tools=0")
     expect(location.pathname + location.search).toBe("/guide?tab=2")
+  })
+
+  it("clears tool link parameters on exit so a reload respects the off hint", async () => {
+    page("/guide?comment=3&inspect=network&tab=2#details")
+    session({ tools: [{ ...comments, param: "comment" }, { ...consoleTool, param: "inspect" }] })
+    const { load, started } = modules()
+    await loadViteHubPageTools({ load })
+    pill().exit.click()
+    expect(location.pathname + location.search + location.hash).toBe("/guide?tab=2#details")
+    expect(document.cookie).toContain("vitehub-tools=0")
+    await expect(loadViteHubPageTools({ load })).resolves.toEqual([])
+    expect(document.querySelector("vitehub-pill")).toBeNull()
+    expect(started).toHaveLength(2)
   })
 
   it("says how to turn the tools on again after exit, and Undo brings them back with their windows", async () => {

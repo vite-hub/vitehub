@@ -154,13 +154,14 @@ Without a layer, give it a `client` and a `subject`, or a `comments` state. `var
 
 The panel keeps its own open thread. A click outside does not close it, because the panel stays on the screen.
 
-Each row shows the number, the author, the start of the first message as plain text, and facts such as the reply count. The `preview` slot replaces the text, and the `row` slot replaces the whole row. Both get `{ thread }`. To put some threads under a heading, give `group` a function that returns the heading of a thread, or `undefined` for none. Threads without a heading come first, then each group in the order it first appears. The `group-header` slot gets `{ group, threads }`:
+Each row shows the number, the author, the start of the first message as plain text, and facts such as the reply count. The `preview` slot replaces the text, and the `row` slot replaces the whole row. Both get `{ thread, text }`, where `text` is the text that the row shows by default. Render `text` for the rows that you don't change, so they keep the default. To put some threads under a heading, give `group` a function that returns the heading of a thread, or `undefined` for none. Threads without a heading come first, then each group in the order it first appears. The `group-header` slot gets `{ group, threads }`:
 
 ```vue
 <template>
   <CommentPanel :group="(thread) => (thread.createdAt < publishedAt ? 'From earlier versions' : undefined)">
-    <template #preview="{ thread }">
-      {{ thread.messages[0]?.body || 'Suggested edit' }}
+    <template #preview="{ thread, text }">
+      <SuggestionPreview v-if="thread.metadata?.suggestion" :thread="thread" />
+      <template v-else>{{ text }}</template>
     </template>
   </CommentPanel>
 </template>
@@ -243,7 +244,7 @@ The slots receive the data that they show:
 | `CommentReply` | `attachments` | `{ message }` | Instead of the default attachments. |
 | `CommentComposer` | `extra` | | Above the text field, for example a field for a suggested change. |
 | `CommentComposer` | `mention-item` | `{ person, active }` | Each person of the mention menu. |
-| `CommentPanel`, `CommentList` | `row`, `preview` | `{ thread }` | One row of the list, or its text. |
+| `CommentPanel`, `CommentList` | `row`, `preview` | `{ thread, text }` | One row of the list, or its text. `text` is the default text of the row. |
 | `CommentPanel` | `group-header` | `{ group, threads }` | The heading of a group of rows. See `group`. |
 
 `CommentThread` passes `body`, `attachments`, `extra`, and `mention-item` on to its messages and its reply box. `CommentPanel` passes every slot on to its thread, and `extra` and `mention-item` to its page box.
@@ -504,8 +505,8 @@ Every slot of [CommentThread](#commentthread). `extra` and `mention-item` also g
 
 | Slot | Scope | Description |
 | --- | --- | --- |
-| `row` | `{ thread }` | The inside of one row. Replaces the number, avatar, text, and facts. |
-| `preview` | `{ thread }` | The text of one row. Replaces the start of the first message. |
+| `row` | `{ thread, text }` | The inside of one row. Replaces the number, avatar, text, and facts. |
+| `preview` | `{ thread, text }` | The text of one row. Replaces the start of the first message. Render `text` to keep the default for a row. |
 | `group-header` | `{ group, threads }` | The heading of a group of rows. Replaces the text that `group` returned. |
 
 ### CommentToolbar
@@ -540,8 +541,8 @@ The side list of threads. Renders a `section` with `data-slot="comment-list"`. I
 
 | Slot | Scope | Description |
 | --- | --- | --- |
-| `row` | `{ thread }` | The inside of one row. Replaces the number, avatar, text, and facts. |
-| `preview` | `{ thread }` | The text of one row. Replaces the start of the first message. |
+| `row` | `{ thread, text }` | The inside of one row. Replaces the number, avatar, text, and facts. |
+| `preview` | `{ thread, text }` | The text of one row. Replaces the start of the first message. Render `text` to keep the default for a row. |
 
 ### CommentFilters
 

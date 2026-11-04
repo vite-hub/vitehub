@@ -1,36 +1,11 @@
-import { commentsApiRoute } from "../page.ts"
-import { CommentsRestError, createCommentsRestRequest } from "../rest-transport.ts"
+import { commentsApiRoute, commentsRoute } from "../page.ts"
+import { CommentsRestError, createCommentsRestRequest, createRestTransport } from "../rest-transport.ts"
 
-import type { PinAnchor } from "../anchor.ts"
-import type { CommentContext, CommentMessage, CommentsGitHubAccess, CommentThread, CommentUser } from "../types.ts"
-
-/** A person as the overlay shows them: always with a name. */
-export interface OverlayPerson {
-  id: string
-  name: string
-  image?: string
-  guest?: boolean
-}
-
-/** A person that a message mentions, with the name that its text shows after `@`. */
-export interface OverlayMention {
-  id: string
-  name: string
-}
-
-/** A message as the overlay shows it. */
-export interface OverlayComment {
-  id: string
-  threadId: string
-  body: string
-  mentions: OverlayMention[]
-  author: OverlayPerson
-  /** ISO time. */
-  createdAt: string
-}
+import type { RestTransport } from "../rest-transport.ts"
+import type { CommentContext, CommentCreateInput, CommentsGitHubAccess, CommentUser } from "../types.ts"
 
 export interface CommentsSession {
-  user: OverlayPerson | null
+  user: CommentUser | null
   /** For a person signed in with GitHub: their login, and whether they can push to the repository. */
   github?: CommentsGitHubAccess
   can: { read: boolean, comment: boolean, resolve: boolean, delete?: boolean }
@@ -40,24 +15,6 @@ export interface CommentsSession {
   signOut?: string
   realtime: boolean
   content: boolean
-}
-
-/** Request-scoped permissions for an existing thread, evaluated with that thread's authorization context. */
-type ThreadPermissions = { comment: boolean, resolve: boolean, delete?: boolean }
-
-/** A pin of a page: a page thread with an element anchor, as the overlay draws it. */
-export interface PageThread {
-  id: string
-  page: string
-  anchor: PinAnchor
-  status: CommentThread["status"]
-  createdBy: OverlayPerson
-  resolvedBy: OverlayPerson | null
-  /** Oldest first. The first comment opened the thread. */
-  comments: OverlayComment[]
-  /** ISO time. */
-  updatedAt: string
-  can?: ThreadPermissions
 }
 
 export interface CommentsField {
@@ -96,53 +53,11 @@ export function saveGuest(name: string): { id: string, name: string } {
   return guest
 }
 
-function person(user: CommentUser): OverlayPerson {
-  return { id: user.id, name: user.name ?? user.id, ...(user.image ? { image: user.image } : {}), ...(user.guest ? { guest: true } : {}) }
-}
-
-function commentOf(message: CommentMessage, people: ReadonlyMap<string, CommentUser>): OverlayComment {
-  return {
-    id: message.id,
-    threadId: message.threadId,
-    body: message.body,
-    author: person(message.author),
-    createdAt: new Date(message.createdAt).toISOString(),
-    mentions: message.mentions.flatMap((id) => {
-      const found = people.get(id)
-      return found ? [{ id, name: found.name ?? id }] : []
-    }),
-  }
-}
-
-/** A page thread of the API as a pin, or undefined for a thread whose anchor is not on an element. */
-function pinOf(thread: CommentThread & { can?: ThreadPermissions }, people: ReadonlyMap<string, CommentUser>): PageThread | undefined {
-  if (thread.subject.kind !== "page" || thread.anchor.kind !== "element") return
-  return {
-    id: thread.id,
-    page: thread.subject.id,
-    anchor: { label: "", page: { x: 0, y: 0 }, viewport: { width: 0 }, ...thread.anchor },
-    status: thread.status,
-    createdBy: person(thread.author),
-    resolvedBy: thread.resolvedBy ? person(thread.resolvedBy) : null,
-    comments: thread.messages.map(message => commentOf(message, people)),
-    updatedAt: new Date(thread.updatedAt).toISOString(),
-    ...(thread.can ? { can: thread.can } : {}),
-  }
-}
-
-async function call<T>(path: string, init: RequestInit = {}): Promise<ApiResult<T>> {
-  const [error, value] = await request<T>(path, init)
-  return error ? [error, undefined] : [undefined, value.data]
-}
-
-/** The overlay talks to the Comments API through the same requests as `createRestTransport()`. */
 const send = createCommentsRestRequest({ route, guest: readGuest })
 
-/** The answer of a route that names people: the data, and the mentioned people by id. */
-async function request<T>(path: string, init: RequestInit = {}): Promise<ApiResult<{ data: T, people: Map<string, CommentUser> }>> {
+async function call<T>(path: string, init: RequestInit = {}): Promise<ApiResult<T>> {
   try {
-    const answer = await send<T>(path, init)
-    return [undefined, { data: answer.data, people: new Map(answer.people.map(entry => [entry.id, entry])) }]
+    return [undefined, (await send<T>(path, init)).data]
   }
   catch (error) {
     if (error instanceof CommentsRestError) return [{ code: error.code, why: error.why, ...(error.fix ? { fix: error.fix } : {}) }, undefined]
@@ -152,42 +67,57 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<ApiResu
 
 const post = (body: unknown): RequestInit => ({ method: "POST", body: JSON.stringify(body) })
 
-type ApiThread = CommentThread & { can?: ThreadPermissions }
-
-/** One page thread as a pin. A thread that the overlay cannot place is not found. */
-async function pin(path: string, init: RequestInit): Promise<ApiResult<PageThread>> {
-  const [error, value] = await request<ApiThread>(path, init)
-  if (error) return [error, undefined]
-  const found = pinOf(value.data, value.people)
-  return found ? [undefined, found] : [{ code: "COMMENTS_NOT_FOUND", why: "The thread is not on an element of the page." }, undefined]
-}
-
-/** Mentions go to the server as ids. It checks each one, and that the text names it with `@`. */
-function mentionIds(mentions: readonly OverlayMention[]): string[] {
-  return [...new Set(mentions.map(mention => mention.id))]
-}
-
+/** The routes that are not comment threads: who the person is on a page, and the Content fields of inline edits. */
 export const api = {
   session: (page: string) => call<CommentsSession>(`/session?page=${encodeURIComponent(page)}`),
-  async threads(page: string): Promise<ApiResult<PageThread[]>> {
-    const [error, value] = await request<ApiThread[]>(`/threads?page=${encodeURIComponent(page)}`)
-    if (error) return [error, undefined]
-    return [undefined, value.data.flatMap(thread => pinOf(thread, value.people) ?? [])]
-  },
-  create: (input: { page: string, anchor: PinAnchor, context: CommentContext, body: string, mentions: OverlayMention[] }) => pin("/threads", post({ ...input, mentions: mentionIds(input.mentions) })),
-  async reply(thread: string, input: { body: string, mentions: OverlayMention[] }): Promise<ApiResult<OverlayComment>> {
-    const [error, value] = await request<CommentMessage>(`/threads/${encodeURIComponent(thread)}/comments`, post({ body: input.body, mentions: mentionIds(input.mentions) }))
-    return error ? [error, undefined] : [undefined, commentOf(value.data, value.people)]
-  },
-  resolve: (thread: string) => pin(`/threads/${encodeURIComponent(thread)}/resolve`, { method: "POST" }),
-  reopen: (thread: string) => pin(`/threads/${encodeURIComponent(thread)}/reopen`, { method: "POST" }),
-  remove: (thread: string) => call<null>(`/threads/${encodeURIComponent(thread)}`, { method: "DELETE" }),
-  removeComment: (thread: string, comment: string) => call<null>(`/threads/${encodeURIComponent(thread)}/comments/${encodeURIComponent(comment)}`, { method: "DELETE" }),
-  async people(query: string, target: { page: string } | { thread: string }): Promise<ApiResult<OverlayMention[]>> {
-    const params = new URLSearchParams({ q: query, ...target })
-    const [error, found] = await call<CommentUser[]>(`/people?${params}`)
-    return error ? [error, undefined] : [undefined, found.map(entry => ({ id: entry.id, name: entry.name ?? entry.id }))]
-  },
-  field: (field: string) => call<CommentsField>(`/fields?field=${encodeURIComponent(field)}`),
-  saveField: (input: { field: string, value: string, ifDigest: string }) => call<{ field: string, value: string, digest: string }>("/fields", post(input)),
+  field: (field: string, page: string) => call<CommentsField>(`/fields?page=${encodeURIComponent(page)}&field=${encodeURIComponent(field)}`),
+  saveField: (input: { field: string, value: string, ifDigest: string }, page: string) => call<{ field: string, value: string, digest: string }>(`/fields?page=${encodeURIComponent(page)}`, post(input)),
+}
+
+export interface OverlayTransportOptions {
+  /** The page context of a new thread, which the overlay read when the draft started. */
+  contextOf: (input: CommentCreateInput) => CommentContext | undefined
+  /** The people that an answer named, so their mentions get names. */
+  onPeople: (people: readonly CommentUser[]) => void
+  /** After each change, so the other people on the page read the threads again. */
+  onChange: () => void
+}
+
+/**
+ * The comment parts' transport: `createRestTransport()` over the Comments API of the page, with the guest of this
+ * browser. A new thread also sends the page context that the overlay read, and each change tells the other people on
+ * the page.
+ */
+export function createOverlayTransport(options: OverlayTransportOptions): RestTransport {
+  const rest = createRestTransport({
+    base: route.slice(0, -commentsRoute.length),
+    guest: readGuest,
+    onAnswer: answer => answer.people.length && options.onPeople(answer.people),
+  })
+  const changed = <A extends unknown[], T>(run: (...input: A) => Promise<T>) => async (...input: A): Promise<T> => {
+    const value = await run(...input)
+    options.onChange()
+    return value
+  }
+  return {
+    ...rest,
+    create: changed((input: CommentCreateInput) => {
+      const context = options.contextOf(input)
+      // SAFETY: `POST /threads` takes the page context of the overlay next to the input of `comments.create`.
+      return rest.create((context ? { ...input, context } : input) as CommentCreateInput)
+    }),
+    reply: changed(rest.reply),
+    edit: changed(rest.edit),
+    delete: changed(rest.delete),
+    resolve: changed(rest.resolve),
+    reopen: changed(rest.reopen),
+  }
+}
+
+/** The file as Base64, the form that `comments.upload` takes. */
+export async function base64(file: Blob): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  let binary = ""
+  for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
+  return btoa(binary)
 }

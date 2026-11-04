@@ -60,6 +60,38 @@ export interface MentionName {
 
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+const pluginPeople = new WeakMap<object, readonly MentionName[]>();
+
+/**
+ * Splits text at the `@Name` of each person, with the rule of `mentionPlugin()`: the `@` follows a space, an opening
+ * mark, or the start, the name ends before a letter or a digit, and longer names win.
+ */
+export function splitMentions(text: string, people: readonly MentionName[]): Array<string | MentionName> {
+  const known = [...people].filter((person) => person.name).sort((a, b) => b.name.length - a.name.length);
+  if (known.length === 0) return [text];
+  const pattern = new RegExp(`@(${known.map((person) => escape(person.name)).join("|")})(?![\\p{L}\\p{N}_])`, "uy");
+  const parts: Array<string | MentionName> = [];
+  let start = 0;
+  for (let at = text.indexOf("@"); at !== -1; at = text.indexOf("@", at + 1)) {
+    if (at > 0 && !mentionLead.test(text[at - 1]!)) continue;
+    pattern.lastIndex = at;
+    const match = pattern.exec(text);
+    const person = match && known.find((entry) => entry.name === match[1]);
+    if (!match || !person) continue;
+    if (at > start) parts.push(text.slice(start, at));
+    parts.push(person);
+    start = at + match[0].length;
+    at = start - 1;
+  }
+  if (start < text.length) parts.push(text.slice(start));
+  return parts;
+}
+
+/** The people whose `@name` a plugin of `mentionPlugin()` marks, longest name first. A renderer without Markdown-it reads them. */
+export function mentionNamesOf(plugin: object): readonly MentionName[] | undefined {
+  return pluginPeople.get(plugin);
+}
+
 /**
  * A Markdown plugin that turns `@Name` of each given person into a `comment-mention` element. It reads text only, so
  * code spans, code blocks, and link targets keep their `@`. Longer names win, so `@Ana Ruiz` is not cut to `@Ana`, and
@@ -71,7 +103,7 @@ export function mentionPlugin(people: readonly MentionName[]): ComarkPlugin {
   const pattern = known.length > 0
     ? new RegExp(`@(${known.map((person) => escape(person.name)).join("|")})(?![\\p{L}\\p{N}_])`, "iuy")
     : undefined;
-  return {
+  const plugin: ComarkPlugin = {
     name: "vitehub-comment-mentions",
     markdownItPlugins: [(md: MarkdownIt) => {
       md.inline.ruler.before("text", "vitehub_comment_mention", (state, silent) => {
@@ -94,4 +126,6 @@ export function mentionPlugin(people: readonly MentionName[]): ComarkPlugin {
       });
     }],
   };
+  pluginPeople.set(plugin, known);
+  return plugin;
 }

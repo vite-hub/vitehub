@@ -79,11 +79,11 @@ pnpm vite dev
 
 Open `http://localhost:5173/?vitehub`. The `?vitehub` query turns on comment mode. A toolbar shows at the bottom of the page. The server also sets the `vitehub-tools` cookie, so other pages of the site keep comment mode until you close the toolbar.
 
-1. Press <kbd>C</kbd>, or select **Comment** in the toolbar.
+1. Press <kbd>C</kbd>, or select **Comment** in the toolbar. As a guest, type your name first. The browser keeps it for the next pages.
 2. Click a heading on the page. A comment box opens at that point.
-3. Type your name, then a comment, and press <kbd>⌘</kbd> <kbd>Enter</kbd>. A numbered pin shows where you clicked.
+3. Type a comment, and press <kbd>Enter</kbd>. A numbered pin shows where you clicked.
 4. Select the pin, type `@` in a reply, and pick a person. With [Auth](/docs/auth), the list shows the users of Auth that may read the thread. Send the reply. The server checks the mention, and `onMention` gets the person. See [Notify mentioned people](/docs/comments/configure#notify-mentioned-people).
-5. Select **Resolve**, the check mark on the thread. The pin goes away. Open the thread list from the toolbar and select **Show resolved** to see it again.
+5. Select **Resolve**, the check mark on the thread. The pin goes away. Open the thread list from the toolbar and select **Resolved** to see it again.
 
 Resize the window. The pin stays on the heading, because it is stored relative to the element, not to the window.
 

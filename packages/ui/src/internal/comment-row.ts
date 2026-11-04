@@ -10,6 +10,11 @@ export function threadPreview(thread: CommentThread): string {
   return plainText(thread.messages[0]?.body ?? "") || text;
 }
 
+/** The scope of the `row` and `preview` slots for one thread: `CommentRowSlotScope`. */
+export function rowSlotScope(thread: CommentThread): { thread: CommentThread, text: string } {
+  return { thread, text: threadPreview(thread) };
+}
+
 export interface ThreadRowOptions {
   detached?: boolean;
   site?: boolean;

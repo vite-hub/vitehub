@@ -19,6 +19,7 @@ import {
   CommentThread,
   provideComments,
   useComments,
+  type CommentRowSlotScope,
 } from "../src/index.ts";
 import { mentionQuery, rankPeople } from "../src/internal/comment-mentions.ts";
 
@@ -639,6 +640,16 @@ describe("CommentPanel rows", () => {
     const row = await panel([thread(1)], {}, { row: ({ thread: item }: { thread: CommentThreadModel }) => h("span", { class: "own" }, `Row ${item.n}`) });
     expect(row.get("[data-slot=comment-panel-item]").text()).toBe("Row 1");
     expect(row.find("[data-slot=comment-list-number]").exists()).toBe(false);
+  });
+
+  it("gives the row slots the default text, so a preview slot keeps it for the rows it does not change", async () => {
+    const suggestion = thread(2, { messages: [message("m2", { body: "" })], metadata: { suggestion: "Starter" } });
+    const wrapper = await panel([thread(1, { messages: [message("m1", { body: "**Pro** plan" })] }), suggestion], {}, {
+      preview: ({ thread: item, text }: CommentRowSlotScope) => (item.metadata?.suggestion ? h("ins", String(item.metadata.suggestion)) : text),
+    });
+    const texts = Object.fromEntries(wrapper.findAll("[data-slot=comment-panel-item]").map((row) => [row.attributes("data-thread-id"), row.get("[data-slot=comment-list-text]").html()]));
+    expect(texts["thread-1"]).toContain(">Pro plan<");
+    expect(texts["thread-2"]).toContain("<ins>Starter</ins>");
   });
 
   it("groups rows under headings after the threads without a group", async () => {
