@@ -9,7 +9,7 @@ icon: i-lucide-rocket
 
 Run a small package in a provider-managed Sandbox and return its result from your app. The package accepts image dimensions and returns their pixel count. It does not transform an image; the calculation keeps this first run easy to check.
 
-You need Node.js 24.15 or newer, pnpm, a Vite application, and a Vercel project with Sandbox access. Run the commands from the app root. Execution uses remote infrastructure and can incur provider charges. A Sandbox is a separate package project, not another server route.
+You need Node.js 22.22 or newer, pnpm, a Vite application, and a Vercel project with Sandbox access. Run the commands from the app root. Execution uses remote infrastructure and can incur provider charges. A Sandbox is a separate package project, not another server route.
 
 ::tutorial-step{title="Install and choose a provider"}
 ## Install and choose a provider

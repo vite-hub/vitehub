@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { hasRuntimeType } from "../src/internal/runtime-type.ts"
+import { hasRuntimeType, isRuntimeResponse } from "../src/internal/runtime-type.ts"
 
 describe("Runtime representation guards", () => {
   it("distinguishes callable and object representations", () => {
@@ -13,5 +13,13 @@ describe("Runtime representation guards", () => {
     const hostile = new Proxy({}, { get() { throw new Error("blocked property") } })
     expect(hasRuntimeType(hostile, "object")).toBe(true)
     expect(hasRuntimeType(hostile, "function")).toBe(false)
+  })
+
+  it("accepts only Responses of this runtime", () => {
+    expect(isRuntimeResponse(new Response(null, { status: 401 }))).toBe(true)
+    expect(isRuntimeResponse(new Proxy(new Response(null, { status: 401 }), {}))).toBe(false)
+    expect(isRuntimeResponse(Object.create(Response.prototype))).toBe(false)
+    expect(isRuntimeResponse({ [Symbol.toStringTag]: "Response", status: 401 })).toBe(false)
+    expect(isRuntimeResponse(null)).toBe(false)
   })
 })
