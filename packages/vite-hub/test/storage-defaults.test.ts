@@ -247,7 +247,7 @@ describe("Connections database default", () => {
   })
 
   it("installs Comments with the Console, and leaves it out with comments: false", () => {
-    const names = (options: ViteHubOptions) => vitehub(options).flat(Infinity).flatMap(plugin => plugin && typeof plugin === "object" && "name" in plugin ? [plugin.name] : [])
+    const names = (options: ViteHubOptions) => vitehub(options).flat(3).flatMap(plugin => plugin && typeof plugin === "object" && "name" in plugin ? [plugin.name] : [])
     const console = { auth: false, authorize: hostManagedAuthorize } as const
     expect(names({ preset: "node", console })).toContain("@vite-hub/comments/vite")
     const off = names({ preset: "node", console, comments: false })
@@ -260,7 +260,7 @@ describe("Connections database default", () => {
     try {
       await mkdir(join(root, "server"))
       await writeFile(join(root, "server/comments.ts"), "export default defineComments()\n")
-      const plugin = vitehub({ preset: "node", comments: false }).flat(Infinity).find((option): option is Plugin => Boolean(option) && typeof option === "object" && "name" in option && option.name === "vite-hub/comments-off")
+      const plugin = vitehub({ preset: "node", comments: false }).flat(3).find((option): option is Plugin => option !== null && typeof option === "object" && "name" in option && option.name === "vite-hub/comments-off")
       const hook = plugin?.configResolved
       if (!hook) throw new TypeError("Expected the comments-off plugin.")
       expect(() => Reflect.apply("handler" in hook ? hook.handler : hook, {}, [{ root }])).toThrow(expect.objectContaining({ code: "VITE_HUB_B0019" }))
