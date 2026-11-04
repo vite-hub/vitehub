@@ -39,7 +39,8 @@ beforeEach(() => {
 
 afterEach(() => {
   document.querySelector("vitehub-pill")?.shadowRoot?.querySelector<HTMLButtonElement>("button.exit")?.click()
-  for (const element of document.querySelectorAll("vitehub-pill, vitehub-comments")) element.remove()
+  for (const element of document.querySelectorAll("vitehub-pill, vitehub-comments, vitehub-tools-off")) element.remove()
+  localStorage.removeItem("vitehub-tools-off")
   document.documentElement.className = ""
   vi.unstubAllGlobals()
   vi.restoreAllMocks()

@@ -36,12 +36,14 @@ export type CommentRowSlots = {
 export type CommentPanelSlots = CommentThreadSlots & CommentRowSlots & {
   /** The heading of a group of rows. Replaces the label that `group` gave. */
   "group-header"?: (scope: CommentGroupSlotScope) => VNode[];
+  /** Buttons at the end of the list's top row, beside Open and Resolved, such as Close. */
+  "list-actions"?: () => VNode[];
 };
 
 /** Puts a thread under a heading of the list, such as `"From earlier versions"`. `undefined` keeps it in the first, unnamed group. */
 export type CommentGroup = (thread: CommentThreadModel) => string | undefined;
 
-const listSlots = new Set(["row", "preview", "group-header"]);
+const listSlots = new Set(["row", "preview", "group-header", "list-actions"]);
 
 function reason(error: unknown): string {
   return error instanceof Error ? error.message : "The comment could not be sent. Try again.";
@@ -248,6 +250,7 @@ export const CommentPanel = defineComponent({
             filter("open", "Open", counts.open),
             filter("resolved", "Resolved", counts.resolved),
           ]),
+          slots["list-actions"] ? h("div", { "data-slot": "comment-panel-actions" }, slots["list-actions"]()) : null,
         ]),
         rows.value.length === 0
           ? h("p", { "data-slot": "comment-panel-empty", role: "status" }, empty)

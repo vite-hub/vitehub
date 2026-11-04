@@ -94,7 +94,7 @@ export const CommentComposer = defineComponent({
     mentions: { default: () => [], type: Array as PropType<string[]> },
     /** The attached files. Use `v-model:files` to clear them after a send. Without it the composer keeps its own list. */
     files: { type: Array as PropType<File[]> },
-    /** Whose avatar shows beside the box. They are not suggested in the mention menu. */
+    /** Who writes. They are not suggested in the mention menu. */
     user: { type: Object as PropType<CommentUser> },
     // SAFETY: Vue's runtime constructor cannot express this string literal union.
     variant: { default: "comment", type: String as PropType<CommentComposerVariant> },
@@ -383,9 +383,6 @@ export const CommentComposer = defineComponent({
           ref: root,
         },
         [
-          props.user
-            ? h(AvatarStack, { "aria-hidden": "true", people: [toPerson(props.user)], size: "sm" })
-            : null,
           h("div", { "data-slot": "comment-composer-box" }, [
             slots.extra ? h("div", { "data-slot": "comment-composer-extra" }, slots.extra()) : null,
             h(PromptInput, {

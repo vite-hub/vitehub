@@ -122,7 +122,7 @@ export function groupConsoleSections<T extends { id: ConsoleSectionId }>(section
     .filter(group => group.length > 0)
 }
 
-const consoleDocsBase = "https://vitehub.dev/docs"
+export const consoleDocsBase = "https://vitehub.dev/docs"
 
 /** A primitive that the Console can show. The Overview lists the primitives that a project has not enabled yet. */
 export interface ConsolePrimitive {

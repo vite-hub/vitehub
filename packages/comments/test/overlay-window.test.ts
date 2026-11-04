@@ -52,7 +52,8 @@ beforeEach(() => {
 afterEach(() => {
   vi.mocked(window.confirm).mockReturnValue(true)
   document.querySelector("vitehub-pill")?.shadowRoot?.querySelector<HTMLButtonElement>("button.exit")?.click()
-  for (const element of document.querySelectorAll("vitehub-pill, vitehub-comments, vitehub-window")) element.remove()
+  for (const element of document.querySelectorAll("vitehub-pill, vitehub-comments, vitehub-window, vitehub-tools-off")) element.remove()
+  localStorage.removeItem("vitehub-tools-off")
   document.documentElement.className = ""
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
@@ -125,11 +126,12 @@ describe("the Comments list in the pill's window", () => {
     expect(window.confirm).not.toHaveBeenCalled()
   })
 
-  it("starts the Comments tool from a ?comment=<n> link and opens that thread", async () => {
+  it("starts the Comments tool from a ?comment=<n> link after exit and opens that thread", async () => {
     const { comments } = await site(true)
     const [, thread] = await comments.create({ page: "/", anchor, body: "Linked comment", author: ada })
     history.replaceState(null, "", `/?comment=${thread!.n}`)
     document.cookie = "vitehub-tools=1"
+    localStorage.setItem("vitehub-tools-off", "1")
     try {
       await loadViteHubPageTools({ load: () => import("../src/overlay/index.ts") })
       await vi.waitFor(() => expect(document.querySelector("vitehub-comments")).not.toBeNull())

@@ -424,7 +424,7 @@ Edit and Delete are shown when their respective handlers are supplied. An unchan
 
 ### CommentComposer
 
-The box for a new comment, a reply, or an edit. It wraps [Prompt Input](/docs/ui/prompt-input). Renders a `div` with `data-slot="comment-composer"`. It has `data-shake` while it shakes, `data-dirty` while it has text or files, and `data-dragging` while files are dragged over it.
+The box for a new comment, a reply, or an edit. It wraps [Prompt Input](/docs/ui/prompt-input). At the bottom of a panel or a thread it is one row under a divider: attach, the text, and send. Renders a `div` with `data-slot="comment-composer"`. It has `data-shake` while it shakes, `data-dirty` while it has text or files, and `data-dragging` while files are dragged over it.
 
 #### Props
 
@@ -433,7 +433,7 @@ The box for a new comment, a reply, or an edit. It wraps [Prompt Input](/docs/ui
 | `modelValue` | `string` | `""` | The text. Use `v-model`. |
 | `mentions` | `string[]` | `[]` | The ids of the people mentioned. Use `v-model:mentions`. |
 | `files` | `File[]` | | The attached files. Use `v-model:files` to clear them after a send. Without it the box keeps its own list. |
-| `user` | `CommentUser` | | Whose avatar shows beside the box. They are not in the mention menu. |
+| `user` | `CommentUser` | | Who writes. They are not in the mention menu. |
 | `variant` | `"comment" \| "reply" \| "edit"` | `"comment"` | Sets the label and the placeholder. |
 | `placeholder` | `string` | | The placeholder. Defaults to the variant placeholder. |
 | `busy` | `boolean` | `false` | A send is running. The box keeps its text and cannot send again. |
@@ -508,6 +508,7 @@ Every slot of [CommentThread](#commentthread). `extra` and `mention-item` also g
 | `row` | `{ thread, text }` | The inside of one row. Replaces the number, avatar, text, and facts. |
 | `preview` | `{ thread, text }` | The text of one row. Replaces the start of the first message. Render `text` to keep the default for a row. |
 | `group-header` | `{ group, threads }` | The heading of a group of rows. Replaces the text that `group` returned. |
+| `list-actions` | | Buttons at the end of the list's top row, beside Open and Resolved, such as Close. |
 
 ### CommentToolbar
 
