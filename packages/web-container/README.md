@@ -117,7 +117,7 @@ const container = await bootWebContainer({
 await container.run("dev")
 ```
 
-`createNodeModulesSnapshot()` installs as npm in a WebContainer does: it uses `--cpu=wasm32`, so no native binaries download, it swaps `esbuild`, `lightningcss`, and `@libsql/client` for their wasm builds, and it adds `@rolldown/binding-wasm32-wasi`, which rolldown otherwise downloads on first use. Install scripts do not run, and source maps are left out. A snapshot cannot hold symlinks or executable bits, so it lists them, and `bootWebContainer()` restores them after the mount.
+`createNodeModulesSnapshot()` requires Linux, macOS, or WSL. It rejects Windows before changing files, because npm's Windows command shims cannot be restored as POSIX bin links. It installs as npm in a WebContainer does: it uses `--cpu=wasm32`, so no native binaries download, it swaps `esbuild`, `lightningcss`, and `@libsql/client` for their wasm builds, and it adds `@rolldown/binding-wasm32-wasi`, which rolldown otherwise downloads on first use. Install scripts do not run, and source maps are left out. A snapshot cannot hold symlinks or executable bits, so it lists them, and `bootWebContainer()` restores them after the mount.
 
 `fetchSnapshot()` downloads the parts in parallel and inflates them. With `cache`, it keeps the parts in Cache Storage, so a later boot downloads nothing. Give each snapshot version its own URLs, such as names with a content hash, and each app its own cache name: parts of other URLs in that cache are deleted. `bootWebContainer()` boots while the snapshot loads.
 

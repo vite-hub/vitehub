@@ -59,7 +59,7 @@ export default defineNuxtModule({
       await writeFile(resolve(assetsDir, `${tutorial.slug}-starter.zip`), createZip(tutorialStepFiles(tutorial, 0, "start"), tutorial.slug));
     }
 
-    let snapshots = await readTutorialSnapshots(assetsDir);
+    let snapshots = await readTutorialSnapshots(assetsDir, { disabled: process.env.TUTORIAL_SNAPSHOTS === "0" });
     // `nuxi prepare` calls `build:before` too, and it runs on every install and test.
     const buildSnapshots = !nuxt.options._prepare && (process.env.TUTORIAL_SNAPSHOTS ?? (nuxt.options.dev ? "0" : "1")) === "1";
     nuxt.hook("build:before", async () => {

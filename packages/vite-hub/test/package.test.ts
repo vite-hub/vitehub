@@ -145,6 +145,7 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/ui/workspace-shell",
   "@vite-hub/ui/workspace-terminal",
   "@vite-hub/web-container/env",
+  "@vite-hub/web-container/snapshot",
   "@vite-hub/workspace/source-metadata",
 ]);
 

@@ -1,10 +1,13 @@
 import { randomBytes } from "node:crypto"
 import { EventEmitter } from "node:events"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { bootWebContainer, fetchSnapshot } from "../src/index.ts"
 import { snapshotLinksFile } from "../src/links.ts"
-import { packSnapshot } from "../src/snapshot.ts"
+import { createNodeModulesSnapshot, packSnapshot } from "../src/snapshot.ts"
 
 const api = vi.hoisted(() => ({ boot: vi.fn() }))
 vi.mock("@webcontainer/api", () => ({ WebContainer: api }))
@@ -36,6 +39,25 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
 describe("snapshots", () => {
+  it.each([0, -1, 0.5, NaN, Infinity, -Infinity, Number.MAX_SAFE_INTEGER + 1])("rejects an invalid part size of %s", (partBytes) => {
+    expect(() => packSnapshot(new Uint8Array([1]), { partBytes })).toThrow(RangeError)
+  })
+
+  it("rejects Windows before changing the dependency tree", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "snapshot-host-"))
+    try {
+      await mkdir(join(dir, "node_modules"))
+      await writeFile(join(dir, "node_modules/keep.txt"), "installed dependencies")
+      await writeFile(join(dir, "package.json"), '{"private":true}')
+      vi.stubGlobal("process", { ...process, platform: "win32" })
+      await expect(createNodeModulesSnapshot({ dir })).rejects.toThrow("requires a POSIX host")
+      expect(await readFile(join(dir, "node_modules/keep.txt"), "utf8")).toBe("installed dependencies")
+    }
+    finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it("packs a snapshot into parts that fetchSnapshot joins and inflates", async () => {
     // Random bytes do not compress, so the parts stay many.
     const data = new Uint8Array(randomBytes(300_000))

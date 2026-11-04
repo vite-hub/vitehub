@@ -16,8 +16,13 @@ interface Manifest {
   peerDependenciesMeta?: Record<string, { optional?: boolean }>
 }
 
-/** Reads the parts that the last `buildTutorialSnapshots` wrote, or nothing. */
-export async function readTutorialSnapshots(outDir: string): Promise<TutorialSnapshots | undefined> {
+/** Reads the last build's parts, or removes cached metadata and public parts when snapshots are disabled. */
+export async function readTutorialSnapshots(outDir: string, options: { disabled?: boolean } = {}): Promise<TutorialSnapshots | undefined> {
+  if (options.disabled) {
+    await rm(resolve(outDir, "snapshots"), { recursive: true, force: true });
+    await rm(resolve(outDir, "snapshots.json"), { force: true });
+    return;
+  }
   return readFile(resolve(outDir, "snapshots.json"), "utf8").then(JSON.parse, () => undefined);
 }
 
@@ -68,7 +73,8 @@ export async function buildTutorialSnapshots(input: {
     const source: Manifest = JSON.parse(await readFile(resolve(input.fixturesDir, tutorial.fixture, "package.json"), "utf8"));
     const local = Object.entries(source.dependencies ?? {}).filter(([, specifier]) => specifier.startsWith("workspace:")).map(([name]) => name);
     const packages = closure(local);
-    run(resolve(repoRoot, "node_modules/.bin/vp"), ["run", "--cache", ...packages.flatMap(name => ["--filter", name]), "build"]);
+    // Include build dependencies (such as the console's CMS), but pack only the runtime closure below.
+    run(resolve(repoRoot, "node_modules/.bin/vp"), ["run", "--cache", ...packages.flatMap(name => ["--filter", `${name}...`]), "build"]);
 
     const work = resolve(workDir, tutorial.slug);
     const tarballDir = resolve(work, "tarballs");
