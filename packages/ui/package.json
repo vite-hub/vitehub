@@ -71,6 +71,11 @@
       "import": "./dist/chat-session.js",
       "default": "./dist/chat-session.js"
     },
+    "./choices-input": {
+      "types": "./dist/choices-input.d.ts",
+      "import": "./dist/choices-input.js",
+      "default": "./dist/choices-input.js"
+    },
     "./code-block": {
       "types": "./dist/code-block.d.ts",
       "import": "./dist/code-block.js",
@@ -110,6 +115,11 @@
       "types": "./dist/file-view.d.ts",
       "import": "./dist/file-view.js",
       "default": "./dist/file-view.js"
+    },
+    "./filter-search": {
+      "types": "./dist/filter-search.d.ts",
+      "import": "./dist/filter-search.js",
+      "default": "./dist/filter-search.js"
     },
     "./headless": {
       "types": "./dist/headless.d.ts",

@@ -63,6 +63,7 @@ export const componentNames = [
   "MultiFileDiff",
   "PatchDiff",
   "ChatSession",
+  "FilterSearch",
   "ToolList",
   "TraceRun",
   "UnresolvedFile",
