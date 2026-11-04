@@ -72,7 +72,7 @@ Inline work does not survive a function restart. Register a Workflow DevKit entr
 when the run needs Vercel's durable execution:
 
 ```bash [Terminal]
-pnpm add workflow @workflow/builders
+pnpm add --save-exact workflow@5.2.3 @workflow/builders@5.0.6
 ```
 
 ```ts [server/workflows/onboard-user.ts]

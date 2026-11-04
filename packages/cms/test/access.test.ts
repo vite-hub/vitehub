@@ -11,16 +11,16 @@ import cms from "../src/index.ts"
 import type { CmsRoleName } from "../src/access.ts"
 
 const contentActions = ["read", "write", "publish"] as const
-const commentActions = ["read", "comment", "resolve"] as const
+const commentActions = ["read", "write", "resolve"] as const
 
-// What each role may do: the Content actions of `content.can()` and the live Comments actions.
+// What each role may do: the Content actions of `content.can()` and the Comments actions.
 const allowed: Record<CmsRoleName, { content: readonly string[], comments: readonly string[] }> = {
   user: { content: [], comments: [] },
   viewer: { content: ["read"], comments: [] },
-  commenter: { content: ["read"], comments: ["read", "comment", "resolve"] },
-  editor: { content: ["read", "write"], comments: ["read", "comment", "resolve"] },
-  publisher: { content: ["read", "write", "publish"], comments: ["read", "comment", "resolve"] },
-  admin: { content: ["read", "write", "publish"], comments: ["read", "comment", "resolve"] },
+  commenter: { content: ["read"], comments: ["read", "write", "resolve"] },
+  editor: { content: ["read", "write"], comments: ["read", "write", "resolve"] },
+  publisher: { content: ["read", "write", "publish"], comments: ["read", "write", "resolve"] },
+  admin: { content: ["read", "write", "publish"], comments: ["read", "write", "resolve"] },
 }
 
 const contentCases = Object.entries(allowed).flatMap(([role, { content }]) =>

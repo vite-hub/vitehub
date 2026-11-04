@@ -55,8 +55,12 @@ describe("default policy", () => {
     expect(defaultPolicy(ada(false))).toBe(false)
   })
 
-  it("keeps letting in users of the app's own sign-in", () => {
-    expect(defaultPolicy({ id: "u1", name: "Grace" })).toBe(true)
+  it("lets in users of the app's own sign-in only on the dev server or through the Console", () => {
+    expect(defaultPolicy({ id: "u1", name: "Grace" })).toBe(false)
+    expect(defaultPolicy({ id: "u1", name: "Grace" }, { development: true })).toBe(true)
+    expect(defaultPolicy({ id: "u1", name: "Grace" }, { console: true })).toBe(true)
+    // GitHub's answer stands on the dev server too.
+    expect(defaultPolicy(ada(false), { development: true, console: true })).toBe(false)
   })
 
   it.each(["development", "production"])("denies anonymous guests without dev-server identity when NODE_ENV=%s", (environment) => {

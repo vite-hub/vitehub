@@ -37,7 +37,7 @@ describe("applyCacheStorage", () => {
   it("adds the Cloudflare namespace once", () => {
     const cache = resolveCacheStorage({ driver: "cloudflare-kv-binding", namespaceId: "cache-id" }, "cloudflare")
     const once = applyCacheStorage({}, cache)
-    const twice = applyCacheStorage({ ...once, storage: {} }, cache)
+    const twice = applyCacheStorage({ ...once, kv: {} }, cache)
 
     expect(twice).toHaveProperty("cloudflare.wrangler.kv_namespaces", [{ binding: "CACHE", id: "cache-id" }])
   })
@@ -62,6 +62,29 @@ describe("applyCacheStorage", () => {
       cloudflare: { wrangler: { kv_namespaces: [{ binding: "CACHE", id: "other-id" }] } },
     }, cache)).toThrow("already uses namespace")
   })
+
+  it("uses Nitro KV mounts in production, development and prerendering", () => {
+    const config = applyCacheStorage({
+      kv: { sessions: { driver: "memory" } },
+      $development: { debug: true, kv: { sessions: { driver: "memory" } } },
+      $prerender: { failOnError: true },
+    }, resolveCacheStorage(true, "vercel"))
+
+    expect(config).toEqual({
+      kv: { cache: { driver: "vercel-runtime-cache" }, sessions: { driver: "memory" } },
+      $development: { debug: true, kv: { cache: { base: ".vitehub/data/cache", driver: "fs-lite" }, sessions: { driver: "memory" } } },
+      $prerender: { failOnError: true, kv: { cache: { base: ".vitehub/data/cache", driver: "fs-lite" } } },
+    })
+  })
+
+  it("preserves application cache mounts in each environment without adding a Cloudflare binding", () => {
+    const nitro = {
+      kv: { cache: { driver: "memory" } },
+      $development: { kv: { cache: { base: "dev", driver: "fs-lite" } } },
+      $prerender: { kv: { cache: { base: "prerender", driver: "fs-lite" } } },
+    }
+    expect(applyCacheStorage(nitro, resolveCacheStorage(true, "cloudflare"))).toEqual(nitro)
+  })
 })
 
 describe("KV cache storage", () => {
@@ -79,6 +102,12 @@ describe("KV cache storage", () => {
 
   it("keeps an app's own cache mount and adds no Wrangler namespace", () => {
     const config = applyCacheStorage({ storage: { cache: { driver: "memory" } } }, resolveCacheStorage({ driver: "kv" }, "cloudflare", true))
-    expect(config).toEqual({ devStorage: { cache: { base: "nitro-cache", driver: kvCacheDriver } }, storage: { cache: { driver: "memory" } } })
+    const mount = { base: "nitro-cache", driver: kvCacheDriver }
+    expect(config).toEqual({
+      $development: { kv: { cache: mount } },
+      $prerender: { kv: { cache: mount } },
+      kv: { cache: { driver: "memory" } },
+      storage: { cache: { driver: "memory" } },
+    })
   })
 })
