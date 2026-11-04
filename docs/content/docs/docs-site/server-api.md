@@ -42,6 +42,7 @@ Set them under `docs` in `nuxt.config.ts`. Every option is optional.
 | `mcp` | `{ name?, guide? }` or `false` | On, named after `site.name` | The MCP server at `/mcp`. `guide` is a page that explains how to connect it. |
 | `assistant` | `boolean` or `{ agent? }` | `false` | The [docs assistant](/docs/docs-site/assistant). `true` uses the Agent named `docs`. |
 | `rawMarkdown` | `(markdown, page) => string` | None | Rewrites a page before its agent copy is written. It can be async. |
+| `parser` | `string` | None | Path of a module whose default export is `DocsParserOptions`, such as `{ plugins }`. The page route, search, and Console drafts parse with it. See [Add Comark plugins](/docs/docs-site/configure#add-comark-plugins). |
 
 The module also sets the options of the modules that it installs: `llms` from `site`, and `agentDiscovery` with the page routes and the MCP server card. Your own `llms` and `agentDiscovery` options win.
 

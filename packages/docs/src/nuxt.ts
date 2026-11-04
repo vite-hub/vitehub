@@ -84,6 +84,12 @@ export interface DocsModuleOptions {
    * a component into plain Markdown. The built-in rewrites run after it. Runs at build time.
    */
   rawMarkdown?: (markdown: string, page: DocsPage) => string | Promise<string>
+  /**
+   * Path of a module, relative to the app root, whose default export is the parser options, such as
+   * `{ plugins: [tabs()] }`. Comark plugins are functions, so they reach the server through a file and not through
+   * this config. The page route, search, and Console drafts parse with it.
+   */
+  parser?: string
 }
 
 /** Options as the client and the server read them from `runtimeConfig.public.docs`. */
@@ -279,6 +285,14 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       getContents: () => contentEntry ? `export { content } from ${JSON.stringify(contentEntry)}\n` : "export const content = undefined\n",
     }).dst
 
+    // The page route and search import the parser options. Without `parser` they parse with the built-in plugins only.
+    const parserEntry = options.parser ? resolve(nuxt.options.rootDir, options.parser) : null
+    const parserFile = addTemplate({
+      filename: "docs/parser.mjs",
+      write: true,
+      getContents: () => parserEntry ? `export { default } from ${JSON.stringify(parserEntry)}\n` : "export default {}\n",
+    }).dst
+
     // Nuxt watches the app folder, and the content folder usually sits beside it, so the module watches it in development.
     if (nuxt.options.dev) {
       // Watch the nearest existing parent until the configured content directory is created.
@@ -432,7 +446,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
           }
         }
       }
-      nitro.alias = { ...nitro.alias, "#docs/manifest": manifestFile, "#docs/content": contentFile }
+      nitro.alias = { ...nitro.alias, "#docs/manifest": manifestFile, "#docs/content": contentFile, "#docs/parser": parserFile }
       // Nitro 2 development leaves absolute modules outside the app to Node. Bundle the generated modules, so the page
       // route reads the same Content runtime as ViteHub's Content routes instead of a second copy of `server/content.ts`.
       const inline = nitro.externals?.inline
