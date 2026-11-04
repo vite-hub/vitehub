@@ -52,7 +52,8 @@ export function codeBlock(markdown: string, label: string): string | undefined {
   return match ? `${match[1]}\n` : undefined;
 }
 
-async function readTree(root: string, directory = root): Promise<TutorialFiles> {
+/** The text files of a fixture folder, without generated or installed files. */
+export async function readTree(root: string, directory = root): Promise<TutorialFiles> {
   const files: TutorialFiles = {};
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     if (ignoredEntries.has(entry.name)) continue;
