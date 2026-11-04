@@ -1,9 +1,10 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { webContainerHeaders } from "@vite-hub/web-container/vite";
-import { addTemplate, addTypeTemplate, defineNuxtModule } from "nuxt/kit";
+import { addTemplate, addTypeTemplate, defineNuxtModule, updateTemplates } from "nuxt/kit";
 import { buildRunnableTutorial, createZip, readWorkspaceVersions, tutorialStepFiles } from "./build";
 import { runnableTutorials } from "./list";
+import { buildTutorialSnapshots, readTutorialSnapshots } from "./snapshots";
 
 import type { RunnableTutorialData } from "./build";
 
@@ -22,6 +23,9 @@ interface NitroConfig {
  * At build time this module reads each lesson and its fixture, and writes:
  * - `#build/runnable-tutorials.mjs`: the files before step 1 and the files that each step writes.
  * - `/_tutorials/<slug>-starter.zip`: the files at the start of step 1, for readers who cannot run the workspace.
+ * - `/_tutorials/snapshots/<slug>.<hash>.<part>.bin`: the `node_modules` of the workspace, so the browser skips
+ *   `npm install`. `nuxt build` writes them. `nuxt dev` reuses the last ones; set `TUTORIAL_SNAPSHOTS=1` to build them
+ *   in development, or `TUTORIAL_SNAPSHOTS=0` to skip them in a build. Without them the workspace installs.
  */
 export default defineNuxtModule({
   meta: { name: "vitehub-runnable-tutorials" },
@@ -34,6 +38,8 @@ export default defineNuxtModule({
       ...nuxt.options.routeRules,
       "/tutorials": { headers: { ...webContainerHeaders } },
       "/tutorials/**": { headers: { ...webContainerHeaders } },
+      // A content hash names each part, so a part never changes.
+      "/_tutorials/snapshots/**": { headers: { "cache-control": "public, max-age=31536000, immutable" } },
     };
 
     async function build(): Promise<RunnableTutorialData[]> {
@@ -53,11 +59,32 @@ export default defineNuxtModule({
       await writeFile(resolve(assetsDir, `${tutorial.slug}-starter.zip`), createZip(tutorialStepFiles(tutorial, 0, "start"), tutorial.slug));
     }
 
+    let snapshots = await readTutorialSnapshots(assetsDir);
+    // `nuxi prepare` calls `build:before` too, and it runs on every install and test.
+    const buildSnapshots = !nuxt.options._prepare && (process.env.TUTORIAL_SNAPSHOTS ?? (nuxt.options.dev ? "0" : "1")) === "1";
+    nuxt.hook("build:before", async () => {
+      if (!buildSnapshots) return;
+      snapshots = await buildTutorialSnapshots({
+        tutorials: runnableTutorials,
+        repoRoot,
+        fixturesDir: resolve(repoRoot, "fixtures/tutorials"),
+        versions,
+        outDir: assetsDir,
+        baseURL: "/_tutorials",
+        workDir: resolve(nuxt.options.rootDir, "node_modules/.cache/runnable-tutorials-work"),
+      });
+      // Nuxt wrote the templates before this hook, with the snapshots of the last build.
+      await updateTemplates({ filter: template => template.filename === "runnable-tutorials.mjs" });
+    });
+
     addTemplate({
       filename: "runnable-tutorials.mjs",
       write: true,
       // The lesson or the fixture can change in development, so read them again on each write.
-      getContents: async () => `export const runnableTutorials = ${JSON.stringify(nuxt.options.dev ? await build() : tutorials)}\n`,
+      getContents: async () => {
+        const data = (nuxt.options.dev ? await build() : tutorials).map(tutorial => ({ ...tutorial, snapshot: snapshots?.[tutorial.slug] }));
+        return `export const runnableTutorials = ${JSON.stringify(data)}\n`;
+      },
     });
     addTypeTemplate({
       filename: "types/runnable-tutorials.d.ts",
