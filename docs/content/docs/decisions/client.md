@@ -44,6 +44,7 @@ Give the type of your choices as the generic: `useChoices<typeof forecast>`. The
 | `onSelect` | Called with each new selection. Apply it to your state here. |
 | `debounce` | Wait this many milliseconds after the last key, then resolve. Leave it out to resolve only on `submit()`. |
 | `minLength` | The text must be this long before a debounced resolve runs. Default 3. |
+| `onClear` | Called by `clear()`. Reset your own state here, for example the filters that the last selection set. |
 
 ## Returned values
 
@@ -55,7 +56,7 @@ Give the type of your choices as the generic: `useChoices<typeof forecast>`. The
 | `error` | The latest failure, or `undefined`. |
 | `submit()` | Resolve the current text now. |
 | `abort()` | Cancel the request and go back to `idle`. |
-| `clear()` | Clear the text, the selection, and the error. |
+| `clear()` | Clear the text, the selection, and the error, then call `onClear`. |
 
 A newer request cancels the older one through `signal`. The older result never reaches `onSelect`. Leaving the component cancels the request too.
 
