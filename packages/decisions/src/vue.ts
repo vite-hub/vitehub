@@ -121,16 +121,13 @@ export function useChoices<TSelection>(options: UseChoicesOptions<TSelection>): 
   if (options.debounce !== undefined) {
     const delay = options.debounce
     watch(text, (value) => {
-      clearTimeout(timer)
-      timer = undefined
+      cancel()
+      if (status.value === "thinking") status.value = "idle"
       if (value.trim().length < minLength) {
-        controller?.abort()
-        controller = undefined
-        if (status.value === "thinking") status.value = "idle"
         return
       }
       timer = setTimeout(() => void submit(), delay)
-    })
+    }, { flush: "sync" })
   }
 
   onScopeDispose(cancel)

@@ -4,6 +4,7 @@ import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import * as v from "valibot"
 import { consoleAuthOAuthPage } from "./auth-oauth-page.ts"
 import { consoleDocumentMetadata } from "./document-metadata.ts"
+import { consoleStandaloneHeader, consoleStandaloneStyles } from "./standalone-page.ts"
 import { consoleMountBase } from "./runtime/console-route.ts"
 import { consoleRequestURL } from "./runtime/server/request.ts"
 import { consoleAuthPath, consoleEventPath } from "./auth-path.ts"
@@ -33,10 +34,10 @@ export function consoleAuthSignInPage(provider: string, request: Request, mountB
       : search.has("signed_out")
         ? "You have signed out."
         : "Sign in to access the ViteHub Console."
-  return consoleSignInDocument(message, `<a href="${escapeHTML(startPath)}"${isConsoleDevelopmentBuild() ? ' target="_top"' : ""}>${escapeHTML(buttonLabel)}</a>`)
+  return consoleSignInDocument(new URL(request.url).host, message, `<a class="button" href="${escapeHTML(startPath)}"${isConsoleDevelopmentBuild() ? ' target="_top"' : ""}>${escapeHTML(buttonLabel)}</a>`)
 }
 
-function consoleSignInDocument(message: string, actions: string, status = 200, heading = "Sign in"): Response {
+function consoleSignInDocument(site: string, message: string, actions: string, status = 200, heading = "Sign in"): Response {
   const development = isConsoleDevelopmentBuild()
   const page = `<!doctype html>
 <html lang="en">
@@ -45,30 +46,19 @@ function consoleSignInDocument(message: string, actions: string, status = 200, h
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex, nofollow">${consoleDocumentMetadata}
     <title>${escapeHTML(heading)} · ViteHub Console</title>
-    <style>
-      :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
-      body { min-height: 100dvh; margin: 0; display: grid; place-items: center; background: light-dark(#fafafa, #0a0a0a); color: light-dark(#171717, #f5f5f5); }
-      main { width: min(24rem, calc(100% - 3rem)); }
-      h1 { margin: 0 0 .5rem; font-size: 1.5rem; font-weight: 600; }
-      p { margin: 0 0 1.5rem; color: light-dark(#525252, #a3a3a3); line-height: 1.5; }
-      form { margin: .75rem 0; }
-      .password { display: grid; gap: .75rem; margin-bottom: 1.25rem; }
-      label { display: grid; gap: .25rem; font-size: .875rem; font-weight: 500; }
-      input { min-height: 2.5rem; box-sizing: border-box; padding: 0 .75rem; border: 1px solid light-dark(#d4d4d4, #404040); border-radius: .5rem; background: transparent; color: inherit; font: inherit; font-size: 1rem; }
-      input:focus-visible { outline: 2px solid #3b82f6; outline-offset: 1px; }
-      .password button { justify-content: center; }
-      .password ~ form button { border: 1px solid light-dark(#d4d4d4, #404040); background: transparent; color: inherit; }
-      a, button { font: inherit; border: 0; cursor: pointer; display: inline-flex; min-height: 2.5rem; align-items: center; padding: 0 1rem; border-radius: .5rem; background: light-dark(#171717, #f5f5f5); color: light-dark(#fff, #171717); font-weight: 500; text-decoration: none; }
-      a:focus-visible, button:focus-visible { outline: 2px solid #3b82f6; outline-offset: 3px; }
-      .switch { margin: 0 0 1.25rem; font-size: .875rem; }
-      .switch a { display: inline; min-height: 0; padding: 0; border-radius: 0; background: none; color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+    <style>${consoleStandaloneStyles}
+      .stack > a.button, .stack form button { width: 100%; }
+      .password ~ form button { background: transparent; color: var(--text-highlighted); box-shadow: inset 0 0 0 1px var(--border-accented); }
+      .switch { color: var(--text-muted); font-size: .8125rem; text-align: center; }
+      .switch a { color: var(--text-highlighted); text-underline-offset: 3px; }
     </style>
   </head>
   <body>
     <main>
+      ${consoleStandaloneHeader(escapeHTML(site))}
       <h1>${escapeHTML(heading)}</h1>
       <p role="status">${escapeHTML(message)}</p>
-      ${actions}
+      <div class="stack">${actions}</div>
     </main>
   </body>
 </html>`
@@ -379,6 +369,7 @@ export function createConsoleAppAuthPages(resolveAuth: ConsoleAppAuthResolver): 
       const render = (message?: string, view: "sign-in" | "sign-up" = creating ? "sign-up" : "sign-in") => {
         const actions = [...(password ? view === "sign-up" ? signUpForm : signInForm : []), ...providerForms].join("")
         return consoleSignInDocument(
+          url.host,
           message ?? (!actions
             ? "No sign-in method is configured. Enable email and password or a social provider in server Auth, or set console.signInPage to your app's sign-in page."
             : view === "sign-up" ? "Create an account for this app." : "Sign in to access the ViteHub Console."),
