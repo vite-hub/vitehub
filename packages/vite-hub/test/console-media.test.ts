@@ -52,6 +52,7 @@ function actions(): ConsoleDocumentActions {
     raw: unused,
     references,
     remove: unused,
+    resolve: unused,
     restore: unused,
     revisions: unused,
     save: unused,
