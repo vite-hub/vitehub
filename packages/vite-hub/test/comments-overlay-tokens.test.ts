@@ -107,7 +107,7 @@ describe("the overlay tokens", () => {
 
   it("keeps the solid buttons of the stand-ins readable", () => {
     expect(overlayCss).toContain('@import "@vite-hub/ui/standalone/styles.css";')
-    expect(standaloneCss).toContain('[data-standalone-button][data-variant="solid"] { background: var(--vh-ui-highlighted); color: var(--vh-ui-inverted); }')
-    expect(standaloneCss).toContain('[data-standalone-button][data-variant="solid"][data-color="error"] { background: var(--vh-ui-error); color: var(--vh-ui-inverted); }')
+    expect(standaloneCss).toContain('[data-standalone-button][data-variant="solid"] { background: var(--vh-highlighted); color: var(--vh-inverted); }')
+    expect(standaloneCss).toContain('[data-standalone-button][data-variant="solid"][data-color="error"] { background: var(--vh-error); color: var(--vh-inverted); }')
   })
 })
