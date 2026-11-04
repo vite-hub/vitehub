@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { isIsolatedTutorialPath } from "~/utils/runnable-tutorial";
 
-// `::run-tutorial{to="/tutorials/first-agent"}` on a docs tutorial links to the copy that runs in the browser.
+// `::run-tutorial{to="/learn/first-agent"}` on a docs tutorial links to the copy that runs in the browser.
 // The runnable page renders the same Markdown, so there it renders nothing.
 defineProps<{ to: string }>();
 const route = useRoute();

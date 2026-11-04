@@ -124,22 +124,10 @@ describe("documentation tutorials", () => {
     expect(source).toContain(":key=\"page.layout === 'tutorial' ? page.path : undefined\"");
   });
 
-  it("lists product tutorials through the top-level Tutorials page", async () => {
-    const source = await readFile(resolve(docsRoot, "app/pages/tutorials/index.vue"), "utf8");
-    const catalog = await readFile(resolve(docsRoot, "app/components/TutorialCatalog.vue"), "utf8");
-
-    expect(catalog).toContain("useDocsManifest().sections.flatMap");
-    expect(catalog).toContain('page.layout === "tutorial"');
-    expect(catalog).toContain("`/tutorials/${runnable.get(page.path)!.slug}` : page.path");
-    expect(catalog).toContain("<UBlogPosts");
-    expect(catalog).toContain("<UBlogPost");
-    expect(source).toContain("<TutorialCatalog />");
-  });
-
-  it("redirects the old Guides path to the Tutorials index", async () => {
+  it("redirects the old Guides path to Learn", async () => {
     const source = await readFile(resolve(docsRoot, "app/pages/guides.vue"), "utf8");
 
-    expect(source).toContain('navigateTo("/tutorials", { redirectCode: 301 })');
+    expect(source).toContain('navigateTo("/learn", { redirectCode: 301 })');
   });
 
   it("keeps the first tutorials on their Nitro fixtures", async () => {
@@ -219,7 +207,7 @@ describe("runnable tutorials", () => {
     const installation = await readFile(resolve(docsRoot, "content/docs/getting-started/installation.md"), "utf8");
 
     // The docs page links to this copy, and the steps are the page's steps.
-    expect(lesson).toContain(`::run-tutorial{to="/tutorials/${slug}"}`);
+    expect(lesson).toContain(`::run-tutorial{to="/learn/${slug}"}`);
     expect(tutorial.steps.map(step => step.title)).toEqual([...lesson.matchAll(/^::tutorial-step\{title="([^"]+)"\}/gm)].map(match => match[1]));
 
     // Step 1 starts from the app of Installation. Every file code block of a step is the fixture file.
@@ -299,8 +287,8 @@ describe("runnable tutorials", () => {
 
   it("isolates only the tutorial pages and the playground", async () => {
     const module = await readFile(resolve(docsRoot, "modules/tutorials/index.ts"), "utf8");
-    expect(module).toContain(`"/tutorials": { headers: { ...webContainerHeaders } }`);
-    expect(module).toContain(`"/tutorials/**": { headers: { ...webContainerHeaders } }`);
+    expect(module).toContain(`"/learn": { headers: { ...webContainerHeaders } }`);
+    expect(module).toContain(`"/learn/**": { headers: { ...webContainerHeaders } }`);
     expect(module).toContain(`"/playground": { headers: { ...webContainerHeaders } }`);
     expect(module.match(/headers: \{ \.\.\.webContainerHeaders \}/g)).toHaveLength(3);
   });

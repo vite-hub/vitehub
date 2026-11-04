@@ -4,6 +4,7 @@ import { webContainerHeaders } from "@vite-hub/web-container/vite";
 import { addTemplate, addTypeTemplate, defineNuxtModule, updateTemplates } from "nuxt/kit";
 import { buildRunnableTutorial, createZip, readWorkspaceVersions, tutorialStepFiles } from "./build";
 import { runnableTutorials } from "./list";
+import { readLearnFacts } from "./learn";
 import { buildPlaygroundTemplates, snapshotSources } from "./playground";
 import { buildTutorialSnapshots, readTutorialSnapshots } from "./snapshots";
 
@@ -15,9 +16,9 @@ interface NitroConfig {
 }
 
 /**
- * Runnable tutorials: `/tutorials/<slug>` shows the lesson of a docs page beside a live workspace.
+ * Runnable tutorials: `/learn/<slug>` shows the lesson of a docs page beside a live workspace.
  *
- * A WebContainer needs a cross-origin isolated page, so `/tutorials` and every page below it send
+ * A WebContainer needs a cross-origin isolated page, so `/learn` and every page below it send
  * `webContainerHeaders`. Other pages keep their headers, so their cross-origin embeds keep working.
  * `/playground` boots the same workspace without a lesson, so it sends them too, and no other page does.
  * `app/middleware/isolation-boundary.global.ts` loads a new document for links across this boundary.
@@ -40,8 +41,8 @@ export default defineNuxtModule({
 
     nuxt.options.routeRules = {
       ...nuxt.options.routeRules,
-      "/tutorials": { headers: { ...webContainerHeaders } },
-      "/tutorials/**": { headers: { ...webContainerHeaders } },
+      "/learn": { headers: { ...webContainerHeaders } },
+      "/learn/**": { headers: { ...webContainerHeaders } },
       "/playground": { headers: { ...webContainerHeaders } },
       // A content hash names each part, so a part never changes.
       "/_tutorials/snapshots/**": { headers: { "cache-control": "public, max-age=31536000, immutable" } },
@@ -102,7 +103,13 @@ export default defineNuxtModule({
         return `export const playgroundTemplates = ${JSON.stringify(data)}\n`;
       },
     });
+    addTemplate({
+      filename: "learn-facts.mjs",
+      write: true,
+      getContents: async () => `export const learnFacts = ${JSON.stringify(await readLearnFacts(resolve(docsRoot, "content")))}\n`,
+    });
     const steps = JSON.stringify(resolve(import.meta.dirname, "steps"));
+    const learn = JSON.stringify(resolve(import.meta.dirname, "learn"));
     addTypeTemplate({
       filename: "types/runnable-tutorials.d.ts",
       getContents: () => [
@@ -112,12 +119,15 @@ export default defineNuxtModule({
         `declare module "#build/playground-templates.mjs" {`,
         `  export const playgroundTemplates: import(${steps}).PlaygroundTemplate[]`,
         `}`,
+        `declare module "#build/learn-facts.mjs" {`,
+        `  export const learnFacts: Record<string, import(${learn}).LearnPageFacts>`,
+        `}`,
       ].join("\n"),
     });
 
     Reflect.apply(nuxt.hook, nuxt, ["nitro:config", (nitro: NitroConfig) => {
       nitro.publicAssets = [...nitro.publicAssets ?? [], { baseURL: "/_tutorials", dir: assetsDir }];
-      nitro.prerender = { ...nitro.prerender, routes: [...nitro.prerender?.routes ?? [], ...tutorials.map(tutorial => `/tutorials/${tutorial.slug}`), "/playground"] };
+      nitro.prerender = { ...nitro.prerender, routes: [...nitro.prerender?.routes ?? [], ...tutorials.map(tutorial => `/learn/${tutorial.slug}`), "/playground"] };
     }]);
   },
 });

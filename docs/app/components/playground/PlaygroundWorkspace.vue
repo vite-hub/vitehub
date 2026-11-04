@@ -10,9 +10,12 @@ import { WorkspacePreview } from "@vite-hub/ui/workspace-preview";
 import { WorkspaceTerminal } from "@vite-hub/ui/workspace-terminal";
 import { useClipboard } from "@vueuse/core";
 import { encodePlayground, shareHashKey, shareLimit } from "~/utils/playground-share";
+import WorkspacePane from "~/components/workspace/WorkspacePane.vue";
+import WorkspaceRunState from "~/components/workspace/WorkspaceRunState.vue";
+import WorkspaceTabs from "~/components/workspace/WorkspaceTabs.vue";
+import { splitterHitArea, splitterUi, useRunState } from "~/utils/workspace-layout";
 import { downloadZip } from "~/utils/zip";
 
-import type { WebContainerStage } from "@vite-hub/web-container";
 import type { ConnectProviderName } from "@vite-hub/web-container/connect";
 import type { PlaygroundTemplate, TutorialFiles } from "~~/modules/tutorials/steps";
 
@@ -126,23 +129,11 @@ const moreItems = computed(() => [[
 const panel = ref<"console" | "connect">("console");
 const connected = computed(() => Object.keys(states.value).length);
 const panelItems = computed(() => [
-  { label: "Console", value: "console", icon: "i-lucide-square-terminal", slot: "console" as const },
-  { label: "Connect", value: "connect", icon: "i-lucide-plug", slot: "connect" as const, badge: connected.value ? { label: String(connected.value), color: "neutral" as const, variant: "soft" as const } : undefined },
+  { label: "Console", value: "console" as const, icon: "i-lucide-square-terminal" },
+  { label: "Connect", value: "connect" as const, icon: "i-lucide-plug", badge: connected.value ? String(connected.value) : undefined },
 ]);
 
-const stageLabels: Partial<Record<WebContainerStage, string>> = {
-  checking: "Checking the browser",
-  booting: "Starting WebContainer",
-  mounting: "Loading files",
-  installing: "Installing dependencies",
-  starting: "Starting the dev server",
-};
-// One line in the toolbar that says what the workspace does now.
-const runState = computed(() => {
-  if (workspace.failure.value) return { tone: "error", label: workspace.failure.value.kind === "install" ? "Install failed" : workspace.failure.value.kind === "server" ? "The dev server stopped" : "Did not start" };
-  if (!booting.value) return { tone: "ready", label: "Running" };
-  return { tone: "busy", label: stageLabels[workspace.status.value as WebContainerStage] ?? "Starting" };
-});
+const runState = useRunState(workspace);
 
 // An iframe takes the pointer events of a drag that crosses it, so the preview ignores them while a handle moves.
 const dragging = ref(false);
@@ -155,9 +146,6 @@ const rows = [
   { id: "editor", defaultSize: 68, minSize: 20, slot: "editor" as const },
   { id: "panel", defaultSize: 32, minSize: 12, slot: "panel" as const },
 ];
-const handleUi = {
-  handle: "bg-(--ui-border) data-[orientation=horizontal]:w-px data-[orientation=vertical]:h-px data-[resize-handle-state=hover]:bg-(--ui-border-accented) data-[resize-handle-state=drag]:bg-(--ui-primary) transition-colors duration-150",
-};
 
 function reset() {
   // Remount the snapshot as well as the files, so shared dependencies and the running server are reset too.
@@ -196,10 +184,7 @@ function download() {
           <span class="font-medium text-highlighted">{{ current.label }}</span>
         </UButton>
       </UDropdownMenu>
-      <span class="vh-pg-state" :data-tone="runState.tone" role="status">
-        <span class="vh-pg-state-dot" aria-hidden="true" />
-        {{ runState.label }}
-      </span>
+      <WorkspaceRunState class="ml-2" :tone="runState.tone" :label="runState.label" />
       <span class="flex-1" />
       <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-download" label="Download" @click="download" />
       <UButton color="neutral" variant="outline" size="sm" icon="i-lucide-link" label="Copy link" @click="share" />
@@ -208,43 +193,29 @@ function download() {
       </UDropdownMenu>
     </header>
 
-    <USplitter id="vh-pg-columns" auto-save-id="vitehub:playground:columns" :items="columns" :hit-area-margins="{ coarse: 12, fine: 4 }" :ui="handleUi" class="min-h-0 flex-1" @dragging="(_, value) => dragging = value">
+    <USplitter id="vh-pg-columns" auto-save-id="vitehub:playground:columns" :items="columns" :hit-area-margins="splitterHitArea" :ui="splitterUi" class="min-h-0 flex-1" @dragging="(_, value) => dragging = value">
       <template #files>
-        <section class="vh-pg-pane vh-pg-files" aria-label="Files">
-          <div class="vh-pg-pane-header">
-            <span class="vh-pg-pane-title">Files</span>
-          </div>
-          <div class="vh-pg-pane-body overflow-auto py-1">
+        <WorkspacePane label="Files" title="Files" class="vh-pg-files">
+          <div class="min-h-0 flex-1 overflow-auto py-1">
             <WorkspaceFileTree v-model:selected="selected" :paths="paths" :modified="edited" />
           </div>
-        </section>
+        </WorkspacePane>
       </template>
 
       <template #code>
-        <USplitter id="vh-pg-rows" auto-save-id="vitehub:playground:rows" orientation="vertical" :items="rows" :hit-area-margins="{ coarse: 12, fine: 4 }" :ui="handleUi" class="min-w-0 flex-1" @dragging="(_, value) => dragging = value">
+        <USplitter id="vh-pg-rows" auto-save-id="vitehub:playground:rows" orientation="vertical" :items="rows" :hit-area-margins="splitterHitArea" :ui="splitterUi" class="min-w-0 flex-1" @dragging="(_, value) => dragging = value">
           <template #editor>
-            <section class="vh-pg-pane" aria-label="Editor">
-              <div class="vh-pg-pane-header">
+            <WorkspacePane label="Editor">
+              <template #header>
                 <span class="vh-pg-path">{{ selected }}</span>
                 <span v-if="edited.includes(selected)" class="vh-pg-edited">Edited</span>
-              </div>
-              <div class="vh-pg-pane-body">
-                <WorkspaceEditor v-model="source" :path="selected" />
-              </div>
-            </section>
+              </template>
+              <WorkspaceEditor v-model="source" :path="selected" />
+            </WorkspacePane>
           </template>
 
           <template #panel>
-            <UTabs
-              v-model="panel"
-              :items="panelItems"
-              variant="link"
-              size="xs"
-              color="neutral"
-              :unmount-on-hide="false"
-              class="vh-pg-pane gap-0"
-              :ui="{ list: 'vh-pg-pane-header px-1 gap-1', trigger: 'h-9', content: 'vh-pg-pane-body data-[state=inactive]:hidden', indicator: 'bottom-0' }"
-            >
+            <WorkspaceTabs v-model="panel" :items="panelItems">
               <template #console>
                 <WorkspaceTerminal :output="workspace.logs.value" />
               </template>
@@ -260,33 +231,30 @@ function download() {
                   />
                 </div>
               </template>
-            </UTabs>
+            </WorkspaceTabs>
           </template>
         </USplitter>
       </template>
 
       <template #preview>
-        <section class="vh-pg-pane" aria-label="Preview">
-          <!-- The checklist takes the preview's place, so the reader can edit while the app starts. -->
-          <template v-if="booting">
-            <div class="vh-pg-pane-header">
-              <span class="vh-pg-pane-title">Preview</span>
-            </div>
-            <div class="vh-pg-pane-body vh-pg-boot">
-              <WorkspaceBootStatus
-                :status="workspace.status.value"
-                :steps="workspace.steps.value"
-                :failure="workspace.failure.value"
-                :online="workspace.online.value"
-                @retry="workspace.boot()"
-                @retry-install="workspace.install()"
-                @restart="workspace.restart()"
-                @show-output="panel = 'console'"
-              />
-            </div>
-          </template>
-          <WorkspacePreview v-else v-model:path="previewPath" :url="workspace.previewUrl.value" />
-        </section>
+        <!-- The checklist takes the preview's place, so the reader can edit while the app starts. -->
+        <WorkspacePane v-if="booting" label="Preview" title="Preview">
+          <div class="vh-pg-boot">
+            <WorkspaceBootStatus
+              :status="workspace.status.value"
+              :steps="workspace.steps.value"
+              :failure="workspace.failure.value"
+              :online="workspace.online.value"
+              @retry="workspace.boot()"
+              @retry-install="workspace.install()"
+              @restart="workspace.restart()"
+              @show-output="panel = 'console'"
+            />
+          </div>
+        </WorkspacePane>
+        <WorkspacePane v-else label="Preview">
+          <WorkspacePreview v-model:path="previewPath" :url="workspace.previewUrl.value" />
+        </WorkspacePane>
       </template>
     </USplitter>
 
@@ -324,83 +292,6 @@ function download() {
   padding: 0 0.5rem;
 }
 
-.vh-pg-state {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-left: 0.5rem;
-  color: var(--ui-text-muted);
-  font-size: 0.8125rem;
-}
-
-.vh-pg-state-dot {
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 50%;
-  background: var(--ui-text-dimmed);
-}
-
-.vh-pg-state[data-tone="busy"] .vh-pg-state-dot {
-  background: var(--ui-warning);
-  animation: vh-pg-pulse 1.2s ease-in-out infinite;
-}
-
-.vh-pg-state[data-tone="ready"] .vh-pg-state-dot {
-  background: var(--ui-success);
-}
-
-.vh-pg-state[data-tone="error"] {
-  color: var(--ui-error);
-}
-
-.vh-pg-state[data-tone="error"] .vh-pg-state-dot {
-  background: var(--ui-error);
-}
-
-@keyframes vh-pg-pulse {
-  50% { opacity: 0.35; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .vh-pg-state[data-tone="busy"] .vh-pg-state-dot {
-    animation: none;
-  }
-}
-
-/* Every pane has the same header row, so the panes line up. */
-.vh-pg-pane {
-  display: flex;
-  min-width: 0;
-  min-height: 0;
-  flex: 1;
-  flex-direction: column;
-}
-
-.vh-pg-pane :deep(.vh-pg-pane-header),
-.vh-pg-pane-header,
-.vh-pg-pane :deep(.vh-ws-preview-bar) {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 0.5rem;
-  height: 2.25rem;
-  border-bottom: 1px solid var(--ui-border);
-  padding: 0 0.75rem;
-}
-
-.vh-pg-pane :deep(.vh-ws-preview-bar) {
-  padding: 0 0.25rem;
-}
-
-.vh-pg-pane :deep(.vh-pg-pane-body),
-.vh-pg-pane-body {
-  position: relative;
-  display: flex;
-  min-height: 0;
-  flex: 1;
-  flex-direction: column;
-}
-
 /* The file column is one tinted surface, header included. */
 .vh-pg-files {
   background: var(--ui-bg-muted);
@@ -408,12 +299,6 @@ function download() {
 
 .vh-pg-files :deep(.vh-ws-file-tree) {
   --trees-bg-override: var(--ui-bg-muted);
-}
-
-.vh-pg-pane-title {
-  color: var(--ui-text-muted);
-  font-size: 0.75rem;
-  font-weight: 500;
 }
 
 .vh-pg-path {
@@ -432,6 +317,8 @@ function download() {
 
 /* The checklist sits in the middle of the preview, with room on every side. */
 .vh-pg-boot {
+  display: flex;
+  flex: 1;
   align-items: center;
   justify-content: center;
   overflow: auto;

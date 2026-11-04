@@ -145,7 +145,7 @@ const starter = `/_tutorials/${tutorial.slug}-starter.zip`;
 
       <div class="vh-run-prose">
         <p class="text-sm text-muted">
-          <NuxtLink to="/tutorials" class="hover:text-highlighted">Tutorials</NuxtLink>
+          <NuxtLink to="/learn" class="hover:text-highlighted">Learn</NuxtLink>
           /
           <NuxtLink :to="tutorial.page" class="hover:text-highlighted">Read in the docs</NuxtLink>
         </p>
@@ -179,7 +179,7 @@ const starter = `/_tutorials/${tutorial.slug}-starter.zip`;
         <nav class="vh-run-footer" aria-label="Steps">
           <UButton color="neutral" variant="outline" icon="i-lucide-arrow-left" label="Prev" :disabled="step === 0" @click="step = step - 1" />
           <UButton v-if="step < total - 1" color="neutral" trailing-icon="i-lucide-arrow-right" :label="`Next: ${tutorial.steps[step + 1]?.title}`" @click="step = step + 1" />
-          <UButton v-else color="neutral" variant="outline" to="/tutorials" label="All tutorials" />
+          <UButton v-else color="neutral" variant="outline" to="/learn" label="Back to Learn" />
         </nav>
       </div>
     </div>
@@ -201,7 +201,11 @@ const starter = `/_tutorials/${tutorial.slug}-starter.zip`;
         <TutorialWorkspace v-model:selected="selected" :tutorial="tutorial" :step="step" :actions="actions" />
       </div>
     </template>
-    <div v-else-if="supported === undefined" class="vh-run-placeholder" aria-hidden="true" />
+    <!-- Before mount the page cannot know if the browser runs the workspace, so the space shows the first boot step. -->
+    <div v-else-if="supported === undefined" class="vh-run-placeholder">
+      <div class="vh-run-placeholder-bar" />
+      <p class="text-sm text-muted">Starting the workspace</p>
+    </div>
   </div>
 </template>
 
@@ -211,6 +215,7 @@ const starter = `/_tutorials/${tutorial.slug}-starter.zip`;
   flex-direction: column;
 }
 
+/* As tall as the workspace toolbar, so both columns start on one line. */
 .vh-run-step {
   position: sticky;
   z-index: 5;
@@ -218,9 +223,10 @@ const starter = `/_tutorials/${tutorial.slug}-starter.zip`;
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  height: 2.75rem;
   border-bottom: 1px solid var(--ui-border);
   background: var(--ui-bg);
-  padding: 0.5rem 1rem;
+  padding: 0 0.5rem 0 1rem;
 }
 
 .vh-run-prose {
@@ -303,11 +309,30 @@ const starter = `/_tutorials/${tutorial.slug}-starter.zip`;
     flex-basis: 100%;
   }
 
+  /* Desktops boot the workspace on their own, so they never show the tablet card. */
+  .vh-run-tablet {
+    display: none;
+  }
+
   .vh-run-placeholder {
-    display: block;
+    display: flex;
     flex: 1 1 0;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
     border-left: 1px solid var(--ui-border);
-    background: var(--ui-bg-muted);
+  }
+
+  .vh-run-placeholder-bar {
+    align-self: stretch;
+    height: 2.75rem;
+    margin-top: 0;
+    margin-bottom: auto;
+    border-bottom: 1px solid var(--ui-border);
+  }
+
+  .vh-run-placeholder p {
+    margin-bottom: auto;
   }
 
   .vh-run-workspace {
@@ -316,17 +341,29 @@ const starter = `/_tutorials/${tutorial.slug}-starter.zip`;
   }
 }
 
+/* A 1px line with a wider hit area, the same as the dividers inside the workspace. */
 .vh-run-divider {
-  flex: 0 0 0.375rem;
-  border-inline: 1px solid var(--ui-border);
-  background: var(--ui-bg-muted);
+  position: relative;
+  z-index: 1;
+  flex: 0 0 1px;
+  background: var(--ui-border);
   cursor: col-resize;
   touch-action: none;
+  transition: background-color 150ms;
 }
 
-.vh-run-divider:hover,
-.vh-run-divider:focus-visible {
+.vh-run-divider::after {
+  position: absolute;
+  inset: 0 -4px;
+  content: "";
+}
+
+.vh-run-divider:hover {
   background: var(--ui-border-accented);
+}
+
+.vh-run-divider:focus-visible {
+  background: var(--ui-primary);
   outline: none;
 }
 </style>

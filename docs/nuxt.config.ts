@@ -19,7 +19,7 @@ export default defineNuxtConfig({
       section: "getting-started",
       links: [
         { label: "All docs", to: "/docs", icon: "i-ph-squares-four-light" },
-        { label: "Tutorials", to: "/tutorials", icon: "i-ph-graduation-cap-light" },
+        { label: "Learn", to: "/learn", icon: "i-ph-graduation-cap-light" },
         { label: "Playground", to: "/playground", icon: "i-ph-code-light" },
         { label: "Projects", to: "/projects", icon: "i-ph-folder-simple-light" },
         { label: "Templates", to: "/templates", icon: "i-ph-layout-light" },
@@ -30,7 +30,7 @@ export default defineNuxtConfig({
     github: { repo: "vite-hub/vitehub", dir: "docs/content" },
     icons: docsIcons,
     mcp: { name: "vitehub", guide: "/docs/getting-started/ai-resources/mcp-server" },
-    sitemap: ["/tutorials", "/playground", "/examples", "/projects", "/templates"],
+    sitemap: ["/learn", "/playground", "/examples", "/projects", "/templates"],
     // Agents read the tool contract of each `::agent-capability-tools` block that the site renders as a component.
     rawMarkdown: async (markdown: string) => expandCapabilityTools(markdown, await capabilityReferences()),
   },

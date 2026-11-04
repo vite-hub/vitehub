@@ -55,7 +55,7 @@ describe("playground", () => {
 
   it("isolates /playground besides the tutorials, and nothing below it", () => {
     expect(isIsolatedPath("/playground")).toBe(true);
-    expect(isIsolatedPath("/tutorials/first-agent")).toBe(true);
+    expect(isIsolatedPath("/learn/first-agent")).toBe(true);
     expect(isIsolatedPath("/playground/other")).toBe(false);
     expect(isIsolatedPath("/docs")).toBe(false);
     // The "Run this tutorial" link hides only on tutorials.
