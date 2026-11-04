@@ -229,6 +229,7 @@ export const historySchema = {
 | `reason` | `string` | Optional. Why the package adds the tables. `vitehub inspect definitions` and the Console show it. |
 | `database` | `string` | Optional. Database that receives the tables. Omit it to target the default or only Database. |
 | `dialect` | `'sqlite' \| 'postgresql'` | Optional. SQL dialect of the tables. When set, the build fails if the target Database uses another dialect. |
+| `tables` | `Record<string, string>` | Optional. Every table of the export: its key and its SQL name, such as `{ historyRefs: 'history_refs' }`. With it, the build lists the tables without loading the module, so resolving the Vite config loads neither the schema nor drizzle-orm. A key that is missing here is missing from the generated schema. |
 
 `vitehub.databases` accepts an array or a factory. The factory receives `{ root, projectRoot, serverDirs }`, where `root` is the Vite root, and can be async. It runs once per discovery pass and must return the same result each time. ViteHub sorts contributions by name.
 

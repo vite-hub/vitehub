@@ -16,6 +16,12 @@ export interface DatabaseContributionFields {
   database?: string
   /** SQL dialect of the tables. When set, the target Database must use this dialect. */
   dialect?: DatabaseDialect
+  /**
+   * Every table of `definition.export`: its schema key and its SQL name. With it, the Database lists the tables
+   * without loading the module, so resolving the Vite config loads neither the schema nor drizzle-orm. The generated
+   * schema still imports the module. A key that is missing here is missing from the generated schema.
+   */
+  tables?: Readonly<Record<string, string>>
 }
 
 /**
@@ -136,8 +142,15 @@ function isDatabaseDialect(value: unknown): value is DatabaseDialect {
 }
 
 function readDatabaseFields(entry: Readonly<Record<string, unknown>>, fail: (reason: string) => never): DatabaseContributionFields {
-  const { database, dialect } = entry
+  const { database, dialect, tables } = entry
   const fields: DatabaseContributionFields = {}
+  if (tables !== undefined) {
+    if (!isPlainObject(tables) || !Object.keys(tables).length || Object.values(tables).some(name => String(name) !== name || !name)) {
+      fail(`\`tables\` of ${JSON.stringify(entry.name)} must map each schema key to its SQL table name.`)
+    }
+    // SAFETY: the check above makes every value a non-empty string.
+    fields.tables = { ...tables as Record<string, string> }
+  }
   if (database !== undefined) {
     if (String(database) !== database || !database || database.trim() !== database) {
       fail(`\`database\` of ${JSON.stringify(entry.name)} must be a Database name without surrounding whitespace. Omit it to target the default or only Database.`)

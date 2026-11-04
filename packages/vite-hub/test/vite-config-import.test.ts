@@ -38,8 +38,6 @@ const config = {
     agent: true,
     auth: true,
     blob: true,
-    // The Console turns Comments on, whose tables the Database reads with drizzle-orm while the config resolves.
-    comments: false,
     console: { auth: false },
     database: true,
     kv: true,

@@ -17,6 +17,7 @@ import { parseJSONC, parseTOML } from "confbox"
 import { commentsConsoleSection } from "./console.ts"
 import { findCommentsEntry, findContentEntry } from "./entry.ts"
 import { commentsRealtimeDefinition, commentsRoute, mountedCommentsRoute } from "./page.ts"
+import { commentsTableNames } from "./table-names.ts"
 
 import type { DatabaseContributionContext, DatabaseContributionEntry } from "@vite-hub/database/vite"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
@@ -637,6 +638,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
           ...(database ? { database } : {}),
           definition: postgres ? { export: "commentsPostgresSchema", module: `${imports.database}/postgres` } : { export: "commentsSchema", module: imports.database },
           dialect: postgres ? "postgresql" : "sqlite",
+          tables: commentsTableNames,
           name: "comments",
           reason: definition ? "Stores the comment threads of `server/comments.ts`." : "Stores the comment threads of `vitehub({ comments })`.",
         }]
