@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { Window } from "happy-dom"
+import type { HTMLButtonElement } from "happy-dom"
 import { createApp, defineComponent, h, nextTick } from "vue"
 import { afterEach, expect, it, vi } from "vitest"
 
@@ -34,7 +35,7 @@ function mountPage(sectionsBase: string) {
   app.component("UTooltip", defineComponent({ setup: (_, { slots }) => () => slots.default?.() }))
   const root = window.document.createElement("div")
   app.mount(root)
-  return { app, root }
+  return { app, document: window.document, root }
 }
 
 it("recovers the setup and section list when the rail retries a failed navigation request", async () => {
@@ -65,7 +66,7 @@ it("recovers the setup and section list when the rail retries a failed navigatio
 it.each([true, false])("recovers from a signed-out session with a sign-in page: %s", async (hasSignInPage) => {
   const base = `/signed-out-${hasSignInPage}/api/_vitehub/console/sections`
   vi.mocked(requestConsole).mockRejectedValue(new ConsoleRequestError(401))
-  const { app, root } = mountPage(base)
+  const { app, document, root } = mountPage(base)
   if (hasSignInPage) {
     const meta = document.createElement("meta")
     meta.name = "vitehub-console-sign-in"
