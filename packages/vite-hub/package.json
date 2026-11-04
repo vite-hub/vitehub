@@ -978,6 +978,11 @@
       "import": "./dist/ui/chat-session.js",
       "default": "./dist/ui/chat-session.js"
     },
+    "./ui/choices-input": {
+      "types": "./dist/ui/choices-input.d.ts",
+      "import": "./dist/ui/choices-input.js",
+      "default": "./dist/ui/choices-input.js"
+    },
     "./ui/code-block": {
       "types": "./dist/ui/code-block.d.ts",
       "import": "./dist/ui/code-block.js",
@@ -1002,6 +1007,11 @@
       "types": "./dist/ui/file-view.d.ts",
       "import": "./dist/ui/file-view.js",
       "default": "./dist/ui/file-view.js"
+    },
+    "./ui/filter-search": {
+      "types": "./dist/ui/filter-search.d.ts",
+      "import": "./dist/ui/filter-search.js",
+      "default": "./dist/ui/filter-search.js"
     },
     "./ui/headless": {
       "types": "./dist/ui/headless.d.ts",

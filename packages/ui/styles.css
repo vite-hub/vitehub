@@ -1692,6 +1692,21 @@
   }
 }
 
+/* Choices: FilterSearch puts the error under the input. */
+@layer components {
+  .vh-filter-search {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+  }
+
+  .vh-filter-search-error {
+    color: var(--vh-error);
+    font-size: 0.75rem;
+    line-height: 1rem;
+  }
+}
+
 /* Collaboration: AvatarStack, ConnectionStatus, SyncStatus, and the carets of TipTap's CollaborationCaret. */
 @layer components {
   [data-slot="avatar-stack"] {
