@@ -1,5 +1,6 @@
-import { defineComponent, h, type PropType, resolveComponent } from "vue";
+import { defineComponent, h, type PropType } from "vue";
 import { asProp, slotPart } from "../internal/slot-part.ts";
+import { useUIComponent } from "../internal/nuxt-ui.ts";
 
 export type AttachmentState = "idle" | "uploading" | "processing" | "error" | "done";
 export type AttachmentSize = "default" | "sm" | "xs";
@@ -48,7 +49,7 @@ export const AttachmentActions = slotPart("AttachmentActions", "attachment-actio
 export const AttachmentAction = defineComponent({
   name: "AttachmentAction",
   setup(_props, { slots }) {
-    const UButton = resolveComponent("UButton");
+    const UButton = useUIComponent("UButton");
     return () =>
       h(UButton, { color: "neutral", "data-slot": "attachment-action", size: "xs", square: true, variant: "ghost" }, slots);
   },

@@ -28,6 +28,7 @@ const partFamilies = {
     "CommentFilters",
     "CommentLayer",
     "CommentList",
+    "CommentPanel",
     "CommentPin",
     "CommentReply",
     "CommentThread",

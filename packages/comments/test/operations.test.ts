@@ -61,6 +61,19 @@ it.each(["rpc", "memory"])("filters subject kinds before limiting through the %s
   expect(await transport.list({ subjectKind: "page", subject: content.subject })).toEqual([])
 })
 
+it("accepts attachment keys through the RPC transport for new comments and replies", async () => {
+  setup(defineComments({ authorize: () => true }))
+  const transport = createRpcTransport({ fetch: async (_url, init) => {
+    const { operation, input } = JSON.parse(String(init?.body))
+    return Response.json(await call(operation, input))
+  } })
+  const thread = await transport.create({ ...input, attachments: ["uploads/first.png"] })
+  expect(thread.messages[0]!.attachments).toEqual(["uploads/first.png"])
+  const replied = await transport.reply({ threadId: thread.id, body: "", attachments: ["uploads/reply.png"] })
+  expect(replied.messages[1]!.attachments).toEqual(["uploads/reply.png"])
+  expect(transport.supportsAttachments).not.toBe(false)
+})
+
 it("refuses ownership-based deletion when another author replies after authorization", async () => {
   const store = setup(defineComments({ authorize: ({ action }) => action !== "delete" }))
   const thread = await create()

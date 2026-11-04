@@ -85,7 +85,8 @@ function thread(store: Store, id: string): CommentThread {
 
 function message(store: Store, user: CommentUser, input: { threadId: string, body: string, mentions?: string[], attachments?: string[] }): CommentMessage {
   const body = input.body.trim()
-  if (!body) throw commentsErrorDiagnostics.COMMENTS_R0005()
+  // A message of files alone, such as a pasted screenshot, has no text.
+  if (!body && !input.attachments?.length) throw commentsErrorDiagnostics.COMMENTS_R0005()
   return {
     id: `message-${crypto.randomUUID()}`,
     threadId: input.threadId,
