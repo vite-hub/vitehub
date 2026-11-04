@@ -219,6 +219,25 @@ describe("docs Comments", () => {
     await expect(moduleDependencies(app(["@vite-hub/docs/nuxt"], { comments: true }))).rejects.toThrow(DocsCommentsSetupError)
   })
 
+  it("requires an installed module even when the vitehub config key exists", async () => {
+    const nuxt = app(["@vite-hub/docs/nuxt"])
+    Object.assign(nuxt.options, { vitehub: { comments: true } })
+    expect(await moduleDependencies(nuxt)).not.toHaveProperty("vite-hub/nuxt")
+    for (const comments of [true, { overlay: false }] as const) {
+      Object.assign(nuxt.options, { docs: { comments } })
+      await expect(moduleDependencies(nuxt)).rejects.toThrow(/docs.comments needs vite-hub\/nuxt/)
+    }
+  })
+
+  it("honors the app's Comments opt-out before checking the package or Database", async () => {
+    const nuxt = app(["vite-hub/nuxt"], undefined, false)
+    Object.assign(nuxt.options, { vitehub: { comments: false, database: false } })
+    expect(await moduleDependencies(nuxt)).not.toHaveProperty("vite-hub/nuxt")
+    expect(await moduleDependencies(app([["vite-hub/nuxt", { comments: false, database: false }]], { comments: true }, false))).not.toHaveProperty("vite-hub/nuxt")
+    nuxt.options.modules = [["vite-hub/nuxt", { comments: true }]]
+    await expect(moduleDependencies(nuxt)).rejects.toThrow(/pnpm add @vite-hub\/comments/)
+  })
+
   it("names the package or the opt-out when Comments cannot run", async () => {
     await expect(moduleDependencies(app(["vite-hub/nuxt"], undefined, false))).rejects.toThrow(/pnpm add @vite-hub\/comments.*docs: \{ comments: false \}/)
     await expect(moduleDependencies(app([["vite-hub/nuxt", { database: false }]]))).rejects.toThrow(/Remove database: false, or set docs: \{ comments: false \}/)

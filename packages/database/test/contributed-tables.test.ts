@@ -169,6 +169,7 @@ describe("collectDatabaseContributions", () => {
     [{ databases: [{ database: " default ", definition: { module: "pkg" }, name: "history" }] }, "`database`"],
     [{ databases: [{ definition: { module: "pkg" }, dialect: "mysql", name: "history" }] }, "`dialect` of \"history\" must be one of \"sqlite\", \"postgresql\""],
     [{ databases: [{ module: "pkg", name: "history" }] }, "needs `definition: { module, export? }`"],
+    [{ databases: [{ name: "history", tables: { historyRefs: "history_refs" } }] }, "needs `definition: { module, export? }`"],
     [{ databases: [{ definition: "/app/db.ts", name: " default" }] }, "`name`"],
     [{ databases: [{ definition: "./db.ts", name: "default" }] }, "absolute path"],
     [{ databases: [{ database: "default", definition: "/app/db.ts", name: "default" }] }, "Contribute them as two entries"],

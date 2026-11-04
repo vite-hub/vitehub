@@ -52,6 +52,7 @@ export async function docsCommentsDependencies(
     if (comments === undefined) return {}
     throw new DocsCommentsSetupError("docs.comments needs vite-hub/nuxt, which keeps the threads in a ViteHub Database.", `Add "vite-hub/nuxt" to modules, ${optOut}`)
   }
+  if (vitehub.comments === false) return {}
   if (!installed("@vite-hub/comments", nuxt.options.rootDir)) {
     throw new DocsCommentsSetupError("Docs sites on vite-hub/nuxt have Comments on, which needs @vite-hub/comments.", `Run \`pnpm add @vite-hub/comments\`, ${optOut}`)
   }

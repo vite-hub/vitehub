@@ -14,9 +14,10 @@ async function moduleName(module: unknown): Promise<unknown> {
 
 /**
  * The options of a Nuxt module: its config key, then the inline options of its `modules` entries, which win. Undefined
- * when neither is there. `names` are the entry names and the `getMeta()` name of the module.
+ * when neither is there, or when `requireInstalled` is set and no module entry matches. `names` are the entry names
+ * and the `getMeta()` name of the module.
  */
-export async function readModuleOptions(nuxt: ModuleOptionsNuxt, names: readonly string[], configKey: string): Promise<Record<string, unknown> | undefined> {
+export async function readModuleOptions(nuxt: ModuleOptionsNuxt, names: readonly string[], configKey: string, requireInstalled = false): Promise<Record<string, unknown> | undefined> {
   let installed = false
   let inline: Record<string, unknown> = {}
   for (const entry of nuxt.options.modules) {
@@ -28,11 +29,11 @@ export async function readModuleOptions(nuxt: ModuleOptionsNuxt, names: readonly
   }
   // The config key's type exists only when the module's types load.
   const configured: unknown = Reflect.get(nuxt.options, configKey)
-  if (!installed && !configured) return
+  if (!installed && (requireInstalled || !configured)) return
   return { ...(configured && typeof configured === "object" ? configured : {}), ...inline }
 }
 
 /** Inline and `vitehub` key options of `vite-hub/nuxt`, or `undefined` when the module is not installed. */
 export async function viteHubModuleOptions(nuxt: ModuleOptionsNuxt): Promise<Record<string, unknown> | undefined> {
-  return await readModuleOptions(nuxt, ["vite-hub/nuxt"], "vitehub")
+  return await readModuleOptions(nuxt, ["vite-hub/nuxt"], "vitehub", true)
 }
