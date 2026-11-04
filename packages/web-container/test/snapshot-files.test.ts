@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { chmod, lstat, mkdir, mkdtemp, readlink, rm, stat, symlink, writeFile } from "node:fs/promises"
+import { chmod, lstat, mkdir, mkdtemp, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import { restoreLinksScript, snapshotLinksFile } from "../src/links.ts"
 import { lockedAliases, withoutTarballIntegrity } from "../src/lockfile.ts"
+import { createNodeModulesSnapshot, SnapshotLockfileMismatchError } from "../src/snapshot.ts"
 import { readTree } from "../src/tree.ts"
 
 const run = promisify(execFile)
@@ -26,6 +27,21 @@ beforeEach(async () => {
 afterEach(() => rm(outer, { recursive: true, force: true }))
 
 describe("restoring snapshot links", () => {
+  it("rejects link paths that traverse an in-project symlink", async () => {
+    await mkdir(join(project, "node_modules/z"))
+    await writeFile(join(project, "node_modules", snapshotLinksFile), JSON.stringify({
+      links: [
+        ["node_modules/alias", ".."],
+        ["node_modules/alias/node_modules/z/evil", "../../../outside.txt"],
+      ],
+    }))
+    await writeFile(join(project, "restore.cjs"), restoreLinksScript)
+    const { stderr } = await run(process.execPath, ["restore.cjs"], { cwd: project })
+    expect(await readlink(join(project, "node_modules/alias"))).toBe("..")
+    expect(await exists(join(project, "node_modules/z/evil"))).toBe(false)
+    expect(stderr).toContain("node_modules/alias/node_modules/z/evil")
+  })
+
   it("restores links and executables inside the project and skips every path that leaves it", async () => {
     await writeFile(join(project, "node_modules", snapshotLinksFile), JSON.stringify({
       links: [
@@ -66,6 +82,15 @@ describe("reading the snapshot tree", () => {
 })
 
 describe("snapshot lockfiles", () => {
+  it.skipIf(process.platform === "win32")("identifies npm ci's manifest mismatch without contacting the registry", async () => {
+    await mkdir(join(project, "local-dep"))
+    await writeFile(join(project, "local-dep/package.json"), '{"name":"local-dep","version":"1.0.0"}')
+    const manifest = '{"private":true,"dependencies":{"local-dep":"file:./local-dep"}}\n'
+    await writeFile(join(project, "package.json"), manifest)
+    await expect(createNodeModulesSnapshot({ dir: project, lockfile: '{"lockfileVersion":3,"packages":{"":{}}}' })).rejects.toBeInstanceOf(SnapshotLockfileMismatchError)
+    expect(await readFile(join(project, "package.json"), "utf8")).toBe(manifest)
+  })
+
   const lockfile = JSON.stringify({
     packages: {
       "": { dependencies: { "vite-hub": "file:./tarballs/vite-hub-0.1.0.tgz", "vitehub-wasm-esbuild-wasm-0.28.2": "npm:esbuild-wasm@0.28.2" } },

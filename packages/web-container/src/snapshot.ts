@@ -27,7 +27,7 @@ const wasmBindings: Record<string, string> = {
 }
 
 export interface CreateNodeModulesSnapshotOptions {
-  /** A folder with the `package.json` (and `.npmrc`) of the app. The install writes `node_modules` here. */
+  /** A folder with the `package.json` (and `.npmrc`) of the app. The install writes `node_modules` here and preserves `package.json`. */
   dir: string
   /** Keep `devDependencies`. @default false */
   dev?: boolean
@@ -50,6 +50,11 @@ export interface NodeModulesSnapshot {
   lockfile: string
 }
 
+/** A supplied lockfile is out of sync with the app's dependencies or required wasm aliases. */
+export class SnapshotLockfileMismatchError extends Error {
+  override name = "SnapshotLockfileMismatchError"
+}
+
 /**
  * Installs the dependencies of an app on this machine as npm in a WebContainer does, and returns a snapshot that holds
  * only `node_modules`. Mount it with `bootWebContainer({ snapshot })`, so the container skips `npm install`.
@@ -65,41 +70,58 @@ export async function createNodeModulesSnapshot(options: CreateNodeModulesSnapsh
   const modules = join(dir, "node_modules")
   const manifestPath = join(dir, "package.json")
   const lockPath = join(dir, "package-lock.json")
-  const manifest: Manifest = JSON.parse(await readFile(manifestPath, "utf8"))
+  const originalManifest = await readFile(manifestPath)
+  const manifest: Manifest = JSON.parse(originalManifest.toString("utf8"))
   const frozen = options.lockfile !== undefined && options.frozenLockfile !== false
   let aliases = options.lockfile === undefined ? {} : lockedAliases(options.lockfile)
-  if (options.lockfile !== undefined) await writeFile(lockPath, options.lockfile)
-  else await rm(lockPath, { force: true })
+  try {
+    if (options.lockfile !== undefined) await writeFile(lockPath, options.lockfile)
+    else await rm(lockPath, { force: true })
 
-  // The wasm builds have the versions of the packages they replace, which the install decides. When it decides other
-  // versions than the aliases have, install again with the new aliases. A second round always agrees.
-  for (let round = 0; ; round++) {
-    await writeFile(manifestPath, `${JSON.stringify({ ...manifest, dependencies: { ...withoutAliases(manifest.dependencies), ...aliases } }, null, 2)}\n`)
-    await rm(modules, { recursive: true, force: true })
-    await run("npm", [frozen ? "ci" : "install", "--cpu=wasm32", ...options.dev ? [] : ["--omit=dev"], ...npmFlags], { cwd: dir, maxBuffer: 64 * 2 ** 20 })
-    const needed = await neededAliases(modules)
-    if (sameRecord(needed, aliases)) break
-    if (frozen) throw new Error("The lockfile does not match the app: its wasm builds have other versions. Pass frozenLockfile: false to update it.")
-    if (round > 1) throw new Error("The wasm builds of the app do not settle on one set of versions.")
-    aliases = needed
+    // The wasm builds have the versions of the packages they replace, which the install decides. When it decides other
+    // versions than the aliases have, install again with the new aliases. A second round always agrees.
+    for (let round = 0; ; round++) {
+      await writeFile(manifestPath, `${JSON.stringify({ ...manifest, dependencies: { ...withoutAliases(manifest.dependencies), ...aliases } }, null, 2)}\n`)
+      await rm(modules, { recursive: true, force: true })
+      try {
+        await run("npm", [frozen ? "ci" : "install", "--cpu=wasm32", ...options.dev ? [] : ["--omit=dev"], ...npmFlags], { cwd: dir, maxBuffer: 64 * 2 ** 20 })
+      }
+      catch (error) {
+        // EUSAGE alone also covers unrelated npm usage errors. Only its explicit sync diagnostic permits an update.
+        if (frozen && error instanceof Error && "stderr" in error && typeof error.stderr === "string"
+          && error.stderr.includes("code EUSAGE")
+          && error.stderr.includes("`npm ci` can only install packages when your package.json and package-lock.json or npm-shrinkwrap.json are in sync.")) {
+          throw new SnapshotLockfileMismatchError("The lockfile does not match the app. Pass frozenLockfile: false to update it.", { cause: error })
+        }
+        throw error
+      }
+      const needed = await neededAliases(modules)
+      if (sameRecord(needed, aliases)) break
+      if (frozen) throw new SnapshotLockfileMismatchError("The lockfile does not match the app: its wasm builds have other versions. Pass frozenLockfile: false to update it.")
+      if (round > 1) throw new Error("The wasm builds of the app do not settle on one set of versions.")
+      aliases = needed
+    }
+
+    for (const { name, path } of await packageDirs(modules)) {
+      const wasm = wasmBuilds[name]
+      const target = wasm ?? wasmBindings[name]
+      if (!target) continue
+      const alias = join(modules, aliasName(target, await packageVersion(path)))
+      // A wasm build takes the place of the package. A binding goes into the package's own node_modules.
+      const destination = wasm ? path : join(path, "node_modules", target)
+      if (wasm) await rm(path, { recursive: true, force: true })
+      await cp(alias, destination, { recursive: true, verbatimSymlinks: true })
+    }
+    for (const alias of Object.keys(aliases)) await rm(join(modules, alias), { recursive: true, force: true })
+
+    const links: SnapshotLinks = { links: [], executables: [] }
+    const tree = await readTree(dir, modules, links)
+    tree[snapshotLinksFile] = { f: { c: new TextEncoder().encode(JSON.stringify(links)) } }
+    return { snapshot: encode({ d: { node_modules: { d: tree } } }), lockfile: withoutTarballIntegrity(await readFile(lockPath, "utf8")) }
   }
-
-  for (const { name, path } of await packageDirs(modules)) {
-    const wasm = wasmBuilds[name]
-    const target = wasm ?? wasmBindings[name]
-    if (!target) continue
-    const alias = join(modules, aliasName(target, await packageVersion(path)))
-    // A wasm build takes the place of the package. A binding goes into the package's own node_modules.
-    const destination = wasm ? path : join(path, "node_modules", target)
-    if (wasm) await rm(path, { recursive: true, force: true })
-    await cp(alias, destination, { recursive: true, verbatimSymlinks: true })
+  finally {
+    await writeFile(manifestPath, originalManifest)
   }
-  for (const alias of Object.keys(aliases)) await rm(join(modules, alias), { recursive: true, force: true })
-
-  const links: SnapshotLinks = { links: [], executables: [] }
-  const tree = await readTree(dir, modules, links)
-  tree[snapshotLinksFile] = { f: { c: new TextEncoder().encode(JSON.stringify(links)) } }
-  return { snapshot: encode({ d: { node_modules: { d: tree } } }), lockfile: withoutTarballIntegrity(await readFile(lockPath, "utf8")) }
 }
 
 interface Manifest {
@@ -145,7 +167,10 @@ async function packageVersion(path: string): Promise<string> {
 /** Every package folder below `modules`, with its name. `nested` also walks the node_modules of each package. */
 async function packageDirs(modules: string, nested = true): Promise<{ name: string, path: string }[]> {
   const found: { name: string, path: string }[] = []
-  const entries = await readdir(modules, { withFileTypes: true }).catch(() => [])
+  const entries = await readdir(modules, { withFileTypes: true }).catch((error) => {
+    if (error.code === "ENOENT") return []
+    throw error
+  })
   for (const entry of entries) {
     if (!entry.isDirectory() || entry.name.startsWith(".")) continue
     const path = join(modules, entry.name)

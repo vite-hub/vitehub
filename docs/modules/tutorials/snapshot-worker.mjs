@@ -4,17 +4,20 @@
 import { createHash } from "node:crypto"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
-import { createNodeModulesSnapshot, packSnapshot } from "@vite-hub/web-container/snapshot"
+import { createNodeModulesSnapshot, packSnapshot, SnapshotLockfileMismatchError } from "@vite-hub/web-container/snapshot"
 
 const [dir, outDir, prefix, lockPath] = process.argv.slice(2)
 // The lockfile pins every version, so two builds of one commit give the same bytes.
-const lockfile = await readFile(lockPath, "utf8").catch(() => undefined)
+const lockfile = await readFile(lockPath, "utf8").catch((error) => {
+  if (error.code === "ENOENT") return undefined
+  throw error
+})
 let result
 try {
   result = await createNodeModulesSnapshot({ dir, lockfile })
 }
 catch (error) {
-  if (lockfile === undefined) throw error
+  if (lockfile === undefined || !(error instanceof SnapshotLockfileMismatchError)) throw error
   // The dependencies changed since the lockfile was written. Update it, keeping the versions that still fit.
   console.warn(`[tutorials] ${lockPath} does not match the dependencies (${error.message.split("\n")[0]}). Updating it; commit the change.`)
   result = await createNodeModulesSnapshot({ dir, lockfile, frozenLockfile: false })
