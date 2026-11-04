@@ -180,6 +180,23 @@ describe("operations capability", () => {
     expect(await resolved.demo_remove!.execute!({ id: "a" } as never, {})).toMatchObject({ error: { code: "INTERNAL_R0023" }, ok: false })
   })
 
+  it("offers a scoped operation for a scope grant, and runs it only on that scope", async () => {
+    const put = defineOperation({
+      description: "Store a file.",
+      input: v.strictObject({ store: v.optional(v.string()) }),
+      kind: "write",
+      name: "files.put",
+      run: ({ store }) => ({ store: store ?? "default" }),
+      scope: ({ store }) => store ?? "default",
+      section: "files",
+    })
+    installOperationSectionResolver(async () => ["files:media"])
+    const resolved = await tools(operations({ include: ["files.*"], registry: createOperationRegistry([{ operations: [put] }]) }))
+    expect(Object.keys(resolved)).toEqual(["files_put"])
+    expect(await resolved.files_put!.execute!({ store: "media" } as never, {})).toEqual({ store: "media" })
+    expect(await resolved.files_put!.execute!({} as never, {})).toMatchObject({ error: { code: "INTERNAL_R0023", message: expect.stringContaining('"files:default"') }, ok: false })
+  })
+
   it("offers nothing when the user may use no section, and everything without console.authorize", async () => {
     installOperationSectionResolver(async () => [])
     expect(Object.keys(await tools(operations({ include: ["*"], registry })))).toEqual([])

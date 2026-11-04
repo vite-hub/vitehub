@@ -1,5 +1,5 @@
 import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
-import { assertOperationConfirmation, assertOperationProject, operationAccessAllows, operationCall, operationRootHeader, operationSection, operationSurfaceHeader, parseOperationInput, projectRootHash } from "@vite-hub/internal/operations"
+import { assertOperationConfirmation, assertOperationProject, operationAccessAllows, operationAccessDenial, operationCall, operationRootHeader, operationSection, operationSurfaceHeader, parseOperationInput, projectRootHash } from "@vite-hub/internal/operations"
 import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import * as v from "valibot"
 
@@ -198,7 +198,8 @@ async function callConsoleOperation(request: Request, context: ConsoleOperationC
   const input = await parseOperationInput(operation, envelope.output.input)
   const section = operationSection(operation, input)
   if (section !== false && !consoleAccessAllows(context.access, section)) {
-    throw consoleRequestError(403, "This Console access does not include this section.")
+    const denial = operationAccessDenial(operation.name, section)
+    throw consoleRequestError(403, `${denial.message} ${denial.fix}`, "CONSOLE_ACCESS_DENIED")
   }
   const classification = operationCall(operation, input)
   // A read-only grant (`"<section>:read"`) runs only the operations, and the calls, that read.
