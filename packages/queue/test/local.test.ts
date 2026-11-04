@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises"
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -8,13 +8,19 @@ import { normalizeQueueOptions } from "../src/config.ts"
 import { queueErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { closeLocalQueues, startLocalQueue } from "../src/internal/runtime/local-client.ts"
 import { missingQueueDefinitionError, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/internal/runtime/state.ts"
-import { createLocalQueueClient, createLocalQueueEngine, localQueueMaxAttempts } from "../src/providers/local.ts"
+import { createLocalQueueClient, createLocalQueueEngine, localQueueDeadLimit, localQueueMaxAttempts } from "../src/providers/local.ts"
 import { dynamicQueue } from "../src/runtime/client.ts"
 import { createQueueClient } from "../src/runtime/create-client.ts"
 import { listQueues } from "../src/runtime/operations.ts"
 import { createLocalQueueRuntimeClient } from "../src/internal/runtime/local-client.ts"
 
 import type { QueueDefinition, QueueJob } from "../src/types.ts"
+
+// Pass-through mocks, so a test can fail one disk write or delete.
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>()
+  return { ...actual, rm: vi.fn(actual.rm), writeFile: vi.fn(actual.writeFile) }
+})
 
 let base: string
 
@@ -251,7 +257,122 @@ describe("local queue inspection", () => {
     await expect(listQueues()).resolves.toEqual({
       provider: "local",
       queues: [{ dead: 0, name: "digest", pending: 0, running: 0 }, { dead: 0, name: "welcome", pending: 1, running: 0 }],
-      storage: { base, durability: "single-host" },
+      storage: { base, deadLimit: 100, durability: "single-host" },
     })
+  })
+})
+
+describe("local queue review regressions", () => {
+  it("runs one job for overlapping sends with the same idempotencyKey", async () => {
+    const handler = vi.fn(async () => {})
+    const client = createLocalQueueClient(engineFor({ welcome: { handler } }), "welcome")
+
+    const [[, first], [, second]] = await Promise.all([
+      client.send({ n: 1 }, { idempotencyKey: "signup-ada" }),
+      client.send({ n: 2 }, { idempotencyKey: "signup-ada" }),
+    ])
+
+    expect(second?.messageId).toBe(first?.messageId)
+    await vi.waitFor(() => expect(handler).toHaveBeenCalledOnce())
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(handler).toHaveBeenCalledOnce()
+  })
+
+  it("does not run a job again that stopped the process on its last attempt", async () => {
+    // Each engine is a process that dies during the handler.
+    for (let attempt = 1; attempt <= localQueueMaxAttempts; attempt++) {
+      const stuck = vi.fn(() => new Promise(() => {}))
+      const engine = engineFor({ welcome: { handler: stuck } })
+      if (attempt === 1) await engine.enqueue("welcome", [{ id: "job-1", payload: {} }])
+      else await engine.start()
+      await vi.waitFor(() => expect(stuck).toHaveBeenCalledWith(expect.objectContaining({ attempts: attempt })))
+      engine.close()
+    }
+
+    const handler = vi.fn(async () => {})
+    const last = engineFor({ welcome: { handler } })
+
+    await vi.waitFor(async () => expect((await last.status()).queues.welcome).toEqual({ dead: 1, pending: 0, running: 0 }))
+    await vi.waitFor(async () => expect(await storedJobs()).toEqual([expect.objectContaining({ attempts: localQueueMaxAttempts, error: expect.objectContaining({ message: "[vitehub] The process stopped during the last attempt of this job." }), state: "dead" })]))
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it("accepts a new job when the job with the same idempotencyKey is dead", async () => {
+    let fail = true
+    const handler = vi.fn(async () => { if (fail) throw queueErrorDiagnostics.QUEUE_DISABLED() })
+    const engine = engineFor({ welcome: { handler } })
+    const client = createLocalQueueClient(engine, "welcome")
+
+    const [, first] = await client.send({}, { idempotencyKey: "signup-ada" })
+    await vi.waitFor(async () => expect((await engine.status()).queues.welcome?.dead).toBe(1))
+    fail = false
+    const [, second] = await client.send({}, { idempotencyKey: "signup-ada" })
+
+    expect(second?.messageId).not.toBe(first?.messageId)
+    await vi.waitFor(() => expect(handler).toHaveBeenCalledTimes(2))
+    await vi.waitFor(async () => expect((await engine.status()).queues.welcome).toEqual({ dead: 1, pending: 0, running: 0 }))
+  })
+
+  it("stores no job of a batch when one file cannot be written", async () => {
+    const handler = vi.fn(async () => {})
+    const engine = engineFor({ welcome: { handler } })
+    const client = createLocalQueueClient(engine, "welcome")
+    await engine.start()
+    const actual = (await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")).writeFile
+    vi.mocked(writeFile)
+      .mockImplementationOnce(actual)
+      .mockImplementationOnce(async () => { throw Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" }) })
+
+    const [error] = await client.sendBatch([{ body: 1 }, { body: 2 }])
+
+    expect(error).toMatchObject({ code: "QUEUE_PROVIDER_FAILED" })
+    expect(await readdir(base)).toEqual([])
+    expect((await engine.status()).queues).toEqual({})
+
+    const [retryError] = await client.sendBatch([{ body: 1 }, { body: 2 }])
+    expect(retryError).toBeUndefined()
+    await vi.waitFor(() => expect(handler).toHaveBeenCalledTimes(2))
+  })
+
+  it("does not run a finished job again when its file cannot be deleted", async () => {
+    const handler = vi.fn(async () => {})
+    const engine = engineFor({ welcome: { handler } })
+    await engine.start()
+    const actual = (await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")).rm
+    let failed = false
+    vi.mocked(rm).mockImplementation(async (path, options) => {
+      if (!failed && String(path).endsWith(".json")) {
+        failed = true
+        throw Object.assign(new Error("EBUSY: resource busy"), { code: "EBUSY" })
+      }
+      return await actual(path, options)
+    })
+
+    await engine.enqueue("welcome", [{ id: "job-1", payload: {} }])
+
+    await vi.waitFor(async () => expect(await storedJobs()).toEqual([expect.objectContaining({ state: "done" })]))
+    expect(handler).toHaveBeenCalledOnce()
+    expect((await engine.status()).queues).toEqual({})
+    engine.close()
+    vi.mocked(rm).mockImplementation(actual)
+
+    const again = vi.fn(async () => {})
+    const second = engineFor({ welcome: { handler: again } })
+    await second.start()
+
+    expect(await readdir(base)).toEqual([])
+    expect(again).not.toHaveBeenCalled()
+  })
+
+  it("keeps the newest dead jobs up to the limit", async () => {
+    const engine = engineFor({ welcome: { handler: async () => { throw queueErrorDiagnostics.QUEUE_DISABLED() } } })
+
+    await engine.enqueue("welcome", Array.from({ length: localQueueDeadLimit + 5 }, (_, n) => ({ id: `job-${n}`, payload: n })))
+
+    await vi.waitFor(async () => expect((await engine.status()).queues.welcome).toEqual({ dead: localQueueDeadLimit, pending: 0, running: 0 }), { timeout: 10_000 })
+    expect((await storedJobs()).length).toBe(localQueueDeadLimit)
+    engine.close()
+
+    expect((await engineFor({}).status()).queues.welcome?.dead).toBe(localQueueDeadLimit)
   })
 })

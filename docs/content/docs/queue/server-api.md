@@ -154,7 +154,7 @@ export async function enqueueWelcome(email: string) {
 }
 ```
 
-The local provider also accepts `idempotencyKey`: while a job with the same key is stored, `runQueue()` returns that job's message ID and stores nothing. It rejects `region` and `retentionSeconds`.
+The local provider also accepts `idempotencyKey`: while a pending or running job has the same key, `runQueue()` returns that job's message ID and stores nothing. A dead job does not hold its key. It rejects `region` and `retentionSeconds`.
 
 Cloudflare rejects `idempotencyKey`, `region`, and `retentionSeconds`. Vercel enqueue deduplication still does not guarantee that a handler runs exactly once. Keep handlers safe to retry.
 

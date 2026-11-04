@@ -15,7 +15,7 @@ export interface QueueListResult {
    * The local provider only: where the jobs are and what survives. `single-host` jobs survive a restart on this host,
    * but not a move to another host or a new container.
    */
-  storage?: { base: string, durability: LocalQueueStatus["durability"] }
+  storage?: { base: string, deadLimit: number, durability: LocalQueueStatus["durability"] }
   /** `dead`, `pending`, and `running` are job counts of the local provider. Hosted providers do not report a backlog. */
   queues: Array<{ dead?: number, name: string, pending?: number, running?: number }>
 }
@@ -70,7 +70,7 @@ export async function listQueues(): Promise<QueueListResult> {
       return {
         provider: "local",
         queues: names.map(name => ({ name, ...empty, ...status.queues[name] })),
-        storage: { base: status.base, durability: status.durability },
+        storage: { base: status.base, deadLimit: status.deadLimit, durability: status.durability },
       }
     }
   }

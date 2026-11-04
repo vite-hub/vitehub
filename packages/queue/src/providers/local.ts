@@ -14,6 +14,9 @@ import type { LocalQueueClient, QueueDefinition, QueueEnqueueOptions } from "../
 /** Cloudflare's default: one delivery and three retries. */
 export const localQueueMaxAttempts = 4
 
+/** Dead jobs that the local provider keeps per Queue Definition. It deletes the oldest above this count. */
+export const localQueueDeadLimit = 100
+
 export const localUnsupportedEnqueueOptions = ["contentType", "region", "retentionSeconds"] as const
 
 type DeliveryError = ReturnType<typeof createQueueDeliveryErrorReport>["error"]
@@ -26,19 +29,26 @@ interface StoredJob {
   enqueuedAt: number
   /** The last delivery error of a dead job. */
   error?: DeliveryError
+  /** Epoch milliseconds when the job became dead. */
+  failedAt?: number
   id: string
   idempotencyKey?: string
   /** File name. The message ID comes from the caller and is not safe as a file name. */
   key: string
   payload?: unknown
   queue: string
-  /** `dead` jobs used all attempts, or failed with an error that a retry cannot fix. They stay on disk for inspection. */
-  state: "dead" | "pending"
+  /**
+   * `dead` jobs used all attempts, or failed with an error that a retry cannot fix. They stay on disk for inspection,
+   * up to `localQueueDeadLimit` per Queue Definition. `done` jobs ran, but their file could not be deleted.
+   */
+  state: "dead" | "done" | "pending"
 }
 
 export interface LocalQueueStatus {
   /** Absolute directory of the stored jobs. */
   base: string
+  /** Dead jobs kept per Queue Definition. Older dead jobs are deleted. */
+  deadLimit: number
   /** The jobs survive a restart of this host. Another host or a new container does not see them. */
   durability: "single-host"
   queues: Record<string, { dead: number, pending: number, running: number }>
@@ -54,7 +64,10 @@ export interface LocalQueueEntry {
 export interface LocalQueueEngine {
   readonly base: string
   close: () => void
-  /** Stores the jobs and returns their message IDs. A job with a stored `idempotencyKey` returns the stored ID. */
+  /**
+   * Stores the jobs and returns their message IDs. A pending or running job with the same `idempotencyKey` returns
+   * its ID instead. When one file of the batch cannot be written, no job of the batch is stored.
+   */
   enqueue: (queue: string, entries: readonly LocalQueueEntry[]) => Promise<string[]>
   /** Reads the stored jobs and starts their delivery. Later calls return the same promise. */
   start: () => Promise<void>
@@ -81,7 +94,7 @@ function isStoredJob(value: unknown): value is StoredJob {
   const job = value as Record<string, unknown>
   return typeof job.key === "string" && typeof job.id === "string" && typeof job.queue === "string"
     && typeof job.attempts === "number" && typeof job.availableAt === "number" && typeof job.enqueuedAt === "number"
-    && (job.state === "pending" || job.state === "dead")
+    && (job.state === "pending" || job.state === "dead" || job.state === "done")
 }
 
 function toStoredPayload(payload: unknown): { payload?: unknown } {
@@ -104,17 +117,24 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
   const jobs = new Map<string, StoredJob>()
   const running = new Map<string, number>()
   const runningKeys = new Set<string>()
+  // Accepted jobs whose files are not written yet. They hold their idempotency key, but they do not run.
+  const writingKeys = new Set<string>()
   const concurrency = new Map<string, number>()
   let started: Promise<void> | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
   let closed = false
 
-  const file = (job: StoredJob) => join(base, `${job.key}.json`)
+  const file = (job: Pick<StoredJob, "key">) => join(base, `${job.key}.json`)
 
   async function persist(job: StoredJob) {
     const target = file(job)
     await writeFile(`${target}.tmp`, JSON.stringify(job), "utf8")
     await rename(`${target}.tmp`, target)
+  }
+
+  async function unlink(job: Pick<StoredJob, "key">) {
+    await rm(`${file(job)}.tmp`, { force: true })
+    await rm(file(job), { force: true })
   }
 
   function arm(at: number) {
@@ -131,7 +151,7 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
     const now = Date.now()
     let next = Number.POSITIVE_INFINITY
     for (const job of jobs.values()) {
-      if (job.state !== "pending" || runningKeys.has(job.key)) continue
+      if (job.state !== "pending" || runningKeys.has(job.key) || writingKeys.has(job.key)) continue
       if (job.availableAt > now) {
         next = Math.min(next, job.availableAt)
         continue
@@ -142,13 +162,56 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
     arm(next)
   }
 
+  /** Deletes the oldest dead jobs of `queue` above `localQueueDeadLimit`. */
+  async function pruneDead(queue: string) {
+    const dead = [...jobs.values()].filter(job => job.queue === queue && job.state === "dead")
+      .sort((a, b) => (a.failedAt ?? 0) - (b.failedAt ?? 0))
+    for (const job of dead.slice(0, Math.max(0, dead.length - localQueueDeadLimit))) {
+      jobs.delete(job.key)
+      await unlink(job).catch((error: unknown) => {
+        console.error(`[vitehub:queue] The local provider cannot delete the dead job file ${file(job)}.`, error)
+      })
+    }
+  }
+
+  async function markDead(job: StoredJob, error: DeliveryError) {
+    job.state = "dead"
+    job.error = error
+    job.failedAt = Date.now()
+    console.error(`[vitehub:queue] The local provider stopped delivery of a "${job.queue}" job after ${job.attempts} attempts. The job stays in ${file(job)}.`)
+    await persist(job)
+    // The file keeps the payload for inspection. Memory keeps only the counts.
+    delete job.payload
+    await pruneDead(job.queue)
+  }
+
+  async function complete(job: StoredJob) {
+    // A job stays in the map until its file is gone, so a failed delete does not run it again in this process.
+    job.state = "done"
+    try {
+      await unlink(job)
+      jobs.delete(job.key)
+    }
+    catch (error) {
+      console.error(`[vitehub:queue] The local provider ran a job, but cannot delete ${file(job)}.`, error)
+      // A `done` file is deleted on the next start and does not run again.
+      await persist(job).catch(() => {})
+    }
+  }
+
   async function deliver(job: StoredJob) {
     runningKeys.add(job.key)
     running.set(job.queue, (running.get(job.queue) ?? 0) + 1)
     try {
-      // Count the attempt before the handler runs. A crash during the handler redelivers the job after a restart.
+      // The attempt count is saved before the handler runs. A job at the limit lost its last attempt to a stopped
+      // process, for example a handler that crashes the process, so it does not run again.
+      if (job.attempts >= localQueueMaxAttempts) {
+        await markDead(job, { message: "[vitehub] The process stopped during the last attempt of this job.", name: "Error" })
+        return
+      }
       job.attempts += 1
       await persist(job)
+      let handled = false
       try {
         const definition = await options.load(job.queue)
         if (!definition) throw options.missing(job.queue)
@@ -157,26 +220,24 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
         // The first job of a queue reads its limit, so start the other due jobs now.
         schedule()
         checkQueueHandlerResponse(await definition.handler({ attempts: job.attempts, id: job.id, payload: job.payload }))
-        jobs.delete(job.key)
-        await rm(file(job), { force: true })
+        handled = true
       }
       catch (error) {
         const context = { attempts: job.attempts, id: job.id, provider: "local", queue: job.queue } as const
         reportQueueDeliveryError(error, context)
         if (isNonRetryableQueueError(error) || job.attempts >= localQueueMaxAttempts) {
-          job.state = "dead"
-          job.error = createQueueDeliveryErrorReport(error, context).error
-          console.error(`[vitehub:queue] The local provider stopped delivery of a "${job.queue}" job after ${job.attempts} attempts. The job stays in ${file(job)}.`)
+          await markDead(job, createQueueDeliveryErrorReport(error, context).error)
         }
         else {
           job.availableAt = Date.now() + retryDelayMs(job.attempts)
+          await persist(job)
         }
-        await persist(job)
       }
+      if (handled) await complete(job)
     }
     catch (storeError) {
       // Wait before the next try, so a full or read-only disk does not start the job again at once.
-      job.availableAt = Date.now() + retryDelayMs(job.attempts)
+      job.availableAt = Date.now() + retryDelayMs(Math.max(1, job.attempts))
       console.error(`[vitehub:queue] The local provider cannot update the job file in ${base}.`, storeError)
     }
     finally {
@@ -193,8 +254,16 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
       if (!name.endsWith(".json")) continue
       try {
         const job: unknown = JSON.parse(await readFile(join(base, name), "utf8"))
-        if (isStoredJob(job) && `${job.key}.json` === name) recovered.push(job)
-        else console.error(`[vitehub:queue] The local provider skips ${join(base, name)}: it is not a stored job.`)
+        if (!isStoredJob(job) || `${job.key}.json` !== name) {
+          console.error(`[vitehub:queue] The local provider skips ${join(base, name)}: it is not a stored job.`)
+          continue
+        }
+        if (job.state === "done") {
+          await unlink(job).catch(() => {})
+          continue
+        }
+        if (job.state === "dead") delete job.payload
+        recovered.push(job)
       }
       catch (error) {
         console.error(`[vitehub:queue] The local provider skips ${join(base, name)}: it cannot read it.`, error)
@@ -202,6 +271,7 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
     }
     // Deliver in the order the jobs were accepted.
     for (const job of recovered.sort((a, b) => a.enqueuedAt - b.enqueuedAt)) jobs.set(job.key, job)
+    for (const queue of new Set(recovered.map(job => job.queue))) await pruneDead(queue)
     schedule()
   }
 
@@ -213,13 +283,16 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
     },
     async enqueue(queue, entries) {
       await this.start()
+      // From here to the first await, no other send can run. The new jobs go into the map in this step, so an
+      // overlapping send with the same idempotency key finds them.
       const now = Date.now()
       const created: StoredJob[] = []
       const ids: string[] = []
       for (const entry of entries) {
+        // Only a job that can still run holds its key. A dead job does not block a new send.
         const duplicate = entry.idempotencyKey === undefined
           ? undefined
-          : [...jobs.values(), ...created].find(job => job.queue === queue && job.idempotencyKey === entry.idempotencyKey)
+          : [...jobs.values()].find(job => job.queue === queue && job.state === "pending" && job.idempotencyKey === entry.idempotencyKey)
         if (duplicate) {
           ids.push(duplicate.id)
           continue
@@ -238,9 +311,20 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
         created.push(job)
         ids.push(job.id)
       }
+      for (const job of created) {
+        jobs.set(job.key, job)
+        writingKeys.add(job.key)
+      }
       // `send()` returns after the files exist, so an accepted job survives a crash right after it.
-      await Promise.all(created.map(persist))
-      for (const job of created) jobs.set(job.key, job)
+      const written = await Promise.allSettled(created.map(persist))
+      for (const job of created) writingKeys.delete(job.key)
+      const failed = written.find(result => result.status === "rejected")
+      if (failed) {
+        // The send fails as a whole. Remove every file of it, so a retry does not store the jobs two times.
+        for (const job of created) jobs.delete(job.key)
+        await Promise.allSettled(created.map(unlink))
+        throw failed.reason
+      }
       schedule()
       return ids
     },
@@ -252,12 +336,13 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
       await this.start()
       const queues: LocalQueueStatus["queues"] = {}
       for (const job of jobs.values()) {
+        if (job.state === "done") continue
         const entry = queues[job.queue] ??= { dead: 0, pending: 0, running: 0 }
         if (job.state === "dead") entry.dead++
         else if (runningKeys.has(job.key)) entry.running++
         else entry.pending++
       }
-      return { base, durability: "single-host", queues }
+      return { base, deadLimit: localQueueDeadLimit, durability: "single-host", queues }
     },
   }
 }

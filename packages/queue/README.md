@@ -109,13 +109,13 @@ export default defineConfig({
 
 `hubQueue({ provider: "local", base: "data/queue" })` selects it explicitly and changes the directory.
 
-- A failed job runs again after 1, 2, and 4 seconds. After 4 attempts, or after a Queue error that a retry cannot fix, it becomes a dead job. A dead job stays in its file with the last error.
-- The server writes the attempt count before the handler runs. A job whose handler was running when the process stopped runs again after the restart.
-- `delaySeconds` survives a restart. `idempotencyKey` returns the stored message ID while a job with the same key is stored.
-- The jobs survive a restart on the same disk. Another host, a new container, or an ephemeral filesystem does not have them. Run one server process per directory.
+- A failed job runs again after 1, 2, and 4 seconds. After 4 attempts, or after a Queue error that a retry cannot fix, it becomes a dead job. A dead job stays in its file with the last error. The provider keeps the 100 newest dead jobs of each Queue Definition.
+- The server writes the attempt count before the handler runs. A job whose handler was running when the process stopped runs again after the restart. If that was the fourth attempt, the job becomes a dead job instead.
+- `delaySeconds` survives a restart. `idempotencyKey` returns the message ID of a pending or running job with the same key. A dead job does not hold its key. `sendBatch()` stores all jobs or none.
+- The jobs survive a restart on the same disk. Another host, a new container, or an ephemeral filesystem does not have them. Run one server process per directory: there is no lock between processes, so two processes can run the same job.
 - `onError` and `callbackOptions` are Cloudflare and Vercel options. The local provider does not call them.
 
-The server logs the directory and this durability once when it starts. `vitehub queue list` shows the provider, the directory, `durability: "single-host"`, and the pending, running, and dead jobs of each Queue Definition.
+The server logs the directory and this durability once when it starts. `vitehub queue list` shows the provider, the directory, `durability: "single-host"`, the dead-job limit, and the pending, running, and dead jobs of each Queue Definition.
 
 ## Treat acceptance and delivery separately
 

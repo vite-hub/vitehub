@@ -14,7 +14,7 @@ With `preset: 'node'`, Queue uses the local provider in `pnpm dev` and in the bu
 pnpm vitehub queue list
 ```
 
-The list shows `provider: "local"`, the job directory, `durability: "single-host"`, and the pending, running, and dead jobs of each Queue Definition. The jobs survive a restart on the same disk. In Docker, mount `.vitehub/data` as a volume, or a new container starts without them. Run one server process per directory. [Local delivery](/docs/queue/limits-and-errors#local-delivery) lists the retry and dead-job rules.
+The list shows `provider: "local"`, the job directory, `durability: "single-host"`, `deadLimit` (the dead jobs kept per Queue Definition), and the pending, running, and dead jobs of each Queue Definition. The jobs survive a restart on the same disk. In Docker, mount `.vitehub/data` as a volume, or a new container starts without them. Run one server process per directory. [Local delivery](/docs/queue/limits-and-errors#local-delivery) lists the retry and dead-job rules.
 
 For Cloudflare or Vercel, use a build to check that ViteHub discovers your Queue Definitions and generates the right Nitro output. A standalone Node process, such as a `tsx` script, does not run Vite discovery or load the generated Queue Runtime Registry, so `runQueue()` cannot find queue files from there.
 

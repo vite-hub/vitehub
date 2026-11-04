@@ -166,11 +166,12 @@ The `hubQueue()` plugin in the Vite config does not expose the Queue Nitro confi
 The local provider is the Queue Provider of the Node preset. It runs in the server process, so it works with `node .output/server/index.mjs`, in Docker, in `vite dev`, and in a StackBlitz WebContainer.
 
 - `runQueue()` writes the job to a file in `.vitehub/data/queue` and returns. The server process then runs the Queue Definition.
-- A failed job runs again after 1, 2, and 4 seconds. After 4 attempts, or after a Queue error that a retry cannot fix, the job becomes a dead job. A dead job stays in its file with the last error, and `vitehub queue list` counts it. Delete the file to remove it.
-- The attempt count is written before the handler runs. When the process stops during a handler, the job runs again after the restart with the next attempt number.
-- `delaySeconds` survives a restart. `idempotencyKey` returns the stored message ID while a job with the same key is in the directory.
+- A failed job runs again after 1, 2, and 4 seconds. After 4 attempts, or after a Queue error that a retry cannot fix, the job becomes a dead job. A dead job stays in its file with the last error, and `vitehub queue list` counts it. The provider keeps the 100 newest dead jobs of each Queue Definition and deletes older ones. `vitehub queue list` shows this limit as `deadLimit`. Delete a file to remove a dead job earlier.
+- The attempt count is written before the handler runs. When the process stops during a handler, the job runs again after the restart with the next attempt number. When the process stopped during the fourth attempt, the job becomes a dead job and does not run again, so a handler that crashes the process cannot run on every restart.
+- `delaySeconds` survives a restart. `idempotencyKey` returns the message ID of a pending or running job with the same key, also for two sends at the same time. A dead job does not hold its key, so a new send with that key runs.
+- `sendBatch()` stores all jobs or none. When one file cannot be written, it returns `QUEUE_PROVIDER_FAILED` and removes the other files of the batch, so a retry does not store the jobs two times.
 - `concurrency` limits the jobs of one Queue Definition that run at the same time. The default is 1. `onError` and `callbackOptions` are Cloudflare and Vercel options, and the local provider does not call them.
-- The jobs survive a restart on the same host and the same disk. They are lost with an ephemeral container filesystem, and another host does not see them. Mount `.vitehub/data` as a volume in Docker. Run one server process per directory, because two processes deliver the same jobs. Use Cloudflare or Vercel for more than one server.
+- The jobs survive a restart on the same host and the same disk. They are lost with an ephemeral container filesystem, and another host does not see them. Mount `.vitehub/data` as a volume in Docker. Run one server process per directory. The provider has no lock between processes, so two processes on one directory can run the same job at the same time. Use Cloudflare or Vercel for more than one server.
 
 ## Production checks
 
