@@ -17,6 +17,8 @@ import { createNoExternalAddition, createProviderOutputEnvironmentOwner, hasNitr
 import type { ProviderOutputEnvironmentOwner } from "@vite-hub/internal/build/vite"
 import { summarizeDefinitions } from "@vite-hub/internal/inspect"
 import { getHostingProvider } from "@vite-hub/internal/hosting"
+import { wasmSqliteTraceDeps } from "@vite-hub/internal/runtime/sqlite-wasm"
+import { isWebContainer } from "@vite-hub/web-container/env"
 import { validateWorkspaceDevToken, workspaceDevTokenHeader, workspaceDevTokenServerId } from "@vite-hub/workspace/server"
 
 import {
@@ -785,6 +787,10 @@ function mergeAgentNitroExternals(value: unknown): NitroConfig {
     ? true
     : [...new Set([...existingInline, ...nitroAgentRuntimeInlines])]
   nitro.externals = externals
+  if (isWebContainer()) {
+    const existingTraceDeps = Array.isArray(nitro.traceDeps) ? nitro.traceDeps : []
+    nitro.traceDeps = [...new Set([...existingTraceDeps, ...wasmSqliteTraceDeps])]
+  }
   const existingNoExternals = Array.isArray(nitro.noExternals) ? nitro.noExternals : []
   nitro.noExternals = nitro.noExternals === true
     ? true

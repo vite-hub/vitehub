@@ -133,6 +133,11 @@
       "import": "./dist/runtime/vercel-hosted.js",
       "default": "./dist/runtime/vercel-hosted.js"
     },
+    "./runtime/sqlite-wasm": {
+      "types": "./dist/runtime/sqlite-wasm.d.ts",
+      "import": "./dist/runtime/sqlite-wasm.js",
+      "default": "./dist/runtime/sqlite-wasm.js"
+    },
     "./runtime/cloudflare-env": {
       "types": "./dist/runtime/cloudflare-env.d.ts",
       "import": "./dist/runtime/cloudflare-env.js",
@@ -336,6 +341,7 @@
     "typecheck": "vp run --cache -t @vite-hub/internal#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.browser.json"
   },
   "dependencies": {
+    "@sqlite.org/sqlite-wasm": "catalog:database",
     "@standard-schema/spec": "catalog:runtime",
     "@types/node": "catalog:tooling",
     "@vercel/nft": "catalog:vercel",
