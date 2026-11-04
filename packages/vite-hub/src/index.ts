@@ -401,8 +401,12 @@ export interface ViteHubOptions {
   /** Agent telemetry, request logs, and papercut reports through evlog. Read it at runtime with `useObservability()`. */
   observability?: ObservabilityOptions
   queue?: boolean
-  /** Database, SQL dialect, and `overlay: false` (no page tool) for Comments in `server/comments.ts`. */
-  comments?: Pick<HubCommentsOptions, "database" | "dialect" | "overlay">
+  /**
+   * Comments on the app's pages. Without the option, Comments is on when the app has `server/comments.ts`. `true`, or
+   * an object with the Database, the SQL dialect, or `overlay: false` (no page tool), turns it on without the file, with
+   * the default `defineComments()`, and turns the Database on when `database` is unset.
+   */
+  comments?: true | Pick<HubCommentsOptions, "database" | "dialect" | "overlay">
   rateLimit?: boolean | RateLimitModuleOptions
   realtime?: boolean | RealtimeModuleOptions
   /** Sandbox Tasks in `server/sandbox-tasks/` and `*.sandbox-task.ts` files. Each run starts an isolated Cloudflare or Vercel Sandbox. */
@@ -1102,6 +1106,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   assertFeaturePackages(([
     ["agent", options.agent || options.observability],
     ["auth", options.auth],
+    ["comments", options.comments],
     ["console agents", configuredConsole && options.agent],
     ["console sign-in", consoleSignIn],
     ["database", options.database],
@@ -1343,10 +1348,12 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       importBase: `${generatedImportBase}/rate-limit`,
     } as RateLimitModuleOptions)))
   }
-  // Comments in `server/comments.ts`: threads in the Database, the overlay on pages in comment mode, and page presence
-  // rooms where Realtime has an authority. Inert without the file, and absent without its package.
+  // Comments in `server/comments.ts`, or with the `comments` option: threads in the Database, the overlay on pages in
+  // comment mode, and page presence rooms where Realtime has an authority. Inert without either, and absent without its
+  // package.
   const commentsPlugin = ownerModules.commentsVite?.hubComments({
-    ...options.comments,
+    ...options.comments === true ? {} : options.comments,
+    enabled: Boolean(options.comments),
     auth: Boolean(options.auth),
     // Attachments go to the app's Blob store.
     blob: blobEnabled,
