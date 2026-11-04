@@ -57,6 +57,7 @@ function fakeActions(overrides: Partial<ConsoleDocumentActions> = {}): ConsoleDo
     raw: unused,
     references: unused,
     remove: unused,
+    resolve: unused,
     restore: unused,
     revisions: unused,
     save: unused,

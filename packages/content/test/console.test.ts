@@ -437,6 +437,37 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
     expect((await actions.search({ query: "secret" }, reader)).items).toEqual([])
   })
 
+  it("resolves a page path to its readable document and state", async () => {
+    const workspace = await historyWorkspace()
+    const hidden = new Set(["secret"])
+    const content = defineContent({
+      workspace,
+      collections: {
+        posts: documents({ path: "posts/*.md", fields: { title: z.string() }, url: "/blog/:id" }),
+      },
+      authorize: ({ id }) => !(id !== undefined && hidden.has(id)),
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    const actions = createContentConsoleActions({ content })
+    const posts = content.collection("posts")
+    const save = async (id: string, title: string) => await posts.save(id, { data: { title } })
+    await save("hello", "Hello")
+    await save("secret", "Secret")
+    await content.publish()
+    await save("later", "Later")
+
+    expect(await actions.resolve({ path: "/blog/hello" }, editor)).toEqual({ collection: "posts", id: "hello", state: "published" })
+    await save("hello", "Hello again")
+    expect(await actions.resolve({ path: "/blog/hello" }, editor)).toEqual({ collection: "posts", id: "hello", state: "changed" })
+    // A page that was never published has its URL only on the draft.
+    expect(await actions.resolve({ path: "/blog/later" }, editor)).toEqual({ collection: "posts", id: "later", state: "draft" })
+    expect(await actions.resolve({ path: "/blog/missing" }, editor)).toBeNull()
+    // A document the policy hides resolves to nothing, as if it had no page.
+    expect(await actions.resolve({ path: "/blog/secret" }, editor)).toBeNull()
+    await expect(failure(actions.resolve({} as never, editor))).resolves.toMatchObject({ status: 400 })
+  })
+
   it("rejects malformed input without calling the runtime", async () => {
     const { actions } = await setup()
     await expect(failure(actions.save({ ...hello, ifDigest: undefined } as never, editor))).resolves.toMatchObject({ status: 400 })

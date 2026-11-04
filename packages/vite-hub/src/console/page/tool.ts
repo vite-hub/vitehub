@@ -1,8 +1,10 @@
-import { contentFieldAttribute, parseContentField } from "@vite-hub/content/client"
+import { contentFieldAttribute, contentPreviewFrameParameter, contentPreviewPublishedParameter, parseContentField } from "@vite-hub/content/client"
 import { viteHubPillButtonStyles } from "@vite-hub/internal/runtime/page-tools-shared"
 import type { ViteHubPageToolModule } from "@vite-hub/internal/runtime/page-tools-loader"
 
-const styles = `:host{display:flex;flex-direction:var(--vitehub-pill-flow,row);gap:2px}${viteHubPillButtonStyles}`
+const styles = `:host{display:flex;flex-direction:var(--vitehub-pill-flow,row);gap:2px}${viteHubPillButtonStyles}
+button.view-draft{gap:6px}button.view-draft[hidden]{display:none}
+.dot{width:7px;height:7px;border-radius:50%;background:#f59e0b;flex:none}`
 // The editor fades in once it is ready, over the window's own surface, so it never flashes a blank page. The status
 // only shows when the wait is long enough to notice.
 const windowStyles = `iframe{opacity:0;transition:opacity 150ms ease-out}iframe.ready{opacity:1}
@@ -178,6 +180,294 @@ const start: ViteHubPageToolModule["default"] = (context) => {
       stop(false)
     }, { capture: true, signal })
     signal.addEventListener("abort", () => { mutations.disconnect(); stop(true); style.remove() }, { once: true })
+    draftSwitch(base, shadow, signal)
   }
 }
+/** The Console RPC header. It matches `consoleRpcHeader`, which the page tool does not import to stay small. */
+const rpcHeader = "x-vitehub-console"
+
+/** The document that a page shows and its state, from the Content `resolve` action. */
+export interface PageDocument {
+  collection: string
+  id: string
+  state: "draft" | "published" | "changed" | "deleted"
+}
+
+/** Calls one Content document action over the Console RPC below `base`, the Console mount such as `/_vitehub`. */
+async function documentAction(base: string, action: "preview" | "resolve", body: Record<string, unknown>, signal: AbortSignal): Promise<unknown> {
+  const response = await fetch(`${base}/rpc/__call`, {
+    body: JSON.stringify({ operation: "documents.action", input: { action, body, section: "content" } }),
+    cache: "no-store",
+    credentials: "same-origin",
+    headers: { "content-type": "application/json", [rpcHeader]: "1" },
+    method: "POST",
+    signal,
+  })
+  const result: unknown = response.ok ? await response.json().catch(() => undefined) : undefined
+  if (!result || typeof result !== "object" || !("ok" in result) || result.ok !== true || !("value" in result)) throw new Error(`The Content ${action} action failed (${response.status}).`)
+  return result.value
+}
+
+function pageDocument(value: unknown): PageDocument | undefined {
+  if (!value || typeof value !== "object" || !("collection" in value) || !("id" in value) || !("state" in value)) return
+  const { collection, id, state } = value
+  if (String(collection) !== collection || String(id) !== id) return
+  if (state !== "draft" && state !== "published" && state !== "changed" && state !== "deleted") return
+  return { collection, id, state }
+}
+
+/** Whether this page is the draft view: the browser posted the preview form to it. The parameter alone grants nothing. */
+export function isDraftView(search: string): boolean {
+  return new URLSearchParams(search).has(contentPreviewFrameParameter)
+}
+
+/** The live address of the page: its URL without the draft view parameter. */
+export function liveUrl(href: string): string {
+  const url = new URL(href)
+  url.searchParams.delete(contentPreviewFrameParameter)
+  return url.href
+}
+
+/** The address of the live page for the change marks: published reads, even for a browser with a preview cookie. */
+function publishedUrl(href: string): string {
+  const url = new URL(liveUrl(href))
+  url.searchParams.set(contentPreviewPublishedParameter, "")
+  return url.href
+}
+
+/** The elements that the change marks compare. Each is text that a reader sees as one unit. */
+const blockSelector = "h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,figcaption,dt,dd,th,td"
+/** The attribute on a draft block that the live page does not have. */
+export const draftChangeAttribute = "data-vitehub-draft-change"
+
+/** The innermost blocks below `root` that have text. A list item that holds a paragraph counts once, as the paragraph. */
+function textBlocks(root: ParentNode): Array<{ element: Element, text: string }> {
+  const blocks: Array<{ element: Element, text: string }> = []
+  for (const element of root.querySelectorAll(blockSelector)) {
+    if (element.querySelector(blockSelector)) continue
+    const text = (element.textContent ?? "").replace(/\s+/g, " ").trim()
+    if (text) blocks.push({ element, text })
+  }
+  return blocks
+}
+
+/**
+ * Compares the text blocks of the draft page with those of the live page. Blocks match by their text, so a moved
+ * paragraph is not a change. `changed` lists the draft blocks that the live page does not have. `removed` counts the
+ * live blocks that are gone and that no changed block took the place of.
+ */
+export function draftChanges(draft: ParentNode, live: ParentNode): { changed: Element[], removed: number } {
+  const left = new Map<string, number>()
+  for (const { text } of textBlocks(live)) left.set(text, (left.get(text) ?? 0) + 1)
+  const changed: Element[] = []
+  for (const { element, text } of textBlocks(draft)) {
+    const count = left.get(text) ?? 0
+    if (count) left.set(text, count - 1)
+    else changed.push(element)
+  }
+  let gone = 0
+  for (const count of left.values()) gone += count
+  return { changed, removed: Math.max(0, gone - changed.length) }
+}
+
+/**
+ * Loads the live page in a hidden same-origin frame at the width of this window, and resolves with its document once
+ * it loaded. A frame, not `fetch`, so that components that render only in the browser show on both sides.
+ */
+function loadLivePage(href: string, signal: AbortSignal): Promise<Document> {
+  return new Promise((resolve, reject) => {
+    const frame = document.createElement("iframe")
+    frame.setAttribute("aria-hidden", "true")
+    frame.tabIndex = -1
+    frame.style.cssText = `position:fixed;left:-10000px;top:0;width:${innerWidth}px;height:${innerHeight}px;border:0;visibility:hidden;pointer-events:none`
+    const done = () => { clearTimeout(timer); frame.remove() }
+    const timer = setTimeout(() => { done(); reject(new Error("The live page did not load.")) }, 15_000)
+    signal.addEventListener("abort", () => { done(); reject(signal.reason) }, { once: true })
+    frame.addEventListener("load", () => {
+      // Give the page a moment to hydrate, as this page did before the comparison.
+      setTimeout(() => {
+        const live = frame.contentDocument
+        if (!live?.body) { done(); return reject(new Error("The live page is not readable.")) }
+        const copy = document.implementation.createHTMLDocument("")
+        copy.body.replaceWith(copy.importNode(live.body, true))
+        done()
+        resolve(copy)
+      }, 500)
+    }, { once: true })
+    frame.src = publishedUrl(href)
+    document.documentElement.append(frame)
+  })
+}
+
+const bannerStyles = `:host{all:initial;position:fixed;inset:0 0 auto 0;z-index:2147483646;display:flex;justify-content:center;align-items:center;flex-wrap:wrap;gap:4px 14px;min-height:36px;padding:4px 12px;box-sizing:border-box;background:#fef3c7;color:#78350f;border-bottom:1px solid #fcd34d;font:13px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}
+button{all:unset;cursor:pointer;font-weight:600;text-decoration:underline;text-underline-offset:3px;text-decoration-thickness:1px}
+button:hover{text-decoration-thickness:2px}button:focus-visible{outline:2px solid #78350f;outline-offset:2px;border-radius:2px}
+button:disabled{cursor:default;text-decoration:none;font-weight:400;opacity:.8}[hidden]{display:none}
+@media(any-pointer:coarse){button{padding:10px 4px}}
+@media print{:host{display:none}}`
+const changeStyles = `[${draftChangeAttribute}]{background-color:rgb(245 158 11 / .16);outline:2px solid rgb(245 158 11 / .85);outline-offset:2px;border-radius:2px}`
+
+/**
+ * The banner of the draft view: it says that only this person sees the draft, marks the blocks that the draft changed,
+ * and leads back to the live page.
+ */
+function draftBanner(signal: AbortSignal): () => void {
+  const host = document.createElement("vitehub-draft-banner")
+  const shadow = host.attachShadow({ mode: "open" })
+  const style = document.createElement("style")
+  style.textContent = bannerStyles
+  const text = document.createElement("span")
+  text.textContent = "Draft preview. Only you see this."
+  const marks = document.createElement("button")
+  marks.type = "button"
+  marks.disabled = true
+  marks.textContent = "Finding changes…"
+  const back = document.createElement("button")
+  back.type = "button"
+  back.textContent = "Back to live"
+  back.addEventListener("click", () => location.assign(liveUrl(location.href)))
+  const gone = document.createElement("span")
+  gone.hidden = true
+  shadow.append(style, text, marks, gone, back)
+  document.documentElement.append(host)
+
+  const markStyle = document.createElement("style")
+  markStyle.textContent = changeStyles
+  let changed: Element[] = []
+  let shown = false
+  const show = (on: boolean) => {
+    shown = on && changed.length > 0
+    for (const element of changed) element.toggleAttribute(draftChangeAttribute, shown)
+    if (shown) document.head.append(markStyle)
+    else markStyle.remove()
+    marks.setAttribute("aria-pressed", String(shown))
+    marks.textContent = `${shown ? "Hide" : "Highlight"} ${changed.length === 1 ? "1 change" : `${changed.length} changes`}`
+  }
+  marks.addEventListener("click", () => show(!shown))
+
+  const controller = new AbortController()
+  signal.addEventListener("abort", () => controller.abort(), { once: true, signal: controller.signal })
+  void loadLivePage(location.href, controller.signal).then((live) => {
+    const result = draftChanges(document.body, live.body)
+    changed = result.changed
+    if (result.removed) {
+      gone.textContent = result.removed === 1 ? "1 block removed." : `${result.removed} blocks removed.`
+      gone.hidden = false
+    }
+    if (!changed.length) {
+      marks.hidden = !!result.removed
+      marks.textContent = "No text changes."
+      return
+    }
+    marks.disabled = false
+    show(true)
+  }, () => {
+    if (controller.signal.aborted) return
+    marks.hidden = true
+  })
+
+  const remove = () => {
+    controller.abort()
+    show(false)
+    host.remove()
+  }
+  signal.addEventListener("abort", remove, { once: true })
+  return remove
+}
+
+/**
+ * The draft view of the Content segment. On a live page whose document has an unpublished draft, the pill shows
+ * **View draft**. It posts the preview form of that one document to this page, as the side browser of the editor does,
+ * so the token stays in the form body and only this browser sees the draft. The draft page shows a banner instead,
+ * with the changes marked and **Back to live**. Client-side navigation resolves the next page again.
+ */
+function draftSwitch(base: string, shadow: ShadowRoot, signal: AbortSignal): void {
+  const view = document.createElement("button")
+  view.type = "button"
+  view.className = "view-draft"
+  view.hidden = true
+  const dot = document.createElement("span")
+  dot.className = "dot"
+  dot.setAttribute("aria-hidden", "true")
+  view.append(dot, "View draft")
+  view.title = "Show this page with its saved draft. Only you see it."
+  shadow.append(view)
+
+  let current: PageDocument | undefined
+  let pending: AbortController | undefined
+  let removeBanner: (() => void) | undefined
+  const render = () => {
+    const drafted = isDraftView(location.search)
+    view.hidden = drafted || !current || (current.state !== "changed" && current.state !== "draft")
+    if (drafted && !removeBanner) removeBanner = draftBanner(signal)
+    if (!drafted && removeBanner) { removeBanner(); removeBanner = undefined }
+  }
+  const refresh = async () => {
+    pending?.abort()
+    const controller = new AbortController()
+    pending = controller
+    signal.addEventListener("abort", () => controller.abort(), { once: true, signal: controller.signal })
+    try {
+      current = pageDocument(await documentAction(base, "resolve", { path: location.pathname }, controller.signal))
+    }
+    catch {
+      if (controller.signal.aborted) return
+      current = undefined
+    }
+    render()
+  }
+
+  view.addEventListener("click", async () => {
+    if (!current || isDraftView(location.search)) return
+    view.disabled = true
+    try {
+      const signed = await documentAction(base, "preview", { collection: current.collection, id: current.id }, signal)
+      const token: unknown = signed && typeof signed === "object" && "token" in signed ? signed.token : undefined
+      if (String(token) !== token) throw new Error("The preview token is missing.")
+      // A top-level same-origin form, like **Open in a new tab** of the side browser. Without `document` the page shows
+      // the stored draft.
+      const form = document.createElement("form")
+      form.method = "post"
+      const action = new URL(location.href)
+      action.searchParams.set(contentPreviewFrameParameter, "")
+      form.action = action.href
+      form.hidden = true
+      const field = document.createElement("input")
+      field.type = "hidden"
+      field.name = contentPreviewFrameParameter
+      field.value = JSON.stringify({ token })
+      form.append(field)
+      document.body.append(form)
+      form.submit()
+      form.remove()
+    }
+    catch {
+      view.disabled = false
+      view.title = "The draft could not open. Try again."
+    }
+  })
+
+  // Routers also call `replaceState` for scroll positions, so only a new path resolves again.
+  let path = location.pathname
+  const navigated = () => queueMicrotask(() => {
+    if (location.pathname === path) return render()
+    path = location.pathname
+    current = undefined
+    render()
+    void refresh()
+  })
+  for (const method of ["pushState", "replaceState"] as const) {
+    const original = history[method]
+    history[method] = function (this: History, ...args: Parameters<History["pushState"]>) {
+      const result = original.apply(this, args)
+      navigated()
+      return result
+    }
+    signal.addEventListener("abort", () => { history[method] = original }, { once: true })
+  }
+  window.addEventListener("popstate", navigated, { signal })
+  render()
+  void refresh()
+}
+
 export default start
