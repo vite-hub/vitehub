@@ -43,6 +43,11 @@
       "import": "./dist/env.js",
       "default": "./dist/env.js"
     },
+    "./snapshot": {
+      "types": "./dist/snapshot.d.ts",
+      "import": "./dist/snapshot.js",
+      "default": "./dist/snapshot.js"
+    },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js",
@@ -58,6 +63,7 @@
     "test:browser": "vp run -t @vite-hub/web-container#build && node --test test/browser/boot.browser.mjs"
   },
   "dependencies": {
+    "@msgpack/msgpack": "catalog:browser",
     "@webcontainer/api": "catalog:browser",
     "@webcontainer/env": "catalog:browser"
   },

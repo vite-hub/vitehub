@@ -1,6 +1,7 @@
 // Opens a runnable tutorial in headless Chromium against a running docs server, boots the real WebContainer, follows
-// the steps, edits a file, and reads the app. It needs network access to StackBlitz and the npm registry, and takes
-// about five minutes because the first start installs the app.
+// the steps, edits a file, and reads the app. It needs network access to StackBlitz. With the snapshots that
+// `nuxt build` (or `TUTORIAL_SNAPSHOTS=1 nuxi dev`) writes, the workspace mounts node_modules and the run takes about a
+// minute. Without them it needs the npm registry, and the first start installs for about four minutes.
 //
 //   pnpm --filter vitehub-docs dev --port 4870
 //   DOCS_URL=http://127.0.0.1:4870 node test/browser/tutorial.browser.mjs
@@ -27,6 +28,19 @@ function containerFrames(page) {
   return page.frames().filter(frame => frame.url().includes("stackblitz") || frame.url().includes("webcontainer-api.io"));
 }
 
+/** Reads `/api/health` from the preview frames. */
+async function readHealth(page) {
+  // The preview origin wraps the app in frames of its own, so read every frame that it serves.
+  let health = "";
+  for (let attempt = 0; attempt < 120 && !health.includes("\"ok\""); attempt++) {
+    await page.waitForTimeout(500);
+    for (const frame of page.frames().filter(candidate => candidate.url().includes("webcontainer-api.io"))) {
+      health += await frame.locator("body").innerText({ timeout: 1000 }).catch(() => "");
+    }
+  }
+  return health.trim();
+}
+
 async function runRequest(page) {
   const button = page.getByRole("button", { name: "Run in workspace" });
   await button.waitFor();
@@ -43,12 +57,15 @@ async function runRequest(page) {
 test("runs the first Agent tutorial in the browser", { timeout: 20 * 60_000 }, async (t) => {
   const browser = await chromium.launch({ args: ["--headless=new"] });
   t.after(() => browser.close());
+  // The desktop checks share a context, so the later visit finds the snapshot in Cache Storage.
+  const desktop = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 
   await t.test("desktop: boots, follows the steps, edits a file, and reads the app", async (step) => {
-    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const page = await desktop.newPage();
     // A failed run must not leave its WebContainer running beside the next check.
     step.after(() => page.close().catch(() => {}));
     page.on("pageerror", error => console.log("[page error]", error.message));
+    const started = performance.now();
     const response = await page.goto(tutorial);
     assert.equal(response?.headers()["cross-origin-embedder-policy"], "credentialless");
     assert.equal(response?.headers()["cross-origin-opener-policy"], "same-origin");
@@ -81,15 +98,9 @@ test("runs the first Agent tutorial in the browser", { timeout: 20 * 60_000 }, a
     // The preview shows the health route once the dev server is ready.
     await page.locator(".vh-ws-preview-frame").waitFor({ timeout: installTimeout });
     await page.locator(".vh-ws-boot").waitFor({ state: "detached", timeout: installTimeout });
-    // The preview origin wraps the app in frames of its own, so read every frame that it serves.
-    let health = "";
-    for (let attempt = 0; attempt < 120 && !health.includes("\"ok\""); attempt++) {
-      await page.waitForTimeout(500);
-      for (const frame of page.frames().filter(candidate => candidate.url().includes("webcontainer-api.io"))) {
-        health += await frame.locator("body").innerText({ timeout: 1000 }).catch(() => "");
-      }
-    }
-    console.log("preview /api/health:", health.trim());
+    const health = await readHealth(page);
+    console.log("preview /api/health:", health);
+    console.log(`first boot: preview ready ${((performance.now() - started) / 1000).toFixed(1)} s after page load`);
     assert.match(health, /"ok":\s*true/);
     await shot(page, "desktop-ready");
 
@@ -125,6 +136,18 @@ test("runs the first Agent tutorial in the browser", { timeout: 20 * 60_000 }, a
     await page.getByRole("button", { name: "Reset" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Replace files" }).click();
     await page.getByText("You changed").waitFor({ state: "detached" });
+    await page.close();
+  });
+
+  await t.test("desktop: a later visit boots from the cached snapshot", async (step) => {
+    const page = await desktop.newPage();
+    step.after(() => page.close().catch(() => {}));
+    const started = performance.now();
+    await page.goto(tutorial);
+    await page.locator(".vh-ws-preview-frame").waitFor({ timeout: installTimeout });
+    await page.locator(".vh-ws-boot").waitFor({ state: "detached", timeout: installTimeout });
+    assert.match(await readHealth(page), /"ok":\s*true/);
+    console.log(`later boot: preview ready ${((performance.now() - started) / 1000).toFixed(1)} s after page load`);
     await page.close();
   });
 

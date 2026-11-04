@@ -65,6 +65,9 @@ catalogs:
     '@cloudflare/playwright':
       specifier: ^1.3.6
       version: 1.3.6
+    '@msgpack/msgpack':
+      specifier: 3.1.3
+      version: 3.1.3
     '@webcontainer/api':
       specifier: 1.6.4
       version: 1.6.4
@@ -3027,6 +3030,9 @@ importers:
       '@iconify-json/ph':
         specifier: catalog:ui
         version: 1.2.2
+      '@nuxt/schema':
+        specifier: 4.6.3
+        version: 4.6.3
       '@nuxt/ui':
         specifier: catalog:nuxt
         version: 4.12.0(66d51cbe5087b4d63451adffacf03f6e)
@@ -3460,6 +3466,9 @@ importers:
 
   packages/web-container:
     dependencies:
+      '@msgpack/msgpack':
+        specifier: catalog:browser
+        version: 3.1.3
       '@webcontainer/api':
         specifier: catalog:browser
         version: 1.6.4
@@ -6584,6 +6593,10 @@ packages:
   '@mongodb-js/zstd@7.0.0':
     resolution: {integrity: sha512-mQ2s0pYYiav+tzCDR05Zptem8Ey2v8s11lri5RKGhTtL4COVCvVCk5vtyRYNT+9L8qSfyOqqefF9UtnW8mC5jA==}
     engines: {node: '>= 20.19.0'}
+
+  '@msgpack/msgpack@3.1.3':
+    resolution: {integrity: sha512-47XIizs9XZXvuJgoaJUIE2lFoID8ugvc0jzSHP+Ptfk8nTbnR8g788wv48N03Kx0UkAv559HWRQ3yzOgzlRNUA==}
+    engines: {node: '>= 18'}
 
   '@msgpackr-extract/msgpackr-extract-darwin-arm64@3.0.4':
     resolution: {integrity: sha512-LCkGo6JDfaBhgST7UpPWgNgLINpcpabaHfyz5OBx75nUYxBsaEPxjnyNjWpeb/xBup/682QnBfRBy2/LvPutZQ==}
@@ -21733,6 +21746,8 @@ snapshots:
       node-addon-api: 8.9.2
       prebuild-install: 7.1.3
     optional: true
+
+  '@msgpack/msgpack@3.1.3': {}
 
   '@msgpackr-extract/msgpackr-extract-darwin-arm64@3.0.4':
     optional: true
