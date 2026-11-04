@@ -156,6 +156,7 @@ function toError(error: unknown, sqlite3: Sqlite3 | undefined): WasmSqliteError 
 function openDatabase(sqlite3: Sqlite3, path: string | undefined): { db: Database, stamp: string | undefined } {
   if (path) assertNoWal(path)
   const db = new sqlite3.oo1.DB(":memory:", "c")
+  db.exec("PRAGMA foreign_keys = ON")
   if (!path) return { db, stamp: undefined }
   mkdirSync(dirname(path), { recursive: true })
   const stamp = stampOf(path)

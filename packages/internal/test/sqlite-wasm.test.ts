@@ -60,6 +60,39 @@ describe("createWasmSqliteClient", () => {
     second.close()
   })
 
+  it.each(["new", "existing", "reloaded"])("enforces foreign keys for %s databases without running migrations", async (state) => {
+    const path = join(dir, "foreign-keys.sqlite")
+    const schema = `
+      CREATE TABLE parents (id INTEGER PRIMARY KEY);
+      CREATE TABLE children (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES parents(id) ON DELETE CASCADE);
+      INSERT INTO parents VALUES (1);
+      INSERT INTO children VALUES (1, 1);
+    `
+    const client = createWasmSqliteClient({ url: `file:${path}` })
+    try {
+      if (state === "new") {
+        await client.executeMultiple(schema)
+      }
+      else {
+        if (state === "reloaded") await client.execute("SELECT 1")
+        const native = new DatabaseSync(path)
+        try {
+          native.exec(schema)
+        }
+        finally {
+          native.close()
+        }
+      }
+
+      await expect(client.execute("INSERT INTO children VALUES (2, 999)")).rejects.toMatchObject({ code: "SQLITE_CONSTRAINT_FOREIGNKEY" })
+      await client.execute("DELETE FROM parents WHERE id = 1")
+      expect((await client.execute("SELECT id FROM children")).rows).toEqual([])
+    }
+    finally {
+      client.close()
+    }
+  })
+
   it("preserves a database symlink and shares its target between clients", async () => {
     const path = join(dir, "target.sqlite")
     const link = join(dir, "linked.sqlite")
