@@ -82,7 +82,8 @@ export interface DocsModuleOptions {
    */
   mcp?: { name?: string, guide?: string } | false
   /**
-   * Checks every link and anchor of the prerendered pages, through `nuxt-link-checker`, and fails the build on a broken one.
+   * Checks links on prerendered pages with `nuxt-link-checker` and fails the build on detected errors.
+   * Fragment checks are limited to the current page; fragments on other pages are not validated.
    * Remote URLs are not fetched. Set the app's own `linkChecker` options to change that. `false` turns the check off.
    */
   linkChecker?: false
