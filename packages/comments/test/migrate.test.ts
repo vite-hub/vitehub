@@ -104,6 +104,21 @@ async function expectMigrated(db: CommentsDatabase) {
 }
 
 describe("migrateComments", () => {
+  it.each(["runtime", "playground"])("remaps page numbers beyond an existing site's high-water mark via %s", async (migration) => {
+    const { client, db } = await liveDatabase()
+    await client.execute("INSERT INTO vitehub_comment_threads (id, scope, number, page, anchor, status, created_by, created_at, updated_at) VALUES ('custom', 'site', 1, '/custom', 'null', 'open', '{\"id\":\"ada\"}', 1, 1)")
+    await client.execute("INSERT INTO vitehub_comment_scope_counters (scope, last_number) VALUES ('site', 8)")
+    if (migration === "runtime") await migrateComments(db)
+    else await client.executeMultiple(readFileSync(new URL("../../../playground/content/server/databases/content/migrations/0007_comments_one_model.sql", import.meta.url), "utf8").replaceAll("--> statement-breakpoint", ""))
+    const comments = defineComments({ subjects })
+    installComments(comments, { database: db })
+    expect((await comments.get("custom"))[1]).toMatchObject({ scope: "site", n: 1, subject: { kind: "site", id: "/custom" } })
+    expect((await comments.get("t1"))[1]).toMatchObject({ scope: "site", n: 9, subject: { kind: "page", id: "/pricing" }, messages: [{ id: "c1" }, { id: "c2" }] })
+    // The deleted pages#5 still reserves its number after the offset of eight.
+    expect((await comments.create({ page: "/", body: "Next", author: ada }))[1]?.n).toBe(14)
+    expect((await client.execute("SELECT number FROM vitehub_comment_threads_live WHERE id = 't1'")).rows[0]?.number).toBe(1)
+  })
+
   it.each(["batch", "transaction"])("moves the live-site tables to one model, and keeps the old tables via %s", async (driver) => {
     const { client, db } = await liveDatabase()
     expect((await commentsSchemaState(db)).state).toBe("live")

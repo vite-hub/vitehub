@@ -422,7 +422,9 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
   const load = options.load ?? ((script: string) => import(/* @vite-ignore */ script))
   let session: ViteHubPageSession
   try {
-    const response = await fetch(options.session ?? viteHubPageSessionUrl(import.meta.url), { credentials: "same-origin", headers: { accept: "application/json" } })
+    const sessionUrl = new URL(options.session ?? viteHubPageSessionUrl(import.meta.url), location.href)
+    sessionUrl.searchParams.set("page", location.pathname)
+    const response = await fetch(sessionUrl.origin === location.origin ? `${sessionUrl.pathname}${sessionUrl.search}` : sessionUrl.href, { credentials: "same-origin", headers: { accept: "application/json" } })
     if (!response.ok) return []
     session = readViteHubPageSession(await response.json())
   }
@@ -432,7 +434,8 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
   // One pill per page: a second loader on the same page does nothing.
   if (session.tools.length === 0 || document.querySelector("vitehub-pill")) return []
 
-  const open = query.get(viteHubPageToolsQuery)
+  // `?vitehub=<tool>` opens a tool, and so does the query parameter of a tool, such as `?comment=3` of Comments.
+  const open = query.get(viteHubPageToolsQuery) || session.tools.find(tool => tool.param && query.has(tool.param))?.id
   const querySelected = session.tools.some(tool => tool.id === open)
   const pillController = new AbortController()
   const controllers = session.tools.map(() => new AbortController())
@@ -445,10 +448,9 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
     // `0`, not a cleared cookie: a signed-in person would otherwise get the pill again on the next page.
     document.cookie = viteHubPageToolsHintCookie(false)
     const url = new URL(location.href)
-    if (url.searchParams.has(viteHubPageToolsQuery)) {
-      url.searchParams.delete(viteHubPageToolsQuery)
-      history.replaceState(history.state, "", url)
-    }
+    url.searchParams.delete(viteHubPageToolsQuery)
+    for (const tool of session.tools) if (tool.param) url.searchParams.delete(tool.param)
+    if (url.href !== location.href) history.replaceState(history.state, "", url)
     for (const controller of controllers) controller.abort()
     pillController.abort()
     mountOffNote(() => {

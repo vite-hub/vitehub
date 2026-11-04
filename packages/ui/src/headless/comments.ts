@@ -82,6 +82,8 @@ export interface UseCommentsOptions {
   subject: MaybeRefOrGetter<CommentSubject>;
   /** The signed-in user. Defaults to `client.user`. */
   user?: MaybeRefOrGetter<CommentUser | undefined>;
+  /** People that the app already knows, such as the ones that a server answer named. Their mentions show as chips. */
+  people?: MaybeRefOrGetter<readonly CommentUser[]>;
   /** Where anchors are looked up. Defaults to the document. */
   root?: MaybeRefOrGetter<ParentNode | undefined>;
   /** The query parameter that deep-links a thread. Default `"comment"`. */
@@ -108,7 +110,7 @@ export interface CommentsState {
   readonly user: ComputedRef<CommentUser | undefined>;
   /** Whether the signed-in user may reply, resolve, edit, or delete. Always false without a user. */
   readonly can: CommentCan;
-  /** Every person the state knows: the user, the authors of threads, and the people that `users()` found. Mentions get their names here. */
+  /** Every person the state knows: the user, the authors of threads, the people that `users()` found, and `people`. Mentions get their names here. */
   readonly people: ComputedRef<CommentUser[]>;
   /** Comment mode: a click drops a pin. */
   readonly active: Ref<boolean>;
@@ -149,7 +151,8 @@ export interface CommentsState {
   remove: (threadId: string, messageId?: string) => Promise<CommentThread | null>;
   resolve: (threadId: string) => Promise<CommentThread>;
   reopen: (threadId: string) => Promise<CommentThread>;
-  users: (query: string) => Promise<CommentUser[]>;
+  /** Finds people for a reply or edit in `threadId`, or for a new thread on the current subject. */
+  users: (query: string, threadId?: string) => Promise<CommentUser[]>;
   /** The URL that opens the thread: its page with `?comment=<n>`. */
   link: (thread: CommentThread) => string;
   /** Measures every pin again. The state does it on scroll, resize, and DOM changes. */
@@ -265,10 +268,15 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     if (selection && !selection.isCollapsed && selection.rangeCount > 0) {
       const container = selection.getRangeAt(0).commonAncestorContainer;
       const element = container instanceof Element ? container : container.parentElement;
-      if (element && !ignore(element)) {
+      // A selection that the page removed since, such as after a router swapped the body, has nothing to anchor to.
+      if (element?.isConnected && !ignore(element)) {
         const rect = selection.getRangeAt(0).getBoundingClientRect();
-        startDraft(selection, { point: { x: rect.left, y: rect.top } });
-        selection.removeAllRanges();
+        try {
+          startDraft(selection, { point: { x: rect.left, y: rect.top } });
+          selection.removeAllRanges();
+        } catch {
+          // Comment mode stays on, and a click drops the pin.
+        }
       }
     }
   }
@@ -453,6 +461,8 @@ export function useComments(options: UseCommentsOptions): CommentsState {
       applyDeepLink();
     };
     window.addEventListener("popstate", onPopstate);
+    // Hosts with History API routing can supply a reactive location without synthesizing browser events.
+    stops.push(watch(() => options.location?.().search, onPopstate));
     // The comment UI changes the DOM too, and measuring after that would never settle. Only changes that move things count.
     const observer = new MutationObserver(records => {
       if (records.every(record => record.target instanceof Element && defaultIgnore(record.target))) return;
@@ -530,6 +540,7 @@ export function useComments(options: UseCommentsOptions): CommentsState {
       if (person && (!known.has(person.id) || person.name)) known.set(person.id, person);
     };
     for (const person of found.value.values()) add(person);
+    for (const person of toValue(options.people) ?? []) add(person);
     for (const thread of threads.value) {
       add(thread.author);
       add(thread.resolvedBy);
@@ -538,8 +549,8 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     add(user.value);
     return [...known.values()];
   });
-  async function users(query: string): Promise<CommentUser[]> {
-    const result = await client.users({ query });
+  async function users(query: string, threadId?: string): Promise<CommentUser[]> {
+    const result = await client.users({ query, ...(threadId ? { threadId } : { subject: subject.value }) });
     if (result.some(person => found.value.get(person.id) !== person)) {
       const next = new Map(found.value);
       for (const person of result) next.set(person.id, person);

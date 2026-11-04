@@ -2,6 +2,8 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 const stylesheet = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+const standalone = await readFile(new URL("../src/standalone/styles.css", import.meta.url), "utf8");
+const overlay = await readFile(new URL("../../comments/src/overlay/styles.ts", import.meta.url), "utf8");
 const block = /:where\(([^)]*)\) \{\n((?:\s+(?:\/\*.*\*\/|--vh-[\w-]+: .*;)\n)+)\}/.exec(stylesheet);
 
 // A token resolved once at `:root` keeps the page's colors inside a surface that resets Nuxt UI's `--ui-*`, such as
@@ -22,5 +24,9 @@ describe("the theme tokens", () => {
 
   it("leaves the --vh-ui-* overrides to the app", () => {
     expect([...stylesheet.matchAll(/^\s*(--vh-ui-[\w-]+):/gm)].map(([, name]) => name)).toEqual([]);
+  });
+
+  it.each([["standalone", standalone], ["overlay", overlay]])("uses resolved tokens in the %s rules", (_name, rules) => {
+    expect([...rules.matchAll(/var\((--vh-ui-[\w-]+)/g)].map(([, name]) => name)).toEqual([]);
   });
 });

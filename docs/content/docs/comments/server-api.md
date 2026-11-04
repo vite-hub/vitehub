@@ -248,7 +248,7 @@ The routes run the same actions as the [comment operations](/docs/comments/opera
 
 | Route | Needs | Does |
 | --- | --- | --- |
-| `GET /session` | None | Returns `{ user, can: { read, comment, resolve }, realtime, content }`, plus `signIn: { provider, url }` for a person who can sign in with GitHub, and `github` with `signOut` for a person signed in with GitHub. It sets no cookie: `GET /_vitehub/page/session` owns the `vitehub-tools` hint. |
+| `GET /session?page=` | None | Returns `{ user, can: { read, comment, resolve, delete }, realtime, content }` for the page, plus `signIn: { provider, url }` for a person who can sign in with GitHub, and `github` with `signOut` for a person signed in with GitHub. `can.delete` says the person may delete other people's comments. It sets no cookie: `GET /_vitehub/page/session` owns the `vitehub-tools` hint. |
 | `GET /threads` | `read` | Lists the threads that the reader may read, as `comments.list` does. Search parameters: `page`, or `subjectKind` with `subjectId`, or `subjectKind` alone; `status`, `mine`, `mentions`, `revision` (at most this revision), `limit`, and `beforeId` with `beforeUpdatedAt` for the next page. `403` when the reader may not read the filter. |
 | `GET /threads/:id` | `read` | One thread, or `null` when it does not exist or the reader may not read it. |
 | `GET /scopes/:scope/threads/:n` | `read` | Thread `#n` of a scope, such as `site`, or `null`. |
@@ -261,8 +261,8 @@ The routes run the same actions as the [comment operations](/docs/comments/opera
 | `POST /attachments` | `write` | Stores a file from `{ name, type, data, subject? }`, `data` in Base64, as `comments.upload` does. Returns `{ key, name, type, size }`. |
 | `GET /attachments/:key` | `read` on a thread with a message that lists the key | Answers the file. See [Attach files](/docs/comments/configure#attach-files). |
 | `GET /people?q=` | `read` | Returns the `@` suggestions. With `thread`, `page`, or `subjectKind` and `subjectId`, only the people who may be mentioned there. `limit` is at most 20. |
-| `GET /fields?field=` | `write`, and Content `write` | Reads the draft of one Content field: `{ field, value, editable, digest, collection, id }`. |
-| `POST /fields` | `write`, and Content `write` | Saves `{ field, value, ifDigest }` as a Content draft. Returns `{ field, value, digest }`. |
+| `GET /fields?page=&field=` | Page `write`, and Content `write` | Reads the draft of one Content field: `{ field, value, editable, digest, collection, id }`. The current `page` is required for its Comments policy. |
+| `POST /fields?page=` | Page `write`, and Content `write` | Saves `{ field, value, ifDigest }` as a Content draft. Returns `{ field, value, digest }`. Uses the same required `page` as the field read. |
 | `GET /auth/github?return=` | None | Starts [Sign in with GitHub](/docs/comments/configure#sign-in-with-github), then sends the person back to `return`, a path on the same site. |
 | `GET /auth/callback/github` | None | Where GitHub sends the person back. List it as the App's callback URL. |
 | `POST /auth/sign-out` | None | Ends the GitHub sign-in in this browser. |
@@ -332,7 +332,7 @@ The field path uses dots between keys, such as `hero.title` or `cards.0.title`. 
 
 When the host has a [Realtime room authority](/docs/realtime/configure#choose-a-room-authority), Comments adds the Realtime Definition `comments`. Each page has one room. The overlay connects read-only and shares only presence: who is on the page, and each cursor as an element and a point in its box. The room stores nothing. Threads stay in the Database.
 
-The server sets each person in the room from `identify` or the Auth session, and checks `authorize` with `read`. After a change, the overlay sends a hint without data to the other browsers on the page, and they read the threads again over HTTP.
+The server sets each person in the room from `identify` or the Auth session, and checks `authorize` with `read` and the page subject. Clients send the normalized page in `params: { page }`; the server checks that the requested room is `commentRoom(page)` before granting access. After a change, the overlay sends a hint without data to the other browsers on the page, and they read the threads again over HTTP.
 
 `connectRealtimeRoom(definition, documentId, options?)` from `@vite-hub/realtime/client` is the client that the overlay uses. It joins one room for presence and does not edit the document. See [Realtime server API](/docs/realtime/server-api#presence-without-an-editor).
 

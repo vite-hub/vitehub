@@ -3,7 +3,10 @@
   "compilerOptions": {
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     // Resolve workspace packages through their built declarations, so server sources stay out of this browser program.
-    "paths": {}
+    "paths": {
+      // The stand-ins for Nuxt UI that the overlay builds with. `standaloneUI()` of the overlay build owns them.
+      "@vite-hub/ui/standalone/*": ["../ui/src/standalone/*.ts"]
+    }
   },
   "include": [
     "src/console/runtime/components/invocation/**/*.ts",
@@ -12,10 +15,9 @@
     "src/console/ui.ts",
     "src/comments-overlay/loader-core.ts",
     "src/comments-overlay/loader.ts",
-    "src/comments-overlay/markdown-lite.ts",
     "src/comments-overlay/overlay.ts",
-    "src/comments-overlay/shim.ts",
     "src/comments-overlay/virtual.d.ts",
+    "../ui/src/standalone/virtual.d.ts",
     "test/comments-overlay-loader.test.ts",
     "test/comments-overlay-mount.test.ts",
     "test/console-comment-thread-dismissal.test.ts",
