@@ -10,7 +10,7 @@ import { downloadZip } from "~/utils/zip";
 import type { PlaygroundTemplate, TutorialFiles } from "~~/modules/tutorials/steps";
 
 // A free-form app in the browser: the tutorial workspace without a lesson. The page sends the same cross-origin
-// isolation headers as `/tutorials`, so links to and from it load a new document.
+// isolation headers as `/learn`, so links to and from it load a new document.
 definePageMeta({ layout: "tutorial" });
 
 const title = "Playground";

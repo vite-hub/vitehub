@@ -35,7 +35,7 @@ describe("agent-ready HTTP contracts", () => {
     expect(config.docs?.site).toMatchObject({ name: "ViteHub", url: "https://vitehub.dev", logo: "/vitehub-mark.svg" });
     expect(config.docs?.github).toEqual({ repo: "vite-hub/vitehub", dir: "docs/content" });
     expect(config.docs?.mcp).toMatchObject({ name: "vitehub" });
-    expect(config.docs?.sitemap).toEqual(["/tutorials", "/playground", "/examples", "/projects", "/templates"]);
+    expect(config.docs?.sitemap).toEqual(["/learn", "/playground", "/examples", "/projects", "/templates"]);
     expect(typeof config.docs?.rawMarkdown).toBe("function");
   });
 

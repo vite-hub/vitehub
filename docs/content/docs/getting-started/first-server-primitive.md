@@ -20,7 +20,7 @@ Complete [Installation](/docs/getting-started/installation) and check
 The configuration below uses Vite and Nitro. In Nuxt, add the same `kv`
 option to the ViteHub module config. The route works in both frameworks.
 
-::run-tutorial{to="/tutorials/first-server-primitive"}
+::run-tutorial{to="/learn/first-server-primitive"}
 ::
 
 ::tutorial-step{title="Enable local KV"}

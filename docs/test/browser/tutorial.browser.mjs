@@ -15,7 +15,7 @@ import { chromium } from "playwright-core";
 
 const base = process.env.DOCS_URL ?? "http://127.0.0.1:4870";
 const shots = process.env.TUTORIAL_SCREENSHOTS;
-const tutorial = `${base}/tutorials/first-agent`;
+const tutorial = `${base}/learn/first-agent`;
 const installTimeout = 10 * 60_000;
 
 async function shot(page, name) {
@@ -159,11 +159,11 @@ test("runs the first Agent tutorial in the browser", { timeout: 20 * 60_000 }, a
     assert.equal(containerFrames(page).length, 0, "no WebContainer before the tap");
     await shot(page, "tablet");
     // The server renders the button, so a tap before hydration does nothing. Tap until the workspace mounts.
-    for (let attempt = 0; attempt < 15 && await page.locator(".vh-ws-shell").count() === 0; attempt++) {
+    for (let attempt = 0; attempt < 15 && await page.locator(".vh-tutorial-workspace").count() === 0; attempt++) {
       await page.getByRole("button", { name: "Open workspace" }).click().catch(() => {});
       await page.waitForTimeout(2000);
     }
-    await page.locator(".vh-ws-shell").waitFor();
+    await page.locator(".vh-tutorial-workspace").waitFor();
     await page.waitForFunction(() => document.querySelector("iframe[src*='stackblitz']") !== null, undefined, { timeout: 60_000 });
     await shot(page, "tablet-open");
     await page.close();
@@ -177,7 +177,7 @@ test("runs the first Agent tutorial in the browser", { timeout: 20 * 60_000 }, a
     assert.equal(await page.getByRole("link", { name: "Download starter" }).getAttribute("href"), "/_tutorials/first-agent-starter.zip");
     await page.waitForTimeout(3000);
     assert.equal(containerFrames(page).length, 0);
-    assert.equal(await page.locator(".vh-ws-shell").count(), 0);
+    assert.equal(await page.locator(".vh-tutorial-workspace").count(), 0);
     await shot(page, "mobile");
     const zip = await page.request.get(`${base}/_tutorials/first-agent-starter.zip`);
     assert.equal(zip.status(), 200);
@@ -201,7 +201,7 @@ test("runs the first Agent tutorial in the browser", { timeout: 20 * 60_000 }, a
     });
     await page.goto(tutorial);
     await page.getByText("The live workspace does not run in Safari").waitFor();
-    assert.equal(await page.locator(".vh-ws-shell").count(), 0);
+    assert.equal(await page.locator(".vh-tutorial-workspace").count(), 0);
     await shot(page, "safari");
     await context.close();
   });

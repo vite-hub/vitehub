@@ -2,11 +2,11 @@ import type { DocsDocument } from "@vite-hub/docs";
 
 type DocsNode = DocsDocument["nodes"][number];
 
-export const tutorialRoute = "/tutorials";
+export const tutorialRoute = "/learn";
 
 export const playgroundRoute = "/playground";
 
-/** Runnable tutorials: `/tutorials` and the pages under it. */
+/** Runnable tutorials: `/learn` and the pages under it. */
 export function isIsolatedTutorialPath(path: string): boolean {
   return path === tutorialRoute || path.startsWith(`${tutorialRoute}/`);
 }

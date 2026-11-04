@@ -171,7 +171,7 @@ describe("UI documentation", () => {
     expect(rail).toContain('<PrimitiveRailItem :as="NuxtLink" to="/" :label="brand" class="vh-docs-rail-brand">');
     expect(rail).toContain("<template #label>");
     expect(body).toContain('v-for="link in startLinks"');
-    expect(config).toContain('{ label: "Tutorials", to: "/tutorials"');
+    expect(config).toContain('{ label: "Learn", to: "/learn"');
     expect(config).toContain('{ label: "Projects", to: "/projects"');
     expect(config).toContain('{ label: "Templates", to: "/templates"');
     expect(sidebars).toContain("<DocsAsideFooter />");
