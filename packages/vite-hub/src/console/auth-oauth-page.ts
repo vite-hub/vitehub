@@ -124,7 +124,8 @@ export function consoleAuthOAuthPage(methods: ConsoleSignInMethods, authBase: st
       if (user.email && user.email !== label) $("#email").textContent = user.email;
       else $("#email").remove();
       $("#switch").addEventListener("click", () => run(async () => {
-        await fetch(authBase + "/sign-out", { body: "{}", credentials: "same-origin", headers: { "content-type": "application/json" }, method: "POST" });
+        const response = await fetch(authBase + "/sign-out", { body: "{}", credentials: "same-origin", headers: { "content-type": "application/json" }, method: "POST" });
+        if (!response.ok) throw new Error("Sign-out did not finish. Try again.");
         location.reload();
       }));
       $("#account").hidden = false;
@@ -132,10 +133,11 @@ export function consoleAuthOAuthPage(methods: ConsoleSignInMethods, authBase: st
       // What the agent asked for. vitehub:write is the scope of every tool that changes state.
       const scopes = new Set((params.get("scope") || "").split(" ").filter(Boolean));
       const grants = $("#grants");
-      grants.append(row("read", "Read data in the sections you may use"));
-      if (scopes.has("vitehub:write") || !scopes.has("vitehub:read")) grants.append(row("write", "Change, publish, and delete data in those sections"));
+      if (scopes.has("vitehub:read")) grants.append(row("read", "Read data in the sections you may use"));
+      if (scopes.has("vitehub:write")) grants.append(row("write", "Change, publish, and delete data in those sections"));
       if (scopes.has("offline_access")) grants.append(row("offline", "Stay connected without asking you again"));
-      grants.hidden = false;
+      if (!scopes.has("vitehub:read") && !scopes.has("vitehub:write")) text.textContent = "No Console data access is requested.";
+      grants.hidden = grants.childElementCount === 0;
 
       // The answer goes to the agent's redirect address. Show its host, so a lookalike name does not hide where it goes.
       try {
