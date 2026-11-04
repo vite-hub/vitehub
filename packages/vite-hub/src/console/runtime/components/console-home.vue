@@ -21,7 +21,6 @@ import { isConsoleSignInRequired, requestConsole } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections";
 import { consoleSignInURL } from "../client/sign-in";
 import { recentTimestamp } from "../client/time";
-import ConsoleFrame from "./console-frame.vue";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleSectionIcon from "./console-section-icon.vue";
@@ -84,12 +83,12 @@ const sectionGroups = computed(() =>
     };
   }),
 );
-// Usage comes with Agents, so it is not offered on its own. A user limited to some sections may not see the others,
+// Usage and Skills come with Agents, so they are not offered on their own. A user limited to some sections may not see the others,
 // so the Overview does not call them "not enabled".
 const notEnabledPrimitives = computed(() =>
   installedNavigation.value?.scoped
     ? []
-    : consolePrimitives.filter((entry) => entry.id !== "usage" && !sections.value.includes(entry.id)),
+    : consolePrimitives.filter((entry) => entry.id !== "usage" && entry.id !== "skills" && !sections.value.includes(entry.id)),
 );
 const agentsEnabled = computed(() => sections.value.includes("agents"));
 const sessionItems = computed(() =>
@@ -194,7 +193,6 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <ConsoleFrame :sections-base="sectionsBase">
 
     <ConsoleSearch
       :agents-base="agentsBase"
@@ -255,7 +253,9 @@ onBeforeUnmount(() => {
               </span>
               <div class="min-w-0">
                 <h1 class="truncate text-base font-semibold tracking-tight text-highlighted">
-                  {{ installedNavigation?.projectName || "ViteHub Console" }}
+                  <!-- The name comes with the sections, so a placeholder holds its line instead of a name that then changes. -->
+                  <USkeleton v-if="loading" class="my-0.5 h-5 w-40 rounded-sm" />
+                  <template v-else>{{ installedNavigation?.projectName || "ViteHub Console" }}</template>
                 </h1>
                 <p class="text-sm text-muted">
                   {{ loading ? "Loading the enabled primitives…" : summary }}
@@ -323,7 +323,7 @@ onBeforeUnmount(() => {
                     <UButton class="ms-auto" color="neutral" variant="link" size="xs" label="Try again" @click="loadRecentSessions" />
                   </li>
                   <li v-else-if="!sessionItems.length" class="vitehub-console__overview-row">
-                    <ConsoleSectionIcon section="agents" :icon="consoleSectionDetails.agents.icon" class="vitehub-console__overview-icon" />
+                    <ConsoleSectionIcon :icon="consoleSectionDetails.agents.icon" class="vitehub-console__overview-icon" />
                     <span class="vitehub-console__overview-description">No Agent sessions yet. Invoke an Agent to see its sessions here.</span>
                   </li>
                   <template v-else>
@@ -374,7 +374,7 @@ onBeforeUnmount(() => {
                         :aria-label="`Open ${section.label}`"
                         @click="openSection(section.routeName)"
                       />
-                      <ConsoleSectionIcon :section="section.id" :icon="section.icon" class="vitehub-console__overview-icon" />
+                      <ConsoleSectionIcon :icon="section.icon" class="vitehub-console__overview-icon" />
                       <span class="vitehub-console__overview-name">{{ section.label }}</span>
                       <span class="vitehub-console__overview-description" :title="section.description">{{ section.description }}</span>
                       <span class="vitehub-console__overview-meta">
@@ -395,6 +395,22 @@ onBeforeUnmount(() => {
                 </section>
               </div>
 
+              <section class="vitehub-console__overview-block" aria-labelledby="console-home-connect">
+                <h2 id="console-home-connect" class="vitehub-console__overview-label">Connect</h2>
+                <ul class="vitehub-console__overview-list">
+                  <li>
+                    <button type="button" class="vitehub-console__overview-row" @click="openSection('vitehub-console-connect')">
+                      <UIcon name="i-lucide-bot" class="vitehub-console__overview-icon" />
+                      <span class="vitehub-console__overview-name">Connect an agent</span>
+                      <span class="vitehub-console__overview-description">Use this Console from Claude Code, Codex, Cursor, or any MCP client.</span>
+                      <span class="vitehub-console__overview-meta">
+                        <UIcon name="i-lucide-arrow-right" class="size-3" />
+                      </span>
+                    </button>
+                  </li>
+                </ul>
+              </section>
+
               <section v-if="notEnabledPrimitives.length" class="vitehub-console__overview-block" aria-labelledby="console-home-not-enabled">
                 <h2 id="console-home-not-enabled" class="vitehub-console__overview-label">Not enabled</h2>
                 <ul class="vitehub-console__overview-list">
@@ -407,7 +423,7 @@ onBeforeUnmount(() => {
                       target="_blank"
                       :aria-label="`Set up ${entry.label}`"
                     >
-                      <ConsoleSectionIcon :section="entry.id" :icon="entry.icon" class="vitehub-console__overview-icon" />
+                      <ConsoleSectionIcon :icon="entry.icon" class="vitehub-console__overview-icon" />
                       <span class="vitehub-console__overview-name">{{ entry.label }}</span>
                       <span class="vitehub-console__overview-description" :title="entry.pitch">{{ entry.pitch }}</span>
                       <span class="vitehub-console__overview-meta">
@@ -418,6 +434,7 @@ onBeforeUnmount(() => {
                   </li>
                 </ul>
               </section>
+
 
               <section class="vitehub-console__overview-block" aria-labelledby="console-home-learn">
                 <h2 id="console-home-learn" class="vitehub-console__overview-label">Learn</h2>
@@ -439,7 +456,6 @@ onBeforeUnmount(() => {
         </main>
       </template>
     </UDashboardPanel>
-  </ConsoleFrame>
 </template>
 
 <style>

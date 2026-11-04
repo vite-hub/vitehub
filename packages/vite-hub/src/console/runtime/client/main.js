@@ -10,6 +10,7 @@ const ConsoleApp = () => import("../components/console-app.vue");
 const ConsoleAuth = () => import("../components/console-auth.vue");
 const ConsoleBlob = () => import("../components/console-blob.vue");
 const ConsoleChannels = () => import("../components/console-channels.vue");
+const ConsoleConnect = () => import("../components/console-connect.vue");
 const ConsoleConnections = () => import("../components/console-connections.vue");
 const ConsoleDatabase = () => import("../components/console-database.vue");
 const ConsoleDefinitions = () => import("../components/console-definitions.vue");
@@ -18,6 +19,7 @@ const ConsoleEnv = () => import("../components/console-env.vue");
 const ConsoleHome = () => import("../components/console-home.vue");
 const ConsoleLogs = () => import("../components/console-logs.vue");
 const ConsoleKv = () => import("../components/console-kv.vue");
+const ConsoleSkills = () => import("../components/console-skills.vue");
 import {
   consoleDatabasesSchemaPath,
   consoleDatabasesTablePath,
@@ -27,7 +29,7 @@ import {
 import { consoleSectionRouteName, describeConsoleSectionRoutes, isConsoleSectionId } from "../sections";
 import App from "./app.vue";
 import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } from "./appearance";
-import { deferLucideIcons } from "./icons";
+import { addViteHubIcons, deferLucideIcons } from "./icons";
 import { createConsoleSectionLoader, loadConsoleNavigation, subscribeConsoleNavigation } from "./sections";
 
 const hostBase = consoleMountBase(window.location.pathname);
@@ -66,6 +68,19 @@ const router = createRouter({
         sectionsBase,
       },
       meta: { title: "ViteHub Console" },
+    },
+    {
+      component: ConsoleConnect,
+      name: "vitehub-console-connect",
+      path: "/connect",
+      meta: { title: "Connect an agent · ViteHub Console" },
+      props: {
+        agentsBase: consolePath("/api/_vitehub/console/agents"),
+        definitionsBase: consolePath("/api/_vitehub/console/definitions"),
+        kvBase: consolePath("/api/_vitehub/console/kv"),
+        searchBase: consolePath("/api/_vitehub/console/search"),
+        sectionsBase,
+      },
     },
     {
       component: ConsoleApp,
@@ -129,6 +144,20 @@ const router = createRouter({
         definitionsBase: consolePath("/api/_vitehub/console/definitions"),
         kvBase: consolePath("/api/_vitehub/console/kv"),
         searchBase: consolePath("/api/_vitehub/console/search"),
+        sectionsBase,
+      },
+    },
+    {
+      component: ConsoleSkills,
+      name: "vitehub-console-skills",
+      path: "/skills",
+      meta: { consoleSection: "skills", title: "Skills · ViteHub Console" },
+      props: {
+        agentsBase: consolePath("/api/_vitehub/console/agents"),
+        definitionsBase: consolePath("/api/_vitehub/console/definitions"),
+        kvBase: consolePath("/api/_vitehub/console/kv"),
+        searchBase: consolePath("/api/_vitehub/console/search"),
+        skillsBase: consolePath("/api/_vitehub/console/skills"),
         sectionsBase,
       },
     },
@@ -296,6 +325,7 @@ const appearance = startConsoleAppearance({
 });
 
 router.beforeEach(async (to) => {
+  if (window.parent !== window && to.query.embed !== "1") return { ...to, query: { ...to.query, embed: "1" } };
   if (to.matched.length === 0) {
     // Contributed section routes exist only after the navigation response arrives.
     const navigation = await loadConsoleNavigation(sectionsBase);
@@ -320,15 +350,27 @@ router.afterEach((to, _from, failure) => {
     }
   });
 });
+addViteHubIcons();
 deferLucideIcons();
-createApp(App)
+createApp(App, { sectionsBase })
   .provide(consoleAppearanceKey, appearance)
   .use(router)
   .use(ui, { router: () => router.currentRoute.value })
   .use(createViteHubUI())
   .mount("#app");
 
-// KaTeX styles embed their fonts. Load them after the first render instead of in the blocking stylesheet.
-const loadMathStyles = () => void import("katex/dist/katex.min.css");
-if ("requestIdleCallback" in window) window.requestIdleCallback(loadMathStyles, { timeout: 2_000 });
-else setTimeout(loadMathStyles, 0);
+// Only the same-origin parent can navigate this editor; Vue Router runs its save/leave guards.
+if (window.parent !== window) {
+  window.addEventListener("keydown", event => {
+    if (event.key === "Escape" && !event.defaultPrevented) window.parent.postMessage({ type: "vitehub:minimize" }, location.origin);
+  });
+  window.addEventListener("message", (event) => {
+    if (event.origin !== location.origin || event.source !== window.parent) return;
+    const data = event.data;
+    if (data?.type === "vitehub:navigate" && typeof data.path === "string" && data.path.startsWith("/") && !data.path.startsWith("//") && !data.path.includes("\\")) void router.push(data.path);
+  });
+  router.afterEach((to, _from, failure) => {
+    if (!failure) window.parent.postMessage({ type: "vitehub:route", path: to.fullPath }, location.origin);
+  });
+  void router.isReady().then(() => window.parent.postMessage({ type: "vitehub:ready" }, location.origin));
+}

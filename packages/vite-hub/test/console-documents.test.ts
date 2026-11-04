@@ -52,10 +52,12 @@ function fakeActions(overrides: Partial<ConsoleDocumentActions> = {}): ConsoleDo
     list: unused,
     mediaAccess: () => ({ manage: true, read: true, write: true }),
     overview: unused,
+    preview: unused,
     publish: unused,
     raw: unused,
     references: unused,
     remove: unused,
+    resolve: unused,
     restore: unused,
     revisions: unused,
     save: unused,
@@ -331,6 +333,8 @@ describe("Console document editor discovery", () => {
       { entry, export: "createContentConsoleActions", module: "vite-hub/_internal/content/runtime/console", section: "content" },
     ])
     expect(source).toContain(`import { installConsoleDocuments } from "vite-hub/console/documents"`)
+    // Content reaches MCP through its operations, so the plugin registers no Content tools.
+    expect(source).not.toContain("registerContentMcpTools")
     expect(source).toContain(`import { createContentConsoleActions as vitehubConsoleDocumentActions0 } from "vite-hub/_internal/content/runtime/console"`)
     expect(source).toContain(`installConsoleDocuments(${JSON.stringify(root)}, { "content": { actions: vitehubConsoleDocumentActions0, load: () => import(${JSON.stringify(pathToFileURL(entry).href)}) } })`)
     expect(source).toContain(`installConsoleSections(${JSON.stringify(root)}, ["content","kv"])`)

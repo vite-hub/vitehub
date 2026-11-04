@@ -1,5 +1,5 @@
 title: Browser
-icon: i-lucide-monitor
+icon: i-vitehub-browser
 order: 25
 category: Compute
 related: [sandbox, workspace]

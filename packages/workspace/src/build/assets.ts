@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto"
 import { existsSync, readFileSync } from "node:fs"
-import { mkdir, rm, writeFile } from "node:fs/promises"
+import { mkdir, readdir, rm } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { createViteHubEnvImportAliases } from "@vite-hub/internal/build/vite"
 import { createImportPath } from "@vite-hub/internal/build/paths"
+import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { renderMarkdownTemplate } from "@vite-hub/markdown-template"
 import { parseMarkdownTemplateRequest } from "@vite-hub/markdown-template/internal/vite"
 import { resolveModulePath } from "exsolve"
@@ -241,23 +242,35 @@ export async function syncDiscoveredWorkspaceAssetBundles(
 
 export async function writeWorkspaceAssetsRegistry(registryFile: string, bundles: WorkspaceAssetBundle[]): Promise<string> {
   const modulesDir = join(dirname(registryFile), "modules")
-  await rm(modulesDir, { force: true, recursive: true })
-  await mkdir(modulesDir, { recursive: true })
-
   const modulePaths = new Map<string, string>()
+  const modules = new Map<string, string>()
   for (const bundle of bundles) {
     const workspaceDir = join(modulesDir, encodeURIComponent(bundle.name))
-    await mkdir(workspaceDir, { recursive: true })
     for (const file of bundle.files) {
       const modulePath = join(workspaceDir, assetModuleName(bundle.name, file.path, file.content))
-      await writeFile(modulePath, `export default ${serializeContent(file.content)}\n`, "utf8")
+      modules.set(modulePath, `export default ${serializeContent(file.content)}\n`)
       modulePaths.set(`${bundle.name}\0${file.path}`, modulePath)
     }
   }
 
-  await mkdir(dirname(registryFile), { recursive: true })
+  // Rewrite only what changed. A running dev server rebuilds when one of these files is written, even with the same
+  // bytes, and a CLI command that loads the project writes them too.
+  const workspaceDirs = new Set(bundles.map(bundle => encodeURIComponent(bundle.name)))
+  for (const entry of await readdir(modulesDir, { withFileTypes: true }).catch(() => [])) {
+    const entryPath = join(modulesDir, entry.name)
+    if (!entry.isDirectory() || !workspaceDirs.has(entry.name)) {
+      await rm(entryPath, { force: true, recursive: true })
+      continue
+    }
+    for (const file of await readdir(entryPath)) {
+      if (!modules.has(join(entryPath, file))) await rm(join(entryPath, file), { force: true, recursive: true })
+    }
+  }
+  await mkdir(modulesDir, { recursive: true })
+  for (const [modulePath, source] of modules) await writeFileIfChanged(modulePath, source)
+
   const contents = createWorkspaceAssetsRegistryContents(registryFile, bundles, modulePaths)
-  await writeFile(registryFile, contents, "utf8")
+  await writeFileIfChanged(registryFile, contents)
   return contents
 }
 

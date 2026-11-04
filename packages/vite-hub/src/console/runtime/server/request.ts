@@ -17,6 +17,7 @@ export interface ConsoleRequestEvent {
     req?: {
       headers?: Record<string, string | string[] | undefined>
       method?: string
+      originalUrl?: string
       socket?: { remoteAddress?: string, encrypted?: boolean }
       url?: string
       [Symbol.asyncIterator]?: () => AsyncIterator<Uint8Array | string>
@@ -26,7 +27,8 @@ export interface ConsoleRequestEvent {
     }
   }
   req?: {
-    body?: ReadableStream<Uint8Array> | null
+    // H3 v1 returns `event.node.req` as `event.req`. On Nitro 2 Workers its body is the whole body, already read.
+    body?: ReadableStream<Uint8Array> | Uint8Array | string | null
     context?: { clientAddress?: string, [key: string]: unknown }
     ip?: string
     headers?: ConsoleHeaders
@@ -92,6 +94,11 @@ export async function consoleRequestText(fetchBody: ReadableStream<Uint8Array>, 
 
 export async function consoleRequestJSON(event: ConsoleRequestEvent, maximumBytes: number = maximumConsoleRequestBodyBytes): Promise<unknown> {
   const fetchBody = event.req?.body
+  if (typeof fetchBody === "string" || fetchBody instanceof Uint8Array) {
+    const bytes = typeof fetchBody === "string" ? stringByteLength(fetchBody) : fetchBody.byteLength
+    if (bytes > maximumBytes) throw consoleRequestError(413, "Console request body exceeds the byte limit.")
+    return JSON.parse(typeof fetchBody === "string" ? fetchBody : new TextDecoder().decode(fetchBody))
+  }
   if (fetchBody) return JSON.parse(await consoleRequestText(fetchBody, maximumBytes))
   if (event.req?.json) {
     const body = await event.req.json()
@@ -145,7 +152,8 @@ export function setConsoleResponseHeaders(event: ConsoleRequestEvent): void {
 }
 
 export function consoleRequestURL(event: ConsoleRequestEvent): URL {
-  const value = event.req?.url ?? event.node?.req?.url ?? "/"
+  // H3 1 strips a mounted base from url and retains the public path in originalUrl.
+  const value = event.node?.req?.originalUrl || event.req?.url || event.node?.req?.url || "/"
   const header = (name: string) => {
     for (const source of [event.req?.headers, event.headers, event.node?.req?.headers]) {
       if (!source) continue

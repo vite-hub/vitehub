@@ -501,9 +501,9 @@ describe("GitHub history commit", () => {
     const draft = await target.commit({ ref: "draft", ifHead: null, changes: { put: { "posts/a.md": file("posts/a.md", "a draft"), "posts/b.md": file("posts/b.md", "b draft") } } })
     const main = fake.commit("main", { "posts/a.md": "a main", "posts/c.md": "c main", "README.md": "r main" })
     await expect(target.merge!({ from: "published", into: "draft" })).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT" })
-    const onConflict = vi.fn(() => ({ content: { conflicts: ["posts/a.md"] } }))
+    const onConflict = vi.fn(() => ({ metadata: { content: { conflicts: ["posts/a.md"] } } }))
     const merged = await target.merge!({ from: "published", into: "draft", metadata: { content: { action: "sync" } }, onConflict })
-    expect(onConflict).toHaveBeenCalledWith([{ path: "posts/a.md", ours: textSha("a draft"), theirs: textSha("a main") }])
+    expect(onConflict).toHaveBeenCalledWith([{ path: "posts/a.md", ours: textSha("a draft"), theirs: textSha("a main"), base: textSha("a") }], { read: expect.any(Function) })
     expect(fake.commits.get(merged!.id)!.parents).toEqual([draft.id, main])
     const tree = new Map(fake.tree("vitehub/content").map(entry => [entry.path, entry.sha]))
     // The draft keeps its own file, takes what only main changed, and keeps what only it changed.
@@ -517,6 +517,33 @@ describe("GitHub history commit", () => {
     await expect(target.head({ ref: "draft" })).resolves.toMatchObject({ id: merged!.id })
     // Main is now part of the draft's history.
     await expect(target.merge!({ from: "published", into: "draft" })).resolves.toBeNull()
+  })
+
+  it("writes the merged text that onConflict returns, and reads each side by digest", async () => {
+    fake.commit("main", { "posts/a.md": "one two three", "posts/b.md": "b" })
+    const target = history({ refs: aliases })
+    await target.commit({ ref: "draft", ifHead: null, changes: { put: { "posts/a.md": file("posts/a.md", "ONE two three"), "posts/b.md": file("posts/b.md", "b draft") } } })
+    fake.commit("main", { "posts/a.md": "one two THREE", "posts/b.md": "b main" })
+    const read: string[] = []
+    const merged = await target.merge!({
+      from: "published",
+      into: "draft",
+      onConflict: async (conflicts, context) => {
+        for (const conflict of conflicts) read.push(new TextDecoder().decode(await context.read(conflict.base!)))
+        return { metadata: { resolved: ["posts/a.md"] }, files: { "posts/a.md": "ONE two THREE" } }
+      },
+    })
+    expect(read).toEqual(["one two three", "b"])
+    const tree = new Map(fake.tree("vitehub/content").map(entry => [entry.path, entry.sha]))
+    expect(tree.get("posts/a.md")).toBe(textSha("ONE two THREE"))
+    // A file that onConflict leaves out keeps the draft's version.
+    expect(tree.get("posts/b.md")).toBe(textSha("b draft"))
+    expect(merged).toMatchObject({ metadata: { resolved: ["posts/a.md"] } })
+
+    fake.commit("main", { "posts/a.md": "main again" })
+    await target.commit({ ref: "draft", ifHead: merged!.id, changes: { put: { "posts/a.md": file("posts/a.md", "draft again") } } })
+    await expect(target.merge!({ from: "published", into: "draft", onConflict: () => ({ files: { "posts/z.md": "z" } }) }))
+      .rejects.toThrow("not one of its conflicting files")
   })
 
   it("tries a merge once more when another update of the branch won, and does not call that a conflict", async () => {

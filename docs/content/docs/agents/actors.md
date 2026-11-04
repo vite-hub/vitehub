@@ -111,7 +111,7 @@ Invocation. ViteHub does not fall back to another Actor.
 Use `resolve` to normalize or reject the trusted input. ViteHub calls it
 before Capabilities and the Driver run:
 
-```ts [server/agents/support-actor.ts]
+```ts [server/utils/support-actor.ts]
 import { defineAgentInvoker } from 'vite-hub/agent'
 
 export const supportActor = defineAgentInvoker({

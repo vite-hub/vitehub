@@ -10,6 +10,7 @@ import type { ConsoleNavigation } from "../client/sections";
 import type { ConsoleSectionId } from "../sections";
 import { consoleAppearanceKey, consoleAppearanceOptions, consoleAppearances } from "../client/appearance";
 import { useConsoleUpdate, watchConsoleBuild } from "../client/build";
+import { clearConsoleDocumentCaches } from "../client/document-cache";
 import { isConsoleSignInRequired } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails, subscribeConsoleNavigation } from "../client/sections";
 import { consoleSignInURL } from "../client/sign-in";
@@ -210,6 +211,7 @@ async function loadAuthSession(): Promise<void> {
 }
 
 async function signOut(): Promise<void> {
+  clearConsoleDocumentCaches();
   signingOut.value = true;
   signOutFailed.value = false;
   if (accessIdentity.value) {
@@ -251,7 +253,7 @@ onBeforeUnmount(() => {
       <UTooltip :text="`${projectName} overview`" :kbds="[...consoleOverviewShortcut]" :content="{ side: 'right' }" :disabled="expanded">
         <PrimitiveRailItem
           class="vitehub-console__rail-home"
-          :current="!active"
+          :current="!active && route.name !== 'vitehub-console-connect'"
           :label="`${projectName} overview`"
           @click="open('vitehub-console')"
         >
@@ -283,7 +285,7 @@ onBeforeUnmount(() => {
             :label="section.label"
             @click="open(section.routeName)"
           >
-            <ConsoleSectionIcon :section="section.id" :icon="section.icon" class="size-[1.125rem]" />
+            <ConsoleSectionIcon :icon="section.icon" class="size-[1.125rem]" />
           </PrimitiveRailItem>
         </UTooltip>
       </PrimitiveRailGroup>
@@ -300,6 +302,15 @@ onBeforeUnmount(() => {
         </PrimitiveRailItem>
       </UTooltip>
       <span role="status" class="sr-only">{{ updateReady ? "A new Console version is ready. Reload to use it." : "" }}</span>
+      <UTooltip text="Connect an agent" :content="{ side: 'right' }" :disabled="expanded">
+        <PrimitiveRailItem
+          :current="route.name === 'vitehub-console-connect'"
+          label="Connect an agent"
+          @click="open('vitehub-console-connect')"
+        >
+          <UIcon name="i-lucide-bot" class="size-[1.125rem]" />
+        </PrimitiveRailItem>
+      </UTooltip>
       <!--
         The search button stays collapsed, because a change to that prop mounts a new button and keyboard focus is lost.
         Its slots give it the same icon sandbox and label as a rail item.
@@ -348,7 +359,7 @@ onBeforeUnmount(() => {
 }
 
 .vh-primitive-rail .vitehub-console__rail-update .vh-primitive-rail__icon::after {
-  --vitehub-console-rail-update-ring: var(--vh-ui-bg-muted);
+  --vitehub-console-rail-update-ring: var(--vh-bg-muted);
   background: var(--ui-info);
   border-radius: 9999px;
   box-shadow: 0 0 0 2px var(--vitehub-console-rail-update-ring);
@@ -366,7 +377,7 @@ onBeforeUnmount(() => {
 
 @media (hover: hover) {
   .vh-primitive-rail .vitehub-console__rail-update:hover .vh-primitive-rail__icon::after {
-    --vitehub-console-rail-update-ring: var(--vh-ui-bg-elevated);
+    --vitehub-console-rail-update-ring: var(--vh-bg-elevated);
   }
 }
 

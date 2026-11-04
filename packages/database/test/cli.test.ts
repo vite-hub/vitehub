@@ -16,6 +16,8 @@ import { writeGeneratedDatabaseArtifacts } from "../src/internal/generated.ts"
 
 import type { ResolvedDBViteConfig } from "../src/types.ts"
 
+const nodeMajor = Number(process.versions.node.split(".")[0])
+
 const execFileAsync = promisify(execFile)
 const tempDirs: string[] = []
 
@@ -222,7 +224,8 @@ describe("DB CLI contributor", () => {
     expect(spawn).toHaveBeenCalledWith(process.execPath, [join(kit, "bin.cjs"), "generate", "--config", ".vitehub/database/drizzle.config.ts"], expect.objectContaining({ cwd: rootDir }))
   })
 
-  it("resolves facade-owned Kit through active resolver hooks without node_modules", async () => {
+  // Node.js 22 require.resolve() does not run module.registerHooks resolve hooks.
+  it.skipIf(nodeMajor < 24)("resolves facade-owned Kit through active resolver hooks without node_modules", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-resolver-"))
     tempDirs.push(rootDir)
     const facade = join(rootDir, "store/facade")

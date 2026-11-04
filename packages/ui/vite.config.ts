@@ -7,8 +7,11 @@ export default defineConfig({
     tsconfig: "tsconfig.build.json",
     copy: [{ from: "styles.css", to: "dist" }],
     deps: {
-      alwaysBundle: [/@pierre\//, "@vite-hub/runtime"],
+      alwaysBundle: [/@pierre\//, "@vite-hub/icons", "@vite-hub/runtime", /^comark-(?!chat(?:\/|$))/],
+      // Keep Vega's Node/browser exports selectable by the consuming host.
       neverBundle: [
+        "vega-canvas",
+        "vega-loader",
         "#app",
         "@comark/vue",
         /^@comark\/vue\//,
@@ -19,6 +22,11 @@ export default defineConfig({
         "nuxt",
         "vue",
         "vite",
+        "@vite-hub/web-container",
+        /^@vite-hub\/web-container\//,
+        /^@codemirror\//,
+        "@lezer/highlight",
+        /^@xterm\//,
       ],
       onlyBundle: false,
     },
@@ -30,6 +38,7 @@ export default defineConfig({
       "src/chat.ts",
       "src/chat-message.ts",
       "src/chat-session.ts",
+      "src/choices-input.ts",
       "src/code-block.ts",
       "src/markdown.ts",
       "src/marker.ts",
@@ -42,6 +51,16 @@ export default defineConfig({
       "src/primitive-rail.ts",
       "src/runtime/nuxt-plugin.ts",
       "src/vite.ts",
+      // Workspace entries stay out of the root barrel, so chat pages never load WebContainer, CodeMirror, or xterm.
+      "src/workspace.ts",
+      "src/workspace-shell.ts",
+      "src/workspace-file-tree.ts",
+      "src/workspace-editor.ts",
+      "src/workspace-terminal.ts",
+      "src/workspace-preview.ts",
+      "src/workspace-boot-status.ts",
+      "src/connect-panel.ts",
+      "src/browser-support-notice.ts",
     ],
     exports: {
       customExports(exports) {

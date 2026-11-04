@@ -73,11 +73,11 @@ export async function channelEnv<TChannel extends keyof BuiltInChannelEnv>(
 /** Read one field of `env.server.<channel>` with the rules of `channelEnv()`. */
 export async function channelEnvValue<
   TChannel extends keyof BuiltInChannelEnv,
-  TRuntimeConfig extends AgentRuntimeConfig,
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 >(
   channel: TChannel,
   field: keyof BuiltInChannelEnv[TChannel] & string,
-  context: AgentCallbackContext<TRuntimeConfig>,
+  context: AgentCallbackContext<TRuntimeConfig> | BuiltInEnvContext,
 ): Promise<unknown> {
   return (await readChannelEnv(channel, [field], context))[field]
 }

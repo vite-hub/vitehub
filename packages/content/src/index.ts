@@ -1,6 +1,7 @@
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { buildArtifact, contentHub } from "comark-content"
+import comarkUi from "comark-ui/html"
 import json from "comark-content/plugins/json"
 import yaml from "comark-content/plugins/yaml"
 import { defineEventHandler } from "h3"
@@ -16,12 +17,13 @@ import type {
   Source as ComarkContentSource,
 } from "comark-content"
 import type { H3Event } from "h3"
-import { createContentInstance } from "./content-source.ts"
+import { contentSourceUrl, createContentInstance } from "./content-source.ts"
+import { contentMarkdownPreset } from "./html.ts"
 import { collectionPathsOverlap, documentsRuntimeOf, isContentCollectionDefinition } from "./documents.ts"
 import { resolveContentPreset } from "./presets.ts"
 import type { ContentPresetSelection } from "./presets.ts"
 import { createContentPreview } from "./preview.ts"
-import { contentSitemapEntries, normalizeSeoOptions, renderContentRobots, renderContentSitemap, siteOrigin } from "./sitemap.ts"
+import { contentMarkdownCopy, contentSitemapEntries, normalizeSeoOptions, renderContentRobots, renderContentSitemap, siteOrigin } from "./sitemap.ts"
 import type {
   AnyContentCollection,
   ContentCollection,
@@ -61,8 +63,9 @@ import type { ContentSitemapEntry, ContentSitemapOptions, DefineContentSeoOption
 import type { ContentCollectionsRuntime, ContentHistorySource } from "./collections-types.ts"
 import type { ContentSessions } from "./sessions.ts"
 export { contentSource } from "./content-source.ts"
-export { contentKeyVariable, contentPreviewCookieName, defineContentPreviewPlugin } from "./preview.ts"
-export type { ContentPreview, ContentPreviewCookie, ContentPreviewEvent, ContentPreviewHost, ContentPreviewOptions } from "./preview.ts"
+export { renderContentHtml } from "./html.ts"
+export { contentKeyVariable, contentPreviewCookieName, contentPreviewFrameParameter, contentPreviewPublishedParameter, defineContentPreviewPlugin } from "./preview.ts"
+export type { ContentPreview, ContentPreviewCookie, ContentPreviewDocument, ContentPreviewEvent, ContentPreviewFrame, ContentPreviewFrameOptions, ContentPreviewHost, ContentPreviewOptions, ContentPreviewToken } from "./preview.ts"
 export { contentScheduleOverdueMs, contentSchedulesRef } from "./defaults.ts"
 export type {
   ContentDocumentSchedule,
@@ -77,6 +80,7 @@ export type {
   ContentUnscheduleOptions,
 } from "./schedules.ts"
 export type { ContentSourceInput, ContentSourceOptions, ContentSourceReader } from "./content-source.ts"
+export { defineContentPreset } from "./presets.ts"
 export type { ContentPreset, ContentPresetDefaults, ContentPresetSelection } from "./presets.ts"
 export { contentSessionTimeouts } from "./defaults.ts"
 export type {
@@ -123,6 +127,7 @@ export type {
   ContentFormat,
   ContentLabel,
   DocumentComponent,
+  DocumentComponentMediaProp,
   DocumentComponentProp,
   SingletonDefinition,
   SingletonOptions,
@@ -249,6 +254,7 @@ type CollectionOf<TDefinition> =
 export type DefineContentOptions<
   TPlugins extends ReadonlyArray<ContentPlugin<any, any>> = ReadonlyArray<ContentPlugin<any, any>>,
   TCollections extends ContentCollections = ContentCollections,
+  TPresetOptions extends object = object,
 > = Omit<ContentOptions, "basePath" | "plugins" | "source" | "sources"> & {
   plugins?: TPlugins
   /** Generate and serve `/api/content/**`. False keeps server methods and Console editing available. */
@@ -258,10 +264,10 @@ export type DefineContentOptions<
   /** Named read-only Sources. Each name becomes a Content instance. */
   sources?: Record<string, ContentSourceInput>
   /**
-   * Preset that fills Definition options, such as `cms` from `vite-hub/content/presets/cms`, or `[preset, options]`.
+   * Preset that fills Definition options, such as `cms` from `vite-hub/cms`, or `[preset, options]`.
    * The `cms` preset sets `workspace`, so do not pass both.
    */
-  extends?: ContentPresetSelection
+  extends?: ContentPresetSelection<TPresetOptions>
   /** Workspace that stores `collections`. It needs retained history, such as the Blob + Database Store. */
   workspace?: string
   /**
@@ -269,7 +275,10 @@ export type DefineContentOptions<
    * serves the `published` ref.
    */
   collections?: TCollections
-  /** Policy for Content surfaces. Without it, `content.can()` denies every action. */
+  /**
+   * Policy for Content surfaces. It replaces the policy of the preset, such as the CMS roles of `cms`. Without either,
+   * `content.can()` denies every action.
+   */
   authorize?: ContentAuthorize<CollectionName<TCollections>>
   /**
    * Live co-editing of Markdown documents through Realtime. `auto` (default) turns it on when Realtime is enabled and
@@ -279,7 +288,8 @@ export type DefineContentOptions<
   live?: "auto" | false
   /**
    * Site-wide SEO routes. `sitemap: true` serves `/sitemap.xml` from the published documents of collections with a
-   * `url`; `robots: true` serves `/robots.txt`. ViteHub generates the routes when this call sets them.
+   * `url` and the documents of Sources with a `url`; `robots: true` serves `/robots.txt`; `markdown: true` serves each
+   * Markdown document of those collections at its URL plus `.md`. ViteHub generates the routes when this call sets them.
    */
   seo?: DefineContentSeoOptions
 }
@@ -300,9 +310,10 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
   /** Whether the Workspace store supports scheduled publishing. False for the GitHub store; does not check for a Schedule runner. */
   supportsScheduling(): Promise<boolean>
   /**
-   * The document that an app path shows, such as `/blog/hello`, or null. Each `documents()` collection maps an id to a
-   * path with its `route`; the default is the id after a slash, without a trailing `/index`. A query string, a hash, and
-   * a trailing slash are ignored. Use it to link a page to its document, for example to an Edit button.
+   * The document that an app path shows, such as `/blog/hello`, or null. Each `documents()` collection maps a document
+   * to a path with its `url`, and a document whose `url` is null does not resolve. A collection without `url` maps the
+   * id after a slash, without a trailing `/index`. A query string, a hash, and a trailing slash are ignored. Use it to
+   * link a page to its document, for example to an Edit button.
    */
   resolve(path: string, options?: ContentResolveOptions): Promise<ContentResolved<CollectionName<TCollections>> | null>
   /**
@@ -333,7 +344,7 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
    * Workspace history, which needs `contentSessionsSchema` from `vite-hub/content/database`.
    */
   readonly sessions: ContentSessions<CollectionName<TCollections>>
-  /** Evaluate `defineContent({ authorize })`. Returns false when no policy is defined. */
+  /** Evaluate `defineContent({ authorize })`, or the policy of the preset. Returns false when there is no policy. */
   can(context: ContentCanContext<CollectionName<TCollections>>): Promise<boolean>
   /** Draft preview: a signed cookie that makes every Content read in its requests use the `draft` ref. */
   readonly preview: ContentPreview
@@ -342,19 +353,25 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
   /** `defineContent({ live })`: `auto` edits Markdown documents live where the host can, `false` never does. */
   readonly live: "auto" | false
   /**
-   * Whether `defineContent({ authorize })` defines a policy. Without one, `can()` denies every action, so surfaces such
-   * as the Console show no collections.
+   * Whether `defineContent({ authorize })` or its preset defines a policy. Without one, `can()` denies every action, so
+   * surfaces such as the Console show no collections.
    */
   readonly hasPolicy: boolean
   /** `defineContent({ seo })`, or undefined. */
   readonly seo: DefineContentSeoOptions | undefined
   /**
    * The sitemap entries: published documents of collections with a `url`, without `noindex` ones or ones whose
-   * canonical URL points elsewhere. `loc` is absolute when `site` is known.
+   * canonical URL points elsewhere, then the documents of Sources with a `url`. `loc` is absolute when `site` is known.
    */
   sitemap(options?: ContentSitemapOptions): Promise<ContentSitemapEntry[]>
   /** The robots.txt text for `defineContent({ seo: { robots } })`. */
   robots(options?: ContentSitemapOptions): string
+  /**
+   * The Markdown copy that a path such as `/blog/hello.md` names: the published document at `/blog/hello`, under its
+   * title and description, with root-relative links made absolute when `site` is known. Null when no published
+   * Markdown document has that URL.
+   */
+  markdown(path: string, options?: ContentSitemapOptions): Promise<string | null>
 }
 
 /** Named-source operations retained across the Comark instance API migration. */
@@ -376,7 +393,8 @@ const contentActions: ReadonlySet<string> = new Set<ContentAction>(["read", "wri
 export function defineContent<
   const TPlugins extends ReadonlyArray<ContentPlugin<any, any>> = [],
   const TCollections extends ContentCollections = {},
->(options: DefineContentOptions<TPlugins, TCollections> = {}): ContentRuntime & Omit<ContentMethods<TPlugins>, "search"> & ContentDocumentsRuntime<TCollections> {
+  TPresetOptions extends object = object,
+>(options: DefineContentOptions<TPlugins, TCollections, TPresetOptions> = {}): ContentRuntime & Omit<ContentMethods<TPlugins>, "search"> & ContentDocumentsRuntime<TCollections> {
   if (options.source && options.sources) throw new Error("Define either source or sources, not both.")
   if (options.extends !== undefined && options.workspace !== undefined) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ extends }) sets workspace. Remove workspace, or name the Workspace in the preset options." })
@@ -385,6 +403,12 @@ export function defineContent<
   if (live !== "auto" && live !== false) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ live }) must be 'auto' or false." })
   }
+  const customPlugins = sharedOptions.markdown?.plugins ?? []
+  const replaced = new Set(customPlugins.filter(Boolean).map(plugin => plugin.name))
+  sharedOptions.markdown = {
+    ...sharedOptions.markdown,
+    plugins: [...comarkUi(contentMarkdownPreset).plugins.filter(plugin => !replaced.has(plugin.name)), ...customPlugins],
+  }
   const seo = normalizeSeoOptions(seoOptions)
   const presetDefaults = options.extends === undefined ? {} : resolveContentPreset(options.extends)
   const workspace = options.workspace ?? presetDefaults.workspace
@@ -392,6 +416,8 @@ export function defineContent<
   if (authorize !== undefined && typeof authorize !== "function") {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ authorize }) must be a function." })
   }
+  // The app's own policy wins over the preset's, such as the CMS roles of `cms`.
+  const policy = authorize ?? presetDefaults.authorize
   for (const plugin of options.plugins ?? []) {
     if (isComarkParsePlugin(plugin)) {
       throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] ${JSON.stringify(plugin.name)} is a Comark parse plugin, and defineContent({ plugins }) takes only Comark Content plugins. Pass it in defineContent({ markdown: { plugins } }).` })
@@ -413,7 +439,7 @@ export function defineContent<
     }
   }
   if (collectionEntries.length && (String(workspace) !== workspace || !workspace)) {
-    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ collections }) requires extends: cms from vite-hub/content/presets/cms, or workspace: the name of a Workspace with retained history." })
+    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ collections }) requires extends: cms from vite-hub/cms, or workspace: the name of a Workspace with retained history." })
   }
   const inputs: Record<string, ContentSourceInput | undefined> = sources ?? (source || !collectionEntries.length ? { default: source } : {})
   const instances = Object.entries(inputs).map(([name, input]) => {
@@ -428,6 +454,7 @@ export function defineContent<
         // SAFETY: Each definition was checked with isContentCollectionDefinition() above.
         collections: Object.fromEntries(collectionEntries),
         defaultRef: () => preview.active() ? "draft" : "published",
+        previewFrame: () => preview.frame(),
         live,
         ...(presetDefaults.publish ? { publish: presetDefaults.publish } : {}),
       })
@@ -523,6 +550,10 @@ export function defineContent<
     if (!instance) throw new Error(`Unknown content cache key ${JSON.stringify(key)}.`)
     return instance.cache
   }
+  const routedSources = Object.entries(inputs).flatMap(([name, input]) => {
+    const url = contentSourceUrl(input)
+    return url === undefined ? [] : [{ name, url, list: () => from(name).list() }]
+  })
   const configuredSite = seo?.site === undefined ? undefined : siteOrigin(seo.site)
   const siteFor = (sitemapOptions: ContentSitemapOptions = {}) => sitemapOptions.site === undefined ? configuredSite : siteOrigin(sitemapOptions.site)
   // SAFETY: collection() returns the runtime built from TCollections[TName], whose fields type its documents.
@@ -531,9 +562,11 @@ export function defineContent<
     seo,
     live,
     route,
-    hasPolicy: authorize !== undefined,
+    hasPolicy: policy !== undefined,
     sitemap: async (sitemapOptions?: ContentSitemapOptions) =>
-      documentsRuntime ? await contentSitemapEntries([...documentsRuntime.collections.values()], siteFor(sitemapOptions)) : [],
+      await contentSitemapEntries(documentsRuntime ? [...documentsRuntime.collections.values()] : [], siteFor(sitemapOptions), routedSources),
+    markdown: async (path: string, markdownOptions?: ContentSitemapOptions) =>
+      documentsRuntime ? await contentMarkdownCopy(documentsRuntime, path, siteFor(markdownOptions)) : null,
     robots: (sitemapOptions?: ContentSitemapOptions) => {
       const robots = seo?.robots
       return renderContentRobots({
@@ -576,11 +609,11 @@ export function defineContent<
         throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.can() actor must be an Agent Actor with an id, or undefined." })
       }
       requireDocuments().collection(collection)
-      if (!authorize) return false
+      if (!policy) return false
       const decision: ContentAuthorizeContext<CollectionName<TCollections>> = { user, collection, action }
       if (actor !== undefined) decision.actor = actor
       if (id !== undefined) decision.id = id
-      return await authorize(decision) === true
+      return await policy(decision) === true
     },
   } as ContentDocumentsRuntime<TCollections>
   const runtime: ContentRuntime & ContentDocumentsRuntime<TCollections> = {
@@ -645,7 +678,7 @@ export function defineContentHandler(
   }) as ContentHandler
 }
 
-type SeoRuntime = Pick<ContentDocumentsRuntime, "robots" | "seo" | "sitemap">
+type SeoRuntime = Pick<ContentDocumentsRuntime, "markdown" | "robots" | "seo" | "sitemap">
 
 /**
  * Serve `/sitemap.xml` from `content.sitemap()`. URLs use `defineContent({ seo: { site } })`, or the request origin.
@@ -673,6 +706,27 @@ export function defineContentRobotsHandler(content: SeoRuntime): ContentHandler 
     if (robots === undefined || robots === false) return new Response("Not Found", { status: 404 })
     return new Response(content.robots({ site: content.seo?.site ?? requestUrl(event).origin }), {
       headers: { "content-type": "text/plain; charset=utf-8" },
+    })
+  }) as ContentHandler
+}
+
+/**
+ * Serve `<url>.md` from `content.markdown()` as middleware: Nitro routes cannot match a suffix, so a request for any
+ * other path, or for a page without a published Markdown document, passes through. ViteHub generates it when
+ * `defineContent({ seo: { markdown: true } })`.
+ */
+export function defineContentMarkdownHandler(content: SeoRuntime): ContentHandler {
+  // SAFETY: ContentHandler preserves the callable and fetch contracts exposed by H3's handler.
+  return defineEventHandler(async (event: H3Event) => {
+    if (content.seo?.markdown !== true) return
+    const method = event.method || event.node?.req.method || "GET"
+    if (method !== "GET" && method !== "HEAD") return
+    const url = requestUrl(event)
+    if (!url.pathname.endsWith(".md")) return
+    const markdown = await content.markdown(url.pathname, { site: content.seo.site ?? url.origin })
+    if (markdown === null) return
+    return new Response(method === "HEAD" ? null : markdown, {
+      headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=0, must-revalidate" },
     })
   }) as ContentHandler
 }

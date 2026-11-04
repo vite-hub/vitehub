@@ -12,6 +12,11 @@ declare module "#vitehub/browser/runtime" {
   export default config
 }
 
+declare module "#vitehub/browser/availability" {
+  const availability: import("./types.ts").BrowserAvailability
+  export default availability
+}
+
 declare module "#vitehub/browser/chromium" {
   export const loadChromium: typeof import("./internal/chromium.ts").loadChromium
 }

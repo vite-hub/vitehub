@@ -2,7 +2,8 @@ import { channelIcon } from "./internal/channel-icon.ts";
 import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, type PropType, type Slot, type DefineComponent, type ComponentOptionsMixin, watch } from "vue";
 import type { AgentInvocationListItem, AgentInvocationStatus } from "./types.ts";
 
-function statusLabel(status: AgentInvocationStatus): string {
+/** The status words of the session list. Console search uses them too. */
+export function invocationStatusLabel(status: AgentInvocationStatus): string {
   const labels = {
     cancelled: "Cancelled",
     completed: "Done",
@@ -119,9 +120,9 @@ function renderItem(
         item.project ? h("span", { class: "vh-invocation-list__project", title: item.project }, item.project) : null,
         h("span", { class: "vh-invocation-list__state", title: item.description }, [
           item.status === "completed"
-            ? h("span", { class: "vh-visually-hidden" }, statusLabel(item.status))
+            ? h("span", { class: "vh-visually-hidden" }, invocationStatusLabel(item.status))
             : h("span", { class: "vh-invocation-list__state-icon" }, [statusIcon(item.status)]),
-          item.status === "completed" ? null : h("span", statusLabel(item.status)),
+          item.status === "completed" ? null : h("span", invocationStatusLabel(item.status)),
           time ? h("time", { "aria-label": time.label, datetime: timestamp, title: time.label }, time.short) : null,
         ]),
       ]),

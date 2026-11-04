@@ -6,7 +6,7 @@ export const playgroundConsoleContributions = [
   {
     id: "auth",
     label: "Auth",
-    icon: "i-lucide-users-round",
+    icon: "i-vitehub-auth",
     description: "Manage users, sessions, organizations, and approved OAuth clients.",
     view: {
       kind: "auth-management",
@@ -15,7 +15,7 @@ export const playgroundConsoleContributions = [
   },
   {
     description: "Inspect messages that the development outbox captured.",
-    icon: "i-lucide-mail",
+    icon: "i-vitehub-email",
     id: "email",
     label: "Email",
     view: {
@@ -23,7 +23,7 @@ export const playgroundConsoleContributions = [
         { key: "subject", label: "Subject" },
         { key: "to", label: "To" },
         { key: "provider", label: "Provider" },
-        { key: "delivery", label: "Delivery" },
+        { filter: true, key: "delivery", label: "Delivery" },
         { key: "captured", label: "Captured" },
       ],
       kind: "record-table",
@@ -32,7 +32,7 @@ export const playgroundConsoleContributions = [
   },
   {
     description: "Inspect discovered Rate Limit policies and their source locations.",
-    icon: "i-lucide-gauge",
+    icon: "i-vitehub-rate-limit",
     id: "rate-limits",
     label: "Rate Limits",
     view: {
@@ -42,7 +42,7 @@ export const playgroundConsoleContributions = [
   },
   {
     description: "Inspect discovered Sandbox Task Definitions without starting runtime resources.",
-    icon: "i-lucide-container",
+    icon: "i-vitehub-sandbox",
     id: "sandbox-tasks",
     label: "Sandbox Tasks",
     view: {
@@ -52,7 +52,7 @@ export const playgroundConsoleContributions = [
   },
   {
     description: "Inspect discovered Workspace Definitions and their source roots.",
-    icon: "i-lucide-folder-kanban",
+    icon: "i-vitehub-workspace",
     id: "workspaces",
     label: "Workspaces",
     view: {
@@ -62,7 +62,7 @@ export const playgroundConsoleContributions = [
   },
   {
     description: "Inspect discovered Workflow Definitions and their source metadata.",
-    icon: "i-lucide-git-branch",
+    icon: "i-vitehub-workflow",
     id: "workflows",
     label: "Workflows",
     view: {
@@ -72,17 +72,17 @@ export const playgroundConsoleContributions = [
   },
   {
     description: "Inspect discovered Queue Definitions and their source metadata.",
-    icon: "i-lucide-inbox",
+    icon: "i-vitehub-queue",
     id: "queues",
     label: "Queues",
     view: {
       kind: "definition-catalog",
-      notice: "Queue backlog, message, and delivery history are not exposed by ViteHub's provider-independent Queue contract yet.",
+      notice: "Cloudflare and Vercel do not expose Queue backlog or delivery history through ViteHub. The local provider reports its job directory and job counts in `vitehub queue list`.",
     },
   },
   {
     description: "Inspect Schedule Definitions.",
-    icon: "i-lucide-calendar-clock",
+    icon: "i-vitehub-schedule",
     id: "schedules",
     label: "Schedules",
     view: {
@@ -92,7 +92,42 @@ export const playgroundConsoleContributions = [
         { key: "manual", label: "Manual" },
       ],
       kind: "record-table",
-      notice: "The host runs each Schedule on its UTC cron. Definitions with `manual: true` can also run from the Console or `vitehub schedule run`.",
+      notice: "The host runs each Schedule on its cron, in its time zone (UTC by default). Definitions with `manual: true` can also run from the Console or `vitehub schedule run`.",
     },
   },
 ] as const
+
+/**
+ * The Comments section of an app with a default-export `server/comments.ts`. The build puts it in place of the Comments
+ * record table, so it is not in the list above. `packages/vite-hub/test/console-contributions.test.ts` keeps it equal to
+ * `commentsOperationsConsoleSection`. `comments.ts` answers its operations.
+ */
+export const playgroundCommentsSection = {
+  description: "Read the comment threads of the site and jump to the page.",
+  icon: "i-vitehub-comments",
+  id: "comments",
+  label: "Comments",
+  view: {
+    columns: [
+      { key: "n", label: "#" },
+      { key: "subject.id", label: "Subject" },
+      { key: "status", label: "Status" },
+      { key: "author.name|author.id", label: "Author" },
+      { key: "messages.0.body", label: "Comment", format: "excerpt" },
+      { key: "updatedAt", label: "Updated", format: "datetime" },
+    ],
+    detail: { kind: "comment-thread" },
+    filters: [
+      { id: "all", input: {}, label: "All" },
+      { id: "open", input: { status: "open" }, label: "Open" },
+      { id: "resolved", input: { status: "resolved" }, label: "Resolved" },
+      { id: "mine", input: { mine: true }, label: "Mine" },
+      { id: "mentions", input: { mentions: true }, label: "Mentions" },
+    ],
+    kind: "operation-view",
+    link: { label: "Open page", template: "{subject.id:path}?comment={n}", when: { equals: "page", path: "subject.kind" } },
+    notice: "The list comes from the comments.list operation with your sign-in, so it shows only the threads that authorize lets you read. Without an authorize policy, everyone the Console admits to Comments reads every thread. `vitehub comments list` lists the same threads.",
+    operation: "comments.list",
+    pagination: { limit: 200, cursor: { id: "id", updatedAt: "updatedAt" } },
+  },
+} as const

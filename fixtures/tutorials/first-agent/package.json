@@ -9,20 +9,11 @@
     "postinstall": "vitehub types prepare"
   },
   "dependencies": {
+    "@vite-hub/agent": "workspace:*",
     "h3": "catalog:unjs",
     "vite-hub": "workspace:*",
     "vite": "catalog:vite",
     "nitro": "catalog:unjs"
-  },
-  "imports": {
-    "#vitehub/env/public": {
-      "types": "./.vitehub/env/public.d.ts",
-      "default": "./.vitehub/env/public.mjs"
-    },
-    "#vitehub/env/server": {
-      "types": "./.vitehub/env/server.d.ts",
-      "default": "./.vitehub/env/server.mjs"
-    }
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",

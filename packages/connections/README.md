@@ -1,7 +1,7 @@
 # @vite-hub/connections
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fconnections&icon=npm)](https://www.npmjs.com/package/@vite-hub/connections)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fconnections&period=month&icon=npm)](https://www.npmjs.com/package/@vite-hub/connections)
+[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fconnections&icon=npm)](https://npmx.dev/package/@vite-hub/connections)
+[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fconnections&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/connections)
 [![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
 [![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
 
@@ -15,7 +15,7 @@ Install this owner package alongside `vite-hub` and use `@vite-hub/connections` 
 pnpm add @vite-hub/connections drizzle-orm
 ```
 
-The package requires Node.js 24 or newer. Vite is an optional peer and is needed only for Connection Definition discovery. The default store needs `drizzle-orm` and a SQLite Drizzle database.
+The package requires Node.js 22.18 or newer. Vite is an optional peer and is needed only for Connection Definition discovery. The default store needs `drizzle-orm` and a SQLite Drizzle database.
 
 ## Define a Connection
 

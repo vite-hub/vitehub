@@ -169,5 +169,6 @@ describe("Content cms preset with only server/content.ts", () => {
     expect(names).not.toContain("@vite-hub/blob/vite")
     expect(names).toContain("@vite-hub/content/vite")
     expect(names.filter(name => name === "@vite-hub/content/vite")).toHaveLength(1)
+    expect(names.filter(name => name === "@vite-hub/cms/vite")).toHaveLength(1)
   }, 60_000)
 })

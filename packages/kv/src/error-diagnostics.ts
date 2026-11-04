@@ -33,8 +33,12 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Read `error.cause` for the provider error. Retry when the provider is available again.",
     },
     KV_UNSUPPORTED_OPERATION: {
-      why: ({ operation, store }: { operation: KVOperation, store: string }) => `kv.${operation}() needs atomic operations, and the "${store}" store does not support them.`,
-      fix: "Use the `upstash` driver for this store. For request budgets, use the Rate Limit primitive.",
+      why: ({ operation, store }: { operation: KVOperation, store: string }) => operation === "setIfAbsent"
+        ? `kv.setIfAbsent() needs an atomic write, and the "${store}" store cannot give one. Cloudflare KV is eventually consistent, so two requests can both see a missing key.`
+        : `kv.${operation}() needs atomic operations, and the "${store}" store does not support them.`,
+      fix: ({ operation }: { operation: KVOperation, store: string }) => operation === "setIfAbsent"
+        ? "On Cloudflare, keep single-use tokens in D1 with `INSERT ... ON CONFLICT DO NOTHING`, or in a Durable Object. Otherwise use the `upstash`, `deno-kv`, or `fs-lite` driver for this store."
+        : "Use the `upstash` driver for this store. For request budgets, use the Rate Limit primitive.",
     },
 
     // Config errors. KV throws them because the code or the deployment must change.

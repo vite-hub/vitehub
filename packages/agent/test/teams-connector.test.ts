@@ -11,6 +11,10 @@ const kvModule = vi.hoisted(() => ({
       store.set(key, value)
       return [null, undefined]
     },
+    del: async (key: string) => {
+      store.delete(key)
+      return [null, undefined]
+    },
   },
 }))
 
@@ -36,6 +40,7 @@ function createAdapter() {
     postChannelMessage: vi.fn(async (channelId: string) => ({ id: String(next++), raw: {}, threadId: channelId })),
     postMessage: vi.fn(async (threadId: string) => ({ id: String(next++), raw: {}, threadId })),
     editMessage: vi.fn(async (threadId: string, messageId: string) => ({ id: messageId, raw: {}, threadId })),
+    deleteMessage: vi.fn(async (_threadId: string, _messageId: string) => {}),
   }
 }
 
@@ -133,6 +138,69 @@ describe("teams.connector()", () => {
     await connector.send("b", { recipient: channel, update: true })
     expect(adapter.postMessage).toHaveBeenCalledTimes(2)
     expect(adapter.editMessage).not.toHaveBeenCalled()
+  })
+
+  it("deletes the replaced message in a channel thread through the root thread ID", async () => {
+    const { adapter, connector } = await setup()
+    const thread = { key: "ticket:3", root: "**Ticket 3**" }
+    const drafting = await connector.send("Drafting a suggested reply", { recipient: channel, thread, idempotencyKey: "drafting" })
+    const options = { recipient: channel, thread, idempotencyKey: "suggestion", replace: "drafting" }
+    const suggestion = await connector.send("Suggested reply", options)
+    await expect(connector.send("Suggested reply", options)).resolves.toEqual(suggestion)
+    const rootThread = encode({ conversationId: "19:general@thread.tacv2;messageid=100", serviceUrl: "https://smba.example" })
+    expect([drafting, suggestion]).toEqual([{ id: "101" }, { id: "102" }])
+    expect(adapter.deleteMessage.mock.calls).toEqual([[rootThread, "101"]])
+    expect([...store.keys()].filter(key => key.includes(":messages:"))).toHaveLength(1)
+  })
+
+  it.each([false, true])("rejects replacing a channel root before posting or editing (update: %s)", async (update) => {
+    const { adapter, connector } = await setup()
+    const thread = { key: "ticket:root" }
+    const drafting = await connector.send("Drafting a suggested reply", { recipient: channel, thread, idempotencyKey: "drafting" })
+    if (update) await connector.send("Previous suggestion", { recipient: channel, thread, idempotencyKey: "suggestion" })
+    const saved = [...store]
+
+    await expect(connector.send("Suggested reply", { recipient: channel, thread, idempotencyKey: "suggestion", replace: "drafting", update })).rejects.toThrow("Teams replace cannot delete a channel thread root")
+
+    expect(adapter.postChannelMessage).toHaveBeenCalledOnce()
+    expect(adapter.postMessage).toHaveBeenCalledTimes(update ? 1 : 0)
+    expect(adapter.editMessage).not.toHaveBeenCalled()
+    expect(adapter.deleteMessage).not.toHaveBeenCalled()
+    expect([...store]).toEqual(saved)
+    await expect(connector.send("Drafting a suggested reply", { recipient: channel, thread, idempotencyKey: "drafting" })).resolves.toEqual(drafting)
+    await connector.send("Follow-up", { recipient: channel, thread })
+    const rootThread = encode({ conversationId: "19:general@thread.tacv2;messageid=100", serviceUrl: "https://smba.example" })
+    expect(adapter.postMessage).toHaveBeenLastCalledWith(rootThread, { markdown: "Follow-up" })
+  })
+
+  it("deletes the replaced message without a thread and does nothing without a stored receipt", async () => {
+    const { adapter, connector } = await setup()
+    await connector.send("Working", { recipient: channel, idempotencyKey: "working" })
+    await expect(connector.send("Done", { recipient: channel, idempotencyKey: "done", replace: "working" })).resolves.toEqual({ id: "101" })
+    await expect(connector.send("Done", { recipient: channel, idempotencyKey: "done", replace: "working" })).resolves.toEqual({ id: "101" })
+    await connector.send("Other", { recipient: channel, idempotencyKey: "other", replace: "missing" })
+    expect(adapter.deleteMessage.mock.calls).toEqual([[channel, "100"]])
+    expect(store.size).toBe(2)
+  })
+
+  it("keeps the replaced receipt when the delete fails and treats a missing Teams message as deleted", async () => {
+    const { adapter, connector } = await setup()
+    await connector.send("Working", { recipient: channel, idempotencyKey: "working" })
+    adapter.deleteMessage.mockRejectedValueOnce(new Error("Teams is unavailable"))
+    await expect(connector.send("Done", { recipient: channel, idempotencyKey: "done", replace: "working" })).rejects.toThrow("Teams is unavailable")
+    expect(store.size).toBe(2)
+    adapter.deleteMessage.mockRejectedValueOnce(Object.assign(new Error("Resource not found"), { originalError: { innerHttpError: { statusCode: 404 } } }))
+    await expect(connector.send("Done", { recipient: channel, idempotencyKey: "done", replace: "working" })).resolves.toEqual({ id: "101" })
+    expect(adapter.postMessage).toHaveBeenCalledTimes(2)
+    expect(adapter.deleteMessage).toHaveBeenCalledTimes(2)
+    expect(store.size).toBe(1)
+  })
+
+  it("rejects replace with the idempotency key of the same send or without one", async () => {
+    const { adapter, connector } = await setup()
+    await expect(connector.send("x", { recipient: channel, idempotencyKey: "same", replace: "same" })).rejects.toThrow(TypeError)
+    await expect(connector.send("x", { recipient: channel, replace: "earlier" })).rejects.toThrow(TypeError)
+    expect(adapter.postMessage).not.toHaveBeenCalled()
   })
 
   it("rejects a thread for a recipient that is not a channel", async () => {

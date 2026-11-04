@@ -1,6 +1,7 @@
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { usageRecordFromStreamChunk } from "./agent-output.ts"
+import { chatgptGatewayDiagnostic, diagnosticErrorText } from "./agent-error.ts"
 import { isResponse } from "./internal/response.ts"
 
 import type { AgentUIMessageStreamProjection, AgentUsageRecord, MaybePromise } from "./types.ts"
@@ -28,7 +29,7 @@ const uiMessageStreamHeaders = {
   "x-vercel-ai-ui-message-stream": "v1",
 } as const
 
-export function isUIMessageStreamResult(value: unknown): value is { toUIMessageStream: () => ReadableStream<unknown> } {
+export function isUIMessageStreamResult(value: unknown): value is { toUIMessageStream: (options?: { onError?: (error: unknown) => string }) => ReadableStream<unknown> } {
   return isRuntimeRecord(value) && hasRuntimeType(value.toUIMessageStream, "function")
 }
 
@@ -350,6 +351,17 @@ export function uiMessageStreamFromResponse(response: Response & { body: Readabl
   })]) as ReadableStream<unknown>
 }
 
+/**
+ * The error chunk text. A diagnostic with a documented fix, such as `AGENT_R1016`, starts with its code, so a client can
+ * show that fix. Diagnostics that only wrap another layer's message keep the message as it is.
+ */
+function uiMessageStreamErrorText(error: unknown): string {
+  if (!(error instanceof Error)) return "Agent stream failed."
+  const code: unknown = Reflect.get(error, "code")
+  const fix: unknown = Reflect.get(error, "fix")
+  return hasRuntimeType(code, "string") && hasRuntimeType(fix, "string") ? diagnosticErrorText(code, error.message) : error.message
+}
+
 function createAgentUIMessageStream(options: {
   execute: (context: { writer: AgentUIMessageStreamWriter }) => MaybePromise<void>
 }): ReadableStream<unknown> {
@@ -368,10 +380,7 @@ function createAgentUIMessageStream(options: {
       void Promise.resolve(options.execute({ writer }))
         .catch((error) => {
           try {
-            controller.enqueue({
-              errorText: error instanceof Error ? error.message : "Agent stream failed.",
-              type: "error",
-            })
+            controller.enqueue({ errorText: uiMessageStreamErrorText(error), type: "error" })
           }
           catch {}
         })
@@ -381,6 +390,36 @@ function createAgentUIMessageStream(options: {
           }
           catch {}
         })
+    },
+  })
+}
+
+/**
+ * Encodes UI message parts as SSE frames that end with `[DONE]`. When the parts fail, the body ends with an error frame
+ * instead of failing: H3 1, which Nuxt 4 runs, never ends a Node response whose body fails.
+ */
+export function encodeUIMessageStream(parts: ReadableStream<unknown>): ReadableStream<string> {
+  const reader = parts.getReader()
+  let lastPartIsError = false
+  return new ReadableStream<string>({
+    async pull(controller) {
+      try {
+        const result = await reader.read()
+        if (!result.done) {
+          controller.enqueue(`data: ${JSON.stringify(result.value)}\n\n`)
+          lastPartIsError = isRuntimeRecord(result.value) && result.value.type === "error"
+          return
+        }
+      }
+      catch (error) {
+        await reader.cancel(error).catch(() => {})
+        if (!lastPartIsError) controller.enqueue(`data: ${JSON.stringify({ errorText: uiMessageStreamErrorText(error), type: "error" })}\n\n`)
+      }
+      controller.enqueue("data: [DONE]\n\n")
+      controller.close()
+    },
+    async cancel(reason) {
+      await reader.cancel(reason)
     },
   })
 }
@@ -395,17 +434,8 @@ export function createAgentUIMessageStreamResponse(options: {
   for (const [key, value] of Object.entries(uiMessageStreamHeaders)) {
     if (!headers.has(key)) headers.set(key, value)
   }
-  const encoder = new TextEncoder()
-  const stream = options.stream.pipeThrough(new TransformStream<unknown, Uint8Array>({
-    flush(controller) {
-      controller.enqueue(encoder.encode("data: [DONE]\n\n"))
-    },
-    transform(part, controller) {
-      controller.enqueue(encoder.encode(`data: ${JSON.stringify(part)}\n\n`))
-    },
-  }))
   // SAFETY: Constructing a Response with a ReadableStream always creates a non-null body.
-  return new Response(stream, {
+  return new Response(encodeUIMessageStream(options.stream).pipeThrough(new TextEncoderStream()), {
     headers,
     status: options.status,
     statusText: options.statusText,
@@ -730,9 +760,16 @@ async function writeEventsToUiMessageStream(
   } = {},
 ) {
   const messageId = crypto.randomUUID()
-  let textStarted = false
+  // One text part per source message, ended by a tool call, so parts keep the order in which they ran.
+  let textId: string | undefined
+  let textSource: unknown
+  let textParts = 0
   let finished = false
   const hiddenTextIds = new Set<string>()
+  const endText = () => {
+    if (textId) writer.write({ type: "text-end", id: textId })
+    textId = undefined
+  }
   writer.write({ type: "start", messageId })
   for await (const event of events) {
     const usageRecord = usageRecordFromStreamChunk(event, events)
@@ -758,15 +795,20 @@ async function writeEventsToUiMessageStream(
     if (type === "text-delta") {
       const text = event.text ?? event.delta
       if (!hasRuntimeType(text, "string") || !text) continue
-      if (!textStarted) {
-        writer.write({ type: "text-start", id: messageId })
-        textStarted = true
+      const source = event.messageId ?? event.id
+      if (textId && source !== textSource) endText()
+      if (!textId) {
+        textId = textParts ? `${messageId}:${textParts}` : messageId
+        textParts++
+        textSource = source
+        writer.write({ type: "text-start", id: textId })
       }
-      writer.write({ type: "text-delta", id: messageId, delta: text })
+      writer.write({ type: "text-delta", id: textId, delta: text })
       continue
     }
     if (type === "tool-call") {
-      writer.write({ type: "tool-input-available", toolCallId: event.id, toolName: event.name, input: event.input })
+      endText()
+      writer.write({ type: "tool-input-available", toolCallId: event.id, toolName: event.name, input: event.input, ...(hasRuntimeType(event.title, "string") ? { title: event.title } : {}) })
       continue
     }
     if (type === "tool-result") {
@@ -795,7 +837,7 @@ async function writeEventsToUiMessageStream(
         : agentDiagnostics.AGENT_R0857({ message: hasRuntimeType(event.error, "string") ? event.error : hasRuntimeType(event.message, "string") ? event.message : "Agent stream failed." })
     }
   }
-  if (textStarted) writer.write({ type: "text-end", id: messageId })
+  endText()
   writer.write({ type: "finish", finishReason: finished ? "stop" : "unknown" })
 }
 
@@ -820,7 +862,9 @@ export async function finalizeUiMessageStreamOutput(
   }
   let streamedUsageRecord: AgentUsageRecord | undefined
   const stream = projectUiMessageStream(normalizeUiMessageStream(hasUiMessageStream
-    ? rendered.toUIMessageStream()
+    // The AI SDK hides every error behind its default text. A ChatGPT plan diagnostic names the reader's fix, such as
+    // sign-in or the usage limit, so it reaches the chat like it does before the stream starts.
+    ? rendered.toUIMessageStream({ onError: (error: unknown) => chatgptGatewayDiagnostic(error) ?? "An error occurred." })
     : hasAsyncIterable
       ? createAgentUIMessageStream({
           execute: async ({ writer }) => await writeEventsToUiMessageStream(writer, rendered, {

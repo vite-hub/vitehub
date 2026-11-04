@@ -4,7 +4,7 @@ import { createProcessWakeDriver } from "../internal/process-wake-runtime.ts"
 import { createScheduleError } from "../errors.ts"
 import { isScheduleDue } from "./due.ts"
 import { executeStaticSchedule } from "./execute.ts"
-import { getScheduleRunStore, getScheduleRuntimeRegistry, setScheduleRunStore, setScheduleRuntimeRegistry } from "./state.ts"
+import { getScheduleRunStore, getScheduleRuntimeRegistry, registerProcessScheduleDefinitions, setScheduleRunStore, setScheduleRuntimeRegistry } from "./state.ts"
 
 import type { ProcessWakeContext } from "../internal/process-wake-runtime.ts"
 import type { ScheduleCronRecord } from "./due.ts"
@@ -153,6 +153,9 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
     throw error
   }
 
+  const processDefinitions = new Map([...definitions].map(([name, entry]) => [name, entry.definition]))
+  const unregisterDefinitions = registerProcessScheduleDefinitions(processDefinitions)
+
   let closePromise: Promise<void> | undefined
   return {
     close() {
@@ -166,6 +169,7 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
           await Promise.allSettled(pendingWork)
         }
         await driver.close()
+        unregisterDefinitions()
       })()
     },
   }

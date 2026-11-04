@@ -1,14 +1,11 @@
 import { describeViteHubConsoleDocumentActions, describeViteHubConsoleRuntimeReader, describeViteHubConsoleSection, isViteHubConsoleDocumentEditorSection, isViteHubConsoleRuntimeSection, readViteHubConsoleSection, resolveViteHubConsoleSectionPages } from "@vite-hub/internal/console"
-import { authConsoleSection } from "@vite-hub/auth/console";
-import { commentsConsoleSection, mountedCommentsRoute } from "@vite-hub/comments/vite"
-import { contentConsoleSection } from "@vite-hub/content/vite"
 import { emailConsoleSection } from "@vite-hub/email/vite"
 import { queueConsoleSection } from "@vite-hub/queue/vite"
 import { rateLimitConsoleSection } from "@vite-hub/rate-limit/vite"
 import { sandboxTaskConsoleSection } from "@vite-hub/sandbox/task/vite"
-import { scheduleConsoleSection } from "@vite-hub/schedule/vite"
 import { workflowConsoleSection } from "@vite-hub/workflow/vite"
-import { workspaceConsoleSection } from "@vite-hub/workspace/vite"
+
+import { ownerModules } from "../internal/owner-modules.ts"
 
 import type { ViteHubConsoleDocumentSetup, ViteHubConsoleSectionContribution } from "@vite-hub/internal/console"
 import type { ConsoleContributedSection, ConsoleSectionContent } from "./runtime/definitions.ts"
@@ -53,8 +50,6 @@ export interface ConsoleDocumentEditorRegistration {
 
 export interface ConsoleRegisteredSection {
   readonly descriptor: ConsoleContributedSection
-  /** Resolves the visit using the owner package's application mount contract. */
-  readonly visit?: (base: string) => string
   read(context: ConsoleSectionDiscoveryContext): Promise<ConsoleSectionContent>
   /** Request-time reader. The Console adds its records to the build-time content on each request. */
   readonly runtime?: ConsoleRuntimeReader
@@ -75,14 +70,12 @@ export function consoleRuntimeReaderModule(module: string): string {
 function registerConsoleSection<TOptions>(
   section: ViteHubConsoleSectionContribution<TOptions>,
   options: (context: ConsoleSectionDiscoveryContext) => TOptions,
-  visit?: (base: string) => string,
 ): ConsoleRegisteredSection {
   const descriptor: ConsoleContributedSection = describeViteHubConsoleSection(section)
   const runtime = describeViteHubConsoleRuntimeReader(section)
   const actions = describeViteHubConsoleDocumentActions(section)
   const registered: { -readonly [K in keyof ConsoleRegisteredSection]: ConsoleRegisteredSection[K] } = {
     descriptor,
-    ...(visit ? { visit } : {}),
     read: async (context) => {
       const content: ConsoleSectionContent = await readViteHubConsoleSection(section, options(context))
       return content
@@ -104,19 +97,24 @@ function registerConsoleSection<TOptions>(
   return registered
 }
 
+const { authConsole, cmsVite, commentsVite, contentVite, scheduleVite, workspaceVite } = ownerModules
+
 /**
  * Console sections that owner packages contribute. Each owner defines the label, icon, view, and reader. This list only
- * maps the host discovery roots to the owner reader options.
+ * maps the host discovery roots to the owner reader options. Sections of owner packages that the app did not install
+ * are absent.
  */
 const registeredSections: readonly ConsoleRegisteredSection[] = [
-  registerConsoleSection(authConsoleSection, () => undefined),
-  registerConsoleSection(contentConsoleSection, context => ({
+  authConsole && registerConsoleSection(authConsole.authConsoleSection, () => undefined),
+  contentVite && registerConsoleSection(contentVite.contentConsoleSection, context => ({
     contentImportBase: context.contentImportBase,
     projectRoot: context.projectRoot,
     schedules: context.scheduleDefinitions,
+    // The GitHub store of the CMS cannot schedule publishes, so the editor needs no publishDue() runner.
+    scheduling: cmsVite?.cmsStore({ projectRoot: context.projectRoot, serverDirs: context.serverDirs }) !== "github",
     serverDirs: context.serverDirs,
   })),
-  registerConsoleSection(commentsConsoleSection, context => ({ projectRoot: context.projectRoot, serverDirs: context.serverDirs }), base => `${mountedCommentsRoute(base)}/session`),
+  commentsVite && registerConsoleSection(commentsVite.commentsConsoleSection, context => ({ projectRoot: context.projectRoot, serverDirs: context.serverDirs })),
   registerConsoleSection(emailConsoleSection, () => undefined),
   registerConsoleSection(rateLimitConsoleSection, context => ({
     projectRoot: context.projectRoot,
@@ -127,7 +125,7 @@ const registeredSections: readonly ConsoleRegisteredSection[] = [
     projectRoot: context.projectRoot,
     rootDir: context.sandboxTaskDiscoveryRoot ?? context.projectRoot,
   })),
-  registerConsoleSection(workspaceConsoleSection, context => ({
+  workspaceVite && registerConsoleSection(workspaceVite.workspaceConsoleSection, context => ({
     plugins: context.plugins,
     projectRoot: context.projectRoot,
     rootDir: context.discoveryRoot,
@@ -144,21 +142,22 @@ const registeredSections: readonly ConsoleRegisteredSection[] = [
     rootDir: context.queueDiscoveryRoot ?? context.discoveryRoot,
     serverDirs: context.serverDirs,
   })),
-  registerConsoleSection(scheduleConsoleSection, context => ({
+  scheduleVite && registerConsoleSection(scheduleVite.scheduleConsoleSection, context => ({
     plugins: context.plugins,
     projectRoot: context.projectRoot,
     rootDir: context.discoveryRoot,
     serverDirs: context.serverDirs,
     serverRootDir: context.scheduleDiscoveryRoot ?? context.projectRoot,
   })),
-]
+].filter(section => section !== undefined)
 
 /**
  * Iconify names that the contributed sections use. Owner packages declare these icons outside the Console icon scan, so
  * the Console build (`console.vite.config.ts`) bundles this list. The prebuilt Console then never fetches an icon at
- * runtime.
+ * runtime. The client adds the whole `vitehub` set itself, so its `i-vitehub-*` icons are not in the list.
  */
 export const consoleContributedSectionIcons: readonly string[] = [...new Set(registeredSections.flatMap(section => [section.descriptor.icon, ...section.descriptor.pages?.map(page => page.icon) ?? []]))]
+  .filter(icon => !icon.startsWith("i-vitehub-"))
 
 export const consoleContributedSections: ReadonlyMap<ConsoleSectionId, ConsoleRegisteredSection> = new Map(
   registeredSections.map(section => [section.descriptor.id, section]),
@@ -172,12 +171,11 @@ export function isConsoleContributedSectionId(section: ConsoleSectionId): boolea
  * Returns the descriptors of the enabled contributed sections in navigation order. Each keeps only the pages whose
  * required sections are enabled too, such as Content Media with Blob.
  */
-export function describeConsoleContributedSections(sections: readonly ConsoleSectionId[], base = "/"): ConsoleContributedSection[] {
+export function describeConsoleContributedSections(sections: readonly ConsoleSectionId[]): ConsoleContributedSection[] {
   return sections.flatMap((section) => {
     const registered = consoleContributedSections.get(section)
     if (!registered) return []
     const { pages: _pages, ...descriptor } = registered.descriptor
-    if (registered.visit) descriptor.visit = registered.visit(base)
     const pages = resolveViteHubConsoleSectionPages(registered.descriptor, sections)
     return [pages.length ? { ...descriptor, pages } : descriptor]
   })

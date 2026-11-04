@@ -32,7 +32,13 @@ interface ServerEnvModule {
 }
 
 let serverEnvModule: Promise<ServerEnvModule | undefined> | undefined
-const loadedServerEnv = new WeakMap<object, Promise<Record<PropertyKey, unknown> | undefined>>()
+let loadedServerEnv = new WeakMap<object, Promise<Record<PropertyKey, unknown> | undefined>>()
+
+/** Hands Vite's generated Server Env to the native Agent, replacing it after each dev reload. */
+export function installAgentServerEnv(module: ServerEnvModule | undefined): void {
+  serverEnvModule = module ? Promise.resolve(module) : undefined
+  loadedServerEnv = new WeakMap()
+}
 
 // Without hubEnv() the generated module does not resolve. Other import failures, such as a
 // provider module that throws while it loads, are configuration errors and stay visible.

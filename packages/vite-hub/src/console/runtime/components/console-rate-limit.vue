@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import { peekConsoleRateLimit, resetConsoleRateLimit } from "../client/rate-limit";
 import type { ConsoleRateLimitPeek } from "../client/rate-limit";
+import { querySelection, useConsoleQuery } from "../client/route-query";
 import { useConsoleToast } from "../client/toast";
 
 /**
@@ -18,7 +19,9 @@ const props = defineProps<{
 }>();
 
 const toast = useConsoleToast();
-const key = ref("");
+// The key that was read lives in the URL, so a reload or a shared link reads the same counter again.
+const { key: readKey } = useConsoleQuery({ key: querySelection({ history: "replace" }) });
+const key = ref(readKey.value ?? "");
 const peeked = ref<ConsoleRateLimitPeek>();
 // Inspection may redact the echoed key. Keep the successful request's identity for mutations.
 const peekedKey = ref<string>();
@@ -28,7 +31,12 @@ const resetOpen = ref(false);
 const resetting = ref(false);
 let request: AbortController | undefined;
 
-const canReset = computed(() => !props.readOnly && peeked.value !== undefined && peeked.value.status !== "unsupported");
+// A readable result must contain an active counter; an unavailable counter may still exist.
+const canReset = computed(() => {
+  if (props.readOnly) return false;
+  const result = peeked.value;
+  return result?.status === "unavailable" || (result?.status === "known" && result.counters.some(counter => counter.used > 0 || counter.resetAt !== undefined));
+});
 
 function message(failure: unknown, fallback: string): string {
   return failure instanceof Error && failure.message ? failure.message : fallback;
@@ -51,6 +59,7 @@ async function peek(): Promise<void> {
     if (request === controller) {
       peeked.value = result;
       peekedKey.value = current;
+      readKey.value = current;
     }
   } catch (failure) {
     if (failure instanceof Error && failure.name === "AbortError") return;
@@ -84,13 +93,25 @@ async function confirmReset(): Promise<void> {
   }
 }
 
-// A counter belongs to its Rate Limit, so another selection starts empty.
-watch(() => props.name, () => {
+function clearResult(): void {
   request?.abort();
+  request = undefined;
   loading.value = false;
   peeked.value = undefined;
   peekedKey.value = undefined;
   error.value = undefined;
+}
+
+// Wait for both the catalog's selection and the restored key before reading the destination counter.
+watch([() => props.name, readKey], ([name, current], [previousName]) => {
+  // A successful peek writes its key to the URL; it already has the result.
+  if (name === previousName && current !== undefined && current === peekedKey.value) return;
+  clearResult();
+  key.value = current ?? "";
+  if (key.value) void peek();
+}, { flush: "post" });
+onMounted(() => {
+  if (key.value) void peek();
 });
 onBeforeUnmount(() => request?.abort());
 </script>
@@ -125,14 +146,16 @@ onBeforeUnmount(() => request?.abort());
         <table class="w-full text-left text-[13px]">
           <thead>
             <tr class="border-b border-default">
-              <th v-for="heading in ['Policy', 'Used', 'Remaining', 'Resets at']" :key="heading" class="h-8 whitespace-nowrap px-2 text-xs font-medium text-dimmed" scope="col">{{ heading }}</th>
+              <th class="h-8 whitespace-nowrap px-2 text-xs font-medium text-dimmed" scope="col">Policy</th>
+              <th v-for="heading in ['Used', 'Remaining']" :key="heading" class="h-8 whitespace-nowrap px-2 text-right text-xs font-medium text-dimmed" scope="col">{{ heading }}</th>
+              <th class="h-8 whitespace-nowrap px-2 text-xs font-medium text-dimmed" scope="col">Resets at</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="counter in peeked.counters" :key="`${counter.limit}/${counter.window}`" class="h-10 border-b border-default">
               <td class="px-2 py-1.5 tabular-nums">{{ counter.limit }} per {{ counter.window }}</td>
-              <td class="px-2 py-1.5 tabular-nums">{{ counter.used }}</td>
-              <td class="px-2 py-1.5 tabular-nums">{{ counter.remaining }}</td>
+              <td class="px-2 py-1.5 text-right tabular-nums">{{ counter.used }}</td>
+              <td class="px-2 py-1.5 text-right tabular-nums">{{ counter.remaining }}</td>
               <td class="px-2 py-1.5 tabular-nums">{{ expiry(counter.resetAt) }}</td>
             </tr>
           </tbody>

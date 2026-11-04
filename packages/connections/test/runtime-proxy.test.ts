@@ -71,3 +71,14 @@ it("resolves the Connection status and never rejects", async () => {
   await expect(useConnection("mail").status()).resolves.toBe("disconnected")
   await expect(useConnection("missing" as string).status()).resolves.toBe("disconnected")
 })
+
+it("uses the registry that the vite dev Nitro plugin installs", async () => {
+  const { getConnectionsRuntime, installConnectionsRegistry } = await import("../src/runtime/state.ts")
+  await expect(getConnectionsRuntime().inspect("mail")).rejects.toMatchObject({ code: "CONNECTIONS_NOT_FOUND" })
+  installConnectionsRegistry({
+    activityRetention: undefined,
+    database: async () => { throw new Error("installed database") },
+    default: { mail: async () => ({ default: definition }) },
+  })
+  await expect(getConnectionsRuntime().inspect("mail")).rejects.toThrow("installed database")
+})

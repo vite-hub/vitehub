@@ -1,10 +1,11 @@
 import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
-import { assertOperationConfirmation, assertOperationProject, operationAccessAllows, operationCall, operationRootHeader, operationSection, operationSurfaceHeader, parseOperationInput, projectRootHash } from "@vite-hub/internal/operations"
+import { assertOperationConfirmation, assertOperationProject, operationAccessAllows, operationAccessDenial, operationCall, operationRootHeader, operationSection, operationSurfaceHeader, parseOperationInput, projectRootHash } from "@vite-hub/internal/operations"
 import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import * as v from "valibot"
 
 import { consoleRpcHeader } from "../rpc.ts"
 import { consoleAccessAllows, consoleAccessWrites, readConsoleOperationUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
+import { assertLoopbackWithoutSignIn, eventRemoteAddress } from "./loopback.ts"
 import { consoleDiagnosticBody, consoleStatusDiagnosticCode } from "../diagnostics.ts"
 import { consoleOperationRegistry, installedConsoleProjectRoot } from "./operation-contributions.ts"
 import { isConsoleDevelopmentBuild } from "./development.ts"
@@ -33,6 +34,8 @@ interface ConsoleRpcContext {
   /** The checked access of the RPC request. Each operation runs with it. */
   access: ConsoleAccess
   env?: Record<string, unknown>
+  /** The server event of the request, for operations that read the app's own session. */
+  event?: unknown
   /** The address of the peer, when the host exposes it. */
   remoteAddress?: string
   waitUntil?: (task: Promise<unknown>) => void
@@ -165,30 +168,6 @@ async function readConsoleEnvelope(request: Request): Promise<unknown> {
   }
 }
 
-const loopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]", "::1"])
-
-function isLoopbackHost(host: string | null): boolean {
-  if (!host) return false
-  const name = (host.startsWith("[") ? host.slice(0, host.indexOf("]") + 1) : host.replace(/:\d+$/, "")).toLowerCase()
-  return loopbackHosts.has(name) || name.endsWith(".localhost")
-}
-
-function isLoopbackAddress(address: string): boolean {
-  return address === "::1" || address === "127.0.0.1" || address.startsWith("127.") || address.startsWith("::ffff:127.")
-}
-
-/**
- * `vite dev` with no sign-in (the `local` or `open` access) trusts anyone who can reach it, so it serves only this
- * machine: a tunnel or a LAN address with a forwarded Host would give the whole app to a stranger.
- */
-function assertLoopbackWithoutSignIn(request: Request, url: URL, context: ConsoleRpcContext): void {
-  if ((context.access.mode !== "local" && context.access.mode !== "open") || !isConsoleDevelopmentBuild()) return
-  const hostHeader = request.headers.get("host") ?? url.host
-  const forwarded = request.headers.get("x-forwarded-host")
-  if (isLoopbackHost(hostHeader) && (!forwarded || isLoopbackHost(forwarded)) && (!context.remoteAddress || isLoopbackAddress(context.remoteAddress))) return
-  throw consoleRequestError(403, "The development Console without sign-in accepts only requests from this machine. Set console.auth to open it to others.", "CONSOLE_LOOPBACK_ONLY")
-}
-
 async function callConsoleOperation(request: Request, context: ConsoleOperationContext): Promise<unknown> {
   const url = new URL(request.url)
   if (!isSameOriginRequest(request, url)) throw consoleRequestError(403, "Cross-origin Console requests are not allowed.", "CONSOLE_ORIGIN_REJECTED")
@@ -219,7 +198,8 @@ async function callConsoleOperation(request: Request, context: ConsoleOperationC
   const input = await parseOperationInput(operation, envelope.output.input)
   const section = operationSection(operation, input)
   if (section !== false && !consoleAccessAllows(context.access, section)) {
-    throw consoleRequestError(403, "This Console access does not include this section.")
+    const denial = operationAccessDenial(operation.name, section)
+    throw consoleRequestError(403, `${denial.message} ${denial.fix}`, "CONSOLE_ACCESS_DENIED")
   }
   const classification = operationCall(operation, input)
   // A read-only grant (`"<section>:read"`) runs only the operations, and the calls, that read.
@@ -239,6 +219,7 @@ async function callConsoleOperation(request: Request, context: ConsoleOperationC
     // SAFETY: A Console user from the Auth adapter has the id that the operation user needs.
     user: user ? user as OperationContext["user"] : null,
     ...(context.env ? { env: context.env } : {}),
+    ...(context.event ? { event: context.event } : {}),
     ...(context.waitUntil ? { waitUntil: context.waitUntil } : {}),
   }
   // SAFETY: The schema of the operation produced `input`.
@@ -254,27 +235,10 @@ export async function handleConsoleRpcRequest(request: Request, context: Console
   return Response.json(body, { headers: root ? { ...responseHeaders, [operationRootHeader]: projectRootHash(root) } : responseHeaders, status: body.ok ? response.status ?? 200 : body.status })
 }
 
-function readPath(value: unknown, ...path: string[]): unknown {
-  let current = value
-  for (const key of path) current = current instanceof Object ? Reflect.get(current, key) : undefined
-  return current
-}
-
-/** The peer address, from whichever of the h3 request or the Node socket the host exposes. */
-function eventRemoteAddress(event: H3Event): string | undefined {
-  const candidates = [
-    readPath(event, "req", "ip"),
-    readPath(event, "req", "context", "clientAddress"),
-    readPath(event, "req", "runtime", "node", "req", "socket", "remoteAddress"),
-    readPath(event, "node", "req", "socket", "remoteAddress"),
-  ]
-  return candidates.find((candidate): candidate is string => typeof candidate === "string" && candidate !== "")
-}
-
 // A plain handler, because Nuxt 4 bundles every `h3` import as its own h3 1, which has no `defineHandler()`.
 const consoleRpcHandler: (event: H3Event) => Promise<Response> = withConsoleAccess((event: H3Event, access) => {
   const waitUntil = resolveWaitUntil(event, { preferHost: true })
-  return handleConsoleRpcRequest(toEventRequest(event), { access, env: getCloudflareEnv(event, { fallback: false }), remoteAddress: eventRemoteAddress(event), waitUntil })
+  return handleConsoleRpcRequest(toEventRequest(event), { access, env: getCloudflareEnv(event, { fallback: false }), event, remoteAddress: eventRemoteAddress(event), waitUntil })
   // Each operation checks its own section.
 }, { anySection: true })
 

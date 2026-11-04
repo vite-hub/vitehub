@@ -1,0 +1,9 @@
+{
+  "name": "env-schema-app",
+  "private": true,
+  "dependencies": {
+    "@vite-hub/env": "^0.1.0",
+    "nuxt": "^4.5.2",
+    "vite-hub": "^0.1.0"
+  }
+}

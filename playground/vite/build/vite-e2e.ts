@@ -1,4 +1,5 @@
 import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises"
+import { realpathSync } from "node:fs"
 import { createRequire } from "node:module"
 import { dirname, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -861,7 +862,8 @@ export async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     }
 
     if (sandboxTaskProvider === "cloudflare") {
-      alias["@cloudflare/sandbox"] = resolvePackageDependency(sandboxPackageDir, "@cloudflare/sandbox")
+      // @cloudflare/sandbox 1.0 exports only the `import` condition, which require.resolve cannot read.
+      alias["@cloudflare/sandbox"] = realpathSync(resolve(sandboxPackageDir, "node_modules/@cloudflare/sandbox/dist/index.mjs"))
     }
   }
 
@@ -941,7 +943,9 @@ export function renderCloudflareEntry(file: string, options: ViteE2EComposerOpti
     imports.push(`import { NonRetryableError } from "cloudflare:workflows"`)
   }
   if (artifacts.sandboxTaskConfig && options.sandbox) {
-    imports.push(`import { Sandbox as CloudflareSandbox } from "@cloudflare/sandbox"`)
+    imports.push(`import { DurableObject } from "cloudflare:workers"`)
+    imports.push(`import { Files, SandboxFileError } from "@cloudflare/sandbox"`)
+    imports.push(`import { createCloudflareSandboxDurableObject } from ${JSON.stringify(createImportPath(file, resolve(sandboxPackageDir, "src/internal/cloudflare-durable-object.ts")))}`)
   }
 
   const workflowClassExports = artifacts.workflowDefinitions.map((definition, index) => {
@@ -995,7 +999,7 @@ export function renderCloudflareEntry(file: string, options: ViteE2EComposerOpti
     "",
     ...workflowClassExports,
     artifacts.sandboxTaskConfig && options.sandbox
-      ? `export class ${resolveSandboxClassName(artifacts.sandboxTaskConfig)} extends CloudflareSandbox {}`
+      ? `export class ${resolveSandboxClassName(artifacts.sandboxTaskConfig)} extends createCloudflareSandboxDurableObject({ DurableObject, Files, SandboxFileError }) {}`
       : "",
     "",
     "const worker = {",

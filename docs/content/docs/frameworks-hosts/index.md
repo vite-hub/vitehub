@@ -29,8 +29,37 @@ To move a Nuxt application from NuxtHub, read
 
 ## Choose a preset
 
-`preset` is required. It selects the host, the Nitro preset, and the provider
-that each enabled feature uses by default.
+`preset` selects the host, the Nitro preset, and the provider that each
+enabled feature uses by default. When you omit it, ViteHub detects the host
+in this order:
+
+1. `VITEHUB_HOSTING`
+2. `NITRO_PRESET`, then `SERVER_PRESET`
+3. The variables that the host sets during its build, the same ones Nitro
+   reads: `WORKERS_CI` (Cloudflare Workers Builds), `NETLIFY`, `NOW_BUILDER`,
+   `VERCEL` or `VERCEL_ENV`, then `DENO_DEPLOY` or `DENO_DEPLOYMENT_ID`
+4. `node` when none of them is set
+
+Cloudflare Pages is not detected, because the `cloudflare` preset builds a
+Worker. Use `detectPreset()` from `vite-hub/deployment` to choose
+host-specific options in your own config:
+
+```ts
+// vite.config.ts
+import { vitehub } from "vite-hub";
+import { detectPreset } from "vite-hub/deployment";
+import { defineConfig } from "vite";
+
+const preset = detectPreset() ?? "node";
+
+export default defineConfig({
+  // The deno preset rejects Schedule.
+  plugins: [vitehub({ preset, schedule: preset !== "deno" })],
+});
+```
+
+`detectPreset()` returns `undefined` when no variable names a host, so the
+app picks its own default.
 
 | Preset | Guide | Production output | Default providers | Rejected when enabled with `true` |
 | --- | --- | --- | --- | --- |

@@ -65,6 +65,29 @@ async function readOutput(root: string): Promise<string> {
 }
 
 describe("KV Vite output", () => {
+  it("loads the published runtime and lazy operation handler in Node", async () => {
+    const rootDir = await createConsumerRoot()
+    await execFileAsync(process.execPath, ["--input-type=module", "--eval", `
+      import assert from "node:assert/strict"
+      import { disposeKVStores, kv } from "@vite-hub/kv"
+      import { kvOperations } from "@vite-hub/kv/operations"
+
+      try {
+        const [writeError] = await kv.set("token", "123456")
+        assert.ifError(writeError)
+        const [readError, text] = await kv.get("token", { type: "text" })
+        assert.ifError(readError)
+        assert.equal(text, "123456")
+        const get = kvOperations.find(operation => operation.name === "kv.get")
+        // Loading the lazy handler works; operations require the generated config that this Node consumer omits.
+        await assert.rejects(get.run({ key: "token" }), { code: "KV_DISABLED" })
+      }
+      finally {
+        await disposeKVStores()
+      }
+    `], { cwd: rootDir })
+  })
+
   it("keeps runtime chunks independent of the build-time Vite entry", async () => {
     const distDir = resolve(import.meta.dirname, "../dist")
     const files = (await readdir(distDir, { recursive: true, withFileTypes: true }))
@@ -158,6 +181,67 @@ describe("KV Vite output", () => {
     await expect(worker.default()).resolves.toBeNull()
   })
 
+  it("bundles the Nitro cache driver over the app's Cloudflare KV store", async () => {
+    const rootDir = await createConsumerRoot()
+    const entry = join(rootDir, "src", "worker.ts")
+    const [{ build }, { hubKv }] = await Promise.all([
+      import("vite"),
+      import("../src/vite.ts"),
+    ])
+    await writeFile(entry, [
+      `import { kv } from "@vite-hub/kv"`,
+      `import createKVCacheDriver from "@vite-hub/kv/runtime/nitro-cache"`,
+      `export default async () => {`,
+      `  await createKVCacheDriver().setItem("nitro:functions:stars.json", "{\\"value\\":42}", { ttl: 5 })`,
+      `  const [error, value] = await kv.get("nitro-cache:nitro:functions:stars.json")`,
+      `  if (error) throw error`,
+      `  return value`,
+      `}`,
+      ``,
+    ].join("\n"))
+
+    await build({
+      appType: "custom",
+      build: {
+        outDir: "dist",
+        rolldownOptions: { input: entry, output: { entryFileNames: "worker.js" } },
+        ssr: entry,
+      },
+      configFile: false,
+      kv: { driver: "cloudflare-kv-binding", namespaceId: "namespace-id" },
+      logLevel: "silent",
+      plugins: [hubKv()],
+      root: rootDir,
+    })
+
+    const output = await readOutput(join(rootDir, "dist"))
+    expect(output).not.toContain(`from "@vite-hub/kv"`)
+    expect(output).not.toContain("#vitehub/kv/config")
+
+    const puts: Array<{ key: string, options?: { expirationTtl?: number } }> = []
+    const values = new Map<string, string>()
+    const env = globalThis as { __env__?: unknown }
+    env.__env__ = {
+      KV: {
+        delete: async (key: string) => { values.delete(key) },
+        get: async (key: string) => values.get(key) ?? null,
+        put: async (key: string, value: string, options?: { expirationTtl?: number }) => {
+          puts.push({ key, options })
+          values.set(key, value)
+        },
+      },
+    }
+    try {
+      // SAFETY: the fixture entry exports the tested async worker as its default export.
+      const worker = await import(pathToFileURL(join(rootDir, "dist", "worker.js")).href) as { default: () => Promise<unknown> }
+      await expect(worker.default()).resolves.toEqual({ value: 42 })
+    }
+    finally {
+      delete env.__env__
+    }
+    expect(puts).toMatchObject([{ key: "nitro-cache:nitro:functions:stars.json", options: { expirationTtl: 60 } }])
+  })
+
   it("bundles selected runtime config into server output", async () => {
     const rootDir = await createConsumerRoot()
     const entry = join(rootDir, "src", "worker.ts")
@@ -200,6 +284,7 @@ describe("KV Vite output", () => {
     expect(output).toContain("KV_INVALID_LIMIT")
     expect(output).toMatch(/async getAndDelete\(\)\s*{\s*return unsupported\("getAndDelete", name\);/)
     expect(output).toMatch(/async increment\(\)\s*{\s*return unsupported\("increment", name\);/)
+    expect(output).toMatch(/async setIfAbsent\(\)\s*{\s*return unsupported\("setIfAbsent", name\);/)
     expect(output).toContain("KV_CUSTOM")
   })
 

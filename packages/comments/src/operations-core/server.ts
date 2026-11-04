@@ -1,28 +1,20 @@
 import { commentsErrorDiagnostics } from "./errors.ts"
-import type { CommentsDefinition } from "./define.ts"
-import type { CommentsStore } from "./store.ts"
+import type { CommentsPeople } from "./define.ts"
+import type { CommentsRuntime } from "./service.ts"
 import type { CommentUser } from "./types.ts"
 
-/** Where mentions find people. */
-export interface CommentsUsers {
-  /** People whose name contains `query`. `users()` returns only their `id`, `name`, and `image`. */
-  search: (query: string, limit: number) => Promise<CommentUser[]>
-  /** The people with these ids, including fields needed by `authorize`. An id that is not a person is left out. */
-  byIds: (ids: readonly string[]) => Promise<CommentUser[]>
-}
-
-export interface CommentsRuntime {
-  definition: CommentsDefinition
-  store: CommentsStore
-  /** The Auth adapter. Without it, `users()` finds the authors that the store knows. */
-  users?: CommentsUsers
-}
+export type { CommentsAttachmentStore, CommentsForgeHooks, CommentsRuntime } from "./service.ts"
+/** Where mentions find people. The same shape as `defineComments({ people })`. */
+export type CommentsUsers = CommentsPeople
 
 const key: unique symbol = Symbol.for("vitehub.comments.runtime")
 const scope = globalThis as typeof globalThis & { [key]?: CommentsRuntime | (() => CommentsRuntime | Promise<CommentsRuntime>) }
 
-/** Install the runtime of the app. The generated Nitro plugin calls this. The runtime may be a function that builds it on first use. */
-export function installComments(runtime: CommentsRuntime | (() => CommentsRuntime | Promise<CommentsRuntime>)): void {
+/**
+ * Install the runtime that the comment operations use. `installComments()` calls this; the generated Nitro plugin
+ * passes a function that builds the runtime on first use.
+ */
+export function installCommentsRuntime(runtime: CommentsRuntime | (() => CommentsRuntime | Promise<CommentsRuntime>)): void {
   scope[key] = runtime
 }
 
@@ -54,9 +46,10 @@ function toUser(record: Record<string, unknown>): CommentUser | undefined {
   return { id, ...(name ? { name } : {}), ...(image ? { image } : {}) }
 }
 
-/** People from a Better Auth instance, through its internal adapter. */
-export function createAuthUsers(getAuth: () => BetterAuthUsers): CommentsUsers {
-  const adapter = async () => (await getAuth().$context).internalAdapter
+/** People from a Better Auth instance, through its internal adapter. The generated Nitro plugin passes it when the app has Auth. */
+export function createAuthUsers(getAuth: () => object): CommentsPeople {
+  // SAFETY: Better Auth instances, and the Auth of ViteHub, have `$context` with this internal adapter.
+  const adapter = async () => (await (getAuth() as BetterAuthUsers).$context).internalAdapter
   return {
     async byIds(ids) {
       if (!ids.length) return []
@@ -68,7 +61,11 @@ export function createAuthUsers(getAuth: () => BetterAuthUsers): CommentsUsers {
     },
     async search(query, limit) {
       const found = await (await adapter()).listUsers(limit, 0, undefined, [{ field: "name", operator: "contains", value: query, mode: "insensitive" }])
-      return found.map(toUser).filter((person): person is CommentUser => person !== undefined)
+      // The full records, so `canMention` and `authorize` read fields such as `role`. Suggestions keep only public ones.
+      return found.flatMap(record => {
+        const person = toUser(record)
+        return person ? [{ ...record, ...person }] : []
+      })
     },
   }
 }

@@ -60,8 +60,8 @@ export function hubKvOptionalPeerResolver(): Plugin {
     name: "@vite-hub/kv/optional-peers",
     enforce: "pre",
     resolveId(id, importer, resolveOptions) {
-      if (!resolveOptions?.ssr || !isKVOptionalUpstashImport(id, importer)) return
-      return { external: true, id }
+      if (!resolveOptions?.ssr) return
+      if (isKVOptionalUpstashImport(id, importer) || isUnstorageCloudflareWorkersImport(id, importer)) return { external: true, id }
     },
   }
 }
@@ -91,6 +91,14 @@ function isKVOptionalUpstashImport(id: string, importer: string | undefined): bo
   return normalizedImporter.endsWith("/packages/kv/src/runtime/driver.ts")
     || normalizedImporter.endsWith("/packages/kv/dist/index.js")
     || normalizedImporter.includes("/@vite-hub/kv/dist/index.js")
+}
+
+// unstorage's Cloudflare drivers load the workerd built-in `cloudflare:workers` with a guarded dynamic import.
+// No bundler can resolve it: Workers provide it at runtime. Elsewhere the import only runs when a binding is
+// missing from ViteHub's active env, and unstorage turns the rejection into its invalid-binding error.
+function isUnstorageCloudflareWorkersImport(id: string, importer: string | undefined): boolean {
+  if (id !== "cloudflare:workers" || !importer) return false
+  return /[/\\]unstorage[/\\]dist[/\\]/.test(importer)
 }
 
 function createCloudflareKVWranglerConfig(kv: KVViteRuntimeConfig["kv"], provisionState: ReturnType<typeof readProvisionStateSync>) {
@@ -142,6 +150,7 @@ function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
     "    async keys(base, options) { return kvResult(\"keys\", name, () => resolveStorage(name).getKeys(base, options)); },",
     "    async list(options) { if (!Number.isInteger(options.limit) || options.limit <= 0) return [kvInvalidLimitError(), undefined]; return kvResult(\"list\", name, () => resolveStorage(name).listKeys(options), [\"KV_INVALID_CURSOR\"]); },",
     "    async set(key, value, options) { return kvResult(\"set\", name, async () => { await resolveStorage(name).setItem(key, value, options); }); },",
+    "    async setIfAbsent() { return unsupported(\"setIfAbsent\", name); },",
     "    store(storeName) { return createKVStorage(storeName); },",
     "  };",
     "}",
@@ -313,6 +322,7 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
         if (id === UPSTASH_DRIVER_IMPORT_ID && resolveOptions?.ssr && !hasUpstashStore(getConfig().kv) && isKVOptionalUpstashImport(id, importer)) {
           return { external: true, id }
         }
+        if (resolveOptions?.ssr && isUnstorageCloudflareWorkersImport(id, importer)) return { external: true, id }
         if (id === "@vite-hub/kv" && isCloudflareKVConfig(getConfig().kv)) return RESOLVED_KV_RUNTIME_ID
         if (id === KV_VIRTUAL_CONFIG_ID) return RESOLVED_KV_VIRTUAL_CONFIG_ID
       },

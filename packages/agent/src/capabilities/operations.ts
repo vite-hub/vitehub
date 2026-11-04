@@ -1,4 +1,4 @@
-import { installedOperationRegistry, installedOperationSectionResolver, operationAccessAllows, operationCall, operationInputJsonSchema, parseOperationInput, runParsedOperation, toOperationFailure } from "@vite-hub/internal/operations"
+import { installedOperationRegistry, installedOperationSectionResolver, operationCall, operationListed, operationInputJsonSchema, parseOperationInput, runParsedOperation, toOperationFailure } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
@@ -23,8 +23,8 @@ export interface OperationsCapabilityOptions {
    */
   user?: (actor: AgentActor) => MaybePromise<OperationUser | null | undefined>
   /**
-   * Let the Agent pass `lease: "override"` to `content.save`, so it can write over a document that a person is
-   * editing. Default: false.
+   * Let the Agent pass `lease: "override"` to `content.save`, `content.remove`, and `content.restore`, so it can write
+   * over a document that a person is editing. Default: false.
    */
   overrideLeases?: boolean
   /**
@@ -79,9 +79,9 @@ async function authUser(context: AgentCapabilityContext): Promise<OperationUser 
 }
 
 async function operationTools(context: AgentCapabilityContext, options: { approve: OperationsApproval, conversations?: "all" | "participant", include: readonly string[], overrideLeases: boolean, registry?: OperationRegistry, user?: OperationsCapabilityOptions["user"] }): Promise<AgentToolSet> {
-  const registry = options.registry ?? installedOperationRegistry()
+  const registry = options.registry ?? await installedOperationRegistry()
   if (!registry) {
-    throw agentDiagnostics.AGENT_R1014({ message: "[vitehub] operations() found no operations. The app installs them when its server starts, with the Console plugin that `vite dev` and `console` add." })
+    throw agentDiagnostics.AGENT_R1014({ message: "[vitehub] operations() found no operations. The Console plugin that `vite dev` and `console` add installs them." })
   }
   for (const pattern of options.include) {
     if (!registry.list().some(operation => matches(pattern, operation.name))) {
@@ -98,7 +98,7 @@ async function operationTools(context: AgentCapabilityContext, options: { approv
     .filter(operation => options.include.some(pattern => matches(pattern, operation.name)))
     // An operation that reads its section from the input is checked again when it runs. A read-only grant keeps the
     // operations that read, and the ones with a dry run.
-    .filter(operation => typeof operation.section === "function" || operationAccessAllows(access, operation.section, { kind: operation.kind, readOnly: operation.readOnlyWhen !== undefined }))
+    .filter(operation => operationListed(access, operation, { kind: operation.kind, readOnly: operation.readOnlyWhen !== undefined }))
   const tools: AgentToolSet = {}
   for (const operation of selected) {
     const approval: AgentToolPolicyDecision = needsApproval(options.approve, operation) ? "require-approval" : "allow"

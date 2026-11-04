@@ -9,7 +9,7 @@ import { clearTimeout as clearNodeTimeout, setTimeout as setNodeTimeout } from "
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
-import { Chat, Message } from "chat"
+import { Chat, Message, parseMarkdown } from "chat"
 import { transform } from "esbuild"
 import { removeProviderOutputArtifactDir } from "@vite-hub/internal/build/provider-output-sources"
 import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -700,7 +700,7 @@ describe("agent Vite plugin", () => {
           sandboxTaskRuntimeState: "vite-hub/_internal/sandbox/task/runtime/state",
           shellWorkspace: "vite-hub/shell/workspace",
         },
-        workspaceImportBase: "vite-hub/_internal/workspace",
+        workspaceImportBase: "vite-hub/_internal/agent/internal/workspace",
       } as never)
       const filteredConfigResolvedHook: unknown = filteredPlugin.configResolved
       // SAFETY: hubAgent installs the same configResolved hook contract for filtered plugins.
@@ -721,7 +721,7 @@ describe("agent Vite plugin", () => {
       )
       expect(filteredRoute).toContain('workflow: () => import("vite-hub/_internal/workflow")')
       expect(filteredRoute).toContain(
-        'import { setWorkspaceDependencyRuntimeLoaders as vitehubSetWorkspaceDependencyRuntimeLoaders } from "vite-hub/_internal/workspace/runtime"',
+        'import { setWorkspaceDependencyRuntimeLoaders as vitehubSetWorkspaceDependencyRuntimeLoaders } from "vite-hub/_internal/agent/internal/workspace/runtime"',
       )
       expect(filteredRoute).toContain('sandboxTask: () => import("@vite-hub/sandbox/task")')
 
@@ -1927,16 +1927,51 @@ describe("agent Vite plugin", () => {
       expect(gatewayRoute).toContain(".replace(/(^|\\/):([^/]+)/g")
       expect(gatewayRoute).toContain("process.env.NODE_ENV === 'development'")
       expect(gatewayRoute).toContain("Discord Gateway route requires VITEHUB_DISCORD_GATEWAY_SECRET.")
-      expect(gatewayRoute).toContain('import { isViteHubBearerSecretEqual } from "@vite-hub/agent/server/internal"')
-      expect(gatewayRoute).toContain("!isViteHubBearerSecretEqual(getRequestHeader(event, 'authorization'), secret)")
+      expect(gatewayRoute).toContain('import { isViteHubBearerSecretEqual, toEventRequest } from "@vite-hub/agent/server/internal"')
       expect(gatewayRoute).not.toContain("!== secret")
       expect(gatewayRoute).toContain("runtime: 'vite'")
       expect(gatewayRoute).toContain("waitUntil: waitUntilFromEvent(event)")
       expect(gatewayRoute).toContain("webhookUrl")
-      expect(gatewayRoute).toContain("function requestHeaders(event: H3Event)")
-      expect(gatewayRoute).toContain("headers: requestHeaders(event)")
-      expect(gatewayRoute).not.toContain("headers: getRequestHeaders(event)")
       expect(gatewayRoute).not.toContain("@vite-hub/schedule/runtime")
+
+      // Nitro 2, which Nuxt 4 runs, passes H3 1 events. H3 2's request helpers throw for them, so a set secret broke
+      // the route. Run the generated handler with the real request helpers and an H3 1 event.
+      const handlerSource = gatewayRoute.slice(gatewayRoute.indexOf("export default defineEventHandler(")).replace("export default ", "return ")
+      const { code } = await transform(handlerSource, { loader: "ts" })
+      const { isViteHubBearerSecretEqual, toEventRequest } = await import("../src/server/internal.ts")
+      const h3 = await import("h3")
+      const gatewayHandler = new Function(
+        "defineEventHandler", "createError", "getRequestHeader", "getRouterParam", "toEventRequest", "isViteHubBearerSecretEqual",
+        "cloudflareFromEvent", "runtimeEnvValue", "agentNames", "handlers", "agentIdentities", "defaultDurationMs", "webhookRoute",
+        "routePath", "waitUntilFromEvent", code,
+      )(
+        (handler: unknown) => handler,
+        (input: { statusCode: number }) => Object.assign(new Error("H3 error"), input),
+        h3.getRequestHeader,
+        () => "support",
+        toEventRequest,
+        isViteHubBearerSecretEqual,
+        () => undefined,
+        (_cloudflare: unknown, key: string) => key === "VITEHUB_DISCORD_GATEWAY_SECRET" ? "gateway-secret" : undefined,
+        ["support"],
+        { support: async (request: Request) => new Response(`${request.method} ${request.url} ${request.headers.get("authorization")}`) },
+        { support: { name: "support" } },
+        1000,
+        "/api/_vitehub/agents/:agent/webhooks/:webhook",
+        () => "/api/_vitehub/agents/support/webhooks/discord",
+        () => undefined,
+      ) as (event: unknown) => Promise<Response>
+      const h3V1Event = (authorization: string) => ({
+        method: "POST",
+        node: { req: Object.assign((async function* () {})(), {
+          headers: { authorization, host: "app.example", "x-forwarded-proto": "https" },
+          method: "POST",
+          url: "/api/_vitehub/agents/support/discord/gateway",
+        }) },
+      })
+      await expect(gatewayHandler(h3V1Event("Bearer wrong"))).rejects.toMatchObject({ statusCode: 401 })
+      const accepted = await gatewayHandler(h3V1Event("Bearer gateway-secret"))
+      await expect(accepted.text()).resolves.toBe("POST https://app.example/api/_vitehub/agents/support/discord/gateway Bearer gateway-secret")
     } finally {
       await rm(root, { force: true, recursive: true })
     }
@@ -2551,12 +2586,9 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).toContain('["support"]: {"name":"support"}')
       expect(webhookRoute).not.toContain('import { createCloudflareAgentState } from "@vite-hub/agent/cloudflare"')
       expect(webhookRoute).toContain("async function toRequest(event: H3Event)")
-      expect(webhookRoute).toContain("getRequestWebStream")
-      expect(webhookRoute).toContain("const method = event.method || 'POST'")
-      expect(webhookRoute).toContain("body: method === 'GET' || method === 'HEAD' ? undefined : getRequestWebStream(event)")
-      expect(webhookRoute).toContain("method,")
+      expect(webhookRoute).toContain("const request = toEventRequest(event)")
+      expect(webhookRoute).toContain("body: request.body ?? undefined")
       expect(webhookRoute).not.toContain("readRawBody(event)")
-      expect(await import("h3")).toHaveProperty("getRequestWebStream")
       expect(webhookRoute).toContain("createAgentWebhookRequest({")
       expect(webhookRoute).toContain("node: event.node")
       expect(webhookRoute).toContain("signal: event.req?.signal")
@@ -2581,16 +2613,27 @@ describe("agent Vite plugin", () => {
 
       const requestHelpers = webhookRoute.slice(webhookRoute.indexOf("async function toRequest"), webhookRoute.indexOf("type ViteHubGeneratedCloudflare"))
       const { code } = await transform(requestHelpers, { loader: "ts", format: "esm" })
-      const { createAgentWebhookRequest } = await import("../src/server/internal.ts")
-      // SAFETY: Run the generated request conversion with H3 v1's optional header values.
-      const toRequest = new Function("getRequestHeaders", "getRequestURL", "createAgentWebhookRequest", `${code}\nreturn toRequest`)(
-        () => ({ authorization: "Bearer test-token", "x-empty": "", "x-absent": undefined }),
-        () => new URL("https://example.com/api/agents/support/chat"),
+      const { createAgentWebhookRequest, toEventRequest } = await import("../src/server/internal.ts")
+      const toRequest = new Function("toEventRequest", "createAgentWebhookRequest", `${code}\nreturn toRequest`)(
+        toEventRequest,
         createAgentWebhookRequest,
-      ) as (event: { method: string }) => Promise<Request>
-      const request = await toRequest({ method: "GET" })
+      ) as (event: unknown) => Promise<Request>
+      const request = await toRequest({ method: "GET", req: new Request("https://example.com/api/agents/support/chat", { headers: { authorization: "Bearer test-token", "x-empty": "" } }) })
       expect([...request.headers]).toEqual([["authorization", "Bearer test-token"], ["x-empty", ""]])
-      expect(webhookRoute).not.toContain("headers: getRequestHeaders(event)")
+      // Nitro 2, which Nuxt 4 runs, passes H3 1 events: the H3 2 helpers cannot read their Node request.
+      const nodeBody = (async function* () { yield new TextEncoder().encode('{"messages":'); yield new TextEncoder().encode("[]}") })()
+      const nodeRequest = Object.assign(nodeBody, { headers: { host: "127.0.0.1:4731", "set-cookie": ["a=1", "b=2"], "x-absent": undefined }, method: "POST", once: () => undefined, url: "/api/_vitehub/agents/support/chat?x=1" })
+      const fromNode = await toRequest({ method: "POST", node: { req: nodeRequest }, req: nodeRequest })
+      expect(fromNode.url).toBe("http://127.0.0.1:4731/api/_vitehub/agents/support/chat?x=1")
+      expect(fromNode.headers.get("set-cookie")).toBe("a=1, b=2")
+      expect(fromNode.headers.has("x-absent")).toBe(false)
+      await expect(fromNode.text()).resolves.toBe('{"messages":[]}')
+      // Behind a TLS proxy, and after a middleware already read the body with H3's readBody().
+      const proxiedRequest = Object.assign((async function* () {})(), { headers: { host: "app.example", "x-forwarded-proto": "https" }, method: "POST", once: () => undefined, url: "/api/_vitehub/agents/support/chat" })
+      const proxied = await toRequest({ _requestBody: Promise.resolve(new TextEncoder().encode('{"read":true}')), method: "POST", node: { req: proxiedRequest } })
+      expect(proxied.url).toBe("https://app.example/api/_vitehub/agents/support/chat")
+      await expect(proxied.text()).resolves.toBe('{"read":true}')
+      expect(webhookRoute).not.toContain("getRequestHeaders(event)")
     } finally {
       await rm(root, { force: true, recursive: true })
     }
@@ -2947,15 +2990,23 @@ export default defineAgent({
           shutdownDrains.push(name)
           if (name === "agent.webhook-queues") app.hooks.hook("close", () => drain({ signal: new AbortController().signal, timeoutMs: 0 }))
         }
-        const install = new Function("resumeWebhookQueues", "warmWebhookRoutes", "performance", "setTimeout", "process", "onShutdown", "webhookQueueShutdown", "drainInlineChatInvocations", `${queuePlugin.replace(/^import .*\n/gm, "").replace("export default ", "return ").replaceAll("import.meta.prerender", "false").replaceAll("import.meta.dev", "false")}`)(
+        const startDelays: number[] = []
+        let routesLoaded: (() => void) | undefined
+        const install = new Function("resumeWebhookQueues", "warmWebhookRoutes", "performance", "setTimeout", "clearTimeout", "process", "onShutdown", "webhookQueueShutdown", "drainInlineChatInvocations", "onAgentRoutesLoad", "registerChannelTaskQueueStarter", `${queuePlugin.replace(/^import .*\n/gm, "").replace("export default ", "return ").replaceAll("import.meta.prerender", "false").replaceAll("import.meta.dev", "false")}`)(
           resumeWebhookQueues,
           warmWebhookRoutes,
           { timeOrigin: Date.now() - 60_000 },
-          (callback: () => void) => { startup = callback },
+          (callback: () => void, delay: number) => {
+            startup = callback
+            startDelays.push(delay)
+          },
+          () => {},
           undefined,
           onShutdown,
           async () => {},
           async () => ({ active: 0, interrupted: 0, unsettled: 0 }),
+          (listener: () => void) => { routesLoaded = listener },
+          () => () => {},
         )
         install({ hooks: { hook: (name: string, callback: () => void) => hooks.set(name, callback) } })
         hooks.get("close")?.()
@@ -2967,16 +3018,24 @@ export default defineAgent({
         expect(resumeWebhookQueues).toHaveBeenCalledWith(undefined, expect.any(Number))
         expect(warmWebhookRoutes).toHaveBeenCalledOnce()
         expect(resumeWebhookQueues.mock.calls[0]![1]).toBeLessThan(pluginStartedAt - 30_000)
+        // The queues start one second after the server starts, or at once when a request loads the Agent routes.
+        expect(startDelays).toEqual([1000, 1000])
+        routesLoaded?.()
+        expect(resumeWebhookQueues).toHaveBeenCalledOnce()
+        hooks.get("close")?.()
+        install({ hooks: { hook: (name: string, callback: () => void) => hooks.set(name, callback) } })
+        routesLoaded?.()
+        expect(resumeWebhookQueues).toHaveBeenCalledTimes(2)
         hooks.get("close")?.()
         expect(queuePlugin).toContain("stop = resumeWebhookQueues(waitUntil, recoverInterruptedBefore)")
         expect(queuePlugin).toContain("if (!stopping) stopping = stop?.()")
         expect(queuePlugin).toContain("if (stopping) waitUntil?.(stopping)")
         // ViteHub owns stop signals and the exit. The plugin only registers its drains.
-        expect(queuePlugin).toContain('import { drainInlineChatInvocations, onShutdown, webhookQueueShutdown } from "@vite-hub/agent/server/internal"')
+        expect(queuePlugin).toContain('import { drainInlineChatInvocations, onAgentRoutesLoad, registerChannelTaskQueueStarter, onShutdown, webhookQueueShutdown } from "@vite-hub/agent/server/internal"')
         expect(queuePlugin).not.toContain("SIGTERM")
         expect(queuePlugin).not.toContain("process.exit")
         expect(queuePlugin).not.toContain("VITEHUB_SHUTDOWN_DRAIN_MS")
-        expect(shutdownDrains).toEqual(["agent.chat", "agent.webhook-queues", "agent.chat", "agent.webhook-queues"])
+        expect(shutdownDrains).toEqual(["agent.chat", "agent.webhook-queues", "agent.chat", "agent.webhook-queues", "agent.chat", "agent.webhook-queues"])
         expect(webhookRoute).toContain(
           "return await handler(await toRequest(event), webhook, { agentIdentity: agentIdentities[agent], cloudflare, state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil: waitUntilFromEvent(event) })",
         )
@@ -3258,7 +3317,6 @@ export default defineAgent({
     expect(pkg.exports?.["./cloudflare/state"]).toEqual({
       types: "./dist/cloudflare/state.d.ts",
       import: "./dist/cloudflare/state.js",
-      require: "./dist/cloudflare/state.js",
       default: "./dist/cloudflare/state.js",
     })
   })
@@ -3270,7 +3328,6 @@ export default defineAgent({
     expect(pkg.exports?.["./server/internal"]).toEqual({
       types: "./dist/server/internal.d.ts",
       import: "./dist/server/internal.js",
-      require: "./dist/server/internal.js",
       default: "./dist/server/internal.js",
     })
   })
@@ -3299,7 +3356,6 @@ export default defineAgent({
     expect(pkg.exports?.["./output"]).toEqual({
       types: "./dist/output.d.ts",
       import: "./dist/output.js",
-      require: "./dist/output.js",
       default: "./dist/output.js",
     })
   })
@@ -4104,7 +4160,7 @@ describe("server helpers", () => {
     await expect(response.text()).resolves.toBe('data: {"type":"text-delta","text":"data: [DONE]"}\n\ndata: [DONE]\n\n')
   })
 
-  it("propagates partial UI message chat Response read failures", async () => {
+  it("ends a partial UI message chat Response that fails with an error frame", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
@@ -4153,7 +4209,8 @@ describe("server helpers", () => {
       { agentName: "support" },
     )
 
-    await expect(response.text()).rejects.toThrow("upstream failed")
+    // H3 1, which Nuxt 4 runs, never ends a Node response whose body fails.
+    await expect(response.text()).resolves.toBe('data: {"type":"text-delta","text":"partial"}\n\ndata: {"errorText":"upstream failed","type":"error"}\n\ndata: [DONE]\n\n')
   })
 
   it("serves default webChat routes with channel-owned trusted input mapping", async () => {
@@ -16075,7 +16132,8 @@ describe("server helpers", () => {
         handler(chatWebhookRequest(91_141), "telegram", runtime),
       ])
       await vi.waitFor(() => expect(inputs).toHaveLength(1))
-      expect(inputs[0]?.messages?.map((message) => message.id)).toEqual(["91140", "91141"])
+      // Concurrent webhook requests can reach the queue in either order.
+      expect(inputs[0]?.messages?.map((message) => message.id).sort()).toEqual(["91140", "91141"])
 
       // Chat SDK releases its lock after the Workflow handoff, so a later burst reaches the steer queue.
       await Promise.all([
@@ -16088,7 +16146,7 @@ describe("server helpers", () => {
       pending = undefined
       releasePending()
       await vi.waitFor(() => expect(inputs).toHaveLength(2))
-      expect(inputs[1]?.messages?.map((message) => message.id)).toEqual(["91142", "91143"])
+      expect(inputs[1]?.messages?.map((message) => message.id).sort()).toEqual(["91142", "91143"])
     } finally {
       pending = undefined
       releasePending()
@@ -17716,7 +17774,7 @@ describe("server helpers", () => {
     }
   })
 
-  it.each([true, false])("passes the failed Invocation to Chat error replies (errorConsoleLink: %s)", async (errorConsoleLink) => {
+  it.each([true, false])("passes the failed Invocation to Chat error replies (consoleLink: %s)", async (consoleLink) => {
     vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { support: "https://agents.example.test" } })
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
@@ -17725,7 +17783,7 @@ describe("server helpers", () => {
     const { agentInvocationId } = await import("../src/invocations.ts")
     const adapter = createTestChatAdapter({ deferMessageProcessing: true })
     // Each case needs its own message, because the Chat SDK drops duplicate message IDs.
-    const messageId = errorConsoleLink ? 7731 : 7732
+    const messageId = consoleLink ? 7731 : 7732
     const waitUntilTasks: Promise<unknown>[] = []
     const errorFallbackText = vi.fn((_context: { invocation?: { consoleUrl?: string, id: string }, run?: { runId: string } }) => "It failed.")
     const agent = defineAgent({
@@ -17734,7 +17792,7 @@ describe("server helpers", () => {
         defineChatCapability({
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
           platforms: { telegram: () => adapter as never },
-          errorConsoleLink,
+          consoleLink,
           errorFallbackText,
           webhooks: { telegram: {} },
         }),
@@ -17768,7 +17826,7 @@ describe("server helpers", () => {
       const id = await agentInvocationId(args.run!.runId, "support")
       const consoleUrl = `https://agents.example.test/_vitehub/agents/support/invocations/${encodeURIComponent(id)}`
       expect(args.invocation).toEqual({ consoleUrl, id })
-      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", errorConsoleLink ? `It failed.\n\nDetails: ${consoleUrl}` : "It failed.")
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", consoleLink ? `It failed.\n\nDetails: ${consoleUrl}` : "It failed.")
     }
     finally {
       consoleError.mockRestore()
@@ -20492,6 +20550,83 @@ describe("server helpers", () => {
       markdown: "Final customer reply",
     })
     expect(adapter.postMessage.mock.invocationCallOrder[1]).toBeLessThan(adapter.deleteMessage.mock.invocationCallOrder[0]!)
+  })
+
+  it.each([
+    { base: "/", consoleLink: true, messageId: 91_901 },
+    { base: "/", consoleLink: false, messageId: 91_902 },
+    { base: "/team_(east)/", consoleLink: true, messageId: 91_903 },
+    { base: "/team_east)/", consoleLink: true, messageId: 91_904 },
+  ])("links the running Invocation from the loading message (consoleLink: $consoleLink, base: $base)", async ({ base, consoleLink, messageId }) => {
+    vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { support: "https://agents.example.test" } })
+    vi.stubGlobal("__VITEHUB_APP_BASE_URL__", base)
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { agentInvocationId } = await import("../src/invocations.ts")
+    const adapter = createTestChatAdapter()
+    let runId: string | undefined
+    const agent = defineAgent({
+      name: "support",
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+          adapter: () => adapter as never,
+          messages: {
+            consoleLink,
+            delivery: "manual",
+            final: { delivery: "new-message" },
+            loading: { text: "Loading…", updates: "commentary" },
+          },
+        }),
+      },
+      driver: {
+        run: (context) => {
+          runId = context.run?.runId
+          return {
+            stream: (async function* () {
+              yield { delta: "Checking the request.", phase: "commentary", type: "text-delta" }
+              yield { finishReason: "stop", type: "finish" }
+            })(),
+          }
+        },
+      },
+      hooks: {
+        "agent:finish": (event) => event.reply("Final customer reply"),
+      },
+    })
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      const response = await handler(chatWebhookRequest(messageId), "telegram")
+
+      expect(response.status).toBe(200)
+      expect(runId).toBeDefined()
+      const id = await agentInvocationId(runId!, "support")
+      const consoleUrl = `https://agents.example.test${base}_vitehub/agents/support/invocations/${encodeURIComponent(id)}`
+      for (const message of [adapter.postMessage.mock.calls[0]?.[1], adapter.editMessage.mock.calls.at(-1)?.[2]]) {
+        if (!consoleLink) continue
+        const markdown = isRuntimeObject(message) && message && "markdown" in message && isRuntimeString(message.markdown) ? message.markdown : ""
+        expect(parseMarkdown(markdown)).toMatchObject({
+          children: [
+            { type: "paragraph" },
+            { children: [{ type: "link", url: consoleUrl }], type: "paragraph" },
+          ],
+        })
+      }
+      const footer = `\n\n[Details](<${consoleUrl}>)`
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", consoleLink ? { markdown: `Loading…${footer}` } : "Loading…")
+      expect(adapter.editMessage).toHaveBeenLastCalledWith("telegram:456", "sent-1", {
+        markdown: consoleLink ? `Checking the request.${footer}` : "Checking the request.",
+      })
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", {
+        markdown: "Final customer reply",
+      })
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it("shows only the latest commentary segment in the loading message", async () => {

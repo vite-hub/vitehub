@@ -1,8 +1,7 @@
-import { formatChannelCitationMessage, formatChannelCitationStream, formatChannelCitationText } from "../internal/channel-citations.ts"
+import { formatChannelCitationMessage, formatChannelCitationStream, formatChannelCitationText, transformChannelTextStream } from "../internal/channel-citations.ts"
 import { isDurableAgentState, requireAtomicAgentStateLock, type AgentStateCacheMutation, type AtomicAgentStateLockAdapter } from "../internal/state-lock.ts"
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
-import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { consoleInvocationUrl, createExecutionContext, createRuntimeContext as createHostRuntimeContext, getViteHubErrorShape, resolvePublicUrl, ViteHubError } from "@vite-hub/runtime"
+import { createExecutionContext, getViteHubErrorShape, ViteHubError } from "@vite-hub/runtime"
 import { Chat, Message, StreamingPlan, ThreadImpl, convertEmojiPlaceholders } from "chat"
 
 import {
@@ -38,15 +37,17 @@ import { createAgentInvocationContextStore } from "../invocation-context.ts"
 import { withAgentInvocationResponseOwner } from "../internal/agent-invocation-response-owner.ts"
 import { sameInlineInvoker } from "../internal/inline-invoker.ts"
 import { isResponse } from "../internal/response.ts"
-import { agentInvocationId, bindAgentInvocations, recoverInterruptedAgentInvocations } from "../invocations.ts"
+import { agentInvocationId, bindAgentInvocations, queuedAgentInvocation, recoverInterruptedAgentInvocations, runInvocationReference } from "../invocations.ts"
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 import { isAgentInvocationCancellationError } from "../internal/invocation-cancellation.ts"
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
 import { agentChannelHistoryHeader } from "../internal/channel-history.ts"
 import { agentChannelSyncProviderHeader } from "../internal/channel-sync.ts"
+import { getAgentChannelStatusDefinition } from "../internal/channel-status.ts"
+import type { AgentChannelStatus } from "../internal/channel-status.ts"
 import { attachmentStringBytes, blobArrayBuffer, blobSize, blobType, isArrayBufferValue, isAttachmentBlob, isAttachmentData, isAttachmentPart, isUint8ArrayValue } from "../messages.ts"
 import { agentInvokerLabel, hasResolvedAgentInvokerInput, resolveInputAgentInvoker, resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
-import { createAgentUIMessageStreamResponse } from "../stream-output.ts"
+import { createAgentUIMessageStreamResponse, isUIMessageStreamResponse, uiMessageStreamFromResponse } from "../stream-output.ts"
 import {
   bindAgentChannelTriggerQueue,
   bindAgentChannelTriggerState,
@@ -75,6 +76,7 @@ import type { ResolvedAgentTriggerInvocation } from "../trigger-runtime.ts"
 import { AgentHttpError, toHttpErrorResponse } from "../http-error.ts"
 import { isWorkflowRun } from "../http-response.ts"
 import { messageChannelStateContextKey } from "../internal/channels.ts"
+import { chatMessageHeaderPartType, createChatMetadataEchoFilter, formatChatHeaderTime, formatChatMessageHeader, formatChatReplyLine, stripEchoedChatMessageMetadata } from "../internal/chat-message-header.ts"
 import { chatFinalReplyContextKey, chatFinishDeliveryRegistrarKey, chatFinishDirectReplyTrace, chatFinishPrimaryReplyTrace } from "../internal/chat-finish-delivery.ts"
 import type { ChatFinalReplyMode, ChatFinishDeliveryCallback, ChatFinishDeliveryCapture, ChatFinishDeliveryRegistrar } from "../internal/chat-finish-delivery.ts"
 import { createAgentChatApprovalCustody, resolveAgentChatApprovalTtl, withAgentChatApprovalGrant } from "../internal/chat-approvals.ts"
@@ -99,8 +101,22 @@ import {
   isRuntimeUndefined,
 } from "../internal/runtime-value.ts"
 import { createAgentWebhookQueue, hasAgentWebhookQueue, webhookQueueStopGraceMs } from "../internal/webhook-queue.ts"
+import { channelTaskDebounceKey, registerChannelTaskQueue } from "../channel-tasks.ts"
+import type { ChannelTaskQueue } from "../channel-tasks.ts"
 import { sendAgentInvocationInput, activeAgentInvocation, registerActiveAgentInvocation } from "../internal/agent-invocation-control.ts"
 import { captureAgentInboundBody } from "./request-body.ts"
+import {
+  agentWebhookRegistrations,
+  createDeclaredWebhookPathMatcher,
+  createRuntimeContext,
+  normalizeWebhookPath,
+  resolveRuntimeWaitUntil,
+  routeAgentIdentity,
+  runWithRuntimeCloudflareEnv,
+  webhookRegistrationPaths,
+} from "./route-runtime.ts"
+import type { AgentRouteRuntimeOptions, AgentWebhookRegistrationMatch, ViteAgentRouteRuntimeConfig, ViteAgentRouteRuntimeContext } from "./route-runtime.ts"
+import { agentChannelDeliveryWorkflowStateResolver, resolveAgentChannelChatRouteHandlerOptions } from "./route-handlers.ts"
 import { acknowledgeWebhookAdmission, drainDeferredWebhookAdmissions, openWebhookInbox, replayWebhookInbox, resolveWebhookAckTimeoutMs, webhookDeliveryHeader, webhookInboxId } from "./webhook-inbox.ts"
 import type { WebhookInbox } from "./webhook-inbox.ts"
 import {
@@ -131,6 +147,7 @@ import type {
   AgentChannelDefinition,
   AgentChannelHistory,
   AgentChannelHistoryQuery,
+  AgentChannelStateBinding,
   AgentChannelDeliveryEventInput,
   AgentChannelDeliveryInspection,
   AgentChatErrorHookArgs,
@@ -148,10 +165,7 @@ import type {
   AgentRunInput,
   AgentRunMetadata,
   AgentToolStepItem,
-  AgentRuntimeConfig,
   AgentRuntimeContext,
-  ResolvedAgentRuntimeContext,
-  AgentRuntimeName,
   AgentWaitUntil,
   AgentWebhookRegistrationDefinition,
   AgentWebhookStateResolver,
@@ -189,49 +203,24 @@ import { agentDiagnostics, isAgentTypeDiagnostic } from "../agent-diagnostics.ts
 import { ChannelAdapterUnavailableError, ChannelArchiveTooLargeError, ChannelStateUnavailableError, ChannelThreadUnknownError, ChannelUnknownError } from "../channels-console-host.ts"
 import { channelConversationArchive, channelConversationPeople, stitchChannelConversation, stripChannelModelHeader, type ChannelConversationInvocation, type ChannelConversationMessage, type ChannelTranscriptEntry } from "../internal/channel-conversation.ts"
 
-interface ViteAgentRouteRuntimeConfig extends AgentRuntimeConfig {
-  agent?: unknown
-}
-
-interface ViteAgentRouteRuntimeContext extends ResolvedAgentRuntimeContext<ViteAgentRouteRuntimeConfig> {
-  request: Request
-  runtime: AgentRuntimeName
-  runtimeConfig: ViteAgentRouteRuntimeConfig
-}
-
-interface AgentRouteRuntimeOptions {
-  capabilities?: ViteAgentRouteRuntimeContext["capabilities"]
-  agentIdentity?: AgentHostIdentity
-  cloudflare?: ViteAgentRouteRuntimeContext["cloudflare"]
-  runtime?: AgentRuntimeName
-  /** Maximum inbound request bytes. Defaults to 1 MiB and cannot exceed 10 MiB. */
-  maxBodyBytes?: number
-  waitUntil?: AgentWaitUntil
-}
-
 const webhookInboxPriorAttempts = Symbol("webhookInboxPriorAttempts")
+const webhookInboxReceivedAt = Symbol("webhookInboxReceivedAt")
 
 export interface AgentChannelWebhookRouteOptions extends AgentRouteRuntimeOptions {
   agentName?: string
+  /** Explicit host context for trusted polling calls. */
+  runtimeContext?: AgentRuntimeContext
   state?: AgentChatStateResolver<ViteAgentRouteRuntimeConfig>
   webhookState?: AgentWebhookStateResolver<ViteAgentRouteRuntimeConfig>
 }
 
-type AgentChannelDeliveryWorkflowStateResolver = (
-  context: ViteAgentRouteRuntimeContext,
-  binding: AgentChannelDeliveryWorkflowBinding,
-) => MaybePromise<Pick<AgentChannelWebhookRouteOptions, "state" | "webhookState">>
-
-let agentChannelDeliveryWorkflowStateResolver: AgentChannelDeliveryWorkflowStateResolver | undefined
-
-export function setAgentChannelDeliveryWorkflowStateResolver(resolver: AgentChannelDeliveryWorkflowStateResolver): void {
-  agentChannelDeliveryWorkflowStateResolver = resolver
-}
-
 export interface AgentChannelWebhookRouteHandler {
   (request: Request, webhook?: string, options?: AgentChannelWebhookRouteOptions): Promise<Response>
-  /** Match a declared path without reading the request body or accepting a delivery. */
-  matchesPath(request: Request, options?: AgentChannelWebhookRouteOptions): Promise<boolean>
+  /**
+   * Resolve the declared webhook paths once and return a test for a request pathname. A caller can then decide from
+   * the pathname alone, without a Request, the request body, or a delivery.
+   */
+  declaredPathMatcher(request: Request, options?: AgentChannelWebhookRouteOptions): Promise<(pathname: string) => boolean>
   /** The Channels of the Agent that receive webhooks, with how long each keeps its history. For a trusted caller, such as the Console. */
   channels(request: Request, options?: AgentChannelWebhookRouteOptions): Promise<AgentChannelInfo[]>
   /**
@@ -246,7 +235,17 @@ export interface AgentChannelWebhookRouteHandler {
    * a journal read for every Invocation.
    */
   threads(request: Request, input: { channel: string, invokers?: boolean }, options?: AgentChannelWebhookRouteOptions): Promise<AgentChannelThread[]>
+  /** The State that the Channel's triggers see as `channelState`. For trusted callers, such as the Console. */
+  channelState(request: Request, channel: string, options?: AgentChannelWebhookRouteOptions): Promise<AgentChannelStateBinding>
+  /** Sync health and skipped messages of a Channel that reads a provider cursor, such as Gmail. `undefined` for other Channels. */
+  channelStatus(request: Request, channel: string, options?: AgentChannelWebhookRouteOptions): Promise<AgentChannelStatus | undefined>
   deliveries(request: Request, webhook?: string, options?: AgentChannelWebhookRouteOptions & { limit?: number }): Promise<AgentChannelDeliveryInspection[]>
+  /**
+   * Runs the `poll` trigger of each Channel of the Agent that is `channel`, with the Channel State that its webhook route
+   * uses, and waits for its work. Returns the IDs of the polled Channels. It checks nothing about the caller, so only
+   * trusted code, such as a Schedule, may call it.
+   */
+  poll(request: Request, channel: AgentChannelDefinition, options?: AgentChannelWebhookRouteOptions): Promise<string[]>
   resume(options?: AgentChannelWebhookResumeOptions): () => Promise<void>
   /**
    * Builds what the first delivery would otherwise build: the trigger registrations, the webhook secrets,
@@ -393,7 +392,6 @@ const chatFinishMessagesKey = Symbol("vitehub.chat.finish.messages")
 const chatNativeStreamUpdateIntervalMs = 1
 const chatTypingRefreshIntervalMs = 4000
 const chatTypingRefreshTimeoutMs = 2000
-const vercelFunctionsPackage = "@vercel/functions"
 
 interface QueuedChatFinishMessage {
   callbacks: ChatFinishDeliveryCallback[]
@@ -443,56 +441,6 @@ function readableStreamFromResult(value: unknown): ReadableStream<unknown> {
   if (value instanceof Response && value.body) return value.body
   if (isResponseLike(value)) return value.body
   throw agentDiagnostics.AGENT_R0769({ message: "[vitehub] Agent chat trigger expected a UI message stream." })
-}
-
-function isUiMessageStreamResponse(response: Response): boolean {
-  return response.headers.get("x-vercel-ai-ui-message-stream") === "v1"
-}
-
-function withCleanUiMessageStreamResponse(response: Response): Response {
-  if (!response.body || !isUiMessageStreamResponse(response)) return response
-
-  const doneFrame = new TextEncoder().encode("data: [DONE]\n\n")
-  const decoder = new TextDecoder()
-  const reader = response.body.getReader()
-  let tail = ""
-  const headers = new Headers([...response.headers.entries()])
-  headers.delete("content-encoding")
-  headers.delete("content-length")
-
-  function enqueueDone(controller: ReadableStreamDefaultController<Uint8Array>) {
-    if (!/(^|\r?\n)data: \[DONE]\r?\n\r?\n$/.test(tail)) {
-      controller.enqueue(doneFrame)
-    }
-  }
-
-  return new Response(
-    new ReadableStream<Uint8Array>({
-      async pull(controller) {
-        try {
-          const result = await reader.read()
-          if (result.done) {
-            enqueueDone(controller)
-            controller.close()
-            return
-          }
-
-          tail = `${tail}${decoder.decode(result.value, { stream: true })}`.slice(-128)
-          controller.enqueue(result.value)
-        } catch (error) {
-          controller.error(error)
-        }
-      },
-      async cancel(reason) {
-        await reader.cancel(reason)
-      },
-    }),
-    {
-      headers,
-      status: response.status,
-      statusText: response.statusText,
-    },
-  )
 }
 
 function createJsonErrorResponse(status: number, message: string): Response {
@@ -595,61 +543,12 @@ function serializeErrorForLog(
   return output
 }
 
-function detectRuntime(): AgentRuntimeName {
-  if ("Deno" in globalThis) return "deno"
-  const runtimeProcess = globalThis.process
-  const env = isRuntimeObject(runtimeProcess) ? runtimeProcess.env : undefined
-  if (env?.VERCEL) return "vercel"
-  return "unknown"
-}
-
-function routeAgentIdentity(options: AgentRouteRuntimeOptions & { agentName?: string }): AgentHostIdentity | undefined {
-  return options.agentIdentity || (options.agentName ? { name: options.agentName } : undefined)
-}
-
-function createRuntimeContext(
-  request: Request,
-  run: AgentRunMetadata | undefined,
-  waitUntil?: AgentWaitUntil,
-  cloudflare?: ViteAgentRouteRuntimeContext["cloudflare"],
-  runtimeOverride?: AgentRuntimeName,
-  capabilities?: ViteAgentRouteRuntimeContext["capabilities"],
-  agentIdentity?: AgentHostIdentity,
-): ViteAgentRouteRuntimeContext {
-  const runtime = cloudflare ? "cloudflare-agents" : runtimeOverride || detectRuntime()
-  return createHostRuntimeContext({
-    ...(capabilities ? { capabilities } : {}),
-    ...(agentIdentity ? { agentIdentity } : {}),
-    ...(cloudflare ? { cloudflare } : {}),
-    request,
-    ...(run ? { run } : {}),
-    runtime,
-    runtimeConfig: {},
-    ...(runtime === "vercel" && waitUntil ? { vercel: { waitUntil } } : {}),
-    ...(waitUntil ? { waitUntil } : {}),
-  })
-}
-
 function createRuntimeRequest(request: Request, body?: string | Uint8Array): Request {
   return new Request(request.url, {
     ...(body ? { body } : {}),
     headers: request.headers,
     method: request.method,
   })
-}
-
-async function runWithRuntimeCloudflareEnv<T>(context: ViteAgentRouteRuntimeContext, callback: () => Promise<T>): Promise<T> {
-  if (!context.cloudflare?.env) {
-    return callback()
-  }
-  return await runWithActiveCloudflareEnv(context.cloudflare.env, callback)
-}
-
-async function resolveRuntimeWaitUntil(waitUntil: AgentWaitUntil | undefined): Promise<AgentWaitUntil | undefined> {
-  if (detectRuntime() !== "vercel") return waitUntil
-  // SAFETY: The surrounding route guards establish this record shape before the value crosses the internal boundary.
-  const vercel = (await import(/* @vite-ignore */ vercelFunctionsPackage).catch(() => undefined)) as { waitUntil?: AgentWaitUntil } | undefined
-  return vercel?.waitUntil || waitUntil
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -750,20 +649,8 @@ function hasExplicitNonStreamingMessages(agent: unknown, channelId?: string): bo
   return channels.some((channel) => isRecord(channel) && isRecord(channel.messages) && channel.messages.stream === false)
 }
 
-interface AgentWebhookRegistrationMatch {
-  registration: AgentWebhookRegistrationDefinition
-  trigger: ResolvedAgentTriggerDefinition<ViteAgentRouteRuntimeConfig>
-}
-
-function normalizeWebhookPath(path: string): string {
-  const normalized = path.startsWith("/") ? path : `/${path}`
-  return normalized.length > 1 ? normalized.replace(/\/+$/, "") : normalized
-}
-
 function webhookRegistrationPathMatches(request: Request, registration: AgentWebhookRegistrationDefinition): boolean {
-  const pathname = normalizeWebhookPath(new URL(request.url).pathname)
-  const paths = [registration.path, ...(Array.isArray(registration.aliases) ? registration.aliases : [])]
-  return paths.some(path => isRuntimeString(path) && pathname === normalizeWebhookPath(path))
+  return webhookRegistrationPaths(registration).includes(normalizeWebhookPath(new URL(request.url).pathname))
 }
 
 async function findAgentWebhookRegistration(
@@ -785,22 +672,6 @@ async function findAgentWebhookRegistration(
   if (directMatches.length > 1) return undefined
   const providerMatches = registrations.filter(({ registration }) => registration.provider === webhook)
   return providerMatches.length === 1 ? providerMatches[0] : undefined
-}
-
-async function agentWebhookRegistrations(
-  agent: AgentInput<ViteAgentRouteRuntimeContext>,
-  context: ViteAgentRouteRuntimeContext,
-): Promise<AgentWebhookRegistrationMatch[]> {
-  // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
-  const triggers = await resolveAgentTriggers(agent as never, context as never)
-  return Object.values(triggers).flatMap((trigger) =>
-    (trigger.webhooks || []).map((registration) => ({
-      registration,
-      // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-      trigger: trigger as ResolvedAgentTriggerDefinition<ViteAgentRouteRuntimeConfig>,
-      // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-    })),
-  )
 }
 
 async function matchedWebhookRegistrationRequiresVerification(
@@ -871,12 +742,19 @@ async function settleChannelDeliveryInvocation(
   await recordChannelDeliveryEvidence(delivery, { ...input, type: terminal })
 }
 
+/**
+ * Records the delivery's outcome before the route answers with `response`. A 5xx with a
+ * `message`, such as an invalid trigger result, is recorded as `failed` with that message,
+ * so the delivery log says why the provider got a server error.
+ */
 async function terminalChannelDeliveryResponse(
   delivery: AgentChannelDeliveryTracker,
   response: Response,
-  type: "completed" | "failed" | "rejected" = "rejected",
+  type?: "completed" | "failed" | "rejected",
 ): Promise<Response> {
-  await recordChannelDeliveryEvidence(delivery, { type })
+  const body: unknown = response.status >= 500 ? await response.clone().json().catch(() => undefined) : undefined
+  const error = isRecord(body) && isRuntimeString(body.message) ? body.message : undefined
+  await recordChannelDeliveryEvidence(delivery, { ...(error ? { error } : {}), type: type ?? (error ? "failed" : "rejected") })
   return response
 }
 
@@ -965,14 +843,24 @@ function observeChatThread(thread: Thread, delivery: AgentChannelDeliveryTracker
   })
 }
 
-async function observeChannelDeliveryResponse(response: Response, delivery: AgentChannelDeliveryTracker, runId?: string): Promise<Response> {
-  const terminalType = response.ok ? "completed" : response.status >= 500 ? "failed" : "rejected"
-  if (!response.body) {
-    await settleChannelDeliveryInvocation(delivery, "completed", terminalType, { runId })
-    return response
-  }
-  const reader = response.body.getReader()
+function channelDeliveryTerminalType(response: Pick<Response, "ok" | "status">): "completed" | "failed" | "rejected" {
+  return response.ok ? "completed" : response.status >= 500 ? "failed" : "rejected"
+}
+
+/**
+ * Records the delivery's outcome when `stream` ends. A delivery fails when the stream fails, is cancelled, or has a
+ * chunk that `failure` reports.
+ */
+function observeChannelDeliveryStream<T>(
+  stream: ReadableStream<T>,
+  delivery: AgentChannelDeliveryTracker,
+  terminalType: "completed" | "failed" | "rejected",
+  runId?: string,
+  failure?: (chunk: T) => string | undefined,
+): ReadableStream<T> {
+  const reader = stream.getReader()
   let finished = false
+  let reported: string | undefined
   const complete = async () => {
     if (finished) return
     finished = true
@@ -986,30 +874,39 @@ async function observeChannelDeliveryResponse(response: Response, delivery: Agen
       runId,
     })
   }
-  return new Response(
-    new ReadableStream({
-      async pull(controller) {
-        try {
-          const next = await reader.read()
-          if (next.done) {
-            await complete()
-            controller.close()
-          } else controller.enqueue(next.value)
-        } catch (error) {
-          await fail(error)
-          controller.error(error)
+  return new ReadableStream<T>({
+    async pull(controller) {
+      try {
+        const next = await reader.read()
+        if (next.done) {
+          await (reported === undefined ? complete() : fail(reported))
+          controller.close()
+        } else {
+          reported ??= failure?.(next.value)
+          controller.enqueue(next.value)
         }
-      },
-      async cancel(reason) {
-        try {
-          await reader.cancel(reason)
-        } finally {
-          await fail(reason || agentDiagnostics.AGENT_R0771({ message: "Channel response stream was cancelled." }))
-        }
-      },
-    }),
-    response,
-  )
+      } catch (error) {
+        await fail(error)
+        controller.error(error)
+      }
+    },
+    async cancel(reason) {
+      try {
+        await reader.cancel(reason)
+      } finally {
+        await fail(reason || agentDiagnostics.AGENT_R0771({ message: "Channel response stream was cancelled." }))
+      }
+    },
+  })
+}
+
+async function observeChannelDeliveryResponse(response: Response, delivery: AgentChannelDeliveryTracker, runId?: string): Promise<Response> {
+  const terminalType = channelDeliveryTerminalType(response)
+  if (!response.body) {
+    await settleChannelDeliveryInvocation(delivery, "completed", terminalType, { runId })
+    return response
+  }
+  return new Response(observeChannelDeliveryStream(response.body, delivery, terminalType, runId), response)
 }
 
 function githubInstallationId(payload: unknown): number | undefined {
@@ -1087,12 +984,19 @@ async function resolveAgentWebhookState(
   registration: AgentWebhookRegistrationDefinition,
   handlerOptions: AgentChannelWebhookRouteOptions,
 ): Promise<{ keyPrefix: string; state: StateAdapter } | undefined> {
+  const { stateScope: declaredScope } = registration
+  const stateScope = declaredScope === undefined ? undefined : isRuntimeString(declaredScope) ? declaredScope.replace(/:+$/, "") : ""
+  if (stateScope !== undefined && !stateScope.trim()) {
+    throw new TypeError(`[vitehub] Webhook registration "${registration.id || registration.provider}" stateScope must be a non-empty string.`)
+  }
   const stateOption = handlerOptions.webhookState
   if (!stateOption) return
   const agentName = routeAgentIdentity(handlerOptions)?.name || "agent"
   const origin = chatRegistrationOrigin(registration)
   const registrationId = registration.id || registration.path || origin
-  const keyPrefix = `webhook:${webhookScopeComponent(agentName)}:${webhookScopeComponent(origin)}:${webhookScopeComponent(registrationId)}:`
+  const keyPrefix = stateScope === undefined
+    ? `webhook:${webhookScopeComponent(agentName)}:${webhookScopeComponent(origin)}:${webhookScopeComponent(registrationId)}:`
+    : `${stateScope}:`
   // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
   const state = await resolveMaybe(stateOption, {
     ...context,
@@ -1618,19 +1522,6 @@ function routeAgentInvocationName(agent: AgentInput<ViteAgentRouteRuntimeContext
   return (isRuntimeRecord(agent) && hasRuntimeType(agent.name, "string") && agent.name) || identity?.name
 }
 
-/** The Invocation ID and Console URL of a run. */
-async function runInvocationReference(agentName: string | undefined, run: AgentRunMetadata | undefined): Promise<AgentInvocationReference | undefined> {
-  if (!run?.runId) return
-  try {
-    const id = await agentInvocationId(run.runId, agentName)
-    const origin = agentName ? resolvePublicUrl({ agentName }) : undefined
-    return { id, ...(origin && agentName ? { consoleUrl: consoleInvocationUrl(origin, agentName, id) } : {}) }
-  }
-  catch {
-    return undefined
-  }
-}
-
 async function notifyQueuedWebhookFailure(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   handlerOptions: AgentChannelWebhookRouteOptions,
@@ -1810,6 +1701,7 @@ async function executeQueuedWebhookDelivery(
   delivery: AgentWebhookQueueLease,
   handlerOptions: AgentChannelWebhookRouteOptions,
   lifecycleSignal: AbortSignal,
+  webhookQueue: AgentWebhookQueue<AgentChannelWebhookRouteOptions>,
 ): Promise<number | undefined> {
   if (delivery.failure) {
     // SAFETY: The queue persists invocation input and run metadata from this route contract.
@@ -1990,10 +1882,20 @@ async function executeQueuedWebhookDelivery(
     if (invocation?.input) {
       invocation = { ...invocation, input: migratePersistedForgeContext(invocation.input as Record<string, unknown>) as AgentRunInput }
     }
-    // Resolve the registration for every replay so persisted invocations receive the same request-scoped Channel State binding.
+    // Resolve the registration for every replay so persisted invocations receive the same request-scoped Channel State and queue bindings.
     const replayMatch = await Promise.race([runWithRuntimeCloudflareEnv(context, async () => {
       const match = await findAgentWebhookRegistration(agent, context, request, delivery.webhookId)
-      if (match?.registration.channelId) bindAgentChannelTriggerState(request, match.registration.channelId, { keyPrefix: `${delivery.scope}channel-state:`, state })
+      if (match?.registration.channelId) {
+        bindAgentChannelTriggerState(request, match.registration.channelId, { keyPrefix: `${delivery.scope}channel-state:`, state })
+        // A queued task can call `dispatch({ queue: true })` or `pull()`, as `invoke` can on the webhook route.
+        if (hasAgentWebhookQueue(state)) {
+          bindAgentChannelTriggerQueue(
+            request,
+            match.registration.channelId,
+            createQueuedChannelDispatch(agent, request, match.registration, delivery.webhookId, { keyPrefix: delivery.scope, state }, handlerOptions, webhookQueue),
+          )
+        }
+      }
       return match
     }), executionTimeout])
     let accepted: ResolvedAgentTriggerInvocation<ViteAgentRouteRuntimeConfig> | undefined
@@ -2081,7 +1983,7 @@ async function executeQueuedWebhookDelivery(
       armExecutionTimeout(webhookQueueExecutionTimeout(executionAgent, invocation.input))
       // `prepare` and a task's `run` see the queue's abort signal, as an Agent Invocation does.
       const abortSignal = accepted.input.abortSignal ? AbortSignal.any([accepted.input.abortSignal, ownershipAbort.signal]) : ownershipAbort.signal
-      const prepared = await Promise.race([prepareAgentTriggerInvocation({ ...accepted, input: { ...accepted.input, abortSignal } }), executionTimeout])
+      const prepared = await Promise.race([prepareAgentTriggerInvocation({ ...accepted, input: { ...accepted.input, abortSignal } }, routeAgentInvocationName(agent, routeAgentIdentity(handlerOptions))), executionTimeout])
       if (isResolvedAgentTriggerHandledInvocation(prepared)) {
         invocation = undefined
         handledResponse = prepared.response
@@ -2120,7 +2022,12 @@ async function executeQueuedWebhookDelivery(
         handlerOptions.capabilities,
         executionAgent !== agent ? taskAgentIdentity(executionAgent) : routeAgentIdentity(handlerOptions),
       )
-      const runContext = channelDelivery ? withAgentChannelDelivery(baseRunContext, channelDelivery) : baseRunContext
+      const deliveryRunContext = channelDelivery ? withAgentChannelDelivery(baseRunContext, channelDelivery) : baseRunContext
+      // A shutdown requeue can keep its attempt count, so every lease may reopen an earlier failed Invocation.
+      const runContext = {
+        ...deliveryRunContext,
+        [queuedAgentInvocation]: { reopenFailed: true, retryPending: delivery.attempts + 1 < maxWebhookQueueAttempts },
+      }
       await runWithRuntimeCloudflareEnv(runContext, async () => {
         const invocationStartup = startAgentInvocation(
           // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
@@ -2463,7 +2370,7 @@ function createManualDeliveryProgressUpdater(
   manualDelivery: { placeholder?: unknown },
   waitUntil: AgentWaitUntil,
   abortSignal?: AbortSignal,
-  options?: { intervalMs?: number, updates?: "commentary" },
+  options?: { footer?: string, intervalMs?: number, updates?: "commentary" },
 ): {
   finish: () => Promise<void>
   update: (event: unknown) => void
@@ -2495,7 +2402,7 @@ function createManualDeliveryProgressUpdater(
     const summary = latest
     latest = undefined
     await replaceManualDeliveryPlaceholder(manualDelivery.placeholder, {
-      markdown: summary,
+      markdown: `${summary}${options?.footer ?? ""}`,
     }).catch(() => false)
     lastUpdateAt = Date.now()
   }
@@ -2971,8 +2878,8 @@ async function postChatStream(
   if (fallback) fallback = formatChannelCitationText(fallback)
   const originalResponse = response
   response = {
-    getText: () => formatChannelCitationText(originalResponse.getText()),
-    [Symbol.asyncIterator]: () => formatChannelCitationStream(originalResponse)[Symbol.asyncIterator](),
+    getText: () => formatChannelCitationText(stripEchoedChatMessageMetadata(originalResponse.getText())),
+    [Symbol.asyncIterator]: () => formatChannelCitationStream(transformChannelTextStream(originalResponse, createChatMetadataEchoFilter))[Symbol.asyncIterator](),
   }
   abortSignal?.throwIfAborted()
   let sent: unknown
@@ -3425,8 +3332,9 @@ async function resolveWorkflowAgentChannelDelivery(
     channelId: binding.channelId,
     id: binding.channelId,
     provider: binding.provider,
+    stateScope: binding.stateScope,
   }
-  const handlerOptions = (await agentChannelDeliveryWorkflowStateResolver?.(context, binding)) || {}
+  const handlerOptions = (await agentChannelDeliveryWorkflowStateResolver()?.(context, binding)) || {}
   const webhookState = binding.state === "webhook" ? await resolveAgentWebhookState(context, registration, handlerOptions) : undefined
   const state =
     webhookState || (await resolveChatState(getChannelChatOptions(agent, binding.channelId, getAgentChatOptions(agent)), context, registration, handlerOptions))
@@ -3434,334 +3342,487 @@ async function resolveWorkflowAgentChannelDelivery(
   return await resumeAgentChannelDelivery(state.state, binding.deliveryId)
 }
 
-export function installAgentChannelDeliveryWorkflowResolver(): void {
-  setAgentChannelDeliveryWorkflowResolver(
-    async (agent, context, binding) =>
+/** The Channel delivery resolvers of Agent workflows. This module installs them when it loads. */
+export const agentChannelDeliveryWorkflowResolver: Parameters<typeof setAgentChannelDeliveryWorkflowResolver>[0] = async (agent, context, binding) =>
+  // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+  await resolveWorkflowAgentChannelDelivery(agent as AgentInput<ViteAgentRouteRuntimeContext>, context as ViteAgentRouteRuntimeContext, binding)
+
+export const agentChannelDeliveryWorkflowOwnershipResolver: Parameters<typeof setAgentChannelDeliveryWorkflowOwnershipResolver>[0] = async (agent, context, binding) => {
+  if (!binding.steer) return
+  const registration = {
+    channelId: binding.channelId,
+    id: binding.channelId,
+    provider: binding.provider,
+  }
+  // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+  const handlerOptions = (await agentChannelDeliveryWorkflowStateResolver()?.(context as ViteAgentRouteRuntimeContext, binding)) || {}
+  const resolved = await resolveChatState(
+    getChannelChatOptions(
       // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-      await resolveWorkflowAgentChannelDelivery(agent as AgentInput<ViteAgentRouteRuntimeContext>, context as ViteAgentRouteRuntimeContext, binding),
-  )
-  setAgentChannelDeliveryWorkflowOwnershipResolver(async (agent, context, binding) => {
-    if (!binding.steer) return
-    const registration = {
-      channelId: binding.channelId,
-      id: binding.channelId,
-      provider: binding.provider,
-    }
+      agent as AgentInput<ViteAgentRouteRuntimeContext>,
+      binding.channelId,
+      // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+      getAgentChatOptions(agent as AgentInput<ViteAgentRouteRuntimeContext>),
+      // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+    ),
     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-    const handlerOptions = (await agentChannelDeliveryWorkflowStateResolver?.(context as ViteAgentRouteRuntimeContext, binding)) || {}
-    const resolved = await resolveChatState(
-      getChannelChatOptions(
-        // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-        agent as AgentInput<ViteAgentRouteRuntimeContext>,
-        binding.channelId,
-        // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-        getAgentChatOptions(agent as AgentInput<ViteAgentRouteRuntimeContext>),
-        // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-      ),
-      // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-      context as ViteAgentRouteRuntimeContext,
-      registration,
-      handlerOptions,
-    )
-    await resolved.state.connect()
-    requireAtomicAgentStateQueue(resolved.state)
-    const { claimId, lock, pendingQueue: ownedPendingQueue, queue, ttlMs } = binding.steer
-    const executionTtlMs = ttlMs
-    const executionLock = await acquireRequiredStateLock(resolved.state, `${ownedPendingQueue}:execution:${claimId}`, executionTtlMs)
-    let ownershipLost = false
-    const executionAbort = new AbortController()
-    const loseOwnership = () => {
-      ownershipLost = true
-      if (!executionAbort.signal.aborted) executionAbort.abort(agentDiagnostics.AGENT_R0788({ message: "[vitehub] Durable steered Channel delivery lost execution ownership." }))
-    }
-    const stopExecutionHeartbeat = startWebhookLockHeartbeat(resolved.state, executionLock, executionTtlMs, loseOwnership)
-    let pending: DurableSteerQueueEntry | null
-    try {
-      const ownerExtensionStartedAt = Date.now()
-      if (!(await resolved.state.extendLock(lock, ttlMs))) {
-        const recoveryLock = await acquireRequiredStateLock(resolved.state, `${lock.threadId}:handoff`, ttlMs)
-        let recoveryOwnershipLost = false
-        const stopRecoveryHeartbeat = startWebhookLockHeartbeat(resolved.state, recoveryLock, ttlMs, () => {
-          recoveryOwnershipLost = true
-        })
-        try {
-          pending = await claimDurableSteerPending(resolved.state, ownedPendingQueue, lock.token, claimId)
-          if (pending?.message?.input) {
-            if (pending.message.settlementStatus === "failed" && pending.message.settlementError) {
-              await failDurableSteerQueue(
-                resolved.state,
-                queue,
-                ownedPendingQueue,
-                pending,
-                agentDiagnostics.AGENT_R0789({ message: pending.message.settlementError }),
-                async (delivery, failure) =>
-                  await postDurableSteerErrorFallback(
-                    // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-                    agent as AgentInput<ViteAgentRouteRuntimeContext>,
-                    // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-                    context as ViteAgentRouteRuntimeContext,
-                    registration,
-                    { state: resolved.state, keyPrefix: resolved.titleKeyPrefix },
-                    delivery,
-                    failure,
-                    Date.now(),
-                    async () => {
-                      if (recoveryOwnershipLost || !(await resolved.state.extendLock(recoveryLock, ttlMs))) {
-                        throw agentDiagnostics.AGENT_R0790({ message: "[vitehub] Durable steered Channel delivery lost fallback ownership." })
-                      }
-                    },
-                  ),
-              )
-              stopExecutionHeartbeat()
-              await resolved.state.releaseLock(executionLock).catch(() => undefined)
-              return {
-                retrySettlementFailures: true,
-                settlementError: pending.message.settlementError,
-                settlementStatus: "failed",
-                verify: async () => undefined,
-                settle: async () => undefined,
-              }
+    context as ViteAgentRouteRuntimeContext,
+    registration,
+    handlerOptions,
+  )
+  await resolved.state.connect()
+  requireAtomicAgentStateQueue(resolved.state)
+  const { claimId, lock, pendingQueue: ownedPendingQueue, queue, ttlMs } = binding.steer
+  const executionTtlMs = ttlMs
+  const executionLock = await acquireRequiredStateLock(resolved.state, `${ownedPendingQueue}:execution:${claimId}`, executionTtlMs)
+  let ownershipLost = false
+  const executionAbort = new AbortController()
+  const loseOwnership = () => {
+    ownershipLost = true
+    if (!executionAbort.signal.aborted) executionAbort.abort(agentDiagnostics.AGENT_R0788({ message: "[vitehub] Durable steered Channel delivery lost execution ownership." }))
+  }
+  const stopExecutionHeartbeat = startWebhookLockHeartbeat(resolved.state, executionLock, executionTtlMs, loseOwnership)
+  let pending: DurableSteerQueueEntry | null
+  try {
+    const ownerExtensionStartedAt = Date.now()
+    if (!(await resolved.state.extendLock(lock, ttlMs))) {
+      const recoveryLock = await acquireRequiredStateLock(resolved.state, `${lock.threadId}:handoff`, ttlMs)
+      let recoveryOwnershipLost = false
+      const stopRecoveryHeartbeat = startWebhookLockHeartbeat(resolved.state, recoveryLock, ttlMs, () => {
+        recoveryOwnershipLost = true
+      })
+      try {
+        pending = await claimDurableSteerPending(resolved.state, ownedPendingQueue, lock.token, claimId)
+        if (pending?.message?.input) {
+          if (pending.message.settlementStatus === "failed" && pending.message.settlementError) {
+            await failDurableSteerQueue(
+              resolved.state,
+              queue,
+              ownedPendingQueue,
+              pending,
+              agentDiagnostics.AGENT_R0789({ message: pending.message.settlementError }),
+              async (delivery, failure) =>
+                await postDurableSteerErrorFallback(
+                  // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+                  agent as AgentInput<ViteAgentRouteRuntimeContext>,
+                  // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+                  context as ViteAgentRouteRuntimeContext,
+                  registration,
+                  { state: resolved.state, keyPrefix: resolved.titleKeyPrefix },
+                  delivery,
+                  failure,
+                  Date.now(),
+                  async () => {
+                    if (recoveryOwnershipLost || !(await resolved.state.extendLock(recoveryLock, ttlMs))) {
+                      throw agentDiagnostics.AGENT_R0790({ message: "[vitehub] Durable steered Channel delivery lost fallback ownership." })
+                    }
+                  },
+                ),
+            )
+            stopExecutionHeartbeat()
+            await resolved.state.releaseLock(executionLock).catch(() => undefined)
+            return {
+              retrySettlementFailures: true,
+              settlementError: pending.message.settlementError,
+              settlementStatus: "failed",
+              verify: async () => undefined,
+              settle: async () => undefined,
             }
-            await restoreDurableSteerQueue(resolved.state, queue, pending.message)
-            const atomicQueue = requireAtomicAgentStateQueue(resolved.state)
-            // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-            const restored = (await atomicQueue.queuePeek(queue)) as DurableSteerQueueEntry | null
-            if (restored?.message?.input) {
-              const restoredMessage = restored.message
-              const recoveredLock = await acquireRequiredStateLock(resolved.state, lock.threadId, ttlMs)
-              let recoveredOwnershipLost = false
-              const stopRecoveredHeartbeat = startWebhookLockHeartbeat(resolved.state, recoveredLock, ttlMs, () => {
-                recoveredOwnershipLost = true
-              })
-              const recoveredClaimId = crypto.randomUUID()
-              const recoveredDelivery = restored.message.input.context?.[agentChannelDeliveryWorkflowContextKey]
-              const recoveredInput: AgentRunInput = {
-                ...restored.message.input,
-                context: {
-                  ...restored.message.input.context,
-                  [agentChannelDeliveryWorkflowContextKey]: {
-                    ...(isRecord(recoveredDelivery) ? recoveredDelivery : {}),
-                    steer: {
-                      ...binding.steer,
-                      claimId: recoveredClaimId,
-                      deliveryIds: durableSteerMergedDeliveryIds(restored.message, isRecord(recoveredDelivery) ? recoveredDelivery.deliveryId : undefined),
-                      lock: recoveredLock,
-                      pendingQueue: ownedPendingQueue,
-                    },
+          }
+          await restoreDurableSteerQueue(resolved.state, queue, pending.message)
+          const atomicQueue = requireAtomicAgentStateQueue(resolved.state)
+          // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+          const restored = (await atomicQueue.queuePeek(queue)) as DurableSteerQueueEntry | null
+          if (restored?.message?.input) {
+            const restoredMessage = restored.message
+            const recoveredLock = await acquireRequiredStateLock(resolved.state, lock.threadId, ttlMs)
+            let recoveredOwnershipLost = false
+            const stopRecoveredHeartbeat = startWebhookLockHeartbeat(resolved.state, recoveredLock, ttlMs, () => {
+              recoveredOwnershipLost = true
+            })
+            const recoveredClaimId = crypto.randomUUID()
+            const recoveredDelivery = restored.message.input.context?.[agentChannelDeliveryWorkflowContextKey]
+            const recoveredInput: AgentRunInput = {
+              ...restored.message.input,
+              context: {
+                ...restored.message.input.context,
+                [agentChannelDeliveryWorkflowContextKey]: {
+                  ...(isRecord(recoveredDelivery) ? recoveredDelivery : {}),
+                  steer: {
+                    ...binding.steer,
+                    claimId: recoveredClaimId,
+                    deliveryIds: durableSteerMergedDeliveryIds(restored.message, isRecord(recoveredDelivery) ? recoveredDelivery.deliveryId : undefined),
+                    lock: recoveredLock,
+                    pendingQueue: ownedPendingQueue,
                   },
                 },
+              },
+            }
+            const recoveredPending: DurableSteerQueueEntry = {
+              enqueuedAt: Date.now(),
+              expiresAt: Number.MAX_SAFE_INTEGER,
+              message: {
+                ...restored.message,
+                claimId: recoveredClaimId,
+                input: recoveredInput,
+                ownerToken: recoveredLock.token,
+              },
+            }
+            // Replace the expired Workflow's claim atomically. Provider retry can
+            // still recover the old claim until its replacement is durable.
+            // SAFETY: Both entries are normalized durable queue data owned by this route boundary.
+            if (!(await atomicQueue.queueReplaceHead(ownedPendingQueue, pending as never, [recoveredPending] as never, 1))) {
+              stopRecoveredHeartbeat()
+              await resolved.state.releaseLock(recoveredLock).catch(() => undefined)
+              throw agentDiagnostics.AGENT_R0791({ message: "[vitehub] Durable steered Channel delivery pending ownership changed during recovery." })
+            }
+            // SAFETY: restored was read from this atomic queue and retains its internal entry representation.
+            if (!(await atomicQueue.queueReplaceHead(queue, restored as never, [], durableSteerQueueMaximum))) {
+              stopRecoveredHeartbeat()
+              await acknowledgeDurableSteerPending(resolved.state, ownedPendingQueue, recoveredPending)
+              await resolved.state.releaseLock(recoveredLock).catch(() => undefined)
+              throw agentDiagnostics.AGENT_R0792({ message: "[vitehub] Durable steered Channel delivery queue changed while restored ownership was being claimed." })
+            }
+            let recoveredWorkflowInput = recoveredInput
+            if (restored.message.parsedMessageMeta !== undefined) {
+              recoveredWorkflowInput = restoreParsedAgentMessageMeta(
+                // SAFETY: route discovery narrows this runtime value to an Agent Definition before recovery starts.
+                agent as AgentDefinition | undefined,
+                recoveredWorkflowInput,
+                restored.message.run,
+                restored.message.parsedMessageMeta,
+              )
+            }
+            const recoveredDerivedInvokerNeedsResolution = restored.message.parsedMessageMeta?.derivedInvoker
+              && !hasParsedAgentMessageMeta(agent as AgentDefinition | undefined, recoveredWorkflowInput, restored.message.run)
+            if (restored.message.resolvedInvoker && !recoveredDerivedInvokerNeedsResolution) {
+              const recoveredInvoker = resolveInputAgentInvoker(recoveredWorkflowInput.context)
+              if (recoveredInvoker) recoveredWorkflowInput = withResolvedAgentInvokerInput(recoveredWorkflowInput, recoveredInvoker)
+            }
+            let recoveredWorkflowAccepted = false
+            let recoveredWorkflowRetryRegistered = false
+            try {
+              if (recoveryOwnershipLost || recoveredOwnershipLost) {
+                throw agentDiagnostics.AGENT_R0793({ message: "[vitehub] Durable steered Channel delivery lost recovered startup ownership." })
               }
-              const recoveredPending: DurableSteerQueueEntry = {
-                enqueuedAt: Date.now(),
-                expiresAt: Number.MAX_SAFE_INTEGER,
-                message: {
-                  ...restored.message,
-                  claimId: recoveredClaimId,
-                  input: recoveredInput,
-                  ownerToken: recoveredLock.token,
-                },
+              // SAFETY: The owning route supplies normalized Agent and runtime values to the internal startup boundary.
+              await startAgentInvocation(
+                // SAFETY: The route resolver receives the internal Agent representation expected by startup.
+                agent as never,
+                // SAFETY: The recovered context preserves the owning route context and portable provider fields.
+                await restoreDurableSteerRuntimeContext(context as ViteAgentRouteRuntimeContext, restoredMessage) as never,
+                // SAFETY: recoveredWorkflowInput is reconstructed from persisted, normalized Agent input.
+                recoveredWorkflowInput as never,
+              )
+              recoveredWorkflowAccepted = true
+              if (!recoveryOwnershipLost && !(await resolved.state.extendLock(recoveryLock, ttlMs))) recoveryOwnershipLost = true
+              if (!recoveredOwnershipLost && !(await resolved.state.extendLock(recoveredLock, ttlMs))) recoveredOwnershipLost = true
+              if (recoveryOwnershipLost || recoveredOwnershipLost) {
+                throw agentDiagnostics.AGENT_R0794({ message: "[vitehub] Durable steered Channel delivery lost recovered startup ownership." })
               }
-              // Replace the expired Workflow's claim atomically. Provider retry can
-              // still recover the old claim until its replacement is durable.
-              // SAFETY: Both entries are normalized durable queue data owned by this route boundary.
-              if (!(await atomicQueue.queueReplaceHead(ownedPendingQueue, pending as never, [recoveredPending] as never, 1))) {
-                stopRecoveredHeartbeat()
-                await resolved.state.releaseLock(recoveredLock).catch(() => undefined)
-                throw agentDiagnostics.AGENT_R0791({ message: "[vitehub] Durable steered Channel delivery pending ownership changed during recovery." })
-              }
-              // SAFETY: restored was read from this atomic queue and retains its internal entry representation.
-              if (!(await atomicQueue.queueReplaceHead(queue, restored as never, [], durableSteerQueueMaximum))) {
-                stopRecoveredHeartbeat()
-                await acknowledgeDurableSteerPending(resolved.state, ownedPendingQueue, recoveredPending)
-                await resolved.state.releaseLock(recoveredLock).catch(() => undefined)
-                throw agentDiagnostics.AGENT_R0792({ message: "[vitehub] Durable steered Channel delivery queue changed while restored ownership was being claimed." })
-              }
-              let recoveredWorkflowInput = recoveredInput
-              if (restored.message.parsedMessageMeta !== undefined) {
-                recoveredWorkflowInput = restoreParsedAgentMessageMeta(
-                  // SAFETY: route discovery narrows this runtime value to an Agent Definition before recovery starts.
-                  agent as AgentDefinition | undefined,
-                  recoveredWorkflowInput,
-                  restored.message.run,
-                  restored.message.parsedMessageMeta,
+            } catch (error) {
+              if (!recoveredWorkflowAccepted && isAmbiguousAgentWorkflowStartFailure(error)) {
+                recoveredWorkflowRetryRegistered = true
+                registerAgentWorkflowRetry(
+                  context,
+                  new Promise<void>((resolve) => setTimeout(resolve, 10)).then(async () => {
+                    if (recoveryOwnershipLost || recoveredOwnershipLost) {
+                      throw agentDiagnostics.AGENT_R0795({ message: "[vitehub] Durable steered Channel delivery lost recovered retry ownership." })
+                    }
+                    await startAgentInvocation(
+                      // SAFETY: The route resolver receives the internal Agent representation expected by startup.
+                      agent as never,
+                      // SAFETY: The recovered context preserves the owning route context and portable provider fields.
+                      await restoreDurableSteerRuntimeContext(context as ViteAgentRouteRuntimeContext, restoredMessage) as never,
+                      // SAFETY: recoveredWorkflowInput is reconstructed from persisted, normalized Agent input.
+                      recoveredWorkflowInput as never,
+                    )
+                    if (!recoveredOwnershipLost && !(await resolved.state.extendLock(recoveredLock, ttlMs))) {
+                      recoveredOwnershipLost = true
+                    }
+                    if (recoveryOwnershipLost || recoveredOwnershipLost) {
+                      throw agentDiagnostics.AGENT_R0796({ message: "[vitehub] Durable steered Channel delivery lost recovered retry ownership." })
+                    }
+                  }).finally(stopRecoveredHeartbeat),
                 )
               }
-              const recoveredDerivedInvokerNeedsResolution = restored.message.parsedMessageMeta?.derivedInvoker
-                && !hasParsedAgentMessageMeta(agent as AgentDefinition | undefined, recoveredWorkflowInput, restored.message.run)
-              if (restored.message.resolvedInvoker && !recoveredDerivedInvokerNeedsResolution) {
-                const recoveredInvoker = resolveInputAgentInvoker(recoveredWorkflowInput.context)
-                if (recoveredInvoker) recoveredWorkflowInput = withResolvedAgentInvokerInput(recoveredWorkflowInput, recoveredInvoker)
+              if (!recoveredWorkflowAccepted && !isAmbiguousAgentWorkflowStartFailure(error)) {
+                // Restore the expired Workflow's claim so a provider retry can autonomously
+                // attempt recovery again without waiting for another Channel webhook.
+                // SAFETY: Both entries came from this queue's normalized durable delivery payloads.
+                if (!(await atomicQueue.queueReplaceHead(ownedPendingQueue, recoveredPending as never, [pending] as never, 1))) {
+                  stopRecoveredHeartbeat()
+                  throw agentDiagnostics.AGENT_R0797({ message: "[vitehub] Durable steered Channel delivery pending ownership changed during failed-start restoration." })
+                }
               }
-              let recoveredWorkflowAccepted = false
-              let recoveredWorkflowRetryRegistered = false
-              try {
-                if (recoveryOwnershipLost || recoveredOwnershipLost) {
-                  throw agentDiagnostics.AGENT_R0793({ message: "[vitehub] Durable steered Channel delivery lost recovered startup ownership." })
-                }
-                // SAFETY: The owning route supplies normalized Agent and runtime values to the internal startup boundary.
-                await startAgentInvocation(
-                  // SAFETY: The route resolver receives the internal Agent representation expected by startup.
-                  agent as never,
-                  // SAFETY: The recovered context preserves the owning route context and portable provider fields.
-                  await restoreDurableSteerRuntimeContext(context as ViteAgentRouteRuntimeContext, restoredMessage) as never,
-                  // SAFETY: recoveredWorkflowInput is reconstructed from persisted, normalized Agent input.
-                  recoveredWorkflowInput as never,
-                )
-                recoveredWorkflowAccepted = true
-                if (!recoveryOwnershipLost && !(await resolved.state.extendLock(recoveryLock, ttlMs))) recoveryOwnershipLost = true
-                if (!recoveredOwnershipLost && !(await resolved.state.extendLock(recoveredLock, ttlMs))) recoveredOwnershipLost = true
-                if (recoveryOwnershipLost || recoveredOwnershipLost) {
-                  throw agentDiagnostics.AGENT_R0794({ message: "[vitehub] Durable steered Channel delivery lost recovered startup ownership." })
-                }
-              } catch (error) {
-                if (!recoveredWorkflowAccepted && isAmbiguousAgentWorkflowStartFailure(error)) {
-                  recoveredWorkflowRetryRegistered = true
-                  registerAgentWorkflowRetry(
-                    context,
-                    new Promise<void>((resolve) => setTimeout(resolve, 10)).then(async () => {
-                      if (recoveryOwnershipLost || recoveredOwnershipLost) {
-                        throw agentDiagnostics.AGENT_R0795({ message: "[vitehub] Durable steered Channel delivery lost recovered retry ownership." })
-                      }
-                      await startAgentInvocation(
-                        // SAFETY: The route resolver receives the internal Agent representation expected by startup.
-                        agent as never,
-                        // SAFETY: The recovered context preserves the owning route context and portable provider fields.
-                        await restoreDurableSteerRuntimeContext(context as ViteAgentRouteRuntimeContext, restoredMessage) as never,
-                        // SAFETY: recoveredWorkflowInput is reconstructed from persisted, normalized Agent input.
-                        recoveredWorkflowInput as never,
-                      )
-                      if (!recoveredOwnershipLost && !(await resolved.state.extendLock(recoveredLock, ttlMs))) {
-                        recoveredOwnershipLost = true
-                      }
-                      if (recoveryOwnershipLost || recoveredOwnershipLost) {
-                        throw agentDiagnostics.AGENT_R0796({ message: "[vitehub] Durable steered Channel delivery lost recovered retry ownership." })
-                      }
-                    }).finally(stopRecoveredHeartbeat),
-                  )
-                }
-                if (!recoveredWorkflowAccepted && !isAmbiguousAgentWorkflowStartFailure(error)) {
-                  // Restore the expired Workflow's claim so a provider retry can autonomously
-                  // attempt recovery again without waiting for another Channel webhook.
-                  // SAFETY: Both entries came from this queue's normalized durable delivery payloads.
-                  if (!(await atomicQueue.queueReplaceHead(ownedPendingQueue, recoveredPending as never, [pending] as never, 1))) {
-                    stopRecoveredHeartbeat()
-                    throw agentDiagnostics.AGENT_R0797({ message: "[vitehub] Durable steered Channel delivery pending ownership changed during failed-start restoration." })
-                  }
-                }
-                if (recoveryOwnershipLost || recoveredOwnershipLost) {
-                  stopRecoveredHeartbeat()
-                  if (recoveredOwnershipLost) {
-                    await resolved.state.releaseLock(recoveredLock).catch(() => undefined)
-                    throw error
-                  }
-                  if (!recoveredWorkflowAccepted) throw error
-                }
-                if (!recoveredWorkflowAccepted && !isAmbiguousAgentWorkflowStartFailure(error)) {
-                  stopRecoveredHeartbeat()
+              if (recoveryOwnershipLost || recoveredOwnershipLost) {
+                stopRecoveredHeartbeat()
+                if (recoveredOwnershipLost) {
                   await resolved.state.releaseLock(recoveredLock).catch(() => undefined)
                   throw error
                 }
+                if (!recoveredWorkflowAccepted) throw error
               }
-              if (!recoveredWorkflowRetryRegistered) stopRecoveredHeartbeat()
-              stopExecutionHeartbeat()
-              await resolved.state.releaseLock(executionLock).catch(() => undefined)
-              return { handedOff: true, verify: async () => undefined, settle: async () => undefined }
+              if (!recoveredWorkflowAccepted && !isAmbiguousAgentWorkflowStartFailure(error)) {
+                stopRecoveredHeartbeat()
+                await resolved.state.releaseLock(recoveredLock).catch(() => undefined)
+                throw error
+              }
             }
+            if (!recoveredWorkflowRetryRegistered) stopRecoveredHeartbeat()
+            stopExecutionHeartbeat()
+            await resolved.state.releaseLock(executionLock).catch(() => undefined)
+            return { handedOff: true, verify: async () => undefined, settle: async () => undefined }
           }
-        } finally {
-          stopRecoveryHeartbeat()
-          await resolved.state.releaseLock(recoveryLock).catch(() => undefined)
         }
-        throw agentDiagnostics.AGENT_R0798({ message: "[vitehub] Durable steered Channel delivery lost ownership before its Agent Workflow started." })
+      } finally {
+        stopRecoveryHeartbeat()
+        await resolved.state.releaseLock(recoveryLock).catch(() => undefined)
       }
-      lock.expiresAt = ownerExtensionStartedAt + ttlMs
-      pending = await claimDurableSteerPending(resolved.state, ownedPendingQueue, lock.token, claimId)
-      if (!pending?.message?.input) {
-        throw agentDiagnostics.AGENT_R0799({ message: "[vitehub] Durable steered Channel delivery could not claim its persisted Agent Workflow input." })
+      throw agentDiagnostics.AGENT_R0798({ message: "[vitehub] Durable steered Channel delivery lost ownership before its Agent Workflow started." })
+    }
+    lock.expiresAt = ownerExtensionStartedAt + ttlMs
+    pending = await claimDurableSteerPending(resolved.state, ownedPendingQueue, lock.token, claimId)
+    if (!pending?.message?.input) {
+      throw agentDiagnostics.AGENT_R0799({ message: "[vitehub] Durable steered Channel delivery could not claim its persisted Agent Workflow input." })
+    }
+  } catch (error) {
+    stopExecutionHeartbeat()
+    await resolved.state.releaseLock(executionLock).catch(() => undefined)
+    throw error
+  }
+  // SAFETY: The surrounding route guards establish this record shape before the value crosses the internal boundary.
+  let claimedPending = pending as DurableSteerQueueEntry & { message: DurableSteerQueueMessage & { input: AgentRunInput } }
+  const stopHeartbeat = startWebhookLockHeartbeat(resolved.state, lock, ttlMs, loseOwnership)
+  const verify = async () => {
+    executionAbort.signal.throwIfAborted()
+    const extendWithinKnownLease = async (ownedLock: Lock, ownedTtlMs: number) => {
+      const retryMs = Math.max(1, Math.min(250, Math.floor(ownedTtlMs / 4)))
+      while (true) {
+        const extensionStartedAt = Date.now()
+        try {
+          const extended = await resolved.state.extendLock(ownedLock, ownedTtlMs)
+          if (extended) ownedLock.expiresAt = extensionStartedAt + ownedTtlMs
+          return extended
+        } catch (error) {
+          executionAbort.signal.throwIfAborted()
+          const remainingMs = ownedLock.expiresAt - Date.now()
+          if (remainingMs <= 0) throw error
+          await new Promise<void>((resolve) => setTimeout(resolve, Math.min(retryMs, remainingMs)))
+        }
       }
+    }
+    let executionOwned = false
+    let scopeOwned = false
+    try {
+      executionOwned = await extendWithinKnownLease(executionLock, executionTtlMs)
+      scopeOwned = executionOwned && (await extendWithinKnownLease(lock, ttlMs))
     } catch (error) {
-      stopExecutionHeartbeat()
-      await resolved.state.releaseLock(executionLock).catch(() => undefined)
+      loseOwnership()
       throw error
     }
-    // SAFETY: The surrounding route guards establish this record shape before the value crosses the internal boundary.
-    let claimedPending = pending as DurableSteerQueueEntry & { message: DurableSteerQueueMessage & { input: AgentRunInput } }
-    const stopHeartbeat = startWebhookLockHeartbeat(resolved.state, lock, ttlMs, loseOwnership)
-    const verify = async () => {
+    if (!executionOwned || !scopeOwned) {
+      loseOwnership()
       executionAbort.signal.throwIfAborted()
-      const extendWithinKnownLease = async (ownedLock: Lock, ownedTtlMs: number) => {
-        const retryMs = Math.max(1, Math.min(250, Math.floor(ownedTtlMs / 4)))
-        while (true) {
-          const extensionStartedAt = Date.now()
-          try {
-            const extended = await resolved.state.extendLock(ownedLock, ownedTtlMs)
-            if (extended) ownedLock.expiresAt = extensionStartedAt + ownedTtlMs
-            return extended
-          } catch (error) {
-            executionAbort.signal.throwIfAborted()
-            const remainingMs = ownedLock.expiresAt - Date.now()
-            if (remainingMs <= 0) throw error
-            await new Promise<void>((resolve) => setTimeout(resolve, Math.min(retryMs, remainingMs)))
-          }
+    }
+    ownershipLost = false
+  }
+  const checkpoint = async (status: "completed" | "failed") => {
+    if (claimedPending.message.settlementStatus) return
+    const settlementPending: typeof claimedPending = {
+      ...claimedPending,
+      message: { ...claimedPending.message, settlementStatus: status },
+    }
+    if (
+      // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
+      !(await requireAtomicAgentStateQueue(resolved.state).queueReplaceHead(ownedPendingQueue, claimedPending as never, [settlementPending as never], 1))
+    ) {
+      loseOwnership()
+      executionAbort.signal.throwIfAborted()
+    }
+    claimedPending = settlementPending
+  }
+  const settle = async (status: "completed" | "failed") => {
+    let activePending: DurableSteerQueueEntry = claimedPending
+    let handoffLock: Lock | undefined
+    let stopHandoffHeartbeat: () => void = () => undefined
+    let queued: DurableSteerQueueEntry | null = null
+    let queuedAcknowledged = false
+    let pendingQueue: string | undefined
+    let pendingPersisted = false
+    let successorClaimId: string | undefined
+    let successorInput: AgentRunInput | undefined
+    let successorStartAttempted = false
+    let ownerReleased = false
+    try {
+      handoffLock = await acquireRequiredStateLock(resolved.state, `${lock.threadId}:handoff`, ttlMs)
+      stopHandoffHeartbeat = startWebhookLockHeartbeat(resolved.state, handoffLock, ttlMs, () => {
+        ownershipLost = true
+      })
+      // A transient heartbeat error is not permanent ownership loss. The
+      // token check below is the authority at settlement.
+      await verify()
+      if (activePending.message?.settlementStatus === "failed" && activePending.message.settlementError) {
+        await failDurableSteerQueue(
+          resolved.state,
+          queue,
+          ownedPendingQueue,
+          activePending,
+          agentDiagnostics.AGENT_R0800({ message: activePending.message.settlementError }),
+          async (delivery, failure) =>
+            await postDurableSteerErrorFallback(
+              // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+              agent as AgentInput<ViteAgentRouteRuntimeContext>,
+              // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+              context as ViteAgentRouteRuntimeContext,
+              registration,
+              { state: resolved.state, keyPrefix: resolved.titleKeyPrefix },
+              delivery,
+              failure,
+              Date.now(),
+              verify,
+            ),
+        )
+        await resolved.state.releaseLock(lock)
+        ownerReleased = true
+        return
+      }
+      await checkpoint(status)
+      activePending = claimedPending
+      for (const deliveryId of binding.steer?.deliveryIds ?? []) {
+        if (activePending.message?.settledDeliveryIds?.includes(deliveryId)) continue
+        const mergedDelivery = await resumeAgentChannelDelivery(resolved.state, deliveryId)
+        if (mergedDelivery) {
+          await mergedDelivery.event({ type: `invocation.${status}` })
+          await mergedDelivery.event({ type: status })
         }
-      }
-      let executionOwned = false
-      let scopeOwned = false
-      try {
-        executionOwned = await extendWithinKnownLease(executionLock, executionTtlMs)
-        scopeOwned = executionOwned && (await extendWithinKnownLease(lock, ttlMs))
-      } catch (error) {
-        loseOwnership()
-        throw error
-      }
-      if (!executionOwned || !scopeOwned) {
-        loseOwnership()
-        executionAbort.signal.throwIfAborted()
-      }
-      ownershipLost = false
-    }
-    const checkpoint = async (status: "completed" | "failed") => {
-      if (claimedPending.message.settlementStatus) return
-      const settlementPending: typeof claimedPending = {
-        ...claimedPending,
-        message: { ...claimedPending.message, settlementStatus: status },
-      }
-      if (
+        const settledPending: DurableSteerQueueEntry = {
+          ...activePending,
+          message: {
+            ...activePending.message!,
+            settledDeliveryIds: [...new Set([...(activePending.message?.settledDeliveryIds ?? []), deliveryId])],
+          },
+        }
         // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
-        !(await requireAtomicAgentStateQueue(resolved.state).queueReplaceHead(ownedPendingQueue, claimedPending as never, [settlementPending as never], 1))
-      ) {
-        loseOwnership()
-        executionAbort.signal.throwIfAborted()
+        if (!(await requireAtomicAgentStateQueue(resolved.state).queueReplaceHead(ownedPendingQueue, activePending as never, [settledPending as never], 1))) {
+          loseOwnership()
+          return
+        }
+        activePending = settledPending
       }
-      claimedPending = settlementPending
-    }
-    const settle = async (status: "completed" | "failed") => {
-      let activePending: DurableSteerQueueEntry = claimedPending
-      let handoffLock: Lock | undefined
-      let stopHandoffHeartbeat: () => void = () => undefined
-      let queued: DurableSteerQueueEntry | null = null
-      let queuedAcknowledged = false
-      let pendingQueue: string | undefined
-      let pendingPersisted = false
-      let successorClaimId: string | undefined
-      let successorInput: AgentRunInput | undefined
-      let successorStartAttempted = false
-      let ownerReleased = false
-      try {
+      const atomicQueue = requireAtomicAgentStateQueue(resolved.state)
+      // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+      queued = (await atomicQueue.queuePeek(queue)) as DurableSteerQueueEntry | null
+      if (!queued?.message?.input) {
+        await resolved.state.releaseLock(lock)
+        ownerReleased = true
+        if (!(await acknowledgeDurableSteerPending(resolved.state, ownedPendingQueue, activePending))) return
+        return
+      }
+      pendingQueue = durableSteerPendingQueue(queue)
+      successorClaimId = crypto.randomUUID()
+      let queuedInput = queued.message.input
+      // SAFETY: queued durable messages retain the Agent Definition selected by this route.
+      if (queued.message.parsedMessageMeta !== undefined) queuedInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, queuedInput, queued.message.run, queued.message.parsedMessageMeta)
+      const queuedDerivedInvokerNeedsResolution = queued.message.parsedMessageMeta?.derivedInvoker
+        && !hasParsedAgentMessageMeta(agent as AgentDefinition | undefined, queuedInput, queued.message.run)
+      if (queued.message.resolvedInvoker && !queuedDerivedInvokerNeedsResolution) {
+        const queuedInvoker = resolveInputAgentInvoker(queuedInput.context)
+        if (queuedInvoker) queuedInput = withResolvedAgentInvokerInput(queuedInput, queuedInvoker)
+      }
+      const queuedDelivery = queuedInput.context?.[agentChannelDeliveryWorkflowContextKey]
+      successorInput = {
+        ...queuedInput,
+        context: {
+          ...queuedInput.context,
+          [agentChannelDeliveryWorkflowContextKey]: {
+            ...(isRecord(queuedDelivery) ? queuedDelivery : {}),
+            steer: {
+              ...binding.steer,
+              claimId: successorClaimId,
+              deliveryIds: queued.message.deliveryIds,
+              pendingQueue,
+            },
+          },
+        },
+      }
+      const successorPending: DurableSteerQueueEntry = {
+        enqueuedAt: Date.now(),
+        expiresAt: Number.MAX_SAFE_INTEGER,
+        message: { ...queued.message, claimId: successorClaimId, input: successorInput, ownerToken: lock.token },
+      }
+      // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
+      if (!(await atomicQueue.queueReplaceHead(pendingQueue, activePending as never, [successorPending as never], 1))) {
+        throw agentDiagnostics.AGENT_R0801({ message: "[vitehub] Durable steered Channel delivery pending ownership changed during successor handoff." })
+      }
+      pendingPersisted = true
+      // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+      if (!(await atomicQueue.queueReplaceHead(queue, queued as never, [], durableSteerQueueMaximum))) {
+        // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+        throw agentDiagnostics.AGENT_R0802({ message: "[vitehub] Durable steered Channel delivery queue changed while its successor was being claimed." })
+      }
+      queuedAcknowledged = true
+      successorStartAttempted = true
+      await runAgent(
+        // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+        agent as never,
+        // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+        await restoreDurableSteerRuntimeContext(context as ViteAgentRouteRuntimeContext, queued.message) as never,
+        // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+        successorInput as never,
+      )
+    } catch (error) {
+      if (ownerReleased) return
+      if (successorStartAttempted && isAmbiguousAgentWorkflowStartFailure(error) && successorInput && queued?.message) {
+        let retryInput = successorInput
+        // SAFETY: settlement retries reuse the Agent Definition selected for the queued message.
+        if (queued.message.parsedMessageMeta !== undefined) retryInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, queued.message.run, queued.message.parsedMessageMeta)
+        const retryDerivedInvokerNeedsResolution = queued.message.parsedMessageMeta?.derivedInvoker
+          && !hasParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, queued.message.run)
+        if (queued.message.resolvedInvoker && !retryDerivedInvokerNeedsResolution) {
+          const retryInvoker = resolveInputAgentInvoker(retryInput.context)
+          if (retryInvoker) retryInput = withResolvedAgentInvokerInput(retryInput, retryInvoker)
+        }
+        const retryMessage = queued.message
+        registerAgentWorkflowRetry(
+          context,
+          new Promise<void>((resolve) => setTimeout(resolve, 10))
+            .then(async () =>
+              await startAgentInvocation(
+                // SAFETY: The route normalized this value for the internal startup boundary.
+                agent as never,
+                // SAFETY: The successor retains the persisted capabilities, request, and logical run context.
+                await restoreDurableSteerRuntimeContext(context as ViteAgentRouteRuntimeContext, retryMessage) as never,
+                // SAFETY: The successor input was cloned and JSON-validated before State persistence.
+                retryInput as never,
+              ),
+            ),
+        )
+        return
+      }
+      if (ownershipLost && queued?.message?.input) {
+        stopHandoffHeartbeat()
+        if (handoffLock) await resolved.state.releaseLock(handoffLock).catch(() => undefined)
         handoffLock = await acquireRequiredStateLock(resolved.state, `${lock.threadId}:handoff`, ttlMs)
-        stopHandoffHeartbeat = startWebhookLockHeartbeat(resolved.state, handoffLock, ttlMs, () => {
-          ownershipLost = true
-        })
-        // A transient heartbeat error is not permanent ownership loss. The
-        // token check below is the authority at settlement.
-        await verify()
-        if (activePending.message?.settlementStatus === "failed" && activePending.message.settlementError) {
+        stopHandoffHeartbeat = startWebhookLockHeartbeat(resolved.state, handoffLock, ttlMs, () => undefined)
+      }
+      let successorPending =
+        pendingQueue && pendingPersisted && successorClaimId
+          ? await claimDurableSteerPending(resolved.state, pendingQueue, lock.token, successorClaimId)
+          : null
+      if (successorStartAttempted) {
+        if (!pendingQueue || !successorPending?.message?.input) return
+        successorPending = await recordDurableSteerTerminalFailure(resolved.state, pendingQueue, successorPending, error)
+        if (!successorPending?.message?.input) {
+          throw agentDiagnostics.AGENT_R0803({ message: "[vitehub] Durable steered Channel delivery failure could not be persisted for settlement retry.", cause: error })
+        }
+        try {
           await failDurableSteerQueue(
             resolved.state,
             queue,
-            ownedPendingQueue,
-            activePending,
-            agentDiagnostics.AGENT_R0800({ message: activePending.message.settlementError }),
+            pendingQueue,
+            successorPending,
+            error,
             async (delivery, failure) =>
               await postDurableSteerErrorFallback(
                 // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
@@ -3776,248 +3837,94 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                 verify,
               ),
           )
-          await resolved.state.releaseLock(lock)
-          ownerReleased = true
-          return
-        }
-        await checkpoint(status)
-        activePending = claimedPending
-        for (const deliveryId of binding.steer?.deliveryIds ?? []) {
-          if (activePending.message?.settledDeliveryIds?.includes(deliveryId)) continue
-          const mergedDelivery = await resumeAgentChannelDelivery(resolved.state, deliveryId)
-          if (mergedDelivery) {
-            await mergedDelivery.event({ type: `invocation.${status}` })
-            await mergedDelivery.event({ type: status })
-          }
-          const settledPending: DurableSteerQueueEntry = {
-            ...activePending,
-            message: {
-              ...activePending.message!,
-              settledDeliveryIds: [...new Set([...(activePending.message?.settledDeliveryIds ?? []), deliveryId])],
-            },
-          }
-          // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
-          if (!(await requireAtomicAgentStateQueue(resolved.state).queueReplaceHead(ownedPendingQueue, activePending as never, [settledPending as never], 1))) {
-            loseOwnership()
-            return
-          }
-          activePending = settledPending
-        }
-        const atomicQueue = requireAtomicAgentStateQueue(resolved.state)
-        // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-        queued = (await atomicQueue.queuePeek(queue)) as DurableSteerQueueEntry | null
-        if (!queued?.message?.input) {
-          await resolved.state.releaseLock(lock)
-          ownerReleased = true
-          if (!(await acknowledgeDurableSteerPending(resolved.state, ownedPendingQueue, activePending))) return
-          return
-        }
-        pendingQueue = durableSteerPendingQueue(queue)
-        successorClaimId = crypto.randomUUID()
-        let queuedInput = queued.message.input
-        // SAFETY: queued durable messages retain the Agent Definition selected by this route.
-        if (queued.message.parsedMessageMeta !== undefined) queuedInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, queuedInput, queued.message.run, queued.message.parsedMessageMeta)
-        const queuedDerivedInvokerNeedsResolution = queued.message.parsedMessageMeta?.derivedInvoker
-          && !hasParsedAgentMessageMeta(agent as AgentDefinition | undefined, queuedInput, queued.message.run)
-        if (queued.message.resolvedInvoker && !queuedDerivedInvokerNeedsResolution) {
-          const queuedInvoker = resolveInputAgentInvoker(queuedInput.context)
-          if (queuedInvoker) queuedInput = withResolvedAgentInvokerInput(queuedInput, queuedInvoker)
-        }
-        const queuedDelivery = queuedInput.context?.[agentChannelDeliveryWorkflowContextKey]
-        successorInput = {
-          ...queuedInput,
-          context: {
-            ...queuedInput.context,
-            [agentChannelDeliveryWorkflowContextKey]: {
-              ...(isRecord(queuedDelivery) ? queuedDelivery : {}),
-              steer: {
-                ...binding.steer,
-                claimId: successorClaimId,
-                deliveryIds: queued.message.deliveryIds,
-                pendingQueue,
-              },
-            },
-          },
-        }
-        const successorPending: DurableSteerQueueEntry = {
-          enqueuedAt: Date.now(),
-          expiresAt: Number.MAX_SAFE_INTEGER,
-          message: { ...queued.message, claimId: successorClaimId, input: successorInput, ownerToken: lock.token },
-        }
-        // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
-        if (!(await atomicQueue.queueReplaceHead(pendingQueue, activePending as never, [successorPending as never], 1))) {
-          throw agentDiagnostics.AGENT_R0801({ message: "[vitehub] Durable steered Channel delivery pending ownership changed during successor handoff." })
-        }
-        pendingPersisted = true
-        // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-        if (!(await atomicQueue.queueReplaceHead(queue, queued as never, [], durableSteerQueueMaximum))) {
-          // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-          throw agentDiagnostics.AGENT_R0802({ message: "[vitehub] Durable steered Channel delivery queue changed while its successor was being claimed." })
-        }
-        queuedAcknowledged = true
-        successorStartAttempted = true
-        await runAgent(
-          // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-          agent as never,
-          // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-          await restoreDurableSteerRuntimeContext(context as ViteAgentRouteRuntimeContext, queued.message) as never,
-          // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-          successorInput as never,
-        )
-      } catch (error) {
-        if (ownerReleased) return
-        if (successorStartAttempted && isAmbiguousAgentWorkflowStartFailure(error) && successorInput && queued?.message) {
-          let retryInput = successorInput
-          // SAFETY: settlement retries reuse the Agent Definition selected for the queued message.
-          if (queued.message.parsedMessageMeta !== undefined) retryInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, queued.message.run, queued.message.parsedMessageMeta)
-          const retryDerivedInvokerNeedsResolution = queued.message.parsedMessageMeta?.derivedInvoker
-            && !hasParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, queued.message.run)
-          if (queued.message.resolvedInvoker && !retryDerivedInvokerNeedsResolution) {
+        } catch (settlementError) {
+          let retryInput = successorPending.message.input
+          // SAFETY: successor settlement retries retain the Agent Definition selected by this route.
+          if (successorPending.message.parsedMessageMeta !== undefined) retryInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, successorPending.message.run, successorPending.message.parsedMessageMeta)
+          const retryDerivedInvokerNeedsResolution = successorPending.message.parsedMessageMeta?.derivedInvoker
+            && !hasParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, successorPending.message.run)
+          if (successorPending.message.resolvedInvoker && !retryDerivedInvokerNeedsResolution) {
             const retryInvoker = resolveInputAgentInvoker(retryInput.context)
             if (retryInvoker) retryInput = withResolvedAgentInvokerInput(retryInput, retryInvoker)
           }
-          const retryMessage = queued.message
-          registerAgentWorkflowRetry(
-            context,
-            new Promise<void>((resolve) => setTimeout(resolve, 10))
-              .then(async () =>
-                await startAgentInvocation(
-                  // SAFETY: The route normalized this value for the internal startup boundary.
-                  agent as never,
-                  // SAFETY: The successor retains the persisted capabilities, request, and logical run context.
-                  await restoreDurableSteerRuntimeContext(context as ViteAgentRouteRuntimeContext, retryMessage) as never,
-                  // SAFETY: The successor input was cloned and JSON-validated before State persistence.
-                  retryInput as never,
-                ),
-              ),
-          )
-          return
-        }
-        if (ownershipLost && queued?.message?.input) {
-          stopHandoffHeartbeat()
-          if (handoffLock) await resolved.state.releaseLock(handoffLock).catch(() => undefined)
-          handoffLock = await acquireRequiredStateLock(resolved.state, `${lock.threadId}:handoff`, ttlMs)
-          stopHandoffHeartbeat = startWebhookLockHeartbeat(resolved.state, handoffLock, ttlMs, () => undefined)
-        }
-        let successorPending =
-          pendingQueue && pendingPersisted && successorClaimId
-            ? await claimDurableSteerPending(resolved.state, pendingQueue, lock.token, successorClaimId)
-            : null
-        if (successorStartAttempted) {
-          if (!pendingQueue || !successorPending?.message?.input) return
-          successorPending = await recordDurableSteerTerminalFailure(resolved.state, pendingQueue, successorPending, error)
-          if (!successorPending?.message?.input) {
-            throw agentDiagnostics.AGENT_R0803({ message: "[vitehub] Durable steered Channel delivery failure could not be persisted for settlement retry.", cause: error })
-          }
           try {
-            await failDurableSteerQueue(
-              resolved.state,
-              queue,
-              pendingQueue,
-              successorPending,
-              error,
-              async (delivery, failure) =>
-                await postDurableSteerErrorFallback(
-                  // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-                  agent as AgentInput<ViteAgentRouteRuntimeContext>,
-                  // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-                  context as ViteAgentRouteRuntimeContext,
-                  registration,
-                  { state: resolved.state, keyPrefix: resolved.titleKeyPrefix },
-                  delivery,
-                  failure,
-                  Date.now(),
-                  verify,
-                ),
+            await startAgentInvocation(
+              // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
+              agent as never,
+              // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+              await restoreDurableSteerRuntimeContext(context as ViteAgentRouteRuntimeContext, successorPending.message) as never,
+              // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+              retryInput as never,
             )
-          } catch (settlementError) {
-            let retryInput = successorPending.message.input
-            // SAFETY: successor settlement retries retain the Agent Definition selected by this route.
-            if (successorPending.message.parsedMessageMeta !== undefined) retryInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, successorPending.message.run, successorPending.message.parsedMessageMeta)
-            const retryDerivedInvokerNeedsResolution = successorPending.message.parsedMessageMeta?.derivedInvoker
-              && !hasParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, successorPending.message.run)
-            if (successorPending.message.resolvedInvoker && !retryDerivedInvokerNeedsResolution) {
-              const retryInvoker = resolveInputAgentInvoker(retryInput.context)
-              if (retryInvoker) retryInput = withResolvedAgentInvokerInput(retryInput, retryInvoker)
-            }
-            try {
-              await startAgentInvocation(
-                // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
-                agent as never,
-                // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-                await restoreDurableSteerRuntimeContext(context as ViteAgentRouteRuntimeContext, successorPending.message) as never,
-                // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-                retryInput as never,
-              )
-            } catch (retryError) {
-              if (isAmbiguousAgentWorkflowStartFailure(retryError)) return
-              throw new AggregateError(
-                [error, settlementError, retryError],
-                "[vitehub] Durable steered Channel delivery terminal settlement retry could not start.",
-              )
-            }
-            return
+          } catch (retryError) {
+            if (isAmbiguousAgentWorkflowStartFailure(retryError)) return
+            throw new AggregateError(
+              [error, settlementError, retryError],
+              "[vitehub] Durable steered Channel delivery terminal settlement retry could not start.",
+            )
           }
-          await resolved.state.releaseLock(lock).catch(() => undefined)
           return
         }
-        if (pendingQueue && successorPending) {
-          // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-          if (!(await requireAtomicAgentStateQueue(resolved.state).queueReplaceHead(pendingQueue, successorPending as never, [activePending as never], 1))) {
-            throw agentDiagnostics.AGENT_R0804({ message: "[vitehub] Durable steered Channel delivery pending ownership changed during settlement retry." })
-          }
-        }
-        if (queuedAcknowledged && queued?.message?.input) {
-          await restoreDurableSteerQueue(resolved.state, queue, queued.message)
-        }
-        let retryInput = claimedPending.message.input
-        // SAFETY: claimed pending messages retain the Agent Definition selected by this route.
-        if (claimedPending.message.parsedMessageMeta !== undefined) retryInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, claimedPending.message.run, claimedPending.message.parsedMessageMeta)
-        const retryDerivedInvokerNeedsResolution = claimedPending.message.parsedMessageMeta?.derivedInvoker
-          && !hasParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, claimedPending.message.run)
-        if (claimedPending.message.resolvedInvoker && !retryDerivedInvokerNeedsResolution) {
-          const retryInvoker = resolveInputAgentInvoker(retryInput.context)
-          if (retryInvoker) retryInput = withResolvedAgentInvokerInput(retryInput, retryInvoker)
-        }
-        try {
-          await startAgentInvocation(
-            // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
-            agent as never,
-            // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-            await restoreDurableSteerRuntimeContext(context as ViteAgentRouteRuntimeContext, claimedPending.message) as never,
-            // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-            retryInput as never,
-          )
-        } catch (retryError) {
-          if (isAmbiguousAgentWorkflowStartFailure(retryError)) return
-          throw new AggregateError([error, retryError], "[vitehub] Durable steered Channel delivery settlement retry could not start.")
-        }
-      } finally {
-        stopHeartbeat()
-        stopExecutionHeartbeat()
-        stopHandoffHeartbeat()
-        if (handoffLock) await resolved.state.releaseLock(handoffLock).catch(() => undefined)
-        await resolved.state.releaseLock(executionLock).catch(() => undefined)
+        await resolved.state.releaseLock(lock).catch(() => undefined)
+        return
       }
+      if (pendingQueue && successorPending) {
+        // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+        if (!(await requireAtomicAgentStateQueue(resolved.state).queueReplaceHead(pendingQueue, successorPending as never, [activePending as never], 1))) {
+          throw agentDiagnostics.AGENT_R0804({ message: "[vitehub] Durable steered Channel delivery pending ownership changed during settlement retry." })
+        }
+      }
+      if (queuedAcknowledged && queued?.message?.input) {
+        await restoreDurableSteerQueue(resolved.state, queue, queued.message)
+      }
+      let retryInput = claimedPending.message.input
+      // SAFETY: claimed pending messages retain the Agent Definition selected by this route.
+      if (claimedPending.message.parsedMessageMeta !== undefined) retryInput = restoreParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, claimedPending.message.run, claimedPending.message.parsedMessageMeta)
+      const retryDerivedInvokerNeedsResolution = claimedPending.message.parsedMessageMeta?.derivedInvoker
+        && !hasParsedAgentMessageMeta(agent as AgentDefinition | undefined, retryInput, claimedPending.message.run)
+      if (claimedPending.message.resolvedInvoker && !retryDerivedInvokerNeedsResolution) {
+        const retryInvoker = resolveInputAgentInvoker(retryInput.context)
+        if (retryInvoker) retryInput = withResolvedAgentInvokerInput(retryInput, retryInvoker)
+      }
+      try {
+        await startAgentInvocation(
+          // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
+          agent as never,
+          // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+          await restoreDurableSteerRuntimeContext(context as ViteAgentRouteRuntimeContext, claimedPending.message) as never,
+          // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+          retryInput as never,
+        )
+      } catch (retryError) {
+        if (isAmbiguousAgentWorkflowStartFailure(retryError)) return
+        throw new AggregateError([error, retryError], "[vitehub] Durable steered Channel delivery settlement retry could not start.")
+      }
+    } finally {
+      stopHeartbeat()
+      stopExecutionHeartbeat()
+      stopHandoffHeartbeat()
+      if (handoffLock) await resolved.state.releaseLock(handoffLock).catch(() => undefined)
+      await resolved.state.releaseLock(executionLock).catch(() => undefined)
     }
-    return {
-      abortSignal: executionAbort.signal,
-      checkpoint,
-      releaseExecutionCustody: async () => {
-        stopHeartbeat()
-        stopExecutionHeartbeat()
-        await resolved.state.releaseLock(executionLock).catch(() => undefined)
-      },
-      retrySettlementFailures: true,
-      settlementError: claimedPending.message.settlementError,
-      settlementStatus: claimedPending.message.settlementStatus,
-      verify,
-      settle,
-    }
-  })
+  }
+  return {
+    abortSignal: executionAbort.signal,
+    checkpoint,
+    releaseExecutionCustody: async () => {
+      stopHeartbeat()
+      stopExecutionHeartbeat()
+      await resolved.state.releaseLock(executionLock).catch(() => undefined)
+    },
+    retrySettlementFailures: true,
+    settlementError: claimedPending.message.settlementError,
+    settlementStatus: claimedPending.message.settlementStatus,
+    verify,
+    settle,
+  }
 }
 
-installAgentChannelDeliveryWorkflowResolver()
+setAgentChannelDeliveryWorkflowResolver(agentChannelDeliveryWorkflowResolver)
+setAgentChannelDeliveryWorkflowOwnershipResolver(agentChannelDeliveryWorkflowOwnershipResolver)
 
 async function acquireRequiredStateLock(state: StateAdapter, key: string, ttlMs: number, abortSignal?: AbortSignal): Promise<Lock> {
   for (;;) {
@@ -4866,7 +4773,6 @@ async function chatSdkMessageToUiMessage(
 
 // Message headers need the Chat SDK author, attachments, and reply that the UI message does not keep.
 const chatUiMessageSources = new WeakMap<UIMessageLike, ChatSdkMessage>()
-const chatMessageHeaderPartType = "data-chat-message-header"
 const chatReplyQuoteMaxLength = 280
 
 /**
@@ -4905,24 +4811,6 @@ function chatHeaderTimeZone(options: AgentChatOptions | undefined): string {
   } catch {
     return "UTC"
   }
-}
-
-function formatChatHeaderTime(time: number, timeZone: string, short = false): string {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
-    day: "2-digit",
-    hour: "2-digit",
-    hourCycle: "h23",
-    minute: "2-digit",
-    month: "2-digit",
-    second: "2-digit",
-    timeZone,
-    timeZoneName: "longOffset",
-    weekday: "short",
-    year: "numeric",
-  }).formatToParts(new Date(time)).map(part => [part.type, part.value]))
-  if (short) return `${parts.weekday} ${parts.hour}:${parts.minute}`
-  const offset = parts.timeZoneName === "GMT" ? "+00:00" : parts.timeZoneName?.replace("GMT", "")
-  return `${parts.weekday} ${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second} ${offset}`
 }
 
 function chatHeaderMessageId(id: unknown): string | undefined {
@@ -4972,8 +4860,13 @@ function chatReplyLine(replyTo: ChatSdkMessage, timeZone: string, keptIds: Set<s
   const quote = shownIds.has(replyTo.id) ? "(shown above)" : replyTo.text ? `"${chatHeaderQuote(replyTo.text)}"` : ""
   const media = replyTo.attachments.map((attachment, index) =>
     `${chatHeaderAttachmentLabel(attachment)}${keptIds.has(`reply-input-attachment-${index + 1}`) ? " attached below" : " (not shown)"}`)
-  const line = `↪ replying to ${author} msg ${chatHeaderMessageId(replyTo.id) ?? "unknown"}${time === undefined ? "" : ` (${formatChatHeaderTime(time, timeZone, true)})`}${quote ? `: ${quote}` : ""}`
-  return [line, ...media].join(" · ")
+  return formatChatReplyLine({
+    author,
+    media,
+    messageId: chatHeaderMessageId(replyTo.id) ?? "unknown",
+    quote,
+    time: time === undefined ? undefined : formatChatHeaderTime(time, timeZone, true),
+  })
 }
 
 /**
@@ -5024,18 +4917,18 @@ function decorateChatTriggerMessages(
     const sender = thread.isDM
       ? undefined
       : `from ${chatHeaderName(source.author.fullName || source.author.userName || "unknown")} (id ${chatHeaderName(source.author.userId)})`
-    const header = [
+    const header = formatChatMessageHeader([
       time === undefined ? undefined : formatChatHeaderTime(time, timeZone),
       messageId ? `msg ${messageId}` : undefined,
       sender,
       ...media,
       source.metadata.edited ? "edited" : undefined,
-    ].filter(Boolean).join(" · ")
+    ])
     const replyLine = source.replyTo ? chatReplyLine(source.replyTo, timeZone, keptIds, shownIds) : undefined
     return {
       ...uiMessage,
       parts: [
-        { data: { modelText: header ? `[${header}]` : "" }, id: "message-header", type: chatMessageHeaderPartType },
+        { data: { modelText: header }, id: "message-header", type: chatMessageHeaderPartType },
         ...kept.map(part => isChatReplyModelPart(part)
           ? { ...part, data: { ...("data" in part && isRecord(part.data) ? part.data : {}), modelText: part.type === "data-chat-reply-context" && replyLine ? replyLine : "" } }
           : part),
@@ -5242,7 +5135,7 @@ function chatErrorHookArgs(
   abortSignal?: AbortSignal,
   onPost?: () => void,
   invocation?: AgentInvocationReference,
-  errorConsoleLink = false,
+  consoleLink = false,
 ): AgentChatErrorHookArgs<ViteAgentRouteRuntimeConfig> {
   const inputMessage = input?.messages.at(-1)
   // SAFETY: The surrounding route guards establish this record shape before the value crosses the internal boundary.
@@ -5261,7 +5154,7 @@ function chatErrorHookArgs(
     toolResults: [...toolResults],
     thread: {
       post: async (postedMessage) => {
-        const consoleUrl = errorConsoleLink ? invocation?.consoleUrl : undefined
+        const consoleUrl = consoleLink ? invocation?.consoleUrl : undefined
         // SAFETY: The error hook accepts the same chat message payloads as postChatMessage.
         const posted = postedMessage as AgentChatMessage
         const message = consoleUrl && isRuntimeString(postedMessage) && !postedMessage.includes(consoleUrl)
@@ -5445,7 +5338,7 @@ export async function postChatErrorFallback(
     chatErrorHookArgs(thread, message, input, run, error, toolResults, fallbackResolutionAbort?.signal, () => {
       callbackDelivered = true
       resolveCallbackDelivery?.()
-    }, invocation, options?.errorConsoleLink),
+    }, invocation, options?.consoleLink),
     () => callbackDelivered,
     (resolution) => enforceChatInvocationTimeout(resolution, fallbackResolutionTimeout, fallbackResolutionAbort),
   )
@@ -7218,8 +7111,11 @@ async function handleChatSdkMessage(
     const inlineRunContext = run?.runId ? withAgentInvocationResponseOwner(runContext, run.runId) : runContext
     const configuredThinkingFallback = invocation.metadata?.thinkingFallback
     const thinkingFallback = isRuntimeString(configuredThinkingFallback) ? formatChannelCitationText(configuredThinkingFallback) : configuredThinkingFallback
+    // The footer stays on the loading message through every commentary update.
+    const consoleUrl = bufferedDelivery && options?.consoleLink ? (await invocationReference)?.consoleUrl : undefined
+    const loadingFooter = consoleUrl ? `\n\n[Details](<${consoleUrl}>)` : undefined
     if (bufferedDelivery && isRuntimeString(thinkingFallback)) {
-      const placeholderDelivery = thread.post(thinkingFallback).then(async (placeholder) => {
+      const placeholderDelivery = thread.post(loadingFooter ? { markdown: `${thinkingFallback}${loadingFooter}` } : thinkingFallback).then(async (placeholder) => {
         if (invocationDeadlineAbort?.signal.aborted) {
           await deleteManualDeliveryPlaceholder(placeholder)
           invocationDeadlineAbort.signal.throwIfAborted()
@@ -7236,6 +7132,7 @@ async function handleChatSdkMessage(
     chatFinish = createChatFinishExtension(input, registration)
     progress = bufferedDelivery
       ? createManualDeliveryProgressUpdater(manualDeliveryState, context.waitUntil, invocationDeadlineAbort?.signal, {
+          footer: loadingFooter,
           intervalMs: options?.loading?.intervalMs,
           updates: options?.loading?.updates,
         })
@@ -7283,7 +7180,7 @@ async function handleChatSdkMessage(
             : // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
               await runAgentInline(agent as never, inlineRunContext as never, invocationInput as never)
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-          const text = formatChannelCitationText(await collectAgentOutput(result, progress?.update, (toolResult) => toolResults.push(toolResult)))
+          const text = formatChannelCitationText(stripEchoedChatMessageMetadata(await collectAgentOutput(result, progress?.update, (toolResult) => toolResults.push(toolResult))))
           if (!bufferedDelivery && text) {
             await deliverPrimaryChatReply(chatFinish, async () => {
               invocationDeadlineAbort?.signal.throwIfAborted()
@@ -8844,55 +8741,6 @@ function agentChannelChatRouteInput(
   }
 }
 
-function agentChannelRouteOptions(channelId: string, channel: AgentChannelDefinition): AgentChannelChatRouteHandlerOptions | undefined {
-  if (channel.route === undefined || channel.route === false) return undefined
-  if (channel.route === true) {
-    return {
-      channelId,
-      origin: channel.kind,
-    }
-  }
-  if (isRecord(channel.route) && !Array.isArray(channel.route)) {
-    // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-    return {
-      channelId,
-      origin: channel.kind,
-      ...channel.route,
-    } as AgentChannelChatRouteHandlerOptions
-  }
-  throw agentDiagnostics.AGENT_R0840({ message: `[vitehub] Channel "${channelId}" route must be true or an agent chat route options object.` })
-}
-
-export function hasChannelChatRoute(agent: AgentInput<ViteAgentRouteRuntimeContext>): boolean {
-  if (!isRecord(agent) || !isRecord(agent.channels) || Array.isArray(agent.channels)) return false
-  return Object.values(agent.channels).some((channel) => isRecord(channel) && channel.route !== undefined && channel.route !== false)
-}
-
-function resolveAgentChannelChatRouteHandlerOptions(
-  agent: AgentInput<ViteAgentRouteRuntimeContext>,
-  options: AgentChannelChatRouteHandlerOptions = {},
-): AgentChannelChatRouteHandlerOptions {
-  const channels =
-    // SAFETY: The surrounding route guards establish this record shape before the value crosses the internal boundary.
-    isRecord(agent) && isRecord(agent.channels) && !Array.isArray(agent.channels) ? (agent.channels as Record<string, AgentChannelDefinition>) : {}
-  const routeEntries = Object.entries(channels)
-    .map(([channelId, channel]) => [channelId, agentChannelRouteOptions(channelId, channel)] as const)
-    .filter((entry): entry is readonly [string, AgentChannelChatRouteHandlerOptions] => entry[1] !== undefined)
-
-  if (routeEntries.length > 1) {
-    throw agentDiagnostics.AGENT_R0841({ message: "[vitehub] createChannelChatRouteHandler() found multiple route-enabled Channels. Keep one route-enabled Channel per generated chat route." })
-  }
-
-  const channelOptions = routeEntries[0]?.[1]
-  return {
-    ...channelOptions,
-    ...options,
-    admission: options.admission ?? channelOptions?.admission,
-    input: options.input ?? channelOptions?.input,
-    mapInput: options.mapInput ?? channelOptions?.mapInput,
-  }
-}
-
 function trustAgentChannelChatRouteInput(
   body: AgentChannelChatRouteBody,
   options: AgentChannelChatRouteInputOptions | undefined,
@@ -8926,11 +8774,26 @@ function mergeAgentChannelChatRouteInput(
   }
 }
 
-async function toAgentChatFetchResponse(result: unknown): Promise<Response> {
-  if (result instanceof Response || isResponseLike(result)) {
-    return withCleanUiMessageStreamResponse(result)
-  }
-  return createAgentUIMessageStreamResponse({ stream: readableStreamFromResult(result) })
+/** The `errorText` of an AI SDK UI message `error` part. */
+function uiMessageErrorText(part: unknown): string | undefined {
+  if (!isRecord(part) || part.type !== "error") return
+  return isRuntimeString(part.errorText) ? part.errorText : "Agent stream failed."
+}
+
+async function toAgentChatFetchResponse(result: unknown, delivery: AgentChannelDeliveryTracker, runId?: string): Promise<Response> {
+  const response = result instanceof Response || isResponseLike(result) ? result : undefined
+  if (response && !isUIMessageStreamResponse(response)) return await observeChannelDeliveryResponse(response, delivery, runId)
+  // Encode the parts again. The encoder ends a failed stream with an error frame and `[DONE]`, so the response ends.
+  const headers = new Headers(response?.headers)
+  headers.delete("content-encoding")
+  headers.delete("content-length")
+  const parts = response ? uiMessageStreamFromResponse(response) : readableStreamFromResult(result)
+  return createAgentUIMessageStreamResponse({
+    headers,
+    status: response?.status,
+    statusText: response?.statusText,
+    stream: observeChannelDeliveryStream(parts, delivery, channelDeliveryTerminalType(response ?? { ok: true, status: 200 }), runId, uiMessageErrorText),
+  })
 }
 
 function withAgentChatInvocationId(response: Response, invocationId: string): Response {
@@ -9181,7 +9044,7 @@ export function createChannelChatRouteHandler(
           }),
       )
       if (approvalCustody) result = approvalCustody.observe(result)
-      let response = await observeChannelDeliveryResponse(await toAgentChatFetchResponse(result), delivery, triggerInput.run?.runId)
+      let response = await toAgentChatFetchResponse(result, delivery, triggerInput.run?.runId)
       if (triggerInput.run?.runId) {
         response = withAgentChatInvocationId(response, await agentInvocationId(triggerInput.run.runId, agentName))
       }
@@ -9253,6 +9116,191 @@ async function recoverInterruptedWebhookAgentInvocations(
     before,
     recover: invocation => invocation.agentName === agentName && !resumed.has(invocation.id),
   })
+}
+
+/** The queue row and Console delivery of an accepted trigger invocation that runs later through the webhook queue. */
+async function queuedTriggerDelivery(options: {
+  agentName: string
+  body: string
+  /** The Agent that the Console lists the delivery under. */
+  deliveryAgentName: string
+  invocation: ResolvedAgentTriggerInvocation<ViteAgentRouteRuntimeConfig>
+  order?: NonNullable<AgentWebhookQueueDelivery["invocation"]>["order"]
+  ownership: Parameters<typeof persistedWebhookRequest>[5] & { deliveryId: string }
+  registration: AgentWebhookRegistrationDefinition & { channelId?: string }
+  requestUrl: string
+  sourceId: string
+  triggerName: string
+  webhookId: string
+  webhookState: { keyPrefix: string, state: StateAdapter }
+}): Promise<{ channelDelivery: AgentChannelDeliveryTracker, delivery: AgentWebhookQueueDelivery }> {
+  const { invocation, ownership, webhookState } = options
+  const triggerDefinition = invocation.trigger as typeof invocation.trigger & {
+    prepare?: unknown
+    tasks?: Record<string, { prepare?: unknown }>
+  }
+  const taskDefinition = invocation.task === undefined ? undefined : triggerDefinition.tasks?.[invocation.task]
+  const persistedInvocation = {
+    ...persistedWebhookInvocation({
+      ...(invocation.agent ? { agent: invocation.agent } : {}),
+      input: invocation.input,
+      run: invocation.run,
+      ...(invocation.task !== undefined ? { task: invocation.task } : {}),
+      ...((triggerDefinition.prepare || taskDefinition?.prepare) ? { requiresPrepare: true as const } : {}),
+    }),
+    trigger: options.triggerName,
+    ...(options.order ? { order: options.order } : {}),
+  }
+  if (!isJsonSafe(persistedInvocation)) {
+    throw new TypeError(`[vitehub] Queued invocation through trigger "${invocation.trigger.id}" needs JSON-serializable invocation input and run metadata.`)
+  }
+  const channelDelivery = await openAgentChannelDelivery(webhookState.state, {
+    agentName: options.deliveryAgentName,
+    channelId: options.registration.channelId,
+    provider: options.registration.provider,
+    scope: webhookState.keyPrefix,
+    sourceId: options.sourceId,
+  })
+  const delivery = persistedWebhookRequest(
+    ownership.deliveryId,
+    channelDelivery.delivery.id,
+    new Request(options.requestUrl, { body: options.body, headers: { "content-type": "application/json" }, method: "POST" }),
+    options.body,
+    options.webhookId,
+    { ...ownership, concurrencyLimit: positiveWebhookConcurrencyLimit(ownership.concurrencyLimit)! },
+    webhookState.keyPrefix,
+    options.agentName,
+    persistedInvocation,
+  )
+  return { channelDelivery, delivery }
+}
+
+/**
+ * The trigger that declares `task` in a Channel, and the webhook registration whose queue scope runs it: the trigger's
+ * own registration, else the first registration of the Channel, as for a queued dispatch item.
+ */
+async function channelTaskTarget(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+  context: ViteAgentRouteRuntimeContext,
+  handlerOptions: AgentChannelWebhookRouteOptions,
+  channel: string,
+  task: string,
+  triggerName: string | undefined,
+) {
+  // SAFETY: The owning Agent runtime boundary creates these values with the asserted route contract.
+  const triggers = await resolveAgentTriggers(agent as never, context as never)
+  const declaring = Object.values(triggers).filter(trigger =>
+    trigger.channelId === channel
+    && (triggerName === undefined || trigger.id === `${channel}.${triggerName}`)
+    && trigger.tasks !== undefined && Object.hasOwn(trigger.tasks, task))
+  if (declaring.length !== 1) {
+    throw agentDiagnostics.AGENT_R1025({ message: declaring.length
+      ? `[vitehub] More than one trigger of Channel "${channel}" declares task "${task}" (${declaring.map(trigger => trigger.id).join(", ")}). Pass the trigger option.`
+      : `[vitehub] No trigger of Channel "${channel}" declares task "${task}"${triggerName === undefined ? "" : ` as trigger "${triggerName}"`}.` })
+  }
+  // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
+  const trigger = declaring[0] as ResolvedAgentTriggerDefinition<ViteAgentRouteRuntimeConfig>
+  const registrations = (await agentWebhookRegistrations(agent, context)).filter(match => match.registration.channelId === channel)
+  const match = registrations.find(candidate => candidate.trigger.id === trigger.id) ?? registrations[0]
+  if (!match) throw agentDiagnostics.AGENT_R1025({ message: `[vitehub] Channel "${channel}" declares no webhook, so it has no queue for task "${task}".` })
+  const webhookState = await resolveAgentWebhookState(context, match.registration, handlerOptions)
+  if (!webhookState || !hasAgentWebhookQueue(webhookState.state)) {
+    throw agentDiagnostics.AGENT_R1025({ message: `[vitehub] Channel "${channel}" State cannot queue tasks. Use durable SQLite or libSQL Agent State.` })
+  }
+  return { registration: match.registration, trigger, webhookState: { keyPrefix: webhookState.keyPrefix, state: webhookState.state } }
+}
+
+/** Acknowledge durable replacement/cancellation evidence only after the Channel journal settles. */
+async function settleSupersededChannelDeliveries(state: AgentWebhookQueueStateAdapter, scope: string, fallback: AgentWebhookQueueDelivery[] = []): Promise<void> {
+  const pending = await state.pendingWebhookDeliverySettlements?.(scope) ?? fallback
+  for (const delivery of pending) {
+    if (!delivery.channelDeliveryId) continue
+    const channelDelivery = await resumeAgentChannelDelivery(state, delivery.channelDeliveryId)
+    try {
+      await channelDelivery?.event({ type: "superseded" })
+      await state.completeWebhookDeliverySettlement?.(scope, delivery.deliveryId)
+    }
+    finally {
+      if (channelDelivery) detachAgentChannelDelivery(channelDelivery)
+    }
+  }
+}
+
+/** The `enqueueChannelTask()` and `cancelChannelTask()` operations of one Agent's webhook queue. */
+function createChannelTaskQueue(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+  handlerOptions: AgentChannelWebhookRouteOptions,
+  webhookQueue: AgentWebhookQueue<AgentChannelWebhookRouteOptions>,
+): ChannelTaskQueue {
+  const agentName = routeAgentIdentity(handlerOptions)?.name || "agent"
+  const withContext = async <T>(run: (context: ViteAgentRouteRuntimeContext) => Promise<T>): Promise<T> => {
+    const context = createRuntimeContext(
+      new Request("http://vitehub.local/_vitehub/channel-task"),
+      undefined,
+      await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
+      handlerOptions.cloudflare,
+      handlerOptions.runtime,
+      handlerOptions.capabilities,
+      routeAgentIdentity(handlerOptions),
+    )
+    return await runWithRuntimeCloudflareEnv(context, () => run(context))
+  }
+  return {
+    agentName,
+    enqueue: (channel, task, input, options) => withContext(async (context) => {
+      const { registration, trigger, webhookState } = await channelTaskTarget(agent, context, handlerOptions, channel, task, options.trigger)
+      const deliveryId = `task:${task}:${globalThis.crypto.randomUUID()}`
+      const runId = `${channel}:${deliveryId}`
+      const invocation = resolveAgentTriggerInvocationResult({
+        input,
+        run: { channelId: channel, ...options.run, runId },
+        task,
+        webhook: { concurrencyGroup: `task:${task}`, concurrencyLimit: 1, deliveryId },
+      }, trigger)
+      if (isResolvedAgentTriggerHandledInvocation(invocation)) throw new TypeError(`[vitehub] Channel task "${task}" did not resolve to an invocation.`)
+      // The registration path routes the queued row back to this Channel when it runs.
+      const requestUrl = new URL(webhookRegistrationPaths(registration)[0] ?? "/_vitehub/channel-task", "http://vitehub.local").href
+      const { channelDelivery, delivery } = await queuedTriggerDelivery({
+        agentName,
+        body: JSON.stringify(input.data ?? null),
+        deliveryAgentName: context.agentIdentity?.name || agentName,
+        invocation,
+        ownership: { concurrencyGroup: `task:${task}`, concurrencyLimit: 1, deliveryId },
+        registration,
+        requestUrl,
+        sourceId: `task:${deliveryId}`,
+        triggerName: trigger.id.slice(channel.length + 1),
+        webhookId: registration.id || registration.provider,
+        webhookState,
+      })
+      const queued = await webhookQueue.admit(
+        { backendId: await resolveWebhookStateBackendId(webhookState.state), options: handlerOptions, scope: webhookState.keyPrefix, state: webhookState.state },
+        {
+          ...delivery,
+          availableAt: options.notBefore,
+          ...(options.key === undefined ? {} : { debounceKey: channelTaskDebounceKey(trigger.id, task, options.key) }),
+        },
+        async (item) => {
+          const admitted = await webhookState.state.enqueueWebhookDelivery(item)
+          // The queue drain retries a failed journal write from its durable settlement marker.
+          await settleSupersededChannelDeliveries(webhookState.state, webhookState.keyPrefix).catch(() => undefined)
+          return admitted
+        },
+      )
+      if (queued) detachAgentChannelDelivery(channelDelivery)
+      await recordChannelDeliveryEvidence(channelDelivery, { type: queued ? "queued" : "duplicate", runId })
+      return { deliveryId, notBefore: options.notBefore, runId }
+    }),
+    cancel: (channel, task, options) => withContext(async (context) => {
+      const { trigger, webhookState } = await channelTaskTarget(agent, context, handlerOptions, channel, task, options.trigger)
+      if (!webhookState.state.cancelWebhookDeliveries) {
+        throw agentDiagnostics.AGENT_R1025({ message: `[vitehub] Channel "${channel}" State cannot cancel queued tasks. Use durable SQLite or libSQL Agent State.` })
+      }
+      const cancelled = await webhookState.state.cancelWebhookDeliveries(webhookState.keyPrefix, channelTaskDebounceKey(trigger.id, task, options.key))
+      await settleSupersededChannelDeliveries(webhookState.state, webhookState.keyPrefix, cancelled).catch(() => undefined)
+      return cancelled.length
+    }),
+  }
 }
 
 /**
@@ -9339,45 +9387,21 @@ function createQueuedChannelDispatch(
         ) {
           throw new TypeError(`[vitehub] Queued dispatch needs webhook.deliveryId and webhook.concurrencyLimit (or serialize) from trigger "${triggerId}", without busy: "steer" or rehydrate.`)
         }
-        const triggerDefinition = invocation.trigger as typeof invocation.trigger & {
-          prepare?: unknown
-          tasks?: Record<string, { prepare?: unknown }>
-        }
-        const taskDefinition = invocation.task === undefined ? undefined : triggerDefinition.tasks?.[invocation.task]
-        const persistedInvocation = {
-          ...persistedWebhookInvocation({
-            ...(invocation.agent ? { agent: invocation.agent } : {}),
-            input: invocation.input,
-            run: invocation.run,
-            ...(invocation.task !== undefined ? { task: invocation.task } : {}),
-            ...((triggerDefinition.prepare || taskDefinition?.prepare) ? { requiresPrepare: true as const } : {}),
-          }),
-          trigger: triggerName,
+        const { channelDelivery, delivery } = await queuedTriggerDelivery({
+          agentName,
+          body: JSON.stringify(item.input ?? null),
+          deliveryAgentName: context.agentIdentity?.name || agentName,
+          invocation,
           // A terminal failure restores the previous version, so the item can be dispatched again.
           ...(order ? { order: { key: `${webhookState.keyPrefix}order:${triggerId}:${order.key}`, version: order.version, ...(isRuntimeNumber(admitted) ? { previous: admitted } : {}) } } : {}),
-        }
-        if (!isJsonSafe(persistedInvocation)) {
-          throw new TypeError(`[vitehub] Queued dispatch through trigger "${triggerId}" needs JSON-serializable invocation input and run metadata.`)
-        }
-        const channelDelivery = await openAgentChannelDelivery(webhookState.state, {
-          agentName: context.agentIdentity?.name || agentName,
-          channelId,
-          provider: registration.provider,
-          scope: webhookState.keyPrefix,
+          ownership: { ...ownership, deliveryId: ownership.deliveryId, concurrencyLimit: ownership.concurrencyLimit },
+          registration,
+          requestUrl: request.url,
           sourceId: `dispatch:${ownership.deliveryId}`,
-        })
-        const body = JSON.stringify(item.input ?? null)
-        const delivery = persistedWebhookRequest(
-          ownership.deliveryId,
-          channelDelivery.delivery.id,
-          new Request(request.url, { body, headers: { "content-type": "application/json" }, method: "POST" }),
-          body,
+          triggerName,
           webhookId,
-          { ...ownership, concurrencyLimit: positiveWebhookConcurrencyLimit(ownership.concurrencyLimit)! },
-          webhookState.keyPrefix,
-          agentName,
-          persistedInvocation,
-        )
+          webhookState,
+        })
         const queued = await admitAgentChannelStateCommit(commit, webhookQueue, queue, delivery)
         if (queued) detachAgentChannelDelivery(channelDelivery)
         await recordChannelDeliveryEvidence(channelDelivery, { type: queued ? "queued" : "duplicate", runId: invocation.run?.runId })
@@ -9398,8 +9422,10 @@ function createQueuedChannelDispatch(
 export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRouteRuntimeContext>): AgentChannelWebhookRouteHandler {
   const activeInvocationScope: WebhookActiveInvocationScope = { owner: "webhook" }
   const webhookQueue = createAgentWebhookQueue<AgentChannelWebhookRouteOptions>({
-    execute: async ({ backendId, delivery, lifecycleSignal, options, state }) =>
-      await executeQueuedWebhookDelivery(agent, state, activeInvocationScope, backendId, delivery, options, lifecycleSignal),
+    // The return type breaks the inference cycle through `webhookQueue`, which the callback passes on.
+    execute: async ({ backendId, delivery, lifecycleSignal, options, state }): Promise<number | undefined> =>
+      await executeQueuedWebhookDelivery(agent, state, activeInvocationScope, backendId, delivery, options, lifecycleSignal, webhookQueue),
+    settleSuperseded: async ({ scope, state }) => await settleSupersededChannelDeliveries(state, scope),
     resolveBackendId: resolveWebhookStateBackendId,
     resolveWaitUntil: async options => await resolveRuntimeWaitUntil(options.waitUntil),
     retryMs: defaultWebhookQueueRetryMs,
@@ -9409,6 +9435,8 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
 
   const handler: AgentChannelWebhookRouteHandler = async (request, webhook, handlerOptions = {}) => {
     const webhookStartedAt = Date.now()
+    // A replayed inbox request keeps its first arrival time for signature timestamps and retention.
+    const webhookReceivedAt = (handlerOptions as AgentChannelWebhookRouteOptions & { [webhookInboxReceivedAt]?: number })[webhookInboxReceivedAt] ?? webhookStartedAt
     if (request.method !== "HEAD" && request.method !== "POST") {
       return createJsonErrorResponse(405, "Agent webhook route only accepts HEAD and POST requests.")
     }
@@ -9485,6 +9513,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
         try {
           await verifyAgentWebhookRequest([registration], request, context, {
             rawBody: rawBodyBytes,
+            receivedAt: webhookReceivedAt,
             requireSecretHeader: true,
           })
         } catch (error) {
@@ -9574,6 +9603,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
             input,
             {
               rawBody: rawBodyBytes,
+              receivedAt: webhookReceivedAt,
               ...(stateCommit ? { channelStateCommit: stateCommit } : {}),
             },
           )
@@ -9804,7 +9834,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
           // A handled answer, such as `ignored()`, is the webhook response.
           let prepared: Awaited<ReturnType<typeof prepareAgentTriggerInvocation<ViteAgentRouteRuntimeConfig>>>
           try {
-            prepared = await prepareAgentTriggerInvocation(invocation)
+            prepared = await prepareAgentTriggerInvocation(invocation, routeAgentInvocationName(agent, routeAgentIdentity(handlerOptions)))
           } catch (error) {
             if (webhookLock && webhookState) await webhookState.state.releaseLock(webhookLock)
             if (deliveryClaimKey && webhookState) await webhookState.state.delete(deliveryClaimKey)
@@ -9873,6 +9903,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
                           deliveryId: channelDelivery.delivery.id,
                           provider: registration.provider,
                           state: workflowCustody ? "chat" : webhookDeliveryState ? "webhook" : "chat",
+                          ...(registration.stateScope === undefined ? {} : { stateScope: registration.stateScope }),
                         },
                       },
                       ...(ownershipAbort
@@ -9958,7 +9989,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
           inbox = await openWebhookInbox(webhookDeliveryState, {
             priorAttempts: (handlerOptions as AgentChannelWebhookRouteOptions & { [webhookInboxPriorAttempts]?: number })[webhookInboxPriorAttempts],
             id: await webhookInboxId(request, rawBodyBytes),
-            receivedAt: new Date(webhookStartedAt).toISOString(),
+            receivedAt: new Date(webhookReceivedAt).toISOString(),
             request: { body: rawBody, headers: requestHeaders(request), method: request.method, url: request.url },
             webhookId,
           })
@@ -10047,20 +10078,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       )
     })
   }
-  handler.matchesPath = async (request, handlerOptions = {}) => {
-    const context = createRuntimeContext(
-      request,
-      undefined,
-      await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
-      handlerOptions.cloudflare,
-      handlerOptions.runtime,
-      handlerOptions.capabilities,
-      routeAgentIdentity(handlerOptions),
-    )
-    return await runWithRuntimeCloudflareEnv(context, async () =>
-      (await agentWebhookRegistrations(agent, context)).some(({ registration }) => webhookRegistrationPathMatches(request, registration)),
-    )
-  }
+  handler.declaredPathMatcher = createDeclaredWebhookPathMatcher(agent)
   handler.channels = async (request, handlerOptions = {}) => {
     const context = createRuntimeContext(
       request,
@@ -10090,14 +10108,15 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       return [...channels.values()]
     })
   }
-  const channelContext = async (request: Request, handlerOptions: AgentChannelWebhookRouteOptions) => createRuntimeContext(
+  const channelContext = async (request: Request, handlerOptions: AgentChannelWebhookRouteOptions, runtimeContext?: AgentRuntimeContext) => createRuntimeContext(
     request,
     undefined,
-    await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
+    await resolveRuntimeWaitUntil(runtimeContext?.waitUntil ?? handlerOptions.waitUntil),
     handlerOptions.cloudflare,
     handlerOptions.runtime,
     handlerOptions.capabilities,
     routeAgentIdentity(handlerOptions),
+    runtimeContext,
   )
   const channelRegistration = async (context: ViteAgentRouteRuntimeContext, channel: string) => {
     const match = (await agentWebhookRegistrations(agent, context)).find(({ registration }) => (registration.channelId || registration.id || registration.provider) === channel)
@@ -10121,6 +10140,58 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       const origin = chatRegistrationOrigin(registration)
       return await channelJournalThreads(agent, context, origin, input.invokers === true)
     })
+  }
+  handler.channelState = async (request, channel, handlerOptions = {}) => {
+    const context = await channelContext(request, handlerOptions)
+    return await runWithRuntimeCloudflareEnv(context, async () => {
+      const match = (await agentWebhookRegistrations(agent, context)).find(({ registration }) => registration.channelId === channel)
+      if (!match) throw new ChannelUnknownError(`Unknown Channel ${JSON.stringify(channel)}.`)
+      // The same choice as a webhook delivery: the webhook State, else the chat State.
+      let scope = await resolveAgentWebhookState(context, match.registration, handlerOptions)
+      if (!scope) {
+        const { state, titleKeyPrefix } = await resolveChatState(getChannelChatOptions(agent, channel, getAgentChatOptions(agent)), context, match.registration, handlerOptions)
+        scope = { keyPrefix: titleKeyPrefix, state }
+      }
+      await scope.state.connect()
+      return { keyPrefix: `${scope.keyPrefix}channel-state:`, state: scope.state }
+    })
+  }
+  handler.channelStatus = async (request, channel, handlerOptions = {}) => {
+    const definition = Object.hasOwn(agentChannelOptions(agent), channel) ? agentChannelOptions(agent)[channel] : undefined
+    const status = definition && getAgentChannelStatusDefinition(definition)
+    return status ? await status.read(await handler.channelState(request, channel, handlerOptions)) : undefined
+  }
+  handler.poll = async (request, channel, handlerOptions = {}) => {
+    const channelIds = Object.entries(agentChannelOptions(agent)).flatMap(([id, candidate]) => candidate === channel ? [id] : [])
+    if (!channelIds.length) return []
+    const context = await channelContext(request, handlerOptions, handlerOptions.runtimeContext)
+    try {
+      await runWithRuntimeCloudflareEnv(context, async () => {
+        const registrations = await agentWebhookRegistrations(agent, context)
+        for (const channelId of channelIds) {
+          const registration = registrations.find(({ registration }) => registration.channelId === channelId)?.registration
+          if (!registration) throw new ChannelUnknownError(`Channel ${JSON.stringify(channelId)} has no webhook route.`)
+          // The same State and key prefix as the webhook route, so a poll and a push share the cursor and its lock.
+          const webhookState = await resolveAgentWebhookState(context, registration, handlerOptions)
+          const channelState = webhookState ?? await (async () => {
+            const chatState = await resolveChatState(getChannelChatOptions(agent, channelId, getAgentChatOptions(agent)), context, registration, handlerOptions)
+            return { keyPrefix: chatState.titleKeyPrefix, state: chatState.state }
+          })()
+          if (registration.durableState && !isDurableAgentState(channelState.state)) {
+            throw new ChannelStateUnavailableError("This Channel requires durable State. Configure persistent SQLite/libSQL storage or Cloudflare Durable Objects.")
+          }
+          await channelState.state.connect()
+          bindAgentChannelTriggerState(context.request, channelId, { keyPrefix: `${channelState.keyPrefix}channel-state:`, state: channelState.state })
+          const trigger = (await resolveAgentTriggers(agent as never, context as never))[`${channelId}.poll`]
+          if (!trigger) throw new ChannelUnknownError(`Channel ${JSON.stringify(channelId)} has no poll trigger.`)
+          await trigger.invoke(undefined)
+        }
+      })
+    }
+    finally {
+      await context.flushWaitUntil?.()
+    }
+    return channelIds
   }
   handler.deliveries = async (request, webhook, handlerOptions = {}) => {
     const webhookId = webhook === undefined ? fallbackWebhookFromRequest(request) : webhook
@@ -10205,6 +10276,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
     const agentScopePrefix = `webhook:${webhookScopeComponent(routeAgentIdentity(handlerOptions)?.name || "agent")}:`
     let recoveryBefore = recoverInterruptedBefore
     let inboxReplayBefore = recoverInterruptedBefore
+    const unregisterChannelTasks = registerChannelTaskQueue(Object.keys(agentChannelOptions(agent)), createChannelTaskQueue(agent, handlerOptions, webhookQueue))
     const stopQueue = webhookQueue.resume(async (registrar) => {
       const request = new Request("http://vitehub.local/_vitehub/webhook-queue")
       const context = createRuntimeContext(
@@ -10253,12 +10325,13 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       for (const registration of registrations) await registrar.register(registration)
       if (inboxReplayBefore !== undefined) {
         // Requests that an earlier process stored but did not finish admitting go through the route again.
-        void replayWebhookInbox(inboxes, inboxReplayBefore, async (request, webhookId, priorAttempts) => await handler(request, webhookId, { ...handlerOptions, [webhookInboxPriorAttempts]: priorAttempts } as AgentChannelWebhookRouteOptions))
+        void replayWebhookInbox(inboxes, inboxReplayBefore, async (request, webhookId, priorAttempts, receivedAt) => await handler(request, webhookId, { ...handlerOptions, [webhookInboxPriorAttempts]: priorAttempts, [webhookInboxReceivedAt]: receivedAt } as AgentChannelWebhookRouteOptions))
           .catch(error => console.error("[vitehub] Webhook inbox replay failed.", error))
         inboxReplayBefore = undefined
       }
     }, { scopePrefix: agentScopePrefix })
     return async () => {
+      unregisterChannelTasks()
       // Admissions answered with 202 get the same grace as active queue deliveries.
       await Promise.all([stopQueue(), drainDeferredWebhookAdmissions({ timeoutMs: webhookQueueStopGraceMs() })])
     }

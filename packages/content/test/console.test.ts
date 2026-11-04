@@ -61,7 +61,7 @@ async function setup(workspace?: string, title: z.ZodType = z.string().min(1)) {
       posts: documents({
         path: "posts/**/*.md",
         fields: { title, date: z.coerce.date(), tags: z.array(z.string()).default([]) },
-        components: { alert: { description: "A highlighted note.", props: { type: { type: "string", default: "info" } } }, badge: { kind: "inline" } },
+        components: { alert: { description: "A highlighted note.", props: { type: { type: "string", default: "info" }, icon: { type: "image", store: "media" } } }, badge: { kind: "inline" } },
       }),
       notes: documents({ path: "notes/*.md", fields: { body: z.string().optional() } }),
     },
@@ -121,7 +121,7 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
       schema: { properties: { date: { type: "string", format: "date-time" } } },
     })
     expect(collections[0]!.components).toEqual([
-      { name: "alert", kind: "block", label: "Alert", description: "A highlighted note.", props: { type: { type: "string", default: "info" } } },
+      { name: "alert", kind: "block", label: "Alert", description: "A highlighted note.", props: { type: { type: "string", default: "info" }, icon: { type: "image", store: "media" } } },
       { name: "badge", kind: "inline", label: "Badge", props: {} },
     ])
     expect(collections[1]!.components).toBeUndefined()
@@ -437,6 +437,37 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
     expect((await actions.search({ query: "secret" }, reader)).items).toEqual([])
   })
 
+  it("resolves a page path to its readable document and state", async () => {
+    const workspace = await historyWorkspace()
+    const hidden = new Set(["secret"])
+    const content = defineContent({
+      workspace,
+      collections: {
+        posts: documents({ path: "posts/*.md", fields: { title: z.string() }, url: "/blog/:id" }),
+      },
+      authorize: ({ id }) => !(id !== undefined && hidden.has(id)),
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    const actions = createContentConsoleActions({ content })
+    const posts = content.collection("posts")
+    const save = async (id: string, title: string) => await posts.save(id, { data: { title } })
+    await save("hello", "Hello")
+    await save("secret", "Secret")
+    await content.publish()
+    await save("later", "Later")
+
+    expect(await actions.resolve({ path: "/blog/hello" }, editor)).toEqual({ collection: "posts", id: "hello", state: "published" })
+    await save("hello", "Hello again")
+    expect(await actions.resolve({ path: "/blog/hello" }, editor)).toEqual({ collection: "posts", id: "hello", state: "changed" })
+    // A page that was never published has its URL only on the draft.
+    expect(await actions.resolve({ path: "/blog/later" }, editor)).toEqual({ collection: "posts", id: "later", state: "draft" })
+    expect(await actions.resolve({ path: "/blog/missing" }, editor)).toBeNull()
+    // A document the policy hides resolves to nothing, as if it had no page.
+    expect(await actions.resolve({ path: "/blog/secret" }, editor)).toBeNull()
+    await expect(failure(actions.resolve({} as never, editor))).resolves.toMatchObject({ status: 400 })
+  })
+
   it("rejects malformed input without calling the runtime", async () => {
     const { actions } = await setup()
     await expect(failure(actions.save({ ...hello, ifDigest: undefined } as never, editor))).resolves.toMatchObject({ status: 400 })
@@ -640,7 +671,7 @@ describe("Content Console section", () => {
 
   it("names the fix for scheduled publishes when no Schedule Definition calls publishDue()", async () => {
     const root = await temporaryRoot()
-    await writeFile(join(root, "content.ts"), `import { defineContent } from "vite-hub/content"\nimport cms from "vite-hub/content/presets/cms"\nexport const content = defineContent({ extends: cms })\n`)
+    await writeFile(join(root, "content.ts"), `import { defineContent } from "vite-hub/content"\nimport cms from "vite-hub/cms"\nexport const content = defineContent({ extends: cms })\n`)
     const schedule = async (name: string, source: string) => {
       const file = join(root, `${name}.ts`)
       await writeFile(file, source)
@@ -664,14 +695,15 @@ describe("Content Console section", () => {
     await expect(inspect({ projectRoot: root }, join(root, "content.ts"))).resolves.toMatchObject({ schedule: { message: expect.stringContaining("Enable Schedule") } })
   })
 
-  it.each(["vite-hub/content", "@vite-hub/content"])("does not ask for a schedule runner with the GitHub cms store from %s", async (module) => {
+  it("does not ask for a schedule runner when the caller says the store cannot schedule", async () => {
     const root = await temporaryRoot()
     const file = join(root, "content.ts")
-    await writeFile(file, `import { defineContent } from "${module}"\nimport cms from "${module}/presets/cms"\nexport const content = defineContent({ extends: [cms, { store: "github", repo: "onmax/docs" }] })\n`)
+    await writeFile(file, `import { defineContent } from "vite-hub/content"\nexport const content = defineContent({ workspace: "site" })\n`)
 
     const inspect = contentConsoleSection.inspect!
-    await expect(inspect({ projectRoot: root }, file)).resolves.toEqual({})
-    await expect(inspect({ projectRoot: root, schedules: [] }, file)).resolves.toEqual({})
+    await expect(inspect({ projectRoot: root, scheduling: false }, file)).resolves.toEqual({})
+    await expect(inspect({ projectRoot: root, schedules: [], scheduling: false }, file)).resolves.toEqual({})
+    await expect(inspect({ projectRoot: root, scheduling: true }, file)).resolves.toMatchObject({ schedule: { message: expect.stringContaining("Enable Schedule") } })
   })
 
   it("shows the section only when server/content.ts defines document collections", async () => {

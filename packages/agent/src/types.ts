@@ -37,15 +37,8 @@ import type {
 } from "@vite-hub/workspace"
 import type { SandboxDefinition, SandboxToolchain } from "@vite-hub/sandbox"
 import type { channelDeliveryHandlers } from "./internal/channel-delivery-handlers.ts"
+import type { ProviderAgentRuntimeLoader, providerAgentRuntime } from "./internal/provider-driver-runtime.ts"
 import type { ReplayChannelResult } from "./channel-replay.ts"
-import type {
-  AgentChannelOptions,
-  AgentWebChatChannelOptions,
-  DiscordChannelOptions,
-  GitHubChannelOptions,
-  TeamsChannelOptions,
-  TelegramChannelOptions,
-} from "./channels.ts"
 
 export type {
   ExecutionBudget,
@@ -710,6 +703,13 @@ export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends Agent
    * `"bearer"` compares `Authorization: Bearer <secretToken>` in constant time; `secretHeader` defaults to `"authorization"`.
    * A `secretToken` that resolves to no secret is a configuration error (HTTP 500) that names the Channel.
    */
+  /**
+   * The webhook State and queue scope, used instead of `webhook:<agent>:<origin>:<registration>:`. Set it to the old
+   * scope to keep accepted deliveries, cursors, and Channel State when a Channel moves to another owner, such as a
+   * Channel module in `server/channels`. Trailing colons are optional. Give each registration its own scope: two
+   * registrations with the same scope share one queue and one Channel State.
+   */
+  stateScope?: string
   signature?: "bearer" | "github-sha256" | "stripe-sha256" | (string & {}) | {
     /**
      * `secretHeader` carries `prefix` followed by the HMAC-SHA256 of the raw body.
@@ -952,8 +952,14 @@ export type AgentChannelTriggerDefinition<
   | (AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS, AgentChannelTriggerContext<TRuntimeConfig>> & { durableState?: false })
   | (AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS, AgentDurableChannelTriggerContext<TRuntimeConfig>> & { durableState: true })
 
-/** The accepted input and run metadata that `prepare` and a task's `run` receive. */
-export type AgentTriggerAcceptedInvocation<CALL_OPTIONS = unknown> = Pick<AgentTriggerRunInvokeResult<CALL_OPTIONS>, "input" | "run">
+/** The accepted input, run metadata and Invocation reference that `prepare` and a task's `run` receive. */
+export type AgentTriggerAcceptedInvocation<CALL_OPTIONS = unknown> = Pick<AgentTriggerRunInvokeResult<CALL_OPTIONS>, "input" | "run"> & {
+  /**
+   * Present when the delivery has a run ID. It is the Invocation that the accepted input starts:
+   * the task Agent's Invocation for a task with `agent`, otherwise the Invocation of the Agent that owns the trigger.
+   */
+  invocation?: AgentInvocationReference
+}
 
 /**
  * What `prepare` returns: new input to run, nothing to keep the accepted input, or a handled `Response`.
@@ -1924,6 +1930,8 @@ export type CodexReasoningSummary = "auto" | "concise" | "detailed" | "none"
 export interface CodexDriverOptions<TOutput = unknown> extends AgentProviderDriverOptions<AgentRuntimeConfig, TOutput> {
   credentialProfile?: string
   credentials?: AgentProviderCredentialResolver
+  /** A gateway with a `codex` URL, such as `cliproxy()` or `openrouter()`, or `chatgpt()`. */
+  gateway?: AiGateway<{ routes: "codex" }> | ChatGPTGateway
   /** Advanced Codex runtime settings passed to the provider runtime. */
   providerSettings?: Record<string, unknown>
   reasoningEffort?: CodexReasoningEffort
@@ -1936,7 +1944,10 @@ export interface CodexDriverOptions<TOutput = unknown> extends AgentProviderDriv
    */
   retention?: AgentRetentionPolicy
 }
-export type ClaudeCodeDriverOptions<TOutput = unknown> = AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>
+export interface ClaudeCodeDriverOptions<TOutput = unknown> extends Omit<AgentProviderDriverOptions<AgentRuntimeConfig, TOutput>, "gateway"> {
+  /** A gateway with a `claude-code` URL, such as `cliproxy()` or `anthropic()`. */
+  gateway?: AiGateway<{ routes: "claude-code" }>
+}
 
 export type BuiltInAgentDriverName = "claude-code" | "codex"
 
@@ -1946,10 +1957,23 @@ type AgentDriverCallOptions<CALL_OPTIONS> = {
   readonly [agentDriverCallOptions]?: (options: CALL_OPTIONS) => CALL_OPTIONS
 }
 
+/** The provider runtime loader that only `codexDriver()` and `claudeCodeDriver()` attach. */
+type ProviderAgentRuntimeCarrier = {
+  readonly [providerAgentRuntime]: ProviderAgentRuntimeLoader
+}
+
+/** A Codex Driver. Create it with `codexDriver()`. */
+export type CodexDriver<CALL_OPTIONS = unknown, TOutput = unknown> =
+  AgentDriverCallOptions<CALL_OPTIONS> & ProviderAgentRuntimeCarrier & { kind: "codex" } & CodexDriverOptions<TOutput>
+
+/** A Claude Code Driver. Create it with `claudeCodeDriver()`. */
+export type ClaudeCodeDriver<CALL_OPTIONS = unknown, TOutput = unknown> =
+  AgentDriverCallOptions<CALL_OPTIONS> & ProviderAgentRuntimeCarrier & { kind: "claude-code" } & ClaudeCodeDriverOptions<TOutput>
+
+/** A provider Driver from `codexDriver()` or `claudeCodeDriver()`. The factory carries the provider runtime. */
 export type BuiltInAgentDriver<CALL_OPTIONS = unknown, TOutput = unknown> =
-  | BuiltInAgentDriverName
-  | (AgentDriverCallOptions<CALL_OPTIONS> & { kind: "codex" } & CodexDriverOptions<TOutput>)
-  | (AgentDriverCallOptions<CALL_OPTIONS> & { kind: "claude-code" } & ClaudeCodeDriverOptions<TOutput>)
+  | CodexDriver<CALL_OPTIONS, TOutput>
+  | ClaudeCodeDriver<CALL_OPTIONS, TOutput>
 
 export interface AgentModelDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -1963,7 +1987,12 @@ export interface AgentModelDriver<
   execution?: AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS>
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   kind?: never
-  gateway?: never
+  /**
+   * Run the model on the ChatGPT plan of a Connection: `gateway: chatgpt()` from `vite-hub/gateways`. `model` is then
+   * a model ID from `vitehub connections models chatgpt`. It calls the Responses API over HTTP, so it runs on every
+   * host, including Cloudflare Workers. For another gateway, set `model: languageModel(gateway, id)`.
+   */
+  gateway?: ChatGPTGateway
   launch?: never
   maxRetries?: number
   model: AgentModelResolver<TRuntimeConfig>
@@ -2580,10 +2609,11 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   delivery?: "automatic" | "manual"
   durable?: boolean
   /**
-   * Add the Console URL of the failed Invocation to each error reply.
+   * Link the Invocation in the Console, for internal users. Error replies get `Details: <Console URL>`,
+   * and an inline loading message gets a `[Details](<Console URL>)` link that stays through commentary updates.
    * Off by default, because the link shows internal details to the people in the conversation.
    */
-  errorConsoleLink?: boolean
+  consoleLink?: boolean
   errorFallbackText?: string | null | ((context: AgentChatErrorHookArgs<TRuntimeConfig> & {
     /** The text ViteHub sends when `errorFallbackText` is not set. */
     defaultText: string
@@ -2879,25 +2909,8 @@ export type AgentChannelFactory<TRuntimeConfig extends AgentRuntimeConfig = Agen
 export type AgentChannelInput<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   AgentChannelDefinition<TRuntimeConfig> | AgentChannelFactory<TRuntimeConfig>
 
-type AgentBuiltInChannelInput<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
-  | AgentChannelInput<TRuntimeConfig>
-  | AgentChannelOptions<TRuntimeConfig>
-  | AgentWebChatChannelOptions<TRuntimeConfig>
-  | DiscordChannelOptions<TRuntimeConfig>
-  | GitHubChannelOptions<TRuntimeConfig>
-  | TeamsChannelOptions<TRuntimeConfig>
-  | TelegramChannelOptions<TRuntimeConfig>
-
 export type AgentChannelInputs<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
-  Record<string, AgentBuiltInChannelInput<TRuntimeConfig>> & {
-    discord?: AgentChannelInput<TRuntimeConfig> | DiscordChannelOptions<TRuntimeConfig>
-    github?: AgentChannelInput<TRuntimeConfig> | GitHubChannelOptions<TRuntimeConfig>
-    http?: AgentChannelInput<TRuntimeConfig> | AgentChannelOptions<TRuntimeConfig>
-    slack?: AgentChannelInput<TRuntimeConfig> | AgentChannelOptions<TRuntimeConfig>
-    teams?: AgentChannelInput<TRuntimeConfig> | TeamsChannelOptions<TRuntimeConfig>
-    telegram?: AgentChannelInput<TRuntimeConfig> | TelegramChannelOptions<TRuntimeConfig>
-    webChat?: AgentChannelInput<TRuntimeConfig> | AgentWebChatChannelOptions<TRuntimeConfig>
-  }
+  Record<string, AgentChannelInput<TRuntimeConfig>>
 
 export type AgentChannels<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   Record<string, AgentChannelDefinition<TRuntimeConfig>>

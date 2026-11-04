@@ -69,7 +69,8 @@ The context also includes the resolved host Runtime Capabilities that the applic
 
 ### Console helpers
 
-When you import `inputCommands()` from `vite-hub/agent/capabilities` and enable the Console with `vitehub({ console })`, handlers also receive `context.console.invocations` and `context.console.invocationUrl()` for links to inspected work.
+When you import `inputCommands()` from `vite-hub/agent/capabilities` and enable the Console with `vitehub({ console })`, handlers also receive `context.console.invocations`, `context.console.invocationsDatabase()`, and `context.console.invocationUrl()` for links to inspected work.
+`invocationsDatabase()` opens the journal database for Drizzle queries on first use. It resolves to `undefined` on a Worker that keeps the journal in memory.
 `invocationUrl()` requires an invocation with `agentName` and `id`, and either `vitehub({ publicUrl })` or a request context.
 
 ```ts [server/agents/support.ts]
@@ -80,9 +81,9 @@ const history = inputCommands({
   commands: {
     history: {
       async call({ context }) {
-        const invocations = context.console.invocations
-        if (!("db" in invocations)) return await context.reply('Invocation history is not available on this Worker journal.')
-        const { db, schema } = invocations
+        const database = await context.console.invocationsDatabase()
+        if (!database) return await context.reply('Invocation history is not available on this Worker journal.')
+        const { db, schema } = database
         const [latest] = await db
           .select({
             agentName: schema.invocations.agentName,

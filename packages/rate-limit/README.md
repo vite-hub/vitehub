@@ -1,7 +1,7 @@
 # @vite-hub/rate-limit
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Frate-limit&icon=npm)](https://www.npmjs.com/package/@vite-hub/rate-limit)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Frate-limit&period=month&icon=npm)](https://www.npmjs.com/package/@vite-hub/rate-limit)
+[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Frate-limit&icon=npm)](https://npmx.dev/package/@vite-hub/rate-limit)
+[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Frate-limit&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/rate-limit)
 [![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
 [![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
 
@@ -15,7 +15,7 @@ Install this owner package when you need a direct Rate Limiter, a custom driver,
 pnpm add @vite-hub/rate-limit
 ```
 
-The package requires Node 24 or newer. Vite is an optional peer dependency and is needed only for the managed Vite integration.
+The package requires Node.js 22.18 or newer. Vite is an optional peer dependency and is needed only for the managed Vite integration.
 
 ## Get the first decision
 

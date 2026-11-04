@@ -4,14 +4,15 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { appendUniqueConsoleKeys, requestConsole } from "../client/request";
+import { queryText, useConsoleQuery } from "../client/route-query";
 import { useConsoleToast } from "../client/toast";
 import { isConsoleSectionReadOnly } from "../client/read-only";
 import { rememberConsoleSection } from "../sections";
 import { consoleBytes } from "../client/format";
-import ConsoleFrame from "./console-frame.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleSearch from "./console-search.vue";
+import ConsoleState from "./console-state.vue";
 import ConsoleStatus from "./console-status.vue";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
@@ -76,7 +77,8 @@ let applyingRouteSelection = false;
 const storeItems = computed(() => stores.value.map((store) => ({ label: store, value: store })));
 /** The KV route truncates large values at this size. */
 const valueLimit = 256 * 1024;
-const keyFilter = ref("");
+// The filter lives in the URL with the store and key, so a reload or a shared link opens the same view.
+const { q: keyFilter } = useConsoleQuery({ q: queryText() });
 // The filter narrows the loaded keys. Load more to search further in a large store.
 const visibleKeys = computed(() => {
   const filter = keyFilter.value.trim().toLowerCase();
@@ -409,7 +411,6 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <ConsoleFrame active="kv" :sections-base="sectionsBase">
     <ConsoleSearch
       :agents-base="agentsBase"
       :definitions-base="definitionsBase"
@@ -432,16 +433,7 @@ onBeforeUnmount(() => {
         <span class="ms-auto text-xs text-muted tabular-nums" aria-live="polite">{{ keyFilter.trim() ? `${visibleKeys.length} of ${keyCount}` : keyCount }}</span>
       </ConsolePageToolbar>
 
-      <UAlert
-        v-if="errorMessage(listError)"
-        class="m-4"
-        color="error"
-        variant="subtle"
-        icon="i-lucide-cloud-off"
-        title="Couldn't load keys"
-        :description="errorMessage(listError)"
-        :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', color: 'neutral', variant: 'outline', onClick: refresh }]"
-      />
+      <ConsoleState v-if="listError" :error="listError" title="Could not load keys" :retry="refresh" />
       <div v-else class="flex min-h-0 flex-1 flex-col md:flex-row">
         <nav class="flex max-h-[40vh] min-h-0 shrink-0 flex-col overflow-y-auto border-b border-default p-2 md:max-h-none md:w-80 md:border-r md:border-b-0" aria-label="Keys">
           <template v-if="listLoading && !keys.length">
@@ -468,25 +460,16 @@ onBeforeUnmount(() => {
           <p v-else class="px-2 py-1.5 text-xs text-muted">No keys in this store yet.</p>
         </nav>
 
-        <section class="flex min-h-0 min-w-0 flex-1 flex-col" aria-live="polite" aria-label="Value">
+        <section class="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Value">
           <div v-if="valueLoading && !selectedValue" class="grid gap-2 p-4" aria-busy="true">
             <USkeleton class="h-4 w-56" />
             <USkeleton v-for="index in 6" :key="index" class="h-3.5" :class="index % 2 ? 'w-2/3' : 'w-1/2'" />
           </div>
-          <UAlert
-            v-else-if="errorMessage(valueError)"
-            class="m-4"
-            color="error"
-            variant="subtle"
-            icon="i-lucide-cloud-off"
-            title="Couldn't load this value"
-            :description="errorMessage(valueError)"
-            :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', color: 'neutral', variant: 'outline', onClick: () => loadValue() }]"
-          />
+          <ConsoleState v-else-if="valueError" :error="valueError" title="Could not load this value" :retry="() => loadValue()" />
           <UEmpty
             v-else-if="selectedValue && !selectedValue.found"
             variant="naked"
-            class="py-16"
+            class="flex-1 py-16"
             icon="i-lucide-key-round"
             title="This key no longer exists"
             description="Someone deleted it after the list loaded. Refresh to load the current keys."
@@ -509,7 +492,7 @@ onBeforeUnmount(() => {
               </template>
             </header>
             <div v-if="editing" class="flex min-h-0 flex-1 flex-col gap-2 p-4">
-              <UTextarea v-model="editText" class="min-h-0 flex-1" :rows="12" :ui="{ base: 'font-mono text-xs' }" aria-label="Value" autofocus />
+              <UTextarea v-model="editText" class="min-h-0 flex-1 items-stretch" :rows="12" :ui="{ base: 'font-mono text-xs' }" aria-label="Value" autofocus />
               <div class="flex flex-wrap items-center gap-2">
                 <UInput v-model="editTtl" class="w-40" size="sm" type="number" min="1" placeholder="No expiry" aria-label="Expires in seconds" />
                 <span class="text-xs text-muted">Expires in seconds</span>
@@ -528,7 +511,7 @@ onBeforeUnmount(() => {
           <UEmpty
             v-else-if="!listLoading"
             variant="naked"
-            class="py-16"
+            class="flex-1 py-16"
             icon="i-lucide-database"
             :title="keys.length ? 'No key selected' : 'This store is empty'"
             :description="keys.length ? 'Choose a key to see its value.' : 'Keys show here when the application writes them.'"
@@ -550,5 +533,4 @@ onBeforeUnmount(() => {
         </div>
       </template>
     </UModal>
-  </ConsoleFrame>
 </template>

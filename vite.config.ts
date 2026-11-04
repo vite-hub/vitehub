@@ -21,6 +21,11 @@ export default defineConfig({
         cache: false,
         command: 'vp run --cache --filter "./packages/*" build',
       },
+      "codemods:e2e": {
+        cache: false,
+        command: "node packages/codemods/test/e2e.mjs",
+        dependsOn: ["vite-hub#build", "@vite-hub/codemods#build"],
+      },
       "database:e2e": {
         cache: false,
         command: "node packages/database/test/e2e.mjs",

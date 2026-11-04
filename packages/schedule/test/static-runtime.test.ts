@@ -105,6 +105,19 @@ describe("Static Schedule runtime", () => {
     ])
   })
 
+  it("matches a provider trigger to the cron that the host registered for a Schedule", async () => {
+    const calls: string[] = []
+    const registry: ScheduleDefinitionRegistry = {
+      cleanup: async () => ({ cron: "0 * * * *", handler: async () => calls.push("cleanup") }),
+      report: async () => ({ cron: "0 * * * *", handler: async () => calls.push("report") }),
+    }
+
+    await executeCloudflareStaticSchedules({ cron: "0 0 * * *" }, { cronOverrides: { cleanup: "0 0 * * *" }, registry })
+    expect(calls).toEqual(["cleanup"])
+    await executeCloudflareStaticSchedules({ cron: "0 * * * *" }, { cronOverrides: { cleanup: "0 0 * * *" }, registry })
+    expect(calls).toEqual(["cleanup", "report"])
+  })
+
   it("matches equivalent cron whitespace from provider events", async () => {
     const calls: string[] = []
     await executeMatchingStaticSchedules({

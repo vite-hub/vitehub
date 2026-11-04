@@ -1,5 +1,6 @@
 ---
 title: Database
+layout: landing
 navigation.title: Overview
 description: Define SQL tables in TypeScript and query them from your server routes with typed results.
 navigation.order: 1

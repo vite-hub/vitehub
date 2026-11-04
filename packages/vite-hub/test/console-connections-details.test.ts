@@ -67,7 +67,7 @@ async function render(props: Record<string, unknown>, inspected: ConnectionInspe
   const root = page().document.createElement("div")
   page().document.body.append(root)
   const app = createApp(Details as Component, { endpoint: "/_vitehub/connections", ...props })
-  app.component("UButton", UButton).component("UInput", UInput).component("UBadge", Passthrough)
+  app.component("UButton", UButton).component("UInput", UInput)
     .component("UFormField", Passthrough).component("UIcon", Passthrough).component("UTooltip", Passthrough)
   app.mount(root)
   mounted.push(() => app.unmount())
@@ -120,7 +120,7 @@ describe("Console Connection details", () => {
 
   it("opens at the tab that the row asked for", async () => {
     const oauth = connection({ status: "connected" })
-    const root = await render({ connection: oauth, initialTab: "approvals" }, oauth)
+    const root = await render({ connection: oauth, tab: "approvals" }, oauth)
     expect(root.querySelector("[data-approvals]")).not.toBeNull()
   })
 })

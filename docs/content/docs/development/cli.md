@@ -41,7 +41,8 @@ Available namespaces:
   blob        Read and write blobs of the Blob stores of the app, on the dev server or on a deployed app.
   channels    External Channel registration workflows.
   conversations  Export Channel conversations.
-  content     Inspect, edit, publish, and schedule Content documents in the running dev server or a deployed app.
+  content     Inspect, edit, delete, restore, publish, and schedule Content documents in the running dev server or a deployed app.
+  cms         Inspect the CMS roles and their permissions.
   db          Database development workflows.
   kv          Read and write keys of the KV stores of the app, on the dev server or on a deployed app.
   queue       List Queue Definitions and send a job to one.
@@ -87,11 +88,14 @@ Available namespaces:
 | `vitehub content diff` | Available | Content Package | Print a unified diff of one document from published to draft. |
 | `vitehub content revisions` | Available | Content Package | List the revisions of one document, newest first. |
 | `vitehub content edit` | Available | Content Package | Edit one draft in `$EDITOR` or save it from a file. Honours edit leases unless `--override-lease`. |
+| `vitehub content rm` | Available | Content Package | Delete one draft after confirmation, pinned to its digest. The next publish deletes it from the site. |
+| `vitehub content restore` | Available | Content Package | Save the version of a document from `--revision` as its draft, pinned to the draft digest that it read. Publishes nothing. |
 | `vitehub content publish` | Available | Content Package | Publish the listed draft documents in one revision after confirmation, pinned to their digests. |
 | `vitehub content schedule` | Available | Content Package | Publish the listed draft documents at a later time, pinned to their digests. |
 | `vitehub content scheduled` | Available | Content Package | List pending, overdue, and failed schedules. |
 | `vitehub content unschedule` | Available | Content Package | Cancel a pending schedule, or dismiss a failed one. |
 | `vitehub content sitemap` | Available | Content Package | Print the sitemap URLs of published documents. |
+| `vitehub cms roles` | Available | CMS Package | List each CMS role with the Content and Comments actions it allows. See [Roles and access](/docs/cms/access). |
 | `vitehub console dev` | Available | Console integration | Start the app's development command with deterministic Console fixture data. |
 | `vitehub connections` | Available | Connections Package | Connect OAuth accounts, set API keys, list Connections, read activity, and approve or deny writes. |
 | `vitehub env inspect` | Available | Env Package | List declared Server Env variables and their status without values. |
@@ -105,6 +109,7 @@ Available namespaces:
 | `vitehub email preview` | Available | Email Package | Render a `server/emails` template without sending it. Needs no server. |
 | `vitehub db generate` | Available | Database Package | Refresh generated Database artifacts and generate Drizzle migrations. |
 | `vitehub db migrate` | Available | Database Package | Refresh generated Database artifacts and apply Drizzle migrations. |
+| `vitehub db export` | Available | Database Package | Write a SQL dump of the local SQLite file, or of the deployed database with `--remote`. |
 | `vitehub db tables` | Available | ViteHub Framework | List the tables of a database with their columns and relationships, from the running app or a deployment. |
 | `vitehub db rows` | Available | ViteHub Framework | Read one page of rows of a table, sorted or searched, from the running app or a deployment. |
 | `vitehub kv list` | Available | KV Package | List the keys of one KV store, one page at a time. |
@@ -283,9 +288,9 @@ pnpm vitehub channels sync \
   --json
 ```
 
-`--stage staging` loads Vite's stage-specific environment files, such as `.env.staging`; existing process environment values take precedence. Keep the Telegram bot token and webhook secret in Server Env. The command does not accept credentials as flags and does not include them in human or JSON output.
+Without `--url`, the command uses `vitehub({ publicUrl })` when it is one string. `--stage staging` loads Vite's stage-specific environment files, such as `.env.staging`; existing process environment values take precedence. Keep the Telegram bot token and webhook secret in Server Env. The command does not accept credentials as flags and does not include them in human or JSON output.
 
-Apply the reviewed plan by repeating the exact origin in `--confirm-origin`. The confirmation is non-interactive, so the same contract works for developers, CI, and coding agents without silently selecting a deployment.
+Apply the reviewed plan by repeating the exact origin in `--confirm-origin`. The confirmation is non-interactive, so the same contract works for developers, CI, and coding agents without silently selecting a deployment. The configured `publicUrl` needs no confirmation, because the app already declares it. A `--confirm-origin` that you add must still match it.
 
 ```bash [Terminal]
 pnpm vitehub channels sync \
@@ -303,7 +308,7 @@ Telegram exposes the registered URL and delivery errors through `getWebhookInfo`
 
 ## Export a Channel conversation
 
-The generated operation commands `vitehub channels list`, `vitehub channels threads`, and `vitehub channels conversation` list Channels and their retention, list a Channel's threads, and read one thread's messages in order. They are available when the app contributes the corresponding Channel operations.
+The generated operation commands `vitehub channels list`, `vitehub channels threads`, and `vitehub channels conversation` list Channels and their retention, list a Channel's threads, and read one thread's messages in order. `vitehub channels status <agent> <channel>` shows the sync health and the skipped messages of a [Gmail Channel](/docs/agents/gmail#failed-messages). They are available when the app contributes the corresponding Channel operations.
 
 `conversations export` calls the `conversations.export` [operation](/docs/development/operations) of the running dev server, or of the app at `--url` with the credentials of [Run any operation](#run-any-operation). It needs no webhook secret, only Console access to the `channels` section.
 
@@ -329,7 +334,7 @@ pnpm vitehub channels history \
   --output ./channel-history
 ```
 
-A Telegram direct-message Channel infers its thread when the adapter allows exactly one user. Pass `--thread <provider-thread-id>` for group conversations and adapters where one Channel serves multiple conversations, issues, or tickets. When a Channel declares multiple webhook registrations, select the deployed route and its authentication with `--webhook <id>`.
+`--url` defaults to `vitehub({ publicUrl })` when it is one string. A Telegram direct-message Channel infers its thread when the adapter allows exactly one user. Pass `--thread <provider-thread-id>` for group conversations and adapters where one Channel serves multiple conversations, issues, or tickets. When a Channel declares multiple webhook registrations, select the deployed route and its authentication with `--webhook <id>`.
 
 Use `--webhook-path <path>` to export through a different path on the confirmed deployment origin while keeping the selected registration's authentication. This can select the built-in route on an older deployment that does not yet serve a declared `webhooks.path`.
 
@@ -355,6 +360,24 @@ pnpm vitehub db migrate
 ```
 
 `db generate` forwards Drizzle Kit arguments, supports `--name <name>` for a migration name, and uses `--custom` to create an empty custom migration. `db migrate` accepts forwarded Drizzle Kit migration arguments.
+
+## Export a Database
+
+`db export` writes a SQL dump of each database without a build. It reads the local SQLite file by default. `--remote` reads Cloudflare D1 through the Cloudflare API, D1 HTTP, remote libSQL, or Postgres through `pg_dump`.
+
+```bash [Terminal]
+pnpm vitehub db export
+pnpm vitehub db export --remote --stage production --output backups/database.sql
+```
+
+| Option | Description |
+| --- | --- |
+| `--remote` | Read the remote database. A database that is not a local file needs it. |
+| `--stage <name>` | Load the Vite env files of this mode. Variables from the current process take precedence. |
+| `--database <name>` | Export only this database. |
+| `--output <file>` | Write this file. Defaults to `.vitehub/exports/database/<name>-<local\|remote>-<time>.sql`. |
+
+See [Export a database](/docs/database/configure#export-a-database) for each driver and the dump format.
 
 ## Browse Database tables
 
@@ -825,4 +848,4 @@ pnpm vitehub workflow resume <token> --payload '{"approved":true}'
 
 The commands are generated from the `workflow.start`, `workflow.get`, `workflow.cancel`, and `workflow.resume` [operations](/docs/development/operations). They call the Console RPC of the running app, so app and CLI runs share state, and `--url <origin>` calls a deployed app that serves the Console RPC. The payload is a JSON value; `--input '{"workflow":"welcome","payload":{...}}'` or `--input @file.json` passes the whole input. `cancel` asks for confirmation unless you pass `--yes`. All commands accept `--json`, `--url`, and `--timeout`. A run that this runtime did not start needs `--workflow <name>` for `get` and `cancel`. A `console.authorize` grant of `workflows` allows all four; `workflows:read` allows only `get`.
 
-Inline runs can be read for five minutes. Inline cancellation, Cloudflare cancellation and resume, and OpenWorkflow cancellation and resume return unsupported-operation errors. OpenWorkflow starts enqueue work and require a worker to execute it. Resume uses an opaque hook token, not a run ID or signal name. Workflow inspection lists Definitions; this CLI adds no run list, replay, or Console run view.
+Inline runs can be read for five minutes. Inline cancellation, Cloudflare cancellation and resume, and OpenWorkflow resume return unsupported-operation errors. OpenWorkflow starts enqueue work and require a worker to execute it. Resume uses an opaque hook token, not a run ID or signal name. Workflow inspection lists Definitions; this CLI adds no run list, replay, or Console run view.

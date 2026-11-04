@@ -39,13 +39,23 @@ export type AuthConsoleColumn = { label: string } & (
   | { type: "boolean"; read: ColumnReader<boolean> }
 );
 
+/**
+ * Roles that the app computes, such as from an environment variable. The Console shows them and its Admins filter
+ * uses them. `null` keeps the stored role. Better Auth's own endpoints still read the stored `user.role`.
+ */
+export interface AuthConsoleRoles {
+  editable: false;
+  reason: string;
+  read: ColumnReader<string>;
+}
+
 /** Host-independent display and edit policy. It does not grant Better Auth permissions. */
 export interface AuthConsoleOptions {
   access?: readonly string[];
   actions?: Partial<Record<AuthConsoleAction, AuthConsolePolicy>>;
   columns?: Readonly<Record<string, AuthConsoleColumn>>;
   fields?: Readonly<Record<string, AuthConsoleFieldPolicy | undefined>>;
-  roles?: AuthConsolePolicy;
+  roles?: AuthConsolePolicy | AuthConsoleRoles;
 }
 
 export interface AuthConsoleCapability {
@@ -75,6 +85,20 @@ export interface AuthConsoleDescription {
   pages: AuthConsolePage[];
   storage: AuthConsoleCapability;
   events: AuthConsoleCapability;
+  /** Present only when the host enables impersonation. */
+  impersonation?: AuthConsoleImpersonation;
+}
+
+/** What the host allows. A host that renders the Console passes it with the Definition's own policy. */
+export interface AuthConsoleHostOptions {
+  /** Let the Console start and stop Better Auth admin impersonation. Off by default. */
+  impersonation?: boolean;
+}
+export interface AuthConsoleImpersonation {
+  /** Seconds until an impersonation session ends. Better Auth's `admin({ impersonationSessionDuration })` sets it. */
+  duration: number;
+  /** The user that the app session of this request impersonates, or `null`. */
+  active: { user: Pick<AuthConsoleUser, "id" | "name" | "email" | "image">; expiresAt: string } | null;
 }
 
 export type AuthConsoleEventGroup = "sign-in" | "admin" | "agents" | "organizations";
@@ -190,6 +214,8 @@ export interface AuthConsoleUserDetail {
   organizations: Array<AuthConsoleOrganization & { role: string }>;
   accountsTotal: number;
   organizationsTotal: number;
+  /** Whether Better Auth accepts this user as an impersonation target. Present only when the host enables impersonation. */
+  impersonation?: AuthConsoleCapability;
 }
 export interface AuthConsoleList<T> {
   items: T[];

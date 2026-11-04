@@ -1,5 +1,5 @@
 import { vitehub } from "vite-hub"
-import { defineAgent } from "vite-hub/agent"
+import { codexDriver, defineAgent } from "vite-hub/agent"
 import type {
   BuiltInAgentDriver,
   BuiltInAgentDriverName,
@@ -28,7 +28,7 @@ export const contract = {
     runtime: false,
     driver: { run: () => ({ text: "typed" }) },
   }),
-  builtInAgent: defineAgent({ driver: "codex", runtime: false }),
+  builtInAgent: defineAgent({ driver: codexDriver(), runtime: false }),
   sandbox: resolveSandbox({ runtime: "trusted-host" }, {}),
   env: env({ default: "typed" }),
   extensions: [
@@ -59,6 +59,6 @@ export const contract = {
 }
 
 export const builtInAgentName = "codex" satisfies BuiltInAgentDriverName
-export const configuredCodex = { kind: "codex", permissions: "ask" } satisfies BuiltInAgentDriver
+export const configuredCodex = codexDriver({ permissions: "ask" }) satisfies BuiltInAgentDriver
 export const codexOptions = { model: "gpt-5.5" } satisfies CodexDriverOptions
 export const claudeCodeOptions = { env: { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" } } satisfies ClaudeCodeDriverOptions

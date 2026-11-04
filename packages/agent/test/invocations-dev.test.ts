@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { ensureWorkspaceDevToken, workspaceDevTokenHeader, workspaceDevTokenServerId } from "@vite-hub/workspace/server"
@@ -103,6 +103,36 @@ describe("Agent Invocations Nitro dev handler", () => {
       }) })
       expect(response.status).toBe(404)
       expect(await response.json()).toEqual({ error: { message: "No Agent invocation journal is configured." } })
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("leaves the dev server's generated files untouched when a CLI command loads the project", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-cli-load-"))
+    try {
+      const generate = async (config: Record<string, unknown>) => {
+        const hook = hubAgent({ providers: { state: { provider: "memory" } } }).configResolved
+        if (!hasRuntimeType(hook, "function")) throw new Error("Expected a configResolved hook")
+        // SAFETY: Agent output generation reads only these resolved config fields in this fixture.
+        await hook.call({} as never, { root, command: "serve", plugins: [], build: { outDir: "dist" }, resolve: { alias: [] }, ...config } as never)
+      }
+      const snapshot = async () => {
+        const directory = join(root, ".vitehub/agent")
+        const files = await readdir(directory)
+        return Object.fromEntries(await Promise.all(files.map(async file => [file, {
+          contents: await readFile(join(directory, file), "utf8"),
+          modified: (await stat(join(directory, file))).mtimeMs,
+        }])))
+      }
+      await generate({ server: { port: 5173 } })
+      const devServerFiles = await snapshot()
+      expect(Object.keys(devServerFiles)).toContain("invocations-dev-handler.ts")
+      // The dev server watches these files, so a rewrite with the same bytes still rebuilds it.
+      await new Promise(resolve => setTimeout(resolve, 20))
+      await generate({ server: {}, vitehubCliDiscovery: true })
+      expect(await snapshot()).toEqual(devServerFiles)
     }
     finally {
       await rm(root, { recursive: true, force: true })

@@ -11,6 +11,58 @@ const execFileAsync = promisify(execFile)
 const packageRoot = fileURLToPath(new URL("..", import.meta.url))
 const tsc = resolve(packageRoot, "../../node_modules/typescript/bin/tsc")
 
+it("keeps installed Console sections independent of optional Auth packages", async () => {
+  const consumerRoot = await mkdtemp(resolve(tmpdir(), "vite-hub-console-types-"))
+  const installedRoot = resolve(consumerRoot, "node_modules/vite-hub")
+  try {
+    await mkdir(installedRoot, { recursive: true })
+    await copyFile(resolve(packageRoot, "package.json"), resolve(installedRoot, "package.json"))
+    await cp(resolve(packageRoot, "dist"), resolve(installedRoot, "dist"), { recursive: true })
+    // SAFETY: The checked-in package manifest defines these dependency maps.
+    const manifest = JSON.parse(await readFile(resolve(packageRoot, "package.json"), "utf8")) as {
+      dependencies: Record<string, string>
+      peerDependencies: Record<string, string>
+    }
+    for (const name of Object.keys({ ...manifest.dependencies, ...manifest.peerDependencies })) {
+      if (name === "@vite-hub/auth" || name === "better-auth") continue
+      const target = resolve(consumerRoot, "node_modules", name)
+      await mkdir(dirname(target), { recursive: true })
+      await symlink(resolve(packageRoot, "node_modules", name), target, "dir")
+    }
+    await writeFile(resolve(consumerRoot, "consumer.ts"), `
+      import { createConsoleAppAuthPages, installConsoleSections } from "vite-hub/console/sections"
+      installConsoleSections("/consumer", [])
+      createConsoleAppAuthPages(async () => ({
+        api: { getSession: async () => null },
+        handler: async () => new Response(),
+        $context: Promise.resolve({
+          baseURL: "https://example.com/api/auth",
+          options: {},
+          socialProviders: [],
+          isTrustedOrigin: () => true,
+        }),
+      }))
+    `)
+    await writeFile(resolve(consumerRoot, "package.json"), JSON.stringify({ private: true, type: "module" }))
+    await writeFile(resolve(consumerRoot, "tsconfig.json"), JSON.stringify({
+      compilerOptions: { module: "NodeNext", moduleResolution: "NodeNext", noEmit: true, strict: true, skipLibCheck: false, types: [] },
+      files: ["consumer.ts"],
+    }))
+    const result = await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", consumerRoot]).catch((error: unknown) => {
+      if (error instanceof Error && "stdout" in error) return { stdout: String(error.stdout) }
+      throw error
+    })
+    // Check the consumer and framework declarations, excluding unrelated third-party diagnostics.
+    const ownDiagnostics = result.stdout.split("\n").filter(line => line.includes("error TS") && (
+      line.includes("consumer.ts(") || line.includes(`${consumerRoot.split("/").at(-1)}/node_modules/vite-hub/`)
+    ))
+    expect(ownDiagnostics).toEqual([])
+  }
+  finally {
+    await rm(consumerRoot, { recursive: true, force: true })
+  }
+}, 60_000)
+
 it("publishes Env's Vite config augmentation from the framework root", async () => {
   await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", resolve(packageRoot, "fixtures/published-types")])
 }, 10_000)

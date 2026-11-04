@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { resolveConfig } from "vite"
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
@@ -17,6 +18,7 @@ describe("blob.images configuration", () => {
       images: { binding: "PHOTOS", quality: 80, sizes: [320, 640], transformer: "cloudflare-images" },
     })
     expect(normalizeBlobOptions({ images: { transformer: "sharp" }, stores: { default: { driver: "fs" } } })).toMatchObject({ images: { transformer: "sharp" } })
+    expect(normalizeBlobOptions({ driver: "fs", images: { transformer: "photon" } })).toMatchObject({ images: { transformer: "photon" } })
   })
 
   it.each([
@@ -50,9 +52,10 @@ describe("generated Nitro plugin", () => {
     await rm(root, { force: true, recursive: true })
   })
 
-  async function generatePlugin(options: Parameters<typeof hubBlob>[0]) {
+  async function generatePlugin(options: Parameters<typeof hubBlob>[0], alias?: Record<string, string>) {
     const plugin = hubBlob(options)
-    await (plugin.configResolved as (config: unknown) => Promise<void>)({ build: { outDir: "dist" }, command: "build", plugins: [], root } as never)
+    const config = await resolveConfig({ configFile: false, logLevel: "silent", resolve: { alias }, root }, "build")
+    await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
     return await readFile(join(root, ".vitehub/nitro/blob/plugin.ts"), "utf8")
   }
 
@@ -68,12 +71,55 @@ describe("generated Nitro plugin", () => {
     expect(await generatePlugin({ driver: "fs", images: false })).not.toContain("sharp")
   })
 
+  it("registers a lazy Photon loader on every host when the photon transformer is set", async () => {
+    await expect(generatePlugin({ driver: "fs", images: { transformer: "photon" } })).rejects.toMatchObject({ code: "BLOB_B0007" })
+    await mkdir(join(root, "node_modules/@cf-wasm/photon"), { recursive: true })
+    await writeFile(join(root, "node_modules/@cf-wasm/photon/package.json"), "{\"name\":\"@cf-wasm/photon\"}")
+    await writeFile(join(root, "node_modules/@cf-wasm/photon/index.js"), "export {}")
+    expect(await generatePlugin({ driver: "fs" })).not.toContain("photon")
+    for (const options of [{ driver: "fs" as const }, { bucketName: "assets", driver: "cloudflare-r2" as const }]) {
+      const source = await generatePlugin({ ...options, images: { transformer: "photon" } })
+      expect(source).toContain("setBlobPhotonLoader(() => import('@cf-wasm/photon'))")
+      expect(source).not.toContain("sharp")
+    }
+  })
+
+  it("uses the active resolver when Photon is available outside node_modules", async () => {
+    const entry = join(root, ".yarn/cache/photon/index.js")
+    await mkdir(join(root, ".yarn/cache/photon"), { recursive: true })
+    await writeFile(entry, "export {}")
+    for (const driver of ["fs", "cloudflare-r2"] as const) {
+      const source = await generatePlugin({ driver, images: { transformer: "photon" } }, { "@cf-wasm/photon": entry })
+      expect(source).toContain("setBlobPhotonLoader(() => import('@cf-wasm/photon'))")
+    }
+  })
+
+  it("reports BLOB_B0007 when Photon has no resolvable entry", async () => {
+    await mkdir(join(root, "node_modules/@cf-wasm/photon"), { recursive: true })
+    await writeFile(join(root, "node_modules/@cf-wasm/photon/package.json"), JSON.stringify({ name: "@cf-wasm/photon", exports: "./missing.js" }))
+    await expect(generatePlugin({ driver: "fs", images: { transformer: "photon" } })).rejects.toMatchObject({ code: "BLOB_B0007" })
+  })
+
+  it("reports BLOB_B0007 for an uninstalled optional Photon peer", async () => {
+    await writeFile(join(root, "package.json"), JSON.stringify({
+      name: "optional-photon-consumer",
+      peerDependencies: { "@cf-wasm/photon": "^0.4.0" },
+      peerDependenciesMeta: { "@cf-wasm/photon": { optional: true } },
+    }))
+    // A previous build's plugin makes Vite resolve from its directory and return an optional-peer placeholder.
+    await mkdir(join(root, ".vitehub/nitro/blob"), { recursive: true })
+    await writeFile(join(root, ".vitehub/nitro/blob/plugin.ts"), "export {}")
+    for (const driver of ["fs", "cloudflare-r2"] as const) {
+      await expect(generatePlugin({ driver, images: { transformer: "photon" } })).rejects.toMatchObject({ code: "BLOB_B0007" })
+    }
+  })
+
   it("parses variant queries in the serve route and answers invalid ones with 400", async () => {
     await generatePlugin({ driver: "fs", serve: true })
     const route = await readFile(join(root, ".vitehub/blob/serve-route.ts"), "utf8")
     expect(route).toContain("import { blob, parseImageVariant } from '@vite-hub/blob'")
-    expect(route).toContain("const variant = parseImageVariant(getQuery(event))")
-    expect(route).toContain("statusCode: 400")
+    expect(route).toContain("const variant = parseImageVariant(new URL(event.path, 'http://localhost').searchParams)")
+    expect(route).toContain("{ status: 400 }")
     expect(route).toContain("blob.store(storeName).serve(event, pathname, options)")
   })
 })

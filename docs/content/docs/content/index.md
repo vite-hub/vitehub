@@ -1,5 +1,6 @@
 ---
 title: Content
+layout: landing
 navigation.title: Overview
 description: Turn Markdown files into pages your app can read, list, and search, and let people edit drafts and publish them.
 navigation.order: 1
@@ -79,6 +80,8 @@ icon: i-lucide-file-text
   :::
 ::
 
+The search examples use optional plugins from `comark-content`. See [search configuration](/docs/content/configure#providers) for installation and storage options. Reading and rendering Markdown needs no separate Comark setup.
+
 ::product-features
   :::product-feature-item{title="Write pages in Markdown" icon="i-lucide-file-text" to="/docs/content/get-started#define-and-read-content"}
   Point Content at a folder of Markdown files. It reads the headings and body of each page.
@@ -116,7 +119,7 @@ icon: i-lucide-file-text
   A collection holds pages that people edit in your app. Each save is a draft. Visitors see only what you publish.
   :::
 
-  :::product-feature-item{title="One preset stores the collections" icon="i-lucide-newspaper" to="/docs/content/cms-preset"}
+  :::product-feature-item{title="One preset stores the collections" icon="i-lucide-newspaper" to="/docs/cms"}
   `extends: cms` adds the Workspace, its history tables, and a Database when the app has none.
   :::
 

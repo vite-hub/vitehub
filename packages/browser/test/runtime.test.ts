@@ -12,6 +12,7 @@ import type { BrowserClient } from "../src/types.ts"
 const runtimeConfig = vi.hoisted(() => ({ binding: "BROWSER", engine: "chromium", provider: "cloudflare" as string | undefined }))
 const browserRegistry = vi.hoisted(() => Object.create(null) as Record<string, unknown>)
 vi.mock("#vitehub/browser/runtime", () => ({ default: runtimeConfig, loadCloudflarePlaywright: undefined }))
+vi.mock("#vitehub/browser/availability", () => ({ default: { available: true } }))
 vi.mock("#vitehub/browser/registry", () => ({ default: browserRegistry }))
 
 const runtime = globalThis as typeof globalThis & { __env__?: Record<string, unknown> }
@@ -35,7 +36,7 @@ describe("Browser Definitions", () => {
     })
 
     await expect(executeBrowserDefinition(definition, undefined)).rejects.toMatchObject({
-      code: "BROWSER_RUNTIME_NOT_CONFIGURED",
+      code: "BROWSER_UNAVAILABLE",
     })
   })
 

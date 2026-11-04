@@ -15,6 +15,7 @@ import {
   defineAuth,
   type AuthAuthorization,
   type AuthDefinition,
+  type AuthDefinitionOptions,
   type AuthDefinitionResolver,
   type AuthFor,
   type AuthModuleOptions,
@@ -95,6 +96,14 @@ describe("types", () => {
 
     expectTypeOf(definition).toMatchTypeOf<AuthDefinition<AuthDefinitionResolver>>()
     expectTypeOf(definition.options).toMatchTypeOf<AuthDefinitionResolver<AuthResolvedDefinitionOptions>>()
+  })
+
+  it("preserves the inferred Auth Definition type for each input form", () => {
+    const options = { appName: "ViteHub", plugins: [admin()] }
+    expectTypeOf(defineAuth(options)).toEqualTypeOf<AuthDefinition<AuthDefinitionOptions<typeof options>>>()
+
+    const resolver = ({ requestOrigin }: AuthRuntimeContext) => ({ ...options, baseURL: requestOrigin })
+    expectTypeOf(defineAuth(resolver)).toEqualTypeOf<AuthDefinition<AuthDefinitionResolver<ReturnType<typeof resolver>>>>()
   })
 
   it("augments vite user config with auth options", () => {
@@ -319,11 +328,7 @@ describe("Auth Console declarations", () => {
       },
     });
     // @ts-expect-error A numeric column cannot return strings.
-    defineAuth({ user: { additionalFields: { plan: { type: "string" } } },
-      console: {
-        columns: { count: { type: "number", label: "Count", read: () => ({ user: "two" }) } },
-      },
-    });
+    defineAuth({ user: { additionalFields: { plan: { type: "string" } } }, console: { columns: { count: { type: "number", label: "Count", read: () => ({ user: "two" }) } } } });
   });
 });
 

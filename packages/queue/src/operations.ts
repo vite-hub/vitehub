@@ -15,7 +15,7 @@ function defineQueueOperation<Input, Output>(definition: Omit<OperationDefinitio
 
 const list = defineQueueOperation<Record<string, never>, QueueListResult>({
   cli: { namespace: "queue" },
-  description: "List the Queue Definitions of the app and the provider that sends their jobs.",
+  description: "List the Queue Definitions of the app and the provider that sends their jobs. The local provider also reports where it stores jobs and the job counts.",
   input: v.strictObject({}),
   kind: "read",
   name: "queue.list",

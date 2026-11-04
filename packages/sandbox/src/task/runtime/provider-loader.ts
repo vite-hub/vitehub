@@ -22,10 +22,6 @@ export interface SandboxTaskRuntimeProvider {
 
 const dynamicImport = new Function('specifier', 'return import(specifier)') as <T>(specifier: string) => Promise<T>
 
-export function unsupportedHostedSandboxTaskProviderError(provider: unknown): Error {
-  return sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0076({ message: `[vitehub] Unsupported sandbox provider for this hosted build: ${String(provider)}` })
-}
-
 export async function loadSandboxTaskRuntimeProvider(provider: SandboxTaskProvider): Promise<SandboxTaskRuntimeProvider> {
   if (provider === 'cloudflare') {
     const { resolveCloudflareTaskSandbox } = await dynamicImport<typeof import('./providers/cloudflare')>('./providers/cloudflare.js')

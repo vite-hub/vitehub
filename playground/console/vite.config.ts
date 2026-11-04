@@ -58,6 +58,10 @@ export default defineConfig({
         replacement: resolve(workspaceRoot, "packages/realtime/src/vue.ts"),
       },
       {
+        find: /^@vite-hub\/comments\/client$/,
+        replacement: resolve(workspaceRoot, "packages/comments/src/client.ts"),
+      },
+      {
         find: "vite-hub/source/client",
         replacement: resolve(workspaceRoot, "packages/source/src/client.ts"),
       },

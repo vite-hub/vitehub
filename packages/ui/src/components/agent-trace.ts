@@ -1,5 +1,6 @@
 import type { TraceRunView, TraceStepView } from "@vite-hub/runtime";
-import { defineComponent, h, type PropType, resolveComponent } from "vue";
+import { defineComponent, h, type PropType } from "vue";
+import { useUIComponent } from "../internal/nuxt-ui.ts";
 
 function traceAttributesText(value: unknown): string | undefined {
   try {
@@ -32,8 +33,8 @@ export const AgentTrace = defineComponent({
     run: { required: true, type: Object as PropType<TraceRunView> },
   },
   setup(props, { slots }) {
-    const UBadge = resolveComponent("UBadge");
-    const UCollapsible = resolveComponent("UCollapsible");
+    const UBadge = useUIComponent("UBadge");
+    const UCollapsible = useUIComponent("UCollapsible");
     return () =>
       h("section", { class: "vh-trace", "data-status": props.run.status, "data-slot": "trace" }, [
         h(

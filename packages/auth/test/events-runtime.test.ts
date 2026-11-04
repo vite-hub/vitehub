@@ -17,7 +17,7 @@ it("resolves events and the provider once with the same Console request context"
     const inspect = getAuthConsoleForRequest(request)
     const [error, overview] = await inspect.overview()
     expect(error).toBeUndefined()
-    expect(overview).toMatchObject({ users: null, activeSessions: null, recent: { enabled: true, events: [] } })
+    expect(overview).toMatchObject({ users: 0, activeSessions: 0, recent: { enabled: true, events: [] } })
     expect(state.resolved).toHaveBeenCalledOnce()
     expect(state.resolved).toHaveBeenCalledWith(expect.objectContaining({ request, requestOrigin: "http://localhost:3000" }))
   } finally { sqlite.close() }

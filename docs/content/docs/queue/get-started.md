@@ -12,9 +12,9 @@ Submit a welcome job from an API route and watch its handler log the delivery. T
 
 Start with the working app from [Installation](/docs/getting-started/installation). Use its Node.js, pnpm, Vite, Nitro, and H3 setup, and run commands from the app root.
 
-Queue has no local delivery provider. You can build and inspect the Definition without credentials, but `pnpm dev` on `localhost:3000` does not prove delivery. Completing this tutorial requires a Cloudflare account with Queues available, permission to create a queue and deploy a Worker, and access to Worker logs. Provisioning and deployment create real provider resources and can incur charges. The deployed Worker must have the generated producer binding and consumer configuration.
+The `node` preset already runs Queue with the local provider: `pnpm dev` and the built server run each job in the server process, with no account. See [Queue hosts](/docs/queue/hosts#develop-locally). This tutorial deploys to Cloudflare instead. Completing this tutorial requires a Cloudflare account with Queues available, permission to create a queue and deploy a Worker, and access to Worker logs. Provisioning and deployment create real provider resources and can incur charges. The deployed Worker must have the generated producer binding and consumer configuration.
 
-This tutorial changes the app's preset from `node` to `cloudflare`. Any other enabled features also need their Cloudflare resources. See [Queue hosts](/docs/queue/hosts) for Vercel, the other supported Queue provider. There is no Queue provider for self-hosted Node or Deno.
+This tutorial changes the app's preset from `node` to `cloudflare`. Any other enabled features also need their Cloudflare resources. See [Queue hosts](/docs/queue/hosts) for Vercel and the local provider. There is no Queue provider for Deno.
 
 ::tutorial-step{title="Enable Queue for Cloudflare"}
 ## Enable Queue for Cloudflare
@@ -169,7 +169,7 @@ Continue with [Configuration](/docs/queue/configure#queue-definition-options) fo
 
 `vitehub queue list` shows the Queue Definitions that the running app loads and the provider that sends their jobs. `vitehub queue send <name> '<json>'` sends one job, so you can try a handler without a route. Both call the `queue.list` and `queue.send` [operations](/docs/development/operations) of the Queues section, on the dev server or on a deployment with `--url`. They need `vitehub()` (the Console RPC), and `queue.send` is registered only when `console.invoke` is on.
 
-```bash [Terminal]
+```bash [commands/dispatch]
 pnpm vitehub queue list
 pnpm vitehub queue send welcome '{"userId":7}' --delay-seconds 30
 pnpm vitehub queue send welcome '{"userId":7}' --url https://app.example.com

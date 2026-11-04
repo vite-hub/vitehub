@@ -3,6 +3,7 @@ import sqlite from "comark-content/database/sqlite-node"
 import json from "comark-content/plugins/json"
 import media from "comark-content/plugins/media"
 import sqliteFullTextSearch from "comark-content/plugins/sqlite-full-text-search"
+import comarkUi from "comark-ui/html"
 import { setTimeout as delay } from "node:timers/promises"
 import { runInNewContext } from "node:vm"
 import { afterEach, describe, expect, expectTypeOf, it } from "vitest"
@@ -10,7 +11,7 @@ import { afterEach, describe, expect, expectTypeOf, it } from "vitest"
 import { clearSources, createSource, defineSource, registerSources, useSource } from "@vite-hub/source"
 import type { SourceName } from "@vite-hub/source"
 
-import { contentSource, defineContent, defineContentHandler } from "../src/index.ts"
+import { contentSource, defineContent, defineContentHandler, renderContentHtml } from "../src/index.ts"
 
 afterEach(clearSources)
 
@@ -89,6 +90,41 @@ describe("contentSource", () => {
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual(expect.objectContaining({ path: "/guide" }))
     await expect(content.cache.keys("docs")).resolves.toEqual(["docs:guide/index.md"])
+  })
+
+  it("parses Comark UI blocks by default and lets callers replace a preset plugin", async () => {
+    const source = {
+      keys: () => ["index.md"],
+      getItem: () => "> [!NOTE]\n> Read this.\n",
+      getItemRaw: () => "> [!NOTE]\n> Read this.\n",
+    }
+    const content = defineContent({ sources: { docs: source } })
+    expect((await content.get("/"))?.nodes).toEqual(expect.arrayContaining([
+      expect.arrayContaining(["github-callout", expect.objectContaining({ type: "note" })]),
+    ]))
+    const custom = defineContent({
+      sources: { docs: source },
+      markdown: { plugins: [{ name: "alert", post: state => { state.tree.nodes = [["p", {}, "Custom callout"]] } }] },
+    })
+    expect((await custom.get("/"))?.nodes).toEqual(expect.arrayContaining([["p", {}, "Custom callout"]]))
+  })
+
+  it("leaves HTML-only quiz processing opt-in for a custom renderer", async () => {
+    const markdown = "::question\nChoose one.\n\n- [x] Yes\n- [ ] No\n::\n"
+    const source = { keys: () => ["index.md"], getItem: () => markdown, getItemRaw: () => markdown }
+    const content = defineContent({ source })
+    const custom = defineContent({ source, markdown: { plugins: comarkUi().plugins.filter(plugin => plugin.name === "comark-quiz") } })
+    try {
+      const page = await content.get("/")
+      const question = page?.nodes.find(node => Array.isArray(node) && node[0] === "question")
+      expect(question?.[1]).not.toHaveProperty("number")
+      const customPage = await custom.get("/")
+      const customQuestion = customPage?.nodes.find(node => Array.isArray(node) && node[0] === "question")
+      expect(customQuestion?.[1]).toHaveProperty("number", "1")
+    } finally {
+      await content.dispose()
+      await custom.dispose()
+    }
   })
 
   it("accepts source name arrays from another JavaScript realm", async () => {
@@ -602,12 +638,41 @@ describe("contentSource", () => {
     await expect(source.getItemRaw("logo.png")).resolves.toEqual(Uint8Array.of(1))
   })
 
-  it("preserves adapted source options across fresh load adapters", () => {
+  it.each(["registered", "native"] as const)("preserves adapted source options across fresh load adapters (%s)", async (kind) => {
+    registerSources({
+      options: {
+        name: "options",
+        async getKeys() { return ["start.md"] },
+        async getItem(key) { return { key, content: "# Start" } },
+      },
+    })
     const schema = { properties: { title: { type: "string" } }, type: "object" } as const
-    const source = contentSource(contentSource("options" as SourceName, { prefix: "/base", schema }), { prefix: "/docs" })
-    const content = defineContent({ sources: { docs: source } })
+    const input = kind === "registered" ? "options" as SourceName : {
+      keys: () => ["start.md"],
+      getItem: () => "# Start",
+      getItemRaw: () => "# Start",
+    }
+    const adapted = contentSource(input, { prefix: "/base", schema, url: "/:id" })
+    const source = contentSource(adapted, { prefix: "/docs" })
+    const content = defineContent({
+      sources: {
+        docs: source,
+        overridden: contentSource(adapted, { prefix: "/other", url: ({ id }) => `/custom/${id}` }),
+      },
+      seo: { sitemap: true },
+      route: false,
+      logger: false,
+    })
 
-    expect(content.getSource("docs")).toMatchObject({ prefix: "/docs", schema })
+    try {
+      expect(content.getSource("docs")).toMatchObject({ prefix: "/docs", schema })
+      expect(await content.sitemap()).toEqual([
+        { collection: "docs", id: "docs/start", loc: "/docs/start" },
+        { collection: "overridden", id: "other/start", loc: "/custom/other/start" },
+      ])
+    } finally {
+      await content.dispose()
+    }
   })
 
   it("rejects source and sources together", () => {
@@ -890,6 +955,18 @@ describe("contentSource", () => {
     } as never)
 
     await expect(source.keys()).resolves.toEqual(["fallback.md"])
+  })
+})
+
+describe("renderContentHtml", () => {
+  it("renders a document with the Comark UI components that Content parses, and app components", async () => {
+    const content = defineContent({ route: false, source: { async items() { return [{ key: "guide", path: "guide.md", content: "# Guide\n\nArea $x^2$.\n\n::alert{type=\"info\"}\nNote\n::\n" }] } } })
+    const guide = (await content.get("/guide"))!
+    const html = await renderContentHtml(guide)
+    expect(html).toContain("<h1 id=\"guide\">Guide</h1>")
+    expect(html).toMatch(/<math>.*<mi>x<\/mi>/)
+    expect(html).not.toMatch(/<(formula|typeset-styles)[\s>]/)
+    expect(await renderContentHtml(guide, { components: { alert: () => "<aside>custom</aside>" } })).toContain("<aside>custom</aside>")
   })
 })
 

@@ -1,5 +1,6 @@
 import { defu } from "defu"
 
+import { deploymentPresetFromNitro } from "@vite-hub/internal/deployment"
 import { normalizeHosting } from "@vite-hub/internal/hosting"
 import { isPlainObject } from "@vite-hub/internal/object"
 
@@ -10,7 +11,15 @@ interface QueueResolutionInput {
   hosting?: string
 }
 
-const knownProviders = new Set(["cloudflare", "vercel"])
+const knownProviders = new Set(["cloudflare", "local", "vercel"])
+
+/** Default directory of the local provider, next to the KV `fs-lite` store in `.vitehub/data/kv`. */
+export const defaultLocalQueueBase = ".vitehub/data/queue"
+
+/** A self-hosted Node server has no hosted Queue, so it runs Queue Definitions in its own process. */
+function isLocalHosting(hosting: string): boolean {
+  return hosting === "local" || deploymentPresetFromNitro(hosting) === "node"
+}
 
 function readOwnOption(options: Record<string, unknown>, key: string): unknown {
   return Object.hasOwn(options, key) ? options[key] : undefined
@@ -25,11 +34,20 @@ function resolveProvider(options: Record<string, unknown>, hosting: string): Res
     throw queueErrorDiagnostics.QUEUE_INVALID_PROVIDER({ provider })
   }
 
-  if (typeof provider === "undefined" && hosting && !hosting.includes("cloudflare") && !hosting.includes("vercel")) {
+  if (typeof provider === "undefined" && hosting && !hosting.includes("cloudflare") && !hosting.includes("vercel") && !isLocalHosting(hosting)) {
     throw queueErrorDiagnostics.QUEUE_MISSING_PROVIDER({ hosting })
   }
 
-  const resolved = provider || (hosting.includes("cloudflare") ? "cloudflare" : "vercel")
+  const resolved = provider || (hosting.includes("cloudflare") ? "cloudflare" : isLocalHosting(hosting) ? "local" : "vercel")
+
+  if (resolved === "local") {
+    const base = readOwnOption(options, "base")
+    return defu(
+      typeof base === "string" && base.trim() ? { base: base.trim() } : {},
+      shared,
+      { base: defaultLocalQueueBase, provider: "local" as const },
+    )
+  }
 
   if (resolved === "cloudflare") {
     const binding = readOwnOption(options, "binding")

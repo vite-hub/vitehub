@@ -154,6 +154,8 @@ const [error, stream] = await blob.serve(event, pathname, {
 | Cloudflare Workers | The `IMAGES` binding, when the Worker has it | Set `transformer: 'cloudflare-images'` and ViteHub adds the binding to the generated Worker config. Cloudflare bills transformations. |
 | Any host without sharp or the binding | Passthrough | Variant URLs serve the original bytes and type. Dimensions and hashes still work. |
 
+Set `transformer: 'photon'` to make variants with WebAssembly on Workers and Node. See [Photon on Workers and Node](#photon-on-workers-and-node).
+
 ```ts [vite.config.ts]
 export default defineConfig({
   plugins: [hubBlob()],
@@ -167,7 +169,47 @@ export default defineConfig({
 
 An explicit `sharp` fails the build when the project cannot resolve sharp. An explicit `cloudflare-images` fails variant requests with `BLOB_R0034` when the binding is missing. `images: false` always serves originals. To use another image service, pass an object with `name` and `transform(input, operation)` as `images` to `createBlobStorage()`. The operation has the region to cut, the exact output size, the format, and the quality.
 
-Passthrough keeps the `srcset` URLs valid, but every candidate downloads the full original. Install sharp or add the binding before you rely on variants for page weight.
+Passthrough keeps the `srcset` URLs valid, but every candidate downloads the full original. Install sharp, add the binding, or use Photon before you rely on variants for page weight.
+
+### Photon on Workers and Node
+
+The `photon` transformer makes variants with [`@cf-wasm/photon`](https://github.com/fineshopdesign/cf-wasm/tree/main/packages/photon), a Rust image library compiled to WebAssembly. It runs on Cloudflare Workers without a paid binding, and on Node. Install it in the app and select it:
+
+```sh
+pnpm add @cf-wasm/photon
+```
+
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [hubBlob()],
+  blob: {
+    driver: 'cloudflare-r2',
+    serve: true,
+    images: { transformer: 'photon' },
+  },
+})
+```
+
+Photon reads JPEG, PNG, WebP, and GIF sources. It turns JPEG images upright from their EXIF orientation, cuts the region, resizes to the exact size, and writes only pixels, so EXIF, GPS, and other metadata of the source do not reach the variant. Each step frees the previous image from WebAssembly memory.
+
+| Output | Result |
+| --- | --- |
+| `fmt=jpeg` | JPEG at the requested quality. Use it for photos. |
+| `fmt=png` | PNG without loss. |
+| `fmt=webp` | WebP without loss. `q` has no effect, and a photo is often several times larger than its JPEG. |
+| `fmt=avif` | Fails with `BLOB_R0036`. Photon cannot write AVIF. |
+
+`responsiveImage()` requests WebP unless you pass `format`, so pass `format: 'jpeg'` for photos.
+
+Photon decodes the full source before it resizes, with about 19 bytes of WebAssembly memory per source pixel. A Worker has 128 MB for everything, so Photon rejects a source over 10 MiB or over 4 megapixels, such as 2400 × 1600, with `BLOB_R0036`. A 12-megapixel phone photo is too large: resize it before upload, or use the Cloudflare Images binding. A 4-megapixel JPEG takes about 0.2 seconds of CPU time per variant, so the Workers Free plan's 10 ms limit is too low. Variants are cached after the first request.
+
+The generated Nitro plugin registers `import('@cf-wasm/photon')`, so the WebAssembly module loads on the first variant, not at startup. No app configuration is necessary:
+
+- On Cloudflare, Nitro's Worker presets emit `photon_rs_bg.wasm` as a separate module and import it, so Workers compile it at upload. It adds about 1.5 MB to the Worker before compression.
+- On Node, the package's `node` entry embeds the WebAssembly module in JavaScript and compiles it on the first variant.
+- In `vite dev` with Cloudflare emulation, workerd does not let code compile WebAssembly at runtime, so variants fail with `BLOB_R0034`. Use a Node preset in development, or run the built Worker with `wrangler dev`.
+
+`auto` never selects Photon, even when it is installed. Choose it explicitly, because it adds 1.5 MB to the Worker, it rejects large photos where passthrough serves them, and it changes the engine in every variant cache key. An explicit `photon` fails the build with `BLOB_B0007` when the project cannot resolve `@cf-wasm/photon`.
 
 ## Art direction
 
@@ -243,6 +285,8 @@ const [, record] = await blob.media.get(entry.cover) // accepts the reference ob
 References stay portable in Markdown frontmatter and JSON, and an alt-text fix in the [Console media library](/docs/content/console#media-library) shows on every page that uses the image. Copying alt text or dimensions into each document would go stale when an editor changes the record. Write alt text into the document only when it differs per use.
 
 The Content section of the Console is a media library over these records: folders, uploads, alt text, the focal point, and crops with replacements, plus a picker for `image()` fields and images in Markdown bodies. See [Media library](/docs/content/console#media-library).
+
+Keep media in its own store when another store holds private files, such as the Content workspace. Serve the media store and point `image({ store })` at it. Then `console.authorize` can grant `'blob:media'` for that store alone, so editors and their MCP agents can upload media but cannot read or change the private store. See [Grant one Blob store](/docs/development/console#grant-one-blob-store).
 
 ## Storage layout
 
