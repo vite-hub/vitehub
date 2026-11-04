@@ -69,6 +69,38 @@ options: async ({ tenantId }: { tenantId: string }) => toOptions(await loadSites
 
 The top-level `hints` apply to every question. Put your domain words there, such as "mtop means Make to order".
 
+## Use it in the browser
+
+`useChoices()` from `@vite-hub/decisions/vue` (auto-imported in Nuxt) turns the text of an input into a selection. You give it a `resolve` function that calls your route. It does not know your server, your store, or your UI.
+
+```vue
+<script setup lang="ts">
+import type { forecast } from '~~/server/utils/forecast-choices' // a type, so no server code reaches the browser
+
+const store = useForecastStore()
+const ai = useChoices<typeof forecast>({
+  resolve: (text, { signal }) => $fetch('/api/forecast/choices', { method: 'POST', body: { text }, signal }),
+  onSelect: selection => store.setSuppliers(selection.supplier), // your bridge out
+  debounce: 800, // leave it out to resolve only on ai.submit()
+})
+</script>
+
+<template>
+  <input v-model="ai.text.value" @keydown.enter="ai.submit()">
+  <p v-if="ai.status.value === 'thinking'">Thinking</p>
+  <p v-else-if="ai.error.value">{{ ai.error.value.message }}</p>
+</template>
+```
+
+| Returned | Meaning |
+| --- | --- |
+| `text` | A ref for your input. |
+| `status` | `idle`, `thinking`, `ready`, or `error`. |
+| `selection`, `error` | The latest result and the latest failure. |
+| `submit()`, `abort()`, `clear()` | Resolve now, cancel the request, reset the text, selection, and error. `clear()` also calls `onClear`, so you can reset your own state. |
+
+A newer request cancels the older one through `signal`, and the older result never reaches `onSelect`. With debounce enabled, changing the text cancels the current request immediately, including while waiting for the next request to start. Throw from `resolve` to set `error`. The text must be at least `minLength` (3) characters before a debounced resolve runs.
+
 ## Limits and errors
 
 | Limit | Default |

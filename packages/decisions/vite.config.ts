@@ -6,10 +6,11 @@ export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
     deps: {
+      neverBundle: ["vue"],
       alwaysBundle: [/^@vite-hub\/internal/],
       onlyBundle: false,
     },
-    entry: ["src/index.ts"],
+    entry: ["src/index.ts", "src/vue.ts"],
     exports: {
       customExports: normalizePackageExports,
       inlinedDependencies: false,
