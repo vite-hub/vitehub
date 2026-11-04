@@ -87,17 +87,25 @@ describe("Comments page tool", () => {
     expect((await pageSession(app, "")).body).toEqual({ tools: [] })
   })
 
-  it.each([true, false])("checks Console read access before Comments identity: %s", async (allowed) => {
+  it.each([true, false])("checks Console read access without custom identify: %s", async (allowed) => {
     const app = {}
-    const identify = vi.fn(() => ({ id: "custom", name: "Custom" }))
     const consoleSession = commentsConsoleSession({
       authorize: async ({ kind }) => allowed && kind !== "write",
-      user: async () => null,
+      user: async () => ({ id: "ada" }),
       identify: async () => null,
     })
-    defineCommentsPlugin({ comments: defineComments({ identify, authorize: () => true }), database: () => undefined, overlay: "/o.js", consoleSession })(app)
+    defineCommentsPlugin({ comments: defineComments({ authorize: () => true }), database: () => undefined, overlay: "/o.js", consoleSession })(app)
     expect((await pageSession(app, "")).body.tools).toHaveLength(allowed ? 1 : 0)
-    expect(identify).toHaveBeenCalledTimes(allowed ? 1 : 0)
+  })
+
+  it.each([true, false])("lets custom identify and authorize decide over the Console: %s", async (allowed) => {
+    const app = {}
+    const identify = vi.fn(() => ({ id: "custom", name: "Custom" }))
+    const consoleSession = vi.fn(async () => false as const)
+    defineCommentsPlugin({ comments: defineComments({ identify, authorize: () => allowed }), database: () => undefined, overlay: "/o.js", consoleSession })(app)
+    expect((await pageSession(app, "")).body.tools).toHaveLength(allowed ? 1 : 0)
+    expect(identify).toHaveBeenCalledOnce()
+    expect(consoleSession).not.toHaveBeenCalled()
   })
 
   it("finds the API from the mounted overlay URL", () => {

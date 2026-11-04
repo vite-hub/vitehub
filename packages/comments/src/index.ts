@@ -9,6 +9,7 @@ import { createForgeSync } from "./forge/sync.ts"
 import { normalizeCommentPage } from "./page.ts"
 
 import type { Result } from "@vite-hub/runtime"
+import type { H3Event } from "h3"
 import type { CommentAction, CommentsPolicyGate, CommentsUser } from "./operations-core/define.ts"
 import type { CommentsAttachmentStore, CommentsRuntime } from "./operations-core/service.ts"
 import type { CommentsDatabase, CommentsStore, CommentsTables } from "./operations-core/store.ts"
@@ -315,9 +316,11 @@ export function installComments(comments: Comments, install: InstallCommentsOpti
     const tracked = task.catch(() => undefined).finally(() => pending.delete(tracked))
     pending.add(tracked)
   }
+  const { identify } = comments.options
   const runtime: CommentsRuntime = {
     background: track,
     definition: comments.options,
+    ...(identify ? { identify: async (event: unknown) => await identify({ event: event as H3Event }) ?? null } : {}),
     ...(install.development === undefined ? {} : { development: install.development }),
     store,
     ...(install.users ? { users: install.users } : {}),

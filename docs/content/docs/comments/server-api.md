@@ -35,7 +35,7 @@ Without `vite-hub`, import the same names from `@vite-hub/comments`. `@vite-hub/
 | Option | Default | Behavior |
 | --- | --- | --- |
 | `authorize({ user, actor?, action, thread?, subject? })` | People signed in with GitHub who can push to the repository, and users of any other sign-in, may do everything. Guests may only on the dev server. | Return `true` to allow. `action` is `read`, `write`, `resolve`, or `delete`. See [Decide who can comment](/docs/comments/configure#decide-who-can-comment). |
-| `identify({ event })` | The Console user, else the ViteHub Auth session, else [Sign in with GitHub](/docs/comments/configure#sign-in-with-github) | Return the user of a request, with a string `id`, or `null`. See [Use your own login](/docs/comments/configure#use-your-own-login). |
+| `identify({ event })` | The Console user, else the ViteHub Auth session, else [Sign in with GitHub](/docs/comments/configure#sign-in-with-github) | Return the user of a request, with a string `id`, or `null`. With it, `identify` and `authorize` decide on every surface, and the Console's access no longer applies. See [Use your own login](/docs/comments/configure#use-your-own-login). |
 | `database` | `default`, else the only Database | In a ViteHub app, the Database name, as a string literal. `comments()` takes its own [`database`](#comments-options) instead. See [Choose the Database](/docs/comments/configure#choose-the-database). |
 | `subjects` | `page` and `content` | More kinds of subject, from `defineCommentSubject({ kind, scope, emptyBody?, link? })`. |
 | `people` | The users of ViteHub Auth, else the authors of earlier comments | `{ search(query, limit), byIds(ids) }`: where `@` finds people. See [Mention people](/docs/comments/configure#mention-people). |
