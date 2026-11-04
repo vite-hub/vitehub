@@ -7,6 +7,7 @@ import { resolveAuthMountPath } from "./application-path.ts"
 import { createAdminEmailsPlugin, readAdminEmails, withAdminEmails } from "./admin-emails.ts"
 import { assertAuthDatabaseAdditionalFields, assertAuthDatabaseIdStrategy, authDatabaseName, authDatabasePlacementError } from "./database-options.ts"
 import { assertAuthDatabaseSchema } from "./database-schema-options.ts"
+import { withPasswordHasher } from "./password.ts"
 import { applyAuthPreset } from "./preset-options.ts"
 import { deriveAuthSecret } from "./secret.ts"
 import { validateAuthEvents } from "./events-config.ts"
@@ -242,7 +243,7 @@ export function resolveAuthOptions(
   const resolveSnapshot = () => snapshot ??= callback ? requestRuntimeOptions : { ...declared, ...requestRuntimeOptions }
   return {
     get options() { return resolveSnapshot() },
-    get providerOptions() { return withDerivedSecret(stripViteHubOptions(definition, resolveSnapshot(), input.event ?? request), input.event ?? request) },
+    get providerOptions() { return withDerivedSecret(withPasswordHasher(stripViteHubOptions(definition, resolveSnapshot(), input.event ?? request)), input.event ?? request) },
     requestRuntimeOptions,
   }
 }

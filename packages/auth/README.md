@@ -371,6 +371,10 @@ const error = new ViteHubError("AUTHENTICATION_REQUIRED", "Sign in to use this A
 - Protect application and Console page/API routes explicitly. Authentication proves a session; application-owned `authorize` callbacks define roles and permissions.
 - Keep automatic `/api/auth/**` exposure enabled unless the host mounts the stable handler itself, and verify the chosen `basePath` on both server and client.
 
+## Passwords in a WebContainer
+
+In a StackBlitz WebContainer, every `node:crypto` `scrypt` call fails. There, Auth sets `emailAndPassword.password` to the scrypt of `@noble/hashes`, with Better Auth's default parameters and `salt:key` format. A hash made on another host verifies in the WebContainer, and the other way around. Auth logs one `[vitehub] Auth hashes passwords with the scrypt of @noble/hashes` line when it first builds its options. Hashing is slower (about 3 seconds per sign-up or sign-in). A `hash` or `verify` function in the Auth Definition always wins. Other hosts keep Better Auth's default.
+
 Read the complete [Auth guide](https://vitehub.dev/docs/auth), [Auth Users and Agent Invokers](https://vitehub.dev/docs/agents/invokers), the [host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix), and the project's [pre-1.0 security policy](https://github.com/vite-hub/vitehub/blob/main/SECURITY.md).
 
 ## Auth event log
