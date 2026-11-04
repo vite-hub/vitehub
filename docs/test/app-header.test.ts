@@ -34,6 +34,7 @@ describe("docs header", () => {
     expect(config.docs?.start?.links?.map(link => [link.label, link.to])).toEqual([
       ["All docs", "/docs"],
       ["Tutorials", "/tutorials"],
+      ["Playground", "/playground"],
       ["Projects", "/projects"],
       ["Templates", "/templates"],
     ]);

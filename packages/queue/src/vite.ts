@@ -95,8 +95,12 @@ function normalizeQueueForHosting(queue: QueueModuleOptions | undefined, hosting
 }
 
 function resolveQueueHosting(queue: QueueModuleOptions | undefined, nitro: Record<string, unknown>): string {
-  const hosting = getHostingProvider(resolveHost({ nitro }))
-  return hosting || normalizeQueueForHosting(queue, hosting)?.provider || "vercel"
+  const host = resolveHost({ nitro })
+  const hosting = getHostingProvider(host)
+  if (hosting) return hosting
+  // A Node server has no hosted Queue. Without an explicit provider, Queue runs in the server process.
+  if (host === "node") return normalizeQueueOptions(queue, { hosting: "node-server" })?.provider ?? "local"
+  return normalizeQueueForHosting(queue, hosting)?.provider || "vercel"
 }
 
 function supportsCloudflareQueues(nitro: Record<string, unknown>): boolean {

@@ -1,6 +1,6 @@
 import { expect, it } from "vitest"
 
-import { installArguments } from "../src/internal/optional-owners.ts"
+import { installArguments, missingFeaturePackagesError } from "../src/internal/optional-owners.ts"
 
 const sha = "52e6aba01356ffd6c5f1d0d6e8dafc3d63788b82"
 
@@ -20,4 +20,8 @@ it("names the matching pkg.pr.new preview of ViteHub packages when vite-hub is a
 it("keeps plain package names when vite-hub comes from npm", () => {
   const manifest = { dependencies: { "@vite-hub/env": "0.1.0" }, version: "0.1.0" }
   expect(installArguments(["@vite-hub/database", "drizzle-orm"], manifest)).toEqual(["@vite-hub/database", "drizzle-orm"])
+})
+
+it("tells a Connections app to install the Database packages", () => {
+  expect(missingFeaturePackagesError(["connections"]).message).toContain("The connections feature needs @vite-hub/database, drizzle-orm.")
 })

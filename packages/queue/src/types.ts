@@ -1,6 +1,6 @@
 import type { Result } from "@vite-hub/runtime"
 
-export type QueueProvider = "cloudflare" | "vercel"
+export type QueueProvider = "cloudflare" | "local" | "vercel"
 
 type CloudflareQueueContentType = "bytes" | "json" | "text" | "v8"
 
@@ -141,17 +141,37 @@ interface VercelQueueModuleProviderOptions extends QueueSharedOptions {
   region?: string
 }
 
+/**
+ * The local provider keeps jobs in files under `base` and runs the Queue Definitions in this process.
+ * The jobs survive a restart on the same host. They do not move to another host or container.
+ */
+export interface LocalQueueProviderOptions extends QueueSharedOptions {
+  /** Directory of the stored jobs, relative to the working directory. Defaults to `.vitehub/data/queue`. */
+  base?: string
+  provider: "local"
+  /** Queue Definition that receives the jobs. `getQueue()` sets it. */
+  queue?: string
+}
+
+interface LocalQueueModuleProviderOptions extends QueueSharedOptions {
+  /** Directory of the stored jobs, relative to the working directory. Defaults to `.vitehub/data/queue`. */
+  base?: string
+  provider: "local"
+}
+
 export type QueueProviderOptions =
   | CloudflareQueueProviderOptions
+  | LocalQueueProviderOptions
   | VercelQueueProviderOptions
 
 export type QueueModuleProviderOptions =
   | CloudflareQueueModuleProviderOptions
+  | LocalQueueModuleProviderOptions
   | VercelQueueModuleProviderOptions
 
 export type QueueModuleOptions =
   | false
-  | (QueueSharedOptions & { namePrefix?: string; provider?: undefined })
+  | (QueueSharedOptions & { base?: string; namePrefix?: string; provider?: undefined })
   | QueueModuleProviderOptions
 
 export type ResolvedQueueOptions = QueueModuleProviderOptions
@@ -207,6 +227,16 @@ export type QueueErrorCode =
 /** Codes that `send()` and `sendBatch()` of a Cloudflare QueueClient return. */
 export type CloudflareQueueErrorCode = "QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION"
 
+/** Codes that `send()` and `sendBatch()` of a local QueueClient return. */
+export type LocalQueueErrorCode = "QUEUE_PROVIDER_FAILED" | "QUEUE_UNSUPPORTED_OPTION"
+
+/** One job in `sendBatch()` of a local QueueClient. */
+export interface LocalQueueSendBatchMessage<T = unknown> {
+  body: T
+  delaySeconds?: number
+  idempotencyKey?: string
+}
+
 /** Codes that `send()` and `sendBatch()` of a Vercel QueueClient return. */
 export type VercelQueueErrorCode = QueueErrorCode
 
@@ -241,8 +271,19 @@ export interface VercelQueueClient<TPayload = unknown> extends QueueClientBase<"
   callback: <TMessage = unknown>(handler: VercelQueueMessageHandler<TMessage>, options?: VercelQueueCallbackOptions) => VercelQueueCallbackReturn
 }
 
+/**
+ * `send()` stores the job under `base` and returns when the file is written. This process then runs the
+ * Queue Definition. `send()` and `sendBatch()` return `[error, data]`.
+ */
+export interface LocalQueueClient<TPayload = unknown> extends QueueClientBase<"local"> {
+  readonly queue: string
+  send: (payload: TPayload, options?: QueueEnqueueOptions) => Promise<Result<QueueSendResult, LocalQueueErrorCode>>
+  sendBatch: (items: LocalQueueSendBatchMessage<TPayload>[], options?: { delaySeconds?: number }) => Promise<Result<QueueSendResult[], LocalQueueErrorCode>>
+}
+
 interface QueueClientMap<TPayload> {
   cloudflare: CloudflareQueueClient<TPayload>
+  local: LocalQueueClient<TPayload>
   vercel: VercelQueueClient<TPayload>
 }
 

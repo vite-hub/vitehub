@@ -6,7 +6,7 @@ navigation.order: 4
 icon: i-lucide-code-2
 ---
 
-Queue needs a hosted Cloudflare or Vercel provider. It has no local delivery provider. Complete [Get started](/docs/queue/get-started) to configure the host, provision its resources, and discover the `welcome-email` Definition used below.
+Queue runs on Cloudflare, on Vercel, or with the local provider of `preset: 'node'`, which runs jobs in the server process. Complete [Get started](/docs/queue/get-started) to configure the host and discover the `welcome-email` Definition used below.
 
 ## Public imports
 
@@ -47,6 +47,7 @@ Providers can retry failed delivery, so a handler must tolerate another run afte
 | Provider | Default | Override |
 | --- | --- | --- |
 | Cloudflare | A successful handler acknowledges the message. A failed handler retries, except for [Queue errors that a retry cannot fix](/docs/queue/limits-and-errors#errors-in-a-queue-handler). | Return `'ack'`, `'retry'`, or `{ retry: { delaySeconds } }` from `onError`. Return `void` to keep the default. |
+| Local | A successful handler removes the job. A failed handler runs again after 1, 2, and 4 seconds. After 4 attempts, or after a [Queue error that a retry cannot fix](/docs/queue/limits-and-errors#errors-in-a-queue-handler), the job stays as a dead job. | None. The local provider does not call `onError` or `callbackOptions.retry`. |
 | Vercel | Provider behavior. ViteHub acknowledges [Queue errors that a retry cannot fix](/docs/queue/limits-and-errors#errors-in-a-queue-handler) when the callback returns `undefined`; other `undefined` results keep Vercel's retry behavior. | Return a directive from `callbackOptions.retry`. Return `void` to keep the default. |
 
 Throw `ViteHubError` when the Queue Definition needs a stable application failure code. Application error codes do not choose retry policy. Use `onError` or `callbackOptions.retry` for that.
@@ -125,7 +126,7 @@ An option that the selected provider does not support returns `QUEUE_UNSUPPORTED
 
 | Option | Type | Description |
 | --- | --- | --- |
-| `contentType` | `'bytes' \| 'json' \| 'text' \| 'v8'` | Cloudflare message content type. Vercel does not support this option. |
+| `contentType` | `'bytes' \| 'json' \| 'text' \| 'v8'` | Cloudflare message content type. Vercel and the local provider do not support this option. |
 
 Cloudflare accepts the shared options and `contentType`. Protect non-repeatable side effects inside the handler.
 
@@ -152,6 +153,8 @@ export async function enqueueWelcome(email: string) {
   return result
 }
 ```
+
+The local provider also accepts `idempotencyKey`: while a pending or running job has the same key, `runQueue()` returns that job's message ID and stores nothing. A dead job does not hold its key. It rejects `region` and `retentionSeconds`.
 
 Cloudflare rejects `idempotencyKey`, `region`, and `retentionSeconds`. Vercel enqueue deduplication still does not guarantee that a handler runs exactly once. Keep handlers safe to retry.
 

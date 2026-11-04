@@ -4,9 +4,16 @@ type DocsNode = DocsDocument["nodes"][number];
 
 export const tutorialRoute = "/tutorials";
 
-/** Pages under `/tutorials` are cross-origin isolated. A link across that boundary must load a new document. */
+export const playgroundRoute = "/playground";
+
+/** Runnable tutorials: `/tutorials` and the pages under it. */
 export function isIsolatedTutorialPath(path: string): boolean {
   return path === tutorialRoute || path.startsWith(`${tutorialRoute}/`);
+}
+
+/** The tutorials and the playground are cross-origin isolated. A link across that boundary must load a new document. */
+export function isIsolatedPath(path: string): boolean {
+  return isIsolatedTutorialPath(path) || path === playgroundRoute;
 }
 
 function isStep(node: DocsNode): boolean {

@@ -9,7 +9,7 @@ import { getVercelQueueTopicName } from "../integrations/vercel.ts"
 import { getOrCreateQueueClient, getQueueRuntimeClientFactory, getQueueRuntimeConfig, getQueueRuntimeEvent, loadQueueDefinition, runWithQueueRuntimeEvent } from "../internal/runtime/state.ts"
 
 import type { Result } from "@vite-hub/runtime"
-import type { CloudflareQueueClient, CloudflareQueueProviderOptions, QueueClient, QueueEnqueueOptions, QueueErrorCode, QueueName, QueuePayload, QueueProviderOptions, QueueSendResult, ResolvedQueueOptions, VercelQueueProviderOptions } from "../types.ts"
+import type { CloudflareQueueClient, CloudflareQueueProviderOptions, LocalQueueProviderOptions, QueueClient, QueueEnqueueOptions, QueueErrorCode, QueueName, QueuePayload, QueueProvider, QueueProviderOptions, QueueSendResult, ResolvedQueueOptions, VercelQueueProviderOptions } from "../types.ts"
 import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 
 async function loadNamedQueueDefinition(name: string) {
@@ -38,6 +38,10 @@ function toProviderOptions(name: string, config: ResolvedQueueOptions): QueuePro
       ...config,
       binding: resolveCloudflareBinding(config.binding, name),
     } satisfies CloudflareQueueProviderOptions
+  }
+
+  if (config.provider === "local") {
+    return { ...config, queue: name } satisfies LocalQueueProviderOptions
   }
 
   return {
@@ -145,7 +149,7 @@ export const dynamicQueue: {
 /**
  * Returns the QueueClient of a discovered Queue Definition. Config errors, for example an unknown name, throw.
  */
-export async function getQueue<TName extends QueueName>(name: TName): Promise<QueueClient<"cloudflare" | "vercel", QueuePayload<TName>>> {
+export async function getQueue<TName extends QueueName>(name: TName): Promise<QueueClient<QueueProvider, QueuePayload<TName>>> {
   return await getDynamicQueue(name)
 }
 
