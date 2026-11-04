@@ -197,6 +197,10 @@ function resetTableState(): void {
 
 async function loadDatabase(): Promise<void> {
   request?.abort();
+  if (database.value?.database !== routeDatabase.value) {
+    database.value = undefined;
+    openRow.value = undefined;
+  }
   const controller = new AbortController();
   request = controller;
   loading.value = true;

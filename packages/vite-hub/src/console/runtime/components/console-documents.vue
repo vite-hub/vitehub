@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, h, onMounted, ref, shallowRef, watch } from "vue";
+import { computed, defineAsyncComponent, h, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { consoleErrorMessage, consoleListQueryFor, createConsoleDocumentsClient } from "../client/documents";
+import { clearConsoleDocumentCaches, consoleDocumentCacheIdentity } from "../client/document-cache";
 import { provideConsoleMediaPicker } from "../client/media";
 import { consoleMediaBase, consoleMediaTransformable, consoleMediaUrl, consoleMediaVariantUrl, createConsoleMediaClient, isConsoleMediaPathname } from "../client/media-library";
-import { isConsoleSignInRequired, requestConsole } from "../client/request";
+import { ConsoleRequestError, isConsoleSignInRequired, requestConsole } from "../client/request";
 import { resolveConsoleRouteName } from "../console-route";
 import { parseConsoleSectionContent } from "../definitions";
 import { consoleSectionPageRouteName, consoleSectionPageSegment, consoleSectionRouteName, rememberConsoleSection } from "../sections";
@@ -72,14 +73,18 @@ const overview = shallowRef<ConsoleDocumentOverview>();
 const overviewLoading = ref(false);
 const overviewError = ref<unknown>();
 let overviewRequest = 0;
+let collectionsRequest = 0;
+let cacheRequest = 0;
+let cacheIdentity: string | undefined;
 
-// The last collections and overview of this section in this tab. A visit shows them at once and refreshes them in the
-// background, so the page keeps its layout instead of growing from placeholders when the answers arrive.
+// Restore the last responses only after validating the session that owns them, then refresh in the background.
 const cacheKey = computed(() => `vitehub.console.documents:${props.documentsBase}:${section.value}`);
 function readCache(): { definitions?: unknown, overview?: unknown } {
   try {
+    if (!cacheIdentity) return {};
     const value: unknown = JSON.parse(sessionStorage.getItem(cacheKey.value) ?? "null");
-    return value instanceof Object ? { definitions: Reflect.get(value, "definitions"), overview: Reflect.get(value, "overview") } : {};
+    return value instanceof Object && Reflect.get(value, "identity") === cacheIdentity
+      ? { definitions: Reflect.get(value, "definitions"), overview: Reflect.get(value, "overview") } : {};
   }
   catch {
     return {};
@@ -87,7 +92,7 @@ function readCache(): { definitions?: unknown, overview?: unknown } {
 }
 function writeCache(entry: { definitions?: unknown, overview?: unknown }): void {
   try {
-    sessionStorage.setItem(cacheKey.value, JSON.stringify({ ...readCache(), ...entry }));
+    if (cacheIdentity) sessionStorage.setItem(cacheKey.value, JSON.stringify({ identity: cacheIdentity, ...readCache(), ...entry }));
   }
   catch {
     // A full or blocked storage only costs the instant layout of the next visit.
@@ -107,6 +112,24 @@ function showCached(): void {
   const cached = readCache();
   if (cached.definitions !== undefined && applyDefinitions(cached.definitions)) loading.value = false;
   if (isConsoleDocumentOverview(cached.overview)) overview.value = cached.overview;
+}
+
+function clearDocumentData(): void {
+  collections.value = [];
+  setup.value = undefined;
+  overview.value = undefined;
+}
+
+function discardUnauthorizedData(requestError: unknown): void {
+  if (!(requestError instanceof ConsoleRequestError) || ![401, 403].includes(requestError.status)) return;
+  clearConsoleDocumentCaches();
+  clearDocumentData();
+  cacheIdentity = undefined;
+  // A concurrent successful response must not reinstall data after access was denied.
+  ++collectionsRequest;
+  ++overviewRequest;
+  loading.value = false;
+  overviewLoading.value = false;
 }
 
 // The media library of the section, when it has a Media page: the page itself, and the picker of the editor's images and
@@ -221,10 +244,12 @@ function pendingLabel(states: Record<ConsoleDocumentState, number> | undefined):
 const editorDocumentId = computed(() => (collection.value?.kind === "singleton" ? collection.value.document : documentId.value));
 
 async function loadCollections(): Promise<void> {
+  const current = ++collectionsRequest;
   // Cached collections stay on screen while they refresh.
   if (!collections.value.length) loading.value = true;
   try {
     const definitions = await requestConsole(props.definitionsBase, { query: { section: section.value } });
+    if (current !== collectionsRequest) return;
     if (!applyDefinitions(definitions)) throw new Error("The Console returned invalid collections.");
     writeCache({ definitions });
     error.value = undefined;
@@ -234,10 +259,12 @@ async function loadCollections(): Promise<void> {
     }
   }
   catch (requestError) {
+    if (current !== collectionsRequest) return;
+    discardUnauthorizedData(requestError);
     error.value = requestError;
   }
   finally {
-    loading.value = false;
+    if (current === collectionsRequest) loading.value = false;
   }
 }
 
@@ -252,22 +279,32 @@ async function loadOverview(): Promise<void> {
     overviewError.value = undefined;
   }
   catch (requestError) {
-    if (current === overviewRequest) overviewError.value = requestError;
+    if (current !== overviewRequest) return;
+    discardUnauthorizedData(requestError);
+    overviewError.value = requestError;
   }
   finally {
     if (current === overviewRequest) overviewLoading.value = false;
   }
 }
 
-function reload(): void {
+async function reload(): Promise<void> {
+  const current = ++cacheRequest;
+  ++collectionsRequest;
+  ++overviewRequest;
+  const identity = await consoleDocumentCacheIdentity(props.sectionsBase);
+  if (current !== cacheRequest) return;
+  if (identity !== cacheIdentity) clearDocumentData();
+  cacheIdentity = identity;
+  if (!identity) clearConsoleDocumentCaches();
+  showCached();
   void loadCollections();
   void loadOverview();
 }
 
 onMounted(() => {
   rememberConsoleSection(section.value);
-  showCached();
-  reload();
+  void reload();
   void loadMediaInfo();
   const preload = () => void loadDocumentEditor().catch(() => undefined);
   if ("requestIdleCallback" in window) window.requestIdleCallback(preload, { timeout: 3000 });
@@ -276,12 +313,18 @@ onMounted(() => {
 
 watch(section, () => {
   rememberConsoleSection(section.value);
-  collections.value = [];
-  overview.value = undefined;
-  showCached();
-  reload();
+  clearDocumentData();
+  error.value = undefined;
+  overviewError.value = undefined;
+  loading.value = true;
+  void reload();
 });
 watch(changes, () => void loadOverview());
+onBeforeUnmount(() => {
+  ++cacheRequest;
+  ++collectionsRequest;
+  ++overviewRequest;
+});
 </script>
 
 <template>
