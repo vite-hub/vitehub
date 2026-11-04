@@ -35,7 +35,7 @@ describe("normalizeQueueOptions", () => {
     expect(normalizeQueueOptions(cloudflareOptions as never, { hosting: "cloudflare" })).toEqual({ provider: "cloudflare" })
   })
 
-  it.each(["deno-deploy", "netlify", "node-server"])("does not infer Vercel for %s hosting", (hosting) => {
+  it.each(["deno-deploy", "netlify"])("does not infer Vercel for %s hosting", (hosting) => {
     expect(() => normalizeQueueOptions(undefined, { hosting })).toThrow(expect.objectContaining({ code: "QUEUE_MISSING_PROVIDER", why: `ViteHub cannot select a Queue provider for ${hosting} hosting.` }))
   })
 

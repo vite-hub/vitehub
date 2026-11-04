@@ -4,12 +4,20 @@ import { isQueueError, normalizePublicQueueIdentifier } from "../errors.ts"
 import { getQueueRuntimeConfig, listQueueDefinitionNames } from "../internal/runtime/state.ts"
 import { dynamicQueue } from "./client.ts"
 
+import type { LocalQueueStatus } from "../providers/local.ts"
+
 import type { QueueEnqueueOptions, QueueProvider } from "../types.ts"
 
 export interface QueueListResult {
   /** `undefined` when the runtime has not installed a Queue configuration. */
   provider?: QueueProvider
-  queues: Array<{ name: string }>
+  /**
+   * The local provider only: where the jobs are and what survives. `single-host` jobs survive a restart on this host,
+   * but not a move to another host or a new container.
+   */
+  storage?: { base: string, durability: LocalQueueStatus["durability"] }
+  /** `dead`, `pending`, and `running` are job counts of the local provider. Hosted providers do not report a backlog. */
+  queues: Array<{ dead?: number, name: string, pending?: number, running?: number }>
 }
 
 export interface QueueSendOperationResult {
@@ -48,14 +56,27 @@ function failure(error: unknown): unknown {
   return new QueueOperationError(error.message, statuses[error.code] ?? 500, error.code, error.fix)
 }
 
-export function listQueues(): QueueListResult {
+export async function listQueues(): Promise<QueueListResult> {
   const config = getQueueRuntimeConfig()
   if (config === false) {
     throw new QueueOperationError("Queue is disabled in this runtime.", 409, "QUEUE_DISABLED", "Add `hubQueue()` to the Vite config and do not set `queue: false`.")
   }
+  const names = listQueueDefinitionNames()
+  if (config?.provider === "local") {
+    const { getLocalQueueStatus } = await import("../internal/runtime/local-client.ts")
+    const status = await getLocalQueueStatus(config)
+    if (status) {
+      const empty = { dead: 0, pending: 0, running: 0 }
+      return {
+        provider: "local",
+        queues: names.map(name => ({ name, ...empty, ...status.queues[name] })),
+        storage: { base: status.base, durability: status.durability },
+      }
+    }
+  }
   return {
     ...(config ? { provider: config.provider } : {}),
-    queues: listQueueDefinitionNames().map(name => ({ name })),
+    queues: names.map(name => ({ name })),
   }
 }
 

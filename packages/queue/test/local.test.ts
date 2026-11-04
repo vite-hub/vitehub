@@ -1,0 +1,257 @@
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
+import { normalizeQueueOptions } from "../src/config.ts"
+import { queueErrorDiagnostics } from "../src/error-diagnostics.ts"
+import { closeLocalQueues, startLocalQueue } from "../src/internal/runtime/local-client.ts"
+import { missingQueueDefinitionError, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/internal/runtime/state.ts"
+import { createLocalQueueClient, createLocalQueueEngine, localQueueMaxAttempts } from "../src/providers/local.ts"
+import { dynamicQueue } from "../src/runtime/client.ts"
+import { createQueueClient } from "../src/runtime/create-client.ts"
+import { listQueues } from "../src/runtime/operations.ts"
+import { createLocalQueueRuntimeClient } from "../src/internal/runtime/local-client.ts"
+
+import type { QueueDefinition, QueueJob } from "../src/types.ts"
+
+let base: string
+
+beforeEach(async () => {
+  base = await mkdtemp(join(tmpdir(), "vitehub-queue-local-"))
+  vi.spyOn(console, "error").mockImplementation(() => {})
+  vi.spyOn(console, "warn").mockImplementation(() => {})
+})
+
+afterEach(async () => {
+  closeLocalQueues()
+  setQueueRuntimeConfig(undefined)
+  setQueueRuntimeRegistry(undefined)
+  vi.restoreAllMocks()
+  await rm(base, { force: true, recursive: true })
+})
+
+async function storedJobs() {
+  const names = (await readdir(base)).filter(name => name.endsWith(".json"))
+  return await Promise.all(names.map(async name => JSON.parse(await readFile(join(base, name), "utf8")) as { attempts: number, state: string, error?: { code?: string } }))
+}
+
+function engineFor(definitions: Record<string, QueueDefinition>, retryDelayMs = () => 0) {
+  return createLocalQueueEngine({
+    base,
+    load: async name => definitions[name],
+    missing: missingQueueDefinitionError,
+    retryDelayMs,
+  })
+}
+
+function install(definitions: Record<string, QueueDefinition>) {
+  setQueueRuntimeConfig(normalizeQueueOptions({ base }, { hosting: "node-server" })!, createLocalQueueRuntimeClient)
+  setQueueRuntimeRegistry(Object.fromEntries(Object.entries(definitions).map(([name, definition]) => [name, async () => definition])))
+  startLocalQueue(normalizeQueueOptions({ base }, { hosting: "node-server" })!)
+}
+
+describe("local queue provider config", () => {
+  it("is the default provider for a Node server", () => {
+    expect(normalizeQueueOptions(undefined, { hosting: "node-server" })).toEqual({ base: ".vitehub/data/queue", provider: "local" })
+    expect(normalizeQueueOptions({ provider: "local", base: " data/jobs " })).toEqual({ base: "data/jobs", provider: "local" })
+  })
+
+  it("keeps Vercel and Cloudflare inference", () => {
+    expect(normalizeQueueOptions(undefined, { hosting: "vercel" })).toEqual({ provider: "vercel" })
+    expect(normalizeQueueOptions(undefined, { hosting: "cloudflare" })).toEqual({ provider: "cloudflare" })
+    expect(normalizeQueueOptions(undefined)).toEqual({ provider: "vercel" })
+  })
+})
+
+describe("local queue delivery", () => {
+  it("runs the Queue Definition after runQueue() accepts the job", async () => {
+    const handler = vi.fn(async (_job: QueueJob) => {})
+    install({ welcome: { handler } })
+
+    const [error, result] = await dynamicQueue.run("welcome", { at: new Date(0), email: "ada@example.com" }, { id: "job-1" })
+
+    expect(error).toBeUndefined()
+    expect(result).toEqual({ messageId: "job-1", status: "queued" })
+    await vi.waitFor(() => expect(handler).toHaveBeenCalledOnce())
+    // The handler gets the stored JSON copy, as it does from a hosted provider.
+    expect(handler).toHaveBeenCalledWith({ attempts: 1, id: "job-1", payload: { at: "1970-01-01T00:00:00.000Z", email: "ada@example.com" } })
+    await vi.waitFor(async () => expect(await storedJobs()).toEqual([]))
+  })
+
+  it("logs once where it stores the jobs", () => {
+    install({ welcome: { handler: async () => {} } })
+
+    expect(console.warn).toHaveBeenCalledOnce()
+    expect(vi.mocked(console.warn).mock.calls[0]![0]).toContain(`stores jobs in ${base}`)
+    expect(vi.mocked(console.warn).mock.calls[0]![0]).toContain("not a move to another host or a new container")
+  })
+
+  it("waits for delaySeconds", async () => {
+    const handler = vi.fn(async () => {})
+    install({ welcome: { handler } })
+    const queue = await dynamicQueue.get("welcome")
+
+    const started = Date.now()
+    await queue.send({}, { delaySeconds: 0.3 })
+    await new Promise(resolve => setTimeout(resolve, 100))
+    expect(handler).not.toHaveBeenCalled()
+    await vi.waitFor(() => expect(handler).toHaveBeenCalledOnce())
+    expect(Date.now() - started).toBeGreaterThanOrEqual(290)
+  })
+
+  it("retries a failed job, then keeps it as a dead job", async () => {
+    const handler = vi.fn(async (_job: QueueJob) => { throw new Error("SMTP down") })
+    const engine = engineFor({ welcome: { handler } })
+
+    await engine.enqueue("welcome", [{ id: "job-1", payload: {} }])
+
+    await vi.waitFor(async () => expect((await engine.status()).queues.welcome).toEqual({ dead: 1, pending: 0, running: 0 }))
+    expect(handler).toHaveBeenCalledTimes(localQueueMaxAttempts)
+    expect(handler.mock.calls.map(([job]) => job.attempts)).toEqual([1, 2, 3, 4])
+    expect(await storedJobs()).toEqual([expect.objectContaining({ attempts: 4, state: "dead" })])
+  })
+
+  it("does not retry a Queue error that a retry cannot fix", async () => {
+    const handler = vi.fn(async () => { throw queueErrorDiagnostics.QUEUE_DISABLED() })
+    const engine = engineFor({ welcome: { handler } })
+
+    await engine.enqueue("welcome", [{ id: "job-1", payload: {} }])
+
+    await vi.waitFor(async () => expect((await engine.status()).queues.welcome?.dead).toBe(1))
+    expect(handler).toHaveBeenCalledOnce()
+    expect(await storedJobs()).toEqual([expect.objectContaining({ error: expect.objectContaining({ code: "QUEUE_DISABLED" }), state: "dead" })])
+  })
+
+  it("keeps a job for a missing Queue Definition as a dead job", async () => {
+    const engine = engineFor({})
+
+    await engine.enqueue("gone", [{ id: "job-1", payload: {} }])
+
+    await vi.waitFor(async () => expect((await engine.status()).queues.gone?.dead).toBe(1))
+  })
+
+  it("runs one job at a time unless the definition sets concurrency", async () => {
+    let active = 0
+    let peak = 0
+    const handler = async () => {
+      peak = Math.max(peak, ++active)
+      await new Promise(resolve => setTimeout(resolve, 20))
+      active--
+    }
+    const engine = engineFor({ one: { handler }, three: { handler, options: { concurrency: 3 } } })
+
+    await engine.enqueue("one", [1, 2, 3, 4].map(n => ({ id: `job-${n}`, payload: n })))
+    await vi.waitFor(async () => expect((await engine.status()).queues).toEqual({}))
+    expect(peak).toBe(1)
+
+    peak = 0
+    await engine.enqueue("three", [1, 2, 3, 4, 5, 6].map(n => ({ id: `job-${n}`, payload: n })))
+    await vi.waitFor(async () => expect((await engine.status()).queues).toEqual({}))
+    expect(peak).toBe(3)
+  })
+})
+
+describe("local queue durability", () => {
+  it("delivers a job that was waiting when the process stopped", async () => {
+    const first = engineFor({ welcome: { handler: async () => { throw new Error("the first process must not deliver it") } } })
+    await first.enqueue("welcome", [{ delaySeconds: 0.2, id: "job-1", payload: { email: "ada@example.com" } }])
+    first.close()
+
+    const handler = vi.fn(async () => {})
+    const second = engineFor({ welcome: { handler } })
+    expect((await second.status()).queues.welcome).toEqual({ dead: 0, pending: 1, running: 0 })
+
+    await vi.waitFor(() => expect(handler).toHaveBeenCalledWith({ attempts: 1, id: "job-1", payload: { email: "ada@example.com" } }))
+    await vi.waitFor(async () => expect(await storedJobs()).toEqual([]))
+  })
+
+  it("delivers a job again when the process stopped during its handler", async () => {
+    const stuck = vi.fn(() => new Promise(() => {}))
+    const first = engineFor({ welcome: { handler: stuck } })
+    await first.enqueue("welcome", [{ id: "job-1", payload: {} }])
+    await vi.waitFor(() => expect(stuck).toHaveBeenCalledOnce())
+    expect((await first.status()).queues.welcome?.running).toBe(1)
+    first.close()
+
+    const handler = vi.fn(async () => {})
+    const second = engineFor({ welcome: { handler } })
+    await second.start()
+
+    await vi.waitFor(() => expect(handler).toHaveBeenCalledWith(expect.objectContaining({ attempts: 2, id: "job-1" })))
+  })
+
+  it("keeps dead jobs after a restart", async () => {
+    const first = engineFor({ welcome: { handler: async () => { throw queueErrorDiagnostics.QUEUE_DISABLED() } } })
+    await first.enqueue("welcome", [{ id: "job-1", payload: {} }])
+    await vi.waitFor(async () => expect((await first.status()).queues.welcome?.dead).toBe(1))
+    first.close()
+
+    const handler = vi.fn(async () => {})
+    const second = engineFor({ welcome: { handler } })
+
+    expect((await second.status()).queues.welcome).toEqual({ dead: 1, pending: 0, running: 0 })
+    expect(handler).not.toHaveBeenCalled()
+  })
+})
+
+describe("local queue client", () => {
+  it("returns the stored message ID for a repeated idempotencyKey", async () => {
+    const handler = vi.fn(async () => {})
+    const engine = engineFor({ welcome: { handler } }, () => 60_000)
+    const client = createLocalQueueClient(engine, "welcome")
+
+    const [, first] = await client.send({ n: 1 }, { delaySeconds: 60, idempotencyKey: "signup-ada" })
+    const [, second] = await client.send({ n: 2 }, { idempotencyKey: "signup-ada" })
+
+    expect(second?.messageId).toBe(first?.messageId)
+    expect((await engine.status()).queues.welcome?.pending).toBe(1)
+  })
+
+  it("rejects options that only a hosted provider has", async () => {
+    const client = createLocalQueueClient(engineFor({}), "welcome")
+
+    const [error] = await client.send({}, { contentType: "json", region: "iad1" })
+
+    expect(error).toMatchObject({ code: "QUEUE_UNSUPPORTED_OPTION", why: "The local queue provider does not support the enqueue option `contentType` and `region`." })
+    expect(await storedJobs()).toEqual([])
+  })
+
+  it("returns QUEUE_PROVIDER_FAILED for a payload that is not JSON", async () => {
+    const client = createLocalQueueClient(engineFor({}), "welcome")
+
+    const [error] = await client.send({ id: 1n })
+
+    expect(error).toMatchObject({ code: "QUEUE_PROVIDER_FAILED", why: "The local queue provider failed during send." })
+  })
+
+  it("sends a batch", async () => {
+    const handler = vi.fn(async () => {})
+    const client = createLocalQueueClient(engineFor({ welcome: { handler } }), "welcome")
+
+    const [error, results] = await client.sendBatch([{ body: 1 }, { body: 2, delaySeconds: 0 }])
+
+    expect(error).toBeUndefined()
+    expect(results).toEqual([{ messageId: expect.stringMatching(/^queue_/), status: "queued" }, { messageId: expect.stringMatching(/^queue_/), status: "queued" }])
+    await vi.waitFor(() => expect(handler).toHaveBeenCalledTimes(2))
+  })
+
+  it("needs a queue name for a direct client", async () => {
+    await expect(createQueueClient({ provider: "local", base })).rejects.toMatchObject({ code: "QUEUE_MISSING_QUEUE" })
+    await expect(createQueueClient({ provider: "local", base, queue: "welcome" })).resolves.toMatchObject({ provider: "local", queue: "welcome" })
+  })
+})
+
+describe("local queue inspection", () => {
+  it("lists the storage, its durability, and the job counts", async () => {
+    install({ digest: { handler: async () => {} }, welcome: { handler: async () => {} } })
+    await dynamicQueue.run("welcome", {}, { delaySeconds: 60 })
+
+    await expect(listQueues()).resolves.toEqual({
+      provider: "local",
+      queues: [{ dead: 0, name: "digest", pending: 0, running: 0 }, { dead: 0, name: "welcome", pending: 1, running: 0 }],
+      storage: { base, durability: "single-host" },
+    })
+  })
+})

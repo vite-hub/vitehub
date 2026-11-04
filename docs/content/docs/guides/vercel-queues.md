@@ -210,4 +210,4 @@ The queue file and the route stay the same. To move to Cloudflare Queues:
 3. Replace `callbackOptions` with `onError`, which returns `'ack'`, `'retry'`, or `{ retry: { delaySeconds } }`.
 4. Create the queues with `vitehub provision run --provider cloudflare`.
 
-Read [Cloudflare Queues](/docs/guides/cloudflare-queues) for the full steps. ViteHub has no Queue Provider for self-hosted Node or Deno. Check the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix) before you choose a host.
+Read [Cloudflare Queues](/docs/guides/cloudflare-queues) for the full steps. On self-hosted Node, Queue uses the local provider. ViteHub has no Queue Provider for Deno. Check the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix) before you choose a host.

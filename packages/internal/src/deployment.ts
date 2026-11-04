@@ -19,7 +19,7 @@ type UnsupportedDeploymentServicePolicy = {
 export interface DeploymentServices {
   blob: SupportedDeploymentServicePolicy<"cloudflare-r2" | "fs" | "netlify-blobs" | "vercel-blob", "native" | "single-host"> | UnsupportedDeploymentServicePolicy
   browser: SupportedDeploymentServicePolicy<"cloudflare"> | UnsupportedDeploymentServicePolicy
-  queue: SupportedDeploymentServicePolicy<"cloudflare" | "vercel"> | UnsupportedDeploymentServicePolicy
+  queue: SupportedDeploymentServicePolicy<"cloudflare" | "local" | "vercel", "native" | "single-host"> | UnsupportedDeploymentServicePolicy
   rateLimit: SupportedDeploymentServicePolicy<"cloudflare" | "memory", "native" | "process-local"> | UnsupportedDeploymentServicePolicy
   realtime: SupportedDeploymentServicePolicy<"cloudflare" | "memory", "native" | "process-local"> | UnsupportedDeploymentServicePolicy
   sandbox: SupportedDeploymentServicePolicy<"cloudflare" | "vercel"> | UnsupportedDeploymentServicePolicy
@@ -105,7 +105,7 @@ const plans = {
     services: {
       blob: { adapter: "fs", guarantee: "single-host", supported: true },
       browser: unsupported("The Node preset has no built-in Browser Provider."),
-      queue: unsupported("The Node preset has no built-in durable Queue Provider."),
+      queue: { adapter: "local", guarantee: "single-host", supported: true },
       rateLimit: { adapter: "memory", guarantee: "process-local", supported: true },
       realtime: { adapter: "memory", guarantee: "process-local", supported: true },
       sandbox: unsupported("The Node preset has no built-in isolated Sandbox Provider."),

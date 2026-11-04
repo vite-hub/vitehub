@@ -8,7 +8,15 @@ icon: i-lucide-cloud-cog
 
 ## Develop locally
 
-Queue has no in-memory Queue Provider for local delivery. Use a build to check that ViteHub discovers your Queue Definitions and generates the right Nitro output. A standalone Node process, such as a `tsx` script, does not run Vite discovery or load the generated Queue Runtime Registry, so `runQueue()` cannot find queue files from there.
+With `preset: 'node'`, Queue uses the local provider in `pnpm dev` and in the built server. `runQueue()` stores the job in `.vitehub/data/queue`, and the server process runs the Queue Definition. This also works in Docker and in a StackBlitz WebContainer. The server logs the directory and the durability once when it starts:
+
+```bash [Terminal]
+pnpm vitehub queue list
+```
+
+The list shows `provider: "local"`, the job directory, `durability: "single-host"`, and the pending, running, and dead jobs of each Queue Definition. The jobs survive a restart on the same disk. In Docker, mount `.vitehub/data` as a volume, or a new container starts without them. Run one server process per directory. [Local delivery](/docs/queue/limits-and-errors#local-delivery) lists the retry and dead-job rules.
+
+For Cloudflare or Vercel, use a build to check that ViteHub discovers your Queue Definitions and generates the right Nitro output. A standalone Node process, such as a `tsx` script, does not run Vite discovery or load the generated Queue Runtime Registry, so `runQueue()` cannot find queue files from there.
 
 ```bash [Terminal]
 pnpm add vite-hub
@@ -35,5 +43,6 @@ Nitro is the only host output. The Queue Package discovers Queue Definitions, ge
 | --- | --- |
 | Cloudflare | `wrangler.json` queue producer and consumer entries. Nitro's `cloudflare:queue` hook runs the consumer. |
 | Vercel | One Nitro route per Queue Definition under `/api/vitehub/queues/vercel/`. `vercel.functionRules` gives each route its queue trigger, so Nitro writes one function per Queue Definition. |
+| Local | The Queue Nitro plugin. It reads `.vitehub/data/queue` when the server starts and runs the due jobs. |
 
 Do not import generated files from application code.
