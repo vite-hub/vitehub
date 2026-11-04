@@ -10,7 +10,7 @@ icon: i-lucide-rocket
 
 Send a welcome email with Resend and check its delivery. You will configure the provider, supply its API key to the server, and call a route that sends the message. The development outbox also records it for inspection.
 
-You need Node.js 24.15 or newer, Vite 8 or newer, pnpm, a Vite application, and a POSIX-compatible shell. You also need a Resend API key, a verified sender, and an inbox you can check. Run the commands from the app root. The final request sends a real email.
+You need Node.js 22.22 or newer, Vite 8 or newer, pnpm, a Vite application, and a POSIX-compatible shell. You also need a Resend API key, a verified sender, and an inbox you can check. Run the commands from the app root. The final request sends a real email.
 
 ::tutorial-step{title="Install the email dependencies"}
 ## Install the email dependencies

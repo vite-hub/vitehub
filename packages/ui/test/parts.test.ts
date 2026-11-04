@@ -226,7 +226,7 @@ describe("shadcn/ui parts", () => {
     // would win over a layer: the Markdown elements in the typeset, the scroll button, the image dialog, and the rail.
     const restylesNuxtUI = /^(\.vh-chat:has\(\.vh-chat__composer\) )?\.vh-chat__scroll-button|^\.vh-typeset(-chat)?[ [>]|^\.vh-image-(overlay|dialog|dialog__action)\b|^(\.dark )?\.vh-primitive-/;
     for (const { body, prelude } of unlayered) {
-      if (prelude === ":root") continue;
+      if (prelude === ":root" || prelude.startsWith(":where(:root,")) continue;
       if (prelude.startsWith("@")) expect(body, prelude).toMatch(/vh-primitive-/);
       else expect(prelude).toMatch(restylesNuxtUI);
     }

@@ -10,7 +10,7 @@ icon: i-lucide-rocket
 
 Declare an application name once and read it from the generated Public Env module. The verification script will print `Acme`. This first example uses a safe value that can appear in browser code.
 
-You need Node.js 24.15 or newer, pnpm, and a Vite application. Run the commands from its root. Public Env values are part of the build output. Put credentials in `env.server` and read them only in server code.
+You need Node.js 22.18 or newer, pnpm, and a Vite application. Run the commands from its root. Public Env values are part of the build output. Put credentials in `env.server` and read them only in server code.
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure

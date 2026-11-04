@@ -93,6 +93,7 @@
     "src/comments-overlay/shim.ts",
     "src/comments-overlay/virtual.d.ts",
     "test/comments-overlay-loader.test.ts",
-    "test/comments-overlay-mount.test.ts"
+    "test/comments-overlay-mount.test.ts",
+    "test/console-comment-thread-dismissal.test.ts"
   ]
 }

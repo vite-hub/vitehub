@@ -29,7 +29,7 @@ or Agent Definitions.
 pnpm add @vite-hub/runtime
 ```
 
-The package declares Node.js 24 or newer. Import the root entry for portable
+The package declares Node.js 22.18 or newer. Import the root entry for portable
 Runtime contracts. When inspected, the `/node` entry reads Node process
 information and, on Linux, `/proc` and cgroup v2 files.
 

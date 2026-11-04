@@ -94,7 +94,7 @@ interface AgentToolInspection {
 }
 ```
 
-Icons render through the `UIcon` component that `createViteHubUI()` registers. Without it, rows show no icon.
+Icons render through Nuxt UI's `UIcon`. See [Nuxt UI components](/docs/ui/installation#nuxt-ui-components) to replace it.
 
 ## Related
 

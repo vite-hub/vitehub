@@ -440,14 +440,39 @@ const attachment = defineOperation({
 
 const session = defineOperation({
   description: "Tell the comments overlay who is signed in and what that person may do. Nothing else leaves the server.",
-  input: v.strictObject({ subject: v.optional(subject) }),
+  input: v.strictObject({ subject: v.optional(subject), threadId: v.optional(id) }),
   kind: "read",
   name: "comments.session",
-  run: async (input, context): Promise<{ canRead: boolean, canWrite: boolean, user: CommentUser | null }> => {
+  run: async (input, context) => {
     const who = await caller(context)
     // A visitor who is not signed in gets no answer from the policy: the overlay asks on every page view, so the policy
     // does not run for each anonymous one, and nothing about the app leaks.
     if (!who.user) return { canRead: false, canWrite: false, user: null }
+    if (input.threadId) {
+      // Load through the same read policy as each mutation, then report its action and operation-access checks.
+      const found = await load(who, input.threadId)
+      const can = (action: CommentAction) => permitted(who, action, { thread: found }).catch(() => false)
+      const [write, resolve, remove] = await Promise.all([can("write"), can("resolve"), can("delete")])
+      const writes = operationAccessAllows(context.access, "comments", { kind: "write" })
+      const deletes = operationAccessAllows(context.access, "comments", { kind: "destructive" })
+      const signedIn = who.user.guest !== true
+      const userId = who.user.id
+      const owns = (message: CommentMessage) => signedIn && !who.actor && !message.author.guest && message.author.id === userId
+      const ownsThread = found.messages.every(owns)
+      const deleteThread = signedIn && deletes && (ownsThread ? write : remove)
+      return {
+        canRead: true,
+        canWrite: writes && write,
+        capabilities: {
+          delete: found.messages.filter((message, index) => index === 0 ? deleteThread : signedIn && deletes && (owns(message) ? write : remove)).map(message => message.id),
+          deleteThread,
+          edit: signedIn && writes && (!who.actor || write) ? found.messages.filter(message => !message.author.guest && message.author.id === userId).map(message => message.id) : [],
+          reply: writes && write,
+          resolve: writes && resolve,
+        },
+        user: personOf(who.user),
+      }
+    }
     // A policy that cannot answer without a thread says no.
     const allowed = (action: CommentAction) => permitted(who, action, input.subject ? { subject: input.subject } : {}).catch(() => false)
     const [canRead, canWrite] = await Promise.all([allowed("read"), allowed("write")])

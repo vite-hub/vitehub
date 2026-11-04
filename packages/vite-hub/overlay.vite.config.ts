@@ -7,6 +7,14 @@ const root = import.meta.dirname;
 const source = resolve(root, "src/comments-overlay");
 const ui = resolve(root, "../ui");
 const virtualIcons = "virtual:comments-overlay-icons";
+const nuxtUIStandIn = "\0comments-overlay-nuxt-ui:";
+// The parts import Nuxt UI's components and load them on first render. The overlay has no Nuxt UI: Button and Icon get
+// the stand-ins of shim.ts, which it also registers, and the rest render nothing.
+const standIns: Record<string, string> = {
+  "@nuxt/ui/components/Button.vue": "UButton",
+  "@nuxt/ui/components/Icon.vue": "UIcon",
+  "@nuxt/ui/runtime/vue/components/Icon.vue": "UIcon",
+};
 const katexStyleImport = /^@import\s+["']katex\/dist\/katex\.min\.css["'];?\s*$/m;
 
 // The Phosphor icons that the comment parts and the Prompt Input ask for by class name.
@@ -43,11 +51,18 @@ export function overlayPlugin(): Plugin {
     enforce: "pre",
     resolveId(id, importer) {
       if (id === virtualIcons) return `\0${virtualIcons}`;
+      if (id.startsWith("@nuxt/ui/")) return `${nuxtUIStandIn}${id}`;
       // The full Markdown part brings the Comark parser, Shiki, and KaTeX. Comments are short notes.
       if (importer && importer.startsWith(resolve(ui, "src")) && /(^|\/)markdown\.ts$/.test(id)) return resolve(source, "markdown-lite.ts");
       return undefined;
     },
     load(id) {
+      if (id.startsWith(nuxtUIStandIn)) {
+        const name = standIns[id.slice(nuxtUIStandIn.length)];
+        return name
+          ? `export { ${name} as default } from ${JSON.stringify(resolve(source, "shim.ts"))};`
+          : "export default { name: \"NuxtUIStandIn\", render: () => null };";
+      }
       if (id !== `\0${virtualIcons}`) return undefined;
       const require = createRequire(import.meta.url);
       const set = JSON.parse(readFileSync(require.resolve("@iconify-json/ph/icons.json"), "utf8")) as { icons: Record<string, { body: string }> };

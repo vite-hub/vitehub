@@ -94,6 +94,9 @@ catalogs:
     '@libsql/client':
       specifier: ^0.18.0
       version: 0.18.0
+    '@sqlite.org/sqlite-wasm':
+      specifier: 3.53.0-build1
+      version: 3.53.0-build1
     drizzle-kit:
       specifier: ^0.31.11
       version: 0.31.11
@@ -667,6 +670,9 @@ importers:
       '@vite-hub/agent':
         specifier: workspace:*
         version: link:../packages/agent
+      '@vite-hub/comments':
+        specifier: workspace:*
+        version: link:../packages/comments
       '@vite-hub/docs':
         specifier: workspace:*
         version: link:../packages/docs
@@ -804,6 +810,12 @@ importers:
       '@ai-sdk/gateway':
         specifier: catalog:ai
         version: 4.0.103(zod@4.6.7)
+      '@ai-sdk/openai':
+        specifier: catalog:ai
+        version: 4.0.88(zod@4.6.7)
+      '@ai-sdk/provider':
+        specifier: catalog:ai
+        version: 4.0.24
       '@cfworker/json-schema':
         specifier: 4.1.1
         version: 4.1.1
@@ -816,6 +828,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: catalog:ai
         version: 1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.7)
+      '@sqlite.org/sqlite-wasm':
+        specifier: catalog:database
+        version: 3.53.0-build1
       '@standard-schema/spec':
         specifier: catalog:runtime
         version: 1.1.0
@@ -858,6 +873,9 @@ importers:
       '@vite-hub/sandbox':
         specifier: workspace:*
         version: link:../sandbox
+      '@vite-hub/web-container':
+        specifier: workspace:*
+        version: link:../web-container
       '@vite-hub/workspace':
         specifier: workspace:*
         version: link:../workspace
@@ -1719,9 +1737,15 @@ importers:
       '@libsql/client':
         specifier: catalog:database
         version: 0.18.0
+      '@sqlite.org/sqlite-wasm':
+        specifier: catalog:database
+        version: 3.53.0-build1
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
+      '@vite-hub/web-container':
+        specifier: workspace:*
+        version: link:../web-container
       drizzle-kit:
         specifier: catalog:database
         version: 0.31.11
@@ -2115,6 +2139,9 @@ importers:
 
   packages/internal:
     dependencies:
+      '@sqlite.org/sqlite-wasm':
+        specifier: catalog:database
+        version: 3.53.0-build1
       '@standard-schema/spec':
         specifier: catalog:runtime
         version: 1.1.0
@@ -2636,6 +2663,9 @@ importers:
       pathe:
         specifier: catalog:unjs
         version: 2.0.3
+      picomatch:
+        specifier: catalog:workspace
+        version: 4.0.7
       semver:
         specifier: ^7.8.5
         version: 7.8.5
@@ -2655,6 +2685,9 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
+      '@types/picomatch':
+        specifier: catalog:tooling
+        version: 4.0.3
       '@types/semver':
         specifier: ^7.8.0
         version: 7.8.0
@@ -28121,8 +28154,7 @@ snapshots:
 
   '@speed-highlight/core@1.2.24': {}
 
-  '@sqlite.org/sqlite-wasm@3.53.0-build1':
-    optional: true
+  '@sqlite.org/sqlite-wasm@3.53.0-build1': {}
 
   '@stablelib/base64@1.0.1':
     optional: true

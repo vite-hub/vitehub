@@ -55,6 +55,7 @@ export interface ConsoleOperationFilter {
 /** Mirrors `ViteHubConsoleOperationView`. */
 export interface ConsoleOperationView {
   columns: readonly ConsoleOperationColumn[]
+  detail?: { kind: "comment-thread" }
   filters?: readonly ConsoleOperationFilter[]
   kind: "operation-view"
   link?: { label?: string, template: string, when?: { equals: string, path: string } }
@@ -246,6 +247,7 @@ function parseConsoleOperationView(view: Record<string, unknown>): ConsoleOperat
       ? { pagination: { limit: pagination.limit, cursor: Object.fromEntries(cursorPaths) } }
       : {}),
     ...(filters.length ? { filters } : {}),
+    ...(record(view.detail)?.kind === "comment-thread" ? { detail: { kind: "comment-thread" as const } } : {}),
     ...(text(link?.template) ? { link: { template: link.template, ...(text(link.label) ? { label: link.label } : {}), ...(text(when?.path) && text(when.equals) ? { when: { equals: when.equals, path: when.path } } : {}) } } : {}),
   }
 }

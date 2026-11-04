@@ -21,6 +21,8 @@ import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-outpu
 import { agentToolStreamDefaults, resolveAgentUsageRecord } from "./agent-output.ts"
 import { aggregateAgentUsageCosts } from "./internal/usage-pricing.ts"
 import { materializeAgentModel } from "./internal/agent-model.ts"
+import { chatgptLanguageModel } from "./internal/chatgpt-model.ts"
+import type { ChatGPTGateway } from "@vite-hub/gateways"
 import { updateAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { isAuxiliaryAgentAdapterContext } from "./internal/channels.ts"
 import { inspectAgentTools } from "./tool-inspection.ts"
@@ -84,6 +86,8 @@ export interface AiSdkAdapterOptions<
   Name extends WorkspaceName = WorkspaceName,
 > {
   execution?: AiSdkModelExecutionOptions<TRuntimeConfig, TCallOptions, TTools>
+  /** The ChatGPT plan gateway. `model` is then a model ID. */
+  gateway?: ChatGPTGateway
   instructions?: AgentAdapterInstructions<TRuntimeConfig, Name>
   model: AgentModelResolver<TRuntimeConfig, Name>
   tools?: AgentToolResolverWithWorkspace<TRuntimeConfig, Name>
@@ -1351,7 +1355,9 @@ async function createAgent(
     runtimeConfig: context.runtime.runtimeConfig,
   } as AgentModelResolverContext
   // SAFETY: AI SDK adapter normalization establishes the asserted model and result contract.
-  const model = await materializeAgentModel(await resolveValue(options.model as never, modelContext), modelContext)
+  const model = options.gateway
+    ? chatgptLanguageModel(options.gateway, String(options.model), { ...modelContext, abortSignal: context.input.abortSignal })
+    : await materializeAgentModel(await resolveValue(options.model as never, modelContext), modelContext)
   const instrumentations = modelExecutionInstrumentation(options, context)
   const observedModel = instrumentations.length
     ? await instrumentModel(model, instrumentations, { ...runtime, actor: context.actor, context: context.context, invoker: context.invoker, model, run: context.runtime.run })

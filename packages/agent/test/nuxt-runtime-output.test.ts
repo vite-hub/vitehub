@@ -29,7 +29,7 @@ const packedPackages = await packedWorkspacePackages(workspaceRoot, [
   "workspace",
 ])
 
-async function runPnpm(args: string[], cwd: string): Promise<void> {
+async function runPnpm(args: string[], cwd: string, timeout = childProcessTimeout): Promise<void> {
   const npmExecPath = process.env.npm_execpath
   const command = npmExecPath?.includes("pnpm") ? process.execPath : "corepack"
   const commandArgs = npmExecPath?.includes("pnpm") ? [npmExecPath, ...args] : ["pnpm", ...args]
@@ -38,7 +38,7 @@ async function runPnpm(args: string[], cwd: string): Promise<void> {
       cwd,
       env: { ...process.env, CI: "true" },
       killSignal: "SIGKILL",
-      timeout: childProcessTimeout,
+      timeout,
     })
   }
   catch (error) {
@@ -80,7 +80,7 @@ async function requestWhenReady(url: string): Promise<Response> {
   throw lastError
 }
 
-it("packages optional Agent runtimes into immutable Nuxt output", { timeout: 180_000 }, async () => {
+it("packages optional Agent runtimes into immutable Nuxt output", { timeout: 360_000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-agent-nuxt-runtime-"))
   try {
     await mkdir(join(root, "server", "api"), { recursive: true })
@@ -140,7 +140,8 @@ export default defineEventHandler(async () => {
     )
     await Promise.all(packedPackages.map(name =>
       runPnpm(["pack", "--pack-destination", root], join(workspaceRoot, "packages", name))))
-    await runPnpm(["install", "--prefer-offline", "--ignore-scripts", "--no-frozen-lockfile"], root)
+    // A cold Nuxt install can exceed a minute on CI; keep packing and builds on their shorter limit.
+    await runPnpm(["install", "--prefer-offline", "--ignore-scripts", "--no-frozen-lockfile"], root, 180_000)
     await runPnpm(["exec", "nuxt", "build"], root)
 
     const outputServer = join(root, ".output", "server")

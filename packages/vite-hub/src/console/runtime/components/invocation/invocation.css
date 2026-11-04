@@ -1,4 +1,4 @@
-/* Styles of the Console's Agent Invocation views. They use the --vh-ui-* tokens from @vite-hub/ui/styles.css. */
+/* Styles of the Console's Agent Invocation views. They read the --vh-* tokens that @vite-hub/ui/styles.css resolves. */
 
 
 .vh-invocation-list {
@@ -31,7 +31,7 @@
 
 .vh-invocation-list__group-heading {
   align-items: center;
-  color: color-mix(in oklab, var(--vh-ui-muted) 88%, var(--vh-ui-text));
+  color: color-mix(in oklab, var(--vh-muted) 88%, var(--vh-text));
   display: flex;
   font-size: 0.6875rem;
   font-weight: 650;
@@ -67,11 +67,11 @@
 }
 
 .vh-invocation-list__group--collapsible > summary:hover {
-  color: var(--vh-ui-text);
+  color: var(--vh-text);
 }
 
 .vh-invocation-list__group--collapsible > summary:focus-visible {
-  border-radius: calc(var(--vh-ui-radius) * 0.8);
+  border-radius: calc(var(--vh-radius) * 0.8);
   outline: 2px solid color-mix(in oklab, var(--ui-primary, #2563eb) 52%, transparent);
   outline-offset: -2px;
 }
@@ -82,7 +82,7 @@
 }
 
 .vh-invocation-list__group-count {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   font-variant-numeric: tabular-nums;
   font-weight: 550;
   letter-spacing: 0;
@@ -124,16 +124,16 @@
 }
 
 .vh-invocation-list__item:hover {
-  background: var(--ui-bg-elevated, color-mix(in oklab, var(--vh-ui-text) 6%, transparent));
+  background: var(--ui-bg-elevated, color-mix(in oklab, var(--vh-text) 6%, transparent));
 }
 
 .vh-invocation-list__item:focus-visible {
-  outline: 1px solid var(--ui-border-accented, var(--vh-ui-border));
+  outline: 1px solid var(--ui-border-accented, var(--vh-border));
   outline-offset: -1px;
 }
 
 .vh-invocation-list__item[aria-current="true"] {
-  background: var(--ui-bg-accented, color-mix(in oklab, var(--vh-ui-text) 10%, transparent));
+  background: var(--ui-bg-accented, color-mix(in oklab, var(--vh-text) 10%, transparent));
 }
 
 .vh-invocation-list__context,
@@ -146,7 +146,7 @@
 }
 
 .vh-invocation-list__context {
-  color: var(--ui-text-dimmed, var(--vh-ui-muted));
+  color: var(--ui-text-dimmed, var(--vh-muted));
   gap: 0.375rem;
   min-height: 1.25rem;
 }
@@ -177,7 +177,7 @@
 }
 
 .vh-invocation-list__state {
-  color: var(--vh-ui-muted);
+  color: var(--vh-muted);
   flex: none;
   font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
@@ -197,7 +197,7 @@
 }
 
 .vh-invocation-list__item[data-status="running"] .vh-invocation-list__state {
-  color: var(--vh-ui-info);
+  color: var(--vh-info);
 }
 
 .vh-invocation-list__item[data-status="running"] .vh-invocation-list__state-icon svg {
@@ -205,16 +205,16 @@
 }
 
 .vh-invocation-list__item[data-status="completed"] .vh-invocation-list__state {
-  color: var(--vh-ui-muted);
+  color: var(--vh-muted);
 }
 
 .vh-invocation-list__item[data-status="failed"] .vh-invocation-list__state,
 .vh-invocation-list__item[data-status="failed"] .vh-invocation-list__description {
-  color: var(--vh-ui-error);
+  color: var(--vh-error);
 }
 
 .vh-invocation-list__title {
-  color: var(--vh-ui-highlighted);
+  color: var(--vh-highlighted);
   font-size: 0.875rem;
   font-weight: 500;
   line-height: 1.35;
@@ -224,7 +224,7 @@
 }
 
 .vh-invocation-list__meta {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   font-size: 0.75rem;
   gap: 0.5rem;
   min-height: 1.125rem;
@@ -266,14 +266,14 @@
 
 .vh-invocation-list__empty,
 .vh-invocation-list__loading {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   font-size: 0.8125rem;
   margin: 1rem 0;
   text-align: center;
 }
 
 .vh-invocation-list__loading {
-  background: color-mix(in oklab, var(--vh-ui-bg) 88%, transparent);
+  background: color-mix(in oklab, var(--vh-bg) 88%, transparent);
   bottom: 0;
   margin: 0;
   padding: 0.6rem;
@@ -281,7 +281,7 @@
 }
 
 .vh-invocation-session {
-  background: var(--vh-ui-bg);
+  background: var(--vh-bg);
   container-type: inline-size;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -297,7 +297,7 @@
 
 .vh-invocation-header {
   align-items: center;
-  border-block-end: 1px solid var(--vh-ui-border);
+  border-block-end: 1px solid var(--vh-border);
   display: flex;
   gap: 0.75rem;
   justify-content: space-between;
@@ -314,7 +314,7 @@
 
 .vh-invocation-header__project-icon {
   align-items: center;
-  color: var(--vh-ui-muted);
+  color: var(--vh-muted);
   display: inline-flex;
   flex: none;
 }
@@ -328,7 +328,7 @@
 
 .vh-invocation-header__project,
 .vh-invocation-header__separator {
-  color: var(--vh-ui-muted);
+  color: var(--vh-muted);
   flex: none;
   font-size: 0.8125rem;
 }
@@ -361,10 +361,10 @@
 }
 
 .vh-invocation-session__error {
-  background: color-mix(in oklab, var(--vh-ui-error) 7%, transparent);
-  border: 1px solid color-mix(in oklab, var(--vh-ui-error) 22%, transparent);
-  border-radius: var(--vh-ui-radius);
-  color: var(--vh-ui-error);
+  background: color-mix(in oklab, var(--vh-error) 7%, transparent);
+  border: 1px solid color-mix(in oklab, var(--vh-error) 22%, transparent);
+  border-radius: var(--vh-radius);
+  color: var(--vh-error);
   display: grid;
   font-size: 0.8125rem;
   gap: 0.2rem;
@@ -398,14 +398,14 @@
 }
 
 .vh-invocation-message[data-role="user"] .vh-invocation-message__content {
-  background: var(--vh-ui-bg-elevated);
+  background: var(--vh-bg-elevated);
   border-radius: 1rem;
   max-width: min(100%, 80%);
   padding: 0.625rem 0.875rem;
 }
 
 .vh-invocation-message__role {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   display: block;
   font-size: 0.6875rem;
   font-weight: 500;
@@ -429,7 +429,7 @@
 }
 
 .vh-invocation-message__author {
-  color: var(--vh-ui-muted);
+  color: var(--vh-muted);
   font-weight: 500;
 }
 
@@ -456,7 +456,7 @@
   appearance: none;
   background: transparent;
   border: 0;
-  color: var(--vh-ui-muted);
+  color: var(--vh-muted);
   cursor: pointer;
   font: inherit;
   font-size: 0.75rem;
@@ -467,7 +467,7 @@
 }
 
 .vh-invocation-message__method {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   display: block;
   font-size: 0.6875rem;
   font-weight: 500;
@@ -476,7 +476,7 @@
 
 .vh-invocation-message__meta {
   align-items: center;
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   display: flex;
   font-size: 0.6875rem;
   font-variant-numeric: tabular-nums;
@@ -513,7 +513,7 @@
 
 .vh-invocation-message__copy:hover,
 .vh-invocation-message__copy:focus-visible {
-  color: var(--vh-ui-text);
+  color: var(--vh-text);
 }
 
 .vh-invocation-message__copy svg {
@@ -527,7 +527,7 @@
 
 .vh-invocation-message__more:hover,
 .vh-invocation-message__more:focus-visible {
-  color: var(--vh-ui-text);
+  color: var(--vh-text);
 }
 
 .vh-invocation-message[data-role="assistant"] .vh-invocation-message__body,
@@ -538,18 +538,18 @@
 }
 
 .vh-invocation-message[data-role="assistant"] .vh-invocation-message__body {
-  color: color-mix(in oklab, var(--vh-ui-text) 88%, var(--vh-ui-bg));
+  color: color-mix(in oklab, var(--vh-text) 88%, var(--vh-bg));
   margin-inline: 0;
   padding-inline: 0;
 }
 
 .vh-invocation-event {
   border-radius: 0.375rem;
-  color: var(--vh-ui-muted);
+  color: var(--vh-muted);
 }
 
 .vh-invocation-framework-mark {
-  color: color-mix(in oklab, var(--vh-ui-text) 32%, transparent);
+  color: color-mix(in oklab, var(--vh-text) 32%, transparent);
   flex: 0 0 0.75rem;
   height: 0.75rem;
   width: 0.75rem;
@@ -557,7 +557,7 @@
 
 @media (prefers-color-scheme: dark) {
   .vh-invocation-framework-mark {
-    color: color-mix(in oklab, var(--vh-ui-text) 58%, transparent);
+    color: color-mix(in oklab, var(--vh-text) 58%, transparent);
   }
 }
 
@@ -578,7 +578,7 @@
 .vh-invocation-preparation__summary {
   align-items: center;
   border-radius: 0.375rem;
-  color: var(--vh-ui-muted);
+  color: var(--vh-muted);
   cursor: pointer;
   display: flex;
   gap: 0.375rem;
@@ -589,8 +589,8 @@
 }
 
 .vh-invocation-preparation__summary:hover {
-  background: color-mix(in oklab, var(--vh-ui-bg-elevated) 50%, transparent);
-  color: var(--vh-ui-text);
+  background: color-mix(in oklab, var(--vh-bg-elevated) 50%, transparent);
+  color: var(--vh-text);
 }
 
 .vh-invocation-preparation__summary::-webkit-details-marker {
@@ -610,7 +610,7 @@
 }
 
 .vh-invocation-preparation__summary > code {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   flex: 1;
   font-size: 0.6875rem;
   min-width: 0;
@@ -620,13 +620,13 @@
 }
 
 .vh-invocation-preparation__summary > small {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   flex: 0 0 auto;
   font-size: 0.625rem;
 }
 
 .vh-invocation-preparation__disclosure {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   flex: 0 0 0.75rem;
   height: 0.75rem;
   margin-inline-start: auto;
@@ -650,7 +650,7 @@
 .vh-invocation-preparation__step {
   align-items: center;
   border-radius: 0.375rem;
-  color: var(--vh-ui-muted);
+  color: var(--vh-muted);
   display: grid;
   gap: 0.375rem;
   grid-template-columns: auto auto minmax(0, 1fr) auto;
@@ -670,7 +670,7 @@
 }
 
 .vh-invocation-preparation__body {
-  color: var(--vh-ui-error);
+  color: var(--vh-error);
   font-size: 0.75rem;
   line-height: 1.5;
   white-space: pre-wrap;
@@ -686,7 +686,7 @@
 
 .vh-invocation-preparation__steps code,
 .vh-invocation-preparation__step code {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   flex: 0 1 auto;
   font-size: 0.6875rem;
   min-width: 0;
@@ -697,7 +697,7 @@
 
 .vh-invocation-preparation__context {
   align-items: center;
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   display: inline-flex;
   flex: 0 1 auto;
   font-size: 0.6875rem;
@@ -723,7 +723,7 @@
 
 .vh-invocation-preparation__context a:hover,
 .vh-invocation-preparation__context a:focus-visible {
-  color: var(--vh-ui-text);
+  color: var(--vh-text);
   text-decoration: underline;
   text-underline-offset: 0.2em;
 }
@@ -734,7 +734,7 @@
   background: transparent;
   border: 0;
   border-radius: 0.25rem;
-  color: var(--vh-ui-muted);
+  color: var(--vh-muted);
   cursor: pointer;
   display: inline-flex;
   flex: 0 0 1.25rem;
@@ -754,22 +754,22 @@
 }
 
 .vh-invocation-preparation__step[data-status="failed"] strong {
-  color: var(--vh-ui-error);
+  color: var(--vh-error);
 }
 
 .vh-invocation-preparation__step[data-status="failed"] .vh-invocation-event__icon svg {
-  color: var(--vh-ui-error);
+  color: var(--vh-error);
   opacity: 0.7;
 }
 
 .vh-invocation-preparation__action:hover,
 .vh-invocation-preparation__action:focus-visible {
-  color: var(--vh-ui-text);
+  color: var(--vh-text);
 }
 
 /* A color change alone does not show where the keyboard focus is. */
 .vh-invocation-preparation__action:focus-visible {
-  outline: 2px solid var(--vh-ui-primary);
+  outline: 2px solid var(--vh-primary);
   outline-offset: 1px;
 }
 
@@ -809,7 +809,7 @@
   background: transparent;
   border: 0;
   border-radius: 0.375rem;
-  color: var(--vh-ui-muted);
+  color: var(--vh-muted);
   display: flex;
   font: inherit;
   gap: 0.375rem;
@@ -826,8 +826,8 @@ button.vh-invocation-lifecycle__row {
 
 button.vh-invocation-lifecycle__row:hover,
 button.vh-invocation-lifecycle__row:focus-visible {
-  background: color-mix(in oklab, var(--vh-ui-bg-elevated) 50%, transparent);
-  color: var(--vh-ui-text);
+  background: color-mix(in oklab, var(--vh-bg-elevated) 50%, transparent);
+  color: var(--vh-text);
 }
 
 button.vh-invocation-lifecycle__row:focus-visible {
@@ -843,7 +843,7 @@ button.vh-invocation-lifecycle__row:focus-visible {
 }
 
 .vh-invocation-lifecycle__detail {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   flex: 1;
   font-size: 0.6875rem;
   min-width: 0;
@@ -853,7 +853,7 @@ button.vh-invocation-lifecycle__row:focus-visible {
 }
 
 .vh-invocation-lifecycle__failure {
-  color: var(--vh-ui-error);
+  color: var(--vh-error);
   flex: 1;
   font-size: 0.75rem;
   min-width: 0;
@@ -874,10 +874,10 @@ button.vh-invocation-lifecycle__row:focus-visible {
 }
 
 .vh-invocation-lifecycle__label {
-  background: var(--vh-invocation-label-bg, var(--vh-ui-border));
-  border: 1px solid color-mix(in srgb, var(--vh-invocation-label-bg, var(--vh-ui-border)) 80%, #000000);
+  background: var(--vh-invocation-label-bg, var(--vh-border));
+  border: 1px solid color-mix(in srgb, var(--vh-invocation-label-bg, var(--vh-border)) 80%, #000000);
   border-radius: 999px;
-  color: var(--vh-invocation-label-fg, var(--vh-ui-text));
+  color: var(--vh-invocation-label-fg, var(--vh-text));
   flex: 0 1 auto;
   font-size: 0.625rem;
   font-weight: 550;
@@ -919,15 +919,15 @@ button.vh-invocation-event__summary {
 }
 
 .vh-invocation-event__summary:focus-visible {
-  background: color-mix(in oklab, var(--vh-ui-bg-elevated) 55%, transparent);
+  background: color-mix(in oklab, var(--vh-bg-elevated) 55%, transparent);
   color: inherit;
   outline: 1px solid color-mix(in oklab, var(--ui-primary, #2563eb) 55%, transparent);
   outline-offset: 1px;
 }
 
 details.vh-invocation-event > .vh-invocation-event__summary:hover {
-  background: color-mix(in oklab, var(--vh-ui-bg-elevated) 50%, transparent);
-  color: var(--vh-ui-text);
+  background: color-mix(in oklab, var(--vh-bg-elevated) 50%, transparent);
+  color: var(--vh-text);
 }
 
 .vh-invocation-event__icon {
@@ -961,12 +961,12 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-activity[data-status="failed"] .vh-invocation-event__icon svg {
-  color: var(--vh-ui-error);
+  color: var(--vh-error);
   opacity: 0.7;
 }
 
 .vh-invocation-activity[data-kind="error"] .vh-invocation-event__title {
-  color: var(--vh-ui-error);
+  color: var(--vh-error);
   font-weight: 500;
 }
 
@@ -994,7 +994,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 
 .vh-invocation-event__title-link:hover,
 .vh-invocation-event__title-link:focus-visible {
-  color: var(--vh-ui-text);
+  color: var(--vh-text);
   text-decoration: underline;
   text-underline-offset: 0.2em;
 }
@@ -1006,7 +1006,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-image-details > strong {
-  color: var(--vh-ui-muted);
+  color: var(--vh-muted);
   font-size: 0.625rem;
 }
 
@@ -1018,7 +1018,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-event__suffix {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   flex: 1 1 0;
   font-size: 0.75rem;
   font-weight: 400;
@@ -1029,7 +1029,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-event__disclosure {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   flex: 0 0 0.75rem;
   height: 0.75rem;
   margin-inline-start: auto;
@@ -1048,13 +1048,13 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-work__details {
-  color: var(--vh-ui-muted);
+  color: var(--vh-muted);
 }
 
 .vh-invocation-work__summary {
   align-items: center;
-  border-block-end: 1px solid color-mix(in oklab, var(--vh-ui-border) 60%, transparent);
-  color: var(--vh-ui-muted);
+  border-block-end: 1px solid color-mix(in oklab, var(--vh-border) 60%, transparent);
+  color: var(--vh-muted);
   cursor: pointer;
   display: flex;
   gap: 0.375rem;
@@ -1084,14 +1084,14 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-work__elapsed {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
 }
 
 .vh-invocation-work__disclosure {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   flex: 0 0 0.75rem;
   height: 0.75rem;
   margin-inline-start: auto;
@@ -1129,7 +1129,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 .vh-invocation-capabilities__summary {
   align-items: center;
   border-radius: 0.375rem;
-  color: var(--vh-ui-muted);
+  color: var(--vh-muted);
   cursor: pointer;
   display: flex;
   font-size: 0.8125rem;
@@ -1141,8 +1141,8 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-capabilities__summary:hover {
-  background: color-mix(in oklab, var(--vh-ui-bg-elevated) 50%, transparent);
-  color: var(--vh-ui-text);
+  background: color-mix(in oklab, var(--vh-bg-elevated) 50%, transparent);
+  color: var(--vh-text);
 }
 
 .vh-invocation-capabilities__summary::-webkit-details-marker {
@@ -1162,14 +1162,14 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-capabilities__summary > small {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   flex: 1 1 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.75rem;
 }
 
 .vh-invocation-capabilities__disclosure {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   flex: 0 0 0.75rem;
   height: 0.75rem;
   margin-inline-start: auto;
@@ -1194,13 +1194,13 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-history__details {
-  color: var(--vh-ui-muted);
+  color: var(--vh-muted);
 }
 
 .vh-invocation-history__summary {
   align-items: center;
   border-radius: 0.375rem;
-  color: var(--vh-ui-muted);
+  color: var(--vh-muted);
   cursor: pointer;
   display: flex;
   font-size: 0.8125rem;
@@ -1221,7 +1221,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-history__disclosure {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   flex: 0 0 0.75rem;
   height: 0.75rem;
   opacity: 0.7;
@@ -1252,7 +1252,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 .vh-invocation-command,
 .vh-invocation-event__diffs,
 .vh-invocation-event__payloads {
-  background: color-mix(in oklab, var(--vh-ui-bg-elevated) 40%, transparent);
+  background: color-mix(in oklab, var(--vh-bg-elevated) 40%, transparent);
   border-radius: 0.375rem;
   margin: 0.25rem 0 0.5rem 1.75rem;
   max-height: 16rem;
@@ -1268,15 +1268,15 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-event__payload {
-  border: 1px solid color-mix(in oklab, var(--vh-ui-border) 78%, transparent);
-  border-radius: calc(var(--vh-ui-radius) * 0.9);
+  border: 1px solid color-mix(in oklab, var(--vh-border) 78%, transparent);
+  border-radius: calc(var(--vh-radius) * 0.9);
   min-width: 0;
   overflow: hidden;
 }
 
 .vh-invocation-event__payload > summary {
   align-items: center;
-  background: color-mix(in oklab, var(--vh-ui-bg-elevated) 65%, transparent);
+  background: color-mix(in oklab, var(--vh-bg-elevated) 65%, transparent);
   cursor: pointer;
   display: grid;
   gap: 0.5rem;
@@ -1291,18 +1291,18 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-event__payload > summary:focus-visible {
-  outline: 2px solid color-mix(in oklab, var(--vh-ui-info) 55%, transparent);
+  outline: 2px solid color-mix(in oklab, var(--vh-info) 55%, transparent);
   outline-offset: -2px;
 }
 
 .vh-invocation-event__payload > summary strong {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   font-size: 0.6875rem;
   font-weight: 650;
 }
 
 .vh-invocation-event__payload > summary code {
-  color: var(--vh-ui-muted);
+  color: var(--vh-muted);
   font: 0.75rem/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1314,7 +1314,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-payload__content {
-  border-block-start: 1px solid color-mix(in oklab, var(--vh-ui-border) 72%, transparent);
+  border-block-start: 1px solid color-mix(in oklab, var(--vh-border) 72%, transparent);
   padding: 0.6rem;
 }
 
@@ -1327,8 +1327,8 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-payload__modes {
-  background: color-mix(in oklab, var(--vh-ui-bg-muted) 76%, transparent);
-  border-radius: calc(var(--vh-ui-radius) * 0.72);
+  background: color-mix(in oklab, var(--vh-bg-muted) 76%, transparent);
+  border-radius: calc(var(--vh-radius) * 0.72);
   display: inline-flex;
   padding: 0.125rem;
 }
@@ -1336,8 +1336,8 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 .vh-invocation-payload__toolbar button {
   background: transparent;
   border: 0;
-  border-radius: calc(var(--vh-ui-radius) * 0.6);
-  color: var(--vh-ui-muted);
+  border-radius: calc(var(--vh-radius) * 0.6);
+  color: var(--vh-muted);
   cursor: pointer;
   font: inherit;
   font-size: 0.6875rem;
@@ -1346,13 +1346,13 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-payload__toolbar button:is(:hover, [aria-pressed="true"]) {
-  background: var(--vh-ui-bg-elevated);
-  color: var(--vh-ui-text);
+  background: var(--vh-bg-elevated);
+  color: var(--vh-text);
 }
 
 .vh-invocation-payload__toolbar button:focus-visible,
 .vh-invocation-payload__search input:focus-visible {
-  outline: 2px solid color-mix(in oklab, var(--vh-ui-info) 55%, transparent);
+  outline: 2px solid color-mix(in oklab, var(--vh-info) 55%, transparent);
   outline-offset: 1px;
 }
 
@@ -1361,10 +1361,10 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-payload__search input {
-  background: var(--vh-ui-bg);
-  border: 1px solid var(--vh-ui-border);
-  border-radius: calc(var(--vh-ui-radius) * 0.72);
-  color: var(--vh-ui-text);
+  background: var(--vh-bg);
+  border: 1px solid var(--vh-border);
+  border-radius: calc(var(--vh-radius) * 0.72);
+  color: var(--vh-text);
   font: inherit;
   font-size: 0.6875rem;
   min-height: 1.75rem;
@@ -1377,9 +1377,9 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-payload__content > pre {
-  background: color-mix(in oklab, var(--vh-ui-bg-elevated) 65%, transparent);
-  border-radius: calc(var(--vh-ui-radius) * 0.72);
-  color: var(--vh-ui-text);
+  background: color-mix(in oklab, var(--vh-bg-elevated) 65%, transparent);
+  border-radius: calc(var(--vh-radius) * 0.72);
+  color: var(--vh-text);
   font: 0.75rem/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   margin: 0;
   max-height: 18rem;
@@ -1400,7 +1400,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-payload__tree ul {
-  border-inline-start: 1px solid var(--vh-ui-border);
+  border-inline-start: 1px solid var(--vh-border);
   margin: 0.2rem 0 0 0.45rem;
   padding-inline-start: 0.75rem;
 }
@@ -1414,7 +1414,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-payload__branch summary {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   cursor: pointer;
   font-size: 0.6875rem;
 }
@@ -1426,16 +1426,16 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-payload__key {
-  color: var(--vh-ui-info);
+  color: var(--vh-info);
 }
 
 .vh-invocation-payload__value {
-  color: var(--vh-ui-text);
+  color: var(--vh-text);
   overflow-wrap: anywhere;
 }
 
 .vh-invocation-payload__value[data-type="string"] {
-  color: var(--vh-ui-success);
+  color: var(--vh-success);
 }
 
 .vh-invocation-payload__matches li {
@@ -1445,17 +1445,17 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-payload__matches code:first-child {
-  color: var(--vh-ui-info);
+  color: var(--vh-info);
   overflow-wrap: anywhere;
 }
 
 .vh-invocation-payload__matches code:last-child {
-  color: var(--vh-ui-text);
+  color: var(--vh-text);
   overflow-wrap: anywhere;
 }
 
 .vh-invocation-payload__empty {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   font-size: 0.75rem;
   margin: 0;
   padding: 0.5rem;
@@ -1463,7 +1463,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-delivery__body {
-  color: var(--vh-ui-text);
+  color: var(--vh-text);
   margin: 0.125rem 0 0 1.75rem;
   max-width: 42rem;
   padding-block-end: 0.5rem;
@@ -1476,7 +1476,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 
 .vh-invocation-event__body,
 .vh-invocation-command {
-  color: var(--vh-ui-muted);
+  color: var(--vh-muted);
 }
 
 .vh-invocation-event__markdown {
@@ -1490,7 +1490,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
   background: transparent;
   border: 0;
   border-radius: 0.25rem;
-  color: var(--vh-ui-muted);
+  color: var(--vh-muted);
   cursor: pointer;
   font: inherit;
   font-size: 0.75rem;
@@ -1503,11 +1503,11 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 
 .vh-invocation-event__inspect:hover,
 .vh-invocation-event__inspect:focus-visible {
-  color: var(--vh-ui-text);
+  color: var(--vh-text);
 }
 
 .vh-invocation-event__notice {
-  color: var(--vh-ui-warning, #d97706);
+  color: var(--vh-warning, #d97706);
   font-size: 0.75rem;
   margin: 0.25rem 0 0.5rem 1.75rem;
 }
@@ -1530,12 +1530,12 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 
 .vh-invocation-command__bar span,
 .vh-invocation-command__cwd {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   font-size: 0.6875rem;
 }
 
 .vh-invocation-command__bar span[data-failed="true"] {
-  color: var(--vh-ui-text);
+  color: var(--vh-text);
   font-weight: 600;
 }
 
@@ -1555,8 +1555,8 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-inspector {
-  background: var(--vh-ui-bg);
-  border-inline-start: 1px solid var(--vh-ui-border);
+  background: var(--vh-bg);
+  border-inline-start: 1px solid var(--vh-border);
   container-type: inline-size;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -1568,7 +1568,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 
 .vh-invocation-inspector > header {
   align-items: center;
-  border-block-end: 1px solid var(--vh-ui-border);
+  border-block-end: 1px solid var(--vh-border);
   display: flex;
   gap: 0.5rem;
   justify-content: space-between;
@@ -1584,7 +1584,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-inspector > header h3 {
-  color: var(--vh-ui-text);
+  color: var(--vh-text);
   font-size: 0.8125rem;
   font-weight: 500;
   line-height: 1.25;
@@ -1593,7 +1593,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-inspector > header p {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   font-size: 0.75rem;
   margin: 0;
   min-width: 0;
@@ -1615,11 +1615,11 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-inspector__content > section + section {
-  border-block-start: 1px solid color-mix(in oklab, var(--vh-ui-border) 60%, transparent);
+  border-block-start: 1px solid color-mix(in oklab, var(--vh-border) 60%, transparent);
 }
 
 .vh-invocation-inspector__content > section > h4 {
-  color: var(--vh-ui-text);
+  color: var(--vh-text);
   font-size: 0.8125rem;
   font-weight: 500;
   line-height: 1.25rem;
@@ -1646,7 +1646,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-inspector__status small {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
 }
@@ -1671,8 +1671,8 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-inspector[data-status="running"] .vh-invocation-inspector__status strong {
-  border-color: color-mix(in oklab, var(--vh-ui-info) 40%, transparent);
-  color: var(--vh-ui-info);
+  border-color: color-mix(in oklab, var(--vh-info) 40%, transparent);
+  color: var(--vh-info);
 }
 
 .vh-invocation-inspector[data-status="running"] .vh-invocation-inspector__status-icon svg {
@@ -1680,19 +1680,19 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-inspector[data-status="completed"] .vh-invocation-inspector__status strong {
-  border-color: color-mix(in oklab, var(--vh-ui-success) 40%, transparent);
-  color: var(--vh-ui-success);
+  border-color: color-mix(in oklab, var(--vh-success) 40%, transparent);
+  color: var(--vh-success);
 }
 
 .vh-invocation-inspector[data-status="failed"] .vh-invocation-inspector__status strong {
-  border-color: color-mix(in oklab, var(--vh-ui-error) 40%, transparent);
-  color: var(--vh-ui-error);
+  border-color: color-mix(in oklab, var(--vh-error) 40%, transparent);
+  color: var(--vh-error);
 }
 
 .vh-invocation-inspector[data-status="pending"] .vh-invocation-inspector__status strong,
 .vh-invocation-inspector[data-status="cancelled"] .vh-invocation-inspector__status strong {
-  border-color: var(--vh-ui-border);
-  color: var(--vh-ui-muted);
+  border-color: var(--vh-border);
+  color: var(--vh-muted);
 }
 
 .vh-invocation-inspector__identity {
@@ -1701,7 +1701,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-inspector__identity h4 {
-  color: var(--vh-ui-text);
+  color: var(--vh-text);
   font-size: 0.875rem;
   font-weight: 500;
   line-height: 1.4;
@@ -1718,7 +1718,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-inspector__identity p {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   font-size: 0.75rem;
   line-height: 1.4;
   margin: 0;
@@ -1727,14 +1727,14 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 
 .vh-invocation-inspector__agent {
   align-items: center;
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   display: flex;
   font-size: 0.75rem;
   gap: 0.35rem;
 }
 
 .vh-invocation-inspector__agent code {
-  color: var(--vh-ui-muted);
+  color: var(--vh-muted);
   font-size: 0.75rem;
   min-width: 0;
   overflow-wrap: anywhere;
@@ -1749,15 +1749,15 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-inspector__error {
-  background: color-mix(in oklab, var(--vh-ui-error) 8%, transparent);
-  color: var(--vh-ui-error);
+  background: color-mix(in oklab, var(--vh-error) 8%, transparent);
+  color: var(--vh-error);
 }
 
 .vh-invocation-inspector__notice {
   background: transparent;
   border: 0;
   border-radius: 0;
-  color: var(--vh-ui-muted);
+  color: var(--vh-muted);
   font-size: 0.75rem;
   line-height: 1.5;
   margin: 0;
@@ -1780,8 +1780,8 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 
 
 .vh-invocation-inspector__metrics {
-  background: color-mix(in oklab, var(--vh-ui-border) 60%, transparent);
-  border: 1px solid color-mix(in oklab, var(--vh-ui-border) 60%, transparent);
+  background: color-mix(in oklab, var(--vh-border) 60%, transparent);
+  border: 1px solid color-mix(in oklab, var(--vh-border) 60%, transparent);
   border-radius: 0.5rem;
   display: grid;
   gap: 1px;
@@ -1791,7 +1791,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-inspector__metrics > div {
-  background: var(--vh-ui-bg);
+  background: var(--vh-bg);
   display: grid;
   gap: 0.125rem;
   min-width: 0;
@@ -1802,14 +1802,14 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-inspector__metrics dt {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   font-size: 0.6875rem;
   font-weight: 400;
   line-height: 1.4;
 }
 
 .vh-invocation-inspector__metrics dd {
-  color: var(--vh-ui-text);
+  color: var(--vh-text);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.8125rem;
   font-variant-numeric: tabular-nums;
@@ -1838,7 +1838,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
   background: transparent;
   border: 0;
   border-radius: 0.375rem;
-  color: var(--vh-ui-text);
+  color: var(--vh-text);
   cursor: pointer;
   display: grid;
   font: inherit;
@@ -1853,7 +1853,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 
 .vh-invocation-timeline__row:hover,
 .vh-invocation-timeline__row:focus-visible {
-  background: color-mix(in oklab, var(--vh-ui-bg-elevated) 60%, transparent);
+  background: color-mix(in oklab, var(--vh-bg-elevated) 60%, transparent);
 }
 
 .vh-invocation-timeline__row:focus-visible {
@@ -1861,7 +1861,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
   outline-offset: -2px;
 }
 .vh-invocation-timeline__dot {
-  background: var(--vh-ui-info);
+  background: var(--vh-info);
   border-radius: 999px;
   box-sizing: border-box;
   display: block;
@@ -1871,14 +1871,14 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 
 .vh-invocation-timeline__row[data-owner="vitehub"] .vh-invocation-timeline__dot {
   background: transparent;
-  border: 2px solid var(--vh-ui-success);
+  border: 2px solid var(--vh-success);
 }
 
 .vh-invocation-timeline__row[data-status="failed"] .vh-invocation-timeline__dot {
   background: transparent;
   border: 0;
   border-radius: 0;
-  color: var(--vh-ui-error);
+  color: var(--vh-error);
   position: relative;
 }
 
@@ -1897,7 +1897,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-timeline__row[data-status="failed"] .vh-invocation-timeline__heading strong {
-  color: var(--vh-ui-error);
+  color: var(--vh-error);
 }
 
 .vh-invocation-timeline__heading {
@@ -1918,7 +1918,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-timeline__detail {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   flex: 1 1 0;
   font: 0.6875rem/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   min-width: 0;
@@ -1928,7 +1928,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-timeline__time {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   flex: none;
   font: 0.6875rem/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-variant-numeric: tabular-nums;
@@ -1936,7 +1936,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-timeline__empty {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   font-size: 0.75rem;
   margin: 0;
 }
@@ -1965,13 +1965,13 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-execution__details strong {
-  color: var(--vh-ui-text);
+  color: var(--vh-text);
   font-size: 0.75rem;
   font-weight: 500;
 }
 
 .vh-invocation-execution__details span {
-  color: var(--vh-ui-muted);
+  color: var(--vh-muted);
   font-size: 0.6875rem;
   line-height: 1.4;
 }
@@ -1986,7 +1986,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-execution__model-icon {
-  color: var(--vh-ui-text);
+  color: var(--vh-text);
   height: 1rem;
   width: 1rem;
 }
@@ -2003,7 +2003,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 .vh-invocation-execution__workspace > svg {
-  color: var(--vh-ui-muted);
+  color: var(--vh-muted);
   flex-shrink: 0;
   height: 1rem;
   width: 1rem;
@@ -2021,9 +2021,9 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 
 .vh-invocation-inspector__badge {
   align-items: center;
-  border: 1px solid color-mix(in oklab, var(--vh-ui-border) 80%, transparent);
+  border: 1px solid color-mix(in oklab, var(--vh-border) 80%, transparent);
   border-radius: 0.25rem;
-  color: var(--vh-ui-muted);
+  color: var(--vh-muted);
   display: inline-flex;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.6875rem;
@@ -2044,14 +2044,14 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 }
 
 a.vh-invocation-inspector__badge:hover {
-  border-color: var(--vh-ui-muted);
-  color: var(--vh-ui-text);
+  border-color: var(--vh-muted);
+  color: var(--vh-text);
 }
 
 .vh-invocation-inspector__badge svg { flex: none; height: 0.75rem; width: 0.75rem; }
 
 .vh-invocation-tool-list {
-  border-block: 1px solid var(--vh-ui-border);
+  border-block: 1px solid var(--vh-border);
   list-style: none;
   margin: 0.55rem 0 0;
   padding: 0;
@@ -2063,7 +2063,7 @@ a.vh-invocation-inspector__badge:hover {
 }
 
 .vh-invocation-tool-list > li + li {
-  border-block-start: 1px solid color-mix(in oklab, var(--vh-ui-border) 72%, transparent);
+  border-block-start: 1px solid color-mix(in oklab, var(--vh-border) 72%, transparent);
 }
 
 .vh-invocation-tool-list > li[data-used="false"] {
@@ -2078,14 +2078,14 @@ a.vh-invocation-inspector__badge:hover {
 }
 
 .vh-invocation-tool-list__heading code {
-  color: var(--vh-ui-text);
+  color: var(--vh-text);
   font-size: 0.6875rem;
   font-weight: 580;
   overflow-wrap: anywhere;
 }
 
 .vh-invocation-tool-list__count {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   font: 0.6875rem/1.3 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-variant-numeric: tabular-nums;
   min-width: 1.5rem;
@@ -2093,14 +2093,14 @@ a.vh-invocation-inspector__badge:hover {
 }
 
 .vh-invocation-tool-list > li[data-used="true"] .vh-invocation-tool-list__count {
-  background: color-mix(in oklab, var(--vh-ui-success) 11%, transparent);
+  background: color-mix(in oklab, var(--vh-success) 11%, transparent);
   border-radius: 999px;
-  color: color-mix(in oklab, var(--vh-ui-success) 60%, var(--vh-ui-text));
+  color: color-mix(in oklab, var(--vh-success) 60%, var(--vh-text));
   padding: 0.08rem 0.4rem;
 }
 
 .vh-invocation-tool-list p {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   display: -webkit-box;
   font-size: 0.65625rem;
   -webkit-box-orient: vertical;
@@ -2124,7 +2124,7 @@ a.vh-invocation-inspector__badge:hover {
 
 .vh-invocation-inspector__group-heading {
   align-items: center;
-  color: var(--vh-ui-muted);
+  color: var(--vh-muted);
   display: flex;
   gap: 0.45rem;
   min-height: 1.5rem;
@@ -2132,7 +2132,7 @@ a.vh-invocation-inspector__badge:hover {
 }
 
 .vh-invocation-inspector__group-heading strong {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   flex: 1;
   font-size: 0.6875rem;
   font-weight: 500;
@@ -2140,7 +2140,7 @@ a.vh-invocation-inspector__badge:hover {
 }
 
 .vh-invocation-inspector__group-heading small {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   font-size: 0.6875rem;
   font-variant-numeric: tabular-nums;
 }
@@ -2164,7 +2164,7 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 }
 
 .vh-invocation-inspector__chevron {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   height: 0.75rem;
   stroke: currentColor;
   stroke-width: 2;
@@ -2191,12 +2191,12 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 }
 
 .vh-invocation-inspector__list dt {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   font-size: 0.75rem;
 }
 
 .vh-invocation-inspector__list dd {
-  color: var(--vh-ui-text);
+  color: var(--vh-text);
   font-size: 0.75rem;
   margin: 0;
   min-width: 0;
@@ -2214,7 +2214,7 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
   background: transparent;
   border: 0;
   border-radius: 0.375rem;
-  color: var(--vh-ui-muted);
+  color: var(--vh-muted);
   cursor: pointer;
   display: grid;
   font: inherit;
@@ -2228,13 +2228,13 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 }
 
 .vh-invocation-inspector__copy-label {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   font-size: 0.75rem;
   min-width: 0;
 }
 
 .vh-invocation-inspector__copy-value {
-  color: var(--vh-ui-text);
+  color: var(--vh-text);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.6875rem;
   min-width: 0;
@@ -2245,8 +2245,8 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 
 .vh-invocation-inspector__copy:hover,
 .vh-invocation-inspector__copy:focus-visible {
-  background: color-mix(in oklab, var(--vh-ui-bg-elevated) 60%, transparent);
-  color: var(--vh-ui-text);
+  background: color-mix(in oklab, var(--vh-bg-elevated) 60%, transparent);
+  color: var(--vh-text);
 }
 
 .vh-invocation-inspector__copy:focus-visible {
@@ -2256,17 +2256,17 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 
 .vh-invocation-inspector__copy-icon {
   align-items: center;
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   display: inline-flex;
   justify-content: center;
 }
 
 .vh-invocation-inspector__copy:hover .vh-invocation-inspector__copy-icon {
-  color: var(--vh-ui-text);
+  color: var(--vh-text);
 }
 
 .vh-invocation-inspector__copy[aria-label$="copied"] .vh-invocation-inspector__copy-icon {
-  color: var(--vh-ui-success);
+  color: var(--vh-success);
 }
 
 .vh-invocation-inspector__copy-icon svg {
@@ -2291,7 +2291,7 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 .vh-invocation-inspector__item,
 .vh-invocation-inspector__item-disclosure summary {
   align-items: center;
-  border-radius: calc(var(--vh-ui-radius) * 0.8);
+  border-radius: calc(var(--vh-radius) * 0.8);
   display: flex;
   gap: 0.45rem;
   min-height: 1.8rem;
@@ -2307,11 +2307,11 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 }
 
 .vh-invocation-inspector__item-disclosure summary:hover {
-  background: color-mix(in oklab, var(--vh-ui-bg-elevated) 70%, transparent);
+  background: color-mix(in oklab, var(--vh-bg-elevated) 70%, transparent);
 }
 
 .vh-invocation-inspector__item-disclosure summary small {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   font-size: 0.625rem;
 }
 
@@ -2325,10 +2325,10 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 }
 
 .vh-invocation-inspector__items li {
-  background: color-mix(in oklab, var(--vh-ui-bg-elevated) 72%, transparent);
-  border: 1px solid var(--vh-ui-border);
-  border-radius: calc(var(--vh-ui-radius) * 0.8);
-  color: var(--vh-ui-muted);
+  background: color-mix(in oklab, var(--vh-bg-elevated) 72%, transparent);
+  border: 1px solid var(--vh-border);
+  border-radius: calc(var(--vh-radius) * 0.8);
+  color: var(--vh-muted);
   max-width: 100%;
   padding: 0.25rem 0.45rem;
 }
@@ -2341,10 +2341,10 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 
 .vh-invocation-inspector__item-disclosure pre,
 .vh-invocation-inspector__instructions {
-  background: color-mix(in oklab, var(--vh-ui-bg-elevated) 65%, transparent);
-  border: 1px solid var(--vh-ui-border);
-  border-radius: calc(var(--vh-ui-radius) * 0.8);
-  color: var(--vh-ui-muted);
+  background: color-mix(in oklab, var(--vh-bg-elevated) 65%, transparent);
+  border: 1px solid var(--vh-border);
+  border-radius: calc(var(--vh-radius) * 0.8);
+  color: var(--vh-muted);
   font-size: 0.625rem;
   line-height: 1.55;
   margin: 0.4rem 0 0;
@@ -2395,7 +2395,7 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 
 .vh-invocation-empty {
   align-items: center;
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -2443,14 +2443,14 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 
 
 .vh-invocation-inspector__content > section > h4.vh-invocation-inspector__title {
-  color: var(--vh-ui-text);
+  color: var(--vh-text);
   font-size: 0.8125rem;
   letter-spacing: normal;
   line-height: 1.4;
   text-transform: none;
 }
 
-.vh-invocation-session__timestamp { display: block; color: var(--vh-ui-muted); font-size: 0.6875rem; margin-block: 0.5rem; font-variant-numeric: tabular-nums; text-align: center; }
+.vh-invocation-session__timestamp { display: block; color: var(--vh-muted); font-size: 0.6875rem; margin-block: 0.5rem; font-variant-numeric: tabular-nums; text-align: center; }
 .vh-invocation-inspector__settings pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .vh-invocation-inspector__settings { padding: 0.5rem; font-size: 0.75rem; }
 .vh-channel-icon {
@@ -2467,7 +2467,7 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 
 .vh-capability-inspector {
   box-sizing: border-box;
-  color: var(--vh-ui-text);
+  color: var(--vh-text);
   display: flex;
   flex-direction: column;
   font-size: 0.75rem;
@@ -2488,8 +2488,8 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 }
 
 .vh-capability-inspector pre {
-  background: var(--vh-ui-bg-muted);
-  border: 1px solid var(--vh-ui-border);
+  background: var(--vh-bg-muted);
+  border: 1px solid var(--vh-border);
   border-radius: 0.25rem;
   font-size: 0.6875rem;
   margin: 0;
@@ -2499,7 +2499,7 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 }
 
 .vh-capability-inspector > p {
-  color: var(--vh-ui-muted);
+  color: var(--vh-muted);
   margin: 0.5rem 0.75rem;
 }
 
@@ -2512,7 +2512,7 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 
 
 .vh-capability-inspector__navigation {
-  border-block-end: 1px solid var(--vh-ui-border);
+  border-block-end: 1px solid var(--vh-border);
   display: flex;
   flex-shrink: 0;
   gap: 0.125rem;
@@ -2524,7 +2524,7 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
   background: transparent;
   border: 0;
   border-radius: 0.25rem;
-  color: var(--vh-ui-muted);
+  color: var(--vh-muted);
   cursor: pointer;
   flex-shrink: 0;
   font: inherit;
@@ -2532,12 +2532,12 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 }
 
 .vh-capability-inspector__navigation button:hover {
-  color: var(--vh-ui-text);
+  color: var(--vh-text);
 }
 
 .vh-capability-inspector__navigation button[aria-pressed="true"] {
-  background: color-mix(in oklab, var(--vh-ui-text) 10%, transparent);
-  color: var(--vh-ui-text);
+  background: color-mix(in oklab, var(--vh-text) 10%, transparent);
+  color: var(--vh-text);
   font-weight: 600;
 }
 
@@ -2559,7 +2559,7 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 }
 
 .vh-capability-inspector__section + .vh-capability-inspector__section {
-  border-block-start: 1px solid var(--vh-ui-border);
+  border-block-start: 1px solid var(--vh-border);
   margin-top: 0.75rem;
   padding-top: 0.75rem;
 }
@@ -2573,7 +2573,7 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 
 .vh-capability-inspector__value dt,
 .vh-capability-inspector__empty {
-  color: var(--vh-ui-muted);
+  color: var(--vh-muted);
 }
 
 .vh-capability-inspector__value dd {
@@ -2591,11 +2591,11 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
  * the state, so it does not depend on color. The message, fix, actions, and details share one edge after the icon.
  */
 .vh-invocation-error {
-  background: var(--vh-ui-bg);
-  border: 1px solid color-mix(in oklab, var(--vh-ui-error) 28%, var(--vh-ui-border));
-  border-radius: var(--vh-ui-radius);
+  background: var(--vh-bg);
+  border: 1px solid color-mix(in oklab, var(--vh-error) 28%, var(--vh-border));
+  border-radius: var(--vh-radius);
   box-shadow: 0 1px 2px rgb(0 0 0 / 4%);
-  color: var(--vh-ui-text);
+  color: var(--vh-text);
   display: grid;
   font-size: 0.8125rem;
   gap: 0.5rem;
@@ -2617,7 +2617,7 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 }
 
 .vh-invocation-error__icon {
-  color: var(--vh-ui-error);
+  color: var(--vh-error);
   flex-shrink: 0;
   height: 1rem;
   stroke: currentColor;
@@ -2626,7 +2626,7 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 }
 
 .vh-invocation-error__title {
-  color: var(--vh-ui-highlighted);
+  color: var(--vh-highlighted);
   font-size: 0.8125rem;
   font-weight: 600;
   line-height: 1.25rem;
@@ -2635,7 +2635,7 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 }
 
 .vh-invocation-error__code {
-  color: var(--vh-ui-dimmed);
+  color: var(--vh-dimmed);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.75rem;
   margin-inline-start: auto;
@@ -2652,7 +2652,7 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 }
 
 .vh-invocation-error__fix {
-  border-inline-start: 2px solid var(--vh-ui-border);
+  border-inline-start: 2px solid var(--vh-border);
   padding-inline-start: 0.75rem;
 }
 
@@ -2662,7 +2662,7 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 }
 
 .vh-invocation-error__fix .vh-invocation-error__label {
-  color: var(--vh-ui-muted);
+  color: var(--vh-muted);
   font-size: 0.75rem;
   font-weight: 500;
 }
@@ -2676,9 +2676,9 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 }
 
 .vh-invocation-error__details {
-  background: var(--vh-ui-bg-elevated);
+  background: var(--vh-bg-elevated);
   border-radius: 0.375rem;
-  color: var(--vh-ui-text);
+  color: var(--vh-text);
   font-size: 0.75rem;
   line-height: 1.5;
   margin-block: 0 0.25rem;
@@ -2702,7 +2702,7 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
   background: transparent;
   border: 0;
   border-radius: 0.375rem;
-  color: var(--vh-ui-muted);
+  color: var(--vh-muted);
   cursor: pointer;
   display: inline-flex;
   font: inherit;
@@ -2716,8 +2716,8 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 }
 
 .vh-invocation-error__action:hover {
-  background: var(--vh-ui-bg-elevated);
-  color: var(--vh-ui-text);
+  background: var(--vh-bg-elevated);
+  color: var(--vh-text);
 }
 
 .vh-invocation-error__action:active {
@@ -2732,7 +2732,7 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 }
 
 .vh-invocation-error__action:focus-visible {
-  outline: 2px solid var(--vh-ui-primary);
+  outline: 2px solid var(--vh-primary);
   outline-offset: 1px;
 }
 

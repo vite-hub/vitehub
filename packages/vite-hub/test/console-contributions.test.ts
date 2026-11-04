@@ -4,6 +4,8 @@ import { join } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 
+import { describeViteHubConsoleSection } from "@vite-hub/internal/console"
+
 import { consoleContributedSections, consoleRuntimeReaderModule, describeConsoleContributedSections, describeConsoleRuntimeReaders, isConsoleContributedSectionId } from "../src/console/contributions.ts"
 import { parseConsoleContributedSection, parseConsoleSectionContent } from "../src/console/runtime/definitions.ts"
 import { consoleBuiltinSectionIds, consolePrimitives, consoleSectionRouteName, isConsoleBuiltinSectionId, isConsoleSectionId, resolveConsoleSectionIds } from "../src/console/runtime/sections.ts"
@@ -103,6 +105,12 @@ describe("Console section contributions", () => {
     expect(JSON.parse(JSON.stringify(playgroundConsoleContributions))).toEqual(
       describeConsoleContributedSections(playgroundConsoleContributions.map(section => section.id)),
     )
+  })
+
+  it("keeps the playground Comments page equal to the Comments operations section", async () => {
+    const { commentsOperationsConsoleSection } = await import("@vite-hub/comments/vite")
+    const { playgroundCommentsSection } = await vi.importActual<{ playgroundCommentsSection: unknown }>("../../../playground/console/sections.ts")
+    expect(JSON.parse(JSON.stringify(playgroundCommentsSection))).toEqual(describeViteHubConsoleSection(commentsOperationsConsoleSection))
   })
 
   it("reads each owner section as serializable content", async () => {

@@ -142,6 +142,8 @@ export default defineAgent({
 })
 ```
 
+For the ChatGPT plan, set `driver: { model, gateway: chatgpt() }`. See [ChatGPT plan usage](/docs/connections/chatgpt#use-a-model-backed-driver).
+
 An [ask Driver](/docs/agents/agent-drivers#use-an-ask-driver) takes a gateway with `ask()`. Without one, it uses `typesafe()`:
 
 ```ts [server/agents/labeller.ts]

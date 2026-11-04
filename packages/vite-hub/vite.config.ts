@@ -60,6 +60,7 @@ const runtimeEntries = [
   "src/console/runtime/console-route.ts",
   "src/console/runtime/client/appearance.ts",
   "src/console/runtime/client/build.ts",
+  "src/console/runtime/client/comment-thread.ts",
   "src/console/runtime/client/invocation.ts",
   "src/console/runtime/client/invocation-deletion.ts",
   "src/console/runtime/client/request.ts",
@@ -191,6 +192,10 @@ export default defineConfig({
         },
         {
           from: "src/console/runtime/components/console-connect-agent.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-comment-thread.vue",
           to: "dist/console/runtime/components",
         },
         {
@@ -378,7 +383,7 @@ export default defineConfig({
         { from: "src/console/runtime/components/console-rate-limit.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-blob-detail.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-toaster.vue", to: "dist/console/runtime/components" },
-        { from: "../ui/styles.css", to: "dist/ui" },
+        { from: "src/ui/styles.css", to: "dist/ui" },
         { from: "templates/cloudflare-types.d.ts", to: "dist" },
       ],
       deps: {
@@ -429,6 +434,7 @@ export default defineConfig({
           delete exports["./console/runtime/client/sections"];
           delete exports["./console/runtime/client/appearance"];
           delete exports["./console/runtime/client/build"];
+          delete exports["./console/runtime/client/comment-thread"];
           delete exports["./console/runtime/client/invocation"];
           delete exports["./console/runtime/client/invocation-deletion"];
           delete exports["./console/runtime/client/request"];

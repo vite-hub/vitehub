@@ -26,7 +26,7 @@ pnpm add @vite-hub/agent @vite-hub/workspace ai
 
 Add the AI SDK model provider you pass to `model`.
 
-Eve extensions are optional. Install the compatible pair before mounting one in a static Capability list:
+Eve extensions are optional and require Node.js 24 or newer. Install the compatible pair before mounting one in a static Capability list:
 
 ```sh
 pnpm add @github-tools/eve-extension@0.8.1 eve@0.80.1
@@ -137,7 +137,7 @@ Tools can declare `title`, a short past-tense label such as `Searched meals`, an
 
 ## Coding provider drivers
 
-To run Codex on a user's ChatGPT plan, set `driver: codexDriver({ gateway: chatgpt() })` with `chatgpt` from `@vite-hub/gateways`. Define a ChatGPT Connection and sign in through `vitehub connections connect chatgpt`. Connections owns refresh. A runtime-owned loopback relay keeps the ChatGPT token in memory and adds it to upstream requests; Codex receives only an Invocation-scoped relay key. This is separate from first-party `codex login` and `auth.json`. See [ChatGPT plan usage](../../docs/content/docs/connections/chatgpt.md) for setup, eligibility, VM transfer and expiry recovery. ChatGPT Invocations use a fresh Codex Home and replay conversation history on follow-up turns; they do not retain native provider sessions or inherit MCP servers, hooks or project configuration. Codex's internal helpers use the host search path; command tools separately retain caller search paths and managed Chromium settings with the relay key cleared. AI SDK model Drivers on this grant remain a follow-up.
+To run Codex on a user's ChatGPT plan, set `driver: codexDriver({ gateway: chatgpt() })` with `chatgpt` from `@vite-hub/gateways`. Define a ChatGPT Connection and sign in through `vitehub connections connect chatgpt`. Connections owns refresh. A runtime-owned loopback relay keeps the ChatGPT token in memory and adds it to upstream requests; Codex receives only an Invocation-scoped relay key. This is separate from first-party `codex login` and `auth.json`. See [ChatGPT plan usage](../../docs/content/docs/connections/chatgpt.md) for setup, eligibility, VM transfer and expiry recovery. ChatGPT Invocations use a fresh Codex Home and replay conversation history on follow-up turns; they do not retain native provider sessions or inherit MCP servers, hooks or project configuration. Codex's internal helpers use the host search path; command tools separately retain caller search paths and managed Chromium settings with the relay key cleared. A model-backed Driver uses the same grant without Codex, on every host including Cloudflare Workers: `driver: { model: "gpt-5.5", gateway: chatgpt() }`. It sends `store: false`, streamed `POST /v1/responses` requests and adds the token only to them.
 
 Use `driver: codexDriver()` or `driver: claudeCodeDriver()` for the defaults, including approval-required provider actions. The factory options expose shared model, environment, instruction, permission, output, and capacity options, plus Codex credential and reasoning options. Only these factories import the provider runtime, so an app that does not call one does not bundle it. A string such as `driver: "codex"` or a plain `{ kind: "codex" }` object fails with `AGENT_R0490` or `AGENT_R0492`.
 

@@ -24,6 +24,7 @@
     "@nuxt/icon": "^2.5.1",
     "@nuxt/ui": "catalog:nuxt",
     "@vite-hub/agent": "workspace:*",
+    "@vite-hub/comments": "workspace:*",
     "@vite-hub/docs": "workspace:*",
     "@vite-hub/ui": "workspace:*",
     "@vite-hub/web-container": "workspace:*",
@@ -54,6 +55,6 @@
     "wrangler": "4.147.0"
   },
   "engines": {
-    "node": ">=24.0.0"
+    "node": "^22.22.0 || ^24.11.0 || >=26.0.0"
   }
 }

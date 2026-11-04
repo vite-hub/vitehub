@@ -126,6 +126,9 @@ describe("createCommentsClient", () => {
   it("rejects an empty comment and an unknown thread with a coded error", async () => {
     const { client } = setup()
     await expect(client.create({ subject, anchor, body: "   " })).rejects.toMatchObject({ code: "COMMENTS_R0005" })
+    // A message of files alone has no text, as a pasted screenshot.
+    const shot = await client.create({ subject, anchor, body: "", attachments: ["shots/a.png"] })
+    expect(shot.messages[0]).toMatchObject({ attachments: ["shots/a.png"], body: "" })
     await expect(client.reply({ threadId: "nope", body: "Hi" })).rejects.toMatchObject({ code: "COMMENTS_R0002" })
   })
 

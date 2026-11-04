@@ -1,7 +1,6 @@
 import {
   computed,
   getCurrentInstance,
-  inject,
   onBeforeUnmount,
   onMounted,
   provide,
@@ -12,7 +11,6 @@ import {
   toValue,
   watch,
   type ComputedRef,
-  type InjectionKey,
   type MaybeRefOrGetter,
   type Ref,
   type ShallowRef,
@@ -24,6 +22,7 @@ import {
   type AnchorPosition,
   type AnchorTarget,
   type CommentAnchor,
+  type CommentMessage,
   type CommentsClient,
   type CommentsClientStatus,
   type CommentSubject,
@@ -33,6 +32,7 @@ import {
 } from "@vite-hub/comments/client";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { hasDirtyComposer, shakeDirtyComposers } from "../internal/comment-outside.ts";
+import { commentsKey, injectComments } from "../internal/comments-context.ts";
 
 /** Each switch shows one kind of thread. Resolved threads stay hidden until `resolved` is on. */
 export interface CommentFilterState {
@@ -52,8 +52,28 @@ export interface CommentDraft {
   point: AnchorPoint;
   body: string;
   mentions: string[];
+  /** Attachment keys, such as Blob keys, that the comment sends. */
+  attachments: string[];
   busy: boolean;
   error: string | undefined;
+}
+
+/** What the signed-in user may do to a thread. `edit` and `delete` name a message; deleting the first one deletes the thread. */
+export type CommentThreadAction = "reply" | "resolve" | "edit" | "delete";
+
+/** Whether the signed-in user may do `action`. The parts show only the controls that it allows. The server still decides. */
+export type CommentCan = (action: CommentThreadAction, target: { thread: CommentThread; message?: CommentMessage }) => boolean;
+
+/**
+ * The permissions that the parts assume without a `can` option: a signed-in user may reply to and resolve any thread,
+ * and edit and delete their own messages. Nobody may do anything without a user.
+ */
+export function defaultCommentCan(user: CommentUser | undefined): CommentCan {
+  return (action, { message }) => {
+    if (!user) return false;
+    if (action === "edit" || action === "delete") return message?.author.id === user.id;
+    return true;
+  };
 }
 
 export interface UseCommentsOptions {
@@ -78,12 +98,18 @@ export interface UseCommentsOptions {
   location?: () => Pick<Location, "href" | "origin" | "search">;
   /** Load the threads and listen for keys when the component mounts. Default `true`. Call `start()` yourself when `false`. */
   autoStart?: boolean;
+  /** What the signed-in user may do, such as your app's sharing rules. Defaults to `defaultCommentCan()`. */
+  can?: CommentCan;
 }
 
 export interface CommentsState {
   readonly client: CommentsClient;
   readonly subject: ComputedRef<CommentSubject>;
   readonly user: ComputedRef<CommentUser | undefined>;
+  /** Whether the signed-in user may reply, resolve, edit, or delete. Always false without a user. */
+  readonly can: CommentCan;
+  /** Every person the state knows: the user, the authors of threads, and the people that `users()` found. Mentions get their names here. */
+  readonly people: ComputedRef<CommentUser[]>;
   /** Comment mode: a click drops a pin. */
   readonly active: Ref<boolean>;
   readonly scope: Ref<CommentScope>;
@@ -116,7 +142,9 @@ export interface CommentsState {
   open: (thread: CommentThread | string, options?: { scroll?: boolean }) => void;
   /** Closes the thread, returning false when unsent text prevents closing or navigation. */
   close: () => boolean;
-  reply: (threadId: string, body: string, mentions?: string[]) => Promise<CommentThread>;
+  /** Starts a thread on the subject. The anchor defaults to the whole page. */
+  create: (input: { body: string; mentions?: string[]; attachments?: string[]; anchor?: CommentAnchor }) => Promise<CommentThread>;
+  reply: (threadId: string, body: string, mentions?: string[], attachments?: string[]) => Promise<CommentThread>;
   edit: (threadId: string, messageId: string, body: string, mentions?: string[]) => Promise<CommentThread>;
   remove: (threadId: string, messageId?: string) => Promise<CommentThread | null>;
   resolve: (threadId: string) => Promise<CommentThread>;
@@ -129,8 +157,6 @@ export interface CommentsState {
   /** Loads the threads and starts the key, layout, and deep-link handling. Returns a function that stops them. */
   start: () => () => void;
 }
-
-const commentsKey: InjectionKey<CommentsState> = Symbol("ViteHubComments");
 
 export const draftPositionKey = "draft";
 
@@ -283,16 +309,17 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     } else if (!("rangeCount" in target) && !("startContainer" in target)) {
       point = target;
     }
-    draft.value = { anchor, point, body: "", mentions: [], busy: false, error: undefined };
+    draft.value = { anchor, point, body: "", mentions: [], attachments: [], busy: false, error: undefined };
     measure();
   }
 
   async function send(): Promise<CommentThread | undefined> {
     const current = draft.value;
     const body = current?.body.trim() ?? "";
-    if (!current || current.busy || !body) return undefined;
+    if (!current || current.busy || (!body && current.attachments.length === 0)) return undefined;
     const submittedBody = current.body;
     const mentions = [...current.mentions];
+    const attachments = [...current.attachments];
     current.busy = true;
     current.error = undefined;
     try {
@@ -301,6 +328,7 @@ export function useComments(options: UseCommentsOptions): CommentsState {
         anchor: toRaw(current.anchor),
         body,
         mentions,
+        ...(attachments.length > 0 ? { attachments } : {}),
       });
       current.busy = false;
       if (draft.value === current && current.body === submittedBody && current.mentions.length === mentions.length && current.mentions.every((id, index) => id === mentions[index])) draft.value = null;
@@ -495,10 +523,39 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     };
   }
 
+  const found = shallowRef<ReadonlyMap<string, CommentUser>>(new Map());
+  const people = computed(() => {
+    const known = new Map<string, CommentUser>();
+    const add = (person: CommentUser | undefined) => {
+      if (person && (!known.has(person.id) || person.name)) known.set(person.id, person);
+    };
+    for (const person of found.value.values()) add(person);
+    for (const thread of threads.value) {
+      add(thread.author);
+      add(thread.resolvedBy);
+      for (const message of thread.messages) add(message.author);
+    }
+    add(user.value);
+    return [...known.values()];
+  });
+  async function users(query: string): Promise<CommentUser[]> {
+    const result = await client.users({ query });
+    if (result.some(person => found.value.get(person.id) !== person)) {
+      const next = new Map(found.value);
+      for (const person of result) next.set(person.id, person);
+      found.value = next;
+    }
+    return result;
+  }
+
+  const can: CommentCan = (action, target) => user.value !== undefined && (options.can ?? defaultCommentCan(user.value))(action, target);
+
   const state: CommentsState = {
     client,
     subject,
     user,
+    can,
+    people,
     active,
     scope,
     filters,
@@ -522,7 +579,10 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     send,
     open,
     close,
-    reply: (threadId, body, mentions) => client.reply({ threadId, body, mentions }),
+    create: ({ anchor = { kind: "page" }, attachments, body, mentions }) =>
+      client.create({ subject: subject.value, anchor, body, mentions, ...(attachments?.length ? { attachments } : {}) }),
+    reply: (threadId, body, mentions, attachments) =>
+      client.reply({ threadId, body, mentions, ...(attachments?.length ? { attachments } : {}) }),
     edit: (threadId, messageId, body, mentions) => client.edit({ threadId, messageId, body, mentions }),
     remove: async (threadId, messageId) => {
       const next = await client.delete({ threadId, messageId });
@@ -534,7 +594,7 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     },
     resolve: threadId => client.resolve({ threadId }),
     reopen: threadId => client.reopen({ threadId }),
-    users: query => client.users({ query }),
+    users,
     link,
     measure,
     start,
@@ -557,7 +617,7 @@ export function provideComments(state: CommentsState): void {
 
 /** The state that a comment part uses: the one you pass, else the one of the nearest `CommentLayer` or `provideComments()`. Call it in `setup()`. */
 export function useCommentsContext(state?: CommentsState): CommentsState {
-  const found = state ?? inject(commentsKey, null);
+  const found = state ?? injectComments();
   if (!found) {
     throw uiErrorDiagnostics.UI_R0002({
       message: "Comment parts need a comments state. Put them inside CommentLayer, or pass the result of useComments() as the `comments` prop.",

@@ -15,7 +15,7 @@ Install this owner package alongside `vite-hub` and use `@vite-hub/connections` 
 pnpm add @vite-hub/connections drizzle-orm
 ```
 
-The package requires Node.js 24 or newer. Vite is an optional peer and is needed only for Connection Definition discovery. The default store needs `drizzle-orm` and a SQLite Drizzle database.
+The package requires Node.js 22.18 or newer. Vite is an optional peer and is needed only for Connection Definition discovery. The default store needs `drizzle-orm` and a SQLite Drizzle database.
 
 ## Define a Connection
 

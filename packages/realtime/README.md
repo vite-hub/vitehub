@@ -17,7 +17,7 @@ Realtime is for collaborative documents, presence, and explicit Workspace checkp
 pnpm add @vite-hub/realtime @vite-hub/workspace @tiptap/vue-3 h3 nitro vite vue
 ```
 
-ViteHub Realtime requires Node 24.15 or newer. The published client adapter is for Vue. The package declares `vite` and `vue` as optional peers so server-only integrations do not install unused framework tooling; this walkthrough uses both.
+ViteHub Realtime requires Node.js 22.18 or newer. The published client adapter is for Vue. The package declares `vite` and `vue` as optional peers so server-only integrations do not install unused framework tooling; this walkthrough uses both.
 
 ## Connect one document
 

@@ -99,7 +99,7 @@ describe("UI server rendering", () => {
     expect(html).toContain("completed");
   });
 
-  it("renders runtime Nuxt UI components through the Vue plugin", async () => {
+  it("renders Nuxt UI components without registering them on the app", async () => {
     const app = createSSRApp({
       render: () =>
         h(Chat, {
@@ -110,13 +110,8 @@ describe("UI server rendering", () => {
     });
 
     app.use(createViteHubUI());
-
-    for (const name of [
-      "UButton",
-      "UIcon",
-    ]) {
-      expect(app.component(name), name).toBeDefined();
-    }
+    // The parts import Nuxt UI themselves, so the app's component namespace stays its own.
+    for (const name of ["UButton", "UIcon"]) expect(app.component(name), name).toBeUndefined();
 
     const html = await renderToString(app);
     expect(html).toContain("Inspect the failing check");
