@@ -210,6 +210,14 @@ describe("docs Comments", () => {
   }
   const docsModule = Object.assign(() => undefined, { getMeta: async () => ({ name: "@vite-hub/docs" }) })
 
+  it("installs the link checker, failing the build on a broken link, unless linkChecker is false", async () => {
+    const dependencies = await moduleDependencies(app(["@vite-hub/docs/nuxt"], undefined, false))
+    const [name, options] = Object.entries(dependencies).find(([key]) => key.includes("nuxt-link-checker")) ?? []
+    expect(name).toBeDefined()
+    expect(options).toEqual({ defaults: { failOnError: true, fetchRemoteUrls: false, showLiveInspections: false } })
+    expect(Object.keys(await moduleDependencies(app(["@vite-hub/docs/nuxt"], { linkChecker: false }, false))).some(key => key.includes("nuxt-link-checker"))).toBe(false)
+  })
+
   it("turns Comments on in vite-hub/nuxt by default", async () => {
     const dependencies = await moduleDependencies(app(["vite-hub/nuxt", "@vite-hub/docs/nuxt"]))
     expect(dependencies["vite-hub/nuxt"]).toEqual({ optional: true, defaults: { comments: true } })
