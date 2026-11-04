@@ -23,7 +23,7 @@ import { FilterSearch } from "@vite-hub/ui";
 
 ## Usage
 
-Write two bridges and one server route. The route is yours. `resolve` sends the text to it and returns the selection. `onSelect` writes the selection to your filters.
+Write two bridges and one server route. The route is yours. `resolve` sends the text to it and returns the selection. `onSelect` writes the selection to your filters. Wrap `clear()` to reset those filters too.
 
 ```vue
 <script setup lang="ts">
@@ -32,11 +32,18 @@ import { useChoices } from "vite-hub/decisions/vue";
 
 const filters = useFilters();
 
-const choices = useChoices<typeof forecast>({
-  onClear: () => filters.reset(),
+const input = useChoices<typeof forecast>({
   onSelect: (selection) => filters.apply(selection),
   resolve: (text, { signal }) => $fetch("/api/choices/forecast", { body: { text }, method: "POST", signal }),
 });
+
+const choices = {
+  ...input,
+  clear: () => {
+    input.clear();
+    filters.reset();
+  },
+};
 </script>
 
 <template>
@@ -44,7 +51,7 @@ const choices = useChoices<typeof forecast>({
 </template>
 ```
 
-Enter sends the text. Escape clears it and cancels a request that is still running. Escape calls `clear()`, which calls your `onClear`, so reset your own filters there. `FilterSearch` never calls `resolve`, so a test that passes a stub object needs no network.
+Enter sends the text. Escape clears it and cancels a request that is still running. Escape and the clear button call the `clear()` on the object you pass. In this example, the wrapper clears the composable and resets your filters. `useChoices().clear()` alone resets only its own state. `FilterSearch` never calls `resolve`, so a test that passes a stub object needs no network.
 
 ## Composition
 

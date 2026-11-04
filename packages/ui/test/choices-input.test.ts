@@ -36,12 +36,12 @@ function source(initial: ChoicesInputState = "idle") {
   return choices;
 }
 
-const headless = (choices: ChoicesInputSource) =>
+const headless = (choices: ChoicesInputSource, fieldAttrs: Record<string, unknown> = {}) =>
   mount(
     defineComponent({
       setup: () => () =>
         h(ChoicesInput, { choices }, () => [
-          h(ChoicesInputField, { label: "Filter demand" }),
+          h(ChoicesInputField, { label: "Filter demand", ...fieldAttrs }),
           h(ChoicesInputClear),
           h(ChoicesInputStatus),
           h(ChoicesInputError),
@@ -76,6 +76,28 @@ describe("ChoicesInput parts", () => {
     await input.trigger("keydown", { key: "Enter" });
     expect(choices.submit).toHaveBeenCalledTimes(1);
   });
+
+  it.each(["native", "component"])(
+    "preserves text and keyboard listeners on a %s field",
+    async (kind) => {
+      const choices = source();
+      const onKeydown = vi.fn();
+      const onUpdate = vi.fn();
+      const wrapper = headless(choices, {
+        as: kind === "native" ? "input" : UInputStand,
+        onKeydown,
+        ...(kind === "native" ? { onInput: onUpdate } : { "onUpdate:modelValue": onUpdate }),
+      });
+      const input = wrapper.get("input");
+      await input.setValue("suppliers");
+      expect(choices.text.value).toBe("suppliers");
+      expect(onUpdate).toHaveBeenCalledTimes(1);
+      if (kind === "component") expect(onUpdate).toHaveBeenCalledWith("suppliers");
+      await input.trigger("keydown", { key: "Enter" });
+      expect(onKeydown).toHaveBeenCalledTimes(1);
+      expect(choices.submit).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("clears on Escape and aborts a pending request first", async () => {
     const choices = source("thinking");
@@ -139,6 +161,28 @@ describe("ChoicesInput parts", () => {
     expect(wrapper.get("input").attributes()).toMatchObject({ "aria-describedby": error.attributes("id"), "aria-invalid": "true" });
   });
 
+  it.each(["native", "component"])(
+    "keeps helper descriptions when a %s field enters and leaves the error state",
+    async (kind) => {
+      const choices = source();
+      const wrapper = headless(choices, {
+        "aria-describedby": "help constraints",
+        as: kind === "native" ? "input" : UInputStand,
+      });
+      const input = wrapper.get("input");
+      expect(input.attributes("aria-describedby")).toBe("help constraints");
+      choices.error.value = new Error("Try again");
+      choices.status.value = "error";
+      await flushPromises();
+      const errorId = wrapper.get('[data-slot="choices-input-error"]').attributes("id");
+      expect(input.attributes("aria-describedby")).toBe(`help constraints ${errorId}`);
+      choices.clear();
+      await flushPromises();
+      expect(input.attributes("aria-describedby")).toBe("help constraints");
+      expect(input.attributes("aria-invalid")).toBeUndefined();
+    },
+  );
+
   it.each(["idle", "thinking", "ready", "error"] as const)("puts data-state=%s and a data-slot on every part", async (state) => {
     const choices = source(state);
     choices.error.value = state === "error" ? new Error("Failed") : undefined;
@@ -166,12 +210,18 @@ describe("ChoicesInput parts", () => {
 // Nuxt UI's UInput takes `modelValue`, renders the other attributes on its `input`, and has leading and trailing slots.
 const UInputStand = defineComponent({
   inheritAttrs: false,
-  setup(_props, { attrs, slots }) {
+  props: { modelValue: String },
+  emits: ["update:modelValue"],
+  setup(props, { attrs, emit, slots }) {
     return () => {
-      const { modelValue, "onUpdate:modelValue": update, ...rest } = attrs;
       return h("span", [
         slots.leading?.(),
-        h("input", { ...rest, onInput: (event: Event) => (update as (value: string) => void)((event.target as HTMLInputElement).value), value: modelValue }),
+        h("input", {
+          ...attrs,
+          onInput: (event: Event) =>
+            emit("update:modelValue", (event.target as HTMLInputElement).value),
+          value: props.modelValue,
+        }),
         slots.trailing?.(),
       ]);
     };

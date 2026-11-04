@@ -3,6 +3,7 @@ import {
   defineComponent,
   h,
   inject,
+  mergeProps,
   provide,
   useId,
   type Component,
@@ -90,36 +91,37 @@ export const ChoicesInputField = defineComponent({
     return () => {
       const { status, text } = choices.value;
       const failed = status.value === "error";
-      const shared = {
-        autocomplete: "off",
-        ...attrs,
+      const shared = mergeProps({ autocomplete: "off" }, attrs, {
         "aria-busy": status.value === "thinking" ? "true" : "false",
-        "aria-describedby": failed ? errorId : attrs["aria-describedby"],
+        "aria-describedby": failed
+          ? [attrs["aria-describedby"], errorId].filter(Boolean).join(" ")
+          : attrs["aria-describedby"],
         "aria-invalid": failed ? "true" : undefined,
         "aria-label": attrs["aria-labelledby"] ? undefined : props.label,
         ...stateAttributes("choices-input-field", choices.value),
         onKeydown: keydown,
-      };
+      });
       if (typeof props.as === "string")
-        return h(props.as, {
-          ...shared,
-          enterkeyhint: "search",
-          onInput: (event: Event) => {
-            text.value = (event.target as HTMLInputElement).value;
-          },
-          spellcheck: false,
-          type: "text",
-          value: text.value,
-        });
+        return h(
+          props.as,
+          mergeProps(shared, {
+            enterkeyhint: "search",
+            onInput: (event: Event) => {
+              text.value = (event.target as HTMLInputElement).value;
+            },
+            spellcheck: false,
+            type: "text",
+            value: text.value,
+          }),
+        );
       return h(
         props.as as Component,
-        {
-          ...shared,
+        mergeProps(shared, {
           modelValue: text.value,
           "onUpdate:modelValue": (value: string) => {
             text.value = value;
           },
-        },
+        }),
         slots,
       );
     };

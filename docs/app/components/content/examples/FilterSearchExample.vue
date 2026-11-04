@@ -10,7 +10,7 @@ const suppliers = ["Acme", "Nordic Parts", "Vakuum AG"];
 const selected = ref<Selection["supplier"]>({ exclude: [], include: [] });
 
 // This stands in for your route. A real `resolve` sends the text to the server and returns its selection.
-const choices = useChoices<Selection>({
+const input = useChoices<Selection>({
   onSelect: (selection) => {
     selected.value = selection.supplier;
   },
@@ -23,6 +23,14 @@ const choices = useChoices<Selection>({
     return { supplier: { exclude, include: suppliers.filter((name) => !exclude.includes(name)) } };
   },
 });
+
+const choices = {
+  ...input,
+  clear: () => {
+    input.clear();
+    selected.value = { exclude: [], include: [] };
+  },
+};
 </script>
 
 <template>
