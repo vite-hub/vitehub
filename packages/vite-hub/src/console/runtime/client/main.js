@@ -10,6 +10,7 @@ const ConsoleApp = () => import("../components/console-app.vue");
 const ConsoleAuth = () => import("../components/console-auth.vue");
 const ConsoleBlob = () => import("../components/console-blob.vue");
 const ConsoleChannels = () => import("../components/console-channels.vue");
+const ConsoleConnect = () => import("../components/console-connect.vue");
 const ConsoleConnections = () => import("../components/console-connections.vue");
 const ConsoleDatabase = () => import("../components/console-database.vue");
 const ConsoleDefinitions = () => import("../components/console-definitions.vue");
@@ -67,6 +68,19 @@ const router = createRouter({
         sectionsBase,
       },
       meta: { title: "ViteHub Console" },
+    },
+    {
+      component: ConsoleConnect,
+      name: "vitehub-console-connect",
+      path: "/connect",
+      meta: { title: "Connect an agent · ViteHub Console" },
+      props: {
+        agentsBase: consolePath("/api/_vitehub/console/agents"),
+        definitionsBase: consolePath("/api/_vitehub/console/definitions"),
+        kvBase: consolePath("/api/_vitehub/console/kv"),
+        searchBase: consolePath("/api/_vitehub/console/search"),
+        sectionsBase,
+      },
     },
     {
       component: ConsoleApp,

@@ -12,7 +12,7 @@ The endpoint uses Streamable HTTP without a session: each `POST` carries one JSO
 
 ## Connect an agent
 
-The Console home has a **Connect an agent** panel with these commands for your origin:
+The Console has a **Connect an agent** page at `/_vitehub/connect`, linked from the rail and the Overview. It shows the server URL, the setup for Claude Code, Codex, Cursor, and VS Code with your origin, how the agent signs in, and the sections its tools can use. For Claude Code and Codex:
 
 ```bash [Terminal]
 claude mcp add --transport http vitehub https://app.example.com/_vitehub/mcp
