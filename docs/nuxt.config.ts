@@ -4,7 +4,7 @@ import { docsIcons } from "./app/utils/docs-sidebar-icons";
 import { capabilityReferences, expandCapabilityTools } from "./modules/vitehub-docs/capability-references";
 
 export default defineNuxtConfig({
-  modules: ["@vite-hub/docs/nuxt", "./modules/vitehub-docs", "nuxt-schema-org", "nuxt-link-checker"],
+  modules: ["@vite-hub/docs/nuxt", "./modules/vitehub-docs", "./modules/tutorials", "nuxt-schema-org", "nuxt-link-checker"],
   docs: {
     site: {
       name: "ViteHub",

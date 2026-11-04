@@ -3116,6 +3116,8 @@
   .vh-ws-connect-footer { align-items: flex-start; border-top: 1px solid var(--vh-border); color: var(--vh-muted); display: grid; font-size: 0.8125rem; gap: 0.5rem 0.625rem; grid-template-columns: 1rem 1fr; padding-top: 1rem; }
   .vh-ws-connect-footer p { margin: 0; }
   .vh-ws-connect-footer .vh-ws-button { grid-column: 2; justify-self: start; }
+  .vh-ws-connect--empty { align-items: center; color: var(--vh-ui-muted); font-size: 0.875rem; gap: 0.5rem; grid-template-columns: 1rem 1fr; }
+  .vh-ws-connect--empty p { margin: 0; }
 
   /* Browser support notice */
   .vh-ws-support { align-items: flex-start; background: var(--vh-bg-muted); border: 1px solid var(--vh-border); border-radius: var(--vh-radius); color: var(--vh-text); display: grid; gap: 0.75rem; grid-template-columns: 1.25rem 1fr; padding: 1rem; }
