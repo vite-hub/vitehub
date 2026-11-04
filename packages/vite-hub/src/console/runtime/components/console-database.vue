@@ -217,10 +217,12 @@ async function loadDatabase(): Promise<void> {
     );
     if (request !== controller) return;
     openRow.value = undefined;
-    database.value = value;
     error.value = undefined;
     if (props.view === "data") {
       const table = value.table ?? value.tables[0]?.name;
+      // An answer without a table has no rows. The skeleton stays until the first table's rows arrive, instead of an
+      // empty table that fills a moment later.
+      if (value.table || !table) database.value = value;
       if (table && (routeDatabase.value !== value.database || routeTable.value !== table)) {
         await router.replace({
           name: resolveConsoleRouteName(route.name, dataRouteName),
@@ -228,11 +230,14 @@ async function loadDatabase(): Promise<void> {
           query: route.query,
         });
       }
-    } else if (routeDatabase.value !== value.database) {
-      await router.replace({
-        name: resolveConsoleRouteName(route.name, schemaRouteName),
-        params: { database: value.database },
-      });
+    } else {
+      database.value = value;
+      if (routeDatabase.value !== value.database) {
+        await router.replace({
+          name: resolveConsoleRouteName(route.name, schemaRouteName),
+          params: { database: value.database },
+        });
+      }
     }
   } catch (requestError) {
     if (

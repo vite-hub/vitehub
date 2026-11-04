@@ -249,7 +249,8 @@ async function publishAll(): Promise<void> {
           :class="[index % 2 ? 'border-s border-default' : '', index > 1 ? 'border-t border-default sm:border-t-0' : '', index === 2 ? 'sm:border-s' : '']"
         >
           <ConsoleStatus :tone="consoleDocumentStateColor(stat.state)" :label="stat.label" />
-          <USkeleton v-if="firstLoad" class="h-7 w-10 rounded" />
+          <!-- The height of the text-2xl count, so the cards keep their height when the counts arrive. -->
+          <USkeleton v-if="firstLoad" class="my-1 h-6 w-10 rounded" />
           <span v-else class="text-2xl font-semibold tracking-tight tabular-nums" :class="stat.count ? 'text-highlighted' : 'text-dimmed'">{{ stat.count }}</span>
         </div>
       </section>
@@ -280,9 +281,8 @@ async function publishAll(): Promise<void> {
               </h2>
               <p v-if="pending.length && !canPublishAny" class="text-xs text-dimmed">An editor publishes these.</p>
             </header>
-            <div v-if="firstLoad" class="grid gap-px">
-              <USkeleton v-for="index in 3" :key="index" class="h-11 rounded-md" />
-            </div>
+            <!-- One line, the height of "Everything is published": most visits find nothing to publish. -->
+            <USkeleton v-if="firstLoad" class="my-1 h-5 w-3/4 rounded" />
             <div v-else-if="!pending.length && noAccess" class="grid gap-0.5 py-1">
               <p class="text-[13px] text-highlighted">No one can read documents yet</p>
               <p class="text-xs text-muted"><ConsoleSetupHint :hint="noAccess" /></p>

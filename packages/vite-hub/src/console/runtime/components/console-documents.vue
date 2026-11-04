@@ -73,6 +73,42 @@ const overviewLoading = ref(false);
 const overviewError = ref<unknown>();
 let overviewRequest = 0;
 
+// The last collections and overview of this section in this tab. A visit shows them at once and refreshes them in the
+// background, so the page keeps its layout instead of growing from placeholders when the answers arrive.
+const cacheKey = computed(() => `vitehub.console.documents:${props.documentsBase}:${section.value}`);
+function readCache(): { definitions?: unknown, overview?: unknown } {
+  try {
+    const value: unknown = JSON.parse(sessionStorage.getItem(cacheKey.value) ?? "null");
+    return value instanceof Object ? { definitions: Reflect.get(value, "definitions"), overview: Reflect.get(value, "overview") } : {};
+  }
+  catch {
+    return {};
+  }
+}
+function writeCache(entry: { definitions?: unknown, overview?: unknown }): void {
+  try {
+    sessionStorage.setItem(cacheKey.value, JSON.stringify({ ...readCache(), ...entry }));
+  }
+  catch {
+    // A full or blocked storage only costs the instant layout of the next visit.
+  }
+}
+function isConsoleDocumentOverview(value: unknown): value is ConsoleDocumentOverview {
+  return value instanceof Object && Array.isArray(Reflect.get(value, "collections")) && Array.isArray(Reflect.get(value, "activity"));
+}
+function applyDefinitions(definitions: unknown): boolean {
+  const content = parseConsoleSectionContent(definitions, section.value);
+  if (!content || content.kind !== "document-editor") return false;
+  collections.value = [...content.collections];
+  setup.value = content.setup;
+  return true;
+}
+function showCached(): void {
+  const cached = readCache();
+  if (cached.definitions !== undefined && applyDefinitions(cached.definitions)) loading.value = false;
+  if (isConsoleDocumentOverview(cached.overview)) overview.value = cached.overview;
+}
+
 // The media library of the section, when it has a Media page: the page itself, and the picker of the editor's images and
 // Blob reference fields. The section's pages are fixed for its lifetime, so the picker is provided once.
 const mediaClient = computed(() => createConsoleMediaClient(consoleMediaBase(props.documentsBase), section.value));
@@ -124,8 +160,9 @@ function param(value: unknown): string | undefined {
 // Singletons, such as site settings, live on the Settings page; the sidebar lists the other collections.
 const listCollections = computed(() => collections.value.filter(entry => entry.kind !== "singleton"));
 const singletons = computed(() => collections.value.filter(entry => entry.kind === "singleton"));
-// The Settings page shows once the section has a singleton the user may read.
-const pages = computed<readonly ConsoleSectionPage[]>(() => (props.details.pages ?? []).filter(page => page.view.kind !== "document-settings" || singletons.value.length));
+// The Settings page shows when the section has a singleton the user may read. It also shows while the collections load,
+// so the pages under it do not move down when it appears.
+const pages = computed<readonly ConsoleSectionPage[]>(() => (props.details.pages ?? []).filter(page => page.view.kind !== "document-settings" || singletons.value.length || (loading.value && !collections.value.length)));
 const settingsPage = computed(() => pages.value.find(page => page.view.kind === "document-settings"));
 // A section with only singletons has no Collections heading.
 const showCollections = computed(() => loading.value || Boolean(error.value) || listCollections.value.length > 0 || !singletons.value.length);
@@ -184,15 +221,12 @@ function pendingLabel(states: Record<ConsoleDocumentState, number> | undefined):
 const editorDocumentId = computed(() => (collection.value?.kind === "singleton" ? collection.value.document : documentId.value));
 
 async function loadCollections(): Promise<void> {
-  loading.value = true;
+  // Cached collections stay on screen while they refresh.
+  if (!collections.value.length) loading.value = true;
   try {
-    const content = parseConsoleSectionContent(
-      await requestConsole(props.definitionsBase, { query: { section: section.value } }),
-      section.value,
-    );
-    if (!content || content.kind !== "document-editor") throw new Error("The Console returned invalid collections.");
-    collections.value = [...content.collections];
-    setup.value = content.setup;
+    const definitions = await requestConsole(props.definitionsBase, { query: { section: section.value } });
+    if (!applyDefinitions(definitions)) throw new Error("The Console returned invalid collections.");
+    writeCache({ definitions });
     error.value = undefined;
     // Without an index page, the section root opens the first collection.
     if (!collectionName.value && !page.value && collections.value[0]) {
@@ -214,6 +248,7 @@ async function loadOverview(): Promise<void> {
     const result = await client.value.overview();
     if (current !== overviewRequest) return;
     overview.value = result;
+    writeCache({ overview: result });
     overviewError.value = undefined;
   }
   catch (requestError) {
@@ -231,6 +266,7 @@ function reload(): void {
 
 onMounted(() => {
   rememberConsoleSection(section.value);
+  showCached();
   reload();
   void loadMediaInfo();
   const preload = () => void loadDocumentEditor().catch(() => undefined);
@@ -242,6 +278,7 @@ watch(section, () => {
   rememberConsoleSection(section.value);
   collections.value = [];
   overview.value = undefined;
+  showCached();
   reload();
 });
 watch(changes, () => void loadOverview());
@@ -315,7 +352,8 @@ watch(changes, () => void loadOverview());
             />
           </div>
           <template v-else-if="loading && !collections.length">
-            <USkeleton v-for="index in 3" :key="index" class="my-0.5 h-8 rounded-md" />
+            <!-- Two rows at the 2rem height of a collection link, so a usual section keeps its sidebar layout. -->
+            <USkeleton v-for="index in 2" :key="index" class="h-8 rounded-md" />
           </template>
           <template v-else-if="listCollections.length">
             <UTooltip
