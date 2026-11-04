@@ -3,6 +3,7 @@ import { createError, defineEventHandler, getRouterParam, setHeader, useStorage 
 import type { EventHandler, EventHandlerRequest } from "h3"
 import { content } from "#docs/content"
 import manifest from "#docs/manifest"
+import parser from "#docs/parser"
 import { createDocsParser } from "../../markdown.ts"
 import { findDocsPage } from "../../navigation.ts"
 import { docsPageResponse } from "../../page.ts"
@@ -10,7 +11,7 @@ import { docsPageResponse } from "../../page.ts"
 import type { DocsDocument } from "../../markdown.ts"
 import type { DocsPageResponse } from "../../page.ts"
 
-const parse = createDocsParser()
+const parse = createDocsParser(parser)
 const parsed = new Map<string, Promise<DocsDocument>>()
 
 /** `/api/_docs/page/docs/kv.json` is the page at `/docs/kv`. The `.json` suffix lets static hosts store every page beside its folder. */

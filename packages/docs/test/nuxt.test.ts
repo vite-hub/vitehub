@@ -136,6 +136,19 @@ describe("docs Nuxt setup", () => {
     expect(readFileSync(join(options.buildDir, "docs/raw/docs.md"), "utf8")).toContain("Newer")
   })
 
+  it("gives the page route and search the app's parser module", async () => {
+    const options = await setupDocs({ parser: "./docs.parser.ts" })
+    expect(templates.get("docs/parser.mjs")?.()).toBe(`export { default } from ${JSON.stringify(resolve(options.rootDir, "docs.parser.ts"))}\n`)
+    const nitro: { alias?: Record<string, string> } = {}
+    for (const hook of hooks.get("nitro:config") ?? []) await hook(nitro as never)
+    expect(nitro.alias?.["#docs/parser"]).toBe("/build/docs/parser.mjs")
+  })
+
+  it("parses with the built-in plugins only without a parser module", async () => {
+    await setupDocs({})
+    expect(templates.get("docs/parser.mjs")?.()).toBe("export default {}\n")
+  })
+
   it("writes relative Markdown links against the rendered page below the app base", async () => {
     const content = mkdtempSync(join(tmpdir(), "docs-links-"))
     roots.push(content)
