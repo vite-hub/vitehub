@@ -22,7 +22,7 @@ Use these names consistently: Server Primitives, Agent Definitions, Drivers, Inv
 
 Use the Node version required by `package.json`. For the full verification gate, install the Deno version in `.deno-version` with the [official Deno installation guide](https://docs.deno.com/runtime/getting_started/installation/). CI reads the same pin.
 
-The checkout requires Node.js 22.22+ on 22.x, or 24.11 or newer, to support its development tools and Nitro. Standalone packages retain their Node.js 22.18 minimum. The compatibility CI job installs dependencies on Node.js 24 before switching to 22.18 for its tests.
+The checkout requires Node.js 22.22+ on 22.x, or 24.11 or newer, to support its development tools and Nitro. Most standalone packages retain their Node.js 22.18 minimum; Queue requires Node.js 22.19. The compatibility CI job installs dependencies on Node.js 24 before switching to 22.18 for its tests.
 
 From a clean checkout, let Corepack select pnpm from `package.json` and install the workspace dependencies. This also installs Vite+.
 

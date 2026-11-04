@@ -29,8 +29,8 @@ imports. Some features need one more package, as
 - An existing Nuxt 4 app, version 4.5.2 or newer, for the Nuxt path.
 
 The `vite-hub` distribution, Comments, UI, and Docs require Node.js 22.22 because
-they install Nitro. Standalone packages without that dependency retain
-their Node.js 22.18 minimum.
+they install Nitro. Queue requires Node.js 22.19 for its Undici dependency.
+Other standalone packages without Nitro retain their Node.js 22.18 minimum.
 
 This setup and the first storage and Agent tutorials need no credentials.
 Hosted services and models can require accounts and incur charges. Their
