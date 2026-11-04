@@ -2541,8 +2541,15 @@
       }
     }
 
+    /* Keyboard focus still shows: the row rings while its field has it. */
+    & [data-slot="prompt-input-group"]:has([data-slot="prompt-input-textarea"]:focus-visible) {
+      border-radius: var(--vh-radius);
+      box-shadow: 0 0 0 2px color-mix(in oklab, var(--vh-highlighted) 28%, transparent);
+    }
+
     &[data-dragging="true"] [data-slot="prompt-input-group"] {
       border-radius: var(--vh-radius);
+      box-shadow: 0 0 0 2px var(--vh-primary);
     }
   }
 
