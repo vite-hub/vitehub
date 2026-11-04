@@ -38,7 +38,7 @@ export async function openAgentInvocationJournalFile(path: string, tablePrefix =
     sqlite = await import("node:sqlite")
   }
   catch {
-    throw agentDiagnostics.AGENT_R0931({ message: "--database reads the journal with node:sqlite, which this runtime does not provide. Run the command with Node.js 24, or pass --url." })
+    throw agentDiagnostics.AGENT_R0931({ message: "--database reads the journal with node:sqlite, which this runtime does not provide. Run the command with Node.js 22.18 or newer, or pass --url." })
   }
   const db: DatabaseSync = new sqlite.DatabaseSync(path, { readOnly: true })
   try {

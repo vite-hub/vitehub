@@ -10,7 +10,7 @@ icon: i-lucide-rocket
 
 Turn `docs/intro.md` into a parsed Content document and read it through an API route. A Source finds the Markdown file; Content parses it so the app can use its headings and body.
 
-You need Node.js 24.15 or newer, pnpm, and a Vite application. Run the commands from its root.
+You need Node.js 22.22 or newer, pnpm, and a Vite application. Run the commands from its root.
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure

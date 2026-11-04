@@ -3,6 +3,7 @@ import * as v from "valibot"
 import { defineCapability, workspaceRetirementPathsSymbol } from "../capability-runtime.ts"
 import { connectionNameSchema, useAgentConnectionClient } from "./connection.ts"
 import { defineInternalTool } from "./internal.ts"
+import { decodeText } from "../internal/windows-1252.ts"
 
 import type { AgentCapabilityContext, AgentCapabilityDefinition, AgentToolSchema } from "../types.ts"
 import type { AgentConnectionClient } from "./connection.ts"
@@ -174,7 +175,7 @@ function base64Url(bytes: Uint8Array): string {
 function decodeBase64Url(value: string, charset = "utf-8"): string {
   const normalized = value.replaceAll("-", "+").replaceAll("_", "/")
   const binary = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="))
-  return textDecoder(charset).decode(Uint8Array.from(binary, character => character.charCodeAt(0)))
+  return decodeText(textDecoder(charset), Uint8Array.from(binary, character => character.charCodeAt(0)))
 }
 
 function textDecoder(charset: string) {

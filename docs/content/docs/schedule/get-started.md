@@ -9,7 +9,7 @@ icon: i-lucide-rocket
 
 Run one occurrence of a daily report and check that it finishes with `succeeded`. You will declare its UTC cron expression, then trigger a fixed occurrence from a script. This lets you test the handler without waiting until tomorrow.
 
-You need Node.js 24.15 or newer and pnpm. Start in an empty directory. The script uses an in-memory run store and needs no Vite server or provider account. It runs once; [host configuration](/docs/schedule/hosts) supplies the recurring trigger in a deployed app.
+You need Node.js 22.18 or newer and pnpm. Start in an empty directory. The script uses an in-memory run store and needs no Vite server or provider account. It runs once; [host configuration](/docs/schedule/hosts) supplies the recurring trigger in a deployed app.
 
 ::tutorial-step{title="Install"}
 ## Install

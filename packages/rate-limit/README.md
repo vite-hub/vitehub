@@ -15,7 +15,7 @@ Install this owner package when you need a direct Rate Limiter, a custom driver,
 pnpm add @vite-hub/rate-limit
 ```
 
-The package requires Node 24 or newer. Vite is an optional peer dependency and is needed only for the managed Vite integration.
+The package requires Node.js 22.18 or newer. Vite is an optional peer dependency and is needed only for the managed Vite integration.
 
 ## Get the first decision
 

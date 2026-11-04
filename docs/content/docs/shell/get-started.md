@@ -10,7 +10,7 @@ icon: i-lucide-rocket
 
 Search a Markdown file with `rg` and return the matching line from a server route. The route creates a file in a memory Workspace, then gives Shell read-only access to that file tree. You will check both the command's exit code and its output.
 
-You need Node.js 24.15 or newer, pnpm, and a Vite application. Run the commands from its root. The Just Bash provider runs the commands you allow against the supplied filesystem. Use [Sandbox](/docs/sandbox) when you need provider-managed isolation for external programs.
+You need Node.js 22.22 or newer, pnpm, and a Vite application. Run the commands from its root. The Just Bash provider runs the commands you allow against the supplied filesystem. Use [Sandbox](/docs/sandbox) when you need provider-managed isolation for external programs.
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure

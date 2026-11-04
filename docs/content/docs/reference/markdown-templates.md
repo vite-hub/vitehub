@@ -22,7 +22,7 @@ Start with [Render your first Markdown template](/docs/reference/markdown-templa
 
 ## Install
 
-The package requires Node.js 24 or later.
+The package requires Node.js 22.18 or later.
 
 ```bash [Terminal]
 pnpm add @vite-hub/markdown-template

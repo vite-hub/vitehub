@@ -1987,7 +1987,12 @@ export interface AgentModelDriver<
   execution?: AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS>
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   kind?: never
-  gateway?: never
+  /**
+   * Run the model on the ChatGPT plan of a Connection: `gateway: chatgpt()` from `vite-hub/gateways`. `model` is then
+   * a model ID from `vitehub connections models chatgpt`. It calls the Responses API over HTTP, so it runs on every
+   * host, including Cloudflare Workers. For another gateway, set `model: languageModel(gateway, id)`.
+   */
+  gateway?: ChatGPTGateway
   launch?: never
   maxRetries?: number
   model: AgentModelResolver<TRuntimeConfig>

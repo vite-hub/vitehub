@@ -4,6 +4,7 @@ import * as v from "valibot"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { acquireChannelStateLock } from "./channel-state.ts"
 import { redactCredentialText } from "./credential-redaction.ts"
+import { decodeText } from "./windows-1252.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 
 import type { ReplayChannelResult } from "../channel-replay.ts"
@@ -454,7 +455,7 @@ function decodeMimeBody(data: string, charset: string | undefined): string {
   catch {
     // Untrusted MIME labels outside this host's Encoding Standard support keep UTF-8 replacement decoding.
   }
-  return decoder.decode(bytes)
+  return decodeText(decoder, bytes)
 }
 
 function bodyText(parts: GmailApiPart[], limit: number): string {
