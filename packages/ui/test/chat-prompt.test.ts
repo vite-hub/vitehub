@@ -1,13 +1,15 @@
 // @vitest-environment happy-dom
 
 import type { ChatStatus } from "ai";
-import { flushPromises, mount } from "@vue/test-utils";
+import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils";
 import { defineComponent, effectScope, h } from "vue";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PromptInput } from "../src/components/prompt-input.ts";
 import { ChatSession } from "../src/components/chat-session.ts";
 import { nextPromptFiles } from "../src/internal/prompt-files.ts";
 import { useAgentAttachments } from "../src/composables/attachments.ts";
+
+enableAutoUnmount(afterEach);
 
 describe("ChatSession", () => {
   it("keeps session header and footer slots out of message rendering", () => {
@@ -17,6 +19,7 @@ describe("ChatSession", () => {
       title: "Session",
     };
     const wrapper = mount(ChatSession, {
+      global,
       props: { session },
       slots: {
         header: ({ session: value }: { session: typeof session }) => h("div", { class: "session-header" }, value.title),
@@ -25,6 +28,7 @@ describe("ChatSession", () => {
 
     expect(wrapper.findAll(".session-header")).toHaveLength(1);
     expect(wrapper.text()).toContain("Session");
+    expect(wrapper.findComponent(ButtonStub).exists()).toBe(true);
   });
 });
 

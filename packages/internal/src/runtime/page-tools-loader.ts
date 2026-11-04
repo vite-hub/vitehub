@@ -448,10 +448,9 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
     // `0`, not a cleared cookie: a signed-in person would otherwise get the pill again on the next page.
     document.cookie = viteHubPageToolsHintCookie(false)
     const url = new URL(location.href)
-    if (url.searchParams.has(viteHubPageToolsQuery)) {
-      url.searchParams.delete(viteHubPageToolsQuery)
-      history.replaceState(history.state, "", url)
-    }
+    url.searchParams.delete(viteHubPageToolsQuery)
+    for (const tool of session.tools) if (tool.param) url.searchParams.delete(tool.param)
+    if (url.href !== location.href) history.replaceState(history.state, "", url)
     for (const controller of controllers) controller.abort()
     pillController.abort()
     mountOffNote(() => {

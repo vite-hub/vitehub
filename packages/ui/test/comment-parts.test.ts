@@ -467,6 +467,25 @@ describe("CommentPanel", () => {
     expect(wrapper.find("[data-slot=comment-thread]").exists()).toBe(true);
   });
 
+  it("only opens threads in the current page scope, including after a subject change", async () => {
+    const about = { id: "/about", kind: "page" };
+    const { comments, wrapper } = await panel([thread(1), thread(2, { subject: about })], { thread: "thread-1" });
+    expect(wrapper.find("[data-slot=comment-thread]").exists()).toBe(true);
+    let finish!: (threads: CommentThreadModel[]) => void;
+    vi.spyOn(comments.transport, "list").mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+
+    await wrapper.setProps({ subject: about });
+    await flushPromises();
+    expect(wrapper.find("[data-slot=comment-thread]").exists()).toBe(false);
+
+    finish([thread(2, { subject: about })]);
+    await flushPromises();
+    expect(wrapper.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-2"]);
+
+    await wrapper.setProps({ thread: "thread-2" });
+    expect(wrapper.find("[data-slot=comment-thread]").exists()).toBe(true);
+  });
+
   it("comments on the whole page from the box at the bottom and clears it", async () => {
     const { comments, wrapper } = await panel([]);
     expect(wrapper.get("[data-slot=comment-panel-empty]").text()).toBe("No open comments.");
@@ -543,8 +562,39 @@ describe("layer draft uploads", () => {
 });
 
 describe("RPC attachments", () => {
-  it.each([CommentPanel, CommentLayer])("disables uploads in $name for the shipped RPC transport", async Component => {
+  it.each([CommentPanel, CommentLayer])("uploads files in $name through the shipped RPC transport", async Component => {
+    const fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const { operation, input } = JSON.parse(String(init?.body));
+      return Response.json({ ok: true, value: operation === "comments.list" ? [] : thread(1, {
+        messages: [message("message-1", { attachments: input.attachments, body: input.body })],
+      }) });
+    });
+    const transport = createRpcTransport({ fetch });
+    const comments = createCommentsClient({ transport, user: ana });
+    const upload = vi.fn(async () => ["uploads/shot.png"]);
+    let state!: ReturnType<typeof useComments>;
+    const wrapper = keep(mount(defineComponent({
+      setup() {
+        state = useComments({ client: comments, subject: pricing });
+        return () => h(Component, { comments: state, upload });
+      },
+    }), { attachTo: document.body, global }));
+    await vi.waitFor(() => expect(comments.status).toBe("ready"));
+    if (Component === CommentLayer) {
+      state.startDraft("page");
+      await flushPromises();
+    }
+    addFiles(wrapper, [new File(["png"], "shot.png", { type: "image/png" })]);
+    await wrapper.get("textarea").setValue("Uploaded shot");
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+    expect(upload).toHaveBeenCalledOnce();
+    expect(comments.threads[0]!.messages[0]!.attachments).toEqual(["uploads/shot.png"]);
+  });
+
+  it.each([CommentPanel, CommentLayer])("disables uploads in $name when the transport opts out", async Component => {
     const transport = createRpcTransport({ fetch: async () => Response.json({ ok: true, value: [] }) });
+    transport.supportsAttachments = false;
     const comments = createCommentsClient({ transport, user: ana });
     const upload = vi.fn(async () => ["uploads/shot.png"]);
     let state!: ReturnType<typeof useComments>;

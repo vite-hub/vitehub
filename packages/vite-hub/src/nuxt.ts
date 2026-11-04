@@ -171,6 +171,7 @@ type NuxtLike = {
     (name: "app:templatesGenerated", callback: (app: { components: Parameters<CommentsVitePlugin["api"]["setComponents"]>[0] }) => Promise<void>): void
     (name: "close" | "nitro:config", callback: ((config: Record<string, unknown>) => Promise<void>) | (() => Promise<void>)): void
     (name: "listen", callback: (server: unknown, listener: { url: string }) => void): void
+    (name: "modules:done", callback: () => void): void
   }
   options: {
     _installedModules?: Array<{ meta?: { name?: string } }>

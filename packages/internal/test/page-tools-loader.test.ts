@@ -376,6 +376,19 @@ describe("loadViteHubPageTools", () => {
     expect(location.pathname + location.search).toBe("/guide?tab=2")
   })
 
+  it("clears tool link parameters on exit so a reload respects the off hint", async () => {
+    page("/guide?comment=3&inspect=network&tab=2#details")
+    session({ tools: [{ ...comments, param: "comment" }, { ...consoleTool, param: "inspect" }] })
+    const { load, started } = modules()
+    await loadViteHubPageTools({ load })
+    pill().exit.click()
+    expect(location.pathname + location.search + location.hash).toBe("/guide?tab=2#details")
+    expect(document.cookie).toContain("vitehub-tools=0")
+    await expect(loadViteHubPageTools({ load })).resolves.toEqual([])
+    expect(document.querySelector("vitehub-pill")).toBeNull()
+    expect(started).toHaveLength(2)
+  })
+
   it("says how to turn the tools on again after exit, and Undo brings them back with their windows", async () => {
     page("/?vitehub=console")
     sessionStorage.setItem("vitehub-open:/_vitehub/page/session:console", "true")
