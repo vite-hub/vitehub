@@ -28,6 +28,7 @@ instead of one root barrel.
 | `@vite-hub/auth` | Auth Definitions, Better Auth server wiring, generated Auth route behavior | `@vite-hub/auth`, `@vite-hub/auth/server`, `@vite-hub/auth/vite` |
 | `@vite-hub/blob` | Blob Stores, Default Blob Store behavior, Blob Driver Modules, provider storage output | `@vite-hub/blob`, `@vite-hub/blob/vite`, `@vite-hub/blob/drivers/*` |
 | `@vite-hub/browser` | Browser Definitions, invocation-scoped sessions, controllers and providers, live handoff, and Browser Run output | `@vite-hub/browser`, `@vite-hub/browser/controllers/*`, `@vite-hub/browser/providers/*`, `@vite-hub/browser/vite` |
+| `@vite-hub/decisions` | `defineChoices()`: text becomes choices over options that you declare, for filters, search facets, and command palettes. Asks a gateway that has `ask()`. No Vite, Nitro, or UI code. | `@vite-hub/decisions` |
 | `@vite-hub/sandbox` | Sandbox Definitions, provider-neutral execution sessions, and Sandbox Tasks | `@vite-hub/sandbox`, `@vite-hub/sandbox/ssh`, `@vite-hub/sandbox/task`, `@vite-hub/sandbox/task/vite` |
 | `@vite-hub/channels` | Provider-neutral outbound Channel Definitions (`defineOutboundChannel()`), server access, and Vite discovery | `@vite-hub/channels`, `@vite-hub/channels/server`, `@vite-hub/channels/vite` |
 | `@vite-hub/cms` | The `cms` preset for Content collections, and the generated Workspace, tables, and Database it needs | `@vite-hub/cms`, `@vite-hub/cms/vite` |
