@@ -251,7 +251,7 @@ onBeforeUnmount(() => {
       <UTooltip :text="`${projectName} overview`" :kbds="[...consoleOverviewShortcut]" :content="{ side: 'right' }" :disabled="expanded">
         <PrimitiveRailItem
           class="vitehub-console__rail-home"
-          :current="!active"
+          :current="!active && route.name !== 'vitehub-console-connect'"
           :label="`${projectName} overview`"
           @click="open('vitehub-console')"
         >
@@ -300,6 +300,15 @@ onBeforeUnmount(() => {
         </PrimitiveRailItem>
       </UTooltip>
       <span role="status" class="sr-only">{{ updateReady ? "A new Console version is ready. Reload to use it." : "" }}</span>
+      <UTooltip text="Connect an agent" :content="{ side: 'right' }" :disabled="expanded">
+        <PrimitiveRailItem
+          :current="route.name === 'vitehub-console-connect'"
+          label="Connect an agent"
+          @click="open('vitehub-console-connect')"
+        >
+          <UIcon name="i-lucide-bot" class="size-[1.125rem]" />
+        </PrimitiveRailItem>
+      </UTooltip>
       <!--
         The search button stays collapsed, because a change to that prop mounts a new button and keyboard focus is lost.
         Its slots give it the same icon sandbox and label as a rail item.
