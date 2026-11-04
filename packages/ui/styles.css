@@ -3071,7 +3071,7 @@
   .vh-ws-tab-panel.is-hidden { visibility: hidden; }
 
   /* File tree, editor, terminal */
-  .vh-ws-file-tree { height: 100%; }
+  .vh-ws-file-tree { border: 0; border-radius: 0; height: 100%; }
   .vh-ws-editor { background: var(--vh-ws-code-bg); flex: 1; height: 100%; min-height: 0; overflow: hidden; }
   .vh-ws-editor .cm-editor { height: 100%; }
   .vh-ws-editor-fallback { color: var(--vh-ws-code-fg); font-family: var(--vh-ws-font-mono); font-size: 13px; line-height: 1.6; margin: 0; overflow: auto; padding: 8px 12px 8px 3.5rem; white-space: pre; }
@@ -3085,7 +3085,8 @@
     background: var(--vh-bg-muted); border: 1px solid var(--vh-border); border-radius: calc(var(--vh-radius) * 0.75); color: var(--vh-text);
     flex: 1; font-family: var(--vh-ws-font-mono); font-size: 0.8125rem; height: 2rem; min-width: 0; padding: 0 0.625rem;
   }
-  .vh-ws-preview-frame { background: #fff; border: 0; flex: 1; width: 100%; }
+  /* The frame paints white, so its page must not take the dark scheme of this page and draw white text. */
+  .vh-ws-preview-frame { background: #fff; border: 0; color-scheme: light; flex: 1; width: 100%; }
   .vh-ws-empty { align-content: center; display: grid; flex: 1; gap: 0.25rem; justify-items: center; padding: 2rem; text-align: center; }
   .vh-ws-empty p { font-size: 0.875rem; margin: 0; }
   .vh-ws-empty-title { color: var(--vh-highlighted); font-weight: 600; }

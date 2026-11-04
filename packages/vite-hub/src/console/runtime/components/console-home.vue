@@ -21,7 +21,6 @@ import { isConsoleSignInRequired, requestConsole } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections";
 import { consoleSignInURL } from "../client/sign-in";
 import { recentTimestamp } from "../client/time";
-import ConsoleConnectAgent from "./console-connect-agent.vue";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleSectionIcon from "./console-section-icon.vue";
@@ -396,6 +395,22 @@ onBeforeUnmount(() => {
                 </section>
               </div>
 
+              <section class="vitehub-console__overview-block" aria-labelledby="console-home-connect">
+                <h2 id="console-home-connect" class="vitehub-console__overview-label">Connect</h2>
+                <ul class="vitehub-console__overview-list">
+                  <li>
+                    <button type="button" class="vitehub-console__overview-row" @click="openSection('vitehub-console-connect')">
+                      <UIcon name="i-lucide-bot" class="vitehub-console__overview-icon" />
+                      <span class="vitehub-console__overview-name">Connect an agent</span>
+                      <span class="vitehub-console__overview-description">Use this Console from Claude Code, Codex, Cursor, or any MCP client.</span>
+                      <span class="vitehub-console__overview-meta">
+                        <UIcon name="i-lucide-arrow-right" class="size-3" />
+                      </span>
+                    </button>
+                  </li>
+                </ul>
+              </section>
+
               <section v-if="notEnabledPrimitives.length" class="vitehub-console__overview-block" aria-labelledby="console-home-not-enabled">
                 <h2 id="console-home-not-enabled" class="vitehub-console__overview-label">Not enabled</h2>
                 <ul class="vitehub-console__overview-list">
@@ -420,7 +435,6 @@ onBeforeUnmount(() => {
                 </ul>
               </section>
 
-              <ConsoleConnectAgent v-if="installedNavigation" :auth="installedNavigation.auth" />
 
               <section class="vitehub-console__overview-block" aria-labelledby="console-home-learn">
                 <h2 id="console-home-learn" class="vitehub-console__overview-label">Learn</h2>

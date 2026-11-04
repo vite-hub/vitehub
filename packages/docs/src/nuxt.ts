@@ -81,6 +81,12 @@ export interface DocsModuleOptions {
    * suggest, and `guide` is the page that explains how to connect it. `false` turns it off.
    */
   mcp?: { name?: string, guide?: string } | false
+  /**
+   * Checks links on prerendered pages with `nuxt-link-checker` and fails the build on detected errors.
+   * Fragment checks are limited to the current page; fragments on other pages are not validated.
+   * Remote URLs are not fetched. Set the app's own `linkChecker` options to change that. `false` turns the check off.
+   */
+  linkChecker?: false
   /** The docs assistant: an Agent that answers from these pages. `true` uses the Agent named `docs`. */
   assistant?: boolean | { agent?: string }
   /**
@@ -189,6 +195,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       [dependency("@vite-hub/ui/nuxt")]: {},
       [dependency("nuxt-llms")]: {},
       [dependency("nuxt-agent-discovery")]: {},
+      ...docs.linkChecker === false ? {} : { [dependency("nuxt-link-checker")]: { defaults: { failOnError: true, fetchRemoteUrls: false, showLiveInspections: false } } },
       // The toolkit's own llms.txt block repeats what nuxt-agent-discovery writes.
       ...docs.mcp === false ? {} : { [dependency("@nuxtjs/mcp-toolkit")]: { defaults: { name: docs.site?.name ?? "Docs", llms: false } } },
     }

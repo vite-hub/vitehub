@@ -7,12 +7,12 @@ import { WorkspaceBootStatus } from "@vite-hub/ui/workspace-boot-status";
 import { WorkspaceEditor } from "@vite-hub/ui/workspace-editor";
 import { WorkspaceFileTree } from "@vite-hub/ui/workspace-file-tree";
 import { WorkspacePreview } from "@vite-hub/ui/workspace-preview";
-import { WorkspaceShell } from "@vite-hub/ui/workspace-shell";
 import { WorkspaceTerminal } from "@vite-hub/ui/workspace-terminal";
 import { useClipboard } from "@vueuse/core";
 import { encodePlayground, shareHashKey, shareLimit } from "~/utils/playground-share";
 import { downloadZip } from "~/utils/zip";
 
+import type { WebContainerStage } from "@vite-hub/web-container";
 import type { ConnectProviderName } from "@vite-hub/web-container/connect";
 import type { PlaygroundTemplate, TutorialFiles } from "~~/modules/tutorials/steps";
 
@@ -65,9 +65,9 @@ watch(() => store.credentials.value, () => {
 });
 
 const current = shallowRef(props.template);
-const firstFile = (files: TutorialFiles) => Object.keys(files).find(path => path.startsWith("server/api/") && !path.endsWith("health.get.ts")) ?? Object.keys(files).sort()[0] ?? "";
-const selected = ref(firstFile(props.files));
-const previewPath = ref("/api/health");
+const firstFile = (template: PlaygroundTemplate, files: TutorialFiles) => files[template.open] === undefined ? Object.keys(files).sort()[0] ?? "" : template.open;
+const selected = ref(firstFile(props.template, props.files));
+const previewPath = ref(props.template.preview);
 
 // A path whose contents differ from the open template is an edit of the reader.
 const edited = computed(() => {
@@ -97,7 +97,8 @@ async function open(template: PlaygroundTemplate) {
   // Another snapshot or an edited manifest needs a fresh dependency tree.
   if (template.snapshotOf !== props.template.snapshotOf || !sameManifest || workspace.files.value["package.json"] !== current.value.files["package.json"]) return emit("remount", template);
   current.value = template;
-  selected.value = firstFile(template.files);
+  selected.value = firstFile(template, template.files);
+  previewPath.value = template.preview;
   emit("change", template);
   await workspace.setFiles(template.files, { mode: "replace" });
   // The Vite config can differ, so start the dev server again.
@@ -108,14 +109,55 @@ function pick(template: PlaygroundTemplate) {
   guard(`Open the ${template.label} template?`, "Replace files", () => void open(template));
 }
 const templateItems = computed(() => [
-  { type: "label" as const, label: "Templates" },
-  ...props.templates.map(template => ({
+  [{ type: "label" as const, label: "Templates" }],
+  props.templates.map(template => ({
     label: template.label,
     description: template.description,
-    icon: template.id === current.value.id ? "i-lucide-check" : "i-lucide-file-code",
+    icon: template.id === current.value.id ? "i-lucide-check" : "i-lucide-box",
     onSelect: () => pick(template),
   })),
 ]);
+const moreItems = computed(() => [[
+  { label: "Restart dev server", icon: "i-lucide-refresh-cw", disabled: !workspace.container.value, onSelect: () => void workspace.restart() },
+  { label: "Discard changes", icon: "i-lucide-rotate-ccw", disabled: edited.value.length === 0, onSelect: reset },
+]]);
+
+// The bottom panel holds the dev server output and the Connect form.
+const panel = ref<"console" | "connect">("console");
+const connected = computed(() => Object.keys(states.value).length);
+const panelItems = computed(() => [
+  { label: "Console", value: "console", icon: "i-lucide-square-terminal", slot: "console" as const },
+  { label: "Connect", value: "connect", icon: "i-lucide-plug", slot: "connect" as const, badge: connected.value ? { label: String(connected.value), color: "neutral" as const, variant: "soft" as const } : undefined },
+]);
+
+const stageLabels: Partial<Record<WebContainerStage, string>> = {
+  checking: "Checking the browser",
+  booting: "Starting WebContainer",
+  mounting: "Loading files",
+  installing: "Installing dependencies",
+  starting: "Starting the dev server",
+};
+// One line in the toolbar that says what the workspace does now.
+const runState = computed(() => {
+  if (workspace.failure.value) return { tone: "error", label: workspace.failure.value.kind === "install" ? "Install failed" : workspace.failure.value.kind === "server" ? "The dev server stopped" : "Did not start" };
+  if (!booting.value) return { tone: "ready", label: "Running" };
+  return { tone: "busy", label: stageLabels[workspace.status.value as WebContainerStage] ?? "Starting" };
+});
+
+// An iframe takes the pointer events of a drag that crosses it, so the preview ignores them while a handle moves.
+const dragging = ref(false);
+const columns = [
+  { id: "files", defaultSize: 18, minSize: 12, maxSize: 30, slot: "files" as const },
+  { id: "code", defaultSize: 45, minSize: 25, slot: "code" as const },
+  { id: "preview", defaultSize: 38, minSize: 20, slot: "preview" as const },
+];
+const rows = [
+  { id: "editor", defaultSize: 68, minSize: 20, slot: "editor" as const },
+  { id: "panel", defaultSize: 32, minSize: 12, slot: "panel" as const },
+];
+const handleUi = {
+  handle: "bg-(--ui-border) data-[orientation=horizontal]:w-px data-[orientation=vertical]:h-px data-[resize-handle-state=hover]:bg-(--ui-border-accented) data-[resize-handle-state=drag]:bg-(--ui-primary) transition-colors duration-150",
+};
 
 function reset() {
   // Remount the snapshot as well as the files, so shared dependencies and the running server are reset too.
@@ -146,52 +188,107 @@ function download() {
 </script>
 
 <template>
-  <div class="vh-playground-workspace">
-    <WorkspaceShell layout="playground" label="Playground workspace" class="min-h-0 flex-1">
-      <template #toolbar>
-        <UDropdownMenu :items="templateItems" :content="{ align: 'start' }" :ui="{ content: 'w-72' }">
-          <UButton size="xs" color="neutral" variant="ghost" :label="current.label" icon="i-lucide-layout-template" trailing-icon="i-lucide-chevron-down" aria-label="Templates" />
-        </UDropdownMenu>
-        <span class="flex-1" />
-        <UButton size="xs" color="neutral" variant="ghost" label="Copy link" icon="i-lucide-link" @click="share" />
-        <UButton size="xs" color="neutral" variant="ghost" label="Download" icon="i-lucide-download" @click="download" />
-        <UButton size="xs" color="neutral" variant="ghost" label="Reset" icon="i-lucide-rotate-ccw" :disabled="edited.length === 0" @click="reset" />
-        <UButton size="xs" color="neutral" variant="ghost" label="Restart" icon="i-lucide-refresh-cw" :disabled="!workspace.container.value" @click="workspace.restart()" />
-      </template>
+  <div class="vh-playground-workspace" :class="{ 'is-dragging': dragging }">
+    <header class="vh-pg-toolbar">
+      <UDropdownMenu :items="templateItems" :content="{ align: 'start' }" :ui="{ content: 'w-64' }">
+        <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-layout-template" trailing-icon="i-lucide-chevron-down" :aria-label="`Template: ${current.label}`">
+          <span class="text-muted">Template</span>
+          <span class="font-medium text-highlighted">{{ current.label }}</span>
+        </UButton>
+      </UDropdownMenu>
+      <span class="vh-pg-state" :data-tone="runState.tone" role="status">
+        <span class="vh-pg-state-dot" aria-hidden="true" />
+        {{ runState.label }}
+      </span>
+      <span class="flex-1" />
+      <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-download" label="Download" @click="download" />
+      <UButton color="neutral" variant="outline" size="sm" icon="i-lucide-link" label="Copy link" @click="share" />
+      <UDropdownMenu :items="moreItems" :content="{ align: 'end' }">
+        <UButton color="neutral" variant="ghost" size="sm" icon="i-lucide-ellipsis" aria-label="More actions" />
+      </UDropdownMenu>
+    </header>
+
+    <USplitter id="vh-pg-columns" auto-save-id="vitehub:playground:columns" :items="columns" :hit-area-margins="{ coarse: 12, fine: 4 }" :ui="handleUi" class="min-h-0 flex-1" @dragging="(_, value) => dragging = value">
       <template #files>
-        <WorkspaceFileTree v-model:selected="selected" :paths="paths" :modified="edited" />
+        <section class="vh-pg-pane vh-pg-files" aria-label="Files">
+          <div class="vh-pg-pane-header">
+            <span class="vh-pg-pane-title">Files</span>
+          </div>
+          <div class="vh-pg-pane-body overflow-auto py-1">
+            <WorkspaceFileTree v-model:selected="selected" :paths="paths" :modified="edited" />
+          </div>
+        </section>
       </template>
-      <template #editor>
-        <WorkspaceEditor v-model="source" :path="selected" />
+
+      <template #code>
+        <USplitter id="vh-pg-rows" auto-save-id="vitehub:playground:rows" orientation="vertical" :items="rows" :hit-area-margins="{ coarse: 12, fine: 4 }" :ui="handleUi" class="min-w-0 flex-1" @dragging="(_, value) => dragging = value">
+          <template #editor>
+            <section class="vh-pg-pane" aria-label="Editor">
+              <div class="vh-pg-pane-header">
+                <span class="vh-pg-path">{{ selected }}</span>
+                <span v-if="edited.includes(selected)" class="vh-pg-edited">Edited</span>
+              </div>
+              <div class="vh-pg-pane-body">
+                <WorkspaceEditor v-model="source" :path="selected" />
+              </div>
+            </section>
+          </template>
+
+          <template #panel>
+            <UTabs
+              v-model="panel"
+              :items="panelItems"
+              variant="link"
+              size="xs"
+              color="neutral"
+              :unmount-on-hide="false"
+              class="vh-pg-pane gap-0"
+              :ui="{ list: 'vh-pg-pane-header px-1 gap-1', trigger: 'h-9', content: 'vh-pg-pane-body data-[state=inactive]:hidden', indicator: 'bottom-0' }"
+            >
+              <template #console>
+                <WorkspaceTerminal :output="workspace.logs.value" />
+              </template>
+              <template #connect>
+                <div class="h-full overflow-auto">
+                  <ConnectPanel
+                    :connect="connect"
+                    :states="states"
+                    @connect="(name, token) => store.set(name, token)"
+                    @disconnect="name => store.remove(name)"
+                    @remove-all="store.clear()"
+                    @copy-command="command => copy(command)"
+                  />
+                </div>
+              </template>
+            </UTabs>
+          </template>
+        </USplitter>
       </template>
+
       <template #preview>
-        <!-- The checklist takes the preview's place, so the reader can edit while the app starts. -->
-        <WorkspaceBootStatus
-          v-if="booting"
-          :status="workspace.status.value"
-          :steps="workspace.steps.value"
-          :failure="workspace.failure.value"
-          :online="workspace.online.value"
-          @retry="workspace.boot()"
-          @retry-install="workspace.install()"
-          @restart="workspace.restart()"
-        />
-        <WorkspacePreview v-else v-model:path="previewPath" :url="workspace.previewUrl.value" />
+        <section class="vh-pg-pane" aria-label="Preview">
+          <!-- The checklist takes the preview's place, so the reader can edit while the app starts. -->
+          <template v-if="booting">
+            <div class="vh-pg-pane-header">
+              <span class="vh-pg-pane-title">Preview</span>
+            </div>
+            <div class="vh-pg-pane-body vh-pg-boot">
+              <WorkspaceBootStatus
+                :status="workspace.status.value"
+                :steps="workspace.steps.value"
+                :failure="workspace.failure.value"
+                :online="workspace.online.value"
+                @retry="workspace.boot()"
+                @retry-install="workspace.install()"
+                @restart="workspace.restart()"
+                @show-output="panel = 'console'"
+              />
+            </div>
+          </template>
+          <WorkspacePreview v-else v-model:path="previewPath" :url="workspace.previewUrl.value" />
+        </section>
       </template>
-      <template #terminal>
-        <WorkspaceTerminal :output="workspace.logs.value" />
-      </template>
-      <template #connect>
-        <ConnectPanel
-          :connect="connect"
-          :states="states"
-          @connect="(name, token) => store.set(name, token)"
-          @disconnect="name => store.remove(name)"
-          @remove-all="store.clear()"
-          @copy-command="command => copy(command)"
-        />
-      </template>
-    </WorkspaceShell>
+    </USplitter>
 
     <UModal :open="!!confirm" :title="confirm?.title" description="Your edits to the current files are lost. Copy a link or download them first to keep them." @update:open="value => { if (!value) confirm = undefined }">
       <template #footer>
@@ -210,5 +307,134 @@ function download() {
   height: 100%;
   min-height: 0;
   flex-direction: column;
+}
+
+/* The preview iframe would take the pointer during a drag. */
+.vh-playground-workspace.is-dragging :deep(iframe) {
+  pointer-events: none;
+}
+
+.vh-pg-toolbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 0.25rem;
+  height: 2.75rem;
+  border-bottom: 1px solid var(--ui-border);
+  padding: 0 0.5rem;
+}
+
+.vh-pg-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: 0.5rem;
+  color: var(--ui-text-muted);
+  font-size: 0.8125rem;
+}
+
+.vh-pg-state-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--ui-text-dimmed);
+}
+
+.vh-pg-state[data-tone="busy"] .vh-pg-state-dot {
+  background: var(--ui-warning);
+  animation: vh-pg-pulse 1.2s ease-in-out infinite;
+}
+
+.vh-pg-state[data-tone="ready"] .vh-pg-state-dot {
+  background: var(--ui-success);
+}
+
+.vh-pg-state[data-tone="error"] {
+  color: var(--ui-error);
+}
+
+.vh-pg-state[data-tone="error"] .vh-pg-state-dot {
+  background: var(--ui-error);
+}
+
+@keyframes vh-pg-pulse {
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vh-pg-state[data-tone="busy"] .vh-pg-state-dot {
+    animation: none;
+  }
+}
+
+/* Every pane has the same header row, so the panes line up. */
+.vh-pg-pane {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.vh-pg-pane :deep(.vh-pg-pane-header),
+.vh-pg-pane-header,
+.vh-pg-pane :deep(.vh-ws-preview-bar) {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 0.5rem;
+  height: 2.25rem;
+  border-bottom: 1px solid var(--ui-border);
+  padding: 0 0.75rem;
+}
+
+.vh-pg-pane :deep(.vh-ws-preview-bar) {
+  padding: 0 0.25rem;
+}
+
+.vh-pg-pane :deep(.vh-pg-pane-body),
+.vh-pg-pane-body {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+/* The file column is one tinted surface, header included. */
+.vh-pg-files {
+  background: var(--ui-bg-muted);
+}
+
+.vh-pg-files :deep(.vh-ws-file-tree) {
+  --trees-bg-override: var(--ui-bg-muted);
+}
+
+.vh-pg-pane-title {
+  color: var(--ui-text-muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.vh-pg-path {
+  overflow: hidden;
+  color: var(--ui-text);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vh-pg-edited {
+  color: var(--ui-text-muted);
+  font-size: 0.75rem;
+}
+
+/* The checklist sits in the middle of the preview, with room on every side. */
+.vh-pg-boot {
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 2rem 1.5rem;
 }
 </style>

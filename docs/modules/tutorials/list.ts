@@ -7,4 +7,5 @@ import type { RunnableTutorialSource } from "./build";
 export const runnableTutorials: RunnableTutorialSource[] = [
   { slug: "first-server-primitive", page: "/docs/getting-started/first-server-primitive", fixture: "server-primitives" },
   { slug: "first-agent", page: "/docs/getting-started/first-agent", fixture: "first-agent" },
+  { slug: "decisions", page: "/docs/decisions/get-started", fixture: "decisions" },
 ];

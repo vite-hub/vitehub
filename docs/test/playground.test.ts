@@ -25,7 +25,10 @@ async function templates() {
 describe("playground", () => {
   it("reads each template from its fixture, so the code has one source", async () => {
     const built = await templates();
-    expect(built.map(template => template.id)).toEqual(["kv", "agent"]);
+    expect(built.map(template => template.id)).toEqual(["kv", "blob", "queue", "cache", "rate-limit", "agent"]);
+    // The editor and the preview open a file and a route of the template.
+    for (const template of built) expect(template.files[template.open], template.id).toBeDefined();
+    for (const template of built) expect(template.preview, template.id).toMatch(/^\/api\//);
     const kv = built.find(template => template.id === "kv")!;
     expect(kv.files["server/api/settings.post.ts"]).toBe(await readFile(resolve(fixturesDir, "server-primitives/server/api/settings.post.ts"), "utf8"));
     expect(kv.files["vite.config.ts"]).toContain("kv:");
@@ -36,8 +39,9 @@ describe("playground", () => {
 
   it("mounts the snapshot of the tutorial with the same dependencies", async () => {
     const built = await templates();
-    expect(Object.fromEntries(built.map(template => [template.id, template.snapshotOf]))).toEqual({ kv: "first-server-primitive", agent: "first-agent" });
-    // Both templates share a tutorial snapshot, so the build makes no extra one.
+    const snapshots = Object.fromEntries(built.map(template => [template.id, template.snapshotOf]));
+    expect(snapshots).toEqual({ ...Object.fromEntries(built.map(template => [template.id, "first-server-primitive"])), agent: "first-agent" });
+    // Every template shares a tutorial snapshot, so the build makes no extra one.
     expect(snapshotSources(runnableTutorials, built)).toEqual(runnableTutorials);
     expect(snapshotSources(runnableTutorials, [{ id: "kv", snapshotOf: "playground-kv" }]).at(-1)).toEqual({ slug: "playground-kv", page: "/playground", fixture: "server-primitives" });
   });

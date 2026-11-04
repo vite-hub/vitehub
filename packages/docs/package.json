@@ -76,6 +76,7 @@
     "comark": "catalog:markdown-ui",
     "defu": "catalog:unjs",
     "nuxt-agent-discovery": "^0.7.0",
+    "nuxt-link-checker": "^5.3.0",
     "nuxt-llms": "^0.2.0",
     "shiki": "^4.5.0",
     "yaml": "catalog:tooling",

@@ -18,6 +18,7 @@ import { EmailLanding } from "./email";
 import { ChannelsLanding } from "./channels";
 import { CmsLanding } from "./cms";
 import { CommentsLanding } from "./comments";
+import { DecisionsLanding } from "./decisions";
 import { EnvLanding } from "./env";
 import { RateLimitsLanding } from "./rate-limits";
 import { RealtimeLanding } from "./realtime";
@@ -44,6 +45,7 @@ export const primitiveLandings: Record<string, PrimitiveLanding> = Object.fromEn
   ChannelsLanding,
   CmsLanding,
   CommentsLanding,
+  DecisionsLanding,
   EnvLanding,
   RateLimitsLanding,
   RealtimeLanding,
