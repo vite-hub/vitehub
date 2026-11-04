@@ -663,6 +663,11 @@
       "import": "./dist/database/drizzle.js",
       "default": "./dist/database/drizzle.js"
     },
+    "./decisions": {
+      "types": "./dist/decisions.d.ts",
+      "import": "./dist/decisions.js",
+      "default": "./dist/decisions.js"
+    },
     "./deployment": {
       "types": "./dist/deployment.d.ts",
       "import": "./dist/deployment.js",
@@ -1262,6 +1267,7 @@
     "@vite-hub/channels": "workspace:*",
     "@vite-hub/cli": "workspace:*",
     "@vite-hub/connections": "workspace:*",
+    "@vite-hub/decisions": "workspace:*",
     "@vite-hub/email": "workspace:*",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/gateways": "workspace:*",

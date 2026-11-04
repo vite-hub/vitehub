@@ -404,6 +404,7 @@ export default defineConsoleAuthorize(async ({ request }) => {
 | `true` | Allows every Console section. |
 | `{ sections: ['content'] }` | Allows only these section ids, with every action of the section. An empty list returns `403`. |
 | `{ sections: ['kv:read'] }` | Allows the section `kv` for reads only. Operations of kind `write` or `destructive` return `403`, unless the call only reads (`readOnlyWhen`). |
+| `{ sections: ['blob:media'] }` | Allows the Blob operations on the `media` store only. `'blob:media:read'` allows only their reads. |
 | `false` | Returns `403`. |
 | A `Response` | Returns that response, for example a `401` or a redirect. |
 
@@ -420,6 +421,23 @@ export default defineConsoleAuthorize(({ user }) => {
 ```
 
 A section entry is the section id, or `'<section>:read'` for a read-only role. A read-only grant allows only `kind: 'read'` operations of the section, and the calls that `readOnlyWhen` marks as read only, on every surface: the Console RPC, `vitehub <namespace> --url`, agent tools, and MCP. Write routes such as Env management, Schedule runs, Channel replay, Agent Invocations, and media upload refuse it. List `'kv:read'` and `'kv'` together and the full grant wins. The Console hides the write actions of a section it may only read, such as the KV editor and the Blob upload.
+
+#### Grant one Blob store
+
+`'blob'` allows the Blob operations (`blob.list`, `blob.head`, `blob.get`, `blob.put`, `blob.del`, `blob.media`, and `blob.variants`) on every store. `'blob:<store>'` allows them on that store only, and `'blob:<store>:read'` allows only the reads. Use a store grant to give editors and their MCP agents the public Media store without the private Content store:
+
+```ts [server/console-authorize.ts]
+import { defineConsoleAuthorize } from 'vite-hub/console/auth'
+
+export default defineConsoleAuthorize(({ user }) => {
+  if (user?.role === 'admin') return true
+  // `media` is the served store. The `default` store keeps the Content workspace.
+  if (user?.role === 'editor') return { sections: ['content', 'comments', 'blob:media'] }
+  return false
+})
+```
+
+The server checks the store of each call on every surface: the Console RPC, `vitehub blob --url`, agent tools, and MCP. A call without `store` uses `default`. A call to another store returns `403` with `CONSOLE_ACCESS_DENIED` over MCP, and the message names the grant that it needs, such as `'blob:default'`. `blob.list` returns in `stores` only the stores that the access may use. A store grant does not open the Blob page of the Console, which needs `'blob'` or `'blob:read'`. Editors use the [Media library](/docs/content/console#media-library) of Content there. A store named `read`, or a name with `:`, needs the whole `'blob'` grant.
 
 ::warning
 Breaking change: a section grant now includes the write actions of its section. `{ sections: ['kv'] }` lets a user set and delete keys, `'blob'` lets them upload and delete blobs, and `'rate-limits'` lets them reset counters, where these pages only read before. Use `'<section>:read'`, for example `{ sections: ['kv:read', 'blob:read'] }`, for a read-only role.

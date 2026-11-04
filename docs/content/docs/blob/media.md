@@ -286,6 +286,8 @@ References stay portable in Markdown frontmatter and JSON, and an alt-text fix i
 
 The Content section of the Console is a media library over these records: folders, uploads, alt text, the focal point, and crops with replacements, plus a picker for `image()` fields and images in Markdown bodies. See [Media library](/docs/content/console#media-library).
 
+Keep media in its own store when another store holds private files, such as the Content workspace. Serve the media store and point `image({ store })` at it. Then `console.authorize` can grant `'blob:media'` for that store alone, so editors and their MCP agents can upload media but cannot read or change the private store. See [Grant one Blob store](/docs/development/console#grant-one-blob-store).
+
 ## Storage layout
 
 | Pathname | Holds |

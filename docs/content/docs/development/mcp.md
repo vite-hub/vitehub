@@ -80,6 +80,8 @@ Each ability is one tool, named after its operation. The agent reads the same da
 | `databases` | `databases_tables`, `databases_browse` | none |
 | `content` | `content_collections`, `content_list`, `content_resolve`, `content_show`, `content_status`, `content_diff`, `content_revisions`, `content_schedules`, `content_sitemap` | `content_save`, `content_restore`, `content_remove`, `content_publish`, `content_schedule`, `content_unschedule` |
 
+The Blob tools also accept a store grant. `'blob:media'` allows them on the `media` store only, and a call to another store fails with `CONSOLE_ACCESS_DENIED`. See [Grant one Blob store](/docs/development/console#grant-one-blob-store).
+
 `content_save` requires `ifDigest`: the current draft digest from `content_show`, or explicit `null` to create a new document. A missing digest fails without saving, and a stale digest fails with a conflict.
 
 [Operations](/docs/development/operations#built-in-operations) lists the operations of the other sections. Their tools follow the same naming rule.

@@ -270,6 +270,26 @@ Lumen does not run on Node.js 22 or older.
 
 The package has `::tutorial-step`, `::product-features`, `:::product-feature-item`, and `::agent-only`.
 
+### Add Comark plugins
+
+The server parses every page with [Comark](https://comark.dev). To add Comark plugins, such as a plugin that turns `::code-group` into tabs, put them in a module and name it in `parser`. Plugins are functions, so they cannot go in `nuxt.config.ts` itself.
+
+```ts [docs.parser.ts]
+import type { DocsParserOptions } from '@vite-hub/docs/server'
+import tabs from 'comark-tabs'
+
+export default { plugins: [tabs()] } satisfies DocsParserOptions
+```
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['@vite-hub/docs/nuxt'],
+  docs: { parser: './docs.parser.ts' },
+})
+```
+
+The page route, search, and Console drafts parse with these plugins after the built-in ones. A plugin with the name of a built-in plugin, such as `alert`, replaces it. The browser receives the parsed nodes, so a plugin that adds a tag needs a component for it in `app/components/content/`.
+
 ## Agent resources
 
 Coding agents read the same pages without HTML. You get these routes with no setup:
