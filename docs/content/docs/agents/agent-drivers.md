@@ -59,7 +59,8 @@ The `model` value may also be a compatible AI SDK model or an invocation-time ca
 
 | Option | Purpose |
 | --- | --- |
-| `model` | Required model id, `{ id, apiKey }`, AI SDK model, or callback. |
+| `model` | Required model id, `{ id, apiKey }`, AI SDK model, or callback. With `gateway`, a model id. |
+| `gateway` | `chatgpt()` runs the model on the [ChatGPT plan](/docs/connections/chatgpt#use-a-model-backed-driver). For another gateway, set `model: languageModel(gateway, id)`. |
 | `instructions` | String, string array, or callback parts. Defaults to colocated instructions when available. |
 | `maxRetries` | Common model retry count. Do not also set `execution.callSettings.maxRetries`. |
 | `execution.callSettings` | Provider and AI SDK call settings. |
@@ -69,7 +70,7 @@ The `model` value may also be a compatible AI SDK model or an invocation-time ca
 
 ## Use a provider-backed Driver
 
-To use a signed-in user's ChatGPT Plus or Pro plan, define a [ChatGPT Connection](/docs/connections/chatgpt) and set `driver: codexDriver({ gateway: chatgpt() })`, importing `chatgpt` from `vite-hub/gateways`. The CLI handles loopback sign-in; Connections handles registration and refresh. This flow never falls back to an API key. It requires a POSIX Node.js host and supports Codex only. Model Drivers on the same grant are a follow-up.
+To use a signed-in user's ChatGPT Plus or Pro plan, define a [ChatGPT Connection](/docs/connections/chatgpt) and set `driver: codexDriver({ gateway: chatgpt() })`, importing `chatgpt` from `vite-hub/gateways`. The CLI handles loopback sign-in; Connections handles registration and refresh. This flow never falls back to an API key. Codex requires a POSIX Node.js host. A model-backed Driver uses the same grant on every host, including Cloudflare Workers: `driver: { model: 'gpt-5.5', gateway: chatgpt() }`.
 
 The built-in Drivers reuse T3 Code's normalized Codex and Claude Code runtime while ViteHub owns Agent Definitions, Capabilities, Workspaces, Invocations, and public lifecycle events.
 

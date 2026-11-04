@@ -321,6 +321,8 @@ async function usePackedPeerManifests(appDir: string, specs: Record<string, stri
 function workspaceConfig(specs: Record<string, string>, additionalOverrides: Record<string, string> = {}) {
   const overrides = Object.entries({
     ...specs,
+    // Fresh resolutions selected 2.0.1 while its tarball returned 404; use the workspace-tested version.
+    "mdast-util-gfm-table": "2.0.0",
     ...additionalOverrides,
   })
     .sort(([left], [right]) => left.localeCompare(right))

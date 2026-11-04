@@ -727,6 +727,11 @@ function modelProviderFromId(id: string | undefined): string | undefined {
   return provider && provider !== id ? provider : undefined
 }
 
+/** A model on the ChatGPT plan: an OpenAI model that the Connection's grant pays for. */
+function chatgptModelMetadata(id: string): AgentInspectionModelMetadata {
+  return { id, provider: "openai", transport: "chatgpt" }
+}
+
 function modelMetadata(model: AgentModelInput | undefined, dynamic = false): AgentInspectionModelMetadata {
   if (model === undefined) return dynamic ? { dynamic: true } : {}
   const gateway = gatewayModelDescriptor(model)
@@ -937,7 +942,9 @@ function staticDriverMetadata<
       ...(driver.execution ? { execution: executionMetadata(driver.execution as never) } : {}),
       kind: "model",
       // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
-      model: modelMetadata(hasRuntimeType(driver.model, "function") ? undefined : driver.model as AgentModelInput, hasRuntimeType(driver.model, "function")),
+      model: driver.gateway
+        ? chatgptModelMetadata(String(driver.model))
+        : modelMetadata(hasRuntimeType(driver.model, "function") ? undefined : driver.model as AgentModelInput, hasRuntimeType(driver.model, "function")),
     }
   }
   if (driver.kind === "provider") {
@@ -962,6 +969,15 @@ async function resolvedDriverMetadata<
 ): Promise<AgentInspectionDriverMetadata | undefined> {
   if (!settings) return
   const driver = normalizeAgentDriver(settings)
+  if (driver.kind === "model" && driver.gateway) {
+    return {
+      executionAuthority: noExecutionAuthority,
+      // SAFETY: Workspace definition normalization establishes the asserted owned Workspace contract.
+      ...(driver.execution ? { execution: executionMetadata(driver.execution as never) } : {}),
+      kind: "model",
+      model: chatgptModelMetadata(String(driver.model)),
+    }
+  }
   if (driver.kind === "model") {
     const dynamic = hasRuntimeType(driver.model, "function")
     const model = dynamic
