@@ -226,3 +226,50 @@ a {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--vitehub-console-scrollbar-hover);
 }
+
+/*
+ * The first paint, before the app mounts: the rail and an empty page panel, as `runtime/server/page.get.ts` writes them.
+ * The app's own loading panel uses the same status row, so the page does not change shape while it loads.
+ */
+.vitehub-console-boot {
+  display: flex;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.vitehub-console-boot .vh-primitive-rail__surface {
+  background: var(--ui-bg-muted);
+  border-inline-end: 1px solid var(--ui-border);
+}
+
+.dark .vitehub-console-boot .vh-primitive-rail__surface {
+  background: #000;
+}
+
+.vitehub-console-boot__mark {
+  color: var(--ui-text-highlighted);
+  height: 1.125rem;
+  width: 1.125rem;
+}
+
+.vitehub-console-boot__panel {
+  display: flex;
+  flex: 1 1 0%;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.vitehub-console-boot__header {
+  flex: none;
+  height: 2.75rem;
+}
+
+.vitehub-console-opening {
+  align-items: center;
+  color: var(--ui-text-muted);
+  display: flex;
+  font-size: 0.875rem;
+  gap: 0.5rem;
+  line-height: 1.25rem;
+  padding: 2rem 1.5rem;
+}

@@ -10,7 +10,6 @@ import { resolveConsoleRouteName } from "../console-route";
 import { rememberConsoleSection } from "../sections";
 import { consoleDatabaseNumericColumns, consoleDatabaseRequestQuery, consoleDatabaseRowFields, parseConsoleDatabase } from "./console-database-model";
 import { useConsoleToast } from "../client/toast";
-import ConsoleFrame from "./console-frame.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleSearch from "./console-search.vue";
@@ -343,7 +342,6 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <ConsoleFrame active="databases" :sections-base="sectionsBase">
     <UDashboardSidebar
       id="console-navigation"
       class="vitehub-console__nav"
@@ -600,7 +598,6 @@ onBeforeUnmount(() => {
         </dl>
       </template>
     </USlideover>
-  </ConsoleFrame>
 </template>
 
 <style scoped>

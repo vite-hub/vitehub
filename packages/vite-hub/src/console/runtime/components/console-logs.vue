@@ -7,7 +7,6 @@ import type { LogEntry, LogSourceInfo } from "../../../logs/source";
 import { requestConsole } from "../client/request";
 import { queryChoice, querySelection, queryText, useConsoleQuery } from "../client/route-query";
 import { consoleClockTime, exactTimestamps } from "../client/time";
-import ConsoleFrame from "./console-frame.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleSearch from "./console-search.vue";
@@ -154,7 +153,6 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <ConsoleFrame active="logs" :sections-base="sectionsBase">
     <ConsoleSearch :agents-base="`${apiBase}/agents`" :definitions-base="`${apiBase}/definitions`" :kv-base="`${apiBase}/kv`" :search-base="`${apiBase}/search`" :sections-base="sectionsBase" />
     <UDashboardPanel id="logs" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
       <ConsolePageHeader title="Logs" :description="source?.label" :toggle="false">
@@ -328,7 +326,6 @@ onBeforeUnmount(() => {
         ><span v-if="dropped">{{ dropped }} dropped or evicted</span><span>Read-only</span>
       </footer>
     </UDashboardPanel>
-  </ConsoleFrame>
 </template>
 
 <style scoped>

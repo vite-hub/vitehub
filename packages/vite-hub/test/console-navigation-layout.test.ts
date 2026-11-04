@@ -10,23 +10,19 @@ const component = (name: string) => readFileSync(
 )
 
 describe("shared Console navigation layout", () => {
-  it("renders one navigation rail on every Console page", () => {
+  it("renders one navigation rail for every Console route", () => {
     const frame = component("console-frame")
     expect(frame).toContain('<ConsoleRail :active="active" :sections-base="sectionsBase" />')
-    const pages = {
-      "console-home": '<ConsoleFrame :sections-base="sectionsBase">',
-      "console-env": '<ConsoleFrame active="env" :sections-base="sectionsBase">',
-      "console-kv": '<ConsoleFrame active="kv" :sections-base="sectionsBase">',
-      "console-connections": '<ConsoleFrame active="connections" :sections-base="sectionsBase">',
-      "console-blob": '<ConsoleFrame active="blob" :sections-base="sectionsBase">',
-      "console-database": '<ConsoleFrame active="databases" :sections-base="sectionsBase">',
-      "console-definitions": '<ConsoleFrame :active="section" :sections-base="sectionsBase">',
-      "console-app": `<ConsoleFrame :active="isUsageRoute ? 'usage' : 'agents'" :sections-base="sectionsBase">`,
-    }
-    for (const [name, frameTag] of Object.entries(pages)) {
-      expect(component(name)).toContain(frameTag)
-      expect(component(name)).not.toContain("ConsolePrimitiveSwitcher")
-      expect(component(name)).not.toContain("ConsoleSectionNav")
+    // The app owns the frame, so the rail stays mounted while a route loads and between sections.
+    const app = readFileSync(new URL("../src/console/runtime/client/app.vue", import.meta.url), "utf8")
+    expect(app).toMatch(/<ConsoleFrame :active="active" :sections-base="sectionsBase">[\s\S]*<RouterView/)
+    const pages = readdirSync(new URL("../src/console/runtime/components/", import.meta.url))
+      .filter(file => file.endsWith(".vue"))
+      .map(file => file.slice(0, -".vue".length))
+    for (const name of pages) {
+      expect(component(name), name).not.toContain("<ConsoleFrame")
+      expect(component(name), name).not.toContain("ConsolePrimitiveSwitcher")
+      expect(component(name), name).not.toContain("ConsoleSectionNav")
     }
     const rail = component("console-rail")
     expect(rail).toContain("groupConsoleSections(")
@@ -35,11 +31,9 @@ describe("shared Console navigation layout", () => {
     expect(rail).toContain("<UDashboardSearchButton")
   })
 
-  it("mounts search on every page with the rail, so the rail's Search button opens it", () => {
-    const pages = readdirSync(new URL("../src/console/runtime/components/", import.meta.url))
-      .filter(file => file.endsWith(".vue"))
-      .map(file => file.slice(0, -".vue".length))
-      .filter(name => component(name).includes("<ConsoleFrame"))
+  it("mounts search on every routed page, so the rail's Search button opens it", () => {
+    const client = readFileSync(new URL("../src/console/runtime/client/main.js", import.meta.url), "utf8")
+    const pages = [...client.matchAll(/import\("\.\.\/components\/(console-[a-z-]+)\.vue"\)/g)].map(match => match[1])
     expect(pages).toContain("console-logs")
     for (const name of pages) expect(component(name), name).toContain("<ConsoleSearch")
   })
