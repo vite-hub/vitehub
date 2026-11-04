@@ -7,6 +7,12 @@
 export const viteHubPageToolsQuery = "vitehub"
 
 /**
+ * Query parameters of links into a tool, such as `?comment=3` of Comments. Like `?vitehub`, they load the page tools,
+ * so a person who follows a link sees what it points at. The tool with that `param` opens.
+ */
+export const viteHubPageToolsLinkParams: readonly string[] = ["comment"]
+
+/**
  * The cookie that remembers the session route's answer for this browser: `1` when a tool allows the person, `0` when
  * none does or the person turned the tools off. It is a hint, never a credential, and it is not HttpOnly, because the
  * page's bootstrap script reads it.
@@ -42,7 +48,8 @@ export const viteHubPageToolsResetCookie: string = `${viteHubPageToolsCookie}=; 
  * `vitehub-tools=0` stops the last case, so a signed-in person without access causes one session request per session.
  */
 export function viteHubPageToolsWanted(search: string, cookie: string): boolean {
-  if (new URLSearchParams(search).has(viteHubPageToolsQuery)) return true
+  const query = new URLSearchParams(search)
+  if (query.has(viteHubPageToolsQuery) || viteHubPageToolsLinkParams.some(param => query.has(param))) return true
   const parts = cookie.split(";").map(part => part.trim())
   if (parts.includes(`${viteHubPageToolsCookie}=1`)) return true
   return parts.includes(`${viteHubSessionMarkerCookie}=1`) && !parts.some(part => part.startsWith(`${viteHubPageToolsCookie}=`))
@@ -61,7 +68,7 @@ export const viteHubPageSessionPath = "/_vitehub/page/session"
  * The URL of the loader script, below the app base. Its version query changes when the loader changes, so caches keep
  * it 5 minutes.
  */
-export const viteHubPageToolsLoader = "/_vitehub/page/assets/loader.js?v=13"
+export const viteHubPageToolsLoader = "/_vitehub/page/assets/loader.js?v=15"
 
 /**
  * The buttons of the pill and of each tool's segment. The pill is always the dark review toolbar of Drop, so it reads
@@ -92,9 +99,9 @@ export const viteHubPageToolsInlineStart: string = `<script type="module" ${vite
  * it too. A `nonce` goes on the tag for a Content Security Policy with nonces.
  */
 export function viteHubPageToolsInlineScript(base: string | undefined, nonce?: string): string {
-  const query = JSON.stringify(viteHubPageToolsQuery)
   const tools = JSON.stringify(`${viteHubPageToolsCookie}=`)
-  const hint = `new URLSearchParams(location.search).has(${query})||c.includes(${JSON.stringify(`${viteHubPageToolsCookie}=1`)})||c.includes(${JSON.stringify(`${viteHubSessionMarkerCookie}=1`)})&&!c.some(p=>p.startsWith(${tools}))`
+  const params = JSON.stringify([viteHubPageToolsQuery, ...viteHubPageToolsLinkParams])
+  const hint = `${params}.some(p=>new URLSearchParams(location.search).has(p))||c.includes(${JSON.stringify(`${viteHubPageToolsCookie}=1`)})||c.includes(${JSON.stringify(`${viteHubSessionMarkerCookie}=1`)})&&!c.some(p=>p.startsWith(${tools}))`
   const start = nonce ? `<script type="module" nonce="${nonce}" ${viteHubPageToolsMarker}>` : viteHubPageToolsInlineStart
   return `${start}const c=document.cookie.split("; ");if(${hint})import(${JSON.stringify(`${viteHubBasePath(base)}${viteHubPageToolsLoader}`)})</script>`
 }
@@ -156,6 +163,8 @@ export interface ViteHubPageToolInfo {
    */
   script: string
   lazy?: boolean
+  /** A query parameter that opens the tool on load, such as `comment` for a link to a comment thread. */
+  param?: string
 }
 
 /** The answer of `GET /_vitehub/page/session`. */
@@ -176,6 +185,8 @@ function readTool(value: unknown): ViteHubPageToolInfo | undefined {
   if (Reflect.get(value, "lazy") === true) tool.lazy = true
   const hotkey = text(Reflect.get(value, "hotkey"))
   if (hotkey) tool.hotkey = hotkey
+  const param = text(Reflect.get(value, "param"))
+  if (param) tool.param = param
   return tool
 }
 

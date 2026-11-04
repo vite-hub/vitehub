@@ -1,5 +1,5 @@
 import { H3 } from "h3"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { createCommentsClient, createRestTransport } from "../src/client.ts"
 import { defineCommentSubject } from "../src/index.ts"
@@ -79,6 +79,19 @@ describe("createRestTransport", () => {
     expect(await ada.list({ subject })).toEqual([])
   })
 
+  it("paginates beyond the first 200 page threads", async () => {
+    const { comments, as } = await setup()
+    const subject = { kind: "page", id: "/many" }
+    for (let index = 0; index < 205; index++) await comments.create({ subject, body: `Thread ${index}`, author: { id: "ada" } })
+    const transport = as("ada")
+    const first = await transport.list({ subject, limit: 200 })
+    expect(first).toHaveLength(200)
+    const last = first.at(-1)!
+    const second = await transport.list({ subject, limit: 200, before: { id: last.id, updatedAt: last.updatedAt } })
+    expect(second).toHaveLength(5)
+    expect(new Set([...first, ...second].map(thread => thread.id)).size).toBe(205)
+  })
+
   it("honours authorize for the user of each request", async () => {
     const { as } = await setup({ authorize: ({ user, action }) => action === "read" || user?.id === "ada" })
     const created = await as("ada").create({ subject: { kind: "drop", id: "1" }, anchor: { kind: "page" }, body: "Mine" })
@@ -135,6 +148,29 @@ describe("createRestTransport", () => {
     const denied = await read("ben")
     expect(denied.status).toBe(404)
     expect(await denied.json()).toMatchObject({ error: { code: "COMMENTS_R0020" } })
+  })
+
+  it("reads an attachment beyond a full page of denied message references", async () => {
+    const key = "files/shared.txt"
+    const files = new Map([[key, new Blob(["Shared file"], { type: "text/plain" })]])
+    const { comments, app } = await setup({ authorize: ({ thread }) => !thread || thread.subject.id === "/public" }, files)
+    // Increasing ids put the readable reference after the first store page as well as the old 20-row cap.
+    let sequence = 0
+    const uuid = vi.spyOn(crypto, "randomUUID").mockImplementation(() => `00000000-0000-4000-8000-${String(++sequence).padStart(12, "0")}`)
+    try {
+      const author = { id: "ada", name: "Ada" }
+      const [, denied] = await comments.create({ page: "/private", anchor, body: "Private", attachments: [key], author })
+      for (let index = 0; index < 205; index++) await comments.reply(denied!.id, { body: "Private reference", attachments: [key], author })
+      const read = () => app.fetch(new Request(`${origin}/api/_vitehub/comments/attachments/${key}`, { headers: { "x-share-token": "ada" } }))
+      expect((await read()).status).toBe(404)
+      await comments.create({ page: "/public", anchor, body: "Readable reference", attachments: [key], author })
+      const response = await read()
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe("Shared file")
+    }
+    finally {
+      uuid.mockRestore()
+    }
   })
 
   it("serves a stored type that Comments does not attach, such as SVG from the app's hook, as a download", async () => {

@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest"
 // token a color of its own, in both schemes. A browser does the cascade; this reads the same declarations.
 const overlayCss = readFileSync(join(import.meta.dirname, "../src/comments-overlay/overlay.css"), "utf8")
 const uiCss = readFileSync(join(import.meta.dirname, "../../ui/styles.css"), "utf8")
+const standaloneCss = readFileSync(join(import.meta.dirname, "../../ui/src/standalone/styles.css"), "utf8")
 
 type Scheme = "dark" | "light"
 
@@ -104,8 +105,9 @@ describe("the overlay tokens", () => {
     expect(overlayCss).toMatch(/:host\(\.dark\) \{ color-scheme: dark; \}/)
   })
 
-  it("keeps the solid buttons readable", () => {
-    expect(overlayCss).toContain('button[data-variant="solid"] { background: var(--vh-ui-highlighted); color: var(--vh-ui-inverted); }')
-    expect(overlayCss).toContain('button[data-variant="solid"][data-color="error"] { background: var(--vh-ui-error); color: var(--vh-ui-inverted); }')
+  it("keeps the solid buttons of the stand-ins readable", () => {
+    expect(overlayCss).toContain('@import "@vite-hub/ui/standalone/styles.css";')
+    expect(standaloneCss).toContain('[data-standalone-button][data-variant="solid"] { background: var(--vh-highlighted); color: var(--vh-inverted); }')
+    expect(standaloneCss).toContain('[data-standalone-button][data-variant="solid"][data-color="error"] { background: var(--vh-error); color: var(--vh-inverted); }')
   })
 })
