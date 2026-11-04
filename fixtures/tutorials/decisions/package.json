@@ -1,0 +1,23 @@
+{
+  "name": "vitehub-decisions-tutorial",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 3000 --strictPort",
+    "build": "vite build",
+    "start": "node .output/server/index.mjs",
+    "postinstall": "vitehub types prepare"
+  },
+  "dependencies": {
+    "h3": "catalog:unjs",
+    "nitro": "catalog:unjs",
+    "vite": "catalog:vite",
+    "vite-hub": "workspace:*",
+    "vue": "catalog:ui"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:tooling",
+    "@vitejs/plugin-vue": "^6.0.10",
+    "typescript": "catalog:tooling"
+  }
+}

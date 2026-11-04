@@ -21,6 +21,7 @@ const serverPrimitiveSections = [
   "connections",
   "content",
   "database",
+  "decisions",
   "email",
   "env",
   "kv",

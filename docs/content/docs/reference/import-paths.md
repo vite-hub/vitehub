@@ -35,7 +35,8 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/agent/server` and `vite-hub/agent/state/sqlite` | Manual server integration and libSQL-compatible durable Agent state. |
 | `vite-hub/agent/server/github` | GitHub host access, App credentials, command execution and checkout lifecycle. |
 | `vite-hub/agent/process-host` | Attach a long-running Node process host to an Agent Definition from a preset. |
-| `vite-hub/decisions` | `defineChoices()`: text becomes choices over options that you declare. Re-exports `@vite-hub/decisions`. |
+| `vite-hub/decisions` | [`defineChoices()`](/docs/decisions/server-api): text becomes choices over options that you declare. Re-exports `@vite-hub/decisions`. |
+| `vite-hub/decisions/vue` | [`useChoices()`](/docs/decisions/client): a Vue composable that turns the text of an input into a selection. Auto-imported in Nuxt. Re-exports `@vite-hub/decisions/vue`. |
 | `vite-hub/gateways` | [AI gateways](/docs/agents/ai-gateways): routes for Codex and Claude Code model requests, and `ask()` for TypeSafe Jev questions. Re-exports `@vite-hub/gateways`. |
 | `vite-hub/gateways/ai-sdk` | [`languageModel()`](/docs/agents/ai-gateways#use-a-model-with-the-ai-sdk): an AI SDK model that sends its requests through a gateway. Re-exports `@vite-hub/gateways/ai-sdk`. |
 | `vite-hub/presets/babysitter` | Composable Babysitter repair-loop preset. |
