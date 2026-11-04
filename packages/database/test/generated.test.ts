@@ -10,6 +10,8 @@ import { afterEach, describe, expect, it } from "vitest"
 import { resolveDBViteConfig } from "../src/config.ts"
 import { writeGeneratedDatabaseArtifacts } from "../src/internal/generated.ts"
 
+const nodeMajor = Number(process.versions.node.split(".")[0])
+
 const execFileAsync = promisify(execFile)
 const drizzleKitBin = join(dirname(createRequire(import.meta.url).resolve("drizzle-kit")), "bin.cjs")
 const tempDirs: string[] = []
@@ -52,7 +54,8 @@ async function runKit(rootDir: string, configFile: string, command = "generate",
 }
 
 describe("generated Drizzle Kit credentials", { timeout: 45_000 }, () => {
-  it.each(["process.env.VITEHUB_TEST_DATABASE_URL", "'libsql://test.invalid'"])("forwards runtime auth tokens to the real Kit libSQL connection with URL %s", async (url) => {
+  // On Node.js 22, any module.registerHooks load hook stops Kit from loading the TypeScript config: "request for ... is not in cache".
+  it.skipIf(nodeMajor < 24).each(["process.env.VITEHUB_TEST_DATABASE_URL", "'libsql://test.invalid'"])("forwards runtime auth tokens to the real Kit libSQL connection with URL %s", async (url) => {
     const rootDir = await createProject()
     const config = await writeDefinition(rootDir, [
       "schema: { users },",

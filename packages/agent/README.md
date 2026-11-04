@@ -26,7 +26,7 @@ pnpm add @vite-hub/agent @vite-hub/workspace ai
 
 Add the AI SDK model provider you pass to `model`.
 
-Eve extensions are optional. Install the compatible pair before mounting one in a static Capability list:
+Eve extensions are optional and require Node.js 24 or newer. Install the compatible pair before mounting one in a static Capability list:
 
 ```sh
 pnpm add @github-tools/eve-extension@0.8.1 eve@0.80.1

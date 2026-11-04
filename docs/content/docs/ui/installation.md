@@ -10,7 +10,7 @@ icon: i-lucide-package
 
 Add `@vite-hub/ui` to an existing Nuxt or Vue application and render a short
 Markdown message to check that it works. Choose the setup for your framework,
-then follow "Verify the setup" below. You need Node.js 24.15 or newer.
+then follow "Verify the setup" below. You need Node.js 22.22 or newer.
 
 The package is pre-1.0. Pin its version and review changes before you upgrade.
 

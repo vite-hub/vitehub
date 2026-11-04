@@ -20,7 +20,9 @@ function foreignResponse(payload: string | ReadableStream<Uint8Array> = 'data: {
     "queueMicrotask", "console", "Blob", "File", "DOMException",
     "Event", "EventTarget", "MessageEvent", "CustomEvent",
   ].map(name => [name, Reflect.get(globalThis, name)]))
-  return runInNewContext(`${source}
+  // Node.js 22 bundles an undici that reads `global`.
+  return runInNewContext(`var global = globalThis
+    ${source}
     new module.exports.Response(payload, {
       headers: { "x-vercel-ai-ui-message-stream": "v1" },
     })`, {

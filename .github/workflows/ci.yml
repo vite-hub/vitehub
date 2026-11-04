@@ -28,6 +28,7 @@ jobs:
       - consumer-contracts
       - consumer-contracts-success
       - windows-agent-credentials
+      - node-22
       - docs
       - docs-deploy
       - verify-providers
@@ -343,6 +344,48 @@ jobs:
         working-directory: packages/agent
         run: vp test test/provider-agent.test.ts -t "restricts Codex credential home ACLs on Windows"
 
+  # The standalone package floor is Node.js 22.18; Nitro integrations require
+  # 22.22. StackBlitz WebContainers run only Node.js 22. This job covers built-ins with
+  # different behavior on 22: fs glob, node:sqlite, module hooks, Response
+  # brand checks, TextDecoder, and structuredClone.
+  node-22:
+    name: node 22.18
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      # Contributor dependencies require a newer runtime than the standalone
+      # package floor. Install them on Node 24, then test on the exact floor.
+      - uses: voidzero-dev/setup-vp@68f39c78aaf39be468cabd2afb09c162574c84af # v1.21.2
+        with:
+          node-version: "22.18.0"
+          run-install: false
+
+      - name: Require Node.js 22.18
+        run: node -e 'if (process.version !== "v22.18.0") throw new Error("Expected Node.js v22.18.0, got " + process.version)'
+      - name: Build tested packages
+        run: |
+          for task in @vite-hub/rate-limit#build @vite-hub/sandbox#build @vite-hub/database#build @vite-hub/auth#build @vite-hub/agent#build vite-hub#build; do
+            vp run -t "$task"
+          done
+      - run: vp test
+        working-directory: packages/rate-limit
+      - run: vp test test/runtime-type.test.ts
+        working-directory: packages/runtime
+      - run: vp test test/task/project.test.ts
+        working-directory: packages/sandbox
+      - run: vp test test/connect.test.ts test/cli.test.ts test/generated.test.ts
+        working-directory: packages/database
+      - run: vp test test/access-handler.test.ts
+        working-directory: packages/auth
+      - run: vp test test/console-auth.test.ts test/console-access-crossrealm-probe.test.ts test/nitro-optional-peers.test.ts
+        working-directory: packages/vite-hub
+      - run: vp test test/agent-invocations-journal-file.test.ts test/codex-home-retention.test.ts test/github-install.test.ts test/provider-runtime-packages.test.ts test/optional-capabilities-import.test.ts test/windows-1252.test.ts test/gmail-channel.test.ts test/response.test.ts test/crossrealm-trigger-response.test.ts test/stream-output-cross-realm-response.test.ts test/invocations.test.ts
+        working-directory: packages/agent
+
   docs:
     name: docs
     runs-on: ubuntu-latest
@@ -379,6 +422,7 @@ jobs:
       - package-tests-success
       - consumer-contracts-success
       - windows-agent-credentials
+      - node-22
       - docs
       - verify-providers
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}

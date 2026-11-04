@@ -16,7 +16,7 @@ offline after installation and needs no model account or credentials.
 ## Before you start
 
 Complete [Installation](/docs/getting-started/installation) and check
-`/api/health` in your app. You need Node.js 24.15 or newer and pnpm.
+`/api/health` in your app. You need Node.js 22.22 or newer and pnpm.
 Continue in that project directory. The configuration below uses the Vite
 and Nitro path. In Nuxt, put the same ViteHub options in your module config;
 the Agent Definition and server route stay the same.
