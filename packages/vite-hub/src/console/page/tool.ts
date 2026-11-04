@@ -403,6 +403,7 @@ function draftSwitch(base: string, shadow: ShadowRoot, signal: AbortSignal): voi
     if (!drafted && removeBanner) { removeBanner(); removeBanner = undefined }
   }
   const refresh = async () => {
+    if (signal.aborted) return
     pending?.abort()
     const controller = new AbortController()
     pending = controller
@@ -414,7 +415,7 @@ function draftSwitch(base: string, shadow: ShadowRoot, signal: AbortSignal): voi
       if (controller.signal.aborted) return
       current = undefined
     }
-    render()
+    if (!controller.signal.aborted) render()
   }
 
   view.addEventListener("click", async () => {
@@ -450,6 +451,7 @@ function draftSwitch(base: string, shadow: ShadowRoot, signal: AbortSignal): voi
   // Routers also call `replaceState` for scroll positions, so only a new path resolves again.
   let path = location.pathname
   const navigated = () => queueMicrotask(() => {
+    if (signal.aborted) return
     if (location.pathname === path) return render()
     path = location.pathname
     current = undefined
@@ -458,12 +460,14 @@ function draftSwitch(base: string, shadow: ShadowRoot, signal: AbortSignal): voi
   })
   for (const method of ["pushState", "replaceState"] as const) {
     const original = history[method]
-    history[method] = function (this: History, ...args: Parameters<History["pushState"]>) {
+    const wrapped = function (this: History, ...args: Parameters<History["pushState"]>) {
       const result = original.apply(this, args)
-      navigated()
+      if (!signal.aborted) navigated()
       return result
     }
-    signal.addEventListener("abort", () => { history[method] = original }, { once: true })
+    history[method] = wrapped
+    // Another tool may retain this wrapper. Leave its chain intact; the aborted signal makes ours inert.
+    signal.addEventListener("abort", () => { if (history[method] === wrapped) history[method] = original }, { once: true })
   }
   window.addEventListener("popstate", navigated, { signal })
   render()

@@ -262,6 +262,48 @@ it("hides View draft on pages without an unpublished draft, and resolves again a
   expect(view.hidden).toBe(true)
 })
 
+it.each([false, true])("stops Content navigation tracking on exit with a later History wrapper (removed: %s)", async (removed) => {
+  const original = { pushState: history.pushState, replaceState: history.replaceState }
+  history.replaceState(null, "", "/blog/hello?vitehub")
+  const fetch = contentFetch({ resolve: { collection: "posts", id: "hello", state: "published" } })
+  vi.stubGlobal("fetch", fetch)
+  try {
+    await loadViteHubPageTools({ load: async () => ({ default: start }) })
+    await vi.waitFor(() => expect(viewDraft().hidden).toBe(true))
+    const calls = fetch.mock.calls.length
+    const content = { pushState: history.pushState, replaceState: history.replaceState }
+    const later = { ...content }
+    for (const method of ["pushState", "replaceState"] as const) {
+      later[method] = function (this: History, ...args: Parameters<History["pushState"]>) {
+        return content[method].apply(this, args)
+      }
+      history[method] = later[method]
+    }
+
+    // A navigation queued just before exit must not resolve after the signal aborts either.
+    history.pushState(null, "", "/blog/queued")
+    document.querySelector("vitehub-pill")!.shadowRoot!.querySelector<HTMLButtonElement>('button[aria-label="Turn off ViteHub tools"]')!.click()
+    await Promise.resolve()
+    expect(fetch).toHaveBeenCalledTimes(calls)
+    for (const method of ["pushState", "replaceState"] as const) {
+      expect(history[method]).toBe(later[method])
+      // Comments restores its saved method when its controller aborts after Content's.
+      if (removed) history[method] = content[method]
+    }
+
+    history.pushState({ page: 1 }, "", "/blog/next")
+    history.replaceState({ page: 2 }, "", "/blog/final")
+    await Promise.resolve()
+    expect(location.pathname).toBe("/blog/final")
+    expect(history.state).toEqual({ page: 2 })
+    expect(fetch).toHaveBeenCalledTimes(calls)
+  }
+  finally {
+    history.pushState = original.pushState
+    history.replaceState = original.replaceState
+  }
+})
+
 it("shows the draft banner instead of View draft in the draft view, and removes it after leaving", async () => {
   history.replaceState(null, "", "/blog/hello?vitehub-content-preview&vitehub&tab=1")
   vi.stubGlobal("fetch", contentFetch({ resolve: { collection: "posts", id: "hello", state: "changed" } }))

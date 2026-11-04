@@ -72,7 +72,9 @@ describe("embedded Console access", () => {
     installConsoleAccess({ mode: "open", authorize: async () => ({ sections: ["kv"] }) })
     expect(await (await app.fetch(event("/_vitehub/page/session").req)).json()).toMatchObject({ tools: [{ id: "console" }] })
     installConsoleAccess({ mode: "open", authorize: async () => ({ sections: ["content"] }) })
-    expect(await (await app.fetch(event("/_vitehub/page/session").req)).json()).toMatchObject({ tools: [{ id: "console" }, { id: "content", lazy: true }] })
+    const { tools } = await (await app.fetch(event("/_vitehub/page/session").req)).json()
+    expect(tools).toMatchObject([{ id: "console", lazy: true }, { id: "content" }])
+    expect(tools[1]).not.toHaveProperty("lazy")
   })
 
   it("keeps read-only Content in Console without replacing the writable Comments inline editor", async () => {
