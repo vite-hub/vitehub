@@ -101,7 +101,7 @@ The input has an accessible name from `label`. While the status is `thinking`, i
 
 `ChoicesInputStatus` is a polite live region (`role="status"`). It stays in the page from the first render, and it says "Thinking", then "Ready", or the error message. `FilterSearch` hides it from sight with `vh-visually-hidden`, because the loading icon and the error text already show the state.
 
-Enter sends the text. Escape clears it, and cancels a request that is running. When there is nothing to clear, Escape goes to the page, so it can still close a dialog. Enter does nothing while an input method composes text, and it does nothing with Shift, Ctrl, Alt, or Meta held.
+Enter sends the text. Editing cancels a running request, so its result cannot apply after the text changes. Escape clears it, and cancels a request that is running. When there is nothing to clear, Escape goes to the page, so it can still close a dialog. Enter does nothing while an input method composes text, and it does nothing with Shift, Ctrl, Alt, or Meta held.
 
 ## API Reference
 

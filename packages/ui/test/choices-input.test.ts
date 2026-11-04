@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 
 import { flushPromises, mount } from "@vue/test-utils";
-import { defineComponent, h, ref, type Ref } from "vue";
+import { defineComponent, effectScope, h, ref, type Ref } from "vue";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { useChoices } from "../../decisions/src/vue.ts";
 import { FilterSearch } from "../src/components/filter-search.ts";
 import {
   ChoicesInput,
@@ -99,6 +100,45 @@ describe("ChoicesInput parts", () => {
     },
   );
 
+  it.each(["native", "component"])("ignores a pending result after editing a %s field", async (kind) => {
+    const scope = effectScope();
+    const onSelect = vi.fn();
+    const requests: { resolve: (selection: string) => void; signal: AbortSignal; text: string }[] = [];
+    const choices = scope.run(() => useChoices<string>({
+      onSelect,
+      resolve: (text, { signal }) => new Promise((resolve) => requests.push({ resolve, signal, text })),
+    }))!;
+    const wrapper = headless(choices, { as: kind === "native" ? "input" : UInputStand });
+    try {
+      const input = wrapper.get("input");
+      await input.setValue("old filters");
+      await input.trigger("keydown", { key: "Enter" });
+      expect(choices.status.value).toBe("thinking");
+      expect(requests).toHaveLength(1);
+
+      await input.setValue("new filters");
+      // Even a transport that ignores cancellation must not apply the old selection.
+      requests[0]!.resolve("old selection");
+      await flushPromises();
+      expect(onSelect).not.toHaveBeenCalled();
+      expect(choices.selection.value).toBeUndefined();
+      expect(choices.status.value).toBe("idle");
+      expect(requests[0]!.signal.aborted).toBe(true);
+      expect(requests).toHaveLength(1);
+      expect(input.element.value).toBe("new filters");
+
+      await input.trigger("keydown", { key: "Enter" });
+      expect(requests[1]!.text).toBe("new filters");
+      requests[1]!.resolve("new selection");
+      await flushPromises();
+      expect(onSelect).toHaveBeenCalledExactlyOnceWith("new selection");
+      expect(choices.status.value).toBe("ready");
+    } finally {
+      wrapper.unmount();
+      scope.stop();
+    }
+  });
+
   it("clears on Escape and aborts a pending request first", async () => {
     const choices = source("thinking");
     choices.text.value = "suppliers";
@@ -159,6 +199,16 @@ describe("ChoicesInput parts", () => {
     const error = wrapper.get('[data-slot="choices-input-error"]');
     expect(error.text()).toBe("The gateway timed out");
     expect(wrapper.get("input").attributes()).toMatchObject({ "aria-describedby": error.attributes("id"), "aria-invalid": "true" });
+  });
+
+  it("keeps the error description linked when a consumer supplies an error ID", () => {
+    const choices = source("error");
+    choices.error.value = new Error("Try again");
+    const wrapper = mount(ChoicesInput, {
+      props: { choices },
+      slots: { default: () => [h(ChoicesInputField), h(ChoicesInputError, { id: "custom-error" })] },
+    });
+    expect(wrapper.get("input").attributes("aria-describedby")).toBe(wrapper.get("p").attributes("id"));
   });
 
   it.each(["native", "component"])(

@@ -73,6 +73,11 @@ export const ChoicesInputField = defineComponent({
   },
   setup(props, { attrs, slots }) {
     const { choices, errorId } = useChoicesInputContext("ChoicesInputField");
+    const updateText = (value: string) => {
+      const source = choices.value;
+      if (source.status.value === "thinking" && value !== source.text.value) source.abort();
+      source.text.value = value;
+    };
     const keydown = (event: KeyboardEvent) => {
       if (event.isComposing) return;
       if (event.key === "Enter") {
@@ -107,7 +112,7 @@ export const ChoicesInputField = defineComponent({
           mergeProps(shared, {
             enterkeyhint: "search",
             onInput: (event: Event) => {
-              text.value = (event.target as HTMLInputElement).value;
+              updateText((event.target as HTMLInputElement).value);
             },
             spellcheck: false,
             type: "text",
@@ -118,9 +123,7 @@ export const ChoicesInputField = defineComponent({
         props.as as Component,
         mergeProps(shared, {
           modelValue: text.value,
-          "onUpdate:modelValue": (value: string) => {
-            text.value = value;
-          },
+          "onUpdate:modelValue": updateText,
         }),
         slots,
       );
@@ -184,6 +187,7 @@ export const ChoicesInputStatus = defineComponent({
 // The error as visible text. It renders only after a failed request, and the input points to it with `aria-describedby`.
 export const ChoicesInputError = defineComponent({
   name: "ChoicesInputError",
+  inheritAttrs: false,
   setup(_props, { attrs, slots }) {
     const { choices, errorId } = useChoicesInputContext("ChoicesInputError");
     return () => {
