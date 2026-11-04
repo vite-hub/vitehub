@@ -285,10 +285,11 @@ describe("runnable tutorials", () => {
     expect(parseCurl("pnpm dev")).toBeUndefined();
   });
 
-  it("isolates only the tutorial pages", async () => {
+  it("isolates only the tutorial pages and the playground", async () => {
     const module = await readFile(resolve(docsRoot, "modules/tutorials/index.ts"), "utf8");
     expect(module).toContain(`"/tutorials": { headers: { ...webContainerHeaders } }`);
     expect(module).toContain(`"/tutorials/**": { headers: { ...webContainerHeaders } }`);
-    expect(module.match(/headers: \{ \.\.\.webContainerHeaders \}/g)).toHaveLength(2);
+    expect(module).toContain(`"/playground": { headers: { ...webContainerHeaders } }`);
+    expect(module.match(/headers: \{ \.\.\.webContainerHeaders \}/g)).toHaveLength(3);
   });
 });

@@ -650,6 +650,10 @@ describe("BrowserSupportNotice", () => {
 
     await wrapper.setProps({ browser: "unknown" });
     expect(wrapper.text()).toContain("does not run in this browser");
+
+    await wrapper.setProps({ description: "Download the files to run them on your machine." });
+    expect(wrapper.text()).toContain("Download the files to run them on your machine.");
+    expect(wrapper.text()).not.toContain("This tutorial still works as text.");
   });
 
   it("explains missing page isolation without recommending another browser", async () => {

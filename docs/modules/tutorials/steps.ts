@@ -24,6 +24,18 @@ export interface RunnableTutorialData {
   snapshot?: string[];
 }
 
+/** A starting app of `/playground`, read from a fixture. */
+export interface PlaygroundTemplate {
+  id: string;
+  label: string;
+  description: string;
+  files: TutorialFiles;
+  /** The slug of the snapshot that this template mounts. Templates with the same dependencies share one. */
+  snapshotOf: string;
+  /** The parts of that snapshot, for `fetchSnapshot()`. Without it, the workspace runs `npm install`. */
+  snapshot?: string[];
+}
+
 /** The files at the start of step `index` (from 0), or at its end with `solution`. Each step builds on the one before. */
 export function tutorialStepFiles(tutorial: Pick<RunnableTutorialData, "files" | "steps">, index: number, state: "start" | "solution"): TutorialFiles {
   const last = state === "solution" ? index : index - 1;
@@ -40,4 +52,16 @@ export function tutorialWorkspaceFiles(tutorial: Pick<RunnableTutorialData, "fil
     if (!(path in target)) delete next[path];
   }
   return Object.assign(next, target);
+}
+
+/** The `dependencies` of a `package.json`, sorted, so two apps with the same install compare equal. Invalid JSON has its own key. */
+export function dependencyKey(packageJson: string | undefined): string {
+  try {
+    const dependencies: unknown = packageJson ? JSON.parse(packageJson).dependencies : undefined;
+    const entries = dependencies && typeof dependencies === "object" ? Object.entries(dependencies) : [];
+    return JSON.stringify(entries.sort(([a], [b]) => a.localeCompare(b)));
+  }
+  catch {
+    return "invalid";
+  }
 }
