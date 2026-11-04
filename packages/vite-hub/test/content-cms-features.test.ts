@@ -66,6 +66,22 @@ export const content = defineContent({ extends: [cms, { store: '${store}' }] })`
   expect(config.plugins.some(plugin => plugin.name === "workspace-service")).toBe(Boolean(store))
 })
 
+it("turns the Database on for the comments option without server/comments.ts", async () => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-comments-option-"))
+  roots.push(root)
+  expect(resolveCmsPresetFeatures({ comments: true }, { projectRoot: root })).toEqual({ comments: true, database: true })
+  expect(resolveCmsPresetFeatures({ comments: true, database: false }, { projectRoot: root })).toEqual({ comments: true, database: false })
+  expect(resolveCmsPresetFeatures({}, { projectRoot: root })).toEqual({})
+})
+
+it("leaves the Database off for server/comments.ts with comments: false", async () => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-comments-off-"))
+  roots.push(root)
+  await mkdir(join(root, "server"))
+  await writeFile(join(root, "server/comments.ts"), "export default defineComments({})")
+  expect(resolveCmsPresetFeatures({ comments: false }, { projectRoot: root })).toEqual({ comments: false })
+})
+
 it.each([
   ["github", {}],
   ["blob-database", { schedule: { docs: "https://vitehub.dev/docs/content/scheduling#run-due-schedules", message: "Nothing publishes scheduled documents. Add a Schedule Definition that calls `content.publishDue()`." } }],

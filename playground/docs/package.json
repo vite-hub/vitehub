@@ -15,6 +15,7 @@
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/cms": "workspace:*",
+    "@vite-hub/comments": "workspace:*",
     "@vite-hub/connections": "workspace:*",
     "@vite-hub/content": "workspace:*",
     "@vite-hub/database": "workspace:*",

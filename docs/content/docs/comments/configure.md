@@ -19,6 +19,22 @@ export const comments = defineComments({
 
 The `comments()` plugin has one option of its own, [`database`](#choose-the-database). Without `server/comments.ts`, it uses `defineComments()` with no options.
 
+## Turn Comments on in a ViteHub app
+
+In a ViteHub app, Comments is on when the app has the [Console](/docs/development/console) or `server/comments.ts`. `vitehub({ comments: true })` turns it on without either. Without the file, Comments uses `defineComments()` with no options. Comments turns on the Database when `database` is unset, and adds the Comments section to the Console. An object turns it on too, and sets the Database, the SQL dialect, or `overlay: false`:
+
+```ts [vite.config.ts]
+vitehub({
+  preset: 'node',
+  console: { auth: 'app' },
+  comments: { database: 'team' },
+})
+```
+
+`comments: false` turns Comments off, also with the Console. With `comments: false` and a `server/comments.ts`, the build fails with `VITE_HUB_B0019`: remove one of them. With Comments on and `database: false`, the build fails with `VITE_HUB_B0018`. Comments keeps its threads in the Database, so remove `database: false` or set `comments: false`.
+
+[Docs sites](/docs/docs-site/configure#comments) on `vite-hub/nuxt` have Comments on by default: the docs module sets this option. Turn it off there with `docs: { comments: false }`.
+
 ## Decide who can comment
 
 `authorize` gets the user, the action, and what the action is about: the `thread`, or the `subject` of a new thread. Return `true` to allow. Any other value denies.
@@ -121,7 +137,7 @@ Comments needs no email permission. When GitHub hides a person's email, Comments
 
 ### Comment as the Console team
 
-When the app has the [Console](/docs/development/console) and `server/comments.ts` has no `identify`, the people of Comments are the people that the Console lets use its **Comments** section. Visitors and app users without Console access are refused, so the toolbar never opens for them. `authorize` still runs after that check, with the Console user. With `identify`, the Console has no say: see [Use your own login](#use-your-own-login).
+The Console turns Comments on. When the app has the [Console](/docs/development/console) and no `identify`, the people of Comments are the people that the Console lets use its **Comments** section. Visitors and app users without Console access are refused, so the toolbar never opens for them. `authorize` still runs after that check, with the Console user. With `identify`, the Console has no say: see [Use your own login](#use-your-own-login).
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -306,7 +322,7 @@ export const comments = defineComments({
 
 ViteHub reads the name from the file without running it, so write it as a string literal. The build fails with `DATABASE_INVALID_CONTRIBUTION_TARGET` when the named Database does not exist, or when the app has several Databases and none is named `default`. The tables use SQLite, so the Database must be SQLite, libSQL, or D1.
 
-Run `vitehub db generate` and `vitehub db migrate` after you add `server/comments.ts` or change `database`. See [Apply migrations](/docs/database/configure#apply-migrations).
+`vitehub({ comments: { database: 'team' } })` names it without the file. Run `vitehub db generate` and `vitehub db migrate` after you add `server/comments.ts`, turn on the `comments` option, or change `database`. See [Apply migrations](/docs/database/configure#apply-migrations).
 
 ## Upgrade to one model
 

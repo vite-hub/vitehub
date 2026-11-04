@@ -66,6 +66,10 @@ icon: i-lucide-library
   The CMS edits, previews, and publishes pages, with a pull request per publish.
   :::
 
+  :::product-feature-item{title="Comments on every page" icon="i-lucide-message-circle" to="/docs/docs-site/configure#comments"}
+  With `vite-hub/nuxt`, your team pins comments on a page and replies. `comments: false` turns them off.
+  :::
+
   :::product-feature-item{title="A docs assistant on your ChatGPT plan" icon="i-lucide-message-square-text" to="/docs/docs-site/assistant"}
   A ViteHub Agent answers reader questions from your pages and links them. No API key.
   :::

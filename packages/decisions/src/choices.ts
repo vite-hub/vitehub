@@ -131,7 +131,10 @@ function singleInstructions(group: LoadedGroup, hints: string): string {
 
 function buildPlan(text: string, groups: readonly LoadedGroup[], hints: string): ChoicesPlan {
   const questions: Record<string, AskQuestion> = {
-    supported: ask.chance("Can all intended constraints in the text be expressed with the supplied options? Be permissive about ordinary phrasing, shorthand, prefixes, and typos, but require a real match to supplied options.", { false: supportedFalse, true: supportedTrue }),
+    supported: ask.chance([
+      "Can all intended constraints in the text be expressed with the supplied options? Be permissive about ordinary phrasing, shorthand, prefixes, and typos, but require a real match to supplied options.",
+      hints,
+    ].filter(Boolean).join(" "), { false: supportedFalse, true: supportedTrue }),
   }
   groups.forEach((group, groupIndex) => {
     if (!group.options.length) return

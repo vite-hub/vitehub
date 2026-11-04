@@ -67,18 +67,19 @@ export function hubComments(options: HubCommentsOptions = {}): CommentsVitePlugi
     // The app may turn the Database off, and the file must export a definition: say so when Vite reads the config.
     async configResolved(resolved) {
       const entry = findCommentsEntry({ projectRoot: projectRoot ?? process.cwd(), ...(serverDirs ? { serverDirs } : {}) })
-      if (!entry) return
-      const display = entry.startsWith(`${projectRoot}/`) ? entry.slice((projectRoot ?? "").length + 1) : entry
+      if (!entry && !liveOptions.enabled) return
+      const display = !entry ? "vitehub({ comments })" : entry.startsWith(`${projectRoot}/`) ? entry.slice((projectRoot ?? "").length + 1) : entry
       const hasDatabase = Reflect.get(resolved, VITEHUB_NITRO_CONFIG_CONTEXT) || resolved.plugins.some(plugin => plugin.name === "@vite-hub/database/vite")
       if (!hasDatabase) throw commentsErrorDiagnostics.COMMENTS_B0001({ file: display })
+      if (!entry) return
       const { runnerImport } = await import("vite")
       const { module } = await runnerImport<{ comments?: unknown, default?: unknown }>(entry, { configFile: false, root: projectRoot, resolve: { alias: resolved.resolve?.alias }, logLevel: "silent" })
       validateCommentsDefinition(module.comments ?? module.default, display)
     },
     vitehub: {
       ...live.vitehub,
-      // An app without server/comments.ts has nothing to comment on.
-      operations: async () => findCommentsEntry({ projectRoot: projectRoot ?? process.cwd(), ...(serverDirs ? { serverDirs } : {}) })
+      // An app without server/comments.ts has nothing to comment on, unless `enabled` turns Comments on.
+      operations: async () => liveOptions.enabled || findCommentsEntry({ projectRoot: projectRoot ?? process.cwd(), ...(serverDirs ? { serverDirs } : {}) })
         ? [{ export: "commentsOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).commentsOperations, module }]
         : [],
     },

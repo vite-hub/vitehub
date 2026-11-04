@@ -17,6 +17,7 @@ import { parseJSONC, parseTOML } from "confbox"
 import { commentsConsoleSection } from "./console.ts"
 import { findCommentsEntry, findContentEntry } from "./entry.ts"
 import { commentsRealtimeDefinition, commentsRoute, mountedCommentsRoute } from "./page.ts"
+import { commentsTableNames } from "./table-names.ts"
 
 import type { DatabaseContributionContext, DatabaseContributionEntry } from "@vite-hub/database/vite"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
@@ -73,6 +74,11 @@ export interface StandaloneDatabase {
 }
 
 export interface CommentsVitePluginOptions {
+  /**
+   * `true` turns Comments on without `server/comments.ts`, with the default `defineComments()`. `vitehub({ comments })`
+   * sets it. Default: Comments is on when the app has the file.
+   */
+  enabled?: boolean
   /** Whether the app configures ViteHub Auth, so Comments reads its session. Default `false`. */
   auth?: boolean
   /**
@@ -440,10 +446,16 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
   ].join("\n")
 }
 
+/** The generated directory of Comments in a project. */
+function generatedDirectory(projectRoot: string): string {
+  return resolve(projectRoot, ".vitehub/nitro/comments")
+}
+
 /** `server/comments.ts` for an app without one: Comments with its defaults. */
 async function writeDefaultDefinition(directory: string, imports: CommentsImports): Promise<string> {
   const file = join(directory, "definition.mjs")
   const index = imports.runtime.replace(/\/runtime$/, "")
+  await mkdir(directory, { recursive: true })
   await writeFile(file, [
     `import { defineComments } from ${JSON.stringify(index)}`,
     "",
@@ -522,7 +534,8 @@ export default comments
 /**
  * Comments build integration. When the app has `server/comments.ts`, it serves the Comments API at
  * `/api/_vitehub/comments/**`, installs the runtime with its Database, adds the tables to that Database, serves the
- * overlay script, and adds it to pages in comment mode. Apps without the file are unaffected.
+ * overlay script, and adds it to pages in comment mode. `enabled: true` does the same without the file, with the default
+ * `defineComments()`. Other apps without the file are unaffected.
  */
 export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVitePlugin {
   const imports: CommentsImports = { ...defaultImports, ...options.imports }
@@ -535,8 +548,12 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
   let appBase = ""
   let development = false
   const discover = () => findCommentsEntry(projectRoot ?? process.cwd(), serverDirs)
-  // Without `vite-hub`, Comments is on without `server/comments.ts`.
-  const enabled = () => Boolean(options.standalone) || Boolean(discover())
+  // Without `vite-hub`, or with `vitehub({ comments })`, Comments is on without `server/comments.ts`.
+  const onWithoutFile = Boolean(options.standalone || options.enabled)
+  const enabled = () => onWithoutFile || Boolean(discover())
+  /** `server/comments.ts`, else the default definition when Comments is on without it. */
+  const definitionOf = async (root: string, dirs: readonly string[] | undefined): Promise<string | undefined> =>
+    findCommentsEntry(root, dirs?.slice()) ?? (onWithoutFile ? await writeDefaultDefinition(generatedDirectory(root), imports) : undefined)
   async function writeComponents(): Promise<void> {
     if (!projectRoot || !componentsFile) return
     const components = await readCommentsComponents(projectRoot, 5000, resolvedComponents)
@@ -557,7 +574,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
           parseDatabaseLocation(standalone.where, "comments", { node: nitro.options.node })
           standalone.node = nitro.options.node
         }
-        const directory = resolve(projectRoot, ".vitehub/nitro/comments")
+        const directory = generatedDirectory(projectRoot)
         const definition = discover() ?? join(directory, "definition.mjs")
         const build = await readCommentsBuild(projectRoot)
         await writeFile(join(directory, "plugin.mjs"), renderCommentsPlugin({ definition, session: options, imports, build, base: appBase, standalone, development }))
@@ -571,7 +588,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         await writeComponents()
       },
       async contributeRealtime(context) {
-        const definition = findCommentsEntry(context.projectRoot, context.serverDirs)
+        const definition = await definitionOf(context.projectRoot, context.serverDirs)
         if (!definition) return
         realtime = true
         const file = join(context.directory, "comments.mjs")
@@ -595,8 +612,8 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
           kind: "comments",
           label: "Comments",
           list: () => {
-            const definition = discover()
-            if (!definition) return []
+            if (!enabled()) return []
+            const definition = discover() ?? join(generatedDirectory(projectRoot ?? process.cwd()), "definition.mjs")
             return [{
               fields: [
                 { label: "Route", value: `${route}/**` },
@@ -614,15 +631,16 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         if (options.standalone) return []
         const root = projectRoot ?? context.projectRoot ?? context.rootDir ?? context.root ?? process.cwd()
         const definition = findCommentsEntry(root, serverDirs ?? context.serverDirs?.slice())
-        if (!definition) return []
-        const database = options.database ?? await readCommentsDatabase(definition)
+        if (!definition && !options.enabled) return []
+        const database = options.database ?? (definition ? await readCommentsDatabase(definition) : undefined)
         const postgres = options.dialect === "postgresql"
         return [{
           ...(database ? { database } : {}),
           definition: postgres ? { export: "commentsPostgresSchema", module: `${imports.database}/postgres` } : { export: "commentsSchema", module: imports.database },
           dialect: postgres ? "postgresql" : "sqlite",
+          tables: commentsTableNames,
           name: "comments",
-          reason: "Stores the comment threads of `server/comments.ts`.",
+          reason: definition ? "Stores the comment threads of `server/comments.ts`." : "Stores the comment threads of `vitehub({ comments })`.",
         }]
       },
     },
@@ -638,7 +656,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         route = mountedCommentsRoute(base)
         projectRoot = viteConfig[VITEHUB_PROJECT_ROOT] ? resolve(viteConfig[VITEHUB_PROJECT_ROOT]) : resolveViteHubProjectRoot(resolve(config.root || process.cwd()))
         serverDirs = viteConfig[VITEHUB_SERVER_DIRS]?.slice()
-        const directory = resolve(projectRoot, ".vitehub/nitro/comments")
+        const directory = generatedDirectory(projectRoot)
         if (!enabled()) {
           componentsFile = undefined
           await rm(directory, { force: true, recursive: true })

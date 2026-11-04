@@ -121,7 +121,7 @@ A self-hosted Node build can apply migrations itself with `database: { migrateOn
 
 ## Contributed tables
 
-Packages can add Drizzle tables to an application's Database from their own Vite plugin with `vitehub.databases`. Each entry has the shared contribution shape `{ name, definition: { module, export }, reason? }`, where `export` holds an object of tables. Database entries can also set `database` and `dialect`. Without `database`, the tables go to the default or only Database:
+Packages can add Drizzle tables to an application's Database from their own Vite plugin with `vitehub.databases`. Each entry has the shared contribution shape `{ name, definition: { module, export }, reason? }`, where `export` holds an object of tables. Database entries can also set `database` and `dialect`. `tables`, such as `{ historyRefs: "history_refs" }`, lists every table of the export with its SQL name, so the build does not load the module, or drizzle-orm, while it resolves the Vite config. Without `database`, the tables go to the default or only Database:
 
 ```ts
 const plugin = {

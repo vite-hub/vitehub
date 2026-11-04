@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/decisions",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Turn text into choices over options that you declare: filters, search facets, command palettes, and builders on a TypeSafe Jev decision model.",
   "keywords": [
     "ai",

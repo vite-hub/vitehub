@@ -15,6 +15,7 @@ import { builtinCommentSubjects, defineCommentSubject } from "../src/operations-
 import { defineComments } from "../src/index.ts"
 import { commentsOperations } from "../src/operations-core/operations.ts"
 import { findCommentsEntry, usesComments } from "../src/operations-core/vite.ts"
+import { commentsTableNames } from "../src/table-names.ts"
 import { commentsDefinitionOf } from "../src/runtime/definition.ts"
 import { hubComments } from "../src/vite.ts"
 
@@ -59,6 +60,12 @@ describe("comment tables", () => {
     expect(getTableName(commentsSchema.vitehubCommentCounters)).toBe("vitehub_comment_counters")
     expect(Object.keys(getTableColumns(commentsSchema.vitehubCommentCounters))).toEqual(["scope", "next"])
   })
+
+  it("lists the tables for the Database without loading the schema", () => {
+    for (const schema of [commentsSchema, commentsPostgresSchema]) {
+      expect(commentsTableNames).toEqual(Object.fromEntries(Object.entries(schema).map(([key, table]) => [key, getTableName(table)])))
+    }
+  })
 })
 
 describe("defineComments", () => {
@@ -94,7 +101,7 @@ describe("hubComments", () => {
 
     const plugin = hubComments({ database: "main" })
     await configHook(plugin)({ root: await project(true) })
-    expect(await plugin.vitehub.databases(unused)).toEqual([{ database: "main", definition: { export: "commentsSchema", module: "@vite-hub/comments/database" }, dialect: "sqlite", name: "comments", reason: expect.stringContaining("comment threads") }])
+    expect(await plugin.vitehub.databases(unused)).toEqual([{ database: "main", definition: { export: "commentsSchema", module: "@vite-hub/comments/database" }, dialect: "sqlite", name: "comments", reason: expect.stringContaining("comment threads"), tables: commentsTableNames }])
     const operations = plugin.vitehub.operations
     const entries = operations instanceof Function ? await operations() : operations
     expect(entries).toEqual([expect.objectContaining({ export: "commentsOperations", module: "@vite-hub/comments/operations" })])

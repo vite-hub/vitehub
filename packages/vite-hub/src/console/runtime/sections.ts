@@ -303,6 +303,7 @@ export function resolveConsoleSectionIds(options: {
   connections?: unknown
   agent?: unknown;
   blob?: unknown;
+  comments?: unknown;
   database?: unknown;
   email?: unknown;
   kv?: unknown;
@@ -324,6 +325,8 @@ export function resolveConsoleSectionIds(options: {
     ...(options.connections ? ["connections"] : []),
     ...(options.agent ? ["agents", "skills", "usage", "channels"] : []),
     ...(options.blob ? ["blob"] : []),
+    // Without the option, `server/comments.ts` turns the section on through discovery.
+    ...(options.comments ? ["comments"] : []),
     ...(options.database ? ["databases"] : []),
     ...(options.email ? ["email"] : []),
     ...(options.kv ? ["kv"] : []),

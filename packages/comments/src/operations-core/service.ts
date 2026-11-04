@@ -3,7 +3,7 @@ import * as v from "valibot"
 import { builtinCommentSubjects, defaultPolicy, deniedForMissingPolicy } from "./define.ts"
 import { commentsErrorDiagnostics } from "./errors.ts"
 import { isPagePath } from "./path.ts"
-import { guestIdPrefix } from "./store.ts"
+import { guestIdPrefix } from "../identity.ts"
 
 import type {
   CommentsAuthorizeContext,
