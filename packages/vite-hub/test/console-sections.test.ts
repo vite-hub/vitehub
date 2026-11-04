@@ -74,6 +74,7 @@ describe("Console section preferences", () => {
     expect(resolveConsoleSectionIds({ agent: true, workflow: false })).toEqual(["agents", "skills", "usage", "channels"])
     expect(resolveConsoleSectionIds({ agent: true, queue: false, schedule: false, workflow: false })).toEqual(["agents", "skills", "usage", "channels"])
     expect(resolveConsoleSectionIds({})).toEqual([])
+    expect(resolveConsoleSectionIds({ comments: true, database: true })).toEqual(["comments", "databases"])
     expect(resolveConsoleSectionIds({ env: true })).toEqual(["env"])
     expect(resolveConsoleSectionIds({ connections: true })).toEqual(["connections"])
     expect(resolveConsoleSectionIds({ connections: false })).toEqual([])

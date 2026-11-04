@@ -84,6 +84,53 @@ describe("storage MCP tools", () => {
     expect(JSON.stringify(listed.result)).not.toContain("https://secret.test")
   })
 
+  it("limits a store grant to that Blob store", async () => {
+    registerViteHubMcpTools("comments", [])
+    installConsoleSections("/storage-mcp", ["blob"])
+    installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["content", "blob:archive"] }) })
+    const names: string[] = (await rpc("tools/list")).result.tools.map((entry: { name: string }) => entry.name)
+    expect(names.filter(name => name.startsWith("blob_")).sort()).toEqual(["blob_del", "blob_get", "blob_head", "blob_list", "blob_media", "blob_put", "blob_variants"])
+
+    const listed = await rpc("tools/call", { name: "blob_list", arguments: { store: "archive" } })
+    expect(listed.result.structuredContent).toMatchObject({ store: "archive", stores: ["archive"] })
+    expect(storage.blob.store).toHaveBeenCalledWith("archive")
+    storage.blob.head.mockResolvedValue([null, null])
+    storage.blob.put.mockResolvedValue([null, { pathname: "photo.txt", size: 2, uploadedAt: new Date("2026-10-01T00:00:00Z"), customMetadata: {}, httpMetadata: {} }])
+    const put = await rpc("tools/call", { name: "blob_put", arguments: { store: "archive", pathname: "photo.txt", data: btoa("hi") } })
+    expect(put.result.structuredContent).toMatchObject({ created: true, store: "archive" })
+    storage.blob.put.mockClear()
+    storage.blob.list.mockClear()
+    storage.blob.head.mockClear()
+
+    // The default store is private: every call to it fails before the provider runs, with or without `store`.
+    for (const [name, arguments_] of [
+      ["blob_list", {}],
+      ["blob_get", { pathname: "a.txt" }],
+      ["blob_put", { pathname: "a.txt", data: btoa("hi") }],
+      ["blob_del", { pathname: "a.txt", store: "default" }],
+    ] as const) {
+      const refused = (await rpc("tools/call", { name, arguments: arguments_ })).result
+      expect(refused).toMatchObject({ isError: true, structuredContent: { error: { code: "CONSOLE_ACCESS_DENIED" } } })
+      expect(refused.structuredContent.error.message).toContain('"blob:default"')
+      expect(refused.structuredContent.error.fix).toContain('"blob" (every scope)')
+    }
+    expect(storage.blob.list).not.toHaveBeenCalled()
+    expect(storage.blob.head).not.toHaveBeenCalled()
+    expect(storage.blob.get).not.toHaveBeenCalled()
+    expect(storage.blob.put).not.toHaveBeenCalled()
+    expect(storage.blob.del).not.toHaveBeenCalled()
+  })
+
+  it("keeps a read-only store grant from writing", async () => {
+    registerViteHubMcpTools("comments", [])
+    installConsoleSections("/storage-mcp", ["blob"])
+    installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["blob:archive:read"] }) })
+    const names: string[] = (await rpc("tools/list")).result.tools.map((entry: { name: string }) => entry.name)
+    expect(names.filter(name => name.startsWith("blob_")).sort()).toEqual(["blob_get", "blob_head", "blob_list", "blob_media", "blob_variants"])
+    expect((await rpc("tools/call", { name: "blob_list", arguments: { store: "archive" } })).result.structuredContent).toMatchObject({ stores: ["archive"] })
+    expect((await rpc("tools/call", { name: "blob_list", arguments: {} })).result).toMatchObject({ isError: true })
+  })
+
   it.each(["kv", "blob"] as const)("masks %s provider failures", async (section) => {
     installConsoleSections("/storage-mcp", [section])
     installConsoleAccess({ mode: "open", authorize: () => ({ sections: [`${section}:read`] }) })

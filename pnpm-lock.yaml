@@ -3837,6 +3837,9 @@ importers:
       '@vite-hub/cms':
         specifier: workspace:*
         version: link:../../packages/cms
+      '@vite-hub/comments':
+        specifier: workspace:*
+        version: link:../../packages/comments
       '@vite-hub/connections':
         specifier: workspace:*
         version: link:../../packages/connections

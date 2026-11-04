@@ -62,7 +62,7 @@ A newer request cancels the older one through `signal`. The older result never r
 
 ## Choose when to resolve
 
-Each resolve sends one question for each option to the model. That costs time and money. Two patterns:
+Each resolve sends one question per option in multi-select groups, one per non-empty single-select group, and one `supported` check to the model. That costs time and money. Two patterns:
 
 - **On Enter.** Leave out `debounce` and call `ai.submit()` on Enter or on a button. Best for short, deliberate input such as filters.
 - **While typing.** Set `debounce` to 600 or more. Pair it with a rate limit on the route.

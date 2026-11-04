@@ -14,7 +14,7 @@ You write the options and the route. ViteHub asks the model and checks the answe
 
 This tutorial uses a small offline gateway. It needs no API key and no network. The last step swaps it for a real model.
 
-You need Node.js 22.22 or newer, pnpm, and the app from [Installation](/docs/getting-started/installation). Decisions ships in `vite-hub`, so there is no extra ViteHub package to add. This app has a Vue page, so install Vue and its Vite plugin:
+You need Node.js 22.22 or newer, pnpm, and the app from the **Vite with Nitro** path in [Installation](/docs/getting-started/installation). Decisions ships in `vite-hub`, so there is no extra ViteHub package to add. This app has a Vue page, so install Vue and its Vite plugin:
 
 ```bash [commands/install-vue]
 pnpm add vue

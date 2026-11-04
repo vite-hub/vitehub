@@ -75,7 +75,7 @@ selection.supplier // { include: ["nord"], exclude: ["vak"] }
 selection.chart // { value: "bar", confidence: 0.8, ranked: [{ value: "bar", probability: 0.8 }, ...] }
 ```
 
-The route is yours. Auth, rate limits, and the context to pass belong there. Use [Rate Limit](/docs/rate-limit) to cap the requests, because each call sends one question for each option.
+The route is yours. Auth, rate limits, and the context to pass belong there. Use [Rate Limit](/docs/rate-limit) to cap the requests. Each call sends one question per option in multi-select groups, one per non-empty single-select group, and one `supported` check.
 
 `error` has a `code` from `DECISIONS_R0002` to `DECISIONS_R0006`. See [Limits and errors](/docs/decisions/limits-and-errors).
 

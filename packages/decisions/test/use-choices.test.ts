@@ -21,12 +21,12 @@ function setup(options: UseChoicesOptions<Selection>) {
   return { choices, scope }
 }
 
-/** A request that you finish by hand, and that rejects when its signal aborts. */
-function pending() {
-  const requests: { resolve: (value: Selection) => void, signal: AbortSignal, text: string }[] = []
+/** A request that you finish by hand, optionally ignoring cancellation like some transports do. */
+function pending({ ignoreAbort = false } = {}) {
+  const requests: { reject: (cause: unknown) => void, resolve: (value: Selection) => void, signal: AbortSignal, text: string }[] = []
   const resolve: UseChoicesOptions<Selection>["resolve"] = (text, { signal }) => new Promise((done, fail) => {
-    requests.push({ resolve: done, signal, text })
-    signal.addEventListener("abort", () => fail(new DOMException("aborted", "AbortError")))
+    requests.push({ reject: fail, resolve: done, signal, text })
+    if (!ignoreAbort) signal.addEventListener("abort", () => fail(new DOMException("aborted", "AbortError")))
   })
   return { requests, resolve }
 }
@@ -100,6 +100,17 @@ describe("useChoices()", () => {
     expect(choices.status.value).toBe("idle")
   })
 
+  it("clear() calls onClear so the app can reset its own state", async () => {
+    const onClear = vi.fn()
+    const { choices } = setup({ onClear, resolve: async () => ({ supplier: ["S1"] }) })
+    choices.text.value = "vak supply"
+    await choices.submit()
+    choices.abort()
+    expect(onClear).not.toHaveBeenCalled()
+    choices.clear()
+    expect(onClear).toHaveBeenCalledTimes(1)
+  })
+
   it("aborts the request when its scope stops", async () => {
     const { requests, resolve } = pending()
     const { choices, scope } = setup({ resolve })
@@ -111,6 +122,51 @@ describe("useChoices()", () => {
 })
 
 describe("useChoices() debounce", () => {
+  it.each(["success", "failure"])("ignores an older %s during the replacement debounce window", async (outcome) => {
+    const { requests, resolve } = pending({ ignoreAbort: true })
+    const onSelect = vi.fn()
+    const { choices } = setup({ debounce: 100, onSelect, resolve })
+    choices.text.value = "first text"
+    await nextTick()
+    await vi.advanceTimersByTimeAsync(100)
+    expect(requests).toHaveLength(1)
+
+    choices.text.value = "second text"
+    if (outcome === "success") requests[0]?.resolve({ supplier: ["S1"] })
+    else requests[0]?.reject(new Error("old failure"))
+    await vi.advanceTimersByTimeAsync(50)
+    expect(choices.selection.value).toBeUndefined()
+    expect(choices.error.value).toBeUndefined()
+    expect(choices.status.value).toBe("idle")
+    expect(onSelect).not.toHaveBeenCalled()
+    expect(requests[0]?.signal.aborted).toBe(true)
+    expect(requests).toHaveLength(1)
+
+    await vi.advanceTimersByTimeAsync(50)
+    expect(requests).toHaveLength(2)
+    expect(requests[1]?.text).toBe("second text")
+    expect(choices.status.value).toBe("thinking")
+    requests[1]?.resolve({ supplier: ["S2"] })
+    await nextTick()
+    expect(choices.selection.value).toEqual({ supplier: ["S2"] })
+    expect(choices.status.value).toBe("ready")
+    expect(onSelect).toHaveBeenCalledExactlyOnceWith({ supplier: ["S2"] })
+  })
+
+  it("submits new text immediately without leaving a debounce timer", async () => {
+    const { requests, resolve } = pending()
+    const { choices } = setup({ debounce: 100, resolve })
+    choices.text.value = "nord parts"
+    const done = choices.submit()
+    await nextTick()
+    expect(requests[0]?.signal.aborted).toBe(false)
+    requests[0]?.resolve({ supplier: ["S2"] })
+    await done
+    await vi.advanceTimersByTimeAsync(100)
+    expect(requests).toHaveLength(1)
+    expect(choices.status.value).toBe("ready")
+  })
+
   it("resolves once after the last keystroke", async () => {
     const resolve = vi.fn(async (_text: string) => ({ supplier: ["S2"] }))
     const { choices } = setup({ debounce: 500, resolve })

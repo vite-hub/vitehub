@@ -57,7 +57,9 @@ export interface OperationAccess {
   readonly mode: string
   /**
    * The sections that the call may use. `"all"` when no section filter applies. An entry is a section id (`"kv"`, every
-   * operation of the section) or `"<section>:read"` (only the operations that read).
+   * operation of the section), `"<section>:read"` (only the operations that read), or `"<section>:<scope>"` (only the
+   * calls of a scoped operation for that scope, such as `"blob:media"` for one Blob store). `"<section>:<scope>:read"`
+   * allows only the reads of that scope.
    */
   readonly sections: "all" | readonly string[]
   readonly user?: OperationUser
@@ -102,9 +104,16 @@ export interface OperationDefinition<Input, Output> {
   description: string
   /**
    * Console section that grants access, such as `content`. `false`: any Console user. A function reads the section
-   * from the input, for operations that serve several sections.
+   * from the input, for operations that serve several sections. Section ids cannot contain `:`; it is reserved for
+   * scope and read-only grants. A function that returns an invalid id denies the call.
    */
   section: string | false | ((input: Input) => string | undefined)
+  /**
+   * The part of a string `section` that one call uses, such as the Blob store that the input names. The call then needs
+   * the section (every scope) or `"<section>:<scope>"` (only this scope). A scope that is empty, is `read`, or has a
+   * `:` needs the whole section.
+   */
+  scope?: (input: Input) => string | undefined
   /** `read` never changes state. `write` changes state. `destructive` deletes or publishes; the CLI asks for `--yes`, MCP marks `destructiveHint`, agents require approval by default. */
   kind: OperationKind
   /** Standard Schema (valibot in this repo). Its Standard JSON Schema builds CLI flags and the MCP input schema. */
@@ -147,12 +156,13 @@ export interface OperationDefinition<Input, Output> {
 }
 
 /** An operation of any input and output, as a registry holds it. */
-export interface AnyOperation extends Omit<OperationDefinition<unknown, unknown>, "cli" | "input" | "output" | "readOnlyWhen" | "run" | "section"> {
+export interface AnyOperation extends Omit<OperationDefinition<unknown, unknown>, "cli" | "input" | "output" | "readOnlyWhen" | "run" | "scope" | "section"> {
   readOnlyWhen?: (input: never) => boolean
   cli?: { namespace?: string, command?: string, default?: boolean, dispatch?: string, positional?: string[], format?: (output: never) => string }
   input: StandardSchemaV1
   output?: StandardSchemaV1
   run: (input: never, context: OperationContext) => unknown
+  scope?: (input: never) => string | undefined
   section: string | false | ((input: never) => string | undefined)
 }
 
@@ -187,7 +197,8 @@ function checkDefinition(definition: unknown): void {
   if (String(name) !== name || !nameFormat.test(name)) throw invalidDefinition(name, "the name must look like `section.verb`, in lower case.")
   if (String(definition.description) !== definition.description || !definition.description) throw invalidDefinition(name, "add a one sentence description.")
   const { section } = definition
-  if (section !== false && !(section instanceof Function) && (String(section) !== section || !section)) throw invalidDefinition(name, "section must be a Console section id, a function, or false.")
+  if (section !== false && !(section instanceof Function) && !isSectionId(section)) throw invalidDefinition(name, "section must be a Console section id, a function, or false; section ids cannot contain ':'.")
+  if (definition.scope !== undefined && (!(definition.scope instanceof Function) || String(section) !== section)) throw invalidDefinition(name, "scope must be a function, and it needs a section id.")
   if (!kinds.has(String(definition.kind))) throw invalidDefinition(name, 'kind must be "read", "write", or "destructive".')
   const input = definition.input
   if (!isObject(input) || !isObject(input["~standard"]) || !(input["~standard"].validate instanceof Function)) throw invalidDefinition(name, "input must be a Standard Schema, such as a valibot object.")
@@ -432,15 +443,41 @@ export async function parseOperationInput(operation: AnyOperation, input: unknow
   throw Object.assign(error, { status: 400 })
 }
 
-/** The section that grants a call, or `false` for any Console user. `undefined` means the input names no valid section. */
-export function operationSection(operation: Pick<AnyOperation, "section">, input: unknown): string | false | undefined {
+/**
+ * The section that grants a call, or `false` for any Console user. `undefined` means the input names no valid section.
+ * A scoped operation answers `"<section>:<scope>"`, such as `"blob:media"`.
+ */
+export function operationSection(operation: Pick<AnyOperation, "scope" | "section">, input: unknown): string | false | undefined {
   const section = operation.section
+  if (section instanceof Function) {
+    // SAFETY: Callers pass input that the operation schema accepted.
+    const resolved = (section as (value: unknown) => string | undefined)(input)
+    return isSectionId(resolved) ? resolved : undefined
+  }
+  if (section === false) return section
+  if (!isSectionId(section)) return undefined
+  if (!operation.scope) return section
   // SAFETY: Callers pass input that the operation schema accepted.
-  return section instanceof Function ? (section as (value: unknown) => string | undefined)(input) : section
+  const scope = (operation.scope as (value: unknown) => string | undefined)(input)
+  return isSectionScope(scope) ? `${section}:${scope}` : section
 }
 
 /** The suffix of a section grant that allows only reads, such as `"kv:read"`. */
 export const readOnlySectionSuffix = ":read"
+
+function isSectionId(section: unknown): section is string {
+  return typeof section === "string" && section !== "" && !section.includes(":")
+}
+
+function isSectionScope(scope: unknown): scope is string {
+  return isSectionId(scope) && scope !== "read"
+}
+
+/** `"blob:media"` → `["blob:media", "blob"]`: a grant of the section covers each of its scopes. */
+function grantsFor(section: string): string[] {
+  const separator = section.indexOf(":")
+  return separator === -1 ? [section] : [section, section.slice(0, separator)]
+}
 
 /** What one call does, for the read-only check of a section grant. */
 export interface OperationCallKind {
@@ -457,9 +494,42 @@ export interface OperationCallKind {
 export function operationAccessAllows(access: OperationAccess, section: string | false | undefined, call?: OperationCallKind): boolean {
   if (section === undefined) return false
   if (section === false || access.sections === "all") return true
-  if (access.sections.includes(section)) return true
-  if (!access.sections.includes(`${section}${readOnlySectionSuffix}`)) return false
+  const { sections } = access
+  const grants = grantsFor(section)
+  if (grants.some(grant => sections.includes(grant))) return true
+  if (!grants.some(grant => sections.includes(`${grant}${readOnlySectionSuffix}`))) return false
   return call === undefined || call.kind === "read" || call.readOnly === true
+}
+
+/**
+ * Whether a tool list shows the operation to this access. An operation that reads its section from the input always
+ * shows. A scoped operation also shows when the access grants one scope of its section, such as `"blob:media"`. Each
+ * call checks its own section again.
+ */
+export function operationListed(access: OperationAccess, operation: Pick<AnyOperation, "scope" | "section">, call?: OperationCallKind): boolean {
+  const { section } = operation
+  if (section instanceof Function || operationAccessAllows(access, section, call)) return true
+  if (section === false || !operation.scope || access.sections === "all") return false
+  return access.sections.some((grant) => {
+    if (!grant.startsWith(`${section}:`)) return false
+    const scoped = grant.endsWith(readOnlySectionSuffix) ? grant.slice(0, -readOnlySectionSuffix.length) : grant
+    return scoped !== section && operationAccessAllows(access, scoped, call)
+  })
+}
+
+/**
+ * Why the access refuses a call to a section, with the `console.authorize` grant that would allow it. A scoped section,
+ * such as `"blob:default"`, names the scope and the whole section.
+ */
+export function operationAccessDenial(operationName: string, section: string | false | undefined): { fix: string, message: string } {
+  if (!section) return { fix: "Check the input of the call.", message: `The input of ${operationName} names no section that this access can check.` }
+  const separator = section.indexOf(":")
+  if (separator === -1) return { fix: `Return ${JSON.stringify(section)} in the sections of console.authorize.`, message: `This access does not include the ${JSON.stringify(section)} section, which ${operationName} needs.` }
+  const parent = section.slice(0, separator)
+  return {
+    fix: `Return ${JSON.stringify(section)} (only this scope) or ${JSON.stringify(parent)} (every scope) in the sections of console.authorize.`,
+    message: `This access does not include ${JSON.stringify(section)}. ${operationName} needs it for the ${JSON.stringify(section.slice(separator + 1))} scope of the ${JSON.stringify(parent)} section.`,
+  }
 }
 
 /** The kind of one call of an operation: a `readOnlyWhen` match makes a write operation a read. */
@@ -516,7 +586,8 @@ export async function runParsedOperation(operation: AnyOperation, parsed: unknow
   try {
     const section = operationSection(operation, parsed)
     if (!operationAccessAllows(context.access, section)) {
-      throw Object.assign(internalErrorDiagnostics.INTERNAL_R0023({ message: `This access does not include the ${JSON.stringify(section)} section, which ${operation.name} needs.` }), { status: 403 })
+      const denial = operationAccessDenial(operation.name, section)
+      throw Object.assign(internalErrorDiagnostics.INTERNAL_R0023({ message: `${denial.message} ${denial.fix}` }), { status: 403 })
     }
     if (!operationAccessAllows(context.access, section, operationCall(operation, parsed))) {
       throw Object.assign(internalErrorDiagnostics.INTERNAL_R0023({ message: `This access to the ${JSON.stringify(section)} section is read-only, and ${operation.name} is a ${operation.kind} operation. Grant the section without ":read" to allow it.` }), { status: 403 })

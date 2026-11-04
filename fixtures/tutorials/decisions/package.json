@@ -9,6 +9,7 @@
     "postinstall": "vitehub types prepare"
   },
   "dependencies": {
+    "@vitejs/plugin-vue": "^6.0.10",
     "h3": "catalog:unjs",
     "nitro": "catalog:unjs",
     "vite": "catalog:vite",
@@ -17,7 +18,6 @@
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
-    "@vitejs/plugin-vue": "^6.0.10",
     "typescript": "catalog:tooling"
   }
 }

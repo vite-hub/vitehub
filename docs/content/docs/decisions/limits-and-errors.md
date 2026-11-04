@@ -17,7 +17,7 @@ Change them with `limits` in `defineChoices()`.
 | Options in all groups | 100 |
 | Text length | 300 characters |
 
-`resolve()` asks one question for each option of a `multiple` group, one for each single group, and one `supported` check. A hundred options are a hundred questions. The gateway sends large sets in bounded requests.
+`resolve()` asks one question per option in multi-select groups, one per non-empty single-select group, and one `supported` check. For example, a multi-select group with 100 options produces 101 questions, while a single-select group with 100 options produces two. The gateway sends large sets in bounded requests.
 
 Two thresholds decide the answers. Change them with `thresholds`.
 

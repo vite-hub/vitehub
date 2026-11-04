@@ -97,9 +97,9 @@ const ai = useChoices<typeof forecast>({
 | `text` | A ref for your input. |
 | `status` | `idle`, `thinking`, `ready`, or `error`. |
 | `selection`, `error` | The latest result and the latest failure. |
-| `submit()`, `abort()`, `clear()` | Resolve now, cancel the request, reset everything. |
+| `submit()`, `abort()`, `clear()` | Resolve now, cancel the request, reset the text, selection, and error. `clear()` also calls `onClear`, so you can reset your own state. |
 
-A newer request cancels the older one through `signal`, and the older result never reaches `onSelect`. Throw from `resolve` to set `error`. The text must be at least `minLength` (3) characters before a debounced resolve runs.
+A newer request cancels the older one through `signal`, and the older result never reaches `onSelect`. With debounce enabled, changing the text cancels the current request immediately, including while waiting for the next request to start. Throw from `resolve` to set `error`. The text must be at least `minLength` (3) characters before a debounced resolve runs.
 
 ## Limits and errors
 
