@@ -89,6 +89,7 @@ function operationTools(context: ToolContext, registeredNames: ReadonlySet<strin
               access,
               development: isConsoleDevelopmentBuild(),
               request: context.request,
+              ...(context.event ? { event: context.event } : {}),
               response: {},
               surface: "mcp",
               // SAFETY: A Console user from the Auth adapter has the id that the operation user needs.

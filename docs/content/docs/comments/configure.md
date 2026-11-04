@@ -49,7 +49,7 @@ Without `authorize`, a production build lets in only people that a sign-in alrea
 | Person | Without `authorize` |
 | --- | --- |
 | Signed in [with GitHub](#sign-in-with-github) | May do everything when they can push to the repository of the build. Nothing otherwise, also on the dev server. |
-| Admitted by the [Console](#comment-as-the-console-team) to its Comments section | May do everything that the Console grant allows. The comment operations, the CLI, and MCP always run after this check. |
+| Admitted by the [Console](#comment-as-the-console-team) to its Comments section, in an app without `identify` | May do everything that the Console grant allows. The comment operations, the CLI, and MCP always run after this check. |
 | Signed in with ViteHub Auth or `identify`, in a production build | Nothing. The API answers [`COMMENTS_POLICY_MISSING`](/docs/comments/limits-and-errors#comments_policy_missing), and the server log shows `COMMENTS_R0006` once. |
 | Anyone on the dev server | May do everything. People who are not signed in comment as guests under a name they type. |
 | Not signed in, in a production build | Nothing. |
@@ -121,7 +121,7 @@ Comments needs no email permission. When GitHub hides a person's email, Comments
 
 ### Comment as the Console team
 
-When the app has the [Console](/docs/development/console), the people of Comments are the people that the Console lets use its **Comments** section. Visitors and app users without Console access get `null`, so the toolbar never opens for them. `authorize` still runs after that check, with the Console user.
+When the app has the [Console](/docs/development/console) and `server/comments.ts` has no `identify`, the people of Comments are the people that the Console lets use its **Comments** section. Visitors and app users without Console access are refused, so the toolbar never opens for them. `authorize` still runs after that check, with the Console user. With `identify`, the Console has no say: see [Use your own login](#use-your-own-login).
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -146,7 +146,7 @@ When a person signs in to the app with `auth: 'app'`, or opens the Console, the 
 
 ### Use your own login
 
-Return the user from `identify` to use your own login. Return `null` for an anonymous request. When `identify` is configured, Comments does not read the ViteHub Auth session. Apps with the Console still check Console section access first.
+Return the user from `identify` to use your own login. Return `null` for an anonymous request. When `identify` is configured, it names the user and `authorize` decides what they may do. Comments then reads neither the ViteHub Auth session nor the Console's access, so members, guests, and readers of a share link can comment in an app that also has the Console. The comment operations of the Console, the CLI, and MCP ask `identify` too, with the request of the call, so `authorize` always sees the user that `identify` builds. An agent's call has no request, so it has no user. Without `authorize`, a production build lets nobody in that `identify` names: write the policy.
 
 ```ts [server/comments.ts]
 import { getCookie } from 'h3'
@@ -605,4 +605,4 @@ The Console serves [ViteHub MCP](/docs/development/mcp) at `/_vitehub/mcp`. An A
 
 An app with its own MCP server can register the same tools: `commentsMcpTools(comments)` from `vite-hub/comments/runtime` returns them with a JSON Schema and a `call(input, { user })` function each.
 
-Your server must authenticate `user` before calling a tool; pass `null` for an anonymous caller. Without an event, the tools use this user even when Comments defines `identify`. To use request-based Comments identity, pass `call(input, { user, event })` with the H3 request event. Pass Console access through `commentsMcpTools(comments, { consoleSession })`: a `false` result or a failed read denies access before `identify` or `authorize`. Otherwise `identify` takes precedence. Without `identify`, the Console reader is used, then the Auth reader in `{ session }` if no Console reader is supplied, or `user` when neither reader is supplied. Browser guest headers name an author only when `authorize` permits the anonymous caller.
+Your server must authenticate `user` before calling a tool; pass `null` for an anonymous caller. Without an event, the tools use this user even when Comments defines `identify`. To use request-based Comments identity, pass `call(input, { user, event })` with the H3 request event. With `identify`, it names the user and `authorize` decides. Without `identify`, pass Console access through `commentsMcpTools(comments, { consoleSession })`: a `false` result or a failed read denies access before `authorize`. Otherwise the Console reader is used, then the Auth reader in `{ session }` if no Console reader is supplied, or `user` when neither reader is supplied. Browser guest headers name an author only when `authorize` permits the anonymous caller.

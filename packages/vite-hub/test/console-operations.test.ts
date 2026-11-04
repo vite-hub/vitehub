@@ -1,3 +1,4 @@
+import { defineHandler, H3Event } from "h3"
 import * as v from "valibot"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { defineOperation } from "@vite-hub/internal/operations"
@@ -9,7 +10,7 @@ import { installConsoleSections } from "../src/console/runtime/server/sections.t
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleRuntime } from "../src/console/runtime/server/runtime.ts"
 import { consoleOperationRegistry as installedRegistry, installConsoleOperations, installConsoleProjectRoot } from "../src/console/runtime/server/operation-contributions.ts"
-import { consoleOperationRegistry } from "../src/console/runtime/server/rpc.ts"
+import consoleRpcHandler, { consoleOperationRegistry } from "../src/console/runtime/server/rpc.ts"
 import { callOperation, installedOperationRegistry, installOperationRegistryLoader, operationRootHeader, parseOperationInput, projectRootHash, runOperation } from "@vite-hub/internal/operations"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 
@@ -71,6 +72,31 @@ describe("operations that run app code", () => {
     installConsoleOperations([{ operations: [greet, start], plugin: "fixture-plugin" }], { invoke: true })
     expect(consoleOperationRegistry().get("fixture.start")).toBeDefined()
     await expect((await call("fixture.start")).json()).resolves.toEqual({ ok: true, value: { started: true } })
+  })
+
+  it("hands them the server event of the request, for app hooks that read its session", async () => {
+    let seen: unknown
+    const probe = defineOperation({
+      description: "Keep the event.",
+      input: v.strictObject({}),
+      kind: "read",
+      name: "fixture.event",
+      run: (_input, { event }) => {
+        seen = event
+        return null
+      },
+      section: "fixture",
+    })
+    installConsoleSections("/work/app", ["fixture"])
+    installConsoleOperations([{ operations: [probe], plugin: "fixture-plugin" }])
+    const response = await defineHandler(consoleRpcHandler).fetch(new Request("http://vitehub.local/_vitehub/rpc/__call", {
+      body: JSON.stringify({ input: {}, operation: "fixture.event" }),
+      headers: { "content-type": "application/json", [consoleRpcHeader]: "1", cookie: "sid=ada" },
+      method: "POST",
+    }))
+    expect(response.status).toBe(200)
+    expect(seen).toBeInstanceOf(H3Event)
+    expect((seen as H3Event).req.headers.get("cookie")).toBe("sid=ada")
   })
 
   async function advertised(): Promise<unknown> {
