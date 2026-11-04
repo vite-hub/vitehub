@@ -221,7 +221,7 @@ interface CommentsTransport {
 
 A mutation returns the thread as it is afterwards. `delete` returns `null` when the thread is gone.
 
-`supportsAttachments: false` tells comment surfaces to disable file controls. The shipped `createRpcTransport()` sets it because the runtime rejects attachment keys until it has an upload operation.
+Transports accept attachment keys by default, including the shipped `createRpcTransport()`. Custom transports that reject attachment keys should set `supportsAttachments: false` to disable file controls in comment surfaces.
 
 `createMemoryTransport()` keeps threads in memory. Use it in tests and docs examples:
 
