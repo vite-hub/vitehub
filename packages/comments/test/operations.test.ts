@@ -5,6 +5,8 @@ import { drizzle } from "drizzle-orm/libsql"
 import { H3Event } from "h3"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 
+// Exercise the built Node transport without pulling its Vite helpers into Comments' DOM typecheck.
+import { createStandaloneOperationHandler } from "../../internal/dist/operations-dev.js"
 import { defineComments, installComments } from "../src/index.ts"
 import { commentsOperations } from "../src/operations-core/operations.ts"
 import { createAuthUsers, installCommentsRuntime } from "../src/operations-core/server.ts"
@@ -312,6 +314,29 @@ it.each([false, true])("matches owner deletion capabilities to the write policy 
     capabilities: { reply: write, deleteThread: write, delete: write ? [thread.messages[0]!.id] : [] },
   } })
   expect(await call("comments.delete", { threadId: thread.id })).toMatchObject(write ? { ok: true } : { ok: false, status: 403 })
+})
+
+it.each(["admin", "stranger"])("identifies %s through the standalone CLI operation RPC", async (person) => {
+  const identified = { id: "admin", name: "Admin", role: "admin" }
+  const authorize = vi.fn(({ user }: { user: CommentsUser | null }) => user?.role === "admin")
+  const identify = vi.fn(({ event }: { event: H3Event }) => event.req.headers.get("x-person") === "admin" ? identified : null)
+  const comments = defineComments({ identify, authorize })
+  // SAFETY: The libSQL Drizzle database implements the batch contract that ViteHub Databases expose.
+  installComments(comments, { database: drizzle(client) as unknown as CommentsDatabase })
+  const handler = createStandaloneOperationHandler([{ operations: commentsOperations, plugin: "comments" }], "/project")
+  const request = new Request("http://localhost/_vitehub/rpc/__call", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-vitehub-console": "1", "x-person": person },
+    body: JSON.stringify({ operation: "comments.create", input }),
+  })
+  const event = new H3Event(request)
+  const response = await handler(event)
+  expect(response.status).toBe(person === "admin" ? 200 : 403)
+  expect(await response.json()).toMatchObject(person === "admin"
+    ? { ok: true, value: { author: { id: "admin", name: "Admin" } } }
+    : { ok: false, status: 403 })
+  expect(identify).toHaveBeenCalledWith({ event })
+  expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ user: person === "admin" ? identified : null }))
 })
 
 it("gives authorize the user that identify builds for the request, not the Console user", async () => {

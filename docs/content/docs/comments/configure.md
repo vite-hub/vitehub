@@ -320,7 +320,7 @@ All statements run in one batch or transaction, so a failure changes nothing.
 
 | Live-site field | One model |
 | --- | --- |
-| `number` | `n`, the same number |
+| `number` | `n`, the same number unless a legacy `site` scope already handed out numbers. Then page numbers move beyond that scope's highest issued number; its own numbers stay. |
 | scope `pages` and `page` | subject `{ kind: 'page', id: page }`, scope `site` |
 | scope `kind:id`, such as `drop:42` | subject `{ kind: 'drop', id: '42' }`, scope `drop:42`. Define the kind with `defineCommentSubject({ kind: 'drop', scope: id => \`drop:${id}\` })` so new threads take the same scope. The `page` of such a thread stays only in the backup table. |
 | other scopes | subject `{ kind: scope, id: page }` |
@@ -471,9 +471,9 @@ The Comments toolbar is one segment of the ViteHub tools pill at the bottom of t
 | <kbd>C</kbd> | Turn **Comment** on or off. While it is on, a click anywhere starts a thread. |
 | <kbd>E</kbd> | Turn **Edit** on or off, when the app has Content. |
 | <kbd>Esc</kbd> | Close the open thread, or turn **Comment** and **Edit** off. |
-| <kbd>⌘</kbd> <kbd>Enter</kbd> | Send the comment. |
+| <kbd>Enter</kbd> | Send the comment. <kbd>Shift</kbd> <kbd>Enter</kbd> starts a new line. |
 
-Every HTML page gets a short inline script before `</body>`, the page tools bootstrap. It is the same for every visitor, so the page keeps its cache headers. In the browser, it loads the page tools loader only with a hint: the `?vitehub` query, `vitehub-tools=1`, or the [Auth session marker](/docs/auth/configure#session-marker-cookie) of a person who just signed in. Visitors without a hint make no request. With the hint, the server instead adds one loader script, `<script type="module" src="/_vitehub/page/assets/loader.js?v=13">`, and sends the page with `cache-control: private, no-store`. The loader imports the overlay only for people that the session route allows. With an application base such as `/portal/`, the loader and session URLs start with `/portal/_vitehub/page/`. Paths under `/_vitehub` and `/api` within that application never get the page tools.
+Every HTML page gets a short inline script before `</body>`, the page tools bootstrap. It is the same for every visitor, so the page keeps its cache headers. In the browser, it loads the page tools loader only with a hint: the `?vitehub` query, `vitehub-tools=1`, or the [Auth session marker](/docs/auth/configure#session-marker-cookie) of a person who just signed in. Visitors without a hint make no request. With the hint, the server instead adds one loader script, `<script type="module" src="/_vitehub/page/assets/loader.js?v=14">`, and sends the page with `cache-control: private, no-store`. The loader imports the overlay only for people that the session route allows. With an application base such as `/portal/`, the loader and session URLs start with `/portal/_vitehub/page/`. Paths under `/_vitehub` and `/api` within that application never get the page tools.
 
 - Nitro 3 apps get the script from the server response. Nuxt 4 apps get it through Nitro's `render:html` hook, and the loader also when a route returns the page as a `Response`.
 - A single-page app whose `index.html` Vite serves or builds gets the bootstrap in `index.html`.
@@ -487,7 +487,9 @@ ViteHub registers these routes below the part of the base that Nitro does not ad
 
 A prerendered site needs no extra route. Its pages have the bootstrap, so a Nuxt app on Cloudflare Workers can serve them as static assets, without `assets.run_worker_first`. Only the session route and the Comments API run in the Worker.
 
-The overlay is a custom element with a shadow root. Your CSS does not change it, and its CSS does not change your page.
+A link to a thread, `<page>?comment=<n>`, also loads the page tools, opens Comments, and opens that thread, also a resolved one. `onMention` gets this link.
+
+The overlay is a custom element with a shadow root. Your CSS does not change it, and its CSS does not change your page. Inside it are the comment parts of [`@vite-hub/ui`](/docs/ui/comments), the same parts as the Console: pins, threads, the composer with `@` mentions and files, and `CommentPanel` as the thread list. Files go through the checks of `comments.upload`, so they need Blob or `storeAttachment`.
 
 ## Mark Content fields
 

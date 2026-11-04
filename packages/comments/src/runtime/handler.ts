@@ -400,9 +400,9 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     return [undefined, completeContext({ ...context, url: `${origin}${subject.id}` })]
   }
 
-  async function fieldTarget(event: H3Event, address: string): Promise<Result<{ collection: ContentCollectionLike, id: string, path: string[], document: ContentDocumentLike, author: CommentUser, user: CommentsUser | null }, "COMMENTS_CONTENT_MISSING" | "COMMENTS_FIELD_INVALID" | "COMMENTS_FIELD_FORBIDDEN" | "COMMENTS_FORBIDDEN" | "COMMENTS_POLICY_MISSING">> {
+  async function fieldTarget(event: H3Event, address: string, subject?: CommentSubject): Promise<Result<{ collection: ContentCollectionLike, id: string, path: string[], document: ContentDocumentLike, author: CommentUser, user: CommentsUser | null }, "COMMENTS_CONTENT_MISSING" | "COMMENTS_FIELD_INVALID" | "COMMENTS_FIELD_FORBIDDEN" | "COMMENTS_FORBIDDEN" | "COMMENTS_POLICY_MISSING">> {
     if (!options.content) return [commentsErrors.COMMENTS_CONTENT_MISSING(), undefined]
-    const [denied, allowed] = await access(event, "write")
+    const [denied, allowed] = await access(event, "write", undefined, subject)
     if (denied) return [denied, undefined]
     const parsed = options.content.parseField(address)
     const collection = parsed && options.content.runtime.collections().find(candidate => candidate.name === parsed.collection)
@@ -417,8 +417,8 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     return [undefined, { collection, id, path: parsed.field.split("."), document, author: allowed.author, user: allowed.user }]
   }
 
-  async function readField(event: H3Event, address: string): Promise<Response> {
-    const [error, target] = await fieldTarget(event, address)
+  async function readField(event: H3Event, address: string, subject?: CommentSubject): Promise<Response> {
+    const [error, target] = await fieldTarget(event, address, subject)
     if (error) return failure(error)
     const value = readPath(target.document.data, target.path)
     return json({
@@ -433,10 +433,10 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     })
   }
 
-  async function saveField(event: H3Event): Promise<Response> {
+  async function saveField(event: H3Event, subject?: CommentSubject): Promise<Response> {
     const parsed = v.safeParse(fieldBody, await readJson(event))
     if (!parsed.success) return invalid(parsed.issues)
-    const [error, target] = await fieldTarget(event, parsed.output.field)
+    const [error, target] = await fieldTarget(event, parsed.output.field, subject)
     if (error) return failure(error)
     if (typeof readPath(target.document.data, target.path) !== "string") return failure(commentsErrors.COMMENTS_FIELD_NOT_EDITABLE({ field: parsed.output.field }))
     if (target.document.digest !== parsed.output.ifDigest) return failure(commentsErrors.COMMENTS_FIELD_CONFLICT({ field: parsed.output.field }))
@@ -578,8 +578,9 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     }
 
     if (path === "/fields") {
-      if (method === "GET") return await readField(event, url.searchParams.get("field") ?? "")
-      if (method === "POST") return await saveField(event)
+      if (!subject || subject.kind !== "page") return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: "page: Give the current page for a field edit." }))
+      if (method === "GET") return await readField(event, url.searchParams.get("field") ?? "", subject)
+      if (method === "POST") return await saveField(event, subject)
     }
 
     return json({ error: { code: "COMMENTS_NOT_FOUND", why: `No Comments route ${method} ${path}.` } }, { status: 404 })

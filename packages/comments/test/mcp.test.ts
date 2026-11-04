@@ -24,6 +24,38 @@ async function setup(options: DefineCommentsOptions = {}) {
 }
 
 describe("Comments MCP tools", () => {
+  it.each([undefined, "matching"])("fills readable pages after denied and nonmatching threads (search: %s)", async (search) => {
+    const { comments, call } = await setup({ authorize: ({ thread }) => !thread?.messages[0]?.body.startsWith("Hidden") })
+    const [, oldest] = await comments.create({ page: "/pricing", body: "matching oldest", author: ada })
+    const [, newer] = await comments.create({ page: "/pricing", body: "matching newer", author: ada })
+    for (let index = 0; index < (search ? 500 : 2); index++) {
+      await comments.create({ page: "/pricing", body: `Hidden matching ${index}`, author: ada })
+    }
+    const answer = await call("comments_list_threads", { limit: 2, ...(search ? { search } : {}) })
+    expect(answer.structured).toMatchObject({ threads: expect.arrayContaining([expect.objectContaining({ id: newer!.id }), expect.objectContaining({ id: oldest!.id })]) })
+    expect(answer.structured?.threads).toHaveLength(2)
+    expect(answer.text).not.toContain("Hidden")
+  })
+
+  it("filters denied pages and threads from both list answers", async () => {
+    const { comments, call } = await setup({ authorize: ({ subject, thread }) => subject?.id !== "/private" && thread?.messages[0]?.body !== "Hidden thread" })
+    const [, visible] = await comments.create({ page: "/pricing", body: "Visible", author: ada })
+    await comments.create({ page: "/private", body: "Private page", author: ada })
+    await comments.create({ page: "/pricing", body: "Hidden thread", author: ada })
+    for (const input of [{}, { search: "thread" }, { page: "/pricing" }]) {
+      const answer = await call("comments_list_threads", input)
+      expect(answer.text).not.toMatch(/Private page|Hidden thread/)
+      expect(answer.structured).toEqual({ threads: input.search ? [] : [expect.objectContaining({ id: visible!.id })] })
+    }
+    expect((await call("comments_list_threads", { page: "/private" })).isError).toBe(true)
+  })
+
+  it("passes the requested page to the list read policy", async () => {
+    const { comments, call } = await setup({ authorize: ({ subject }) => subject?.id === "/pricing" })
+    const [, thread] = await comments.create({ page: "/pricing", body: "Allowed here", author: ada })
+    expect((await call("comments_list_threads", { page: "/pricing/" })).structured).toMatchObject({ threads: [{ id: thread!.id }] })
+  })
+
   it("fills the page limit when newer subjects share the site scope", async () => {
     const { comments, call } = await setup({ subjects: [defineCommentSubject({ kind: "content", scope: () => "site" })] })
     const [, page] = await comments.create({ page: "/pricing", body: "Page feedback", author: ada })
@@ -46,7 +78,7 @@ describe("Comments MCP tools", () => {
       expect(result.isError).toBe(readOnly && index >= 2 ? true : undefined)
     }
     expect(consoleAuthorize.mock.calls.map(([context]) => context.kind)).toEqual(["read", "read", "write", "write"])
-    expect(authorize).toHaveBeenCalledTimes(readOnly ? 2 : 4)
+    expect(authorize).toHaveBeenCalledTimes(readOnly ? 3 : 5)
     const [, after] = await comments.get(thread!.id)
     expect(after?.messages).toHaveLength(readOnly ? 1 : 2)
     expect(after?.status).toBe(readOnly ? "open" : "resolved")
@@ -164,7 +196,7 @@ describe("Comments MCP tools", () => {
     expect(after?.messages.at(-1)?.author).toEqual({ id: "ben", name: "Ben" })
     expect(after?.resolvedBy).toEqual({ id: "ben", name: "Ben" })
     expect((await tools[3]!.call({ id: thread!.id, resolved: false }, { user })).isError).toBeUndefined()
-    expect(seen).toEqual(Array(5).fill(user))
+    expect(seen).toEqual(Array(6).fill(user))
     for (const [index, tool] of tools.entries()) {
       expect((await tool.call(inputs[index]!, { user: null })).isError).toBe(true)
     }
