@@ -1,4 +1,4 @@
-import { consoleD1Binding, consoleDatabaseUrl, resolveConsoleJournal, withConnectionsDatabase, withDataDir, type ConsoleJournal } from "./storage-config.ts"
+import { consoleD1Binding, consoleDatabaseUrl, resolveConsoleJournal, withComments, withConnectionsDatabase, withDataDir, type ConsoleJournal } from "./storage-config.ts"
 import { readFileSync } from "node:fs"
 import { readFile, writeFile } from "node:fs/promises"
 import { createRequire, findPackageJSON } from "node:module"
@@ -1015,11 +1015,11 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const nitroMajorVersion = resolveNuxtNitroMajor(rootDir)
   const projectRoot = resolveViteHubProjectRoot(rootDir)
   // The `cms` preset turns on Workspace, Database, and Blob. Nuxt knows the root here, so resolve it once.
-  const options = markCmsPresetFeaturesResolved(withConnectionsDatabase(withDataDir(resolveCmsPresetFeatures({
+  const options = markCmsPresetFeaturesResolved(withConnectionsDatabase(withDataDir(resolveCmsPresetFeatures(withComments({
     ...moduleOptions,
     console: resolveConsoleOptions(moduleOptions.console),
     env: envOptions,
-  } as Parameters<typeof vitehub>[0], { projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) }))))
+  } as Parameters<typeof vitehub>[0]), { projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) }))))
   const consoleOptions = resolveConsoleOptions(options.console)
   const plan = resolveDeploymentPlan(moduleOptions.preset)
   const configuredOptions = options.database && nuxt.options.database && typeof nuxt.options.database === "object"

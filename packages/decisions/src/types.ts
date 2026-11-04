@@ -113,7 +113,7 @@ export interface ChoicesPlan {
 
 type UnionToIntersection<TUnion> = (TUnion extends unknown ? (value: TUnion) => void : never) extends (value: infer TIntersection) => void ? TIntersection : never
 
-type OptionsContext<TGroup> = TGroup extends { options: (context: infer TContext) => unknown } ? TContext : unknown
+type OptionsContext<TGroup> = TGroup extends { options: (context: infer TContext) => unknown } ? TContext : never
 
 /** The `context` that `resolve()` needs: the parameter types of the `options` functions of the groups. `unknown` when no group needs one. */
 export type GroupsContext<TGroups> = UnionToIntersection<{ [K in keyof TGroups]: OptionsContext<TGroups[K]> }[keyof TGroups]>

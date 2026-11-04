@@ -78,6 +78,28 @@ describe("defineChoices().resolve()", () => {
     await forecast(calls).resolve("bar")
     expect(Object.keys(calls[0]!.questions).sort()).toEqual(["g0", "g1_o0", "g1_o1", "g1_o2", "supported"])
   })
+
+  it("adds top-level hints to every question, including the supported check", async () => {
+    const calls: Parameters<typeof wordGateway>[0] = []
+    const hints = "mtop means Make to order"
+    const choices = defineChoices({
+      gateway: wordGateway(calls),
+      groups: {
+        chart: { label: "Chart", multiple: false, options: [{ label: "Bar", value: "bar" }] },
+        strategy: { label: "Strategy", options: [{ label: "Make to order", value: "mto" }] },
+      },
+      hints,
+    })
+    const [error, plan] = await choices.inspect("mtop")
+    expect(error).toBeUndefined()
+    expect(plan?.questions).toMatchObject({
+      g0: { instructions: expect.stringContaining(hints) },
+      g1_o0: { instructions: expect.stringContaining(hints) },
+      supported: { instructions: expect.stringContaining(hints) },
+    })
+    await choices.resolve("mtop")
+    expect(calls[0]?.questions).toEqual(plan?.questions)
+  })
 })
 
 describe("defineChoices() errors", () => {

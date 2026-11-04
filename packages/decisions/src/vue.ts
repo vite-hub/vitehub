@@ -20,6 +20,8 @@ export interface UseChoicesOptions<TSelection> {
   debounce?: number
   /** The text must be at least this long before a debounced resolve runs. Defaults to `3`. */
   minLength?: number
+  /** Called by `clear()`, so you can reset your own state, such as the filters that the last selection set. */
+  onClear?: () => void
   /** Called with each new selection. Apply it to your own state here. */
   onSelect?: (selection: TSelection) => void
   /**
@@ -113,21 +115,19 @@ export function useChoices<TSelection>(options: UseChoicesOptions<TSelection>): 
     selection.value = undefined
     error.value = undefined
     status.value = "idle"
+    options.onClear?.()
   }
 
   if (options.debounce !== undefined) {
     const delay = options.debounce
     watch(text, (value) => {
-      clearTimeout(timer)
-      timer = undefined
+      cancel()
+      if (status.value === "thinking") status.value = "idle"
       if (value.trim().length < minLength) {
-        controller?.abort()
-        controller = undefined
-        if (status.value === "thinking") status.value = "idle"
         return
       }
       timer = setTimeout(() => void submit(), delay)
-    })
+    }, { flush: "sync" })
   }
 
   onScopeDispose(cancel)

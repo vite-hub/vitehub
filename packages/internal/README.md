@@ -82,6 +82,8 @@ These helpers are dev-only. Dev endpoints trust the `Host` header, the guard hea
 
 `@vite-hub/internal/operations` defines `defineOperation()`, the operation registry, and the RPC client that the CLI uses. A Vite plugin contributes operations with `vitehub.operations: [{ module, export }]`. `vite-hub` installs them in the Console server plugin, and `@vite-hub/cli` makes a `vitehub <namespace> <command>` for each. Operations replace the per-package dev endpoints for new commands.
 
+Operation section ids cannot contain `:`; it is reserved for scope and read-only grants. `defineOperation()` rejects a static section id with `:`, and a dynamic section that returns one denies the call. Use `scope` to require a grant such as `blob:media` for a call within a section.
+
 Standalone KV, Blob, Email, and Rate Limit plugins install one local operation RPC before Nitro initializes. The generated handler runs their operations in the app's Nitro runtime. It is added only in serve mode and yields to the root integration's Console policy, including `console: false`. Local discovery checks the server's project identity; an explicit `--url` does not compare the deployed build's filesystem path with the CLI checkout.
 
 Learn more at [vitehub.dev](https://vitehub.dev).

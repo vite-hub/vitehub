@@ -159,6 +159,8 @@ What a user may do follows [`authorize` in `defineContent()`](/docs/content/conf
 
 In the playground, writers upload and describe files; editors also move and delete them. A request without the needed access returns `403` with `MEDIA_FORBIDDEN`.
 
+The library is a Console page, so MCP agents cannot use it. To let an editor's agent list and upload media, also grant the Blob store that the library shows, such as `'blob:media'` when `blob.serve.store` is `media`. The agent then uses the `blob_list`, `blob_put`, and `blob_media` tools on that store only, and other stores, such as a private Content store, return `403`. See [Grant one Blob store](/docs/development/console#grant-one-blob-store).
+
 ## Publishing publishes what you reviewed
 
 Every publish names the documents and the draft digests that the editor showed, through [`publish({ expect })`](/docs/content/server-api#publish-what-was-reviewed). **Publish** on a document saves any pending edits first, then sends the draft on screen. **Publish N changes** and **Publish N selected** send the drafts the list loaded.

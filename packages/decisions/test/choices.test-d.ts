@@ -29,4 +29,38 @@ describe("defineChoices types", () => {
     void needs.resolve("a", { context: { tenant: 1 } })
     void needs.resolve("a", { context: { tenant: "acme" } })
   })
+
+  it("keeps required context when static groups are present", () => {
+    const choices = defineChoices({
+      gateway: wordGateway(),
+      groups: {
+        chart: { label: "Chart", options: [{ label: "Bar", value: "bar" }] },
+        site: { label: "Site", options: async (_context: { tenant: string }) => [{ label: "A", value: "a" }] },
+      },
+    })
+    // @ts-expect-error The static group must not erase the tenant requirement.
+    void choices.resolve("a")
+    // @ts-expect-error Inspection loads the same request-scoped options.
+    void choices.inspect("a")
+    // @ts-expect-error The context has the wrong shape.
+    void choices.resolve("a", { context: { tenant: 1 } })
+    void choices.resolve("a", { context: { tenant: "acme" } })
+    void choices.inspect("a", { context: { tenant: "acme" } })
+  })
+
+  it("intersects the context of every loader alongside static groups", () => {
+    const choices = defineChoices({
+      gateway: wordGateway(),
+      groups: {
+        chart: { label: "Chart", options: [{ label: "Bar", value: "bar" }] },
+        site: { label: "Site", options: async (_context: { tenant: string }) => [{ label: "A", value: "a" }] },
+        user: { label: "User", options: (_context: { userId: number }) => [{ label: "B", value: "b" }] },
+      },
+    })
+    // @ts-expect-error Both loader parameters are required.
+    void choices.resolve("a", { context: { tenant: "acme" } })
+    // @ts-expect-error Both loader parameters are required.
+    void choices.inspect("b", { context: { userId: 1 } })
+    void choices.resolve("a", { context: { tenant: "acme", userId: 1 } })
+  })
 })
