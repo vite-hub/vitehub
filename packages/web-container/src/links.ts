@@ -10,10 +10,37 @@ export interface SnapshotLinks {
   executables: string[]
 }
 
-/** A Node script that restores the links and executable bits of a mounted snapshot. */
+/**
+ * A Node script that restores the links and executable bits of a mounted snapshot, from the working directory.
+ *
+ * The snapshot bytes come from the network, so the list is not trusted: a path must be relative and stay inside the
+ * working directory, and so must the place that a link points to. Other entries are skipped and printed.
+ */
 export const restoreLinksScript = [
   `const fs = require("node:fs")`,
-  `const { links, executables } = JSON.parse(fs.readFileSync(${JSON.stringify(`node_modules/${snapshotLinksFile}`)}, "utf8"))`,
-  `for (const path of executables) fs.chmodSync(path, 0o755)`,
-  `for (const [path, target] of links) { try { fs.symlinkSync(target, path) } catch (error) { if (error.code !== "EEXIST") throw error } }`,
+  `const path = require("node:path")`,
+  `const root = process.cwd()`,
+  `const inside = target => target === root || target.startsWith(root + path.sep)`,
+  `const local = file => typeof file === "string" && file !== "" && !path.isAbsolute(file) && inside(path.resolve(root, file))`,
+  `const { links = [], executables = [] } = JSON.parse(fs.readFileSync(${JSON.stringify(`node_modules/${snapshotLinksFile}`)}, "utf8"))`,
+  `const skipped = []`,
+  `for (const file of executables) { if (local(file)) fs.chmodSync(file, 0o755); else skipped.push(file) }`,
+  `for (const [file, target] of links) {`,
+  `  if (!local(file) || typeof target !== "string" || path.isAbsolute(target) || !inside(path.resolve(root, path.dirname(file), target))) { skipped.push(file); continue }`,
+  `  try { fs.symlinkSync(target, file) } catch (error) { if (error.code !== "EEXIST") throw error }`,
+  `}`,
+  `if (skipped.length > 0) console.warn("Skipped snapshot links outside the project: " + skipped.join(", "))`,
 ].join("\n")
+
+/** True when `target`, relative to the folder of the link at `path`, stays inside the root. Both use `/`. */
+export function linkStaysInside(path: string, target: string): boolean {
+  if (target.startsWith("/") || path.startsWith("/")) return false
+  const segments = [...path.split("/").slice(0, -1), ...target.split("/")]
+  let depth = 0
+  for (const segment of segments) {
+    if (segment === "..") depth--
+    else if (segment !== "." && segment !== "") depth++
+    if (depth < 0) return false
+  }
+  return true
+}

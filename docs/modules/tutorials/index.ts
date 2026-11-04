@@ -4,7 +4,7 @@ import { webContainerHeaders } from "@vite-hub/web-container/vite";
 import { addTemplate, addTypeTemplate, defineNuxtModule, updateTemplates } from "nuxt/kit";
 import { buildRunnableTutorial, createZip, readWorkspaceVersions, tutorialStepFiles } from "./build";
 import { runnableTutorials } from "./list";
-import { buildTutorialSnapshots, readTutorialSnapshots } from "./snapshots";
+import { buildTutorialSnapshots, readTutorialSnapshots, tutorialSnapshotInputs } from "./snapshots";
 
 import type { RunnableTutorialData } from "./build";
 
@@ -24,8 +24,9 @@ interface NitroConfig {
  * - `#build/runnable-tutorials.mjs`: the files before step 1 and the files that each step writes.
  * - `/_tutorials/<slug>-starter.zip`: the files at the start of step 1, for readers who cannot run the workspace.
  * - `/_tutorials/snapshots/<slug>.<hash>.<part>.bin`: the `node_modules` of the workspace, so the browser skips
- *   `npm install`. `nuxt build` writes them. `nuxt dev` reuses the last ones; set `TUTORIAL_SNAPSHOTS=1` to build them
- *   in development, or `TUTORIAL_SNAPSHOTS=0` to skip them in a build. Without them the workspace installs.
+ *   `npm install`. `nuxt build` writes them, pinned by `locks/<slug>.package-lock.json`. `nuxt dev` reuses the last
+ *   ones while their dependencies match (`tutorialSnapshotInputs`); set `TUTORIAL_SNAPSHOTS=1` to build them in
+ *   development, or `TUTORIAL_SNAPSHOTS=0` to skip them in a build. Without them the workspace installs.
  */
 export default defineNuxtModule({
   meta: { name: "vitehub-runnable-tutorials" },
@@ -59,7 +60,13 @@ export default defineNuxtModule({
       await writeFile(resolve(assetsDir, `${tutorial.slug}-starter.zip`), createZip(tutorialStepFiles(tutorial, 0, "start"), tutorial.slug));
     }
 
-    let snapshots = await readTutorialSnapshots(assetsDir, { disabled: process.env.TUTORIAL_SNAPSHOTS === "0" });
+    const fixturesDir = resolve(repoRoot, "fixtures/tutorials");
+    const locksDir = resolve(import.meta.dirname, "locks");
+    const inputs = await tutorialSnapshotInputs({ tutorials: runnableTutorials, repoRoot, fixturesDir, locksDir, versions });
+    let snapshots = await readTutorialSnapshots(assetsDir, { inputs, disabled: process.env.TUTORIAL_SNAPSHOTS === "0" });
+    if (!snapshots && nuxt.options.dev && process.env.TUTORIAL_SNAPSHOTS !== "1" && process.env.TUTORIAL_SNAPSHOTS !== "0") {
+      console.info("[tutorials] No tutorial snapshots for the current dependencies, so the workspace runs npm install. Start with TUTORIAL_SNAPSHOTS=1 to build them.");
+    }
     // `nuxi prepare` calls `build:before` too, and it runs on every install and test.
     const buildSnapshots = !nuxt.options._prepare && (process.env.TUTORIAL_SNAPSHOTS ?? (nuxt.options.dev ? "0" : "1")) === "1";
     nuxt.hook("build:before", async () => {
@@ -67,9 +74,10 @@ export default defineNuxtModule({
       snapshots = await buildTutorialSnapshots({
         tutorials: runnableTutorials,
         repoRoot,
-        fixturesDir: resolve(repoRoot, "fixtures/tutorials"),
+        fixturesDir,
         versions,
         outDir: assetsDir,
+        locksDir,
         baseURL: "/_tutorials",
         workDir: resolve(nuxt.options.rootDir, "node_modules/.cache/runnable-tutorials-work"),
       });

@@ -34,12 +34,12 @@ const stepFiles = (index: number, state: "start" | "solution"): Files => tutoria
 
 // The docs build writes a snapshot of node_modules, so the workspace mounts it instead of running `npm install`.
 // The browser keeps its parts in Cache Storage for later visits.
-const snapshotParts = props.tutorial.snapshot;
+const prebuilt = props.tutorial.snapshot;
 const workspace = useWorkspace({
   files: stepFiles(props.step, "start"),
   port: appPort,
-  ...snapshotParts && {
-    snapshot: () => fetchSnapshot(snapshotParts, { cache: `vitehub-tutorial-${props.tutorial.slug}` }),
+  ...prebuilt && {
+    snapshot: () => fetchSnapshot(prebuilt.parts, { cache: `vitehub-tutorial-${props.tutorial.slug}`, sha256: prebuilt.sha256 }),
     install: false,
   },
 });

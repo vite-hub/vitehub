@@ -1,11 +1,13 @@
 import { execFile } from "node:child_process"
-import { cp, lstat, mkdir, readFile, readdir, readlink, rm, writeFile } from "node:fs/promises"
-import { join, relative } from "node:path"
+import { cp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { join } from "node:path"
 import { promisify } from "node:util"
 import { gzipSync } from "node:zlib"
 import { encode } from "@msgpack/msgpack"
 
 import { snapshotLinksFile, type SnapshotLinks } from "./links.ts"
+import { aliasName, lockedAliases, sameRecord, withoutAliases, withoutTarballIntegrity } from "./lockfile.ts"
+import { readTree } from "./tree.ts"
 
 const run = promisify(execFile)
 const npmFlags = ["--ignore-scripts", "--no-audit", "--no-fund", "--no-progress"]
@@ -29,6 +31,23 @@ export interface CreateNodeModulesSnapshotOptions {
   dir: string
   /** Keep `devDependencies`. @default false */
   dev?: boolean
+  /**
+   * The `lockfile` of an earlier snapshot of this app. The install then runs `npm ci`, so the same lockfile gives the
+   * same `node_modules` and the same snapshot bytes. Without it, npm resolves the versions and returns a new lockfile.
+   */
+  lockfile?: string
+  /**
+   * With `false`, a `lockfile` that no longer matches the app is updated with `npm install`, which keeps the versions it
+   * can, instead of an error. @default true
+   */
+  frozenLockfile?: boolean
+}
+
+export interface NodeModulesSnapshot {
+  /** The binary snapshot for `bootWebContainer({ snapshot })`. */
+  snapshot: Uint8Array
+  /** The `package-lock.json` of the install. Keep it and pass it back as `lockfile` to get the same snapshot. */
+  lockfile: string
 }
 
 /**
@@ -40,38 +59,68 @@ export interface CreateNodeModulesSnapshotOptions {
  * The snapshot cannot hold symlinks or executable bits, so it lists them, and `bootWebContainer` restores them.
  * Creation requires a POSIX host (Linux, macOS, or WSL); Windows npm shims cannot be restored as POSIX bin links.
  */
-export async function createNodeModulesSnapshot(options: CreateNodeModulesSnapshotOptions): Promise<Uint8Array> {
+export async function createNodeModulesSnapshot(options: CreateNodeModulesSnapshotOptions): Promise<NodeModulesSnapshot> {
   if (process.platform === "win32") throw new Error("createNodeModulesSnapshot requires a POSIX host (Linux, macOS, or WSL).")
   const { dir } = options
   const modules = join(dir, "node_modules")
-  await rm(modules, { recursive: true, force: true })
-  await run("npm", ["install", "--cpu=wasm32", ...options.dev ? [] : ["--omit=dev"], ...npmFlags], { cwd: dir, maxBuffer: 64 * 2 ** 20 })
+  const manifestPath = join(dir, "package.json")
+  const lockPath = join(dir, "package-lock.json")
+  const manifest: Manifest = JSON.parse(await readFile(manifestPath, "utf8"))
+  const frozen = options.lockfile !== undefined && options.frozenLockfile !== false
+  let aliases = options.lockfile === undefined ? {} : lockedAliases(options.lockfile)
+  if (options.lockfile !== undefined) await writeFile(lockPath, options.lockfile)
+  else await rm(lockPath, { force: true })
 
-  const side = join(dir, ".wasm-builds")
+  // The wasm builds have the versions of the packages they replace, which the install decides. When it decides other
+  // versions than the aliases have, install again with the new aliases. A second round always agrees.
+  for (let round = 0; ; round++) {
+    await writeFile(manifestPath, `${JSON.stringify({ ...manifest, dependencies: { ...withoutAliases(manifest.dependencies), ...aliases } }, null, 2)}\n`)
+    await rm(modules, { recursive: true, force: true })
+    await run("npm", [frozen ? "ci" : "install", "--cpu=wasm32", ...options.dev ? [] : ["--omit=dev"], ...npmFlags], { cwd: dir, maxBuffer: 64 * 2 ** 20 })
+    const needed = await neededAliases(modules)
+    if (sameRecord(needed, aliases)) break
+    if (frozen) throw new Error("The lockfile does not match the app: its wasm builds have other versions. Pass frozenLockfile: false to update it.")
+    if (round > 1) throw new Error("The wasm builds of the app do not settle on one set of versions.")
+    aliases = needed
+  }
+
   for (const { name, path } of await packageDirs(modules)) {
     const wasm = wasmBuilds[name]
     const target = wasm ?? wasmBindings[name]
     if (!target) continue
-    const version = await packageVersion(path)
-    const installed = await installAlone(join(side, `${target.replace("/", "+")}@${version}`), `${target}@${version}`)
+    const alias = join(modules, aliasName(target, await packageVersion(path)))
     // A wasm build takes the place of the package. A binding goes into the package's own node_modules.
     const destination = wasm ? path : join(path, "node_modules", target)
     if (wasm) await rm(path, { recursive: true, force: true })
-    await cp(join(installed, target), destination, { recursive: true })
-    for (const dependency of await packageDirs(installed, false)) {
-      if (dependency.name !== target) await cp(dependency.path, join(destination, "node_modules", dependency.name), { recursive: true })
-    }
+    await cp(alias, destination, { recursive: true, verbatimSymlinks: true })
   }
-  await rm(side, { recursive: true, force: true })
+  for (const alias of Object.keys(aliases)) await rm(join(modules, alias), { recursive: true, force: true })
 
   const links: SnapshotLinks = { links: [], executables: [] }
   const tree = await readTree(dir, modules, links)
   tree[snapshotLinksFile] = { f: { c: new TextEncoder().encode(JSON.stringify(links)) } }
-  return encode({ d: { node_modules: { d: tree } } })
+  return { snapshot: encode({ d: { node_modules: { d: tree } } }), lockfile: withoutTarballIntegrity(await readFile(lockPath, "utf8")) }
 }
 
-/** The binary snapshot format that `WebContainer#mount()` reads: msgpack of `{ d: { [name]: { d } | { f: { c } } } }`. */
-type SnapshotTree = Record<string, { d: SnapshotTree } | { f: { c: Uint8Array } }>
+interface Manifest {
+  dependencies?: Record<string, string>
+  [field: string]: unknown
+}
+
+
+
+/** An alias for each wasm build or binding that the installed packages need, such as `npm:esbuild-wasm@0.28.2`. */
+async function neededAliases(modules: string): Promise<Record<string, string>> {
+  const needed: Record<string, string> = {}
+  for (const { name, path } of await packageDirs(modules)) {
+    const target = wasmBuilds[name] ?? wasmBindings[name]
+    if (!target) continue
+    const version = await packageVersion(path)
+    needed[aliasName(target, version)] = `npm:${target}@${version}`
+  }
+  return needed
+}
+
 
 /**
  * Compresses a snapshot with gzip and splits it into parts of at most `partBytes`, for hosts that limit the size of a
@@ -84,14 +133,6 @@ export function packSnapshot(data: Uint8Array, options: { partBytes?: number } =
   const parts: Uint8Array[] = []
   for (let offset = 0; offset < compressed.byteLength; offset += partBytes) parts.push(compressed.subarray(offset, offset + partBytes))
   return parts
-}
-
-async function installAlone(dir: string, spec: string): Promise<string> {
-  await mkdir(dir, { recursive: true })
-  await writeFile(join(dir, "package.json"), "{}\n")
-  // `--force`: the rolldown binding declares no cpu, but npm still checks its engines.
-  await run("npm", ["install", spec, "--force", "--no-package-lock", ...npmFlags], { cwd: dir, maxBuffer: 64 * 2 ** 20 })
-  return join(dir, "node_modules")
 }
 
 async function packageVersion(path: string): Promise<string> {
@@ -117,21 +158,4 @@ async function packageDirs(modules: string, nested = true): Promise<{ name: stri
     }
   }
   return found
-}
-
-/** Reads `dir` into a snapshot tree, one file at a time. Symlinks and executable files go into `links`, relative to `root`. Source maps are left out. */
-async function readTree(root: string, dir: string, links: SnapshotLinks): Promise<SnapshotTree> {
-  const tree: SnapshotTree = {}
-  // Sorted, so the same files give the same bytes and the same content hash on every build.
-  for (const entry of (await readdir(dir)).sort()) {
-    const path = join(dir, entry)
-    const stats = await lstat(path)
-    if (stats.isSymbolicLink()) links.links.push([relative(root, path), await readlink(path)])
-    else if (stats.isDirectory()) tree[entry] = { d: await readTree(root, path, links) }
-    else if (stats.isFile() && !entry.endsWith(".map")) {
-      if (stats.mode & 0o111) links.executables.push(relative(root, path))
-      tree[entry] = { f: { c: await readFile(path) } }
-    }
-  }
-  return tree
 }
