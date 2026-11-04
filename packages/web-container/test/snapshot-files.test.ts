@@ -27,6 +27,33 @@ beforeEach(async () => {
 afterEach(() => rm(outer, { recursive: true, force: true }))
 
 describe("restoring snapshot links", () => {
+  it.each(["existing", "earlier", "later"])("rejects targets that escape through a symlink (%s)", async (order) => {
+    const alias = ["node_modules/alias", ".."]
+    const links = [
+      ["node_modules/.bin/evil", "../alias/../outside.txt"],
+      ["node_modules/.bin/safe", "../alias/node_modules/a/cli.js"],
+    ]
+    if (order === "existing") await symlink("..", join(project, "node_modules/alias"))
+    else if (order === "earlier") links.unshift(alias)
+    else links.push(alias)
+    await writeFile(join(project, "node_modules", snapshotLinksFile), JSON.stringify({ links }))
+    await writeFile(join(project, "restore.cjs"), restoreLinksScript)
+    const { stderr } = await run(process.execPath, ["restore.cjs"], { cwd: project })
+    expect(await exists(join(project, "node_modules/.bin/evil"))).toBe(false)
+    expect(await readFile(join(project, "node_modules/.bin/safe"), "utf8")).toBe("#!/usr/bin/env node\n")
+    expect(stderr).toContain("node_modules/.bin/evil")
+  })
+
+  it("skips cyclic link targets", async () => {
+    await writeFile(join(project, "node_modules", snapshotLinksFile), JSON.stringify({
+      links: [["node_modules/.bin/loop", "loop"]],
+    }))
+    await writeFile(join(project, "restore.cjs"), restoreLinksScript)
+    const { stderr } = await run(process.execPath, ["restore.cjs"], { cwd: project })
+    expect(await exists(join(project, "node_modules/.bin/loop"))).toBe(false)
+    expect(stderr).toContain("node_modules/.bin/loop")
+  })
+
   it("rejects link paths that traverse an in-project symlink", async () => {
     await mkdir(join(project, "node_modules/z"))
     await writeFile(join(project, "node_modules", snapshotLinksFile), JSON.stringify({

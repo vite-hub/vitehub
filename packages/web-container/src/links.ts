@@ -14,8 +14,9 @@ export interface SnapshotLinks {
  * A Node script that restores the links and executable bits of a mounted snapshot, from the working directory.
  *
  * The snapshot bytes come from the network, so the list is not trusted: a path must be relative and stay inside the
- * working directory, and so must the place that a link points to. Paths through symlinks are rejected so that a
- * previously restored alias cannot change a destination. Other entries are skipped and printed.
+ * working directory, and so must the place that a link points to. Destination paths through symlinks are rejected.
+ * Targets are checked after restoration so aliases are followed regardless of their order in the list.
+ * Other entries are skipped and printed.
  */
 export const restoreLinksScript = [
   `const fs = require("node:fs")`,
@@ -31,12 +32,42 @@ export const restoreLinksScript = [
   `  }`,
   `  return true`,
   `}`,
+  `const localTarget = (file, target) => {`,
+  `  let current = path.resolve(root, path.dirname(file))`,
+  `  let segments = target.split(path.sep)`,
+  `  let followed = 0`,
+  `  while (segments.length > 0) {`,
+  `    const segment = segments.shift()`,
+  `    if (segment === "" || segment === ".") continue`,
+  `    const next = path.resolve(current, segment)`,
+  `    if (!inside(next)) return false`,
+  `    try {`,
+  `      if (fs.lstatSync(next).isSymbolicLink()) {`,
+  `        if (++followed > 40) return false`,
+  `        const alias = fs.readlinkSync(next)`,
+  `        if (path.isAbsolute(alias)) {`,
+  `          if (!inside(alias)) return false`,
+  `          current = root`,
+  `          segments = alias.slice(root.length).split(path.sep).concat(segments)`,
+  `        } else segments = alias.split(path.sep).concat(segments)`,
+  `        continue`,
+  `      }`,
+  `    } catch (error) { if (error.code === "ENOTDIR") return false; if (error.code !== "ENOENT") throw error }`,
+  `    current = next`,
+  `  }`,
+  `  return true`,
+  `}`,
   `const { links = [], executables = [] } = JSON.parse(fs.readFileSync(${JSON.stringify(`node_modules/${snapshotLinksFile}`)}, "utf8"))`,
   `const skipped = []`,
+  `const restored = []`,
   `for (const file of executables) { if (local(file)) fs.chmodSync(file, 0o755); else skipped.push(file) }`,
   `for (const [file, target] of links) {`,
   `  if (!local(file) || typeof target !== "string" || path.isAbsolute(target) || !inside(path.resolve(root, path.dirname(file), target))) { skipped.push(file); continue }`,
-  `  try { fs.symlinkSync(target, file) } catch (error) { if (error.code !== "EEXIST") throw error }`,
+  `  try { fs.symlinkSync(target, file); restored.push([file, target]) } catch (error) { if (error.code !== "EEXIST") throw error }`,
+  `}`,
+  // Resolve one component at a time: normalizing `alias/..` before following the alias can hide an escape.
+  `for (const [file, target] of restored) {`,
+  `  if (!localTarget(file, target)) { fs.unlinkSync(file); skipped.push(file) }`,
   `}`,
   `if (skipped.length > 0) console.warn("Skipped snapshot links outside the project or through symlinks: " + skipped.join(", "))`,
 ].join("\n")
