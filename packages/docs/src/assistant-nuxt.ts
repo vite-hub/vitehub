@@ -1,40 +1,12 @@
 import type {} from "nuxt/schema"
 
+import { viteHubModuleOptions } from "./module-options.ts"
+
+import type { ModuleOptionsNuxt } from "./module-options.ts"
+
 /** Only the host fields used here: Nuxt and @nuxt/kit can load different compatible schema versions. */
-interface DocsAssistantNuxt {
-  options: { modules: readonly unknown[] }
+interface DocsAssistantNuxt extends ModuleOptionsNuxt {
   hook: (name: "modules:done", callback: () => Promise<void>) => unknown
-}
-
-/** Options of the `vite-hub/nuxt` module that the assistant depends on. */
-interface ViteHubModuleOptions {
-  agent?: unknown
-  connections?: unknown
-}
-
-/** The module name: a string entry, or the `getMeta()` name of an imported module function. */
-async function moduleName(module: unknown): Promise<unknown> {
-  if (typeof module !== "function") return module
-  const getMeta: unknown = Reflect.get(module, "getMeta")
-  if (typeof getMeta !== "function") return
-  const meta: unknown = await Reflect.apply(getMeta, module, [])
-  return meta && typeof meta === "object" ? Reflect.get(meta, "name") : undefined
-}
-
-/** Inline and `vitehub` key options of `vite-hub/nuxt`, or `undefined` when the module is not installed. */
-async function viteHubModuleOptions(nuxt: DocsAssistantNuxt): Promise<ViteHubModuleOptions | undefined> {
-  let installed = false
-  let inline: ViteHubModuleOptions = {}
-  for (const entry of nuxt.options.modules) {
-    const [module, options] = Array.isArray(entry) ? entry : [entry, undefined]
-    if (await moduleName(module) !== "vite-hub/nuxt") continue
-    installed = true
-    if (options && typeof options === "object") inline = { ...inline, ...options }
-  }
-  // `vitehub` is the module's config key. Its type exists only when the module's types load.
-  const configured: unknown = Reflect.get(nuxt.options, "vitehub")
-  if (!installed && !configured) return
-  return { ...(configured && typeof configured === "object" ? configured : {}), ...inline }
 }
 
 /** The error that the build shows when the assistant cannot run. */

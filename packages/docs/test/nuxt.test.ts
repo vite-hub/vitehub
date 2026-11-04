@@ -1,6 +1,6 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -11,7 +11,7 @@ const hooks = new Map<string, Hook[]>()
 const templates = new Map<string, () => string>()
 const handlers: Array<{ route: string }> = []
 vi.mock("@nuxt/kit", () => ({
-  defineNuxtModule: (definition: { setup: unknown }) => definition.setup,
+  defineNuxtModule: (definition: { setup: object, moduleDependencies: unknown }) => Object.assign(definition.setup, { moduleDependencies: definition.moduleDependencies }),
   createResolver: () => ({ resolve: (path: string) => resolve(import.meta.dirname, "../src", path) }),
   addTemplate: (template: { filename: string, getContents: () => string }) => {
     templates.set(template.filename, template.getContents)
@@ -31,7 +31,20 @@ vi.mock("node:fs", async (importOriginal) => ({
   ...await importOriginal<typeof import("node:fs")>(),
   watch: watchContent,
 }))
-const { default: setup } = await import("../src/nuxt.ts")
+// The test runner resolves workspace packages from anywhere, so resolve only from the app's own node_modules.
+vi.mock("node:module", async (importOriginal) => ({
+  ...await importOriginal<typeof import("node:module")>(),
+  createRequire: (from: string) => ({
+    resolve: (id: string) => {
+      const file = join(dirname(from), "node_modules", id)
+      if (existsSync(file)) return file
+      throw new Error(`Cannot find module '${id}'`)
+    },
+  }),
+}))
+const { default: setup, DocsCommentsSetupError } = await import("../src/nuxt.ts")
+// SAFETY: the @nuxt/kit mock above keeps the module definition's moduleDependencies on the setup function.
+const moduleDependencies = (setup as unknown as { moduleDependencies: (nuxt: unknown) => Promise<Record<string, unknown>> }).moduleDependencies
 const roots: string[] = []
 
 afterEach(async () => {
@@ -167,5 +180,45 @@ describe("docs Nuxt setup", () => {
     expect(routes).toEqual(expect.arrayContaining(["/blog", "/docs/kv", "/api/_docs/page/docs/kv.json", "/api/_docs/search.json", "/sitemap.xml"]))
     expect(routes.some(path => path.startsWith("/portal"))).toBe(false)
     expect(handlers.map(handler => handler.route)).toEqual(["/api/_docs/page/**", "/api/_docs/search.json", "/sitemap.xml", "/raw/**"])
+  })
+})
+
+describe("docs Comments", () => {
+  /** A Nuxt app with these modules, `docs` options, and `@vite-hub/comments` installed unless `comments` is false. */
+  function app(modules: unknown[], docs?: DocsModuleOptions, comments = true) {
+    const rootDir = mkdtempSync(join(tmpdir(), "docs-comments-"))
+    roots.push(rootDir)
+    writeFileSync(join(rootDir, "package.json"), "{}\n")
+    if (comments) {
+      mkdirSync(join(rootDir, "node_modules/@vite-hub/comments"), { recursive: true })
+      writeFileSync(join(rootDir, "node_modules/@vite-hub/comments/package.json"), JSON.stringify({ name: "@vite-hub/comments", exports: { "./package.json": "./package.json" } }))
+    }
+    return { options: { rootDir, modules, ...(docs ? { docs } : {}) } }
+  }
+  const docsModule = Object.assign(() => undefined, { getMeta: async () => ({ name: "@vite-hub/docs" }) })
+
+  it("turns Comments on in vite-hub/nuxt by default", async () => {
+    const dependencies = await moduleDependencies(app(["vite-hub/nuxt", "@vite-hub/docs/nuxt"]))
+    expect(dependencies["vite-hub/nuxt"]).toEqual({ optional: true, defaults: { comments: true } })
+  })
+
+  it("passes comments options to vite-hub/nuxt", async () => {
+    const dependencies = await moduleDependencies(app(["vite-hub/nuxt", [docsModule, { comments: { database: "docs", overlay: false } }]]))
+    expect(dependencies["vite-hub/nuxt"]).toEqual({ optional: true, defaults: { comments: { database: "docs", overlay: false } } })
+  })
+
+  it("turns Comments off with comments: false in the docs key or the inline options", async () => {
+    expect(await moduleDependencies(app(["vite-hub/nuxt", "@vite-hub/docs/nuxt"], { comments: false }))).not.toHaveProperty("vite-hub/nuxt")
+    expect(await moduleDependencies(app(["vite-hub/nuxt", [docsModule, { comments: false }]]))).not.toHaveProperty("vite-hub/nuxt")
+  })
+
+  it("has no Comments without vite-hub/nuxt, and fails the build when docs asks for them", async () => {
+    expect(await moduleDependencies(app(["@vite-hub/docs/nuxt"]))).not.toHaveProperty("vite-hub/nuxt")
+    await expect(moduleDependencies(app(["@vite-hub/docs/nuxt"], { comments: true }))).rejects.toThrow(DocsCommentsSetupError)
+  })
+
+  it("names the package or the opt-out when Comments cannot run", async () => {
+    await expect(moduleDependencies(app(["vite-hub/nuxt"], undefined, false))).rejects.toThrow(/pnpm add @vite-hub\/comments.*docs: \{ comments: false \}/)
+    await expect(moduleDependencies(app([["vite-hub/nuxt", { database: false }]]))).rejects.toThrow(/Remove database: false, or set docs: \{ comments: false \}/)
   })
 })
