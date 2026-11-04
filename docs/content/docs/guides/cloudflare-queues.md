@@ -183,4 +183,4 @@ The queue file and the route stay the same. To move to Vercel Queues:
 3. Remove `contentType` from `runQueue()` calls. Vercel returns `QUEUE_UNSUPPORTED_OPTION` for it.
 4. Replace `onError` with `callbackOptions.retry`, which returns `{ acknowledge: true }`, `{ afterSeconds }`, or `undefined`. `concurrency` applies only to Cloudflare.
 
-Read [Vercel Queues](/docs/guides/vercel-queues) for the full steps. ViteHub has no Queue Provider for self-hosted Node or Deno. See [Queue hosts](/docs/queue/hosts) and the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix).
+Read [Vercel Queues](/docs/guides/vercel-queues) for the full steps. On self-hosted Node, Queue uses the local provider. ViteHub has no Queue Provider for Deno. See [Queue hosts](/docs/queue/hosts) and the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix).

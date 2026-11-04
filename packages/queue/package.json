@@ -47,6 +47,11 @@
       "import": "./dist/internal/runtime/cloudflare-vite.js",
       "default": "./dist/internal/runtime/cloudflare-vite.js"
     },
+    "./internal/runtime/local-client": {
+      "types": "./dist/internal/runtime/local-client.d.ts",
+      "import": "./dist/internal/runtime/local-client.js",
+      "default": "./dist/internal/runtime/local-client.js"
+    },
     "./internal/runtime/state": {
       "types": "./dist/internal/runtime/state.d.ts",
       "import": "./dist/internal/runtime/state.js",

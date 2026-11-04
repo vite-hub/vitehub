@@ -321,9 +321,9 @@ export const supportMatrixGroups: SupportMatrixGroup[] = [
         description: "Message delivery",
         values: {
           local: cell(
-            "none",
-            "Local Vite discovers Queue Definitions and generates provider output, but it does not deliver Queue Jobs locally.",
-            "Discovery only",
+            "available",
+            "The local provider stores jobs in .vitehub/data/queue and runs them in the dev server process.",
+            "Local provider",
           ),
           cloudflare: cell("available", "Cloudflare Queues bindings and consumers.", "Queues"),
           vercel: cell("available", "Vercel Queues callbacks and runtime client.", "Vercel Queues"),
@@ -338,7 +338,7 @@ export const supportMatrixGroups: SupportMatrixGroup[] = [
             "Cloudflare Queue bindings or the Vercel Queues runtime client can be composed through Nitro output.",
             "Cloudflare / Vercel",
           ),
-          node: cell("none", "No standalone self-hosted Queue provider is provided.", "—"),
+          node: cell("available", "The local provider runs jobs in the server process. Jobs survive a restart on the same disk, on one host.", "Local provider"),
         },
       },
       {

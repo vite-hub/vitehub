@@ -52,8 +52,10 @@ export interface BootWebContainerOptions {
   /** Folder name of the working directory. */
   workdirName?: string
   /**
-   * The port of the server to preview, such as the `--port` of `vite dev`. Other servers, such as the workers that a
-   * dev server starts on random ports, then do not become the preview. Without it, the first server is the preview.
+   * The port of the server to preview. `run()` passes it to every process as `PORT`, which Nitro's `vite dev` and
+   * `node .output/server/index.mjs` listen on. A run with its own `env.PORT` previews that port instead. Servers on
+   * other ports, such as the workers that Nitro starts on random ports first, do not become the preview.
+   * @default 3000
    */
   port?: number
   /** Called on every status change, from the first check on. */
@@ -64,7 +66,7 @@ export interface BootWebContainerOptions {
 export type WebContainerCommand = "install" | "dev" | "build" | readonly [string, ...string[]]
 
 export interface WebContainerRunOptions {
-  /** Environment variables for this process only. They stay in the browser tab. */
+  /** Environment variables for this process only. They stay in the browser tab. `PORT` defaults to the `port` of `bootWebContainer()`. */
   env?: Record<string, string>
   /** Working directory, relative to the container root. */
   cwd?: string
@@ -93,7 +95,7 @@ export interface WebContainerPreview {
   /** The URL of the latest server that became ready. */
   readonly url: string | undefined
   readonly port: number | undefined
-  /** Resolves when the first server, or the server on `port`, becomes ready. Rejects on startup failure or teardown before readiness. */
+  /** Resolves when the server on `port`, or on the `env.PORT` of a run, becomes ready. Rejects on startup failure or teardown before readiness. */
   ready: Promise<WebContainerPreviewServer>
 }
 
@@ -360,8 +362,10 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
     rejectPendingReady(error)
     status.fail("error", error)
   }
+  const defaultPort = String(options.port ?? 3000)
+  const previewPorts = new Map<number, number>()
   container.on("server-ready", (port, url) => {
-    if (options.port !== undefined && port !== options.port) return
+    if (!previewPorts.has(port)) return
     serverReadyCount++
     server = { port, url }
     if (!readySettled) {
@@ -390,17 +394,27 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
       }
       const readyCountAtStart = serverReadyCount
       if (stage) status.enter(stage)
+      const env = { PORT: defaultPort, ...runOptions.env }
+      const previewPort = Number(env.PORT)
+      previewPorts.set(previewPort, (previewPorts.get(previewPort) ?? 0) + 1)
+      function releasePreviewPort() {
+        const remaining = previewPorts.get(previewPort)! - 1
+        if (remaining) previewPorts.set(previewPort, remaining)
+        else previewPorts.delete(previewPort)
+      }
       let spawned: Awaited<ReturnType<StackBlitzWebContainer["spawn"]>>
       try {
-        spawned = await container.spawn(file, args, { cwd: runOptions.cwd, env: runOptions.env })
+        spawned = await container.spawn(file, args, { cwd: runOptions.cwd, env })
       }
       catch (cause) {
+        releasePreviewPort()
         const error = cause instanceof Error ? cause : new Error(String(cause))
         if (stage === "starting") devRunning = false
         if (stage) fail(error)
         throw error
       }
       const run = wrapProcess(spawned, runOptions.signal)
+      void run.exit.then(releasePreviewPort, releasePreviewPort)
       if (stage === "installing") {
         void run.exit.then(async (code) => {
           if (code === 0) return status.finish("installing")

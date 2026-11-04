@@ -970,6 +970,11 @@ describe("vitehub", () => {
       .not.toContain("vite-hub/error-log")
   })
 
+  it("checks the Database packages of Connections as the connections feature", () => {
+    vitehub({ preset: "node", connections: true })
+    expect(assertFeaturePackages).toHaveBeenLastCalledWith(["connections"])
+  })
+
   it("requires the Agent package for observability without Agents", () => {
     vitehub({ preset: "node", observability: { service: "support" } })
     expect(assertFeaturePackages).toHaveBeenLastCalledWith(["agent"])
@@ -2154,6 +2159,12 @@ describe("vitehub", () => {
     // SAFETY: The explicit Deno preset installs the named deployment plugin.
     const unsupported = vitehub({ preset: "deno", queue: true }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
     expect(() => callHook(unsupported.config, [{}, { command: "build", mode: "production" }])).toThrow("cannot provide queue")
+
+    // SAFETY: The explicit Node preset installs the named deployment plugin.
+    const nodeQueue = vitehub({ preset: "node", queue: true }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
+    const nodeQueueConfig: Record<string, unknown> = {}
+    callHook(nodeQueue.config, [nodeQueueConfig, { command: "build", mode: "production" }])
+    expect(nodeQueueConfig.queue).toEqual({ provider: "local" })
 
     const nodePreset = (schedule: ViteHubOptions["schedule"]) =>
       // SAFETY: The explicit Node preset installs the named deployment plugin.
