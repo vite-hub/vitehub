@@ -1,6 +1,7 @@
 import { join } from "pathe"
 
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
+import { isWebContainer } from "@vite-hub/web-container/env"
 
 import { collectDatabaseContributions, describeDatabaseContribution, resolveDatabaseContributionTargets } from "./contributions.ts"
 import { discoverDatabaseDefinitions, isImplicitDefaultDatabase, readDatabaseDefinitionDialect, readDatabaseDefinitionReadReplication, readStaticDatabaseSchema } from "./config.ts"
@@ -23,6 +24,8 @@ export interface DatabaseInspectionOptions {
   /** Vite root that contribution factories receive. Defaults to `rootDir`. */
   viteRoot?: string
 }
+
+const webContainerDriver = "SQLite WASM. This WebContainer cannot load native libSQL, so a local `file:` database lives in memory and ViteHub writes the whole file after each committed write. There is no WAL and no lock with other processes."
 
 // Inspection reads source only. Tables from an imported or spread schema are known after the Definition loads.
 function describeTables(files: string[]) {
@@ -78,6 +81,7 @@ export async function inspectDatabaseDefinitions(options: DatabaseInspectionOpti
         ? [{ label: "Definition", value: describeImplicitDefault([...contributionsByDatabase[definition.name] ?? [], ...usesByDatabase[definition.name] ?? []]) }]
         : [],
       { label: "Tables", value: describeTables(definition.schemaSources.map(source => source.handler)) },
+      ...(dialects[definition.name] !== "postgresql" && isWebContainer() ? [{ label: "Local driver", value: webContainerDriver }] : []),
       ...(readDatabaseDefinitionReadReplication(definition.handler) ?? options.readReplication)
         ? [{ label: "Read replication", value: "On. Reads use D1 read replicas, through one D1 session per request. Writes return a bookmark cookie." }]
         : [],

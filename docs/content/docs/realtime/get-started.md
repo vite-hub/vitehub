@@ -10,7 +10,7 @@ icon: i-lucide-rocket
 
 Open the same document in two browser tabs and edit it from either tab. Realtime synchronizes the editors through a shared room. A Workspace supplies the file and receives each save.
 
-You need Node.js 24.15 or newer, pnpm, and a Vite application that uses Vue and TypeScript. Run the commands from its root. This example uses in-memory room and Workspace stores. Restarting the server loses their state. The room is public during this local check; enable Auth before admitting private documents.
+You need Node.js 22.22 or newer, pnpm, and a Vite application that uses Vue and TypeScript. Run the commands from its root. This example uses in-memory room and Workspace stores. Restarting the server loses their state. The room is public during this local check; enable Auth before admitting private documents.
 
 ::tutorial-step{title="Configure Realtime"}
 ## Configure Realtime

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { glob, readFile, realpath, stat } from 'node:fs/promises'
-import { dirname, matchesGlob, relative, resolve } from 'node:path'
+import { dirname, relative, resolve } from 'node:path'
+import picomatch from 'picomatch'
 import { parse as parseYaml } from 'yaml'
 import type { SandboxTaskProjectOptions } from './module-types'
 import { sandboxTaskErrorDiagnostics } from "./error-diagnostics.ts"
@@ -192,8 +193,9 @@ export function parsePnpmWorkspacePackages(source: string) {
 }
 
 export function isWorkspacePackage(path: string, patterns: readonly string[]) {
-  const included = patterns.filter(pattern => !pattern.startsWith('!')).some(pattern => matchesGlob(path, pattern))
-  return included && !patterns.filter(pattern => pattern.startsWith('!')).some(pattern => matchesGlob(path, pattern.slice(1)))
+  const included = patterns.filter(pattern => !pattern.startsWith('!'))
+  const excluded = patterns.filter(pattern => pattern.startsWith('!')).map(pattern => pattern.slice(1))
+  return included.length > 0 && picomatch(included)(path) && !(excluded.length > 0 && picomatch(excluded)(path))
 }
 
 async function findPnpmWorkspaceRoot(packageRoot: string, root: string) {

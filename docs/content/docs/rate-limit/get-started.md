@@ -10,7 +10,7 @@ icon: i-lucide-rocket
 
 Allow two requests in one minute, then reject the third with HTTP `429`. Add the guard before the work in your route so requests over the limit cannot reach that work.
 
-You need Node.js 24.15 or newer, pnpm, and a Vite application. Run the commands from its root. The Node preset counts requests in this process's memory. Counts reset on restart and are not shared with other app instances. See [Hosts](/docs/rate-limit/hosts) for shared enforcement.
+You need Node.js 22.22 or newer, pnpm, and a Vite application. Run the commands from its root. The Node preset counts requests in this process's memory. Counts reset on restart and are not shared with other app instances. See [Hosts](/docs/rate-limit/hosts) for shared enforcement.
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure

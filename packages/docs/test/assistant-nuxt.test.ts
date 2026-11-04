@@ -35,9 +35,9 @@ describe("setupDocsAssistant", () => {
     await expect(fakeNuxt({ modules: [["vite-hub/nuxt", { agent: false }]] })()).rejects.toThrow("docs.assistant needs ViteHub Agents")
   })
 
-  it("fails a Cloudflare build and allows a Cloudflare development server", async () => {
+  it("accepts a Cloudflare build: the assistant picks a Driver that runs in a Worker", async () => {
     const modules = [["vite-hub/nuxt", { agent: true }]]
-    await expect(fakeNuxt({ modules, preset: "cloudflare-module" })()).rejects.toThrow(/Codex needs a Node.js host. The Nitro preset is "cloudflare-module"/)
+    await expect(fakeNuxt({ modules, preset: "cloudflare-module" })()).resolves.toBeUndefined()
     await expect(fakeNuxt({ modules, preset: "cloudflare-module", dev: true })()).resolves.toBeUndefined()
   })
 })

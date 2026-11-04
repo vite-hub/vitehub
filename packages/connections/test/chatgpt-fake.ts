@@ -144,14 +144,15 @@ export async function createChatGPTFake(now: () => number = Date.now) {
         if (state.stallResponses) return
         if (state.streamError) {
           reply.writeHead(200, { "content-type": "text/event-stream" })
-          reply.write(`event: response.created\ndata: ${JSON.stringify({ type: "response.created", response: { id: "resp_failed", status: "in_progress", output: [] } })}\n\n`)
-          reply.end(`event: response.failed\ndata: ${JSON.stringify({ type: "response.failed", response: { id: "resp_failed", status: "failed", error: { code: state.streamError, message: "test-secret-do-not-echo" } } })}\n\n`)
+          const started = { id: "resp_failed", object: "response", created_at: Math.floor(now() / 1000), model: payload.model, status: "in_progress", output: [] }
+          reply.write(`event: response.created\ndata: ${JSON.stringify({ type: "response.created", sequence_number: 0, response: started })}\n\n`)
+          reply.end(`event: response.failed\ndata: ${JSON.stringify({ type: "response.failed", sequence_number: 1, response: { ...started, status: "failed", error: { code: state.streamError, message: "test-secret-do-not-echo" } } })}\n\n`)
           return
         }
         const customItem = state.onResponse?.(payload)
         const item = { id: "msg_test", type: "message", role: "assistant", status: "completed", content: [{ type: "output_text", text: "Hello from the local ChatGPT fake.", annotations: [] }] }
         const output = customItem ?? item
-        const response = { id: "resp_test", object: "response", created_at: Math.floor(now() / 1000), status: "completed", output: [output], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } }
+        const response = { id: "resp_test", object: "response", created_at: Math.floor(now() / 1000), model: payload.model, status: "completed", output: [output], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } }
         reply.writeHead(200, { "content-type": "text/event-stream" })
         for (const event of [
           { type: "response.created", response: { ...response, status: "in_progress", output: [] } },
@@ -160,7 +161,7 @@ export async function createChatGPTFake(now: () => number = Date.now) {
           { type: "response.output_text.delta", item_id: item.id, output_index: 0, content_index: 0, delta: item.content[0]!.text }],
           { type: "response.output_item.done", output_index: 0, item: output },
           { type: "response.completed", response },
-        ]) reply.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`)
+        ].map((event, index) => ({ ...event, sequence_number: index }))) reply.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`)
         return reply.end()
       }
       return json({ error: "unexpected_fake_route" }, 404)

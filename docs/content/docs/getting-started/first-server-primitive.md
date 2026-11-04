@@ -16,9 +16,12 @@ account or credentials.
 ## Before you start
 
 Complete [Installation](/docs/getting-started/installation) and check
-`/api/health`. Continue in that app, with Node.js 24.15 or newer and pnpm.
+`/api/health`. Continue in that app, with Node.js 22.22 or newer and pnpm.
 The configuration below uses Vite and Nitro. In Nuxt, add the same `kv`
 option to the ViteHub module config. The route works in both frameworks.
+
+::run-tutorial{to="/tutorials/first-server-primitive"}
+::
 
 ::tutorial-step{title="Enable local KV"}
 ## Enable local KV

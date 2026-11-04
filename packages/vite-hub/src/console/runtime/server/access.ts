@@ -1,5 +1,6 @@
 import { installOperationSectionResolver, operationAccessAllows } from "@vite-hub/internal/operations"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
+import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 
 import { consoleMountBase } from "../console-route.ts"
 import { consoleDiagnosticBody, isConsoleImpersonationRejection, type ConsoleDiagnosticCode } from "../diagnostics.ts"
@@ -270,24 +271,6 @@ function isRequestLike(value: unknown): value is Request {
       && "body" in request && "bodyUsed" in request && "signal" in request
   }
   catch { return false }
-}
-
-const nativeResponseStatus = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
-
-/**
- * Return whether `value` is a Response of this runtime.
- * The native `status` getter checks the internal Response slot, so a proxy, a copied prototype, an object tagged `Response`,
- * and a Response from another Fetch implementation all fail. The check reads no property of `value`.
- */
-function isRuntimeResponse(value: unknown): value is Response {
-  if (!nativeResponseStatus || value === null || typeof value !== "object") return false
-  try {
-    Reflect.apply(nativeResponseStatus, value, [])
-    return true
-  }
-  catch {
-    return false
-  }
 }
 
 function isSectionId(value: unknown): value is ConsoleSectionId {

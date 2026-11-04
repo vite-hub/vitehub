@@ -11,7 +11,7 @@ Applications that install the `vite-hub` framework distribution can use `vite-hu
 
 ## Requirements
 
-- Node.js 24 or later.
+- Node.js 22.18 or later.
 - Vite 8 or later for provider configuration and generated runtime wiring.
 - The credentials required by your selected driver.
 

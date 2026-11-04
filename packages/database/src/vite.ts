@@ -10,6 +10,8 @@ import { contributeProviderRuntime, createProviderDeploymentOutputGenerationStat
 import { createNoExternalAddition, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { normalize } from "pathe"
 import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/build/paths"
+import { wasmSqliteTraceDeps } from "@vite-hub/internal/runtime/sqlite-wasm"
+import { isWebContainer } from "@vite-hub/web-container/env"
 
 import { createDbCliContributor } from "./cli.ts"
 import { collectDatabaseContributions } from "./contributions.ts"
@@ -94,6 +96,7 @@ interface DatabaseNitroHost {
     output: { serverDir: string }
     plugins?: string[]
     preset?: string
+    traceDeps?: (string | RegExp)[]
   }
 }
 
@@ -151,8 +154,9 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined) {
   ].join("\n"))
 
   return [
-    // A Postgres-only app must not bundle the libSQL client that `runtime/hosted` imports.
-    ...(usesSqlite(config) ? [`import { resolveRuntimeCloudflareConfig } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/hosted"))}`] : []),
+    // `runtime/d1` imports no libSQL client: `runtime/hosted` would add `@libsql/client/http`, which a local app does not use
+    // and a WebContainer's `@libsql/client` does not export.
+    ...(usesSqlite(config) ? [`import { resolveRuntimeCloudflareConfig } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/d1"))}`] : []),
     ...(usesPostgres(config) ? [`import { createPostgresDatabase } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/postgres"))}`] : []),
     ...imports,
     "",
@@ -394,6 +398,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       name: "@vite-hub/database/cloudflare-bindings",
       setup(nitro) {
         nitroOptions = nitro.options
+        if (isWebContainer()) nitro.options.traceDeps = [...new Set([...nitro.options.traceDeps ?? [], ...wasmSqliteTraceDeps])]
         mergeNitroCloudflareD1Bindings()
         installNitroPostgresRequestScope()
         installNitroRequestStats()

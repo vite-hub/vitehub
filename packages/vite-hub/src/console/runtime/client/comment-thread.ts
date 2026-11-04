@@ -7,7 +7,7 @@ import type { CommentsTransport, CommentSubject, CommentThread, CommentUser } fr
  * `authorize` policy of the app decides what the user may read and change. `path` is any Console API path of the app,
  * and only locates the application mount.
  */
-export function consoleCommentsTransport(path: string): CommentsTransport {
+export function consoleCommentsTransport(path: string, threadId?: () => string | undefined): CommentsTransport {
   // SAFETY: The operation of the same name answers with the type of the transport method that called it.
   const call = <T>(operation: string, input: object) => requestConsoleOperation(path, `comments.${operation}`, { ...input }) as Promise<T>
   return {
@@ -19,8 +19,17 @@ export function consoleCommentsTransport(path: string): CommentsTransport {
     reopen: input => call("reopen", input),
     reply: input => call("reply", input),
     resolve: input => call("resolve", input),
-    users: input => call("users", input),
+    users: input => {
+      const id = threadId?.()
+      return call("users", { ...input, ...(id ? { threadId: id } : {}) })
+    },
   }
+}
+
+/** Read an existing attachment through the operation, which checks access to its thread. */
+export async function readConsoleCommentAttachment(path: string, key: string, signal?: AbortSignal): Promise<{ data: string, inline: boolean, name: string, type: string }> {
+  // SAFETY: `comments.attachment` returns the stored file's metadata and Base64-encoded bytes.
+  return await requestConsoleOperation(path, "comments.attachment", { key }, signal ? { signal } : {}) as { data: string, inline: boolean, name: string, type: string }
 }
 
 /** The Console identity and capabilities for one thread. */

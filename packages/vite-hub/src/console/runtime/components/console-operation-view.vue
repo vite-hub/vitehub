@@ -71,7 +71,14 @@ const detail = computed(() => view.value.detail);
 // The row button holds the text of the item, such as the comment, so a screen reader names what it opens.
 const openColumn = computed(() => view.value.columns.find(column => column.format === "excerpt") ?? view.value.columns[0]);
 const itemId = (item: Record<string, unknown>) => String(operationValue(item, "id"));
+const threadPanel = ref<{ canClose: () => boolean } | null>(null);
 const selectedItem = computed(() => items.value.find(item => itemId(item) === selectedId.value));
+
+// Query refs update before router guards run, so check drafts before changing the panel's id.
+function selectThread(id: string): void {
+  if (id === selectedId.value || threadPanel.value?.canClose() === false) return;
+  selectedId.value = id;
+}
 
 /** Reload through the operation so its filters, ordering, and pagination still apply after a mutation. */
 function refreshItems(): void {
@@ -159,7 +166,7 @@ onBeforeUnmount(() => controller?.abort());
                     v-if="detail && column === openColumn"
                     type="button"
                     class="text-left outline-none after:absolute after:inset-0"
-                    @click="selectedId = itemId(item)"
+                    @click="selectThread(itemId(item))"
                   >{{ operationCell(item, column) }}</button>
                   <template v-else>{{ operationCell(item, column) }}</template>
                 </td>
@@ -175,6 +182,7 @@ onBeforeUnmount(() => controller?.abort());
       </template>
     </UDashboardPanel>
     <ConsoleCommentThread
+      ref="threadPanel"
       v-if="detail?.kind === 'comment-thread'"
       :id="selectedId"
       :definitions-base="definitionsBase"

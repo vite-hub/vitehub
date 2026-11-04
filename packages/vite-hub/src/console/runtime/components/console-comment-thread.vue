@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { createCommentsClient } from "@vite-hub/comments/client";
-import { type CommentCan, CommentThread, provideComments, useComments } from "@vite-hub/ui";
+import { type CommentAttachmentLink, type CommentCan, CommentThread, provideComments, useComments } from "@vite-hub/ui";
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from "vue";
-import { onBeforeRouteUpdate } from "vue-router";
+import { onBeforeRouteLeave, onBeforeRouteUpdate } from "vue-router";
 
 import type { CommentThread as CommentThreadModel } from "@vite-hub/comments/client";
 
@@ -10,6 +10,7 @@ import {
   consoleCommentsTransport,
   consoleCommentSubjectLabel,
   isConsoleCommentThread,
+  readConsoleCommentAttachment,
   readConsoleCommentSession,
 } from "../client/comment-thread";
 import type { ConsoleCommentSession } from "../client/comment-thread";
@@ -36,7 +37,7 @@ const props = defineProps<{
 const emit = defineEmits<{ close: []; changed: [thread: CommentThreadModel]; removed: [id: string] }>();
 
 const toast = useConsoleToast();
-const client = createCommentsClient({ refreshOnFocus: false, transport: consoleCommentsTransport(props.definitionsBase) });
+const client = createCommentsClient({ refreshOnFocus: false, transport: consoleCommentsTransport(props.definitionsBase, () => props.id) });
 const thread = shallowRef<CommentThreadModel>();
 const error = shallowRef<unknown>();
 const sessionError = shallowRef<unknown>();
@@ -73,8 +74,8 @@ function close(): void {
 
 // Cancel URL-driven selection changes before they unmount a dirty reply or edit. A successful guarded close permits
 // the requested navigation instead of emitting another URL change to the parent.
-onBeforeRouteUpdate((to, from) => {
-  if (consoleQueryText(to.query.thread) === consoleQueryText(from.query.thread) || !threadView.value) return;
+function canClose(): boolean {
+  if (!threadView.value) return true;
   let allowed = false;
   navigationClosed = () => { allowed = true; };
   try {
@@ -83,6 +84,11 @@ onBeforeRouteUpdate((to, from) => {
   } finally {
     navigationClosed = undefined;
   }
+}
+defineExpose({ canClose });
+onBeforeRouteLeave(canClose);
+onBeforeRouteUpdate((to, from) => {
+  if (consoleQueryText(to.query.thread) !== consoleQueryText(from.query.thread)) return canClose();
 });
 
 const open = computed({
@@ -142,17 +148,61 @@ async function load(): Promise<void> {
   }
 }
 
+// Keep the authorized files local to this panel, and release their object URLs when it changes or closes.
+const attachmentLinks = shallowRef(new Map<string, CommentAttachmentLink>());
+const attachmentError = shallowRef<unknown>();
+let attachmentController: AbortController | undefined;
+const attachmentUrl = (key: string) => attachmentLinks.value.get(key);
+function clearAttachments(): void {
+  attachmentController?.abort();
+  for (const link of attachmentLinks.value.values()) URL.revokeObjectURL(link.url);
+  attachmentLinks.value = new Map();
+  attachmentError.value = undefined;
+}
+async function loadAttachments(): Promise<void> {
+  attachmentController?.abort();
+  const current = new AbortController();
+  attachmentController = current;
+  attachmentError.value = undefined;
+  const keys = new Set(thread.value?.messages.flatMap(message => message.attachments) ?? []);
+  const retained = new Map(attachmentLinks.value);
+  for (const [key, link] of retained) {
+    if (keys.has(key)) continue;
+    URL.revokeObjectURL(link.url);
+    retained.delete(key);
+  }
+  attachmentLinks.value = retained;
+  await Promise.all([...keys].filter(key => !retained.has(key)).map(async key => {
+    try {
+      const file = await readConsoleCommentAttachment(props.definitionsBase, key, current.signal);
+      if (current.signal.aborted) return;
+      const bytes = Uint8Array.from(atob(file.data), character => character.charCodeAt(0));
+      // The operation marks safe preview types; other files download as binary, including HTML and SVG.
+      const type = file.inline ? file.type : "application/octet-stream";
+      const url = URL.createObjectURL(new Blob([bytes], { type }));
+      attachmentLinks.value = new Map(attachmentLinks.value).set(key, { name: file.name, type, url });
+    } catch (cause) {
+      if (!current.signal.aborted) attachmentError.value = cause;
+    }
+  }));
+}
+watch(thread, () => void loadAttachments());
+
 watch(
   () => props.id,
   () => {
     pendingFocus = false;
+    clearAttachments();
     thread.value = undefined;
     session.value = undefined;
     void load();
   },
   { immediate: true },
 );
-onBeforeUnmount(() => controller?.abort());
+onBeforeUnmount(() => {
+  controller?.abort();
+  clearAttachments();
+});
 
 async function update(next: CommentThreadModel): Promise<void> {
   if (props.id !== next.id) return;
@@ -213,6 +263,7 @@ async function reopen(): Promise<void> {
           v-else
           ref="threadView"
           :attachments="false"
+          :attachment-url="attachmentUrl"
           :dismissible="false"
           :error="sessionError ? 'The change was saved, but your permissions could not be refreshed. Reopen the thread to try again.' : undefined"
           :read-only="loading"
@@ -236,6 +287,10 @@ async function reopen(): Promise<void> {
             <blockquote v-if="current.anchor.kind === 'text'" data-slot="comment-thread-quote">{{ current.anchor.exact }}</blockquote>
           </template>
         </CommentThread>
+        <p v-if="attachmentError" role="alert" class="border-t border-default px-3 py-2 text-xs text-muted">
+          Some attachments could not be loaded.
+          <UButton label="Retry" size="xs" variant="link" @click="loadAttachments" />
+        </p>
         <p v-if="thread && !loading && !canWrite && !sessionError" class="border-t border-default px-3 py-2 text-xs text-muted">
           You can read this thread. The app's <code>authorize</code> policy does not let you reply to it.
         </p>

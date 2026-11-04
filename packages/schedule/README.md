@@ -39,7 +39,7 @@ pnpm add @vite-hub/schedule
 
 Direct integrations use `@vite-hub/schedule`, `@vite-hub/schedule/runtime`, and `@vite-hub/schedule/vite`. Add Vite when the project uses `hubSchedule()`. Add `@vite-hub/kv` when using the KV Schedule Run store through `@vite-hub/schedule/runtime/kv` or the generated Process Runtime. Static Schedule Definitions, memory stores, and custom `ScheduleKVStorage` implementations do not require KV.
 
-Both packages require Node.js 24.15 or newer.
+Both packages require Node.js 22.18 or newer.
 
 ## Run one occurrence
 

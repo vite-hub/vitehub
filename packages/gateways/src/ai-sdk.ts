@@ -119,7 +119,7 @@ export function languageModel<const TRoutes extends AiGatewayRoute, const TApis 
   options: AiGatewayLanguageModelOptions<Extract<AiGatewayModelApi<TRoutes>, NoInfer<TApis>>> = {},
 ): LanguageModelV4 {
   if (typeof gateway !== "object" || gateway === null || typeof gateway.baseURL !== "object" || gateway.baseURL === null) {
-    throw gatewayDiagnostics.GATEWAYS_R0001({ message: "[vitehub] languageModel(gateway, modelId) needs a gateway from a preset or defineAiGateway(). chatgpt() serves the Codex Driver only." })
+    throw gatewayDiagnostics.GATEWAYS_R0001({ message: "[vitehub] languageModel(gateway, modelId) needs a gateway from a preset or defineAiGateway(). For chatgpt(), set driver: { model, gateway: chatgpt() } on an Agent." })
   }
   if (typeof modelId !== "string" || !modelId.trim()) throw gatewayDiagnostics.GATEWAYS_R0001({ message: "[vitehub] languageModel(gateway, modelId) needs a non-empty model ID." })
   const api: AiGatewayModelApi = options.api ?? defaultApi(gateway)
