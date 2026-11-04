@@ -1,5 +1,6 @@
 // The `.zip` that the playground downloads, built in the browser. The files are a few kilobytes of text, so the
 // archive stores them without compression and needs no library.
+import { isProjectPath } from "./project-path";
 
 const crcTable = Array.from({ length: 256 }, (_, index) => {
   let value = index;
@@ -15,6 +16,7 @@ function crc32(data: Uint8Array): number {
 
 /** A stored `.zip` of text files under `folder/`, with the same bytes for the same files. */
 export function zipFiles(files: Record<string, string>, folder: string): Uint8Array<ArrayBuffer> {
+  if (!isProjectPath(folder) || !Object.keys(files).every(isProjectPath)) throw new Error("ZIP files must use safe project-relative paths.");
   const encoder = new TextEncoder();
   const local: Uint8Array[] = [];
   const central: Uint8Array[] = [];
@@ -40,8 +42,10 @@ export function zipFiles(files: Record<string, string>, folder: string): Uint8Ar
 
     const entry = new DataView(new ArrayBuffer(46));
     entry.setUint32(0, 0x02014B50, true);
-    entry.setUint16(4, 20, true);
+    // Identify Unix as the creator so Ubuntu's UnZip preserves UTF-8 names instead of converting them from DOS.
+    entry.setUint16(4, 0x0314, true);
     new Uint8Array(entry.buffer).set(new Uint8Array(header.buffer, 4, 26), 6);
+    entry.setUint32(38, 0o100644 << 16, true);
     entry.setUint32(42, offset, true);
     central.push(new Uint8Array(entry.buffer), name);
     offset += 30 + name.length + data.length;

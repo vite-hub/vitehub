@@ -12,7 +12,6 @@ import { WorkspaceTerminal } from "@vite-hub/ui/workspace-terminal";
 import { useClipboard } from "@vueuse/core";
 import { encodePlayground, shareHashKey, shareLimit } from "~/utils/playground-share";
 import { downloadZip } from "~/utils/zip";
-import { dependencyKey } from "~~/modules/tutorials/steps";
 
 import type { ConnectProviderName } from "@vite-hub/web-container/connect";
 import type { PlaygroundTemplate, TutorialFiles } from "~~/modules/tutorials/steps";
@@ -37,7 +36,8 @@ const appPort = 3000;
 // The snapshot holds the dependencies of the template. Files with other dependencies, such as a share link with an
 // edited package.json, mount it and then run `npm install` for the difference.
 const snapshotParts = props.template.snapshot;
-const sameDependencies = dependencyKey(props.files["package.json"]) === dependencyKey(props.template.files["package.json"]);
+// Any manifest edit can affect installation, including devDependencies, optionalDependencies, and overrides.
+const sameManifest = props.files["package.json"] === props.template.files["package.json"];
 
 // Tokens stay in this tab (sessionStorage). They reach the app only as environment variables of the dev server.
 const connect = defineConnect({ anthropic: true, github: true, netlify: true, openai: true, vercel: true });
@@ -49,7 +49,7 @@ const workspace = useWorkspace({
   ...snapshotParts && {
     // The tutorial with the same dependencies uses this cache name, so the browser keeps one copy of the parts.
     snapshot: () => fetchSnapshot(snapshotParts, { cache: `vitehub-tutorial-${props.template.snapshotOf}` }),
-    install: sameDependencies ? false : "install",
+    install: sameManifest ? false : "install",
   },
 });
 const states = computed(() => {
@@ -94,8 +94,8 @@ function confirmAction() {
 }
 
 async function open(template: PlaygroundTemplate) {
-  // Another snapshot needs a new WebContainer.
-  if (template.snapshotOf !== props.template.snapshotOf) return emit("remount", template);
+  // Another snapshot or an edited manifest needs a fresh dependency tree.
+  if (template.snapshotOf !== props.template.snapshotOf || !sameManifest || workspace.files.value["package.json"] !== current.value.files["package.json"]) return emit("remount", template);
   current.value = template;
   selected.value = firstFile(template.files);
   emit("change", template);
@@ -118,7 +118,8 @@ const templateItems = computed(() => [
 ]);
 
 function reset() {
-  guard(`Discard your changes to the ${current.value.label} template?`, "Discard changes", () => void workspace.setFiles(current.value.files, { mode: "replace" }));
+  // Remount the snapshot as well as the files, so shared dependencies and the running server are reset too.
+  guard(`Discard your changes to the ${current.value.label} template?`, "Discard changes", () => emit("remount", current.value));
 }
 
 const toast = useToast();

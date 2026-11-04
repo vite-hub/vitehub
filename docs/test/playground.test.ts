@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { deflateRawSync } from "node:zlib";
 
 import { describe, expect, it } from "vitest";
 
@@ -84,11 +85,25 @@ describe("playground", () => {
     expect(await decodePlayground(huge, await templates())).toBeUndefined();
   });
 
+  it.each(["../../outside.txt", "/outside.ts", "", ".", "..", "server/../outside.ts", "./file.ts", "server//file.ts", "server/", "server\\file.ts", "C:outside.ts", "\\\\?\\C:\\outside.ts", "bad\0.ts"])("rejects unsafe shared and ZIP paths: %j", async (path) => {
+    const built = await templates();
+    const code = await encodePlayground({ template: "kv", files: { [path]: "unsafe" } }, {});
+    expect(await decodePlayground(code, built)).toBeUndefined();
+    const deletion = deflateRawSync(JSON.stringify({ v: 1, t: "kv", d: [path] })).toString("base64url");
+    expect(await decodePlayground(deletion, built)).toBeUndefined();
+    expect(() => zipFiles({ [path]: "unsafe" }, "vitehub-kv")).toThrow("safe project-relative paths");
+    expect(() => zipFiles({ "file.ts": "safe" }, path)).toThrow("safe project-relative paths");
+  });
+
   it("downloads the files as a zip that unzip reads", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vitehub-playground-zip-"));
     try {
       const files = { "package.json": "{}\n", "server/api/é.get.ts": "export default () => 'ü'\n" };
-      await writeFile(join(dir, "app.zip"), zipFiles(files, "vitehub-kv"));
+      // The archive identifies a Unix creator, preventing Ubuntu's UnZip from converting UTF-8 names as DOS names.
+      const zip = zipFiles(files, "vitehub-kv");
+      const directoryOffset = new DataView(zip.buffer).getUint32(zip.length - 6, true);
+      expect(zip[directoryOffset + 5]).toBe(3);
+      await writeFile(join(dir, "app.zip"), zip);
       execFileSync("unzip", ["-q", "app.zip"], { cwd: dir });
       expect(await readFile(join(dir, "vitehub-kv/server/api/é.get.ts"), "utf8")).toBe(files["server/api/é.get.ts"]);
       expect(await readFile(join(dir, "vitehub-kv/package.json"), "utf8")).toBe("{}\n");

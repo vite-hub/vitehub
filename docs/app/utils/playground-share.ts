@@ -1,4 +1,5 @@
 import type { TutorialFiles } from "~~/modules/tutorials/steps";
+import { isProjectPath } from "./project-path";
 
 /**
  * The longest share link, in characters. Chat apps and issue trackers cut longer URLs, and a link this long already
@@ -73,7 +74,7 @@ export async function encodePlayground(state: PlaygroundState, base: TutorialFil
 }
 
 function isFiles(value: unknown): value is TutorialFiles {
-  return !!value && typeof value === "object" && !Array.isArray(value) && Object.values(value).every(contents => typeof contents === "string");
+  return !!value && typeof value === "object" && !Array.isArray(value) && Object.entries(value).every(([path, contents]) => isProjectPath(path) && typeof contents === "string");
 }
 
 /** Reads a share code back into files. A malformed code, or one for a template that no longer exists, gives `undefined`. */
@@ -83,10 +84,10 @@ export async function decodePlayground(code: string, templates: readonly { id: s
     if (!payload || typeof payload !== "object") return undefined;
     const { v, t, f = {}, d = [] } = payload as Partial<SharePayload>;
     const template = templates.find(candidate => candidate.id === t);
-    if (v !== 1 || !template || !isFiles(f) || !Array.isArray(d)) return undefined;
+    if (v !== 1 || !template || !isFiles(f) || !Array.isArray(d) || !d.every(path => typeof path === "string" && isProjectPath(path))) return undefined;
     const files = { ...template.files, ...f };
     for (const path of d) {
-      if (typeof path === "string") delete files[path];
+      delete files[path];
     }
     return { template: template.id, files };
   }

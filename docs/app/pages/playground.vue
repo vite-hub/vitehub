@@ -31,15 +31,17 @@ const invalidLink = ref(false);
 function boot(template: PlaygroundTemplate, files: TutorialFiles) {
   session.value = { id: session.value.id + 1, template, files };
 }
+let restoration = 0;
 /** A `#code=…` link holds files. Loading it opens them on their template. */
 async function restore() {
+  const request = ++restoration;
   const code = shareCode(location.hash);
-  if (!code) return;
-  const state = await decodePlayground(code, playgroundTemplates);
-  invalidLink.value = !state;
-  if (!state) return;
-  restored.value = true;
-  boot(playgroundTemplates.find(template => template.id === state.template)!, state.files);
+  const state = code ? await decodePlayground(code, playgroundTemplates) : undefined;
+  if (request !== restoration) return;
+  invalidLink.value = !!code && !state;
+  restored.value = !!state;
+  const template = state ? playgroundTemplates.find(template => template.id === state.template)! : fromQuery();
+  boot(template, state?.files ?? template.files);
 }
 function keep(template: PlaygroundTemplate) {
   // The share link no longer matches the files, so the address keeps the template only.
