@@ -19,6 +19,19 @@ export const comments = defineComments({
 
 The `comments()` plugin has one option of its own, [`database`](#choose-the-database). Without `server/comments.ts`, it uses `defineComments()` with no options.
 
+## Turn Comments on in a ViteHub app
+
+In a ViteHub app, `server/comments.ts` turns Comments on. `vitehub({ comments: true })` turns it on without the file, with `defineComments()` and no options. It also turns on the Database when `database` is unset, and adds the Comments section to the Console. An object turns it on too, and sets the Database, the SQL dialect, or `overlay: false`:
+
+```ts [vite.config.ts]
+vitehub({
+  preset: 'node',
+  comments: { database: 'team' },
+})
+```
+
+[Docs sites](/docs/docs-site/configure#comments) on `vite-hub/nuxt` have Comments on by default: the docs module sets this option. Turn it off there with `docs: { comments: false }`.
+
 ## Decide who can comment
 
 `authorize` gets the user, the action, and what the action is about: the `thread`, or the `subject` of a new thread. Return `true` to allow. Any other value denies.
@@ -306,7 +319,7 @@ export const comments = defineComments({
 
 ViteHub reads the name from the file without running it, so write it as a string literal. The build fails with `DATABASE_INVALID_CONTRIBUTION_TARGET` when the named Database does not exist, or when the app has several Databases and none is named `default`. The tables use SQLite, so the Database must be SQLite, libSQL, or D1.
 
-Run `vitehub db generate` and `vitehub db migrate` after you add `server/comments.ts` or change `database`. See [Apply migrations](/docs/database/configure#apply-migrations).
+`vitehub({ comments: { database: 'team' } })` names it without the file. Run `vitehub db generate` and `vitehub db migrate` after you add `server/comments.ts`, turn on the `comments` option, or change `database`. See [Apply migrations](/docs/database/configure#apply-migrations).
 
 ## Upgrade to one model
 

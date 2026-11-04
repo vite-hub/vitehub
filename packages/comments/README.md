@@ -38,6 +38,8 @@ export const comments = defineComments({
 })
 ```
 
+Without the file, `vitehub({ comments: true })` turns Comments on with `defineComments()`, and an object such as `{ database: "team" }` does too. Docs sites of `@vite-hub/docs` on `vite-hub/nuxt` set it by default; `docs: { comments: false }` turns it off.
+
 ViteHub then adds the `vitehub_comment_threads`, `vitehub_comment_messages`, `vitehub_comment_counters`, and `vitehub_comment_forge` tables to the default Database (or the only one, or `defineComments({ database: "name" })`; without a Database Definition, the implicit `default` Database of `@vite-hub/database`), serves `/api/_vitehub/comments/**`, and adds a Comments section to the Console. Apply the tables with `vitehub db generate` and `vitehub db migrate`.
 
 A ViteHub Database with the tables of the earlier live-site model must move them once in a migration: see [Upgrade to one model](https://vitehub.dev/docs/comments/configure#upgrade-to-one-model). Until then every Comments request fails with `COMMENTS_R0019`, whose `fix` names `commentsMigrationSql({ from: "live" })`. `migrateComments(db)` from `@vite-hub/comments/database` moves them in place and keeps the old tables as a backup.

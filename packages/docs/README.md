@@ -118,6 +118,7 @@ Most changes are options in `nuxt.config.ts`:
 | `sitemap` | `[]` | More paths for `/sitemap.xml`. Every docs page is listed already. |
 | `mcp` | On | `{ name, guide }`, or `false` to turn off the MCP server. |
 | `assistant` | `false` | `true`, or `{ agent }`. See [Docs assistant](#docs-assistant). |
+| `comments` | On with `vite-hub/nuxt` | `false` turns Comments off, or `{ database, dialect, overlay }`. See [Comments](#comments). |
 | `rawMarkdown` | None | `(markdown, page) => string`. Rewrites a page before agents read it. |
 
 ### Components
@@ -162,6 +163,23 @@ Every page has a Markdown copy for coding agents. You get these routes with no s
 ## Search
 
 Search indexes every page by heading. `⌘K` opens it. Page titles rank first, then headings, then text, and a typo still finds the page. The index loads the first time the dialog opens, from `/api/_docs/search.json`. `::agent-only` content is not indexed.
+
+## Comments
+
+A docs site on `vite-hub/nuxt` has ViteHub Comments on every page. The team pins comments, replies, mentions people with `@`, and resolves threads. Install `@vite-hub/comments` beside `vite-hub`:
+
+```sh
+pnpm add @vite-hub/comments
+```
+
+The module sets the `comments` option of `vite-hub/nuxt`, which turns on the Database. Run `vitehub db generate` and `vitehub db migrate` once. No `server/comments.ts` is needed; add one to set `authorize` or `people`.
+
+- A thread belongs to the page path, such as `/docs/kv`, so it stays on its page across deploys.
+- Readers see nothing. The overlay loads only with `?vitehub` or the `vitehub-tools` cookie, for people that `authorize` lets read. Without `authorize`, a production build admits the people of the Console's Comments section and people signed in with GitHub who can push to the repository.
+- `@` suggests the users of ViteHub Auth when the app has Auth, else the people who wrote in the threads.
+- The Console's Comments section lists the threads.
+
+Turn it off with `docs: { comments: false }`. An object goes to the `comments` option of `vite-hub/nuxt`, such as `{ database: "docs" }` or `{ overlay: false }`. A site without `vite-hub/nuxt` has no Comments; `comments: true` there fails the build with `DocsCommentsSetupError`.
 
 ## Docs assistant
 

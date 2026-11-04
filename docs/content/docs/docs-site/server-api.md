@@ -10,7 +10,7 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `@vite-hub/docs/nuxt` | The Nuxt module. Add it to `modules`. Its types are `DocsModuleOptions`, `DocsSiteOptions`, `DocsStartOptions`, and `DocsPublicConfig`. |
+| `@vite-hub/docs/nuxt` | The Nuxt module. Add it to `modules`. Its types are `DocsModuleOptions`, `DocsSiteOptions`, `DocsStartOptions`, `DocsCommentsOptions`, and `DocsPublicConfig`. |
 | `@vite-hub/docs` | The frontmatter schema, the manifest types, and the navigation helpers. |
 | `@vite-hub/docs/navigation` | The navigation helpers only. The root exports them too. |
 | `@vite-hub/docs/server` | Read a content folder without Nuxt: `createDocsManifest()`, `DocsContentError`, `createDocsParser()`, `docsSearchSections()`, `toRawMarkdown()`, and `docsPageResponse()`. |
@@ -41,6 +41,7 @@ Set them under `docs` in `nuxt.config.ts`. Every option is optional.
 | `icons` | `Partial<DocsIcons>` | Lucide fallbacks | Icons of the rail and the sidebar: `rail`, `sections`, `pages`, `aliases`, `family`, `page`, and `section`. See [Icons](/docs/docs-site/configure#icons). |
 | `mcp` | `{ name?, guide? }` or `false` | On, named after `site.name` | The MCP server at `/mcp`. `guide` is a page that explains how to connect it. |
 | `assistant` | `boolean` or `{ agent? }` | `false` | The [docs assistant](/docs/docs-site/assistant). `true` uses the Agent named `docs`. |
+| `comments` | `boolean` or `{ database?, dialect?, overlay? }` | On with `vite-hub/nuxt` | [Comments](/docs/docs-site/configure#comments) on every page. The object goes to the `comments` option of `vite-hub/nuxt`. `false` turns Comments off. |
 | `rawMarkdown` | `(markdown, page) => string` | None | Rewrites a page before its agent copy is written. It can be async. |
 
 The module also sets the options of the modules that it installs: `llms` from `site`, and `agentDiscovery` with the page routes and the MCP server card. Your own `llms` and `agentDiscovery` options win.
@@ -91,6 +92,7 @@ Dotted keys, such as `navigation.order: 2`, are the same as nested keys. `naviga
 | `/mcp` | `@nuxtjs/mcp-toolkit` | The MCP server with `list-pages` and `get-page`. Not added with `mcp: false`. |
 | `/.well-known/mcp/server-card.json` | `nuxt-agent-discovery` | The MCP server card. Not added with `mcp: false`. |
 | `/api/_vitehub/agents/<agent>/chat` | `vite-hub/nuxt` | The assistant chat, with `assistant` on. |
+| `/api/_vitehub/comments/**`, `/_vitehub/page/session` | `vite-hub/nuxt` | The Comments API and the page tools session, unless `comments: false`. |
 
 A production build prerenders every page, its page JSON, the search index, `/sitemap.xml`, and `/sitemap.md`, and follows the links between pages.
 
