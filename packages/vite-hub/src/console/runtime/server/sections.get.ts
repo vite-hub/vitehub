@@ -9,7 +9,7 @@ import type { ConsoleRequestEvent } from "./request.ts"
 
 /** The sections that this request may use. The client hides the others. Each route still checks its own section. */
 function consoleSectionsHandler(event: ConsoleRequestEvent, access: ConsoleAccess): {
-  auth?: true
+  auth?: true | "cloudflare-access"
   /** The build id of the deployed Console. An open Console that loaded another id is outdated. */
   build?: string
   contributions?: readonly ConsoleContributedSection[]
@@ -27,10 +27,12 @@ function consoleSectionsHandler(event: ConsoleRequestEvent, access: ConsoleAcces
   const sections = allowedConsoleSections(access, getConsoleSections())
   const contributions = getConsoleContributedSections().filter(section => sections.includes(section.id))
   const build = getConsoleBuild()
-  const result: { auth?: true, build?: string, contributions?: readonly ConsoleContributedSection[], operations?: readonly string[], projectName?: string, readOnly?: readonly string[], scoped?: true, sections: readonly string[] } = { sections }
+  const result: { auth?: true | "cloudflare-access", build?: string, contributions?: readonly ConsoleContributedSection[], operations?: readonly string[], projectName?: string, readOnly?: readonly string[], scoped?: true, sections: readonly string[] } = { sections }
   const readOnly = sections.filter(section => !consoleAccessWrites(access, section))
   if (readOnly.length) result.readOnly = readOnly
-  if (getConsoleAuth() || access.mode === "auth") result.auth = true
+  const auth = getConsoleAuth()
+  if (auth) result.auth = auth
+  else if (access.mode === "auth") result.auth = true
   if (access.sections !== "all") result.scoped = true
   if (contributions.length) result.contributions = contributions
   const operations = consoleOperationRegistry().list()

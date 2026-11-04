@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, shallowRef } from "vue";
+import { computed, onBeforeUnmount, onMounted, shallowRef } from "vue";
 
 import type { ConsoleNavigation } from "../client/sections";
-import { loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections";
+import { loadConsoleNavigation, resolveConsoleSectionDetails, subscribeConsoleNavigation } from "../client/sections";
 import { consoleDocsBase } from "../sections";
 import ConsoleConnectAgent from "./console-connect-agent.vue";
 import ConsolePageHeader from "./console-page-header.vue";
@@ -37,7 +37,7 @@ const steps = computed(() => {
   if (navigation.value?.auth === false) {
     return [
       "Add the server with the command for your agent.",
-      "This Console has no sign-in, so it answers only agents on this machine.",
+      "This Console has no sign-in. Development access is loopback-only; in production, anyone who can reach it can use it unless console.authorize restricts access.",
     ];
   }
   return [
@@ -47,9 +47,15 @@ const steps = computed(() => {
   ];
 });
 
+let unsubscribe: (() => void) | undefined;
 onMounted(async () => {
-  navigation.value = await loadConsoleNavigation(props.sectionsBase);
+  unsubscribe = subscribeConsoleNavigation(props.sectionsBase, (result) => {
+    navigation.value = result;
+  });
+  const result = await loadConsoleNavigation(props.sectionsBase);
+  if (result) navigation.value = result;
 });
+onBeforeUnmount(() => unsubscribe?.());
 </script>
 
 <template>
