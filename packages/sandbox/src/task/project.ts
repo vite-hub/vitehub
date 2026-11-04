@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto'
 import { glob, readFile, realpath, stat } from 'node:fs/promises'
 import { dirname, relative, resolve } from 'node:path'
 import picomatch from 'picomatch'
-import { parse as parseYaml } from 'yaml'
 import type { SandboxTaskProjectOptions } from './module-types'
 import { sandboxTaskErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -157,7 +156,9 @@ function pnpmPatchPaths(manifest: PackageManifest) {
   return Object.values(manifest.pnpm.patchedDependencies).filter((value): value is string => typeof value === 'string')
 }
 
-function parsePnpmWorkspacePatchPaths(source: string) {
+async function parsePnpmWorkspacePatchPaths(source: string) {
+  // Loaded on demand: every `vite` start imports this module, and few apps have a Sandbox project with a pnpm workspace.
+  const { parse: parseYaml } = await import('yaml')
   const workspace: unknown = parseYaml(source)
   const patchedDependencies = isPlainObject(workspace) ? Reflect.get(workspace, 'patchedDependencies') : undefined
   if (!isPlainObject(patchedDependencies)) return []
@@ -316,7 +317,7 @@ export async function resolveSandboxTaskProject(
     await addProjectFile(files, installRoot, resolve(installRoot, patchPath), root)
   }
   if (workspace) {
-    for (const patchPath of parsePnpmWorkspacePatchPaths(workspace.source)) {
+    for (const patchPath of await parsePnpmWorkspacePatchPaths(workspace.source)) {
       if (!isInside(installRoot, resolve(installRoot, patchPath))) {
         throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0065({ message: `[vitehub] Sandbox pnpm patch must stay inside its install root: ${patchPath}` })
       }
