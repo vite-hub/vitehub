@@ -167,7 +167,6 @@ export const CommentLayer = defineComponent({
         },
         thread,
         user: user.value,
-        users: (query: string) => state.users(query, thread.id),
       });
 
     return () => {
