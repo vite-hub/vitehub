@@ -43,7 +43,7 @@ async function mountDatabase() {
     tables: ["users", "orders"].map(name => ({ name, columns: [{ key: "id", name: "id", type: "integer" }] })),
   }))
   const router = createRouter({ history: createMemoryHistory(), routes: [
-    { name: "vitehub-console-databases", path: "/databases/:database/:table", component: {} },
+    { name: "vitehub-console-databases", path: "/databases/:database/:table?", component: {} },
   ] })
   await router.push("/databases/main/users")
   const app = renderer.createApp({ ...Database, render: () => null }, {
@@ -55,10 +55,30 @@ async function mountDatabase() {
   const instance = app.mount({})
   const state = (instance.$ as unknown as { setupState: DatabaseState }).setupState
   await nextTick()
-  return { app, state }
+  return { app, router, state }
 }
 
 describe("Console database table selection", () => {
+  it("clears the previous database while the new default table loads", async () => {
+    const { app, router, state } = await mountDatabase()
+    try {
+      const previous = { ...state.database, databases: ["main", "other"] }
+      let complete!: (value: unknown) => void
+      mocks.request.mockResolvedValueOnce({ ...previous, database: "other", table: undefined, rows: [] })
+        .mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
+      await router.push("/databases/other")
+      await vi.waitFor(() => expect(router.currentRoute.value.params.table).toBe("users"))
+      expect(state.database).toBeUndefined()
+      expect(state.tableRows).toEqual([])
+      expect(state.loading).toBe(true)
+      complete({ ...previous, database: "other", rows: [{ id: { kind: "text", value: "other" } }] })
+      await vi.waitFor(() => expect(state.tableRows).toEqual([{ id: "other" }]))
+    }
+    finally {
+      app.unmount()
+    }
+  })
+
   it.each(["users", "orders"])("keeps controls consistent when selecting %s", async (table) => {
     const { app, state } = await mountDatabase()
     try {

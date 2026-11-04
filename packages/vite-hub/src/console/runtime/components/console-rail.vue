@@ -10,6 +10,7 @@ import type { ConsoleNavigation } from "../client/sections";
 import type { ConsoleSectionId } from "../sections";
 import { consoleAppearanceKey, consoleAppearanceOptions, consoleAppearances } from "../client/appearance";
 import { useConsoleUpdate, watchConsoleBuild } from "../client/build";
+import { clearConsoleDocumentCaches } from "../client/document-cache";
 import { isConsoleSignInRequired } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails, subscribeConsoleNavigation } from "../client/sections";
 import { consoleSignInURL } from "../client/sign-in";
@@ -210,6 +211,7 @@ async function loadAuthSession(): Promise<void> {
 }
 
 async function signOut(): Promise<void> {
+  clearConsoleDocumentCaches();
   signingOut.value = true;
   signOutFailed.value = false;
   if (accessIdentity.value) {

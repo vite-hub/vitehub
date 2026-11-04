@@ -175,7 +175,8 @@ onBeforeUnmount(() => controller?.abort());
               </tr>
             </tbody>
           </table>
-          <p class="mt-4 text-xs text-muted">{{ view.notice }}</p>
+          <!-- The notice sits at the bottom of the pane while the list loads and when it is short, so it does not move. -->
+          <p class="mt-auto pt-4 text-xs text-muted">{{ view.notice }}</p>
         </div>
       </template>
     </UDashboardPanel>

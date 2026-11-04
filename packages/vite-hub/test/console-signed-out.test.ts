@@ -100,7 +100,10 @@ describe("signed-out Console", () => {
     const { app, buttons, click } = mount(ConsoleRail, { sectionsBase: `/sign-out-${encodeURIComponent(signInPage)}/api/_vitehub/console/sections` })
     try {
       await vi.waitFor(() => expect(buttons()).toContain("Sign out"))
+      const cacheKey = "vitehub.console.documents:/documents:content"
+      sessionStorage.setItem(cacheKey, JSON.stringify({ definitions: "private" }))
       click("Sign out")
+      expect(sessionStorage.getItem(cacheKey)).toBeNull()
       await vi.waitFor(() => expect(mocks.signOut).toHaveBeenCalledTimes(1))
       expect(assign).toHaveBeenCalledExactlyOnceWith(`${signInPage}${signInPage.includes("?") ? "&" : "?"}redirect=%2Fportal%2F_vitehub%2Fkv%3Fstore%3Dcache`)
     }
