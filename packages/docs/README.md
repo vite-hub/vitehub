@@ -120,6 +120,7 @@ Most changes are options in `nuxt.config.ts`:
 | `assistant` | `false` | `true`, or `{ agent }`. See [Docs assistant](#docs-assistant). |
 | `comments` | On with `vite-hub/nuxt` | `false` turns Comments off, or `{ database, dialect, overlay }`. See [Comments](#comments). |
 | `rawMarkdown` | None | `(markdown, page) => string`. Rewrites a page before agents read it. |
+| `parser` | None | Path of a module whose default export is `{ plugins }`: more Comark plugins for every page. See [Comark plugins](#comark-plugins). |
 
 ### Components
 
@@ -138,6 +139,20 @@ The shell is a set of Nuxt components. Create a component with the same name in 
 Markdown blocks are components in `components/content/`. The package has `::tutorial-step`, `::product-features` with `:::product-feature-item`, and `::agent-only`. Add your own in `app/components/content/`, for example `ProductHero.vue` for `::product-hero`. An app `app.vue`, `error.vue`, `layouts/docs.vue`, `layouts/default.vue`, or catch-all page also replaces the package one. A catch-all page replaces the docs page only when it answers every docs page, such as `pages/[...slug].vue`. One in another folder, such as `pages/blog/[...slug].vue`, does not.
 
 Components read the site with auto-imported composables: `useDocsConfig()`, `useDocsManifest()`, `useDocsPage()`, `useDocsSection()`, `useDocsIcons()`, and `useDocsAssistant()`.
+
+### Comark plugins
+
+The server parses each page with Comark, and the browser renders the nodes. Comark plugins are functions, so they go in a module that `parser` names:
+
+```ts
+// docs.parser.ts
+import type { DocsParserOptions } from "@vite-hub/docs/server"
+import tabs from "comark-tabs"
+
+export default { plugins: [tabs()] } satisfies DocsParserOptions
+```
+
+Set `docs: { parser: "./docs.parser.ts" }`. The page route, search, and Console drafts use these plugins after the built-in ones. A plugin with a built-in name, such as `alert`, replaces it. A plugin that adds a tag needs a component for it in `app/components/content/`.
 
 ### Theme
 

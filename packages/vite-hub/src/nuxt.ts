@@ -1658,6 +1658,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     if (!include.includes("vite-hub/agent/vue")) include.push("vite-hub/agent/vue")
   }
   addVueImports(nuxt, "vite-hub/source/client", ["useCollection"])
+  addVueImports(nuxt, "vite-hub/decisions/vue", ["useChoices"])
   if (effectiveAuth) {
     const envOptions = options.env || {}
     const { default: hubAuthNuxt } = requireOptionalOwner(await importOptionalOwner("@vite-hub/auth", () => import("@vite-hub/auth/nuxt")), "auth")
