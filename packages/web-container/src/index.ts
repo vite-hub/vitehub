@@ -1,5 +1,7 @@
 import type { FileSystemAPI, FileSystemTree, WebContainer as StackBlitzWebContainer } from "@webcontainer/api"
 
+import { restoreLinksScript, snapshotLinksFile } from "./links.ts"
+
 export type { FileSystemAPI, FileSystemTree } from "@webcontainer/api"
 
 /** One step of a boot checklist, in the order a UI shows it. */
@@ -36,8 +38,12 @@ export type WebContainerFiles = Record<string, string | Uint8Array>
 export interface BootWebContainerOptions {
   /** Files to write into the working directory. */
   files?: WebContainerFiles
-  /** A binary snapshot from `container.export()`, such as an app with `node_modules` already installed. Mounted before `files`. */
-  snapshot?: Uint8Array | ArrayBuffer
+  /**
+   * A binary snapshot from `container.export()`, `fetchSnapshot()`, or `createNodeModulesSnapshot()` of
+   * `@vite-hub/web-container/snapshot`, such as `node_modules` that are already installed. Mounted before `files`.
+   * A promise loads while the WebContainer boots.
+   */
+  snapshot?: Uint8Array | ArrayBuffer | Promise<Uint8Array | ArrayBuffer>
   /**
    * The Cross-Origin-Embedder-Policy of the page.
    * @default "credentialless"
@@ -238,6 +244,62 @@ function wrapProcess(spawned: Awaited<ReturnType<StackBlitzWebContainer["spawn"]
   }
 }
 
+/** A snapshot from `createNodeModulesSnapshot()` lists its symlinks and executable files. Restore them in one Node run. */
+async function restoreSnapshotLinks(container: StackBlitzWebContainer): Promise<void> {
+  const listed = await container.fs.readFile(`node_modules/${snapshotLinksFile}`, "utf8").then(() => true, () => false)
+  if (!listed) return
+  const script = "node_modules/.vitehub-restore-links.cjs"
+  await container.fs.writeFile(script, restoreLinksScript)
+  const process = await container.spawn("node", [script])
+  const code = await process.exit
+  if (code !== 0) throw new Error(`Restoring the links of the snapshot exited with code ${code}.`)
+}
+
+/** The part of the Cache Storage API that `fetchSnapshot` uses. The package does not load the DOM types. */
+interface SnapshotCache {
+  match: (url: string) => Promise<Response | undefined>
+  put: (url: string, response: Response) => Promise<void>
+  keys: () => Promise<readonly Request[]>
+  delete: (request: Request) => Promise<boolean>
+}
+
+function isCacheStorage(value: unknown): value is { open: (name: string) => Promise<SnapshotCache> } {
+  return typeof value === "object" && value !== null && "open" in value && typeof value.open === "function"
+}
+
+export interface FetchSnapshotOptions {
+  /**
+   * A Cache Storage name. Parts found there are not downloaded again, so later boots work from the cache. Give each
+   * snapshot version its own URLs, such as names with a content hash. Parts of other URLs in this cache are deleted.
+   */
+  cache?: string
+}
+
+/**
+ * Downloads the parts that `packSnapshot()` of `@vite-hub/web-container/snapshot` wrote, joins them in order, and
+ * inflates the gzip stream. Pass the result, or the promise, to `bootWebContainer({ snapshot })`.
+ */
+export async function fetchSnapshot(urls: readonly string[], options: FetchSnapshotOptions = {}): Promise<Uint8Array> {
+  const storage: unknown = Reflect.get(globalThis, "caches")
+  const cache = options.cache && isCacheStorage(storage) ? await storage.open(options.cache).catch(() => undefined) : undefined
+  if (cache) {
+    // `Request` resolves a relative URL against the page, as the cache keys do.
+    const keep = new Set(urls.map(url => new Request(url).url))
+    for (const request of await cache.keys()) if (!keep.has(request.url)) void cache.delete(request)
+  }
+  const parts = urls.map(async (url) => {
+    const cached = await cache?.match(url)
+    if (cached) return cached.blob()
+    const response = await fetch(url)
+    if (!response.ok) throw new Error(`Snapshot part ${url} returned ${response.status}.`)
+    const blob = await response.blob()
+    await cache?.put(url, new Response(blob)).catch(() => {})
+    return blob
+  })
+  const joined = new Blob(await Promise.all(parts))
+  return new Uint8Array(await new Response(joined.stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer())
+}
+
 /**
  * Boots a WebContainer in this browser tab and mounts an app into it.
  *
@@ -256,11 +318,18 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
   let booted: StackBlitzWebContainer | undefined
   try {
     status.enter("booting")
+    const loading = Promise.resolve(options.snapshot)
+    // The boot does not wait for the snapshot. A failed load still rejects below.
+    loading.catch(() => {})
     const { WebContainer } = await import("@webcontainer/api")
     booted = await WebContainer.boot({ coep: options.coep ?? "credentialless", workdirName: options.workdirName })
     if (options.snapshot || options.files) {
       status.enter("mounting")
-      if (options.snapshot) await booted.mount(options.snapshot)
+      const snapshot = await loading
+      if (snapshot) {
+        await booted.mount(snapshot)
+        await restoreSnapshotLinks(booted)
+      }
       if (options.files) await booted.mount(toFileSystemTree(options.files))
     }
     status.finish(status.current.stage)

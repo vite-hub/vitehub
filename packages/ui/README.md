@@ -87,7 +87,7 @@ const source = computed({
 </template>
 ```
 
-- `useWorkspace({ files, snapshot?, install?, start?, port?, env?, immediate? })` boots when the component mounts, installs, and starts the dev server. Pass `port` when the dev server starts other servers first, as `vite dev` with Nitro does. It returns `status`, `steps` (with timings), `support`, `failure` (`unsupported`, `boot`, `install`, or `server`, with the exit code), `files`, `modified`, `fs`, `previewUrl`, `logs`, and `online`.
+- `useWorkspace({ files, snapshot?, install?, start?, port?, env?, immediate? })` boots when the component mounts, installs, and starts the dev server. Pass `snapshot: () => fetchSnapshot(urls)` with `install: false` to skip the install; the function runs only when the workspace boots. Pass `port` when the dev server starts other servers first, as `vite dev` with Nitro does. It returns `status`, `steps` (with timings), `support`, `failure` (`unsupported`, `boot`, `install`, or `server`, with the exit code), `files`, `modified`, `fs`, `previewUrl`, `logs`, and `online`.
 - `setFiles(files, { mode: "merge" | "replace" })` writes to the container. Edits made before the mount ends are written when it ends. `reset()` puts back the original files. `install()` runs the install again, and `restart()` restarts the dev server.
 - `env` is read on each run, so pass a getter or a computed, such as `useConnectStore().env(connect)`.
 - `logs` retains the latest output, up to 65,536 characters and 1,000 chunks. Older output is dropped. Its array carries an `offset` counting dropped characters; pass it directly to `WorkspaceTerminal` to keep writes incremental across rollover. Ordinary arrays still append by prefix and clear the terminal when replaced.

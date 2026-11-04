@@ -95,15 +95,33 @@ To show a notice before the reader clicks run, call `checkWebContainerSupport()`
 
 ### Skip the install with a snapshot
 
-A ViteHub app installs about 680 MB of `node_modules` in 90 to 180 seconds. Install once, export a snapshot, and mount it next time:
+An `npm install` of a ViteHub Agent app in a WebContainer takes minutes. Build the `node_modules` snapshot on your machine or in CI instead, and the container never installs:
 
 ```ts
-const snapshot = await container.export()
-// Later, or in another tab:
-const next = await bootWebContainer({ snapshot, files: { "server/routes/edit.ts": editedSource } })
+// Node, at build time
+import { createNodeModulesSnapshot, packSnapshot } from "@vite-hub/web-container/snapshot"
+
+const snapshot = await createNodeModulesSnapshot({ dir: "build/app" }) // runs npm install in build/app
+const parts = packSnapshot(snapshot) // gzip, split into parts of at most 20 MiB
+parts.forEach((part, index) => writeFileSync(`public/app-modules.${hash}.${index}.bin`, part))
 ```
 
-`export()` returns a binary snapshot of the working directory. Pass `excludes` (glob patterns) to leave files out. `files` is mounted after the snapshot, so it can replace files from it.
+```ts
+// Browser
+import { bootWebContainer, fetchSnapshot } from "@vite-hub/web-container"
+
+const container = await bootWebContainer({
+  snapshot: fetchSnapshot(partUrls, { cache: "my-app-modules" }),
+  files,
+})
+await container.run("dev")
+```
+
+`createNodeModulesSnapshot()` installs as npm in a WebContainer does: it uses `--cpu=wasm32`, so no native binaries download, it swaps `esbuild`, `lightningcss`, and `@libsql/client` for their wasm builds, and it adds `@rolldown/binding-wasm32-wasi`, which rolldown otherwise downloads on first use. Install scripts do not run, and source maps are left out. A snapshot cannot hold symlinks or executable bits, so it lists them, and `bootWebContainer()` restores them after the mount.
+
+`fetchSnapshot()` downloads the parts in parallel and inflates them. With `cache`, it keeps the parts in Cache Storage, so a later boot downloads nothing. Give each snapshot version its own URLs, such as names with a content hash, and each app its own cache name: parts of other URLs in that cache are deleted. `bootWebContainer()` boots while the snapshot loads.
+
+To reuse a container's own install, `container.export()` returns a binary snapshot of the working directory. Pass `excludes` (glob patterns) to leave files out. `files` is mounted after the snapshot, so it can replace files from it.
 
 Use one container for each app. One container failed with `RangeError: Offset is outside the bounds of the DataView` after two full ViteHub installs.
 
@@ -165,7 +183,7 @@ Primitive packages use this to choose a driver that works in a WebContainer.
 
 ## Inspect
 
-Everything this package does runs in the reader's tab, so there is no server state to list yet. Read `container.status` for the stages and timings of a run. A `vitehub web-container` CLI command comes later, with the snapshot builder for docs tutorials.
+Everything this package does runs in the reader's tab, so there is no server state to list yet. Read `container.status` for the stages and timings of a run. The docs build writes the tutorial snapshots with `createNodeModulesSnapshot()` (`docs/modules/tutorials/snapshots.ts`).
 
 ## Test
 
