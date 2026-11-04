@@ -5,6 +5,7 @@ import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } 
 import { findContentEntry } from "@vite-hub/source/vite"
 import { parseAst } from "vite"
 
+import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 import { assertFeaturePackages, importOptionalOwner, type OptionalFeature } from "./optional-owners.ts"
 
 import type { Plugin } from "vite"
@@ -73,6 +74,20 @@ export function optionalOwnerEntriesPlugin(): Plugin {
       if (content) features.push("content")
       if (content && importsCmsPreset(content)) features.push("cms", "database", "workspace")
       assertFeaturePackages([...new Set(features)])
+    },
+  }
+}
+
+/** With `comments: false`, a `server/comments.ts` would do nothing, so the build says so instead. */
+export function commentsOffPlugin(): Plugin {
+  return {
+    name: "vite-hub/comments-off",
+    configResolved(config) {
+      // SAFETY: The resolved config keeps ViteHub's shared keys from the config hook.
+      const viteConfig = config as typeof config & { [VITEHUB_PROJECT_ROOT]?: string, [VITEHUB_SERVER_DIRS]?: string[] }
+      const projectRoot = viteConfig[VITEHUB_PROJECT_ROOT] ? resolve(viteConfig[VITEHUB_PROJECT_ROOT]) : resolveViteHubProjectRoot(config.root)
+      const file = findServerEntry(projectRoot, viteConfig[VITEHUB_SERVER_DIRS], "comments")
+      if (file) throw viteHubErrorDiagnostics.VITE_HUB_B0019({ message: `[vitehub] \`comments: false\` turns Comments off, but the app has ${file}. Remove the file, or remove \`comments: false\`.` })
     },
   }
 }

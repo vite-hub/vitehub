@@ -122,10 +122,10 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
   const entries = await discoverConsoleEntrySections(options)
   for (const section of entries) content[section] = await consoleContributedSections.get(section)!.read(options)
   const commentsVite = ownerModules.commentsVite
-  const commentsEntry = commentsVite?.findCommentsEntry({ projectRoot, serverDirs })
   const sectionOverrides: NonNullable<ConsoleBuildCatalog["sectionOverrides"]> = {}
-  // One `server/comments.ts` runs the comment operations, so the Console section lists threads through them.
-  if (commentsVite && commentsEntry) {
+  // `server/comments.ts`, or `vitehub({ comments })`, runs the comment operations, so the Console section lists threads
+  // through them.
+  if (commentsVite && (sections.includes("comments") || commentsVite.findCommentsEntry({ projectRoot, serverDirs }))) {
     content.comments = await readViteHubConsoleSection(commentsVite.commentsOperationsConsoleSection, undefined)
     sectionOverrides.comments = describeViteHubConsoleSection(commentsVite.commentsOperationsConsoleSection)
   }

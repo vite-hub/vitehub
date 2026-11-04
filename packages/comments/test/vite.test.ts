@@ -73,6 +73,27 @@ describe("hubComments", () => {
     expect(await plugin.vitehub.databases({ root, rootDir: root, projectRoot: root })).toEqual([])
   })
 
+  it("turns on without server/comments.ts when enabled, with the default definition", async () => {
+    const root = await project({})
+    const plugin = hubComments({ enabled: true })
+    const nitro = await configure(plugin, root)
+    expect(nitro?.handlers?.map(handler => handler.route)).toEqual(["/api/_vitehub/comments/**", "/_vitehub/page/session"])
+    const definition = join(root, ".vitehub/nitro/comments/definition.mjs")
+    expect(await readFile(definition, "utf8")).toContain("export const comments = defineComments()")
+    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain(pathToFileURL(definition).href)
+    expect(await plugin.vitehub.databases({ root, rootDir: root, projectRoot: root })).toEqual([expect.objectContaining({ name: "comments", reason: "Stores the comment threads of `vitehub({ comments })`." })])
+    const realtime = await plugin.api.contributeRealtime({ authority: "memory", directory: join(root, ".vitehub/realtime"), projectRoot: root })
+    expect(realtime?.definitions).toEqual([expect.objectContaining({ name: "comments" })])
+    expect(await readFile(join(root, ".vitehub/realtime/comments.mjs"), "utf8")).toContain(pathToFileURL(definition).href)
+    // The Console, the CLI, and MCP get the comment operations too.
+    const operations = async (target: ReturnType<typeof hubComments>) => {
+      const entries = target.vitehub.operations
+      return typeof entries === "function" ? await entries() : entries
+    }
+    expect(await operations(plugin)).toEqual([expect.objectContaining({ export: "commentsOperations" })])
+    expect(await operations(hubComments())).toEqual([])
+  })
+
   it("serves the API, installs the runtime, and serves the overlay with the page tools routes", async () => {
     const root = await project({ "server/comments.ts": "export const comments = defineComments()", "server/content.ts": "export const content = {}" })
     const nitro = await configure(hubComments({ auth: true }), root)

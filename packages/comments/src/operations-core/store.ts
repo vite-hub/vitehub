@@ -2,6 +2,7 @@ import { and, asc, desc, eq, gt, inArray, lt, lte, or, sql } from "drizzle-orm"
 import type { SQL } from "drizzle-orm"
 import type { LibSQLDatabase } from "drizzle-orm/libsql"
 
+import { guestIdPrefix } from "../identity.ts"
 import { commentsErrorDiagnostics } from "./errors.ts"
 import { commentCounters, commentMessages, commentThreads } from "./database.ts"
 import type {
@@ -58,8 +59,6 @@ function parseJson<T>(value: string | null, fallback: T): T {
   }
 }
 
-/** Guests name themselves in the browser. Their ids start with this, so a stored guest stays a guest. */
-export const guestIdPrefix = "guest:"
 
 function user(id: string, name: string | null, image: string | null): CommentUser {
   return { id, ...(name ? { name } : {}), ...(image ? { image } : {}), ...(id.startsWith(guestIdPrefix) ? { guest: true } : {}) }
