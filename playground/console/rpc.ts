@@ -3,6 +3,7 @@ import type { Plugin } from "vite"
 
 import { consoleDiagnosticBody, consoleStatusDiagnosticCode } from "../../packages/vite-hub/src/console/runtime/diagnostics.ts"
 import type { ConsoleRpcResult } from "../../packages/vite-hub/src/console/runtime/rpc.ts"
+import { callCommentsFixture } from "./comments.ts"
 
 const consoleRpcCallPath = "/_vitehub/rpc/__call"
 
@@ -33,6 +34,8 @@ const fixtureRoutes: Record<string, string> = {
 // Map one Console call to the synthetic HTTP route that serves its fixture data.
 export async function callConsoleFixture(origin: string, payload: { input?: Record<string, unknown>; operation: string }, cookie?: string): Promise<ConsoleRpcResult> {
   const input = payload.input ?? {}
+  const comment = callCommentsFixture(payload.operation, input)
+  if (comment) return comment
   let route = fixtureRoutes[payload.operation]
   let method = "GET"
   let body: unknown

@@ -20,6 +20,8 @@
     "../ui/src/standalone/virtual.d.ts",
     "test/comments-overlay-loader.test.ts",
     "test/comments-overlay-mount.test.ts",
+    "test/console-comment-thread-dismissal.test.ts",
+    "test/vue.d.ts",
     "test/console-invocation-views/**/*.ts"
   ],
   "exclude": ["dist", "node_modules"]
