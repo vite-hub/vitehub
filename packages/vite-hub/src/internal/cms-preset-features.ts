@@ -9,6 +9,7 @@ import type { Plugin, PluginOption, UserConfig } from "vite"
 
 interface CmsPresetFeatureOptions {
   blob?: unknown
+  comments?: unknown
   database?: unknown
   workspace?: unknown
 }
@@ -45,7 +46,7 @@ export function resolveCmsPresetFeatures<T extends CmsPresetFeatureOptions>(opti
   const store = hasUnsetCmsPresetFeature(options) ? cmsStore(project) : undefined
   if (store) return withCmsPresetFeatures(options, store)
   // Comments need the Database only.
-  return options.database === undefined && usesComments(project) ? { ...options, database: true } : options
+  return options.database === undefined && options.comments !== false && (options.comments || usesComments(project)) ? { ...options, database: true } : options
 }
 
 /** Marks options whose `cms` preset features are resolved, so `vitehub()` does not resolve them again. */
@@ -181,14 +182,14 @@ function composeVariants(plain: unknown[], alt: unknown[], selects: (config: Cms
 
 /**
  * Builds the plugin list for `options`. When `database`, `blob`, or `workspace` is unset, the `cms` preset in
- * `server/content.ts` turns it on. When `database` is unset, `server/comments.ts` turns it on. The project root is known
+ * `server/content.ts` turns it on. When `database` is unset, `server/comments.ts` or the `comments` option turns it on. The project root is known
  * only once Vite filters plugins, so each build of the list is merged into one that Vite filters, as `composeVariants()`
  * does. An explicit `false` is never overridden.
  */
 export function withCmsPresetPlugins<T extends CmsPresetFeatureOptions>(options: T, create: (options: T) => PluginOption[]): PluginOption[] {
   if (resolvedFeatureOptions.has(options)) return create(options)
   const cmsUnset = hasUnsetCmsPresetFeature(options)
-  const commentsUnset = options.database === undefined
+  const commentsUnset = options.database === undefined && options.comments !== false
   if (!cmsUnset && !commentsUnset) return create(options)
   const attempt = (variant: T): unknown[] | { error: unknown } => {
     try {

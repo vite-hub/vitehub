@@ -10,12 +10,21 @@ import type { DatabaseDialect } from "./types.ts"
 
 const databaseDialects: readonly DatabaseDialect[] = ["sqlite", "postgresql"]
 
-/** Fields that only Database contributions have. */
+/** Fields shared by Database table contributions and uses. */
 export interface DatabaseContributionFields {
   /** Database Definition that receives the tables. Omit it to target the default or only Database. */
   database?: string
   /** SQL dialect of the tables. When set, the target Database must use this dialect. */
   dialect?: DatabaseDialect
+}
+
+interface DatabaseTableContributionFields extends DatabaseContributionFields {
+  /**
+   * Every table of `definition.export`: its schema key and its SQL name. With it, the Database lists the tables
+   * without loading the module, so resolving the Vite config loads neither the schema nor drizzle-orm. The generated
+   * schema still imports the module. A key that is missing here is missing from the generated schema.
+   */
+  tables?: Readonly<Record<string, string>>
 }
 
 /**
@@ -24,7 +33,7 @@ export interface DatabaseContributionFields {
  * `useDatabase(name).schema` holds them, without the application editing its Definition. `name` names the group of
  * tables, and `definition.export` names an export that holds an object of Drizzle tables.
  */
-export type DatabaseContribution = Contribution & DatabaseContributionFields
+export type DatabaseContribution = Contribution & DatabaseTableContributionFields
 
 /**
  * A Database Definition that another package adds from its Vite plugin, for example because the application has no
@@ -87,7 +96,7 @@ export interface CollectedDatabaseDefinitionContribution extends DatabaseDefinit
 }
 
 /** A validated contribution with its export resolved and the name of the plugin that contributed it. */
-export type CollectedDatabaseContribution = CollectedContribution & DatabaseContributionFields
+export type CollectedDatabaseContribution = CollectedContribution & DatabaseTableContributionFields
 
 /** A validated use without tables, with the name of the plugin that contributed it. */
 export interface CollectedDatabaseUse extends DatabaseUseContribution {
@@ -135,9 +144,16 @@ function isDatabaseDialect(value: unknown): value is DatabaseDialect {
   return databaseDialects.some(dialect => dialect === value)
 }
 
-function readDatabaseFields(entry: Readonly<Record<string, unknown>>, fail: (reason: string) => never): DatabaseContributionFields {
-  const { database, dialect } = entry
-  const fields: DatabaseContributionFields = {}
+function readDatabaseFields(entry: Readonly<Record<string, unknown>>, fail: (reason: string) => never): DatabaseTableContributionFields {
+  const { database, dialect, tables } = entry
+  const fields: DatabaseTableContributionFields = {}
+  if (tables !== undefined) {
+    if (!isPlainObject(tables) || !Object.keys(tables).length || Object.values(tables).some(name => String(name) !== name || !name)) {
+      fail(`\`tables\` of ${JSON.stringify(entry.name)} must map each schema key to its SQL table name.`)
+    }
+    // SAFETY: the check above makes every value a non-empty string.
+    fields.tables = { ...tables as Record<string, string> }
+  }
   if (database !== undefined) {
     if (String(database) !== database || !database || database.trim() !== database) {
       fail(`\`database\` of ${JSON.stringify(entry.name)} must be a Database name without surrounding whitespace. Omit it to target the default or only Database.`)
