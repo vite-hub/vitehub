@@ -1,5 +1,11 @@
 import type { CommentsUser, CommentUser } from "./types.ts"
 
+/**
+ * Guests name themselves in the browser. Their ids start with this, so a stored guest stays a guest. It lives here,
+ * not in the store, so the comment operations load without drizzle-orm.
+ */
+export const guestIdPrefix = "guest:"
+
 /** A non-empty string, or undefined. User records come from apps and Auth, so their fields are untrusted. */
 export function text(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined
@@ -21,7 +27,7 @@ export function guestFromHeaders(headers: Headers): CommentUser | undefined {
   if (!id || !name || id.length > 64) return
   try {
     const decoded = decodeURIComponent(name).trim().slice(0, 64)
-    return decoded ? { id: `guest:${id}`, name: decoded, guest: true } : undefined
+    return decoded ? { id: `${guestIdPrefix}${id}`, name: decoded, guest: true } : undefined
   }
   catch {
     return undefined

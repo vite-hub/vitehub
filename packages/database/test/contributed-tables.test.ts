@@ -169,11 +169,14 @@ describe("collectDatabaseContributions", () => {
     [{ databases: [{ database: " default ", definition: { module: "pkg" }, name: "history" }] }, "`database`"],
     [{ databases: [{ definition: { module: "pkg" }, dialect: "mysql", name: "history" }] }, "`dialect` of \"history\" must be one of \"sqlite\", \"postgresql\""],
     [{ databases: [{ module: "pkg", name: "history" }] }, "needs `definition: { module, export? }`"],
+    [{ databases: [{ name: "history", tables: { historyRefs: "history_refs" } }] }, "needs `definition: { module, export? }`"],
     [{ databases: [{ definition: "/app/db.ts", name: " default" }] }, "`name`"],
     [{ databases: [{ definition: "./db.ts", name: "default" }] }, "absolute path"],
     [{ databases: [{ database: "default", definition: "/app/db.ts", name: "default" }] }, "Contribute them as two entries"],
     [{ databases: [{ name: " " }] }, "invalid Database use: `name` must be a non-empty string"],
     [{ databases: [{ dialect: "mysql", name: "connections" }] }, "`dialect` of \"connections\" must be one of"],
+    [{ databases: [{ definition: { module: "pkg" }, name: "history", tables: {} }] }, "`tables` of \"history\" must map each schema key"],
+    [{ databases: [{ definition: { module: "pkg" }, name: "history", tables: { historyRefs: 1 } }] }, "`tables` of \"history\""],
   ])("rejects invalid contributions %#", async (vitehub, message) => {
     await expect(collectDatabaseContributions([{ name: "broken/vite", vitehub }], context)).rejects.toMatchObject({
       code: "DATABASE_INVALID_CONTRIBUTION",
@@ -366,6 +369,18 @@ describe("contributed Database Definitions", () => {
 })
 
 describe("contributed tables in generated artifacts", () => {
+  it("lists the tables of a contribution that names them without loading its module", async () => {
+    const rootDir = await createProject()
+    // Loading this module fails, so the generated schema proves that the build never imported it.
+    await writeProjectFile(rootDir, "node_modules/listed-tables/package.json", JSON.stringify({ exports: { "./schema": "./schema.mjs" }, name: "listed-tables", type: "module" }))
+    await writeProjectFile(rootDir, "node_modules/listed-tables/schema.mjs", "throw new Error('loaded at config time')\n")
+    const config = await generate(rootDir, contributions({ definition: { export: "listedSchema", module: "listed-tables/schema" }, name: "listed", tables: { listedRefs: "listed_refs" } }))
+    const generated = await readFile(config.generatedSchemaFilesByDatabase.default!, "utf8")
+    expect(generated).toContain("import { listedSchema as contributedSchema_0 } from \"listed-tables/schema\"")
+    expect(generated).toMatch(/export \{ table_\d+ as listedRefs \}/)
+    expect(generated).toContain("export const schema = { ...databaseDefinition.schema, ...contributedSchema_0 }")
+  })
+
   it("adds contributed tables to the generated schema, types, and a real drizzle-kit migration", async () => {
     const rootDir = await createProject()
     const absolute = await writeProjectFile(rootDir, "vendor/audit.ts", [

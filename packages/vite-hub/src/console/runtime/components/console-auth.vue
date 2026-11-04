@@ -27,7 +27,6 @@ import ConsoleAuthAction from "./console-auth-action.vue";
 import ConsoleAuthDetail from "./console-auth-detail.vue";
 import ConsoleAuthOverview from "./console-auth-overview.vue";
 import ConsoleAuthActivity from "./console-auth-activity.vue";
-import ConsoleFrame from "./console-frame.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
@@ -229,7 +228,6 @@ onBeforeUnmount(() => {
 });
 </script>
 <template>
-  <ConsoleFrame active="auth" :sections-base="sectionsBase">
     <ConsoleSearch :agents-base="`${apiBase}/agents`" :definitions-base="`${apiBase}/definitions`" :kv-base="`${apiBase}/kv`" :search-base="`${apiBase}/search`" :sections-base="sectionsBase" />
     <UDashboardPanel id="auth" :ui="{ body: 'min-h-0 overflow-hidden p-0 sm:p-0 gap-0 sm:gap-0' }">
       <template #header>
@@ -637,7 +635,6 @@ onBeforeUnmount(() => {
         ></template
       >
     </USlideover>
-  </ConsoleFrame>
 </template>
 <style scoped>
 .auth-table th {

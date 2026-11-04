@@ -8,7 +8,6 @@ import { consoleFolderName, consoleFolderTrail, consoleMediaTypes } from "../cli
 import { queryChoice, queryFlag, querySelection, queryText, useConsoleQuery } from "../client/route-query";
 import { rememberConsoleSection } from "../sections";
 import ConsoleBlobDetail from "./console-blob-detail.vue";
-import ConsoleFrame from "./console-frame.vue";
 import ConsoleMediaBrowser from "./console-media-browser.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
@@ -112,7 +111,6 @@ onMounted(async () => {
 </script>
 
 <template>
-  <ConsoleFrame active="blob" :sections-base="sectionsBase">
     <ConsoleSearch :agents-base="agentsBase" :definitions-base="definitionsBase" :kv-base="kvBase" :search-base="searchBase" :sections-base="sectionsBase" />
 
     <UDashboardPanel id="blob-objects" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
@@ -155,5 +153,4 @@ onMounted(async () => {
         </div>
       </div>
     </UDashboardPanel>
-  </ConsoleFrame>
 </template>

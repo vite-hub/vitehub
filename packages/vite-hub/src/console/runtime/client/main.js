@@ -336,7 +336,7 @@ router.afterEach((to) => {
 });
 addViteHubIcons();
 deferLucideIcons();
-createApp(App)
+createApp(App, { sectionsBase })
   .provide(consoleAppearanceKey, appearance)
   .use(router)
   .use(ui, { router: () => router.currentRoute.value })

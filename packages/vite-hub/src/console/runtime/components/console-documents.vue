@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, shallowRef, watch } from "vue";
+import { computed, defineAsyncComponent, h, onMounted, ref, shallowRef, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { consoleErrorMessage, consoleListQueryFor, createConsoleDocumentsClient } from "../client/documents";
@@ -10,10 +10,8 @@ import { resolveConsoleRouteName } from "../console-route";
 import { parseConsoleSectionContent } from "../definitions";
 import { consoleSectionPageRouteName, consoleSectionPageSegment, consoleSectionRouteName, rememberConsoleSection } from "../sections";
 import ConsoleDocumentDashboard from "./console-document-dashboard.vue";
-import ConsoleDocumentEditor from "./console-document-editor.vue";
 import ConsoleDocumentList from "./console-document-list.vue";
 import ConsoleDocumentSettings from "./console-document-settings.vue";
-import ConsoleFrame from "./console-frame.vue";
 import ConsoleMediaLibrary from "./console-media-library.vue";
 import ConsoleMediaPicker from "./console-media-picker.vue";
 import ConsolePageHeader from "./console-page-header.vue";
@@ -21,6 +19,15 @@ import ConsoleSearch from "./console-search.vue";
 import ConsoleSetupHint from "./console-setup-hint.vue";
 import ConsoleLoading from "./console-loading.vue";
 import ConsoleState from "./console-state.vue";
+
+// The editor brings Tiptap, the Comark kit, and the code highlighter, most of this page's code. The dashboard and the
+// lists show without it, and the page loads it in the background so a document opens without a wait.
+const loadDocumentEditor = () => import("./console-document-editor.vue");
+const ConsoleDocumentEditor = defineAsyncComponent({
+  loader: loadDocumentEditor,
+  delay: 150,
+  loadingComponent: { render: () => h(ConsoleLoading, { label: "Loading the editor…" }) },
+});
 
 import type { ConsoleDocumentOverview, ConsoleDocumentState } from "../client/documents";
 import type { ConsoleMediaInfo } from "../client/media-library";
@@ -226,6 +233,9 @@ onMounted(() => {
   rememberConsoleSection(section.value);
   reload();
   void loadMediaInfo();
+  const preload = () => void loadDocumentEditor().catch(() => undefined);
+  if ("requestIdleCallback" in window) window.requestIdleCallback(preload, { timeout: 3000 });
+  else setTimeout(preload, 1000);
 });
 
 watch(section, () => {
@@ -238,7 +248,6 @@ watch(changes, () => void loadOverview());
 </script>
 
 <template>
-  <ConsoleFrame :active="section" :sections-base="sectionsBase">
     <UDashboardSidebar
       id="console-navigation"
       v-model:open="sidebarOpen"
@@ -476,5 +485,4 @@ watch(changes, () => void loadOverview());
       </template>
     </UDashboardPanel>
     <ConsoleMediaPicker v-if="hasMedia" ref="mediaPicker" :client="mediaClient" :section="section" />
-  </ConsoleFrame>
 </template>

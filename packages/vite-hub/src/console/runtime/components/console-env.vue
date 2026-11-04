@@ -8,7 +8,6 @@ import { indexEnvStatuses } from "../client/env-status";
 import { requestConsole } from "../client/request";
 import { queryChoice, queryFlag, querySelection, queryText, useConsoleQuery } from "../client/route-query";
 import { rememberConsoleSection } from "../sections";
-import ConsoleFrame from "./console-frame.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleSearch from "./console-search.vue";
@@ -175,7 +174,6 @@ onBeforeUnmount(() => request?.abort());
 </script>
 
 <template>
-  <ConsoleFrame active="env" :sections-base="sectionsBase">
     <ConsoleSearch
       :agents-base="agentsBase"
       :definitions-base="definitionsBase"
@@ -315,5 +313,4 @@ onBeforeUnmount(() => request?.abort());
         ><ConsoleEnvDetails v-if="selected" v-model:managing="managing" v-model:tab="manageTab" :entry="selected" :endpoint="managementBase" :status="selected && status(selected)"
       /></template>
     </USlideover>
-  </ConsoleFrame>
 </template>

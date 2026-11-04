@@ -7,10 +7,16 @@ import { defineDatabase } from "../src/index.ts"
 import { describe, expectTypeOf, it } from "vitest"
 
 import type { CloudflareD1HttpConfig, DBModulePublicOptions } from "../src/index.ts"
+import type { DatabaseContribution, DatabaseUseContribution } from "../src/contributions.ts"
 
 type DrizzleModule = typeof import("../src/drizzle.ts")
 
 describe("types", () => {
+  it("allows static table names only on table contributions", () => {
+    expectTypeOf<"tables">().toMatchTypeOf<keyof DatabaseContribution>()
+    expectTypeOf<"tables">().not.toMatchTypeOf<keyof DatabaseUseContribution>()
+  })
+
   it("augments vite user config with database options", () => {
     const config: UserConfig = {
       database: {
