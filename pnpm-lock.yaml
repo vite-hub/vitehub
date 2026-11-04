@@ -1857,6 +1857,9 @@ importers:
       vitest:
         specifier: catalog:tooling
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(@vitest/browser-preview@4.1.11)(happy-dom@21.0.3)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+      vue:
+        specifier: 3.5.44
+        version: 3.5.44(typescript@6.0.3)
 
   packages/docs:
     dependencies:

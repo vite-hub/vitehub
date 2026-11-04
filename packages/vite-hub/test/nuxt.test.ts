@@ -4492,6 +4492,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     }
     expect(options.imports.imports).toEqual([
       { from: "vite-hub/source/client", name: "useCollection" },
+      { from: "vite-hub/decisions/vue", name: "useChoices" },
       { from: "vite-hub/auth/vue", name: "useAuthClient" },
       { from: "vite-hub/auth/vue", name: "useSession" },
       { from: "vite-hub/auth/vue", name: "useSignIn" },
@@ -4568,6 +4569,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       { from: "vite-hub/agent/vue", name: "useAgentInvocations" },
       { from: "vite-hub/agent/vue", name: "useChat" },
       { from: "vite-hub/source/client", name: "useCollection" },
+      { from: "vite-hub/decisions/vue", name: "useChoices" },
     ])
   })
 
@@ -4599,10 +4601,11 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     const imports = (nuxt: typeof withBlob.nuxt) => (nuxt.options as typeof nuxt.options & { imports: { imports: Array<{ from: string, name: string }> } }).imports.imports
     expect(imports(withBlob.nuxt)).toEqual([
       { from: "vite-hub/source/client", name: "useCollection" },
+      { from: "vite-hub/decisions/vue", name: "useChoices" },
       { from: "vite-hub/blob/vue", name: "useMultipartUpload" },
       { from: "vite-hub/blob/vue", name: "useUpload" },
     ])
-    expect(imports(withoutBlob.nuxt)).toEqual([{ from: "vite-hub/source/client", name: "useCollection" }])
+    expect(imports(withoutBlob.nuxt)).toEqual([{ from: "vite-hub/source/client", name: "useCollection" }, { from: "vite-hub/decisions/vue", name: "useChoices" }])
   })
 
   it("rejects a configured Nuxt composable that would bind a different useChat", async () => {
@@ -4690,7 +4693,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       imports: { imports: Array<{ from: string; name: string }> }
       nitro: Record<string, unknown>
     }
-    expect(options.imports.imports).toHaveLength(6)
+    expect(options.imports.imports).toHaveLength(7)
     expect(options.alias).not.toHaveProperty("#vitehub/env/server")
     expect(options.nitro.alias).toEqual({})
     expect(options.nitro).not.toHaveProperty("plugins")
