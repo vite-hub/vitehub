@@ -38,6 +38,8 @@ it("remembers only the document actually opened when a leave guard cancels navig
 
 afterEach(() => {
   document.querySelector("vitehub-pill")?.shadowRoot?.querySelector<HTMLButtonElement>('button[aria-label="Turn off ViteHub tools"]')?.click()
+  for (const element of document.querySelectorAll("vitehub-tools-off")) element.remove()
+  localStorage.removeItem("vitehub-tools-off")
   history.replaceState(null, "", "/")
   vi.unstubAllGlobals()
   vi.restoreAllMocks()

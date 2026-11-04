@@ -433,15 +433,16 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
   }
   // One pill per page: a second loader on the same page does nothing.
   if (session.tools.length === 0 || document.querySelector("vitehub-pill, vitehub-tools-off")) return []
-  // The `?vitehub` query turns the tools on again. Without it, tools that were turned off show only their small mark.
-  if (query.has(viteHubPageToolsQuery)) rememberOff(false)
+  const linkedTool = session.tools.find(tool => tool.param && query.has(tool.param))
+  // Explicit page-tool links turn the tools on again. Otherwise, tools that were turned off show only their small mark.
+  if (query.has(viteHubPageToolsQuery) || linkedTool) rememberOff(false)
   else if (storedOff()) {
     mountOffMark(() => { rememberOff(false); void loadViteHubPageTools(options) }, false)
     return []
   }
 
   // `?vitehub=<tool>` opens a tool, and so does the query parameter of a tool, such as `?comment=3` of Comments.
-  const open = query.get(viteHubPageToolsQuery) || session.tools.find(tool => tool.param && query.has(tool.param))?.id
+  const open = query.get(viteHubPageToolsQuery) || linkedTool?.id
   const querySelected = session.tools.some(tool => tool.id === open)
   const pillController = new AbortController()
   const controllers = session.tools.map(() => new AbortController())

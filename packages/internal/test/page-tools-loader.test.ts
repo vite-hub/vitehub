@@ -450,6 +450,21 @@ describe("loadViteHubPageTools", () => {
     expect(document.querySelector("vitehub-tools-off")).toBeNull()
   })
 
+  it.each(["vitehub=comments", "comment=3"])("opens an explicit ?%s link after the tools were turned off", async (search) => {
+    page(`/guide?${search}`)
+    document.cookie = "vitehub-tools=0; Path=/"
+    localStorage.setItem("vitehub-tools-off", "1")
+    session({ tools: [{ ...comments, lazy: true, param: "comment" }, { ...consoleTool, lazy: true }] })
+    const { load, started } = modules()
+
+    await expect(loadViteHubPageTools({ load })).resolves.toHaveLength(2)
+    expect(started.map(context => [context.tool.id, context.open])).toEqual([["comments", true]])
+    expect(load.mock.calls).toEqual([["/comments.js"]])
+    expect(localStorage.getItem("vitehub-tools-off")).toBeNull()
+    expect(document.querySelector("vitehub-tools-off")).toBeNull()
+    pill()
+  })
+
   it("starts the other tools when one script fails or has no default export", async () => {
     page("/?vitehub")
     session({ tools: [{ ...comments, script: "/broken.js" }, consoleTool] })
