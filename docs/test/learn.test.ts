@@ -1,6 +1,8 @@
-import { resolve } from "node:path";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, relative, resolve } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { buildLearnCatalog, filterQuickstarts, learnMeta } from "../app/utils/learn-catalog";
 import { readLearnFacts, tutorialMinutes } from "../modules/tutorials/learn";
@@ -10,6 +12,11 @@ import { createDocsRedirectRouteRules } from "../modules/vitehub-docs/redirects"
 import type { DocsPage, DocsSection } from "@vite-hub/docs";
 
 const docsRoot = resolve(import.meta.dirname, "..");
+
+vi.mock("node:path", async (importOriginal) => {
+  const path = await importOriginal<typeof import("node:path")>();
+  return { ...path, relative: vi.fn(path.relative) };
+});
 
 function page(path: string, extra: Partial<DocsPage> = {}): DocsPage {
   return {
@@ -60,6 +67,33 @@ describe("Learn", () => {
     const facts = await readLearnFacts(resolve(docsRoot, "content"));
     for (const tutorial of runnableTutorials) expect(facts[tutorial.page]?.steps, tutorial.page).toBeGreaterThan(0);
     expect(facts["/docs/kv/get-started"]).toBeDefined();
+  });
+
+  it.each([
+    { lineEnding: "LF", newline: "\n", relativePath: "docs/kv/index.md" },
+    { lineEnding: "CRLF", newline: "\r\n", relativePath: "docs/kv/index.md" },
+    { lineEnding: "LF", newline: "\n", relativePath: "docs\\kv\\index.md" },
+    { lineEnding: "CRLF", newline: "\r\n", relativePath: "docs\\kv\\index.md" },
+  ])("reads $lineEnding facts at $relativePath using a URL key", async ({ newline, relativePath }) => {
+    const contentDir = await mkdtemp(join(tmpdir(), "learn-facts-"));
+    try {
+      const directory = join(contentDir, "docs", "kv");
+      await mkdir(directory, { recursive: true });
+      const markdown = [
+        "---", "layout: tutorial", "---",
+        "word ".repeat(600),
+        '::tutorial-step{title="One"}', "::",
+        '::tutorial-step{title="Two"}', "::",
+        "```ts", "code ".repeat(5000), "```", "",
+      ].join(newline);
+      await writeFile(join(directory, "index.md"), markdown);
+      vi.mocked(relative).mockReturnValueOnce(relativePath);
+
+      expect(await readLearnFacts(contentDir)).toEqual({ "/docs/kv": { steps: 2, minutes: 10 } });
+    } finally {
+      vi.mocked(relative).mockReset();
+      await rm(contentDir, { recursive: true, force: true });
+    }
   });
 
   it("sends the old Blog and Guides paths to Learn", () => {

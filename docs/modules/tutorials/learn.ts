@@ -34,10 +34,10 @@ async function markdownFiles(dir: string): Promise<string[]> {
 export async function readLearnFacts(contentDir: string): Promise<Record<string, LearnPageFacts>> {
   const facts: Record<string, LearnPageFacts> = {};
   for (const file of await markdownFiles(contentDir)) {
-    const markdown = await readFile(file, "utf8");
+    const markdown = (await readFile(file, "utf8")).replace(/\r\n/g, "\n");
     const frontmatter = /^---\n([\s\S]*?)\n---/.exec(markdown)?.[1] ?? "";
     if (!/^layout:\s*tutorial\s*$/m.test(frontmatter)) continue;
-    const path = `/${relative(contentDir, file).replace(/\.md$/, "").replace(/\/index$/, "")}`;
+    const path = `/${relative(contentDir, file).replace(/\\/g, "/").replace(/\.md$/, "").replace(/\/index$/, "")}`;
     facts[path] = { steps: tutorialSteps(markdown), minutes: tutorialMinutes(markdown) };
   }
   return facts;
