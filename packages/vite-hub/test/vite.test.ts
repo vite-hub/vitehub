@@ -2160,6 +2160,12 @@ describe("vitehub", () => {
     const unsupported = vitehub({ preset: "deno", queue: true }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
     expect(() => callHook(unsupported.config, [{}, { command: "build", mode: "production" }])).toThrow("cannot provide queue")
 
+    // SAFETY: The explicit Node preset installs the named deployment plugin.
+    const nodeQueue = vitehub({ preset: "node", queue: true }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin
+    const nodeQueueConfig: Record<string, unknown> = {}
+    callHook(nodeQueue.config, [nodeQueueConfig, { command: "build", mode: "production" }])
+    expect(nodeQueueConfig.queue).toEqual({ provider: "local" })
+
     const nodePreset = (schedule: ViteHubOptions["schedule"]) =>
       // SAFETY: The explicit Node preset installs the named deployment plugin.
       vitehub({ preset: "node", schedule }).find(candidate => (candidate as Plugin).name === "vite-hub/deployment-preset") as Plugin

@@ -43,6 +43,11 @@ describe("built-in deployment plans", () => {
       adapter: "cloudflare",
       supported: true,
     })
+    expect(resolveDeploymentPlan("node").services.queue).toEqual({
+      adapter: "local",
+      guarantee: "single-host",
+      supported: true,
+    })
     expect(resolveDeploymentPlan("node").services.rateLimit).toEqual({
       adapter: "memory",
       guarantee: "process-local",

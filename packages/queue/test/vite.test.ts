@@ -415,6 +415,37 @@ describe("hubQueue", () => {
     expect(await readFile(join(root, ".vitehub", "nitro", "queue", "middleware.ts"), "utf8")).not.toContain("runtimeEvent")
   })
 
+  it("runs Queue in the server process on a Node preset", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-node-"))
+    roots.push(root)
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+    const plugin = hubQueue()
+    const config = { nitro: { preset: "node-server" }, root }
+    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
+    expect(config).not.toHaveProperty("nitro.cloudflare")
+    expect(config).not.toHaveProperty("nitro.vercel")
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ ...config, command: "build" } as never)
+    const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
+    expect(nitroPlugin).toContain('"provider": "local"')
+    expect(nitroPlugin).toContain('"base": ".vitehub/data/queue"')
+    expect(nitroPlugin).toContain("internal/runtime/local-client")
+    expect(nitroPlugin).toContain("setQueueRuntimeConfig(queueConfig, createLocalQueueRuntimeClient)")
+    expect(nitroPlugin).toContain("startLocalQueue(queueConfig)")
+    expect(nitroPlugin).not.toContain("@vercel/queue")
+    expect(nitroPlugin).not.toContain("cloudflare:")
+  })
+
+  it("keeps an explicit hosted provider on a Node preset", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-node-vercel-"))
+    roots.push(root)
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+    const plugin = hubQueue({ provider: "vercel" })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ nitro: { preset: "node-server" }, queue: { provider: "vercel" }, root } as never)
+    const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
+    expect(nitroPlugin).toContain("createVercelQueueRuntimeClient")
+    expect(nitroPlugin).not.toContain("createLocalQueueRuntimeClient")
+  })
+
   it("does not apply Cloudflare name limits to Vercel Nitro queues", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-vercel-name-"))
     roots.push(root)

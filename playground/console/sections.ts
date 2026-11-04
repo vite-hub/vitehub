@@ -77,7 +77,7 @@ export const playgroundConsoleContributions = [
     label: "Queues",
     view: {
       kind: "definition-catalog",
-      notice: "Queue backlog, message, and delivery history are not exposed by ViteHub's provider-independent Queue contract yet.",
+      notice: "Cloudflare and Vercel do not expose Queue backlog or delivery history through ViteHub. The local provider reports its job directory and job counts in `vitehub queue list`.",
     },
   },
   {

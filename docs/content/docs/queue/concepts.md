@@ -25,6 +25,8 @@ Use an idempotency key before sending an email, charging a card, or changing a
 record. See [Queue limits and errors](/docs/queue/limits-and-errors) for
 provider limits and failure codes.
 
-The local Vite integration discovers Definitions and generates provider output,
-but it does not emulate delivery. Use [Queue hosts](/docs/queue/hosts) and a
-build inspection when you need to verify deployment wiring.
+On the `node` preset, the local provider stores jobs in `.vitehub/data/queue`
+and runs them in the server process. The jobs survive a restart on the same
+disk, but one host owns them. On Cloudflare and Vercel, the Vite integration
+generates provider output and the provider delivers the jobs. See
+[Queue hosts](/docs/queue/hosts).
