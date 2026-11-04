@@ -255,7 +255,7 @@ describe("Comments API", () => {
 
     it.each(["member", "share", "guest"])("lets a %s that identify and authorize admit search people and read attachments", async (who) => {
       const { call, fetchFile, authorize } = await app()
-      const headers = who === "guest" ? { "x-vitehub-comments-guest-id": "visitor", "x-vitehub-comments-guest-name": "Visitor" } : { "x-test-person": who }
+      const headers: Record<string, string> = who === "guest" ? { "x-vitehub-comments-guest-id": "visitor", "x-vitehub-comments-guest-name": "Visitor" } : { "x-test-person": who }
       const found = await call("/people?q=gr&page=/", { headers })
       expect(found.response.status).toBe(200)
       expect(found.body.data).toEqual([{ id: "grace", name: "Grace" }])
