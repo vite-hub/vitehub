@@ -12,11 +12,14 @@ export default defineConfig({
       neverBundle: [/^#/, /^@nuxt\//, "nuxt", "vue", /^@vite-hub\//, /^comark/, /^@comark\//, /^shiki/, /^@shikijs\//, "yaml", "nitropack", "h3", "defu", "nuxt-agent-discovery", "nuxt-llms"],
       onlyBundle: false,
     },
-    entry: ["src/index.ts", "src/assistant.ts", "src/navigation.ts", "src/nuxt.ts", "src/server.ts", "src/theme.ts", "src/runtime/server/*.ts"],
+    entry: ["src/index.ts", "src/assistant.ts", "src/assistant-worker.ts", "src/navigation.ts", "src/nuxt.ts", "src/server.ts", "src/theme.ts", "src/runtime/server/*.ts"],
     exports: {
       customExports(exports) {
         // The Nuxt module loads the runtime handlers and the theme by path. They are not public entries.
-        return normalizePackageExports(Object.fromEntries(Object.entries(exports).filter(([key]) => !key.startsWith("./runtime/") && key !== "./theme")))
+        const entries = normalizePackageExports(Object.fromEntries(Object.entries(exports).filter(([key]) => !key.startsWith("./runtime/") && key !== "./theme" && key !== "./assistant-worker")))
+        // A Worker cannot start Codex, so a Worker build resolves the assistant with a model-backed Driver.
+        const worker = "./dist/assistant-worker.js"
+        return { ...entries, "./assistant": { types: "./dist/assistant.d.ts", workerd: worker, worker, import: "./dist/assistant.js", default: "./dist/assistant.js" } }
       },
       inlinedDependencies: false,
     },

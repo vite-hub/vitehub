@@ -35,6 +35,8 @@
     },
     "./assistant": {
       "types": "./dist/assistant.d.ts",
+      "workerd": "./dist/assistant-worker.js",
+      "worker": "./dist/assistant-worker.js",
       "import": "./dist/assistant.js",
       "default": "./dist/assistant.js"
     },

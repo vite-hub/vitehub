@@ -165,7 +165,7 @@ Search indexes every page by heading. `⌘K` opens it. Page titles rank first, t
 
 ## Docs assistant
 
-The docs assistant answers reader questions from your pages and links the pages that it used. It is a ViteHub Agent preset, `docsAssistant`. By default it runs Codex on your ChatGPT plan, so you need no API key.
+The docs assistant answers reader questions from your pages and links the pages that it used. It is a ViteHub Agent preset, `docsAssistant`. By default it runs on your ChatGPT plan, so you need no API key: with Codex on Node.js, and with a model-backed Driver in a Cloudflare Worker build.
 
 ```sh
 pnpm add vite-hub @vite-hub/agent @vite-hub/database drizzle-orm @openai/codex
@@ -184,10 +184,11 @@ export default defineNuxtConfig({
 
 ```ts
 // server/agents/docs.ts
+// server/agents/docs/agent.ts. `workspace: {}` says that this Agent owns the pages Workspace of the preset, so a build bundles the pages for hosts without a file system.
 import { docsAssistant } from "@vite-hub/docs/assistant"
 import { defineAgent } from "vite-hub/agent"
 
-export default defineAgent({ extends: docsAssistant })
+export default defineAgent({ extends: docsAssistant, workspace: {} })
 ```
 
 ```ts
@@ -216,8 +217,7 @@ The preset reads `content/**/*.md` from a read-only Workspace, answers in the `w
 
 Limits:
 
-- **Node.js host only.** Codex runs as a local process. A production build for Cloudflare or another non-Node Nitro preset fails with `DocsAssistantSetupError` while `assistant` is on.
-- **ChatGPT plan in the development server only.** `vite-hub/nuxt` does not support Connections in production builds yet. An API key gateway does not need Connections.
+- **Worker builds.** Under the `workerd` and `worker` conditions, `docsAssistant` uses `driver: { model: "gpt-6.1-sol", gateway: chatgpt() }`, because a Worker cannot start Codex. The model reads the pages with the read-only Workspace shell. Change the model with `driver: { model }`, from `vitehub connections models chatgpt`. An Agent that sets `codexDriver()` itself fails a Worker build with `AGENT_B0019`.
 - **Plan use.** OpenAI allows plan usage for open-source projects, personal apps that run locally, and selected private apps. Paid or remotely hosted apps must join OpenAI's waitlist first.
 - **Shell access.** Codex reads the pages with shell commands in a temporary copy. It cannot write outside that copy or use the network, but it can read other files that the server user can read, and a reader can ask for them. Run a public assistant as a user that can read only the app.
 - **Rate limit and budget.** The default limit is in process memory. It resets on restart, does not span processes, and one reader can use the whole hour. The token budget records an answer over 200,000 tokens; it does not stop it.
@@ -247,7 +247,7 @@ export const content = defineContent({
 | Error | When | Fix |
 | --- | --- | --- |
 | `DocsContentError` | A page frontmatter or a `.navigation.yml` file does not match the schema. The message names the file and the field. | Fix the field. The schema is `docsPageSchema` and `docsSectionSchema` from `@vite-hub/docs`. |
-| `DocsAssistantSetupError` | `assistant` is on, and `vite-hub/nuxt` with `agent: true` is missing, or a production build uses a non-Node Nitro preset. | Add `vite-hub/nuxt` with `agent: true` and `connections: true`, build for Node, or turn `assistant` off for that build. |
+| `DocsAssistantSetupError` | `assistant` is on, and `vite-hub/nuxt` with `agent: true` is missing. | Add `vite-hub/nuxt` with `agent: true` and `connections: true`, or turn `assistant` off. |
 
 ## Inspect
 
