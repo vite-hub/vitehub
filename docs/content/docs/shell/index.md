@@ -1,5 +1,6 @@
 ---
 title: Shell
+layout: landing
 navigation.title: Overview
 description: Run shell commands from server code on files you choose, with limits on commands, output, and time.
 navigation.order: 1

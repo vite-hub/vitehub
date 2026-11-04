@@ -1,7 +1,8 @@
 import { test } from 'vitest'
 import assert from 'node:assert/strict'
 import { PullRequestInbox } from '../src/babysitter/inbox/store.ts'
-import { hydrateSnapshot, reconcileOneSnapshot, readPullRequestThreads } from '../src/babysitter/inbox/snapshot-sync.ts'
+import { hydrateSnapshot, reconcileOneSnapshot, readForgePullRequestThreads } from '../src/babysitter/inbox/snapshot-sync.ts'
+import { forgeProvider } from '@vite-hub/forge'
 const repo = 'vite-hub/vitehub'
 const pr = { number: 7, state: 'open', user: { login: 'onmax' }, head: { sha: 'a', ref: 'fix' }, base: { ref: 'main', sha: 'base' } }
 const check = { id: 1, head_sha: 'a', name: 'ci', status: 'completed', conclusion: 'success' }
@@ -62,25 +63,47 @@ test('thread hydration error defers instead of claiming resolution is known', as
  assert.equal((await inbox.get(repo, 7))?.threadsHydrated, undefined)
  assert.equal((await inbox.get(repo, 7))?.hydrated, false)
 })
-test('thread reader paginates both thread list and comment IDs without omissions', async () => {
- const calls: Array<Record<string, string | number | null>> = []
- const page = (nodes: object[], next: string | null = null) => ({ nodes, pageInfo: { hasNextPage: next !== null, endCursor: next } })
- const threads = await readPullRequestThreads(async (query, variables) => {
-  calls.push(variables)
-  if (query.includes('GitHubPullRequestThreadComments')) return { data: { node: { comments: page([{ id: 'c2', databaseId: 2 }]) } } }
-  return { data: { repository: { pullRequest: { reviewThreads: variables.after
-   ? page([{ id: 't2', isResolved: true, comments: page([{ id: 'c3', databaseId: 3 }]) }])
-   : page([{ id: 't1', isResolved: false, comments: page([{ id: 'c1', databaseId: 1 }], 'comment-next') }], 'thread-next')
-  } } } }
- }, repo, 7)
- assert.equal(threads.length, 2)
- assert.ok(Array.isArray(threads[0]?.comments)); assert.deepEqual(threads[0].comments.map(c => c.databaseId), [1, 2])
+test('forge thread reader preserves identities after the upstream 100-comment limit', async () => {
+ const calls: Array<{ query: string; variables: Record<string, unknown> }> = []
+ const first = Array.from({ length: 100 }, (_, i) => ({ id: `c${i + 1}`, databaseId: i + 1 }))
+ const provider = await forgeProvider({ forge: 'github', token: 'token', fetch: async (input, init) => {
+  const call = await new Request(input, init).json() as typeof calls[number]
+  calls.push(call)
+  if (call.query.includes('ReviewThreadPage')) return Response.json({ data: { repository: { pullRequest: { reviewThreads: {
+   nodes: [{ id: 't1', isResolved: false, isOutdated: false, comments: { nodes: first } }],
+   pageInfo: { hasNextPage: false, endCursor: null },
+  } } } } })
+  assert.equal(call.variables.id, 't1')
+  const more = call.variables.after === 'comment-next'
+  return Response.json({ data: { node: { comments: {
+   nodes: more ? [{ id: 'human', databaseId: 101 }] : first,
+   pageInfo: { hasNextPage: !more, endCursor: more ? null : 'comment-next' },
+  } } } })
+ } })
+ const threads = await readForgePullRequestThreads(provider, repo, 7)
+ assert.ok(Array.isArray(threads[0]?.comments))
+ assert.equal(threads[0].comments.length, 101)
+ assert.deepEqual(threads[0].comments.at(-1), { id: 'human', databaseId: 101 })
  assert.equal(calls.length, 3)
- assert.equal(calls[1]?.after, 'comment-next'); assert.equal(calls[2]?.after, 'thread-next')
+ assert.equal(calls[2]?.variables.after, 'comment-next')
 })
-test('thread reader rejects partial GraphQL data and incomplete pagination', async () => {
- await assert.rejects(readPullRequestThreads(async () => ({ errors: [{ message: 'quota exceeded' }], data: {} }), repo, 7), /quota exceeded/)
- await assert.rejects(readPullRequestThreads(async () => ({ data: { repository: { pullRequest: { reviewThreads: { nodes: [] } } } } }), repo, 7), /pageInfo/)
+
+test('forge thread reader rejects incomplete comment reads', async () => {
+ for (const [response, error] of [
+  [{ data: { node: { comments: { nodes: [] } } } }, /pageInfo/],
+  [{ errors: [{ message: 'quota exceeded' }], data: { node: null } }, /quota exceeded/],
+  [{ data: { node: { comments: { nodes: [], pageInfo: { hasNextPage: true, endCursor: null } } } } }, /pagination cursor/],
+ ] as const) {
+  const provider = await forgeProvider({ forge: 'github', token: 'token', fetch: async (input, init) => {
+   const { query } = await new Request(input, init).json() as { query: string }
+   if (!query.includes('ReviewThreadPage')) return Response.json(response)
+   return Response.json({ data: { repository: { pullRequest: { reviewThreads: {
+    nodes: [{ id: 't1', isResolved: false, comments: { nodes: Array.from({ length: 100 }, (_, i) => ({ databaseId: i + 1 })) } }],
+    pageInfo: { hasNextPage: false, endCursor: null },
+   } } } } })
+  } })
+  await assert.rejects(readForgePullRequestThreads(provider, repo, 7), error)
+ }
 })
 
 test('changed resolution webhook requests one targeted verification because deliveries can arrive out of order', async t => {

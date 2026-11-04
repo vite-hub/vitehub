@@ -176,7 +176,9 @@ describe("Agent Channel delivery journal", () => {
       sourceId: "workflow-host-state",
     })
     detachAgentChannelDelivery(delivery)
-    const { setAgentChannelDeliveryWorkflowStateResolver } = await import("../src/server/routes.ts")
+    // The routes module installs the Workflow delivery resolvers when it loads.
+    await import("../src/server/routes.ts")
+    const { setAgentChannelDeliveryWorkflowStateResolver } = await import("../src/server/route-handlers.ts")
     setAgentChannelDeliveryWorkflowStateResolver(() => ({ state: () => state }))
 
     try {

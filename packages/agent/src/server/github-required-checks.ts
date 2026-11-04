@@ -10,7 +10,7 @@ export type GitHubRequiredCheckPolicy = {
   reason?: string;
   classicSource?: "protection-endpoint" | "branch-summary" | "unprotected-branch";
 };
-/** Read the branch rules of one branch, for example with `provider.repos.branchRules()` from a GitHub provider. */
+/** Read the branch rules of one branch, for example with `forgeBranchRules()` from `@vite-hub/forge`. */
 export type GitHubReadBranchRules = (repository: string, branch: string) => Promise<BranchRules>;
 
 export interface GitHubRequiredCheckPolicyReader {

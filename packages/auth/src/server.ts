@@ -2,24 +2,28 @@ import { createAuthConsole, type AuthConsole } from "./console-runtime.ts";
 import type { AuthConsoleHostOptions, AuthConsoleOptions } from "./console-types.ts";
 import discoveredDefinition from "#vitehub/auth/definition"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
+import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 import { betterAuth } from "better-auth"
 import { resolveAuthMountPath } from "./application-path.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
 import { unwrapAuthRequest } from "./request.ts"
-import { resolveAuthOptions } from "./runtime-options.ts"
+import { resolveAuthOptions, trustsProxyHeaders } from "./runtime-options.ts"
 import { throwAuthenticationProviderError } from "./errors.ts"
 import { getAuthenticationSession } from "./session.ts"
 import { getAuthRuntimeState } from "./runtime-state.ts"
 import { withSessionMarker } from "./session-marker.ts"
+import { createAuthAccessRouteMatcher } from "./runtime/server.ts"
 
 import type { AuthEventAggregates, AuthEventListInput, AuthEventPage, AuthEventStore, AuthEventWindow } from "./events.ts"
 import type { AuthAccessIdentityResolver, AuthRuntimeEnvResolver } from "./runtime-state.ts"
 import type { AccessAuthorizeOption, PublicUrlConfig } from "@vite-hub/runtime"
 import type {
-  AuthAccessAuthorize,
   AuthAccessConfiguration,
   AuthAccessAuthorizationContext,
   AuthAccessRoute,
+  AuthAnonymousAuthorization,
+  AuthAnonymousAuthorize,
+  AuthAnonymousGuardedHandler,
   AuthAuthorization,
   AuthBetterAuthRuntimeOptions,
   AuthDefinition,
@@ -37,6 +41,7 @@ import type {
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
 export { resetAuth } from "./runtime-state.ts"
+export { setAuthAccessIdentityResolver, setAuthRuntimeEnvResolver } from "./runtime/server.ts"
 
 declare const __VITEHUB_PUBLIC_URL__: PublicUrlConfig | undefined
 
@@ -46,7 +51,8 @@ function hasRuntimeOptions(options: AuthRuntimeOptions | undefined): boolean {
 
 function hasRequestRuntimeOptions(definition: AuthDefinition): boolean {
   if (typeof definition.options === "function") return true
-  return typeof definition.options.runtime === "function"
+  const runtime = definition.options.runtime
+  return typeof runtime === "function" || trustsProxyHeaders(definition.options) || trustsProxyHeaders(runtime)
 }
 
 function hasConfiguredPublicUrl(): boolean {
@@ -55,12 +61,6 @@ function hasConfiguredPublicUrl(): boolean {
 }
 
 
-
-export function setAuthRuntimeEnvResolver(resolver: AuthRuntimeEnvResolver | undefined, definition?: AuthDefinition): void {
-  const state = getAuthRuntimeState()
-  if (definition) state.envResolvers?.set(definition as object, resolver as AuthRuntimeEnvResolver)
-  else state.envResolver = resolver
-}
 
 function envResolverFor(definition: AuthDefinition): AuthRuntimeEnvResolver | undefined {
   return getAuthRuntimeState().envResolvers?.get(definition as object) ?? getAuthRuntimeState().envResolver}
@@ -467,24 +467,7 @@ function reject(response: Response): AuthCheck {
 }
 
 
-const nativeResponseStatus = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
 const nativeResponseClone = Object.getOwnPropertyDescriptor(Response.prototype, "clone")?.value
-
-/**
- * Return whether `value` is a Response of this runtime.
- * The native `status` getter checks the internal Response slot, so a proxy, a copied prototype, an object tagged `Response`,
- * and a Response from another Fetch implementation all fail. The check reads no property of `value`.
- */
-function isRuntimeResponse(value: unknown): value is Response {
-  if (!nativeResponseStatus || value === null || typeof value !== "object") return false
-  try {
-    Reflect.apply(nativeResponseStatus, value, [])
-    return true
-  }
-  catch {
-    return false
-  }
-}
 
 /**
  * A Response of this runtime with an own `then` would be assimilated as a thenable by the host that awaits it.
@@ -609,11 +592,12 @@ function hasNativePromiseBrand(value: object): boolean {
 }
 
 /**
- * Only `true` grants access. A Response of this runtime is sent as the rejection. Every other value gets `403`.
+ * Only `true` grants access. A Response of this runtime is sent as the rejection. Every other value gets `deny()`, `403` by default.
  */
-async function runAccessAuthorize(
-  authorize: AuthAccessAuthorize,
-  context: AuthAccessAuthorizationContext,
+async function runAccessAuthorize<TContext extends Pick<AuthAccessAuthorizationContext, "request">>(
+  authorize: (context: TContext) => unknown,
+  context: TContext,
+  deny: () => Response = () => createForbiddenResponse(context.request),
 ): Promise<{ response?: Response }> {
   const result: unknown = authorize(context)
   // Check for a Response before any thenable handling. A Response may expose an own `then` property, but it must
@@ -694,7 +678,7 @@ async function runAccessAuthorize(
   }
   if (resolved === true) return {}
   if (isRuntimeResponse(resolved)) return { response: sendableRuntimeResponse(resolved, context.request) }
-  return { response: createForbiddenResponse(context.request) }
+  return { response: deny() }
 }
 
 async function checkAuthRequest(
@@ -762,6 +746,35 @@ async function checkAuthorizeRequest(
   if (authorize === true) return { authorization }
   const rejection = await runAccessAuthorize(authorize, authorization)
   return rejection.response ? reject(rejection.response) : { authorization }
+}
+
+/**
+ * Like `withAuthorization()`, but a signed-out caller also reaches `authorize`, with `session` and `user` set to `null`.
+ * Use it for resources that a signed-out caller can open, such as files shared by public link.
+ * `false` returns `401` for a signed-out caller and `403` for a signed-in one. It never redirects to sign-in.
+ */
+export function withAnonymousAuthorization<TInput extends AuthRequestInput, TResult>(
+  authorize: AuthAnonymousAuthorize,
+  handler: AuthAnonymousGuardedHandler<TInput, TResult>,
+  definition?: AuthDefinition,
+): (input: TInput) => Promise<TResult | Response> {
+  if (typeof authorize !== "function") {
+    throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be a function." })
+  }
+  if (typeof handler !== "function") {
+    throw authErrorDiagnostics.AUTH_R0015({ message: "[vitehub] withAnonymousAuthorization() requires a handler function." })
+  }
+  return async (input) => {
+    const { request, session } = await readRequestSession(input, definition ?? resolveDefaultDefinition())
+    const authorization: AuthAuthorization | AuthAnonymousAuthorization = session
+      ? Object.freeze({ request, session: session.session, user: session.user })
+      : Object.freeze({ request, session: null, user: null })
+    // `false` keeps the status that withAuthorization() returns for the same caller.
+    const deny = session ? undefined : () => Response.json({ error: "Unauthorized." }, { status: 401 })
+    const rejection = await runAccessAuthorize(authorize, authorization, deny)
+    if (rejection.response) return rejection.response
+    return handler(input, authorization)
+  }
 }
 
 /**
@@ -854,17 +867,6 @@ export function getAuthorization(event: AuthRequestInput): AuthAuthorization {
   return authorizationGrant.verify(grant)
 }
 
-/**
- * Let a trusted server integration authenticate one exact mounted path without a browser session.
- * Resolved users still pass every matching Auth access route's authorize callback, with an empty session.
- */
-export function setAuthAccessIdentityResolver(path: string, resolver: AuthAccessIdentityResolver | undefined): void {
-  const state = getAuthRuntimeState()
-  state.accessIdentityResolvers ??= new Map()
-  if (resolver) state.accessIdentityResolvers.set(path, resolver)
-  else state.accessIdentityResolvers.delete(path)
-}
-
 // Middleware records success for an opted-in guard; that guard also lets later middleware reuse its check.
 const reusableAccessChecks = new WeakMap<object, WeakMap<AuthDefinition, Map<string, boolean>>>()
 
@@ -894,29 +896,11 @@ export function createAuthAccessHandler(
   routes: readonly ResolvedAuthAccessRoute[],
   definition?: AuthDefinition,
 ): (input: AuthRequestInput) => Promise<Response | undefined> {
-  const rules = routes.map((route, index) => ({
-    index,
-    authorize: route.authorize === true,
-    method: route.method?.toUpperCase(),
-    // Request URLs keep the application base path, so match each route below it.
-    path: (() => {
-      const recursive = route.route.endsWith("/**")
-      const resolved = resolveAuthMountPath(recursive ? route.route.slice(0, -3) : route.route)
-      return recursive ? (resolved === "/" ? "" : resolved.replace(/\/$/, "")) : resolved
-    })(),
-    recursive: route.route.endsWith("/**"),
-  }))
+  const match = createAuthAccessRouteMatcher(routes)
 
   return async (input) => {
-    const request = unwrapAuthRequest(input);
-    const pathname = new URL(request.url).pathname;
-    const method = request.method.toUpperCase();
-    const matched = rules.filter(
-      (rule) =>
-        (!rule.method || rule.method === method) &&
-        (pathname === rule.path || (rule.recursive && (rule.path === "" || pathname.startsWith(`${rule.path}/`)))),
-    );
-    if (matched.length === 0) return;
+    const matched = match(input)
+    if (matched.length === 0) return
 
     return await checkAuthAccessRequest(
       input,

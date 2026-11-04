@@ -1,5 +1,5 @@
 <script setup lang="ts">
-await navigateTo("/tutorials", { redirectCode: 301 });
+await navigateTo("/learn", { redirectCode: 301 });
 </script>
 
 <template />

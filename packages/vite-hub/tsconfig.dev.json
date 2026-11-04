@@ -6,7 +6,7 @@
     "moduleResolution": "Bundler",
     "rootDir": "..",
     "paths": {
-      "#vitehub/agent/registry": ["../../packages/agent/src/runtime/empty-registry.ts"],
+      "#vitehub/agent/registry": ["../../packages/agent/src/runtime/registry.ts"],
       "#vitehub/agent/provider-agent": ["../../packages/agent/src/provider-agent.ts"],
       "#vitehub/auth/definition": ["../../packages/auth/src/runtime/empty-definition.ts"],
       "#vitehub/database/databases": ["../../packages/database/src/runtime/virtual-databases.ts"],
@@ -58,6 +58,8 @@
       "@vite-hub/shell/*": ["../../packages/shell/src/*"],
       "@vite-hub/source": ["../../packages/source/src/index.ts"],
       "@vite-hub/source/*": ["../../packages/source/src/*"],
+      "@vite-hub/web-container": ["../../packages/web-container/src/index.ts"],
+      "@vite-hub/web-container/*": ["../../packages/web-container/src/*"],
       "@vite-hub/workflow": ["../../packages/workflow/src/index.ts"],
       "@vite-hub/workflow/*": ["../../packages/workflow/src/*"],
       "@vite-hub/workspace": ["../../packages/workspace/src/index.ts"],
@@ -86,11 +88,10 @@
     // Browser code of the comments overlay, also checked by tsconfig.console.json.
     "src/comments-overlay/loader-core.ts",
     "src/comments-overlay/loader.ts",
-    "src/comments-overlay/markdown-lite.ts",
     "src/comments-overlay/overlay.ts",
-    "src/comments-overlay/shim.ts",
     "src/comments-overlay/virtual.d.ts",
     "test/comments-overlay-loader.test.ts",
-    "test/comments-overlay-mount.test.ts"
+    "test/comments-overlay-mount.test.ts",
+    "test/console-comment-thread-dismissal.test.ts"
   ]
 }

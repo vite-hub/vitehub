@@ -743,11 +743,16 @@ describe("MCP setup", () => {
     expect(result.stdout).not.toContain("<https://app.example.com/>")
   })
 
-  it("shows the commands that connect Claude Code and Codex", () => {
-    expect(consoleMcpCommands("https://app.example.com/_vitehub/mcp")).toEqual([
-      { label: "Claude Code", text: "claude mcp add --transport http vitehub 'https://app.example.com/_vitehub/mcp'" },
-      { label: "Codex", text: '[mcp_servers.vitehub]\nurl = "https://app.example.com/_vitehub/mcp"' },
+  it("shows the commands that connect Claude Code, Codex, Cursor, and VS Code", () => {
+    const commands = consoleMcpCommands("https://app.example.com/_vitehub/mcp")
+    expect(commands.slice(0, 2)).toEqual([
+      { label: "Claude Code", where: "Terminal", text: "claude mcp add --transport http vitehub 'https://app.example.com/_vitehub/mcp'" },
+      { label: "Codex", where: "~/.codex/config.toml", text: '[mcp_servers.vitehub]\nurl = "https://app.example.com/_vitehub/mcp"' },
     ])
+    expect(JSON.parse(commands[2]!.text)).toEqual({ mcpServers: { vitehub: { url: "https://app.example.com/_vitehub/mcp" } } })
+    expect(JSON.parse(commands[3]!.text)).toEqual({ servers: { vitehub: { type: "http", url: "https://app.example.com/_vitehub/mcp" } } })
+    // Without a place for the service token, Cursor and VS Code are not offered behind Cloudflare Access.
+    expect(consoleMcpCommands("https://app.example.com/_vitehub/mcp", "cloudflare-access").map(command => command.label)).toEqual(["Claude Code", "Codex"])
   })
 
   it("includes both Cloudflare Access service-token headers without embedding credentials", () => {

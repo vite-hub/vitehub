@@ -1,11 +1,15 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import type { ConsoleContributedSection, ConsoleOperationView } from "../definitions";
 import { loadOperationItems, operationCell, operationLink, operationValue } from "../client/operation-view";
-import ConsoleFrame from "./console-frame.vue";
+import { querySelection, queryText, useConsoleQuery } from "../client/route-query";
 import ConsolePageHeader from "./console-page-header.vue";
+import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
+
+// The thread panel brings the comment parts of `@vite-hub/ui`, so it loads when a section asks for it.
+const ConsoleCommentThread = defineAsyncComponent(() => import("./console-comment-thread.vue"));
 
 /**
  * A section that lists the result of an operation. The call runs over the Console RPC as the signed-in Console user, so
@@ -17,8 +21,13 @@ const props = defineProps<{
   sectionsBase: string;
 }>();
 
+// The rail's Search button and Cmd+K open the search of the page. Its API routes sit next to the sections route.
+const apiBase = props.sectionsBase.replace(/\/sections$/, "");
 const view = computed(() => props.details.view as ConsoleOperationView);
-const filterId = ref<string>();
+// The filter and the search live in the URL, so a reload or a shared link opens the same list. The first filter is the
+// default.
+// `thread` is the item open in the side panel, so Back closes it and a link opens it.
+const { filter: filterId, q: search, thread: selectedId } = useConsoleQuery({ filter: querySelection({ history: "replace" }), q: queryText(), thread: querySelection() });
 const items = ref<Array<Record<string, unknown>>>([]);
 const loading = ref(true);
 const error = ref<unknown>();
@@ -26,6 +35,17 @@ let controller: AbortController | undefined;
 
 const filters = computed(() => view.value.filters ?? []);
 const activeFilter = computed(() => filters.value.find((filter) => filter.id === filterId.value) ?? filters.value[0]);
+/** Match full column values and their displayed text, such as the page, the author, or the comment. */
+const visibleItems = computed(() => {
+  const query = search.value.trim().toLowerCase();
+  if (!query) return items.value;
+  return items.value.filter(item => view.value.columns.some(column => {
+    const value = String(operationValue(item, column.key) ?? "").toLowerCase();
+    return value.includes(query)
+      || value.replaceAll(/\s+/g, " ").includes(query)
+      || operationCell(item, column).toLowerCase().includes(query);
+  }));
+});
 
 async function load(): Promise<void> {
   controller?.abort();
@@ -46,17 +66,35 @@ async function load(): Promise<void> {
   }
 }
 
-function choose(id: string): void {
-  filterId.value = id;
+const detail = computed(() => view.value.detail);
+// The row button holds the text of the item, such as the comment, so a screen reader names what it opens.
+const openColumn = computed(() => view.value.columns.find(column => column.format === "excerpt") ?? view.value.columns[0]);
+const itemId = (item: Record<string, unknown>) => String(operationValue(item, "id"));
+const threadPanel = ref<{ canClose: () => boolean } | null>(null);
+const selectedItem = computed(() => items.value.find(item => itemId(item) === selectedId.value));
+
+// Query refs update before router guards run, so check drafts before changing the panel's id.
+function selectThread(id: string): void {
+  if (id === selectedId.value || threadPanel.value?.canClose() === false) return;
+  selectedId.value = id;
+}
+
+/** Reload through the operation so its filters, ordering, and pagination still apply after a mutation. */
+function refreshItems(): void {
   void load();
 }
 
+function choose(id: string): void {
+  filterId.value = id === filters.value[0]?.id ? undefined : id;
+}
+
 onMounted(() => void load());
+watch(() => activeFilter.value?.id, () => void load());
 onBeforeUnmount(() => controller?.abort());
 </script>
 
 <template>
-  <ConsoleFrame :active="details.id" :sections-base="sectionsBase">
+    <ConsoleSearch :agents-base="`${apiBase}/agents`" :definitions-base="definitionsBase" :kv-base="`${apiBase}/kv`" :search-base="`${apiBase}/search`" :sections-base="sectionsBase" />
     <UDashboardPanel :id="`console-${details.id}`" :ui="{ body: 'min-h-0 gap-0 overflow-auto p-0' }">
       <template #header>
         <ConsolePageHeader :title="details.label" :description="details.description" :toggle="false">
@@ -66,26 +104,46 @@ onBeforeUnmount(() => controller?.abort());
             </UTooltip>
           </template>
         </ConsolePageHeader>
-        <div v-if="filters.length" class="flex flex-wrap items-center gap-1.5 border-b border-default px-4 py-2" role="group" aria-label="Filter">
-          <UButton
-            v-for="filter in filters"
-            :key="filter.id"
-            size="xs"
-            :color="activeFilter?.id === filter.id ? 'primary' : 'neutral'"
-            :variant="activeFilter?.id === filter.id ? 'soft' : 'ghost'"
-            :aria-pressed="activeFilter?.id === filter.id"
-            :label="filter.label"
-            @click="choose(filter.id)"
+        <div class="flex flex-wrap items-center gap-1.5 border-b border-default px-4 py-2">
+          <UInput
+            v-model="search"
+            class="w-full sm:w-56"
+            icon="i-lucide-search"
+            size="sm"
+            :placeholder="`Filter ${details.label.toLowerCase()}…`"
+            :aria-label="`Filter ${details.label}`"
+            :ui="{ base: 'text-base sm:text-sm' }"
           />
+          <div v-if="filters.length" class="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter">
+            <UButton
+              v-for="filter in filters"
+              :key="filter.id"
+              size="xs"
+              :color="activeFilter?.id === filter.id ? 'primary' : 'neutral'"
+              :variant="activeFilter?.id === filter.id ? 'soft' : 'ghost'"
+              :aria-pressed="activeFilter?.id === filter.id"
+              :label="filter.label"
+              @click="choose(filter.id)"
+            />
+          </div>
         </div>
       </template>
       <template #body>
-        <div class="p-4">
+        <div class="flex flex-1 flex-col p-4">
           <ConsoleState v-if="error" :error="error" title="Couldn't load the list" :retry="load" />
-          <template v-else-if="loading && !items.length">
+          <div v-else-if="loading && !items.length">
             <USkeleton v-for="index in 5" :key="index" class="my-1 h-9 rounded-md" />
-          </template>
+          </div>
           <ConsoleState v-else-if="!items.length" :section="details.id" title="Nothing here yet" description="No item matches this filter." />
+          <UEmpty
+            v-else-if="!visibleItems.length"
+            variant="naked"
+            class="flex-1 py-12"
+            icon="i-lucide-search"
+            title="No matching items"
+            :description="`Nothing matches “${search.trim()}”.`"
+            :actions="[{ label: 'Clear search', color: 'neutral', variant: 'outline', onClick: () => { search = '' } }]"
+          />
           <table v-else class="w-full text-left text-sm">
             <thead class="text-xs text-muted">
               <tr>
@@ -94,17 +152,43 @@ onBeforeUnmount(() => controller?.abort());
               </tr>
             </thead>
             <tbody>
-              <tr v-for="item in items" :key="String(operationValue(item, 'id'))" class="border-t border-default">
-                <td v-for="column in view.columns" :key="column.key" class="px-2 py-2 align-top">{{ operationCell(item, column) }}</td>
+              <tr
+                v-for="item in visibleItems"
+                :key="itemId(item)"
+                class="border-t border-default"
+                :class="detail ? 'relative hover:bg-elevated/50 has-focus-visible:bg-elevated/50' : undefined"
+              >
+                <td v-for="column in view.columns" :key="column.key" class="px-2 py-2 align-top">
+                  <!-- The button overlay makes the whole row open the item. Focus shows as the row fill. -->
+                  <button
+                    v-if="detail && column === openColumn"
+                    type="button"
+                    class="text-left outline-none after:absolute after:inset-0"
+                    @click="selectThread(itemId(item))"
+                  >{{ operationCell(item, column) }}</button>
+                  <template v-else>{{ operationCell(item, column) }}</template>
+                </td>
                 <td v-if="view.link" class="px-2 py-2 text-right">
-                  <a v-if="operationLink(item, view)" class="text-primary hover:underline" :href="operationLink(item, view)">{{ view.link.label ?? "Open" }}</a>
+                  <!-- Above the row button, so the link still opens the page. -->
+                  <a v-if="operationLink(item, view)" class="relative text-primary hover:underline" :href="operationLink(item, view)">{{ view.link.label ?? "Open" }}</a>
                 </td>
               </tr>
             </tbody>
           </table>
-          <p class="mt-4 text-xs text-muted">{{ view.notice }}</p>
+          <!-- The notice sits at the bottom of the pane while the list loads and when it is short, so it does not move. -->
+          <p class="mt-auto pt-4 text-xs text-muted">{{ view.notice }}</p>
         </div>
       </template>
     </UDashboardPanel>
-  </ConsoleFrame>
+    <ConsoleCommentThread
+      ref="threadPanel"
+      v-if="detail?.kind === 'comment-thread'"
+      :id="selectedId"
+      :definitions-base="definitionsBase"
+      :initial="selectedItem"
+      :view="view"
+      @changed="refreshItems"
+      @close="selectedId = undefined"
+      @removed="refreshItems"
+    />
 </template>

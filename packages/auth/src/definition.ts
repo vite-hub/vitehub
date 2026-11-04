@@ -3,6 +3,7 @@ import { normalizeAuthBasePath } from "./shared.ts"
 
 import type {
   AuthAccessConfiguration,
+  AuthAppDatabase,
   AuthBetterAuthOptions,
   AuthDatabaseConfiguration,
   AuthDefinition,
@@ -31,10 +32,11 @@ function validateNamedString(value: unknown, label: string): void {
   }
 }
 
-function validateAuthDatabase(value: AuthDatabaseConfiguration | undefined): void {
-  if (typeof value === "undefined" || value === true) return
+function validateAuthDatabase(value: AuthDatabaseConfiguration | AuthAppDatabase | undefined): void {
+  // `authDatabase()` resolves the Database of each request, so a static Definition can hold it.
+  if (typeof value === "undefined" || value === true || (typeof value === "function" && typeof value.vitehubDatabase === "string")) return
   if (!isPlainObject(value)) {
-    throw authErrorDiagnostics.AUTH_C0021({ message: "`defineAuth()` database must be `true` or an inline object with `name`." })
+    throw authErrorDiagnostics.AUTH_C0021({ message: "`defineAuth()` database must be `authDatabase()`, `true`, or an inline object with `name`. Return another Better Auth adapter from the Definition callback." })
   }
 
   const unknownKey = Object.keys(value).find(key => !databaseReferenceKeys.has(key))
@@ -196,7 +198,7 @@ function defineAuthOptions(
   }
 
   validateAuthEvents(options.events)
-  validateAuthDatabase(viteHubOptions.database as AuthDatabaseConfiguration | undefined)
+  validateAuthDatabase(viteHubOptions.database as AuthDatabaseConfiguration | AuthAppDatabase | undefined)
   validateAuthSecondaryStorage(viteHubOptions.secondaryStorage as AuthSecondaryStorageConfiguration | undefined)
   validateAuthAccess(viteHubOptions.access as AuthAccessConfiguration | undefined)
   // A callback or `runtime` can add options later, so ViteHub checks the preset again for each resolution.

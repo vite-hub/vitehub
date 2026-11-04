@@ -13,6 +13,12 @@ icon: i-lucide-circle-alert
 - The Kitesurf engine has no idle timeout and no live handoff.
 - Handoff refs expire after 60 seconds by default. Set `policy.handoffTtl` on `createBrowser()` or pass `ttl` to `session.handoff()`.
 
+## Errors
+
+### BROWSER_UNAVAILABLE
+
+The build does not enable Browser, so a Browser Definition or action cannot run. `runBrowserAction()` returns it in a `500` response; `runBrowser()` and Definitions throw it. `error.details` has the `preset`, the `reason`, and the `fix`. On Cloudflare, set `browser: true` in `vitehub()`. Other presets have no Browser provider. Check `isBrowserAvailable()` before you call Browser on those hosts. See [Builds without Browser](/docs/browser/hosts#builds-without-browser).
+
 ## Production checks
 
 Run browser automation only from trusted server code. Browser sessions can observe authenticated pages, cookies, screenshots, network responses, and rendered private UI.

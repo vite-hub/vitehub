@@ -11,6 +11,7 @@
     "dist",
     "examples",
     "node_modules",
+    "src/overlay",
     "test"
   ]
 }

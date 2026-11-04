@@ -7,7 +7,12 @@ icon: i-lucide-mail
 navigation.kind: Guides
 ---
 
-`gmail()` connects one Gmail mailbox to an Agent. Gmail sends a Pub/Sub push notification when mail arrives. The Channel verifies the push, reads the new Inbox messages, and starts one Invocation per message. Agent hooks act on the message through `event.message`.
+`gmail()` connects one Gmail mailbox to an Agent. The Channel reads the new Inbox messages and starts one Invocation per message. Agent hooks act on the message through `event.message`.
+
+The Channel reads new mail in two ways. You can use one or both:
+
+- **Poll.** A [Schedule](/docs/schedule) calls `pollGmailChannel()`, for example every five minutes. You need only a Google OAuth client. See [Poll without Pub/Sub](#poll-without-pubsub).
+- **Push.** Gmail sends a Pub/Sub push notification when mail arrives, and the Channel reads the mail right away. You also need a Pub/Sub topic, a push subscription, and a service account. See [Add instant delivery with Pub/Sub](#add-instant-delivery-with-pubsub).
 
 The Channel owns the Gmail plumbing: push authentication, the history cursor, the watch renewal, label names, and history replay. Your application writes the Agent and its hooks.
 
@@ -66,6 +71,39 @@ export default defineAgent({
 
 The Channel adds instructions to the Agent: the email content is untrusted data, and the response does not send an email. It also lists each label that has a `description`. Gmail does not store label descriptions.
 
+## Label colors and visibility
+
+Each label in `labels` accepts these settings. `vitehub channels sync` creates and updates the labels to match.
+
+| Setting | Value |
+| --- | --- |
+| `description` | What the label means. The Channel adds it to the Agent instructions. |
+| `color` | `{ textColor, backgroundColor }`. Both values must come from Gmail's label palette. |
+| `labelListVisibility` | How the label appears in Gmail's sidebar: `labelShow` (default), `labelShowIfUnread`, or `labelHide`. |
+| `messageListVisibility` | Whether Gmail shows the label on messages in the message list: `show` (default) or `hide`. |
+
+Gmail accepts only the 102 colors of its [label palette](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.labels#color), exported as `gmailLabelPalette` from `vite-hub/agent/channels`. `gmail()` checks each color when you define the Channel. A color outside the palette fails before the application starts:
+
+```txt
+[vitehub] gmail() label "Work" color backgroundColor "#123456" is not in Gmail's label palette. Use a value from gmailLabelPalette, such as "#4a86e8".
+```
+
+Colors are not case-sensitive. A label without `color` keeps the color that it has in Gmail.
+
+To hide the labels that the Channel does not manage from Gmail's sidebar, set `hideUnmanagedLabels: true`:
+
+```ts
+gmail({
+  hideUnmanagedLabels: true,
+  labels: {
+    'GitHub/Bots': { color: { textColor: '#000000', backgroundColor: '#cccccc' } },
+    'Work': { color: { textColor: '#000000', backgroundColor: '#fad165' } },
+  },
+})
+```
+
+`channels sync` then sets `labelListVisibility: labelHide` on each user label that `labels` does not declare. It does not remove the labels from messages or delete them, and Gmail search still finds them. A parent of a declared nested label, such as `GitHub` for `GitHub/Bots`, stays visible. System labels such as `INBOX` are not changed. To show a hidden label again, declare it in `labels` or show it in Gmail.
+
 ## Message data and methods
 
 `event.message.data` is the message that started the Invocation:
@@ -104,12 +142,15 @@ Methods take label names. The Channel maps names to IDs with a cached label list
 
 ## Set up Google Cloud
 
-You need a Google Cloud project, an OAuth client for the mailbox, and a Pub/Sub topic that Gmail publishes to.
+You need a Google Cloud project and an OAuth client for the mailbox. Push also needs a Pub/Sub topic that Gmail publishes to, in steps 5 and 6.
 
-1. Create a Google Cloud project and enable the **Gmail API** and the **Cloud Pub/Sub API**.
+1. Create a Google Cloud project and enable the **Gmail API**. For push, also enable the **Cloud Pub/Sub API**.
 2. Configure the **OAuth consent screen**. Add the scope `https://www.googleapis.com/auth/gmail.modify`. For a personal Gmail account, use the External user type and add yourself as a test user. Google expires refresh tokens after seven days while the app is in the Testing publishing status. Publish the app to keep the token.
 3. Create an **OAuth client ID**. Its client ID and client secret are `GMAIL_CLIENT_ID` and `GMAIL_CLIENT_SECRET`.
 4. Get a refresh token for the mailbox with the `gmail.modify` scope, for example with the [OAuth 2.0 Playground](https://developers.google.com/oauthplayground) and your own client credentials. The refresh token is `GMAIL_REFRESH_TOKEN`.
+
+To only poll, stop here. For push:
+
 5. Create the topic and let Gmail publish to it:
 
    ```sh
@@ -134,7 +175,7 @@ You need a Google Cloud project, an OAuth client for the mailbox, and a Pub/Sub 
 
 ## Configure the credentials
 
-Declare the settings in Server Env under `gmail`. Without a Server Env declaration, the Channel reads the environment variables directly.
+Declare the settings in Server Env under `gmail`. Without a Server Env declaration, the Channel reads the environment variables directly. Poll needs only the OAuth settings. The `pubsub*` settings are for push.
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -164,10 +205,12 @@ export default defineConfig({
 | `clientId` | `GMAIL_CLIENT_ID` | OAuth client ID. |
 | `clientSecret` | `GMAIL_CLIENT_SECRET` | OAuth client secret. |
 | `refreshToken` | `GMAIL_REFRESH_TOKEN` | Refresh token of the mailbox, with the `gmail.modify` scope. |
-| `pubsubTopic` | `GMAIL_PUBSUB_TOPIC` | Topic of the watch, such as `projects/my-project/topics/gmail-push`. |
-| `pubsubAudience` | `GMAIL_PUBSUB_AUDIENCE` | Audience of the push subscription's OIDC token. |
-| `pubsubServiceAccount` | `GMAIL_PUBSUB_SERVICE_ACCOUNT` | Email of the service account that signs the push requests. |
-| `pubsubSubscription` | `GMAIL_PUBSUB_SUBSCRIPTION` | Full name of the push subscription, such as `projects/my-project/subscriptions/gmail-push`. |
+| `pubsubTopic` | `GMAIL_PUBSUB_TOPIC` | Push only. Topic of the watch, such as `projects/my-project/topics/gmail-push`. |
+| `pubsubAudience` | `GMAIL_PUBSUB_AUDIENCE` | Push only. Audience of the push subscription's OIDC token. |
+| `pubsubServiceAccount` | `GMAIL_PUBSUB_SERVICE_ACCOUNT` | Push only. Email of the service account that signs the push requests. |
+| `pubsubSubscription` | `GMAIL_PUBSUB_SUBSCRIPTION` | Push only. Full name of the push subscription, such as `projects/my-project/subscriptions/gmail-push`. |
+
+The push route returns HTTP 503 until `pubsubAudience`, `pubsubServiceAccount`, and `pubsubSubscription` are set.
 
 The Channel caches access tokens in process memory. It does not write them to the State Adapter.
 
@@ -179,16 +222,41 @@ gmail({
 })
 ```
 
+## Poll without Pub/Sub
+
+Call `pollGmailChannel()` from a [Schedule](/docs/schedule). Each call reads the new Inbox messages since the stored history cursor and starts one Invocation per message:
+
+```ts [server/schedules/gmail-poll.ts]
+import { defineSchedule } from 'vite-hub/schedule'
+import { pollGmailChannel } from 'vite-hub/agent/channels'
+import { inbox } from '../lib/inbox'
+
+export default defineSchedule({
+  cron: '*/5 * * * *',
+  async handler() {
+    await pollGmailChannel(inbox)
+  },
+})
+```
+
+The first poll only stores the cursor, like the first push. Earlier mail belongs to [replay](#replay-past-mail). New mail waits until the next poll, so with this cron an Invocation starts up to five minutes after the mail arrives.
+
+`pollGmailChannel()` runs the Channel of each Agent that uses `inbox`, with the same State as the Agent's webhook route. It waits until every new message has an Invocation, and throws when the sync fails, so the Schedule reports the failure. The cursor stays, and the next poll retries the work. The function needs durable Agent State, as push does: libSQL with `VITEHUB_AGENT_STATE_URL`, or Cloudflare Durable Objects. Outside a host request, pass `runtime` for Server Env and Cloudflare bindings, as with `syncGmailChannel()`.
+
+Poll and push can run together. They share the history cursor, the mailbox lock, and the Invocation IDs, so a message runs once however it arrives. Keep the poll as a fallback when you add push: it reads the mail of a push that Pub/Sub could not deliver. When `pubsubTopic` is set, the poll also renews the watch when it is due.
+
+Create the managed labels with `channels sync`, as in the next section. Without `pubsubTopic`, it does not start a watch.
+
 ## Start the watch
 
-Deploy the application first. Then create the managed labels and start the Gmail watch on the topic:
+This section is for push. Deploy the application first. Then create the managed labels and start the Gmail watch on the topic:
 
 ```sh
 pnpm vitehub channels sync --stage production --channel gmail
 pnpm vitehub channels sync --stage production --channel gmail --apply
 ```
 
-The first command prints the plan. The Gmail Channel does not need `--url`, because its resources belong to the Gmail account, not to the deployment. See [CLI channel synchronization](/docs/development/cli#synchronize-channel-webhooks).
+The first command prints the plan: labels to create, labels whose color or visibility to update, unmanaged labels to hide when `hideUnmanagedLabels` is set, and the watch. The Gmail Channel does not need `--url`, because its resources belong to the Gmail account, not to the deployment. See [CLI channel synchronization](/docs/development/cli#synchronize-channel-webhooks).
 
 Gmail permits one active watch per mailbox. `channels sync` reads the mailbox profile and rejects multiple selected Gmail Channels for that mailbox before creating labels or renewing watches, even when the Channels use different credentials.
 
@@ -207,13 +275,19 @@ export default defineSchedule({
 })
 ```
 
+## Add instant delivery with Pub/Sub
+
+To start Invocations as soon as mail arrives, do steps 5 and 6 of [Set up Google Cloud](#set-up-google-cloud), set the `pubsub*` settings, and [start the watch](#start-the-watch). The push route is the Agent's webhook route: `/api/_vitehub/agents/<agent>/webhooks/<channel>`.
+
 ## How pushes become Invocations
+
+A poll runs steps 3 to 5 from a Schedule, without a notification.
 
 1. Pub/Sub sends a push request with a Google-signed OIDC token. The Channel verifies the signature with Google's public keys, the issuer, the audience, the expiry, and the verified service account email. It then checks the subscription name. A failed check returns `401` or `400`.
 2. The Channel acknowledges the push with `204` and continues in the background.
 3. It reads `history.list` from the stored history cursor, checks each message’s current labels with a metadata-only request, and fetches bodies for messages still in Inbox. Historical labels do not exclude a message restored to Inbox before that check. Failed dispatches remain eligible for retry after a hook removes Inbox.
-4. It starts one Invocation per message through the `received` trigger. The Invocation run ID is `channel:<channel>:<message id>`. A terminal Invocation or confirmed Workflow dispatch is skipped. An active claim prevents concurrent execution. A claim for an unconfirmed pending Invocation remains retryable and does not allow the history cursor to advance.
-5. It saves page tokens and remaining message IDs in the Channel's State Adapter as synchronization proceeds. The next push resumes unfinished work without fetching completed message bodies again. After every message has an Invocation, it stores the new history cursor and clears the saved progress in one transaction.
+4. It starts one Invocation per message through the `received` trigger. The Invocation run ID is `channel:<channel>:<message id>`. A terminal Invocation or confirmed Workflow dispatch is skipped. An active claim prevents concurrent execution. A claim for an unconfirmed pending Invocation remains retryable and keeps the history cursor until the message is [skipped](#failed-messages).
+5. It saves page tokens and remaining message IDs in the Channel's State Adapter as synchronization proceeds. The next push resumes unfinished work without fetching completed message bodies again. After every message has an Invocation or was [skipped](#failed-messages), it stores the new history cursor and clears the saved progress in one transaction.
 
 Mailbox synchronization requires a State Adapter with `mutateWithLock(lock, mutations)`. The operation must check the stored lock token and expiry and apply cache writes or deletions in one transaction. ViteHub's memory, SQLite/libsql, and Cloudflare Durable Object adapters implement this atomic contract. Gmail push routes also require persistent State and return HTTP 503 for missing or in-memory State. Use persistent SQLite/libSQL storage or Cloudflare Durable Objects. Custom adapters must implement `AtomicAgentStateLockAdapter` and declare `readonly durable: true` through `DurableAgentStateAdapter`; a separate lease check followed by `set()` or `delete()` is insufficient. Cloudflare mailbox locks use the existing cache actor, preserving stored cursors and watch state even when other thread locks are sharded.
 
@@ -227,6 +301,40 @@ The background work runs in the host's `waitUntil`. Cloudflare Workers stop it 3
 
 The Channel watches the Inbox of one mailbox. Mail that skips the Inbox through a Gmail filter does not start an Invocation.
 
+## Failed messages
+
+A message can fail on every sync: Gmail cannot return it, its body fetch times out, or its Invocation cannot start. The Channel retries it on the next `maxAttempts` syncs (default 5). Then it records the message as skipped in the Channel's State and lets the history cursor advance, so later mail is not blocked.
+
+```ts
+gmail({ maxAttempts: 3 })
+```
+
+While a message is retried, the sync stops at a failed fetch, and the history cursor stays at a failed Invocation. OAuth token refresh failures and HTTP 401, 403, and 429 errors concern the account, so they do not count as message attempts. A failed Invocation is terminal: the next sync does not run it again, and the Console shows it.
+
+`vitehub channels status` shows the sync health and the messages:
+
+```sh
+pnpm vitehub channels status labeller gmail --url https://mail.example.com
+```
+
+| Field | Value |
+| --- | --- |
+| `status` | `failing` after two failed syncs in a row, else `ok`. A sync that keeps a retried message also fails. |
+| `failures`, `failingSince`, `error` | The current failure streak and its last error. |
+| `syncedAt` | When the history cursor last advanced. |
+| `retrying` | Messages that the next sync retries, with `id`, `attempts`, and the last `error`. |
+| `skipped` | The last 100 skipped messages, newest first, with `id`, `attempts`, the last `error`, and `skippedAt`. |
+
+Errors contain no message body and are redacted and capped at 500 characters. Invocation failures use a generic error because driver errors can include email content. The `channels.status` [operation](/docs/agents/channels#operations-and-commands) returns the same data through Console RPC and MCP.
+
+To retry a skipped message, replay it. A replay that starts its Invocation removes it from `skipped`:
+
+```sh
+pnpm vitehub channels replay --agent labeller --channel gmail --ids 18f2c0a1b2c3d4e5 --url https://mail.example.com
+```
+
+Repeat `--ids` for several messages. When the last attempt left a failed Invocation, add `--force`.
+
 ## Replay past mail
 
 The Channel provides `history`: past messages from a Gmail search, in the same shape as a pushed message. Replayed and pushed messages share Invocation IDs, so a message runs once however it arrives.
@@ -239,5 +347,28 @@ pnpm vitehub channels replay --agent labeller --channel gmail --query "in:inbox 
 | --- | --- |
 | `query` | Gmail search syntax. Defaults to `in:inbox`. |
 | `labelIds` | Label IDs that every message must have. Repeat the flag for several. |
+| `ids` | Gmail message IDs to read instead of a search, such as skipped messages. Repeat the flag for several. |
 
 See [Replay Channel history](/docs/agents/channels#replay-channel-history) for `replayChannel()`, cursors, and `--force`.
+
+## Clean up old mail
+
+`cleanupGmailChannel()` moves labelled mail older than a number of days to Trash. Starred mail stays. Without `apply: true`, it only returns the matching message IDs. Each run moves at most 500 messages per rule, so call it from a daily [Schedule](/docs/schedule):
+
+```ts [server/schedules/cleanup.ts]
+import { defineSchedule } from 'vite-hub/schedule'
+import { cleanupGmailChannel } from 'vite-hub/agent/channels'
+import { inbox } from '../lib/inbox'
+
+export default defineSchedule({
+  cron: '0 4 * * *',
+  async handler() {
+    await cleanupGmailChannel(inbox, {
+      apply: true,
+      rules: { promotions: { label: 'Promotions', olderThan: 14 } },
+    })
+  },
+})
+```
+
+The [Labeller preset](/docs/agents/labeller#clean-up-old-mail) declares these rules in its `cleanup` option.

@@ -1,5 +1,6 @@
 ---
 title: ViteHub documentation
+layout: landing
 description: Add server features to your Vite or Nuxt app, build an Agent, and deploy it on your chosen host.
 navigation: false
 icon: i-lucide-book-open
@@ -19,7 +20,7 @@ Both quickstarts run locally without an account or model credentials.
 - [Reference](/docs/reference) Look up shared configuration, imports, file conventions, and errors.
 ::
 
-Want to build a complete application? Follow a [project tutorial](/tutorials).
+Want to build a complete application? Follow a [project tutorial](/learn).
 If a coding agent is doing the work, give it the
 [ViteHub skill or docs MCP server](/docs/getting-started/ai-resources).
 

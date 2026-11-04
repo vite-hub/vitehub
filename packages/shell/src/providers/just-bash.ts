@@ -1,8 +1,7 @@
-import type { CommandName } from "just-bash/browser"
+import type { BashOptions, CommandName, ExecResult } from "just-bash/browser"
 import type { IFileSystem } from "just-bash"
 
 import { analyzeShellCommand } from "../command/analyze.ts"
-import { parseShellCommand } from "../command/parse.ts"
 
 import type {
   ShellBoundary,
@@ -16,9 +15,19 @@ export interface JustBashFileSystem extends IFileSystem {
   readonly writeFs: boolean
 }
 
+export type JustBashExecutionLimits = NonNullable<BashOptions["executionLimits"]>
+export type JustBashExecutionLimitProfile = NonNullable<BashOptions["executionLimitProfile"]>
+
 export interface JustBashProviderOptions {
   commands?: string[]
   cwd?: string
+  /**
+   * Limits for commands evaluated by Just Bash, including loops, command count, call depth, and output size.
+   * Also applies to controlled curl output and command deadlines; deadlines abort the Source request signal.
+   */
+  executionLimits?: JustBashExecutionLimits
+  /** Just Bash preset applied before `executionLimits` (default: `normal`). */
+  executionLimitProfile?: JustBashExecutionLimitProfile
   fs: JustBashFileSystem
   networkGrants?: ShellNetworkGrantExecutor
 }
@@ -41,6 +50,8 @@ export interface ShellNetworkRequestResult {
 export function createJustBashProvider(options: JustBashProviderOptions): ShellExecutionProvider {
   const commands = options.commands?.slice()
   const networkGrants = options.networkGrants
+  const executionLimits = options.executionLimits && { ...options.executionLimits }
+  const executionLimitProfile = options.executionLimitProfile
   const boundary: ShellBoundary = {
     cwd: true,
     env: true,
@@ -76,26 +87,28 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
     async exec(command: string, execOptions: ShellRuntimeExecOptions = {}) {
       const cwd = execOptions.cwd ?? options.cwd ?? "/workspace"
       const result = await withProviderTimeout(command, { ...execOptions, cwd }, async (runOptions) => {
-        const curlResult = await runControlledCurlCommand(command, {
-          commands,
-          cwd,
-          networkGrants,
-          maxOutputLength: runOptions.maxOutputLength,
-          signal: runOptions.signal,
+        const { Bash, defineCommand } = await import("just-bash/browser")
+        let policyDenied = false
+        // Just Bash parses the line and calls this for every `curl`, including inside pipelines and substitutions.
+        const curl = defineCommand("curl", async (args, ctx) => {
+          const curlResult = await runControlledCurl(args, { commands, networkGrants, signal: ctx.signal ?? runOptions.signal })
+          policyDenied ||= curlResult.policyDenied
+          return curlResult
         })
-        if (curlResult) return curlResult
-
-        const { Bash } = await import("just-bash/browser")
         const bash = new Bash({
           // SAFETY: Just Bash filters its built-in registry by these names; unknown names do not register commands.
           commands: commands as CommandName[] | undefined,
+          customCommands: [curl],
           cwd,
+          executionLimitProfile,
+          executionLimits,
           fs: options.fs,
         })
         return await bash.exec(command, {
           cwd,
           env: execOptions.env,
           signal: runOptions.signal,
+          stdin: execOptions.stdin,
         })
           .then(result => {
             const stdout = boundOutput(result.stdout, runOptions.maxOutputLength)
@@ -103,7 +116,7 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
             return {
               command,
               cwd,
-              event: "command_finished",
+              event: policyDenied ? "policy_denied" : "command_finished",
               exitCode: result.exitCode,
               maxOutputLength: runOptions.maxOutputLength,
               outputTruncated: stdout.truncated || stderr.truncated,
@@ -129,20 +142,21 @@ export function createJustBashProvider(options: JustBashProviderOptions): ShellE
   }
 }
 
-async function runControlledCurlCommand(
-  command: string,
-  options: { commands?: string[], cwd?: string, maxOutputLength?: number, networkGrants?: ShellNetworkGrantExecutor, signal?: AbortSignal },
-): Promise<ShellObservation | undefined> {
-  if (!mentionsCurlCommand(command)) return undefined
+type ControlledCurlResult = ExecResult & { policyDenied: boolean }
+
+async function runControlledCurl(
+  args: string[],
+  options: { commands?: string[], networkGrants?: ShellNetworkGrantExecutor, signal?: AbortSignal },
+): Promise<ControlledCurlResult> {
   options.signal?.throwIfAborted()
   if (options.commands && !options.commands.includes("curl")) {
-    return policyDeniedCurl(command, options.cwd, "curl is not in the permitted commands for this shell.")
+    return policyDeniedCurl("curl is not in the permitted commands for this shell.")
   }
 
-  const [parseError, parsed] = parseControlledCurlCommand(command)
-  if (parseError) return policyDeniedCurl(command, options.cwd, parseError.message)
+  const [parseError, parsed] = parseControlledCurlArgs(args)
+  if (parseError) return policyDeniedCurl(parseError.message)
   if (!options.networkGrants) {
-    return policyDeniedCurl(command, options.cwd, "No API-backed Source request descriptors are visible in this workspace.")
+    return policyDeniedCurl("No API-backed Source request descriptors are visible in this workspace.")
   }
 
   try {
@@ -161,17 +175,11 @@ async function runControlledCurlCommand(
       value: options.signal,
     })
     const result = await options.networkGrants.executeSourceRequest(request)
-    const stdout = typeof result.content === "string" ? result.content : new TextDecoder().decode(result.content)
-    const bounded = boundOutput(stdout, options.maxOutputLength)
     return {
-      command,
-      cwd: options.cwd,
-      event: "command_finished",
       exitCode: 0,
+      policyDenied: false,
       stderr: "",
-      maxOutputLength: options.maxOutputLength,
-      outputTruncated: bounded.truncated,
-      stdout: bounded.content,
+      stdout: typeof result.content === "string" ? result.content : new TextDecoder().decode(result.content),
     }
   }
   catch (error) {
@@ -179,10 +187,8 @@ async function runControlledCurlCommand(
     const message = error instanceof Error ? error.message : String(error)
     const httpFailure = message.includes("HTTP request failed")
     return {
-      command,
-      cwd: options.cwd,
-      event: httpFailure ? "command_finished" : "policy_denied",
       exitCode: httpFailure ? 22 : 126,
+      policyDenied: !httpFailure,
       stderr: `${message}\n`,
       stdout: "",
     }
@@ -203,27 +209,13 @@ function parseFailure<T>(message: string): ParsedValue<T> {
   return [shellErrorDiagnostics.SHELL_R0004({ message: message }), undefined]
 }
 
-function parseControlledCurlCommand(command: string): ParsedControlledCurl {
-  if (hasUnsupportedCurlShellSyntax(command)) {
-    return parseFailure("Controlled curl must be a single command without pipes, redirects, chaining, command substitution, or heredocs.")
-  }
-
-  let words: string[]
-  try {
-    words = parseShellCommand(command)
-  }
-  catch (error) {
-    return [error instanceof Error ? error : shellErrorDiagnostics.SHELL_R0005({ message: String(error) }), undefined]
-  }
-
-  if (words[0] !== "curl") return parseFailure("Controlled curl command must start with curl.")
-
+function parseControlledCurlArgs(words: string[]): ParsedControlledCurl {
   let body: unknown
   let method: "GET" | "HEAD" | "POST" | undefined
   let url: string | undefined
 
   try {
-    for (let index = 1; index < words.length; index += 1) {
+    for (let index = 0; index < words.length; index += 1) {
       const word = words[index]!
       if (word === "-s" || word === "-S" || word === "-sS" || word === "--silent" || word === "--show-error" || word === "-L" || word === "--location") {
         continue
@@ -309,47 +301,6 @@ function parseControlledCurlCommand(command: string): ParsedControlledCurl {
   }]
 }
 
-function mentionsCurlCommand(command: string): boolean {
-  return parseShellCommandLenient(command)[0] === "curl"
-}
-
-function hasUnsupportedCurlShellSyntax(command: string): boolean {
-  let quote: "'" | "\"" | undefined
-  let escaped = false
-  for (let index = 0; index < command.length; index += 1) {
-    const char = command[index]!
-    const next = command[index + 1]
-    if (escaped) {
-      escaped = false
-      continue
-    }
-    if (char === "\\") {
-      escaped = true
-      continue
-    }
-    if (quote) {
-      if (char === quote) quote = undefined
-      continue
-    }
-    if (char === "'" || char === "\"") {
-      quote = char
-      continue
-    }
-    if (char === "|" || char === ";" || char === "<" || char === ">" || char === "`" || char === "$" && next === "(") return true
-    if ((char === "&" || char === "|") && next === char) return true
-  }
-  return /<<-?/.test(command)
-}
-
-function parseShellCommandLenient(command: string): string[] {
-  try {
-    return parseShellCommand(command)
-  }
-  catch {
-    return command.trim().split(/\s+/).filter(Boolean)
-  }
-}
-
 function parseCurlDataBody(value: string): unknown {
   const [error, body] = parseJsonCurlBody(value)
   return error ? value : body
@@ -374,16 +325,14 @@ function setCurlUrl(current: string | undefined, next: string): string {
   return next
 }
 
-function policyDeniedCurl(command: string, cwd: string | undefined, message: string): ShellObservation {
+function policyDeniedCurl(message: string): ControlledCurlResult {
   return {
-    command,
-    cwd,
-    event: "policy_denied",
     exitCode: 126,
+    policyDenied: true,
     stderr: `[vitehub] ${message}\n`,
     stdout: [
       "[vitehub] Controlled curl request was not run.",
-      "Expected a single curl command matching a visible Source Request Descriptor at `.vitehub/sources/<sourceKey>.json`.",
+      "Expected a curl command matching a visible Source Request Descriptor at `.vitehub/sources/<sourceKey>.json`.",
     ].join("\n") + "\n",
   }
 }
@@ -397,9 +346,8 @@ async function withProviderTimeout(
   const controller = new AbortController()
   const abortListener = options.signal ? () => controller.abort(options.signal?.reason) : undefined
   if (abortListener) options.signal?.addEventListener("abort", abortListener, { once: true })
-  const runOptions = options.signal || typeof options.timeout === "number"
-    ? { ...options, signal: controller.signal }
-    : options
+  // Just Bash creates a cancellable command context only when exec receives a signal.
+  const runOptions = { ...options, signal: controller.signal }
   let timeout: ReturnType<typeof setTimeout> | undefined
   let onAbort: (() => void) | undefined
   const aborted = options.signal

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed } from "vue";
 import type { ServerEnvDescriptionEntry } from "@vite-hub/env";
 
 import ConsoleEnvManaged from "./console-env-managed.vue";
@@ -27,13 +27,9 @@ const properties = computed(() => [
   { label: "Required", value: props.entry.required ? "Yes" : "No" },
   { label: "Default", value: props.entry.hasDefault ? "Configured" : "None" },
 ]);
-const managing = ref(false);
-watch(
-  () => props.entry.path,
-  () => {
-    managing.value = false;
-  },
-);
+/** Whether the management of a provider value is open, and its tab. The Env page keeps both in the URL. */
+const managing = defineModel<boolean>("managing", { default: false });
+const tab = defineModel<"credential" | "activity" | "access">("tab", { default: "credential" });
 </script>
 
 <template>
@@ -63,6 +59,7 @@ watch(
     v-if="managing && entry.source === 'provider' && entry.path"
     :key="entry.path"
     :endpoint="endpoint"
+    v-model:tab="tab"
     :path="entry.path"
   />
 </template>

@@ -12,20 +12,22 @@ icon: i-lucide-code-2
 | --- | --- |
 | `defineContent` from `vite-hub/content` | Define the Content runtime that ViteHub serves from `server/content.ts`. |
 | `documents`, `singleton`, `optional` from `vite-hub/content` | Define an editable collection or a singleton, and mark a field optional. |
-| `cms` from `vite-hub/content/presets/cms` | Store collections with `defineContent({ extends: cms })`. See [CMS preset](/docs/content/cms-preset). |
+| `cms` from `vite-hub/cms` | Store collections with `defineContent({ extends: cms })`. See [CMS](/docs/cms). |
 | `seo` from `vite-hub/content` | A per-document [SEO field](/docs/content/seo#seo-fields). |
 | `image`, `file` from `vite-hub/content` | [Blob reference](/docs/blob/server-api#blob-reference-schemas) fields. Blob owns them; `vite-hub/blob` exports the same functions. |
 | `contentSessionsSchema` from `vite-hub/content/database` | The table behind [`content.sessions`](/docs/content/editing-together). Add it to the Database of the Workspace history. |
 | `contentSessionTimeouts` from `vite-hub/content` | Presence, lease, and idle durations in milliseconds: `{ presence: 45_000, lease: 300_000, idle: 900_000 }`. |
 | `contentHead` from `vite-hub/content` or `vite-hub/content/client` | [Head tags](/docs/content/seo#head-tags) for a document, in the shape `useHead()` takes. |
 | `defineContentSitemapHandler`, `defineContentRobotsHandler`, `renderContentSitemap` from `vite-hub/content` | Serve or render the [sitemap and robots.txt](/docs/content/seo#sitemap-and-robotstxt) in another server. |
-| `contentSource` from `vite-hub/content` | Adapt one Source and set Comark options such as `prefix` and `schema`. |
+| `contentSource` from `vite-hub/content` | Adapt one Source and set Comark options such as `prefix` and `schema`, and a [`url`](/docs/content/seo#source-urls) for the sitemap. |
+| `renderContentHtml` from `vite-hub/content` | [Render a document to HTML](/docs/content/configure#render-html-on-the-server) in a server route without a framework. |
 | `defineContentHandler` from `vite-hub/content` | Adapt a Content runtime to an H3 or Nitro route in another server. |
 | `createContentClient`, `defineContentClientPlugin` from `vite-hub/content/client` | Use or extend the typed Comark Content client. |
+| `createContentEditorCodec`, `contentRealtimeEditor`, `ContentImage` from `vite-hub/content/editor` | Content's configured editor codec, Realtime adapter, and image extension. See [Live editing](/docs/content/editing-together#build-your-own-live-editor). |
 | `contentField`, `formatContentField`, `parseContentField` from `vite-hub/content/client` | Mark the element that renders a field, and read the [field address](#field-addresses) back. |
-| `comark-content/database/*`, `comark-content/plugins/*`, `comark-content/sources/*` | Comark databases, parser and search plugins, and native Comark Sources. |
+| `comark-content/database/*`, `comark-content/plugins/*`, `comark-content/sources/*` | Optional Comark databases, plugins, and native Sources. Install `comark-content` when importing these directly. |
 
-Libraries can install `@vite-hub/content` and use the matching `@vite-hub/content`, `@vite-hub/content/client`, and `@vite-hub/content/presets/cms` imports. `documents` and `optional` come from `@vite-hub/content/collections`, which needs `@vite-hub/workspace`. A read-only Content runtime does not install Workspace or Database. Without `vitehub()`, add `hubContent()` from `@vite-hub/content/vite` next to the Workspace, Database, and Blob plugins so the `cms` preset gets its Workspace, tables, and, when the app has none, its Database. Only `vitehub()` turns those plugins on for you.
+Libraries can install `@vite-hub/content` and use the matching `@vite-hub/content` and `@vite-hub/content/client` imports. `documents` and `optional` come from `@vite-hub/content/collections`, which needs `@vite-hub/workspace`. A read-only Content runtime does not install Workspace or Database. Without `vitehub()`, add `hubContent()` from `@vite-hub/content/vite`. For the `cms` preset, also install `@vite-hub/cms` and add `hubCms()` from `@vite-hub/cms/vite` next to the Workspace, Database, and Blob plugins; see [Without vitehub()](/docs/cms/server-api#without-vitehub). Only `vitehub()` turns those plugins on for you.
 
 ## Runtime API
 
@@ -102,7 +104,7 @@ export default defineEventHandler(async (event) => {
 | `content.hasPolicy` | Whether `defineContent({ authorize })` defines a policy. |
 | `content.sessions.report()`, `.acquire()`, `.release()`, `.list()` | Presence and edit leases of documents. See [Editing together](/docs/content/editing-together). |
 | `posts.editing` | `{ lease }` from the definition's `editing` option. |
-| `content.sitemap(options?)` | The [sitemap entries](/docs/content/seo#sitemap-and-robotstxt) `{ collection, id, loc, lastmod? }` of published, indexable documents with a URL. |
+| `content.sitemap(options?)` | The [sitemap entries](/docs/content/seo#sitemap-and-robotstxt) `{ collection, id, loc, lastmod? }` of published, indexable documents with a URL, and of Source documents with a URL. |
 | `content.robots(options?)` | The robots.txt text for `defineContent({ seo: { robots } })`. |
 
 To read, edit, publish, or schedule documents from a terminal during development, use [`vitehub content`](/docs/content/cli).
@@ -208,7 +210,7 @@ When another save moved the draft head, Content commits again on the new head. A
 
 `status(id)` returns `{ collection, id, state, draft, published, issues?, schedule?, conflict? }`, where `issues` counts the field issues of the draft, where `draft` and `published` are the document digests on each ref or `null`, and `schedule` is the document's [scheduled publish](/docs/content/scheduling#statuses), if any. It returns `null` when the document exists on neither ref. An empty draft mirrors `published`, so before the first save `draft` equals `published`.
 
-On the [GitHub store](/docs/content/cms-preset#github-store), `conflict: { base }` marks a document that the draft and the published branch both changed since the draft took it from published, for example with a Git commit. `base` is the digest that the draft started from. `publish()` refuses the document until a save with `ifPublishedDigest` records the published version that the person reviewed. `status()` reports it before anyone tries to publish.
+On the [GitHub store](/docs/cms/configure#github-store), `conflict: { base }` marks a document that the draft and the published branch both changed since the draft took it from published, for example with a Git commit. `base` is the digest that the draft started from. `publish()` refuses the document until a save with `ifPublishedDigest` records the published version that the person reviewed. `status()` reports it before anyone tries to publish.
 
 ### Publish
 

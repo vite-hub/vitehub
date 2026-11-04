@@ -42,11 +42,13 @@ pnpm remove @nuxthub/core
 pnpm add vite-hub
 ```
 
-For Database, keep or add `drizzle-orm` as a direct dependency because your
-schema imports it. ViteHub supplies `drizzle-kit` for its migration commands.
+For Database, add the Database package and keep or add `drizzle-orm` as a
+direct dependency because your schema imports it. Add `drizzle-kit` for the
+migration commands.
 
 ```bash [Terminal]
-pnpm add drizzle-orm
+pnpm add @vite-hub/database drizzle-orm
+pnpm add -D drizzle-kit
 ```
 
 Early NuxtHub v0.10 releases use `hub:db`, `hub:kv`, and `hub:blob` imports.
@@ -263,7 +265,10 @@ any new migration to an existing D1 database:
    files unchanged. The baseline must not create existing tables or change data.
 5. Run `pnpm nuxt build` to generate `.output/server/wrangler.json`. Check that
    its D1 resource identity and `migrations_dir` refer to the existing database
-   and the new directory, then list the pending migrations:
+   and the new directory. ViteHub writes the D1 binding, so you can remove it
+   from the project's `wrangler.json`; if you keep it, it must name the same
+   database (see [Database hosts](/docs/database/hosts)). Then list the pending
+   migrations:
 
 ```bash [Terminal]
 pnpm wrangler d1 migrations list <database-name> --remote --config .output/server/wrangler.json
@@ -303,7 +308,11 @@ set. Cloudflare requires `cache.namespaceId`, or an existing `CACHE` namespace
 with an ID in `nitro.cloudflare.wrangler.kv_namespaces`, so the generated
 deployment always names a real namespace. The `netlify` preset has no
 default cache store, so `cache: true` fails the build there. A `cache` mount
-that you set in `nitro.storage` takes precedence.
+that you set in `nitro.kv` (`nitro.storage` in Nuxt) takes precedence.
+
+To share the app's KV store instead, on any preset, set
+`cache: { driver: "kv" }` with `kv` enabled. Cache keys get the `nitro-cache:`
+prefix.
 
 To keep the cache namespace that NuxtHub created on Cloudflare, pass its ID:
 

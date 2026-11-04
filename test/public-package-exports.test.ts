@@ -96,6 +96,17 @@ describe("public package export contracts", () => {
     expect(adapter?.optionalRuntimePeers).toEqual(["@vite-hub/kv"])
   })
 
+  it("classifies the optional CMS access runtime and declaration peers", () => {
+    const manifest = readPackageManifest("cms")
+    expect(manifest.peerDependenciesMeta?.["better-auth"]?.optional).toBe(true)
+    const access = publicPackageExportContracts.find(contract => contract.specifier === "@vite-hub/cms/access")
+    expect(access?.optionalRuntimePeers).toEqual(["better-auth"])
+    expect(access?.optionalDeclarationPeers).toEqual(["@vite-hub/comments", "better-auth"])
+    const root = publicPackageExportContracts.find(contract => contract.specifier === "@vite-hub/cms")
+    expect(root?.optionalRuntimePeers).toEqual([])
+    expect(root?.optionalDeclarationPeers).toEqual([])
+  })
+
   it("classifies the Logs Evlog boundary for isolated consumers", () => {
     for (const [specifier, declarations, runtime] of [
       ["vite-hub/logs", ["evlog"], ["evlog"]],
@@ -134,6 +145,14 @@ describe("public package export contracts", () => {
       const contract = publicPackageExportContracts.find(contract => contract.specifier === specifier)
       expect(contract?.optionalRuntimePeers).not.toContain(peer)
       expect(contract?.optionalDeclarationPeers).toContain(peer)
+    }
+  })
+
+  it("classifies the AI SDK model exports as declaration-only peer consumers", () => {
+    for (const specifier of ["@vite-hub/gateways/ai-sdk", "vite-hub/gateways/ai-sdk"]) {
+      const contract = publicPackageExportContracts.find(contract => contract.specifier === specifier)
+      expect(contract?.optionalDeclarationPeers).toEqual(["@ai-sdk/provider"])
+      expect(contract?.optionalRuntimePeers).toEqual([])
     }
   })
 

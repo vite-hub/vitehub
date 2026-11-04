@@ -10,7 +10,7 @@ import type { ViteHubConsoleRuntimeRecordTableSection } from "@vite-hub/internal
 export const commentsConsoleSection: ViteHubConsoleRuntimeRecordTableSection<{ projectRoot: string, serverDirs?: string[] }> = {
   entry: ({ projectRoot, serverDirs }) => findCommentsEntry(projectRoot, serverDirs),
   description: "Triage comments that the team left on the site's pages.",
-  icon: "i-lucide-message-square-text",
+  icon: "i-vitehub-comments",
   id: "comments",
   label: "Comments",
   runtime: { export: "readCommentsConsoleRecords", module: "@vite-hub/comments/runtime/console" },
@@ -20,7 +20,7 @@ export const commentsConsoleSection: ViteHubConsoleRuntimeRecordTableSection<{ p
       { key: "page", label: "Page" },
       { key: "author", label: "Author" },
       { key: "replies", label: "Replies" },
-      { key: "status", label: "Status" },
+      { filter: true, key: "status", label: "Status" },
       { key: "updated", label: "Last activity" },
     ],
     kind: "record-table",

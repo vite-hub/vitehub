@@ -55,7 +55,7 @@ export async function inspectWorkspaceDefinitions(options: WorkspaceInspectionOp
 /** Console section that lists discovered Workspace Definitions. `vitehub inspect definitions` reads the same data. */
 export const workspaceConsoleSection: ViteHubConsoleSectionContribution<WorkspaceInspectionOptions> = {
   description: "Inspect discovered Workspace Definitions and their source roots.",
-  icon: "i-lucide-folder-kanban",
+  icon: "i-vitehub-workspace",
   id: "workspaces",
   label: "Workspaces",
   read: inspectWorkspaceDefinitions,

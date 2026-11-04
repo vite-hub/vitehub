@@ -10,7 +10,8 @@
   "dependencies": {
     "@comark/html": "catalog:markdown",
     "@libsql/client": "catalog:database",
-    "comark-content": "catalog:markdown",
+    "better-auth": "catalog:auth",
+    "comark-content": "catalog:markdown-ui",
     "drizzle-orm": "catalog:database",
     "h3": "catalog:unjs",
     "nitro": "catalog:unjs",
@@ -23,6 +24,6 @@
     "vite": "catalog:vite"
   },
   "engines": {
-    "node": ">=24.15.0"
+    "node": ">=22.22.0"
   }
 }

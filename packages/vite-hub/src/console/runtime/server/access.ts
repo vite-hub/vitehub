@@ -1,13 +1,15 @@
 import { installOperationSectionResolver, operationAccessAllows } from "@vite-hub/internal/operations"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
+import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 
 import { consoleMountBase } from "../console-route.ts"
 import { consoleDiagnosticBody, isConsoleImpersonationRejection, type ConsoleDiagnosticCode } from "../diagnostics.ts"
 import { markBearerRejection, mcpChallenge, resolveConsoleOAuth, verifyConsoleBearer, type ConsoleOAuthConfig, type ConsoleOAuthState } from "./bearer.ts"
 import { consoleRequestError, consoleRequestURL, isConsoleDevelopmentRuntime, type ConsoleRequestEvent } from "./request.ts"
+import { loadConsoleRuntime } from "./runtime.ts"
 
 import type { OperationContext } from "@vite-hub/internal/operations"
-import type { ConsoleAuthorize, ConsoleUser } from "../../auth.ts"
+import type { ConsoleAuthorize, ConsoleUser } from "../../auth-types.ts"
 import type { AgentActor } from "@vite-hub/agent"
 import type { ConsoleSectionId } from "../sections.ts"
 
@@ -73,8 +75,11 @@ const openWarningKey: unique symbol = Symbol.for("vitehub.console.access.open-wa
 const scope = globalThis as typeof globalThis & { [policyKey]?: ConsoleAccessPolicy, [openWarningKey]?: true }
 const consoleAccessGrant = defineGrant("vitehub.console.access", (mode: ConsoleAccessMode) => mode)
 const checkedEvents = new WeakMap<object, ConsoleAccess>()
+const rejectedEvents = new WeakMap<object, Response>()
 const routeScopes = new WeakMap<object, ConsoleRouteScope>()
 const deferredUsers = new WeakMap<ConsoleAccess, () => Promise<ConsoleUser | undefined>>()
+// Responses that `console.authorize` returned, so a page visit gets them as they are.
+const authorizeResponses = new WeakSet<Response>()
 const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "local", "open"])
 
 export const consoleOpenAccessWarning = "[vitehub] console: { auth: false } has no sign-in. Anyone who can reach /_vitehub can use the Console. Set console.auth to \"app\" or a Console Auth config, or set console.authorize."
@@ -161,33 +166,63 @@ export function consoleAppSignIn(event: ConsoleRequestEvent): Promise<Response> 
   }
 }
 
+/** Whether a GET or HEAD explicitly accepts a Console HTML page with nonzero quality. */
+export function isConsolePageVisit(event: ConsoleRequestEvent): boolean {
+  const method = (event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET").toUpperCase()
+  if (method !== "GET" && method !== "HEAD") return false
+  return consoleRequest(event).headers.get("accept")?.split(",").some((range) => {
+    const [type, ...parameters] = range.split(";")
+    if (type?.trim().toLowerCase() !== "text/html") return false
+    const quality = parameters.find(parameter => /^\s*q\s*=/i.test(parameter))?.split("=")[1]
+    return quality === undefined || Number(quality) > 0
+  }) === true
+}
+
 /**
  * Send a signed-out visit to a Console page to the sign-in page of the installed policy. The `redirect` query parameter
  * is the Console page that the visitor asked for. Returns `undefined` when the policy has no sign-in page, the request
- * does not read a page, or the access check does not answer `401`.
+ * is not a page visit, or the authentication check does not answer `401`. Responses from `console.authorize` pass through.
  */
 export async function consoleSignInRedirect(event: ConsoleRequestEvent): Promise<Response | undefined> {
   const url = consoleRequestURL(event)
   const page = consoleSignInPage(url.pathname)
-  const method = (event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET").toUpperCase()
-  if (!page || (method !== "GET" && method !== "HEAD")) return undefined
-  const access = checkedEvents.get(event) ?? await checkConsoleAccess(event)
-  if (!isRuntimeResponse(access)) {
-    checkedEvents.set(event, access)
-    return undefined
-  }
+  if (!page || !isConsolePageVisit(event)) return undefined
+  const access = await checkPageAccess(event)
+  if (!isRuntimeResponse(access)) return undefined
   const policy = scope[policyKey]
   // An impersonation session gets the page that leads back to the administrator's session, whatever the sign-in page.
   if (access.status === 403 && policy && "signIn" in policy && policy.signIn && (page.endsWith("/_vitehub/sign-in") || await isConsoleImpersonationRejection(access))) {
     return policy.signIn(event, access)
   }
-  if (access.status !== 401) return undefined
+  if (access.status !== 401 || authorizeResponses.has(access)) return undefined
   const target = new URL(page, url)
   target.searchParams.set("redirect", `${url.pathname}${url.search}`)
   return new Response(null, {
     headers: { "cache-control": "no-store", location: `${target.pathname}${target.search}${target.hash}`, "x-robots-tag": "noindex, nofollow" },
     status: 302,
   })
+}
+
+/**
+ * Check a visit to a Console page with the access check of the data routes. Returns `undefined` when the page may open:
+ * the check accepts the request, or the authentication check answers `401` to a page visit and the Console shows its
+ * signed-out state. Otherwise returns the rejection. `raw` is `true` when the page sends it as it is: `console.authorize`
+ * returned it, or it is the `401` for a request that is not a page visit.
+ */
+export async function consolePageRejection(event: ConsoleRequestEvent): Promise<{ raw: boolean, response: Response } | undefined> {
+  const access = await checkPageAccess(event)
+  if (!isRuntimeResponse(access)) return undefined
+  if (authorizeResponses.has(access)) return { raw: true, response: access }
+  if (access.status !== 401) return { raw: false, response: access }
+  return isConsolePageVisit(event) ? undefined : { raw: true, response: access }
+}
+
+/** The access check of a page visit, once per request: the sign-in middleware and the page handler both read it. */
+async function checkPageAccess(event: ConsoleRequestEvent): Promise<ConsoleAccess | Response> {
+  const access = checkedEvents.get(event) ?? rejectedEvents.get(event) ?? await checkConsoleAccess(event)
+  if (isRuntimeResponse(access)) rejectedEvents.set(event, access)
+  else checkedEvents.set(event, access)
+  return access
 }
 
 /** Build the standard Fetch request passed to Console authorization and runtime contexts. */
@@ -236,24 +271,6 @@ function isRequestLike(value: unknown): value is Request {
       && "body" in request && "bodyUsed" in request && "signal" in request
   }
   catch { return false }
-}
-
-const nativeResponseStatus = Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
-
-/**
- * Return whether `value` is a Response of this runtime.
- * The native `status` getter checks the internal Response slot, so a proxy, a copied prototype, an object tagged `Response`,
- * and a Response from another Fetch implementation all fail. The check reads no property of `value`.
- */
-function isRuntimeResponse(value: unknown): value is Response {
-  if (!nativeResponseStatus || value === null || typeof value !== "object") return false
-  try {
-    Reflect.apply(nativeResponseStatus, value, [])
-    return true
-  }
-  catch {
-    return false
-  }
 }
 
 function isSectionId(value: unknown): value is ConsoleSectionId {
@@ -344,7 +361,10 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
   let sections: ConsoleAccess["sections"] = "all"
   if (policy.mode !== "local" && policy.authorize) {
     const result: unknown = await policy.authorize(user ? { request: consoleRequest(event), user } : { request: consoleRequest(event) })
-    if (isRuntimeResponse(result)) return result
+    if (isRuntimeResponse(result)) {
+      authorizeResponses.add(result)
+      return result
+    }
     if (result === false) return rejection(403, "CONSOLE_ACCESS_DENIED")
     if (result !== true) {
       const allowed = authorizedSections(result)
@@ -511,17 +531,19 @@ export function consoleRealtimeAccess(section: ConsoleSectionId): ConsoleRealtim
 
 /**
  * Whether the installed access policy lets this request open the Console, for at least one section. The `console` page
- * tool uses it, so a page shows the Console link only to people that the Console accepts.
+ * tool uses it, so a page shows the Console link only to people that the Console accepts. Editing tools request `write`.
  */
-export async function consoleAllowsRequest(event: unknown): Promise<boolean> {
+export async function consoleAllowsRequest(event: unknown, section?: ConsoleSectionId, kind: "read" | "write" = "read"): Promise<boolean> {
   if (!(event instanceof Object)) return false
+  // The embedded page's framing decision shares its already-checked access.
   // SAFETY: the page tools session passes the H3 event of its Nitro route, which has the members the check reads.
-  return !isRuntimeResponse(await checkConsoleAccess(event as ConsoleRequestEvent))
+  const access = checkedEvents.get(event) ?? rejectedEvents.get(event) ?? await checkConsoleAccess(event as ConsoleRequestEvent)
+  return !isRuntimeResponse(access) && (section === undefined || (kind === "write" ? consoleAccessWrites(access, section) : consoleAccessAllows(access, section)))
 }
 
 /**
- * Wraps a Console server handler so it runs only after the installed access policy accepts the request.
- * Otherwise the wrapper returns the rejection `Response`. Without an installed policy, it returns `500`.
+ * Wraps a Console server handler so it runs only after the installed access policy accepts the request, and after the
+ * Console runtime has loaded. Otherwise the wrapper returns the rejection `Response`. Without an installed policy, it returns `500`.
  */
 export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
   handler: ConsoleGuardedHandler<TEvent, TResult>,
@@ -553,6 +575,8 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
         checkedEvents.set(event, access)
       }
     }
+    // Only an accepted request loads the Console runtime, so a rejected one costs no more than the check.
+    await loadConsoleRuntime()
     return handler(event, access)
   }
   routeScopes.set(route, declared)

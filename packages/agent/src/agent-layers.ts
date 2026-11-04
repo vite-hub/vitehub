@@ -78,7 +78,7 @@ function record(value: unknown): value is Record<string, unknown> {
 }
 
 // These maps contain definitions and callbacks, not configuration to merge recursively.
-const opaqueOptions = new Set(["data", "messages.meta", "messages.state", "invocations", "runtime", "github", "driver.output", "driver.model", "driver.launch"])
+const opaqueOptions = new Set(["data", "messages.meta", "messages.state", "invocations", "runtime", "github", "driver.output", "driver.model", "driver.launch", "driver.gateway"])
 const definitionMaps = new Set(["channels", "workspace.sources", "workspace.skills", "hooks"])
 
 type RequirementsExtension = (inherited: readonly string[]) => unknown
@@ -142,8 +142,6 @@ function merge(parent: unknown, child: unknown, path: string): unknown {
     return child
   }
   if (path === "driver") {
-    if (hasRuntimeType(parent, "string")) parent = { kind: parent }
-    if (hasRuntimeType(child, "string")) child = { kind: child }
     if (record(child)) child = inheritRequirements(parent, child)
     if (record(child) && record(parent) && !("kind" in parent) && !("kind" in child)
       && "model" in parent && hasRuntimeType(child.model, "object") && !("run" in child)) {

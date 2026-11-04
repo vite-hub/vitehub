@@ -1,5 +1,3 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { inspectAgentTools } from "@vite-hub/agent";
 import { blob, content, db, email, gmail, kv, papercuts, sandbox } from "@vite-hub/agent/capabilities";
 import type { AgentCapabilityDefinition, AgentToolInspection } from "@vite-hub/agent";
@@ -144,17 +142,37 @@ export async function createCapabilityReferences(): Promise<CapabilityReferences
   );
 }
 
-export function writeCapabilityReferences(outputDir: string, references: CapabilityReferences) {
-  mkdirSync(outputDir, { recursive: true });
-  const source = `export const capabilityReferences = ${JSON.stringify(references, null, 2)};\n\nexport default capabilityReferences;\n`;
-  const path = resolve(outputDir, "capability-references.mjs");
-  if (existsSync(path) && readFileSync(path, "utf8") === source) return path;
-  const temporaryPath = `${path}.${process.pid}.${Date.now()}.tmp`;
-  try {
-    writeFileSync(temporaryPath, source);
-    renameSync(temporaryPath, path);
-  } finally {
-    rmSync(temporaryPath, { force: true });
-  }
-  return path;
+let references: Promise<CapabilityReferences> | undefined;
+
+/** The references, computed once per process. The module and the raw Markdown rewrite share them. */
+export function capabilityReferences(): Promise<CapabilityReferences> {
+  references ??= createCapabilityReferences();
+  return references;
+}
+
+function directiveAttribute(attributes: string, name: string) {
+  return attributes.match(new RegExp(`\\b${name}=(?:"([^"]+)"|'([^']+)')`))?.slice(1).find(Boolean);
+}
+
+function capabilityReferenceMarkdown(attributes: string, references: CapabilityReferences) {
+  const name = directiveAttribute(attributes, "name");
+  const variant = directiveAttribute(attributes, "variant") || "default";
+  const reference = name ? references[`${name}.${variant}`] : undefined;
+  if (!reference) return "_Agent-visible tool contract is available on the rendered documentation page._";
+  return reference.tools.map(tool => [
+    `#### \`${tool.name}\``,
+    tool.description || "",
+    ...(tool.inputSchema === undefined
+      ? []
+      : [`**Input schema**\n\n\`\`\`json\n${JSON.stringify(tool.inputSchema, null, 2)}\n\`\`\``]),
+    ...(tool.outputSchema === undefined
+      ? []
+      : [`**Output schema**\n\n\`\`\`json\n${JSON.stringify(tool.outputSchema, null, 2)}\n\`\`\``]),
+  ].filter(Boolean).join("\n\n")).join("\n\n");
+}
+
+/** Expands `::agent-capability-tools{name="kv" variant="write"}` into the tool contract, for the raw Markdown agents read. */
+export function expandCapabilityTools(source: string, references: CapabilityReferences) {
+  return source.replace(/^::agent-capability-tools\{([^}]*)\}\s*\n::\s*$/gm, (_match, attributes: string) =>
+    capabilityReferenceMarkdown(attributes, references));
 }

@@ -6,6 +6,7 @@ import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const DEFAULT_MAX_PARALLEL = 2
+const LEADING_BUILD = /^vp run -t ([@\w./-]+)#build(?:\s*&&\s*|$)/
 const DEFAULT_PARALLEL_SAFE_PACKAGES = Object.freeze([
   "@vite-hub/env",
   "@vite-hub/gateways",
@@ -17,7 +18,7 @@ const DEFAULT_PARALLEL_SAFE_PACKAGES = Object.freeze([
 // under one of these paths runs the tests of the named packages.
 const OUTSIDE_TEST_INPUTS = Object.freeze([
   ["docs/content/", ["@vite-hub/ui", "vite-hub"]],
-  ["fixtures/tutorials/", ["@vite-hub/agent"]],
+  ["fixtures/tutorials/", ["@vite-hub/agent", "vite-hub"]],
   ["playground/console/", ["vite-hub"]],
   ["playground/vite/", ["@vite-hub/blob", "@vite-hub/internal", "@vite-hub/queue", "@vite-hub/workflow"]],
 ])
@@ -176,6 +177,16 @@ export function affectedPackageNames(packages, files) {
   return [...affected].sort((left, right) => left.localeCompare(right))
 }
 
+function leadingBuildTargets(script) {
+  const targets = []
+  let rest = script.trim()
+  for (let build = LEADING_BUILD.exec(rest); build; build = LEADING_BUILD.exec(rest)) {
+    targets.push(build[1])
+    rest = rest.slice(build[0].length)
+  }
+  return targets
+}
+
 function buildClosure(selected, packageByName) {
   const names = new Set()
   function add(pkg) {
@@ -183,7 +194,14 @@ function buildClosure(selected, packageByName) {
     names.add(pkg.name)
     for (const dependency of workspaceDependencies(pkg, packageByName)) add(packageByName.get(dependency))
   }
-  for (const pkg of selected) add(pkg)
+  for (const pkg of selected) {
+    add(pkg)
+    // A test can need a package that is not a dependency, such as the vite-hub
+    // bin. Build it here once, so the test script does not rebuild its graph.
+    for (const target of leadingBuildTargets(pkg.manifest.scripts.test)) {
+      if (packageByName.has(target)) add(packageByName.get(target))
+    }
+  }
   return [...names]
     .map(name => packageByName.get(name))
     .filter(pkg => pkg.manifest.scripts?.build)
@@ -200,7 +218,7 @@ function executePackage(pkg, phase, options) {
     let testScript = packageScript.trim()
     // Only remove leading build tasks that this runner has already completed.
     for (;;) {
-      const build = /^vp run -t ([@\w./-]+)#build(?:\s*&&\s*|$)/.exec(testScript)
+      const build = LEADING_BUILD.exec(testScript)
       if (!build || options.buildResults?.get(build[1])?.status !== "passed") break
       testScript = testScript.slice(build[0].length)
     }

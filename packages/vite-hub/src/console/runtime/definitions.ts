@@ -16,6 +16,8 @@ export interface ConsoleDefinitionSummary {
 }
 
 export interface ConsoleRecordColumn {
+  /** The table filters by the values of this column. */
+  filter?: boolean
   key: string
   label: string
 }
@@ -53,6 +55,7 @@ export interface ConsoleOperationFilter {
 /** Mirrors `ViteHubConsoleOperationView`. */
 export interface ConsoleOperationView {
   columns: readonly ConsoleOperationColumn[]
+  detail?: { kind: "comment-thread" }
   filters?: readonly ConsoleOperationFilter[]
   kind: "operation-view"
   link?: { label?: string, template: string, when?: { equals: string, path: string } }
@@ -103,10 +106,10 @@ export interface ConsoleDocumentComponent {
   kind: "block" | "inline"
   label: string
   name: string
-  props: Record<string, { default?: unknown, type: "boolean" | "json" | "number" | "string" }>
+  props: Record<string, { default?: unknown, store?: string, type: "boolean" | "file" | "image" | "json" | "number" | "string" }>
 }
 
-const componentPropTypes = ["boolean", "json", "number", "string"] as const
+const componentPropTypes = ["boolean", "file", "image", "json", "number", "string"] as const
 
 function parseConsoleDocumentComponents(value: unknown): ConsoleDocumentComponent[] {
   if (!Array.isArray(value)) return []
@@ -117,7 +120,11 @@ function parseConsoleDocumentComponents(value: unknown): ConsoleDocumentComponen
     for (const [name, prop] of Object.entries(record(component.props) ?? {})) {
       const type = componentPropTypes.find(entry => entry === record(prop)?.type)
       if (!type) continue
-      props[name] = record(prop)?.default === undefined ? { type } : { default: record(prop)?.default, type }
+      const entry: ConsoleDocumentComponent["props"][string] = { type }
+      if (record(prop)?.default !== undefined) entry.default = record(prop)?.default
+      const store = record(prop)?.store
+      if ((type === "file" || type === "image") && text(store)) entry.store = store
+      props[name] = entry
     }
     const parsed: ConsoleDocumentComponent = {
       kind: component.kind === "inline" ? "inline" : "block",
@@ -240,6 +247,7 @@ function parseConsoleOperationView(view: Record<string, unknown>): ConsoleOperat
       ? { pagination: { limit: pagination.limit, cursor: Object.fromEntries(cursorPaths) } }
       : {}),
     ...(filters.length ? { filters } : {}),
+    ...(record(view.detail)?.kind === "comment-thread" ? { detail: { kind: "comment-thread" as const } } : {}),
     ...(text(link?.template) ? { link: { template: link.template, ...(text(link.label) ? { label: link.label } : {}), ...(text(when?.path) && text(when.equals) ? { when: { equals: when.equals, path: when.path } } : {}) } } : {}),
   }
 }
@@ -257,7 +265,8 @@ function parseConsoleSectionView(value: unknown): ConsoleSectionView | undefined
   if (view.kind !== "record-table" || !Array.isArray(view.columns)) return undefined
   const columns = view.columns.flatMap((entry) => {
     const column = record(entry)
-    return text(column?.key) && text(column.label) ? [{ key: column.key, label: column.label }] : []
+    if (!text(column?.key) || !text(column.label)) return []
+    return [column.filter === true ? { filter: true, key: column.key, label: column.label } : { key: column.key, label: column.label }]
   })
   return { columns, kind: "record-table", notice: view.notice }
 }

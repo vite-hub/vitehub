@@ -12,7 +12,7 @@ The endpoint uses Streamable HTTP without a session: each `POST` carries one JSO
 
 ## Connect an agent
 
-The Console home has a **Connect an agent** panel with these commands for your origin:
+The Console has a **Connect an agent** page at `/_vitehub/connect`, linked from the rail and the Overview. It shows the server URL, the setup for Claude Code, Codex, Cursor, and VS Code with your origin, how the agent signs in, and the sections its tools can use. For Claude Code and Codex:
 
 ```bash [Terminal]
 claude mcp add --transport http vitehub https://app.example.com/_vitehub/mcp
@@ -65,47 +65,32 @@ FIXTURE_R0001: The note is locked.
 Fix: Unlock it first.
 ```
 
-`structuredContent.error` has `code`, `message`, `fix`, and `details` for failures below status 500. A call to an unknown tool, or a message the server does not know, is a JSON-RPC error.
+`structuredContent.error` has `code`, `message`, `fix`, and `details` for failures below status 500. Server failures return `OPERATION_FAILED` with a generic message and omit provider diagnostics. A call to an unknown tool, or a message the server does not know, is a JSON-RPC error.
+
+An operation with `invoke: true`, such as `workflow.start`, `queue.send`, or `schedule.run`, is a tool only when [`console.invoke`](/docs/development/console) is on. That is the default in development and off in a production build.
+
+## Tools by primitive
+
+Each ability is one tool, named after its operation. The agent reads the same data as the Console and the CLI. A `read` tool can return stored data: `kv_get` returns a value, `blob_get` returns the bytes, and `databases_browse` returns rows. Grant only the sections that the agent needs, and use a `:read` grant, such as `'kv:read'`, for a role that must not write.
+
+| Section | Read tools | Write and destructive tools |
+| --- | --- | --- |
+| `kv` | `kv_list`, `kv_get`, `kv_has` | `kv_set`, `kv_del` |
+| `blob` | `blob_list`, `blob_head`, `blob_get`, `blob_media`, `blob_variants` | `blob_put`, `blob_del` |
+| `databases` | `databases_tables`, `databases_browse` | none |
+| `content` | `content_collections`, `content_list`, `content_resolve`, `content_show`, `content_status`, `content_diff`, `content_revisions`, `content_schedules`, `content_sitemap` | `content_save`, `content_restore`, `content_remove`, `content_publish`, `content_schedule`, `content_unschedule` |
+
+The Blob tools also accept a store grant. `'blob:media'` allows them on the `media` store only, and a call to another store fails with `CONSOLE_ACCESS_DENIED`. See [Grant one Blob store](/docs/development/console#grant-one-blob-store).
+
+`content_save` requires `ifDigest`: the current draft digest from `content_show`, or explicit `null` to create a new document. A missing digest fails without saving, and a stale digest fails with a conflict.
+
+[Operations](/docs/development/operations#built-in-operations) lists the operations of the other sections. Their tools follow the same naming rule.
 
 ## Package tools
 
-Installed packages also contribute tools alongside operations. They use the same Console section grants and OAuth scopes. When a registered tool shares an operation’s MCP name, the registered tool supplies the schema and implementation.
+A package can also register tools that are not operations. They use the same Console section grants and OAuth scopes. When a registered tool has the same name as an operation tool, the registered tool supplies the schema and implementation.
 
 With [Comments](/docs/comments), ask an agent, for example: "Read the open comments on /pricing and fix them."
-
-### Content, section `content`
-
-| Tool | Needs | Does |
-| --- | --- | --- |
-| `content_list_collections` | Content `read` | Lists readable collections and their field schemas. |
-| `content_list_documents` | Content `read` | Lists readable documents, draft digests, and `nextCursor`. Filters: `collection`, `search`, `state`, `cursor`, `limit`, default 50 and at most 200. |
-| `content_read_document` | Content `read` | Reads the draft for `collection` and `id`. For a singleton, use its collection name as `id`. |
-| `content_save_draft` | Content `write` | Saves `data` and `body` with `ifDigest`. Use the current draft digest, or `null` for a new document. Does not publish. |
-
-These tools call the same owner actions as the Console. Each call passes the Console user to `content.can()`. Lists filter documents by that user's access. Saves preserve digest conflict checks and edit leases. They cannot override another editor's lease. Saves are marked as destructive writes because they replace a draft. These registered tools have a 256 KiB request body limit, including the JSON-RPC envelope.
-
-### Database, section `databases`
-
-| Tool | Does |
-| --- | --- |
-| `database_list_databases` | Lists the Database names installed in the Console. |
-| `database_get_schema` | Lists tables, columns, and relationships for `database`. Defaults to the first Database. Does not query rows. |
-
-### KV, section `kv`
-
-| Tool | Does |
-| --- | --- |
-| `kv_list_keys` | Lists keys without values. Accepts `store`, `prefix`, `cursor`, and `limit`, default 200 and at most 500. |
-
-### Blob, section `blob`
-
-| Tool | Does |
-| --- | --- |
-| `blob_list_objects` | Lists object names, sizes, content types, and upload dates. Accepts `store`, `prefix`, `cursor`, and `limit`, default 100 and at most 250. |
-
-KV and Blob default to the `default` store. Only stores installed in the Console can be selected. A result cursor continues the listing. Blob uses the Console's default filter for ViteHub-owned paths. It returns no bytes, URLs, HTTP metadata, or custom metadata.
-
-All Database, KV, Blob, and Content read tools are marked read-only.
 
 ### Comments, section `comments`
 
@@ -134,31 +119,29 @@ The authorization server is Better Auth. A Console Auth that ViteHub generates (
 
 A bearer token still runs the Console Auth `authorize` callback with the verified user, followed by `console.authorize`. With `console.auth: 'app'`, it also runs every matching app Auth access route’s `authorize` callback. It has no browser session, so these callbacks receive an empty `session` object. Tokens authenticate only the exact mounted MCP endpoint; other routes continue to require a session.
 
-For `console: { auth: 'app' }`, add them to the Auth that signs people in:
+For `console: { auth: 'app' }`, add `consoleMcpOAuth()` to the Auth that signs people in. It returns `jwt()`, `oauthProvider()`, and the registration hook, made with the Better Auth that ViteHub uses, so do not install a second `@better-auth/oauth-provider`. Give it the same resource as `console.mcp.resource`. It fixes the token issuer to that origin and Better Auth's `/api/auth` base path, or to `issuer`. Tokens then name the configured resource and issuer, also when a request comes through another host, such as a preview URL.
 
 ```ts [server/auth.ts]
-import { oauthProvider } from '@better-auth/oauth-provider'
-import { jwt } from 'better-auth/plugins'
 import { defineAuth } from 'vite-hub/auth'
-import { consoleMcpNativeClients } from 'vite-hub/console/auth'
+import { authDatabase } from 'vite-hub/auth/database'
+import { consoleMcpOAuth } from 'vite-hub/console/auth'
 
 export default defineAuth(({ requestOrigin }) => ({
   baseURL: requestOrigin,
+  database: authDatabase(),
   plugins: [
-    jwt(),
-    consoleMcpNativeClients(),
-    oauthProvider({
-      loginPage: '/sign-in',
-      consentPage: '/oauth',
-      scopes: ['openid', 'profile', 'email', 'offline_access', 'vitehub:read', 'vitehub:write'],
-      resources: [`${requestOrigin}/_vitehub/mcp`],
-      clientRegistrationDefaultResources: [`${requestOrigin}/_vitehub/mcp`],
-      allowDynamicClientRegistration: true,
-      allowUnauthenticatedClientRegistration: true,
-    }),
+    ...consoleMcpOAuth({ resource: 'https://app.example.com/_vitehub/mcp' }),
   ],
 }))
 ```
+
+The plugins store keys, clients, and tokens in the `jwks` and `oauth*` tables. [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database) adds them to the app Database with the other Better Auth tables, so `vitehub db generate` writes their migration.
+
+Better Auth sends a signed-out person to `loginPage`, and a signed-in person to `consentPage`, which defaults to `loginPage`. By default, `loginPage` is the built-in `/_vitehub/sign-in` page next to the resource. It signs the person in with email and password, when `emailAndPassword` is on, or with the social providers of the Auth. Then it shows the client name and asks the person to allow or deny it.
+
+To use the app's own sign-in page, set `loginPage`, such as `'/sign-in'`. Apps with two-factor authentication must use a page that completes their challenge; the built-in page does not complete it. Better Auth sends the person there with a signed query: the parameters named by `ba_param`, plus `sig`. Send those parameters back unchanged, in their order, as `oauth_query` in the body of the sign-in request, such as `/api/auth/sign-in/email`. Its response has the `url` of the next step. A signed-in person comes back to the consent page: show the client name from `/api/auth/oauth2/public-client?client_id=…`, and send `{ accept, oauth_query }` to `/api/auth/oauth2/consent`. Go to the `url` of its response. Better Auth's `oauthProviderClient()` adds `oauth_query` to client requests automatically.
+
+To configure the provider yourself, add `jwt()`, `consoleMcpNativeClients()`, and `oauthProvider()` with the options that the next paragraph names. Use the Better Auth version that ViteHub uses, or their plugin types do not fit `defineAuth()`.
 
 `resources` declares the MCP resource, and `clientRegistrationDefaultResources` links dynamically registered clients to it when their registration omits a resource list. Include both in a supplied `oauthProvider()`, including with `migrate: false`. Without `resources` Better Auth issues opaque tokens, not JWTs, and the Console cannot check them. When `jwt()`, `oauthProvider()`, the resource in either list, or the two `vitehub:` scopes are missing from the Auth, the Console answers `503` with `CONSOLE_MCP_OAUTH_INCOMPLETE` and the fix on both metadata endpoints.
 

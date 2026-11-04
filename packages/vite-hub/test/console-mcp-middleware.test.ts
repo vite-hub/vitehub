@@ -75,7 +75,7 @@ it.each(["", "/portal"])("runs generated middleware before MCP at mount '%s' wit
     }
     // Delegation still prepares the real SQLite-backed Auth before the route checks a token.
     await guard.default({ req: new Request(resource) })
-    const instance = guard.createConsoleAuth(new Request(resource), { req: new Request(resource) })
+    const instance = await guard.createConsoleAuth(new Request(resource), { req: new Request(resource) })
     const context = await instance.$context
     // SAFETY: Better Auth's adapter and JWT plugin add these runtime methods.
     const adapter = context.internalAdapter as typeof context.internalAdapter & { createUser: (user: object) => Promise<{ id: string }> }
@@ -206,13 +206,13 @@ it.each([
     }],
   })
   await import(pathToFileURL(modulePath).href)
-  const config: { handlers: Array<{ handler: string; route: string; method?: string; middleware?: boolean }> } = {
+  const config: { handlers: Array<{ handler: string; route?: string; method?: string; middleware?: boolean }>; plugins?: string[]; virtual?: Record<string, unknown> } = {
     handlers: [{ handler: "app-auth", middleware: true, route: "/**" }],
   }
   addConsoleRpcHandler(config, "/runtime", `${mount}/`, [], true)
   const handler = async (event: object) => {
     // Nitro runs global middleware before routed middleware, regardless of their registration order.
-    for (const registration of config.handlers.filter(candidate => candidate.middleware && candidate.route === "/**" && !candidate.method)) {
+    for (const registration of config.handlers.filter(candidate => candidate.middleware && (candidate.route === undefined || candidate.route === "/**") && !candidate.method)) {
       const response = registration.handler === "app-auth"
         ? await middleware(event as never)
         : await Reflect.apply(consoleMcpDiscoveryHandler, undefined, [event])
@@ -220,8 +220,25 @@ it.each([
     }
     return Reflect.apply(consoleMcpHandler, undefined, [event])
   }
-  const app = createApp()
-  app.use(eventHandler(handler))
+  const requestHooks: Array<(event: object) => Promise<void>> = []
+  const app = createApp({ onRequest: async (event) => {
+    for (const hook of requestHooks) await hook(event)
+  } })
+  for (const plugin of config.plugins ?? []) {
+    const source = config.virtual?.[plugin]
+    if (typeof source !== "string") throw new TypeError("Missing discovery plugin")
+    const entry = new URL("../src/console/runtime/server/mcp-discovery.ts", import.meta.url).href
+    const module = await import(/* @vite-ignore */ `data:text/javascript,${encodeURIComponent(source.replace(JSON.stringify("/runtime/server/mcp-discovery.js"), JSON.stringify(entry)))}`)
+    module.default({ h3App: app, hooks: { hook: (_name: string, hook: typeof requestHooks[number]) => requestHooks.push(hook) } })
+  }
+  // Nitro 2's effective mount includes app.baseURL even when the middleware has no route.
+  for (const registration of config.handlers.filter(candidate => candidate.middleware)) {
+    const middlewareBase = (`${mount}/${registration.route || "/"}`).replace(/\/+/g, "/")
+    app.use(middlewareBase, eventHandler(event => registration.handler === "app-auth"
+      ? middleware(event as never)
+      : Reflect.apply(consoleMcpDiscoveryHandler, undefined, [event])))
+  }
+  app.use(eventHandler(async event => await middleware(event as never) ?? Reflect.apply(consoleMcpHandler, undefined, [event])))
   const server = createServer(toNodeListener(app))
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve))
   try {

@@ -4,7 +4,6 @@ import { createWorkspaceGlobMatcher } from "../../core/glob.ts"
 import { ownedBlobPrefix } from "../../storage/owned-blob-prefix.ts"
 import { resolveRuntimeVercelBlobWorkspaceStore } from "../../storage/provider.ts"
 import { createCurrentSnapshotFromStore, diffSnapshots } from "../../storage/utils.ts"
-import * as bundledVercelBlob from "@vercel/blob"
 
 import type {
   DiffOptions,
@@ -192,7 +191,8 @@ async function createVercelBlobClient(options: VercelBlobWorkspaceStoreOptions) 
 
 async function importVercelBlobPeer(): Promise<VercelBlobModule> {
   const testImport = (globalThis as { __vitehubWorkspaceImportVercelBlobPeer?: () => Promise<unknown> }).__vitehubWorkspaceImportVercelBlobPeer
-  return testImport ? await testImport() as VercelBlobModule : bundledVercelBlob as VercelBlobModule
+  // @vercel/blob is about 480 KB. Load it with the first Blob call, not with every server start.
+  return testImport ? await testImport() as VercelBlobModule : await import("@vercel/blob") as VercelBlobModule
 }
 
 class VercelBlobWorkspaceStore implements WorkspaceStore {

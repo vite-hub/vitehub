@@ -16,14 +16,14 @@ const runId = "delivery-interrupted"
 type QueueState = ReturnType<typeof createLibsqlAgentState>
 
 /** One queued webhook delivery whose Invocation the first attempt holds until its abort signal fires. */
-async function setup() {
+async function setup(failAfterAbort = false) {
   const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-interrupted-invocation-"))
   const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
   const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
   const run = vi.fn(async ({ input }: { input: { abortSignal?: AbortSignal } }) => {
     if (run.mock.calls.length === 1) {
       await new Promise<never>((_resolve, reject) => {
-        input.abortSignal?.addEventListener("abort", () => reject(input.abortSignal?.reason), { once: true })
+        input.abortSignal?.addEventListener("abort", () => reject(failAfterAbort ? new Error("Unrelated failure during shutdown.") : input.abortSignal?.reason), { once: true })
       })
     }
     return "done"
@@ -81,8 +81,8 @@ describe("queued webhook Invocation interrupted by a queue stop", () => {
     vi.restoreAllMocks()
   })
 
-  it("completes the same Invocation when the queue retries the delivery", async () => {
-    const fixture = await setup()
+  it.each([false, true])("completes the same Invocation after shutdown, unrelated failure=%s", async (failAfterAbort) => {
+    const fixture = await setup(failAfterAbort)
     cleanup = fixture.cleanup
     const stopFirstProcess = fixture.start()
     await vi.waitFor(() => expect(fixture.run).toHaveBeenCalledOnce(), firstDrain)
@@ -91,13 +91,18 @@ describe("queued webhook Invocation interrupted by a queue stop", () => {
     // SIGTERM: the queue aborts active work and reschedules the delivery.
     await stopFirstProcess()
     const interrupted = await fixture.invocations.get(fixture.id)
-    expect(interrupted?.status).toBe("running")
+    expect(interrupted?.status).toBe(failAfterAbort ? "failed" : "running")
     expect(await fixture.state.webhookDeliveries(scope)).toEqual([expect.objectContaining({ deliveryId: runId })])
 
+    const claim = vi.spyOn(fixture.state, "claimWebhookDelivery")
     fixture.start()
-    await vi.waitFor(async () => expect(await fixture.invocations.get(fixture.id)).toMatchObject({ status: "completed" }), { timeout: 10_000 })
+    await vi.waitFor(() => expect(fixture.run).toHaveBeenCalledTimes(2), firstDrain)
+    const leases = await Promise.all(claim.mock.results.map(result => result.value))
+    expect(leases.filter(Boolean)).toMatchObject([{ attempts: 0 }])
+    await vi.waitFor(async () => expect(await fixture.state.webhookDeliveries(scope)).toEqual([]))
     expect(fixture.run).toHaveBeenCalledTimes(2)
     const completed = await fixture.invocations.get(fixture.id)
+    expect(completed?.status).toBe("completed")
     expect(completed?.error).toBeUndefined()
     // The record keeps the first attempt and adds the second attempt's start and finish.
     const attempts = completed?.observations.filter(observation => observation.name === "agent.invocation.start").map(attemptId)
@@ -106,7 +111,6 @@ describe("queued webhook Invocation interrupted by a queue stop", () => {
     expect(completed?.observations.slice(0, interrupted?.observations.length)).toEqual(interrupted?.observations)
     expect(completed?.observations.filter(observation => observation.name === "agent.invocation.finish").map(attemptId)).toEqual([attempts?.[1]])
     expect((await fixture.invocations.list()).invocations).toHaveLength(1)
-    await vi.waitFor(async () => expect(await fixture.state.webhookDeliveries(scope)).toEqual([]))
   })
 
   it("keeps a user cancellation final", async () => {

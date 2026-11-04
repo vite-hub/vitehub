@@ -105,6 +105,7 @@ export const docsPageRedirects = {
   "/docs/ai-resources": "/docs/getting-started/ai-resources",
   "/docs/concepts": "/docs/getting-started/concepts",
   "/docs/capabilities": "/docs/agents/capabilities",
+  "/docs/content/cms-preset": "/docs/cms",
   "/docs/concepts/agent-invocations": "/docs/agents/invocations",
   "/docs/concepts/bash": "/docs/workspace/agent-capability",
   "/docs/concepts/capabilities-api": "/docs/agents/capabilities",
@@ -132,7 +133,10 @@ export const docsPageRedirects = {
   ...Object.fromEntries(movedLearningPages),
 } satisfies Record<string, string>;
 
-/** Fragments that moved with the Blob page split. The old overview redirect keeps the hash. */
+/**
+ * Fragments that moved with the Blob page split and with the CMS move to its own section.
+ * The old page redirect keeps the hash, so `/docs/content/cms-preset#github-store` lands on `/docs/cms#github-store`.
+ */
 export const docsLegacyFragmentRedirects = {
   "/docs/blob": {
     "quick-start": "/docs/blob/get-started",
@@ -173,6 +177,22 @@ export const docsLegacyFragmentRedirects = {
     "connect-blob-to-agents": "/docs/blob/agent-capability",
     "next-steps": "/docs/blob",
   },
+  "/docs/cms": {
+    "set-up": "/docs/cms/get-started#install-and-turn-on-vitehub",
+    "define-the-collections": "/docs/cms/get-started",
+    "create-the-tables-and-resources": "/docs/cms/get-started#create-the-tables",
+    "what-the-preset-adds": "/docs/cms/configure",
+    options: "/docs/cms/configure",
+    "github-store": "/docs/cms/configure",
+    "what-is-stored-where": "/docs/cms/configure",
+    "commit-mode": "/docs/cms/configure",
+    "pull-request-mode": "/docs/cms/configure",
+    "take-over-the-database": "/docs/cms/configure",
+    "migrate-from-manual-wiring": "/docs/cms/configure",
+    hosts: "/docs/cms/hosts",
+    limits: "/docs/cms/limits-and-errors",
+    errors: "/docs/cms/limits-and-errors",
+  },
 } satisfies Record<string, Record<string, string>>;
 
 function rawMarkdownPath(path: string) {
@@ -192,8 +212,8 @@ export function createDocsRedirectRouteRules(redirects: Record<string, string> =
   for (const [from, to] of Object.entries({
     "/databases": "/database",
     "/rate-limits": "/rate-limit",
-    "/blog": "/tutorials",
-    "/guides": "/tutorials",
+    "/blog": "/learn",
+    "/guides": "/learn",
   })) {
     routeRules[from] = { redirect: { statusCode: 301, to } };
     routeRules[`${from}/`] = { redirect: { statusCode: 301, to } };

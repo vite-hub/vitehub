@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/auth",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "description": "Better Auth-powered authentication primitives and Vite integration for ViteHub.",
   "keywords": [
     "auth",
@@ -39,67 +39,71 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./agent": {
       "types": "./dist/agent.d.ts",
       "import": "./dist/agent.js",
-      "require": "./dist/agent.js",
       "default": "./dist/agent.js"
     },
     "./cli": {
       "types": "./dist/cli.d.ts",
       "import": "./dist/cli.js",
-      "require": "./dist/cli.js",
       "default": "./dist/cli.js"
     },
     "./console": {
       "types": "./dist/console.d.ts",
       "import": "./dist/console.js",
-      "require": "./dist/console.js",
       "default": "./dist/console.js"
     },
     "./console-runtime": {
       "types": "./dist/console-runtime.d.ts",
       "import": "./dist/console-runtime.js",
-      "require": "./dist/console-runtime.js",
       "default": "./dist/console-runtime.js"
+    },
+    "./database": {
+      "types": "./dist/database.d.ts",
+      "import": "./dist/database.js",
+      "default": "./dist/database.js"
     },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
       "import": "./dist/nuxt.js",
-      "require": "./dist/nuxt.js",
       "default": "./dist/nuxt.js"
     },
     "./presets": {
       "types": "./dist/presets.d.ts",
       "import": "./dist/presets.js",
-      "require": "./dist/presets.js",
       "default": "./dist/presets.js"
     },
     "./runtime/console": {
       "types": "./dist/runtime/console.d.ts",
       "import": "./dist/runtime/console.js",
-      "require": "./dist/runtime/console.js",
       "default": "./dist/runtime/console.js"
+    },
+    "./runtime/server": {
+      "types": "./dist/runtime/server.d.ts",
+      "import": "./dist/runtime/server.js",
+      "default": "./dist/runtime/server.js"
+    },
+    "./schema": {
+      "types": "./dist/schema.d.ts",
+      "import": "./dist/schema.js",
+      "default": "./dist/schema.js"
     },
     "./server": {
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js",
-      "require": "./dist/server.js",
       "default": "./dist/server.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js",
-      "require": "./dist/vite.js",
       "default": "./dist/vite.js"
     },
     "./vue": {
       "types": "./dist/vue.d.ts",
       "import": "./dist/vue.js",
-      "require": "./dist/vue.js",
       "default": "./dist/vue.js"
     },
     "./package.json": "./package.json"
@@ -112,9 +116,11 @@
   },
   "dependencies": {
     "@cloudflare/workers-types": "^5.20261016.1",
+    "@noble/hashes": "catalog:auth",
     "@types/node": "catalog:tooling",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
+    "@vite-hub/web-container": "workspace:*",
     "better-auth": "catalog:auth",
     "bun-types": "^1.4.3",
     "drizzle-orm": "catalog:database",
@@ -126,6 +132,7 @@
     "@types/mdast": "catalog:markdown",
     "@types/node": "catalog:tooling",
     "@vite-hub/agent": "workspace:*",
+    "@vite-hub/database": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "happy-dom": "20.14.5",
     "miniflare": "4.20260730.0",
@@ -142,11 +149,15 @@
     "@types/json-schema": "catalog:ai",
     "@types/mdast": "catalog:markdown",
     "@vite-hub/agent": "workspace:*",
+    "@vite-hub/database": "workspace:*",
     "vite": "catalog:vite-compat",
     "vue": "catalog:ui"
   },
   "peerDependenciesMeta": {
     "@vite-hub/agent": {
+      "optional": true
+    },
+    "@vite-hub/database": {
       "optional": true
     },
     "vite": {
@@ -157,6 +168,6 @@
     }
   },
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=22.18.0"
   }
 }

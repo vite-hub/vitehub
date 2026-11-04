@@ -9,7 +9,6 @@ import {
   openRemoteSandbox,
   remoteSandboxPlan,
   resolveRemoteEnvironment,
-  snapshotStream,
 } from "./internal/remote.ts";
 import type { RuntimeProcess, RuntimeSession } from "./internal/session.ts";
 import { shellQuote } from "./internal/shell-quote.ts";
@@ -60,10 +59,13 @@ export interface VercelSandboxCreateOptions {
 }
 
 export interface VercelSandboxCommand {
+  closeStdin(): Promise<void>;
   kill(): Promise<void>;
+  logs(options?: { signal?: AbortSignal }): AsyncIterable<{ data: string; stream: "stderr" | "stdout" }>;
   stderr(): Promise<string>;
   stdout(): Promise<string>;
   wait(): Promise<{ exitCode: number }>;
+  writeStdin(data: Uint8Array): Promise<void>;
 }
 
 export interface VercelSandboxInstance {
@@ -89,6 +91,7 @@ export interface VercelSandboxInstance {
     detached?: boolean;
     env?: Record<string, string>;
     signal?: AbortSignal;
+    stdin?: boolean;
   }): Promise<VercelSandboxCommand>;
   stop?(options?: { blocking?: boolean; signal?: AbortSignal }): Promise<unknown>;
   writeFiles(
@@ -390,8 +393,9 @@ function createVercelSession(
         detached: true,
         env: { ...baseEnv, ...options.env },
         signal: options.abortSignal,
+        ...(options.stdin ? { stdin: true } : {}),
       });
-      return vercelProcess(process);
+      return vercelProcess(process, options.stdin);
     },
     async stop() {},
     async writeBinaryFile({ abortSignal, content, path }) {
@@ -405,11 +409,20 @@ function createVercelSession(
   };
 }
 
-function vercelProcess(process: VercelSandboxCommand): RuntimeProcess {
+function vercelProcess(process: VercelSandboxCommand, stdin: boolean | undefined): RuntimeProcess {
   const wait = process.wait();
+  const output = streamLogs(process);
   return {
-    stderr: snapshotStream(async () => await process.stderr()),
-    stdout: snapshotStream(async () => await process.stdout()),
+    ...output,
+    ...(stdin
+      ? {
+          stdin: new WritableStream<Uint8Array>({
+            abort: async () => await process.closeStdin(),
+            close: async () => await process.closeStdin(),
+            write: async chunk => await process.writeStdin(chunk),
+          }),
+        }
+      : {}),
     async kill() {
       await process.kill();
     },
@@ -417,4 +430,63 @@ function vercelProcess(process: VercelSandboxCommand): RuntimeProcess {
       return await wait;
     },
   };
+}
+
+/** Bounds each channel independently so an unread channel cannot stall its sibling. */
+function streamLogs(command: VercelSandboxCommand) {
+  const bufferLimit = 1024 * 1024;
+  const encoder = new TextEncoder();
+  const abort = new AbortController();
+  const iterator = command.logs({ signal: abort.signal })[Symbol.asyncIterator]();
+  const open = new Map<"stderr" | "stdout", ReadableStreamDefaultController<Uint8Array>>();
+  let stopped = false;
+  const stop = async () => {
+    if (stopped) return;
+    stopped = true;
+    // Interrupt a pending SDK read before returning the async generator.
+    abort.abort();
+    try {
+      await iterator.return?.();
+    } catch {
+      // The aborted log transport may reject during cleanup.
+    }
+  };
+  const stream = (name: "stderr" | "stdout") => new ReadableStream<Uint8Array>({
+    cancel() {
+      open.delete(name);
+      if (open.size === 0) return stop();
+    },
+    start(controller) {
+      open.set(name, controller);
+    },
+  }, new ByteLengthQueuingStrategy({ highWaterMark: bufferLimit }));
+  const output = { stderr: stream("stderr"), stdout: stream("stdout") };
+  void (async () => {
+    try {
+      while (open.size > 0) {
+        const entry = await iterator.next();
+        if (entry.done) break;
+        const line = entry.value;
+        const controller = open.get(line.stream);
+        if (!controller || line.data.length === 0) continue;
+        // Bound the encoding allocation even when a single SDK entry is oversized.
+        const chunk = new Uint8Array(Math.min(line.data.length * 3, controller.desiredSize ?? 0));
+        const { read, written } = encoder.encodeInto(line.data, chunk);
+        if (read < line.data.length) {
+          controller.error(sandboxErrorDiagnostics.SANDBOX_R0159({ message: `Vercel ${line.stream} exceeded the ${bufferLimit}-byte output buffer limit. Consume both streams concurrently or cancel unused output.` }));
+          open.delete(line.stream);
+        } else {
+          // Do not retain unused encoding capacity in the stream queue.
+          controller.enqueue(written === chunk.byteLength ? chunk : chunk.slice(0, written));
+        }
+      }
+      for (const controller of open.values()) controller.close();
+    } catch (error) {
+      for (const controller of open.values()) controller.error(error);
+    } finally {
+      open.clear();
+      await stop();
+    }
+  })();
+  return output;
 }

@@ -10,7 +10,7 @@ icon: i-lucide-rocket
 
 Send a build notification through a Channel named `alerts`. Your first connector writes to the server terminal and returns a receipt. This lets you check the delivery code before connecting a messaging service.
 
-You need Node.js 24.15 or newer, pnpm, and a Vite application. Run the commands from its root. Nitro serves the API route. No message leaves your machine and no provider key is needed.
+You need Node.js 22.22 or newer, pnpm, and a Vite application. Run the commands from its root. Nitro serves the API route. No message leaves your machine and no provider key is needed.
 
 ::tutorial-step{title="Install and enable discovery"}
 ## Install and enable discovery

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { docsManifest } from "~~/modules/vitehub-docs/runtime/utils/docs";
 
 const props = withDefaults(
   defineProps<{
@@ -14,7 +13,7 @@ const props = withDefaults(
 
 // Read the generated docs manifest so the gallery follows the UI sidebar order and groups.
 const groups = computed(() => {
-  const section = docsManifest.sections.find((candidate) => candidate.id === "ui");
+  const section = useDocsManifest().sections.find((candidate) => candidate.id === "ui");
   const grouped = new Map<string, NonNullable<typeof section>["pages"]>();
   for (const page of section?.pages ?? []) {
     const label = page.group?.trim();

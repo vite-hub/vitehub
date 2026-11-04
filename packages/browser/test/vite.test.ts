@@ -158,6 +158,18 @@ describe("hubBrowser", () => {
     )
   })
 
+  it("generates whether the build enables Browser", async () => {
+    const load = async (options?: false) => {
+      const plugin = hubBrowser(options)
+      ;(plugin.config as unknown as (config: Record<string, unknown>) => void)({ nitro: {}, root: tmpdir() })
+      const id = (plugin.resolveId as (id: string) => string)("#vitehub/browser/availability")
+      return await (plugin.load as (id: string) => string | Promise<string>)(id)
+    }
+
+    expect(await load()).toBe('export default {"available":true}\n')
+    expect(await load(false)).toContain('"available":false')
+  })
+
   it("generates a bundleable Playwright loader for configured Chromium runtimes", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-browser-chromium-runtime-"))
     roots.push(root)

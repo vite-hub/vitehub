@@ -9,7 +9,7 @@ icon: i-lucide-rocket
 
 Add Comments to a Vite app with one plugin, and pin a comment on a page. Then let your team sign in with GitHub, and deploy the app on Node. You need no ViteHub app, no Database, and no login of your own.
 
-You need Node.js 24.15 or newer, pnpm, and a Vite application. Run the commands from its root. The last two steps also need a GitHub repository for the app, and a GitHub account that can create a GitHub App.
+You need Node.js 22.22 or newer, pnpm, and a Vite application. Run the commands from its root. The last two steps also need a GitHub repository for the app, and a GitHub account that can create a GitHub App.
 
 ::tutorial-step{title="Turn on Comments"}
 ## Turn on Comments
@@ -47,13 +47,14 @@ pnpm vite dev
 
 Open `http://localhost:5173/?vitehub`. The `?vitehub` query turns on the ViteHub page tools, such as Comments. The ViteHub tools pill shows at the bottom of the page, with the Comments toolbar in it. The server also sets the `vitehub-tools` cookie, so other pages of the site keep comment mode until you select **×** in the pill.
 
-1. Press <kbd>C</kbd>, or select **Comment** in the toolbar.
+1. Press <kbd>C</kbd>, or select **Comment** in the toolbar. As a guest, type your name first. The browser keeps it for the next pages.
 2. Click a heading on the page. A comment box opens at that point.
-3. Type your name, then a comment, and press <kbd>⌘</kbd> <kbd>Enter</kbd>. A numbered pin shows where you clicked.
+3. Type a comment, and press <kbd>Enter</kbd>. A numbered pin shows where you clicked.
 4. Select the pin, write a reply, and send it.
-5. Select **Resolve**, the check mark on the thread. The pin goes away. Open the thread list from the toolbar and select **Show resolved** to see it again.
+5. Type `@` in a reply. The list shows the people that you may mention there. As a guest it is empty: nobody can mention a guest. After your team signs in, in the next step, `@` suggests the people who commented before, and the server checks each mention.
+6. Select **Resolve**, the check mark on the thread. The pin goes away. Open the thread list from the toolbar and select **Resolved** to see it again.
 
-On the dev server, anyone may comment as a guest under a name they type. A production build lets nobody in until you choose who may comment. That is the next step.
+On the dev server, anyone may comment as a guest under a name they type. A production build lets in only the people that you choose. The next step lets in everyone who can push to the repository.
 
 Resize the window. The pin stays on the heading, because it is stored relative to the element, not to the window. Stop the dev server and start it again: the thread is still there, in the SQLite file.
 
@@ -87,7 +88,7 @@ Comments also needs to know the repository. It reads it from the `origin` remote
 
 A production build keeps threads in a database that you point it to. With a Turso database or Cloudflare D1, set its variable or binding and you are done: see [Choose the Database](/docs/comments/configure#choose-the-database). On Node, the simplest is a SQLite file:
 
-```ts [vite.config.ts]
+```ts [node/vite.config.ts]
 export default defineConfig({
   plugins: [vue(), comments({ database: 'file:./data/comments.sqlite' })],
 })

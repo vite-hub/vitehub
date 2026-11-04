@@ -1,4 +1,5 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, expect, it } from "vitest"
 import { chatgpt } from "../src/chatgpt.ts"
@@ -66,4 +67,27 @@ it("signs in through the browser callback and transfers a protected file without
   expect(fake.state.revoked).toBe(1)
   const credential: Record<string, string> = JSON.parse(await readFile(path, "utf8"))
   for (const key of ["access_token", "refresh_token", "id_token"]) expect(output.stdout + output.stderr).not.toContain(credential[key])
+})
+
+it("says at sign-in when the app has no Codex for the ChatGPT gateway", async () => {
+  // Outside the repository, so no workspace package resolves @openai/codex.
+  const root = await mkdtemp(join(tmpdir(), "chatgpt-codex-"))
+  cleanup.push(() => rm(root, { recursive: true, force: true }))
+  const connection = { actions: [], credential: "chatgpt", chatgpt: { hostId: "urn:uuid:host", plan: "enabled" }, name: "chatgpt", provider: "chatgpt", scopes: { declared: [], granted: [], missing: [] }, status: "connected" }
+  const fetch = (async () => Response.json({ connection })) as typeof globalThis.fetch
+  const inspect = async (url: string) => {
+    let stderr = ""
+    const context = { env: {}, rootDir: root, stderr: { write: (value: string | Uint8Array) => (stderr += String(value)) }, stdout: { write: () => true } }
+    expect(await runConnectionsCli("inspect", ["chatgpt", "--url", url], context, { fetch })).toBe(0)
+    return stderr
+  }
+  const warning = "Codex is not installed in this app, so an Agent with the ChatGPT gateway cannot answer. Run `pnpm add @openai/codex`, then restart the server. The gateway does not use a codex command from PATH.\n"
+  expect(await inspect("http://127.0.0.1:4741")).toBe(warning)
+  // A remote app has its own packages.
+  expect(await inspect("https://app.example.com")).toBe("")
+  await mkdir(join(root, "node_modules/@openai/codex/bin"), { recursive: true })
+  await writeFile(join(root, "package.json"), JSON.stringify({ name: "app", private: true }))
+  await writeFile(join(root, "node_modules/@openai/codex/package.json"), JSON.stringify({ name: "@openai/codex", version: "0.164.0" }))
+  await writeFile(join(root, "node_modules/@openai/codex/bin/codex.js"), "")
+  expect(await inspect("http://127.0.0.1:4741")).toBe("")
 })

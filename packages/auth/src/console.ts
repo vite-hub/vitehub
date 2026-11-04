@@ -7,7 +7,7 @@ export { authConsoleEventGroups } from "./console-types.ts";
 export const authConsoleSection: ViteHubConsoleAuthSection = {
   id: "auth",
   label: "Auth",
-  icon: "i-lucide-users-round",
+  icon: "i-vitehub-auth",
   description: "Manage users, sessions, organizations, and approved OAuth clients.",
   view: {
     kind: "auth-management",

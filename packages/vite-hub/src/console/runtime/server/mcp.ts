@@ -1,5 +1,5 @@
 import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
-import { defaultRequestBytes, operationAccessAllows, operationCall, operationInputJsonSchema, operationToolName, parseOperationInput, operationSection, toOperationFailure } from "@vite-hub/internal/operations"
+import { defaultRequestBytes, operationAccessAllows, operationAccessDenial, operationCall, operationInputJsonSchema, operationListed, operationToolName, parseOperationInput, operationSection, toOperationFailure } from "@vite-hub/internal/operations"
 import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import { getViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 
@@ -63,8 +63,8 @@ function operationTools(context: ToolContext, registeredNames: ReadonlySet<strin
   return consoleOperationRegistry().list()
     .filter(operation => operation.mcp !== false
       && !registeredNames.has(operationToolName(operation.name))
-      // An operation that reads its section from the input is checked when it runs.
-      && (operation.section instanceof Function || operationAccessAllows(access, operation.section, operation.readOnlyWhen ? undefined : operation)))
+      // An operation that reads its section or scope from the input is checked again when it runs.
+      && operationListed(access, operation, operation.readOnlyWhen ? undefined : operation))
     .map((operation) => {
       let inputSchema = inputSchemas.get(operation)
       if (!inputSchema) inputSchemas.set(operation, inputSchema = { ...operationInputJsonSchema(operation), type: "object" })
@@ -82,13 +82,17 @@ function operationTools(context: ToolContext, registeredNames: ReadonlySet<strin
             const input = await parseOperationInput(operation, arguments_)
             const section = operationSection(operation, input)
             if (!operationAccessAllows(access, section, operationCall(operation, input))) {
-              return toolFailure({ code: "CONSOLE_ACCESS_DENIED", fix: "Ask for access to the section of this tool.", message: `This sign-in does not include the ${JSON.stringify(section)} section.`, status: 403 })
+              const denial = operationAccessAllows(access, section)
+                ? { fix: "Grant the section without \":read\".", message: `This sign-in may only read ${JSON.stringify(section)}, and ${operation.name} is a ${operation.kind} operation.` }
+                : operationAccessDenial(operation.name, section)
+              return toolFailure({ code: "CONSOLE_ACCESS_DENIED", ...denial, status: 403 })
             }
             const user = operation.user === false ? undefined : await readConsoleOperationUser(access)
             const operationContext: OperationContext = {
               access,
               development: isConsoleDevelopmentBuild(),
               request: context.request,
+              ...(context.event ? { event: context.event } : {}),
               response: {},
               surface: "mcp",
               // SAFETY: A Console user from the Auth adapter has the id that the operation user needs.
@@ -99,9 +103,11 @@ function operationTools(context: ToolContext, registeredNames: ReadonlySet<strin
             return operationResult(await (operation.run as (value: unknown, context: OperationContext) => unknown)(input, operationContext))
           }
           catch (error) {
-            const { details, ...failed } = toOperationFailure(error)
-            // Server failures keep their details out of the answer.
-            return toolFailure(failed.status >= 500 || !details ? failed : { ...failed, details })
+            const failed = toOperationFailure(error)
+            // Provider diagnostics can occur in any field, including the message and fix.
+            return toolFailure(failed.status >= 500
+              ? { code: "OPERATION_FAILED", message: `${operation.name} failed on the server.`, status: failed.status }
+              : failed)
           }
         },
       }

@@ -11,6 +11,12 @@ export const messageRealtimeControl = 5
 export const messageAwareness = 1
 export const messageQueryAwareness = 3
 export const workspaceRoomId = "@workspace"
+/**
+ * Text frames that keep an idle socket open. The client sends the ping, and the server answers with the pong. On
+ * Cloudflare the Durable Object answers it without waking.
+ */
+export const realtimeKeepalivePing = "ping"
+export const realtimeKeepalivePong = "pong"
 export const maxAwarenessClients = 1024
 export const realtimeSyncPendingCode = "REALTIME_SYNC_PENDING"
 export const realtimeCheckpointRejectedCode = "REALTIME_CHECKPOINT_REJECTED"

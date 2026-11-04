@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { readCommentsConsoleRecords } from "../src/runtime/console.ts"
 import { ada, anchor, createComments, grace } from "./harness.ts"
 
-const runtimeKey = Symbol.for("vitehub.comments.runtime")
+const runtimeKey = Symbol.for("vitehub.comments.installed")
 
 afterEach(() => {
   Reflect.deleteProperty(globalThis, runtimeKey)
@@ -24,7 +24,7 @@ describe("readCommentsConsoleRecords", () => {
     expect(records.map(record => record.cells.status)).toEqual(["Open", "Resolved"])
     expect(records[0]).toMatchObject({
       cells: { comment: "Typo here", page: "`/pricing`", author: "Ada", replies: "1" },
-      link: { href: `/pricing?vitehub=comments#comment-${open!.id}`, label: "Open on page" },
+      link: { href: `/pricing?comment=${open!.n}`, label: "Open on page" },
       activity: [{ author: "Ada", text: "Typo here" }, { author: "Grace", text: "Fixed" }],
     })
     expect(Date.parse(records[0]!.cells.updated!)).not.toBeNaN()

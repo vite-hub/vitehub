@@ -742,7 +742,10 @@ describe("document collections", { timeout: 30_000 }, () => {
     expect(() => documents({ path: "posts/*.md", fields: { title: "string" as never } })).toThrow("Standard Schema")
     expect(() => documents({ path: "posts/*.md", fields, components: { Alert: {} } })).toThrow("lowercase Comark tag")
     expect(() => documents({ path: "posts/*.md", fields, components: { alert: { kind: "section" as never } } })).toThrow("'block' or 'inline'")
-    expect(() => documents({ path: "posts/*.md", fields, components: { alert: { props: { type: { type: "enum" as never } } } } })).toThrow("string, number, boolean, or json")
+    expect(() => documents({ path: "posts/*.md", fields, components: { alert: { props: { type: { type: "enum" as never } } } } })).toThrow("string, number, boolean, json, image, or file")
+    expect(() => documents({ path: "posts/*.md", fields, components: { note: { props: { icon: { type: "image", store: "" } } } } })).toThrow("must be a Blob Store name")
+    expect(() => documents({ path: "posts/*.md", fields, components: { note: { props: { icon: { type: "image", default: 1 as never } } } } })).toThrow("default must be a string")
+    expect(() => documents({ path: "posts/*.md", fields, components: { note: { props: { title: { type: "string", store: "media" } as never } } } })).toThrow("store needs type 'image' or 'file'")
   })
 
   it("declares the Comark components that bodies may use", async () => {
@@ -761,6 +764,29 @@ describe("document collections", { timeout: 30_000 }, () => {
       badge: { kind: "inline", label: "Badge" },
     })
     expect(content.collection("notes").components).toEqual({})
+  })
+
+  it("declares image and file props that keep a picked Media file as a string attribute", async () => {
+    const workspace = await historyWorkspace()
+    const content = defineContent({
+      workspace,
+      collections: {
+        posts: documents({
+          path: "posts/*.md",
+          fields,
+          components: { "field-note": { props: { title: { type: "string" }, icon: { type: "image", store: "media" }, guide: { type: "file", default: "guides/train.pdf" } } } },
+        }),
+      },
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    expect(content.collection("posts").components).toEqual({
+      "field-note": { kind: "block", props: { title: { type: "string" }, icon: { type: "image", store: "media" }, guide: { type: "file", default: "guides/train.pdf" } } },
+    })
+    // Content stores the body as written: the served URL or the pathname that the picker wrote.
+    const body = "::field-note{title=\"Book about 90 days ahead\" icon=\"/media/icons/train.webp\" guide=\"guides/train.pdf\"}\nBook early.\n::\n"
+    await content.collection("posts").save("trains", { data: { title: "Trains", date: "2026-11-01" }, body })
+    expect((await content.collection("posts").get("trains", { ref: "draft" }))?.body).toBe(body)
   })
 
   it("types data from field outputs and save input from field inputs", async () => {

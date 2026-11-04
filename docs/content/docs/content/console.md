@@ -92,7 +92,7 @@ The editor reports every 15 seconds while the tab is visible and every 60 second
 
 For a collection with a `url`, the window button in the editor header opens the page in a side browser next to the editor, as in an IDE. The editor keeps its own header, and the side browser has its own toolbar with the address, **Draft** or **Published**, **Desktop** or **Mobile**, **Reload**, and **Open in a new tab**. Drag the divider, or focus it and use the arrow keys, to resize it; <kbd>Home</kbd> and <kbd>End</kbd> make the preview widest or narrowest. On a phone the preview covers the editor, and **Editor** goes back.
 
-- **Draft** renders the fields and body on screen through your own routes, before they save, with a [preview frame](/docs/content/preview#preview-frames). Only this document shows as a draft; the rest of the page, such as other posts and settings, shows its published version. Nothing is stored and the public site does not change. A same-origin redirect of the page, such as a locale or sign-in redirect, keeps the document on screen, with the cookies it sets. When the page redirects to another site, or redirects too often, the side browser says so and offers **Retry**, instead of showing a page without your edits.
+- **Draft** renders the fields and body on screen through your own routes, before they save, with a [preview frame](/docs/content/preview#preview-frames). Only this document shows as a draft; the rest of the page, such as other posts and settings, shows its published version. Nothing is stored and the public site does not change. A redirect to another page of the same site, such as a locale or sign-in redirect, keeps the document on screen: the browser posts the same form there and keeps its cookies as for any redirect. When the page redirects to another site, or redirects too often, the side browser says so and offers **Retry**, instead of showing a page without your edits.
 - **Published** loads the page as a guest sees it, with `?vitehub-content-published`. An HTTP redirect to another page of the site, such as a canonical or locale redirect, keeps it published. It changes only when someone publishes. A [preview cookie](/docs/content/preview) in the same browser does not turn it into a draft, and stays as it is for your other tabs.
 - **Click to edit.** Elements with [`contentField()`](/docs/content/server-api#field-addresses) attributes select their field in the editor. In **Draft**, top-level text fields, such as the title, change in place: <kbd>Enter</kbd> ends the edit and <kbd>Esc</kbd> puts the text back. Focusing a field in the editor outlines it in the page.
 
@@ -112,9 +112,9 @@ The editing menu in the header switches between **Collaborative** and **Local on
 
 ## The body round-trips
 
-The body is Markdown, and the rich editor edits it through Comark. Opening a document and switching between Rich and Source writes nothing: the stored text stays byte for byte until someone edits it. After an edit the editor writes canonical Markdown, so formatting choices such as `*` bullets may become `-`.
+The body is Markdown, and the rich editor edits it through Comark. Opening a document and switching between Rich and Source writes nothing: the stored text stays byte for byte until someone edits it. After an edit the editor writes canonical Markdown, so formatting choices such as `*` bullets may become `-`. Marks around exactly the same text are one document to the editor, so `**[a](/x)**` may become `[**a**](/x)`.
 
-When a body uses Markdown that the rich editor would drop, such as a component that the collection does not declare, Rich mode is read-only for that document and says so. Edit it in Source, or declare the component in `documents({ components })`.
+When a body uses Markdown that the rich editor would drop, such as a footnote definition the base parser drops, Rich mode is read-only for that document and says so. Edit it in Source. Components do not need a collection declaration to round-trip through the shared Comark UI schema.
 
 Images inserted from the `/` menu, or pasted and dropped into the body, go through the [media picker](#pick-media-for-documents). The title is the page's heading, so start the body with its first paragraph rather than a `# Title` that repeats it.
 
@@ -158,6 +158,8 @@ What a user may do follows [`authorize` in `defineContent()`](/docs/content/conf
 | Publish any collection | Also move, rename, and delete files and folders. These change what published pages show at once, without a publish. |
 
 In the playground, writers upload and describe files; editors also move and delete them. A request without the needed access returns `403` with `MEDIA_FORBIDDEN`.
+
+The library is a Console page, so MCP agents cannot use it. To let an editor's agent list and upload media, also grant the Blob store that the library shows, such as `'blob:media'` when `blob.serve.store` is `media`. The agent then uses the `blob_list`, `blob_put`, and `blob_media` tools on that store only, and other stores, such as a private Content store, return `403`. See [Grant one Blob store](/docs/development/console#grant-one-blob-store).
 
 ## Publishing publishes what you reviewed
 
@@ -237,4 +239,4 @@ Saves, restores, deletes, and publishes record the user's `name`, `email`, or `i
 - Media edits are last-writer-wins, like [`blob.media`](/docs/blob/media#consistency).
 - A live preview of the page is not available yet.
 - Drafts save on their own only after a document exists. Leaving the page right after typing saves first; closing the tab asks.
-- The Nuxt module registers the page, but this editor has been verified only in the Vite Console. Nuxt hosts need `comark` and `comark-tiptap` installed.
+- The Nuxt module registers the page, but this editor has been verified only in the Vite Console. Content supplies the Comark UI implementation and its editor dependencies.

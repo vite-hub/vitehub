@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { Window } from "happy-dom"
+import type { HTMLElement } from "happy-dom"
 import { createApp, defineComponent, h, nextTick, reactive } from "vue"
 import { expect, it, vi } from "vitest"
 
@@ -21,10 +22,23 @@ it.each(["", "/portal", "/apps/_vitehub-preview", "/apps/_vitehub/preview"])("re
     expect(root.textContent).toContain("Service Auth policy")
     expect(root.textContent).toContain("CF_ACCESS_CLIENT_SECRET")
     expect(root.textContent).not.toContain("as the person who signs in")
-    const commands = [...root.querySelectorAll("code")].map(element => element.textContent)
-    for (const command of commands) expect(command).toContain(`https://app.example.com${mount}/_vitehub/mcp`)
-    for (const [index, button] of [...root.querySelectorAll("button")].entries()) {
-      button.click()
+    const url = `https://app.example.com${mount}/_vitehub/mcp`
+    const commands = [...root.querySelectorAll("pre code")].map(element => element.textContent)
+    expect(commands).toHaveLength(2)
+    for (const command of commands) expect(command).toContain(url)
+    root.querySelector<HTMLElement>('[aria-label="Copy the server URL"]')!.click()
+    await nextTick()
+    expect(writeText).toHaveBeenLastCalledWith(url)
+    // Each client has a tab; its panel copies its own command.
+    const tabs = [...root.querySelectorAll<HTMLElement>("[role=tab]")]
+    expect(tabs.map(tab => tab.textContent?.trim())).toEqual(["Claude Code", "Codex"])
+    for (const [index, tab] of tabs.entries()) {
+      tab.click()
+      await nextTick()
+      expect(tab.getAttribute("aria-selected")).toBe("true")
+      const panel = root.querySelector<HTMLElement>(`#${tab.getAttribute("aria-controls")}`)!
+      expect(panel.hidden).toBe(false)
+      panel.querySelector<HTMLElement>("button")!.click()
       await nextTick()
       expect(writeText).toHaveBeenLastCalledWith(commands[index])
     }
@@ -33,6 +47,7 @@ it.each(["", "/portal", "/apps/_vitehub-preview", "/apps/_vitehub/preview"])("re
     expect(root.textContent).toContain("as the person who signs in")
     expect(root.textContent).not.toContain("CF_ACCESS_CLIENT_SECRET")
     expect(root.textContent).not.toContain("env_http_headers")
+    expect([...root.querySelectorAll("[role=tab]")].map(tab => tab.textContent?.trim())).toEqual(["Claude Code", "Codex", "Cursor", "VS Code"])
   }
   finally {
     app.unmount()

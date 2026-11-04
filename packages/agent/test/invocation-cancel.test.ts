@@ -457,7 +457,7 @@ describe("Agent Invocation cancel", () => {
     }
   })
 
-  it.each([true, false])("aborts local work while propagating a failed initial journal read, enforced=%s", async enforced => {
+  it.each([true, false])("persists cancellation and aborts local work before a failed journal confirmation read, enforced=%s", async enforced => {
     const failure = new Error("Synthetic initial journal read failure")
     const backing = createMemoryAgentInvocationStore()
     const getSummary = vi.fn(async (id: string) => await backing.getSummary(id))
@@ -482,7 +482,7 @@ describe("Agent Invocation cancel", () => {
     try {
       await expect(invocations.cancel(id)).rejects.toBe(failure)
       expect(signal?.aborted).toBe(true)
-      expect((await backing.get(id))?.cancelRequestedAt).toBeUndefined()
+      expect((await backing.get(id))?.cancelRequestedAt).toEqual(expect.any(String))
       if (!enforced) expect((await backing.get(id))?.status).toBe("running")
       release.resolve("Custom result")
       await settled

@@ -4,6 +4,8 @@ import { join } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 
+import { describeViteHubConsoleSection } from "@vite-hub/internal/console"
+
 import { consoleContributedSections, consoleRuntimeReaderModule, describeConsoleContributedSections, describeConsoleRuntimeReaders, isConsoleContributedSectionId } from "../src/console/contributions.ts"
 import { parseConsoleContributedSection, parseConsoleSectionContent } from "../src/console/runtime/definitions.ts"
 import { consoleBuiltinSectionIds, consolePrimitives, consoleSectionRouteName, isConsoleBuiltinSectionId, isConsoleSectionId, resolveConsoleSectionIds } from "../src/console/runtime/sections.ts"
@@ -54,6 +56,7 @@ describe("Console section contributions", () => {
     expect(consoleRuntimeReaderModule("@vite-hub/email/runtime/console")).toBe("vite-hub/_internal/email/runtime/console")
     expect(describeConsoleRuntimeReaders(["agents", "email", "queues", "schedules"])).toEqual([
       { export: "readEmailOutboxConsoleRecords", module: "vite-hub/_internal/email/runtime/console", section: "email" },
+      { export: "readScheduleConsoleRecords", module: "vite-hub/_internal/schedule/runtime/console", section: "schedules" },
     ])
     for (const reader of describeConsoleRuntimeReaders([...consoleContributedSections.keys()])) {
       expect(Object.hasOwn(manifest.exports, reader.module.replace(/^vite-hub\//, "./")), reader.module).toBe(true)
@@ -102,6 +105,12 @@ describe("Console section contributions", () => {
     expect(JSON.parse(JSON.stringify(playgroundConsoleContributions))).toEqual(
       describeConsoleContributedSections(playgroundConsoleContributions.map(section => section.id)),
     )
+  })
+
+  it("keeps the playground Comments page equal to the Comments operations section", async () => {
+    const { commentsOperationsConsoleSection } = await import("@vite-hub/comments/vite")
+    const { playgroundCommentsSection } = await vi.importActual<{ playgroundCommentsSection: unknown }>("../../../playground/console/sections.ts")
+    expect(JSON.parse(JSON.stringify(playgroundCommentsSection))).toEqual(describeViteHubConsoleSection(commentsOperationsConsoleSection))
   })
 
   it("reads each owner section as serializable content", async () => {
@@ -164,7 +173,7 @@ describe("Console primitive catalog", () => {
   it("parses the Comark components of a collection and drops malformed ones", () => {
     const collection = { access: { publish: true, read: true, write: true }, label: "Posts", name: "posts", path: "posts/**/*.md", schema: { type: "object" } }
     const components = [
-      { description: "A note", kind: "block", label: "Alert", name: "alert", props: { type: { default: "info", type: "string" }, open: { type: "boolean" }, size: { type: "enum" } } },
+      { description: "A note", kind: "block", label: "Alert", name: "alert", props: { type: { default: "info", type: "string" }, open: { type: "boolean" }, size: { type: "enum" }, icon: { store: "media", type: "image" }, guide: { type: "file" }, tone: { store: "media", type: "string" } } },
       { kind: "inline", name: "badge", props: {} },
       { name: "Bad Tag", kind: "block" },
       "x",
@@ -173,7 +182,7 @@ describe("Console primitive catalog", () => {
       collections: [{
         ...collection,
         components: [
-          { description: "A note", kind: "block", label: "Alert", name: "alert", props: { open: { type: "boolean" }, type: { default: "info", type: "string" } } },
+          { description: "A note", kind: "block", label: "Alert", name: "alert", props: { guide: { type: "file" }, icon: { store: "media", type: "image" }, open: { type: "boolean" }, tone: { type: "string" }, type: { default: "info", type: "string" } } },
           { kind: "inline", label: "badge", name: "badge", props: {} },
         ],
       }],

@@ -15,11 +15,11 @@ icon: i-lucide-sliders-horizontal
 | `source` | Content Source input | One read-only Source. Cannot be combined with `sources`. |
 | `sources` | `Record<string, ContentSourceInput>` | Named read-only Sources. Each name becomes a Content instance. |
 | `collections` | `Record<string, documents(...) \| singleton(...)>` | Editable collections and singletons, in Markdown, JSON, or YAML. Each name becomes a Content instance that serves published documents. See [Document collections](#document-collections) and [Singletons and data files](#singletons-and-data-files). |
-| `extends` | `cms` or `[cms, { database?, blob?, workspace? }]` | Preset that stores `collections` without wiring. See [CMS preset](/docs/content/cms-preset). Cannot be combined with `workspace`. |
+| `extends` | `cms` or `[cms, { ... }]` | Preset that stores `collections` without wiring. See [CMS options](/docs/cms/configure#options). Cannot be combined with `workspace`. |
 | `workspace` | `string` | The Workspace that stores `collections`, when you define it yourself. Required with `collections` unless `extends` sets it. It needs retained history. |
 | `authorize` | `({ user, actor?, collection, action, id? }) => boolean \| Promise<boolean>` | Policy that Content surfaces evaluate through `content.can()`. See [Access](#access). |
 | `live` | `'auto' \| false` | Live co-editing of Markdown documents. `auto` (default) turns it on when Realtime is enabled and the host has a room authority. See [Live editing](/docs/content/editing-together#live-editing). |
-| `seo` | `{ site?, sitemap?, robots? }` | Generated `/sitemap.xml` and `/robots.txt` from collections with a `url`. See [Sitemap and robots.txt](/docs/content/seo#sitemap-and-robotstxt). |
+| `seo` | `{ site?, sitemap?, robots? }` | Generated `/sitemap.xml` and `/robots.txt` from collections and Sources with a `url`. See [Sitemap and robots.txt](/docs/content/seo#sitemap-and-robotstxt). |
 | `plugins` | Comark Content plugins | Applied to each instance. Markdown parsing is built in. Add `json()`, `yaml()`, `media()`, `sql-query`, or `sqlite-full-text-search` plugins when you need them. A Comark parse plugin here throws `CONTENT_R0006`. |
 | `markdown` | Comark parser options | Applied to each instance. Put Comark parse plugins, such as `comark-knap`, in `markdown.plugins`. |
 | Other Comark options | `cache`, `hooks`, `logger`, `onError`, `baseURL` | Forwarded to each Comark Content instance. ViteHub sets `basePath` to `/api/content`. |
@@ -39,7 +39,7 @@ Plugin options are evaluated when the runtime is created. Recreate or rebuild th
 
 Each item's public path comes from its `path`, or from its key. Items need `content` or `data`. ViteHub serializes structured `data` as JSON before Comark parses it.
 
-Use `contentSource(input, { prefix, schema })` to set Comark options for one Source. A direct adapter selects a Reader when `keys()` starts an enumeration. Its later `getItem()` calls use that Reader until the next enumeration. Pass the adapter through `defineContent()` to isolate overlapping loads.
+Use `contentSource(input, { prefix, schema })` to set Comark options for one Source. Add `url`, such as `'/:id'`, to list its documents in the sitemap; see [Source URLs](/docs/content/seo#source-urls). A direct adapter selects a Reader when `keys()` starts an enumeration. Its later `getItem()` calls use that Reader until the next enumeration. Pass the adapter through `defineContent()` to isolate overlapping loads.
 
 ## Document collections
 
@@ -47,11 +47,11 @@ Use a collection when people or Agents edit the content at runtime. Sources stay
 
 ### Store the collection
 
-Collections need a Workspace with retained history. The [CMS preset](/docs/content/cms-preset) sets it up: `defineContent({ extends: cms })` turns on Workspace, Database, and Blob, adds a `content` Workspace on the [Blob + Database Store](/docs/workspace/configure#blob-database-store), and adds its history tables and the `contentSessionsSchema` table of [Editing together](/docs/content/editing-together) to your Database at build time. When the app has no Database Definition, the preset adds the `default` Database.
+Collections need a Workspace with retained history. The [CMS](/docs/cms) sets it up: `defineContent({ extends: cms })` turns on Workspace, Database, and Blob, adds a `content` Workspace on the [Blob + Database Store](/docs/workspace/configure#blob-database-store), and adds its history tables and the `contentSessionsSchema` table of [Editing together](/docs/content/editing-together) to your Database at build time. When the app has no Database Definition, the tables go to the implicit `default` Database.
 
 ```ts [server/content.ts]
 import { defineContent, documents } from 'vite-hub/content'
-import cms from '@vite-hub/content/presets/cms'
+import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 
 export const content = defineContent({
@@ -68,7 +68,7 @@ To use a Workspace you define yourself, pass its name as `workspace` instead of 
 
 ```ts [server/content.ts]
 import { defineContent, documents, optional } from 'vite-hub/content'
-import cms from '@vite-hub/content/presets/cms'
+import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 import * as v from 'valibot'
 
@@ -95,7 +95,7 @@ export const content = defineContent({
 | `label` | `string \| { singular, plural }` | Display name, such as `'Posts'`. Pass `{ singular: 'Person', plural: 'People' }` when the plural is not the singular plus `s`, so the Console shows **New person**. Defaults to the collection name in title case. |
 | `titleField` | `string` | The string field that names a document in lists, search, and the editor title. Defaults to the first of `title`, `name`, `label`, and `heading` that is a string field, then to the first required string field. |
 | `search` | `string[]` | Fields that `list({ search })` matches. Defaults to every string field plus the body. |
-| `components` | `Record<string, DocumentComponent>` | Comark components that bodies may use, keyed by tag, such as `alert` for `::alert`. The Console editor offers them in its `/` menu. Each takes `kind` (`block` or `inline`, default `block`), `label`, `description`, and `props` as `{ type: 'string' \| 'number' \| 'boolean' \| 'json', default? }`. Content stores the Markdown as written and does not check component use. |
+| `components` | `Record<string, DocumentComponent>` | Comark components that bodies may use, keyed by tag, such as `alert` for `::alert`. The Console editor offers them in its `/` menu. Each takes `kind` (`block` or `inline`, default `block`), `label`, `description`, and `props` as `{ type: 'string' \| 'number' \| 'boolean' \| 'json' \| 'image' \| 'file', default? }`. An `image` or `file` prop opens the same Media picker as `image()` and `file()` fields, limited to `store` when set, and stores the picked file as a string: its served URL, or its Blob pathname when the store is not served. Content stores the Markdown as written and does not check component use. |
 | `url` | `string \| ({ id, data }) => string \| null` | The public URL of each document, such as `'/blog/:id'`. Reads carry `document.url`, sitemaps and canonical links use it, and [`content.resolve(path)`](#find-the-document-of-a-page) maps a page back to its document with it. See [Document URLs](/docs/content/seo#document-urls). |
 | `editing` | `{ lease?: boolean }` | `lease: false` lets several sessions edit a document at once. By default one session at a time holds the edit lease. See [Editing together](/docs/content/editing-together#opt-out-per-collection). |
 
@@ -309,13 +309,35 @@ authorize: ({ user, actor, action }) => {
 },
 ```
 
-Without `authorize`, `content.can()` returns `false` for every action, and `content.hasPolicy` is `false`. The Console then shows no collections and asks you to add `authorize`. Published documents are public through `/api/content/**`; `read` covers drafts, including a [preview cookie](/docs/content/preview). The [Agent Capability](/docs/content/agent-capability#access-and-approval) checks `read` for published documents too, for each document it shows.
+Without `authorize`, `content.can()` returns `false` for every action, and `content.hasPolicy` is `false`. A preset can set a default policy: with `extends: [cms, { access: 'roles' }]`, the [CMS roles](/docs/cms/access) decide, and your `authorize` replaces them. With no policy, the Console shows no collections and asks you to add `authorize`. Published documents are public through `/api/content/**`; `read` covers drafts, including a [preview cookie](/docs/content/preview). The [Agent Capability](/docs/content/agent-capability#access-and-approval) checks `read` for published documents too, for each document it shows.
 
 The runtime methods, such as `save()` and `publish()`, are trusted server API. They do not call `authorize`. Check `content.can()` yourself before you call them from a route that acts for a user.
 
 ## Providers
 
 Content has no hosted provider. Comark Content stores its query and search index in the database that you pass to a plugin. Collections list, filter, sort, and search in memory, so they need no index plugin.
+
+To add full-text search to read-only Sources, install `comark-content` for the plugin imports. Content already owns the runtime needed to read and render Markdown.
+
+```bash
+pnpm add comark-content
+```
+
+```ts [server/content.ts]
+import sqlite from 'comark-content/database/sqlite-node'
+import sqliteFullTextSearch from 'comark-content/plugins/sqlite-full-text-search'
+import { defineContent } from 'vite-hub/content'
+import { glob } from 'vite-hub/source/glob'
+
+export const content = defineContent({
+	plugins: [sqliteFullTextSearch({ database: sqlite() })],
+	sources: {
+		docs: glob({ cwd: 'docs', include: '**/*.md' }),
+	},
+})
+```
+
+For client search, pass `searchClient()` from `comark-content/plugins/sqlite-full-text-search/client` to `createContentClient({ plugins: [searchClient()] })`. The Node SQLite adapter uses local state. Review [Limits and errors](/docs/content/limits-and-errors) before running multiple server instances.
 
 | Database | Import | Use |
 | --- | --- | --- |
@@ -325,3 +347,61 @@ Content has no hosted provider. Comark Content stores its query and search index
 The `vitehub()` Vite plugin generates the Content route for every preset. The Nuxt module installs the same behavior. Libraries that use owner packages get it from `hubSource()` in `@vite-hub/source/vite`. Each Source loader must also work on the host. `glob()` with literal options works everywhere, because the build bundles its files; see [Hosts without a file system](/docs/source/configure#hosts-without-a-file-system).
 
 See [Limits and errors](/docs/content/limits-and-errors) before running Content in production.
+
+## Render Markdown with Comark UI
+
+Content bundles the Comark UI parser preset with the HTML-only `annotate`, `diff`, and `quiz` plugins disabled. ViteHub UI includes the matching components and document styles. Render a Content page directly:
+
+```vue
+<script setup lang="ts">
+import { Markdown } from "vite-hub/ui/markdown"
+
+const { data: page } = await useFetch("/api/content/get/docs/introduction")
+</script>
+
+<template>
+  <Markdown v-if="page" :value="page" />
+</template>
+```
+
+Use `@vite-hub/ui/markdown` with the owner packages. The Nuxt UI module auto-imports `Markdown`. No Comark UI install, component map, or document stylesheet is required. Optional `components` override individual renderers. The same primitive accepts a Markdown string and supports streaming.
+
+`markdown.plugins` extends that preset. A plugin with the same name replaces a preset plugin, so an app can configure file readers, icon collections, or a private diagram service. The include plugin stays off; badges and chips load their images by URL.
+
+Content's collaborative editor and the Console use `createContentEditorCodec()` from `vite-hub/content/editor` for their schema, Markdown conversion, and loss check. Content installs its Comark and Tiptap runtimes; apps do not configure them. Components do not need a separate editor node definition. A document that cannot round-trip opens read-only and remains editable in Source.
+
+### Render HTML on the server
+
+A server route without Vue renders a document with `renderContentHtml()` from `vite-hub/content`. It uses the same Comark UI preset that Content parses with, so math and the other preset components render as HTML. The app does not install `@comark/html` or `comark-ui`.
+
+```ts [server/routes/guides/[slug].get.ts]
+import { defineHandler, getRouterParam } from 'h3'
+import { renderContentHtml } from 'vite-hub/content'
+import { content } from '../../content'
+
+export default defineHandler(async (event) => {
+  const guide = await content.get(`/guides/${getRouterParam(event, 'slug')}`)
+  if (!guide) return new Response('Not found', { status: 404 })
+  return new Response(`<article>${await renderContentHtml(guide)}</article>`, { headers: { 'content-type': 'text/html; charset=utf-8' } })
+})
+```
+
+Pass `components` to render the app's own blocks, such as `::alert`. A component gets the node and a `render()` for its children:
+
+```ts
+await renderContentHtml(guide, {
+  components: {
+    alert: async ([, attributes, ...children], { render }) => `<aside class="alert">${await render(children)}</aside>`,
+  },
+})
+```
+
+A component that the preset and `components` do not know renders as an element with its own tag name. Pass a document from `content.get()`. List results have no `nodes`.
+
+### Migrate an existing Comark setup
+
+Replace the app's Comark renderer, component map, and document stylesheet imports with `Markdown` from `vite-hub/ui/markdown`. Pass the parsed page as `value`. Keep only app-specific renderer overrides in `components`.
+
+Remove app dependencies on Comark UI and Tiptap packages that were installed only for Content. Keep packages that the app imports directly, such as optional search plugins or extensions for a custom editor.
+
+For a custom editor, use `createContentEditorCodec()` or `contentRealtimeEditor()` from `vite-hub/content/editor`. The collection-specific `contentEditorComponents` and `contentEditorKitOptions` helpers are removed. The separate `contentMarkdownLossOf` and `describeContentMarkdownLoss` helpers are also removed; use the codec's `verify()` method. There are no compatibility aliases.

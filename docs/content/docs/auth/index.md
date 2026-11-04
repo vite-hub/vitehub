@@ -1,5 +1,6 @@
 ---
 title: Auth
+layout: landing
 navigation.title: Overview
 description: Add sign-up, sign-in, and protected routes to your app with Better Auth, from one server file.
 navigation.order: 1
@@ -85,8 +86,8 @@ icon: i-lucide-shield-check
   Read the auth secret and OAuth keys from server environment variables when a request arrives.
   :::
 
-  :::product-feature-item{title="Add a database for production" icon="i-lucide-database" to="/docs/auth/configure#storage-placement-metadata"}
-  The default store loses users when the server restarts. Give Better Auth a database adapter to keep them.
+  :::product-feature-item{title="Add a database for production" icon="i-lucide-database" to="/docs/auth/configure#keep-users-in-the-app-database"}
+  `authDatabase()` keeps users in the app Database and adds the Better Auth tables to it.
   :::
 ::
 

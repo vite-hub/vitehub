@@ -4,9 +4,9 @@ import { createViteHubUI, type ViteHubUIOptions } from "../config.ts";
 
 const viteHubUIPlugin: unknown = defineNuxtPlugin((nuxtApp) => {
   const options = useRuntimeConfig().public.viteHubUI as ViteHubUIOptions | undefined;
-  // Nuxt renders icons through Nuxt Icon; createViteHubUI() keeps this registration.
-  if (!nuxtApp.vueApp.component("UIcon")) nuxtApp.vueApp.component("UIcon", defineAsyncComponent(() => import("@nuxt/ui/components/Icon.vue")));
-  nuxtApp.vueApp.use(createViteHubUI(options));
+  // In Nuxt, icons come from the @nuxt/icon bundle through Nuxt UI's Nuxt icon. The parts default to the Vue one.
+  const UIcon = defineAsyncComponent(() => import("@nuxt/ui/components/Icon.vue"));
+  nuxtApp.vueApp.use(createViteHubUI({ ...options, components: { UIcon } }));
 });
 
 export default viteHubUIPlugin;

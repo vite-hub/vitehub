@@ -2,13 +2,8 @@ import { mkdirSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
-import { createClient } from "@libsql/client"
 import { createD1AgentInvocationStore, d1AgentInvocationSchema } from "@vite-hub/agent/invocations/d1"
-import { createLibsqlAgentInvocationStore } from "@vite-hub/agent/invocations/sqlite"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
-import { drizzle as drizzleRemote } from "drizzle-orm/sqlite-proxy"
-import { drizzle } from "drizzle-orm/libsql"
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 
 import { createConsoleUsageIndex } from "./usage-index.ts"
 
@@ -23,16 +18,15 @@ import {
 import { consoleFixtureRevision, readConsoleFixture } from "../../fixture.ts"
 
 import type { Value } from "@libsql/client"
+import type { ConsoleD1Database, ConsoleInvocationsDatabase, ConsoleLibsqlJournal } from "./invocations-database.ts"
 import type { ConsoleUsageClient } from "./usage-index.ts"
-import type { AgentInvocationRecord, AgentInvocationSummary, AgentInvocations } from "@vite-hub/agent"
-import type { AgentInvocationD1Database, AgentInvocationD1Statement } from "@vite-hub/agent/invocations/d1"
+import type { AgentInvocationStore, AgentInvocations } from "@vite-hub/agent"
 import type { AgentInvocationsOptions, AgentRetentionPolicy } from "@vite-hub/agent/server"
 import type { ConsoleFixture } from "../../fixture.ts"
-import type { SqliteRemoteDatabase } from "drizzle-orm/sqlite-proxy"
-import type { LibSQLDatabase } from "drizzle-orm/libsql"
-import type { AnySQLiteColumn, SQLiteTableWithColumns } from "drizzle-orm/sqlite-core"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 import { consoleD1MaxSizeError } from "../../retention.ts"
+
+export type { ConsoleInvocationsDatabase } from "./invocations-database.ts"
 
 // Content attributes that the Console journal keeps in metadata mode: prompts, results, tool input and output.
 // `input.data` and `result.output` are the structured forms, such as `driver.ask` state and answers.
@@ -50,79 +44,13 @@ const consoleMetadataContent = [
   "vitehub.session.title",
 ] as const
 
-type ConsoleInvocationColumn<Data, NotNull extends boolean, HasDefault extends boolean = false> = AnySQLiteColumn<{
-  data: Data
-  hasDefault: HasDefault
-  notNull: NotNull
-  tableName: "vitehub_agent_invocations"
-}> & { _: { generated: undefined } }
-
-type ConsoleInvocationsTable<Nullable extends boolean> = SQLiteTableWithColumns<{
-  columns: {
-    agentName: ConsoleInvocationColumn<string, true, true>
-    id: ConsoleInvocationColumn<string, true>
-    record: ConsoleInvocationColumn<Omit<AgentInvocationRecord, "cursor">, true>
-    search: ConsoleInvocationColumn<string, Nullable extends true ? false : true>
-    sequence: ConsoleInvocationColumn<number, true, true>
-    status: ConsoleInvocationColumn<string, true>
-    summary: ConsoleInvocationColumn<Omit<AgentInvocationSummary, "cursor">, Nullable extends true ? false : true>
-    updatedAt: ConsoleInvocationColumn<string, true, true>
-  }
-  dialect: "sqlite"
-  name: "vitehub_agent_invocations"
-  schema: undefined
-}>
-
-// doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Drizzle's inferred table type cannot be emitted under isolatedDeclarations, so keep the public schema explicit here.
-// SAFETY: The explicit table type mirrors the libSQL journal columns constructed immediately below.
-const consoleInvocationsTable = sqliteTable("vitehub_agent_invocations", {
-  sequence: integer().primaryKey({ autoIncrement: true }),
-  id: text().notNull().unique(),
-  status: text().notNull(),
-  agentName: text("agent_name").notNull().default(""),
-  search: text(),
-  summary: text({ mode: "json" }).$type<Omit<AgentInvocationSummary, "cursor">>(),
-  updatedAt: text("updated_at").notNull().default(""),
-  record: text({ mode: "json" }).$type<Omit<AgentInvocationRecord, "cursor">>().notNull(),
-}) as unknown as ConsoleInvocationsTable<true>
-
-// doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Drizzle's inferred table type cannot be emitted under isolatedDeclarations, so keep the public schema explicit here.
-// SAFETY: The explicit table type mirrors the D1 journal columns constructed immediately below.
-const consoleD1InvocationsTable = sqliteTable("vitehub_agent_invocations", {
-  sequence: integer().primaryKey({ autoIncrement: true }),
-  id: text().notNull().unique(),
-  status: text().notNull(),
-  agentName: text("agent_name").notNull().default(""),
-  search: text().notNull(),
-  summary: text({ mode: "json" }).$type<Omit<AgentInvocationSummary, "cursor">>().notNull(),
-  updatedAt: text("updated_at").notNull().default(""),
-  record: text({ mode: "json" }).$type<Omit<AgentInvocationRecord, "cursor">>().notNull(),
-}) as unknown as ConsoleInvocationsTable<false>
-
-const consoleInvocationSchema: { invocations: typeof consoleInvocationsTable } = {
-  invocations: consoleInvocationsTable,
-}
-const consoleD1InvocationSchema: { invocations: typeof consoleD1InvocationsTable } = {
-  invocations: consoleD1InvocationsTable,
-}
-
-export type ConsoleInvocationsDatabase = {
-  driver: "libsql"
-  db: LibSQLDatabase<typeof consoleInvocationSchema>
-  schema: typeof consoleInvocationSchema
-} | {
-  driver: "d1"
-  db: SqliteRemoteDatabase<typeof consoleD1InvocationSchema>
-  schema: typeof consoleD1InvocationSchema
-}
-
 const consoleUsageIndexes = new WeakMap<AgentInvocations, ReturnType<typeof createConsoleUsageIndex>>()
 
 export function getConsoleUsageIndex(invocations: AgentInvocations): ReturnType<typeof createConsoleUsageIndex> | undefined {
   return consoleUsageIndexes.get(invocations)
 }
 
-const consoleInvocationDatabases = new WeakMap<AgentInvocations, ConsoleInvocationsDatabase>()
+const consoleInvocationDatabases = new WeakMap<AgentInvocations, () => Promise<ConsoleInvocationsDatabase>>()
 const consoleDatabaseConfigurations = new WeakMap<AgentInvocations, string>()
 const consoleObservationConfigurations = new WeakMap<AgentInvocations, string>()
 
@@ -139,13 +67,33 @@ export function getConsoleInvocations(): AgentInvocations {
   return invocations
 }
 
-export function getConsoleInvocationsDatabase(): ConsoleInvocationsDatabase {
+/** Opens the Console journal database on first use. */
+export async function getConsoleInvocationsDatabase(): Promise<ConsoleInvocationsDatabase> {
   const invocations = getConsoleInvocations()
   const database = consoleInvocationDatabases.get(invocations)
   if (!database) {
     throw viteHubErrorDiagnostics.VITE_HUB_R0064({ message: "[vitehub] The Agent invocation console is not backed by the Console Drizzle database." })
   }
-  return database
+  return await database()
+}
+
+/** A store that opens its backing store on the first call. */
+function lazyAgentInvocationStore(open: () => Promise<Required<AgentInvocationStore>>): Required<AgentInvocationStore> {
+  return {
+    claim: async (...input) => (await open()).claim(...input),
+    create: async input => (await open()).create(input),
+    delete: async id => (await open()).delete(id),
+    get: async (...input) => (await open()).get(...input),
+    getClaimToken: async id => (await open()).getClaimToken(id),
+    getSummary: async id => (await open()).getSummary(id),
+    list: async options => (await open()).list(options),
+    listAgentNames: async () => (await open()).listAgentNames(),
+    listCapabilityIds: async agentName => (await open()).listCapabilityIds(agentName),
+    listTriggeredBy: async agentName => (await open()).listTriggeredBy(agentName),
+    prune: async options => (await open()).prune(options),
+    release: async (id, claimId) => (await open()).release(id, claimId),
+    update: async (...input) => (await open()).update(...input),
+  }
 }
 
 interface ConsoleDatabaseOptions {
@@ -199,15 +147,6 @@ export interface ConsoleD1Journal {
   env: () => Promise<Record<string, unknown>> | Record<string, unknown>
 }
 
-interface ConsoleD1Statement extends AgentInvocationD1Statement {
-  bind(...values: unknown[]): ConsoleD1Statement
-  raw(): Promise<unknown[][]>
-}
-
-interface ConsoleD1Database extends AgentInvocationD1Database {
-  prepare(query: string): ConsoleD1Statement
-}
-
 function isD1Database(value: unknown): value is ConsoleD1Database {
   if (typeof value !== "object" || value === null || !("prepare" in value) || typeof value.prepare !== "function" || !("batch" in value) || typeof value.batch !== "function") return false
   const statement: unknown = value.prepare("SELECT 1")
@@ -219,7 +158,7 @@ export function createConsoleD1Invocations(d1: ConsoleD1Journal, observations?: 
   const { maxSize, ...limits } = retention ?? {}
   if (maxSize !== undefined && maxSize !== false) throw consoleD1MaxSizeError()
   // Keep only completed initialization; Worker requests cannot share pending I/O.
-  const migrated = new WeakSet<AgentInvocationD1Database>()
+  const migrated = new WeakSet<ConsoleD1Database>()
   const database = async () => {
     const binding = (await d1.env())[d1.binding]
     if (!isD1Database(binding)) {
@@ -237,28 +176,8 @@ export function createConsoleD1Invocations(d1: ConsoleD1Journal, observations?: 
     observations,
     store: createD1AgentInvocationStore({ database, migrate: false, ...limits }),
   })
-  const db = drizzleRemote(async (query, parameters, method) => {
-    const binding = await database()
-    const statement = binding.prepare(query).bind(...parameters)
-    const rows = await statement.raw()
-    return { rows: method === "get" ? rows[0]! : rows }
-  }, async (queries) => {
-    const binding = await database()
-    const results = await binding.batch(queries.map(query => binding.prepare(query.sql).bind(...query.params)))
-    return results.map((result, index) => {
-      const rows = (result.results ?? []).map(row => Object.values(row))
-      return { rows: queries[index]!.method === "get" ? rows[0]! : rows }
-    })
-  }, { schema: consoleD1InvocationSchema })
-  // D1 cannot keep Drizzle's separate BEGIN/query/COMMIT calls in one transaction.
-  db.transaction = async () => {
-    throw viteHubErrorDiagnostics.VITE_HUB_R0123({ message: "[vitehub] The D1 Console journal does not support db.transaction(). Use db.batch() for atomic writes." })
-  }
-  consoleInvocationDatabases.set(invocations, {
-    driver: "d1",
-    db,
-    schema: consoleD1InvocationSchema,
-  })
+  let drizzleDatabase: Promise<ConsoleInvocationsDatabase> | undefined
+  consoleInvocationDatabases.set(invocations, () => drizzleDatabase ??= import("./invocations-database.ts").then(module => module.createConsoleD1Database(database)))
   const indexes = new WeakMap<ConsoleD1Database, ReturnType<typeof createConsoleUsageIndex>>()
   const usageIndex = async () => {
     const binding = await database()
@@ -304,33 +223,32 @@ export function createConsoleInvocations(projectRoot: string, observations?: Age
     consoleObservationConfigurations.set(invocations, observationConfiguration(observations, retention))
     return invocations
   }
-  const client = createClient(database)
-  let invocations: AgentInvocations
-  try {
-    invocations = defineAgentInvocations({
-      configuration: "content",
-      metadataContent: consoleMetadataContent,
-      observations,
-      store: createLibsqlAgentInvocationStore({
-        client,
-        maxAge: retention?.maxAge === undefined ? false : retention.maxAge,
-        maxRecords: retention?.maxRecords === undefined ? false : retention.maxRecords,
-        maxSize: retention?.maxSize === undefined ? false : retention.maxSize,
-      }),
+  // libSQL and Drizzle load on the first read or write, not at server start. Concurrent first uses share one open.
+  let journal: Promise<ConsoleLibsqlJournal> | undefined
+  const open = () => journal ??= import("./invocations-database.ts")
+    .then(module => module.openConsoleLibsqlJournal(database, retention))
+    .catch((error: unknown) => {
+      // Let the next use try again.
+      journal = undefined
+      throw error
     })
-  }
-  catch (error) {
-    client.close()
-    throw error
-  }
+  const invocations = defineAgentInvocations({
+    configuration: "content",
+    metadataContent: consoleMetadataContent,
+    observations,
+    store: lazyAgentInvocationStore(async () => (await open()).store),
+  })
   consoleDatabaseConfigurations.set(invocations, database.url)
   consoleObservationConfigurations.set(invocations, observationConfiguration(observations, retention))
-  consoleUsageIndexes.set(invocations, createConsoleUsageIndex(client))
-  consoleInvocationDatabases.set(invocations, {
-    driver: "libsql",
-    db: drizzle(client, { schema: consoleInvocationSchema }),
-    schema: consoleInvocationSchema,
+  consoleUsageIndexes.set(invocations, {
+    async query(options) {
+      return (await open()).usageIndex.query(options)
+    },
+    async rebuild() {
+      await (await open()).usageIndex.rebuild()
+    },
   })
+  consoleInvocationDatabases.set(invocations, async () => (await open()).database)
   return invocations
 }
 

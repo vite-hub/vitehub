@@ -13,6 +13,7 @@ Comments needs somewhere to keep threads on every host. The [`comments()` plugin
 | Host | Works | Where threads go |
 | --- | --- | --- |
 | `vite dev` | Yes | `.vitehub/data/comments.sqlite`, with no option |
+| `vite dev` with a Cloudflare preset | Yes | A local D1 binding `COMMENTS` in `.wrangler/state`, with no option |
 | Node, Docker (one process) | Yes | `comments({ database: 'file:./data/comments.sqlite' })`, on a disk or volume that survives deploys |
 | Several processes or machines | Yes | A Turso database: `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` on each server. |
 | Cloudflare Workers | Yes | `comments({ database: 'd1:COMMENTS' })`, or a D1 binding named `DB`. See [Cloudflare D1](/docs/comments/configure#cloudflare-d1). |
@@ -98,11 +99,11 @@ The presence rooms connect through Realtime, which checks the WebSocket origin i
 
 ## Caching
 
-Pages with the page tools loader go out with `cache-control: private, no-store`. Other pages keep the headers your app sets. A CDN that caches HTML by URL can serve a cached page to a browser with the `vitehub-tools` cookie, and that page has no loader. Bypass the cache for requests with the cookie, or open pages with `?vitehub`.
+Pages with the page tools loader go out with `cache-control: private, no-store`. Other pages keep the headers your app sets. They have the page tools bootstrap, which is the same for every visitor, so a CDN can cache them by URL: in a browser with the `vitehub-tools` cookie, the cached page loads the loader itself.
 
 ## Content Security Policy
 
-The page gets one script from the same origin, the page tools loader at `/_vitehub/page/assets/loader.js`. The loader imports the overlay from `/api/_vitehub/comments/assets/overlay.js`. When the page's `Content-Security-Policy` header has a script nonce, as with `'strict-dynamic'` in nuxt-security, the server gives the loader script that nonce, and `'strict-dynamic'` trusts the overlay that it imports. The overlay adds its styles inside its shadow root, so `style-src` must allow inline styles. Presence uses a WebSocket to the same origin, so `connect-src`, when you set it, needs `'self'`.
+The page gets one script from the same origin, the page tools loader at `/_vitehub/page/assets/loader.js`. The loader imports the overlay from `/api/_vitehub/comments/assets/overlay.js`. With a base path, such as Vite `base: '/docs/'`, both paths start with `/docs`. When the page's `Content-Security-Policy` header has a script nonce, as with `'strict-dynamic'` in nuxt-security, the server gives the loader script that nonce, and `'strict-dynamic'` trusts the overlay that it imports. The overlay adds its styles inside its shadow root, so `style-src` must allow inline styles. Presence uses a WebSocket to the same origin, so `connect-src`, when you set it, needs `'self'`.
 
 ## Inspect the build
 

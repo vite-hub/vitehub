@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
@@ -42,6 +43,11 @@ describe("built-in deployment plans", () => {
       adapter: "cloudflare",
       supported: true,
     })
+    expect(resolveDeploymentPlan("node").services.queue).toEqual({
+      adapter: "local",
+      guarantee: "single-host",
+      supported: true,
+    })
     expect(resolveDeploymentPlan("node").services.rateLimit).toEqual({
       adapter: "memory",
       guarantee: "process-local",
@@ -50,6 +56,15 @@ describe("built-in deployment plans", () => {
     expect(() => assertDeploymentService(resolveDeploymentPlan("deno"), "sandbox")).toThrow(
       'The "deno" preset cannot provide sandbox',
     )
+  })
+  it("says which presets provide Browser and Realtime", () => {
+    const presets = ["cloudflare", "deno", "netlify", "node", "vercel"] as const
+    expect(Object.fromEntries(presets.map(preset => [preset, resolveDeploymentPlan(preset).services.browser.supported]))).toEqual({
+      cloudflare: true, deno: false, netlify: false, node: false, vercel: false,
+    })
+    expect(Object.fromEntries(presets.map(preset => [preset, resolveDeploymentPlan(preset).services.realtime.supported]))).toEqual({
+      cloudflare: true, deno: false, netlify: false, node: true, vercel: false,
+    })
   })
   it("keeps legacy hosting detection limited to hosted providers", () => {
     expect(
@@ -128,5 +143,34 @@ describe("built-in deployment plans", () => {
     const target = wrapper.match(/from "([^"]+)"/)?.[1]
     expect(target).toBeDefined()
     expect(resolve(rootDir, "custom-netlify", "functions", target!)).toBe(resolve(rootDir, "custom-netlify", plan.output.entry!))
+  })
+  it("follows Nitro's Netlify Frameworks API output without a wrapper", async () => {
+    const rootDir = await temporaryDirectory("vitehub-plan-netlify-v1-")
+    const outputDir = resolve(rootDir, ".netlify", "v1", "functions")
+    const plan = resolveDeploymentPlan("netlify")
+    await mkdir(resolve(outputDir, "server"), { recursive: true })
+    await writeFile(resolve(outputDir, "server", "server.mjs"), "export {}\n", "utf8")
+    const staleWrapper = resolve(rootDir, ".netlify", "functions", "server.mjs")
+    await mkdir(dirname(staleWrapper), { recursive: true })
+    await writeFile(staleWrapper, 'export { default } from "../functions-internal/server/server.mjs"\n', "utf8")
+
+    await finalizeDeploymentPlanOutput({ outputDir, plan, rootDir })
+
+    const manifest = JSON.parse(await readFile(resolve(rootDir, ".netlify", "deployment.json"), "utf8"))
+    expect(manifest.output).toEqual({ ...plan.output, directory: ".netlify", entry: "v1/functions/server/server.mjs" })
+    expect(existsSync(staleWrapper)).toBe(false)
+  })
+  it("keeps a Netlify function that ViteHub did not write", async () => {
+    const rootDir = await temporaryDirectory("vitehub-plan-netlify-v1-own-")
+    const outputDir = resolve(rootDir, ".netlify", "v1", "functions")
+    await mkdir(resolve(outputDir, "server"), { recursive: true })
+    await writeFile(resolve(outputDir, "server", "server.mjs"), "export {}\n", "utf8")
+    const userFunction = resolve(rootDir, ".netlify", "functions", "server.mjs")
+    await mkdir(dirname(userFunction), { recursive: true })
+    await writeFile(userFunction, "export default () => new Response()\n", "utf8")
+
+    await finalizeDeploymentPlanOutput({ outputDir, plan: resolveDeploymentPlan("netlify"), rootDir })
+
+    expect(await readFile(userFunction, "utf8")).toBe("export default () => new Response()\n")
   })
 })

@@ -1,7 +1,7 @@
 # `@vite-hub/browser`
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fbrowser&icon=npm)](https://www.npmjs.com/package/@vite-hub/browser)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fbrowser&period=month&icon=npm)](https://www.npmjs.com/package/@vite-hub/browser)
+[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fbrowser&icon=npm)](https://npmx.dev/package/@vite-hub/browser)
+[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fbrowser&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/browser)
 [![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
 [![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
 
@@ -9,7 +9,7 @@
 
 Browser Definitions and actions currently use Cloudflare Browser Run. Low-level clients can instead start a local Chromium process on a trusted Node host.
 
-The package requires Node.js 24.15 or newer.
+The package requires Node.js 22.18 or newer.
 
 ## Choose the package
 

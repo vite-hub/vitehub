@@ -343,6 +343,33 @@ export async function getOpenWorkflowRun<TPayload = unknown, TResult = unknown>(
   })
 }
 
+const terminalOpenWorkflowStatuses: ReadonlySet<WorkflowRunStatus> = new Set(["cancelled", "completed", "failed"])
+
+/**
+ * Cancels a pending or running OpenWorkflow run of this Workflow and returns its state afterwards. A run of another
+ * Workflow, or an unknown run, reports `unknown` without being cancelled. A finished run keeps and reports its status.
+ */
+// doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- Workflow handles intentionally retain their definition's payload and result types across provider reads.
+export async function cancelOpenWorkflowRun<TPayload = unknown, TResult = unknown>(
+  config: ResolvedWorkflowOptions,
+  name: string,
+  id: string,
+): Promise<WorkflowRun<TPayload, TResult>> {
+  const current = await getOpenWorkflowRun<TPayload, TResult>(config, name, id)
+  if (current.status === "unknown" || terminalOpenWorkflowStatuses.has(current.status)) return current
+  const runtime = await getOpenWorkflowRuntime(config)
+  try {
+    await runWorkflowProviderOperation("openworkflow", "cancel", () => runtime.client.cancelWorkflowRun(id))
+  }
+  catch (error) {
+    // A worker may finish between the initial read and OpenWorkflow's atomic cancellation update.
+    const latest = await getOpenWorkflowRun<TPayload, TResult>(config, name, id).catch(() => undefined)
+    if (latest && terminalOpenWorkflowStatuses.has(latest.status)) return latest
+    throw error
+  }
+  return await getOpenWorkflowRun<TPayload, TResult>(config, name, id)
+}
+
 export async function resetOpenWorkflowRuntime(): Promise<void> {
   const closing = runtimes
   runtimes = new Map()

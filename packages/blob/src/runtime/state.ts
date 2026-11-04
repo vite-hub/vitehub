@@ -10,6 +10,7 @@ import {
 import { normalizeBlobOptions } from "../config.ts"
 import { setServedBlobRoute } from "../served.ts"
 
+export { setBlobPhotonLoader } from "../media/photon-module.ts"
 export { setBlobSharpModule } from "../media/sharp-module.ts"
 
 import type { BlobStorage, ResolvedBlobModuleOptions } from "../types.ts"

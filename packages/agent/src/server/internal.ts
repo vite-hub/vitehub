@@ -12,14 +12,17 @@ export {
   drainInlineChatInvocations,
   hasChannelChatRoute,
   installAgentChannelDeliveryWorkflowResolver,
+  onAgentRoutesLoad,
   setAgentChannelDeliveryWorkflowStateResolver,
-} from "./routes.ts"
+} from "./route-handlers.ts"
 export { isViteHubBearerSecretEqual } from "@vite-hub/internal/secret"
+export { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 export { observabilityStatus } from "../internal/observability-host.ts"
 export { handleChannelReplayRequest } from "../channel-replay.ts"
 export type { ChannelReplayRequestOptions } from "../channel-replay.ts"
 export { createAgentWebhookRequest } from "../internal/webhook-request.ts"
 export { webhookQueueShutdown } from "../internal/webhook-queue.ts"
+export { registerChannelTaskQueueStarter } from "../channel-tasks.ts"
 export { onShutdown } from "@vite-hub/runtime/shutdown"
 export { createAgentWebhookWarmup } from "./webhook-warmup.ts"
 export type { AgentWebhookReadiness, AgentWebhookWarmup, AgentWebhookWarmupAgent } from "./webhook-warmup.ts"
@@ -60,7 +63,7 @@ export { asMetadataTarget, copyDefinitionDecorations, getAgentLayerOptions, inhe
 export { resolveAgentCapabilityDefinitions } from "../capability-runtime.ts"
 export { activeProviderSandbox } from "../internal/provider-box.ts"
 export { forgeAccessKey } from "../internal/forge-access.ts"
-export { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
+export { decodeColocatedAgentSkills, inspectAgentSkillFiles, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { runAgent } from "../index.ts"

@@ -187,6 +187,10 @@ const codes = {
       : "Connections management requires Auth outside local development. Configure an actor module or Console Auth.",
     fix: "Protect the management routes with Console Auth, or pass an actor function to createConnectionsHandler().",
   },
+  CONNECTIONS_AUTHORIZATION_EXPIRED: {
+    why: "The authorization link expired or was already used. Each link works one time, for 10 minutes.",
+    fix: "Run `vitehub connections connect <name>` again, or connect again from the Console, and finish the sign-in within 10 minutes.",
+  },
   CONNECTIONS_AUTHORIZATION_CANCELLED: {
     why: "The provider did not grant access.",
     fix: "Connect again and approve the access that the Connection asks for.",
@@ -202,11 +206,10 @@ const codes = {
     fix: "Sign in again. A custom actor function must return user:<id> for an allowed manager.",
   },
   CONNECTIONS_INVALID_REQUEST: {
-    why: ({ approval, connection, instances, problem }: { approval?: string, connection?: string, instances?: readonly string[], problem: "api-key-format" | "authorization-expired" | "body" | "instances" | "login-key" | "name" | "not-pending" | "oauth-key" | "redirect-uri" | "start" }): string => {
+    why: ({ approval, connection, instances, problem }: { approval?: string, connection?: string, instances?: readonly string[], problem: "api-key-format" | "body" | "instances" | "login-key" | "name" | "not-pending" | "oauth-key" | "redirect-uri" | "start" }): string => {
       if (problem === "api-key-format") return "An API key must contain 1 to 8192 visible ASCII characters."
       if (problem === "instances") return `Connection "${connection}" has instances. Use ${(instances ?? []).map(instance => `"${connection}:${instance}"`).join(", ")}.`
       if (problem === "login-key") return `Connection "${connection}" signs in by itself through its provider \`login\`. It has no key.`
-      if (problem === "authorization-expired") return "The authorization request is unknown or expired. Start the connection again."
       if (problem === "not-pending") return `Approval "${approval}" is not pending.`
       if (problem === "oauth-key") return `Connection "${connection}" uses OAuth. Connect it with \`vitehub connections connect ${connection}\`.`
       if (problem === "redirect-uri") return "The redirect URI must use HTTPS or a loopback address."

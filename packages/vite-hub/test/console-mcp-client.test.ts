@@ -232,11 +232,11 @@ describe("MCP client section", () => {
     expect(isConsoleMcpClientEnabled({ auth: false, mcpClient: true })).toBe(true)
     expect(isConsoleMcpClientEnabled({ auth: "app" })).toBe(false)
     expect(resolveConsoleSectionIds({ console: { auth: false, mcpClient: true } })).toEqual(["mcp-client"])
-    expect(resolveConsoleSectionIds({ agent: true, console: { auth: false, mcpClient: true }, workflow: false })).toEqual(["agents", "usage", "channels", "mcp-client"])
+    expect(resolveConsoleSectionIds({ agent: true, console: { auth: false, mcpClient: true }, workflow: false })).toEqual(["agents", "skills", "usage", "channels", "mcp-client"])
     expect(resolveConsoleSectionIds({ console: { auth: false } })).toEqual([])
   })
 
-  it("bundles the MCP client only into apps that turn the section on", async () => {
+  it("loads the MCP client lazily only in apps that turn the section on", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-mcp-client-"))
     try {
       const generated = async (sections: string[]) => {
@@ -244,7 +244,8 @@ describe("MCP client section", () => {
         return readFile(join(root, "plugin.mjs"), "utf8")
       }
       const withMcp = await generated(["mcp-client"])
-      expect(withMcp).toContain('import { consoleMcpClientOperations as vitehubConsoleMcpClientOperations } from "vite-hub/console/mcp-client"')
+      expect(withMcp).toContain('import("vite-hub/console/mcp-client")')
+      expect(withMcp).not.toMatch(/^import .* from "vite-hub\/console\/mcp-client"/m)
       expect(withMcp).toContain('installConsoleOperations([{ operations: vitehubConsoleMcpClientOperations, plugin: "vite-hub" }]')
       expect(await generated(["env"])).not.toContain("vite-hub/console/mcp-client")
     }

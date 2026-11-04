@@ -211,7 +211,7 @@ describe("Console impersonation", () => {
   });
 
   it("reports Better Auth's target rules and refuses another administrator", async () => {
-    const { console, database, signUp, operator, member, consoleRequest } = await app();
+    const { auth, store, console, database, signUp, operator, member, consoleRequest } = await app();
     const other = await signUp("Other", "admin");
     const request = consoleRequest(operator.cookie);
     expect((await data(console.user(other.id, request))).impersonation).toEqual({
@@ -226,6 +226,26 @@ describe("Console impersonation", () => {
       enabled: false,
       reason: "Better Auth does not open sessions for banned users.",
     });
+    database.sqlite.prepare("UPDATE user SET banned = 0 WHERE id = ?").run(member.id);
+    const computed = createAuthConsole(
+      auth,
+      {
+        roles: {
+          editable: false,
+          reason: "Computed.",
+          read: (users) => Object.fromEntries(users.map((user) => [user.id, "admin"])),
+        },
+      },
+      store,
+      { impersonation: true },
+    );
+    expect((await data(computed.user(member.id, request))).impersonation).toEqual({
+      enabled: false,
+      reason: "Better Auth does not impersonate administrators.",
+    });
+    await expect(
+      data(computed.execute({ action: "impersonate", userId: member.id }, request)),
+    ).rejects.toMatchObject({ code: "AUTH_CONSOLE_FORBIDDEN" });
     const allowing = await app({ impersonationSessionDuration: 600 });
     expect((await data(allowing.console.describe(allowing.consoleRequest(allowing.operator.cookie)))).impersonation?.duration).toBe(600);
   });

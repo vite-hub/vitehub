@@ -2,7 +2,7 @@ import { assertKnownPresetOptions, isPresetOptionsRecord, readPresetSelection } 
 
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 
-import type { CmsPresetOptions } from "./presets/cms.ts"
+import type { ContentAuthorize } from "./index.ts"
 
 const contentPresetMarker: unique symbol = Symbol.for("vitehub.content.preset")
 
@@ -12,12 +12,14 @@ export interface ContentPresetDefaults {
   workspace?: string
   /** How `publish()` reaches the published ref on a Store with pull requests. Defaults to `commit`. */
   publish?: "commit" | "pr"
+  /** The policy of `content.can()` when `defineContent()` sets no `authorize`. */
+  authorize?: ContentAuthorize
 }
 
 /**
  * A Content preset selected with `defineContent({ extends: preset })` or `extends: [preset, options]`. A preset fills
  * Definition options at runtime. Infrastructure that it needs, such as a Workspace or Database tables, comes from the
- * Content Vite plugin at build time.
+ * Vite plugin of the package that owns the preset, such as `hubCms()` from `@vite-hub/cms/vite`.
  */
 export interface ContentPreset<TOptions extends object = Record<string, unknown>> {
   readonly [contentPresetMarker]: true
@@ -29,12 +31,18 @@ export interface ContentPreset<TOptions extends object = Record<string, unknown>
   configure(options: TOptions): ContentPresetDefaults
 }
 
-/** `extends` in `defineContent()`: a preset, or a preset with options. Options default to the `cms` preset's. */
-export type ContentPresetSelection<TOptions extends object = CmsPresetOptions> =
+/**
+ * `extends` in `defineContent()`: a preset, or a preset with options. The preset sets `TOptions`, so the tuple accepts
+ * only the options of that preset.
+ */
+export type ContentPresetSelection<TOptions extends object = object> =
   | ContentPreset<TOptions>
-  | readonly [ContentPreset<TOptions>, Partial<TOptions>]
+  | readonly [ContentPreset<TOptions>, NoInfer<Partial<TOptions>>]
 
-/** Create a Content preset. Internal: the Content Vite plugin recognizes built-in presets by their import path. */
+/**
+ * Create a Content preset for `defineContent({ extends })`. A preset fills Definition options at runtime only. A
+ * package that needs build-time infrastructure for its preset, such as `@vite-hub/cms`, adds it with its own Vite plugin.
+ */
 export function defineContentPreset<TOptions extends object>(preset: {
   name: string
   options: TOptions
@@ -63,7 +71,7 @@ export function resolveContentPreset(extension: unknown): ContentPresetDefaults 
   }
   const { preset, options } = selection
   if (!isContentPreset(preset)) {
-    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ extends }) requires a Content preset, such as cms from vite-hub/content/presets/cms." })
+    throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ extends }) requires a Content preset, such as cms from vite-hub/cms." })
   }
   if (options) {
     try {
@@ -80,6 +88,10 @@ export function resolveContentPreset(extension: unknown): ContentPresetDefaults 
   const defaults = preset.configure(merged)
   if (!isPresetOptionsRecord(defaults)) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content preset ${JSON.stringify(preset.name)} must return an options object from configure().` })
+  }
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- A preset policy is a callback and may come from another realm.
+  if (defaults.authorize !== undefined && typeof defaults.authorize !== "function") {
+    throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content preset ${JSON.stringify(preset.name)} must return authorize as a function from configure().` })
   }
   return defaults
 }

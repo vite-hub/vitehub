@@ -72,7 +72,7 @@ describe("MCP owner contributions", () => {
     const result = await rpc({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "comments_reply", arguments: { id: thread!.id, body: "Fixed" } } })
     expect(result.body.result.isError).toBe(false)
     const [, updated] = await comments.get(thread!.id)
-    expect(updated?.comments.at(-1)).toMatchObject({ body: "Fixed", author: ada })
+    expect(updated?.messages.at(-1)).toMatchObject({ body: "Fixed", author: ada })
     installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["comments:read"] }) })
     const readOnly = await rpc({ jsonrpc: "2.0", id: 5, method: "tools/list" })
     expect(readOnly.body.result.tools.some((entry: { name: string }) => entry.name === "comments_reply")).toBe(false)
@@ -84,20 +84,22 @@ describe("MCP owner contributions", () => {
     const config = { handlers: [...handlers] }
     addConsoleRpcHandler(config, "/runtime", "/portal/", [], true)
     for (const handler of handlers) expect(config.handlers).toContainEqual(handler)
-    expect(config.handlers.filter(handler => handler.route.endsWith("/**") && handler.route.startsWith("/.well-known/"))).toEqual(handlers)
+    expect(config.handlers.filter(handler => handler.route?.endsWith("/**") && handler.route.startsWith("/.well-known/"))).toEqual(handlers)
     expect(config.handlers[0]?.handler).toBe("/runtime/server/mcp-discovery.js")
   })
 
   it.each(["oauth-protected-resource", "oauth-authorization-server"])("delegates the application-owned bare %s route through config replay", async (name) => {
     const route = `/.well-known/${name}`
     const application = { route, handler: "/app/metadata.js", method: "get" }
-    const config: { handlers: typeof application[]; virtual?: Record<string, unknown> } = { handlers: [application], virtual: { "virtual:app": "export default 1" } }
+    const config: { handlers: typeof application[]; plugins?: string[]; virtual?: Record<string, unknown> } = { handlers: [application], virtual: { "virtual:app": "export default 1" } }
     installConsoleAccess({ mode: "auth", oauth: { path: "/_vitehub/mcp", auth: () => { throw new Error("Application discovery must bypass Console Auth") } } })
     for (const base of ["/", "/portal/"]) {
       addConsoleRpcHandler(config, "/runtime", base, [], true)
       expect(config.handlers).toContainEqual(application)
       expect(config.handlers.filter(handler => handler.route === route)).toEqual([application])
-      expect(config.handlers[0]).toMatchObject({ middleware: true, route: "/**" })
+      expect(config.handlers[0]).toMatchObject({ middleware: true })
+      // Nitro 3 uses global middleware; Nitro 2 also needs the origin-root request hook below.
+      expect(config.handlers[0]?.route).toBeUndefined()
       const source = config.virtual?.[config.handlers[0]!.handler]
       if (typeof source !== "string") throw new TypeError("Missing configured discovery middleware")
       // Load the generated wrapper against its source entry, without requiring a distribution build.
@@ -105,11 +107,23 @@ describe("MCP owner contributions", () => {
       const module = await import(/* @vite-ignore */ `data:text/javascript,${encodeURIComponent(source.replace(JSON.stringify("/runtime/server/mcp-discovery.js"), JSON.stringify(entry)))}`)
       const request = new Request(`http://app.test${route}`)
       await expect(module.default({ req: request })).resolves.toBeUndefined()
+      const pluginId = "/runtime/server/mcp-discovery-nitro2.js"
+      expect(config.plugins?.filter(plugin => plugin === pluginId)).toHaveLength(1)
+      const pluginSource = config.virtual?.[pluginId]
+      if (typeof pluginSource !== "string") throw new TypeError("Missing configured discovery plugin")
+      const plugin = await import(/* @vite-ignore */ `data:text/javascript,${encodeURIComponent(pluginSource.replace(JSON.stringify("/runtime/server/mcp-discovery.js"), JSON.stringify(entry)))}`)
+      const hook = vi.fn()
+      plugin.default({ h3App: {}, hooks: { hook } })
+      await expect(hook.mock.calls[0]![1]({ req: request })).resolves.toBeUndefined()
+      hook.mockClear()
+      plugin.default({ hooks: { hook } })
+      expect(hook).not.toHaveBeenCalled()
       expect(config.handlers).toContainEqual(expect.objectContaining({ route: `${route}/**`, handler: expect.stringMatching(/mcp-(metadata|authorization-server)\.js$/) }))
     }
     addConsoleRpcHandler(config, "/runtime", "/portal/", [], false)
     expect(config.handlers).toContainEqual(application)
     expect(config.virtual).toEqual({ "virtual:app": "export default 1" })
+    expect(config.plugins).not.toContain("/runtime/server/mcp-discovery-nitro2.js")
   })
 
   it.each(["/", "/portal/"])("routes GET probes to MCP with base %s", async (base) => {
@@ -253,18 +267,16 @@ describe("MCP owner contributions", () => {
     expect(calls).toHaveLength(1)
   })
 
-  it("runs registered Database tools only inside installed and allowed sections", async () => {
+  it("runs Database operation tools only inside allowed sections", async () => {
     installConsoleDatabase("/mcp-test", {}, [])
     installConsoleSections("/mcp-test", ["databases", "comments"])
     installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["databases"] }) })
     const list = await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" })
-    expect(list.body.result.tools.map((tool: { name: string }) => tool.name).filter((name: string) => name.startsWith("database_"))).toEqual(["database_list_databases", "database_get_schema"])
-    const call = { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "database_list_databases" } }
-    expect((await rpc(call)).body.result.structuredContent).toEqual({ databases: [] })
+    // Each ability is one tool, named after its operation.
+    expect(list.body.result.tools.map((tool: { name: string }) => tool.name).filter((name: string) => name.startsWith("database")).sort()).toEqual(["databases_browse", "databases_tables"])
+    const call = { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "databases_tables", arguments: {} } }
+    expect((await rpc(call)).body.result).toMatchObject({ content: [{ text: expect.stringContaining("No Database Definitions are configured.") }] })
     installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["comments"] }) })
-    expect((await rpc(call)).body.error.code).toBe(-32602)
-    installConsoleAccess({ mode: "open" })
-    installConsoleSections("/mcp-test", ["comments"])
     expect((await rpc(call)).body.error.code).toBe(-32602)
   })
 
@@ -273,12 +285,11 @@ describe("MCP owner contributions", () => {
     installConsoleSections("/mcp-test", ["databases"])
     installConsoleAccess({ mode: "open" })
     const init = { headers: version ? { "MCP-Protocol-Version": version } : undefined }
-    const call = { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "database_get_schema", arguments: { database: 7 } } }
-    const invalid = (await rpc(call, init)).body
-    if (version === "2025-11-25") expect(invalid.result).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("database_get_schema") }] })
-    else expect(invalid.error).toMatchObject({ code: -32602, message: expect.stringContaining("database_get_schema") })
+    const call = { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "databases_tables", arguments: { database: 7 } } }
+    // Operation tools check their input when they run, so every revision gets a tool error that names the operation.
+    expect((await rpc(call, init)).body.result).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("Invalid input for databases.tables") }] })
     const validCall = { ...call, params: { ...call.params, arguments: { database: "missing" } } }
-    expect((await rpc(validCall, init)).body.result).toMatchObject({ content: [{ text: "No Database Definitions are configured." }], isError: true })
+    expect((await rpc(validCall, init)).body.result).toMatchObject({ content: [{ text: expect.stringContaining("No Database Definitions are configured.") }], isError: true })
   })
 
   it.each([

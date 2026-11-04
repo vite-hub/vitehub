@@ -100,6 +100,30 @@ test -f .output/server/wrangler.json
 find .output -maxdepth 4 -type f | sort
 ```
 
+### A project Wrangler config
+
+A project `wrangler.json`, `wrangler.jsonc`, or `wrangler.toml` can declare bindings that ViteHub also writes, for example a Deploy to Cloudflare template. Nitro merges that file into the generated config by concatenating arrays. ViteHub then keeps one entry per name in `kv_namespaces`, `r2_buckets`, `ratelimits`, `hyperdrive`, `containers` (by matching `class_name` or `name`, with entries containing both linking the two forms), `durable_objects.bindings`, `migrations`, `queues`, `workflows`, `services`, `send_email`, and `analytics_engine_datasets`, at the top level and in each `env`. The Database integration does the same for `d1_databases`, see [Database hosts](/docs/database/hosts). It also removes repeated `compatibility_flags` and `secrets.required` names.
+
+ViteHub's entry wins, and the project entry fills fields it lacks, such as a KV `id`. An all-zero id, such as `00000000000000000000000000000000` or `00000000-0000-4000-8000-000000000000`, never names a resource: a real id from either side replaces it. A primary id that stays all-zero is left out for KV and D1, so Wrangler provisions the resource on deploy. Unresolved `preview_id` and `preview_database_id` placeholders are preserved to prevent remote development from falling back to production; replace them with real preview resource IDs before using remote development. Hyperdrive requires an existing resource: its unresolved placeholder is preserved, and you must replace it with a real Hyperdrive ID before deployment. When the two entries name a different resource, the build fails with `INTERNAL_B0051`. Remove the entry from the project file, or give one of them another name.
+
+Container duplicates must agree on `scheduling_policy`; omitting it means `default`. ViteHub rejects a policy change or conflicting image settings instead of combining the default policy's `image` with Durable Object-managed `images`.
+
+### Node.js compatibility in Nuxt
+
+With Nitro's `cloudflare.nodeCompat`, which the Nuxt `cloudflare` preset turns on, the generated `wrangler.json` gets `nodejs_compat`. Nitro 2 adds `no_nodejs_compat_v2` next to it unless the config names `nodejs_compat_v2`, and that leaves out Node modules that Workspaces import. ViteHub sets `nodejs_compat_v2` while Nitro builds and writes `nodejs_compat` in its place once the file is written, after the project's `wrangler.json`, `wrangler.jsonc`, or `wrangler.toml` was merged in. Wrangler refuses the two flags together.
+
+When the app names `nodejs_compat_v2` or `no_nodejs_compat_v2` in `nitro.cloudflare.wrangler.compatibility_flags` or in its project Wrangler config, ViteHub leaves the flags as the app wrote them. `nodejs_compat_v2` alone provides `node:http` and `node:child_process` only from compatibility date 2026-08-04.
+
+An explicit `no_nodejs_compat` in either configuration disables Nitro's `cloudflare.nodeCompat` and skips ViteHub's flag rewrite, preserving the app's full Node.js compatibility opt-out.
+
+Check the output before deploying. `wrangler deploy --dry-run` validates the config, and `wrangler dev` starts the Worker, which catches a Node module that the date and flags leave out:
+
+```bash [Terminal]
+pnpm build
+pnpm wrangler deploy --dry-run
+pnpm wrangler dev
+```
+
 Generate Agent routes through Provider Output. Raw Cloudflare Worker fetch handlers are not a public Agent API.
 
 Required secret Server Env declarations with one exact Env Source are written to `secrets.required` in the generated Wrangler configuration, including each configured named Wrangler environment because secrets are not inherited. Wrangler reuses an existing Worker secret and stops deployment when that binding is absent; ViteHub records only the binding name and never resolves or writes its value during build. Optional secrets, non-secret values, defaults, and alternative source lists remain runtime-only because Wrangler's required list cannot express fallback names.
@@ -112,7 +136,28 @@ Use Nitro's generated deployment command for production and non-production Worke
 pnpm exec nitro deploy --prebuilt
 ```
 
-When Sandbox is enabled, ViteHub writes an explicit gradual Container rollout into `.output/nitro.json`. This deploys the Worker and its Container application through the same generated contract. A direct Wrangler command with `--containers-rollout=none` bypasses ViteHub's deployment command and can leave a newly scoped Sandbox binding without a Container application to run.
+When Nitro's deployment config generation is enabled (the default), ViteHub writes the deploy command in `.output/nitro.json` as `wrangler deploy --config` with the generated `.output/server/wrangler.json`, so it also works from a copy of `.output` alone and inside a workspace with its own Wrangler config. Set `nitro.commands.deploy` to use your own. With `nitro.cloudflare.deployConfig: false`, ViteHub preserves Nitro's default deploy command for your project-managed Wrangler config.
+
+When config generation and Sandbox are enabled, ViteHub writes an explicit gradual Container rollout into `.output/nitro.json`. This deploys the Worker and its Container application through the same generated contract. A direct Wrangler command with `--containers-rollout=none` bypasses ViteHub's deployment command and can leave a newly scoped Sandbox binding without a Container application to run.
+
+### Upload secrets from a file
+
+A new Worker has no secrets yet, so `wrangler secret put` cannot set the values that `secrets.required` asks for. To upload them on a deploy from your terminal, name a `.env` or JSON file:
+
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+
+export default {
+  plugins: vitehub({
+    preset: 'cloudflare',
+    cloudflare: { secretsFile: '.env' },
+  }),
+}
+```
+
+In Nuxt, set the same `cloudflare` key under `vitehub` in `nuxt.config.ts`.
+
+When the file exists at build time, ViteHub adds `--secrets-file` with its path to the deploy command in `.output/nitro.json`. `nitro deploy --prebuilt` then uploads every key in the file as a Worker secret. Wrangler keeps secrets that the file does not name. The path is relative to the project root, and the command finds it from the project root or from `.output`. ViteHub only checks that the file exists. It never reads or copies the values. A build without the file, such as a Workers Builds or Deploy to Cloudflare build, writes the command without the flag, and the secrets you set in the dashboard stay in use. Do not build with a local secrets file and deploy that `.output` from another machine. The option needs Wrangler 4.74 or later. An app's own `nitro.commands.deploy` replaces it, and it has no effect with `nitro.cloudflare.deployConfig: false`.
 
 ### Rate Limiting bindings
 

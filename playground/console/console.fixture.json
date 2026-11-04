@@ -590,18 +590,6 @@
           }
         },
         {
-          "name": "agent.message.recorded",
-          "type": "run",
-          "sequence": 2,
-          "timestamp": "2026-08-30T14:02:12.000Z",
-          "trace": { "id": "trace_console_hierarchy" },
-          "attributes": {
-            "message.id": "user-1",
-            "message.role": "user",
-            "message.content": "The newer Console screens do more, but the whole thing is starting to feel generated. Review the hierarchy and density."
-          }
-        },
-        {
           "name": "agent.tool.finish",
           "type": "run",
           "sequence": 3,
@@ -922,7 +910,7 @@
                 "totalTokens": 6530
               },
               "cost": {
-                "display": "$0.0245",
+                "display": "~$0.0245",
                 "estimated": true,
                 "source": "catalog",
                 "usd": "0.0245"
@@ -1026,8 +1014,8 @@
           }
         },
         {
-          "name": "agent.invocation.cancel",
-          "type": "lifecycle",
+          "name": "agent.invocation.cancelled",
+          "type": "run",
           "sequence": 2,
           "timestamp": "2026-08-30T15:47:18.000Z",
           "trace": { "id": "trace_provider_timeout" },
@@ -1348,17 +1336,6 @@
           }
         },
         {
-          "sequence": 4,
-          "name": "agent.message.recorded",
-          "type": "run",
-          "timestamp": "2026-08-30T16:30:20.000Z",
-          "attributes": {
-            "message.id": "user-1",
-            "message.role": "user",
-            "message.content": "The KV and Blob pages each render their own empty state. Share one component, keep the copy short, and prove it with the focused tests."
-          }
-        },
-        {
           "sequence": 5,
           "name": "agent.message.recorded",
           "type": "run",
@@ -1560,7 +1537,7 @@
                 "totalTokens": 52130
               },
               "cost": {
-                "display": "$0.1832",
+                "display": "~$0.1832",
                 "estimated": true,
                 "source": "catalog",
                 "usd": "0.1832"

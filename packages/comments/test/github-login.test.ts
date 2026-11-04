@@ -55,8 +55,12 @@ describe("default policy", () => {
     expect(defaultPolicy(ada(false))).toBe(false)
   })
 
-  it("keeps letting in users of the app's own sign-in", () => {
-    expect(defaultPolicy({ id: "u1", name: "Grace" })).toBe(true)
+  it("lets in users of the app's own sign-in only on the dev server or through the Console", () => {
+    expect(defaultPolicy({ id: "u1", name: "Grace" })).toBe(false)
+    expect(defaultPolicy({ id: "u1", name: "Grace" }, { development: true })).toBe(true)
+    expect(defaultPolicy({ id: "u1", name: "Grace" }, { console: true })).toBe(true)
+    // GitHub's answer stands on the dev server too.
+    expect(defaultPolicy(ada(false), { development: true, console: true })).toBe(false)
   })
 
   it.each(["development", "production"])("denies anonymous guests without dev-server identity when NODE_ENV=%s", (environment) => {
@@ -73,7 +77,7 @@ describe("default policy", () => {
     vi.stubEnv("NODE_ENV", environment)
     const call = await setup(fakeLogin(null), development)
     const { body } = await call("/session")
-    expect(body!.data.can).toEqual({ read: development, comment: development, resolve: development })
+    expect(body!.data.can).toEqual({ read: development, comment: development, resolve: development, delete: development })
     expect((await call("/threads")).response.status).toBe(development ? 200 : 403)
     const created = await call("/threads", {
       method: "POST",

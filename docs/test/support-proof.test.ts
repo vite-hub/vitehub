@@ -117,14 +117,10 @@ describe("support proof ledger", () => {
     expect(data).not.toContain("The nightly Live Smoke deploys");
   });
 
-  it("renders the time-sensitive support matrix on request", () => {
-    const docsModule = readFileSync(
-      resolve(repoRoot, "docs/modules/vitehub-docs/index.ts"),
-      "utf8",
-    );
+  it("refreshes the time-sensitive proof ages after a prerender", () => {
+    const matrix = readFileSync(resolve(repoRoot, "docs/app/components/content/SupportMatrix.vue"), "utf8");
 
-    expect(docsModule).toContain(
-      'if (page.path === "/docs/frameworks-hosts/support-matrix") continue;',
-    );
+    // The build prerenders every docs page, the matrix included. The browser recomputes the ages when it mounts.
+    expect(matrix).toMatch(/onMounted\(\(\) => \{\s*proofObservedAt\.value = new Date\(\)\.toISOString\(\);\s*scheduleProofRefresh\(\);/);
   });
 });

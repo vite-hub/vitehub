@@ -3,7 +3,7 @@ title: Add presence and edits with ViteHub
 description: Run Comments in a ViteHub app, see each other's cursors on a page, and edit a Content field in place.
 layout: tutorial
 navigation.title: With ViteHub
-navigation.order: 3
+navigation.order: 9
 icon: i-lucide-users
 ---
 
@@ -21,14 +21,14 @@ icon: i-lucide-users
 
 In this tutorial, you turn on Comments in a ViteHub app, pin a comment, open the page in a second browser to see each other's cursors, and change a Content heading on the page. Then you publish the draft from the Console.
 
-You need Node.js 24.15 or newer, pnpm, and a Vite application that uses Vue and TypeScript. Run the commands from its root. This example uses a local SQLite Database and a memory room authority, and needs no provider account. It lets anyone comment and edit, so keep it on your computer. [Decide who can comment](/docs/comments/configure#decide-who-can-comment) before you deploy.
+You need Node.js 22.22 or newer, pnpm, and a Vite application that uses Vue and TypeScript. Run the commands from its root. This example uses a local SQLite Database and a memory room authority, and needs no provider account. It lets anyone comment and edit, so keep it on your computer. [Decide who can comment](/docs/comments/configure#decide-who-can-comment) before you deploy.
 
 ::tutorial-step{title="Turn on Comments"}
 ## Turn on Comments
 
 ```bash [commands/install]
-pnpm add vite-hub h3 zod
-pnpm add -D nitro
+pnpm add vite-hub @vite-hub/comments @vite-hub/content @vite-hub/database @vite-hub/realtime drizzle-orm h3 zod
+pnpm add -D drizzle-kit nitro
 ```
 
 Comments stores threads in a Database. Realtime shows who is on each page. The memory authority keeps the presence rooms in this server process.
@@ -50,7 +50,7 @@ export default defineConfig({
 })
 ```
 
-Add `server/comments.ts`. The file must export `comments`. Without `authorize`, guests may comment only on the dev server. This policy allows everyone, so the next steps also work in a preview build. People without an account comment as guests under a name they type.
+Add `server/comments.ts`. It exports the definition as `comments`, or as the default export. Without the file, the Console or `vitehub({ comments: true })` turns Comments on with the default policy. Without `authorize`, guests may comment only on the dev server. This policy allows everyone, so the next steps also work in a preview build. People without an account comment as guests under a name they type.
 
 ```ts [server/comments.ts]
 import { defineComments } from 'vite-hub/comments'
@@ -79,11 +79,11 @@ pnpm vite dev
 
 Open `http://localhost:5173/?vitehub`. The `?vitehub` query turns on comment mode. A toolbar shows at the bottom of the page. The server also sets the `vitehub-tools` cookie, so other pages of the site keep comment mode until you close the toolbar.
 
-1. Press <kbd>C</kbd>, or select **Comment** in the toolbar.
+1. Press <kbd>C</kbd>, or select **Comment** in the toolbar. As a guest, type your name first. The browser keeps it for the next pages.
 2. Click a heading on the page. A comment box opens at that point.
-3. Type your name, then a comment, and press <kbd>⌘</kbd> <kbd>Enter</kbd>. A numbered pin shows where you clicked.
-4. Select the pin, write a reply, and send it.
-5. Select **Resolve**, the check mark on the thread. The pin goes away. Open the thread list from the toolbar and select **Show resolved** to see it again.
+3. Type a comment, and press <kbd>Enter</kbd>. A numbered pin shows where you clicked.
+4. Select the pin, type `@` in a reply, and pick a person. With [Auth](/docs/auth), the list shows the users of Auth that may read the thread. Send the reply. The server checks the mention, and `onMention` gets the person. See [Notify mentioned people](/docs/comments/configure#notify-mentioned-people).
+5. Select **Resolve**, the check mark on the thread. The pin goes away. Open the thread list from the toolbar and select **Resolved** to see it again.
 
 Resize the window. The pin stays on the heading, because it is stored relative to the element, not to the window.
 
@@ -111,7 +111,7 @@ Add a Content singleton with one text field. The `cms` preset stores it in a Wor
 
 ```ts [server/content.ts]
 import { defineContent, singleton } from 'vite-hub/content'
-import cms from 'vite-hub/content/presets/cms'
+import { cms } from 'vite-hub/cms'
 import { z } from 'zod'
 
 export const content = defineContent({

@@ -869,23 +869,6 @@ describe("agent message protocol", () => {
     await vi.waitFor(() => expect(events).toEqual(["cancel", "cancelled", "cleanup"]))
   })
 
-  it("propagates post-chunk UI message response read failures", async () => {
-    const { createAgentUIMessageStreamResponse } = await import("../src/stream-output.ts")
-    const error = new Error("upstream failed")
-    let read = false
-    const response = createAgentUIMessageStreamResponse({
-      stream: new ReadableStream({
-        pull(controller) {
-          if (read) throw error
-          read = true
-          controller.enqueue({ text: "partial", type: "text-delta" })
-        },
-      }),
-    })
-
-    await expect(response.text()).rejects.toThrow("upstream failed")
-  })
-
   it("records execution and error hook failures", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()
@@ -5408,7 +5391,7 @@ describe("agent message protocol", () => {
       })],
       channels: {
         github: github({
-          app: { webhookSecret: false },
+          app: { fetch: async () => Response.json({ head: { sha: "head-sha" } }), webhookSecret: false },
           pullRequest: true,
         }),
       },
@@ -5799,22 +5782,16 @@ describe("agent message protocol", () => {
     expect(Object.values(first.channels || {}).every(channel => hasRuntimeType(channel, "object"))).toBe(true)
   })
 
-  it("normalizes built-in Channel settings under their canonical names", async () => {
+  it("rejects built-in Channel settings without their factory", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const agent = defineAgent({
+
+    expect(() => defineAgent({
       channels: {
-        telegram: {
-          allowedUserIds: [123],
-          messages: { delivery: "manual", triggerHistory: "none" },
-        },
+        // @ts-expect-error A Channel is a definition from its factory, not built-in Channel settings.
+        telegram: { allowedUserIds: [123] },
       },
       driver: { run: () => "ok" },
-    })
-
-    expect(agent.channels?.telegram).toMatchObject({
-      kind: "telegram",
-      messages: { delivery: "manual", triggerHistory: "none" },
-    })
+    })).toThrow('Channel "telegram" must be an Agent Channel definition')
   })
 
   it("lets usage() request OpenRouter usage metadata", async () => {
@@ -5879,7 +5856,7 @@ describe("agent message protocol", () => {
       // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
       channels: { support: { messages: false } as never },
       driver: { run: () => "ok" },
-    })).toThrow('Channel "support" must be an Agent Channel definition or use a built-in Channel name')
+    })).toThrow('Channel "support" must be an Agent Channel definition. Create it with a factory')
   })
 
   it("rejects invalid Channel factory results with the Channel id", async () => {
@@ -9289,6 +9266,34 @@ describe("agent message protocol", () => {
       ...events,
     ]).get("title", "title")).toBe("Critical Overstock")
     expect(execute).not.toHaveBeenCalled()
+  })
+
+  it("starts a UI error with the code of a diagnostic that has a fix", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const { agentDiagnostics } = await import("../src/agent-diagnostics.ts")
+    const failing = (error: Error) => defineAgent({
+      driver: { run: () => (async function* () {
+        yield { error, type: "error" }
+      })() },
+    })
+    const read = async (error: Error) => {
+      // SAFETY: A ui-message-stream output is a ReadableStream of UI message chunks.
+      const stream = await streamAgent(failing(error), { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" }, { output: "ui-message-stream" }) as ReadableStream<unknown>
+      const chunks: unknown[] = []
+      const reader = stream.getReader()
+      while (true) {
+        const next = await reader.read().catch(() => ({ done: true, value: undefined }))
+        if (next.done) break
+        chunks.push(next.value)
+      }
+      return chunks.find(chunk => (chunk as { type?: string }).type === "error")
+    }
+    await expect(read(agentDiagnostics.AGENT_R1016({ connection: "chatgpt", problem: "sign-in" }))).resolves.toEqual({
+      errorText: "AGENT_R1016: The ChatGPT Connection cannot provide plan access (sign-in).",
+      type: "error",
+    })
+    // A wrapper of another layer's message has no fix of its own.
+    await expect(read(agentDiagnostics.AGENT_R0857({ message: "provider failed" }))).resolves.toEqual({ errorText: "provider failed", type: "error" })
   })
 
   it("emits a provisional title before a terminal UI error", async () => {

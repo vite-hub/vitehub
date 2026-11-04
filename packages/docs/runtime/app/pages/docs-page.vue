@@ -1,0 +1,3 @@
+<template>
+  <DocsPage />
+</template>

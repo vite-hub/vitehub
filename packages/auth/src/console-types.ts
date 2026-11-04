@@ -39,13 +39,23 @@ export type AuthConsoleColumn = { label: string } & (
   | { type: "boolean"; read: ColumnReader<boolean> }
 );
 
+/**
+ * Roles that the app computes, such as from an environment variable. The Console shows them and its Admins filter
+ * uses them. `null` keeps the stored role. Better Auth's own endpoints still read the stored `user.role`.
+ */
+export interface AuthConsoleRoles {
+  editable: false;
+  reason: string;
+  read: ColumnReader<string>;
+}
+
 /** Host-independent display and edit policy. It does not grant Better Auth permissions. */
 export interface AuthConsoleOptions {
   access?: readonly string[];
   actions?: Partial<Record<AuthConsoleAction, AuthConsolePolicy>>;
   columns?: Readonly<Record<string, AuthConsoleColumn>>;
   fields?: Readonly<Record<string, AuthConsoleFieldPolicy | undefined>>;
-  roles?: AuthConsolePolicy;
+  roles?: AuthConsolePolicy | AuthConsoleRoles;
 }
 
 export interface AuthConsoleCapability {

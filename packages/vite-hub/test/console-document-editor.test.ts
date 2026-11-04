@@ -15,7 +15,7 @@ import type { ConsoleDocument, ConsoleDocumentCollection } from "../src/console/
 const claimLease = vi.hoisted(() => vi.fn(async () => true))
 const beforeRouteLeave = vi.hoisted(() => vi.fn<(guard: () => Promise<false | undefined>) => void>())
 const beforeRouteUpdate = vi.hoisted(() => vi.fn<(guard: (to: { path: string }, from: { path: string }) => Promise<false | undefined> | undefined) => void>())
-const window: EventTarget = Reflect.get(globalThis, "window")
+const window: EventTarget & { readonly parent: unknown } = Reflect.get(globalThis, "window")
 
 vi.mock("vue-router", () => ({
   onBeforeRouteLeave: beforeRouteLeave,
@@ -35,6 +35,7 @@ vi.mock("../src/console/runtime/client/presence", async (importOriginal) => ({
     acquire: claimLease,
     claim: claimLease,
     holder: ref(null),
+    input: vi.fn(),
     mayWrite: ref(true),
     mode: ref("free"),
     others: ref([]),
@@ -114,6 +115,41 @@ async function mountEditor(published: () => Promise<ConsoleDocument | null>, ini
   await flushPromises()
   return { wrapper, client }
 }
+
+describe("Embedded editor exit guards", () => {
+  it.each(["shared", "local", "deleted"] as const)("reports pending %s edits to the page tools and clears the guard on unmount", async (mode) => {
+    const postMessage = vi.fn()
+    const parent = vi.spyOn(window, "parent", "get").mockReturnValue({ postMessage })
+    const origin: string = Reflect.get(Reflect.get(globalThis, "location"), "origin")
+    try {
+      const shared = { ...draft, conflict: undefined }
+      if (mode !== "shared") {
+        const start = { body: shared.body!, data: shared.data }
+        writeConsoleLocalDraft(sessionStorage, "posts", "hello", {
+          base: shared.digest, start, version: mode === "local" ? { ...start, data: { title: "Private edits" } } : start,
+        })
+      }
+      const client = {
+        ...createConsoleDocumentsClient("", "content"),
+        get: vi.fn(async () => mode === "deleted" ? null : shared),
+        list: vi.fn(async () => ({ items: [], nextCursor: null, total: 0 })),
+      }
+      const wrapper = shallowMount(ConsoleDocumentEditor, { props: { changes: 0, client, collection, documentId: "hello" }, global: { stubs } })
+      wrappers.push(wrapper)
+      await flushPromises()
+      if (mode === "shared") {
+        expect(postMessage).toHaveBeenLastCalledWith({ type: "vitehub:dirty", dirty: false }, origin)
+        await wrapper.get("textarea").setValue("Pending shared edits")
+        await flushPromises()
+      }
+      expect(postMessage).toHaveBeenLastCalledWith({ type: "vitehub:dirty", dirty: true }, origin)
+      wrapper.unmount()
+      expect(postMessage).toHaveBeenLastCalledWith({ type: "vitehub:dirty", dirty: false }, origin)
+    } finally {
+      parent.mockRestore()
+    }
+  })
+})
 
 describe("Published conflict comparison", () => {
   it.each(["The site is temporarily unavailable.", "The published document has invalid fields."])("blocks resolution and preserves the error: %s", async (message) => {

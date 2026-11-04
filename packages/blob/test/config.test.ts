@@ -353,6 +353,17 @@ describe("blob config", () => {
     })
   })
 
+  it("keeps anonymous serve authorization only with authorize", () => {
+    expect(normalizeBlobOptions({ driver: "fs", serve: { anonymous: true, authorize: true, route: "/f" } })?.serve).toEqual({
+      anonymous: true,
+      authorize: true,
+      route: "/f",
+      store: "default",
+    })
+    expect(() => normalizeBlobOptions({ driver: "fs", serve: { anonymous: true } })).toThrow("`blob.serve.anonymous` requires `blob.serve.authorize: true`.")
+    expect(() => normalizeBlobOptions({ driver: "fs", serve: { anonymous: "yes", authorize: true } } as never)).toThrow("`blob.serve.anonymous` must be a boolean.")
+  })
+
   it("rejects a serve authorize value that is not a boolean", () => {
     expect(() => normalizeBlobOptions({
       driver: "fs",

@@ -21,7 +21,7 @@ interface ContributionTargetProblem {
   choices?: readonly string[]
   database?: string
   dialect?: string
-  reason: "ambiguous" | "dialect" | "missing" | "none"
+  reason: "ambiguous" | "dialect" | "dialects" | "missing" | "none"
   source: string
   targetDialect?: string
 }
@@ -44,6 +44,8 @@ function describeContributionTarget({ choices = [], database, dialect, reason, s
       return `${source} target the Database "${database}", which has no Database Definition. Database Definitions: ${choices.length ? quoteList(choices) : "none"}.`
     case "dialect":
       return `${source} use the "${dialect}" dialect, but the Database "${database}" uses "${targetDialect}".`
+    case "dialects":
+      return `The app has no Database Definition, so ViteHub adds the default Database, but its contributions need different dialects: ${source}.`
   }
 }
 
@@ -91,14 +93,24 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Add a Database Definition with this name, for example `server/databases/<name>.ts`, or use the name of a discovered database. Run `vitehub inspect definitions --kind database` to see them.",
     },
 
-    // Migration errors. `vitehub db migrate` prints them and exits with code 1.
+    // Migration errors. `vitehub db migrate` prints them and exits with code 1. `migrateOnStart` throws them at boot.
     DATABASE_MIGRATION_CHECK_FAILED: {
       why: ({ database, problem }: { database: string, problem: string }) => `ViteHub cannot read the pending migrations of the database "${database}". ${problem}`,
       fix: "Make the database reachable with the connection that `vitehub db migrate` uses: the local SQLite file, `connection.url` and `connection.authToken` for libSQL, `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` for D1 HTTP, or `connection.url` or the PG* variables and the `postgres` package for Postgres.",
     },
     DATABASE_MIGRATION_DATA_LOSS: {
       why: ({ database, statements }: { database: string, statements: readonly string[] }) => `Pending migrations of the database "${database}" lose data:${fileList(statements)}`,
-      fix: "Run `vitehub db migrate --dry-run` to read the SQL. To keep the data, change the schema or edit the migration. To accept the loss, back up the data and run `vitehub db migrate --allow-data-loss`.",
+      fix: "Run `vitehub db migrate --dry-run` to read the SQL. To keep the data, change the schema or edit the migration. To accept the loss, back up the data and run `vitehub db migrate --allow-data-loss`, or set `database.migrateOnStart: { allowDataLoss: true }` for the next start.",
+    },
+    DATABASE_MIGRATE_ON_START_UNSUPPORTED: {
+      why: ({ database, problem }: { database?: string, problem: string }) => `\`database.migrateOnStart\` applies migrations only to local SQLite files in a Node server${database ? `, and cannot migrate the database "${database}"` : ""}. ${problem}`,
+      fix: "Build with the Node preset and a `file:` connection URL, or remove `migrateOnStart` and run `vitehub db migrate` from the deployment instead.",
+    },
+
+    // Export errors. `vitehub db export` prints them and exits with code 1.
+    DATABASE_EXPORT_FAILED: {
+      why: ({ database, problem }: { database: string, problem: string }) => `ViteHub cannot export the database "${database}". ${problem}`,
+      fix: "Read the problem in `why`. Without `--remote`, `vitehub db export` reads the local SQLite file. With `--remote`, it needs `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` for D1, `connection.url` and `connection.authToken` for libSQL, the proxy `url` and `authToken` for object-form `cloudflare.http`, or `connection.url` or the PG* variables and `pg_dump` for Postgres.",
     },
 
     // Definition errors. `defineDatabase()` throws them.
@@ -189,6 +201,10 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
     DATABASE_SCHEMA_LOAD_FAILED: {
       why: ({ problem, source }: { problem: string, source: string }) => `${source} could not load: ${problem}`,
       fix: "Read `error.cause` for the import error, and fix the module. `vitehub db generate` needs every schema module to load.",
+    },
+    DATABASE_WRANGLER_BINDING_CONFLICT: {
+      why: ({ binding, field, generated, project, scope }: { binding: string, field: string, generated: string, project: string, scope: string }) => `The D1 binding "${binding}"${scope} is declared by ViteHub and by the project's Wrangler config with a different ${field}: ${JSON.stringify(generated)} and ${JSON.stringify(project)}.`,
+      fix: "Remove the binding from the project's Wrangler config, since ViteHub writes it, or give one of them another binding name.",
     },
   },
 })

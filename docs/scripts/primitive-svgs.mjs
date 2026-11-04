@@ -5,9 +5,9 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runInNewContext } from "node:vm";
 
 import { landingPrimitives } from "../app/components/landing/content.ts";
+import { primitiveScenes, renderPrimitiveScene } from "../app/components/landing/primitive-scenes.ts";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const componentPath = join(repoRoot, "docs/app/components/landing/PrimitiveMotion.vue");
@@ -21,41 +21,6 @@ const columns = 3;
 // GitHub's muted text and page background, so the scenes match the README in both themes.
 const themeCss = `svg { color: #59636e; --ui-bg: #ffffff; }
 @media (prefers-color-scheme: dark) { svg { color: #9198a1; --ui-bg: #0d1117; } }`;
-
-function sceneBodies(template) {
-  const scenes = new Map();
-  const pattern = /^ {4}<template v-(?:else-)?if="name === '([a-z-]+)'">\n([\s\S]*?)^ {4}<\/template>$/gm;
-  for (const [, name, body] of template.matchAll(pattern)) scenes.set(name, body);
-  return scenes;
-}
-
-// The KV scene repeats its rows with `v-for="row in N"`. Expand it to static elements.
-function expandLoops(body) {
-  return body.replace(
-    /^( *)<template v-for="(\w+) in (\d+)" :key="\w+">\n([\s\S]*?)^\1<\/template>\n/gm,
-    (_, _indent, variable, count, inner) => {
-      let output = "";
-      for (let value = 1; value <= Number(count); value++) {
-        output += inner.replace(/ :([a-z-]+)="([^"]+)"/g, (_match, attribute, expression) => {
-          const result = runInNewContext(expression, { [variable]: value });
-          return ` ${attribute}="${result}"`;
-        });
-      }
-      return output;
-    },
-  );
-}
-
-function staticScene(name, body) {
-  const output = expandLoops(body)
-    .replace(/<!--[\s\S]*?-->\n?/g, "")
-    .replace(/ :([a-z-]+)="`([^`"]*)`"/g, (_, attribute, value) =>
-      ` ${attribute}="${value.replaceAll("${id}", `vh-${name}`)}"`);
-
-  const binding = output.match(/ (?::|v-|@)[a-z-]+="/);
-  if (binding) throw new Error(`The ${name} scene still has the Vue binding ${binding[0].trim()}`);
-  return output;
-}
 
 // Splits the stylesheet into its top-level rules, at-rules included.
 function topLevelRules(css) {
@@ -95,40 +60,26 @@ function sceneCss(css, scene) {
   return [...kept, ...keyframes].join("\n");
 }
 
-function sceneCycles(source) {
-  const block = source.match(/const cycles: Record<string, number> = \{\n([\s\S]*?)\n\};/);
-  if (!block) throw new Error("PrimitiveMotion.vue has no cycles table");
-  const cycles = new Map();
-  for (const [, name, value] of block[1].matchAll(/^ {2}"?([a-z-]+)"?: (\d+),$/gm)) {
-    cycles.set(name, Number(value));
-  }
-  return cycles;
-}
-
 /** Returns the SVG file contents for each primitive, keyed by repository path. */
 export async function renderPrimitiveSvgs() {
   const source = await readFile(componentPath, "utf8");
-  const template = source.slice(source.indexOf("<template>"), source.indexOf("<style scoped>"));
-  const css = source.slice(source.indexOf("<style scoped>") + "<style scoped>".length, source.lastIndexOf("</style>"));
-  const scenes = sceneBodies(template);
-  const cycles = sceneCycles(source);
+  const css = source.slice(source.indexOf("<style>") + "<style>".length, source.lastIndexOf("</style>"));
   const files = new Map();
 
   landingPrimitives.forEach((primitive, index) => {
-    const body = scenes.get(primitive.id);
-    if (!body) throw new Error(`PrimitiveMotion.vue has no scene for ${primitive.id}`);
-    const cycle = cycles.get(primitive.id) ?? 5000;
+    const scene = primitiveScenes[primitive.id];
+    if (!scene) throw new Error(`primitive-scenes.ts has no scene for ${primitive.id}`);
     // Same offset as the landing grid, so neighboring scenes do not move in step.
-    const delay = Math.round(-((index * 0.37) % 1) * cycle);
-    const scene = staticScene(primitive.id, body).trimEnd();
+    const delay = Math.round(-((index * 0.37) % 1) * scene.cycle);
+    const markup = renderPrimitiveScene(primitive.id, `vh-${primitive.id}`);
     files.set(
       `${svgDirectory}/${primitive.id}.svg`,
-      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="6 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" class="primitive-motion is-playing" style="--cycle: ${cycle}ms; --scene-delay: ${delay}ms">
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 58 40" width="58" height="40" preserveAspectRatio="xMinYMid meet" fill="currentColor" shape-rendering="crispEdges" class="primitive-motion is-playing" style="--cycle: ${scene.cycle}ms; --scene-delay: ${delay}ms">
 <style>
 ${themeCss}
-${sceneCss(css, scene)}
+${sceneCss(css, markup)}
 </style>
-${scene}
+${markup}
 </svg>
 `,
     );

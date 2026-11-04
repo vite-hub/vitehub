@@ -1,19 +1,18 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, shallowRef, watch } from "vue";
+import { computed, defineAsyncComponent, h, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { consoleErrorMessage, consoleListQueryFor, createConsoleDocumentsClient } from "../client/documents";
+import { clearConsoleDocumentCaches } from "../client/document-cache";
 import { provideConsoleMediaPicker } from "../client/media";
 import { consoleMediaBase, consoleMediaTransformable, consoleMediaUrl, consoleMediaVariantUrl, createConsoleMediaClient, isConsoleMediaPathname } from "../client/media-library";
-import { isConsoleSignInRequired, requestConsole } from "../client/request";
+import { ConsoleRequestError, isConsoleSignInRequired, requestConsole } from "../client/request";
 import { resolveConsoleRouteName } from "../console-route";
 import { parseConsoleSectionContent } from "../definitions";
 import { consoleSectionPageRouteName, consoleSectionPageSegment, consoleSectionRouteName, rememberConsoleSection } from "../sections";
 import ConsoleDocumentDashboard from "./console-document-dashboard.vue";
-import ConsoleDocumentEditor from "./console-document-editor.vue";
 import ConsoleDocumentList from "./console-document-list.vue";
 import ConsoleDocumentSettings from "./console-document-settings.vue";
-import ConsoleFrame from "./console-frame.vue";
 import ConsoleMediaLibrary from "./console-media-library.vue";
 import ConsoleMediaPicker from "./console-media-picker.vue";
 import ConsolePageHeader from "./console-page-header.vue";
@@ -21,6 +20,15 @@ import ConsoleSearch from "./console-search.vue";
 import ConsoleSetupHint from "./console-setup-hint.vue";
 import ConsoleLoading from "./console-loading.vue";
 import ConsoleState from "./console-state.vue";
+
+// The editor brings Tiptap, the Comark kit, and the code highlighter, most of this page's code. The dashboard and the
+// lists show without it, and the page loads it in the background so a document opens without a wait.
+const loadDocumentEditor = () => import("./console-document-editor.vue");
+const ConsoleDocumentEditor = defineAsyncComponent({
+  loader: loadDocumentEditor,
+  delay: 150,
+  loadingComponent: { render: () => h(ConsoleLoading, { label: "Loading the editor…" }) },
+});
 
 import type { ConsoleDocumentOverview, ConsoleDocumentState } from "../client/documents";
 import type { ConsoleMediaInfo } from "../client/media-library";
@@ -65,6 +73,30 @@ const overview = shallowRef<ConsoleDocumentOverview>();
 const overviewLoading = ref(false);
 const overviewError = ref<unknown>();
 let overviewRequest = 0;
+let collectionsRequest = 0;
+function applyDefinitions(definitions: unknown): boolean {
+  const content = parseConsoleSectionContent(definitions, section.value);
+  if (!content || content.kind !== "document-editor") return false;
+  collections.value = [...content.collections];
+  setup.value = content.setup;
+  return true;
+}
+function clearDocumentData(): void {
+  collections.value = [];
+  setup.value = undefined;
+  overview.value = undefined;
+}
+
+function discardUnauthorizedData(requestError: unknown): void {
+  if (!(requestError instanceof ConsoleRequestError) || ![401, 403].includes(requestError.status)) return;
+  clearConsoleDocumentCaches();
+  clearDocumentData();
+  // A concurrent successful response must not reinstall data after access was denied.
+  ++collectionsRequest;
+  ++overviewRequest;
+  loading.value = false;
+  overviewLoading.value = false;
+}
 
 // The media library of the section, when it has a Media page: the page itself, and the picker of the editor's images and
 // Blob reference fields. The section's pages are fixed for its lifetime, so the picker is provided once.
@@ -117,8 +149,9 @@ function param(value: unknown): string | undefined {
 // Singletons, such as site settings, live on the Settings page; the sidebar lists the other collections.
 const listCollections = computed(() => collections.value.filter(entry => entry.kind !== "singleton"));
 const singletons = computed(() => collections.value.filter(entry => entry.kind === "singleton"));
-// The Settings page shows once the section has a singleton the user may read.
-const pages = computed<readonly ConsoleSectionPage[]>(() => (props.details.pages ?? []).filter(page => page.view.kind !== "document-settings" || singletons.value.length));
+// The Settings page shows when the section has a singleton the user may read. It also shows while the collections load,
+// so the pages under it do not move down when it appears.
+const pages = computed<readonly ConsoleSectionPage[]>(() => (props.details.pages ?? []).filter(page => page.view.kind !== "document-settings" || singletons.value.length || (loading.value && !collections.value.length)));
 const settingsPage = computed(() => pages.value.find(page => page.view.kind === "document-settings"));
 // A section with only singletons has no Collections heading.
 const showCollections = computed(() => loading.value || Boolean(error.value) || listCollections.value.length > 0 || !singletons.value.length);
@@ -177,26 +210,30 @@ function pendingLabel(states: Record<ConsoleDocumentState, number> | undefined):
 const editorDocumentId = computed(() => (collection.value?.kind === "singleton" ? collection.value.document : documentId.value));
 
 async function loadCollections(): Promise<void> {
-  loading.value = true;
+  const current = ++collectionsRequest;
+  if (!collections.value.length) loading.value = true;
   try {
-    const content = parseConsoleSectionContent(
-      await requestConsole(props.definitionsBase, { query: { section: section.value } }),
-      section.value,
-    );
-    if (!content || content.kind !== "document-editor") throw new Error("The Console returned invalid collections.");
-    collections.value = [...content.collections];
-    setup.value = content.setup;
+    const definitions = await requestConsole(props.definitionsBase, { query: { section: section.value } });
+    if (current !== collectionsRequest) return;
+    if (!applyDefinitions(definitions)) throw new Error("The Console returned invalid collections.");
+    loading.value = false;
     error.value = undefined;
+    // A Settings link can be followed while loading, then disappear when no singleton is readable.
+    if (route.meta.consolePage && !page.value) {
+      await router.replace({ name: mainRouteName(), params: { collection: "", document: [] }, query: {} });
+    }
     // Without an index page, the section root opens the first collection.
     if (!collectionName.value && !page.value && collections.value[0]) {
       await router.replace({ name: mainRouteName(), params: { collection: collections.value[0].name, document: [] }, query: {} });
     }
   }
   catch (requestError) {
+    if (current !== collectionsRequest) return;
+    discardUnauthorizedData(requestError);
     error.value = requestError;
   }
   finally {
-    loading.value = false;
+    if (current === collectionsRequest) loading.value = false;
   }
 }
 
@@ -210,7 +247,9 @@ async function loadOverview(): Promise<void> {
     overviewError.value = undefined;
   }
   catch (requestError) {
-    if (current === overviewRequest) overviewError.value = requestError;
+    if (current !== overviewRequest) return;
+    discardUnauthorizedData(requestError);
+    overviewError.value = requestError;
   }
   finally {
     if (current === overviewRequest) overviewLoading.value = false;
@@ -218,27 +257,38 @@ async function loadOverview(): Promise<void> {
 }
 
 function reload(): void {
+  // Identity alone cannot validate a saved grant. Only current authorized responses populate this page.
+  clearConsoleDocumentCaches();
+  clearDocumentData();
   void loadCollections();
   void loadOverview();
 }
 
 onMounted(() => {
   rememberConsoleSection(section.value);
-  reload();
+  void reload();
   void loadMediaInfo();
+  const preload = () => void loadDocumentEditor().catch(() => undefined);
+  if ("requestIdleCallback" in window) window.requestIdleCallback(preload, { timeout: 3000 });
+  else setTimeout(preload, 1000);
 });
 
 watch(section, () => {
   rememberConsoleSection(section.value);
-  collections.value = [];
-  overview.value = undefined;
-  reload();
+  clearDocumentData();
+  error.value = undefined;
+  overviewError.value = undefined;
+  loading.value = true;
+  void reload();
 });
 watch(changes, () => void loadOverview());
+onBeforeUnmount(() => {
+  ++collectionsRequest;
+  ++overviewRequest;
+});
 </script>
 
 <template>
-  <ConsoleFrame :active="section" :sections-base="sectionsBase">
     <UDashboardSidebar
       id="console-navigation"
       v-model:open="sidebarOpen"
@@ -306,7 +356,8 @@ watch(changes, () => void loadOverview());
             />
           </div>
           <template v-else-if="loading && !collections.length">
-            <USkeleton v-for="index in 3" :key="index" class="my-0.5 h-8 rounded-md" />
+            <!-- Two rows at the 2rem height of a collection link, so a usual section keeps its sidebar layout. -->
+            <USkeleton v-for="index in 2" :key="index" class="h-8 rounded-md" />
           </template>
           <template v-else-if="listCollections.length">
             <UTooltip
@@ -476,5 +527,4 @@ watch(changes, () => void loadOverview());
       </template>
     </UDashboardPanel>
     <ConsoleMediaPicker v-if="hasMedia" ref="mediaPicker" :client="mediaClient" :section="section" />
-  </ConsoleFrame>
 </template>

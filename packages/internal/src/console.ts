@@ -10,6 +10,8 @@ export interface ViteHubConsoleDefinitionCatalogView {
 }
 
 export interface ViteHubConsoleRecordColumn {
+  /** Set it for a column with few values, such as a status. The Console then filters the table by its values. */
+  filter?: boolean
   /** Key in `ViteHubConsoleRecord.cells`. */
   key: string
   label: string
@@ -55,6 +57,12 @@ export interface ViteHubConsoleOperationFilter {
  */
 export interface ViteHubConsoleOperationView {
   columns: readonly ViteHubConsoleOperationColumn[]
+  /**
+   * Opens the item of a row in a side panel. `comment-thread` shows an item of `comments.list` as a comment thread
+   * where the user reads, replies, resolves, reopens, and mentions people. The panel calls the `comments.*` operations
+   * with the Console user, and `?thread=<id>` in the URL opens it.
+   */
+  detail?: { kind: "comment-thread" }
   filters?: readonly ViteHubConsoleOperationFilter[]
   kind: "operation-view"
   /**
@@ -217,7 +225,8 @@ export type ViteHubConsoleRuntimeRecordReader = () => MaybePromise<readonly Vite
 
 /**
  * A record table that also reads records at request time. The Console shows the build-time records of `read` first,
- * then the records of the `runtime` reader. A runtime record replaces a build-time record with the same id.
+ * then the records of the `runtime` reader. A runtime record updates the build-time record with the same id: its cells
+ * and fields replace the build-time ones with the same key or label.
  */
 export interface ViteHubConsoleRuntimeRecordTableSection<TOptions = void> extends ViteHubConsoleSectionDescriptor<ViteHubConsoleRecordTableView> {
   /** Reads build-time records on the server. When omitted, the section has only runtime records. */
@@ -346,8 +355,11 @@ export interface ViteHubConsoleDocumentComponent {
   kind: "block" | "inline"
   label: string
   description?: string
-  /** Each prop's Comark type and the value a new component starts with. */
-  props: Record<string, { type: "string" | "number" | "boolean" | "json", default?: unknown }>
+  /**
+   * Each prop's Comark type and the value a new component starts with. `image` and `file` props hold a picked Media file
+   * as a string, from `store` when it is set.
+   */
+  props: Record<string, { type: "string" | "number" | "boolean" | "json" | "image" | "file", default?: unknown, store?: string }>
 }
 
 /**
@@ -701,6 +713,13 @@ export interface ViteHubConsoleDocumentPreview {
   expiresAt: string
 }
 
+/** The document that a page of the site shows, from the `resolve` action. */
+export interface ViteHubConsoleDocumentResolved {
+  collection: string
+  id: string
+  state: ViteHubConsoleDocumentState
+}
+
 /** The signed-in Console user, or `null` when the Console access mode has no user. */
 export interface ViteHubConsoleDocumentActionContext {
   user: Record<string, unknown> | null
@@ -728,6 +747,12 @@ export interface ViteHubConsoleDocumentActions {
    * document first.
    */
   preview(input: { collection: string, id: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentPreview>
+  /**
+   * Finds the document that the page at `path` shows, such as `/blog/hello`, from the collection `url` patterns. It
+   * looks in `published` first, then in `draft`. Null when no readable document has that URL. The page tools use it to
+   * offer the draft of the page that is open.
+   */
+  resolve(input: { path: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentResolved | null>
   /** Reads the stored file on the draft, or at one earlier `revision`, without validating it. Null when it does not exist there. */
   raw(input: { collection: string, id: string, revision?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleRawDocument | null>
   /**
@@ -774,7 +799,7 @@ export interface ViteHubConsoleDocumentActions {
 
 export type ViteHubConsoleDocumentActionName = Exclude<keyof ViteHubConsoleDocumentActions, "collections" | "mediaAccess" | "setup">
 
-export const viteHubConsoleDocumentActionNames: readonly ViteHubConsoleDocumentActionName[] = ["get", "list", "overview", "preview", "publish", "raw", "references", "remove", "restore", "revisions", "save", "schedule", "search", "session", "sessions", "unschedule"]
+export const viteHubConsoleDocumentActionNames: readonly ViteHubConsoleDocumentActionName[] = ["get", "list", "overview", "preview", "publish", "raw", "references", "remove", "resolve", "restore", "revisions", "save", "schedule", "search", "session", "sessions", "unschedule"]
 
 /** Creates the document actions from the namespace of the application module that `entry` found. */
 export type ViteHubConsoleDocumentActionsFactory = (module: Record<string, unknown>) => ViteHubConsoleDocumentActions
@@ -880,7 +905,7 @@ export function describeViteHubConsoleSection<TOptions>(section: ViteHubConsoleS
     throw new TypeError(`[vitehub] Console section id ${JSON.stringify(section.id)} must be a lowercase route segment.`)
   }
   const view: ViteHubConsoleSectionView = section.view.kind === "record-table"
-    ? { columns: section.view.columns.map(column => ({ key: column.key, label: column.label })), kind: "record-table", notice: section.view.notice }
+    ? { columns: section.view.columns.map(column => column.filter === true ? { filter: true, key: column.key, label: column.label } : { key: column.key, label: column.label }), kind: "record-table", notice: section.view.notice }
     : section.view.kind === "operation-view"
       ? describeOperationView(section.view)
       : { kind: section.view.kind, notice: section.view.notice }

@@ -1,11 +1,11 @@
 ---
 title: ChatGPT plan usage
-description: Run a Codex Agent on a signed-in user's ChatGPT plan.
-navigation.order: 7
+description: Run an Agent on a signed-in user's ChatGPT plan, with Codex on Node.js or with a model-backed Driver on any host.
+navigation.order: 8
 icon: i-lucide-bot
 ---
 
-Sign in once to run a Codex Agent on your ChatGPT Plus or Pro plan. Connections owns the OAuth grant, refresh tokens and account identity. The Agent receives a fresh access token through the runtime. Application code never reads it.
+Sign in once to run an Agent on your ChatGPT Plus or Pro plan. Connections owns the OAuth grant, refresh tokens and account identity. The Agent receives a fresh access token through the runtime. Application code never reads it.
 
 OpenAI makes plan usage available to open-source projects, personal apps that run locally, and selected private apps. Paid or remotely hosted apps must join [OpenAI's waitlist](https://developers.openai.com/siwc) first. ViteHub does not enforce eligibility. It never falls back to an API key or another gateway.
 
@@ -24,13 +24,34 @@ export default defineConnection({
 ```
 
 ```ts [server/agents/assistant.ts]
+import { codexDriver, defineAgent } from 'vite-hub/agent'
+import { chatgpt } from 'vite-hub/gateways'
+
+export default defineAgent({
+  driver: codexDriver({ gateway: chatgpt() }),
+})
+```
+
+Install Codex in the app. The gateway runs this package and never a `codex` command from `PATH`. `vitehub connections connect` and `inspect` warn when it is missing:
+
+```sh
+pnpm add @openai/codex
+```
+
+### Use a model-backed Driver
+
+A model-backed Driver runs on the same grant without Codex. ViteHub calls the Responses API over HTTP, so the Agent also runs on Cloudflare Workers and other hosts without Node.js processes:
+
+```ts [server/agents/assistant.ts]
 import { defineAgent } from 'vite-hub/agent'
 import { chatgpt } from 'vite-hub/gateways'
 
 export default defineAgent({
-  driver: { kind: 'codex', gateway: chatgpt() },
+  driver: { model: 'gpt-5.5', gateway: chatgpt() },
 })
 ```
+
+`model` is a model ID from `vitehub connections models chatgpt`. The Agent's tools, Workspace and Capabilities work as with any model-backed Driver. It does not need `@openai/codex`.
 
 `chatgpt()` selects the `chatgpt` Connection. Use `chatgpt({ connection: 'personal' })` for another named Connection. The provider requires an explicit access map. Give each saved account or workspace its own Connection name. A returning sign-in must match the account already bound to that Connection.
 
@@ -41,12 +62,30 @@ Library consumers can use `@vite-hub/connections/chatgpt` and `@vite-hub/gateway
 Start the local app, then run from its directory:
 
 ```sh
-pnpm vitehub connections connect chatgpt --url http://127.0.0.1:3000
-pnpm vitehub connections inspect chatgpt --url http://127.0.0.1:3000
-pnpm vitehub connections models chatgpt --url http://127.0.0.1:3000
+pnpm vitehub connections connect chatgpt
+pnpm vitehub connections inspect chatgpt
+pnpm vitehub connections models chatgpt
 ```
 
+The CLI finds the dev server that runs in the project folder. Pass `--url` for another app, for example `--url http://127.0.0.1:3000`.
+
 The CLI opens the system browser and listens on `127.0.0.1`. If the browser does not open, use the printed URL. ViteHub validates state, PKCE, nonce and the ID token's signature, issuer, audience, expiry and account. It stores the issued `oaiapp_…` client ID and reuses it on later sign-ins. No client secret is needed.
+
+The link works one time, for 10 minutes. The CLI prints when it expires and waits until then.
+
+### Sign in on a server without a browser
+
+The browser returns to `127.0.0.1` on its own computer. When the app runs on a server, choose a port with `--port` and forward it from the computer with the browser:
+
+```sh
+# On the server
+pnpm vitehub connections connect chatgpt --port 4799
+
+# On the computer with the browser
+ssh -N -L 4799:127.0.0.1:4799 user@server
+```
+
+Then open the printed URL on the computer with the browser. If only the server can reach the other computer, run `ssh -N -R 4799:127.0.0.1:4799 user@laptop` on the server instead. Over SSH, or when no browser opens, the CLI prints the port to forward.
 
 Inspection shows the account email, granted and missing scopes, plan status, token expiry, client ID and host ID. It never prints access, refresh or ID tokens. The Console shows the same plan details and directs sign-in to the CLI. A website redirect cannot grant plan usage.
 
@@ -55,7 +94,7 @@ The model command requests the account's current model catalog and keeps `visibi
 Sign out with:
 
 ```sh
-pnpm vitehub connections revoke chatgpt --confirm chatgpt --url http://127.0.0.1:3000
+pnpm vitehub connections revoke chatgpt --confirm chatgpt
 ```
 
 Revocation sends the refresh token and client ID to OpenAI. It keeps the account registration and host ID for the next sign-in. A failed revocation leaves the grant available for retry and reports the failure.
@@ -83,7 +122,15 @@ One Connections store identifies one host. Do not clone the whole database onto 
 
 ## Runtime behavior and limits
 
-Use a local Codex Driver on a POSIX Node.js host. `driver.launch`, `providerSettings.launchArgs`, `binaryPath`, `homePath`, `shadowHomePath` and Agent `sandbox` are rejected with `AGENT_R1015`. They would let caller code replace the runtime-owned launch or receive its credentials. Install `@openai/codex` in the app; this gateway does not fall back to a command from `PATH`. The first-party Codex `auth.json` login is a separate credential flow.
+### Model-backed Driver
+
+Each model call resolves a fresh grant through the Connection, then sends one `POST /v1/responses` request. The token goes only into the `Authorization` header of that request. The AI SDK and the application never receive it, and ViteHub redacts it from error bodies. The request always has `store: false` and `stream: true`. ViteHub removes the fields that plan usage rejects, such as `temperature`, `max_output_tokens` and `previous_response_id`, and sends the conversation history in `input` with the instructions as a developer message. It asks for encrypted reasoning, so a tool loop keeps the model's reasoning without stored responses. A hosted tool that plan usage rejects, such as image generation or file search, fails with `AGENT_R1019`. The request sends `appName` as the `originator` header, like Codex.
+
+A generate call reads the stream into one result, because plan usage accepts only streamed requests. Provider error codes map to the diagnostics in [Recovery](#recovery). The Connection runs where the app runs, so a Worker needs its own grant, see [Move the grant to a VM](#move-the-grant-to-a-vm).
+
+### Codex Driver
+
+Use a local Codex Driver on a POSIX Node.js host. `driver.launch`, `providerSettings.launchArgs`, `binaryPath`, `homePath`, `shadowHomePath` and Agent `sandbox` are rejected with `AGENT_R1015`. They would let caller code replace the runtime-owned launch or receive its credentials. Install `@openai/codex` in the app; this gateway does not fall back to a command from `PATH`, and an Invocation without it fails with `AGENT_R1026`. The first-party Codex `auth.json` login is a separate credential flow.
 
 ViteHub selects `openai_chatgpt_plan` and relays HTTP streaming to the public Responses endpoint. It sets Codex `clientInfo` from `appName` and `appVersion`. The ChatGPT token stays in runtime memory. An Invocation-owned loopback relay adds it to upstream requests; Codex receives only a temporary relay key through its private app-server input pipe. The relay and Capability bearer keys never enter process environments, launch arguments or generated launcher files. Both keys are redacted from protocol output and errors. The relay accepts only Responses and model discovery requests, redacts the token from responses, and closes on cancellation or cleanup. The grant never enters child environments, launch arguments or Codex credential files, including environments readable by same-user commands on Linux.
 
@@ -97,7 +144,7 @@ Connections refreshes when less than 15 minutes remain, subject to OpenAI's `ear
 
 If a token expires during an Invocation, ViteHub stops Codex and reports `AGENT_R1024`. Review completed tool effects, then start another Invocation. ViteHub resolves a new token and replays the supplied conversation history when the caller continues the same thread. It does not replay the interrupted Invocation automatically. Transient inference failures get at most three HTTP attempts.
 
-Model Drivers through the AI SDK are a follow-up. This Codex path cannot run in Cloudflare Workers. An AI SDK path needs its own runtime-owned credential transport, request restrictions and streaming error handling.
+This Codex path cannot run in Cloudflare Workers. Use a [model-backed Driver](#use-a-model-backed-driver) there.
 
 ## Recovery
 
@@ -112,6 +159,7 @@ Model Drivers through the AI SDK are a follow-up. This Codex path cannot run in 
 | `AGENT_R1021` | A `chatpass_v2_*` or `subscription_sharing_route_not_supported` error means configuration, request route or app approval needs attention. |
 | `AGENT_R1022` | Codex returned HTTP 403 without its provider error code. Check eligibility, registration, scopes and app approval. |
 | `AGENT_R1023` | Codex returned an inference failure without its provider code. Check usage settings, OpenAI status, model and scopes before retrying. |
+| `AGENT_R1026` | The app cannot resolve `@openai/codex`. Install it in the app and restart the server. |
 
 Codex 0.164.0 drops the provider body for HTTP 403 and the error code from `response.failed` events. ViteHub maps named errors when they survive the transport, reports `AGENT_R1022` when only HTTP 403 remains, and uses `AGENT_R1023` for an opaque failure. Exact recovery for these cases needs upstream Codex error preservation. ViteHub does not infer a missing code from prose or switch billing.
 

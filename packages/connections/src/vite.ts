@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto"
 import { lstat, readFile, rename, rm, writeFile } from "node:fs/promises"
-import { isAbsolute, relative, resolve } from "node:path";
+import { findPackageJSON } from "node:module";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
 import * as v from "valibot";
 
@@ -8,7 +9,10 @@ import {
   createNoExternalAddition,
   hasNitroConfigContext,
   isServerEnvironment,
+  loadsViteHubPackagesNatively,
+  renderNativePackageInstallPlugin,
   resolveViteHubProjectRoot,
+  VITEHUB_APP_BASE_URL,
   VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite";
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog";
@@ -16,6 +20,7 @@ import { createNitroServerKit } from "@vite-hub/internal/nitro-kit";
 import type { NitroServerKit } from "@vite-hub/internal/nitro-kit";
 
 import { discoverConnectionDefinitions } from "./discovery.ts";
+export { discoverConnectionDefinitions } from "./discovery.ts";
 import { resolveActivityRetention } from "./internal/activity-retention.ts";
 import { withConnectionsTypesLock } from "./internal/types-lock.ts";
 
@@ -28,6 +33,12 @@ export const CONNECTIONS_REGISTRY_ID = "#vitehub/connections/registry";
 export const CONNECTIONS_VITE_PLUGIN_NAME = "@vite-hub/connections/vite";
 
 const resolvedConnectionsRegistryId = `\0${CONNECTIONS_REGISTRY_ID}`;
+/**
+ * Nitro 2 matches `@vite-hub/connections` against the import name and the resolved path after its last
+ * `node_modules/`. A linked package, such as a pnpm workspace package, resolves outside `node_modules`, so Nitro left
+ * it to Node, and Node served the empty registry fallback instead of the generated registry alias.
+ */
+const connectionsPackageRoot = `${dirname(findPackageJSON(import.meta.url)!)}${sep}`;
 const noExternalAddition = createNoExternalAddition("@vite-hub/connections");
 // Keep prior output ownership with the project so cleanup works after a restart.
 const generatedTypesManifest = ".vitehub/connections-types.json";
@@ -244,8 +255,10 @@ export interface ConnectionsVitePluginOptions {
    * Without this module, development uses `"development"`.
    */
   actor?: string;
-  /** Module that exports the ViteHub Database as `db`. Set `false` when the app has no database. */
+  /** Module that exports the ViteHub Databases as `db` and `databases`. Set `false` when the app has no database. */
   database?: string | false;
+  /** The Database that stores grants, approvals, and activity. Defaults to `default`. */
+  databaseName?: string;
   /** Package that the generated handler imports from. */
   importBase?: string;
   /**
@@ -262,12 +275,25 @@ export interface ConnectionsVitePluginAPI {
   refresh: () => DiscoveredConnectionDefinition[];
 }
 
+/** A `vitehub.databases` entry without tables: Connections create their SQLite tables with their own SQL. */
+export interface ConnectionsDatabaseUse {
+  database: string;
+  dialect: "sqlite";
+  name: "connections";
+  reason: string;
+}
+
 export type ConnectionsVitePlugin = Plugin<ConnectionsVitePluginAPI> & {
   api: ConnectionsVitePluginAPI;
-  vitehub: { cli: () => Promise<ViteHubCliContributor> };
+  vitehub: {
+    cli: () => Promise<ViteHubCliContributor>;
+    /** The Database use that `@vite-hub/database` collects: the Database that keeps Connection data. */
+    databases: () => ConnectionsDatabaseUse[];
+  };
   nitro: {
     name: string;
-    setup: (nitro: { options: { handlers: NitroServerHandler[] }; routing: { sync: () => void } }) => void;
+    /** Nitro 3 has a routing table to rebuild. Nitro 2, which Nuxt 4 runs, reads `options.handlers` when it builds. */
+    setup: (nitro: { options: { handlers: NitroServerHandler[] }; routing?: { sync: () => void } }) => void;
   };
 };
 
@@ -275,6 +301,7 @@ function renderRegistry(
   definitions: DiscoveredConnectionDefinition[],
   database: string | false,
   activityRetention: Required<ConnectionActivityRetention> | false,
+  databaseName = "default",
 ): string {
   return [
     `export const activityRetention = ${JSON.stringify(activityRetention)}`,
@@ -285,7 +312,9 @@ function renderRegistry(
     ),
     "",
     database
-      ? `export const database = () => import(${JSON.stringify(database)}).then(module => module.db)`
+      ? databaseName === "default"
+        ? `export const database = () => import(${JSON.stringify(database)}).then(module => module.db)`
+        : `export const database = () => import(${JSON.stringify(database)}).then(module => module.databases[${JSON.stringify(databaseName)}].db)`
       : "export const database = undefined",
     "export default registry",
     "",
@@ -324,8 +353,9 @@ function addManagementHandlers(kit: NitroServerKit, handler: string, route: stri
   kit.addHandler({ handler, method: "get", route: `${route}/callback` });
 }
 
-function connectionManagementRoute(base: unknown): string {
-  return `${connectionMountBase(base)}/_vitehub/connections`
+/** Nuxt serves Vite assets from `/_nuxt/`, so its Vite `base` is not the app base. `vite-hub/nuxt` passes the app base. */
+function connectionManagementRoute(config: object): string {
+  return `${connectionMountBase(Reflect.get(config, VITEHUB_APP_BASE_URL) ?? Reflect.get(config, "base"))}/_vitehub/connections`
 }
 
 function isConnectionDefinitionFile(
@@ -344,6 +374,8 @@ function isConnectionDefinitionFile(
 export function hubConnections(options: ConnectionsVitePluginOptions = {}): ConnectionsVitePlugin {
   const importBase = options.importBase ?? "@vite-hub/connections";
   const database = options.database ?? false;
+  const databaseName = options.databaseName ?? "default";
+  if (!/^[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*$/i.test(databaseName)) throw new Error(`[vitehub] connections.database must be a Database name, such as "users". Got ${JSON.stringify(databaseName)}.`);
   const activityRetention = resolveActivityRetention(options.activityRetention);
   let resolved: ResolvedConfig | undefined;
   let definitions: DiscoveredConnectionDefinition[] = [];
@@ -375,7 +407,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
           const types = renderRegistryTypes(definitions);
           await Promise.all([
             writeFileIfChanged(resolve(projectRoot, generatedTypesPath), types),
-            ...(nitroRegistryFile ? [writeFileIfChanged(nitroRegistryFile, renderRegistry(definitions, database, activityRetention))] : []),
+            ...(nitroRegistryFile ? [writeFileIfChanged(nitroRegistryFile, renderRegistry(definitions, database, activityRetention, databaseName))] : []),
           ]);
           await recordGeneratedTypes(defaultProjectRoot, projectRoot, typeHash(types), generationSession);
           return;
@@ -393,7 +425,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
         const types = renderRegistryTypes(definitions);
         await Promise.all([
           writeFileIfChanged(resolve(projectRoot, generatedTypesPath), types),
-          ...(nitroRegistryFile ? [writeFileIfChanged(nitroRegistryFile, renderRegistry(definitions, database, activityRetention))] : []),
+          ...(nitroRegistryFile ? [writeFileIfChanged(nitroRegistryFile, renderRegistry(definitions, database, activityRetention, databaseName))] : []),
         ]);
         await recordGeneratedOwners(projectRoot, defaultProjectRoot, typeHash(types), generationSession, owners);
         await recordGeneratedTypes(defaultProjectRoot, projectRoot, typeHash(types), generationSession);
@@ -426,6 +458,11 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
         const { createConnectionsCliContributor } = await import("./cli.ts");
         return createConnectionsCliContributor();
       },
+      // Without a Database Definition, `@vite-hub/database` adds the `default` Database for this use, and
+      // `vitehub inspect` shows the reason.
+      databases: () => database
+        ? [{ database: databaseName, dialect: "sqlite", name: "connections", reason: "Stores Connection grants, approvals, and activity." }]
+        : [],
     },
     async config(config, environment) {
       serverDirs =
@@ -444,7 +481,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
       const handlerFile = resolve(generatedDir, "handler.ts");
       await writeFileIfChanged(
         nitroRegistryFile,
-        renderRegistry(discoverConnectionDefinitions({ rootDir: root, serverDirs }), database, activityRetention),
+        renderRegistry(discoverConnectionDefinitions({ rootDir: root, serverDirs }), database, activityRetention, databaseName),
       );
 
       const nitroInput: unknown = Reflect.get(config, "nitro");
@@ -470,10 +507,21 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
                 ...(Array.isArray(externals.inline) ? externals.inline : []),
                 "vite-hub",
                 "@vite-hub/connections",
+                connectionsPackageRoot,
               ]),
             ];
       nitro.alias = { ...alias, [CONNECTIONS_REGISTRY_ID]: nitroRegistryFile };
       nitro.externals = { ...externals, inline };
+      if (environment.command === "serve") {
+        // Node loads this package in `vite dev`, so a plugin hands it the generated registry.
+        const registryPlugin = resolve(generatedDir, "registry-dev-plugin.ts");
+        await writeFileIfChanged(registryPlugin, renderNativePackageInstallPlugin([
+          { from: `${importBase}/server`, install: "installConnectionsRegistry", module: "./registry.ts" },
+        ]));
+        const kit = createNitroServerKit(nitro);
+        kit.addPlugin(registryPlugin, "start");
+        Object.assign(nitro, kit.config);
+      }
 
       if (environment.command === "serve" || options.management) {
         const actorModule =
@@ -497,7 +545,9 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
               ? `const handle = createConnectionsHandler({ actor, basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`
               : `const handle = createConnectionsHandler({ actor: "development", basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`,
             "",
-            "export default (event: { req?: Request, node?: { req?: IncomingMessage & { socket: { encrypted?: boolean } } } }) => {",
+            // Nitro 2 on Workers, which Nuxt 4 builds, gives a request mock that keeps the body in `body` and cannot be
+            // iterated. A Node.js server gives a real IncomingMessage.
+            "export default async (event: { req?: Request, _requestBody?: unknown, node?: { req?: IncomingMessage & { body?: unknown, rawBody?: unknown, originalUrl?: string, socket: { encrypted?: boolean }, [key: symbol]: unknown } } }) => {",
             "  const raw = event.req ?? event.node?.req",
             "  if (!raw) return handle(new Request('http://localhost/'), event)",
             "  if (raw instanceof Request) return handle(raw, event)",
@@ -509,20 +559,28 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
             "  const method = raw.method ?? 'GET'",
             "  const init: RequestInit & { duplex?: 'half' } = { method, headers }",
             "  if (method !== 'GET' && method !== 'HEAD') {",
-            "    const iterator = raw[Symbol.asyncIterator]()",
-            "    init.body = new ReadableStream({ async pull(controller) { try { const next = await iterator.next(); if (next.done) controller.close(); else controller.enqueue(next.value) } catch (error) { controller.error(error) } } })",
-            "    init.duplex = 'half'",
+            // Match the H3 1 cache precedence in openNodeRequestBody before touching a consumed Node stream.
+            "    const body = await (event._requestBody ?? raw[Symbol.for('h3RawBody')] ?? raw.rawBody ?? raw.body)",
+            "    if (typeof body === 'string' || body instanceof URLSearchParams || body instanceof ReadableStream) init.body = body",
+            "    else if (body instanceof Uint8Array) init.body = new ReadableStream({ start(controller) { controller.enqueue(body); controller.close() } })",
+            "    else if (body instanceof Object && Object.getPrototypeOf(body) === Object.prototype) init.body = JSON.stringify(body)",
+            "    else {",
+            "      const iterator = raw[Symbol.asyncIterator]()",
+            "      init.body = new ReadableStream({ async pull(controller) { try { const next = await iterator.next(); if (next.done) controller.close(); else controller.enqueue(next.value) } catch (error) { controller.error(error) } } })",
+            "    }",
+            "    if (init.body instanceof ReadableStream) init.duplex = 'half'",
             "  }",
-            "  const request = new Request(new URL(raw.url ?? '/', `${protocol === 'https' ? 'https' : 'http'}://${host}`), init)",
+            "  const path = (raw.originalUrl || raw.url || '/').replace(/^[/\\\\]+/, '/')",
+            "  const request = new Request(new URL(path, `${protocol === 'https' ? 'https' : 'http'}://${host}`), init)",
             "  return handle(request, event)",
             "}",
             "",
           ].join("\n"),
         );
-        const managementRoute = connectionManagementRoute(Reflect.get(config, "base"));
+        const managementRoute = connectionManagementRoute(config);
         await writeManagementHandler(managementRoute);
         refreshManagement = async (config) => {
-          const route = connectionManagementRoute(config.base);
+          const route = connectionManagementRoute(config);
           const updateHandlers = (value: unknown) => {
             const kit = createNitroServerKit(value);
             if (Array.isArray(kit.config.handlers)) {
@@ -537,7 +595,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
           // Nitro initializes during config hooks, before Vite resolves its final base.
           if (nitroInstance) {
             Object.assign(nitroInstance.options, updateHandlers(nitroInstance.options));
-            nitroInstance.routing.sync();
+            nitroInstance.routing?.sync();
           }
           await writeManagementHandler(route);
         };
@@ -554,8 +612,8 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
       refresh();
       await refreshGeneratedFiles();
     },
-    configEnvironment(name, config) {
-      if (!isServerEnvironment(name, config)) return;
+    configEnvironment(name, config, env) {
+      if (!isServerEnvironment(name, config) || loadsViteHubPackagesNatively(name, env)) return;
       return {
         resolve: { noExternal: noExternalAddition(config.resolve?.noExternal) },
       };
@@ -572,7 +630,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
       if (id === CONNECTIONS_REGISTRY_ID) return resolvedConnectionsRegistryId;
     },
     load(id) {
-      if (id === resolvedConnectionsRegistryId) return renderRegistry(definitions, database, activityRetention);
+      if (id === resolvedConnectionsRegistryId) return renderRegistry(definitions, database, activityRetention, databaseName);
     },
   };
 }

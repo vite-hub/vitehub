@@ -8,8 +8,7 @@ import { commentsSchema } from "../src/database.ts"
 import { createGitHubClient } from "../src/forge/github.ts"
 import { previewUrl, renderComment, renderSummary, unlinked } from "../src/forge/render.ts"
 import { forgetGitHubToken, rememberGitHubToken } from "../src/forge/tokens.ts"
-import { defineComments, installComments } from "../src/index.ts"
-import { createCommentsStore } from "../src/store.ts"
+import { defineComments, defineCommentSubject, installComments } from "../src/index.ts"
 import { ada, anchor, createComments, createDatabase, grace } from "./harness.ts"
 
 import type { CommentContext, CommentsForgeOptions, CommentThread } from "../src/types.ts"
@@ -157,6 +156,8 @@ function context(build: CommentContext["build"] = { repository: "acme/app", pull
   }
 }
 
+const docs = [defineCommentSubject({ kind: "doc", scope: id => `doc:${id}` })]
+
 async function forgeComments(github: ReturnType<typeof fakeGitHub>, forge: Partial<CommentsForgeOptions> = {}) {
   return await createComments({ forge: { provider: "github", fetch: github.fetch, ...forge } })
 }
@@ -183,7 +184,7 @@ describe("forge sync", () => {
     expect(summary!.body).toContain("**1 open**, 0 resolved on [pr7.preview.acme.dev](https://pr7.preview.acme.dev)")
     expect(posted!.body).toContain("**Ada** commented on the preview:\n\n> Bookmark names are cut off. Show them in full.")
     expect(posted!.body).toContain("`app/components/BookmarkSelector.vue`")
-    expect(posted!.body).toContain(`https://pr7.preview.acme.dev/forecast?group=eu&vitehub=comments#comment-${thread!.id}`)
+    expect(posted!.body).toContain(`https://pr7.preview.acme.dev/forecast?group=eu&comment=${thread!.n}`)
     expect(posted!.token).toBe("app-token")
 
     const [, read] = await comments.get(thread!.id)
@@ -222,16 +223,16 @@ describe("forge sync", () => {
     const comments = await forgeComments(github)
     const held = github.holdNextCreate("comment")
     const [, thread] = await comments.create({ page: "/forecast", anchor, context: context(), body: "Initial.", author: ada })
-    const id = thread!.comments[0]!.id
+    const id = thread!.messages[0]!.id
     await held.started
-    const [, pending] = await comments.getByComment(id)
+    const [, pending] = await comments.getByMessage(id)
     held.release()
     await comments.flush()
-    const [, posted] = await comments.getByComment(id)
+    const [, posted] = await comments.getByMessage(id)
     github.failNextRequests(1)
     await comments.edit(id, { body: "Edited." })
     await comments.flush()
-    const [, failed] = await comments.getByComment(id)
+    const [, failed] = await comments.getByMessage(id)
 
     expect(pending!.forge).toMatchObject({ state: "pending" })
     expect(posted!.forge).toMatchObject({ state: "posted", url: expect.any(String) })
@@ -260,7 +261,7 @@ describe("forge sync", () => {
     expect(github.bodies()[0]).toContain("Open, not posted yet")
 
     await comments.sync(thread!.id)
-    expect((await comments.getByComment(reply!.id))[1]!.forge).toEqual(original)
+    expect((await comments.getByMessage(reply!.id))[1]!.forge).toEqual(original)
     expect(github.bodies()[0]).not.toContain("not posted yet")
   })
 
@@ -285,14 +286,14 @@ describe("forge sync", () => {
     const [, thread] = await comments.create({ page: "/forecast", anchor, context: context(), body: "Initial.", author: ada })
     await comments.flush()
     github.rejectToken("ada-token", status)
-    await comments.edit(thread!.comments[0]!.id, { body: "Edited." })
+    await comments.edit(thread!.messages[0]!.id, { body: "Edited." })
     await comments.flush()
     expect(github.bodies()[1]).toMatch(/^Edited\./)
     expect(github.comments.size).toBe(2)
     expect((await comments.get(thread!.id))[1]!.forge).toMatchObject({ state: "posted", postedAs: "author" })
 
     github.rejectToken("app-token", 403)
-    await comments.edit(thread!.comments[0]!.id, { body: "Rejected by both." })
+    await comments.edit(thread!.messages[0]!.id, { body: "Rejected by both." })
     await comments.flush()
     expect((await comments.get(thread!.id))[1]!.forge).toMatchObject({ state: "failed", error: expect.stringContaining("403") })
   })
@@ -358,7 +359,7 @@ describe("forge sync", () => {
     await comments.sync(thread!.id)
     expect(github.calls).toEqual([])
 
-    await comments.edit(thread!.comments[0]!.id, { body: "Cut off at 24 characters." })
+    await comments.edit(thread!.messages[0]!.id, { body: "Cut off at 24 characters." })
     await comments.flush()
     expect(github.calls.filter(call => call.startsWith("PATCH"))).toHaveLength(2)
     expect(github.bodies().join("\n")).toContain("Cut off at 24 characters.")
@@ -436,7 +437,7 @@ describe("forge sync", () => {
     await comments.flush()
 
     // Recovery must adopt the stored body and still apply an edit made before the retry.
-    await comments.edit(thread!.comments[0]!.id, { body: "After retry." })
+    await comments.edit(thread!.messages[0]!.id, { body: "After retry." })
     await comments.flush()
     await comments.sync(thread!.id)
     expect(github.comments.size).toBe(2)
@@ -468,16 +469,17 @@ describe("forge sync", () => {
   it("removes every forge comment and row in a scope with more than 500 threads", async () => {
     const github = fakeGitHub()
     const database = await createDatabase()
-    const store = createCommentsStore(database)
+    const writer = defineComments({ subjects: docs })
+    installComments(writer, { database })
     const links = []
     for (let index = 0; index < 501; index++) {
-      const thread = await store.create({ scope: "doc:1", page: "/forecast", context: context(), body: `Thread ${index}.`, author: ada, mentions: [] })
+      const [, thread] = await writer.create({ subject: { kind: "doc", id: "1" }, context: context(), body: `Thread ${index}.`, author: ada })
       const id = 1000 + index
       github.comments.set(id, { id, body: "Existing comment", token: "app-token", minimized: false, pullRequest: 7 })
-      links.push({ id: thread.comments[0]!.id, threadId: thread.id, repository: "acme/app", pullRequest: 7, remoteId: String(id), updatedAt: Date.now() })
+      links.push({ id: thread!.messages[0]!.id, threadId: thread!.id, repository: "acme/app", pullRequest: 7, remoteId: String(id), updatedAt: Date.now() })
     }
-    await database.insert(commentsSchema.vitehubCommentForge).values(links)
-    const comments = defineComments({ forge: { provider: "github", fetch: github.fetch } })
+    for (let index = 0; index < links.length; index += 50) await database.insert(commentsSchema.vitehubCommentForge).values(links.slice(index, index + 50))
+    const comments = defineComments({ subjects: docs, forge: { provider: "github", fetch: github.fetch } })
     installComments(comments, { database })
 
     expect((await comments.removeScope("doc:1"))[1]).toEqual({ removed: 501 })
@@ -574,9 +576,9 @@ describe("forge sync", () => {
     const [, thread] = await first.create({ page: "/forecast", anchor, context: context(), body: "Initial.", author: ada })
     await first.flush()
     const held = github.holdNextUpdate(kind)
-    await first.edit(thread!.comments[0]!.id, { body: "Older edit." })
+    await first.edit(thread!.messages[0]!.id, { body: "Older edit." })
     await held.started
-    await second.edit(thread!.comments[0]!.id, { body: "Newest edit." })
+    await second.edit(thread!.messages[0]!.id, { body: "Newest edit." })
     await second.flush()
     held.release()
     await first.flush()
@@ -592,7 +594,7 @@ describe("forge sync", () => {
     const [, thread] = await comments.create({ page: "/forecast", anchor, context: context(), body: "Initial.", author: ada })
     await comments.flush()
     github.failNextRequests(1)
-    await comments.edit(thread!.comments[0]!.id, { body: "Edited." })
+    await comments.edit(thread!.messages[0]!.id, { body: "Edited." })
     await comments.flush()
     expect((await comments.get(thread!.id))[1]!.forge).toMatchObject({ state: "failed", error: expect.stringContaining("403"), url: expect.any(String) })
     await comments.sync(thread!.id)
@@ -641,25 +643,26 @@ describe("forge sync", () => {
   it("cleans threads inserted immediately before the scope deletion transaction", async () => {
     const github = fakeGitHub()
     const database = await createDatabase()
-    const store = createCommentsStore(database)
-    const comments = defineComments({ forge: { provider: "github", fetch: github.fetch } })
+    const writer = defineComments({ subjects: docs })
+    const comments = defineComments({ subjects: docs, forge: { provider: "github", fetch: github.fetch } })
+    installComments(writer, { database })
     installComments(comments, { database })
-    await comments.create({ scope: "doc:1", page: "/forecast", context: context(), body: "Original.", author: ada })
+    await comments.create({ subject: { kind: "doc", id: "1" }, context: context(), body: "Original.", author: ada })
     await comments.flush()
     const batch = database.batch.bind(database)
     const spy = vi.spyOn(database, "batch").mockImplementationOnce(async (queries) => {
       // The other writer commits before deletion takes SQLite's transaction lock.
       spy.mockRestore()
-      const thread = await store.create({ scope: "doc:1", page: "/forecast", context: context(), body: "Concurrent.", author: ada, mentions: [] })
+      const [, thread] = await writer.create({ subject: { kind: "doc", id: "1" }, context: context(), body: "Concurrent.", author: ada })
       github.comments.set(1000, { id: 1000, body: "Concurrent.", token: "app-token", minimized: false, pullRequest: 7 })
-      await database.insert(commentsSchema.vitehubCommentForge).values({ id: thread.comments[0]!.id, threadId: thread.id, repository: "acme/app", pullRequest: 7, remoteId: "1000", updatedAt: Date.now() })
+      await database.insert(commentsSchema.vitehubCommentForge).values({ id: thread!.messages[0]!.id, threadId: thread!.id, repository: "acme/app", pullRequest: 7, remoteId: "1000", updatedAt: Date.now() })
       return await batch(queries)
     })
     const [, result] = await comments.removeScope("doc:1")
     await comments.flush()
     expect(result).toEqual({ removed: 2 })
     expect(await database.select().from(commentsSchema.vitehubCommentForge)).toEqual([])
-    expect(await database.select().from(commentsSchema.vitehubComments)).toEqual([])
+    expect(await database.select().from(commentsSchema.vitehubCommentMessages)).toEqual([])
     expect(github.comments.size).toBe(0)
   })
 
@@ -695,7 +698,7 @@ describe("forge sync", () => {
 
   it("lets the app pick the repository and pull request", async () => {
     const github = fakeGitHub()
-    const comments = await forgeComments(github, { repository: "acme/app", pullRequest: thread => thread.page === "/forecast" ? 12 : undefined })
+    const comments = await forgeComments(github, { repository: "acme/app", pullRequest: thread => thread.subject.id === "/forecast" ? 12 : undefined })
     await comments.create({ page: "/forecast", anchor, body: "Here.", author: ada })
     await comments.create({ page: "/alerts", anchor, body: "Not here.", author: ada })
     await comments.flush()
@@ -706,40 +709,37 @@ describe("forge sync", () => {
 describe("forge render", () => {
   const thread = {
     id: "t1",
-    scope: "pages",
-    number: 3,
-    page: "/forecast",
+    scope: "site",
+    n: 3,
+    subject: { kind: "page", id: "/forecast" },
     anchor,
-    metadata: null,
     context: context(),
     status: "open",
-    createdBy: ada,
-    resolvedBy: null,
-    resolvedAt: null,
-    createdAt: "2026-10-26T10:00:00.000Z",
-    updatedAt: "2026-10-26T10:00:00.000Z",
-    comments: [{ id: "c1", threadId: "t1", body: "Ask @grace | see #12", mentions: [], author: ada, createdAt: "2026-10-26T10:00:00.000Z", editedAt: null }],
+    author: ada,
+    createdAt: 1_793_000_000_000,
+    updatedAt: 1_793_000_000_000,
+    messages: [{ id: "c1", threadId: "t1", body: "Ask @grace | see #12", mentions: [], attachments: [], author: ada, createdAt: 1_793_000_000_000 }],
   } satisfies CommentThread
 
   it.each(["", "/portal"])("opens page tools from preview links under mount %s", (mount) => {
     const url = previewUrl({ ...thread, context: { ...thread.context, url: `https://preview.test${mount}/forecast?group=eu#old` } })!
     expect(hasViteHubPageToolsHint(new Request(url), mount)).toBe(true)
-    expect(new URL(url).searchParams.get("vitehub")).toBe("comments")
+    expect(new URL(url).searchParams.get("comment")).toBe(String(thread.n))
     expect(new URL(url).searchParams.get("group")).toBe("eu")
-    expect(new URL(url).hash).toBe(`#comment-${thread.id}`)
+    expect(new URL(url).hash).toBe("")
   })
 
   it("keeps app mentions and thread numbers from linking on GitHub", () => {
     expect(unlinked("@grace in #12, mail a@b.c")).toBe("@⁠grace in #⁠12, mail a@⁠b.c")
-    expect(renderComment(thread, thread.comments[0], "author")).toContain("Ask @⁠grace \\| see \\#⁠12")
+    expect(renderComment(thread, thread.messages[0], "author")).toContain("Ask @⁠grace \\| see \\#⁠12")
   })
 
   it.each(["app", "author"] as const)("keeps Markdown and HTML literal when posted as %s", (postedAs) => {
     const body = "[review](https://example.com) ![image](https://example.com/x.png)\n<b>bold</b> &lt;i&gt;\n**bold** _emphasis_ ~~strike~~ `code`\\\n# Heading\n- item\n1. ordered\n2) ordered"
     const literal = "\\[review\\](https\\://example.com) \\!\\[image\\](https\\://example.com/x.png)\n\\<b\\>bold\\</b\\> &amp;lt;i&amp;gt;\n\\*\\*bold\\*\\* \\_emphasis\\_ \\~\\~strike\\~\\~ \\`code\\`\\\\\n\\# Heading\n\\- item\n1\\. ordered\n2\\) ordered"
-    const first = { ...thread.comments[0], body }
+    const first = { ...thread.messages[0], body }
     const reply = { ...first, id: "c2" }
-    const withReply = { ...thread, comments: [first, reply] }
+    const withReply = { ...thread, messages: [first, reply] }
     for (const comment of [first, reply]) {
       const rendered = renderComment(withReply, comment, postedAs)
       expect(rendered).toContain(postedAs === "app" ? literal.split("\n").map(line => `> ${line}`).join("\n") : literal)
@@ -750,9 +750,9 @@ describe("forge render", () => {
 
   it.each(["app", "author"] as const)("renders URLs and indentation as plain text when posted as %s", (postedAs) => {
     const lines = ["[review](https://example.com)", "https://example.com", "http://example.com", "www.example.com", "    four leading spaces", "\tleading tab"]
-    const first = { ...thread.comments[0], body: lines.join("\n\n") }
+    const first = { ...thread.messages[0], body: lines.join("\n\n") }
     const reply = { ...first, id: "c2" }
-    const withReply = { ...thread, comments: [first, reply] }
+    const withReply = { ...thread, messages: [first, reply] }
     for (const comment of [first, reply]) {
       const document = new Window().document
       document.body.innerHTML = marked.parse(renderComment(withReply, comment, postedAs), { async: false, gfm: true })
@@ -764,9 +764,9 @@ describe("forge render", () => {
 
   it("keeps author display names from linking in threads, replies, and summaries", () => {
     const author = { id: "guest", name: "@owner #12", guest: true }
-    const first = { ...thread.comments[0], author }
+    const first = { ...thread.messages[0], author }
     const reply = { ...first, id: "c2" }
-    const named = { ...thread, createdBy: author, comments: [first, reply] }
+    const named = { ...thread, author, messages: [first, reply] }
     expect(renderComment(named, first, "app")).toContain("**@⁠owner \\#⁠12 (guest)** commented")
     expect(renderComment(named, reply, "app")).toContain("**@⁠owner \\#⁠12 (guest)** replied")
     expect(renderSummary({ title: "Preview comments", threads: [{ thread: named, failed: false }] })).toContain("@⁠owner \\#⁠12 (guest)")
@@ -774,6 +774,6 @@ describe("forge render", () => {
 
   it("escapes table cells in the summary", () => {
     const summary = renderSummary({ title: "Preview comments", threads: [{ thread, failed: true }] })
-    expect(summary).toContain("| [#⁠3](https://pr7.preview.acme.dev/forecast?group=eu&vitehub=comments#comment-t1) | Ask @⁠grace \\| see \\#⁠12<br><sub>`/forecast` · Ada</sub> | Open, not posted yet |")
+    expect(summary).toContain("| [#⁠3](https://pr7.preview.acme.dev/forecast?group=eu&comment=3) | Ask @⁠grace \\| see \\#⁠12<br><sub>`/forecast` · Ada</sub> | Open, not posted yet |")
   })
 })

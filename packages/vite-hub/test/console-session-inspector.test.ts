@@ -1,4 +1,4 @@
-import { createRenderer, createSSRApp, h, nextTick, ssrContextKey } from "vue"
+import { createRenderer, createSSRApp, defineComponent, h, nextTick, ref, ssrContextKey, type Component, type PropType } from "vue"
 import { renderToString } from "vue/server-renderer"
 import { describe, expect, it, vi } from "vitest"
 
@@ -50,6 +50,33 @@ describe("Console inspector initialization", () => {
     expect(await renderToString(app)).toContain("Recorded Sources")
   })
 
+  it("shows no key hints on tab launchers, because no key opens a tab", async () => {
+    const menuItems: Record<string, unknown>[] = []
+    const app = createSSRApp(Inspector, {
+      invocation: { id: "run" },
+      tab: "details",
+      activeSurface: "",
+      openViews: [],
+    })
+    app.component("UDropdownMenu", defineComponent({
+      props: { items: { type: Array as PropType<Record<string, unknown>[]>, required: true } },
+      setup(props, { slots }) {
+        menuItems.push(...props.items)
+        return () => slots.default?.()
+      },
+    }))
+    app.component("UTooltip", defineComponent({ setup: (_props, { slots }) => () => slots.default?.() }))
+    app.component("UKbd", defineComponent({ setup: (_props, { slots }) => () => h("kbd", slots.default?.()) }))
+    for (const name of ["UIcon", "UButton", "UEmpty"]) {
+      app.component(name, { render: () => null })
+    }
+    const html = await renderToString(app)
+    expect(html).toContain("Open a tab")
+    expect(html).not.toContain("<kbd")
+    expect(menuItems.map(item => item.label)).toEqual(["Invocation", "Capabilities", "Trace"])
+    expect(menuItems.filter(item => "kbds" in item)).toEqual([])
+  })
+
   it("requests a preselected file without waiting for a Workspace scan", async () => {
     const path = ".agents/skills/runs/SKILL.md"
     let resolveResponse: (value: unknown) => void = () => {}
@@ -74,6 +101,46 @@ describe("Console inspector initialization", () => {
       await response
       await nextTick()
       expect(mocks.request).toHaveBeenCalledTimes(1)
+    } finally {
+      app.unmount()
+    }
+  })
+
+  it("keeps the restored view active when the retained file changes", async () => {
+    mocks.request.mockReturnValue(new Promise(() => {}))
+    const tab = ref("workspace")
+    const selectedPath = ref("first.md")
+    const activeSurface = ref("file:first.md")
+    const HeadlessInspector: Component = { ...Inspector, render: () => null }
+    const app = renderer.createApp({
+      setup: () => () => h(HeadlessInspector, {
+        invocation: { id: "run" },
+        workspaceBase: "/api/invocations",
+        tab: tab.value,
+        "onUpdate:tab": (value: string) => { tab.value = value },
+        selectedPath: selectedPath.value,
+        "onUpdate:selectedPath": (value: string) => { selectedPath.value = value },
+        activeSurface: activeSurface.value,
+        "onUpdate:activeSurface": (value: string) => { activeSurface.value = value },
+        openViews: ["workspace", "trace", "details"],
+        openPaths: ["first.md", "second.md"],
+      }),
+    })
+    app.provide(ssrContextKey, {})
+    try {
+      app.mount({})
+      tab.value = "trace"
+      selectedPath.value = "second.md"
+      activeSurface.value = "view:trace"
+      await nextTick()
+      expect(tab.value).toBe("trace")
+      expect(activeSurface.value).toBe("view:trace")
+      tab.value = "details"
+      selectedPath.value = "first.md"
+      activeSurface.value = "view:details"
+      await nextTick()
+      expect(tab.value).toBe("details")
+      expect(activeSurface.value).toBe("view:details")
     } finally {
       app.unmount()
     }

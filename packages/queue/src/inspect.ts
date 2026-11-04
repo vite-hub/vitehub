@@ -23,12 +23,12 @@ export function inspectQueueDefinitions(options: QueueInspectionOptions): ViteHu
 /** Console section that lists discovered Queue Definitions. `vitehub inspect definitions` reads the same data. */
 export const queueConsoleSection: ViteHubConsoleSectionContribution<QueueInspectionOptions> = {
   description: "Inspect discovered Queue Definitions and their source metadata.",
-  icon: "i-lucide-inbox",
+  icon: "i-vitehub-queue",
   id: "queues",
   label: "Queues",
   read: inspectQueueDefinitions,
   view: {
     kind: "definition-catalog",
-    notice: "Queue backlog, message, and delivery history are not exposed by ViteHub's provider-independent Queue contract yet.",
+    notice: "Cloudflare and Vercel do not expose Queue backlog or delivery history through ViteHub. The local provider reports its job directory and job counts in `vitehub queue list`.",
   },
 }

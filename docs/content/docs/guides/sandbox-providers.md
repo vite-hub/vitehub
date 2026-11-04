@@ -94,7 +94,7 @@ Vercel does more than ViteHub exposes. Vercel offers persistent sandboxes, snaps
 
 ## Cloudflare Sandbox for AI agents
 
-[Cloudflare Sandbox](https://developers.cloudflare.com/sandbox/) runs a container on Cloudflare Containers. Your Worker reaches it through a Durable Object. ViteHub uses the `@cloudflare/sandbox` SDK, and you need the Workers Paid plan.
+[Cloudflare Sandbox](https://developers.cloudflare.com/sandbox/) runs a container on Cloudflare Containers. Your Worker reaches it through a Durable Object. ViteHub generates that Durable Object: it starts the Container through the Workers Container API and uses the `Files` class of `@cloudflare/sandbox` 1.x for file operations. You need the Workers Paid plan.
 
 Select it for Sandbox Tasks with the `cloudflare` preset:
 
@@ -109,14 +109,15 @@ export default defineConfig({
 })
 ```
 
-The preset writes the Container, the Durable Object binding, the migration, and the Worker exports. It generates a Dockerfile when the container has no image. The generated container uses the `lite` instance type, which has 1/16 vCPU and 256 MiB of memory, and allows 12 instances. An application-owned container entry with the same class name keeps its own instance type.
+The preset writes the Container, the Durable Object binding, the migration, and the Worker exports. It generates a Dockerfile when the container has no image. That Dockerfile builds on `node:24-bookworm-slim` with git, curl, jq, and zip, and copies the `sandbox-shim` helper from the `docker.io/cloudflare/sandbox` image whose tag matches the installed `@cloudflare/sandbox` version. A custom image must include bash and GNU coreutils (`timeout` must be on `PATH`), copy `/usr/local/bin/sandbox-shim` from that image and keep running, for example with `CMD ["sleep", "infinity"]`. The generated container uses the `lite` instance type, which has 1/16 vCPU and 256 MiB of memory, and allows 12 instances. An application-owned container entry with the same class name keeps its own instance type.
 
 ViteHub creates and closes a new Sandbox for each Sandbox Task run, unless you set `sandboxId` to share one. Cloudflare stops an idle container after 10 minutes by default. The next request starts a fresh container, and the earlier state is gone. Charges stop while the container sleeps. Set `sleepAfter` or `keepAlive` in the [Cloudflare options](/docs/sandbox/hosts#cloudflare-options) to change this.
 
 Plan for these limits:
 
-- The Vite dev server cannot host the Container. Build the app, then run `npx wrangler --cwd .output/server dev`. Wrangler needs Docker for this.
+- The Vite dev server cannot host the Container. Build the app, then run `npx wrangler dev --config .output/server/wrangler.json`. Wrangler needs Docker for this.
 - ViteHub has no network policy option for Cloudflare Sandbox, and it reports `network: 'unknown'`.
+- The generated Durable Object has no preview URLs, so `session.ports` is unavailable. Spawned process output lives in the Durable Object's memory and ends with the Container.
 
 ## Self-hosted sandboxes with trusted-host and Crabbox
 
@@ -127,7 +128,7 @@ Plan for these limits:
 Use these two runtimes for Codex and Claude Code Agents:
 
 ```ts [server/agents/review/agent.ts]
-import { defineAgent } from 'vite-hub/agent'
+import { codexDriver, defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
   sandbox: {
@@ -135,7 +136,7 @@ export default defineAgent({
     requires: ['git'],
     toolchain: 'project',
   },
-  driver: { kind: 'codex' },
+  driver: codexDriver(),
 })
 ```
 

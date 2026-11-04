@@ -1,4 +1,6 @@
 export { defineAuth } from "./definition.ts"
+export { isGitHubOrgMember } from "./github.ts"
+export type { GitHubOrgMemberOptions } from "./github.ts"
 export type { AuthDuration, AuthPreset, AuthStatelessPreset, AuthStatelessPresetOptions } from "./presets.ts"
 export type {
   AuthBetterAuthOptions,
@@ -9,6 +11,9 @@ export type {
   AuthAccessAuthorizeResult,
   AuthAccessRoute,
   AuthAccessRouteConfiguration,
+  AuthAnonymousAuthorization,
+  AuthAnonymousAuthorize,
+  AuthAnonymousGuardedHandler,
   AuthAuthorization,
   AuthDatabaseConfiguration,
   AuthDatabaseReference,
@@ -55,4 +60,5 @@ export type {
   AuthConsoleColumn,
   AuthConsoleFieldPolicy,
   AuthConsolePolicy,
+  AuthConsoleRoles,
 } from "./console-types.ts";

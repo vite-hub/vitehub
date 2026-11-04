@@ -1,13 +1,14 @@
 import { join } from "pathe"
 
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
+import { isWebContainer } from "@vite-hub/web-container/env"
 
 import { collectDatabaseContributions, describeDatabaseContribution, resolveDatabaseContributionTargets } from "./contributions.ts"
 import { discoverDatabaseDefinitions, isImplicitDefaultDatabase, readDatabaseDefinitionDialect, readDatabaseDefinitionReadReplication, readStaticDatabaseSchema } from "./config.ts"
 import { loadContributedDatabaseSchema } from "./internal/schema-tables.ts"
 
 import type { ViteHubDefinitionField, ViteHubDefinitionSummary } from "@vite-hub/internal/inspect"
-import type { ResolvedDatabaseContribution } from "./contributions.ts"
+import type { ResolvedDatabaseContribution, ResolvedDatabaseUse } from "./contributions.ts"
 
 export interface DatabaseInspectionOptions {
   /** Without a Database Definition, list the implicit default Database that an enabled database uses. */
@@ -24,6 +25,8 @@ export interface DatabaseInspectionOptions {
   viteRoot?: string
 }
 
+const webContainerDriver = "SQLite WASM. This WebContainer cannot load native libSQL, so a local `file:` database lives in memory and ViteHub writes the whole file after each committed write. There is no WAL and no lock with other processes."
+
 // Inspection reads source only. Tables from an imported or spread schema are known after the Definition loads.
 function describeTables(files: string[]) {
   const schemas = files.map(readStaticDatabaseSchema)
@@ -39,6 +42,16 @@ async function describeContributedTables(contribution: ResolvedDatabaseContribut
   return { label: "Contributed tables", value: [`${tables} from ${describeDatabaseContribution(contribution)}`, contribution.reason].filter(Boolean).join(". ") }
 }
 
+function describeUse(use: ResolvedDatabaseUse): ViteHubDefinitionField {
+  return { label: "Used by", value: [describeDatabaseContribution(use), use.reason].filter(Boolean).join(". ") }
+}
+
+// The implicit default Database exists for the contributions that need it, so name them.
+function describeImplicitDefault(needs: readonly (ResolvedDatabaseContribution | ResolvedDatabaseUse)[]): string {
+  const by = needs.length ? ` for ${[...new Set(needs.map(need => `plugin ${JSON.stringify(need.plugin)}`))].join(", ")}` : ""
+  return `Implicit. The app has no Database Definition, so ViteHub adds an empty default Database${by}. Add \`server/databases/config.ts\` to define it yourself.`
+}
+
 /**
  * Lists Database Definitions with their mode, non-default dialect, the tables their source declares, and the tables Vite plugins
  * contribute. Definitions are read from source without loading them.
@@ -51,22 +64,24 @@ export async function inspectDatabaseDefinitions(options: DatabaseInspectionOpti
     serverDirs: options.serverDirs,
   })
   const definitions = discoverDatabaseDefinitions(options.rootDir, {
-    definitions: contributions.definitions,
+    contributions,
     implicitDefault: options.implicitDefault,
     serverDirs: options.serverDirs,
   })
   const dialects = Object.fromEntries(definitions.map(definition => [definition.name, readDatabaseDefinitionDialect(definition.handler)]))
   // The build checks contribution dialects, so inspection does too.
   const contributionsByDatabase = resolveDatabaseContributionTargets(definitions.map(definition => definition.name), contributions.tables, dialects)
+  const usesByDatabase = resolveDatabaseContributionTargets(definitions.map(definition => definition.name), contributions.uses, dialects)
   return await Promise.all(definitions.map(async definition => ({
     fields: [
       { label: "Mode", value: definition.mode === "default" ? "Default" : "Named" },
       // SQLite is the default and stays implicit.
       ...(dialects[definition.name] === "postgresql" ? [{ label: "Dialect", value: "PostgreSQL" }] : []),
       ...isImplicitDefaultDatabase(definition)
-        ? [{ label: "Definition", value: "Implicit. The app has no Database Definition, so ViteHub uses an empty default Database. Add `server/databases/config.ts` to declare tables." }]
+        ? [{ label: "Definition", value: describeImplicitDefault([...contributionsByDatabase[definition.name] ?? [], ...usesByDatabase[definition.name] ?? []]) }]
         : [],
       { label: "Tables", value: describeTables(definition.schemaSources.map(source => source.handler)) },
+      ...(dialects[definition.name] !== "postgresql" && isWebContainer() ? [{ label: "Local driver", value: webContainerDriver }] : []),
       ...(readDatabaseDefinitionReadReplication(definition.handler) ?? options.readReplication)
         ? [{ label: "Read replication", value: "On. Reads use D1 read replicas, through one D1 session per request. Writes return a bookmark cookie." }]
         : [],
@@ -77,6 +92,7 @@ export async function inspectDatabaseDefinitions(options: DatabaseInspectionOpti
         ? [{ label: "Schema sources", value: definition.schemaSources.map(source => relativeDefinitionFile(options.projectRoot, source.handler)).join(", ") }]
         : [],
       ...await Promise.all((contributionsByDatabase[definition.name] ?? []).map(contribution => describeContributedTables(contribution, options.rootDir))),
+      ...(usesByDatabase[definition.name] ?? []).map(describeUse),
     ],
     file: relativeDefinitionFile(options.projectRoot, definition.handler),
     name: definition.name,

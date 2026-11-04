@@ -1,5 +1,6 @@
 ---
 title: Comments
+layout: landing
 navigation.title: Overview
 description: Let your team pin comments on the pages of your live site, reply, resolve, and edit Content text in place.
 navigation.order: 1
@@ -59,6 +60,7 @@ Start with one plugin. Add more when you need it, without changing what you have
 | [Comments alone](/docs/comments/get-started) | `comments()` in `vite.config.ts` | Pins, threads, replies, and resolve on every page. Threads in your database, a Turso database, Cloudflare D1, or a SQLite file, with tables that Comments creates. Guests on the dev server. |
 | [With GitHub sign-in](/docs/comments/configure#sign-in-with-github) | A GitHub App, and three server variables | Your team signs in with GitHub. People who can push to the repository may comment. Comments posted to the pull request show their GitHub account. |
 | [In a ViteHub app](/docs/comments/with-vite-hub) | `vitehub()` with a Database, and `server/comments.ts` | Any ViteHub Database, on every host. Cursors of the people on a page, Content edits in place, the Console section, MCP tools for Agents, and your own sign-in. |
+| [On a docs site](/docs/docs-site/configure#comments) | `vite-hub/nuxt` beside `@vite-hub/docs/nuxt` | On by default, on every docs page, with threads in the Console. `docs: { comments: false }` turns it off. |
 
 ::product-features
   :::product-feature-item{title="One plugin turns it on" icon="i-lucide-file-code-2" to="/docs/comments/get-started#turn-on-comments"}
@@ -86,7 +88,7 @@ Start with one plugin. Add more when you need it, without changing what you have
   :::
 
   :::product-feature-item{title="Decide who can comment" icon="i-lucide-lock" to="/docs/comments/configure#decide-who-can-comment"}
-  `authorize()` allows or denies `read`, `comment`, and `resolve` for each user, and can let guests comment.
+  `authorize()` allows or denies `read`, `write`, `resolve`, and `delete` for each user, and can let guests comment.
   :::
 
   :::product-feature-item{title="Notify the people you mention" icon="i-lucide-at-sign" to="/docs/comments/configure#notify-mentioned-people"}
@@ -100,4 +102,4 @@ Start with one plugin. Add more when you need it, without changing what you have
 
 ## Comments through Operations
 
-To store numbered threads on custom subjects and authorize each CLI, MCP, Console, or browser operation, use a [default-export Comments Definition](/docs/comments/operations/get-started). The named `comments` export described above keeps the live-site overlay API. Use one entry form per application; they install different Database schemas.
+The same `server/comments.ts` also runs the [comment operations](/docs/comments/operations/get-started): numbered threads on subjects of your own, for the CLI, MCP, the Console, and your own UI. Export the definition as `comments` or as the default export; both run every surface on the same tables.

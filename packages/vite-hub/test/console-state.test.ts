@@ -50,9 +50,11 @@ describe("Console state", () => {
   })
 
   it("asks to sign in again for a 401", () => {
-    const { app, buttons } = render({ error: new ConsoleRequestError(401), retry: vi.fn(), title: "Could not load Env" })
+    const { app, buttons, root } = render({ error: new ConsoleRequestError(401), retry: vi.fn(), title: "Could not load Env" })
     try {
       expect(buttons).toEqual(["Sign in again", "Read the docs"])
+      // The fix "Sign in again." only repeats the button, so the state shows the button alone.
+      expect([...root.querySelectorAll("p")].map(paragraph => paragraph.textContent)).toEqual(["You are not signed in, or your session ended."])
     }
     finally { app.unmount() }
   })

@@ -12,7 +12,7 @@ const tool = { id: "comments", label: "Comments", icon: "i-lucide-message-square
 /** The page tools session and the Comments API of a site where this person may `read`, and `comment` when `comment`. */
 function site(can: { read: boolean, comment: boolean }, realtime = false) {
   vi.stubGlobal("fetch", vi.fn(async (input: string) => {
-    const path = String(input)
+    const path = new URL(String(input), location.href).pathname
     if (path === "/_vitehub/page/session") return Response.json({ tools: [tool] })
     if (path === "/api/_vitehub/comments/session") {
       return Response.json({ data: { user: { id: "ada", name: "Ada Lovelace" }, can: { ...can, resolve: can.comment }, realtime, content: false } })
@@ -38,8 +38,9 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  document.querySelector("vitehub-pill")?.shadowRoot?.querySelector<HTMLButtonElement>("button")?.click()
-  for (const element of document.querySelectorAll("vitehub-pill, vitehub-comments")) element.remove()
+  document.querySelector("vitehub-pill")?.shadowRoot?.querySelector<HTMLButtonElement>("button.exit")?.click()
+  for (const element of document.querySelectorAll("vitehub-pill, vitehub-comments, vitehub-tools-off")) element.remove()
+  localStorage.removeItem("vitehub-tools-off")
   document.documentElement.className = ""
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
@@ -62,7 +63,7 @@ describe("the Comments page tool", () => {
     const originalReplace = history.replaceState
     const { pill, bar } = await start()
     await vi.waitFor(() => expect(request.mock.calls.some(([path]) => path.startsWith(`/api/_vitehub/comments/${stage}`))).toBe(true))
-    if (action === "exit") pill.shadowRoot!.querySelector<HTMLButtonElement>("button")!.click()
+    if (action === "exit") pill.shadowRoot!.querySelector<HTMLButtonElement>("button.exit")!.click()
     else document.querySelector("vitehub-comments")!.remove()
 
     const documentListeners = vi.spyOn(document, "addEventListener")
@@ -90,6 +91,22 @@ describe("the Comments page tool", () => {
     }
   })
 
+  it("keeps the launch button's place, busy, until the session answers, so the pill does not shrink first", async () => {
+    site({ read: true, comment: true })
+    const serve = fetch
+    let respond!: (response: Response) => void
+    const pending = new Promise<Response>((resolve) => { respond = resolve })
+    vi.stubGlobal("fetch", vi.fn((input: string) => new URL(String(input), location.href).pathname === "/api/_vitehub/comments/session" ? pending : serve(input)))
+    const { bar } = await start()
+    await vi.waitFor(() => expect(document.querySelector("vitehub-comments")).not.toBeNull())
+    const placeholder = bar.shadowRoot!.querySelector<HTMLButtonElement>("button")!
+    expect(bar.hidden).toBe(false)
+    expect([placeholder.textContent, placeholder.disabled, placeholder.getAttribute("aria-busy")]).toEqual(["Comments", true, "true"])
+    respond(Response.json({ data: { user: { id: "ada", name: "Ada" }, can: { read: true, comment: true, resolve: true }, realtime: false, content: false } }))
+    await vi.waitFor(() => expect(comment(bar)).toBeTruthy())
+    expect(bar.shadowRoot!.querySelector("button[aria-busy]")).toBeNull()
+  })
+
   it("draws its toolbar in its pill segment, without its own exit button", async () => {
     site({ read: true, comment: true })
     const { pill, bar } = await start()
@@ -109,7 +126,7 @@ describe("the Comments page tool", () => {
     await vi.waitFor(() => expect(comment(bar)).toBeTruthy())
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "c" }))
     expect(document.documentElement.classList.contains("vitehub-comment-mode")).toBe(true)
-    expect(comment(bar)!.getAttribute("aria-pressed")).toBe("true")
+    await vi.waitFor(() => expect(comment(bar)!.getAttribute("aria-pressed")).toBe("true"))
     comment(bar)!.click()
     expect(document.documentElement.classList.contains("vitehub-comment-mode")).toBe(false)
   })

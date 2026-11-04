@@ -39,7 +39,7 @@ import type { ContentDocumentSessions, ContentSession } from "../sessions.ts"
 import { contentLive } from "../live.ts"
 import { contentPreviewFrameParameter } from "../preview.ts"
 
-type ContentRuntime = Pick<ContentDocumentsRuntime, "can" | "collection" | "collections" | "publish" | "revisions" | "supportsScheduling" | "schedule" | "schedules" | "unschedule">
+type ContentRuntime = Pick<ContentDocumentsRuntime, "can" | "collection" | "collections" | "publish" | "resolve" | "revisions" | "supportsScheduling" | "schedule" | "schedules" | "unschedule">
   & Partial<Pick<ContentDocumentsRuntime, "hasPolicy" | "live" | "preview" | "sessions">>
 
 const sessionActions: readonly ViteHubConsoleDocumentSessionAction[] = ["report", "acquire", "takeover", "release"]
@@ -626,6 +626,22 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       })
     },
 
+    async resolve(input, context) {
+      if (!isRecord(input)) throw invalidInput("resolve() requires { path }.")
+      const path = text(input.path, "path")
+      return await attempt(async () => {
+        // The page on the site is the published one. A document that was never published has its URL only on the draft.
+        for (const ref of ["published", "draft"] as const) {
+          const found = await content.resolve(path, { ref })
+          if (!found) continue
+          if (!await content.can({ user: context.user, collection: found.collection, action: "read", id: found.id })) return null
+          const status = await content.collection(found.collection).status(found.id)
+          return { collection: found.collection, id: found.id, state: status?.state ?? ref }
+        }
+        return null
+      })
+    },
+
     async raw(input, context) {
       if (!isRecord(input)) throw invalidInput("raw() requires { collection, id }.")
       const collection = open(input.collection)
@@ -1013,5 +1029,3 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
   }
   return actions
 }
-
-export { contentMcpTools, registerContentMcpTools } from "./mcp.ts"

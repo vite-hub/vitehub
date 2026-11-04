@@ -12,23 +12,20 @@ Auth events are opt-in. Set `events.store` on the Auth Definition. Apps that omi
 
 Use the same SQLite Drizzle database that the app already uses, or a separate one. The store uses the `run` and `all` contract used by the Env and Connections stores. It works with Node SQLite, libSQL, and Cloudflare D1. It does not support Postgres.
 
-This example assumes a discovered `auth` Database Definition with the Better Auth tables in its schema. Keep the existing Better Auth adapter and migrations.
+This example keeps users and events in a discovered `auth` Database Definition. [`authDatabase('auth')`](/docs/auth/configure#keep-users-in-the-app-database) adds the Better Auth tables to it.
 
 ```ts [server/auth.ts]
 import { createDatabaseAuthEventStore, defineAuth } from '@vite-hub/auth'
+import { authDatabase } from '@vite-hub/auth/database'
 import { useDatabase } from '@vite-hub/database/drizzle'
-import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 
-export default defineAuth(() => {
-  const { db, schema } = useDatabase('auth')
-  return {
-    database: drizzleAdapter(db, { provider: 'sqlite', schema }),
-    emailAndPassword: { enabled: true },
-    events: {
-      store: createDatabaseAuthEventStore({ db }),
-    },
-  }
-})
+export default defineAuth(() => ({
+  database: authDatabase('auth'),
+  emailAndPassword: { enabled: true },
+  events: {
+    store: createDatabaseAuthEventStore({ db: useDatabase('auth').db }),
+  },
+}))
 ```
 
 The store creates `vitehub_auth_events` and four indexes on first use. There are no foreign keys to Better Auth users or sessions, so deletion of a user does not remove their history. Give the database role permission to create this table and its indexes. Each app must use its own event database. The table does not have a tenant namespace.

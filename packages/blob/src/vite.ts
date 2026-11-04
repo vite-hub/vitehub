@@ -171,48 +171,61 @@ function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined
  * `workersModule` is false in `vite dev`. The Nitro dev runner can be Node (`node-worker`), where `cloudflare:workers`
  * does not exist. The workerd runner gives each request its bindings, so dev code reads them from the event.
  */
-function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName, workersModule = true, sharp = false): string {
+function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName, workersModule = true, imageModule?: ImageModule): string {
   const cloudflareGlobals = cloudflare && workersModule
+  const setters = [cloudflareGlobals ? "setActiveCloudflareEnv" : undefined, "setBlobRuntimeConfig", imageModule === "sharp" ? "setBlobSharpModule" : imageModule === "photon" ? "setBlobPhotonLoader" : undefined]
   return [
     cloudflareGlobals ? "import { env as vitehubEnv } from 'cloudflare:workers'" : undefined,
     cloudflare ? undefined : "import { blobConfig } from './runtime.mjs'",
     // A literal import lets Nitro bundle or trace sharp for image variants.
-    sharp ? "import * as vitehubSharp from 'sharp'" : undefined,
-    `import { ${cloudflareGlobals ? "setActiveCloudflareEnv, " : ""}setBlobRuntimeConfig${sharp ? ", setBlobSharpModule" : ""} } from '${importBase}/runtime/state'`,
+    imageModule === "sharp" ? "import * as vitehubSharp from 'sharp'" : undefined,
+    `import { ${setters.filter(Boolean).join(", ")} } from '${importBase}/runtime/state'`,
     "",
     cloudflare ? `const blobConfig = ${JSON.stringify(blob)}` : undefined,
     "",
     "export default function vitehubBlobPlugin() {",
     cloudflareGlobals ? "  setActiveCloudflareEnv(vitehubEnv)" : undefined,
-    sharp ? "  setBlobSharpModule(vitehubSharp)" : undefined,
+    imageModule === "sharp" ? "  setBlobSharpModule(vitehubSharp)" : undefined,
+    // A literal dynamic import lets Nitro bundle Photon and its WebAssembly module in a chunk that loads on the first variant.
+    imageModule === "photon" ? "  setBlobPhotonLoader(() => import('@cf-wasm/photon'))" : undefined,
     "  setBlobRuntimeConfig(blobConfig)",
     "}",
     "",
   ].filter(line => typeof line === "string").join("\n")
 }
 
-// Bundlers resolve through node_modules directories only. Node's NODE_PATH, which pnpm scripts set, would report a
-// sharp that the bundle cannot import.
-function isSharpInstalled(root: string): boolean {
+type ImageModule = "photon" | "sharp"
+
+// Keep sharp's existing node_modules-based auto detection independent of NODE_PATH, which pnpm scripts set.
+function isPackageInstalled(root: string, name: string): boolean {
   for (let directory = resolve(root); ; directory = dirname(directory)) {
-    if (existsSync(resolve(directory, "node_modules/sharp/package.json"))) return true
+    if (existsSync(resolve(directory, "node_modules", name, "package.json"))) return true
     if (dirname(directory) === directory) return false
   }
 }
 
 /**
- * Whether the generated Nitro plugin imports sharp. Workers never do. `auto` imports it when the project can resolve
- * it, and an explicit `sharp` transformer requires it.
+ * The image package that the generated Nitro plugin imports. An explicit `photon` transformer requires
+ * `@cf-wasm/photon` on every host. Workers never import sharp. `auto` imports sharp when the project can resolve it,
+ * and an explicit `sharp` transformer requires it.
  */
-function resolveSharpImport(root: string, blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, provider?: "cloudflare" | "vercel"): boolean {
-  if (!blob || blob.images === false || cloudflare || provider === "cloudflare") return false
+async function resolveImageModule(config: ResolvedConfig, root: string, blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, provider?: "cloudflare" | "vercel"): Promise<ImageModule | undefined> {
+  if (!blob || blob.images === false) return undefined
   const transformer = blob.images?.transformer ?? "auto"
-  if (transformer !== "auto" && transformer !== "sharp") return false
-  const installed = isSharpInstalled(root)
+  if (transformer === "photon") {
+    // Use the project's resolver, including Plug'n'Play, from the generated import's location.
+    const entry = await config.createResolver()("@cf-wasm/photon", resolve(root, generatedNitroBlobPlugin)).catch(() => undefined)
+    // Vite's missing optional-peer placeholder is a resolved ID, but cannot load Photon.
+    if (entry && !entry.startsWith("__vite-optional-peer-dep:")) return "photon"
+    throw blobErrorDiagnostics.BLOB_B0007({ message: "[vitehub] `blob.images.transformer` is \"photon\", but the project cannot resolve @cf-wasm/photon. Install it with: pnpm add @cf-wasm/photon" })
+  }
+  if (cloudflare || provider === "cloudflare") return undefined
+  if (transformer !== "auto" && transformer !== "sharp") return undefined
+  const installed = isPackageInstalled(root, "sharp")
   if (!installed && transformer === "sharp") {
     throw blobErrorDiagnostics.BLOB_B0005({ message: "[vitehub] `blob.images.transformer` is \"sharp\", but the project cannot resolve sharp. Install it with: pnpm add sharp" })
   }
-  return installed
+  return installed ? "sharp" : undefined
 }
 
 function renderNitroBlobMiddleware(importBase = blobPackageName, workersModule = true): string {
@@ -254,50 +267,76 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
   const cacheControl = Object.entries(headers ?? {}).findLast(([name]) => name.toLowerCase() === "cache-control")?.[1]
     ?? (serve.authorize ? "private, no-cache" : "public, max-age=0, s-maxage=0")
   return [
+    // Nuxt 4 runs H3 1 events and Nitro 3 runs H3 2 events, but an `h3` import from `.vitehub` can resolve the other
+    // major version. Only use what both event shapes have; `serve()` reads both.
     `import { blob, parseImageVariant } from '${importBase}'`,
-    ...(serve.authorize ? [`import { withAuthorization } from ${JSON.stringify(AUTH_SERVER_ID)}`] : []),
+    `import type { BlobStorage } from '${importBase}'`,
+    ...(serve.authorize ? [`import { ${serve.anonymous ? "withAnonymousAuthorization" : "withAuthorization"} } from ${JSON.stringify(AUTH_SERVER_ID)}`] : []),
     ...(authorizeModule ? [`import { authorize } from ${JSON.stringify(authorizeModule)}`] : []),
-    `import { createError, defineEventHandler, getQuery, getResponseStatus, getRouterParam, setResponseHeader${headers ? ", removeResponseHeader, setResponseHeaders" : ""} } from 'h3'`,
-    "import type { H3Event } from 'h3'",
+    "",
+    "type ServeEvent = Parameters<BlobStorage['serve']>[0]",
+    "type RouteEvent = ServeEvent & { context: { params?: Record<string, string | undefined> }, path: string, url?: unknown }",
     "",
     `const storeName = ${JSON.stringify(serve.store)}`,
-    ...(headers ? [`const responseHeaders = ${JSON.stringify(headers)}`] : []),
+    ...(headers
+      ? [
+          `const responseHeaders = ${JSON.stringify(headers)}`,
+          "",
+          "// An H3 1 event has no `url` and writes its response through `node.res`.",
+          "function eventResponseHeaders(event: RouteEvent): Pick<Headers, 'delete' | 'set'> {",
+          "  if (!isH3V1Event(event)) return event.res.headers",
+          "  const response = event.node.res",
+          "  return { delete: name => response.removeHeader(name), set: (name, value) => { response.setHeader(name, value) } }",
+          "}",
+          "",
+          "function isH3V1Event(event: RouteEvent): event is RouteEvent & Extract<ServeEvent, { node: unknown }> {",
+          "  return event.url === undefined",
+          "}",
+        ]
+      : []),
     "",
-    "async function serveBlob(event: H3Event) {",
-    "  const pathname = getRouterParam(event, '_', { decode: false }) || ''",
-    "  if (!pathname) throw createError({ statusCode: 404, statusMessage: 'Blob not found' })",
+    "async function serveBlob(event: RouteEvent) {",
+    "  const pathname = event.context.params?._ || ''",
+    "  if (!pathname) return Response.json({ error: 'Blob not found.' }, { status: 404 })",
     "  // ?w=&h=&fit=&fmt=&q=&crop= selects an image variant. Invalid values are client errors.",
     `  const options: { variant?: NonNullable<ReturnType<typeof parseImageVariant>>, cacheControl: string } = { cacheControl: ${JSON.stringify(cacheControl)} }`,
     "  try {",
-    "    const variant = parseImageVariant(getQuery(event))",
+    "    const variant = parseImageVariant(new URL(event.path, 'http://localhost').searchParams)",
     "    if (variant) options.variant = variant",
     "  }",
     "  catch (error) {",
-    "    throw createError({ cause: error, statusCode: 400, statusMessage: error instanceof Error ? error.message : 'Invalid image variant' })",
+    "    return Response.json({ error: error instanceof Error ? error.message : 'Invalid image variant' }, { status: 400 })",
     "  }",
-    ...(headers ? ["  setResponseHeaders(event, responseHeaders)"] : []),
+    ...(headers
+      ? [
+          "  const headers = eventResponseHeaders(event)",
+          "  for (const [name, value] of Object.entries(responseHeaders)) headers.set(name, value)",
+          "  const clearHeaders = () => { for (const name of Object.keys(responseHeaders)) headers.delete(name) }",
+        ]
+      : []),
     "  try {",
     "    const [error, stream] = await blob.store(storeName).serve(event, pathname, options)",
-    "    if (error?.code === 'BLOB_NOT_FOUND') throw createError({ cause: error, statusCode: 404, statusMessage: 'Blob not found' })",
-    "    if (error) throw error",
-    // H3 2 merges event headers over returned values. Keep the final policy on the event.
-    `    setResponseHeader(event, 'Cache-Control', ${JSON.stringify(cacheControl)})`,
-    // H3 2 adds Content-Length: 0 to null values, which is incorrect for an unchanged object.
-    "    if (stream === null && getResponseStatus(event) === 304) return new Response(null, { status: 304 })",
-    "    return stream",
+    // `serve()` keeps the Cache-Control policy on the event, because H3 2 merges event headers over returned values.
+    // It returns null only for a 304. H3 2 adds Content-Length: 0 to a null value, which is incorrect for an unchanged object.
+    "    if (!error) return stream ?? new Response(null, { status: 304 })",
+    "    if (error.code !== 'BLOB_NOT_FOUND') throw error",
     "  }",
     "  catch (error) {",
-    ...(headers ? ["    for (const name of Object.keys(responseHeaders)) removeResponseHeader(event, name)"] : []),
+    ...(headers ? ["    clearHeaders()"] : []),
     "    throw error",
     "  }",
+    ...(headers ? ["  clearHeaders()"] : []),
+    "  return Response.json({ error: 'Blob not found.' }, { status: 404 })",
     "}",
     "",
     ...(serve.authorize
       ? [
           "// Authorize before the store read and before conditional request handling.",
-          `export default defineEventHandler(withAuthorization(${authorizeModule ? "authorize" : "true"}, (event: H3Event) => serveBlob(event)))`,
+          serve.anonymous
+            ? "export default withAnonymousAuthorization(authorize, (event: RouteEvent) => serveBlob(event))"
+            : `export default withAuthorization(${authorizeModule ? "authorize" : "true"}, (event: RouteEvent) => serveBlob(event))`,
         ]
-      : ["export default defineEventHandler(serveBlob)"]),
+      : ["export default serveBlob"]),
     "",
   ].join("\n")
 }
@@ -343,6 +382,9 @@ async function resolveBlobServeAuthorizeModule(
   if (serve.authorize && !hasAuthDefinition(config.plugins)) {
     throw blobErrorDiagnostics.BLOB_B0002({ message: "[vitehub] `blob.serve.authorize` requires an Auth Definition. Enable Auth and add `server/auth.ts`." })
   }
+  if (serve.anonymous && !authorizeModule) {
+    throw blobErrorDiagnostics.BLOB_B0006({ message: "[vitehub] `blob.serve.anonymous` requires an `authorize` export in `server/blob.ts` to decide signed-out requests." })
+  }
   return authorizeModule
 }
 
@@ -356,11 +398,12 @@ function isAuthDefinitionPath(file: string, rootDir: string, serverDirs: string[
   })
 }
 
-async function refreshBlobGeneratedFiles(root: string, blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName, provider?: "cloudflare" | "vercel", authorizeModule?: string, development = false): Promise<void> {
+async function refreshBlobGeneratedFiles(config: ResolvedConfig, root: string, blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName, provider?: "cloudflare" | "vercel", authorizeModule?: string, development = false): Promise<void> {
   const runtimeFile = resolve(root, generatedNitroBlobRuntime)
+  const imageModule = await resolveImageModule(config, root, blob, cloudflare, provider)
   await Promise.all([
     writeFileIfChanged(runtimeFile, renderBlobRuntimeModule(runtimeFile, blob, provider)),
-    writeFileIfChanged(resolve(root, generatedNitroBlobPlugin), renderNitroBlobPlugin(blob, cloudflare, importBase, !development, resolveSharpImport(root, blob, cloudflare, provider))),
+    writeFileIfChanged(resolve(root, generatedNitroBlobPlugin), renderNitroBlobPlugin(blob, cloudflare, importBase, !development, imageModule)),
     writeFileIfChanged(resolve(root, generatedNitroBlobMiddleware), renderNitroBlobMiddleware(importBase, !development)),
   ])
   const serve = blob ? blob.serve : undefined
@@ -459,6 +502,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
         contributeProviderRuntime(useProviderOutputCatalog(config), siblingRuntime)
       }
       await refreshBlobGeneratedFiles(
+        config,
         rootDir,
         runtimeConfig.blob,
         cloudflare,

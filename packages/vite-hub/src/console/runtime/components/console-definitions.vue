@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 
 import type { ConsoleContributedSection, ConsoleDefinitionSummary, ConsoleRecord, ConsoleSectionContent } from "../definitions";
 import { requestConsole } from "../client/request";
+import { consoleQueryText, queryText, useConsoleQuery } from "../client/route-query";
 import { loadConsoleNavigation } from "../client/sections";
 import { consoleScheduleRunDescription, runConsoleScheduleDefinition } from "../client/schedule-run";
 import type { ConsoleScheduleRunView } from "../client/schedule-run";
@@ -12,8 +13,8 @@ import { isConsoleSectionReadOnly } from "../client/read-only";
 import { rememberConsoleSection } from "../sections";
 import { consoleStatusValue } from "../client/format";
 import { consoleInitials } from "../client/presence";
-import ConsoleFrame from "./console-frame.vue";
 import ConsolePageHeader from "./console-page-header.vue";
+import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsolePropertyList from "./console-property-list.vue";
 import ConsoleRateLimit from "./console-rate-limit.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
@@ -51,12 +52,17 @@ const sidebarOpen = ref(false);
 const content = ref<ConsoleSectionContent>();
 const selectedName = ref<string>();
 const loading = ref(true);
+const hasMounted = ref(false);
 const error = ref<unknown>();
 const scheduleRuns = ref(new Map<string, ConsoleScheduleRunView>());
 const runningSchedule = ref<string>();
 let request: AbortController | undefined;
 
 const section = computed(() => props.details.id);
+// The name search lives in the URL with the selection, so a reload or a shared link opens the same list.
+const { q: search } = useConsoleQuery({ q: queryText() }, {
+  active: current => current.meta.consoleSection === props.details.id,
+});
 const sectionReadOnly = ref(false);
 const sectionDetails = computed(() => props.details);
 const catalogView = computed(() => props.details.view.kind === "definition-catalog");
@@ -90,6 +96,45 @@ const selectedRun = computed(() =>
   selectedName.value ? scheduleRuns.value.get(selectedName.value) : undefined,
 );
 const selectedEntry = computed(() => entries.value.find((entry) => entry.id === selectedName.value));
+const filterPrefix = "filter.";
+/** Columns that the owner marked as filters, such as the status of a comment, with the values that the records have. */
+const filterColumns = computed(() => recordColumns.value
+  .filter(column => column.filter)
+  .map(column => ({ ...column, values: [...new Set(records.value.map(row => row.cells[column.key]).filter(Boolean))].sort() })));
+// A column filter is a link like the search: `?filter.status=open`. Filters for other columns are ignored.
+const columnFilters = computed(() => Object.fromEntries(filterColumns.value.flatMap((column) => {
+  const value = consoleQueryText(route.query[`${filterPrefix}${column.key}`]);
+  return value ? [[column.key, value]] : [];
+})));
+function setColumnFilter(key: string, value: unknown): void {
+  const next = consoleQueryText(value);
+  void router.replace({ query: { ...route.query, [`${filterPrefix}${key}`]: next && next !== anyValue ? next : undefined } });
+}
+const anyValue = "*";
+function filterItems(column: { label: string, values: string[] }) {
+  return [{ label: `Any ${column.label.toLowerCase()}`, value: anyValue }, ...column.values.map(value => ({ label: value, value }))];
+}
+function matches(text: string, query: string): boolean {
+  return text.toLowerCase().includes(query);
+}
+/** Entries whose name or detail contains the search. */
+const visibleEntries = computed(() => {
+  const query = search.value.trim().toLowerCase();
+  return query ? entries.value.filter(entry => matches(`${entry.id} ${entry.detail}`, query)) : entries.value;
+});
+/** Records with the column filter values whose id or cells contain the search, such as a recipient or a page. */
+const visibleRecords = computed(() => {
+  const query = search.value.trim().toLowerCase();
+  return records.value.filter(row =>
+    Object.entries(columnFilters.value).every(([key, value]) => row.cells[key] === value)
+    && (!query || matches([row.id, ...Object.values(row.cells)].join(" "), query)));
+});
+const recordsFiltered = computed(() => Boolean(search.value.trim()) || Object.keys(columnFilters.value).length > 0);
+function clearRecordFilters(): void {
+  search.value = "";
+  const query = Object.fromEntries(Object.entries(route.query).filter(([key]) => key !== "q" && !key.startsWith(filterPrefix)));
+  void router.replace({ query });
+}
 // A detail line that every entry shares, such as "Queue" under each Queue, tells nothing, so the sidebar hides it.
 const showEntryDetail = computed(() => new Set(entries.value.map((entry) => entry.detail)).size > 1);
 /** Records open in a slideover over the full table. Closing it clears the selection. */
@@ -173,7 +218,7 @@ async function loadDefinitions(): Promise<void> {
     selectedName.value = entries.value.some((entry) => entry.id === previousSelection)
       ? previousSelection
       : catalogView.value ? entries.value[0]?.id : undefined;
-    if (!catalogView.value && selectedName.value === undefined) selectRecord(undefined);
+    if (!catalogView.value && selectedName.value === undefined) selectRecord(undefined, "replace");
     error.value = undefined;
   } catch (requestError) {
     if (
@@ -191,22 +236,29 @@ async function loadDefinitions(): Promise<void> {
   }
 }
 
-function selectRecord(name: string | undefined): void {
+/** A selection adds a history entry, so Back returns to the previous one. A selection that the page corrects replaces it. */
+function selectRecord(name: string | undefined, history: "push" | "replace" = "push"): void {
   if (name) return selectDefinition(name);
   selectedName.value = undefined;
-  const { [selectionQuery.value]: _selection, ...query } = route.query;
-  void router.replace({ query });
+  const { [selectionQuery.value]: selection, ...query } = route.query;
+  if (selection !== undefined) void (history === "push" ? router.push({ query }) : router.replace({ query }));
 }
 
 function selectDefinition(name: string): void {
-  selectedName.value = name;
   sidebarOpen.value = false;
   if (route.query[selectionQuery.value] !== name) {
-    void router.replace({ query: { ...route.query, [selectionQuery.value]: name } });
+    const query = { ...route.query, [selectionQuery.value]: name };
+    // A new Rate Limit starts without a counter; history entries keep their own keys.
+    if (section.value === "rate-limits") delete query.key;
+    void router.push({ query });
+  } else {
+    // Commit the selection with its URL so the counter reads the destination's key.
+    selectedName.value = name;
   }
 }
 
 onMounted(() => {
+  hasMounted.value = true;
   void isConsoleSectionReadOnly(props.sectionsBase, section.value).then((value) => { sectionReadOnly.value = value; });
   rememberConsoleSection(section.value);
   selectedName.value = queryValue() ?? selectedName.value;
@@ -243,7 +295,6 @@ onBeforeUnmount(() => request?.abort());
 </script>
 
 <template>
-  <ConsoleFrame :active="section" :sections-base="sectionsBase">
     <!-- Records list in the page table, so only Definition catalogs need a sidebar. -->
     <UDashboardSidebar
       v-if="catalogView"
@@ -275,14 +326,22 @@ onBeforeUnmount(() => request?.abort());
 
       <template #default="{ collapsed }">
         <nav class="vitehub-console__section-nav" :class="{ 'is-collapsed': collapsed }" :aria-label="itemsTitle">
-          <div v-if="!collapsed && error" class="px-1 pb-2">
-            <ConsoleState compact :error="error" title="Couldn't load definitions" :retry="loadDefinitions" />
-          </div>
-          <template v-else-if="loading && !entries.length">
+          <template v-if="loading && !entries.length">
             <USkeleton v-for="index in 4" :key="index" class="my-0.5 h-11 rounded-md" />
           </template>
           <template v-else-if="entries.length">
-            <UTooltip v-for="entry in entries" :key="entry.id" :text="entry.id" :content="{ side: 'right' }" :disabled="!collapsed">
+            <UInput
+              v-if="!collapsed"
+              v-model="search"
+              class="mb-1 w-full"
+              icon="i-lucide-search"
+              size="sm"
+              :placeholder="`Filter ${sectionDetails.label.toLowerCase()}…`"
+              :aria-label="`Filter ${sectionDetails.label}`"
+              :ui="{ base: 'text-base sm:text-sm' }"
+            />
+            <p v-if="!visibleEntries.length" class="px-2 py-1.5 text-xs text-muted">No match for “{{ search.trim() }}”.</p>
+            <UTooltip v-for="entry in visibleEntries" :key="entry.id" :text="entry.id" :content="{ side: 'right' }" :disabled="!collapsed">
               <button
                 type="button"
                 class="vitehub-console__section-link text-start"
@@ -337,14 +396,44 @@ onBeforeUnmount(() => request?.abort());
         </template>
       </ConsolePageHeader>
 
-      <div class="min-h-0 flex-1 overflow-y-auto" aria-live="polite">
-        <div v-if="loading && !content" class="mx-auto grid w-full max-w-3xl gap-3 p-4 sm:p-6" aria-busy="true">
+      <!-- The toolbar shows while the records load, so the list does not move down when it arrives. -->
+      <ConsolePageToolbar v-if="!catalogView && (records.length || (loading && !content))" width="5xl">
+        <UInput
+          v-model="search"
+          :disabled="!records.length"
+          class="w-full sm:w-64"
+          icon="i-lucide-search"
+          size="sm"
+          :placeholder="`Filter ${sectionDetails.label.toLowerCase()}…`"
+          :aria-label="`Filter ${sectionDetails.label}`"
+          :ui="{ base: 'text-base sm:text-sm' }"
+        />
+        <USelect
+          v-for="column in filterColumns"
+          :key="column.key"
+          :model-value="columnFilters[column.key] ?? anyValue"
+          class="w-40"
+          size="sm"
+          :items="filterItems(column)"
+          :aria-label="`Filter by ${column.label.toLowerCase()}`"
+          @update:model-value="setColumnFilter(column.key, $event)"
+        />
+        <span v-if="recordsFiltered" class="ms-auto text-xs text-muted tabular-nums" aria-live="polite">{{ visibleRecords.length }} of {{ records.length }}</span>
+        <UButton v-if="recordsFiltered" label="Clear filters" size="sm" variant="ghost" @click="clearRecordFilters" />
+      </ConsolePageToolbar>
+
+      <!-- Only the load state is announced. A live region around the whole list would read every refreshed row. -->
+      <!-- Mount empty so assistive technology registers the status before its text changes. -->
+      <p class="sr-only" role="status">{{ hasMounted && loading && !content ? "Loading…" : "" }}</p>
+      <div class="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <div v-if="loading && !content" class="mx-auto grid w-full gap-3 p-4 sm:p-6" :class="catalogView ? 'max-w-3xl' : 'max-w-5xl'" aria-busy="true">
           <USkeleton class="h-4 w-40" />
           <USkeleton v-for="index in 5" :key="index" class="h-9 w-full" />
         </div>
         <template v-else-if="!catalogView">
           <ConsoleState v-if="error" :error="error" :title="`Couldn't load ${sectionDetails.label}`" :retry="loadDefinitions" />
-          <main v-else class="mx-auto grid w-full max-w-5xl content-start gap-4 p-4 sm:p-6">
+          <!-- Without rows, the empty state takes the free height above the notice, so it sits in the middle of the pane. -->
+          <main v-else class="mx-auto grid w-full max-w-5xl flex-1 gap-4 p-4 sm:p-6" :class="visibleRecords.length ? 'content-start' : 'grid-rows-[1fr_auto]'">
             <UEmpty
               v-if="!records.length"
               variant="naked"
@@ -352,6 +441,15 @@ onBeforeUnmount(() => request?.abort());
               :icon="sectionDetails.icon"
               :title="`No ${sectionDetails.label} yet`"
               description="Records show here when the application creates them."
+            />
+            <UEmpty
+              v-else-if="!visibleRecords.length"
+              variant="naked"
+              class="py-16"
+              icon="i-lucide-search"
+              :title="`No matching ${sectionDetails.label.toLowerCase()}`"
+              :description="search.trim() ? `Nothing matches “${search.trim()}”.` : 'Nothing matches this filter.'"
+              :actions="[{ label: 'Clear filters', color: 'neutral', variant: 'outline', onClick: clearRecordFilters }]"
             />
             <section v-else class="overflow-x-auto rounded-md border border-default" :aria-label="sectionDetails.label">
               <table class="w-full text-left text-[13px]">
@@ -365,7 +463,7 @@ onBeforeUnmount(() => request?.abort());
                 </thead>
                 <tbody>
                   <tr
-                    v-for="row in records"
+                    v-for="row in visibleRecords"
                     :key="row.id"
                     class="relative h-11 border-b border-default last:border-b-0 hover:bg-elevated/50"
                     :class="{ 'bg-elevated': row.id === selectedName }"
@@ -409,10 +507,12 @@ onBeforeUnmount(() => request?.abort());
             </p>
           </main>
         </template>
+        <!-- The page shows a load failure, as the record table does. The sidebar has no room for its details. -->
+        <ConsoleState v-else-if="error" :error="error" :title="`Couldn't load ${sectionDetails.label}`" :retry="loadDefinitions" />
         <UEmpty
           v-else-if="!selectedDefinition"
           variant="naked"
-          class="py-16"
+          class="flex-1 py-16"
           :icon="sectionDetails.icon"
           title="No definition selected"
           :description="entries.length ? 'Choose one from the sidebar to see its metadata.' : 'Nothing to show yet.'"
@@ -437,7 +537,7 @@ onBeforeUnmount(() => request?.abort());
           <ConsolePropertyList v-if="selectedDefinition.fields.length" title="Configuration" :items="selectedDefinition.fields" />
           <ConsoleRateLimit v-if="rateLimitBase" :base="rateLimitBase" :name="selectedDefinition.name" :read-only="sectionReadOnly" />
           <ConsoleWorkflowActions v-if="workflowBase && selectedDefinition" :base="workflowBase" :can-resume="registeredOperations.includes('workflow.resume')" :can-start="registeredOperations.includes('workflow.start')" :workflow="selectedDefinition.name" />
-          <p class="flex gap-2 rounded-md bg-elevated/50 px-3 py-2.5 text-xs leading-relaxed text-pretty text-muted">
+          <p class="flex gap-2 text-xs leading-relaxed text-pretty text-muted">
             <UIcon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
             <ConsoleSetupHint :hint="{ message: sectionDetails.view.notice }" />
           </p>
@@ -503,5 +603,4 @@ onBeforeUnmount(() => request?.abort());
         </article>
       </template>
     </USlideover>
-  </ConsoleFrame>
 </template>

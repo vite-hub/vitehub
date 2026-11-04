@@ -14,6 +14,7 @@ export * from "./components/bubble.ts";
 export * from "./components/code-block.ts";
 export * from "./components/comments.ts";
 export * from "./components/connection-status.ts";
+export * from "./components/filter-search.ts";
 export * from "./components/marker.ts";
 export * from "./components/message.ts";
 export * from "./components/sync-status.ts";

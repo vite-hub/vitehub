@@ -1,5 +1,6 @@
 ---
 title: Schedule
+layout: landing
 navigation.title: Overview
 description: Run server code at set times from files that deploy as cron on Cloudflare, Vercel, Deno, or a long-lived Node process.
 navigation.order: 1

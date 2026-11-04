@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/connections",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "description": "Provider OAuth and API key connections with typed, governed, and audited calls for ViteHub.",
   "keywords": [
     "api-key",
@@ -38,43 +38,41 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./agent": {
       "types": "./dist/agent.d.ts",
       "import": "./dist/agent.js",
-      "require": "./dist/agent.js",
       "default": "./dist/agent.js"
     },
     "./chatgpt": {
       "types": "./dist/chatgpt.d.ts",
       "import": "./dist/chatgpt.js",
-      "require": "./dist/chatgpt.js",
       "default": "./dist/chatgpt.js"
+    },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js",
+      "default": "./dist/cli.js"
     },
     "./google": {
       "types": "./dist/google.d.ts",
       "import": "./dist/google.js",
-      "require": "./dist/google.js",
       "default": "./dist/google.js"
     },
     "./http": {
       "types": "./dist/http.d.ts",
       "import": "./dist/http.js",
-      "require": "./dist/http.js",
       "default": "./dist/http.js"
     },
     "./server": {
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js",
-      "require": "./dist/server.js",
       "default": "./dist/server.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js",
-      "require": "./dist/vite.js",
       "default": "./dist/vite.js"
     },
     "./package.json": "./package.json"
@@ -119,6 +117,6 @@
     }
   },
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=22.18.0"
   }
 }

@@ -14,7 +14,7 @@ const workspaceRoot = resolve(packageRoot, "../..")
 const fixtureRoot = join(packageRoot, "fixtures", "published-types")
 const tsc = resolve(workspaceRoot, "node_modules/typescript/bin/tsc")
 
-it("publishes the Queue result and error code types", async () => {
+it("publishes the Queue result, error code and Nuxt types without Vite", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-queue-types-"))
 
   try {
@@ -23,7 +23,9 @@ it("publishes the Queue result and error code types", async () => {
     await mkdir(packDir)
     const specs = await packWorkspacePackages(packDir, ["@vite-hub/runtime", "@vite-hub/queue"])
     await writeFile(join(root, "pnpm-workspace.yaml"), workspaceConfig(specs), "utf8")
-    await run("vp", ["exec", "pnpm", "install", "--prefer-offline", "--ignore-scripts", "--strict-peer-dependencies"], root)
+    await run("vp", ["exec", "pnpm", "install", "--prefer-offline", "--ignore-scripts", "--strict-peer-dependencies", "--config.auto-install-peers=false"], root)
+
+    await run(process.execPath, ["--input-type=module", "-e", "try { import.meta.resolve('vite'); process.exit(1) } catch (error) { if (error.code !== 'ERR_MODULE_NOT_FOUND') throw error }"], root)
 
     await run(process.execPath, [tsc, "--noEmit", "-p", root], root)
   }

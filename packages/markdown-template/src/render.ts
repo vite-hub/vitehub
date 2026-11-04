@@ -1,5 +1,4 @@
 import { parseMarkdown } from "comark"
-import binding from "comark/plugins/binding"
 import { renderMarkdown } from "comark/render"
 import { escapeHtml } from "comark/utils"
 import type { ElementNode, Node } from "comark"
@@ -8,12 +7,13 @@ import type { NodeHandler, NodeRenderData, State } from "comark/render"
 import { resolveTemplateBinding, resolveScalarTemplateBinding, resolveScalarTemplateAttributes, snapshotTemplateData } from "./bindings.ts"
 import { matchesCondition } from "./condition.ts"
 import { markdownTemplateErrorDiagnostics as diagnostics } from "./error-diagnostics.ts"
+import { htmlPlugins, parserOptions } from "./parser.ts"
 import { prepareTemplate } from "./prepare.ts"
 import { safeLinkDestination } from "./links.ts"
 import type { RenderMarkdownTemplateInternalOptions, RenderMarkdownTemplateOptions } from "./types.ts"
 
-const parserOptions = { autoClose: false, autoUnwrap: false, linkify: false, plugins: [binding()] }
 const literalHtmlTags = new Set(["code", "pre", "script", "style", "textarea", "kbd", "samp", "var"])
+const rawBlockTags = new Set(["script", "style", "textarea"])
 const urlAttributesByTag = new Map([
   ["a", new Set(["href"])],
   ["area", new Set(["href"])],
@@ -61,7 +61,10 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
       [key, typeof value === "string" ? escapeHtml(value) : value]))
     const content = childPolicy === "markdown" && attrs.$?.block === 1 && !literalHtmlTags.has(tag) && children.every(child => typeof child === "string")
       ? (await parseMarkdown(children.join(""), parseOptions)).nodes
-      : children
+      : rawBlockTags.has(tag) && attrs.$?.block === 1 && typeof children[0] === "string"
+        // Comark keeps the line break after `<script>`, and its HTML renderer adds another one.
+        ? [children[0].replace(/^\r?\n/, ""), ...children.slice(1)]
+        : children
     // Preserve SVG ancestry across descendants; foreignObject children use HTML semantics.
     const revert = state.applyContext({ svg: tag.toLowerCase() === "svg" || state.context.svg === true && tag.toLowerCase() !== "foreignobject" })
     try {
@@ -99,7 +102,7 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
           throw diagnostics.MARKDOWN_TEMPLATE_R0020({ message: `[vitehub] Markdown template Insert markdown prop "${String(path ?? "markdown")}" must resolve to a string.` })
         }
         // Fragments are parsed without bindings and rendered without template components.
-        const fragment = await parseMarkdown(value, { ...parseOptions, plugins: options.plugins ?? [] })
+        const fragment = await parseMarkdown(value, { ...parseOptions, plugins: [...htmlPlugins, ...(options.plugins ?? [])] })
         if (parent && (parent[0] === "p" || state.context.inline)) {
           if (!fragment.nodes.length) return ""
           if (fragment.nodes.length !== 1 || !Array.isArray(fragment.nodes[0]) || fragment.nodes[0][0] !== "p") {

@@ -17,7 +17,7 @@ import { createDriver } from "../../blob/src/drivers/fs.ts"
 import { createContentCliContributor, runContentCli } from "../src/cli.ts"
 import { contentSessionsSchema } from "../src/database.ts"
 import { documents, singleton } from "../src/collections.ts"
-import { defineContent } from "../src/index.ts"
+import { contentSource, defineContent } from "../src/index.ts"
 import { contentOperations } from "../src/operations.ts"
 import { hubContent } from "../src/vite.ts"
 
@@ -117,6 +117,24 @@ function cli(content: unknown, options: ContentCliOptions = {}) {
 const hello = { data: { title: "Hello", tags: ["vue"] }, body: "# Hello\n\nFirst post.\n" }
 
 describe("vitehub content", { timeout: 30_000 }, () => {
+  it("requires a digest for MCP saves and preserves CLI saves without one", async () => {
+    const { content, posts } = await setup(() => true)
+    devServer(content)
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    const context = { access: { mode: "local", sections: "all" }, development: true, surface: "mcp", user: null } as const
+    const input = { collection: "posts", id: "hello", text: "---\ntitle: Changed\n---\nUpdated\n" }
+    const first = await posts.save("hello", hello, { ifDigest: null })
+    const save = (value: unknown) => runOperation(registry, "content.save", value, context)
+
+    await expect(save(input)).resolves.toMatchObject({ ok: false, status: 400, code: "CONTENT_R0009", message: expect.stringContaining("content.save requires ifDigest") })
+    expect((await posts.raw("hello", { ref: "draft" }))?.digest).toBe(first.digest)
+    await expect(save({ ...input, ifDigest: null })).resolves.toMatchObject({ ok: false, status: 409 })
+    await expect(save({ ...input, ifDigest: first.digest })).resolves.toMatchObject({ ok: true })
+    await expect(save({ ...input, ifDigest: first.digest })).resolves.toMatchObject({ ok: false, status: 409 })
+    await expect(save({ ...input, id: "new", ifDigest: null })).resolves.toMatchObject({ ok: true })
+    await expect(runOperation(registry, "content.save", input, { ...context, surface: "cli" })).resolves.toMatchObject({ ok: true })
+  })
+
   it.each([
     { paths: ["content/posts/**/*.md", "content/news/*.md"], id: "news/fresh", path: "content/news/fresh.md" },
     { paths: ["docs/pages/**/*.md", "packages/*/docs/**/*.md"], id: "packages/zoom/docs/fresh", path: "packages/zoom/docs/fresh.md" },
@@ -778,6 +796,7 @@ describe("Content operations", () => {
       workspace: await historyWorkspace(),
       authorize: ({ id }) => id === undefined || id.startsWith("visible"),
       collections: { posts: documents({ path: "posts/*.md", fields: { title: z.string() }, url: "/blog/:id" }) },
+      sources: { guides: contentSource({ async items() { return [{ key: "start.md", path: "guides/start.md", content: "# Start" }] } }, { url: "/:id" }) },
       seo: { site: "https://example.com" },
       logger: false,
     })
@@ -795,7 +814,7 @@ describe("Content operations", () => {
     expect(await runOperation(registry, "content.list", { collection: "posts", limit: 1, cursor: page.cursor }, context))
       .toMatchObject({ ok: true, value: { items: [{ id: "visible-b" }], total: 2 } })
     const sitemap = await runOperation(registry, "content.sitemap", {}, context)
-    expect(sitemap).toMatchObject({ ok: true, value: { entries: [{ id: "visible-a" }, { id: "visible-b" }] } })
+    expect(sitemap).toMatchObject({ ok: true, value: { entries: [{ id: "visible-a" }, { id: "visible-b" }, { collection: "guides", id: "guides/start" }] } })
   })
 
   it("does not trust runtime NODE_ENV as production Content authorization", async () => {

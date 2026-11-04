@@ -1,5 +1,5 @@
 import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
-import { assertOperationConfirmation, assertOperationProject, operationAccessAllows, operationCall, operationRootHeader, operationSection, operationSurfaceHeader, parseOperationInput, projectRootHash } from "@vite-hub/internal/operations"
+import { assertOperationConfirmation, assertOperationProject, operationAccessAllows, operationAccessDenial, operationCall, operationRootHeader, operationSection, operationSurfaceHeader, parseOperationInput, projectRootHash } from "@vite-hub/internal/operations"
 import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import * as v from "valibot"
 
@@ -34,6 +34,8 @@ interface ConsoleRpcContext {
   /** The checked access of the RPC request. Each operation runs with it. */
   access: ConsoleAccess
   env?: Record<string, unknown>
+  /** The server event of the request, for operations that read the app's own session. */
+  event?: unknown
   /** The address of the peer, when the host exposes it. */
   remoteAddress?: string
   waitUntil?: (task: Promise<unknown>) => void
@@ -196,7 +198,8 @@ async function callConsoleOperation(request: Request, context: ConsoleOperationC
   const input = await parseOperationInput(operation, envelope.output.input)
   const section = operationSection(operation, input)
   if (section !== false && !consoleAccessAllows(context.access, section)) {
-    throw consoleRequestError(403, "This Console access does not include this section.")
+    const denial = operationAccessDenial(operation.name, section)
+    throw consoleRequestError(403, `${denial.message} ${denial.fix}`, "CONSOLE_ACCESS_DENIED")
   }
   const classification = operationCall(operation, input)
   // A read-only grant (`"<section>:read"`) runs only the operations, and the calls, that read.
@@ -216,6 +219,7 @@ async function callConsoleOperation(request: Request, context: ConsoleOperationC
     // SAFETY: A Console user from the Auth adapter has the id that the operation user needs.
     user: user ? user as OperationContext["user"] : null,
     ...(context.env ? { env: context.env } : {}),
+    ...(context.event ? { event: context.event } : {}),
     ...(context.waitUntil ? { waitUntil: context.waitUntil } : {}),
   }
   // SAFETY: The schema of the operation produced `input`.
@@ -234,7 +238,7 @@ export async function handleConsoleRpcRequest(request: Request, context: Console
 // A plain handler, because Nuxt 4 bundles every `h3` import as its own h3 1, which has no `defineHandler()`.
 const consoleRpcHandler: (event: H3Event) => Promise<Response> = withConsoleAccess((event: H3Event, access) => {
   const waitUntil = resolveWaitUntil(event, { preferHost: true })
-  return handleConsoleRpcRequest(toEventRequest(event), { access, env: getCloudflareEnv(event, { fallback: false }), remoteAddress: eventRemoteAddress(event), waitUntil })
+  return handleConsoleRpcRequest(toEventRequest(event), { access, env: getCloudflareEnv(event, { fallback: false }), event, remoteAddress: eventRemoteAddress(event), waitUntil })
   // Each operation checks its own section.
 }, { anySection: true })
 

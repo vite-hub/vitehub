@@ -1,25 +1,34 @@
 import { resolve } from "node:path"
 
-import { usesComments } from "@vite-hub/comments/vite"
-import { cmsPresetStore } from "@vite-hub/content/vite"
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { isIncludedNitroPlugin } from "../nitro-plugin.ts"
+import { ownerModules } from "./owner-modules.ts"
 
 import type { Plugin, PluginOption, UserConfig } from "vite"
 
 interface CmsPresetFeatureOptions {
   blob?: unknown
+  comments?: unknown
   database?: unknown
   workspace?: unknown
 }
 
 type CmsPresetConfig = UserConfig & { [VITEHUB_PROJECT_ROOT]?: string, [VITEHUB_SERVER_DIRS]?: string[] }
 
+// An app without the CMS or Comments package cannot select their presets.
+function cmsStore(project: { projectRoot: string, serverDirs?: readonly string[] }) {
+  return ownerModules.cmsVite?.cmsStore(project)
+}
+
+function usesComments(project: { projectRoot: string, serverDirs?: readonly string[] }) {
+  return ownerModules.commentsVite?.usesComments(project) ?? false
+}
+
 /** Options whose `cms` preset features a framework integration already resolved, for example Nuxt with a known root. */
 const resolvedFeatureOptions = new WeakSet<object>()
 
-/** The features that the Content `cms` preset needs. `vitehub()` turns on the ones left unset. */
+/** The features that the `cms` preset needs. `vitehub()` turns on the ones left unset. */
 function withCmsPresetFeatures<T extends CmsPresetFeatureOptions>(options: T, store: "blob-database" | "github"): T {
   return { ...options, blob: options.blob ?? (store === "blob-database" ? true : undefined), database: options.database ?? true, workspace: options.workspace ?? true }
 }
@@ -34,10 +43,10 @@ function hasUnsetCmsPresetFeature(options: CmsPresetFeatureOptions): boolean {
  * Pass the final options to `markCmsPresetFeaturesResolved()` so `vitehub()` builds one plugin list.
  */
 export function resolveCmsPresetFeatures<T extends CmsPresetFeatureOptions>(options: T, project: { projectRoot: string, serverDirs?: string[] }): T {
-  const store = hasUnsetCmsPresetFeature(options) ? cmsPresetStore(project) : undefined
+  const store = hasUnsetCmsPresetFeature(options) ? cmsStore(project) : undefined
   if (store) return withCmsPresetFeatures(options, store)
   // Comments need the Database only.
-  return options.database === undefined && usesComments(project) ? { ...options, database: true } : options
+  return options.database === undefined && options.comments !== false && (options.comments || usesComments(project)) ? { ...options, database: true } : options
 }
 
 /** Marks options whose `cms` preset features are resolved, so `vitehub()` does not resolve them again. */
@@ -50,7 +59,7 @@ function selectedCmsPresetStore(config: CmsPresetConfig): "blob-database" | "git
   const projectRoot = config[VITEHUB_PROJECT_ROOT]
     ? resolve(config[VITEHUB_PROJECT_ROOT])
     : resolveViteHubProjectRoot(resolve(config.root ?? process.cwd()))
-  return cmsPresetStore({ projectRoot, serverDirs: config[VITEHUB_SERVER_DIRS] })
+  return cmsStore({ projectRoot, serverDirs: config[VITEHUB_SERVER_DIRS] })
 }
 
 /**
@@ -172,15 +181,15 @@ function composeVariants(plain: unknown[], alt: unknown[], selects: (config: Cms
 }
 
 /**
- * Builds the plugin list for `options`. When `database`, `blob`, or `workspace` is unset, the Content `cms` preset in
- * `server/content.ts` turns it on. When `database` is unset, `server/comments.ts` turns it on. The project root is known
+ * Builds the plugin list for `options`. When `database`, `blob`, or `workspace` is unset, the `cms` preset in
+ * `server/content.ts` turns it on. When `database` is unset, `server/comments.ts` or the `comments` option turns it on. The project root is known
  * only once Vite filters plugins, so each build of the list is merged into one that Vite filters, as `composeVariants()`
  * does. An explicit `false` is never overridden.
  */
 export function withCmsPresetPlugins<T extends CmsPresetFeatureOptions>(options: T, create: (options: T) => PluginOption[]): PluginOption[] {
   if (resolvedFeatureOptions.has(options)) return create(options)
   const cmsUnset = hasUnsetCmsPresetFeature(options)
-  const commentsUnset = options.database === undefined
+  const commentsUnset = options.database === undefined && options.comments !== false
   if (!cmsUnset && !commentsUnset) return create(options)
   const attempt = (variant: T): unknown[] | { error: unknown } => {
     try {

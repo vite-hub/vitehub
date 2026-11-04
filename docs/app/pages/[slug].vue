@@ -1,47 +1,13 @@
 <script setup lang="ts">
-import { createError } from "#app/composables/error";
-import { useRoute } from "#app/composables/router";
 import PrimitiveLanding from "~/components/PrimitiveLanding.vue";
 import { getPrimitiveLanding } from "~/data/primitive-landings";
 
+// Primitive landings such as `/kv` and the docs pages outside `/docs`, such as `/about`, share one path segment.
 const route = useRoute();
-const slug = String(route.params.slug);
-const landing = getPrimitiveLanding(slug);
-const pagePath = `/${slug}`;
-const { data: page } = await useAsyncData(
-  `trust:${pagePath}`,
-  () => queryCollection("trust").path(pagePath).first(),
-);
-
-if (!landing && !page.value) {
-    throw createError({ statusCode: 404, statusMessage: "Page not found", fatal: true });
-  }
-
-if (!landing && page.value) {
-  useSeoMeta({
-    title: page.value.title,
-    ogTitle: `${page.value.title} · ViteHub`,
-    description: page.value.description,
-    ogDescription: page.value.description,
-  });
-}
+const landing = getPrimitiveLanding(String(route.params.slug));
 </script>
 
 <template>
   <PrimitiveLanding v-if="landing" :landing="landing" />
-  <main v-else-if="page" class="mx-auto w-full max-w-3xl px-4 pb-24 pt-14 sm:px-6 sm:pt-20 lg:px-8 lg:pt-24">
-    <UPageHeader
-      :title="page.title"
-      :description="page.description"
-      :ui="{
-        root: 'border-b border-default px-0 pb-10 pt-0',
-        title: 'text-balance text-[38px] leading-[46px] sm:text-[46px] sm:leading-[54px]',
-        description: 'max-w-2xl text-pretty text-lg leading-8',
-      }"
-    />
-
-    <UPageBody prose class="!max-w-none !px-0 !pb-0 pt-10">
-      <ContentRenderer :value="page" />
-    </UPageBody>
-  </main>
+  <DocsPage v-else />
 </template>

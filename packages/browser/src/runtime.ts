@@ -5,10 +5,10 @@ import runtimeConfig, { loadCloudflarePlaywright } from "#vitehub/browser/runtim
 import {
   browserDefinitionNotFoundError,
   browserProviderError,
-  browserRuntimeNotConfiguredError,
   toBrowserError,
 } from "./errors.ts"
 import { toResponse } from "@vite-hub/runtime"
+import { browserUnavailableError, isBrowserAvailable } from "./availability.ts"
 import { createBrowser } from "./client.ts"
 import { cdp } from "./controllers/cdp.ts"
 import { runBrowserAction, runBrowserContent } from "./actions.ts"
@@ -168,7 +168,7 @@ let configuredClient: BrowserClient<PlaywrightBrowserConnection> | undefined
 
 function resolveConfiguredClient(): BrowserClient<PlaywrightBrowserConnection> {
   if (configuredClient) return configuredClient
-  if (runtimeConfig.provider !== "cloudflare") throw browserRuntimeNotConfiguredError()
+  if (!isBrowserAvailable() || runtimeConfig.provider !== "cloudflare") throw browserUnavailableError()
   const configuredLoader = loadCloudflarePlaywright
     ?? (() => importBrowserOptionalPeer<CloudflarePlaywrightDriver>("@cloudflare/playwright"))
   configuredClient = createBrowser({

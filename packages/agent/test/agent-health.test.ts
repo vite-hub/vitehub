@@ -1,9 +1,9 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { defineAgent } from '../src/index.ts'
+import { codexDriver, defineAgent } from '../src/index.ts'
 import { createAgentHealth } from '../src/server/health.ts'
 import type { AgentHealthOptions } from '../src/server/health.ts'
 
-const agent = defineAgent({ name: 'support', driver: { kind: 'codex', model: 'gpt-6-astra', reasoningEffort: 'medium', capacity: { concurrency: 4 } } })
+const agent = defineAgent({ name: 'support', driver: codexDriver({ model: 'gpt-6-astra', reasoningEffort: 'medium', capacity: { concurrency: 4 } }) })
 vi.spyOn(agent, 'status').mockResolvedValue({ agent: 'support', checkedAt: new Date().toISOString(), readiness: 'ready', stale: false })
 const processHealth: NonNullable<AgentHealthOptions['process']> = {
   health: async () => ({ checkedAt: new Date().toISOString(), status: 'healthy', diagnostics: [{ label: 'Runtime', status: 'ok', value: 'Node' }], workload: { active: 0, completed: 1, failed: 0, stale: 0, total: 1 } }),

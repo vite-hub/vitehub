@@ -4,7 +4,8 @@ import ConsoleValue from "./console-value.vue";
 /**
  * Read-only properties as label and value rows, such as the fields of a Definition or the metadata of a Blob object.
  * Values show the Console way (see ConsoleValue): status words as dots and timestamps as relative times. `mono` sets
- * identifiers such as paths and ETags in Geist Mono. An empty list shows `empty` instead of rows.
+ * identifiers such as paths and ETags in Geist Mono. Line breaks in a value stay, so a list such as email headers shows one
+ * entry per line. An empty list shows `empty` instead of rows.
  */
 withDefaults(defineProps<{
   /** Shown instead of rows when `items` is empty. */
@@ -25,7 +26,7 @@ withDefaults(defineProps<{
     <dl v-if="items.length" class="divide-y divide-default border-y border-default">
       <div v-for="(item, index) in items" :key="`${index}:${item.label}`" class="grid gap-1 py-2.5 sm:grid-cols-[minmax(0,9rem)_minmax(0,1fr)] sm:gap-4">
         <dt class="truncate text-[13px] text-muted" :title="item.label">{{ item.label }}</dt>
-        <dd class="min-w-0 break-words text-highlighted" :class="item.mono ? 'font-mono text-xs leading-5' : 'text-[13px]'">
+        <dd class="min-w-0 whitespace-pre-wrap break-words text-highlighted" :class="item.mono ? 'font-mono text-xs leading-5' : 'text-[13px]'">
           <slot name="value" :item="item"><ConsoleValue :value="item.value" /></slot>
         </dd>
       </div>

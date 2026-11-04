@@ -1,7 +1,7 @@
-import { discoverDatabaseDefinitions } from "@vite-hub/database/config"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
+import { ownerModules } from "./internal/owner-modules.ts"
 
 import type { ViteHubCliContributor, ViteHubCliFeature } from "@vite-hub/internal/cli"
 import type { Plugin } from "vite"
@@ -70,6 +70,7 @@ export function databaseDisabledPlugin(runtimeImports: ReadonlyMap<string, strin
           namespaces: [{
             description: `Database is disabled. ${enableDatabase}`,
             features: [
+              { description: "Unavailable while Database is disabled.", name: "export", run },
               { description: "Unavailable while Database is disabled.", name: "generate", run },
               { description: "Unavailable while Database is disabled.", name: "migrate", run },
             ],
@@ -88,8 +89,11 @@ function hasDatabasePlugin(state: DisabledDatabaseState): boolean {
 }
 
 function hasDatabaseDefinitions(state: DisabledDatabaseState): boolean {
+  // Without the Database package, the app has no Database Definitions to ignore.
+  const databaseConfig = ownerModules.databaseConfig
+  if (!databaseConfig) return false
   try {
-    return discoverDatabaseDefinitions(state.root, { serverDirs: state.serverDirs }).length > 0
+    return databaseConfig.discoverDatabaseDefinitions(state.root, { serverDirs: state.serverDirs }).length > 0
   }
   catch {
     // Invalid Definition layouts still show that the project defines a Database.
