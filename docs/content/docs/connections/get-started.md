@@ -15,10 +15,10 @@ You need Node.js 22.22 or newer, pnpm, and a Vite application. Connections enabl
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
 
-Install ViteHub and Nitro, then add these integrations to the app's Vite config.
+Install ViteHub and Nitro, then add these integrations to the app's Vite config. Connections store grants with Database, so also install `@vite-hub/database` and `drizzle-orm`.
 
 ```bash [commands/install]
-pnpm add vite-hub nitro h3
+pnpm add vite-hub nitro h3 @vite-hub/database drizzle-orm
 pnpm add -D vite
 ```
 
