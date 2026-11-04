@@ -14,12 +14,20 @@ export interface PlaygroundTemplateSource {
   description: string;
   /** The folder in `fixtures/tutorials/`, so a template and a tutorial share one copy of the code. */
   fixture: string;
+  /** The file that the editor opens first. */
+  open: string;
+  /** The path that the preview opens when the dev server is ready. */
+  preview: string;
 }
 
 /** The templates of `/playground`, in menu order. The first one opens by default. */
 export const playgroundTemplates: PlaygroundTemplateSource[] = [
-  { id: "kv", label: "KV storage", description: "A Server Primitive that stores settings in KV.", fixture: "server-primitives" },
-  { id: "agent", label: "First Agent", description: "An Agent that a route invokes.", fixture: "first-agent" },
+  { id: "kv", label: "KV", description: "Store and read a value.", fixture: "server-primitives", open: "server/api/settings.post.ts", preview: "/api/health" },
+  { id: "blob", label: "Blob", description: "Write a file and read it back.", fixture: "playground-blob", open: "server/api/note.get.ts", preview: "/api/note" },
+  { id: "queue", label: "Queue", description: "Run a job in the background.", fixture: "playground-queue", open: "server/queues/welcome-email.ts", preview: "/api/welcome" },
+  { id: "cache", label: "Cache", description: "Cache a route for 10 seconds.", fixture: "playground-cache", open: "server/api/time.get.ts", preview: "/api/time" },
+  { id: "rate-limit", label: "Rate Limit", description: "Allow three requests a minute.", fixture: "playground-rate-limit", open: "server/api/upload.get.ts", preview: "/api/upload" },
+  { id: "agent", label: "Agent", description: "An Agent that a route invokes.", fixture: "first-agent", open: "server/agents/greeting.ts", preview: "/api/health" },
 ];
 
 /**
@@ -41,7 +49,7 @@ export async function buildPlaygroundTemplates(input: {
     const files = await readTree(resolve(input.fixturesDir, source.fixture));
     if (files["package.json"]) files["package.json"] = resolveManifest(files["package.json"], input.versions);
     const snapshotOf = tutorialKeys.find(tutorial => tutorial.key === key)?.slug ?? `playground-${source.id}`;
-    return { id: source.id, label: source.label, description: source.description, files, snapshotOf };
+    return { id: source.id, label: source.label, description: source.description, open: source.open, preview: source.preview, files, snapshotOf };
   }));
 }
 

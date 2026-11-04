@@ -394,7 +394,8 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
       }
       const readyCountAtStart = serverReadyCount
       if (stage) status.enter(stage)
-      const env = { PORT: defaultPort, ...runOptions.env }
+      // Vite runs the WASI build of Rolldown here, and Node warns on each load that WASI is experimental.
+      const env = { PORT: defaultPort, NODE_OPTIONS: "--disable-warning=ExperimentalWarning", ...runOptions.env }
       const previewPort = Number(env.PORT)
       previewPorts.set(previewPort, (previewPorts.get(previewPort) ?? 0) + 1)
       function releasePreviewPort() {
