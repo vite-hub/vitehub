@@ -56,7 +56,7 @@ const container = await bootWebContainer({
   files: {
     "package.json": JSON.stringify({ type: "module", scripts: { dev: "node server.js" } }),
     "server.js": `import { createServer } from "node:http"
-createServer((req, res) => res.end("Hello from " + process.version)).listen(3000)`,
+createServer((req, res) => res.end("Hello from " + process.version)).listen(process.env.PORT)`,
   },
 })
 
@@ -71,7 +71,7 @@ document.querySelector("iframe")!.src = url
 - `run("install")` runs `npm install`. `run("dev")` and `run("build")` run the npm scripts of the app. Pass an array, such as `run(["node", "scripts/seed.js"])`, to run any command line.
 - Only one `run("dev")` may be active, including while it is spawning. Another call rejects until the process exits; call `kill()` and await `exit` before restarting it.
 - A run returns `output` (a stream that you read once), `exit` (the exit code), `text()` (the last 65,536 output characters after exit), `write(input)`, and `kill()`. The stream buffers up to 65,536 characters and drops excess output until its reader catches up, so an idle terminal cannot accumulate unlimited logs. Pass `signal` to kill it with an `AbortController`.
-- `container.preview.ready` resolves with the first server that becomes ready. It rejects if startup fails or the container is torn down before readiness. A dev server can start other servers first: `vite dev` with Nitro starts workers on random ports. Pass `bootWebContainer({ port: 3000 })` with the port that the app listens on, and only that server becomes the preview. Read `url` from it, because the preview origin is not `localhost`.
+- `container.preview.ready` resolves with the app server. It rejects if startup fails or the container is torn down before readiness. `run()` passes `PORT=3000` to every process, and `vite dev` with `vitehub()` and `node .output/server/index.mjs` listen on it. Only the server on that port becomes the preview, not the workers that Nitro starts on random ports first. Pass `bootWebContainer({ port })` to use another port, or `env: { PORT }` on one run. Read `url` from it, because the preview origin is not `localhost`.
 - `container.on("server-ready", ({ url, port }) => …)` subscribes to every server readiness event, including custom commands and later restarts. It returns an unsubscribe function.
 - Show the preview in an `<iframe>` on the same page. The preview origin does not answer a `fetch()` from the page.
 - `container.fs` is the WebContainer file system API (`readFile`, `writeFile`, `readdir`, `mkdir`, `rm`, `watch`).
@@ -95,15 +95,33 @@ To show a notice before the reader clicks run, call `checkWebContainerSupport()`
 
 ### Skip the install with a snapshot
 
-A ViteHub app installs about 680 MB of `node_modules` in 90 to 180 seconds. Install once, export a snapshot, and mount it next time:
+An `npm install` of a ViteHub Agent app in a WebContainer takes minutes. Build the `node_modules` snapshot on your machine or in CI instead, and the container never installs:
 
 ```ts
-const snapshot = await container.export()
-// Later, or in another tab:
-const next = await bootWebContainer({ snapshot, files: { "server/routes/edit.ts": editedSource } })
+// Node, at build time
+import { createNodeModulesSnapshot, packSnapshot } from "@vite-hub/web-container/snapshot"
+
+const snapshot = await createNodeModulesSnapshot({ dir: "build/app" }) // runs npm install in build/app
+const parts = packSnapshot(snapshot) // gzip, split into parts of at most 20 MiB
+parts.forEach((part, index) => writeFileSync(`public/app-modules.${hash}.${index}.bin`, part))
 ```
 
-`export()` returns a binary snapshot of the working directory. Pass `excludes` (glob patterns) to leave files out. `files` is mounted after the snapshot, so it can replace files from it.
+```ts
+// Browser
+import { bootWebContainer, fetchSnapshot } from "@vite-hub/web-container"
+
+const container = await bootWebContainer({
+  snapshot: fetchSnapshot(partUrls, { cache: "my-app-modules" }),
+  files,
+})
+await container.run("dev")
+```
+
+`createNodeModulesSnapshot()` requires Linux, macOS, or WSL. It rejects Windows before changing files, because npm's Windows command shims cannot be restored as POSIX bin links. It installs as npm in a WebContainer does: it uses `--cpu=wasm32`, so no native binaries download, it swaps `esbuild`, `lightningcss`, and `@libsql/client` for their wasm builds, and it adds `@rolldown/binding-wasm32-wasi`, which rolldown otherwise downloads on first use. Install scripts do not run, and source maps are left out. A snapshot cannot hold symlinks or executable bits, so it lists them, and `bootWebContainer()` restores them after the mount.
+
+`fetchSnapshot()` downloads the parts in parallel and inflates them. With `cache`, it keeps the parts in Cache Storage, so a later boot downloads nothing. Give each snapshot version its own URLs, such as names with a content hash, and each app its own cache name: parts of other URLs in that cache are deleted. `bootWebContainer()` boots while the snapshot loads.
+
+To reuse a container's own install, `container.export()` returns a binary snapshot of the working directory. Pass `excludes` (glob patterns) to leave files out. `files` is mounted after the snapshot, so it can replace files from it.
 
 Use one container for each app. One container failed with `RangeError: Offset is outside the bounds of the DataView` after two full ViteHub installs.
 
@@ -165,7 +183,7 @@ Primitive packages use this to choose a driver that works in a WebContainer.
 
 ## Inspect
 
-Everything this package does runs in the reader's tab, so there is no server state to list yet. Read `container.status` for the stages and timings of a run. A `vitehub web-container` CLI command comes later, with the snapshot builder for docs tutorials.
+Everything this package does runs in the reader's tab, so there is no server state to list yet. Read `container.status` for the stages and timings of a run. The docs build writes the tutorial snapshots with `createNodeModulesSnapshot()` (`docs/modules/tutorials/snapshots.ts`).
 
 ## Test
 

@@ -1,5 +1,7 @@
 import type { FileSystemAPI, FileSystemTree, WebContainer as StackBlitzWebContainer } from "@webcontainer/api"
 
+import { restoreLinksScript, snapshotLinksFile } from "./links.ts"
+
 export type { FileSystemAPI, FileSystemTree } from "@webcontainer/api"
 
 /** One step of a boot checklist, in the order a UI shows it. */
@@ -36,8 +38,12 @@ export type WebContainerFiles = Record<string, string | Uint8Array>
 export interface BootWebContainerOptions {
   /** Files to write into the working directory. */
   files?: WebContainerFiles
-  /** A binary snapshot from `container.export()`, such as an app with `node_modules` already installed. Mounted before `files`. */
-  snapshot?: Uint8Array | ArrayBuffer
+  /**
+   * A binary snapshot from `container.export()`, `fetchSnapshot()`, or `createNodeModulesSnapshot()` of
+   * `@vite-hub/web-container/snapshot`, such as `node_modules` that are already installed. Mounted before `files`.
+   * A promise loads while the WebContainer boots.
+   */
+  snapshot?: Uint8Array | ArrayBuffer | Promise<Uint8Array | ArrayBuffer>
   /**
    * The Cross-Origin-Embedder-Policy of the page.
    * @default "credentialless"
@@ -46,8 +52,10 @@ export interface BootWebContainerOptions {
   /** Folder name of the working directory. */
   workdirName?: string
   /**
-   * The port of the server to preview, such as the `--port` of `vite dev`. Other servers, such as the workers that a
-   * dev server starts on random ports, then do not become the preview. Without it, the first server is the preview.
+   * The port of the server to preview. `run()` passes it to every process as `PORT`, which Nitro's `vite dev` and
+   * `node .output/server/index.mjs` listen on. A run with its own `env.PORT` previews that port instead. Servers on
+   * other ports, such as the workers that Nitro starts on random ports first, do not become the preview.
+   * @default 3000
    */
   port?: number
   /** Called on every status change, from the first check on. */
@@ -58,7 +66,7 @@ export interface BootWebContainerOptions {
 export type WebContainerCommand = "install" | "dev" | "build" | readonly [string, ...string[]]
 
 export interface WebContainerRunOptions {
-  /** Environment variables for this process only. They stay in the browser tab. */
+  /** Environment variables for this process only. They stay in the browser tab. `PORT` defaults to the `port` of `bootWebContainer()`. */
   env?: Record<string, string>
   /** Working directory, relative to the container root. */
   cwd?: string
@@ -87,7 +95,7 @@ export interface WebContainerPreview {
   /** The URL of the latest server that became ready. */
   readonly url: string | undefined
   readonly port: number | undefined
-  /** Resolves when the first server, or the server on `port`, becomes ready. Rejects on startup failure or teardown before readiness. */
+  /** Resolves when the server on `port`, or on the `env.PORT` of a run, becomes ready. Rejects on startup failure or teardown before readiness. */
   ready: Promise<WebContainerPreviewServer>
 }
 
@@ -238,6 +246,62 @@ function wrapProcess(spawned: Awaited<ReturnType<StackBlitzWebContainer["spawn"]
   }
 }
 
+/** A snapshot from `createNodeModulesSnapshot()` lists its symlinks and executable files. Restore them in one Node run. */
+async function restoreSnapshotLinks(container: StackBlitzWebContainer): Promise<void> {
+  const listed = await container.fs.readFile(`node_modules/${snapshotLinksFile}`, "utf8").then(() => true, () => false)
+  if (!listed) return
+  const script = "node_modules/.vitehub-restore-links.cjs"
+  await container.fs.writeFile(script, restoreLinksScript)
+  const process = await container.spawn("node", [script])
+  const code = await process.exit
+  if (code !== 0) throw new Error(`Restoring the links of the snapshot exited with code ${code}.`)
+}
+
+/** The part of the Cache Storage API that `fetchSnapshot` uses. The package does not load the DOM types. */
+interface SnapshotCache {
+  match: (url: string) => Promise<Response | undefined>
+  put: (url: string, response: Response) => Promise<void>
+  keys: () => Promise<readonly Request[]>
+  delete: (request: Request) => Promise<boolean>
+}
+
+function isCacheStorage(value: unknown): value is { open: (name: string) => Promise<SnapshotCache> } {
+  return typeof value === "object" && value !== null && "open" in value && typeof value.open === "function"
+}
+
+export interface FetchSnapshotOptions {
+  /**
+   * A Cache Storage name. Parts found there are not downloaded again, so later boots work from the cache. Give each
+   * snapshot version its own URLs, such as names with a content hash. Parts of other URLs in this cache are deleted.
+   */
+  cache?: string
+}
+
+/**
+ * Downloads the parts that `packSnapshot()` of `@vite-hub/web-container/snapshot` wrote, joins them in order, and
+ * inflates the gzip stream. Pass the result, or the promise, to `bootWebContainer({ snapshot })`.
+ */
+export async function fetchSnapshot(urls: readonly string[], options: FetchSnapshotOptions = {}): Promise<Uint8Array> {
+  const storage: unknown = Reflect.get(globalThis, "caches")
+  const cache = options.cache && isCacheStorage(storage) ? await storage.open(options.cache).catch(() => undefined) : undefined
+  if (cache) {
+    // `Request` resolves a relative URL against the page, as the cache keys do.
+    const keep = new Set(urls.map(url => new Request(url).url))
+    for (const request of await cache.keys()) if (!keep.has(request.url)) void cache.delete(request)
+  }
+  const parts = urls.map(async (url) => {
+    const cached = await cache?.match(url)
+    if (cached) return cached.blob()
+    const response = await fetch(url)
+    if (!response.ok) throw new Error(`Snapshot part ${url} returned ${response.status}.`)
+    const blob = await response.blob()
+    await cache?.put(url, new Response(blob)).catch(() => {})
+    return blob
+  })
+  const joined = new Blob(await Promise.all(parts))
+  return new Uint8Array(await new Response(joined.stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer())
+}
+
 /**
  * Boots a WebContainer in this browser tab and mounts an app into it.
  *
@@ -256,11 +320,18 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
   let booted: StackBlitzWebContainer | undefined
   try {
     status.enter("booting")
+    const loading = Promise.resolve(options.snapshot)
+    // The boot does not wait for the snapshot. A failed load still rejects below.
+    loading.catch(() => {})
     const { WebContainer } = await import("@webcontainer/api")
     booted = await WebContainer.boot({ coep: options.coep ?? "credentialless", workdirName: options.workdirName })
     if (options.snapshot || options.files) {
       status.enter("mounting")
-      if (options.snapshot) await booted.mount(options.snapshot)
+      const snapshot = await loading
+      if (snapshot) {
+        await booted.mount(snapshot)
+        await restoreSnapshotLinks(booted)
+      }
       if (options.files) await booted.mount(toFileSystemTree(options.files))
     }
     status.finish(status.current.stage)
@@ -291,8 +362,10 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
     rejectPendingReady(error)
     status.fail("error", error)
   }
+  const defaultPort = String(options.port ?? 3000)
+  const previewPorts = new Map<number, number>()
   container.on("server-ready", (port, url) => {
-    if (options.port !== undefined && port !== options.port) return
+    if (!previewPorts.has(port)) return
     serverReadyCount++
     server = { port, url }
     if (!readySettled) {
@@ -321,17 +394,27 @@ export async function bootWebContainer(options: BootWebContainerOptions = {}): P
       }
       const readyCountAtStart = serverReadyCount
       if (stage) status.enter(stage)
+      const env = { PORT: defaultPort, ...runOptions.env }
+      const previewPort = Number(env.PORT)
+      previewPorts.set(previewPort, (previewPorts.get(previewPort) ?? 0) + 1)
+      function releasePreviewPort() {
+        const remaining = previewPorts.get(previewPort)! - 1
+        if (remaining) previewPorts.set(previewPort, remaining)
+        else previewPorts.delete(previewPort)
+      }
       let spawned: Awaited<ReturnType<StackBlitzWebContainer["spawn"]>>
       try {
-        spawned = await container.spawn(file, args, { cwd: runOptions.cwd, env: runOptions.env })
+        spawned = await container.spawn(file, args, { cwd: runOptions.cwd, env })
       }
       catch (cause) {
+        releasePreviewPort()
         const error = cause instanceof Error ? cause : new Error(String(cause))
         if (stage === "starting") devRunning = false
         if (stage) fail(error)
         throw error
       }
       const run = wrapProcess(spawned, runOptions.signal)
+      void run.exit.then(releasePreviewPort, releasePreviewPort)
       if (stage === "installing") {
         void run.exit.then(async (code) => {
           if (code === 0) return status.finish("installing")

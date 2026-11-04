@@ -199,28 +199,24 @@ function frameworkWorkspaceDependencyRuntimeImports(sandboxTask: boolean) {
     ...(isPackageInstalled("@vite-hub/shell") ? { shellWorkspace: "vite-hub/shell/workspace" } : {}),
   }
 }
+// One resolve for the package root. A resolve per export (about 240) took 130 ms of every `vite` start.
+const frameworkPackageRoot = new URL(".", import.meta.resolve(`${frameworkPackageName}/package.json`))
+
+function frameworkExportAliases(include: (importTarget: string) => boolean): [string, string][] {
+  return Object.entries(frameworkPackageManifest.exports).flatMap(([subpath, target]): [string, string][] => {
+    const importTarget = packageExportImportTarget(target)
+    if (!subpath.startsWith("./") || importTarget === undefined || !include(importTarget)) return []
+    return [[`${frameworkPackageName}/${subpath.slice(2)}`, fileURLToPath(new URL(importTarget, frameworkPackageRoot))]]
+  })
+}
+
 const frameworkProviderImportAliases = Object.fromEntries(
-  Object.entries(frameworkPackageManifest.exports)
-    .filter(([subpath, target]) => subpath.startsWith("./") && packageExportImportTarget(target)?.endsWith(".js"))
-    .map(([subpath]): [string, string] => {
-      const specifier = `${frameworkPackageName}/${subpath.slice(2)}`
-      return [specifier, fileURLToPath(import.meta.resolve(specifier))]
-    })
+  frameworkExportAliases(importTarget => importTarget.endsWith(".js"))
     .sort(([left], [right]) => right.length - left.length),
 )
 // Exports that are not JavaScript, such as `vite-hub/ui/styles.css`. A Vite alias also matches the subpaths of its
 // specifier, so without its own entry `vite-hub/ui/styles.css` would resolve inside `dist/ui.js`.
-const frameworkAssetImportAliases = Object.fromEntries(
-  Object.entries(frameworkPackageManifest.exports)
-    .filter(([subpath, target]) => {
-      const importTarget = packageExportImportTarget(target)
-      return subpath.startsWith("./") && importTarget !== undefined && !importTarget.endsWith(".js")
-    })
-    .map(([subpath]): [string, string] => {
-      const specifier = `${frameworkPackageName}/${subpath.slice(2)}`
-      return [specifier, fileURLToPath(import.meta.resolve(specifier))]
-    }),
-)
+const frameworkAssetImportAliases = Object.fromEntries(frameworkExportAliases(importTarget => !importTarget.endsWith(".js")))
 
 // Generated server modules import Nitro and H3 by name. An app that lists only vite-hub cannot resolve them from its
 // root without hoisting, so these imports fall back to the Nitro that vite-hub installs, and to that Nitro's H3.
@@ -1108,7 +1104,9 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     ["auth", options.auth],
     ["console agents", configuredConsole && options.agent],
     ["console sign-in", consoleSignIn],
-    ["database", options.database],
+    ["connections", options.connections],
+    // `withConnectionsDatabase()` turns `database` on for Connections, so name the feature that the app enabled.
+    ["database", options.database && !options.connections],
     ["realtime", options.realtime],
     ["schedule", options.schedule],
     ["workspace", options.workspace],

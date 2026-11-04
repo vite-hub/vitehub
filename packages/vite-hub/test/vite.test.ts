@@ -970,6 +970,11 @@ describe("vitehub", () => {
       .not.toContain("vite-hub/error-log")
   })
 
+  it("checks the Database packages of Connections as the connections feature", () => {
+    vitehub({ preset: "node", connections: true })
+    expect(assertFeaturePackages).toHaveBeenLastCalledWith(["connections"])
+  })
+
   it("requires the Agent package for observability without Agents", () => {
     vitehub({ preset: "node", observability: { service: "support" } })
     expect(assertFeaturePackages).toHaveBeenLastCalledWith(["agent"])

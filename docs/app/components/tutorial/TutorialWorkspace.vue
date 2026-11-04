@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { fetchSnapshot } from "@vite-hub/web-container";
 import { defineConnect } from "@vite-hub/web-container/connect";
 import { ConnectPanel } from "@vite-hub/ui/connect-panel";
 import { useWorkspace } from "@vite-hub/ui/workspace";
@@ -31,7 +32,17 @@ const appPort = 3000;
 
 const stepFiles = (index: number, state: "start" | "solution"): Files => tutorialStepFiles(props.tutorial, index, state);
 
-const workspace = useWorkspace({ files: stepFiles(props.step, "start"), port: appPort });
+// The docs build writes a snapshot of node_modules, so the workspace mounts it instead of running `npm install`.
+// The browser keeps its parts in Cache Storage for later visits.
+const snapshotParts = props.tutorial.snapshot;
+const workspace = useWorkspace({
+  files: stepFiles(props.step, "start"),
+  port: appPort,
+  ...snapshotParts && {
+    snapshot: () => fetchSnapshot(snapshotParts, { cache: `vitehub-tutorial-${props.tutorial.slug}` }),
+    install: false,
+  },
+});
 // The two first tutorials run offline. A tutorial that deploys or calls a model lists its providers here.
 const connect = defineConnect({});
 const tab = ref<WorkspaceTab>("preview");
