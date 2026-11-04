@@ -52,6 +52,9 @@ catalogs:
     '@better-auth/oauth-provider':
       specifier: 1.7.15
       version: 1.7.15
+    '@noble/hashes':
+      specifier: ^2.2.0
+      version: 2.4.0
     better-auth:
       specifier: 1.7.15
       version: 1.7.15
@@ -1032,6 +1035,9 @@ importers:
       '@cloudflare/workers-types':
         specifier: ^5.20261016.1
         version: 5.20261019.1
+      '@noble/hashes':
+        specifier: catalog:auth
+        version: 2.4.0
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
@@ -1041,6 +1047,9 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
+      '@vite-hub/web-container':
+        specifier: workspace:*
+        version: link:../web-container
       better-auth:
         specifier: catalog:auth
         version: 1.7.15(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.11)(drizzle-orm@0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2))(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(vitest@4.1.11)(vue@3.5.44(typescript@6.0.3))

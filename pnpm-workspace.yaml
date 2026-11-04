@@ -40,6 +40,7 @@ catalogs:
     ai: ^6.0.0 || ^7.0.0-0
   auth:
     "@better-auth/oauth-provider": 1.7.15
+    "@noble/hashes": ^2.2.0
     better-auth: 1.7.15
     jose: ^6.2.12
   browser:
