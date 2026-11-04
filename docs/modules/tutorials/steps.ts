@@ -29,6 +29,10 @@ export interface PlaygroundTemplate {
   id: string;
   label: string;
   description: string;
+  /** The file that the editor opens first. */
+  open: string;
+  /** The path that the preview opens when the dev server is ready. */
+  preview: string;
   files: TutorialFiles;
   /** The slug of the snapshot that this template mounts. Templates with the same dependencies share one. */
   snapshotOf: string;
