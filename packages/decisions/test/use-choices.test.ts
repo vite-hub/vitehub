@@ -100,6 +100,17 @@ describe("useChoices()", () => {
     expect(choices.status.value).toBe("idle")
   })
 
+  it("clear() calls onClear so the app can reset its own state", async () => {
+    const onClear = vi.fn()
+    const { choices } = setup({ onClear, resolve: async () => ({ supplier: ["S1"] }) })
+    choices.text.value = "vak supply"
+    await choices.submit()
+    choices.abort()
+    expect(onClear).not.toHaveBeenCalled()
+    choices.clear()
+    expect(onClear).toHaveBeenCalledTimes(1)
+  })
+
   it("aborts the request when its scope stops", async () => {
     const { requests, resolve } = pending()
     const { choices, scope } = setup({ resolve })
