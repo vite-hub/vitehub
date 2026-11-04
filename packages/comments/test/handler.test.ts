@@ -69,7 +69,9 @@ async function setup(input: { user?: CommentsUser | null, options?: DefineCommen
     const response = await app.fetch(new Request(`${origin}/api/_vitehub/comments${path}`, { ...init, headers, body: init.json === undefined ? init.body : JSON.stringify(init.json) }))
     return { response, body: await response.json() as { data?: any, error?: { code: string, why: string, fix?: string } } }
   }
-  return { comments, call }
+  /** A route that answers a file, not JSON. */
+  const fetchFile = (path: string, headers: HeadersInit = {}) => app.fetch(new Request(`${origin}/api/_vitehub/comments${path}`, { headers }))
+  return { comments, call, fetchFile }
 }
 
 describe("Comments API", () => {
@@ -195,9 +197,8 @@ describe("Comments API", () => {
     expect(session).not.toHaveBeenCalled()
   })
 
-  it.each(["authorize", "user", "identify"] as const)("denies Console session failures in %s before Comments identity or policy", async (source) => {
-    for (const customIdentity of [false, true]) {
-      const identify = vi.fn(() => ({ id: "custom", name: "Custom" }))
+  it.each(["authorize", "user", "identify"] as const)("denies Console session failures in %s before the policy, without custom identify", async (source) => {
+    {
       const authorize = vi.fn(() => true)
       const fail = async () => { throw new Error("Console session unavailable") }
       const session = commentsConsoleSession({
@@ -205,7 +206,7 @@ describe("Comments API", () => {
         user: source === "user" ? fail : async () => null,
         identify: source === "identify" ? fail : async () => null,
       })
-      const { call } = await setup({ consoleSession: session, options: { identify: customIdentity ? identify : undefined, authorize } })
+      const { call } = await setup({ consoleSession: session, options: { identify: undefined, authorize } })
       const current = await call("/session")
       expect(current.body.data).toMatchObject({ user: null, can: { read: false, comment: false, resolve: false, delete: false } })
       expect(current.response.headers.get("set-cookie")).toBeNull()
@@ -215,9 +216,64 @@ describe("Comments API", () => {
         json: { page: "/", anchor, body: "Denied" },
         headers: { "x-vitehub-comments-guest-id": "visitor", "x-vitehub-comments-guest-name": "Visitor" },
       })).response.status).toBe(403)
-      expect(identify).not.toHaveBeenCalled()
       expect(authorize).not.toHaveBeenCalled()
     }
+  })
+
+  describe("with custom identify and the Console", () => {
+    // The Console admits nobody, so any refusal below would come from it.
+    const consoleSession = vi.fn(commentsConsoleSession({ authorize: async () => false, user: async () => null, identify: async () => null }))
+    const key = "drop/images/screenshot.png"
+    const people = [{ id: "grace", name: "Grace", role: "member" }]
+    type Person = CommentsUser & { role?: string, share?: string }
+
+    /** Drop's shape: members by session, share-link readers by token, guests by name, strangers signed in but not shared with. */
+    async function app() {
+      const identify = ({ event }: { event: { req: Request } }): Person | null => {
+        const who = event.req.headers.get("x-test-person")
+        if (who === "member") return { id: "member", name: "Member", role: "member" }
+        if (who === "share") return { id: "share:abc", share: "abc" }
+        if (who === "stranger") return { id: "stranger", name: "Stranger" }
+        return null
+      }
+      const authorize = vi.fn(({ user, action }: { user: Person | null, action: string }) => {
+        if (user?.role === "member") return true
+        if (user?.share === "abc") return action === "read"
+        // Guests may read and write as themselves.
+        return user === null && (action === "read" || action === "write")
+      })
+      const readAttachment = vi.fn(async () => new Blob(["png"], { type: "image/png" }))
+      const { comments, call, fetchFile } = await setup({ consoleSession, options: {
+        identify: identify as DefineCommentsOptions["identify"],
+        authorize,
+        people: { search: async () => people, byIds: async () => people },
+        readAttachment,
+      } })
+      await comments.create({ page: "/", anchor, body: "Look", author: { id: "member", name: "Member" }, attachments: [key] })
+      return { call, fetchFile, authorize, readAttachment }
+    }
+
+    it.each(["member", "share", "guest"])("lets a %s that identify and authorize admit search people and read attachments", async (who) => {
+      const { call, fetchFile, authorize } = await app()
+      const headers = who === "guest" ? { "x-vitehub-comments-guest-id": "visitor", "x-vitehub-comments-guest-name": "Visitor" } : { "x-test-person": who }
+      const found = await call("/people?q=gr&page=/", { headers })
+      expect(found.response.status).toBe(200)
+      expect(found.body.data).toEqual([{ id: "grace", name: "Grace" }])
+      const file = await fetchFile(`/attachments/${key}`, headers)
+      expect(file.status).toBe(200)
+      expect(await file.text()).toBe("png")
+      expect(authorize).toHaveBeenCalled()
+      expect(consoleSession).not.toHaveBeenCalled()
+    })
+
+    it("refuses a stranger that authorize refuses", async () => {
+      const { call, fetchFile, readAttachment } = await app()
+      const headers = { "x-test-person": "stranger" }
+      expect((await call("/people?q=gr&page=/", { headers })).response.status).toBe(403)
+      // Attachments answer 404 to people who may not read them, so a key does not tell that the file exists.
+      expect((await fetchFile(`/attachments/${key}`, headers)).status).toBe(404)
+      expect(readAttachment).not.toHaveBeenCalled()
+    })
   })
 
   it("keeps Console guest authors anonymous to Comments policies", async () => {
@@ -246,9 +302,9 @@ describe("Comments API", () => {
     expect(content.saves).toHaveLength(allowAnonymous ? 1 : 0)
   })
 
-  it.each([undefined, () => ({ id: "custom", name: "Custom" })])("preserves Console denial before guest policies or custom identity: %s", async (identify) => {
+  it("preserves Console denial before guest policies without custom identify", async () => {
     const session = commentsConsoleSession({ authorize: async () => false, user: async () => null, identify: async () => null })
-    const { comments, call } = await setup({ consoleSession: session, options: { identify, authorize: () => true } })
+    const { comments, call } = await setup({ consoleSession: session, options: { identify: undefined, authorize: () => true } })
     const [, thread] = await comments.create({ page: "/", anchor, body: "Private", author: { id: "ada", name: "Ada" } })
     const current = await call("/session")
     expect(current.body.data.can).toEqual({ read: false, comment: false, resolve: false, delete: false })

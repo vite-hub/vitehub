@@ -25,24 +25,31 @@ describe("commentsRealtime", () => {
     expect(session).not.toHaveBeenCalled()
   })
 
-  it.each(["authorize", "user", "identify"] as const)("denies Console session failures in %s before Comments identity or policy", async (source) => {
-    for (const customIdentity of [false, true]) {
-      const identify = vi.fn(() => ({ id: "custom", name: "Custom" }))
-      const authorize = vi.fn(() => true)
-      const fail = async () => { throw new Error("Console session unavailable") }
-      const session = commentsConsoleSession({
-        authorize: source === "authorize" ? fail : async () => true,
-        user: source === "user" ? fail : async () => null,
-        identify: source === "identify" ? fail : async () => null,
-      })
-      const definition = commentsRealtime(defineComments({ identify: customIdentity ? identify : undefined, authorize }), { consoleSession: session })
-      const context = { definition: "comments", event: event(), request: new Request("http://site.test") }
-      const user = await definition.identify!(context)
-      expect(user).toBeNull()
-      expect(await definition.authorize!({ ...context, documentId: "pages/x", mode: "read", user: user ?? null })).toBe(false)
-      expect(identify).not.toHaveBeenCalled()
-      expect(authorize).not.toHaveBeenCalled()
-    }
+  it.each(["authorize", "user", "identify"] as const)("denies Console session failures in %s before the policy, without custom identify", async (source) => {
+    const authorize = vi.fn(() => true)
+    const fail = async () => { throw new Error("Console session unavailable") }
+    const session = commentsConsoleSession({
+      authorize: source === "authorize" ? fail : async () => true,
+      user: source === "user" ? fail : async () => null,
+      identify: source === "identify" ? fail : async () => null,
+    })
+    const definition = commentsRealtime(defineComments({ authorize }), { consoleSession: session })
+    const context = { definition: "comments", event: event(), request: new Request("http://site.test") }
+    const user = await definition.identify!(context)
+    expect(user).toBeNull()
+    expect(await definition.authorize!({ ...context, documentId: "pages/x", mode: "read", user: user ?? null })).toBe(false)
+    expect(authorize).not.toHaveBeenCalled()
+  })
+
+  it("lets custom identify and authorize decide, without asking the Console", async () => {
+    const identify = vi.fn(() => ({ id: "custom", name: "Custom" }))
+    const consoleSession = vi.fn(async () => false as const)
+    const definition = commentsRealtime(defineComments({ identify, authorize: ({ user }) => user?.id === "custom" }), { consoleSession })
+    const context = { definition: "comments", event: event(), request: new Request("http://site.test") }
+    const user = await definition.identify!(context)
+    expect(user).toEqual({ id: "custom", name: "Custom" })
+    expect(await definition.authorize!({ ...context, documentId: "pages/x", mode: "read", user: user ?? null })).toBe(true)
+    expect(consoleSession).not.toHaveBeenCalled()
   })
 
   it("preserves Console denial even when the Comments guest policy allows reading", async () => {
