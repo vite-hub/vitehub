@@ -7,7 +7,7 @@ export interface ChatGPTGateway {
   readonly connection: string
 }
 
-/** Use a ChatGPT Connection with a Codex Driver. Defaults to the `chatgpt` Connection. */
+/** Use a ChatGPT Connection with a Codex Driver or a model-backed Driver. Defaults to the `chatgpt` Connection. */
 export function chatgpt(options: { connection?: string } = {}): ChatGPTGateway {
   const connection = options.connection ?? "chatgpt"
   if (Object.keys(options).some(key => key !== "connection") || typeof connection !== "string" || !connection.trim() || connection !== connection.trim()) {

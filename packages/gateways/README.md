@@ -97,7 +97,7 @@ The type of a preset lists the model APIs that it serves: `AiGateway<{ routes: "
 
 ## Credentials
 
-`chatgpt({ connection?: string })` is a credential-free descriptor for a ViteHub Codex Driver. It defaults to the `chatgpt` Connection. The Agent runtime applies the Connection's read policy and resolves a fresh plan token. This descriptor has no `apiKey` callback or `ask()` method. Configure `chatgpt({ appName })` from `@vite-hub/connections/chatgpt` on the Connection and sign in with `vitehub connections connect chatgpt`. See [ChatGPT plan usage](https://vitehub.dev/docs/connections/chatgpt).
+`chatgpt({ connection?: string })` is a credential-free descriptor for a ViteHub Codex Driver or a model-backed Driver (`driver: { model, gateway: chatgpt() }`). It defaults to the `chatgpt` Connection. The Agent runtime applies the Connection's read policy and resolves a fresh plan token. This descriptor has no `apiKey` callback or `ask()` method. Configure `chatgpt({ appName })` from `@vite-hub/connections/chatgpt` on the Connection and sign in with `vitehub connections connect chatgpt`. See [ChatGPT plan usage](https://vitehub.dev/docs/connections/chatgpt).
 
 A preset reads each value that you do not pass when it sends a request. Direct `gateway.ask()` calls, including imports from `vite-hub/gateways`, read `process.env`: `VITEHUB_<PRESET>_<FIELD>` first, such as `VITEHUB_TYPESAFE_API_KEY`, then the vendor variable in the table. Provider Drivers, ask Drivers, `llmGate()`, and `llmRoute()` supply Server Env, with the Cloudflare bindings of the request. `languageModel()` reads `process.env`, also in an AI SDK model Driver. For a direct call with provider-backed Server Env or request bindings, load the values in your application and pass them to the preset.
 

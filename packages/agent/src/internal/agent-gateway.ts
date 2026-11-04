@@ -32,7 +32,7 @@ export function normalizeAgentDriverGateway(value: unknown): AiGatewayDefinition
 /** Fail at definition time when a gateway cannot serve the selected Driver. */
 export function assertAgentDriverGatewaySupports(gateway: AiGatewayDefinition | ChatGPTGateway, driver: BuiltInAgentDriverName): void {
   if (isChatGPTGateway(gateway)) {
-    if (driver !== "codex") throw agentDiagnostics.AGENT_R0976({ message: `[vitehub] The ChatGPT plan gateway does not serve the ${driver} Driver. Set driver.kind to "codex".` })
+    if (driver !== "codex") throw agentDiagnostics.AGENT_R0976({ message: `[vitehub] The ChatGPT plan gateway does not serve the ${driver} Driver. Use codexDriver({ gateway: chatgpt() }) or a model-backed Driver: { model, gateway: chatgpt() }.` })
     return
   }
   if (!aiGatewaySupports(gateway, driver)) {

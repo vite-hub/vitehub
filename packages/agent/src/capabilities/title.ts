@@ -430,6 +430,7 @@ async function generateTitleWithDriver(
   // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
   return await titleResultText(context, await createAiSdkAdapter({
     execution: driver.execution,
+    gateway: driver.gateway,
     instructions: options.instructions ?? driver.instructions,
     model: driver.model,
   // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.

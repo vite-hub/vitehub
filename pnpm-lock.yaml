@@ -804,6 +804,12 @@ importers:
       '@ai-sdk/gateway':
         specifier: catalog:ai
         version: 4.0.103(zod@4.6.7)
+      '@ai-sdk/openai':
+        specifier: catalog:ai
+        version: 4.0.88(zod@4.6.7)
+      '@ai-sdk/provider':
+        specifier: catalog:ai
+        version: 4.0.24
       '@cfworker/json-schema':
         specifier: 4.1.1
         version: 4.1.1
