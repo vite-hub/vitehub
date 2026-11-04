@@ -1104,7 +1104,9 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     ["auth", options.auth],
     ["console agents", configuredConsole && options.agent],
     ["console sign-in", consoleSignIn],
-    ["database", options.database],
+    ["connections", options.connections],
+    // `withConnectionsDatabase()` turns `database` on for Connections, so name the feature that the app enabled.
+    ["database", options.database && !options.connections],
     ["realtime", options.realtime],
     ["schedule", options.schedule],
     ["workspace", options.workspace],
