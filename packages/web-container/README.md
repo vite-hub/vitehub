@@ -56,7 +56,7 @@ const container = await bootWebContainer({
   files: {
     "package.json": JSON.stringify({ type: "module", scripts: { dev: "node server.js" } }),
     "server.js": `import { createServer } from "node:http"
-createServer((req, res) => res.end("Hello from " + process.version)).listen(3000)`,
+createServer((req, res) => res.end("Hello from " + process.version)).listen(process.env.PORT)`,
   },
 })
 
@@ -71,7 +71,7 @@ document.querySelector("iframe")!.src = url
 - `run("install")` runs `npm install`. `run("dev")` and `run("build")` run the npm scripts of the app. Pass an array, such as `run(["node", "scripts/seed.js"])`, to run any command line.
 - Only one `run("dev")` may be active, including while it is spawning. Another call rejects until the process exits; call `kill()` and await `exit` before restarting it.
 - A run returns `output` (a stream that you read once), `exit` (the exit code), `text()` (the last 65,536 output characters after exit), `write(input)`, and `kill()`. The stream buffers up to 65,536 characters and drops excess output until its reader catches up, so an idle terminal cannot accumulate unlimited logs. Pass `signal` to kill it with an `AbortController`.
-- `container.preview.ready` resolves with the first server that becomes ready. It rejects if startup fails or the container is torn down before readiness. A dev server can start other servers first: `vite dev` with Nitro starts workers on random ports. Pass `bootWebContainer({ port: 3000 })` with the port that the app listens on, and only that server becomes the preview. Read `url` from it, because the preview origin is not `localhost`.
+- `container.preview.ready` resolves with the app server. It rejects if startup fails or the container is torn down before readiness. `run()` passes `PORT=3000` to every process, and `vite dev` with `vitehub()` and `node .output/server/index.mjs` listen on it. Only the server on that port becomes the preview, not the workers that Nitro starts on random ports first. Pass `bootWebContainer({ port })` to use another port, or `env: { PORT }` on one run. Read `url` from it, because the preview origin is not `localhost`.
 - `container.on("server-ready", ({ url, port }) => …)` subscribes to every server readiness event, including custom commands and later restarts. It returns an unsubscribe function.
 - Show the preview in an `<iframe>` on the same page. The preview origin does not answer a `fetch()` from the page.
 - `container.fs` is the WebContainer file system API (`readFile`, `writeFile`, `readdir`, `mkdir`, `rm`, `watch`).
