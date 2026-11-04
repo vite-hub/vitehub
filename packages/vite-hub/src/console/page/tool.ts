@@ -1,6 +1,7 @@
 import { contentFieldAttribute, contentPreviewFrameParameter, contentPreviewPublishedParameter, parseContentField } from "@vite-hub/content/client"
 import { viteHubPillButtonStyles } from "@vite-hub/internal/runtime/page-tools-shared"
 import type { ViteHubPageToolModule } from "@vite-hub/internal/runtime/page-tools-loader"
+import { appPathname } from "../../comments-overlay/loader-core.ts"
 
 const styles = `:host{display:flex;flex-direction:var(--vitehub-pill-flow,row);gap:2px}${viteHubPillButtonStyles}
 button.view-draft{gap:6px}button.view-draft[hidden]{display:none}
@@ -381,7 +382,8 @@ function draftBanner(signal: AbortSignal): () => void {
  * so the token stays in the form body and only this browser sees the draft. The draft page shows a banner instead,
  * with the changes marked and **Back to live**. Client-side navigation resolves the next page again.
  */
-function draftSwitch(base: string, shadow: ShadowRoot, signal: AbortSignal): void {
+export function draftSwitch(base: string, shadow: ShadowRoot, signal: AbortSignal): void {
+  const appBase = base.replace(/\/_vitehub$/, "")
   const view = document.createElement("button")
   view.type = "button"
   view.className = "view-draft"
@@ -409,7 +411,7 @@ function draftSwitch(base: string, shadow: ShadowRoot, signal: AbortSignal): voi
     pending = controller
     signal.addEventListener("abort", () => controller.abort(), { once: true, signal: controller.signal })
     try {
-      current = pageDocument(await documentAction(base, "resolve", { path: location.pathname }, controller.signal))
+      current = pageDocument(await documentAction(base, "resolve", { path: appPathname(location.pathname, appBase) }, controller.signal))
     }
     catch {
       if (controller.signal.aborted) return

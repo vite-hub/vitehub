@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+import type { ViteHubPageSession } from "@vite-hub/internal/runtime/page-tools-shared"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { installConsolePageTool } from "../src/console/runtime/server/page-tool.ts"
@@ -72,7 +73,7 @@ describe("embedded Console access", () => {
     installConsoleAccess({ mode: "open", authorize: async () => ({ sections: ["kv"] }) })
     expect(await (await app.fetch(event("/_vitehub/page/session").req)).json()).toMatchObject({ tools: [{ id: "console" }] })
     installConsoleAccess({ mode: "open", authorize: async () => ({ sections: ["content"] }) })
-    const { tools } = await (await app.fetch(event("/_vitehub/page/session").req)).json()
+    const { tools } = await (await app.fetch(event("/_vitehub/page/session").req)).json() as ViteHubPageSession
     expect(tools).toMatchObject([{ id: "console", lazy: true }, { id: "content" }])
     expect(tools[1]).not.toHaveProperty("lazy")
   })

@@ -6,7 +6,7 @@ import { loadViteHubPageTools } from "@vite-hub/internal/runtime/page-tools-load
 import { afterEach, expect, it, vi } from "vitest"
 import { createMemoryHistory, createRouter, isNavigationFailure } from "vue-router"
 
-import start, { consolePageUrl, draftChanges, isDraftView, liveUrl } from "../src/console/page/tool.ts"
+import start, { consolePageUrl, draftChanges, draftSwitch, isDraftView, liveUrl } from "../src/console/page/tool.ts"
 
 it("remembers only the document actually opened when a leave guard cancels navigation", async () => {
   const router = createRouter({
@@ -233,6 +233,27 @@ it("offers the draft of the open page and posts its preview form to the same pag
   expect(JSON.parse(submitted[0]!.value!)).toEqual({ token: "f1.token" })
   expect(url.href).not.toContain("f1.token")
   expect(document.querySelector("form")).toBeNull()
+})
+
+it.each(["", "/portal", "/portal/nested"])("resolves draft documents below the app base %j on load and navigation", async (appBase) => {
+  history.replaceState(null, "", `${appBase}/blog/hello?vitehub`)
+  const fetch = contentFetch({ resolve: { collection: "posts", id: "hello", state: "changed" } })
+  vi.stubGlobal("fetch", fetch)
+  const base = `${appBase}/_vitehub`
+  const shadow = document.createElement("div").attachShadow({ mode: "open" })
+  const controller = new AbortController()
+  const resolved = (path: string) => expect(fetch).toHaveBeenLastCalledWith(`${base}/rpc/__call`, expect.objectContaining({
+    body: JSON.stringify({ operation: "documents.action", input: { action: "resolve", body: { path }, section: "content" } }),
+  }))
+  try {
+    draftSwitch(base, shadow, controller.signal)
+    await vi.waitFor(() => expect(shadow.querySelector<HTMLButtonElement>("button.view-draft")!.hidden).toBe(false))
+    resolved("/blog/hello")
+
+    history.pushState(null, "", appBase || "/")
+    await vi.waitFor(() => resolved("/"))
+  }
+  finally { controller.abort() }
 })
 
 it("hides View draft on pages without an unpublished draft, and resolves again after client navigation", async () => {
