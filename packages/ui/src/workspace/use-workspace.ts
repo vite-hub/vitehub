@@ -42,8 +42,11 @@ export type WorkspaceFailure =
 export interface UseWorkspaceOptions {
   /** The files to mount. `reset()` goes back to them. */
   files: WorkspaceFiles;
-  /** A snapshot from `container.export()`, mounted before `files`. Use it to skip a cold install. */
-  snapshot?: Uint8Array | ArrayBuffer;
+  /**
+   * A snapshot from `container.export()` or `fetchSnapshot()`, mounted before `files`. Use it to skip a cold install.
+   * A function runs on each boot, while the WebContainer boots, so a page downloads the snapshot only when it boots.
+   */
+  snapshot?: Uint8Array | ArrayBuffer | (() => Promise<Uint8Array | ArrayBuffer>);
   /**
    * The install command. `false` skips the install, for example when the snapshot has `node_modules`.
    * @default "install"
@@ -295,7 +298,7 @@ export function useWorkspace(options: UseWorkspaceOptions): Workspace {
       try {
         const target = await bootWebContainer({
           files: written,
-          snapshot: options.snapshot,
+          snapshot: typeof options.snapshot === "function" ? options.snapshot() : options.snapshot,
           port: options.port,
           onStatus(next) {
             if (disposed) return;

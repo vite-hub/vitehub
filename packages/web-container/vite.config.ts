@@ -6,7 +6,7 @@ export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
     deps: {
-      neverBundle: ["vite", "@webcontainer/api", "@webcontainer/env"],
+      neverBundle: ["vite", "@webcontainer/api", "@webcontainer/env", "@msgpack/msgpack"],
       alwaysBundle: [/^@vite-hub\/internal/],
       onlyBundle: false,
     },
@@ -14,6 +14,7 @@ export default defineConfig({
       "src/index.ts",
       "src/connect.ts",
       "src/env.ts",
+      "src/snapshot.ts",
       "src/vite.ts",
     ],
     exports: {

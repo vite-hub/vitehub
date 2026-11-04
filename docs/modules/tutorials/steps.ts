@@ -20,6 +20,8 @@ export interface RunnableTutorialData {
   /** The files before step 1: the app that Installation creates, with the fixture's dependencies. */
   files: TutorialFiles;
   steps: RunnableTutorialStep[];
+  /** The parts of the `node_modules` snapshot, for `fetchSnapshot()`. Without it, the workspace runs `npm install`. */
+  snapshot?: string[];
 }
 
 /** The files at the start of step `index` (from 0), or at its end with `solution`. Each step builds on the one before. */
