@@ -1174,6 +1174,9 @@
       "import": "./dist/console/runtime/server/sections.js",
       "default": "./dist/console/runtime/server/sections.js"
     },
+    "./page/pill.js": {
+      "default": "./dist/page/pill.iife.js"
+    },
     "./ui/styles.css": "./dist/ui/styles.css",
     "./tsconfig": "./tsconfig.json",
     "./agent/process-host": {
