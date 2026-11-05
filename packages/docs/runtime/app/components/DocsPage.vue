@@ -57,6 +57,7 @@ useDocsSeo({
 
   <div v-else-if="page.layout === 'home'" :data-path="page.path">
     <DocsMarkdown :document="response.document" />
+    <DocsPageCredits v-if="response.credits" :credits="response.credits" class="mx-auto w-full max-w-(--vh-content-width) px-4 sm:px-6" />
   </div>
 
   <div v-else-if="page.layout === 'landing'" class="vh-docs-landing">

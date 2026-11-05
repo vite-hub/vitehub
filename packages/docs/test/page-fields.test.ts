@@ -9,7 +9,7 @@ import type { NuxtConfig } from "nuxt/schema"
 import type { DocsSearchSection } from "../src/types.ts"
 
 const files: Record<string, string> = {
-  "index.md": "---\ntitle: Lumen\n---\nRead [Annotate](/docs/annotate).\n",
+  "index.md": "---\ntitle: Lumen\nlayout: home\ncredits: Built on [Comark](https://comark.dev).\n---\nRead [Annotate](/docs/annotate).\n",
   "docs/annotate/index.md": [
     "---",
     "title: Annotate",
@@ -59,6 +59,9 @@ it("shows the tagline under the heading, ends the page with its credits, and sea
     const plain = await output("docs/annotate/plain.html")
     expect(text(/<[^>]+data-slot="description"[^>]*>([\s\S]*?)<\/(?:div|p)>/.exec(plain)?.[1] ?? "")).toBe("A page without a tagline.")
     expect(plain).not.toContain("<footer class=\"vh-docs-credits")
+
+    // A home page is only its own blocks, and its credits follow them.
+    expect(text(/<footer class="vh-docs-credits[\s\S]*?<\/footer>/.exec(await output("index.html"))?.[0] ?? "")).toBe("Built on Comark .")
 
     const search: DocsSearchSection[] = JSON.parse(await output("api/_docs/search.json"))
     expect(search.find(record => record.id === "/docs/annotate")?.keywords).toEqual(["image annotation", "PR evidence"])
