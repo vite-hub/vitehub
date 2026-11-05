@@ -52,7 +52,7 @@ const tab = ref<"preview" | "console" | "connect">("preview");
 const tabs = [
   { label: "Preview", value: "preview" as const, icon: "i-lucide-app-window" },
   { label: "Console", value: "console" as const, icon: "i-lucide-square-terminal" },
-  { label: "Connect", value: "connect" as const, icon: "i-lucide-plug" },
+  ...connect.providers.length ? [{ label: "Connect", value: "connect" as const, icon: "i-lucide-plug" }] : [],
 ];
 const runState = useRunState(workspace);
 const moreItems = computed(() => [[
@@ -230,7 +230,7 @@ onBeforeUnmount(() => { props.actions.available = false; });
           </template>
           <template #connect>
             <div class="h-full overflow-auto">
-              <ConnectPanel :connect="connect" empty="No accounts needed for this step." />
+              <ConnectPanel :connect="connect" />
             </div>
           </template>
         </WorkspaceTabs>
