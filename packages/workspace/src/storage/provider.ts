@@ -126,8 +126,9 @@ export function resolveGitHubWorkspaceStore(
   }
 }
 
+// `BLOB_STORE_ID` marks a project connected to a store through Vercel OIDC.
 export function hasVercelWorkspaceBlobEnv(env: Record<string, string | undefined>): boolean {
-  return Boolean(readEnv(env, "BLOB_READ_WRITE_TOKEN"))
+  return Boolean(readEnv(env, "BLOB_STORE_ID", "BLOB_READ_WRITE_TOKEN"))
 }
 
 export function normalizeWorkspaceStoreOptions(
@@ -188,18 +189,21 @@ export function isMaskedWorkspaceRuntimeValue(value: string | undefined): boolea
   return !value || value === MASKED_WORKSPACE_RUNTIME_VALUE
 }
 
+/**
+ * Uses OIDC when the project has `BLOB_STORE_ID`, like `@vite-hub/blob`. The store then has no
+ * token, so `@vercel/blob` reads the OIDC token itself and falls back to `BLOB_READ_WRITE_TOKEN`.
+ */
 export function resolveRuntimeVercelBlobWorkspaceStore(
   config: VercelBlobWorkspaceStoreOptions,
   env: Record<string, string | undefined>,
 ): VercelBlobWorkspaceStoreOptions {
+  const { token: _maskedToken, ...store } = config
+  if (readEnv(env, "BLOB_STORE_ID")) return store
+
   const token = readEnv(env, "BLOB_READ_WRITE_TOKEN")
-
   if (isMaskedWorkspaceRuntimeValue(token)) {
-    throw workspaceErrorDiagnostics.WORKSPACE_R0066({ message: "Missing runtime environment variable `BLOB_READ_WRITE_TOKEN` for Vercel workspace Blob storage." })
+    throw workspaceErrorDiagnostics.WORKSPACE_R0066({ message: "Missing Vercel Blob credentials for Workspace storage. Connect a Blob store to the Vercel project so it gets `BLOB_STORE_ID`, or set `BLOB_READ_WRITE_TOKEN` off Vercel." })
   }
 
-  return {
-    ...config,
-    token,
-  }
+  return { ...store, token }
 }

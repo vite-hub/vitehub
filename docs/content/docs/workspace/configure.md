@@ -36,7 +36,7 @@ The Vite config key is `workspace`.
 | Local | `{ provider: 'local', root?: string, locks?: 'filesystem' \| 'process' }` | Filesystem-backed Workspace Store. Used by default in development and on hosts without a more specific match. |
 | Memory | `{ provider: 'memory' }` | Test or ephemeral runtime storage. |
 | Cloudflare Artifacts | `{ provider: 'cloudflare-artifacts', binding?, namespace?, repo?, repoPrefix?, branch? }` | Opt-in, versioned Git storage. Defaults: binding `WORKSPACE_ARTIFACTS`, namespace `vitehub`, repo prefix `vitehub-workspace-`. |
-| Vercel Blob | `{ provider: 'vercel-blob', token?, prefix?, access? }` | Blob-backed storage. Files live under `_vitehub/workspaces/<workspace>/`. An optional `prefix`, or `VITEHUB_WORKSPACE_BLOB_PREFIX`, adds a namespace below `_vitehub/workspaces/` and accepts letters, numbers, underscores, dashes, and single slashes. The Console Blob section hides these files by default. Access defaults to `private`; the token can come from `BLOB_READ_WRITE_TOKEN`. |
+| Vercel Blob | `{ provider: 'vercel-blob', token?, prefix?, access? }` | Blob-backed storage. Files live under `_vitehub/workspaces/<workspace>/`. An optional `prefix`, or `VITEHUB_WORKSPACE_BLOB_PREFIX`, adds a namespace below `_vitehub/workspaces/` and accepts letters, numbers, underscores, dashes, and single slashes. The Console Blob section hides these files by default. Access defaults to `private`. On Vercel, the store uses OIDC when the project has `BLOB_STORE_ID`; off Vercel, it uses `BLOB_READ_WRITE_TOKEN`. |
 | GitHub | `{ provider: 'github', repo?, repository?, branch?, root?, token?, refs?, database? }` | Repository-backed storage with branches as history refs. Defaults: branch `main`, root `.vitehub/workspaces/<workspace>`. See [GitHub Store](#github-store). |
 | Custom | `WorkspaceStore` | Implement the Workspace Store contract directly. |
 | Blob + Database | `createBlobDatabaseWorkspaceStore({ blob, database, workspace, prefix? })` | Portable retained folder history. Pass the returned Store to a Workspace Definition. |
@@ -47,7 +47,7 @@ For a GitHub Store, set `VITEHUB_GITHUB_TOKEN` or `FORGES_GITHUB_TOKEN` for cred
 
 GitHub Stores and history views share immutable blob bytes by sha within one isolate, including across repositories. Concurrent reads share one request when the repository and credentials match. A failed request does not affect readers using another repository or token. The cache retains up to 32 MiB, evicts the oldest entries first, and skips blobs larger than 4 MiB. New isolates and reads after eviction still fetch each blob from GitHub. Failed reads can be retried.
 
-Without a `store`, development uses Local. Production uses Memory on Cloudflare, Vercel Blob when `BLOB_READ_WRITE_TOKEN` exists, Memory on Vercel without that token, and Local on other hosts. You must select Cloudflare Artifacts or GitHub yourself.
+Without a `store`, development uses Local. Production uses Memory on Cloudflare, Vercel Blob when `BLOB_STORE_ID` or `BLOB_READ_WRITE_TOKEN` exists, Memory on Vercel without them, and Local on other hosts. You must select Cloudflare Artifacts or GitHub yourself.
 
 Custom Stores can implement `removeEmptyDirectory(path)` for build Source cleanup. It must remove only an empty directory, preserve files and missing paths, and reject nonempty directories within the Store mutation boundary. Without this optional method, cleanup retains generated directories. Local, Memory, and Cloudflare Artifacts implement it.
 

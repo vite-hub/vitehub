@@ -78,9 +78,21 @@ afterEach(() => {
   blobMock.list.mockClear()
   blobMock.put.mockClear()
   delete process.env.BLOB_READ_WRITE_TOKEN
+  delete process.env.BLOB_STORE_ID
 })
 
 describe("Vercel Blob workspace store", () => {
+  it("calls the Vercel SDK without a token when the project has BLOB_STORE_ID", async () => {
+    process.env.BLOB_STORE_ID = "store_1"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    const store = createVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "********" }, "docs")
+    await store.writeFile("notes.md", { path: "notes.md", content: "hello" })
+    await expect(store.readFile("notes.md")).resolves.toBeDefined()
+    for (const call of [...blobMock.put.mock.calls, ...blobMock.get.mock.calls]) {
+      expect(call[call.length - 1]).not.toHaveProperty("token")
+    }
+    expect(blobMock.put).toHaveBeenCalled()
+  })
   it("rejects repeated pagination cursors before looping", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "token"
     const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
