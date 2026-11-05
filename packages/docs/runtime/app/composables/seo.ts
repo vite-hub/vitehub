@@ -32,7 +32,8 @@ export function useDocsSeo(input: DocsSeoInput): void {
     useSeoMeta({ ogImage: null, ogImageUrl: null, ogImageSecureUrl: null, ogImageType: null, ogImageWidth: null, ogImageHeight: null, ogImageAlt: null, twitterImage: null, twitterImageAlt: null })
   }
   else if (input.image) {
-    const image = /^https?:\/\//.test(input.image) ? input.image : `${site.url}${docsAppPath(input.image, appBase)}`
+    const imagePath = input.image.startsWith("/") ? input.image : `/${input.image}`
+    const image = /^https?:\/\//.test(input.image) ? input.image : `${site.url}${docsAppPath(imagePath, appBase)}`
     useSeoMeta({ ogImage: image, ogImageUrl: null, ogImageSecureUrl: null, ogImageType: null, ogImageWidth: null, ogImageHeight: null, ogImageAlt: null, twitterImage: image, twitterImageAlt: null })
   }
   else if (ogImage) {

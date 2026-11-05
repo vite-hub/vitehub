@@ -17,6 +17,7 @@ describe("ChatSession", () => {
       title: "Session",
     };
     const wrapper = mount(ChatSession, {
+      global,
       props: { session },
       slots: {
         header: ({ session: value }: { session: typeof session }) => h("div", { class: "session-header" }, value.title),

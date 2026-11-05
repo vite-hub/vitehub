@@ -1174,7 +1174,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
             "drizzle-orm": "0.45.3",
             nuxt: "4.6.4",
             unplugin: "3.3.0",
-            vite: "8.0.8",
+            vite: "8.3.5",
             "vite-hub": specs["vite-hub"],
           },
           devDependencies: { "drizzle-kit": "0.31.11" },
