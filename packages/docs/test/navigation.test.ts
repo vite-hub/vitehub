@@ -178,6 +178,10 @@ describe("docs groups", () => {
     const plain = { ...manifest, sections: manifest.sections.map(candidate => ({ ...candidate, icon: null })) }
     expect(docsHasRail(plain, icons)).toBe(false)
     expect(docsHasRail(plain, icons, [{ title: "Storage", icon: "i-lucide-hard-drive", sections: ["kv"] }])).toBe(true)
+    // The rail shows the icon of a group's first section, so a later member's icon does not count.
+    const lastIcon = { ...plain, sections: plain.sections.map(candidate => candidate.id === "blob" ? { ...candidate, icon: "i-lucide-box" } : candidate) }
+    expect(docsHasRail(lastIcon, icons)).toBe(true)
+    expect(docsHasRail(lastIcon, icons, [{ title: "Storage", sections: ["kv", "blob"] }])).toBe(false)
   })
 
   it("lists each section of a group as its home page, then its other pages", () => {
