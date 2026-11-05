@@ -37,18 +37,34 @@ function docsPaths(manifest: DocsManifest): Set<string> {
  */
 export function docsRedirectProblems(manifest: DocsManifest, redirects: readonly DocsRedirect[]): string[] {
   const pages = docsPaths(manifest)
-  const sources = new Set(redirects.map(redirect => normalizeDocsPath(redirect.from)))
+  const next = new Map(redirects.map(redirect => [normalizeDocsPath(redirect.from), redirect.to]))
   const problems: string[] = []
   for (const { from, to } of redirects) {
     const source = normalizeDocsPath(from)
     const page = docsManifestPages(manifest).find(candidate => candidate.path === source || docsRawPath(candidate.path) === source)
     if (page) problems.push(`The redirect from ${from} hides the page ${page.file}. Remove the route rule, or move the page.`)
-    const target = normalizeDocsPath(to.replace(/[?#].*$/, ""))
+    // A redirect to another redirect counts where the chain ends.
+    const seen = new Set([source])
+    let end = to
+    let target = targetPath(end)
+    while (next.has(target) && !seen.has(target)) {
+      seen.add(target)
+      end = next.get(target)!
+      target = targetPath(end)
+    }
+    if (seen.has(target)) {
+      problems.push(`The redirect from ${from} comes back to ${target} and never reaches a page. Point one of its route rules to a page.`)
+      continue
+    }
     // With the base `/`, every path is under the base, so only a path inside a section belongs to the docs.
     const owned = target.startsWith("/raw/") || docsSectionForPath(manifest, target) !== null || (manifest.base !== "/" && isDocsPath(target, manifest.base))
-    if (owned && !pages.has(target) && !sources.has(target)) problems.push(`The redirect from ${from} goes to ${to}, which is not a docs page. Point it to a page, or remove the route rule.`)
+    if (owned && !pages.has(target)) problems.push(`The redirect from ${from} goes to ${end}, which is not a docs page. Point it to a page, or remove the route rule.`)
   }
   return problems
+}
+
+function targetPath(to: string): string {
+  return normalizeDocsPath(to.replace(/[?#].*$/, ""))
 }
 
 /** Redirect route rules that break links. The build stops on them while the link checker is on. */

@@ -41,7 +41,7 @@ Docs redirects break links:
 - The redirect from /docs/guide/install hides the page docs/guide/install.md. Remove the route rule, or move the page.
 ```
 
-**Why:** the link checker passes a link to a redirect rule, so the redirect must lead to a page. A redirect into a section, the docs base, or `/raw/` goes to a path that no docs page answers. Or a redirect starts at a docs page, so nobody can open that page.
+**Why:** the link checker passes a link to a redirect rule, so the redirect must lead to a page. A redirect into a section, the docs base, or `/raw/` goes to a path that no docs page answers. Or a redirect starts at a docs page, so nobody can open that page. Or redirects lead back to where they started. A redirect to another redirect counts where the chain ends.
 
 **Fix:** point the rule's `redirect` to a page, or remove the rule. The module checks exact rules only: a wildcard rule such as `/docs/old/**`, and a target outside the docs, keep the link checker's own checks.
 

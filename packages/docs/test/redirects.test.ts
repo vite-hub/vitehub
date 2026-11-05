@@ -42,6 +42,18 @@ describe("docsRedirectProblems", () => {
     expect(docsRedirectProblems(manifest, [{ from: "/raw/docs/gone.md", to: "/raw/docs/removed.md" }])).toHaveLength(1)
   })
 
+  it("follows a chain of redirects, and names one that loops", () => {
+    expect(docsRedirectProblems(manifest, [{ from: "/docs/a", to: "/docs/b" }, { from: "/docs/b", to: "/docs/gone" }])).toEqual([
+      "The redirect from /docs/a goes to /docs/gone, which is not a docs page. Point it to a page, or remove the route rule.",
+      "The redirect from /docs/b goes to /docs/gone, which is not a docs page. Point it to a page, or remove the route rule.",
+    ])
+    expect(docsRedirectProblems(manifest, [{ from: "/docs/a", to: "/docs/b#x" }, { from: "/docs/b/", to: "/docs/a" }])).toEqual([
+      "The redirect from /docs/a comes back to /docs/a and never reaches a page. Point one of its route rules to a page.",
+      "The redirect from /docs/b/ comes back to /docs/b and never reaches a page. Point one of its route rules to a page.",
+    ])
+    expect(docsRedirectProblems(manifest, [{ from: "/docs/self", to: "/docs/self" }])).toHaveLength(1)
+  })
+
   it("names a redirect that hides a docs page", () => {
     expect(docsRedirectProblems(manifest, [{ from: "/docs/kv/configure/", to: "/docs/kv" }])).toEqual([
       "The redirect from /docs/kv/configure/ hides the page docs/kv/configure.md. Remove the route rule, or move the page.",
