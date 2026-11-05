@@ -1,11 +1,11 @@
+import { detectStyle, end, findProperty, indentAt, isReference, keyName, line, listItemRemoval, parseProgram, quoteString, start, walk } from "@vite-hub/internal/ast"
 import MagicString from "magic-string"
 
-import { detectStyle, end, findProperty, indentAt, isReference, keyName, line, listItemRemoval, parseProgram, quoteString, start, walk } from "../ast.ts"
 import { CodemodError } from "../types.ts"
 import { findModuleEntry, literalValue, nitroPreset, objectProperty } from "./nuxt-config.ts"
 
 import type { ObjectExpression, ObjectProperty, Statement } from "@babel/types"
-import type { CodeStyle, Node } from "../ast.ts"
+import type { CodeStyle, Node } from "@vite-hub/internal/ast"
 import type { EnvField, LiteralValue } from "./fields.ts"
 import type { NuxtConfigFile } from "./nuxt-config.ts"
 

@@ -1,15 +1,15 @@
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
+import { detectStyle, end, isReference, keyName, line, parseProgram, quoteString, start, walk } from "@vite-hub/internal/ast"
 import { parse as parseSfc } from "@vue/compiler-sfc"
 import MagicString from "magic-string"
 import { glob } from "tinyglobby"
 
-import { detectStyle, end, isReference, keyName, line, parseProgram, quoteString, start, walk } from "../ast.ts"
 import { pathLabel } from "./fields.ts"
 
 import type { CallExpression, File, ImportSpecifier, ObjectPattern, ObjectProperty } from "@babel/types"
-import type { CodeStyle, Node } from "../ast.ts"
+import type { CodeStyle, Node } from "@vite-hub/internal/ast"
 import type { FileEdit, FollowUp } from "../types.ts"
 import type { EnvField } from "./fields.ts"
 

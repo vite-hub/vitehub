@@ -38,6 +38,16 @@
       "import": "./dist/env.js",
       "default": "./dist/env.js"
     },
+    "./ast": {
+      "types": "./dist/ast.d.ts",
+      "import": "./dist/ast.js",
+      "default": "./dist/ast.js"
+    },
+    "./config-edit": {
+      "types": "./dist/config-edit.d.ts",
+      "import": "./dist/config-edit.js",
+      "default": "./dist/config-edit.js"
+    },
     "./arrays": {
       "types": "./dist/arrays.d.ts",
       "import": "./dist/arrays.js",
@@ -346,6 +356,7 @@
     "typecheck": "vp run --cache -t @vite-hub/internal#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.browser.json"
   },
   "dependencies": {
+    "@babel/parser": "^7.29.9",
     "@sqlite.org/sqlite-wasm": "catalog:database",
     "@standard-schema/spec": "catalog:runtime",
     "@types/node": "catalog:tooling",
@@ -353,11 +364,13 @@
     "effect": "catalog:effect",
     "esbuild": "catalog:esbuild-v27",
     "h3": "catalog:unjs",
+    "magic-string": "^0.30.21",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs",
     "semver": "^7.8.5"
   },
   "devDependencies": {
+    "@babel/types": "^7.29.8",
     "@cloudflare/vitest-plugin": "catalog:",
     "@types/semver": "^7.8.0",
     "@valibot/to-json-schema": "catalog:runtime",
