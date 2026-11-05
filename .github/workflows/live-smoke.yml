@@ -64,6 +64,8 @@ jobs:
     runs-on: ubuntu-latest
     environment: Production
     env:
+      # Cloudflare resources of this run use this prefix. Teardown deletes only names with it.
+      LIVE_SMOKE_NAME: vitehub-smoke-${{ github.run_id }}
       LIVE_SMOKE_PROVIDER: ${{ matrix.provider }}
       LIVE_SMOKE_STAGE: preflight
     strategy:
@@ -87,11 +89,10 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
           CLOUDFLARE_WORKERS_SUBDOMAIN: ${{ secrets.CLOUDFLARE_WORKERS_SUBDOMAIN }}
         run: |
           missing=()
-          for required in CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN CLOUDFLARE_WORKERS_SUBDOMAIN CLOUDFLARE_KV_NAMESPACE_ID; do
+          for required in CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN CLOUDFLARE_WORKERS_SUBDOMAIN; do
             if [ -z "${!required}" ]; then
               missing+=("$required")
             fi
@@ -101,6 +102,19 @@ jobs:
             printf 'Cloudflare secret verification failed: missing %s\n' "${missing[*]}" >&2
             exit 1
           fi
+
+      - name: Name Cloudflare scratch resources
+        if: matrix.provider == 'cloudflare'
+        run: |
+          {
+            echo "VITEHUB_CLOUDFLARE_WORKER_NAME=$LIVE_SMOKE_NAME"
+            echo "VITEHUB_CLOUDFLARE_WORKFLOW_NAME=$LIVE_SMOKE_NAME-welcome"
+            echo "VITEHUB_D1_DATABASE_NAME=$LIVE_SMOKE_NAME-db"
+            echo "VITEHUB_D1_ANALYTICS_DATABASE_NAME=$LIVE_SMOKE_NAME-analytics"
+            echo "VITEHUB_KV_NAMESPACE_NAME=$LIVE_SMOKE_NAME-kv"
+            echo "VITEHUB_QUEUE_NAME_PREFIX=$LIVE_SMOKE_NAME-"
+            echo "BLOB_BUCKET_NAME=$LIVE_SMOKE_NAME"
+          } >> "$GITHUB_ENV"
 
       - name: Preflight Vercel
         id: prepare_vercel
@@ -190,10 +204,8 @@ jobs:
         if: matrix.provider == 'cloudflare'
         timeout-minutes: 15
         env:
-          BLOB_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_R2_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
           VITEHUB_HOSTING: cloudflare
           VITEHUB_VITE_MODE: e2e
         run: vp run playground:vite:provision --provider cloudflare
@@ -216,11 +228,8 @@ jobs:
         if: matrix.provider == 'cloudflare'
         timeout-minutes: 15
         env:
-          BLOB_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
-          KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
-          VITEHUB_CLOUDFLARE_WORKER_NAME: vitehub-playground-vite
           VITEHUB_HOSTING: cloudflare
           VITEHUB_VITE_MODE: e2e
         run: vp run playground:vite:build
@@ -288,11 +297,26 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_WORKERS_SUBDOMAIN: ${{ secrets.CLOUDFLARE_WORKERS_SUBDOMAIN }}
         run: |
-          WORKER_NAME="vitehub-playground-vite"
+          WORKER_NAME="$VITEHUB_CLOUDFLARE_WORKER_NAME"
           DEPLOY_DIR="playground/vite/dist/vite"
+          URL="https://${WORKER_NAME}.${CLOUDFLARE_WORKERS_SUBDOMAIN}.workers.dev"
 
           ./.github/ci-tools/node_modules/.bin/wrangler --cwd "$DEPLOY_DIR" deploy --config wrangler.json --name "$WORKER_NAME"
-          echo "url=https://${WORKER_NAME}.${CLOUDFLARE_WORKERS_SUBDOMAIN}.workers.dev" >> "$GITHUB_OUTPUT"
+
+          # A new workers.dev hostname can answer 404 for a short time after the first deploy.
+          for attempt in $(seq 1 30); do
+            status=$(curl -s --max-time 10 -o /dev/null -w '%{http_code}' "$URL/api/tests/probe" || true)
+            if [ "$status" = "200" ]; then
+              break
+            fi
+            if [ "$attempt" = "30" ]; then
+              echo "::error::$URL/api/tests/probe returned $status after 30 attempts."
+              exit 1
+            fi
+            sleep 5
+          done
+
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "worker=$WORKER_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Deploy Vercel
@@ -400,6 +424,16 @@ jobs:
           path: live-smoke-evidence/${{ matrix.provider }}.json
           retention-days: 30
           if-no-files-found: error
+
+      # always() also runs after a failure or a cancel. The long steps have step timeouts, so a
+      # hung step fails and this step still runs. After a cancel, GitHub stops it after 5 minutes.
+      - name: Tear down Cloudflare scratch resources
+        if: always() && matrix.provider == 'cloudflare'
+        timeout-minutes: 5
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node .github/scripts/live-smoke-teardown.mjs --prefix "$LIVE_SMOKE_NAME" --wrangler ./.github/ci-tools/node_modules/.bin/wrangler
 
   report-live-smoke:
     name: report live smoke
