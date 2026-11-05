@@ -512,7 +512,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     // to this hosted runtime module, so Database calls in those functions use the same Definitions.
     async buildEnd(error) {
       const resetRuntimeContribution = () => {
-        providerOutput?.resetRuntimeContribution("database", siblingRuntimeGenerations.get(this))
+        providerOutput?.resetRuntimeContributions(siblingRuntimeGenerations.get(this), "database")
       }
       // Only a failed build resets the environment's generation: other plugins' Provider Output shares it.
       if (error) {
