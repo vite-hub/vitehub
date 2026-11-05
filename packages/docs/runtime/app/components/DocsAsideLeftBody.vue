@@ -14,7 +14,7 @@ const related = computed(() => section.value ? docsRelatedSections(manifest, sec
 // Outside every section, for example on the catalog, the sidebar lists every section by category.
 const catalog = docsCatalog(manifest, categories)
 // A small site has no rail, so the sidebar lists every section with its pages on every page.
-const rail = docsHasRail(manifest, iconOptions, groups)
+const rail = docsHasRail(manifest, iconOptions, groups, { categories, railExclude })
 // A section of a group lists every section of the group.
 const group = computed(() => {
   const entry = section.value && docsRailEntry(manifest, { categories, railExclude, groups }, section.value)

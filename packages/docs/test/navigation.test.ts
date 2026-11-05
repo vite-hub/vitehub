@@ -242,6 +242,28 @@ describe("docs rail", () => {
     expect(docsHasRail(plain, { rail: { kv: "kv" }, sections: {} })).toBe(true)
   })
 
+  it("does not count an excluded category as the fourth rail item", () => {
+    const four = { ...manifest, sections: manifest.sections.filter(candidate => candidate.id !== "misc") }
+    const options = { categories, railExclude: ["Reference"] }
+    expect(docsHasRail(four, noIcons)).toBe(true)
+    expect(docsRailEntries(four, { ...options, groups: [] }).flat()).toHaveLength(3)
+    expect(docsHasRail(four, noIcons, [], options)).toBe(false)
+  })
+
+  it("does not enable the rail for an icon in an excluded category", () => {
+    const plain = { ...manifest, sections: manifest.sections.map(candidate => ({ ...candidate, icon: null })) }
+    const icons = { rail: { reference: "i-lucide-book" }, sections: {} }
+    const options = { categories, railExclude: ["Reference"] }
+    expect(docsHasRail(plain, icons)).toBe(true)
+    expect(docsRailEntries(plain, { ...options, groups: [] }).flat()).toHaveLength(4)
+    expect(docsHasRail(plain, icons, [], options)).toBe(false)
+    // An excluded section still supplies the displayed icon when a visible member places its group.
+    const first = { ...plain, sections: [plain.sections.find(candidate => candidate.id === "reference")!, ...plain.sections.filter(candidate => candidate.id !== "reference")] }
+    expect(docsHasRail(first, icons, [{ title: "Storage", sections: ["reference", "kv"] }], options)).toBe(true)
+    // Unknown categories are rendered even when their name appears in railExclude.
+    expect(docsHasRail(plain, icons, [], { categories: ["Start", "Data"], railExclude: ["Reference"] })).toBe(true)
+  })
+
   it("keeps the rail of vitehub.dev", () => {
     expect(vitehub.sections.length).toBeGreaterThan(20)
     expect(docsHasRail(vitehub, noIcons)).toBe(true)
