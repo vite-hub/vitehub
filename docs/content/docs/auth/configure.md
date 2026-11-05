@@ -241,6 +241,92 @@ The assignment runs after an application's `databaseHooks.user.create.before` ho
 
 The first account that signs up with a listed email gets the role. This is a bootstrap rule and does not prove email ownership. For email and password sign-up, restrict access to the deployment until you have created the admin account, then unset `VITEHUB_ADMIN_EMAILS` before opening public sign-up. Email verification alone does not protect this bootstrap: someone else can register the address with their own password, and keep that password if the mailbox owner follows the verification link. If the address has already been registered by someone else, remove that account through your trusted administration process before bootstrapping.
 
+## Sign MCP clients in
+
+An app with its own MCP server, such as `/mcp`, can make Better Auth its OAuth 2.1 authorization server. An MCP client such as Claude Code, Codex, or Cursor then registers itself, opens the browser once, and sends a bearer token. For the Console endpoint `/_vitehub/mcp`, use [Console MCP OAuth](/docs/development/mcp#set-up-oauth) instead.
+
+Install `@better-auth/oauth-provider` at the version of `better-auth` that ViteHub uses, then add `mcpOAuth()` to the Auth. It returns `jwt()`, `oauthProvider()`, and a registration guard:
+
+```ts [server/auth.ts]
+import { defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
+import { mcpOAuth } from 'vite-hub/auth/mcp'
+
+export default defineAuth(({ requestOrigin }) => ({
+  baseURL: requestOrigin,
+  database: authDatabase(),
+  plugins: [...mcpOAuth({ resource: `${requestOrigin}/mcp`, loginPage: '/oauth' })],
+}))
+```
+
+| Option | Default | Use |
+| --- | --- | --- |
+| `resource` | required | The absolute URL of each MCP endpoint, or a list. Tokens name it as their audience. |
+| `loginPage` | required | The page where a signed-out person signs in. |
+| `consentPage` | `loginPage` | The page where a signed-in person allows or denies the client. |
+| `scopes` | none | Scopes in addition to `openid`, `profile`, `email`, and `offline_access`. |
+| `issuer` | the Better Auth base URL | The `iss` of the tokens, such as `https://app.example.com/api/auth`. |
+| `registration.maxBytes` | 16 KiB | The largest client registration body. |
+| `provider` | none | Other `oauthProvider()` options, such as `codeExpiresIn`. They win over the defaults. |
+
+Registration is open to anyone, as MCP clients expect, so `mcpOAuth()` bounds it. A body over `registration.maxBytes` gets `413` before Better Auth parses it. A registration with no redirect URI or more than 5, a field over 2048 characters, a list over 10 entries, or a `client_name` over 160 characters gets `400` with `invalid_client_metadata`. A client that sends no `application_type` and only loopback or private-use redirects, as Claude Code, Codex, and Cursor do, is a native client. Better Auth's limiter allows 5 registrations per minute and IP. It is on in production. Its default storage is the memory of one Auth instance, so set Better Auth `rateLimit.storage` to `database` or `secondary-storage` when the server runs more than one instance, or when the Auth follows `requestOrigin` and is built for each request.
+
+The login and consent pages get a signed query from Better Auth. Send its parameters back unchanged as `oauth_query`, as [Console MCP OAuth](/docs/development/mcp#set-up-oauth) explains. The plugins keep keys, clients, and tokens in the `jwks` and `oauth*` tables, which `authDatabase()` includes.
+
+### Serve discovery at the origin root
+
+MCP clients look for the metadata at the origin root. `serveMcpOAuthDiscovery(request)` answers `/.well-known/oauth-protected-resource/mcp` (RFC 9728) for each resource, and `/.well-known/oauth-authorization-server/api/auth` and `/.well-known/openid-configuration/api/auth` for the issuer, which Better Auth serves only below its own base path. The bare paths answer too. It returns `undefined` for every other path:
+
+```ts [server/middleware/mcp-oauth.ts]
+import { defineHandler } from 'h3'
+import { serveMcpOAuthDiscovery } from 'vite-hub/auth/mcp'
+
+export default defineHandler(event => serveMcpOAuthDiscovery(event.req, {
+  resourceName: 'My app',
+  resourceDocumentation: 'https://app.example.com/docs/agents',
+}))
+```
+
+`resourceName` is the name a client shows before sign-in. With the Console on, the Console answers its own resource and issuer first and steps aside for the others.
+
+### Check the token of an MCP request
+
+`verifyMcpRequest(request)` returns `[error, caller]`. `caller` has the `user`, the approved `scopes`, the `clientId`, and the `clientName` that the client registered, such as `Claude Code`:
+
+```ts [server/routes/mcp.ts]
+import { verifyMcpRequest } from 'vite-hub/auth/mcp'
+
+const [error, caller] = await verifyMcpRequest(event.req)
+if (error) {
+  return new Response(null, {
+    status: 401,
+    headers: { 'WWW-Authenticate': `Bearer resource_metadata="${new URL('/.well-known/oauth-protected-resource/mcp', event.req.url)}"${error.code === 'AUTH_MCP_TOKEN_INVALID' ? ', error="invalid_token"' : ''}` },
+  })
+}
+```
+
+It reads the signing keys from the Auth in the same process, with no request to the authorization server. It checks the signature against the algorithms of those keys, the issuer, the audience, and the expiry with 30 seconds of tolerance. Then it reads the user again by the `sub` claim, so a deleted or banned person loses access while the token is still valid. A token opens only the resource at the path of the request. Pass `resource` to accept the token on other routes, such as the app API. Errors are `AUTH_MCP_TOKEN_MISSING` and `AUTH_MCP_TOKEN_INVALID`; see [Limits and errors](/docs/auth/limits-and-errors#auth_mcp_token_missing).
+
+### Delete abandoned registrations
+
+A client that registered but never finished sign-in stays in `oauthClient`. `deleteUnusedMcpClients()` deletes the clients older than one day that have no consent, no access token, and no refresh token, and returns `[error, { deleted }]`. Run it from a [Schedule](/docs/schedule):
+
+```ts [server/schedules/oauth-cleanup.ts]
+import { defineSchedule } from 'vite-hub/schedule'
+import { deleteUnusedMcpClients } from 'vite-hub/auth/mcp'
+
+export default defineSchedule({
+  cron: '0 3 * * *',
+  async handler() {
+    const [error, result] = await deleteUnusedMcpClients()
+    if (error) throw error
+    console.log(`Deleted ${result.deleted} unused MCP clients`)
+  },
+})
+```
+
+`olderThan` sets the age in milliseconds, and `limit` the number of clients that one call checks, 500 by default.
+
 ## Storage placement metadata
 
 The `database` and `secondaryStorage` fields describe intended ViteHub primitive placement for inspection. ViteHub removes these values before it calls `betterAuth()`. They do not connect Better Auth to `@vite-hub/database` or `@vite-hub/kv`.
