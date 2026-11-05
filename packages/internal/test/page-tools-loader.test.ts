@@ -216,7 +216,7 @@ describe("loadViteHubPageTools", () => {
     // A page that sets the same value again, such as on a client-side navigation, keeps the pill as the person opened it.
     element.shadowRoot!.querySelector<HTMLButtonElement>("button.mark")!.click()
     document.documentElement.setAttribute("data-vitehub-pill", "mark")
-    await Promise.resolve()
+    await new Promise(resolve => setTimeout(resolve))
     expect(element.hasAttribute("collapsed")).toBe(false)
 
     document.documentElement.setAttribute("data-vitehub-pill", "")
