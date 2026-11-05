@@ -47,7 +47,7 @@ export async function docsDraftResponse(
   const at = { id: published?.page.id ?? pageId(manifest, normalized, section?.path), path: normalized, file: `${draft.id}.md` }
   const page: DocsPage | undefined = result.success ? docsPageOf(result.data, at) : published?.page
   if (!page) return null
-  return docsPageResponse(manifest, { page, section }, await parse(draft.body ?? ""))
+  return docsPageResponse(manifest, { page, section }, await parse(draft.body ?? ""), page.credits ? await parse(page.credits) : null)
 }
 
 async function readDraft(content: DocsContentRuntime, path: string): Promise<DocsContentDocument | null> {

@@ -428,6 +428,11 @@
       "import": "./dist/auth/database.js",
       "default": "./dist/auth/database.js"
     },
+    "./auth/mcp": {
+      "types": "./dist/auth/mcp.d.ts",
+      "import": "./dist/auth/mcp.js",
+      "default": "./dist/auth/mcp.js"
+    },
     "./auth/presets": {
       "types": "./dist/auth/presets.d.ts",
       "import": "./dist/auth/presets.js",

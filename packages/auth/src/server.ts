@@ -69,6 +69,19 @@ interface RequestInitWithDuplex extends RequestInit {
   duplex?: "half"
 }
 
+function hasHappyDomRequestState(value: object): boolean {
+  const ownSymbols = Object.getOwnPropertySymbols(value)
+  const prototypeSymbols = Object.getOwnPropertySymbols(Object.getPrototypeOf(value) ?? {})
+  // Happy DOM stores its Request state in a fixed set of private symbols.
+  // Partial lookalikes must stay on the normalization path.
+  return [
+    "method", "body", "mode", "headers", "redirect", "referrerPolicy",
+    "signal", "bodyUsed", "credentials", "aborted", "error", "contentLength",
+    "contentType", "referrer", "url", "bodyBuffer",
+  ].every(name => ownSymbols.some(symbol => symbol.description === name))
+    && prototypeSymbols.some(symbol => symbol.description === "window")
+}
+
 function isRequestLike(value: AuthRequest): value is Request {
   try {
     const isBrandCheckError = (error: unknown): boolean => {
@@ -123,24 +136,7 @@ function isRequestLike(value: AuthRequest): value is Request {
             // an empty result lets a structural prototype spoof opt out of
             // the brand check and reach Better Auth unchanged.
             if (target !== value) return false
-            const ownSymbols = Object.getOwnPropertySymbols(value)
-            const prototypeSymbols = Object.getOwnPropertySymbols(Object.getPrototypeOf(value) ?? {})
-            // Happy DOM stores its Request state in a fixed set of private
-            // symbols. Require the complete state shape before accepting an
-            // implementation whose accessors do not expose a Web-IDL brand
-            // error. A caller-created lookalike with a few arbitrary symbols
-            // must stay on the normalization path.
-            const happyDomSymbols = [
-              "method", "body", "mode", "headers", "redirect", "referrerPolicy",
-              "signal", "bodyUsed", "credentials", "aborted", "error", "contentLength",
-              "contentType", "referrer", "url", "bodyBuffer",
-            ]
-            const happyDomState = happyDomSymbols.every(name =>
-              ownSymbols.some(symbol => symbol.description === name),
-            )
-              && prototypeSymbols.some(symbol => symbol.description === "window")
-            if (!happyDomState) return false
-            return true
+            return hasHappyDomRequestState(value)
           }
           catch (error) {
             if (!isBrandCheckError(error)) return false
@@ -159,15 +155,7 @@ function isRequestLike(value: AuthRequest): value is Request {
       // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Validate capabilities across independent Fetch implementations.
       return typeof Reflect.get(target, method) === "function"
     })
-    const ownSymbols = Object.getOwnPropertySymbols(value)
-    const prototypeSymbols = Object.getOwnPropertySymbols(Object.getPrototypeOf(value) ?? {})
-    const happyDomState = [
-      "method", "body", "mode", "headers", "redirect", "referrerPolicy",
-      "signal", "bodyUsed", "credentials", "aborted", "error", "contentLength",
-      "contentType", "referrer", "url", "bodyBuffer",
-    ].every(name => ownSymbols.some(symbol => symbol.description === name))
-      && prototypeSymbols.some(symbol => symbol.description === "window")
-    if (happyDomState) {
+    if (hasHappyDomRequestState(value)) {
       // The private-symbol fingerprint identifies Happy DOM, but still verify
       // the interface Better Auth consumes before preserving the value.
       if (!hasMethods(value, ["clone", "arrayBuffer", "blob", "formData", "json", "text"])) return false

@@ -6,7 +6,7 @@ import { parse } from "yaml";
 
 import { buildRunnableTutorial, createZip, readWorkspaceVersions, resolveManifest, tutorialStepFiles } from "../modules/tutorials/build";
 import { runnableTutorials } from "../modules/tutorials/list";
-import { tutorialWorkspaceFiles } from "../modules/tutorials/steps";
+import { restartsDevServer, tutorialWorkspaceFiles } from "../modules/tutorials/steps";
 import { parseCurl, splitTutorialDocument } from "../app/utils/runnable-tutorial";
 
 const docsRoot = resolve(import.meta.dirname, "..");
@@ -253,6 +253,19 @@ describe("runnable tutorials", () => {
 
     // "Keep mine" can change the baseline to an earlier step without changing the workspace files.
     expect(tutorialWorkspaceFiles(tutorial, current, target)).toEqual({ ...target, "reader-notes.txt": "Keep these notes" });
+  });
+
+  it("restarts the dev server when a step adds or removes the page, not for config edits", async () => {
+    const tutorial = await build(runnableTutorials.findIndex(item => item.slug === "decisions"));
+    const pageStep = tutorial.steps.findIndex(step => "index.html" in step.files);
+    const before = tutorialStepFiles(tutorial, pageStep, "start");
+    const after = tutorialStepFiles(tutorial, pageStep, "solution");
+
+    // Nitro finds `index.html` only when its process starts. Vite restarts on its own for `vite.config.ts`.
+    expect(restartsDevServer(before, after)).toBe(true);
+    expect(restartsDevServer(after, before)).toBe(true);
+    expect(restartsDevServer(after, { ...after, "index.html": "<!doctype html>" })).toBe(false);
+    expect(restartsDevServer(before, { ...before, "vite.config.ts": after["vite.config.ts"]! })).toBe(false);
   });
 
   it("installs from npm, not from this repository", async () => {
