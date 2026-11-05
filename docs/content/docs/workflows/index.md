@@ -14,8 +14,9 @@ icon: i-lucide-workflow
 
   // Each numbered file in this folder is a step.
   // They run in the order you call them.
-  export default defineWorkflow<{ email: string }>(
-    async ({ payload, steps }) => {
+  export default defineWorkflow(
+    'onboard-user',
+    async (payload: { email: string }, { steps }) => {
       const user = await steps.createUser(payload)
       return await steps.sendWelcome(user)
     },

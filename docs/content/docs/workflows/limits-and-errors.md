@@ -14,7 +14,7 @@ Throw `ViteHubError` when app code needs a stable failure contract across Workfl
 import { ViteHubError } from '@vite-hub/runtime'
 import { defineWorkflow } from '@vite-hub/workflow'
 
-export default defineWorkflow<{ recordingId: string }>(async ({ payload }) => {
+export default defineWorkflow('transcribe', async (payload: { recordingId: string }) => {
   try {
     return await transcribeRecording(payload.recordingId)
   }

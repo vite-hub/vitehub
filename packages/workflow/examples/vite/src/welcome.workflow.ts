@@ -5,7 +5,7 @@ export type WelcomePayload = {
   marker?: string
 }
 
-export default defineWorkflow<WelcomePayload>(async ({ id, payload, provider }) => {
+export default defineWorkflow("welcome", async (payload: WelcomePayload, { id, provider }) => {
   return {
     id,
     marker: payload.marker,

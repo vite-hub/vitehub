@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -57,7 +57,7 @@ it.each([true, false])("runs a discovered Workflow from only the deployed Node o
       [
         `import { defineWorkflow } from "vite-hub/workflow"`,
         ``,
-        `export default defineWorkflow<{ email: string }>(async ({ payload, steps }) => {`,
+        `export default defineWorkflow("onboard-user", async (payload: { email: string }, { steps }) => {`,
         `  return await steps.createUser(payload)`,
         `})`,
         ``,
@@ -98,6 +98,12 @@ it.each([true, false])("runs a discovered Workflow from only the deployed Node o
       root,
     });
     await builder.buildApp();
+    await expect(readFile(join(root, ".vitehub/workflow.d.ts"), "utf8")).resolves.toContain([
+      `declare module "vite-hub/_internal/workflow" {`,
+      `  interface WorkflowStepRegistry {`,
+      `    "onboard-user": {`,
+      `      "createUser": typeof import("../server/workflows/onboard-user/01.create-user.ts").default`,
+    ].join("\n"));
 
     await rename(join(root, ".output"), join(deploymentRoot, ".output"));
     await rm(root, { force: true, recursive: true, maxRetries: 3 });

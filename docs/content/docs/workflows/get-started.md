@@ -45,14 +45,14 @@ order. Files with a numeric prefix become step names (`01.create-user` and
 ```ts [server/workflows/onboard-user/index.ts]
 import { defineWorkflow } from '@vite-hub/workflow'
 
-export default defineWorkflow<{ email: string }>(async ({ payload, steps }) => {
+export default defineWorkflow('onboard-user', async (payload: { email: string }, { steps }) => {
   const user = await steps.createUser(payload)
   return await steps.sendWelcome(user)
 })
 ```
 
-The step runner is provider-neutral. ViteHub maps `createUser` to
-`01.create-user.ts` and `sendWelcome` to `02.send-welcome.ts`.
+The first argument is the Workflow name, the same as the folder name. The step runner is provider-neutral. ViteHub maps `createUser` to
+`01.create-user.ts` and `sendWelcome` to `02.send-welcome.ts`, and writes their types to `.vitehub/workflow.d.ts`. Each step takes the input type of its file and returns its result, so `user` is typed and a misspelled step is a type error.
 
 ```ts [server/workflows/onboard-user/01.create-user.ts]
 export default async function createUser(input: { email: string }) {

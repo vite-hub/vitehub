@@ -336,19 +336,20 @@ function stepPropertyName(file: string): string {
 const sourceFile = /\.(?:c|m)?[jt]sx?$/
 
 /**
- * The handler of a folder Workflow index: the function passed to `defineWorkflow()`, or the default-exported function.
- * `context` names the whole first parameter (`ctx.steps`), and `steps` names its destructured `steps` property.
+ * The handler of a folder Workflow index: the function passed to `defineWorkflow(name, handler)`, or the
+ * default-exported function. A handler gets `(payload, context)`: `context` names the whole second parameter
+ * (`ctx.steps`), and `steps` names its destructured `steps` property.
  */
 function workflowHandler(ctx: RuleContext, r: Resolver): { fn: AstNode, context?: string, steps?: string } | undefined {
   const value = unwrap(defaultExport(ctx)?.value)
-  let fn = isNodeType(value, "CallExpression") ? unwrap(callArguments(value)[0]) : value
-  // `defineWorkflow(onboard)` names a function declared in this file.
+  let fn = isNodeType(value, "CallExpression") ? unwrap(callArguments(value)[1]) : value
+  // `defineWorkflow("onboard", onboard)` names a function declared in this file.
   if (isIdentifier(fn)) {
     const declaration = r.binding(fn)?.declaration
     fn = isNodeType(declaration, "VariableDeclarator") ? unwrap(declaration.init) : declaration
   }
   if (!isFunctionNode(fn) || !isNode(fn) || !Array.isArray(fn.params)) return
-  let param = unwrap(fn.params[0])
+  let param = unwrap(fn.params[1])
   if (isNodeType(param, "AssignmentPattern")) param = unwrap(param.left)
   if (isIdentifier(param)) return { fn, context: param.name }
   const properties = isNodeType(param, "ObjectPattern") && Array.isArray(param.properties) ? param.properties.filter(isNode) : []

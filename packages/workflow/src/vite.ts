@@ -15,6 +15,7 @@ import { normalizeWorkflowOptions } from "./config.ts"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import { inspectWorkflowDefinitions } from "./inspect.ts"
 import { discoverWorkflowDevDefinitions, workflowDevGeneratedDir, writeWorkflowDevRegistryFiles } from "./internal/dev-registry.ts"
+import { writeWorkflowTypes } from "./internal/registry-types.ts"
 import { createCloudflareWorkflowNitroConfig, createOptionalViteDevtoolsPlugin, createVercelWorkflowTransformPlugin, discoverWorkflowProviderSources, generateWorkflowProviderOutputs, hasVercelNativeWorkflowEntry, resolveVercelWorkflowWorld, resolveWorkflowProviderOutputs, workflowPackageName, writeProviderEntries } from "./internal/vite-build.ts"
 
 import type { ResolvedWorkflowOptions, WorkflowModuleOptions } from "./types.ts"
@@ -26,6 +27,7 @@ import type { Plugin, ResolvedConfig } from "vite"
 import { workflowErrorDiagnostics } from "./error-diagnostics.ts"
 
 export { discoverWorkflowDefinitions } from "./discovery.ts"
+export { createWorkflowTypes } from "./internal/registry-types.ts"
 export { inspectWorkflowDefinitions, type WorkflowInspectionOptions, workflowConsoleSection } from "./inspect.ts"
 
 interface WorkflowNitroConfigOptions {
@@ -337,6 +339,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         const definitionFile = /\.(?:c|m)?[jt]s$/i.test(file) && /(?:\/workflows\/|\.workflow\.)/i.test(file)
         if (!definitionFile && !registryDependency) return
         const { changed } = await writeDevRegistry(rootDir, workflowConfig)
+        await writeWorkflowTypes(rootDir, discoverWorkflowDevDefinitions(rootDir, serverDirs), internalOptions.importBase)
         const filesToInvalidate = new Set([
           ...changed,
           resolve(rootDir, workflowDevGeneratedDir, "dev-registry.mjs"),
@@ -401,6 +404,10 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         await writeDevRegistry(devRootDir, startupBuild
           ? devWorkflow && buildNeedsStartupRegistry() ? devWorkflow : undefined
           : devWorkflow ?? false)
+      }
+      if (workflow !== false) {
+        const typesRoot = devRootDir ?? resolveViteHubProjectRoot(config.root)
+        await writeWorkflowTypes(typesRoot, discoverWorkflowDevDefinitions(typesRoot, buildServerDirs), internalOptions.importBase)
       }
     },
     configEnvironment(name, config) {

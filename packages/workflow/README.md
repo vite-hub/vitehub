@@ -37,7 +37,7 @@ The former `workflow.database` option was never connected to Named Databases. It
 // server/workflows/onboard-user.ts
 import { defineWorkflow } from "@vite-hub/workflow";
 
-export default defineWorkflow<{ email: string }>(async ({ id, payload, provider }) => {
+export default defineWorkflow("onboard-user", async (payload: { email: string }, { id, provider }) => {
   const idempotencyKey = `onboard-user:${payload.email}`;
   const user = await upsertUser(payload.email, { idempotencyKey });
   await sendWelcomeEmail(user.email, { idempotencyKey: `${idempotencyKey}:welcome-email` });
@@ -48,7 +48,32 @@ export default defineWorkflow<{ email: string }>(async ({ id, payload, provider 
 
 Both external operations receive keys derived from stable input. Preserve that idempotency when adding side effects so retrying a completed operation does not duplicate it.
 
-ViteHub discovers `server/workflows/<name>.ts`, folder workflows such as `server/workflows/onboard-user/index.ts`, and `src/<name>.workflow.ts`. The file name becomes the name passed to runtime helpers.
+ViteHub discovers `server/workflows/<name>.ts`, folder workflows such as `server/workflows/onboard-user/index.ts`, and `src/<name>.workflow.ts`. The file or folder name is the Workflow name. Pass the same name to `defineWorkflow(name, handler)` and to the runtime helpers. A definition that passes another name fails with `WORKFLOW_C0019` when the Workflow loads.
+
+The handler gets `(payload, context)`. Annotate `payload` to type it. `context` has `id`, `name`, `provider`, and `steps`.
+
+## Call typed steps
+
+A folder Workflow runs its numbered files as steps. `01.create-user.ts` becomes `steps.createUser`:
+
+```ts
+// server/workflows/onboard-user/index.ts
+import { defineWorkflow } from "@vite-hub/workflow";
+
+export default defineWorkflow("onboard-user", async (payload: { email: string }, { steps }) => {
+  const user = await steps.createUser(payload);
+  return await steps.sendWelcome(user);
+});
+```
+
+```ts
+// server/workflows/onboard-user/01.create-user.ts
+export default async function createUser(input: { email: string }) {
+  return { id: `user:${input.email}`, email: input.email };
+}
+```
+
+The Vite Integration writes `.vitehub/workflow.d.ts`. It declares the step files of each folder Workflow, so each step takes the input type of its file and returns its result type. A call to a step that has no file is a type error. Include `.vitehub/workflow.d.ts` in your TypeScript project; `vite-hub` includes it through `.vitehub/types.d.ts`.
 
 ## Configure the provider
 
@@ -154,14 +179,14 @@ Inline run inspection uses weak references while execution is active. A reachabl
 
 ## Make a Vercel workflow durable
 
-A plain Vercel definition executes inline and does not survive a function restart. For durable execution, keep the same context-shaped handler and register a native Workflow DevKit entry:
+A plain Vercel definition executes inline and does not survive a function restart. For durable execution, keep the same handler and register a native Workflow DevKit entry:
 
 ```sh
 pnpm add --save-exact workflow@5.2.3 @workflow/builders@5.0.6
 ```
 
 ```ts fragment
-import { defineWorkflow, type WorkflowExecutionContext, type WorkflowProviderContext } from "@vite-hub/workflow";
+import { defineWorkflow, type WorkflowProviderContext } from "@vite-hub/workflow";
 
 interface OnboardPayload {
   email: string;
@@ -180,12 +205,12 @@ async function durableOnboard({ payload }: WorkflowProviderContext<OnboardPayloa
   return { userId: user.id };
 }
 
-async function inlineOnboard({ payload }: WorkflowExecutionContext<OnboardPayload>) {
+async function inlineOnboard(payload: OnboardPayload) {
   const user = await upsertUser(payload.email, { idempotencyKey: `onboard-user:${payload.email}` });
   return { userId: user.id };
 }
 
-export default defineWorkflow(inlineOnboard, { native: durableOnboard });
+export default defineWorkflow("onboard-user", inlineOnboard, { native: durableOnboard });
 ```
 
 ViteHub transforms `native` when it generates Vercel output. Other providers keep using the normal handler. Vercel calls `native` with a `WorkflowProviderContext`, which has no `steps` runner. Put external side effects in idempotent `use step` functions because a durable step may be retried.
@@ -233,7 +258,7 @@ async function transcribe(recordingId: string) {
 A typed Workflow handle requires a payload when its handler requires one. Both `run()` and `defer()` use this rule. A handle with an optional payload or `void` input can still run with no argument. To set start options for a no-input Workflow, pass `undefined` first.
 
 ```ts fragment
-const welcome = createWorkflow<{ email: string }>("welcome", async ({ payload }) => {
+const welcome = createWorkflow("welcome", async (payload: { email: string }) => {
   await sendWelcomeEmail(payload.email)
 })
 await welcome.run({ email: "ada@example.com" })

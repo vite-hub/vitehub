@@ -42,7 +42,7 @@ describe("Definition inspection parity", () => {
     await writeProjectFile(root, "server/api/login.post.ts", 'export default defineHandler(async (event) => { await requireRateLimit(event, "login", { limit: 5, window: "1m" }) })\n')
     await writeProjectFile(root, "src/runner.sandbox-task.ts", "export default defineSandboxTask({ run: async () => ({}) })\n")
     await writeProjectFile(root, "server/schedules/adhoc.ts", "export default defineSchedule({ cron: '0 9 * * *', handler() {} })\n")
-    await writeProjectFile(root, "server/workflows/welcome.ts", "export default defineWorkflow(async () => {})\n")
+    await writeProjectFile(root, "server/workflows/welcome.ts", "export default defineWorkflow(\"welcome\", async () => {})\n")
     await writeProjectFile(root, "server/workspaces/docs/config.ts", "export default defineWorkspace({ store: { provider: 'memory' } })\n")
 
     const config = await resolveConfig({

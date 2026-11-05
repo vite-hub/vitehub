@@ -22,11 +22,11 @@ afterEach(async () => {
   root = undefined
 })
 
-function workflowModule(result: string): string {
+function workflowModule(name: string, result = name): string {
   return [
     "import { defineWorkflow } from '@vite-hub/workflow'",
     "",
-    `export default defineWorkflow(async () => ({ result: ${JSON.stringify(result)} }))`,
+    `export default defineWorkflow(${JSON.stringify(name)}, async () => ({ result: ${JSON.stringify(result)} }))`,
     "",
   ].join("\n")
 }
@@ -442,7 +442,7 @@ describe("Workflow dev registry", () => {
     await waitFor(async () => invalidated.length > 1)
     expect(await readFile(registryFile, "utf8")).not.toContain("\"report\"")
     expect(invalidated).toEqual([registryModule, registryModule])
-    await writeFile(join(projectRoot, "server/workflows/welcome.ts"), workflowModule("updated"))
+    await writeFile(join(projectRoot, "server/workflows/welcome.ts"), workflowModule("welcome", "updated"))
     watcher.emit("change", join(projectRoot, "server/workflows/welcome.ts"))
     await waitFor(async () => invalidated.length > 2)
     expect(invalidated).toEqual([registryModule, registryModule, registryModule])
