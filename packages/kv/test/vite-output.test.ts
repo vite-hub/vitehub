@@ -65,6 +65,45 @@ async function readOutput(root: string): Promise<string> {
 }
 
 describe("KV Vite output", () => {
+  it("runs the bundled Upstash driver without a runtime SDK import", async () => {
+    const rootDir = await createConsumerRoot()
+    const entry = join(rootDir, "src", "worker.ts")
+    await writeFile(entry, `export { default } from "@vite-hub/kv/runtime/upstash-driver"`)
+    const { build } = await import("vite")
+    await build({
+      appType: "custom",
+      build: {
+        outDir: "dist",
+        rolldownOptions: { output: { entryFileNames: "worker.js" } },
+        ssr: entry,
+      },
+      configFile: false,
+      logLevel: "silent",
+      root: rootDir,
+      ssr: { noExternal: true },
+    })
+
+    await execFileAsync(process.execPath, ["--input-type=module", "--eval", `
+      import assert from "node:assert/strict"
+      import createDriver from "./dist/worker.js"
+
+      const data = new Map()
+      globalThis.fetch = async (_url, init) => {
+        const [command, key, value] = JSON.parse(init.body)
+        if (command === "set") {
+          data.set(key, value)
+          return Response.json({ result: "OK" })
+        }
+        assert.equal(command, "get")
+        return Response.json({ result: Buffer.from(data.get(key)).toString("base64") })
+      }
+      const driver = createDriver({ driver: "upstash", url: "https://example.com", token: "test", enableAutoPipelining: false })
+      await driver.setItem("proof", "bundled")
+      assert.equal(await driver.getItem("proof"), "bundled")
+      await driver.dispose()
+    `], { cwd: rootDir, env: { ...process.env, NODE_PATH: "" } })
+  })
+
   it("loads the published runtime and lazy operation handler in Node", async () => {
     const rootDir = await createConsumerRoot()
     await execFileAsync(process.execPath, ["--input-type=module", "--eval", `
