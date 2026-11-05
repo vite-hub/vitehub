@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-const mocks = vi.hoisted(() => ({ inspector: vi.fn(), get: vi.fn(), definition: vi.fn(), glob: vi.fn(), exists: vi.fn(), stat: vi.fn(), readFile: vi.fn(), refs: vi.fn(), list: vi.fn(), open: vi.fn(), useWorkspace: vi.fn() }))
+const mocks = vi.hoisted(() => ({ inspector: vi.fn(), get: vi.fn(), definition: vi.fn(), glob: vi.fn(), exists: vi.fn(), stat: vi.fn(), readFile: vi.fn(), refs: vi.fn(), list: vi.fn(), open: vi.fn(), useWorkspaceFiles: vi.fn() }))
 vi.mock("@vite-hub/agent/server", () => ({ agentHostWorkspaceRoute: "/api/_vitehub/console/invocations/:id/workspace", getAgentHostWorkspaceInspector: mocks.inspector }))
 vi.mock("../src/console/runtime/server/invocations.ts", () => ({ getConsoleInvocations: () => ({ get: mocks.get }) }))
 vi.mock("../src/console/runtime/server/agents.ts", () => ({ getConsoleAgentDefinition: mocks.definition }))
-vi.mock("@vite-hub/workspace/runtime", () => ({ useWorkspace: mocks.useWorkspace }))
+vi.mock("@vite-hub/workspace/runtime", () => ({ useWorkspaceFiles: mocks.useWorkspaceFiles }))
 import handlerRoute from "../src/console/runtime/server/invocation-workspace.get.ts"
 import { allowed } from "./support/console-access.ts"
 const handler = allowed(handlerRoute)
@@ -14,7 +14,7 @@ const request = (path?: string, query: Record<string, string> = {}) => {
 }
 beforeEach(() => {
   vi.resetAllMocks()
-  mocks.useWorkspace.mockReturnValue({ fs: mocks })
+  mocks.useWorkspaceFiles.mockReturnValue({ fs: mocks })
   mocks.get.mockResolvedValue({ agentName: "bot", observations: [{ attributes: { "vitehub.agent.configuration": { workspace: { name: "bot" } } } }] })
   mocks.definition.mockReturnValue({ workspace: { name: "bot" } })
   mocks.glob.mockResolvedValue([{ path: "AGENTS.md", type: "file" }, { path: ".env", type: "file" }, { path: "repo/.git/config", type: "file" }, { path: "src", type: "directory" }])
@@ -52,13 +52,13 @@ describe("invocation Workspace inspection", () => {
   it("identifies current mounted files without claiming a historical snapshot", async () => {
     expect(await handler(request())).toEqual({ paths: ["AGENTS.md"], repository: "bot", revision: "current" })
     expect(mocks.definition).toHaveBeenCalledWith("bot", "inspect")
-    expect(mocks.useWorkspace).toHaveBeenCalledWith("bot", { mode: "read", refresh: false })
+    expect(mocks.useWorkspaceFiles).toHaveBeenCalledWith("bot", { mode: "read", refresh: false })
   })
   it("returns retained refs and a paged revision list when the Workspace exposes history", async () => {
     const head = { id: "rev-2", ref: "main", parentId: "rev-1", createdAt: "2026-10-15T10:00:00.000Z", message: "Update docs", files: 2, bytes: 24, metadata: { url: "https://github.com/org/repo/commit/rev-2" } }
     mocks.refs.mockResolvedValue([{ name: "main", head }])
     mocks.list.mockResolvedValue({ revisions: [head], cursor: "main:2" })
-    mocks.useWorkspace.mockReturnValue({ fs: mocks, history: { refs: mocks.refs, list: mocks.list, open: mocks.open } })
+    mocks.useWorkspaceFiles.mockReturnValue({ fs: mocks, history: { refs: mocks.refs, list: mocks.list, open: mocks.open } })
     expect(await handler(request())).toEqual({
       paths: ["AGENTS.md"],
       repository: "bot",
@@ -76,7 +76,7 @@ describe("invocation Workspace inspection", () => {
     mocks.open.mockResolvedValue(view)
     mocks.stat.mockResolvedValue({ type: "file", size: 4 })
     mocks.readFile.mockResolvedValue("old")
-    mocks.useWorkspace.mockReturnValue({ fs: mocks, history: { refs: mocks.refs, list: mocks.list, open: mocks.open } })
+    mocks.useWorkspaceFiles.mockReturnValue({ fs: mocks, history: { refs: mocks.refs, list: mocks.list, open: mocks.open } })
     expect(await handler(request("AGENTS.md", { revision: "rev-2", ref: "main" }))).toEqual({ path: "AGENTS.md", content: "old", revision: "rev-2", size: 3 })
     expect(mocks.open).toHaveBeenCalledWith("rev-2")
     expect(mocks.readFile).toHaveBeenCalledWith("AGENTS.md", { encoding: "utf8" })
