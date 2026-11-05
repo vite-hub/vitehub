@@ -178,7 +178,7 @@ export default defineAuth({
 });
 ```
 
-Generated route middleware uses `createAuthAccessHandler(routes, definition?)` from `@vite-hub/auth/server`. The handler owns path and method matching, overlapping rules, and required authorization callbacks. Manual hosts can use the same handler with a Web `Request`, `{ req: Request }`, or an H3 1 event such as a Nuxt 4 server event. Its route metadata must follow the Definition's `access.routes` order; set `authorize: true` for each route that requires a callback so a missing runtime callback returns `403`. Unmatched requests do not resolve Auth.
+Generated route middleware uses `createAuthAccessHandler(routes, definition?)` from `@vite-hub/auth/server`. The handler owns path and method matching, overlapping rules, and required authorization callbacks. Manual hosts can use the same handler with a Web `Request` or a request event with Standard Context properties, such as an H3 1 or H3 2 event in a ViteHub app. Its route metadata must follow the Definition's `access.routes` order; set `authorize: true` for each route that requires a callback so a missing runtime callback returns `403`. Unmatched requests do not resolve Auth.
 
 ViteHub runs `authorize` only after authentication. Return `true` to allow the request, `false` for a `403`, or a `Response` for a custom result. The callback receives the authenticated `user`, `session`, and request; role semantics remain owned by the host. Only `true` grants access. ViteHub sends a `Response` unchanged when it is a Response of this runtime: the native `Response.prototype.status` getter accepts it. Create it with the global `Response`. Every other value gets `403`, including a Response from another Fetch implementation such as the `undici` package, a proxy, and an object shaped like a Response.
 
@@ -243,7 +243,7 @@ const app = new H3()
   });
 ```
 
-`getAuthorization(event)` returns only what the Auth middleware attached to that event. It does not read `event.context`, so other code cannot set it. On a route without the middleware, it throws `AUTH_R0017`, so the handler fails closed. The middleware accepts any host with the same `(event, next)` contract and an event with an own `req` request.
+`getAuthorization(event)` returns only what the Auth middleware attached to that event. It does not read `event.context`, so other code cannot set it. On a route without the middleware, it throws `AUTH_R0017`, so the handler fails closed. The middleware accepts any host with the same `(event, next)` contract and an event with Standard Context properties. Auth reads the request and the Cloudflare bindings from `event["~standard"]`.
 
 ## Vite Integration
 

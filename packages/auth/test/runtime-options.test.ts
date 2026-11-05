@@ -6,6 +6,7 @@ import { deriveViteHubSecret } from "@vite-hub/internal/secret"
 import { defineAuth } from "../src/definition.ts"
 import { resolveAuthOptions } from "../src/runtime-options.ts"
 import type { AuthRuntimeContext } from "../src/types.ts"
+import { requestEvent } from "./request-event.ts"
 
 describe("Auth option resolution", () => {
   it("rejects runtime overrides of an owned Database target", () => {
@@ -94,7 +95,7 @@ describe("Auth option resolution", () => {
 
   it("resolves one snapshot and projects provider options without repeating callbacks", () => {
     const request = new Request("https://auth.example.com/api/auth")
-    const event = { req: request }
+    const event = requestEvent(request)
     const env = vi.fn(() => ({ secret: "env-secret" }))
     const runtime = vi.fn(({ requestOrigin, env: values }: AuthRuntimeContext) => ({ baseURL: requestOrigin, secret: String(values.secret) }))
     const definition = defineAuth({
@@ -230,8 +231,8 @@ describe("Better Auth secret from VITEHUB_SECRET", () => {
     vi.stubEnv("NUXT_APP_SECRET", undefined)
 
     const other = `${root}-cloudflare`
-    const event = { req: new Request("https://app.example.com/api/auth"), context: { cloudflare: { env: { VITEHUB_SECRET: other } } } }
-    const resolved = resolveAuthOptions(definition, { request: event.req, event })
+    const event = requestEvent(new Request("https://app.example.com/api/auth"), { VITEHUB_SECRET: other })
+    const resolved = resolveAuthOptions(definition, { request: event["~standard"].req, event })
     expect(resolved.providerOptions.secret).toBe(await deriveViteHubSecret(other, "vitehub:auth"))
   })
 

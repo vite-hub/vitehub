@@ -1,9 +1,11 @@
 import { hkdfSync } from "node:crypto"
 
-import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { readViteHubSecret, viteHubSecretMinimumLength, viteHubSecretSalt } from "@vite-hub/internal/secret"
 
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
+import { authCloudflareEnv } from "./request.ts"
+
+import type { ViteHubContext } from "@vite-hub/runtime"
 
 /** The `deriveSecret()` purpose of the Better Auth secret. `vitehub secret derive vitehub:auth` prints it. */
 export const authSecretPurpose = "vitehub:auth"
@@ -22,8 +24,8 @@ function hex(buffer: ArrayBuffer): string {
  * `deriveSecret("vitehub:auth")`. Returns `undefined` when the environment sets a Better Auth secret or no root secret.
  * It is synchronous because Better Auth reads its options synchronously.
  */
-export function deriveAuthSecret(event?: unknown): string | undefined {
-  const env: Record<string, unknown> = { ...globalThis.process?.env, ...getCloudflareEnv(event) }
+export function deriveAuthSecret(event?: ViteHubContext): string | undefined {
+  const env: Record<string, unknown> = { ...globalThis.process?.env, ...authCloudflareEnv(event) }
   if (betterAuthSecretNames.some(name => env[name])) return undefined
   const root = readViteHubSecret(env)
   if (!root) return undefined

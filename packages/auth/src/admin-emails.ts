@@ -1,6 +1,7 @@
-import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
+import { authCloudflareEnv } from "./request.ts"
+
+import type { ViteHubContext } from "@vite-hub/runtime"
 
 import type { BetterAuthOptions, BetterAuthPlugin } from "better-auth"
 
@@ -11,8 +12,8 @@ export const adminEmailsVariable = "VITEHUB_ADMIN_EMAILS"
 export const adminEmailsPluginId = "vitehub-admin-emails"
 
 /** The emails in `VITEHUB_ADMIN_EMAILS`, separated by commas, in lower case as Better Auth stores them. */
-export function readAdminEmails(event?: unknown): string[] {
-  const env: Record<string, unknown> = { ...globalThis.process?.env, ...getCloudflareEnv(event) }
+export function readAdminEmails(event?: ViteHubContext): string[] {
+  const env: Record<string, unknown> = { ...globalThis.process?.env, ...authCloudflareEnv(event) }
   const value = env[adminEmailsVariable]
   if (typeof value !== "string") return []
   return [...new Set(value.split(",").map(email => email.trim().toLowerCase()).filter(Boolean))]

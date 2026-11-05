@@ -1,5 +1,6 @@
 import { createServer } from "node:http"
 import { memoryAdapter } from "better-auth/adapters/memory"
+import { installStandardContext } from "@vite-hub/runtime/h3"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { defineAuth } from "../src/index.ts"
@@ -7,7 +8,7 @@ import { createAuthAccessHandler, handleAuthRequest, resetAuth, toAuthRequest, w
 
 import type { IncomingMessage, Server, ServerResponse } from "node:http"
 import type { AddressInfo } from "node:net"
-import type { AuthNodeRequestEvent } from "../src/index.ts"
+import type { ViteHubContext } from "@vite-hub/runtime"
 
 /** The H3 1 event shape that Nitro 2 passes to Nuxt 4 server handlers: an own `node` field and a `req` getter on the prototype. */
 class H3V1Event {
@@ -24,7 +25,7 @@ class H3V1Event {
   }
 }
 
-type EventHandler = (event: H3V1Event & AuthNodeRequestEvent) => Promise<Response | unknown>
+type EventHandler = (event: H3V1Event & ViteHubContext) => Promise<Response | unknown>
 
 const servers: Server[] = []
 
@@ -40,7 +41,10 @@ async function serve(handler: EventHandler, base = "/"): Promise<string> {
     const mount = base.replace(/\/$/, "")
     if (mount && req.url?.startsWith(`${mount}/`)) req.url = req.url.slice(mount.length)
     try {
-      const result = await handler(new H3V1Event(req, res) as H3V1Event & AuthNodeRequestEvent)
+      const event = new H3V1Event(req, res)
+      // The ViteHub Nitro plugin sets Standard Context on each H3 1 event in Nuxt 4.
+      installStandardContext(event)
+      const result = await handler(event)
       const response = result instanceof Response ? result : Response.json(result ?? null)
       res.statusCode = response.status
       response.headers.forEach((value, key) => {

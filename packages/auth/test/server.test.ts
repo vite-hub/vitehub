@@ -3,6 +3,7 @@ import { organization } from "better-auth/plugins"
 
 import { defineAuth } from "../src/index.ts"
 import { createAuthRequestRuntimeOptions, createBetterAuthOptions, getAuth, getAuthForDefinition, handleAuthRequest, requireAuthAccessRoutes, resetAuth, setAuthRuntimeEnvResolver, withAuth } from "../src/server.ts"
+import { requestEvent } from "./request-event.ts"
 
 describe("server auth helpers", () => {
   afterEach(() => {
@@ -328,15 +329,13 @@ describe("server auth helpers", () => {
     expect(await response?.json()).toEqual({ error: "Unauthorized." })
   })
 
-  it("accepts server events with a req property for guarded requests", async () => {
+  it("accepts request events with Standard Context for guarded requests", async () => {
     const definition = defineAuth({
       appName: "ViteHub",
       runtime: () => ({ secret: "abcdefghijklmnopqrstuvwxyz0123456789" }),
     })
 
-    const response = await withAuth(() => undefined, definition)({
-      req: new Request("https://app.example.com/api/data", { method: "POST" }),
-    })
+    const response = await withAuth(() => undefined, definition)(requestEvent(new Request("https://app.example.com/api/data", { method: "POST" })))
 
     expect(response?.status).toBe(401)
     expect(await response?.json()).toEqual({ error: "Unauthorized." })

@@ -9,6 +9,7 @@ import { defineAuth } from "../src/index.ts"
 import { handleAuthRequest, requireAuthAccessRoutes, withAnonymousAuthorization, withAuth, withAuthorization } from "../src/server.ts"
 
 import type { AuthAuthorization } from "../src/index.ts"
+import { requestEvent } from "./request-event.ts"
 
 const providerMocks = vi.hoisted(() => ({
   betterAuth: vi.fn(),
@@ -506,7 +507,7 @@ describe("server authentication provider boundaries", () => {
       const signInDefinition = defineAuth({ access: { signIn: { provider: "github" } }, appName: "ViteHub" })
       providerMocks.getSession.mockResolvedValue(null)
 
-      const response = await withAuthorization(authorize, protectedAction, signInDefinition)({ req: imageRequest })
+      const response = await withAuthorization(authorize, protectedAction, signInDefinition)(requestEvent(imageRequest))
 
       expect(response).toBeInstanceOf(Response)
       if (!(response instanceof Response)) return
@@ -609,7 +610,7 @@ describe("server authentication provider boundaries", () => {
       const signInDefinition = defineAuth({ access: { signIn: { provider: "github" } }, appName: "ViteHub" })
       providerMocks.getSession.mockResolvedValue(null)
 
-      await expect(withAnonymousAuthorization(authorize, anonymousAction, signInDefinition)({ req: sharedRequest })).resolves.toBe("served")
+      await expect(withAnonymousAuthorization(authorize, anonymousAction, signInDefinition)(requestEvent(sharedRequest))).resolves.toBe("served")
       expect(authorize).toHaveBeenCalledWith({ request: sharedRequest, session: null, user: null })
       const authorization = anonymousAction.mock.calls[0]?.[1]
       expect(authorization).toEqual({ request: sharedRequest, session: null, user: null })
@@ -619,14 +620,14 @@ describe("server authentication provider boundaries", () => {
     it("returns 401 for false without a session and 403 with one, without a sign-in redirect", async () => {
       const guarded = withAnonymousAuthorization(() => false, anonymousAction, defineAuth({ access: { signIn: { provider: "github" } }, appName: "ViteHub" }))
       providerMocks.getSession.mockResolvedValue(null)
-      const signedOut = await guarded({ req: sharedRequest })
+      const signedOut = await guarded(requestEvent(sharedRequest))
       expect(signedOut).toMatchObject({ status: 401 })
       if (!(signedOut instanceof Response)) return
       expect(signedOut.headers.get("location")).toBeNull()
       expect(await signedOut.json()).toEqual({ error: "Unauthorized." })
 
       providerMocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "user-1" } })
-      await expect(guarded({ req: sharedRequest })).resolves.toMatchObject({ status: 403 })
+      await expect(guarded(requestEvent(sharedRequest))).resolves.toMatchObject({ status: 403 })
       expect(anonymousAction).not.toHaveBeenCalled()
     })
 

@@ -1,4 +1,4 @@
-import type { AccessAuthorizationContext, AccessAuthorize, AccessAuthorizeResult, AnonymousAccessAuthorizationContext, AnonymousAccessAuthorize } from "@vite-hub/runtime"
+import type { AccessAuthorizationContext, AccessAuthorize, AccessAuthorizeResult, AnonymousAccessAuthorizationContext, AnonymousAccessAuthorize, ViteHubContext } from "@vite-hub/runtime"
 import type { Auth, BetterAuthOptions, DBAdapter, Session, User } from "better-auth"
 import type { AuthEventsConfiguration } from "./events.ts"
 import type { AuthConsoleOptions } from "./console-types.ts";
@@ -231,25 +231,11 @@ export type AuthBetterAuthRuntimeOptions<
   AuthRuntimeOptions &
   BetterAuthOptions;
 export type AuthRequest = Pick<Request, "body" | "headers" | "method" | "signal" | "url">
-/** The Node request fields that ViteHub Auth reads from an H3 1 event, such as a Nuxt 4 server event. */
-export interface AuthNodeRequest extends AsyncIterable<unknown> {
-  body?: unknown
-  connection?: { encrypted?: boolean }
-  headers: Record<string, string | string[] | undefined>
-  method?: string
-  originalUrl?: string
-  rawBody?: unknown
-  socket?: { encrypted?: boolean }
-  url?: string
-  [key: symbol]: unknown
-}
-/** An H3 1 event. ViteHub Auth builds a Web Request from `node.req`. */
-export interface AuthNodeRequestEvent {
-  _requestBody?: unknown
-  node: { req: AuthNodeRequest }
-  web?: { request?: Request }
-}
-export type AuthRequestInput = AuthRequest | { req: AuthRequest } | AuthNodeRequestEvent
+/**
+ * A Web Request, or a request event with Standard Context properties, such as an H3 1 or H3 2 event in a ViteHub app.
+ * Auth reads the request and the Cloudflare bindings of an event from `event["~standard"]`.
+ */
+export type AuthRequestInput = AuthRequest | ViteHubContext
 export type ViteHubAuth<Options extends BetterAuthOptions = BetterAuthOptions> = Auth<Options>
 /** The Better Auth instance of an Auth Definition, with the endpoints and fields of its plugins. */
 export type AuthFor<TDefinition extends AuthDefinition> = ViteHubAuth<Extract<Omit<
