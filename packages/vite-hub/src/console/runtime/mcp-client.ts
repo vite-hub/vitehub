@@ -12,8 +12,9 @@ export const consoleMcpCallbackPath = "/_vitehub/mcp-client/callback"
  * - `oauth`: the MCP authorization flow (RFC 9728 discovery, client registration, PKCE).
  * - `bearer`: a token that the person pasted, such as a personal API key.
  * - `none`: the server does not ask for credentials.
+ * - `console`: the Console session of each request. Only ViteHub MCP, the MCP server of the Console, gets it.
  */
-export type ConsoleMcpAuth = "bearer" | "none" | "oauth"
+export type ConsoleMcpAuth = "bearer" | "console" | "none" | "oauth"
 
 /**
  * - `connected`: the last request worked.
@@ -77,6 +78,8 @@ export interface ConsoleMcpConnection {
 
 /** An MCP server on the Console's origin that the app announces in its RFC 9728 metadata. */
 export interface ConsoleMcpCandidate {
+  /** `console`: ViteHub MCP, which the Console connects to with the session of the person. */
+  auth?: "console"
   /** The OAuth authorization server that the metadata names. */
   authorizationServer?: string
   label: string

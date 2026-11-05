@@ -113,6 +113,8 @@ The Needs column names the `authorize` action of [`defineComments()`](/docs/comm
 
 A request without a valid sign-in gets `401` and a `WWW-Authenticate: Bearer resource_metadata="…"` header. A token that is not valid gets `error="invalid_token"` in the same header. The metadata is at `/.well-known/oauth-protected-resource` and `/.well-known/oauth-protected-resource/_vitehub/mcp`, and names the authorization server.
 
+To try the tools as yourself, open the Console's [MCP client](/docs/development/console#open-vitehub-mcp): it connects with your Console session.
+
 ### Set up OAuth
 
 The authorization server is Better Auth. A Console Auth that ViteHub generates (inline GitHub, or `vitehub/console/auth/server.ts` with `defineConsoleAuth()`) already has the `jwt()` and `oauthProvider()` plugins. The sign-in page of the Console is also the login and consent page of the flow. A Console Auth with `migrate: false` manages its own schema, so it adds the plugins itself. ViteHub preserves a supplied OAuth provider and adds a registration hook that recognizes MCP clients' loopback redirects, including with `migrate: false`.

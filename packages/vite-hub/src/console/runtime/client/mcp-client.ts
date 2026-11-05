@@ -36,6 +36,7 @@ export const consoleMcpStatus: Readonly<Record<ConsoleMcpStatus, { color: "error
 
 export const consoleMcpAuthLabels: Readonly<Record<ConsoleMcpAuth, string>> = {
   bearer: "Token",
+  console: "Console session",
   none: "No sign-in",
   oauth: "OAuth",
 }
@@ -48,7 +49,7 @@ export function consoleMcpAccount(connection: ConsoleMcpConnection): { primary: 
   }
   if (connection.auth === "bearer") return { primary: connection.label, secondary: `Token ••••${connection.grant?.hint ?? ""}` }
   if (identity?.subject) return { primary: connection.label, secondary: `Subject ${identity.subject}` }
-  return { primary: connection.label, ...(connection.auth === "none" ? { secondary: "No sign-in" } : {}) }
+  return { primary: connection.label, ...(connection.auth === "none" || connection.auth === "console" ? { secondary: consoleMcpAuthLabels[connection.auth] } : {}) }
 }
 
 /** Up to two initials of a name or an email, for an avatar. */
