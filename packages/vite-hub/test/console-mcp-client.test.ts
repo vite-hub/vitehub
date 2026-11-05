@@ -281,7 +281,7 @@ describe("MCP client section", () => {
       const request = new Request(input instanceof Request ? input.clone() : input, init)
       const response = await nativeFetch(input, init)
       if (request.url === `${origin}/.well-known/oauth-authorization-server`) {
-        return Response.json({ ...await response.json(), authorization_response_iss_parameter_supported: advertised })
+        return Response.json({ ...await response.json() as Record<string, unknown>, authorization_response_iss_parameter_supported: advertised })
       }
       return response
     })
@@ -298,6 +298,50 @@ describe("MCP client section", () => {
       expect(completed.failure).toMatchObject({ code: "CONSOLE_MCP_AUTHORIZATION_FAILED" })
       expect(seen.grants).toHaveLength(grants)
     }
+  })
+
+  it.each([
+    "http://external.example/authorize",
+    "https://person:secret@oauth.example/authorize",
+    "https://oauth.example/authorize#fragment",
+  ])("rejects an unsafe authorization endpoint before returning it to the browser: %s", async (endpoint) => {
+    install()
+    const nativeFetch = globalThis.fetch
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const request = new Request(input instanceof Request ? input.clone() : input, init)
+      const response = await nativeFetch(input, init)
+      if (request.url === `${origin}/.well-known/oauth-authorization-server`) {
+        return Response.json({ ...await response.json() as Record<string, unknown>, authorization_endpoint: endpoint })
+      }
+      return response
+    })
+    const started = await rpc<ConsoleMcpConnectResult>("mcp-client.connect", { server: "/mcp" })
+    expect(started.failure).toMatchObject({ code: "CONSOLE_MCP_AUTHORIZATION_FAILED" })
+    expect(started.value?.authorizationUrl).toBeUndefined()
+  })
+
+  it("registers separately for two resources with different scopes at the same authorization server", async () => {
+    install()
+    const nativeFetch = globalThis.fetch
+    const registrations: Record<string, unknown>[] = []
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const request = new Request(input instanceof Request ? input.clone() : input, init)
+      if (request.url === `${origin}/register`) registrations.push(await request.json() as Record<string, unknown>)
+      if (request.url === `${origin}/other-mcp`) {
+        return new Response(null, { headers: { "www-authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/other-mcp"` }, status: 401 })
+      }
+      const response = await nativeFetch(input, init)
+      if (request.url === `${origin}/.well-known/oauth-protected-resource/other-mcp`) {
+        return Response.json({ ...await response.json() as Record<string, unknown>, resource: `${origin}/other-mcp`, scopes_supported: ["other:read"] })
+      }
+      return response
+    })
+    const first = await rpc<ConsoleMcpConnectResult>("mcp-client.connect", { server: "/mcp" })
+    const second = await rpc<ConsoleMcpConnectResult>("mcp-client.connect", { server: "/other-mcp" })
+    expect(first.failure).toBeUndefined()
+    expect(second.failure).toBeUndefined()
+    expect(new URL(second.value.authorizationUrl!).searchParams.get("scope")).toBe("other:read")
+    expect(registrations.map(client => client.scope)).toEqual(["openid profile email", "other:read"])
   })
 
   it.each([
@@ -331,10 +375,10 @@ describe("MCP client section", () => {
       expect(request.url).not.toBe("http://external.example/oauth")
       const response = await nativeFetch(input, init)
       if (stage === "discovery" && new URL(request.url).pathname.startsWith("/.well-known/oauth-protected-resource")) {
-        return Response.json({ ...await response.json(), authorization_servers: ["https://oauth.example"] })
+        return Response.json({ ...await response.json() as Record<string, unknown>, authorization_servers: ["https://oauth.example"] })
       }
       if (stage === "token" && request.url === `${origin}/.well-known/oauth-authorization-server`) {
-        return Response.json({ ...await response.json(), token_endpoint: endpoint })
+        return Response.json({ ...await response.json() as Record<string, unknown>, token_endpoint: endpoint })
       }
       return response
     })
@@ -385,7 +429,7 @@ describe("MCP client section", () => {
       expect(request.url).not.toBe(target)
       const response = await nativeFetch(input, init)
       if (request.url === `${origin}/.well-known/oauth-authorization-server`) {
-        return Response.json({ ...await response.json(), revocation_endpoint: "https://oauth.example/revoke" })
+        return Response.json({ ...await response.json() as Record<string, unknown>, revocation_endpoint: "https://oauth.example/revoke" })
       }
       return response
     })
