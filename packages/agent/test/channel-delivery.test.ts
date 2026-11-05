@@ -12,6 +12,13 @@ describe("Agent Channel delivery source identity", () => {
     expect(agentChannelDeliverySourceId("custom", { event: { id: "event-1" }, id: "resource-1" })).toBe("event-1")
   })
 
+  it("gives each Teams edit its own identity", () => {
+    const edit = { channelData: { eventType: "editMessage" }, id: "1766459963017", timestamp: "2025-12-23T03:21:02.000Z", type: "messageUpdate" }
+    expect(agentChannelDeliverySourceId("teams", edit)).toBe("1766459963017:update:2025-12-23T03:21:02.000Z")
+    expect(agentChannelDeliverySourceId("teams", { ...edit, timestamp: "2025-12-23T03:22:40.000Z" })).toBe("1766459963017:update:2025-12-23T03:22:40.000Z")
+    expect(agentChannelDeliverySourceId("teams", { ...edit, timestamp: undefined })).toBeUndefined()
+  })
+
   it("fingerprints equivalent provider payloads independently of key order", async () => {
     await expect(agentChannelDeliveryPayloadFingerprint({ event: { id: 7, type: "message" }, team: "one" }))
       .resolves.toBe(await agentChannelDeliveryPayloadFingerprint({ team: "one", event: { type: "message", id: 7 } }))
