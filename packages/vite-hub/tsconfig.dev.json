@@ -92,6 +92,8 @@
     "src/comments-overlay/virtual.d.ts",
     "test/comments-overlay-loader.test.ts",
     "test/comments-overlay-mount.test.ts",
-    "test/console-comment-thread-dismissal.test.ts"
+    "test/console-comment-thread-dismissal.test.ts",
+    // The page pill script, also checked by tsconfig.console.json.
+    "src/page"
   ]
 }

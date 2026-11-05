@@ -64,8 +64,9 @@ async function settled<T>(tasks: Iterable<Promise<T>>) {
   })
 }
 
+// A `.iife.js` target is a classic script that pages embed as text, checked with the static assets.
 function isJavaScriptModule(target: string) {
-  return target.endsWith(".js") || target.endsWith(".mjs")
+  return (target.endsWith(".js") && !target.endsWith(".iife.js")) || target.endsWith(".mjs")
 }
 
 function usesNodeDeclarationTypes(contract: (typeof publicPackageExportContracts)[number]) {
