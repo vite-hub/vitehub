@@ -13,7 +13,7 @@ import { FakeSql, appendParagraph, createMemoryAdapter, createStubEditor, create
 
 const serverMocks = vi.hoisted(() => ({
   resolveWorkspaceStoreTarget: vi.fn(),
-  useWorkspace: vi.fn(),
+  useWorkspaceFiles: vi.fn(),
 }))
 
 vi.mock("@vite-hub/auth/server", () => ({
@@ -25,13 +25,13 @@ vi.mock("@vite-hub/auth/server", () => ({
 vi.mock("@vite-hub/workspace", async (importOriginal) => ({
   ...await importOriginal<typeof import("@vite-hub/workspace")>(),
   resolveWorkspaceStoreTarget: serverMocks.resolveWorkspaceStoreTarget,
-  useWorkspace: serverMocks.useWorkspace,
+  useWorkspaceFiles: serverMocks.useWorkspaceFiles,
 }))
 
 beforeEach(() => {
   vi.useFakeTimers()
   serverMocks.resolveWorkspaceStoreTarget.mockReset().mockResolvedValue(undefined)
-  serverMocks.useWorkspace.mockReset()
+  serverMocks.useWorkspaceFiles.mockReset()
 })
 
 afterEach(() => {
@@ -616,7 +616,7 @@ describe("history checkpoints", () => {
       content = "Remote"
       digest = "remote"
     })
-    serverMocks.useWorkspace.mockReturnValue({
+    serverMocks.useWorkspaceFiles.mockReturnValue({
       capabilities: vi.fn().mockResolvedValue({ conditionalWrites: true }),
       fs: {
         exists: vi.fn().mockResolvedValue(true),
