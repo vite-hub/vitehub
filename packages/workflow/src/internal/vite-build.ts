@@ -713,6 +713,23 @@ function getUniqueLegacyCloudflareWorkflowAliases(definitions: DiscoveredWorkflo
   return aliases
 }
 
+function renderCloudflareWorkflowEntrypoint(
+  definition: DiscoveredWorkflowDefinition,
+  legacyAliases: ReadonlyMap<string, string>,
+): string {
+  const className = getCloudflareWorkflowClassName(definition.name)
+  const legacyClassName = legacyAliases.get(definition.name)
+  return [
+    `export class ${className} extends WorkflowEntrypoint {`,
+    "  async run(event, step) {",
+    `    return await runViteHubWorkflowDefinition(${JSON.stringify(definition.name)}, this.env || {}, event, step)`,
+    "  }",
+    "}",
+    ...(legacyClassName ? [`export { ${className} as ${legacyClassName} }`] : []),
+    "",
+  ].join("\n")
+}
+
 function createCloudflareWorkflowNitroPlugin(entryFile: string, definitions: DiscoveredWorkflowDefinition[]): VitePlugin {
   const moduleId = "virtual:vitehub-workflow-cloudflare-exports"
   const legacyAliases = getUniqueLegacyCloudflareWorkflowAliases(definitions)
@@ -735,19 +752,7 @@ function createCloudflareWorkflowNitroPlugin(entryFile: string, definitions: Dis
         "",
         "installViteHubWorkflowRuntime()",
         "",
-        ...definitions.map((definition) => {
-          const className = getCloudflareWorkflowClassName(definition.name)
-          const legacyClassName = legacyAliases.get(definition.name)
-          return [
-            `export class ${className} extends WorkflowEntrypoint {`,
-            "  async run(event, step) {",
-            `    return await runViteHubWorkflowDefinition(${JSON.stringify(definition.name)}, this.env || {}, event, step)`,
-            "  }",
-            "}",
-            ...(legacyClassName ? [`export { ${className} as ${legacyClassName} }`] : []),
-            "",
-          ].join("\n")
-        }),
+        ...definitions.map(definition => renderCloudflareWorkflowEntrypoint(definition, legacyAliases)),
       ].join("\n")
     },
     renderChunk(code, chunk) {
@@ -1014,19 +1019,7 @@ function renderCloudflareWorkerWrapper(definitions: DiscoveredWorkflowDefinition
     definitions.length ? `import { WorkflowEntrypoint, waitUntil as viteHubWaitUntil } from "cloudflare:workers"` : `import { waitUntil as viteHubWaitUntil } from "cloudflare:workers"`,
     cloudflareWorkflowWrapperImport,
     "",
-    ...definitions.map((definition) => {
-      const className = getCloudflareWorkflowClassName(definition.name)
-      const legacyClassName = legacyAliases.get(definition.name)
-      return [
-        `export class ${className} extends WorkflowEntrypoint {`,
-        "  async run(event, step) {",
-        `    return await runViteHubWorkflowDefinition(${JSON.stringify(definition.name)}, this.env || {}, event, step)`,
-        "  }",
-        "}",
-        ...(legacyClassName ? [`export { ${className} as ${legacyClassName} }`] : []),
-        "",
-      ].join("\n")
-    }),
+    ...definitions.map(definition => renderCloudflareWorkflowEntrypoint(definition, legacyAliases)),
     "const viteHubWorker = {",
     "  async fetch(request, env, context) {",
     "    const waitUntil = typeof viteHubWaitUntil === \"function\" ? viteHubWaitUntil : context?.waitUntil?.bind(context)",

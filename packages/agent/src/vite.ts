@@ -2077,7 +2077,7 @@ async function generateAgentWebhookRouteHandler(
     ...routeCapabilities.imports,
     // Nitro 2, which Nuxt 4 runs, passes H3 1 events to these routes. toEventRequest reads both H3 1 and H3 2 events.
     `import { toEventRequest } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
-    "import { createError, defineEventHandler, getRouterParam, type H3Event } from 'h3'",
+    `import { createError, defineEventHandler, getRouterParam, type H3Event } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
     "",
     ...workflowRuntime.setup,
     ...workspaceDependencyRuntime.setup,
@@ -2451,8 +2451,8 @@ async function writeAgentWebhookRouteHandler(
       "}",
       "",
     ].join("\n"))
-    await writeFileIfChanged(processHostFiles[2]!, `import { defineEventHandler } from "h3"\nimport { host } from "./process-hosts"\n\nexport default defineEventHandler(() => ({ status: host.status() }))\n`)
-    await writeFileIfChanged(processHostFiles[3]!, `import { defineEventHandler } from "h3"\nimport { host } from "./process-hosts"\n\nexport default defineEventHandler(() => host.health())\n`)
+    await writeFileIfChanged(processHostFiles[2]!, `import { defineEventHandler } from ${JSON.stringify(subpath(options.agentImportBase ?? agentPackageName, "server/internal"))}\nimport { host } from "./process-hosts"\n\nexport default defineEventHandler(() => ({ status: host.status() }))\n`)
+    await writeFileIfChanged(processHostFiles[3]!, `import { defineEventHandler } from ${JSON.stringify(subpath(options.agentImportBase ?? agentPackageName, "server/internal"))}\nimport { host } from "./process-hosts"\n\nexport default defineEventHandler(() => host.health())\n`)
   }
   else {
     await Promise.all(processHostFiles.map(file => rm(file, { force: true })))
@@ -2572,7 +2572,7 @@ async function generateAgentDiscordGatewayRouteHandler(
     ...workflowRuntime.imports,
     ...workspaceDependencyRuntime.imports,
     ...routeCapabilities.imports,
-    "import { createError, defineEventHandler, getRouterParam, type H3Event } from 'h3'",
+    `import { createError, defineEventHandler, getRouterParam, type H3Event } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
     "",
     ...workflowRuntime.setup,
     ...workspaceDependencyRuntime.setup,
