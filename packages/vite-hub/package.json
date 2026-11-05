@@ -1118,6 +1118,11 @@
       "import": "./dist/workspace/cloudflare.js",
       "default": "./dist/workspace/cloudflare.js"
     },
+    "./workspace/files": {
+      "types": "./dist/workspace/files.d.ts",
+      "import": "./dist/workspace/files.js",
+      "default": "./dist/workspace/files.js"
+    },
     "./workspace/loader": {
       "types": "./dist/workspace/loader.d.ts",
       "import": "./dist/workspace/loader.js",
