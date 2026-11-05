@@ -53,9 +53,44 @@ export function writeSetupJson(context: Pick<ViteHubCliContext, "stdout">, data:
 
 /** Reports `error` as one JSON document on stdout with `--json`, else on stderr, and returns exit code 1. */
 export function writeSetupError(context: Pick<ViteHubCliContext, "stderr" | "stdout">, json: boolean, error: unknown): number {
+  if (error instanceof SetupFailure) {
+    if (json) writeSetupJson(context, { error: toSetupError(error.cause), ...error.details })
+    else {
+      const choices = (error.details.missing ?? []).flatMap(item => (item.choices ?? []).map(choice => `  ${item.field} ${choice.id}${choice.name ? `  ${choice.name}` : ""}\n`))
+      context.stderr.write(`${formatRuntimeDiagnosticError(error.cause)}\n${choices.join("")}${error.details.rerun ? `Run: ${error.details.rerun}\n` : ""}`)
+    }
+    return error.exitCode
+  }
   if (json) writeSetupJson(context, { error: toSetupError(error) })
   else context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
   return setupExitCodes.error
+}
+
+/** An input that a setup command needs, such as an account id, with the values it accepts. */
+export interface SetupMissing {
+  field: string
+  choices?: readonly { id: string, name?: string }[]
+}
+
+export interface SetupFailureDetails {
+  missing?: readonly SetupMissing[]
+  /** A command that would succeed, with `<placeholders>` for values that the caller must choose. */
+  rerun?: string
+}
+
+/** A setup diagnostic with its exit code and the input that is missing. `writeSetupError` reports it. */
+export class SetupFailure extends Error {
+  override readonly cause: Error
+  readonly exitCode: number
+  readonly details: SetupFailureDetails
+
+  constructor(cause: Error, exitCode: number, details: SetupFailureDetails = {}) {
+    super(cause.message)
+    this.name = "SetupFailure"
+    this.cause = cause
+    this.exitCode = exitCode
+    this.details = details
+  }
 }
 
 export interface SetupArgs {

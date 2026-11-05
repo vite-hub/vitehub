@@ -71,6 +71,8 @@ Available namespaces:
 | --- | --- | --- | --- |
 | `vitehub catalog` | Available | ViteHub CLI | List every feature and how each host supports it. Does not load the project config. |
 | `vitehub status` | Available | ViteHub CLI | Show the host, the enabled features, and what each one still needs. Does not load the project config. |
+| `vitehub link` | Available | ViteHub CLI | Link the project to its project on the host in `.vitehub/link.json`. Does not load the project config. |
+| `vitehub unlink` | Available | ViteHub CLI | Remove `.vitehub/link.json`. Does not load the project config. |
 | `vitehub agent eval` | Opt-in tooling | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
 | `vitehub agent codex-home` | Available | Agent Package | Inspect or manage the Agent Codex home. |
 | `vitehub agent info` | Available | Agent Package | Inspect resolved Agent metadata through a running Vite Development Server. |
@@ -180,6 +182,58 @@ The folder has no `package.json`, no `vite.config.*`, and no `nuxt.config.*`. Ru
 ### `SETUP_CONFIG_NOT_LITERAL`
 
 The `vitehub()` options are not an object literal, for example a variable, a function call, or `mergeConfig()`. ViteHub does not run the config to read them. Write the options as an object literal, such as `vitehub({ kv: true })`, or edit the config by hand. `vitehub status` reports this case as `config.manual` and exits with `0`.
+
+## Link a project to its host
+
+`vitehub link` connects the project to a project on its host, so later commands know where to deploy. It runs on your machine with your host login. It does not add a CI workflow.
+
+```bash [Terminal]
+pnpm vitehub link
+pnpm vitehub link --host cloudflare --account <id> --create
+pnpm vitehub unlink
+```
+
+- `--host`: `cloudflare`, `vercel`, `netlify`, or `deno`. The default is the host that `vitehub status` reports.
+- `--project`: the project name on the host. The default is the `name` of `vitehub({ name })`, else the package.json name, in the same form that the build uses.
+- `--account`: the Cloudflare account id, the Vercel team id, or the Netlify team slug.
+- `--create`: create the project when the host does not have it. Without it, a missing project exits with `3`.
+
+The credentials come from environment variables first, then from the host CLI login: `CLOUDFLARE_API_TOKEN` or `wrangler login`, `VERCEL_TOKEN` and `VERCEL_TEAM_ID`, `NETLIFY_AUTH_TOKEN`. ViteHub never stores or prints a token.
+
+The command looks up the project through the host API: a Worker on Cloudflare, a project on Vercel, a site on Netlify. Deno has no lookup yet, so the link keeps the name with `verified: false`. The link is in `.vitehub/link.json`:
+
+```json [.vitehub/link.json]
+{
+  "schemaVersion": 1,
+  "host": "cloudflare",
+  "account": { "id": "023e105f4ecef8ad9ca31a8372d0c353" },
+  "project": { "id": "e8f70fdbc8b1fb0b8ddb1af166186758", "name": "my-app" },
+  "verified": true,
+  "linkedAt": "2026-11-05T12:00:00.000Z"
+}
+```
+
+The file holds no secret, but it is local to your machine. `link` adds `.vitehub` to the project `.gitignore` when it is not there. `vitehub status` shows the link in `link` and where the credentials come from in `credentials`. `vitehub unlink` removes the file and does not change the project on the host.
+
+### `SETUP_LINK_HOST_UNSUPPORTED`
+
+The host is `node`, a self-hosted server, which has no project to link. Pass `--host`, or set `preset` in `vitehub()`. The command exits with `3`.
+
+### `SETUP_LINK_CREDENTIALS_MISSING`
+
+No token was found in the environment or in the host CLI login. Run the login command or set the environment variable that the `fix` names. The command exits with `2` and lists the variables in `missing`.
+
+### `SETUP_LINK_ACCOUNT_REQUIRED`
+
+The Cloudflare token has access to more than one account, or to none. The command exits with `2` and lists the accounts in `missing[0].choices`. Run it again with `--account <id>`.
+
+### `SETUP_LINK_NAME_REQUIRED`
+
+The project name is not known, for example because `vitehub({ name })` is an expression. Pass `--project <name>`. The command exits with `2`.
+
+### `SETUP_LINK_PROJECT_NOT_FOUND`
+
+The host has no project with that name. Run the command in `rerun`, which adds `--create`, or pass `--project` with the name of a project that exists. The command exits with `3`.
 
 ## Read and write blobs
 

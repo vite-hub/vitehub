@@ -189,11 +189,16 @@ export interface CloudflareProvisionRequest {
 
 // Keep provisioning HTTP local so the CLI does not grow a public CI abstraction.
 export function createCloudflareProvisionClient(config: CloudflareProvisionConfig, fetchImpl: typeof globalThis.fetch = globalThis.fetch): CloudflareProvisionRequest {
-  const client = createJsonClient(
-    `https://api.cloudflare.com/client/v4/accounts/${config.accountId}`,
-    { authorization: `Bearer ${config.token}` },
-    fetchImpl,
-  )
+  return createCloudflareClient(`https://api.cloudflare.com/client/v4/accounts/${config.accountId}`, config.token, fetchImpl)
+}
+
+/** A Cloudflare REST client for requests outside one account, such as `GET /accounts`. */
+export function createCloudflareApiClient(token: string, fetchImpl: typeof globalThis.fetch = globalThis.fetch): CloudflareProvisionRequest {
+  return createCloudflareClient("https://api.cloudflare.com/client/v4", token, fetchImpl)
+}
+
+function createCloudflareClient(baseURL: string, token: string, fetchImpl: typeof globalThis.fetch): CloudflareProvisionRequest {
+  const client = createJsonClient(baseURL, { authorization: `Bearer ${token}` }, fetchImpl)
   return async <T>(path: string, options: ProvisionRequestOptions | ParsedProvisionRequestOptions<T> = {}) => {
     // SAFETY: Without a parser, Cloudflare result data retains the request's unknown response contract.
     const parse = ownParser(options) ?? ((value: unknown) => value as T)
@@ -217,4 +222,9 @@ export function createVercelProvisionClient(config: VercelProvisionConfig, fetch
     fetchImpl,
     config.teamId ? { teamId: config.teamId } : undefined,
   )
+}
+
+/** A Netlify REST client for `https://api.netlify.com/api/v1`. */
+export function createNetlifyApiClient(token: string, fetchImpl: typeof globalThis.fetch = globalThis.fetch): ProvisionRequest {
+  return createJsonClient("https://api.netlify.com/api/v1", { authorization: `Bearer ${token}` }, fetchImpl)
 }

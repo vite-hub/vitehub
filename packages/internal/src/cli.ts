@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 
 import { redactInspectionText, redactInspectionValue } from "./inspect.ts"
+import type { HostCliRun } from "./host-credentials.ts"
 import type { ProvisionStep } from "./provision.ts"
 
 import { isPlainObject } from "./object.ts"
@@ -37,6 +38,8 @@ export interface ViteHubCliContext extends ViteHubCliStreams {
   /** The deployed app's public origin from `vitehub({ publicUrl })`, when it is one string. */
   publicUrl?: string
   rootDir: string
+  /** Replaces the host CLI runner, such as for `wrangler auth token`, so tests need no real host CLI. */
+  runHostCli?: HostCliRun
   spawn: ViteHubCliSpawn
 }
 

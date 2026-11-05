@@ -17,6 +17,7 @@ import { setupCommands } from "./setup/commands.ts"
 
 import type { ConfigEnv, InlineConfig } from "vite"
 import type { ViteHubCliCommand, ViteHubCliCommandNamespace, ViteHubCliContext } from "@vite-hub/internal/cli"
+import type { HostCliRun } from "@vite-hub/internal/host-credentials"
 import { cliErrorDiagnostics } from "./error-diagnostics.ts"
 
 interface ViteHubCliSpawnResult {
@@ -74,8 +75,10 @@ export interface RunViteHubCliOptions {
   runtimeFeatures?: ViteHubCliCommandNamespace[]
   /** Optional guard for runtime features that have a project-level opt-out. */
   runtimeFeatureGuard?: (namespace: string, feature: string, cwd: string) => boolean | Promise<boolean>
-  /** Replaces `fetch` in commands that call a running app. */
+  /** Replaces `fetch` in commands that call a running app or a host API. */
   fetch?: typeof fetch
+  /** Replaces the host CLI runner of setup commands, such as for `wrangler auth token`. */
+  runHostCli?: HostCliRun
   loadConfig?: (rootDir: string, command: ConfigEnv["command"], mode?: string) => Promise<ViteHubCliLoadedConfig>
   loadNuxtViteConfig?: (rootDir: string, command: ConfigEnv["command"], mode?: string) => Promise<{ plugins: readonly unknown[], root?: string } | undefined>
   spawn?: ViteHubCliSpawn
@@ -248,7 +251,7 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   // Setup commands never load the project config, so they work in an empty folder and on a config that throws.
   const setupCommand = commands.find(item => item.name === args[0])
   if (setupCommand) {
-    return await setupCommand.run(args.slice(1), { cwd, env, ...(options.fetch ? { fetch: options.fetch } : {}), rootDir: cwd, spawn, stderr, stdout })
+    return await setupCommand.run(args.slice(1), { cwd, env, ...(options.fetch ? { fetch: options.fetch } : {}), rootDir: cwd, ...(options.runHostCli ? { runHostCli: options.runHostCli } : {}), spawn, stderr, stdout })
   }
   const runtimeNamespace = options.runtimeNamespaces?.find(namespace => namespace.name === args[0] && !BUILTIN_NAMESPACE_NAMES.has(namespace.name))
   if (runtimeNamespace) return await runNamespace(runtimeNamespace, args, { cwd, env, rootDir: cwd, spawn, stderr, stdout })
