@@ -7,8 +7,13 @@ import type { BlobModuleOptions } from "./types.ts"
  * Lists the R2 buckets and the Vercel Blob store that Blob stores use. Reads local config only.
  * R2 binds a bucket by name. Vercel Blob reaches the store that is connected to the project through `BLOB_READ_WRITE_TOKEN`.
  */
-export function inspectBlobResources(options: BlobModuleOptions | undefined, env: Record<string, string | undefined> = process.env): ViteHubResourceSummary[] {
-  const config = resolveBlobViteConfig(options, { env })
+export function inspectBlobResources(
+  options: BlobModuleOptions | undefined,
+  input: { env?: Record<string, string | undefined>, hosting?: string } = {},
+): ViteHubResourceSummary[] {
+  const env = input.env ?? process.env
+  // `hosting` is the host that `hubBlob()` resolved, for example from a Cloudflare `nitro.preset`.
+  const config = resolveBlobViteConfig(options, { env, hosting: input.hosting })
   if (config.blob === false) return []
   const resources: ViteHubResourceSummary[] = []
   for (const [storeName, store] of Object.entries(config.blob.stores ?? { default: config.blob.store })) {

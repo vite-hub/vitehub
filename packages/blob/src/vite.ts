@@ -438,6 +438,7 @@ function assertDriverSdksInstalled(blob: BlobViteRuntimeConfig["blob"], nativeCl
 export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBlobModuleOptions = {}): BlobVitePlugin {
   const importBase = internalOptions.importBase ?? blobPackageName
   let blob: BlobModuleOptions | undefined = options
+  let nitroCloudflare = false
   let rootDir = process.cwd()
   let runtimeConfig: BlobViteRuntimeConfig | undefined
   // Nuxt replays `config` with the host command, but its replayed resolved config has no `command`.
@@ -453,7 +454,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
     vitehub: {
       // The Console, `vitehub blob`, and agents run these. The app imports them through `vite-hub`.
       operations: [{ export: "blobOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).blobOperations, module: "@vite-hub/blob/operations" }],
-      inspect: () => ({ resources: () => inspectBlobResources(blob) }),
+      inspect: () => ({ resources: () => inspectBlobResources(blob, { hosting: nitroCloudflare ? "cloudflare" : undefined }) }),
       cli: async () => {
         const { createBlobCliNamespaces } = await import(/* @vite-ignore */ "./cli.js")
         return {
@@ -487,6 +488,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
       blob = config.blob ?? blob
       const configuredNitro = (config as { nitro?: unknown }).nitro
       const cloudflare = isNitroCloudflareHost(configuredNitro)
+      nitroCloudflare = cloudflare
       const blobConfig = resolveBlobViteConfig(blob, cloudflare ? { hosting: "cloudflare" } : undefined)
       const nitro = mergeNitroBlobConfig(
         configuredNitro,

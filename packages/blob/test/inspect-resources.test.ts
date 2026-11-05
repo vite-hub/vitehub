@@ -13,13 +13,20 @@ describe("Blob resource inspection", () => {
       },
     } as const
 
-    const withToken = inspectBlobResources(options, { BLOB_READ_WRITE_TOKEN: "vercel_blob_rw_secret" })
+    const withToken = inspectBlobResources(options, { env: { BLOB_READ_WRITE_TOKEN: "vercel_blob_rw_secret" } })
     expect(withToken).toEqual([
       { binding: "BLOB", definition: "default", host: "cloudflare", kind: "cloudflare-r2-bucket", name: "uploads", owner: "blob", source: "name" },
       { binding: "EU_BLOB", definition: "eu", host: "cloudflare", kind: "cloudflare-r2-bucket", name: "eu-uploads (eu)", owner: "blob", source: "name" },
       { definition: "media", env: "BLOB_READ_WRITE_TOKEN", host: "vercel", kind: "vercel-blob-store", owner: "blob", source: "env" },
     ])
     expect(JSON.stringify(withToken)).not.toContain("vercel_blob_rw_secret")
-    expect(inspectBlobResources(options, {}).at(-1)).toMatchObject({ note: expect.stringContaining("BLOB_READ_WRITE_TOKEN") })
+    expect(inspectBlobResources(options, { env: {} }).at(-1)).toMatchObject({ note: expect.stringContaining("BLOB_READ_WRITE_TOKEN") })
+  })
+
+  it("lists the R2 bucket when only the resolved host selects Cloudflare", () => {
+    const options = { bucketName: "uploads" }
+
+    expect(inspectBlobResources(options, { env: {} })).toEqual([])
+    expect(inspectBlobResources(options, { env: {}, hosting: "cloudflare" })).toMatchObject([{ kind: "cloudflare-r2-bucket", name: "uploads", source: "name" }])
   })
 })
