@@ -1,4 +1,6 @@
+import { once } from "node:events"
 import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises"
+import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { ensureWorkspaceDevToken, workspaceDevTokenHeader, workspaceDevTokenServerId } from "@vite-hub/workspace/server"
@@ -29,6 +31,8 @@ import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src
 
 import { hubAgent } from "../src/vite.ts"
 import { hasRuntimeType } from "../src/internal/runtime-type.ts"
+
+import type { AddressInfo } from "node:net"
 
 import type { AgentInvocations } from "../src/index.ts"
 
@@ -103,6 +107,52 @@ describe("Agent Invocations Nitro dev handler", () => {
       }) })
       expect(response.status).toBe(404)
       expect(await response.json()).toEqual({ error: { message: "No Agent invocation journal is configured." } })
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("reads the Request from the H3 1 event that Nitro 2 passes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-handler-h3-v1-"))
+    try {
+      const plugin = hubAgent({ providers: { state: { provider: "memory" } } })
+      const hook = plugin.configResolved
+      if (!hasRuntimeType(hook, "function")) throw new Error("Expected a configResolved hook")
+      // SAFETY: Agent output generation reads only these resolved config fields in this fixture.
+      await hook.call({} as never, { root, command: "serve", plugins: [], build: { outDir: "dist" }, resolve: { alias: [] }, server: { port: 5173 } } as never)
+      const source = await readFile(join(root, ".vitehub/agent/invocations-dev-handler.ts"), "utf8")
+      const callback: (event: object) => Promise<Response> = new Function("defineEventHandler", "handleViteHubDevRequest", source.replace(/^import .*\n/gm, "").replace("export default", "return"))((handler: unknown) => handler, handleAgentInvocationsDevRequest)
+      const serverId = workspaceDevTokenServerId(5173)
+      const token = await ensureWorkspaceDevToken(root, { serverId })
+      // An H3 1 event, as Nuxt 4 dev passes it: `req` and `node.req` are Node's IncomingMessage.
+      const server = createServer((req, res) => {
+        void callback({ node: { req, res }, req }).then(async (response) => {
+          res.writeHead(response.status, { "content-type": "application/json" })
+          res.end(await response.text())
+        })
+      })
+      server.listen(0, "localhost")
+      await once(server, "listening")
+      try {
+        const { port } = server.address() as AddressInfo
+        const response = await fetch(`http://localhost:${port}${agentInvocationsDevRuntimeRoute}`, {
+          body: JSON.stringify({ id: "ainv_missing", operation: "cancel" }),
+          headers: {
+            "content-type": "application/json",
+            [agentInvocationsDevHeader]: "1",
+            [agentInvocationsDevTokenServerHeader]: serverId,
+            [workspaceDevTokenHeader]: token,
+          },
+          method: "POST",
+        })
+        expect(await response.json()).toEqual({ error: { message: "No Agent invocation journal is configured." } })
+        expect(response.status).toBe(404)
+      }
+      finally {
+        server.close()
+        await once(server, "close")
+      }
     }
     finally {
       await rm(root, { recursive: true, force: true })
