@@ -1327,6 +1327,9 @@ importers:
 
   packages/cli:
     dependencies:
+      '@babel/parser':
+        specifier: ^7.29.9
+        version: 7.29.9
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime

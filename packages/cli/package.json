@@ -37,6 +37,11 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./setup": {
+      "types": "./dist/setup/index.d.ts",
+      "import": "./dist/setup/index.js",
+      "default": "./dist/setup/index.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -46,6 +51,7 @@
     "test": "vp run -t @vite-hub/cli#build && vp test"
   },
   "dependencies": {
+    "@babel/parser": "^7.29.9",
     "@vite-hub/runtime": "workspace:*",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs"
@@ -68,6 +74,9 @@
   },
   "peerDependenciesMeta": {
     "nuxt": {
+      "optional": true
+    },
+    "vite": {
       "optional": true
     }
   }

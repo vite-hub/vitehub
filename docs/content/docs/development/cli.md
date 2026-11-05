@@ -33,6 +33,11 @@ The Agent Package contributes `agent`, `channels`, and `conversations` when `hub
 
 ```txt [Output]
 Usage: vitehub <namespace> <feature> [args...]
+       vitehub <command> [args...]
+
+Project:
+  catalog     List every ViteHub feature and how each host supports it. Needs no project.
+  status      Show the host, the enabled features, and what each one still needs. Reads the config without running it.
 
 Available namespaces:
   workspace   Workspace development workflows and retained history.
@@ -64,6 +69,8 @@ Available namespaces:
 
 | Command | Status | Owner | Use it for |
 | --- | --- | --- | --- |
+| `vitehub catalog` | Available | ViteHub CLI | List every feature and how each host supports it. Does not load the project config. |
+| `vitehub status` | Available | ViteHub CLI | Show the host, the enabled features, and what each one still needs. Does not load the project config. |
 | `vitehub agent eval` | Opt-in tooling | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
 | `vitehub agent codex-home` | Available | Agent Package | Inspect or manage the Agent Codex home. |
 | `vitehub agent info` | Available | Agent Package | Inspect resolved Agent metadata through a running Vite Development Server. |
@@ -145,6 +152,34 @@ Available namespaces:
 | `vitehub inspect provider-output` | Available | ViteHub CLI plus package inspection contributors | List generated Provider Output files with secrets redacted. |
 | `vitehub provision run` | Available | ViteHub CLI plus package Provision Steps | Create missing provider resources idempotently. |
 | `vitehub provision status` | Available | ViteHub CLI plus package Provision Steps | Inspect the latest provider provisioning result. |
+
+## Read a project without loading it
+
+`vitehub catalog` and `vitehub status` run before the CLI loads the project config. They work in an empty folder and on a config that throws, because they parse the config file and never run it.
+
+```bash [Terminal]
+pnpm vitehub catalog --json
+pnpm vitehub status --json
+```
+
+`catalog` lists every feature key of `vitehub({...})`, the packages that it needs, and how each host supports it: `native`, `explicit` (an option chooses the provider), or `unsupported`. It needs no project.
+
+`status` reads `vite.config.*` or `nuxt.config.*` in the current folder and reports:
+
+- `framework`: `vite`, `nuxt`, or `none`, from the config files and the dependencies.
+- `config`: the file and the config form, or `manual` with the reason when the options are not an object literal.
+- `host`: the `preset` from the config, else the host from the environment, as `detectPreset()` reads it, else `node`. `source` tells which one.
+- `features`: each feature as `on`, `off`, or `unknown`. The reason is `config` when the config sets the key, `default` when it does not, and `implied` when another feature turns it on. An option that is an expression is `unknown`. An enabled feature lists `missingPackages` and a `fix`, such as the install command.
+
+With `--json`, a command prints exactly one JSON document on stdout, `{ "schemaVersion": 1, ... }`. A failure prints `{ "schemaVersion": 1, "error": { "code", "message", "why", "fix", "docs" } }`. The exit code is `0` when the command is done, `1` for an error, `2` when input is needed, `3` for an unsupported or conflicting change, and `4` for a stale plan.
+
+### `SETUP_NOT_A_PROJECT`
+
+The folder has no `package.json`, no `vite.config.*`, and no `nuxt.config.*`. Run the command in the folder of your Vite or Nuxt app.
+
+### `SETUP_CONFIG_NOT_LITERAL`
+
+The `vitehub()` options are not an object literal, for example a variable, a function call, or `mergeConfig()`. ViteHub does not run the config to read them. Write the options as an object literal, such as `vitehub({ kv: true })`, or edit the config by hand. `vitehub status` reports this case as `config.manual` and exits with `0`.
 
 ## Read and write blobs
 

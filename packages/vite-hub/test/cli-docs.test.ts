@@ -53,6 +53,11 @@ function documentedCommands(): string[] {
     .sort();
 }
 
+function documentedProjectCommands(): string[] {
+  const source = readFileSync(cliReference, "utf8");
+  return [...source.matchAll(/^\| `vitehub ([a-z0-9-]+)` \| [^|]+ \| ViteHub CLI \|/gm)].map((match) => match[1]!).sort();
+}
+
 function documentedNamespaces(): string[] {
   const source = readFileSync(cliReference, "utf8");
   const sample = source.split("Available namespaces:\n", 2)[1]?.split("```", 1)[0];
@@ -119,6 +124,9 @@ describe("CLI documentation contract", () => {
       }
     }
 
+    const projectCommands = helpNames(rootHelp.output().split("Available namespaces:\n", 1)[0]!, "Project:");
+    expect(projectCommands).toEqual(["catalog", "status"]);
+    expect(documentedProjectCommands()).toEqual([...projectCommands].sort());
     expect(documentedNamespaces()).toEqual([...namespaces].sort());
     expect(documentedCommands()).toEqual(commands.sort());
   });
