@@ -1,5 +1,5 @@
 import type { ChatStatus, UIMessage } from "ai";
-import { defineComponent, h, type PropType, resolveComponent } from "vue";
+import { defineComponent, h, type PropType } from "vue";
 import {
   MessageScrollerButton,
   MessageScrollerContent,
@@ -9,6 +9,31 @@ import {
 } from "../headless/message-scroller.ts";
 import { useViteHubUI } from "../config.ts";
 import { ChatMessage } from "./chat-message.ts";
+import { useUIComponent } from "../internal/nuxt-ui.ts";
+
+type Part = UIMessage["parts"][number];
+
+const inProgressTool = new Set(["approval-requested", "approval-responded", "input-available", "input-streaming"]);
+
+// Streaming text, a running tool, and live reasoning draw their own progress in the message.
+function showsProgress(part: Part): boolean {
+  if (part.type === "text" || part.type === "reasoning") return part.state !== "done";
+  return "toolCallId" in part && inProgressTool.has(part.state);
+}
+
+/**
+ * The line Chat shows while a reply is on its way and nothing in the message moves: before the first part, after a
+ * message ends, and after a tool finishes. Returns undefined when the chat is not busy or the message shows progress.
+ */
+export function chatActivity(messages: readonly UIMessage[], status: ChatStatus): string | undefined {
+  if (status !== "submitted" && status !== "streaming") return undefined;
+  const last = messages.at(-1);
+  // Data parts carry events for code, not for the reader, and a step start draws nothing.
+  const part = last?.role === "assistant"
+    ? last.parts.findLast(part => !part.type.startsWith("data-") && part.type !== "step-start")
+    : undefined;
+  return part && showsProgress(part) ? undefined : "Working";
+}
 
 export const Chat = defineComponent({
   name: "Chat",
@@ -22,13 +47,22 @@ export const Chat = defineComponent({
   },
   setup(props, { attrs, slots }) {
     const defaults = useViteHubUI();
-    const UButton = resolveComponent("UButton");
+    const UButton = useUIComponent("UButton");
+    // A static dot and a text that changes: progress without a looping animation.
+    const activity = () => {
+      const label = chatActivity(props.messages, props.status);
+      if (!label) return null;
+      return slots.status?.({ label }) ?? h("p", { class: "vh-chat__status", "data-slot": "chat-status", role: "status" }, [
+        h("span", { "aria-hidden": "true", class: "vh-chat__status-dot" }),
+        h("span", { class: "vh-chat__status-label" }, label),
+      ]);
+    };
     return () => {
       const composer = slots.composer?.();
       const messageSlots = Object.fromEntries(
         Object.entries(slots).filter(
           ([name]) =>
-            name !== "composer" && name !== "default" && name !== "message" && name !== "scroll-button",
+            name !== "composer" && name !== "default" && name !== "message" && name !== "scroll-button" && name !== "status",
         ),
       );
       return h(
@@ -54,8 +88,8 @@ export const Chat = defineComponent({
                       items: props.messages.map((message) => message.id),
                     },
                     {
-                      default: () =>
-                        props.messages.map((message, index) =>
+                      default: () => [
+                        ...props.messages.map((message, index) =>
                           h(
                             MessageScrollerItem,
                             {
@@ -81,6 +115,8 @@ export const Chat = defineComponent({
                             },
                           ),
                         ),
+                        activity(),
+                      ],
                     },
                   ),
               },

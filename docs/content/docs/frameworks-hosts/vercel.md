@@ -127,3 +127,10 @@ Agent Definitions run on Vercel through generated host output where the Agent in
 - Use [Provisioning](/docs/development/provisioning) for provider resource ids.
 - Use [Config options](/docs/reference/config-options) for Provider Selection placement.
 - Use [Provider output](/docs/reference/provider-output) for generated Vercel output.
+
+## Related guides
+
+Use [Deploy an Agent](/docs/guides/deploy-agent-cloudflare-vercel),
+[private Blob storage](/docs/guides/vercel-blob),
+[Upstash KV](/docs/guides/upstash-redis), or [Turso](/docs/guides/turso) for
+provider setup and verification.

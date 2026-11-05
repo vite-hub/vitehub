@@ -63,7 +63,7 @@ export function createStandaloneOperationHandler(sources: { operations: unknown,
       if (bytes > (registry.get(payload.operation)?.maxRequestBytes ?? defaultLimit)) reject(413, "Operation request exceeds the byte limit.")
       const response: { status?: number } = {}
       const result = await runOperation(registry, payload.operation, "input" in payload ? payload.input : undefined, {
-        access: { mode: "local", sections: "all" }, development: true, surface: "cli", user: null, request, response,
+        access: { mode: "local", sections: "all" }, development: true, surface: "cli", user: null, request, event, response,
         env: getCloudflareEnv(event, { fallback: false }), waitUntil: resolveWaitUntil(event, { preferHost: true }),
       })
       return Response.json(result, { headers, status: result.ok ? response.status ?? 200 : result.status })

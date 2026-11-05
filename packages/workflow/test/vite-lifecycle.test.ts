@@ -8,6 +8,7 @@ const lifecycle = vi.hoisted(() => ({
   get: vi.fn(() => undefined),
   removeArtifactDir: vi.fn(async () => undefined),
   reset: vi.fn(async () => undefined),
+  resolveOutputs: vi.fn((): { cloudflare: false | object, vercel: false | object } => ({ cloudflare: false, vercel: { provider: "vercel" } })),
   retainSources: vi.fn(async () => ({ resolve: (path: string) => path })),
   useCatalog: vi.fn((_config: object) => ({})),
   writeProviderEntries: vi.fn(async () => ({})),
@@ -37,16 +38,18 @@ vi.mock("@vite-hub/internal/build/deployment-output", () => ({
 }))
 
 vi.mock("@vite-hub/internal/build/provider-output-sources", () => ({
+  providerOutputAliasSources: () => [],
   removeProviderOutputArtifactDir: lifecycle.removeArtifactDir,
   retainProviderOutputAliases: (aliases: Record<string, string>) => aliases,
   retainProviderOutputSources: lifecycle.retainSources,
 }))
 
-vi.mock("@vite-hub/internal/build/vite", () => ({
+vi.mock("@vite-hub/internal/build/vite", async importOriginal => ({
   VITEHUB_NITRO_CONFIG_CONTEXT: "__vitehubNitroConfigContext",
   VITEHUB_SERVER_DIRS: "__vitehubServerDirs",
   collectViteHubProviderImportAliases: () => ({}),
   createNoExternalAddition: () => (value: unknown) => value,
+  createProviderOutputEnvironmentOwner: (await importOriginal<typeof import("@vite-hub/internal/build/vite")>()).createProviderOutputEnvironmentOwner,
   isServerEnvironment: (name: string, config: { consumer?: string }) => name === "ssr" || config.consumer === "server",
   resolveNitroVercelFunctionName: () => undefined,
   resolveViteHubProjectRoot: (root: string) => root,
@@ -71,6 +74,7 @@ vi.mock("../src/internal/vite-build.ts", () => ({
   discoverWorkflowProviderSources: () => ({ agentInstructions: new Map(), paths: [] }),
   generateWorkflowProviderOutputs: () => undefined,
   hasVercelNativeWorkflowEntry: () => false,
+  resolveWorkflowProviderOutputs: lifecycle.resolveOutputs,
   workflowPackageName: "@vite-hub/workflow",
   writeProviderEntries: lifecycle.writeProviderEntries,
 }))
@@ -233,6 +237,27 @@ describe("Workflow Provider Output lifecycle", () => {
     expect(lifecycle.finalize).not.toHaveBeenCalled()
   })
 
+  it("runs Provider Output work once when Nitro builds the client before the Nitro environment", async () => {
+    const plugin = createPlugin({ finalNitroEnvironment: true, nitroPlugin: true })
+    const client = { isBuilt: false, name: "client" }
+    const nitro = { isBuilt: false, name: "nitro" }
+    plugin.nitro?.setup({ options: { static: false } })
+    await functionHook(plugin.buildApp, "buildApp")({ environments: { client, nitro } })
+    for (const environment of [client, nitro]) {
+      const context = { environment }
+      functionHook(plugin.buildStart, "buildStart").call(context)
+      await functionHook(plugin.buildEnd, "buildEnd").call(context)
+      await closeBundleHook(plugin).call(context)
+      environment.isBuilt = true
+    }
+
+    expect(lifecycle.capture).toHaveBeenCalledOnce()
+    expect(lifecycle.capture.mock.calls[0]?.[0]).toEqual({ environment: nitro })
+    expect(lifecycle.retainSources).toHaveBeenCalledOnce()
+    expect(lifecycle.contribute).toHaveBeenCalledOnce()
+    expect(lifecycle.finalize).toHaveBeenCalledOnce()
+  })
+
   it("keeps Provider Output work in plain Vite client builds", async () => {
     await runSuccessfulProviderLifecycle(createPlugin(), "client")
 
@@ -252,6 +277,19 @@ describe("Workflow Provider Output lifecycle", () => {
     expect(lifecycle.writeProviderEntries).toHaveBeenCalledOnce()
     expect(lifecycle.contribute).toHaveBeenCalledOnce()
     expect(lifecycle.reset).not.toHaveBeenCalled()
+    expect(lifecycle.finalize).toHaveBeenCalledOnce()
+  })
+
+  it("does not retain sources when the build writes no Provider Output", async () => {
+    lifecycle.resolveOutputs.mockReturnValueOnce({ cloudflare: false, vercel: false })
+    await runSuccessfulProviderLifecycle(createPlugin(), "client")
+
+    expect(lifecycle.retainSources).not.toHaveBeenCalled()
+    expect(lifecycle.writeProviderEntries).toHaveBeenCalledWith(
+      "/project", undefined, expect.anything(), undefined,
+      undefined, undefined, "/project", expect.any(String), expect.any(Map),
+    )
+    expect(lifecycle.contribute).toHaveBeenCalledOnce()
     expect(lifecycle.finalize).toHaveBeenCalledOnce()
   })
 })

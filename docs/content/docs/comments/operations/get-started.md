@@ -2,8 +2,8 @@
 title: Add comments to an app
 description: Define who may comment, create the tables, and read the first thread from the CLI.
 layout: tutorial
-navigation.title: Get started
-navigation.order: 2
+navigation.title: Operations tutorial
+navigation.order: 21
 icon: i-lucide-rocket
 ---
 
@@ -42,7 +42,7 @@ export default defineComments({
 
 ## Create the tables
 
-```bash [Terminal]
+```bash [commands/migrate]
 pnpm vitehub db generate
 pnpm vitehub db migrate
 ```
@@ -51,12 +51,14 @@ pnpm vitehub db migrate
 
 Create a thread from code or from the [UI parts](/docs/ui/comments), then list it:
 
-```bash [Terminal]
+```bash [commands/read-thread]
 pnpm vitehub comments list --json
 pnpm vitehub comments get --id thread_123
 ```
 
 Open the Console at `/_vitehub` and choose **Comments**. The list comes from `comments.list` with your sign-in, so it shows only the threads that `authorize` lets you read. Use the chips to filter by open, resolved, mine, or mentions. A page thread links to `<page>?comment=<n>`.
+
+Click a row to open the thread in a side panel. There you read every message, reply, resolve or reopen the thread, and edit or delete your own messages. Type `@` in the reply box to mention someone: the menu finds people with `comments.users`, and a mention shows as a chip. Each change runs the same operation with your sign-in, so `authorize` decides it. When it lets you read but not write, the panel has no reply box. The URL holds the open thread as `?thread=<id>`, so you can share the link. *Open page* in the panel opens the thread on its page.
 
 ### In `vite dev`
 
@@ -77,19 +79,6 @@ export const comments = createCommentsClient({
 
 ## The overlay
 
-Nothing else to add: the pages of your app now have comments. `vitehub()` puts one `<script type="module">` tag, a loader of about 3 KB, into the HTML of every page. In `vite dev` and in the build it goes into `index.html`. Pages that your server renders get it from a Nitro middleware, which also covers the pages Nitro prerenders. Under Nuxt it goes in through the `render:html` hook.
+The same `server/comments.ts` runs the overlay on your pages. Open a page with `?vitehub`, press `C`, click a spot, and write. See [Turn comment mode on and off](/docs/comments/configure#turn-comment-mode-on-and-off). The overlay calls the [Comments API](/docs/comments/server-api#http-routes), which runs the same actions and the same `authorize` as the operations, for the user of the request. `vitehub({ comments: { overlay: false } })` leaves the overlay out and keeps the API and the operations.
 
-The loader asks the server `comments.session` with the visitor's cookie on allowed page loads and client-side navigation (see [Privacy](/docs/comments/operations/configure#content-security-policy-and-privacy) for the optional app-managed session marker). The answer is `{ user, canRead, canWrite }` and nothing else, and for a visitor who is not signed in it is `{ user: null, canRead: false, canWrite: false }` without running your `authorize` policy. Only when `canRead` is true does the loader download the overlay, about 160 KB (51 KB compressed). A visitor who is not signed in, or may not read comments, downloads nothing more, and sees nothing. If a later navigation finds that access has ended, the loader removes the overlay.
-
-That is one small `POST` per page load, for every visitor of the pages that get the overlay, anonymous ones included: a request of a few hundred bytes with no database access for a visitor who is not signed in. The loader asks again on client-side navigation. Limit the pages with `overlay.paths` and `overlay.exclude` if that is more than you want.
-
-Press `C` on a page, click a spot, and write. The toolbar at the bottom has the comment button, the list, and *Edit* when the page comes from the [Content](/docs/content) cms preset: the overlay asks `content.resolve` for the document at the page's URL and links to its editor in the Console. An app without Content has no such operation, so it has no Edit button. A visitor who may read but not write sees the threads without the writing tools.
-
-The overlay lives in a shadow root on an element with `data-comments-ui`, so your styles do not reach it and its styles do not reach your page. It follows the color scheme of the visitor (`prefers-color-scheme`). It follows client-side navigation too: `history.pushState`, `history.replaceState`, and `popstate` change the page that the threads belong to, and `/pricing` and `/pricing/` are one page. When the app is in dark mode (a `dark` class, `data-theme="dark"`, or `color-scheme: dark` on `<html>`) the overlay is dark; without a choice of the app it follows `prefers-color-scheme`. Comments show their text as Markdown for the small subset notes use: paragraphs, line breaks, `code`, bold, italics, and links.
-
-Turn it off, or limit it to some pages, in `vitehub()`:
-
-```ts [vite.config.ts]
-vitehub({ comments: { overlay: { paths: ['/docs/**'], exclude: ['/docs/internal/**'] } } })
-vitehub({ comments: { overlay: false } })
-```
+For a comment UI of your own, use `createRestTransport()` instead of `createRpcTransport()` when people without Console access, such as guests or share-link readers, comment. See [REST transport](/docs/comments/server-api#rest-transport).

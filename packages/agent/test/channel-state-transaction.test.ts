@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineChannel, defineChannelTrigger, ignored } from "../src/channels.ts"
-import type { AgentChannelDispatchItem, AgentChannelPullPage, AgentTriggerFailedEvent } from "../src/channels.ts"
+import type { AgentChannelDispatchItem, AgentChannelPullPage, AgentChannelTriggerContext, AgentTriggerFailedEvent } from "../src/channels.ts"
 import { defineAgent } from "../src/index.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
@@ -20,6 +20,7 @@ type Payload =
   | { kind: "tx", key: string, id: string, delayMs?: number, ignore?: boolean, reject?: boolean, invalidLimit?: boolean }
   | { kind: "dispatch", items: AgentChannelDispatchItem[] }
   | { kind: "pull" }
+  | { kind: "pull-task" }
 
 interface Hooks {
   cycle?: boolean
@@ -44,11 +45,34 @@ function changeItem(change: Change): AgentChannelDispatchItem {
   return { input: change, key: `log:${change.seq}`, order: { key: change.id, version: change.seq } }
 }
 
+function pullLog(context: { pull: AgentChannelTriggerContext["pull"] }, hooks: Hooks) {
+  return context.pull({
+    fetch(cursor) {
+      hooks.fetches.push(cursor)
+      if (hooks.page) return hooks.page(cursor)
+      const page = hooks.log.filter(change => change.seq >= cursor).slice(0, 2)
+      async function* items() {
+        for (const change of page) yield changeItem(change)
+      }
+      const next = cursor + page.length
+      return { first: hooks.gapAt === cursor ? cursor + 1 : cursor, items: items(), more: next <= hooks.log.length, next }
+    },
+    initialCursor: 1,
+    key: "log-cursor",
+    signal: hooks.signal,
+    trigger: "record",
+  })
+}
+
 function createAgent(hooks: Hooks, prefix: { channelState?: string }, run: (context: { run?: { runId?: string } }) => string, failed?: (event: AgentTriggerFailedEvent) => void) {
   const channel = defineChannel("t", {
     messages: false,
     triggers: {
       webhook: defineChannelTrigger({
+        tasks: {
+          // A queued task pulls, as a provider that announces changes without sending them does.
+          puller: { run: async (context) => { await pullLog(context, hooks) } },
+        },
         async invoke(context, { payload }: { payload: Payload }) {
           const state = context.channelState!
           prefix.channelState = state.keyPrefix
@@ -69,6 +93,7 @@ function createAgent(hooks: Hooks, prefix: { channelState?: string }, run: (cont
             })
           }
           if (payload.kind === "dispatch") return Response.json(await context.dispatch(payload.items, { queue: true, trigger: "record" }))
+          if (payload.kind === "pull-task") return { task: "puller", input: { prompt: "pull" }, webhook: { deliveryId: "pull-task", serialize: "pull" } }
           try {
             if (hooks.cycle) {
               return Response.json(await context.pull({
@@ -82,22 +107,7 @@ function createAgent(hooks: Hooks, prefix: { channelState?: string }, run: (cont
                 trigger: "record",
               }))
             }
-            return Response.json(await context.pull({
-              fetch(cursor) {
-                hooks.fetches.push(cursor)
-                if (hooks.page) return hooks.page(cursor)
-                const page = hooks.log.filter(change => change.seq >= cursor).slice(0, 2)
-                async function* items() {
-                  for (const change of page) yield changeItem(change)
-                }
-                const next = cursor + page.length
-                return { first: hooks.gapAt === cursor ? cursor + 1 : cursor, items: items(), more: next <= hooks.log.length, next }
-              },
-              initialCursor: 1,
-              key: "log-cursor",
-              signal: hooks.signal,
-              trigger: "record",
-            }))
+            return Response.json(await pullLog(context, hooks))
           }
           catch (error) {
             return Response.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 })
@@ -326,6 +336,17 @@ describe("context.pull()", () => {
     expect(result).toEqual({ cursor: 8, pages: 3, queued: 4, skipped: 1 })
     expect(await state.get(channelKey("log-cursor"))).toBe(8)
   })
+
+  it("admits the pulled items from a queued task", async () => {
+    const { channelKey, hooks, open, runIds } = await setup()
+    const { post, state } = open()
+
+    expect((await post({ kind: "pull-task" })).ok).toBe(true)
+
+    await vi.waitFor(async () => expect(await state.get(channelKey("log-cursor"))).toBe(8), { timeout: 15_000 })
+    expect(hooks.fetches).toEqual([1, 3, 5, 7])
+    await vi.waitFor(() => expect(runIds.filter(id => id.startsWith("record:")).length).toBe(7), { timeout: 15_000 })
+  }, 20_000)
 
   it("continues from a raw cursor that earlier code saved under its key", async () => {
     const { channelKey, hooks, open } = await setup()

@@ -787,6 +787,97 @@ describe("agent CLI", () => {
     expect(stderr.output()).toContain("--confirm-origin must exactly match --url")
   })
 
+  it("defaults --url to vitehub({ publicUrl }), which --apply needs no --confirm-origin for", async () => {
+    const applied: string[] = []
+    const run = async (args: string[], publicUrl?: string) => {
+      const stderr = stream()
+      const exitCode = await runAgentChannelSyncCli(["--stage", "production", "--json", ...args], {
+        cwd: "/repo", env: {}, publicUrl, rootDir: "/repo", stderr, stdout: stream(),
+      }, {
+        fetch: (async () => new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })) as never,
+        envDir: "/repo/config",
+        loadTargets: async (input) => {
+          expect(input.envDir).toBe("/repo/config")
+          return [{
+            agent: "support",
+            channel: "telegram",
+            mode: "webhook",
+            provider: "telegram",
+            registration: { id: "telegram" },
+            sync: {
+              apply: async (plan) => {
+                applied.push(String(plan.desired.url))
+                return { url: plan.desired.url }
+              },
+              mode: "webhook",
+              plan: async ({ desiredUrl }) => ({ action: "create", current: { url: "" }, desired: { url: desiredUrl } }),
+            },
+          }]
+        },
+      })
+      return { exitCode, stderr: stderr.output() }
+    }
+
+    expect(await run(["--apply"], "https://app.example.com")).toEqual({ exitCode: 0, stderr: "" })
+    expect(await run(["--apply", "--url", "https://preview.example.com", "--confirm-origin", "https://preview.example.com"], "https://app.example.com")).toEqual({ exitCode: 0, stderr: "" })
+    expect(applied).toEqual([
+      "https://app.example.com/api/_vitehub/agents/support/webhooks/telegram",
+      "https://preview.example.com/api/_vitehub/agents/support/webhooks/telegram",
+    ])
+    expect((await run(["--apply", "--url", "https://preview.example.com"], "https://app.example.com")).stderr).toContain("--apply requires --confirm-origin")
+    expect((await run(["--apply", "--confirm-origin", "https://preview.example.com"], "https://app.example.com")).stderr).toContain("--confirm-origin must exactly match vitehub({ publicUrl })")
+    expect((await run([])).stderr).toContain("requires --url <https-origin> or vitehub({ publicUrl })")
+  })
+
+  it.each([false, true])("ignores an HTTP publicUrl for account-only synchronization (apply: %s)", async (apply) => {
+    const stderr = stream()
+    const plan = vi.fn(async () => ({ action: "create" as const, current: {}, desired: { topic: "mail" } }))
+    const applyPlan = vi.fn(async () => ({ topic: "mail" }))
+    const fetch = vi.fn()
+    const exitCode = await runAgentChannelSyncCli(["--stage", "production", ...apply ? ["--apply"] : []], {
+      cwd: "/repo", env: {}, publicUrl: "http://localhost:3000", rootDir: "/repo", stderr, stdout: stream(),
+    }, {
+      fetch,
+      loadTargets: async () => [{
+        agent: "support", channel: "gmail", mode: "account", provider: "gmail",
+        sync: { apply: applyPlan, mode: "account", plan },
+      }],
+    })
+    expect(stderr.output()).toBe("")
+    expect(exitCode).toBe(0)
+    expect(plan).toHaveBeenCalledWith(expect.objectContaining({ desiredUrl: undefined }))
+    expect(applyPlan).toHaveBeenCalledTimes(apply ? 1 : 0)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("downloads Channel history from vitehub({ publicUrl }) without --url", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-channel-history-public-url-"))
+    const urls: string[] = []
+    const stderr = stream()
+    try {
+      const exitCode = await runAgentChannelHistoryCli(["--stage", "production", "--output", "export"], {
+        cwd: rootDir, env: {}, publicUrl: "https://app.example.com", rootDir, stderr: stderr, stdout: stream(),
+      }, {
+        envDir: false,
+        fetch: async (input, init) => {
+          urls.push(String(input))
+          if (init?.method === "HEAD") return new Response(null, { headers: { "x-vitehub-channel-provider": "telegram" }, status: 204 })
+          return Response.json({ messages: [], schemaVersion: 1, threadId: "telegram:123" })
+        },
+        loadTargets: async (input) => {
+          expect(input.envDir).toBe(false)
+          return [{ agent: "calories", channel: "telegram", defaultThreadId: "telegram:123", mode: "webhook", provider: "telegram", registration: { id: "telegram", secretHeader: "x-test-secret", secretToken: "secret" } }]
+        },
+      })
+      expect(stderr.output()).toBe("")
+      expect(exitCode).toBe(0)
+      expect(new Set(urls)).toEqual(new Set(["https://app.example.com/api/_vitehub/agents/calories/webhooks/telegram"]))
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
   it("applies a validated Telegram webhook plan without exposing secrets", async () => {
     const stdout = stream()
     let registeredUrl = ""

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { acquireGitHubPublishReservation } from "./publish-reservation.ts"
+import { forgeBlob } from "@vite-hub/forge"
 import type { Commit, Page, TreeEntry } from "@vite-hub/forge"
 import { lookup } from "mrmime"
 
@@ -810,9 +811,18 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
           continue
         }
         const workspacePath = options.root ? (path.startsWith(`${options.root}/`) ? path.slice(options.root.length + 1) : undefined) : path
-        if (workspacePath !== undefined && visibleWorkspacePath(workspacePath)) conflicts.push({ path: workspacePath, ours: o?.sha ?? null, theirs: t?.sha ?? null })
+        if (workspacePath !== undefined && visibleWorkspacePath(workspacePath)) conflicts.push({ path: workspacePath, ours: o?.sha ?? null, theirs: t?.sha ?? null, base: b?.sha ?? null })
       }
-      metadata = { ...mergeOptions.metadata, ...await mergeOptions.onConflict!(conflicts) }
+      const resolution = await mergeOptions.onConflict!(conflicts, { read: async sha => await forgeBlob(provider, repo, sha) })
+      metadata = { ...mergeOptions.metadata, ...resolution.metadata }
+      for (const [path, text] of Object.entries(resolution.files ?? {})) {
+        if (!conflicts.some(conflict => conflict.path === path)) throw workspaceError(`[vitehub] A merge resolved ${path}, which is not one of its conflicting files.`)
+        const repositoryPath = options.root ? `${options.root}/${path}` : path
+        const blob: unknown = (await provider.request<unknown>("POST", `${repoPath(repo)}/git/blobs`, { body: { content: Buffer.from(text, "utf8").toString("base64"), encoding: "base64" } })).data
+        const blobSha: unknown = Reflect.get(Object(blob), "sha")
+        if (!nonEmptyString(blobSha)) malformed("blob")
+        changes.push({ mode: ours.get(repositoryPath)?.mode ?? theirs.get(repositoryPath)?.mode ?? "100644", path: repositoryPath, sha: blobSha, type: "blob" })
+      }
       const message = messageWithMetadata(mergeOptions.message ?? `Merge ${from.ref} into ${into.ref}`, metadata)
       const oursTree = (await provider.request<unknown>("GET", `${repoPath(repo)}/git/commits/${encodeURIComponent(oursSha)}`)).data
       const baseTree: unknown = Reflect.get(Object(Reflect.get(Object(oursTree), "tree")), "sha")

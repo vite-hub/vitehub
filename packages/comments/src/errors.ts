@@ -20,6 +20,10 @@ export const commentsErrors = /*#__PURE__*/ defineErrors({
       why: ({ action }: { action: string }) => `The \`authorize\` policy of \`defineComments()\` denied \`${action}\` for this user.`,
       fix: "Sign in as a user that the policy allows, or change `authorize` in `server/comments.ts`.",
     },
+    COMMENTS_POLICY_MISSING: {
+      why: "`server/comments.ts` has no `authorize` policy, so a production build lets in only people signed in with GitHub who can push to the repository, and people that the Console admits to its Comments section.",
+      fix: "Pass `authorize` to `defineComments()` and return `true` for the people that may read, write, resolve, or delete.",
+    },
     COMMENTS_RESOLVED: {
       why: "The thread is resolved, so it takes no new replies.",
       fix: "Reopen the thread with `comments.reopen(id)` first.",

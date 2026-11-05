@@ -80,6 +80,23 @@ export function formatEmailOutboxDelivery(delivery: EmailOutboxDelivery): string
   }
 }
 
+/**
+ * One status word for the Delivery column, so the Console list shows a failed message with an error dot. The record's
+ * Delivery field keeps the full text with the provider id or the error.
+ */
+function deliveryStatus(delivery: EmailOutboxDelivery): string {
+  switch (delivery.status) {
+    case "pending":
+      return "Sending"
+    case "captured":
+      return "Captured only"
+    case "sent":
+      return "Sent"
+    case "failed":
+      return "Failed"
+  }
+}
+
 function formatSize(bytes: number): string {
   return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`
 }
@@ -123,7 +140,7 @@ function consoleRecord(message: EmailOutboxMessage): ViteHubConsoleRecord {
   return {
     cells: {
       captured: message.capturedAt,
-      delivery: formatEmailOutboxDelivery(message.delivery),
+      delivery: deliveryStatus(message.delivery),
       provider: message.provider,
       subject: message.subject,
       to: message.to.join(", "),

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 
-import { unsupportedHostedSandboxTaskProviderError } from "../../src/task/runtime/provider-loader.ts"
+import { unsupportedHostedSandboxTaskProviderError } from "../../src/task/runtime/provider-resolution.ts"
 
 describe("provider detection", () => {
   it("identifies an unsupported generated hosted provider", () => {

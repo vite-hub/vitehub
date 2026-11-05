@@ -17,12 +17,16 @@ export interface ExecuteStaticScheduleOptions {
 
 export interface ExecuteMatchingStaticSchedulesOptions {
   cron: string
+  /** Cron per Schedule name that the host registered in place of the Definition's cron. */
+  cronOverrides?: Readonly<Record<string, string>>
   registry: ScheduleDefinitionRegistry
   scheduledAt?: Date
   waitUntil?: (promise: PromiseLike<unknown>) => void
 }
 
 export interface ExecuteCloudflareStaticSchedulesOptions {
+  /** Cron per Schedule name that the host registered in place of the Definition's cron. */
+  cronOverrides?: Readonly<Record<string, string>>
   registry: ScheduleDefinitionRegistry
   waitUntil?: (promise: PromiseLike<unknown>) => void
 }
@@ -155,7 +159,9 @@ export async function executeMatchingStaticSchedules(options: ExecuteMatchingSta
   const runs: Array<{ name: string, run: Promise<unknown> }> = []
   for (const [name, load] of Object.entries(options.registry)) {
     const definition = unwrapScheduleDefinition(await load())
-    if (!definition || normalizeCron(definition.cron) !== cron) continue
+    if (!definition) continue
+    const scheduleCron = (options.cronOverrides && Object.hasOwn(options.cronOverrides, name) ? options.cronOverrides[name] : undefined) ?? definition.cron
+    if (normalizeCron(scheduleCron) !== cron) continue
     runs.push({ name, run: executeStaticSchedule({ cron: options.cron, definition, name, scheduledAt, waitUntil: options.waitUntil }) })
   }
   // One failed schedule must not hide the result of the others. Hosts log only the rejection, without its cause.
@@ -180,6 +186,7 @@ export async function executeCloudflareStaticSchedules(
   return await runWithCloudflareServerEnv(event, async (waitUntil) => {
     return await executeMatchingStaticSchedules({
       cron: scheduled.cron,
+      cronOverrides: options.cronOverrides,
       registry: options.registry,
       scheduledAt: scheduled.scheduledAt,
       waitUntil,
@@ -263,14 +270,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isCallable(value: unknown): value is CallableFunction {
-  if (value === null || value === undefined || Object(value) !== value) return false
-  try {
-    Function.prototype.toString.call(value)
-    return true
-  }
-  catch {
-    return false
-  }
+  // Callable HTMLDDA browser values report undefined without being undefined.
+  return typeof value === "function" || (typeof value === "undefined" && value !== undefined)
 }
 
 // ponytail: Keep this provider entry free of the Node-backed shared Cloudflare runtime module.

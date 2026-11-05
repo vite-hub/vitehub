@@ -1,6 +1,6 @@
 import { defineConfig } from "vite"
 import { vitehub } from "vite-hub"
-import { defineAgent } from "vite-hub/agent"
+import { codexDriver, defineAgent } from "vite-hub/agent"
 import { otlp } from "vite-hub/agent/capabilities"
 import type {
   BuiltInAgentDriver,
@@ -61,12 +61,12 @@ export const builtInAgent = defineAgent({
     headers: context => ({ "x-otlp-signal": context.signal }),
     live: true,
   })],
-  driver: "codex",
+  driver: codexDriver(),
   runtime: false,
 })
 export const builtInSandbox = { runtime: "trusted-host" } satisfies SandboxDefinition
 export const builtInAgentName = "codex" satisfies BuiltInAgentDriverName
-export const configuredCodex = { kind: "codex", permissions: "ask" } satisfies BuiltInAgentDriver
+export const configuredCodex = codexDriver({ permissions: "ask" }) satisfies BuiltInAgentDriver
 export const codexOptions = { model: "gpt-5.5" } satisfies CodexDriverOptions
 export const claudeCodeOptions = { env: { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" } } satisfies ClaudeCodeDriverOptions
 export const credentialsProvider = defineEnvProvider<{

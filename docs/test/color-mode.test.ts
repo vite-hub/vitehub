@@ -1,21 +1,17 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
+const packageRuntime = new URL("../../packages/docs/runtime/", import.meta.url);
+
 describe("docs color mode", () => {
   it("offers a manual color-mode control", async () => {
-    const header = await readFile(
-      new URL("../app/components/AppHeader.vue", import.meta.url),
-      "utf8",
-    );
+    const header = await readFile(new URL("app/components/AppHeader.vue", packageRuntime), "utf8");
 
     expect(header).toContain("<UColorModeButton");
   });
 
-  it("defines browser schemes and a ViteHub-owned dark palette", async () => {
-    const styles = await readFile(
-      new URL("../app/assets/main.css", import.meta.url),
-      "utf8",
-    );
+  it("defines browser schemes and a theme-owned dark palette", async () => {
+    const styles = await readFile(new URL("theme/vercel.css", packageRuntime), "utf8");
     const lightRule = styles.match(/:root\.light \{(?<body>[^}]+)\}/)?.groups?.body;
     const darkRule = styles.match(/:root\.dark \{(?<body>[^}]+)\}/)?.groups?.body;
 

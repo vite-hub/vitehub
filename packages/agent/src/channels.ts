@@ -11,6 +11,7 @@ export { channelEnv, channelEnvValue } from "./channel-env.ts"
 export { channelMessageContextKey } from "./internal/channel-delivery-handlers.ts"
 import { createHash, randomUUID } from "node:crypto"
 import { ForgeResponseError, forgeErrorStatus, forgeProvider, githubAppCredentials, readGitHubAppPrivateKey } from "@vite-hub/forge"
+import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import type { ForgeKind } from "@vite-hub/forge"
 import { AgentHttpError } from "./http-error.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
@@ -72,6 +73,7 @@ import { defineMessageChannelInstructions } from "./internal/channels.ts"
 import { forgeAccessKey, type ForgeAccess } from "./internal/forge-access.ts"
 import { chatFinalReplyIntent, chatFinalReplyText, chatFinishDeliveryRegistrarKey, clearChatFinalReplyText, setChatFinalReplyText, setMessageChannelDeferredReplyTrace } from "./internal/chat-finish-delivery.ts"
 import type { ChatFinishDeliveryRegistrar } from "./internal/chat-finish-delivery.ts"
+import { withAgentChannelStatusDefinition } from "./internal/channel-status.ts"
 import { withAgentChannelSyncDefinition } from "./internal/channel-sync.ts"
 import { channelDeliveryHandlers } from "./internal/channel-delivery-handlers.ts"
 import { withAgentChannelHistoryDefinition } from "./internal/channel-history.ts"
@@ -79,7 +81,10 @@ import { createTelegramChannelSyncProvider } from "./internal/telegram-channel-s
 import { channelMessageRunId } from "./internal/channel-run-id.ts"
 import { postChannelReply } from "./internal/chat-reply.ts"
 import { getAgentChannelSyncDefinition } from "./internal/channel-sync.ts"
+import { channelsConsoleHost } from "./channels-console-host.ts"
 import {
+  cleanupGmailMailbox,
+  clearGmailSkippedMessages,
   createGmailChannelSyncProvider,
   getGmailMessage,
   getGmailThread,
@@ -89,13 +94,16 @@ import {
   gmailMessagePrompt,
   gmailMessageSchema,
   gmailMailboxAddress,
+  gmailMailboxHistoryId,
   gmailSettings,
   modifyGmailMessage,
+  readGmailChannelStatus,
+  normalizeGmailLabelSettings,
   readGmailPush,
   syncGmailMailbox,
   trashGmailMessage,
 } from "./internal/gmail-channel.ts"
-import type { GmailClient, GmailLabelSettings, GmailMessage, GmailModifyInput, GmailSettings } from "./internal/gmail-channel.ts"
+import type { GmailCleanupRule, GmailCleanupRuleResult, GmailClient, GmailLabelSettings, GmailMessage, GmailModifyInput, GmailSettings } from "./internal/gmail-channel.ts"
 import type { AgentChannelChatRouteBody, AgentChannelChatRouteHandlerOptions } from "./server.ts"
 import type { TelegramAdapterConfig } from "@chat-adapter/telegram"
 import { consoleInvocationUrl, createExecutionContext, createRuntimeContext, encodeRouteSegment, resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime"
@@ -115,8 +123,11 @@ export {
   publishWorkspaceArtifacts,
   rewriteDeliveryArtifactMarkdown,
 } from "./delivery-artifacts.ts"
-export { GmailApiError, createGmailOAuthClient, gmailEnvNames } from "./internal/gmail-channel.ts"
+export type { AgentChannelRetryingMessage, AgentChannelSkippedMessage, AgentChannelStatus } from "./internal/channel-status.ts"
+export { GmailApiError, createGmailOAuthClient, gmailEnvNames, gmailLabelPalette } from "./internal/gmail-channel.ts"
 export type {
+  GmailCleanupRule,
+  GmailCleanupRuleResult,
   GmailClient,
   GmailLabelColor,
   GmailLabelSettings,
@@ -712,9 +723,12 @@ export interface TeamsChannelOptions<TRuntimeConfig extends AgentRuntimeConfig =
   adapter?: true | TeamsAdapterOptions | AgentChannelOptions<TRuntimeConfig>["adapter"]
 }
 
+/** Your own Chat SDK adapter, or a function that returns it. */
+export type ChatConnectorAdapter = Adapter | (() => MaybePromise<Adapter>)
+
 export interface TeamsConnectorOptions {
   /** Adapter options, or your own adapter or adapter factory. When omitted, ViteHub builds the adapter from `env.server.teams`. */
-  adapter?: TeamsConnectorAdapterOptions | Adapter | (() => MaybePromise<Adapter>)
+  adapter?: TeamsConnectorAdapterOptions | ChatConnectorAdapter
 }
 
 /** Teams adapter options for a connector, which has no Agent callback context. */
@@ -722,11 +736,35 @@ export type TeamsConnectorAdapterOptions = Omit<TeamsAdapterOptions, "appId"> & 
   appId?: string | (() => MaybePromise<string>)
 }
 
-export interface TeamsSendOptions {
-  /** A Teams thread ID, such as a channel or chat that the bot received a message in, or `user:<id>` for a direct message. */
+export interface DiscordConnectorOptions {
+  /** Adapter options, or your own adapter or adapter factory. When omitted, ViteHub builds the adapter from `env.server.discord`. */
+  adapter?: DiscordAdapterOptions | ChatConnectorAdapter
+}
+
+export interface SlackConnectorOptions {
+  /** Your Slack adapter, such as `createSlackAdapter()` from `@chat-adapter/slack`, or a function that returns it. */
+  adapter: ChatConnectorAdapter
+}
+
+/** Telegram adapter options for a connector. The connector only sends, so it has no webhook options. */
+export interface TelegramConnectorAdapterOptions {
+  apiBaseUrl?: string
+  apiUrl?: string
+  botToken?: string | { unseal: () => string }
+  userName?: string
+}
+
+export interface TelegramConnectorOptions {
+  /** Adapter options, or your own adapter or adapter factory. When omitted, ViteHub builds the adapter from `env.server.telegram`. */
+  adapter?: TelegramConnectorAdapterOptions | ChatConnectorAdapter
+}
+
+/** The send options of every Chat connector, such as `teams.connector()` or `slack.connector()`. */
+export interface ChatSendOptions {
+  /** A Chat SDK thread ID, such as a channel or chat that the bot received a message in, or `user:<id>` for a direct message. */
   recipient: string
   /**
-   * Keeps every send with the same `key` under one root message in a Teams channel. The recipient must be a channel
+   * Keeps every send with the same `key` under one root message in a channel. The recipient must be a channel
    * without a message ID. ViteHub posts the root once, from `root` or else from the first text.
    */
   thread?: { key: string, root?: string }
@@ -737,10 +775,19 @@ export interface TeamsSendOptions {
    * Without a stored receipt, ViteHub posts as usual. Use it to keep one message current.
    */
   update?: boolean
+  /**
+   * The `idempotencyKey` of an earlier send to the same `recipient` and `thread`. Requires `idempotencyKey`. After this
+   * send posts or edits its message, ViteHub deletes the message stored for `replace` and removes its receipt. Without a
+   * stored receipt, ViteHub deletes nothing, so a repeated send is safe. Use it to remove a temporary message, such as
+   * "Drafting…", when the final message is posted as a new message. A channel thread root cannot be replaced: this
+   * throws a TypeError before posting or editing. Set `thread.root` on the first send so the temporary message is a reply.
+   */
+  replace?: string
 }
 
-export interface TeamsConnector {
-  send: (text: string, options: TeamsSendOptions) => Promise<{ id: string }>
+/** An outbound connector for `defineOutboundChannel()` that sends Markdown through a Chat SDK adapter. */
+export interface ChatConnector {
+  send: (text: string, options: ChatSendOptions) => Promise<{ id: string }>
 }
 
 type TelegramChannelValue<T, TRuntimeConfig extends AgentRuntimeConfig> =
@@ -1290,9 +1337,13 @@ async function githubPullRequestMetadata<TRuntimeConfig extends AgentRuntimeConf
     ...(fallbackBody ? { body: fallbackBody } : {}),
   }
 
+  let tokenError: unknown
   try {
     const appOptions = app ? githubAppOptions(app) || {} : {}
-    const token = services ? undefined : await githubPullRequestMetadataToken(app, context, command.installationId, command.repository).catch(() => undefined)
+    const token = services ? undefined : await githubPullRequestMetadataToken(app, context, command.installationId, command.repository).catch((error: unknown) => {
+      tokenError = error
+      return undefined
+    })
     const webhookUrl = new URL(command.pullRequestUrl)
     const baseUrl = appOptions.apiBaseUrl ?? `${webhookUrl.origin}${webhookUrl.pathname.replace(/\/repos\/[^/]+\/[^/]+\/pulls\/\d+\/?$/, "")}`
     const provider = services ? await services.provider(context) : await forgeProvider({ forge: "github", baseUrl, token, fetch: forgeChannelFetch(appOptions.fetch || fetch), userAgent: appOptions.userAgent })
@@ -1325,10 +1376,20 @@ async function githubPullRequestMetadata<TRuntimeConfig extends AgentRuntimeConf
     }
   }
   catch (error) {
+    const reason = error instanceof Error && error.message ? error.message : "unknown"
+    // The pull request Workspace checks out the head SHA, so the run cannot continue without it.
+    // Only an already admitted delivery is retried by the webhook queue.
+    if (githubPullRequestWorkspacePolicy(options).enabled) {
+      const tokenReason = tokenError === undefined ? "" : ` (the GitHub App token request failed first: ${tokenError instanceof Error ? tokenError.message : String(tokenError)})`
+      throw agentDiagnostics.AGENT_R0370({
+        message: `[vitehub] GitHub pull request workspace requires the exact head SHA, but loading ${command.repository}#${command.issueNumber} failed: ${reason}${tokenReason}`,
+        cause: tokenError ?? error,
+      })
+    }
     return {
       ...fallback,
       metadata: {
-        unavailable: error instanceof Error && error.message ? error.message : "unknown",
+        unavailable: reason,
       },
     }
   }
@@ -2749,32 +2810,34 @@ function discordAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig>(
     return input as AgentChannelOptions<TRuntimeConfig>["adapter"]
   }
   const options: DiscordAdapterOptions = input === true ? {} : input
+  return context => createDiscordAdapterFromEnv(options, context)
+}
+
+async function createDiscordAdapterFromEnv(options: DiscordAdapterOptions, context: BuiltInEnvContext): Promise<Adapter> {
   const { longContent, ...adapterOptions } = options
-  return async (context) => {
-    let createDiscordAdapter: (options?: Record<string, unknown>) => Adapter
-    try {
-      ({ createDiscordAdapter } = await import("@chat-adapter/discord"))
-    }
-    catch (error) {
-      throw agentDiagnostics.AGENT_R0365({ message: "[vitehub] discord({ adapter: true }) requires @chat-adapter/discord to be installed.", cause: error })
-    }
-    const applicationId = cleanSecret(adapterOptions.applicationId ?? await channelEnvValue("discord", "applicationId", context))
-    const botToken = cleanSecret(adapterOptions.botToken ?? await channelEnvValue("discord", "botToken", context))
-    const publicKey = cleanSecret(adapterOptions.publicKey ?? await channelEnvValue("discord", "publicKey", context))
-    const adapterConfig: Record<string, unknown> = { ...adapterOptions }
-    if (applicationId) adapterConfig.applicationId = applicationId
-    if (botToken) adapterConfig.botToken = botToken
-    if (publicKey) adapterConfig.publicKey = publicKey
-    const adapter = createDiscordAdapter(adapterConfig)
-    addDiscordThreadTitleSupport(adapter, adapterOptions, botToken)
-    if (longContent?.mode === "split") {
-      Object.defineProperty(adapter, Symbol.for("vitehub.discord.longContent.mode"), {
-        configurable: true,
-        value: "split",
-      })
-    }
-    return adapter
+  let createDiscordAdapter: (options?: Record<string, unknown>) => Adapter
+  try {
+    ({ createDiscordAdapter } = await import("@chat-adapter/discord"))
   }
+  catch (error) {
+    throw agentDiagnostics.AGENT_R0365({ message: "[vitehub] discord({ adapter: true }) requires @chat-adapter/discord to be installed.", cause: error })
+  }
+  const applicationId = cleanSecret(adapterOptions.applicationId ?? await channelEnvValue("discord", "applicationId", context))
+  const botToken = cleanSecret(adapterOptions.botToken ?? await channelEnvValue("discord", "botToken", context))
+  const publicKey = cleanSecret(adapterOptions.publicKey ?? await channelEnvValue("discord", "publicKey", context))
+  const adapterConfig: Record<string, unknown> = { ...adapterOptions }
+  if (applicationId) adapterConfig.applicationId = applicationId
+  if (botToken) adapterConfig.botToken = botToken
+  if (publicKey) adapterConfig.publicKey = publicKey
+  const adapter = createDiscordAdapter(adapterConfig)
+  addDiscordThreadTitleSupport(adapter, adapterOptions, botToken)
+  if (longContent?.mode === "split") {
+    Object.defineProperty(adapter, Symbol.for("vitehub.discord.longContent.mode"), {
+      configurable: true,
+      value: "split",
+    })
+  }
+  return adapter
 }
 
 function isTeamsAdapterOptions(input: unknown): input is TeamsAdapterOptions {
@@ -2815,47 +2878,189 @@ async function createTeamsConnectorAdapterFromEnv(options: TeamsConnectorAdapter
   return createTeamsAdapterFromEnv({ ...options, appId } as TeamsAdapterOptions, {})
 }
 
-const teamsLocks = new Map<string, Promise<unknown>>()
+const connectorLocks = new Map<string, Promise<unknown>>()
 
 /** Runs sends with the same key one after another. This holds within one process only. */
-async function withTeamsLock<T>(key: string, run: () => Promise<T>): Promise<T> {
-  const task = (teamsLocks.get(key) ?? Promise.resolve()).catch(() => undefined).then(run)
-  teamsLocks.set(key, task)
+async function withConnectorLock<T>(key: string, run: () => Promise<T>): Promise<T> {
+  const task = (connectorLocks.get(key) ?? Promise.resolve()).catch(() => undefined).then(run)
+  connectorLocks.set(key, task)
   try {
     return await task
   }
   finally {
-    if (teamsLocks.get(key) === task) teamsLocks.delete(key)
+    if (connectorLocks.get(key) === task) connectorLocks.delete(key)
   }
 }
 
-function teamsHash(value: string): string {
+function connectorHash(value: string): string {
   return createHash("sha256").update(value).digest("hex")
 }
 
-/** The part of the @vite-hub/kv storage that teams.connector() uses for thread roots and receipts. */
-type TeamsKV = Pick<import("@vite-hub/kv").KVStorage, "get" | "set">
+/** The part of the @vite-hub/kv storage that Chat connectors use for thread roots and receipts. */
+type ConnectorKV = Pick<import("@vite-hub/kv").KVStorage, "del" | "get" | "set">
 
-let teamsKVModule: Promise<TeamsKV> | undefined
-
-function teamsKV(): Promise<TeamsKV> {
-  // @vite-hub/kv is optional and loaded only when a Teams connector runs.
-  teamsKVModule ??= importOptionalKV().then(module => module.kv, (error: unknown) => {
-    teamsKVModule = undefined
-    throw agentDiagnostics.AGENT_R0365({ message: "[vitehub] teams.connector() requires @vite-hub/kv to be installed and configured.", cause: error })
+function connectorKV(name: string): Promise<ConnectorKV> {
+  // @vite-hub/kv is optional and loaded only when a Chat connector runs.
+  // Resolve it for each operation so a native dev reload can replace or remove the installed store.
+  return importOptionalKV().then(module => module.kv, (error: unknown) => {
+    throw agentDiagnostics.AGENT_R0365({ message: `[vitehub] ${name}.connector() requires @vite-hub/kv to be installed and configured.`, cause: error })
   })
-  return teamsKVModule
 }
 
-async function teamsKVGet(kv: TeamsKV, key: string): Promise<Record<string, unknown> | undefined> {
+async function connectorKVGet(kv: ConnectorKV, key: string): Promise<Record<string, unknown> | undefined> {
   const [error, value] = await kv.get(key)
   if (error) throw error
   return isRecord(value) ? value : undefined
 }
 
-async function teamsKVSet(kv: TeamsKV, key: string, value: { id: string } | { threadId: string }): Promise<void> {
+async function connectorKVSet(kv: ConnectorKV, key: string, value: { id: string } | { threadId: string }): Promise<void> {
   const [error] = await kv.set(key, value)
   if (error) throw error
+}
+
+/** What a Chat connector must know about one platform. Everything else uses the Chat SDK adapter API. */
+interface ChatConnectorPlatform {
+  /** The Channel name. It is the prefix of every KV key. */
+  name: "discord" | "slack" | "teams" | "telegram"
+  label: string
+  /** Channel threads. Without it, a send with `thread` throws a TypeError. */
+  thread?: {
+    /** True when the recipient is a channel, not a thread or message in it. */
+    isChannel: (adapter: Adapter, recipient: string) => boolean
+    /** The thread ID for replies under a root message that `postChannelMessage()` returned. */
+    rootThreadId: (adapter: Adapter, recipient: string, root: { id: string, threadId: string }) => string
+    /** The root message ID of a thread ID from `rootThreadId()`. */
+    rootMessageId: (adapter: Adapter, threadId: string) => string | undefined
+  }
+  /** True when a delete failed because the platform no longer has the message. */
+  isNotFound: (error: unknown) => boolean
+}
+
+/** Deletes the message stored under `receiptKey`, then its receipt. Without a stored receipt, it does nothing. */
+async function deleteConnectorReceipt(platform: ChatConnectorPlatform, adapter: Adapter, kv: ConnectorKV, receiptKey: string, threadId: string): Promise<void> {
+  const stored = await connectorKVGet(kv, receiptKey)
+  if (!hasRuntimeType(stored?.id, "string")) return
+  try {
+    await adapter.deleteMessage(threadId, stored.id)
+  }
+  catch (error) {
+    // The Chat SDK reports a missing resource as a ResourceNotFoundError with code NOT_FOUND.
+    if (!(isRecord(error) && error.code === "NOT_FOUND") && !platform.isNotFound(error)) throw error
+  }
+  const [error] = await kv.del(receiptKey)
+  if (error) throw error
+}
+
+/**
+ * An outbound connector for `defineOutboundChannel()` that sends Markdown through one Chat SDK adapter.
+ * Thread roots and idempotent receipts are stored in `@vite-hub/kv` under `<channel>:`.
+ */
+function chatConnector(platform: ChatConnectorPlatform, createAdapter: () => MaybePromise<Adapter>): ChatConnector {
+  const { label, name } = platform
+  let adapter: Promise<Adapter> | undefined
+  const useAdapter = (): Promise<Adapter> => {
+    if (!adapter) {
+      const pending = adapter = Promise.resolve().then(createAdapter)
+      pending.catch(() => {
+        if (adapter === pending) adapter = undefined
+      })
+    }
+    return adapter
+  }
+  return {
+    async send(text, { recipient, thread, idempotencyKey, update, replace }) {
+      if (!hasRuntimeType(recipient, "string") || !recipient) throw new TypeError(`[vitehub] ${label} send requires a recipient.`)
+      if (thread !== undefined && (!isRecord(thread) || !hasRuntimeType(thread.key, "string") || !thread.key)) throw new TypeError(`[vitehub] ${label} thread requires a non-empty key.`)
+      if (replace !== undefined && (!hasRuntimeType(replace, "string") || !replace || !idempotencyKey || replace === idempotencyKey)) {
+        throw new TypeError(`[vitehub] ${label} replace requires the idempotency key of an earlier send and its own idempotencyKey.`)
+      }
+      const chat = await useAdapter()
+      if (replace && !chat.deleteMessage) throw new TypeError(`[vitehub] The ${label} adapter cannot delete messages.`)
+      if (!thread) {
+        const target = async () => {
+          if (!recipient.startsWith("user:")) return recipient
+          if (!chat.openDM) throw new TypeError(`[vitehub] The ${label} adapter cannot open direct messages.`)
+          return await chat.openDM(recipient.slice(5))
+        }
+        const post = async () => ({ id: (await chat.postMessage(await target(), { markdown: text })).id })
+        if (!idempotencyKey) return await post()
+        const kv = await connectorKV(name)
+        const receiptKeyFor = (key: string) => `${name}:messages:${connectorHash(`${recipient}\0${key}`)}`
+        const receiptKey = receiptKeyFor(idempotencyKey)
+        const receipt = await withConnectorLock(receiptKey, async () => {
+          const stored = await connectorKVGet(kv, receiptKey)
+          if (hasRuntimeType(stored?.id, "string")) {
+            if (update) await chat.editMessage(await target(), stored.id, { markdown: text })
+            return { id: stored.id }
+          }
+          const receipt = await post()
+          await connectorKVSet(kv, receiptKey, receipt)
+          return receipt
+        })
+        if (replace) {
+          const replacedKey = receiptKeyFor(replace)
+          await withConnectorLock(replacedKey, async () => await deleteConnectorReceipt(platform, chat, kv, replacedKey, await target()))
+        }
+        return receipt
+      }
+      const threads = platform.thread
+      if (!threads) throw new TypeError(`[vitehub] ${name}.connector() does not support thread.`)
+      if (recipient.startsWith("user:") || !threads.isChannel(chat, recipient)) {
+        throw new TypeError(`[vitehub] A ${label} thread requires a channel recipient without a message ID.`)
+      }
+      if (!chat.postChannelMessage) throw new TypeError(`[vitehub] The ${label} adapter cannot post channel messages.`)
+      const postChannelMessage = chat.postChannelMessage.bind(chat)
+      const kv = await connectorKV(name)
+      const key = `${name}:threads:${connectorHash(`${recipient}\0${thread.key}`)}`
+      const receiptKey = idempotencyKey ? `${key}:messages:${connectorHash(idempotencyKey)}` : undefined
+      const replacedKey = replace ? `${key}:messages:${connectorHash(replace)}` : undefined
+      const receipt = await withConnectorLock(key, async () => {
+        const stored = receiptKey ? await connectorKVGet(kv, receiptKey) : undefined
+        const savedRoot = await connectorKVGet(kv, `${key}:root`)
+        let threadId = hasRuntimeType(savedRoot?.threadId, "string") ? savedRoot.threadId : undefined
+        if (replacedKey && threadId) {
+          const replaced = await connectorKVGet(kv, replacedKey)
+          if (hasRuntimeType(replaced?.id, "string") && threads.rootMessageId(chat, threadId) === replaced.id) {
+            throw new TypeError(`[vitehub] ${label} replace cannot delete a channel thread root. Set thread.root on the first send so the temporary message is a reply.`)
+          }
+        }
+        if (hasRuntimeType(stored?.id, "string")) {
+          // Inside a channel thread, edit a message through the root thread ID, also when the message is the root.
+          if (update && threadId) await chat.editMessage(threadId, stored.id, { markdown: text })
+          return { id: stored.id }
+        }
+        if (!threadId) {
+          const root = await postChannelMessage(recipient, { markdown: thread.root ?? text })
+          if (!root.id) throw new Error(`[vitehub] ${label} did not return a root message ID.`)
+          threadId = threads.rootThreadId(chat, recipient, root)
+          await connectorKVSet(kv, `${key}:root`, { threadId })
+          if (thread.root === undefined) {
+            if (receiptKey) await connectorKVSet(kv, receiptKey, { id: root.id })
+            return { id: root.id }
+          }
+        }
+        const message = await chat.postMessage(threadId, { markdown: text })
+        if (!message.id) throw new Error(`[vitehub] ${label} did not return a message ID.`)
+        if (receiptKey) await connectorKVSet(kv, receiptKey, { id: message.id })
+        return { id: message.id }
+      })
+      if (replacedKey) {
+        await withConnectorLock(key, async () => {
+          const savedRoot = await connectorKVGet(kv, `${key}:root`)
+          // Delete a message in a channel thread through the root thread ID, like an edit.
+          if (hasRuntimeType(savedRoot?.threadId, "string")) await deleteConnectorReceipt(platform, chat, kv, replacedKey, savedRoot.threadId)
+        })
+      }
+      return receipt
+    },
+  }
+}
+
+function connectorAdapter<TOptions>(input: TOptions | ChatConnectorAdapter | undefined, fromOptions: (options: TOptions | undefined) => Promise<Adapter>): () => MaybePromise<Adapter> {
+  return () => input === undefined || (isRecord(input) && !isAdapter(input)) ? fromOptions(input as TOptions | undefined)
+    : hasRuntimeType(input, "function") ? input()
+      // SAFETY: The checks above leave only an adapter.
+      : input as Adapter
 }
 
 function decodeTeamsThread(adapter: Adapter, threadId: string): Record<string, unknown> & { conversationId: string } {
@@ -2871,86 +3076,88 @@ function teamsRootThreadId(adapter: Adapter, recipient: string, root: { id: stri
   return adapter.encodeThreadId({ ...target, conversationId: `${target.conversationId};messageid=${root.id}` })
 }
 
-/**
- * An outbound connector for `defineOutboundChannel()` that sends Markdown to Microsoft Teams.
- * It builds one adapter like `teams()`. Thread roots and idempotent receipts are stored in `@vite-hub/kv` under `teams:`.
- */
-function teamsConnector(options: TeamsConnectorOptions = {}): TeamsConnector {
-  let adapter: Promise<Adapter> | undefined
-  const useAdapter = (): Promise<Adapter> => {
-    if (!adapter) {
-      const input = options.adapter
-      const pending = adapter = Promise.resolve(
-        input === undefined || isTeamsAdapterOptions(input) ? createTeamsConnectorAdapterFromEnv((input as TeamsConnectorAdapterOptions | undefined) ?? {})
-          : hasRuntimeType(input, "function") ? input()
-            : input,
-      )
-      pending.catch(() => {
-        if (adapter === pending) adapter = undefined
-      })
-    }
-    return adapter
-  }
-  return {
-    async send(text, { recipient, thread, idempotencyKey, update }) {
-      if (!hasRuntimeType(recipient, "string") || !recipient) throw new TypeError("[vitehub] Teams send requires a recipient.")
-      if (thread !== undefined && (!isRecord(thread) || !hasRuntimeType(thread.key, "string") || !thread.key)) throw new TypeError("[vitehub] Teams thread requires a non-empty key.")
-      const teams = await useAdapter()
-      if (!thread) {
-        const target = async () => {
-          if (!recipient.startsWith("user:")) return recipient
-          if (!teams.openDM) throw new TypeError("[vitehub] The Teams adapter cannot open direct messages.")
-          return await teams.openDM(recipient.slice(5))
-        }
-        const post = async () => ({ id: (await teams.postMessage(await target(), { markdown: text })).id })
-        if (!idempotencyKey) return await post()
-        const kv = await teamsKV()
-        const receiptKey = `teams:messages:${teamsHash(`${recipient}\0${idempotencyKey}`)}`
-        return await withTeamsLock(receiptKey, async () => {
-          const stored = await teamsKVGet(kv, receiptKey)
-          if (hasRuntimeType(stored?.id, "string")) {
-            if (update) await teams.editMessage(await target(), stored.id, { markdown: text })
-            return { id: stored.id }
-          }
-          const receipt = await post()
-          await teamsKVSet(kv, receiptKey, receipt)
-          return receipt
-        })
-      }
-      if (recipient.startsWith("user:") || /;messageid=/.test(decodeTeamsThread(teams, recipient).conversationId)) {
-        throw new TypeError("[vitehub] A Teams thread requires a channel recipient without a message ID.")
-      }
-      if (!teams.postChannelMessage) throw new TypeError("[vitehub] The Teams adapter cannot post channel messages.")
-      const postChannelMessage = teams.postChannelMessage.bind(teams)
-      const kv = await teamsKV()
-      const key = `teams:threads:${teamsHash(`${recipient}\0${thread.key}`)}`
-      const receiptKey = idempotencyKey ? `${key}:messages:${teamsHash(idempotencyKey)}` : undefined
-      return await withTeamsLock(key, async () => {
-        const stored = receiptKey ? await teamsKVGet(kv, receiptKey) : undefined
-        const savedRoot = await teamsKVGet(kv, `${key}:root`)
-        let threadId = hasRuntimeType(savedRoot?.threadId, "string") ? savedRoot.threadId : undefined
-        if (hasRuntimeType(stored?.id, "string")) {
-          // Inside a channel thread, Teams edits a message through the root thread ID, also when the message is the root.
-          if (update && threadId) await teams.editMessage(threadId, stored.id, { markdown: text })
-          return { id: stored.id }
-        }
-        if (!threadId) {
-          const root = await postChannelMessage(recipient, { markdown: thread.root ?? text })
-          if (!root.id) throw new Error("[vitehub] Teams did not return a root message ID.")
-          threadId = teamsRootThreadId(teams, recipient, root)
-          await teamsKVSet(kv, `${key}:root`, { threadId })
-          if (thread.root === undefined) {
-            if (receiptKey) await teamsKVSet(kv, receiptKey, { id: root.id })
-            return { id: root.id }
-          }
-        }
-        const message = await teams.postMessage(threadId, { markdown: text })
-        if (!message.id) throw new Error("[vitehub] Teams did not return a message ID.")
-        if (receiptKey) await teamsKVSet(kv, receiptKey, { id: message.id })
-        return { id: message.id }
-      })
-    },
-  }
+/** The Teams 404 is a NetworkError that keeps the Teams API error as `originalError`. */
+function isTeamsNotFound(error: unknown): boolean {
+  const cause = isRecord(error) ? error.originalError : undefined
+  if (!isRecord(cause)) return false
+  const status = isRecord(cause.innerHttpError) ? cause.innerHttpError.statusCode : cause.statusCode ?? cause.status
+  return status === 404
+}
+
+const teamsConnectorPlatform: ChatConnectorPlatform = {
+  name: "teams",
+  label: "Teams",
+  thread: {
+    isChannel: (adapter, recipient) => !/;messageid=/.test(decodeTeamsThread(adapter, recipient).conversationId),
+    rootThreadId: teamsRootThreadId,
+    rootMessageId: (adapter, threadId) => /;messageid=([^;]+)$/.exec(decodeTeamsThread(adapter, threadId).conversationId)?.[1],
+  },
+  isNotFound: isTeamsNotFound,
+}
+
+/** Sends Markdown to Microsoft Teams. It builds one adapter like `teams()`. Roots and receipts live in KV under `teams:`. */
+function teamsConnector(options: TeamsConnectorOptions = {}): ChatConnector {
+  return chatConnector(teamsConnectorPlatform, connectorAdapter(options.adapter, input => createTeamsConnectorAdapterFromEnv(input ?? {})))
+}
+
+function decodeSlackThread(adapter: Adapter, threadId: string): { channel: string, threadTs: string } {
+  const data = adapter.decodeThreadId(threadId)
+  if (!isRecord(data) || !hasRuntimeType(data.channel, "string") || !hasRuntimeType(data.threadTs, "string")) throw new TypeError("[vitehub] The Slack recipient is not a Slack thread ID.")
+  return { channel: data.channel, threadTs: data.threadTs }
+}
+
+const slackConnectorPlatform: ChatConnectorPlatform = {
+  name: "slack",
+  label: "Slack",
+  thread: {
+    isChannel: (adapter, recipient) => !decodeSlackThread(adapter, recipient).threadTs,
+    // A Slack thread is the channel with the `ts` of its root message, which is the message ID.
+    rootThreadId: (adapter, recipient, root) => adapter.encodeThreadId({ channel: decodeSlackThread(adapter, recipient).channel, threadTs: root.id }),
+    rootMessageId: (adapter, threadId) => decodeSlackThread(adapter, threadId).threadTs || undefined,
+  },
+  isNotFound: error => isRecord(error) && isRecord(error.data) && error.data.error === "message_not_found",
+}
+
+/** Sends Markdown to Slack through your Slack adapter. Roots and receipts live in KV under `slack:`. */
+function slackConnector(options: SlackConnectorOptions): ChatConnector {
+  const input = isRecord(options) ? options.adapter : undefined
+  if (!isAdapter(input) && !hasRuntimeType(input, "function")) throw new TypeError("[vitehub] slack.connector() requires an adapter, such as createSlackAdapter() from @chat-adapter/slack.")
+  return chatConnector(slackConnectorPlatform, hasRuntimeType(input, "function") ? input : () => input)
+}
+
+const discordConnectorPlatform: ChatConnectorPlatform = {
+  name: "discord",
+  label: "Discord",
+  // The Discord adapter keeps the HTTP status of a failed request on `originalError`.
+  isNotFound: error => isRecord(error) && isRecord(error.originalError) && error.originalError.status === 404,
+}
+
+/** Sends Markdown to Discord. It builds one adapter like `discord({ adapter: true })`. Receipts live in KV under `discord:`. */
+function discordConnector(options: DiscordConnectorOptions = {}): ChatConnector {
+  return chatConnector(discordConnectorPlatform, connectorAdapter(options.adapter, input => createDiscordAdapterFromEnv(input ?? {}, {})))
+}
+
+const telegramConnectorPlatform: ChatConnectorPlatform = {
+  name: "telegram",
+  label: "Telegram",
+  // Telegram answers a delete of a missing message with 400 "message to delete not found".
+  isNotFound: error => error instanceof Error && /message to delete not found/i.test(error.message),
+}
+
+/** Sends Markdown to Telegram. It builds one adapter from `env.server.telegram`. Receipts live in KV under `telegram:`. */
+function telegramConnector(options: TelegramConnectorOptions = {}): ChatConnector {
+  return chatConnector(telegramConnectorPlatform, connectorAdapter(options.adapter, async (input = {}) => {
+    const context = {}
+    const { createTelegramAdapter } = await import("@chat-adapter/telegram")
+    const adapterOptions: Parameters<typeof createTelegramAdapter>[0] = {}
+    const apiBaseUrl = cleanSecret(input.apiBaseUrl ?? await channelEnvValue("telegram", "apiBaseUrl", context))
+    const botToken = cleanSecret(input.botToken ?? await channelEnvValue("telegram", "botToken", context))
+    if (apiBaseUrl) adapterOptions.apiBaseUrl = apiBaseUrl
+    if (input.apiUrl) adapterOptions.apiUrl = input.apiUrl
+    if (botToken) adapterOptions.botToken = botToken
+    if (input.userName) adapterOptions.userName = input.userName
+    return createTelegramAdapter(adapterOptions)
+  }))
 }
 
 const discordApiBaseUrl = "https://discord.com/api/v10"
@@ -3511,14 +3718,17 @@ export function defineChannelTrigger<TDefinition>(definition: TDefinition): TDef
   return definition
 }
 
-export function discord<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: DiscordChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "discord", TData, TMethods>
-export function discord<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: DiscordChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem>): AgentChannelDefinitionOf<TRuntimeConfig, "discord", TData, TMethods>
-export function discord<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options: DiscordChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> = {}): AgentChannelDefinitionOf<TRuntimeConfig, "discord", TData, TMethods> {
+function discordChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: DiscordChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "discord", TData, TMethods>
+function discordChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: DiscordChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem>): AgentChannelDefinitionOf<TRuntimeConfig, "discord", TData, TMethods>
+function discordChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options: DiscordChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> = {}): AgentChannelDefinitionOf<TRuntimeConfig, "discord", TData, TMethods> {
   return defineChannel("discord", {
     ...options,
     adapter: discordAdapterResolver(options.adapter),
   })
 }
+
+/** The Discord Channel for an Agent. `discord.connector()` sends outbound messages through a `defineOutboundChannel()`. */
+export const discord: typeof discordChannel & { connector: typeof discordConnector } = /* @__PURE__ */ Object.assign(discordChannel, { connector: discordConnector })
 
 export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: GitHubChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods>, pullRequest: true | (GitHubPullRequestCommentEventOptions<TRuntimeConfig> & { workspace?: true | { mount?: string } }) }): AgentChannelDefinitionOf<TRuntimeConfig, "github", TData, TMethods> & { capabilities: readonly [AgentCapabilityDefinition<TRuntimeConfig> & { workspace: NonNullable<AgentCapabilityDefinition<TRuntimeConfig>["workspace"]> }, ...AgentCapabilityDefinition<TRuntimeConfig>[]] }
 export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: GitHubChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> & { pullRequest: true | (GitHubPullRequestCommentEventOptions<TRuntimeConfig> & { workspace?: true | { mount?: string } }) }): AgentChannelDefinitionOf<TRuntimeConfig, "github", TData, TMethods> & { capabilities: readonly [AgentCapabilityDefinition<TRuntimeConfig> & { workspace: NonNullable<AgentCapabilityDefinition<TRuntimeConfig>["workspace"]> }, ...AgentCapabilityDefinition<TRuntimeConfig>[]] }
@@ -3757,10 +3967,20 @@ export interface GmailChannelOptions<TRuntimeConfig extends AgentRuntimeConfig =
   /** Instructions added to Invocations started by this Channel. */
   instructions?: AgentChannelDefinition<TRuntimeConfig>["instructions"]
   /**
-   * Labels that the Channel manages. `vitehub channels sync` creates and colors them,
-   * and message methods create a missing one on first use.
+   * Hide user labels that `labels` does not declare from Gmail's label list when `vitehub channels sync` applies.
+   * Messages keep the hidden labels, and Gmail search still finds them. Parents of declared nested labels stay visible.
+   */
+  hideUnmanagedLabels?: boolean
+  /**
+   * Labels that the Channel manages. `vitehub channels sync` creates them and sets their color and visibility,
+   * and message methods create a missing one on first use. Colors must come from `gmailLabelPalette`.
    */
   labels?: Record<string, GmailLabelSettings>
+  /**
+   * Syncs that try one failing message before the Channel skips it, so that later mail is not blocked.
+   * `vitehub channels status` lists skipped messages. Defaults to 5.
+   */
+  maxAttempts?: number
   /** Builds the Invocation prompt from a message. The default prompt lists the headers, then the body. */
   prompt?: (message: GmailMessage) => string
 }
@@ -3800,31 +4020,51 @@ async function gmailChannelSettings<TRuntimeConfig extends AgentRuntimeConfig>(c
   return gmailSettings(await serverEnvNamespace("gmail", context?.event), name => context ? runtimeEnv(name, context) : globalThis.process?.env?.[name])
 }
 
-function assertGmailOptions<TRuntimeConfig extends AgentRuntimeConfig>(options: GmailChannelOptions<TRuntimeConfig>): void {
+/** Validates the Channel options and returns the declared labels with lowercase colors. */
+function gmailOptionLabels<TRuntimeConfig extends AgentRuntimeConfig>(options: GmailChannelOptions<TRuntimeConfig>): Record<string, GmailLabelSettings> {
   const invalid = (detail: string) => agentDiagnostics.AGENT_R0940({ message: `[vitehub] gmail() ${detail}` })
   if (options.bodyLimit !== undefined && (!Number.isSafeInteger(options.bodyLimit) || options.bodyLimit < 1)) {
     throw invalid("bodyLimit must be a positive integer.")
   }
+  if (options.maxAttempts !== undefined && (!Number.isSafeInteger(options.maxAttempts) || options.maxAttempts < 1)) {
+    throw invalid("maxAttempts must be a positive integer.")
+  }
+  if (options.hideUnmanagedLabels !== undefined && !hasRuntimeType(options.hideUnmanagedLabels, "boolean")) {
+    throw invalid("hideUnmanagedLabels must be a boolean.")
+  }
+  const labels: Record<string, GmailLabelSettings> = Object.create(null)
   for (const [name, label] of Object.entries(options.labels || {})) {
     if (!name.trim()) throw invalid("labels must have non-empty names.")
     if (!isRecord(label)) throw invalid(`label "${name}" must be an object.`)
+    const normalized = normalizeGmailLabelSettings(name, label)
+    if (hasRuntimeType(normalized, "string")) throw invalid(normalized)
+    labels[name] = normalized
   }
+  return labels
 }
 
+// Enumerable, so copies of the Channel keep it.
+const gmailChannelClient = Symbol("vitehub.gmail.client")
+
 /**
- * Gmail Channel. A Pub/Sub push starts one Invocation per new Inbox message, hooks act on the message
+ * Gmail Channel. A Pub/Sub push or `pollGmailChannel()` starts one Invocation per new Inbox message, hooks act on the message
  * through `event.message`, and `history` replays past messages through the same trigger.
  * Authentication uses a Google OAuth refresh token over `fetch`, so it runs on Node.js, Cloudflare Workers, and Vercel.
  */
 export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(options: GmailChannelOptions<TRuntimeConfig> = {}): GmailChannel<TRuntimeConfig> {
-  assertGmailOptions(options)
+  const labels = gmailOptionLabels(options)
   const bodyLimit = options.bodyLimit ?? gmailDefaultBodyLimit
-  const labels = options.labels || {}
   let verifiedMailbox: { address: string, clientId?: string, clientSecret?: string, refreshToken?: string } | undefined
   const resolveClient = async (context?: AgentCallbackContext<TRuntimeConfig>): Promise<GmailClient> =>
     options.client ?? gmailClientFromSettings(await gmailChannelSettings(context), options.fetch)
   const modify = async (context: AgentCallbackContext<TRuntimeConfig>, id: string, input: GmailModifyInput) =>
     await modifyGmailMessage(await resolveClient(context), id, input, labels)
+  // Push and poll start Invocations through the same trigger, so a message has one Invocation ID however it arrives.
+  const dispatchReceived = (context: Pick<AgentChannelTriggerContext<TRuntimeConfig>, "dispatch">) => async (messages: GmailMessage[]) =>
+    await context.dispatch(
+      messages.map(message => ({ input: message, key: message.id })),
+      { trigger: "received", ...(options.dryRun ? { dryRun: true } : {}) },
+    )
   const channel = defineChannel("gmail", {
     ...(options.capabilities ? { capabilities: options.capabilities } : {}),
     ...(options.instructions !== undefined ? { instructions: options.instructions } : {}),
@@ -3889,10 +4129,8 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
             await syncGmailMailbox({
               bodyLimit,
               client,
-              dispatch: async messages => await context.dispatch(
-                messages.map(message => ({ input: message, key: message.id })),
-                { trigger: "received", ...(options.dryRun ? { dryRun: true } : {}) },
-              ),
+              dispatch: dispatchReceived(context),
+              ...(options.maxAttempts ? { maxAttempts: options.maxAttempts } : {}),
               notificationHistoryId: push.historyId,
               state,
               ...(settings.pubsubTopic ? { topic: settings.pubsubTopic } : {}),
@@ -3906,6 +4144,26 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
           }))
           return new Response(null, { status: 204 })
         },
+      }),
+      // `pollGmailChannel()` runs it from a Schedule. It needs no Pub/Sub settings.
+      poll: defineChannelTrigger<unknown, TRuntimeConfig>({
+        durableState: true,
+        async invoke(context) {
+          const settings = await gmailChannelSettings(context)
+          const client = options.client ?? gmailClientFromSettings(settings, options.fetch)
+          await syncGmailMailbox({
+            bodyLimit,
+            client,
+            dispatch: dispatchReceived(context),
+            ...(options.maxAttempts ? { maxAttempts: options.maxAttempts } : {}),
+            notificationHistoryId: async () => await gmailMailboxHistoryId(client),
+            state: context.channelState,
+            throwOnDispatchFailure: true,
+            ...(settings.pubsubTopic ? { topic: settings.pubsubTopic } : {}),
+          })
+          return new Response(null, { status: 204 })
+        },
+        webhooks: [],
       }),
       received: defineChannelTrigger<GmailMessage, TRuntimeConfig>({
         input: gmailMessageSchema,
@@ -3938,7 +4196,12 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       },
     },
   })
-  return withAgentChannelSyncDefinition<TRuntimeConfig, typeof channel>(defineMessageChannelInstructions(channel, gmailInstructions(labels)), {
+  Object.defineProperty(channel, gmailChannelClient, { enumerable: true, value: resolveClient })
+  const described = withAgentChannelStatusDefinition<TRuntimeConfig, typeof channel>(defineMessageChannelInstructions(channel, gmailInstructions(labels)), {
+    clear: clearGmailSkippedMessages,
+    read: readGmailChannelStatus,
+  })
+  return withAgentChannelSyncDefinition<TRuntimeConfig, typeof channel>(described, {
     provider: "gmail",
     async resolve(context) {
       const settings = await gmailChannelSettings(context)
@@ -3946,6 +4209,7 @@ export function gmail<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       const mailbox = await gmailMailboxAddress(client)
       return createGmailChannelSyncProvider({
         client: fetchImpl => options.client ?? gmailClientFromSettings(settings, options.fetch ?? fetchImpl),
+        ...(options.hideUnmanagedLabels ? { hideUnmanagedLabels: true } : {}),
         labels,
         resourceKey: `gmail:${mailbox.trim().toLowerCase()}`,
         ...(settings.pubsubTopic ? { topic: settings.pubsubTopic } : {}),
@@ -3966,7 +4230,7 @@ export interface SyncGmailChannelResult {
   applied: boolean
   /** One line per planned change. */
   changes: string[]
-  /** Created and updated labels, and the renewed watch, after `apply`. */
+  /** Created, updated, and hidden labels, and the renewed watch, after `apply`. */
   result?: Record<string, unknown>
 }
 
@@ -3991,6 +4255,87 @@ export async function syncGmailChannel(channel: AgentChannelDefinition, options:
   return { action, applied: true, changes: plan.changes || [], result: await provider.apply(plan, globalThis.fetch) }
 }
 
+export interface PollGmailChannelOptions {
+  /** Runtime Context for Server Env and Cloudflare bindings. Omit it outside a host request. */
+  runtime?: AgentRuntimeContext
+}
+
+/**
+ * Reads new Inbox messages since the stored history cursor and starts one Invocation per message, as a Pub/Sub push
+ * does. Call it from a Schedule, such as every five minutes, to run the Gmail Channel without Pub/Sub. It shares the
+ * cursor, the mailbox lock, and the Invocation IDs with push, so both can run together. The first poll only stores the
+ * cursor. It also renews the watch when the Pub/Sub topic is set.
+ */
+export async function pollGmailChannel(channel: AgentChannelDefinition, options: PollGmailChannelOptions = {}): Promise<void> {
+  if (channel.kind !== "gmail" || getAgentChannelSyncDefinition(channel)?.provider !== "gmail") {
+    throw agentDiagnostics.AGENT_R0940({ message: "[vitehub] pollGmailChannel() expects a Channel from gmail()." })
+  }
+  // Standalone Schedule functions do not load the webhook route or its startup plugin.
+  // The generated registry loads the same handlers and durable State configuration on demand.
+  if (!channelsConsoleHost()) await (await import("#vitehub/agent/registry")).loadChannelsHost()
+  const host = channelsConsoleHost()
+  if (!host) {
+    throw agentDiagnostics.AGENT_R0940({ message: "[vitehub] pollGmailChannel() needs the Agent webhook routes of this app in the same process, with durable Agent State: libSQL with VITEHUB_AGENT_STATE_URL or Cloudflare Durable Objects." })
+  }
+  let polled = 0
+  const failures: unknown[] = []
+  const env = options.runtime?.cloudflare?.env ?? getActiveCloudflareEnv()
+  for (const [name, handler] of Object.entries(host.handlers)) {
+    const request = new Request("http://vitehub.local/_vitehub/channels/poll")
+    try {
+      polled += (await handler.poll(request, channel, { ...host.options(name, env), runtimeContext: options.runtime })).length
+    }
+    catch (error) {
+      failures.push(error)
+    }
+  }
+  if (failures.length === 1) throw failures[0]
+  if (failures.length) throw new AggregateError(failures, "[vitehub] Gmail Channel polling failed for multiple Agents.")
+  if (!polled) throw agentDiagnostics.AGENT_R0940({ message: "[vitehub] pollGmailChannel() found no Agent that uses this Channel." })
+}
+
+export interface CleanupGmailChannelOptions {
+  /** Move the matches to Trash. Without it, the function only lists them. */
+  apply?: boolean
+  /** Cleanup rules by name. */
+  rules: Readonly<Record<string, GmailCleanupRule>>
+  /** Runtime Context for Server Env and Cloudflare bindings. Omit it outside a host request. */
+  runtime?: AgentRuntimeContext
+}
+
+export interface CleanupGmailChannelResult {
+  applied: boolean
+  rules: GmailCleanupRuleResult[]
+}
+
+/**
+ * Moves labelled Gmail mail older than each rule's age to Trash, at most 500 messages per rule.
+ * Call it from a daily Schedule: each run continues with the matches that remain.
+ */
+export async function cleanupGmailChannel(channel: AgentChannelDefinition, options: CleanupGmailChannelOptions): Promise<CleanupGmailChannelResult> {
+  const resolveClient = (channel as { [gmailChannelClient]?: (context: AgentCallbackContext) => Promise<GmailClient> })[gmailChannelClient]
+  if (channel.kind !== "gmail" || !resolveClient) {
+    throw agentDiagnostics.AGENT_R0940({ message: "[vitehub] cleanupGmailChannel() expects a Channel from gmail()." })
+  }
+  if (!isRecord(options?.rules)) throw agentDiagnostics.AGENT_R0940({ message: "[vitehub] cleanupGmailChannel() requires a rules object." })
+  for (const [name, rule] of Object.entries(options.rules)) {
+    if (!isRecord(rule) || !hasRuntimeType(rule.label, "string") || !rule.label.trim() || /["\\\p{Cc}]/u.test(rule.label)) {
+      throw agentDiagnostics.AGENT_R0940({ message: `[vitehub] Gmail cleanup rule "${name}" needs a label name without quotes, backslashes, or control characters.` })
+    }
+    if (!Number.isSafeInteger(rule.olderThan) || rule.olderThan < 1) {
+      throw agentDiagnostics.AGENT_R0940({ message: `[vitehub] Gmail cleanup rule "${name}" needs olderThan as a positive whole number of days.` })
+    }
+  }
+  const apply = options.apply === true
+  if (!Object.keys(options.rules).length) return { applied: apply, rules: [] }
+  const runtime = options.runtime ?? (() => {
+    const created = createRuntimeContext({ runtime: "unknown" })
+    return { memo: created.memo, runtime: created.runtime, waitUntil: created.waitUntil }
+  })()
+  const client = await resolveClient(createExecutionContext(runtime))
+  return { applied: apply, rules: await cleanupGmailMailbox(client, options.rules, apply) }
+}
+
 export function http<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody, TAuth = unknown, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: AgentChannelOptions<TRuntimeConfig, TBody, TAuth, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "http", TData, TMethods>
 export function http<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody, TAuth = unknown, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: AgentChannelOptions<TRuntimeConfig, TBody, TAuth, TData, TMethods, THistoryItem>): AgentChannelDefinitionOf<TRuntimeConfig, "http", TData, TMethods>
 export function http<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody, TAuth = unknown, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options: AgentChannelOptions<TRuntimeConfig, TBody, TAuth, TData, TMethods, THistoryItem> = {}): AgentChannelDefinitionOf<TRuntimeConfig, "http", TData, TMethods> {
@@ -4000,11 +4345,14 @@ export function http<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCon
   return defineChannel("http", options)
 }
 
-export function slack<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: AgentChannelOptions<TRuntimeConfig, AgentChannelChatRouteBody, unknown, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "slack", TData, TMethods>
-export function slack<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: AgentChannelOptions<TRuntimeConfig, AgentChannelChatRouteBody, unknown, TData, TMethods, THistoryItem>): AgentChannelDefinitionOf<TRuntimeConfig, "slack", TData, TMethods>
-export function slack<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options: AgentChannelOptions<TRuntimeConfig, AgentChannelChatRouteBody, unknown, TData, TMethods, THistoryItem> = {}): AgentChannelDefinitionOf<TRuntimeConfig, "slack", TData, TMethods> {
+function slackChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: AgentChannelOptions<TRuntimeConfig, AgentChannelChatRouteBody, unknown, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "slack", TData, TMethods>
+function slackChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: AgentChannelOptions<TRuntimeConfig, AgentChannelChatRouteBody, unknown, TData, TMethods, THistoryItem>): AgentChannelDefinitionOf<TRuntimeConfig, "slack", TData, TMethods>
+function slackChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options: AgentChannelOptions<TRuntimeConfig, AgentChannelChatRouteBody, unknown, TData, TMethods, THistoryItem> = {}): AgentChannelDefinitionOf<TRuntimeConfig, "slack", TData, TMethods> {
   return defineChannel("slack", options)
 }
+
+/** The Slack Channel for an Agent. `slack.connector({ adapter })` sends outbound messages through a `defineOutboundChannel()`. */
+export const slack: typeof slackChannel & { connector: typeof slackConnector } = /* @__PURE__ */ Object.assign(slackChannel, { connector: slackConnector })
 
 function teamsChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>
 function teamsChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: TeamsChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem>): AgentChannelDefinitionOf<TRuntimeConfig, "teams", TData, TMethods>
@@ -4013,11 +4361,11 @@ function teamsChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
 }
 
 /** The Microsoft Teams Channel for an Agent. `teams.connector()` sends outbound messages through a `defineOutboundChannel()`. */
-export const teams: typeof teamsChannel & { connector: typeof teamsConnector } = Object.assign(teamsChannel, { connector: teamsConnector })
+export const teams: typeof teamsChannel & { connector: typeof teamsConnector } = /* @__PURE__ */ Object.assign(teamsChannel, { connector: teamsConnector })
 
-export function telegram<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: TelegramChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "telegram", TData, TMethods>
-export function telegram<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: TelegramChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem>): AgentChannelDefinitionOf<TRuntimeConfig, "telegram", TData, TMethods>
-export function telegram<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options: TelegramChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> = {}): AgentChannelDefinitionOf<TRuntimeConfig, "telegram", TData, TMethods> {
+function telegramChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: TelegramChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "telegram", TData, TMethods>
+function telegramChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: TelegramChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem>): AgentChannelDefinitionOf<TRuntimeConfig, "telegram", TData, TMethods>
+function telegramChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options: TelegramChannelOptions<TRuntimeConfig, TData, TMethods, THistoryItem> = {}): AgentChannelDefinitionOf<TRuntimeConfig, "telegram", TData, TMethods> {
   if (options.webhooks !== undefined && options.webhookSecret !== undefined) {
     throw agentDiagnostics.AGENT_R0373({ message: "[vitehub] telegram() accepts webhookSecret or webhooks, not both." })
   }
@@ -4090,6 +4438,9 @@ export function telegram<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntim
     },
   })
 }
+
+/** The Telegram Channel for an Agent. `telegram.connector()` sends outbound messages through a `defineOutboundChannel()`. */
+export const telegram: typeof telegramChannel & { connector: typeof telegramConnector } = /* @__PURE__ */ Object.assign(telegramChannel, { connector: telegramConnector })
 
 export function webChat<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody, TAuth = unknown, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = AgentChannelMessageMethods<TRuntimeConfig, TData>, THistoryItem = unknown>(options: AgentWebChatChannelOptions<TRuntimeConfig, TBody, TAuth, TData, TMethods, THistoryItem> & { message: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods> }): AgentChannelDefinitionOf<TRuntimeConfig, "web-chat", TData, TMethods>
 export function webChat<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody, TAuth = unknown, TData = unknown, const TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData> = Record<never, never>, THistoryItem = unknown>(options?: AgentWebChatChannelOptions<TRuntimeConfig, TBody, TAuth, TData, TMethods, THistoryItem>): AgentChannelDefinitionOf<TRuntimeConfig, "web-chat", TData, TMethods>

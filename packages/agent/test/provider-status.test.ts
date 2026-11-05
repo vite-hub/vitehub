@@ -34,6 +34,7 @@ afterEach(() => {
   vi.resetAllMocks()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
 })
 
 describe("provider inspection", () => {
@@ -180,6 +181,43 @@ describe("provider inspection", () => {
       reason: "Provider status check failed: Codex App Server process exited with code 1 Launch stderr: runtime args: [REDACTED]",
     })
     expect(JSON.stringify(result)).not.toContain(runtimeSecret)
+  })
+
+  it("keeps short host environment values such as LC_ALL=C in launcher stderr", async () => {
+    vi.stubEnv("LC_ALL", "C")
+    vi.stubEnv("LANG", "C")
+    const secret = "probe-secret-value"
+    inspectProvider.mockImplementation(async options => {
+      spawnSync(options.settings.binaryPath, [], { encoding: "utf8", env: options.environment })
+      return { ...ready(), status: "error", message: "Codex App Server process exited with code 1" }
+    })
+    const result = await inspectAgentProvider({
+      provider: "codex",
+      env: { RUNNER_SECRET: secret },
+      launch: { command: "sh", args: ["-c", 'echo "CODEX_HOME locale=$LC_ALL value=$RUNNER_SECRET" >&2; exit 1'] },
+    }, context())
+    expect(result).toMatchObject({
+      reason: "Provider status check failed: Codex App Server process exited with code 1 Launch stderr: CODEX_HOME locale=C value=[REDACTED]",
+    })
+    expect(JSON.stringify(result)).not.toContain(secret)
+  })
+
+  it("redacts only Driver environment values from requirement check failures", async () => {
+    vi.stubEnv("LC_ALL", "C")
+    const secret = "requirement-check-secret"
+    vi.mocked(childProcess.spawn).mockImplementation(() => {
+      const child = Object.assign(new EventEmitter(), { stdout: new PassThrough(), stderr: new PassThrough() })
+      queueMicrotask(() => {
+        child.stderr.end(`Cannot run sh: locale C, value ${secret}`)
+        child.stderr.once("end", () => child.emit("close", 2))
+      })
+      // SAFETY: The lookup only uses these ChildProcess streams and lifecycle events.
+      return child as never
+    })
+    inspectProvider.mockResolvedValue(ready())
+
+    await expect(inspectAgentProvider({ provider: "codex", env: { RUNNER_SECRET: secret }, requirements: ["sh"] }, context()))
+      .rejects.toThrow("[vitehub] The Driver requirement check exited with 2. Cannot run sh: locale C, value [REDACTED]")
   })
 
   it("reports Driver commands that are missing where the Driver runs", async () => {
@@ -451,14 +489,14 @@ process.exit(result.status ?? 1)
 
 describe("invocation preflight", () => {
   it.each([false, true])("preserves caller signal telemetry with journal cancellation and a provider timeout: %s", async (supplied) => {
-    const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
+    const { codexDriver, defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
     const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/server.ts")
     const { createTraceEventLog } = await import("@vite-hub/runtime")
     const traceLog = createTraceEventLog()
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const agent = defineAgent({
       runtime: false,
-      driver: { kind: "codex", model: "test" },
+      driver: codexDriver({ model: "test" }),
       invocations,
       capabilities: [defineCapability({ id: "failing-setup", resolve: () => { throw new Error("setup failed") } })],
     })
@@ -471,10 +509,10 @@ describe("invocation preflight", () => {
   })
 
   it("rejects unavailable capacity before starting capability preparation", async () => {
-    const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
+    const { codexDriver, defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
     const prepare = vi.fn(() => { throw new Error("unexpected runtime installation") })
     const close = vi.fn()
-    const agent = defineAgent({ runtime: false, driver: { kind: "codex", model: "test" }, capabilities: [defineCapability({
+    const agent = defineAgent({ runtime: false, driver: codexDriver({ model: "test" }), capabilities: [defineCapability({
       id: "runtime-preparation", prepare, close,
     })] })
     const status = vi.spyOn(agent, "status").mockResolvedValue({
@@ -489,10 +527,10 @@ describe("invocation preflight", () => {
   })
 
   it("rejects an incompatible configured model before capability preparation", async () => {
-    const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
+    const { codexDriver, defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
     inspectProvider.mockResolvedValue({ ...ready(), models: [{ slug: "gpt-5" }] })
     const prepare = vi.fn(() => { throw new Error("unexpected runtime installation") })
-    const agent = defineAgent({ runtime: false, driver: { kind: "codex", model: "gpt-6-astra" }, capabilities: [defineCapability({
+    const agent = defineAgent({ runtime: false, driver: codexDriver({ model: "gpt-6-astra" }), capabilities: [defineCapability({
       id: "runtime-preparation", prepare,
     })] })
     await expect(runAgentInline(agent, { runtime: "unknown", memo: (_key, create) => create(), waitUntil: task => void task.catch(() => {}) }, { prompt: "hello" }))
@@ -501,7 +539,7 @@ describe("invocation preflight", () => {
   })
 
   it("applies the provider deadline during capability preparation", async () => {
-    const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
+    const { codexDriver, defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
     const prepare = vi.fn(async (context: { abortSignal?: AbortSignal }) => {
       const signal = context.abortSignal
       expect(signal).toBeInstanceOf(AbortSignal)
@@ -511,7 +549,7 @@ describe("invocation preflight", () => {
         else signal.addEventListener("abort", () => reject(signal.reason), { once: true })
       })
     })
-    const agent = defineAgent({ runtime: false, driver: { kind: "codex", model: "test" }, capabilities: [defineCapability({ id: "slow-runtime", prepare })] })
+    const agent = defineAgent({ runtime: false, driver: codexDriver({ model: "test" }), capabilities: [defineCapability({ id: "slow-runtime", prepare })] })
     vi.spyOn(agent, "status").mockResolvedValue({ agent: "test", readiness: "ready", checkedAt: new Date().toISOString(), stale: false })
     await expect(runAgentInline(agent, { runtime: "unknown", memo: (_key, create) => create(), waitUntil: task => void task.catch(() => {}) }, { prompt: "hello", timeout: 50 }))
       .rejects.toThrow(/timeout|timed out/i)
@@ -519,9 +557,9 @@ describe("invocation preflight", () => {
   })
 
   it.each(["ready", "unknown", "stale"])("continues preparation for %s provider evidence", async (evidence) => {
-    const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
+    const { codexDriver, defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
     const prepare = vi.fn()
-    const agent = defineAgent({ runtime: false, driver: { kind: "codex", model: "test" }, capabilities: [defineCapability({
+    const agent = defineAgent({ runtime: false, driver: codexDriver({ model: "test" }), capabilities: [defineCapability({
       id: "handled-runtime", prepare, input: () => new Response("handled"),
     })] })
     const status = vi.spyOn(agent, "status").mockResolvedValue({
@@ -534,8 +572,8 @@ describe("invocation preflight", () => {
   })
 
   it("lets handled input respond without checking an unavailable provider", async () => {
-    const { defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
-    const agent = defineAgent({ runtime: false, driver: { kind: "codex", model: "test" }, capabilities: [defineCapability({ id: "handled", input: () => new Response("handled") })] })
+    const { codexDriver, defineAgent, defineCapability, runAgentInline } = await import("../src/index.ts")
+    const agent = defineAgent({ runtime: false, driver: codexDriver({ model: "test" }), capabilities: [defineCapability({ id: "handled", input: () => new Response("handled") })] })
     const status = vi.spyOn(agent, "status").mockResolvedValue({ agent: "test", readiness: "unavailable", checkedAt: new Date().toISOString(), stale: false })
     const result = await runAgentInline(agent, { runtime: "unknown", memo: (_key, create) => create(), waitUntil: task => void task.catch(() => {}) }, { prompt: "hello" })
     expect(await (result as Response).text()).toBe("handled")
@@ -543,10 +581,10 @@ describe("invocation preflight", () => {
   })
 
   it("lets interception respond without checking an unavailable provider", async () => {
-    const { defineAgent, runAgentInline } = await import("../src/index.ts")
+    const { codexDriver, defineAgent, runAgentInline } = await import("../src/index.ts")
     const agent = defineAgent({
       runtime: false,
-      driver: { kind: "codex", model: "test" },
+      driver: codexDriver({ model: "test" }),
       intercept: () => "handled",
     })
     const status = vi.spyOn(agent, "status").mockResolvedValue({ agent: "test", readiness: "unavailable", checkedAt: new Date().toISOString(), stale: false })

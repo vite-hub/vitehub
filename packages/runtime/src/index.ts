@@ -103,6 +103,21 @@ export type AccessAuthorize = (context: AccessAuthorizationContext) => MaybeProm
 /** `true` requires a signed-in session. A callback also decides each request after sign-in. */
 export type AccessAuthorizeOption = true | AccessAuthorize
 
+/** A signed-out caller. `session` and `user` are `null`. */
+export interface AnonymousAccessAuthorizationContext {
+  request: AccessAuthorizationContext["request"]
+  session: null
+  user: null
+}
+
+/**
+ * Decides whether a signed-in or signed-out caller can access one request.
+ * Check `user` before you read it. Return `false` for `403` (`401` when signed out) or a custom `Response`.
+ */
+export type AnonymousAccessAuthorize = (
+  context: AccessAuthorizationContext | AnonymousAccessAuthorizationContext,
+) => MaybePromise<AccessAuthorizeResult>
+
 export interface ExecutionAuthority {
   readonly credentials: "ambient" | "none" | "provisioned" | "unknown"
   readonly environment: "ambient" | "none" | "selected" | "unknown"

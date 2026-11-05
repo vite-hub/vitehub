@@ -1,5 +1,5 @@
 title: Sandbox
-icon: i-lucide-terminal-square
+icon: i-vitehub-sandbox
 order: 23
 category: Compute
 related: [shell, workspace]

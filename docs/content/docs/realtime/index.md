@@ -1,5 +1,6 @@
 ---
 title: Realtime collaboration
+layout: landing
 navigation.title: Overview
 description: Let several people edit one TipTap document at the same time, and save their changes to a file.
 navigation.order: 1

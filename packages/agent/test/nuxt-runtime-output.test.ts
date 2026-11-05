@@ -9,14 +9,14 @@ import { promisify } from "node:util"
 
 import { expect, it } from "vitest"
 
-import { syncPackedWorkspaceDependencies } from "../../internal/test-utils/published-types.js"
+import { packedWorkspacePackages, syncPackedWorkspaceDependencies } from "../../internal/test-utils/published-types.js"
 
 const execFileAsync = promisify(execFile)
 const packageRoot = resolve(import.meta.dirname, "..")
 const workspaceRoot = resolve(packageRoot, "../..")
 const childProcessTimeout = 60_000
 // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
-const packedPackages = [
+const packedPackages = await packedWorkspacePackages(workspaceRoot, [
   "agent",
   "sandbox",
   "env",
@@ -27,9 +27,9 @@ const packedPackages = [
   "runtime",
   "source",
   "workspace",
-] as const
+])
 
-async function runPnpm(args: string[], cwd: string): Promise<void> {
+async function runPnpm(args: string[], cwd: string, timeout = childProcessTimeout): Promise<void> {
   const npmExecPath = process.env.npm_execpath
   const command = npmExecPath?.includes("pnpm") ? process.execPath : "corepack"
   const commandArgs = npmExecPath?.includes("pnpm") ? [npmExecPath, ...args] : ["pnpm", ...args]
@@ -38,7 +38,7 @@ async function runPnpm(args: string[], cwd: string): Promise<void> {
       cwd,
       env: { ...process.env, CI: "true" },
       killSignal: "SIGKILL",
-      timeout: childProcessTimeout,
+      timeout,
     })
   }
   catch (error) {
@@ -80,7 +80,7 @@ async function requestWhenReady(url: string): Promise<Response> {
   throw lastError
 }
 
-it("packages optional Agent runtimes into immutable Nuxt output", { timeout: 180_000 }, async () => {
+it("packages optional Agent runtimes into immutable Nuxt output", { timeout: 360_000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-agent-nuxt-runtime-"))
   try {
     await mkdir(join(root, "server", "api"), { recursive: true })
@@ -97,10 +97,10 @@ it("packages optional Agent runtimes into immutable Nuxt output", { timeout: 180
     await writeFile(join(root, "pnpm-workspace.yaml"), "packages:\n  - .\n\nblockExoticSubdeps: false\n", "utf8")
     await writeFile(join(root, "app.vue"), "<template><div>ViteHub runtime proof</div></template>\n", "utf8")
     await writeFile(join(root, "server", "api", "proof.get.ts"), `
-import { defineAgent, runAgentInline } from "@vite-hub/agent"
+import { codexDriver, defineAgent, runAgentInline } from "@vite-hub/agent"
 import { gmail, mcp } from "@vite-hub/agent/capabilities"
 
-const agent = defineAgent({ driver: { env: { PATH: "" }, kind: "codex" }, runtime: false })
+const agent = defineAgent({ driver: codexDriver({ env: { PATH: "" } }), runtime: false })
 const optionalServer = false as boolean
 const gmailCapability = gmail({ connection: "google" })
 const capability = mcp({
@@ -140,7 +140,8 @@ export default defineEventHandler(async () => {
     )
     await Promise.all(packedPackages.map(name =>
       runPnpm(["pack", "--pack-destination", root], join(workspaceRoot, "packages", name))))
-    await runPnpm(["install", "--prefer-offline", "--ignore-scripts", "--no-frozen-lockfile"], root)
+    // A cold Nuxt install can exceed a minute on CI; keep packing and builds on their shorter limit.
+    await runPnpm(["install", "--prefer-offline", "--ignore-scripts", "--no-frozen-lockfile"], root, 180_000)
     await runPnpm(["exec", "nuxt", "build"], root)
 
     const outputServer = join(root, ".output", "server")

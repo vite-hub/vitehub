@@ -60,6 +60,17 @@ const packageJson = parsePackageManifest(
 const stylesheet = readFileSync(new URL("../dist/styles.css", import.meta.url), "utf8");
 const sourceStylesheet = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 
+const workspaceEntries = [
+  "./workspace",
+  "./workspace-shell",
+  "./workspace-file-tree",
+  "./workspace-editor",
+  "./workspace-terminal",
+  "./workspace-preview",
+  "./workspace-boot-status",
+  "./connect-panel",
+  "./browser-support-notice",
+];
 const componentEntries = [...new Set(componentNames.map((name) => `./${componentEntryName(name)}`))];
 
 describe("@vite-hub/ui package contract", () => {
@@ -88,9 +99,12 @@ describe("@vite-hub/ui package contract", () => {
       vite: { optional: true },
     });
     expect(packageJson.dependencies).toEqual({
-      "@comark/vue": "0.7.0",
+      "@comark/vue": "0.8.1",
       "comark-chat": "catalog:",
-      katex: "^0.17.0",
+      comark: "catalog:markdown-ui",
+      "vega-canvas": "^2.0.0",
+      "vega-loader": "^5.1.3",
+      katex: "^0.18.7",
       "@nuxt/kit": "4.6.2",
       "@shikijs/langs": "4.5.0",
       "@types/node": "catalog:tooling",
@@ -98,6 +112,21 @@ describe("@vite-hub/ui package contract", () => {
       "nostics": "catalog:runtime",
       "reka-ui": "catalog:ui",
       shiki: "^4.5.0",
+      "@codemirror/autocomplete": "6.20.4",
+      "@codemirror/commands": "6.11.1",
+      "@codemirror/lang-css": "6.3.1",
+      "@codemirror/lang-html": "6.4.12",
+      "@codemirror/lang-javascript": "6.2.5",
+      "@codemirror/lang-json": "6.0.2",
+      "@codemirror/lang-markdown": "6.5.2",
+      "@codemirror/lang-vue": "0.1.3",
+      "@codemirror/language": "6.13.1",
+      "@codemirror/state": "6.7.6",
+      "@codemirror/view": "6.43.15",
+      "@lezer/highlight": "1.2.5",
+      "@vite-hub/web-container": "workspace:*",
+      "@xterm/addon-fit": "0.11.0",
+      "@xterm/xterm": "6.0.0",
     });
   });
 
@@ -109,6 +138,7 @@ describe("@vite-hub/ui package contract", () => {
     "./nuxt",
     "./primitive-rail",
     "./vite",
+    ...workspaceEntries,
   ])("loads JavaScript entrypoint %s from the built package", async (entry) => {
     await verifyBuiltPackageExports(new URL("../", import.meta.url), "@vite-hub/ui", [entry]);
   });
@@ -124,10 +154,22 @@ describe("@vite-hub/ui package contract", () => {
 
   it("ships flat console surfaces that fill their containers", () => {
     for (const block of [".vh-chat", ".vh-session"]) {
-      expect(stylesheet, block).toMatch(new RegExp(`\\n${block.replace(".", "\\.")}\\s*\\{[^}]*height: 100%;[^}]*min-height: 0;`));
+      expect(stylesheet, block).toMatch(new RegExp(`\\n\\s*${block.replace(".", "\\.")}\\s*\\{[^}]*height: 100%;[^}]*min-height: 0;`));
     }
     expect(stylesheet).not.toMatch(/backdrop-filter|mask-image|linear-gradient/);
     expect(stylesheet).not.toContain("--vh-ui-text-muted");
+  });
+
+  it("keeps WebContainer, CodeMirror, and xterm out of the root barrel and behind their own entries", () => {
+    const dist = new URL("../dist/", import.meta.url);
+    const read = (name: string) => readFileSync(new URL(name, dist), "utf8");
+    const root = read("index.js");
+    for (const name of ["@vite-hub/web-container", "@codemirror/", "@xterm/"]) expect(root, name).not.toContain(name);
+    const webContainerImporters = readdirSync(dist)
+      .filter((name) => name.endsWith(".js") && /from\s*"@vite-hub\/web-container"/.test(read(name)));
+    expect(webContainerImporters.every((name) => name === "workspace.js" || name.startsWith("use-workspace-"))).toBe(true);
+    expect(read("workspace-editor.js")).not.toMatch(/from\s*"@codemirror\//);
+    expect(read("workspace-terminal.js")).toMatch(/import\("@xterm\/xterm"\)/);
   });
 
   it("keeps KaTeX out of the global stylesheet", () => {

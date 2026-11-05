@@ -1,7 +1,7 @@
 # @vite-hub/sandbox
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fsandbox&icon=npm)](https://www.npmjs.com/package/@vite-hub/sandbox)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fsandbox&period=month&icon=npm)](https://www.npmjs.com/package/@vite-hub/sandbox)
+[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fsandbox&icon=npm)](https://npmx.dev/package/@vite-hub/sandbox)
+[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fsandbox&period=month&icon=npm)](https://npmx.dev/package/@vite-hub/sandbox)
 [![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
 [![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
 
@@ -82,12 +82,16 @@ try {
 
 Binary file reads and writes, directory operations, recursive listing, removal, and command execution are required across runtimes. Long-running processes and exposed ports are explicit optional capabilities through `session.spawn` and `session.ports`. `close()` is idempotent, and every operation rejects after closure.
 
+Spawned `vercel` processes stream `stdout` and `stderr` while they run. Consume both streams concurrently, or cancel unused output. Each channel buffers up to 1 MiB; if a log entry would exceed that limit, that stream errors with `SANDBOX_R0159` and discards its queued and subsequent output. The other channel continues streaming. Cancelling both channels stops log streaming without killing the process.
+
+Spawned `cloudflare` processes stream `stdout` and `stderr` through `streamProcessLogs()` with the same 1 MiB per-channel limit and `SANDBOX_R0159` error. A custom `getSandbox` stub without `streamProcessLogs()` returns each channel's full output after the process exits.
+
 For trusted-host processes, `child.kill()` sends `SIGTERM`, then sends `SIGKILL` after a 250 ms grace period if needed. On POSIX hosts it terminates the process group, including descendants. `child.kill(signal)` forwards the explicit signal and waits for the process to finish without automatic escalation.
 
-A spawned `SandboxProcess` can also expose `stdin` as a `WritableStream<Uint8Array>`. The `trusted-host` and `crabbox` runtimes forward it to the process. Close the writer to end the process input. Runtimes that cannot forward input leave `stdin` undefined:
+A spawned `SandboxProcess` can also expose `stdin` as a `WritableStream<Uint8Array>`. The `trusted-host` and `crabbox` runtimes always forward it to the process. The `vercel` runtime forwards it only when you pass `stdin: true`, because a command that reads its input then waits until you close the writer. Close the writer to end the process input. Runtimes that cannot forward input leave `stdin` undefined:
 
 ```ts
-const child = await session.spawn!("node", ["workspace/filter.mjs"]);
+const child = await session.spawn!("node", ["workspace/filter.mjs"], { stdin: true });
 const writer = child.stdin?.getWriter();
 if (!writer) throw new Error("This Sandbox runtime does not forward process input.");
 await writer.write(new TextEncoder().encode("input\n"));
@@ -109,7 +113,7 @@ const vercel = await resolveSandbox({
 
 Use `runtime: "vercel"` for the default Vercel Sandbox configuration. Cloudflare remains tag-only because its Durable Objects namespace is required.
 
-The Cloudflare runtime uses `@cloudflare/sandbox`, preserves Durable Object idle reuse, and bounds transient transport operations with retries and deadlines. The Vercel runtime exposes only the ports declared when the microVM is created. Both reject host `cwd`; materialize a Workspace into their working tree instead.
+The Cloudflare runtime talks to the Sandbox Durable Object that the ViteHub Cloudflare host integration generates. That class starts the Container with the Workers Container API, uses `Files` from `@cloudflare/sandbox` 1.x, preserves Durable Object idle reuse, and the runtime bounds transient transport operations with retries and deadlines. Pass `getSandbox` to use another Durable Object that implements `CloudflareSandboxStub`. The Vercel runtime exposes only the ports declared when the microVM is created. Both reject host `cwd`; materialize a Workspace into their working tree instead.
 
 If Cloudflare Sandbox or Vercel cleanup fails, retry `session.close()`. The session rejects new operations after the first close attempt. Concurrent close calls wait for the same cleanup.
 
@@ -303,9 +307,9 @@ Install Sandbox, TypeScript, Vite, and the Sandbox provider used by your deploym
 pnpm add @vite-hub/sandbox typescript @vercel/sandbox vite
 ```
 
-Sandbox Task requires Node.js 24 or newer. Vercel execution also requires a Vercel project with Sandbox access. At runtime, use the project's environment or set `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, and `VERCEL_PROJECT_ID`.
+Sandbox Task requires Node.js 22.18 or newer. Vercel execution also requires a Vercel project with Sandbox access. At runtime, use the project's environment or set `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, and `VERCEL_PROJECT_ID`.
 
-For Cloudflare, install `@cloudflare/sandbox` instead and use the ViteHub Cloudflare host integration so it can emit the required Container, Durable Object binding, migration, and Worker exports. Both providers run remote, potentially billed infrastructure; Sandbox does not include a local in-process provider.
+For Cloudflare, install `@cloudflare/sandbox` 1.x instead and use the ViteHub Cloudflare host integration so it can emit the required Container, Durable Object binding, migration, and Worker exports. Both providers run remote, potentially billed infrastructure; Sandbox does not include a local in-process provider.
 
 ### Run one Sandbox Task
 
@@ -384,7 +388,7 @@ The Definition entrypoint does not import `@vite-hub/sandbox/task`. ViteHub call
 - Provider selection belongs to application or host configuration, not to a Definition. `hubSandboxTask({ provider: "vercel" })` and `hubSandboxTask({ provider: "cloudflare" })` are the direct-package forms. The `vite-hub` distribution can infer these from its Vercel and Cloudflare presets.
 - `vitehub.sandboxTask.timeout` must be a positive integer no greater than `2_147_483_647`. It bounds one execution attempt after provider startup, including package preparation, staging, and execution. Queueing, Sandbox startup, and retry delays can make the complete `runSandboxTask()` call take longer. An elapsed attempt timeout sends an internal abort signal to cancellable provider operations and returns a `SANDBOX_TASK_TIMEOUT` error in a non-2xx JSON response.
 - Pass `signal` to `runSandboxTask()` when it belongs to a request or Agent Invocation. ViteHub forwards it to Sandbox startup and execution, cancels queued Cloudflare runs and retry backoff, and preserves the caller's abort reason. A Definition timeout remains the independent bound for each execution attempt.
-- Vercel Sandbox sessions are closed in a `finally` block after success or failure. Cloudflare also creates and closes a unique Sandbox for each run unless you configure `sandboxId` or pass one to `runSandboxTask()`. Session cleanup failures and Cloudflare invocation-file cleanup failures return a non-2xx JSON response, even after a successful handler.
+- Vercel Sandbox sessions are closed in a `finally` block after success or failure. Cloudflare also creates and closes a unique Sandbox for each run unless you configure `sandboxId` or pass one to `runSandboxTask()`. Session cleanup failures return a non-2xx JSON response, even after a successful handler. So do Cloudflare invocation-file cleanup failures in a Sandbox that stays open after the run. A Sandbox that ViteHub closes after the run loses its files when it closes, so ViteHub does not delete them separately.
 - An explicit Cloudflare `sandboxId` opts into a shared Sandbox identity. ViteHub deletes invocation-local files after each attempt, caches prepared projects by digest inside that Sandbox, and serializes runs with the same ID within one runtime isolate. Separate Worker isolates can still enter the Sandbox concurrently, so use external coordination when deployment-wide serialization is required. The provider normally leaves an explicitly named Sandbox for idle shutdown; setting `keepAlive: true` makes ViteHub close its session after the run.
 
 When `resolveSandboxTaskRunner().run()` throws, its error cause retains the original provider diagnostic. If execution and cleanup both fail, the cause chain contains an `AggregateError` with both failures. The primary error code and message stay unchanged. JSON error responses omit causes.

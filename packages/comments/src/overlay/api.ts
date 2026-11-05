@@ -1,17 +1,20 @@
-import { commentsApiRoute } from "../page.ts"
+import { commentsApiRoute, commentsRoute } from "../page.ts"
+import { CommentsRestError, createCommentsRestRequest, createRestTransport } from "../rest-transport.ts"
 
-import type { Comment, CommentAnchor, CommentAuthor, CommentContext, CommentMention, CommentThread } from "../types.ts"
+import type { RestTransport } from "../rest-transport.ts"
+import type { CommentContext, CommentCreateInput, CommentsGitHubAccess, CommentUser } from "../types.ts"
 
 export interface CommentsSession {
-  user: CommentAuthor | null
-  can: { read: boolean, comment: boolean, resolve: boolean }
+  user: CommentUser | null
+  /** For a person signed in with GitHub: their login, and whether they can push to the repository. */
+  github?: CommentsGitHubAccess
+  can: { read: boolean, comment: boolean, resolve: boolean, delete?: boolean }
+  /** The GitHub sign-in, when the person may not read yet and the site offers it. */
+  signIn?: { provider: "github", url: string }
+  /** Signs out of the GitHub sign-in of Comments. */
+  signOut?: string
   realtime: boolean
   content: boolean
-}
-
-/** Request-scoped permissions for an existing thread, evaluated with that thread's authorization context. */
-export interface CommentsThread extends CommentThread {
-  can?: { comment: boolean, resolve: boolean }
 }
 
 export interface CommentsField {
@@ -50,44 +53,71 @@ export function saveGuest(name: string): { id: string, name: string } {
   return guest
 }
 
+const send = createCommentsRestRequest({ route, guest: readGuest })
+
 async function call<T>(path: string, init: RequestInit = {}): Promise<ApiResult<T>> {
-  const headers = new Headers(init.headers)
-  if (init.body) headers.set("content-type", "application/json")
-  const guest = readGuest()
-  if (guest) {
-    headers.set("x-vitehub-comments-guest-id", guest.id)
-    headers.set("x-vitehub-comments-guest-name", encodeURIComponent(guest.name))
-  }
-  let response: Response
   try {
-    response = await fetch(`${route}${path}`, { ...init, headers, credentials: "same-origin" })
+    return [undefined, (await send<T>(path, init)).data]
   }
-  catch {
-    return [{ code: "COMMENTS_OFFLINE", why: "The server cannot be reached." }, undefined]
+  catch (error) {
+    if (error instanceof CommentsRestError) return [{ code: error.code, why: error.why, ...(error.fix ? { fix: error.fix } : {}) }, undefined]
+    throw error
   }
-  const value: unknown = await response.json().catch(() => undefined)
-  if (value && typeof value === "object") {
-    if ("error" in value && value.error && typeof value.error === "object") return [value.error as CommentsApiError, undefined]
-    if ("data" in value) return [undefined, value.data as T]
-  }
-  return [{ code: "COMMENTS_FAILED", why: `The server answered ${response.status}.` }, undefined]
 }
 
 const post = (body: unknown): RequestInit => ({ method: "POST", body: JSON.stringify(body) })
 
-/** A thread of the `"pages"` scope. The Comments API returns only these, and each has an anchor. */
-export type PageThread = CommentsThread & { anchor: CommentAnchor }
-
+/** The routes that are not comment threads: who the person is on a page, and the Content fields of inline edits. */
 export const api = {
-  session: () => call<CommentsSession>("/session"),
-  threads: (page: string) => call<PageThread[]>(`/threads?page=${encodeURIComponent(page)}`),
-  create: (input: { page: string, anchor: CommentAnchor, context: CommentContext, body: string, mentions: CommentMention[] }) => call<PageThread>("/threads", post(input)),
-  reply: (thread: string, input: { body: string, mentions: CommentMention[] }) => call<Comment>(`/threads/${encodeURIComponent(thread)}/comments`, post(input)),
-  resolve: (thread: string) => call<PageThread>(`/threads/${encodeURIComponent(thread)}/resolve`, { method: "POST" }),
-  reopen: (thread: string) => call<PageThread>(`/threads/${encodeURIComponent(thread)}/reopen`, { method: "POST" }),
-  remove: (thread: string) => call<null>(`/threads/${encodeURIComponent(thread)}`, { method: "DELETE" }),
-  removeComment: (thread: string, comment: string) => call<null>(`/threads/${encodeURIComponent(thread)}/comments/${encodeURIComponent(comment)}`, { method: "DELETE" }),
-  people: (query: string) => call<CommentMention[]>(`/people?q=${encodeURIComponent(query)}`),
-  field: (field: string) => call<CommentsField>(`/fields?field=${encodeURIComponent(field)}`),
-  saveField: (input: { field: string, value: string, ifDigest: string }) => call<{ field: string, value: string, digest: string }>("/fields", post(input)),
+  session: (page: string) => call<CommentsSession>(`/session?page=${encodeURIComponent(page)}`),
+  field: (field: string, page: string) => call<CommentsField>(`/fields?page=${encodeURIComponent(page)}&field=${encodeURIComponent(field)}`),
+  saveField: (input: { field: string, value: string, ifDigest: string }, page: string) => call<{ field: string, value: string, digest: string }>(`/fields?page=${encodeURIComponent(page)}`, post(input)),
+}
+
+export interface OverlayTransportOptions {
+  /** The page context of a new thread, which the overlay read when the draft started. */
+  contextOf: (input: CommentCreateInput) => CommentContext | undefined
+  /** The people that an answer named, so their mentions get names. */
+  onPeople: (people: readonly CommentUser[]) => void
+  /** After each change, so the other people on the page read the threads again. */
+  onChange: () => void
+}
+
+/**
+ * The comment parts' transport: `createRestTransport()` over the Comments API of the page, with the guest of this
+ * browser. A new thread also sends the page context that the overlay read, and each change tells the other people on
+ * the page.
+ */
+export function createOverlayTransport(options: OverlayTransportOptions): RestTransport {
+  const rest = createRestTransport({
+    base: route.slice(0, -commentsRoute.length),
+    guest: readGuest,
+    onAnswer: answer => answer.people.length && options.onPeople(answer.people),
+  })
+  const changed = <A extends unknown[], T>(run: (...input: A) => Promise<T>) => async (...input: A): Promise<T> => {
+    const value = await run(...input)
+    options.onChange()
+    return value
+  }
+  return {
+    ...rest,
+    create: changed((input: CommentCreateInput) => {
+      const context = options.contextOf(input)
+      // SAFETY: `POST /threads` takes the page context of the overlay next to the input of `comments.create`.
+      return rest.create((context ? { ...input, context } : input) as CommentCreateInput)
+    }),
+    reply: changed(rest.reply),
+    edit: changed(rest.edit),
+    delete: changed(rest.delete),
+    resolve: changed(rest.resolve),
+    reopen: changed(rest.reopen),
+  }
+}
+
+/** The file as Base64, the form that `comments.upload` takes. */
+export async function base64(file: Blob): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  let binary = ""
+  for (let index = 0; index < bytes.length; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
+  return btoa(binary)
 }

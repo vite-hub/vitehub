@@ -1,6 +1,6 @@
 import type { CommentsClient, CommentSubject, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
-import { computed, defineComponent, h, nextTick, type PropType, ref, watch } from "vue";
-import { draftPositionKey, provideComments, useComments, type CommentsState } from "../headless/comments.ts";
+import { computed, defineComponent, h, nextTick, type PropType, ref, shallowRef, watch } from "vue";
+import { type CommentCan, draftPositionKey, provideComments, useComments, type CommentDraft, type CommentsState } from "../headless/comments.ts";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { consumedPointerEvents } from "../internal/comment-outside.ts";
 import { excerpt } from "../internal/comment-person.ts";
@@ -8,7 +8,8 @@ import type { AvatarStackPerson } from "./avatar-stack.ts";
 import { CommentComposer, type CommentComposerSubmit } from "./comment-composer.ts";
 import { CommentList, CommentToolbar } from "./comment-list.ts";
 import { CommentPin } from "./comment-pin.ts";
-import { CommentThread } from "./comment-thread.ts";
+import type { CommentUpload } from "./comment-panel.ts";
+import { type CommentAttachmentUrl, CommentThread } from "./comment-thread.ts";
 
 const popoverWidth = 360;
 const popoverHeight = 420;
@@ -39,6 +40,14 @@ export const CommentLayer = defineComponent({
     subjectUrl: { type: Function as PropType<(subject: CommentSubject) => string | undefined> },
     /** Navigates to the page of a thread from the list. Defaults to `location.assign`. */
     navigate: { type: Function as PropType<(href: string) => void> },
+    /** What the signed-in user may do in a thread. Defaults to the `can` of the comments state. */
+    can: { type: Function as PropType<CommentCan> },
+    /** Turns attached files into attachment keys. Without it the boxes take no files. */
+    upload: { type: Function as PropType<CommentUpload> },
+    /** The file types that the boxes take, such as `image/*`. */
+    accept: { type: String },
+    /** Gives the URL of an attachment key. With it, image attachments show as thumbnails. */
+    attachmentUrl: { type: Function as PropType<CommentAttachmentUrl> },
   },
   setup(props, { slots }) {
     const { client, subject } = props;
@@ -63,6 +72,14 @@ export const CommentLayer = defineComponent({
       user: () => props.user,
     });
     provideComments(state);
+    const draftFiles = ref<File[]>([]);
+    const uploadingDraft = shallowRef<CommentDraft | null>(null);
+    // The files belong to one draft. A new draft, or none, starts without them.
+    watch(() => state.draft.value, (next, previous) => {
+      if (next !== previous) draftFiles.value = [];
+    });
+    const attachmentsOn = computed(() => props.upload !== undefined && state.client.transport.supportsAttachments !== false);
+    const keys = async (files: File[]) => (attachmentsOn.value && files.length > 0 && props.upload ? props.upload(files) : []);
 
     const user = computed(() => state.user.value);
     const pinned = computed(() => {
@@ -131,6 +148,10 @@ export const CommentLayer = defineComponent({
     // The thread tracks each action itself: it clears a box only after the handler succeeded, and shows a failure.
     const threadView = (thread: CommentThreadModel) =>
       h(CommentThread, {
+        accept: props.accept,
+        attachmentUrl: props.attachmentUrl,
+        attachments: attachmentsOn.value,
+        can: props.can,
         key: thread.id,
         detached: state.positions.value.get(thread.id)?.detached === true,
         readOnly: props.readOnly,
@@ -138,7 +159,7 @@ export const CommentLayer = defineComponent({
         onDelete: (messageId: string) => state.remove(thread.id, messageId),
         onEdit: (messageId: string, body: string, mentions: string[]) => state.edit(thread.id, messageId, body, mentions),
         onReopen: () => state.reopen(thread.id),
-        onReply: (body: string, mentions: string[]) => state.reply(thread.id, body, mentions),
+        onReply: async (body: string, mentions: string[], files: File[]) => state.reply(thread.id, body, mentions, await keys(files)),
         // Resolving puts the thread away, as in Figma.
         onResolve: async () => {
           await state.resolve(thread.id);
@@ -146,7 +167,6 @@ export const CommentLayer = defineComponent({
         },
         thread,
         user: user.value,
-        users: state.users,
       });
 
     return () => {
@@ -221,15 +241,35 @@ export const CommentLayer = defineComponent({
                   "div",
                   { "data-slot": "comment-layer-popover" },
                   h(CommentComposer, {
-                    busy: draft.busy,
+                    accept: props.accept,
+                    attachments: attachmentsOn.value,
+                    busy: draft.busy || uploadingDraft.value === draft,
                     error: draft.error,
                     mentions: draft.mentions,
                     modelValue: draft.body,
                     onCancel: () => state.cancelDraft(),
-                    onSubmit: (submit: CommentComposerSubmit) => {
+                    files: draftFiles.value,
+                    onSubmit: async (submit: CommentComposerSubmit) => {
+                      if (draft.busy || uploadingDraft.value === draft || state.draft.value !== draft) return;
+                      uploadingDraft.value = draft;
+                      draft.error = undefined;
                       draft.mentions = submit.mentions;
-                      void state.send();
+                      const submitted = draftFiles.value;
+                      const body = draft.body;
+                      const mentions = draft.mentions;
+                      try {
+                        const attachments = await keys(submit.files);
+                        // The box stays editable during an upload. A changed draft is not what was sent, so it waits for another Enter.
+                        if (state.draft.value !== draft || draft.body !== body || draft.mentions !== mentions || draftFiles.value !== submitted) return;
+                        draft.attachments = attachments;
+                        if (await state.send() && draftFiles.value === submitted) draftFiles.value = [];
+                      } catch (error) {
+                        draft.error = error instanceof Error ? error.message : "The files could not be uploaded. Try again.";
+                      } finally {
+                        if (uploadingDraft.value === draft) uploadingDraft.value = null;
+                      }
                     },
+                    "onUpdate:files": (value: File[]) => (draftFiles.value = value),
                     "onUpdate:mentions": (value: string[]) => (draft.mentions = value),
                     "onUpdate:modelValue": (value: string) => (draft.body = value),
                     people: user.value ? [user.value] : [],

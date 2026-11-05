@@ -5,6 +5,7 @@ import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
 import { getConsoleSchedules } from "./definitions.ts"
 import { consoleRequestText } from "./request.ts"
+import { loadConsoleRuntime } from "./runtime.ts"
 import { getConsoleSections } from "./sections.ts"
 
 import type { ScheduleRunRecord } from "@vite-hub/schedule"
@@ -44,6 +45,7 @@ export async function runConsoleSchedule(body: unknown): Promise<ConsoleSchedule
   const name: unknown = body instanceof Object && "name" in body ? body.name : undefined
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Schedule run requests are untrusted JSON.
   if (typeof name !== "string" || !name) return { message: "Schedule run requires a Schedule Definition name.", ok: false, status: 400 }
+  await loadConsoleRuntime()
   const registry = getConsoleSections().includes("schedules") ? getConsoleSchedules() : {}
   if (!Object.hasOwn(registry, name)) {
     return { message: "Schedule run is not available. Set manual: true on the Schedule Definition and enable Console invocation.", ok: false, status: 404 }

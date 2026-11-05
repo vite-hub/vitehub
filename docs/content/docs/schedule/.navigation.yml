@@ -1,5 +1,5 @@
 title: Schedule
-icon: i-lucide-calendar-clock
+icon: i-vitehub-schedule
 order: 22
 category: Compute
 related: [workflows, queue]

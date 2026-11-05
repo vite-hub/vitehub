@@ -3,13 +3,23 @@ const title = "Server primitives for Vite";
 const description =
   "Write server code once and deploy it across supported Vite hosts with one API for databases, storage, queues, workflows, and more.";
 
-useSeo({
+useSeoMeta({
   title,
   description,
-  type: "website",
+  ogTitle: title,
+  ogDescription: description,
+  ogType: "website",
+  ogUrl: "https://vitehub.dev",
 });
 
+// The home page is a Vue page. `content/index.md` is its Markdown twin for agents.
+useHead({ link: [{ rel: "alternate", type: "text/markdown", href: "https://vitehub.dev/raw/index.md" }] });
+
 useSchemaOrg([
+  defineWebSite({
+    name: "ViteHub",
+    description,
+  }),
   defineOrganization({
     name: "ViteHub",
     description: "The open-source server layer for portable Vite applications.",

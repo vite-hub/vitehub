@@ -1,7 +1,6 @@
 import { defineContent, documents, image, optional, seo, singleton } from "vite-hub/content"
+import { cmsContentAuthorize } from "vite-hub/cms/access"
 import { z } from "zod"
-
-import { roleOf } from "./roles"
 
 const link = z.object({ label: z.string().min(1), to: z.string().min(1), icon: z.string().optional() })
 
@@ -39,6 +38,8 @@ export const content = defineContent({
       // The Console offers these in the body's `/` menu. The site renders them with its own Vue components.
       components: {
         alert: { description: "A highlighted note", props: { type: { type: "string", default: "info" } } },
+        // An image prop opens the Media picker and stores the served URL, such as icon="/api/_vitehub/blob/train.webp".
+        "field-note": { description: "A note with an icon", props: { title: { type: "string" }, icon: { type: "image" } } },
         badge: { kind: "inline", description: "A short inline label" },
       },
     }),
@@ -52,11 +53,7 @@ export const content = defineContent({
   },
   // /sitemap.xml lists published posts with their URL; /robots.txt points crawlers at it.
   seo: { sitemap: true, robots: { disallow: ["/_vitehub", "/login"] } },
-  // Admins and editors do everything. Writers save drafts but cannot publish.
-  authorize: ({ user, action }) => {
-    const role = roleOf(user)
-    if (role === "admin" || role === "editor") return true
-    if (role === "writer") return action !== "publish"
-    return false
-  },
+  // The CMS roles decide. This app keeps its own `site` Workspace instead of `extends: cms`, so it names the policy.
+  // Publishers and admins publish, editors save drafts, and commenters read them.
+  authorize: cmsContentAuthorize,
 })

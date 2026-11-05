@@ -79,6 +79,12 @@ export interface ContentDevSaveResult {
   issues?: ContentFieldIssue[]
 }
 
+/** A document that `content.remove` deleted from the draft. The next publish deletes it from the site. */
+export interface ContentDevRemoveResult {
+  collection: string
+  id: string
+}
+
 export interface ContentDevStatusResult {
   documents: ContentDocumentStatus[]
 }

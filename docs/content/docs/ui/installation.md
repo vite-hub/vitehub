@@ -1,6 +1,7 @@
 ---
 title: Installation
 description: "Install ViteHub UI in a Nuxt or Vue with Vite application, set the theme, and verify the setup with server rendering."
+seo.title: Install ViteHub UI
 navigation.title: Installation
 navigation.order: 3
 navigation.group: Start
@@ -9,7 +10,7 @@ icon: i-lucide-package
 
 Add `@vite-hub/ui` to an existing Nuxt or Vue application and render a short
 Markdown message to check that it works. Choose the setup for your framework,
-then follow "Verify the setup" below. You need Node.js 24.15 or newer.
+then follow "Verify the setup" below. You need Node.js 22.22 or newer.
 
 The package is pre-1.0. Pin its version and review changes before you upgrade.
 
@@ -159,6 +160,18 @@ app.use(
 
 Read the resolved defaults in your own components with `useViteHubUI()`.
 
+## Nuxt UI components
+
+The parts import the Nuxt UI components that they render, such as `UButton` and `UModal`, from `@nuxt/ui`. They do not look for them by name, so they work when the app registers Nuxt UI per template, as Nuxt does, or not at all. Icons are the exception in Nuxt: the Nuxt module, and `vite-hub/nuxt` when the app installs `@vite-hub/ui`, give the parts Nuxt UI's Nuxt icon, which reads the `@nuxt/icon` client bundle.
+
+To render other components, for example on a page without Nuxt UI, pass them by name:
+
+```ts [vite/components/src/main.ts]
+app.use(createViteHubUI({ components: { UButton: MyButton, UIcon: MyIcon } }));
+```
+
+A part uses the component given here first, then one that the app registered globally under the same name with `app.component()`, then Nuxt UI's.
+
 ## Theme
 
 The stylesheet maps its CSS variables to Nuxt UI tokens. Override them on any element to change one view:
@@ -171,7 +184,9 @@ The stylesheet maps its CSS variables to Nuxt UI tokens. Override them on any el
 }
 ```
 
-The variables are `--vh-ui-radius`, `--vh-ui-border`, `--vh-ui-text`, `--vh-ui-muted`, `--vh-ui-dimmed`, `--vh-ui-bg`, `--vh-ui-bg-muted`, `--vh-ui-bg-elevated`, `--vh-ui-error`, `--vh-ui-info`, `--vh-ui-success`, and `--vh-ui-warning`.
+The variables are `--vh-ui-radius`, `--vh-ui-border`, `--vh-ui-text`, `--vh-ui-muted`, `--vh-ui-dimmed`, `--vh-ui-highlighted`, `--vh-ui-inverted`, `--vh-ui-bg`, `--vh-ui-bg-muted`, `--vh-ui-bg-elevated`, `--vh-ui-bg-accented`, `--vh-ui-primary`, `--vh-ui-ring`, `--vh-ui-error`, `--vh-ui-info`, `--vh-ui-success`, and `--vh-ui-warning`. The stylesheet sets none of them: unset, each one follows its Nuxt UI token, such as `--ui-border`, where the part renders. So an element that sets Nuxt UI tokens, such as one with the `dark` class, themes the parts inside it without these variables.
+
+`--vh-ui-radius` is the corner radius of framed parts, such as `CodeBlock` and `CodeView`. It defaults to Nuxt UI's `rounded-lg`, twice `--ui-radius`. Smaller and larger corners, such as those of `Bubble` and `PromptInput`, derive from it, so one value changes them all.
 
 ## Server rendering
 

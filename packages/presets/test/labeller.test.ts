@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { defineAgent, runAgent } from "@vite-hub/agent"
-import { labeller } from "../src/labeller.ts"
+import { cleanupLabeller, labeller } from "../src/labeller.ts"
 
 const message = {
   attachments: [],
@@ -86,7 +86,7 @@ describe("labeller preset", () => {
     }
   })
 
-  it.each(["dryRun", "trashEnabled"])("rejects non-boolean %s policy options", (policy) => {
+  it.each(["dryRun", "hideUnmanagedLabels", "trashEnabled"])("rejects non-boolean %s policy options", (policy) => {
     for (const value of ["false", "true", 0, 1, null, {}, []]) {
       expect(() => configured({ [policy]: value })).toThrow(/must be a boolean/)
     }
@@ -111,6 +111,13 @@ describe("labeller preset", () => {
     const finish = agent.hooks?.["agent:finish"] as unknown as (event: { message: unknown, result: unknown }) => Promise<void>
     await finish({ message, result: { label: "Receipts", rule: "receipt" } })
     expect(calls).toEqual(["label:Receipts"])
+  })
+
+  it("rejects label colors outside Gmail's palette when the Agent is defined", () => {
+    expect(configured().options.hideUnmanagedLabels).toBe(false)
+    expect(() => configured({ labels: { Work: { color: { textColor: "#FFFFFF", backgroundColor: "#4A86E8" } } } })).not.toThrow()
+    expect(() => configured({ labels: { Work: { color: { textColor: "#ffffff", backgroundColor: "#123456" } } } }))
+      .toThrow(/label "Work" color backgroundColor "#123456" is not in Gmail's label palette/)
   })
 
   it("accepts trash policy declarations while keeping the gate explicit", () => {
@@ -173,5 +180,35 @@ describe("labeller preset", () => {
     const finish = agent.hooks?.["agent:finish"] as unknown as (event: { message: unknown, result: unknown }) => Promise<void>
     await finish({ message, result: { label: "Receipts", rule: "receipts" } })
     expect(calls).toEqual(["label:Receipts", "archive", "star"])
+  })
+
+  it("keeps cleanup off until rules, apply, and live mode are all set", async () => {
+    const requests: string[] = []
+    const client = async (request: { method: string, path: string }) => {
+      requests.push(`${request.method} ${request.path}`)
+      return request.path === "messages" ? { messages: [{ id: "m1" }] } : {}
+    }
+    expect(configured().options.cleanup).toEqual({})
+    await expect(cleanupLabeller(configured({ client }), { apply: true })).resolves.toEqual({ applied: false, rules: [] })
+    expect(requests).toEqual([])
+
+    const cleanup = { receipts: { label: "Receipts", olderThan: 30 } }
+    const preview = await cleanupLabeller(configured({ cleanup, client, dryRun: true }), { apply: true })
+    expect(preview).toEqual({ applied: false, rules: [{ messageIds: ["m1"], query: 'label:"Receipts" older_than:30d -is:starred -in:trash', rule: "receipts" }] })
+    await cleanupLabeller(configured({ cleanup, client, dryRun: false }))
+    expect(requests).toEqual(["GET messages", "GET messages"])
+
+    const live = defineAgent({ extends: labeller, options: { labels: { Receipts: {} }, cleanup, client, dryRun: false } })
+    await expect(cleanupLabeller(live, { apply: true })).resolves.toMatchObject({ applied: true })
+    expect(requests.slice(2)).toEqual(["GET messages", "POST messages/m1/trash"])
+  })
+
+  it.each([
+    [{ receipts: { label: "Missing", olderThan: 30 } }, /undeclared label/],
+    [{ receipts: { label: "Receipts", olderThan: 0 } }, /positive whole number/],
+    [[], /cleanup must be an object/],
+  ])("rejects invalid cleanup %j", async (cleanup, error) => {
+    const attempt = Promise.resolve().then(() => runAgent(configured({ cleanup }), { runtime: "unknown", memo: () => undefined, waitUntil: () => {} } as never, { prompt: "test" }))
+    await expect(attempt).rejects.toThrow(error)
   })
 })

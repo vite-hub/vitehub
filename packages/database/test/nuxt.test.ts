@@ -3,6 +3,8 @@ import { tmpdir } from "node:os"
 import { dirname, join, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
+import { hubDb as publishedHubDb } from "@vite-hub/database/nuxt"
+import { build } from "esbuild"
 import { describe, expect, it, vi } from "vitest"
 
 import { hubDb } from "../src/nuxt.ts"
@@ -172,7 +174,7 @@ describe("Database Nuxt integration", () => {
           ],
         },
       },
-      modules: [expect.any(Function)],
+      modules: [expect.any(Function), expect.any(Function)],
       exportConditions: ["vitehub-hosted", "workerd"],
       handlers: [
         {
@@ -463,6 +465,161 @@ describe("Database Nuxt integration", () => {
     finally {
       await rm(rootDir, { force: true, recursive: true })
     }
+  })
+
+  // The first test also imports nitropack, which can take longer than the default timeout.
+  describe("a D1 binding that the project's wrangler.json also declares", { timeout: 30_000 }, () => {
+    /** Runs the Database module, then Nitro 2's real Cloudflare preset, which merges the project file into its output. */
+    async function writeWrangler(project: Record<string, unknown>, wrangler: Record<string, unknown> = {}, database: Record<string, unknown> = {}) {
+      const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-wrangler-"))
+      const definition = join(rootDir, "server/databases/config.ts")
+      await mkdir(dirname(definition), { recursive: true })
+      await writeFile(definition, 'import { defineDatabase } from "@vite-hub/database"\nexport default defineDatabase({ schema: {} })\n')
+      await writeFile(join(rootDir, "wrangler.json"), JSON.stringify(project))
+      const { hooks, nuxt } = createNuxt({
+        database: { driver: "d1", binding: "DB", databaseId: "content-id", databaseName: "content-db", ...database },
+        dev: false,
+        nitro: { preset: "cloudflare_module" },
+        rootDir,
+        vite: {},
+      })
+      await hubDb()(undefined, nuxt)
+      const nitroConfig: { cloudflare?: { wrangler?: Record<string, unknown> }, modules?: NitroModule[] } = { cloudflare: { wrangler } }
+      await callHook(hooks, "nitro:config", nitroConfig)
+      const { createNitro } = await import("nitropack")
+      const nitro = await createNitro({
+        cloudflare: { deployConfig: true, wrangler: nitroConfig.cloudflare!.wrangler },
+        compatibilityDate: "2026-10-01",
+        dev: false,
+        logLevel: 0,
+        modules: nitroConfig.modules,
+        preset: "cloudflare-module",
+        rootDir,
+      } as NitroConfig)
+      return {
+        rootDir,
+        async compile() {
+          try {
+            await nitro.hooks.callHook("compiled", nitro)
+            return JSON.parse(await readFile(join(nitro.options.output.serverDir, "wrangler.json"), "utf8")) as { d1_databases: unknown[], env?: Record<string, { d1_databases: unknown[] }> }
+          }
+          finally {
+            await nitro.close()
+          }
+        },
+      }
+    }
+    type NitroModule = Exclude<NonNullable<NitroConfig["modules"]>[number], string>
+    type NitroConfig = NonNullable<Parameters<typeof import("nitropack")["createNitro"]>[0]>
+
+    const generated = { binding: "DB", database_id: "content-id", database_name: "content-db", migrations_dir: ".vitehub/database/migrations/DB" }
+
+    it.each([
+      ["a full entry", { binding: "DB", database_id: "content-id", database_name: "content-db" }],
+      ["an entry without database_id", { binding: "DB", database_name: "content-db" }],
+      ["an entry without database_name", { binding: "DB", database_id: "content-id" }],
+    ])("keeps one binding for %s", async (_label, entry) => {
+      const { compile, rootDir } = await writeWrangler({ d1_databases: [entry, { binding: "OTHER", database_id: "other-id" }] })
+      try {
+        expect((await compile()).d1_databases).toEqual([generated, { binding: "OTHER", database_id: "other-id" }])
+      }
+      finally {
+        await rm(rootDir, { force: true, recursive: true })
+      }
+    })
+
+    it("fills fields ViteHub leaves out, but keeps its own migrations", async () => {
+      const { compile, rootDir } = await writeWrangler({ d1_databases: [{
+        binding: "DB",
+        database_id: "content-id",
+        migrations_dir: "old-migrations",
+        migrations_pattern: "old-migrations/**/*.sql",
+        migrations_table: "d1_migrations",
+        preview_database_id: "preview-id",
+      }] })
+      try {
+        expect((await compile()).d1_databases).toEqual([{ ...generated, migrations_table: "d1_migrations", preview_database_id: "preview-id" }])
+      }
+      finally {
+        await rm(rootDir, { force: true, recursive: true })
+      }
+    })
+
+    it("keeps one binding in each Wrangler environment", async () => {
+      const production = { binding: "DB", database_id: "production-id", database_name: "production-db" }
+      const { compile, rootDir } = await writeWrangler(
+        { env: { production: { d1_databases: [{ ...production, preview_database_id: "production-preview" }] } } },
+        { env: { production: { d1_databases: [production] } } },
+      )
+      try {
+        const wrangler = await compile()
+        expect(wrangler.d1_databases).toEqual([generated])
+        expect(wrangler.env?.production?.d1_databases).toEqual([{ ...production, preview_database_id: "production-preview" }])
+      }
+      finally {
+        await rm(rootDir, { force: true, recursive: true })
+      }
+    })
+
+    it("takes the project's real id over an all-zero ViteHub id, and ViteHub's real id over an all-zero project id", async () => {
+      const placeholder = "00000000-0000-4000-8000-000000000000"
+      for (const [databaseId, projectId] of [[placeholder, "content-id"], ["content-id", placeholder]]) {
+        const { compile, rootDir } = await writeWrangler({ d1_databases: [{ binding: "DB", database_id: projectId, database_name: "content-db" }] }, {}, { databaseId })
+        try {
+          expect((await compile()).d1_databases).toEqual([generated])
+        }
+        finally {
+          await rm(rootDir, { force: true, recursive: true })
+        }
+      }
+    })
+
+    it("leaves out an id that stays all-zero, so Wrangler provisions the database", async () => {
+      const placeholder = "00000000-0000-4000-8000-000000000000"
+      const { compile, rootDir } = await writeWrangler({ d1_databases: [{ binding: "DB", database_id: placeholder, database_name: "content-db" }] }, {}, { databaseId: placeholder })
+      try {
+        expect((await compile()).d1_databases).toEqual([{ binding: "DB", database_name: "content-db", migrations_dir: generated.migrations_dir }])
+      }
+      finally {
+        await rm(rootDir, { force: true, recursive: true })
+      }
+    })
+
+    it.each(["00000000000000000000000000000000", "00000000-0000-4000-8000-000000000000"])("preserves an unresolved D1 preview id %s instead of falling back to production", async (placeholder) => {
+      for (const [generatedPreview, projectPreview] of [[undefined, placeholder], [placeholder, undefined], [placeholder, placeholder], [placeholder, "preview-id"], ["preview-id", placeholder]]) {
+        const projectEntry = { binding: "DB", database_id: "content-id", preview_database_id: projectPreview }
+        const envEntry = { binding: "DB", database_id: "content-id", preview_database_id: generatedPreview }
+        const { compile, rootDir } = await writeWrangler(
+          { d1_databases: [projectEntry], env: { production: { d1_databases: [projectEntry] } } },
+          { env: { production: { d1_databases: [envEntry] } } },
+          { previewDatabaseId: generatedPreview },
+        )
+        const preview_database_id = [generatedPreview, projectPreview].includes("preview-id") ? "preview-id" : placeholder
+        try {
+          const wrangler = await compile()
+          expect(wrangler.d1_databases).toEqual([{ ...generated, preview_database_id }])
+          expect(wrangler.env?.production?.d1_databases).toEqual([{ ...envEntry, preview_database_id }])
+        }
+        finally {
+          await rm(rootDir, { force: true, recursive: true })
+        }
+      }
+    })
+
+    it.each([
+      ["database_id", { binding: "DB", database_id: "other-id" }],
+      ["database_name", { binding: "DB", database_name: "other-db" }],
+      ["preview_database_id", { binding: "DB", database_id: "content-id", preview_database_id: "preview-b" }],
+    ])("fails when the project binding names another %s", async (field, entry) => {
+      const database = field === "preview_database_id" ? { previewDatabaseId: "preview-a" } : {}
+      const { compile, rootDir } = await writeWrangler({ d1_databases: [entry] }, {}, database)
+      try {
+        await expect(compile()).rejects.toMatchObject({ code: "DATABASE_WRANGLER_BINDING_CONFLICT", message: expect.stringContaining(field) })
+      }
+      finally {
+        await rm(rootDir, { force: true, recursive: true })
+      }
+    })
   })
 
   it.each([
@@ -892,7 +1049,7 @@ describe("Database Nuxt integration", () => {
       await hubDb()(undefined, nuxt)
       await callHook(hooks, "nitro:config", {})
       const code = await readFile(join(buildDir, "vitehub/database/local-runtime.mjs"), "utf8")
-      const evaluable = code.replace(/^import .+$/gm, "").replace(/^export /gm, "") + "\nreturn { databases, useDatabase }"
+      const evaluable = code.replace(/^(?:import .+|export .+ from .+)$/gm, "").replace(/^export /gm, "") + "\nreturn { databases, useDatabase }"
       const runtime = new Function("definition_0", "createDefinitionRuntime", "createAgentDatabase", "defaultDatabaseNotConfiguredError", evaluable)(
         { name: "__proto__", schema: { marker: "schema" } },
         () => ({ marker: "database" }),
@@ -924,7 +1081,7 @@ describe("Database Nuxt integration", () => {
       await callHook(hooks, "nitro:config", {})
       const code = await readFile(join(buildDir, "vitehub/database/local-runtime.mjs"), "utf8")
       expect(code).toContain('import { historySchema as contributedSchema_0_0 } from "history-tables/schema"')
-      const evaluable = code.replace(/^import .+$/gm, "").replace(/^export /gm, "") + "\nreturn { useDatabase }"
+      const evaluable = code.replace(/^(?:import .+|export .+ from .+)$/gm, "").replace(/^export /gm, "") + "\nreturn { useDatabase }"
       const created: unknown[] = []
       const runtime = new Function("definition_0", "contributedSchema_0_0", "createDefinitionRuntime", "createAgentDatabase", "defaultDatabaseNotConfiguredError", evaluable)(
         { name: "default", schema: { notes: "notes" } },
@@ -936,6 +1093,27 @@ describe("Database Nuxt integration", () => {
 
       expect(runtime.useDatabase("default").schema).toEqual({ historyRefs: "refs", notes: "notes" })
       expect(created).toEqual([{ name: "default", schema: { historyRefs: "refs", notes: "notes" } }])
+    }
+    finally {
+      await callHook(hooks, "close", {})
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it("gives contributed tables the implicit default Database in the Nitro development runtime when the app has no Definition", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-implicit-"))
+    const buildDir = join(rootDir, ".nuxt")
+    const contributor = { name: "history-owner/vite", vitehub: { databases: [{ definition: { export: "historySchema", module: "history-tables/schema" }, name: "history" }] } }
+    const { hooks, nuxt } = createNuxt({ buildDir, dev: true, rootDir, vite: { plugins: [contributor] } })
+    try {
+      await mkdir(join(rootDir, "node_modules/history-tables"), { recursive: true })
+      await writeFile(join(rootDir, "node_modules/history-tables/package.json"), JSON.stringify({ exports: { "./schema": "./schema.mjs" }, name: "history-tables", type: "module" }))
+      await writeFile(join(rootDir, "node_modules/history-tables/schema.mjs"), "export const historySchema = { historyRefs: {} }\n")
+      await hubDb()(undefined, nuxt)
+      await callHook(hooks, "nitro:config", {})
+      const code = await readFile(join(buildDir, "vitehub/database/local-runtime.mjs"), "utf8")
+      expect(code).toMatch(/import definition_0 from ".*runtime\/default-database\.(?:js|ts)"/)
+      expect(code).toContain('import { historySchema as contributedSchema_0_0 } from "history-tables/schema"')
     }
     finally {
       await callHook(hooks, "close", {})
@@ -1498,6 +1676,53 @@ describe("Database Nuxt integration", () => {
     })
   })
 
+  it.each([
+    [true, "node-server", "local"],
+    [false, "node-server", "local"],
+    [false, "cloudflare-module", "cloudflare"],
+    [false, "vercel", "vercel"],
+  ] as const)("exports chunkParameters through the generated %s/%s runtime alias", async (dev, preset, provider) => {
+    const rootDir = await mkdtemp(join(import.meta.dirname, ".nuxt-chunk-parameters-"))
+    const definition = join(rootDir, "server/databases/config.ts")
+    const consumer = join(rootDir, "consumer.ts")
+    const output = join(rootDir, "consumer.mjs")
+    const { hooks, nuxt } = createNuxt({ buildDir: join(rootDir, ".nuxt"), dev, nitro: { preset }, rootDir, vite: {} })
+    try {
+      await mkdir(dirname(definition), { recursive: true })
+      await writeFile(join(rootDir, "package.json"), '{"type":"module"}\n')
+      await writeFile(definition, [
+        'import { defineDatabase } from "@vite-hub/database"',
+        'import { sqliteTable, text } from "drizzle-orm/sqlite-core"',
+        'export default defineDatabase({ connection: { url: "libsql://db.example.com" }, schema: { notes: sqliteTable("notes", { id: text("id"), title: text("title") }) } })',
+      ].join("\n"))
+      await writeFile(consumer, [
+        'import { chunkParameters, schema } from "@vite-hub/database/drizzle"',
+        'export const chunks = chunkParameters(Array.from({ length: 205 }, (_, id) => id), { per: schema.notes, reserved: 2 })',
+      ].join("\n"))
+      await publishedHubDb()(undefined, nuxt)
+      const nitroConfig = { alias: {} as Record<string, string>, preset }
+      await callHook(hooks, "nitro:config", nitroConfig)
+      expect(nitroConfig.alias["@vite-hub/database/drizzle"]).toContain(`${provider}-runtime.mjs`)
+      await build({
+        alias: nitroConfig.alias,
+        bundle: true,
+        entryPoints: [consumer],
+        format: "esm",
+        outfile: output,
+        packages: "external",
+        platform: "node",
+      })
+      // SAFETY: The fixture exports the numeric chunks from the public aliased import above.
+      const { chunks } = await import(pathToFileURL(output).href) as { chunks: number[][] }
+      expect(chunks.map(chunk => chunk.length)).toEqual([49, 49, 49, 49, 9])
+      expect(chunks.flat()).toEqual(Array.from({ length: 205 }, (_, id) => id))
+    }
+    finally {
+      await callHook(hooks, "close", {})
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
   it("selects the hosted definition runtime for Deno deployments", async () => {
     const { hooks, nuxt } = createNuxt({
       dev: false,
@@ -1713,7 +1938,7 @@ describe("Database Nuxt integration", () => {
         "#vitehub/database/definition-defaults": join(projectRoot, ".vitehub/database/definition-defaults.mjs"),
         "@vite-hub/database/drizzle": join(projectRoot, ".vitehub/database/cloudflare-runtime.mjs"),
       })
-      expect(nitroConfig.modules).toHaveLength(1)
+      expect(nitroConfig.modules).toHaveLength(2)
       if (resource === "inherited") return
       const defaultsFile = join(projectRoot, ".vitehub/database/definition-defaults.mjs")
       const { default: defaults } = await import(pathToFileURL(defaultsFile).href)

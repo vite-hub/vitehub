@@ -3,37 +3,43 @@ import { commentsPageScope } from "../page.ts"
 import { installedComments } from "./plugin.ts"
 
 import type { ViteHubConsoleRecord } from "@vite-hub/internal/console"
+import type { CommentUser } from "../types.ts"
 
 function excerpt(text: string): string {
   const line = text.replace(/\s+/g, " ").trim()
   return line.length > 80 ? `${line.slice(0, 79)}…` : line
 }
 
-/** The threads of the app, newest activity first, as Console records. It runs on each Console request. */
+/** The threads of the app as Console records: open threads first, each group newest activity first. It runs on each Console request. */
 export async function readCommentsConsoleRecords(): Promise<ViteHubConsoleRecord[]> {
   const comments = installedComments()
   if (!comments) return []
-  const [error, threads] = await comments.list({ scope: commentsPageScope, limit: 500 })
+  const [error, listed] = await comments.list({ scope: commentsPageScope, subjectKind: "page", limit: 500 })
   if (error) return []
-  return threads.map((thread) => {
-    const first = thread.comments[0]
-    const link = `${thread.page}?comments#comment-${thread.id}`
+  const threads = listed.filter(thread => thread.subject.kind === "page")
+  const ordered = [...threads.filter(thread => thread.status === "open"), ...threads.filter(thread => thread.status !== "open")]
+  const author = (person: CommentUser) => `${person.name ?? person.id}${person.guest ? " (guest)" : ""}`
+  return ordered.map((thread) => {
+    const first = thread.messages[0]
+    const page = thread.subject.id
+    const { anchor } = thread
     return {
       id: thread.id,
       cells: {
-        page: thread.page,
         comment: first ? excerpt(first.body) : "",
-        author: thread.createdBy.guest ? `${thread.createdBy.name} (guest)` : thread.createdBy.name,
-        replies: String(Math.max(0, thread.comments.length - 1)),
+        page: `\`${page}\``,
+        author: author(thread.author),
+        replies: String(Math.max(0, thread.messages.length - 1)),
         status: thread.status === "open" ? "Open" : "Resolved",
-        updated: thread.updatedAt.slice(0, 16).replace("T", " "),
+        updated: new Date(thread.updatedAt).toISOString(),
       },
+      link: { href: `${page}?comment=${thread.n}`, label: "Open on page" },
+      activity: thread.messages.map(message => ({ author: author(message.author), at: new Date(message.createdAt).toISOString(), text: message.body })),
       fields: [
-        { label: "Open on page", value: link },
-        ...(thread.anchor ? [{ label: "Anchor", value: thread.anchor.field ? `Content field ${thread.anchor.field}` : thread.anchor.label }] : []),
-        ...describeCommentContext(thread.context),
-        ...thread.comments.map(comment => ({ label: comment.author.name, value: comment.body })),
-        ...(thread.resolvedBy ? [{ label: "Resolved by", value: thread.resolvedBy.name }] : []),
+        { label: "Page", value: page },
+        ...(anchor.kind === "element" ? [{ label: "Anchor", value: anchor.field ? `Content field ${anchor.field}` : anchor.label ?? anchor.selector }] : []),
+        ...describeCommentContext(thread.context ?? null),
+        ...(thread.resolvedBy ? [{ label: "Resolved by", value: author(thread.resolvedBy) }] : []),
       ],
     }
   })

@@ -1,8 +1,9 @@
 import type { UIMessage } from "ai";
-import { defineComponent, h, type PropType, resolveComponent, type VNodeChild } from "vue";
+import { defineComponent, h, type PropType, type VNodeChild } from "vue";
 import { isSafeExternalUrl } from "../internal/url.ts";
 import { Markdown } from "./markdown.ts";
 import { ImagePreview } from "../internal/image-preview.ts";
+import { useUIComponent } from "../internal/nuxt-ui.ts";
 
 type Part = UIMessage["parts"][number];
 type ToolLikePart = Extract<Part, { state: string; toolCallId: string }>;
@@ -82,6 +83,8 @@ export const AgentMessageParts = defineComponent({
     streaming: { default: false, type: Boolean },
   },
   setup(props, { slots }) {
+    const UChatReasoning = useUIComponent("UChatReasoning");
+    const UChatTool = useUIComponent("UChatTool");
     return () =>
       h(
         "div",
@@ -100,7 +103,6 @@ export const AgentMessageParts = defineComponent({
             );
           }
           if (part.type === "reasoning") {
-            const UChatReasoning = resolveComponent("UChatReasoning");
             return (
               slots.reasoning?.({ index, part }) ??
               h(UChatReasoning, {
@@ -111,7 +113,6 @@ export const AgentMessageParts = defineComponent({
             );
           }
           if (isToolPart(part)) {
-            const UChatTool = resolveComponent("UChatTool");
             const loading = part.state === "input-streaming" || part.state === "input-available";
             return (
               slots.tool?.({ index, part }) ??

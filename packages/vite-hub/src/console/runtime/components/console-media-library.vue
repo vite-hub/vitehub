@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, shallowRef, watch } from "vue";
-import { useRoute, useRouter } from "vue-router";
 
 import { consoleErrorMessage } from "../client/documents";
-import { consoleFolderName, consoleFolderTrail, rememberConsoleMediaFolder } from "../client/media-library";
+import { consoleFolderName, consoleFolderTrail, consoleMediaTypes, rememberConsoleMediaFolder } from "../client/media-library";
+import { queryChoice, querySelection, queryText, useConsoleQuery } from "../client/route-query";
 import ConsoleMediaBrowser from "./console-media-browser.vue";
 import ConsoleMediaDetail from "./console-media-detail.vue";
 import ConsolePageHeader from "./console-page-header.vue";
@@ -12,8 +12,8 @@ import type { ConsoleMediaAccess, ConsoleMediaClient, ConsoleMediaFile } from ".
 
 /**
  * The Media page of a document editor section: the files of the served Blob Store with folders, uploads, bulk moves and
- * deletes, and a detail panel for alt text, the focal point, and crops. The folder and the open file live in the URL, so
- * a link opens the same view.
+ * deletes, and a detail panel for alt text, the focal point, and crops. The folder, the open file, the search, and the
+ * type filter live in the URL, so a link opens the same view.
  */
 const props = defineProps<{
   client: ConsoleMediaClient;
@@ -21,8 +21,6 @@ const props = defineProps<{
   section: string;
 }>();
 
-const route = useRoute();
-const router = useRouter();
 const browser = ref<InstanceType<typeof ConsoleMediaBrowser>>();
 const access = ref<ConsoleMediaAccess>({ manage: false, read: true, write: false });
 const served = ref<string | null>(null);
@@ -30,15 +28,18 @@ const selected = ref<string[]>([]);
 const active = shallowRef<ConsoleMediaFile>();
 const activeError = ref<unknown>();
 
-function query(name: string): string {
-  const value = route.query[name];
-  return String(value) === value ? value : "";
-}
-
+const state = useConsoleQuery({
+  file: querySelection(),
+  folder: queryText({ history: "push" }),
+  q: queryText(),
+  type: queryChoice(["all", ...consoleMediaTypes], "all"),
+});
+const { file, q: search, type } = state;
 const folder = computed({
-  get: () => query("folder"),
+  get: () => state.folder.value,
   set: (value: string) => {
-    void router.replace({ query: { ...route.query, file: undefined, folder: value || undefined } });
+    state.folder.value = value;
+    file.value = undefined;
   },
 });
 
@@ -52,7 +53,7 @@ const trail = computed(() => consoleFolderTrail(folder.value).slice(0, -1).map(p
 const actions = ref<HTMLElement | null>(null);
 
 // `?file=` opens the details of one file, also after a reload.
-watch(() => query("file"), async (pathname) => {
+watch(file, async (pathname) => {
   if (!pathname) {
     active.value = undefined;
     return;
@@ -68,9 +69,9 @@ watch(() => query("file"), async (pathname) => {
   }
 }, { immediate: true });
 
-function open(file: ConsoleMediaFile | undefined): void {
-  active.value = file;
-  void router.replace({ query: { ...route.query, file: file?.pathname } });
+function open(next: ConsoleMediaFile | undefined): void {
+  active.value = next;
+  file.value = next?.pathname;
 }
 
 function updated(file: ConsoleMediaFile): void {
@@ -94,6 +95,8 @@ function updated(file: ConsoleMediaFile): void {
       ref="browser"
       v-model:folder="folder"
       v-model:selected="selected"
+      v-model:search="search"
+      v-model:type="type"
       mode="page"
       :root-label="label"
       :actions-target="actions"
@@ -117,7 +120,7 @@ function updated(file: ConsoleMediaFile): void {
       @remove="(file) => browser?.askRemove([file])"
     />
     <div v-else-if="activeError" class="vitehub-media-library__detail flex flex-col items-center justify-center gap-2 p-6 text-center">
-      <p class="text-sm text-highlighted">Couldn't open {{ query("file") }}</p>
+      <p class="text-sm text-highlighted">Couldn't open {{ file }}</p>
       <p class="text-xs text-muted">{{ consoleErrorMessage(activeError) }}</p>
       <UButton variant="outline" size="sm" label="Close" @click="open(undefined)" />
     </div>

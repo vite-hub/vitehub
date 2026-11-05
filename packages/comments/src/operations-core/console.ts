@@ -6,7 +6,7 @@ import type { ViteHubConsoleOperationSection } from "@vite-hub/internal/console"
  */
 export const commentsConsoleSection: ViteHubConsoleOperationSection = {
   description: "Read the comment threads of the site and jump to the page.",
-  icon: "i-lucide-message-square",
+  icon: "i-vitehub-comments",
   id: "comments",
   label: "Comments",
   view: {
@@ -18,6 +18,7 @@ export const commentsConsoleSection: ViteHubConsoleOperationSection = {
       { key: "messages.0.body", label: "Comment", format: "excerpt" },
       { key: "updatedAt", label: "Updated", format: "datetime" },
     ],
+    detail: { kind: "comment-thread" },
     filters: [
       { id: "all", input: {}, label: "All" },
       { id: "open", input: { status: "open" }, label: "Open" },
@@ -27,7 +28,7 @@ export const commentsConsoleSection: ViteHubConsoleOperationSection = {
     ],
     kind: "operation-view",
     link: { label: "Open page", template: "{subject.id:path}?comment={n}", when: { equals: "page", path: "subject.kind" } },
-    notice: "The list comes from the comments.list operation with your sign-in, so it shows only the threads that authorize lets you read. Without an authorize policy nobody can read comments: add one to defineComments(). `vitehub comments list` lists the same threads.",
+    notice: "The list comes from the comments.list operation with your sign-in, so it shows only the threads that authorize lets you read. Without an authorize policy, everyone the Console admits to Comments reads every thread. `vitehub comments list` lists the same threads.",
     operation: "comments.list",
     pagination: { limit: 200, cursor: { id: "id", updatedAt: "updatedAt" } },
   },

@@ -161,10 +161,17 @@ it("waits for a new head instead of retrying a lockfile the frozen install rejec
 it.each([
   "peerDependencyRules:\n  allowedVersions:\n    react: '19'\n",
   "minimumReleaseAge: 1440\nminimumReleaseAgeExclude:\n  - '@vite-hub/*'\n",
+  "trustPolicy: no-downgrade\ntrustPolicyExclude:\n  - semver@6.3.1\ntrustPolicyIgnoreAfter: 1440\n",
 ])("accepts pnpm workspace settings that run no code: %s", async settings => {
   const root = await fixture();
   await writeFile(join(root, "pnpm-workspace.yaml"), `packages:\n  - .\n${settings}`);
   await expect(installGitHubPullRequestWorkspace(root)).resolves.toBeUndefined();
+});
+
+it.each(["trustPolicy: /etc/passwd\n", "trustPolicyIgnoreAfter: ~/.cache\n"])("rejects pnpm trust settings with unknown values: %s", async settings => {
+  const root = await fixture();
+  await writeFile(join(root, "pnpm-workspace.yaml"), `packages:\n  - .\n${settings}`);
+  await expect(installGitHubPullRequestWorkspace(root)).rejects.toThrow(/Unsupported project pnpm configuration: trustPolicy/);
 });
 
 it("rejects checkout-selected package-manager executables before running Corepack", async () => {

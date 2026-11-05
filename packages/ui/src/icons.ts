@@ -7,6 +7,7 @@ export const viteHubUIIcons: readonly string[] = [
   "lucide:x",
   "ph:arrow-clockwise",
   "ph:arrow-counter-clockwise",
+  "ph:arrow-left",
   "ph:arrow-up",
   "ph:chat-circle",
   "ph:check",
@@ -14,6 +15,7 @@ export const viteHubUIIcons: readonly string[] = [
   "ph:check-light",
   "ph:circle-dashed-light",
   "ph:circle-light",
+  "ph:circle-notch",
   "ph:copy-light",
   "ph:file-light",
   "ph:list-bullets",
@@ -23,6 +25,7 @@ export const viteHubUIIcons: readonly string[] = [
   "ph:plus",
   "ph:stop-fill",
   "ph:trash-light",
+  "ph:x",
   "ph:x-circle-light",
   "ph:x-light",
 ];

@@ -62,6 +62,19 @@ export function consoleDatabaseRequestQuery(input: {
   };
 }
 
+/** Columns whose values on this page are all numbers. NULL cells do not count either way. */
+export function consoleDatabaseNumericColumns(rows: readonly Record<string, ConsoleDatabaseCell>[]): Set<string> {
+  const numeric = new Set<string>();
+  const other = new Set<string>();
+  for (const row of rows) {
+    for (const [key, cell] of Object.entries(row)) {
+      if (cell.kind === "null") continue;
+      (cell.kind === "number" || cell.kind === "bigint" ? numeric : other).add(key);
+    }
+  }
+  return new Set([...numeric].filter((key) => !other.has(key)));
+}
+
 const cellKinds = new Set<ConsoleDatabaseCell["kind"]>([
   "bigint",
   "boolean",
@@ -214,4 +227,38 @@ export function parseConsoleDatabase(value: unknown): ConsoleDatabase {
     tables: positionTables(tableEntries),
     total,
   };
+}
+
+/** One column of a row as the row drawer shows it. `text` is the full value, with JSON indented. */
+export interface ConsoleDatabaseRowField {
+  column: ConsoleDatabaseColumn;
+  null: boolean;
+  text: string;
+  truncated: boolean;
+}
+
+function indentJson(value: string): string {
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2);
+  } catch {
+    return value;
+  }
+}
+
+/** The fields of one row in column order. A column that the row does not carry reads as NULL. */
+export function consoleDatabaseRowFields(
+  table: ConsoleDatabaseTable,
+  row: Record<string, ConsoleDatabaseCell>,
+): ConsoleDatabaseRowField[] {
+  return table.columns.map((column) => {
+    const cell = row[column.key];
+    if (!cell || cell.kind === "null") return { column, null: true, text: "NULL", truncated: false };
+    return {
+      column,
+      null: false,
+      // A cut JSON value does not parse, so it shows as the server sent it.
+      text: cell.kind === "json" && !cell.truncated ? indentJson(cell.value) : cell.value,
+      truncated: cell.truncated === true,
+    };
+  });
 }

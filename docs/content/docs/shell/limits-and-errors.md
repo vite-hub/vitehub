@@ -12,6 +12,7 @@ icon: i-lucide-circle-alert
 - `startProcess()` throws when the provider has no background process support or `maxProcesses` is reached.
 - A disposed session returns `policy_denied` for `exec()` and throws for `startProcess()`.
 - The Just Bash `commands` allowlist also applies to controlled `curl` requests. A network grant does not enable `curl` when the list excludes it. An empty command list disables it.
+- Controlled `curl` runs wherever Bash runs a command: in a pipeline, after `&&`, or inside `$(...)`. Each call is checked against the visible Source Request descriptors, and a denied call marks the whole observation `policy_denied`.
 - The Just Bash provider copies the command list at creation. Later changes to the supplied list do not change its permissions or network boundary.
 
 ## Production checks

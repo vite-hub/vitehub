@@ -81,12 +81,8 @@ function serializeCollectionPage(value: unknown): unknown {
 }
 
 function isCallable(value: unknown): value is (...args: never[]) => unknown {
-  try {
-    Reflect.apply(Function.prototype.toString, value, [])
-    return true
-  } catch {
-    return false
-  }
+  // Callable HTMLDDA browser values report undefined without being undefined.
+  return typeof value === "function" || (typeof value === "undefined" && value !== undefined)
 }
 
 function hasDeclaredMethod(value: unknown, key: PropertyKey): boolean {

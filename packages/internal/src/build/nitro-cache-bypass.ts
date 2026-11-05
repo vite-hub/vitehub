@@ -5,6 +5,8 @@ import { cacheBypassKey } from "../runtime/cache-bypass.ts"
  * handler or function, and `cache`/`swr` route rules create theirs internally. This plugin puts a thin module between
  * Nitro and its own cache module, `dist/runtime/internal/cache.mjs` in `nitro` (Nitro 3) and `nitropack` (Nitro 2),
  * so every cached handler, route rule, and cached function consults the checks registered with `addCacheBypass()`.
+ * Nitro 3 builds its `cache` route rule with h3's ocache rule handler instead of its cache module, so the plugin also
+ * wraps that rule in `dist/runtime/internal/route-rule-handlers.mjs`.
  * A bypassed call runs the handler or function directly: it reads no entry, writes none, and never joins another
  * request's pending render.
  */
@@ -13,6 +15,8 @@ const virtualPrefix = "\0vitehub-nitro-cache:"
 const cacheModule = /[\\/](nitro|nitropack)[\\/]dist[\\/]runtime[\\/]internal[\\/]cache\.mjs$/
 const nitroRuntime = /[\\/]nitro(?:pack)?[\\/]dist[\\/]runtime[\\/]/
 const cacheImport = /(?:^|\/)cache\.mjs$/
+const ruleHandlersModule = /[\\/]nitro[\\/]dist[\\/]runtime[\\/]internal[\\/]route-rule-handlers\.mjs$/
+const ruleHandlersImport = /(?:^|\/)route-rule-handlers(?:\.mjs)?$/
 
 interface ResolvedModule {
   external?: boolean | string
@@ -42,7 +46,19 @@ function seam(flavor: string, path: string): string {
     `  return false`,
     `}`,
   ]
-  if (flavor === "nitro") {
+  if (flavor === "rules") {
+    // h3 skips a rule by calling `next()`, which runs the route handler without the cache.
+    lines.push(
+      `export const cache = {`,
+      `  ...nitroCache.cache,`,
+      `  handler: (rule) => {`,
+      `    const cached = nitroCache.cache.handler(rule)`,
+      `    return (event, next) => bypass() ? next() : cached(event, next)`,
+      `  },`,
+      `}`,
+    )
+  }
+  else if (flavor === "nitro") {
     // ocache honors shouldBypassCache by calling the handler with the untouched request and storing nothing.
     lines.push(
       `function withBypass(options) {`,
@@ -83,12 +99,17 @@ export function nitroCacheBypass(): NitroCacheBypassPlugin {
     name: "vite-hub/nitro-cache-bypass",
     enforce: "pre",
     async resolveId(source, importer, options = {}) {
-      if (!importer || importer.startsWith(virtualPrefix) || !cacheImport.test(source) || !nitroRuntime.test(importer)) return null
+      if (!importer || importer.startsWith(virtualPrefix)) return null
+      // Nitro 3 imports its rule handlers from the generated routing module, which is not in its runtime folder.
+      const rules = ruleHandlersImport.test(source)
+      if (!rules && (!cacheImport.test(source) || !nitroRuntime.test(importer))) return null
       const resolved = await this.resolve(source, importer, { ...options, skipSelf: true })
       if (!resolved || resolved.external) return null
       // Another plugin's nested resolve can reach this hook again and hand back the seam's own id.
       if (resolved.id.startsWith(virtualPrefix)) return resolved.id
-      const match = cacheModule.exec(resolved.id.split("?", 1)[0]!)
+      const path = resolved.id.split("?", 1)[0]!
+      if (rules) return ruleHandlersModule.test(path) ? `${virtualPrefix}rules:${resolved.id}` : null
+      const match = cacheModule.exec(path)
       return match ? `${virtualPrefix}${match[1]}:${resolved.id}` : null
     },
     load(id) {

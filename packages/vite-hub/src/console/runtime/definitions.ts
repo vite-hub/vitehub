@@ -16,8 +16,16 @@ export interface ConsoleDefinitionSummary {
 }
 
 export interface ConsoleRecordColumn {
+  /** The table filters by the values of this column. */
+  filter?: boolean
   key: string
   label: string
+}
+
+export interface ConsoleRecordActivity {
+  author: string
+  at: string
+  text: string
 }
 
 export interface ConsoleRecord {
@@ -26,6 +34,10 @@ export interface ConsoleRecord {
   id: string
   /** The Console can run this record when it represents a runnable Schedule Definition. */
   runnable?: boolean
+  /** Where the record lives in the app. `href` is an app path or an `https:` URL. */
+  link?: { href: string, label: string }
+  /** Entries in time order, such as the comments of a thread. */
+  activity?: readonly ConsoleRecordActivity[]
 }
 
 export interface ConsoleOperationColumn {
@@ -43,6 +55,7 @@ export interface ConsoleOperationFilter {
 /** Mirrors `ViteHubConsoleOperationView`. */
 export interface ConsoleOperationView {
   columns: readonly ConsoleOperationColumn[]
+  detail?: { kind: "comment-thread" }
   filters?: readonly ConsoleOperationFilter[]
   kind: "operation-view"
   link?: { label?: string, template: string, when?: { equals: string, path: string } }
@@ -93,10 +106,10 @@ export interface ConsoleDocumentComponent {
   kind: "block" | "inline"
   label: string
   name: string
-  props: Record<string, { default?: unknown, type: "boolean" | "json" | "number" | "string" }>
+  props: Record<string, { default?: unknown, store?: string, type: "boolean" | "file" | "image" | "json" | "number" | "string" }>
 }
 
-const componentPropTypes = ["boolean", "json", "number", "string"] as const
+const componentPropTypes = ["boolean", "file", "image", "json", "number", "string"] as const
 
 function parseConsoleDocumentComponents(value: unknown): ConsoleDocumentComponent[] {
   if (!Array.isArray(value)) return []
@@ -107,7 +120,11 @@ function parseConsoleDocumentComponents(value: unknown): ConsoleDocumentComponen
     for (const [name, prop] of Object.entries(record(component.props) ?? {})) {
       const type = componentPropTypes.find(entry => entry === record(prop)?.type)
       if (!type) continue
-      props[name] = record(prop)?.default === undefined ? { type } : { default: record(prop)?.default, type }
+      const entry: ConsoleDocumentComponent["props"][string] = { type }
+      if (record(prop)?.default !== undefined) entry.default = record(prop)?.default
+      const store = record(prop)?.store
+      if ((type === "file" || type === "image") && text(store)) entry.store = store
+      props[name] = entry
     }
     const parsed: ConsoleDocumentComponent = {
       kind: component.kind === "inline" ? "inline" : "block",
@@ -145,8 +162,6 @@ export interface ConsoleContributedSection {
   label: string
   /** Pages next to the main view, in sidebar order. */
   pages?: readonly ConsoleSectionPage[]
-  /** An app path that the Console requests once when it loads, so the owner package can set its state for the person. */
-  visit?: string
   view: ConsoleSectionView
 }
 
@@ -232,6 +247,7 @@ function parseConsoleOperationView(view: Record<string, unknown>): ConsoleOperat
       ? { pagination: { limit: pagination.limit, cursor: Object.fromEntries(cursorPaths) } }
       : {}),
     ...(filters.length ? { filters } : {}),
+    ...(record(view.detail)?.kind === "comment-thread" ? { detail: { kind: "comment-thread" as const } } : {}),
     ...(text(link?.template) ? { link: { template: link.template, ...(text(link.label) ? { label: link.label } : {}), ...(text(when?.path) && text(when.equals) ? { when: { equals: when.equals, path: when.path } } : {}) } } : {}),
   }
 }
@@ -249,7 +265,8 @@ function parseConsoleSectionView(value: unknown): ConsoleSectionView | undefined
   if (view.kind !== "record-table" || !Array.isArray(view.columns)) return undefined
   const columns = view.columns.flatMap((entry) => {
     const column = record(entry)
-    return text(column?.key) && text(column.label) ? [{ key: column.key, label: column.label }] : []
+    if (!text(column?.key) || !text(column.label)) return []
+    return [column.filter === true ? { filter: true, key: column.key, label: column.label } : { key: column.key, label: column.label }]
   })
   return { columns, kind: "record-table", notice: view.notice }
 }
@@ -283,7 +300,6 @@ export function parseConsoleContributedSection(value: unknown): ConsoleContribut
   const parsed: ConsoleContributedSection = { description: section.description, icon: section.icon, id: section.id, label: section.label, view }
   const pages = parseConsoleSectionPages(section.pages)
   if (pages.length) parsed.pages = pages
-  if (text(section.visit) && /^\/(?!\/)[^\\\r\n\t]*$/.test(section.visit)) parsed.visit = section.visit
   return parsed
 }
 
@@ -309,12 +325,35 @@ function parseConsoleRecords(value: unknown): ConsoleRecord[] {
     const row = record(entry)
     const cells = record(row?.cells)
     if (!row || !cells || !text(row.id)) return []
-    return [{
+    const parsed: ConsoleRecord = {
       cells: Object.fromEntries(Object.entries(cells).filter((cell): cell is [string, string] => text(cell[1]))),
       fields: parseConsoleDefinitionFields(row.fields),
       id: row.id,
       runnable: row.runnable === true ? true : undefined,
-    }]
+    }
+    const link = parseConsoleRecordLink(row.link)
+    if (link) parsed.link = link
+    const activity = parseConsoleRecordActivity(row.activity)
+    if (activity.length) parsed.activity = activity
+    return [parsed]
+  })
+}
+
+/** A record link that the Console may open: an app path, or an `https:` URL. Other schemes, such as `javascript:`, drop. */
+export function parseConsoleRecordLink(value: unknown): ConsoleRecord["link"] {
+  const link = record(value)
+  if (!link || !text(link.href) || !text(link.label)) return undefined
+  if (!/^\/(?!\/)/.test(link.href) && !/^https:\/\//i.test(link.href)) return undefined
+  // Browsers normalize backslashes and strip tabs/newlines before resolving app paths.
+  if (link.href.startsWith("/") && /[\\\t\n\r]/.test(link.href)) return undefined
+  return { href: link.href, label: link.label }
+}
+
+export function parseConsoleRecordActivity(value: unknown): ConsoleRecordActivity[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry) => {
+    const item = record(entry)
+    return item && text(item.author) && text(item.at) && text(item.text) ? [{ author: item.author, at: item.at, text: item.text }] : []
   })
 }
 

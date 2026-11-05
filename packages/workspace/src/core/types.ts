@@ -430,15 +430,34 @@ export interface WorkspaceMergeConflict {
   ours: string | null
   /** The digest on the ref that is merged in. */
   theirs: string | null
+  /** The digest at the merge base of both refs. Null when the file did not exist there. */
+  base: string | null
+}
+
+/** What `onConflict` can use while it resolves conflicts. */
+export interface WorkspaceMergeConflictContext {
+  /** Reads the bytes of a digest that a conflict names. */
+  read(digest: string): Promise<Uint8Array>
+}
+
+/** What `onConflict` decided. */
+export interface WorkspaceMergeResolution {
+  /** Metadata for the merge commit. It is added to `metadata`. */
+  metadata?: Record<string, unknown>
+  /**
+   * Merged text of conflicting files, by Workspace path. The merge commit writes it instead of the receiving ref's
+   * version. A path that is not one of the conflicts throws.
+   */
+  files?: Record<string, string>
 }
 
 export interface WorkspaceMergeOptions {
   /**
-   * Called when the Store's own merge conflicts. With it, the Store merges everything else, keeps the receiving ref's
-   * version of each conflicting file, and calls this with those files. It returns metadata for the merge commit, which
-   * is added to `metadata`. Without it, a conflict throws `WORKSPACE_CONFLICT`.
+   * Called when the Store's own merge conflicts. With it, the Store merges everything else and calls this with the
+   * files that both refs changed. Each file keeps the receiving ref's version unless the resolution gives its merged
+   * text. Without it, a conflict throws `WORKSPACE_CONFLICT`.
    */
-  onConflict?(conflicts: WorkspaceMergeConflict[]): Record<string, unknown> | Promise<Record<string, unknown>>
+  onConflict?(conflicts: WorkspaceMergeConflict[], context: WorkspaceMergeConflictContext): WorkspaceMergeResolution | Promise<WorkspaceMergeResolution>
   /** The ref to bring in. */
   from: string
   /** The ref that receives the merge. */

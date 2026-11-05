@@ -629,7 +629,7 @@ describe("createConnectionsHandler", () => {
       expect(await provider.text()).toContain("CONNECTIONS_PROVIDER_FAILED");
       const replay = await handler(callback());
       expect(replay.status).toBe(400);
-      expect(await replay.text()).toContain("CONNECTIONS_INVALID_REQUEST");
+      expect(await replay.text()).toContain("CONNECTIONS_AUTHORIZATION_EXPIRED");
     });
 
     it("explains an expired authorization with the runtime code", async () => {
@@ -639,8 +639,9 @@ describe("createConnectionsHandler", () => {
       }));
       expect(response.status).toBe(400);
       const html = await response.text();
-      expect(html).toContain("The authorization request is unknown or expired. Start the connection again.");
-      expect(html).toContain("CONNECTIONS_INVALID_REQUEST · 400");
+      expect(html).toContain("The authorization link expired or was already used. Each link works one time, for 10 minutes.");
+      expect(html).toContain("Run `vitehub connections connect &#60;name&#62;` again");
+      expect(html).toContain("CONNECTIONS_AUTHORIZATION_EXPIRED · 400");
     });
   });
 });

@@ -10,6 +10,7 @@ interface UpstashClient {
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- This models the caller-typed Upstash read command used by the unstorage adapter.
   getdel: <T = unknown>(key: string) => Promise<T | null>
   scan: (cursor: string, options: { count: number; match: string }) => Promise<[number | string, string[]]>
+  set: (key: string, value: string, options: { ex?: number; nx: true }) => Promise<"OK" | null>
 }
 
 // Check existence before INCR because an existing zero must keep its current expiry.
@@ -73,8 +74,9 @@ function escapeRedisGlob(value: string): string {
 }
 
 export default function createUpstashKVDriver(options: ResolvedUpstashKVStoreConfig): KVRuntimeDriver {
+  // Let unstorage decode reads so typed text reads and GETDEL preserve the stored text, including "null".
   // SAFETY: The unstorage Upstash driver exposes getInstance and this adapter installs listKeys before returning.
-  const driver = createDriver(options) as KVRuntimeDriver & { getInstance: () => Promise<UpstashClient> }
+  const driver = createDriver({ ...options, automaticDeserialization: false }) as KVRuntimeDriver & { getInstance: () => Promise<UpstashClient> }
   const maximumContinuationBytes = 1024 * 1024
   const expired = () => kvErrorDiagnostics.KV_INVALID_CURSOR({ problem: "expired" })
   const continuations = createKVContinuations<UpstashContinuation>({ expired, maximumBytes: maximumContinuationBytes })
@@ -89,6 +91,11 @@ export default function createUpstashKVDriver(options: ResolvedUpstashKVStoreCon
     const value = Number(await (await driver.getInstance()).eval(incrementScript, [key], [String(normalizeTTL(ttl))]))
     if (!Number.isSafeInteger(value)) throw kvErrorDiagnostics.KV_PROVIDER_INVALID_RESPONSE({ problem: "The counter exceeds the JavaScript safe integer range." })
     return value
+  }
+
+  driver.setIfAbsentItem = async (key, value, ttl) => {
+    const options = ttl === undefined ? { nx: true as const } : { ex: normalizeTTL(ttl), nx: true as const }
+    return await (await driver.getInstance()).set(key, value, options) === "OK"
   }
 
   function retainContinuation(keys: string[], providerCursor: string): Promise<string> {

@@ -1,3 +1,4 @@
+import { byteRangeBounds } from "../internal/byte-range.ts"
 import { importOptionalPeer } from "../internal/optional-peer.ts"
 import { createDriver as createNativeDriver, getOptionalBucket } from "./cloudflare-native.ts"
 import { r2S3Endpoint, runtimeValue } from "./cloudflare-runtime.ts"
@@ -84,6 +85,23 @@ export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): Blob
     delete: pathnames => activeDriver().delete(pathnames),
     get: pathname => activeDriver().get(pathname),
     getArrayBuffer: pathname => activeDriver().getArrayBuffer(pathname),
+    // Without a binding, the HTTP driver still reads the whole object.
+    async getStream(pathname, streamOptions = {}) {
+      if (getOptionalBucket(options)) return nativeDriver.getStream!(pathname, streamOptions)
+      const driver = activeDriver()
+      const object = await driver.head(pathname)
+      if (!object) return null
+      if (streamOptions.etag && object.httpEtag !== streamOptions.etag) return false
+      const body = await driver.get(pathname)
+      if (!body) return null
+      // Two calls are not one snapshot: a replacement between them makes serve() read again.
+      const after = await driver.head(pathname)
+      if (!after) return null
+      if (after.httpEtag !== object.httpEtag || after.contentType !== object.contentType) return false
+      const { range } = streamOptions
+      const bounds = range ? byteRangeBounds(range, body.size) : { start: 0, end: body.size - 1 }
+      return { body: (bounds ? body.slice(bounds.start, bounds.end + 1) : new Blob([])).stream(), object: { ...object, size: body.size } }
+    },
     head: pathname => activeDriver().head(pathname),
     list: options => activeDriver().list(options),
     put: (pathname, body, options) => activeDriver().put(pathname, body, options),

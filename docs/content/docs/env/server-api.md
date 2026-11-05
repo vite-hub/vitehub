@@ -53,6 +53,8 @@ export async function listIssues() {
 }
 ```
 
+`useServerEnv()` resolves and checks every declared Server Env value, not only the values that the caller reads. When a required value is missing, every call throws `ENV_REQUIRED_MISSING` with the path of the missing value. When the application can run without a value, declare it with `optional: true`, or give a value that is not secret a default. A default is written into the generated server code, so never give a secret one. Use `vitehub env check` to list every missing value before a release.
+
 ## Read external Env storage
 
 Use an Env provider when application-owned credentials live outside the host environment. The provider is a runtime adapter, not a ViteHub secret store: your application chooses the external system, supplies its bootstrap credential through ordinary host Env, and owns its access policy.

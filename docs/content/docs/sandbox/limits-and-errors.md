@@ -15,7 +15,7 @@ icon: i-lucide-circle-alert
 
 ## Cleanup failures
 
-`runSandboxTask()` returns a non-2xx response if Cloudflare cannot remove invocation-local files, even when the handler succeeds. A failed cleanup can leave those files in a shared Sandbox. Session cleanup failures also return a non-2xx response.
+`runSandboxTask()` returns a non-2xx response if Cloudflare cannot remove invocation-local files from a Sandbox that stays open after the run, even when the handler succeeds. A failed cleanup can leave those files in a shared Sandbox. When ViteHub closes the Sandbox after the run, closing it removes those files, so ViteHub does not delete them separately. Session cleanup failures also return a non-2xx response.
 
 If execution and cleanup both fail, the response keeps the primary error code and message. Timeouts keep `SANDBOX_TASK_TIMEOUT` and HTTP 504. When you call `resolveSandboxTaskRunner().run()` directly, the thrown error retains both failures in an `AggregateError` in its cause chain. Provider diagnostics remain available through causes. JSON responses omit causes.
 

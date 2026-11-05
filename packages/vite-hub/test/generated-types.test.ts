@@ -65,7 +65,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 
 import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { hubAuth } from "@vite-hub/auth/vite"
-import { hubSource, toRuntimeModuleSpecifier, toTypeModuleSpecifier } from "@vite-hub/source/vite"
+import { hubSource, mergeGeneratedSourceNitroConfig, toRuntimeModuleSpecifier, toTypeModuleSpecifier } from "@vite-hub/source/vite"
 
 import { viteHubTypesPlugin } from "../src/internal/types.ts"
 import {
@@ -805,7 +805,6 @@ export const content = defineContent({ route: publicRoute, source: { async items
     await write("false")
     const handlers = await sourcePlugin().api.prepareSources({ projectRoot: root })
     expect(handlers).toEqual(expect.arrayContaining([
-      { handler: join(root, ".vitehub/content/preview.mjs"), plugin: true },
       { handler: join(root, ".vitehub/content/sitemap.mjs"), method: "get", route: "/sitemap.xml" },
       { handler: join(root, ".vitehub/content/robots.mjs"), method: "get", route: "/robots.txt" },
     ]))
@@ -813,6 +812,25 @@ export const content = defineContent({ route: publicRoute, source: { async items
     await expect(readFile(join(root, ".vitehub/content/route.mjs"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
     await write("true")
     expect(await sourcePlugin().api.prepareSources({ projectRoot: root })).toContainEqual({ handler: join(root, ".vitehub/content/route.mjs"), route: "/api/content/**" })
+  })
+
+  it("adds the Content preview plugin only when defineContent() can have collections", async () => {
+    const { root } = await createNestedProject()
+    await mkdir(join(root, "server"), { recursive: true })
+    const file = join(root, "server/content.ts")
+    const preview = { handler: join(root, ".vitehub/content/preview.mjs"), plugin: true }
+    const write = async (options: string) => await writeFile(file, `import { defineContent } from "vite-hub/content"
+export const content = defineContent(${options})
+`)
+    // Previews read drafts of collections. A plugin without them would only load Content when the server starts.
+    await write("{ sources: { docs: { async items() { return [] } } } }")
+    expect(await sourcePlugin().api.prepareSources({ projectRoot: root })).not.toContainEqual(preview)
+    await expect(readFile(preview.handler, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    await write(`{ workspace: "content", collections: { posts } }`)
+    expect(await sourcePlugin().api.prepareSources({ projectRoot: root })).toContainEqual(preview)
+    await write("{ sources: { docs: { async items() { return [] } } } }")
+    expect(await sourcePlugin().api.prepareSources({ projectRoot: root })).not.toContainEqual(preview)
+    await expect(readFile(preview.handler, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("generates /sitemap.xml and /robots.txt when defineContent() sets seo", async () => {
@@ -859,6 +877,41 @@ export const content = defineContent({ route: publicRoute, source: { async items
     await expect(readFile(join(root, ".vitehub/content/robots.mjs"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
     await write(`{ site: "https://example.com" }`)
     expect((await sourcePlugin().api.prepareSources({ projectRoot: root })).flatMap((handler: { route?: string }) => handler.route ?? [])).toEqual(["/api/content/**"])
+  })
+
+  it("generates Markdown copy middleware when defineContent() sets seo.markdown", async () => {
+    const { root } = await createNestedProject()
+    await Promise.all([
+      mkdir(join(root, "server"), { recursive: true }),
+      symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir"),
+    ])
+    const write = async (seo: string) => await writeFile(join(root, "server/content.ts"), [
+      `import { defineContent } from "vite-hub/content"`,
+      `export const content = defineContent({ route: false, source: { async items() { return [] } }, seo: ${seo} })`,
+      ``,
+    ].join("\n"))
+    await write(`{ markdown: true }`)
+
+    const handlers = await sourcePlugin().api.prepareSources({ projectRoot: root })
+    expect(handlers.filter((handler: { route?: string }) => handler.route !== undefined)).toEqual([
+      { handler: join(root, ".vitehub/content/markdown.mjs"), middleware: true, route: "/**" },
+    ])
+    // A route or a server middleware at /** does not conflict with it.
+    expect(mergeGeneratedSourceNitroConfig({ handlers: [{ handler: "app.mjs", route: "/**" }] }, handlers).handlers).toContainEqual(
+      expect.objectContaining({ handler: join(root, ".vitehub/content/markdown.mjs"), middleware: true, route: "/**" }),
+    )
+    const module: unknown = await import(`${pathToFileURL(join(root, ".vitehub/content/markdown.mjs")).href}?t=${Date.now()}`)
+    const middleware = Reflect.get(Object(module), "default")
+    if (!(middleware instanceof Function)) throw new TypeError("Expected a generated Markdown handler.")
+    // Without a published Markdown document at the path, the request passes through to the app.
+    const nodeRequest = new IncomingMessage(new Socket())
+    nodeRequest.url = "/guide.md"
+    nodeRequest.headers = { host: "example.test" }
+    await expect(middleware(createEvent(nodeRequest, new ServerResponse(nodeRequest)))).resolves.toBeUndefined()
+
+    await write(`{ markdown: false }`)
+    expect((await sourcePlugin().api.prepareSources({ projectRoot: root })).some((handler: { route?: string }) => handler.route === "/**")).toBe(false)
+    await expect(readFile(join(root, ".vitehub/content/markdown.mjs"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("rejects Content definitions that ViteHub cannot serve unambiguously", async () => {
@@ -933,7 +986,7 @@ export const content = defineContent({ route: publicRoute, source: { async items
     const contribution = await config(sourcePlugin())({ nitro: { handlers: [authMiddleware] }, root })
 
     expect(Reflect.get(Object(contribution), "nitro")).toEqual({
-      handlers: [{ handler: join(root, ".vitehub/content/route.mjs"), route: "/api/content/**" }],
+      handlers: [{ handler: join(root, ".vitehub/content/route.mjs"), lazy: true, route: "/api/content/**" }],
       modules: [expect.objectContaining({ name: "vite-hub/generated-route-guard" })],
       plugins: [join(root, ".vitehub/content/preview.mjs")],
     })

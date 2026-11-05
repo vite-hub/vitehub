@@ -1,5 +1,5 @@
 title: Queue
-icon: i-lucide-list-ordered
+icon: i-vitehub-queue
 order: 20
 category: Compute
 related: [workflows, schedule]

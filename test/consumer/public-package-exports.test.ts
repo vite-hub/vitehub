@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
-import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises"
+import { copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
-import { tmpdir } from "node:os"
+import { availableParallelism, tmpdir } from "node:os"
 import { dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
@@ -13,17 +13,56 @@ import { array, boolean, object, optional, parse, record, string } from "valibot
 import { parse as parseYaml } from "yaml"
 
 import { publicPackageBinContracts, publicPackageExportContracts } from "../public-package-exports"
+import { type DeclarationDiagnostic, type DeclarationProgram, isPackageDeclarationFile } from "./declaration-diagnostics"
 import { readReleaseArtifactTarballs, resolveReleaseArtifactTarball } from "../utils/release-artifacts"
 import { packageInfos } from "../utils/repo"
 
 const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "../..")
 const maxBuffer = 64 * 1024 * 1024
-// Tiptap packages that the Content editor's comark-tiptap renderer needs as peers.
-const contentEditorPeers = ["@tiptap/core", "@tiptap/extension-code-block", "@tiptap/extension-image", "@tiptap/extension-table", "@tiptap/pm", "@tiptap/starter-kit"] as const
-const optionalPeers = ["@nuxt/ui", "@tiptap/core", "@tiptap/extension-code-block", "@tiptap/extension-image", "@tiptap/extension-table", "@tiptap/pm", "@tiptap/starter-kit", "@upstash/redis", "comark", "comark-content", "comark-tiptap", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
-// @tiptap/pm publishes only subpaths, so its resolution is probed through one of them.
-const optionalPeerProbes = optionalPeers.map(name => name === "@tiptap/pm" ? "@tiptap/pm/state" : name)
+const declarationDiagnosticsScript = join(import.meta.dirname, "declaration-diagnostics.ts")
+const optionalPeers = ["@nuxt/ui", "@upstash/redis", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
+const optionalPeerProbes = optionalPeers
+// Every fixture and export runs in its own child process. Independent fixtures
+// run side by side, bounded by the CPU count so CI runners are not overloaded.
+const parallelism = availableParallelism()
+const processSlots = createLimit(parallelism)
+// Start the packages with the most exports first, so the largest package does
+// not run alone at the end.
+const packagesByExportCount = [...packageInfos].sort((left, right) =>
+  exportCount(right.packageName) - exportCount(left.packageName),
+)
+
+function exportCount(packageName: string) {
+  return publicPackageExportContracts.filter(contract => contract.packageName === packageName).length
+}
+
+function createLimit(limit: number) {
+  let active = 0
+  const waiting: (() => void)[] = []
+  return async <T>(task: () => Promise<T>) => {
+    if (active < limit) active++
+    else await new Promise<void>(resolve => waiting.push(resolve))
+    try {
+      return await task()
+    }
+    finally {
+      const next = waiting.shift()
+      if (next) next()
+      else active--
+    }
+  }
+}
+
+// Wait for every task before reporting a failure, so cleanup never removes a
+// fixture that a sibling task still uses.
+async function settled<T>(tasks: Iterable<Promise<T>>) {
+  const results = await Promise.allSettled(tasks)
+  return results.map((result) => {
+    if (result.status === "rejected") throw result.reason
+    return result.value
+  })
+}
 
 function isJavaScriptModule(target: string) {
   return target.endsWith(".js") || target.endsWith(".mjs")
@@ -52,7 +91,7 @@ const packageManifestSchema = object({
 
 async function run(command: string, args: string[], cwd: string) {
   try {
-    const result = await execFileAsync(command, args, { cwd, maxBuffer })
+    const result = await processSlots(() => execFileAsync(command, args, { cwd, maxBuffer }))
     return { stderr: String(result.stderr || ""), stdout: String(result.stdout || "") }
   }
   catch (error) {
@@ -63,8 +102,16 @@ async function run(command: string, args: string[], cwd: string) {
   }
 }
 
-function workspaceConfig(specs: Record<string, string>) {
-  const overrides = Object.entries(specs)
+async function workspaceConfig(specs: Record<string, string>) {
+  const nuxtUi = createRequire(await realpath(join(repoRoot, "packages/ui/node_modules/@nuxt/ui/package.json")))
+  // Keep Nuxt UI and Reka UI on the tested virtualizer: a fresh resolution can
+  // select a Vue adapter before its exact virtual-core dependency is published.
+  const overrides = Object.entries({
+    ...specs,
+    "@tanstack/vue-virtual": await installedVersion(nuxtUi.resolve("@tanstack/vue-virtual/package.json")),
+    // Fresh resolutions selected 2.0.1 while its tarball returned 404; use the workspace-tested version.
+    "mdast-util-gfm-table": "2.0.0",
+  })
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([name, spec]) => `  ${JSON.stringify(name)}: ${JSON.stringify(spec)}`)
   return ["packages:", "  - .", "overrides:", ...overrides, ""].join("\n")
@@ -88,18 +135,20 @@ async function requiredPeerSpecs() {
   const vercelCatalog = await catalogDependencySpecs("vercel", ["@vercel/functions"])
   const workflowCatalog = await catalogDependencySpecs("workflow", ["@workflow/builders", "workflow"])
   return {
+    ...await catalogDependencySpecs("auth", ["better-auth", "@better-auth/oauth-provider"]),
     ...agentCatalog,
     ...browserCatalog,
     ...chatCatalog,
     ...vercelCatalog,
     ...workflowCatalog,
+    "@nuxt/ui": await installedVersion(join(repoRoot, "packages/docs/node_modules/@nuxt/ui/package.json")),
     ai: await installedVersion(join(repoRoot, "packages/ui/node_modules/ai/package.json")),
     "@types/json-schema": await installedVersion(join(repoRoot, "packages/agent/node_modules/@types/json-schema/package.json")),
     "@types/mdast": await installedVersion(join(repoRoot, "packages/agent/node_modules/@types/mdast/package.json")),
     "@types/node": await installedVersion(join(repoRoot, "node_modules/@types/node/package.json")),
-    "comark-content": await installedVersion(join(repoRoot, "packages/content/node_modules/comark-content/package.json")),
     "drizzle-kit": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-kit/package.json")),
     "drizzle-orm": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-orm/package.json")),
+    nuxt: await installedVersion(join(repoRoot, "packages/docs/node_modules/nuxt/package.json")),
     postgres: await installedVersion(join(repoRoot, "packages/database/node_modules/postgres/package.json")),
     vite: requiredDependency(await readManifest(join(repoRoot, "fixtures/consumer/vite-hub/package.json")), "vite"),
     vue: await installedVersion(join(repoRoot, "packages/agent/node_modules/vue/package.json")),
@@ -140,21 +189,23 @@ function requiredDependency(manifest: { dependencies?: Record<string, string> },
 }
 
 async function packPublicPackages(packDir: string) {
-  const specs: Record<string, string> = {}
   const releaseTarballs = readReleaseArtifactTarballs(repoRoot)
-  for (const info of packageInfos) {
+  const specs = await settled(packageInfos.map(async (info) => {
     const tarball = await resolveReleaseArtifactTarball(releaseTarballs, info.packageName, async () => {
-      const before = new Set(await readdir(packDir))
-      await run("corepack", ["pnpm", "--filter", info.packageName, "pack", "--pack-destination", packDir], repoRoot)
-      const tarballs = (await readdir(packDir)).filter(file => !before.has(file))
+      // Each package packs into its own directory, so concurrent packs cannot
+      // claim each other's tarball.
+      const destination = join(packDir, info.name)
+      await mkdir(destination)
+      await run("corepack", ["pnpm", "--filter", info.packageName, "pack", "--pack-destination", destination], repoRoot)
+      const tarballs = await readdir(destination)
       expect(tarballs, `${info.packageName} should produce one tarball`).toHaveLength(1)
-      return join(packDir, tarballs[0]!)
+      return join(destination, tarballs[0]!)
     })
     await assertPackedTargets(info.packageName, tarball)
-    specs[info.packageName] = `file:${tarball}`
-  }
+    return [info.packageName, `file:${tarball}`] as const
+  }))
   if (releaseTarballs) expect(releaseTarballs.size).toBe(packageInfos.length)
-  return specs
+  return Object.fromEntries(specs)
 }
 
 function packageExportTargets(value: unknown): string[] {
@@ -228,7 +279,7 @@ async function writeConsumer(appDir: string, specs: Record<string, string>) {
       private: true,
       type: "module",
     }, null, 2), "utf8"),
-    writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs), "utf8"),
+    writeFile(join(appDir, "pnpm-workspace.yaml"), await workspaceConfig(specs), "utf8"),
   ])
 }
 
@@ -243,7 +294,7 @@ async function resolveSpecifiers(appDir: string, specifiers: readonly string[]) 
 }
 
 async function importSpecifiers(appDir: string, specifiers: readonly string[], withCloudflareHost = false) {
-  for (const specifier of specifiers) {
+  await settled(specifiers.map(async (specifier) => {
     const script = [
       ...(withCloudflareHost
         ? [
@@ -257,78 +308,99 @@ async function importSpecifiers(appDir: string, specifiers: readonly string[], w
       "await import(process.argv[1])",
     ].join("\n")
     await run(process.execPath, ["--input-type=module", "--eval", script, specifier], appDir)
-  }
+  }))
 }
 
-async function importPackagesWithoutRootFallback(
-  appDir: string,
-  includeOptionalPeers: boolean,
-  includePackage: (packageName: string) => boolean = () => true,
-) {
-  const includedPackages = packageInfos.filter(info => includePackage(info.packageName))
-  const packageRoots = new Map(await Promise.all(includedPackages.map(async info => [
-    info.packageName,
-    await realpath(join(appDir, "node_modules", ...info.packageName.split("/"))),
-  ] as const)))
+// Each consumer hides root dependencies for one package at a time, so the
+// packages are spread over several identical consumers.
+async function importPackagesWithoutRootFallback(appDirs: readonly string[], includeOptionalPeers: boolean) {
+  const pending = [...packagesByExportCount]
+  await settled(appDirs.map(async (appDir) => {
+    for (let info = pending.shift(); info; info = pending.shift()) {
+      await importPackageWithoutRootFallback(appDir, info, includeOptionalPeers)
+    }
+  }))
+}
 
-  for (const info of includedPackages) {
-    const packageRoot = packageRoots.get(info.packageName)
-    if (!packageRoot) throw new Error(`Missing installed package root for ${info.packageName}`)
-    const manifest = await readManifest(join(packageRoot, "package.json"))
-    const requiredPeers = Object.keys(manifest.peerDependencies || {}).filter(name =>
-      !manifest.peerDependenciesMeta?.[name]?.optional,
-    )
-    // Keep the package's published runtime closure available while root
-    // dependencies are hidden. Isolated package links resolve dependencies
-    // through the consumer root, so removing these entries makes pnpm fetch
-    // first-party packages from the registry instead of the packed tarballs.
-    const runtimeDependencies = [
-      ...Object.keys(manifest.dependencies || {}),
-      ...Object.keys(manifest.optionalDependencies || {}),
-    ]
-    const declaredTypeDependencies = packageTypeDependencies(manifest)
-    await withoutRootDependencies(appDir, new Set([
-      info.packageName,
-      ...(info.packageName === "@vite-hub/auth" ? [] : ["@types/node"]),
-      ...runtimeDependencies,
-      ...declaredTypeDependencies,
-      ...requiredPeers,
-      ...(includeOptionalPeers ? Object.keys(manifest.peerDependencies || {}) : []),
-    ]), async () => {
-      const runnerDir = join(appDir, ".isolated", info.name)
-      const packageNameParts = info.packageName.split("/")
-      const linkDir = join(runnerDir, "node_modules", ...packageNameParts.slice(0, -1))
-      await rm(runnerDir, { recursive: true, force: true })
-      await mkdir(linkDir, { recursive: true })
-      const packageDirName = packageNameParts.at(-1)
-      if (!packageDirName) throw new Error(`Invalid package name: ${info.packageName}`)
-      await symlink(packageRoot, join(linkDir, packageDirName), "dir")
-      const packageRequire = createRequire(join(packageRoot, "package.json"))
-      for (const dependency of declaredTypeDependencies) {
-        const dependencyParts = dependency.split("/")
-        const dependencyDirName = dependencyParts.at(-1)
-        if (!dependencyDirName) throw new Error(`Invalid dependency name: ${dependency}`)
-        const dependencyLinkDir = join(runnerDir, "node_modules", ...dependencyParts.slice(0, -1))
-        const dependencyRoot = dirname(packageRequire.resolve(`${dependency}/package.json`))
-        await mkdir(dependencyLinkDir, { recursive: true })
-        await symlink(dependencyRoot, join(dependencyLinkDir, dependencyDirName), "dir")
-      }
-      const importableContracts = publicPackageExportContracts
-        .filter(contract => contract.packageName === info.packageName
-          && isJavaScriptModule(contract.target)
-          && (includeOptionalPeers || contract.optionalRuntimePeers.length === 0))
-      const cloudflareContracts = importableContracts.filter(contract => contract.specifier.endsWith("/cloudflare/state"))
-      await importSpecifiers(runnerDir, importableContracts
+async function importPackageWithoutRootFallback(
+  appDir: string,
+  info: (typeof packageInfos)[number],
+  includeOptionalPeers: boolean,
+) {
+  const packageRoot = await realpath(join(appDir, "node_modules", ...info.packageName.split("/")))
+  const manifest = await readManifest(join(packageRoot, "package.json"))
+  const requiredPeers = Object.keys(manifest.peerDependencies || {}).filter(name =>
+    !manifest.peerDependenciesMeta?.[name]?.optional,
+  )
+  // Keep the package's published runtime closure available while root
+  // dependencies are hidden. Isolated package links resolve dependencies
+  // through the consumer root, so removing these entries makes pnpm fetch
+  // first-party packages from the registry instead of the packed tarballs.
+  const runtimeDependencies = [
+    ...Object.keys(manifest.dependencies || {}),
+    ...Object.keys(manifest.optionalDependencies || {}),
+  ]
+  const declaredTypeDependencies = packageTypeDependencies(manifest)
+  await withoutRootDependencies(appDir, new Set([
+    info.packageName,
+    ...(info.packageName === "@vite-hub/auth" ? [] : ["@types/node"]),
+    ...runtimeDependencies,
+    ...declaredTypeDependencies,
+    ...requiredPeers,
+    ...(includeOptionalPeers ? [...Object.keys(manifest.peerDependencies || {}), ...optionalContractPeers(info.packageName)] : []),
+  ]), async () => {
+    const runnerDir = join(appDir, ".isolated", info.name)
+    const packageNameParts = info.packageName.split("/")
+    const linkDir = join(runnerDir, "node_modules", ...packageNameParts.slice(0, -1))
+    await rm(runnerDir, { recursive: true, force: true })
+    await mkdir(linkDir, { recursive: true })
+    const packageDirName = packageNameParts.at(-1)
+    if (!packageDirName) throw new Error(`Invalid package name: ${info.packageName}`)
+    await symlink(packageRoot, join(linkDir, packageDirName), "dir")
+    const packageRequire = createRequire(join(packageRoot, "package.json"))
+    for (const dependency of declaredTypeDependencies) {
+      const dependencyParts = dependency.split("/")
+      const dependencyDirName = dependencyParts.at(-1)
+      if (!dependencyDirName) throw new Error(`Invalid dependency name: ${dependency}`)
+      const dependencyLinkDir = join(runnerDir, "node_modules", ...dependencyParts.slice(0, -1))
+      const dependencyRoot = dirname(packageRequire.resolve(`${dependency}/package.json`))
+      await mkdir(dependencyLinkDir, { recursive: true })
+      await symlink(dependencyRoot, join(dependencyLinkDir, dependencyDirName), "dir")
+    }
+    const importableContracts = publicPackageExportContracts
+      .filter(contract => contract.packageName === info.packageName
+        && isJavaScriptModule(contract.target)
+        && (includeOptionalPeers || contract.optionalRuntimePeers.length === 0))
+    const cloudflareContracts = importableContracts.filter(contract => contract.specifier.endsWith("/cloudflare/state"))
+    await settled([
+      importSpecifiers(runnerDir, importableContracts
         .filter(contract => !cloudflareContracts.includes(contract))
-        .map(contract => contract.specifier))
-      await importSpecifiers(runnerDir, cloudflareContracts.map(contract => contract.specifier), true)
-      await typecheckPackageExports(info.packageName, runnerDir, includeOptionalPeers)
-    })
-  }
+        .map(contract => contract.specifier)),
+      importSpecifiers(runnerDir, cloudflareContracts.map(contract => contract.specifier), true),
+      typecheckPackageExports(info.packageName, runnerDir, includeOptionalPeers),
+    ])
+  })
 }
 
 function packageTypeDependencies(manifest: { dependencies?: Record<string, string> }) {
   return Object.keys(manifest.dependencies || {}).filter(name => name.startsWith("@types/"))
+}
+
+function optionalContractPeers(packageName: string) {
+  return [...new Set(publicPackageExportContracts
+    .filter(contract => contract.packageName === packageName)
+    .flatMap((contract) => {
+      // Facade pass-through exports also need the optional peers of their owner.
+      const owner = packageName === "vite-hub"
+        ? publicPackageExportContracts.find(candidate => candidate.specifier === contract.specifier.replace(/^vite-hub\//, "@vite-hub/"))
+        : undefined
+      return [
+        ...contract.optionalRuntimePeers,
+        ...contract.optionalDeclarationPeers,
+        ...(owner?.optionalRuntimePeers ?? []),
+        ...(owner?.optionalDeclarationPeers ?? []),
+      ]
+    }))]
 }
 
 async function importPackagesWithoutDeclarationPeer(
@@ -342,13 +414,13 @@ async function importPackagesWithoutDeclarationPeer(
     contract => contract.packageName,
   )
 
-  for (const [packageName, contracts] of contractsByPackage) {
+  await settled([...contractsByPackage].map(async ([packageName, contracts]) => {
     const appDir = join(root, "mixed-peers", packageName.replaceAll("/", "-"), `without-${omittedPeer.replaceAll("/", "-")}`)
     const sourceManifest = await readManifest(join(repoRoot, "packages", packageName.replace("@vite-hub/", ""), "package.json"))
     const requiredPeers = Object.keys(sourceManifest.peerDependencies || {}).filter(name =>
       !sourceManifest.peerDependenciesMeta?.[name]?.optional,
     )
-    const declaredPeers = Object.keys(sourceManifest.peerDependencies || {})
+    const declaredPeers = [...Object.keys(sourceManifest.peerDependencies || {}), ...optionalContractPeers(packageName)]
     const sourcePeerSpecs = await resolvedPeerDependencySpecs(sourceManifest.peerDependencies || {})
     const devDependencies = mixedPeerFixtureSpecs(
       packageName,
@@ -376,11 +448,11 @@ async function importPackagesWithoutDeclarationPeer(
         private: true,
         type: "module",
       }, null, 2), "utf8"),
-      writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs), "utf8"),
+      writeFile(join(appDir, "pnpm-workspace.yaml"), await workspaceConfig(specs), "utf8"),
     ])
     await run("corepack", ["pnpm", "install", "--ignore-scripts"], appDir)
     await importSpecifiers(appDir, contracts.map(contract => contract.specifier))
-  }
+  }))
 }
 
 function mixedPeerFixtureSpecs(
@@ -412,8 +484,13 @@ function declarationPeerAbsentRuntimeContracts(omittedPeer: string) {
 
 async function exercisePackagesWithoutOptionalPeers(root: string, specs: Record<string, string>) {
   const requiredPeerVersions = await requiredPeerSpecs()
+  // Read each packed manifest once, before the fixtures queue their installs.
+  const packedManifests = new Map(await settled(Object.entries(specs).map(async ([packageName, spec]) => {
+    const { stdout } = await run("tar", ["-xOf", spec.slice("file:".length), "package/package.json"], repoRoot)
+    return [packageName, parse(packageManifestSchema, JSON.parse(stdout))] as const
+  })))
 
-  for (const info of packageInfos) {
+  await settled(packagesByExportCount.map(async (info) => {
     const appDir = join(root, "absent-peers", info.name)
     const sourceManifest = await readManifest(join(repoRoot, "packages", info.name, "package.json"))
     const requiredPeers = Object.keys(sourceManifest.peerDependencies || {}).filter(name =>
@@ -432,9 +509,7 @@ async function exercisePackagesWithoutOptionalPeers(root: string, specs: Record<
       const dependencyInfo = packageInfos.find(candidate => candidate.packageName === packageName)
       if (!dependencyInfo) continue
       const dependencyManifest = await readManifest(join(repoRoot, "packages", dependencyInfo.name, "package.json"))
-      const packedManifest = specs[packageName]
-        ? parse(packageManifestSchema, JSON.parse((await run("tar", ["-xOf", specs[packageName]!.slice("file:".length), "package/package.json"], repoRoot)).stdout))
-        : {}
+      const packedManifest = packedManifests.get(packageName) || {}
       const dependencies = [
         ...Object.keys(dependencyManifest.dependencies || {}),
         ...Object.keys(dependencyManifest.optionalDependencies || {}),
@@ -478,11 +553,20 @@ async function exercisePackagesWithoutOptionalPeers(root: string, specs: Record<
         private: true,
         type: "module",
       }, null, 2), "utf8"),
-      writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs), "utf8"),
+      writeFile(join(appDir, "pnpm-workspace.yaml"), await workspaceConfig(specs), "utf8"),
     ])
     await run("corepack", ["pnpm", "install", "--ignore-scripts"], appDir)
-    await importPackagesWithoutRootFallback(appDir, false, packageName => packageName === info.packageName)
-  }
+    await importPackageWithoutRootFallback(appDir, info, false)
+  }))
+}
+
+// The copy installs from the consumer's lockfile, so it has the same layout.
+async function cloneConsumer(appDir: string, cloneDir: string) {
+  await mkdir(cloneDir)
+  await Promise.all([".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"].map(file =>
+    copyFile(join(appDir, file), join(cloneDir, file)),
+  ))
+  await run("corepack", ["pnpm", "install", "--frozen-lockfile", "--offline", "--ignore-scripts"], cloneDir)
 }
 
 async function withoutRootDependencies(appDir: string, allowed: Set<string>, runIsolated: () => Promise<void>) {
@@ -530,12 +614,7 @@ async function addOptionalPeers(appDir: string) {
   const viteHubManifest = await readManifest(join(appDir, "node_modules/vite-hub/package.json"))
   const peers = {
     "@nuxt/ui": await installedVersion(join(repoRoot, "packages/ui/node_modules/@nuxt/ui/package.json")),
-    ...Object.fromEntries(await Promise.all(contentEditorPeers.map(async name =>
-      [name, await installedVersion(join(repoRoot, "packages/content/node_modules", name, "package.json"))] as const))),
     "@upstash/redis": await installedVersion(join(repoRoot, "packages/kv/node_modules/@upstash/redis/package.json")),
-    comark: await installedVersion(join(repoRoot, "packages/content/node_modules/comark/package.json")),
-    "comark-content": await installedVersion(join(repoRoot, "packages/content/node_modules/comark-content/package.json")),
-    "comark-tiptap": await installedVersion(join(repoRoot, "packages/content/node_modules/comark-tiptap/package.json")),
     evalite: await installedVersion(join(repoRoot, "packages/agent/node_modules/evalite/package.json")),
     evlog: agentManifest.peerDependencies!.evlog!,
     openworkflow: await installedVersion(join(repoRoot, "packages/workflow/node_modules/openworkflow/package.json")),
@@ -571,7 +650,7 @@ async function typecheckPackageExports(packageName: string, runnerDir: string, i
     const isolation = contract.specifier.endsWith("/virtual") ? contract.specifier : "shared"
     return `${usesNodeDeclarationTypes(contract)}:${usesCloudflareHost(contract)}:${isolation}`
   })
-  for (const group of groups.values()) {
+  await settled([...groups.values()].map(async (group) => {
     const diagnostics = await packageModulesDiagnostics(
       packageName,
       runnerDir,
@@ -580,14 +659,10 @@ async function typecheckPackageExports(packageName: string, runnerDir: string, i
       declaredTypes,
     )
     expect(
-      ts.formatDiagnosticsWithColorAndContext(diagnostics, {
-        getCanonicalFileName: file => file,
-        getCurrentDirectory: () => runnerDir,
-        getNewLine: () => "\n",
-      }),
+      diagnostics.map(diagnostic => diagnostic.text).join(""),
       `${packageName} should expose valid declarations with its own dependency closure: ${group.map(({ contract }) => contract.specifier).join(", ")}`,
     ).toBe("")
-  }
+  }))
 }
 
 function usesCloudflareHost(contract: (typeof publicPackageExportContracts)[number]) {
@@ -672,8 +747,15 @@ async function packageModulesDiagnostics(
       ...declaredTypes.map(dependency => dependency.replace(/^@types\//, "")),
     ])],
   }
-  const program = ts.createProgram(rootNames, options)
-  return declarationDiagnostics(program, includeDependencyDiagnostics ? undefined : packageName)
+  const program: DeclarationProgram = {
+    displayDirectory: runnerDir,
+    options,
+    packageName: includeDependencyDiagnostics ? undefined : packageName,
+    rootNames,
+  }
+  const { stdout } = await run(process.execPath, [declarationDiagnosticsScript, JSON.stringify(program)], process.cwd())
+  // SAFETY: declaration-diagnostics.ts writes a JSON-encoded DeclarationDiagnostic array.
+  return JSON.parse(stdout) as DeclarationDiagnostic[]
 }
 
 async function packageTypeDependenciesFrom(runnerDir: string, packageName: string, declaredTypes: readonly string[] = []) {
@@ -694,39 +776,11 @@ async function packageTypeDependenciesFrom(runnerDir: string, packageName: strin
   }
 }
 
-function declarationDiagnostics(program: ts.Program, packageName?: string) {
-  return ts.getPreEmitDiagnostics(program).filter(diagnostic => isPackageDeclarationDiagnostic(diagnostic, packageName))
-}
-
-function isPackageDeclarationDiagnostic(diagnostic: ts.Diagnostic, packageName?: string) {
-  const path = diagnostic.file?.fileName.replaceAll("\\", "/") || ""
-  if (!path.includes("/node_modules/")) return true
-  // Dependency declarations have their own release contracts. Keep this test
-  // scoped to diagnostics emitted by the packed ViteHub package itself.
-  return packageName ? path.includes(`/node_modules/${packageName}/`) : true
-}
-
 describe("published declaration diagnostics", () => {
   it("reports package diagnostics without adopting dependency diagnostics", () => {
-    const diagnosticAt = (fileName: string) => ({
-      category: ts.DiagnosticCategory.Error,
-      code: 2307,
-      // SAFETY: This fixture only supplies the SourceFile field read by the diagnostic filter.
-      file: { fileName } as ts.SourceFile,
-      length: 3,
-      messageText: "Cannot find a declaration dependency.",
-      start: 0,
-    })
-
-    expect(isPackageDeclarationDiagnostic(
-      diagnosticAt("/consumer/node_modules/@vite-hub/ui/dist/index.d.ts"),
-      "@vite-hub/ui",
-    )).toBe(true)
-    expect(isPackageDeclarationDiagnostic(
-      diagnosticAt("/consumer/node_modules/@comark/vue/dist/index.d.ts"),
-      "@vite-hub/ui",
-    )).toBe(false)
-    expect(isPackageDeclarationDiagnostic(diagnosticAt("/consumer/export.ts"), "@vite-hub/ui")).toBe(true)
+    expect(isPackageDeclarationFile("/consumer/node_modules/@vite-hub/ui/dist/index.d.ts", "@vite-hub/ui")).toBe(true)
+    expect(isPackageDeclarationFile("/consumer/node_modules/@comark/vue/dist/index.d.ts", "@vite-hub/ui")).toBe(false)
+    expect(isPackageDeclarationFile("/consumer/export.ts", "@vite-hub/ui")).toBe(true)
   })
 
   it("keeps declared type dependencies visible from a packed pnpm package", async () => {
@@ -762,7 +816,7 @@ describe("published declaration diagnostics", () => {
       const diagnostics = await packageModuleDiagnostics("@vite-hub/queue", root, contract!, 0, false, dependencies, true)
       expect(diagnostics.filter(diagnostic => diagnostic.code === 2688)).toEqual([])
       expect(diagnostics.filter(diagnostic => diagnostic.code === 7016)).toEqual([])
-      expect(diagnostics.filter(diagnostic => diagnostic.code === 2304).map(diagnostic => diagnostic.file?.fileName)).toContain(
+      expect(diagnostics.filter(diagnostic => diagnostic.code === 2304).map(diagnostic => diagnostic.fileName)).toContain(
         join(typesDir, "index.d.ts"),
       )
     }
@@ -803,6 +857,19 @@ describe("published declaration diagnostics", () => {
     )
     expect(viteHubFixtureSpecs).toMatchObject({ "@types/node": "1.0.0", "reka-ui": "2.10.3" })
     expect(viteHubFixtureSpecs).not.toHaveProperty("vite")
+  })
+
+  it("keeps feature export peers available after the facade stops declaring them", () => {
+    expect(optionalContractPeers("vite-hub")).toEqual(expect.arrayContaining(["evalite", "vitest"]))
+  })
+
+  it("provides install specs for Docs' required external peers", async () => {
+    const manifest = await readManifest(join(repoRoot, "packages/docs/package.json"))
+    const peerSpecs = await requiredPeerSpecs()
+    for (const name of Object.keys(manifest.peerDependencies || {})) {
+      if (manifest.peerDependenciesMeta?.[name]?.optional) continue
+      expect(peerSpecs, `Missing required peer spec for ${name}`).toHaveProperty(name)
+    }
   })
 
   it("provides install specs for Workflow's optional declaration peers", async () => {
@@ -941,7 +1008,7 @@ describe("published declaration diagnostics", () => {
       expect(diagnostics.filter(diagnostic => diagnostic.code === 2688)).toEqual([])
       const diagnosticFiles = diagnostics
         .filter(diagnostic => diagnostic.code === 2304)
-        .map(diagnostic => diagnostic.file?.fileName)
+        .map(diagnostic => diagnostic.fileName)
 
       expect(diagnosticFiles).toEqual(expect.arrayContaining([
         join(dependencyDir, "index.d.ts"),
@@ -988,17 +1055,22 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package e
       const peerSpecs = { ...await requiredPeerSpecs(), ...optionalPeerSpecs }
       expect(Object.keys(optionalPeerSpecs)).toEqual(optionalPeers)
       await assertResolution(appDir, optionalPeerProbes, true)
-      for (const optionalPeer of optionalPeers) {
-        await importPackagesWithoutDeclarationPeer(root, specs, optionalPeer, peerSpecs)
-      }
+      await settled(optionalPeers.map(optionalPeer => importPackagesWithoutDeclarationPeer(root, specs, optionalPeer, peerSpecs)))
       const presentPeerContracts = publicPackageExportContracts
         .filter(contract => isJavaScriptModule(contract.target))
       const presentCloudflareContracts = presentPeerContracts.filter(contract => contract.specifier.endsWith("/cloudflare/state"))
-      await importSpecifiers(appDir, presentPeerContracts
-        .filter(contract => !presentCloudflareContracts.includes(contract))
-        .map(contract => contract.specifier))
-      await importSpecifiers(appDir, presentCloudflareContracts.map(contract => contract.specifier), true)
-      await importPackagesWithoutRootFallback(appDir, true)
+      await settled([
+        importSpecifiers(appDir, presentPeerContracts
+          .filter(contract => !presentCloudflareContracts.includes(contract))
+          .map(contract => contract.specifier)),
+        importSpecifiers(appDir, presentCloudflareContracts.map(contract => contract.specifier), true),
+      ])
+      const clones = Array.from(
+        { length: Math.min(parallelism, packageInfos.length) - 1 },
+        (_, index) => join(root, `consumer-${index + 1}`),
+      )
+      await settled(clones.map(cloneDir => cloneConsumer(appDir, cloneDir)))
+      await importPackagesWithoutRootFallback([appDir, ...clones], true)
       const staticContracts = publicPackageExportContracts.filter(contract => contract.kind === "static-asset")
       const resolved = await resolveSpecifiers(appDir, staticContracts.map(contract => contract.specifier))
       for (const [index, url] of resolved.entries()) {
@@ -1011,7 +1083,8 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package e
       for (const contract of publicPackageBinContracts) {
         const packageRoot = await realpath(join(appDir, "node_modules", ...contract.packageName.split("/")))
         const result = await run(process.execPath, [join(packageRoot, contract.target), "--help"], appDir)
-        expect(result.stdout, `${contract.packageName} ${contract.binName} should print help`).toContain("Usage: vitehub")
+        const usage = contract.packageName === "@vite-hub/codemods" ? "Usage: npx @vite-hub/codemods" : "Usage: vitehub"
+        expect(result.stdout, `${contract.packageName} ${contract.binName} should print help`).toContain(usage)
         expect(result.stderr).toBe("")
       }
     }

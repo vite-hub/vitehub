@@ -38,7 +38,10 @@ describe("Console Env", () => {
     const plugin = join(root, "console.mjs")
     await writeConsoleNitroPlugin(plugin, root, ["env"], [], { agents: [], content: {} }, [])
     const generated = await readFile(plugin, "utf8")
-    expect(generated).toContain('import { describeServerEnv } from "#vitehub/env/description"')
+    // The Console runtime loads the declarations with the first Console request.
+    const runtimeImports = generated.split("\n").find(line => line.includes("await Promise.all("))
+    expect(runtimeImports).toContain('import("#vitehub/env/description")')
+    expect(runtimeImports).not.toContain('"#vitehub/env/server"')
     expect(generated).not.toContain('from "#vitehub/env/server"')
     // Status inspection can call providers, so the plugin imports it only on request.
     expect(generated).toContain('async event => (await import("#vitehub/env/server")).inspectServerEnv(event)')

@@ -40,8 +40,9 @@ describe("launch documentation trust boundaries", () => {
       resolve(repoRoot, "docs/app/components/content/SupportMatrix.vue"),
       "utf8",
     );
-    const docsLayout = readFileSync(resolve(repoRoot, "docs/app/layouts/docs.vue"), "utf8");
-    const docsPage = readFileSync(resolve(repoRoot, "docs/app/pages/docs/[...slug].vue"), "utf8");
+    // The shared docs shell knows nothing about the matrix. The page renders it as content.
+    const docsLayout = readFileSync(resolve(repoRoot, "packages/docs/runtime/app/layouts/docs.vue"), "utf8");
+    const docsPage = readFileSync(resolve(repoRoot, "packages/docs/runtime/app/pages/docs-page.vue"), "utf8");
     const matrixHeader = matrix.split("\n").find((line) => line.startsWith("| Contract")) ?? "";
 
     expect(matrixHeader).not.toBe("");

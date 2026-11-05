@@ -34,6 +34,8 @@ export interface ViteHubCliContext extends ViteHubCliStreams {
   env: NodeJS.ProcessEnv
   /** Replaces `fetch` for commands that call a running app, so tests need no server. */
   fetch?: typeof fetch
+  /** The deployed app's public origin from `vitehub({ publicUrl })`, when it is one string. */
+  publicUrl?: string
   rootDir: string
   spawn: ViteHubCliSpawn
 }
@@ -56,6 +58,8 @@ export interface ViteHubCliCommandNamespace {
 export interface ViteHubCliContributor {
   namespaces: ViteHubCliCommandNamespace[]
   provision?: ProvisionStep[]
+  /** The deployed app's public origin. Commands receive it as `context.publicUrl`. */
+  publicUrl?: string
 }
 
 export type ViteHubCliContributorFactory = () => ViteHubCliContributor | undefined | Promise<ViteHubCliContributor | undefined>
@@ -141,6 +145,29 @@ export async function withStdoutOnStderr<T>(run: () => Promise<T>, stderr: ViteH
   }
 }
 
+interface ClosableNitro {
+  close: () => Promise<void>
+}
+
+/**
+ * A Vite plugin for CLI discovery that collects the Nitro instances that Vite's config hooks create, and `close()` to stop them.
+ * Nitro's Vite plugin starts its dev env runner (a worker thread, or Miniflare for Cloudflare) while Vite resolves a `serve`
+ * config. Discovery never uses that runner. If it stays open, the process does not exit by itself, and when the CLI
+ * then calls `process.exit()`, a StackBlitz WebContainer stops running later processes such as `vite`.
+ */
+export function createCliDiscoveryNitroCloser(): { close: () => Promise<void>, plugin: { name: string, nitro: { setup: (nitro: ClosableNitro) => void } } } {
+  const instances: ClosableNitro[] = []
+  return {
+    close: async () => {
+      await Promise.all(instances.splice(0).map(nitro => nitro.close()))
+    },
+    plugin: {
+      name: "vite-hub/cli-discovery-nitro",
+      nitro: { setup: nitro => { instances.push(nitro) } },
+    },
+  }
+}
+
 /** Returns the unredirected process stdout writer for payload output. */
 export function getStableStdoutWrite(): typeof process.stdout.write {
   const current = process.stdout.write
@@ -156,15 +183,17 @@ async function resolveContributor(value: ViteHubCliPluginMetadata["cli"]): Promi
 }
 
 /** Resolves command namespaces and Provision Steps from one contribution per plugin. */
-export async function collectViteHubCliContribution(plugins: readonly unknown[]): Promise<Required<ViteHubCliContributor>> {
+export async function collectViteHubCliContribution(plugins: readonly unknown[]): Promise<Required<Omit<ViteHubCliContributor, "publicUrl">> & Pick<ViteHubCliContributor, "publicUrl">> {
   const namespaces = new Map<string, ViteHubCliCommandNamespace>()
   const steps = new Map<string, ProvisionStep>()
+  let publicUrl: string | undefined
 
   for (const plugin of plugins) {
     if (!plugin || typeof plugin !== "object" || !Object.hasOwn(plugin, "vitehub")) continue
     const metadata = (plugin as ViteHubCliContributingPlugin).vitehub
     const contributor = await resolveContributor(metadata?.cli)
     if (!contributor) continue
+    publicUrl ??= contributor.publicUrl
 
     for (const namespace of contributor.namespaces) {
       const existing = namespaces.get(namespace.name)
@@ -184,7 +213,7 @@ export async function collectViteHubCliContribution(plugins: readonly unknown[])
     }
   }
 
-  return { namespaces: [...namespaces.values()], provision: [...steps.values()] }
+  return { namespaces: [...namespaces.values()], provision: [...steps.values()], ...(publicUrl ? { publicUrl } : {}) }
 }
 
 /**
