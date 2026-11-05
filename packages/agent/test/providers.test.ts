@@ -15,7 +15,7 @@ import { removeProviderOutputArtifactDir } from "@vite-hub/internal/build/provid
 import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { collectViteHubProviderOutputEntries } from "@vite-hub/internal/inspect"
 import { mergeConfig, resolveConfig, build as viteBuild } from "vite"
-import type { ConfigEnv, UserConfig } from "vite"
+import type { Alias, ConfigEnv, UserConfig } from "vite"
 import { describe, expect, it, vi } from "vitest"
 
 import { title } from "../src/capabilities.ts"
@@ -781,6 +781,55 @@ describe("agent Vite plugin", () => {
       expect(route).toContain('import { email as vitehubEmail } from "@vite-hub/email/server"')
       // The app cannot import @vite-hub/blob, so the route omits it.
       expect(route).not.toContain("vitehubBlob")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it.each(["import-only exports", "custom export condition", "extensionless TypeScript alias", "virtual alias"])("keeps runtime Capabilities with %s", async (resolution) => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-capability-esm-"))
+    try {
+      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "digest.ts"), "export default {}", "utf8")
+      const alias: Alias[] = []
+      const conditions = resolution === "custom export condition" ? ["capability-test"] : undefined
+      const customResolver = vi.fn(() => "\0virtual:email")
+      let expectedId: string
+      if (resolution === "import-only exports" || resolution === "custom export condition") {
+        await installStubPackages(root, ["@vite-hub/email/server"])
+        await writeFile(join(root, "node_modules", "@vite-hub/email", "package.json"), JSON.stringify({
+          exports: { "./server": conditions ? { "capability-test": { import: "./index.js" } } : { import: "./index.js" } },
+          type: "module",
+        }), "utf8")
+        expectedId = join(root, "node_modules", "@vite-hub/email", "index.js")
+      }
+      else if (resolution === "extensionless TypeScript alias") {
+        expectedId = join(root, "email.ts")
+        await writeFile(expectedId, "export const email = {}", "utf8")
+        alias.push({ find: "@vite-hub/email/server", replacement: join(root, "email") })
+      }
+      else {
+        expectedId = "\0virtual:email"
+        alias.push({ customResolver, find: "@vite-hub/email/server", replacement: "virtual:email" })
+      }
+      const plugin = hubAgent()
+      const configResolvedHook: unknown = plugin.configResolved
+      // SAFETY: hubAgent installs configResolved as an async Vite hook.
+      const configResolved = configResolvedHook as (config: Record<string, unknown>) => Promise<void>
+      const createResolver = vi.fn(() => { throw new Error("Can not found environment context for client") })
+      await configResolved({ command: "serve", createResolver, plugins: [{ name: "@vite-hub/email/vite" }], resolve: { alias, conditions }, root })
+
+      const route = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
+      expect(route).toContain('import { email as vitehubEmail } from "@vite-hub/email/server"')
+      expect(route).toContain("email: vitehubEmail")
+      expect(createResolver).not.toHaveBeenCalled()
+      expect(customResolver).not.toHaveBeenCalled()
+
+      // These imports really resolve in Vite; custom alias hooks run only when Vite loads the route.
+      const config = await resolveConfig({ configFile: false, envFile: false, logLevel: "silent", resolve: { alias, conditions }, root }, "serve")
+      expect(await config.createResolver()("@vite-hub/email/server", join(root, ".vitehub/agent/chat-webhook-route.ts"))).toBe(expectedId.replace(/\\/g, "/"))
     }
     finally {
       await rm(root, { force: true, recursive: true })
