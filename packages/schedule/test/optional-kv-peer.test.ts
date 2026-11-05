@@ -60,6 +60,9 @@ function workspaceConfig(packageOverrides: Record<string, string>): string {
     "overrides:",
     // Rolldown rc.15 pins @emnapi/* 1.9.2, while wasm-runtime 1.2 requires 2.x peers.
     "  \"@napi-rs/wasm-runtime\": \"1.1.6\"",
+    // Use the workspace-tested pair: newer msgpackr-extract native tarballs returned 404.
+    "  \"msgpackr@^2\": \"2.1.0\"",
+    "  msgpackr-extract: \"3.0.4\"",
     ...Object.entries(packageOverrides).map(([name, spec]) => `  ${JSON.stringify(name)}: ${JSON.stringify(spec)}`),
     "",
   ].join("\n")
