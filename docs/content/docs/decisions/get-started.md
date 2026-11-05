@@ -258,6 +258,8 @@ const ai = useChoices<typeof forecast>({
 </template>
 ```
 
+Stop `pnpm dev` and start it again. Nitro looks for `index.html` only when the dev server starts, so a running server still answers `/` with 404.
+
 Open `http://localhost:3000`, type `nord parts except vak supply, as bar`, and press Enter. The page shows:
 
 ```text [output/page.txt]
