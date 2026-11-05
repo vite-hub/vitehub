@@ -304,7 +304,7 @@
     "vue": "catalog:ui",
     "@types/markdown-it": "^14.2.0",
     "@vite-hub/agent": "workspace:*",
-    "comark-ui": "https://pkg.pr.new/onmax/comark-ui/comark-ui@2b5e869",
+    "comark-ui": "https://pkg.pr.new/onmax/comark-ui/comark-ui@f31c298",
     "@vite-hub/content": "workspace:*",
     "playwright-core": "catalog:browser",
     "@tiptap/core": "catalog:realtime",
