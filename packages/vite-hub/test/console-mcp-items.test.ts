@@ -43,3 +43,32 @@ it("loads more than ten resource pages before requesting templates that share it
     mocks.request.mockReset()
   }
 })
+
+it.each([
+  { cursors: ["same", "same"], pages: 2, message: "repeated pagination cursor" },
+  { cursors: ["first", "second", "first"], pages: 3, message: "repeated pagination cursor" },
+  { cursors: [], pages: 1_000, message: "1,000 pages" },
+])("stops pagination with a visible error: $message ($pages requests)", async ({ cursors, pages, message }) => {
+  const connection: ConsoleMcpConnection = { auth: "oauth", createdAt: new Date().toISOString(), id: "mcp_test", label: "Test", sameOrigin: true, status: "connected", url: "https://app.example/mcp" }
+  const failed = vi.fn()
+  let calls = 0
+  mocks.request.mockImplementation(async () => {
+    calls++
+    // Keep the failing implementation finite too, so it cannot hang the test process.
+    if (calls > 1_005) throw new Error("Pagination test guard reached")
+    return { connection, items: [], nextCursor: cursors[(calls - 1) % cursors.length] ?? `page-${calls}` }
+  })
+  const app = renderer.createApp({ ...Items, render: () => null }, { base: "/_vitehub", connection, kind: "resources", onFailed: failed, peers: [connection] })
+  app.provide(ssrContextKey, {})
+  try {
+    const view = app.mount({})
+    await vi.waitFor(() => expect(failed).toHaveBeenCalledOnce())
+    expect(Reflect.get(view.$, "setupState")).toMatchObject({ error: expect.objectContaining({ message: expect.stringContaining(message) }) })
+    expect(calls).toBe(pages)
+    expect(failed).toHaveBeenCalledOnce()
+  }
+  finally {
+    app.unmount()
+    mocks.request.mockReset()
+  }
+})

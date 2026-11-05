@@ -199,7 +199,7 @@ The section lists the MCP server that the app announces in its [RFC 9728](https:
 Without a token, the Console first connects without credentials. When the server answers `401`, the Console starts the [MCP authorization flow](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization):
 
 1. It reads the protected resource metadata that the `WWW-Authenticate` header names. Then it reads the metadata of the authorization server, with RFC 8414 or OpenID Connect discovery.
-2. It registers one public client through dynamic client registration (RFC 7591). All connections to that authorization server use this client.
+2. It registers a public client through dynamic client registration (RFC 7591) and reuses registrations for the same MCP resource and callback URL. Each connection keeps the registration used for its sign-in, including when first sign-ins overlap.
 3. The browser opens the authorization URL with PKCE `S256`, `state`, and `resource` (RFC 8707). The authorization server sends the browser back to `/_vitehub/mcp-client/callback`, and the Console exchanges the code on the server. The Console checks any supplied `iss` (RFC 9207) against discovery and requires it when the authorization server advertises support.
    The scope is the one that the `401` asked for, else the scopes of the protected resource metadata. When the authorization server lists `offline_access`, the Console adds it to the registration and to the sign-in, so the server can issue a refresh token. OpenID Connect then asks for consent at each sign-in (`prompt=consent`).
 4. When the MCP server rejects an access token, the Console uses the refresh token if it has one. Otherwise the connection shows **Signed out**, and **Sign in again** starts a new sign-in.
