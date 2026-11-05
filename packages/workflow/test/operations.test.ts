@@ -5,7 +5,8 @@ import { createOperationRegistry, operationCliPath, runOperation } from "@vite-h
 import { workflowOperations } from "../src/operations.ts"
 import { createWorkflowSteps } from "../src/runtime/execute.ts"
 import { hubWorkflow } from "../src/vite.ts"
-import { enableWorkflowDevRuns, resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
+import { enableWorkflowDevRuns } from "../src/runtime/dev-runs.ts"
+import { resetWorkflowRuntime, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "../src/runtime/state.ts"
 
 import type { WorkflowExecutionContext } from "../src/types.ts"
 
@@ -32,6 +33,7 @@ describe("workflow operations", () => {
       ["workflow.cancel", "destructive", "workflows"],
       ["workflow.get", "read", "workflows"],
       ["workflow.resume", "write", "workflows"],
+      ["workflow.runs-clear", "destructive", "workflows"],
       ["workflow.runs-list", "read", "workflows"],
       ["workflow.runs-show", "read", "workflows"],
       ["workflow.start", "write", "workflows"],
@@ -40,6 +42,7 @@ describe("workflow operations", () => {
       { command: "cancel", namespace: "workflow" },
       { command: "get", namespace: "workflow" },
       { command: "resume", namespace: "workflow" },
+      { command: "runs clear", namespace: "workflow" },
       { command: "runs list", namespace: "workflow" },
       { command: "runs show", namespace: "workflow" },
       { command: "start", namespace: "workflow" },
@@ -134,10 +137,32 @@ describe("workflow operations", () => {
     expect(await call("workflow.runs-list", {}, ["workflows:read"])).toMatchObject({ ok: true })
   })
 
+  it("clears the runs that `vite dev` recorded", async () => {
+    enableWorkflowDevRuns()
+    const started = await call("workflow.start", { payload: { name: "ada" }, workflow: "welcome" })
+    if (!started.ok) throw new Error("start failed")
+    const { id } = (started.value as { run: { id: string } }).run
+    await expect.poll(async () => await call("workflow.runs-show", { id })).toMatchObject({ ok: true, value: { run: { status: "completed" } } })
+
+    expect(await call("workflow.runs-clear", {}, ["workflows:read"])).toMatchObject({ ok: false, status: 403 })
+    expect(await call("workflow.runs-clear", {})).toEqual({ ok: true, value: { cleared: 1 } })
+    expect(await call("workflow.runs-list", {})).toMatchObject({ ok: true, value: { runs: [] } })
+    expect(await call("workflow.runs-show", { id })).toMatchObject({ code: "WORKFLOW_RUN_NOT_FOUND", ok: false, status: 404 })
+    // `workflow.get` still reads the run: clear removes only the dev history.
+    expect(await call("workflow.get", { runId: id })).toMatchObject({ ok: true, value: { run: { id, status: "completed" } } })
+
+    // A second enable keeps the history, and new runs are recorded after a clear.
+    enableWorkflowDevRuns()
+    await call("workflow.start", { workflow: "welcome" })
+    expect(await call("workflow.runs-list", {})).toMatchObject({ ok: true, value: { runs: [{ workflow: "welcome" }] } })
+    expect(await call("workflow.runs-clear", {})).toEqual({ ok: true, value: { cleared: 1 } })
+  })
+
   it("says that a runtime outside `vite dev` keeps no run history", async () => {
     await call("workflow.start", { payload: { name: "ada" }, workflow: "welcome" })
     expect(await call("workflow.runs-list", {})).toMatchObject({ code: "WORKFLOW_RUNS_UNAVAILABLE", fix: expect.stringContaining("vite dev"), ok: false, status: 409 })
     expect(await call("workflow.runs-show", { id: "wrun_1" })).toMatchObject({ code: "WORKFLOW_RUNS_UNAVAILABLE", ok: false, status: 409 })
+    expect(await call("workflow.runs-clear", {})).toMatchObject({ code: "WORKFLOW_RUNS_UNAVAILABLE", ok: false, status: 409 })
   })
 
   it("rejects an unknown Workflow with the names that exist", async () => {

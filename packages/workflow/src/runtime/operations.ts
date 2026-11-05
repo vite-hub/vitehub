@@ -4,14 +4,14 @@ import { deserializeResponse, isSerializedResponse } from "@vite-hub/runtime"
 
 import { resolveWorkflowOperationSupport } from "../results.ts"
 import { cancelWorkflow, getWorkflowRun, resumeWorkflowSignal, runWorkflow } from "./client.ts"
-import { listWorkflowDevRuns, workflowDevRunLimit, workflowDevRunsEnabled } from "./dev-runs.ts"
+import { getWorkflowDevRecorder, workflowDevRunLimit } from "./dev-recorder.ts"
 import { getInlineWorkflowDefinitions, getWorkflowRuntimeConfig, getWorkflowRuntimeRegistry } from "./state.ts"
 
-import type { WorkflowOperationName, WorkflowRunDetailView, WorkflowRunResult, WorkflowRunsListResult, WorkflowRunsShowResult, WorkflowRunStepView, WorkflowRunView, WorkflowSignalResult } from "../results.ts"
+import type { WorkflowOperationName, WorkflowRunDetailView, WorkflowRunResult, WorkflowRunsClearResult, WorkflowRunsListResult, WorkflowRunsShowResult, WorkflowRunStepView, WorkflowRunView, WorkflowSignalResult } from "../results.ts"
 import type { WorkflowRun, WorkflowRunStatus } from "../types.ts"
-import type { WorkflowDevRunRecord } from "./dev-runs.ts"
+import type { WorkflowDevRecorder, WorkflowDevRunRecord } from "./dev-recorder.ts"
 
-export type { WorkflowRunResult, WorkflowRunsListResult, WorkflowRunsShowResult, WorkflowRunView, WorkflowSignalResult }
+export type { WorkflowRunResult, WorkflowRunsClearResult, WorkflowRunsListResult, WorkflowRunsShowResult, WorkflowRunView, WorkflowSignalResult }
 
 const maxRememberedRuns = 1024
 
@@ -245,14 +245,15 @@ export interface WorkflowRunsListInput {
 }
 
 /** The run history of `vite dev`. Hosted providers keep their own history, which ViteHub does not list. */
-function devRuns(): WorkflowDevRunRecord[] {
+function devRecorder(): WorkflowDevRecorder {
   if (getWorkflowRuntimeConfig() === false) {
     throw new WorkflowOperationError("Workflow is disabled in this runtime.", 409, "WORKFLOW_DISABLED", "Enable Workflow with `vitehub({ workflow: true })` or `hubWorkflow()`.")
   }
-  if (!workflowDevRunsEnabled()) {
+  const recorder = getWorkflowDevRecorder()
+  if (!recorder) {
     throw new WorkflowOperationError("This runtime keeps no Workflow run history. Only `vite dev` records runs.", 409, "WORKFLOW_RUNS_UNAVAILABLE", "Run the app with `vite dev`. On a deployment, read one run with `vitehub workflow get <runId> --workflow <name>`, or use the provider dashboard.")
   }
-  return listWorkflowDevRuns()
+  return recorder
 }
 
 function devRunView(record: WorkflowDevRunRecord): WorkflowRun<unknown, unknown> {
@@ -282,7 +283,7 @@ function stepView(step: WorkflowDevRunRecord["steps"][number]): WorkflowRunStepV
 
 /** Lists the runs that `vite dev` recorded, newest first. */
 export async function listWorkflowRuns(input: WorkflowRunsListInput): Promise<WorkflowRunsListResult> {
-  const records = devRuns()
+  const records = devRecorder().list()
     .filter(record => (input.workflow === undefined || record.workflow === input.workflow) && (input.status === undefined || record.status === input.status))
     .slice(0, input.limit ?? workflowDevRunLimit)
   return { runs: await Promise.all(records.map(async record => ({ ...await toWorkflowRunView(devRunView(record), record.workflow), stepCount: record.steps.length }))) }
@@ -290,9 +291,9 @@ export async function listWorkflowRuns(input: WorkflowRunsListInput): Promise<Wo
 
 /** Shows one run that `vite dev` recorded, with its steps, result, and error. */
 export async function showWorkflowRun(input: { id: string, workflow?: string }): Promise<WorkflowRunsShowResult> {
-  const matches = devRuns().filter(record => record.id === input.id && (input.workflow === undefined || record.workflow === input.workflow))
+  const matches = devRecorder().list().filter(record => record.id === input.id && (input.workflow === undefined || record.workflow === input.workflow))
   if (matches.length === 0) {
-    throw new WorkflowOperationError(`No recorded run has the id ${input.id}.`, 404, "WORKFLOW_RUN_NOT_FOUND", `Run \`vitehub workflow runs list\` for the ids. The dev server keeps the newest ${workflowDevRunLimit} runs until it restarts.`)
+    throw new WorkflowOperationError(`No recorded run has the id ${input.id}.`, 404, "WORKFLOW_RUN_NOT_FOUND", `Run \`vitehub workflow runs list\` for the ids. The dev server keeps the newest ${workflowDevRunLimit} runs until it restarts or \`vitehub workflow runs clear\` empties the history.`)
   }
   if (matches.length > 1) {
     throw new WorkflowOperationError(`Runs of ${matches.map(record => record.workflow).join(", ")} have the id ${input.id}.`, 400, "WORKFLOW_RUN_AMBIGUOUS", "Pass the name of the Workflow with `--workflow <name>`.")
@@ -300,4 +301,9 @@ export async function showWorkflowRun(input: { id: string, workflow?: string }):
   const record = matches[0]!
   const run: WorkflowRunDetailView = { ...await toWorkflowRunView(devRunView(record), record.workflow), steps: record.steps.map(stepView) }
   return { run }
+}
+
+/** Removes the runs that `vite dev` recorded. A run that is still active finishes but is not listed again. */
+export function clearWorkflowRuns(): WorkflowRunsClearResult {
+  return { cleared: devRecorder().clear() }
 }

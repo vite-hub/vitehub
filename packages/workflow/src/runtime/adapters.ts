@@ -6,7 +6,7 @@ import { createWorkflowError } from "../errors.ts"
 import { getCloudflareWorkflowBindingName } from "../integrations/cloudflare.ts"
 import { getVercelWorkflowName } from "../integrations/vercel.ts"
 
-import { createWorkflowDevRun, runWorkflowDevRun } from "./dev-runs.ts"
+import { getWorkflowDevRecorder } from "./dev-recorder.ts"
 import { runSerializedWorkflowHandler } from "./execute.ts"
 import { cancelOpenWorkflowRun, getOpenWorkflowRun, runOpenWorkflow } from "./openworkflow.ts"
 import { runWorkflowProviderOperation, safeWorkflowName } from "./provider-operation.ts"
@@ -252,15 +252,17 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
         }
       }
       resolveDispatchObserver(event)?.()
-      const devRun = createWorkflowDevRun(name, id, config.provider)
+      // Only `vite dev` has a recorder. It records the run in the dev history.
+      const recordRun = getWorkflowDevRecorder()?.start(name, id, config.provider)
+      const execute = () => runSerializedWorkflowHandler({
+        id,
+        name,
+        payload,
+        provider: config.provider,
+      // SAFETY: Workflow provider normalization establishes the asserted run contract.
+      }, definition as never)
       const run = Promise.resolve()
-        .then(() => runWorkflowDevRun(devRun, () => runSerializedWorkflowHandler({
-          id,
-          name,
-          payload,
-          provider: config.provider,
-        // SAFETY: Workflow provider normalization establishes the asserted run contract.
-        }, definition as never)))
+        .then(() => recordRun ? recordRun(execute) : execute())
         // SAFETY: Workflow provider normalization establishes the asserted run contract.
         .then(result => ({ result, status: "completed" as const }))
         // SAFETY: Workflow provider normalization establishes the asserted run contract.

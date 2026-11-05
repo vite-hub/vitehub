@@ -1,7 +1,7 @@
 import type { WorkflowDefinition, WorkflowExecutionContext, WorkflowProviderContext, WorkflowProviderStep, WorkflowStepFunction, WorkflowStepOptions } from "../types.ts"
 import { serializeResponse, toResponse, type SerializedResponse } from "@vite-hub/runtime"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
-import { runWorkflowDevStep } from "./dev-runs.ts"
+import { getWorkflowDevRecorder } from "./dev-recorder.ts"
 
 const defaultStepOptions = {
   retries: {
@@ -21,7 +21,8 @@ export async function runProviderStep<TResult>(
     return await step.do(name, options, run)
   }
 
-  return await runWorkflowDevStep(name, run)
+  const recorder = getWorkflowDevRecorder()
+  return recorder ? await recorder.step(name, run) : await run()
 }
 
 function toStepPropertyName(file: string): string {

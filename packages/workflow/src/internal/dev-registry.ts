@@ -36,7 +36,9 @@ export function createWorkflowDevPluginModule(workflow: false | ResolvedWorkflow
   if (workflow === undefined) return "export default function viteHubWorkflowStartupPlugin() {}\n"
   return [
     "import { definePlugin } from \"nitro\"",
-    `import { ${dev ? "enableWorkflowDevRuns, " : ""}setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(`${importBase}/runtime/state`)}`,
+    `import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(`${importBase}/runtime/state`)}`,
+    // Only this import brings the run history into the app, so a build never includes it.
+    ...(dev ? [`import { enableWorkflowDevRuns } from ${JSON.stringify(`${importBase}/runtime/dev-runs`)}`] : []),
     `import registry from ${JSON.stringify(`./${devRegistryFile}`)}`,
     "",
     "export default definePlugin(() => {",

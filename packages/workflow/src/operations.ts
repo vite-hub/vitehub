@@ -2,7 +2,7 @@ import { defineOperation } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
 import type { AnyOperation, OperationDefinition } from "@vite-hub/internal/operations"
-import type { WorkflowRunDetailView, WorkflowRunResult, WorkflowRunsListResult, WorkflowRunsShowResult, WorkflowSignalResult } from "./results.ts"
+import type { WorkflowRunDetailView, WorkflowRunResult, WorkflowRunsClearResult, WorkflowRunsListResult, WorkflowRunsShowResult, WorkflowSignalResult } from "./results.ts"
 import type { WorkflowRunStatus } from "./types.ts"
 
 // The runtime module reads the Workflow state of the app, which only exists in the Nitro runtime. The operations load it
@@ -119,10 +119,19 @@ const runsShow = defineWorkflowOperation<{ id: string, workflow?: string }, Work
   run: async input => (await runtime()).showWorkflowRun(input),
 })
 
+const runsClear = defineWorkflowOperation<Record<string, never>, WorkflowRunsClearResult>({
+  cli: { command: "runs clear", format: ({ cleared }) => `Cleared ${cleared} ${cleared === 1 ? "run" : "runs"}.\n` },
+  description: "Remove the Workflow runs that `vite dev` recorded. Other runtimes keep no history and fail with WORKFLOW_RUNS_UNAVAILABLE.",
+  input: v.strictObject({}),
+  kind: "destructive",
+  name: "workflow.runs-clear",
+  run: async () => (await runtime()).clearWorkflowRuns(),
+})
+
 /**
  * The `workflow.*` operations: start, get, cancel, resume, and the run history of `vite dev`. The Console,
  * `vitehub workflow`, and agents run them.
  */
-export const workflowOperations: readonly AnyOperation[] = [start, get, cancel, resume, runsList, runsShow]
+export const workflowOperations: readonly AnyOperation[] = [start, get, cancel, resume, runsList, runsShow, runsClear]
 
-export type { WorkflowRunDetailView, WorkflowRunResult, WorkflowRunsListResult, WorkflowRunsShowResult, WorkflowRunStepView, WorkflowRunView, WorkflowSignalResult, WorkflowSignalView } from "./results.ts"
+export type { WorkflowRunDetailView, WorkflowRunResult, WorkflowRunsClearResult, WorkflowRunsListResult, WorkflowRunsShowResult, WorkflowRunStepView, WorkflowRunView, WorkflowSignalResult, WorkflowSignalView } from "./results.ts"

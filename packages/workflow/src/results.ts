@@ -44,6 +44,11 @@ export interface WorkflowRunsListResult {
   runs: Array<WorkflowRunView & { stepCount: number }>
 }
 
+/** Result of `workflow.runs-clear`: the number of recorded runs that it removed. */
+export interface WorkflowRunsClearResult {
+  cleared: number
+}
+
 /** Result of `workflow.runs-show`. */
 export interface WorkflowRunsShowResult {
   run: WorkflowRunDetailView
