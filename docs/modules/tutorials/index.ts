@@ -76,11 +76,14 @@ export default defineNuxtModule({
     if (!snapshots && nuxt.options.dev && process.env.TUTORIAL_SNAPSHOTS !== "1" && process.env.TUTORIAL_SNAPSHOTS !== "0") {
       console.info("[tutorials] No tutorial snapshots for the current dependencies, so the workspace runs npm install. Start with TUTORIAL_SNAPSHOTS=1 to build them.");
     }
-    // `nuxi prepare` runs on every install and test, so it does not build snapshots.
-    // They are built here, before Nuxt writes the templates: outside dev, `updateTemplates()` does not write them again.
+    // `nuxi prepare` calls `app:templates` too, and it runs on every install and test.
     const buildSnapshots = !nuxt.options._prepare && (process.env.TUTORIAL_SNAPSHOTS ?? (nuxt.options.dev ? "0" : "1")) === "1";
-    if (buildSnapshots) {
-      snapshots = await buildTutorialSnapshots({
+    // `app:templates` runs before Nuxt reads the templates, and `nuxi preview` does not call it. A later hook does not
+    // work: outside dev, `updateTemplates()` does not write the templates again. Dev calls this hook on each change, so build once.
+    let built: Promise<void> | undefined;
+    nuxt.hook("app:templates", () => {
+      if (!buildSnapshots) return;
+      built ??= buildTutorialSnapshots({
         tutorials: sources,
         repoRoot,
         fixturesDir,
@@ -89,8 +92,9 @@ export default defineNuxtModule({
         locksDir,
         baseURL: "/_tutorials",
         workDir: resolve(nuxt.options.rootDir, "node_modules/.cache/runnable-tutorials-work"),
-      });
-    }
+      }).then((result) => { snapshots = result; });
+      return built;
+    });
 
     addTemplate({
       filename: "runnable-tutorials.mjs",
