@@ -97,11 +97,29 @@ function preparedResponse(target: PreparedResponseTarget): StandardContext.Prepa
   }
 }
 
-function h3V2ClientAddress(request: Request): string | undefined {
-  // srvx adds the client address to the Request it passes to H3 2.
-  const ip: unknown = Reflect.get(request, "ip")
-  return typeof ip === "string" && ip ? ip : undefined
+function readPath(value: unknown, path: readonly string[]): unknown {
+  let current = value
+  for (const key of path) current = isObjectLike(current) ? Reflect.get(current, key) : undefined
+  return current
 }
+
+/** The first non-empty string at one of `paths`. ViteHub never reads forwarding headers here. */
+function firstAddress(value: object, paths: readonly (readonly string[])[]): string | undefined {
+  for (const path of paths) {
+    const address = readPath(value, path)
+    if (typeof address === "string" && address) return address
+  }
+  return undefined
+}
+
+/**
+ * The places where hosts put the peer address of an H3 2 request, in the order of H3's `getRequestIP()`: a host
+ * adapter sets `context.clientAddress`, and srvx sets `ip` and keeps the Node request in `runtime.node`.
+ */
+const h3V2AddressPaths = [["context", "clientAddress"], ["ip"], ["runtime", "node", "req", "socket", "remoteAddress"]] as const
+
+/** The places where hosts put the peer address of an H3 1 event, in the order of H3 1's `getRequestIP()`. */
+const h3V1AddressPaths = [["context", "clientAddress"], ["node", "req", "socket", "remoteAddress"], ["node", "req", "connection", "remoteAddress"]] as const
 
 /**
  * The `~standard` properties of one H3 event. Each property reads the event on first access and keeps the value,
@@ -164,7 +182,7 @@ class H3V2StandardProps extends H3StandardProps {
   }
 
   protected clientAddress(): string | undefined {
-    return h3V2ClientAddress(this.#request)
+    return firstAddress(this.#request, h3V2AddressPaths)
   }
 }
 
@@ -197,8 +215,7 @@ class H3V1StandardProps extends H3StandardProps {
   }
 
   protected clientAddress(): string | undefined {
-    const request = this.#event.node.req
-    return request.socket?.remoteAddress || request.connection?.remoteAddress || undefined
+    return firstAddress(this.#event, h3V1AddressPaths)
   }
 }
 
