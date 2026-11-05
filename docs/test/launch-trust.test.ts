@@ -110,7 +110,7 @@ describe("launch documentation trust boundaries", () => {
     expect(matrix).toContain(
       "the Cloudflare Sandbox provider requires a Cloudflare binding and cannot run on Netlify",
     );
-    expect(matrix).toContain("| Workflow | OpenWorkflow | CF Workflows | Vercel Workflow |");
+    expect(matrix).toContain("| Workflow | Vercel Workflow | CF Workflows | Vercel Workflow |");
     expect(matrix).toContain(
       "Blob, Database, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace",
     );

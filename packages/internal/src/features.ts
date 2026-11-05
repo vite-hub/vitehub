@@ -34,6 +34,18 @@ export type FeatureId = (typeof featureIds)[number]
 export const featureHosts = ["dev", "cloudflare", "vercel", "netlify", "deno", "node"] as const
 export type FeatureHost = (typeof featureHosts)[number]
 
+export interface NativeHostSupport {
+  level: "native"
+  /** The default provider or adapter that ViteHub selects, such as `cloudflare-r2`. */
+  adapter: string
+  /** Short provider name for tables, such as `R2`. */
+  display: string
+  guarantee: "native" | "single-host" | "process-local"
+  detail: string
+  /** The first override whose environment variable has a non-empty, trimmed value replaces the default. */
+  envOverrides?: readonly { env: string, support: Omit<NativeHostSupport, "envOverrides"> }[]
+}
+
 /**
  * How a host supports a feature when the app enables it in `vitehub({...})`.
  * - `native`: ViteHub selects a provider for the host. Credentials can still be needed.
@@ -41,15 +53,7 @@ export type FeatureHost = (typeof featureHosts)[number]
  * - `unsupported`: `vitehub({...})` cannot provide the feature on this host.
  */
 export type HostSupport
-  = | {
-    level: "native"
-    /** The provider or adapter that ViteHub selects, such as `cloudflare-r2`. */
-    adapter: string
-    /** Short provider name for tables, such as `R2`. */
-    display: string
-    guarantee: "native" | "single-host" | "process-local"
-    detail: string
-  }
+  = | NativeHostSupport
   | {
     level: "explicit"
     display: string
@@ -72,8 +76,10 @@ export interface FeatureDefinition<TId extends FeatureId = FeatureId> {
   /** One sentence for pickers and docs. */
   summary: string
   docs: `/docs/${string}`
-  /** Whether the feature is on when the app does not set its key. */
+  /** Whether the feature is unconditionally on when the app does not set its key. */
   enabledByDefault: boolean
+  /** File names in the configured server directories (default `server/`) that enable an unset feature. `false` disables discovery. */
+  enabledByDiscovery?: readonly string[]
   /** Packages that the app installs for this feature, in `pnpm add` order. */
   packages: readonly string[]
   /** Development dependencies that the app installs for this feature. */
@@ -86,7 +92,7 @@ export interface FeatureDefinition<TId extends FeatureId = FeatureId> {
 
 const noHostLimit = "No host limit in ViteHub."
 
-function native(adapter: string, display: string, detail: string, guarantee: "native" | "single-host" | "process-local" = "native"): HostSupport {
+function native(adapter: string, display: string, detail: string, guarantee: "native" | "single-host" | "process-local" = "native"): NativeHostSupport {
   return { adapter, detail, display, guarantee, level: "native" }
 }
 
@@ -182,6 +188,7 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
   }),
   comments: feature({
     docs: "/docs/comments",
+    enabledByDiscovery: ["comments.ts", "comments.mts", "comments.js", "comments.mjs"],
     hosts: everywhere("database", "Database"),
     id: "comments",
     implies: [{ feature: "database" }],
@@ -353,10 +360,10 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
     docs: "/docs/workflows",
     hosts: {
       cloudflare: native("cloudflare", "CF Workflows", "Cloudflare Workflows provider."),
-      deno: explicit("workflow.provider", "OpenWorkflow", "Use OpenWorkflow explicitly. No Deno-native Workflow provider is provided."),
-      dev: native("openworkflow", "OpenWorkflow", "OpenWorkflow worker or inline development execution."),
+      deno: native("vercel", "Vercel Workflow", "Vercel Workflow is the default. Set workflow.provider explicitly to select OpenWorkflow."),
+      dev: native("vercel", "Vercel Workflow", "The default Node preset selects Vercel Workflow. Node hosting selects OpenWorkflow when workflow.sqlite.path or workflow.postgres.url is configured."),
       netlify: explicit("workflow.provider", "OpenWorkflow", "Use OpenWorkflow explicitly. No Netlify-native Workflow provider is provided."),
-      node: native("openworkflow", "OpenWorkflow", "OpenWorkflow worker or inline execution.", "single-host"),
+      node: native("vercel", "Vercel Workflow", "Vercel Workflow is the default. Setting workflow.sqlite.path or workflow.postgres.url selects OpenWorkflow unless workflow.provider is explicit."),
       vercel: native("vercel", "Vercel Workflow", "Vercel Workflow provider and Workflow DevKit output."),
     },
     id: "workflow",
@@ -371,7 +378,13 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
       dev: native("local", "local / memory", "Local filesystem or in-memory Workspace Store.", "single-host"),
       netlify: explicit("workspace.store", "GitHub", "Select the GitHub Workspace Store explicitly for durable state."),
       node: native("local", "local / GitHub", "Local filesystem, memory, or GitHub Workspace Store.", "single-host"),
-      vercel: native("vercel-blob", "Blob / GitHub", "Vercel Blob or GitHub Workspace Store for durable state."),
+      vercel: {
+        ...native("memory", "memory / Blob / GitHub", "Process-local memory by default. BLOB_READ_WRITE_TOKEN selects Vercel Blob; GitHub can be selected explicitly for durable state.", "process-local"),
+        envOverrides: [{
+          env: "BLOB_READ_WRITE_TOKEN",
+          support: native("vercel-blob", "Blob / GitHub", "BLOB_READ_WRITE_TOKEN selects durable Vercel Blob storage by default."),
+        }],
+      },
     },
     id: "workspace",
     packages: ["@vite-hub/workspace"],
