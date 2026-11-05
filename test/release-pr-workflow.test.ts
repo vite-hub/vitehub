@@ -112,6 +112,8 @@ describe("release PR workflow", () => {
       })
       const privatePackage = { name: "private", private: true, version: "0.0.0" }
       writeManifest("packages/private/package.json", privatePackage)
+      // Resolve the third-party peer locally so the offline check needs no registry metadata.
+      writeManifest("packages/vite/package.json", { name: "vite", private: true, version: "8.0.0" })
       const fixtureNames = ["env-schema", "valibot-schema", "zod-schema-module"]
       for (const name of fixtureNames) {
         const path = `packages/codemods/test/fixtures/${name}/output/package.json`
