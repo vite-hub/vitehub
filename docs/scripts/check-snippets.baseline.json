@@ -780,11 +780,6 @@
     "error": "TS2769 No overload matches this call."
   },
   {
-    "id": "packages/codemods/README.md#80ac066d51a8",
-    "label": null,
-    "error": "TS2307 Cannot find module '@vite-hub/codemods' or its corresponding type declarations."
-  },
-  {
     "id": "packages/comments/README.md#8e8bbe0cee0c",
     "label": null,
     "error": "TS18048 'event' is possibly 'undefined'."
