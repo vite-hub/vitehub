@@ -529,7 +529,8 @@ export default ({ mode }) => ({
 
     expect(await runViteHubCli({ args: ["--help"], cwd: "/app", loadConfig, stdout })).toBe(0)
     const help = stdout.output()
-    expect(help).toContain("Project:\n  catalog      List every ViteHub feature")
+    expect(help).toContain("Project:\n  add          Turn on features")
+    expect(help).toContain("  catalog      List every ViteHub feature")
     expect(help).toContain("  status       Show the host")
     expect(help.indexOf("Project:")).toBeLessThan(help.indexOf("Available namespaces:"))
   })

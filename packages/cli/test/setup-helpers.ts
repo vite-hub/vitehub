@@ -6,6 +6,8 @@ import { afterEach, vi } from "vitest"
 
 import { runViteHubCli } from "../src/index.ts"
 
+import type { ViteHubCliSpawn } from "@vite-hub/internal/cli"
+
 const directories: string[] = []
 
 afterEach(async () => {
@@ -38,8 +40,13 @@ interface SetupRun<T> {
   stdout: string
 }
 
+/** A spawn that fails the test, so a setup test never runs a real package manager. */
+const noSpawn: ViteHubCliSpawn = async (command) => {
+  throw new Error(`setup tests must not spawn ${command}`)
+}
+
 /** Runs one setup command with a config loader that throws, and parses stdout as exactly one JSON document. */
-export async function runSetup<T = Record<string, unknown>>(args: string[], cwd: string, env: NodeJS.ProcessEnv = {}): Promise<SetupRun<T>> {
+export async function runSetup<T = Record<string, unknown>>(args: string[], cwd: string, env: NodeJS.ProcessEnv = {}, spawn: ViteHubCliSpawn = noSpawn): Promise<SetupRun<T>> {
   let stdout = ""
   let stderr = ""
   const loadConfig = vi.fn(async () => {
@@ -50,6 +57,7 @@ export async function runSetup<T = Record<string, unknown>>(args: string[], cwd:
     cwd,
     env,
     loadConfig,
+    spawn,
     stderr: { write: (chunk: string | Uint8Array) => { stderr += String(chunk) } },
     stdout: { write: (chunk: string | Uint8Array) => { stdout += String(chunk) } },
   })

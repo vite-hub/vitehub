@@ -1,3 +1,4 @@
+import { addCommand } from "./add.ts"
 import { setupCatalog } from "./catalog.ts"
 import { readSetupArgs, setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
 import { readSetupProject } from "./project.ts"
@@ -91,4 +92,4 @@ const statusCommand: ViteHubCliCommand = {
 }
 
 /** The setup commands. They run before the CLI loads the project config. */
-export const setupCommands: readonly ViteHubCliCommand[] = [catalogCommand, statusCommand]
+export const setupCommands: readonly ViteHubCliCommand[] = [addCommand, catalogCommand, statusCommand]

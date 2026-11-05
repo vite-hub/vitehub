@@ -69,6 +69,7 @@ Available namespaces:
 
 | Command | Status | Owner | Use it for |
 | --- | --- | --- | --- |
+| `vitehub add` | Available | ViteHub CLI | Turn on features: edit the `vitehub()` options, install the owner packages, and create a starter Definition. Does not load the project config. |
 | `vitehub catalog` | Available | ViteHub CLI | List every feature and how each host supports it. Does not load the project config. |
 | `vitehub status` | Available | ViteHub CLI | Show the host, the enabled features, and what each one still needs. Does not load the project config. |
 | `vitehub agent eval` | Opt-in tooling | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
@@ -172,6 +173,50 @@ pnpm vitehub status --json
 - `features`: each feature as `on`, `off`, or `unknown`. The reason is `config` when the config sets the key, `default` when it does not, and `implied` when another feature turns it on. An option that is an expression is `unknown`. An enabled feature lists `missingPackages` and a `fix`, such as the install command.
 
 With `--json`, a command prints exactly one JSON document on stdout, `{ "schemaVersion": 1, ... }`. A failure prints `{ "schemaVersion": 1, "error": { "code", "message", "why", "fix", "docs" } }`. The exit code is `0` when the command is done, `1` for an error, `2` when input is needed, `3` for an unsupported or conflicting change, and `4` for a stale plan.
+
+## Add a feature
+
+`vitehub add` turns on one or more features. It plans the change first, then installs the owner packages, creates the starter files, and edits the config last. It parses the config and never runs it.
+
+```bash [Terminal]
+pnpm vitehub add kv queue --dry-run
+pnpm vitehub add queue --name welcome-email --yes
+pnpm vitehub add email --option email.driver=resend --yes --json
+```
+
+- `--dry-run` prints the diff, or the plan with `--json`, and writes nothing.
+- `--yes` applies the plan. In a terminal without `--yes`, the command shows the diff and asks. Without a terminal, or with `--json`, it prints the plan and exits with `2` and a `rerun` command that includes `--yes`.
+- `--no-install` skips the install. The plan still lists the packages and the install command.
+- `--name <name>` creates a starter Definition, such as `server/queues/<name>.ts`, for each feature that has Definitions: Agent, Database, Queue, Realtime, Schedule, and Workflow. It never overwrites a file.
+- `--option key=value` sets an option of the feature, such as `--option email.driver=resend`. With one feature, the feature name is optional. Dotted keys make nested objects.
+
+The command sets `<feature>: true`, or the object from `--option`. A feature that is already on gives no change, so a second run prints `"status": "unchanged"`. Features that an added feature turns on, such as Workflow for Agent, are listed in `implied`; `vitehub()` turns them on, so the config does not name them.
+
+The host decides what `add` accepts. A feature that the host does not support exits with `3`. A host that needs an explicit provider, such as Email on Vercel, exits with `2` and lists the option in `missing` with its `choices`, and `rerun` is a command that succeeds as it is.
+
+### `SETUP_FEATURE_UNSUPPORTED`
+
+The host of the project cannot provide the feature. Run `vitehub catalog` to see which hosts support it, or set `preset` to another host.
+
+### `SETUP_INPUT_NEEDED`
+
+The command needs more input, such as a feature name or the provider option that the host needs. The JSON output lists the fields in `missing`, and `rerun` gives a command that works when ViteHub can choose a value.
+
+### `SETUP_CONFIG_MANUAL`
+
+`vitehub add` cannot edit the config safely: there is no `vitehub()` call, there are two, or the options are not an object literal. The error gives the keys to paste into the `vitehub()` options, and the JSON output has them in `snippet`.
+
+### `SETUP_FILE_EXISTS`
+
+A starter Definition file exists and has other content. ViteHub never overwrites a file. Choose another `--name`, or edit the file by hand.
+
+### `SETUP_INSTALL_FAILED`
+
+The package manager exited with an error. ViteHub installs before it writes files, so no file changed. Run the install command by hand to see the error.
+
+### `SETUP_STALE_PLAN`
+
+The config file changed between the plan and the write. Run the command again.
 
 ### `SETUP_NOT_A_PROJECT`
 

@@ -28,7 +28,7 @@ interface ViteHubCliSpawnOptions {
   cwd?: string
   env?: NodeJS.ProcessEnv
   stderr?: "inherit" | "pipe"
-  stdout?: "inherit" | "pipe"
+  stdout?: "inherit" | "pipe" | "stderr"
 }
 
 type ViteHubCliSpawn = (
@@ -152,7 +152,7 @@ function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnO
       shell: process.platform === "win32" && command !== process.execPath,
       stdio: [
         "inherit",
-        options.stdout || "inherit",
+        options.stdout === "stderr" ? process.stderr : options.stdout || "inherit",
         options.stderr || "inherit",
       ],
     })

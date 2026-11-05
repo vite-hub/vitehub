@@ -30,11 +30,25 @@ export interface SetupStatus {
 
 type Enabled = Pick<SetupFeatureStatus, "enabled" | "reason">
 
-const addCommands: Record<SetupPackageManager, { dev: string, prod: string }> = {
-  bun: { dev: "bun add -d", prod: "bun add" },
-  npm: { dev: "npm install -D", prod: "npm install" },
-  pnpm: { dev: "pnpm add -D", prod: "pnpm add" },
-  yarn: { dev: "yarn add -D", prod: "yarn add" },
+const addArgs: Record<SetupPackageManager, { dev: readonly string[], prod: readonly string[] }> = {
+  bun: { dev: ["add", "-d"], prod: ["add"] },
+  npm: { dev: ["install", "-D"], prod: ["install"] },
+  pnpm: { dev: ["add", "-D"], prod: ["add"] },
+  yarn: { dev: ["add", "-D"], prod: ["add"] },
+}
+
+/** The arguments of the `packageManager` command that installs `packages`, such as `["add", "-D", "drizzle-kit"]`. */
+export function installArgs(packageManager: SetupPackageManager, packages: readonly string[], dev: boolean): string[] {
+  return [...addArgs[packageManager][dev ? "dev" : "prod"], ...packages]
+}
+
+/** The shell command that installs `prod` and then `dev`, such as `pnpm add kv && pnpm add -D drizzle-kit`. */
+export function installCommand(packageManager: SetupPackageManager, prod: readonly string[], dev: readonly string[]): string | undefined {
+  const commands = [
+    ...(prod.length ? [[packageManager, ...installArgs(packageManager, prod, false)].join(" ")] : []),
+    ...(dev.length ? [[packageManager, ...installArgs(packageManager, dev, true)].join(" ")] : []),
+  ]
+  return commands.length ? commands.join(" && ") : undefined
 }
 
 function readHost(keys: Readonly<Record<string, ConfigValue>> | undefined, env: NodeJS.ProcessEnv): SetupStatus["host"] {
@@ -57,7 +71,7 @@ function readEnabled(project: SetupProject, id: FeatureId): Enabled {
 }
 
 /** True when the config sets `option`, such as `blob.driver`, as a literal key of the feature object. */
-function setsOption(project: SetupProject, option: string): boolean {
+export function setsOption(project: SetupProject, option: string): boolean {
   const config = project.config
   if (!config?.ok) return false
   const [id, key] = option.split(".") as [string, string]
@@ -68,12 +82,8 @@ function setsOption(project: SetupProject, option: string): boolean {
 }
 
 function featureFix(project: SetupProject, id: FeatureId, support: HostSupport, host: DeploymentPreset, missing: { dev: string[], prod: string[] }): string | undefined {
-  const commands = addCommands[project.packageManager]
-  const installs = [
-    ...(missing.prod.length ? [`${commands.prod} ${missing.prod.join(" ")}`] : []),
-    ...(missing.dev.length ? [`${commands.dev} ${missing.dev.join(" ")}`] : []),
-  ]
-  if (installs.length) return installs.join(" && ")
+  const install = installCommand(project.packageManager, missing.prod, missing.dev)
+  if (install) return install
   if (support.level === "unsupported") return `Set \`${id}: false\`, or build for another preset than ${host}.`
   if (support.level === "explicit" && !setsOption(project, support.option)) return `Set \`${support.option}\` in vitehub() to choose a provider on ${host}.`
 }

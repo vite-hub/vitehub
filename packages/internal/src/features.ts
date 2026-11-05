@@ -66,6 +66,16 @@ export interface FeatureImplication {
   except?: readonly DeploymentPreset[]
 }
 
+/** The starter Definition file that `vitehub add <feature> --name <name>` creates. */
+export interface FeatureStarter {
+  /** The folder of the Definitions, relative to the project root, such as `server/queues`. */
+  dir: string
+  /** The path of the Definition `name`, relative to the project root. */
+  file: (name: string) => string
+  /** The source of a minimal Definition named `name`. */
+  template: (name: string) => string
+}
+
 export interface FeatureDefinition<TId extends FeatureId = FeatureId> {
   id: TId
   title: string
@@ -82,6 +92,8 @@ export interface FeatureDefinition<TId extends FeatureId = FeatureId> {
   /** The Deployment Plan service that this feature reads, when it has one. */
   service?: DeploymentService
   hosts: Readonly<Record<FeatureHost, HostSupport>>
+  /** The starter Definition, for features with Definition files. */
+  definition?: FeatureStarter
 }
 
 const noHostLimit = "No host limit in ViteHub."
@@ -107,8 +119,19 @@ function feature<TId extends FeatureId>(definition: Omit<FeatureDefinition<TId>,
   return { devPackages: [], enabledByDefault: false, implies: [], packages: [], ...definition }
 }
 
+/** A starter for Definitions in `dir`, one `<name>.ts` file each. */
+function starter(dir: string, template: (name: string) => string): FeatureStarter {
+  return { dir, file: name => `${dir}/${name}.ts`, template }
+}
+
 export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
   agent: feature({
+    definition: starter("server/agents", name => `import { defineAgent } from "vite-hub/agent"
+
+export default defineAgent({
+  driver: { run: () => ({ text: "Hello from ${name}." }) },
+})
+`),
     docs: "/docs/agents",
     hosts: {
       ...everywhere("nitro", "Nitro"),
@@ -207,6 +230,22 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
     title: "Console",
   }),
   database: feature({
+    definition: {
+      dir: "server/databases",
+      file: name => name === "default" ? "server/databases/config.ts" : `server/databases/${name}/config.ts`,
+      template: () => `import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
+import { defineDatabase } from "vite-hub/database"
+
+export default defineDatabase({
+  schema: {
+    notes: sqliteTable("notes", {
+      id: integer("id").primaryKey(),
+      title: text("title").notNull(),
+    }),
+  },
+})
+`,
+    },
     devPackages: ["drizzle-kit"],
     docs: "/docs/database",
     hosts: {
@@ -274,6 +313,12 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
     title: "Observability",
   }),
   queue: feature({
+    definition: starter("server/queues", name => `import { defineQueue } from "vite-hub/queue"
+
+export default defineQueue<{ id: string }>(async ({ payload }) => {
+  console.log("${name}", payload.id)
+})
+`),
     docs: "/docs/queue",
     hosts: {
       cloudflare: native("cloudflare", "Queues", "Cloudflare Queues bindings and consumers."),
@@ -304,6 +349,12 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
     title: "Rate Limit",
   }),
   realtime: feature({
+    definition: starter("server/realtime", name => `import { defineRealtime } from "vite-hub/realtime"
+
+export default defineRealtime({
+  document: { workspace: "${name}" },
+})
+`),
     docs: "/docs/realtime",
     hosts: {
       cloudflare: native("cloudflare", "Durable Objects", "Cloudflare Durable Objects provide the production room authority."),
@@ -335,6 +386,15 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
     title: "Sandbox",
   }),
   schedule: feature({
+    definition: starter("server/schedules", name => `import { defineSchedule } from "vite-hub/schedule"
+
+export default defineSchedule({
+  cron: "0 * * * *",
+  handler: () => {
+    console.log("${name}")
+  },
+})
+`),
     docs: "/docs/schedule",
     hosts: {
       cloudflare: native("cloudflare", "Cron triggers", "Cloudflare scheduled events and Nitro Provider Wake."),
@@ -350,6 +410,12 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
     title: "Schedule",
   }),
   workflow: feature({
+    definition: starter("server/workflows", () => `import { defineWorkflow } from "vite-hub/workflow"
+
+export default defineWorkflow<{ id: string }>(async ({ payload }) => {
+  return { id: payload.id }
+})
+`),
     docs: "/docs/workflows",
     hosts: {
       cloudflare: native("cloudflare", "CF Workflows", "Cloudflare Workflows provider."),
