@@ -7,20 +7,20 @@ export interface DocsRouteRule {
   redirect?: string | false | { to?: string }
 }
 
-/** A redirect route rule from one app path to another, such as `/docs/old` to `/docs/new#intro`. */
+/** An exact redirect route rule, such as `/docs/old` to `/docs/new#intro` or another site. */
 export interface DocsRedirect {
   from: string
   to: string
 }
 
 /**
- * The redirect route rules from one exact app path to another app path. A wildcard rule, such as `/docs/old/**`, or a
- * rule to another site has no single target page in this app, so it is left out.
+ * The redirect route rules from an exact app path. Keep external targets so a chain can end at another site.
+ * A wildcard rule, such as `/docs/old/**`, has no single target page, so it is left out.
  */
 export function docsRedirects(routeRules: Record<string, DocsRouteRule | undefined>): DocsRedirect[] {
   return Object.entries(routeRules).flatMap(([from, rule]) => {
     const to = typeof rule?.redirect === "string" ? rule.redirect : rule?.redirect ? rule.redirect.to : undefined
-    if (!to || from.includes("*") || !from.startsWith("/") || !to.startsWith("/") || to.startsWith("//")) return []
+    if (!to || from.includes("*") || !from.startsWith("/")) return []
     return [{ from, to }]
   })
 }
@@ -47,11 +47,12 @@ export function docsRedirectProblems(manifest: DocsManifest, redirects: readonly
     const seen = new Set([source])
     let end = to
     let target = targetPath(end)
-    while (next.has(target) && !seen.has(target)) {
+    while (target !== undefined && next.has(target) && !seen.has(target)) {
       seen.add(target)
       end = next.get(target)!
       target = targetPath(end)
     }
+    if (target === undefined) continue
     if (seen.has(target)) {
       problems.push(`The redirect from ${from} comes back to ${target} and never reaches a page. Point one of its route rules to a page.`)
       continue
@@ -63,7 +64,8 @@ export function docsRedirectProblems(manifest: DocsManifest, redirects: readonly
   return problems
 }
 
-function targetPath(to: string): string {
+function targetPath(to: string): string | undefined {
+  if (!to.startsWith("/") || to.startsWith("//")) return undefined
   return normalizeDocsPath(to.replace(/[?#].*$/, ""))
 }
 

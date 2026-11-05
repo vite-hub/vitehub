@@ -20,7 +20,8 @@ const linkCheckerRedirects: { (inlineOptions: Record<string, never>, nuxt: never
   setup(_options, nuxt) {
     const options: LinkCheckerNuxtOptions = nuxt.options
     const linkChecker = (options.linkChecker ??= {})
-    const redirects = docsRedirects({ ...options.nitro.routeRules, ...options.routeRules })
+    // Direct redirects to another site keep the link checker's own inspections.
+    const redirects = docsRedirects({ ...options.nitro.routeRules, ...options.routeRules }).filter(redirect => redirect.to.startsWith("/") && !redirect.to.startsWith("//"))
     linkChecker.excludeLinks = [...linkChecker.excludeLinks ?? [], ...redirects.map(redirect => docsAppPath(redirect.from, options.app.baseURL))]
   },
 })

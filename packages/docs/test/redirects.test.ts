@@ -8,7 +8,7 @@ import { docsRedirectProblems, docsRedirects } from "../src/redirects.ts"
 const manifest = createDocsManifest({ dir: resolve(import.meta.dirname, "fixtures/content"), base: "/docs" })
 
 describe("docsRedirects", () => {
-  it("reads exact redirects inside the app, as a string or as an object", () => {
+  it("reads exact redirects, as a string or as an object, including external targets", () => {
     expect(docsRedirects({
       "/docs/old": { redirect: "/docs/kv" },
       "/docs/moved": { redirect: { to: "/docs/kv/configure#ttl" } },
@@ -19,11 +19,21 @@ describe("docsRedirects", () => {
     })).toEqual([
       { from: "/docs/old", to: "/docs/kv" },
       { from: "/docs/moved", to: "/docs/kv/configure#ttl" },
+      { from: "/docs/away", to: "https://example.com/docs" },
     ])
   })
 })
 
 describe("docsRedirectProblems", () => {
+  it("treats exact redirects to external URLs as terminal in a chain", () => {
+    for (const to of ["https://example.com/docs", "//example.com/docs"]) {
+      expect(docsRedirectProblems(manifest, docsRedirects({
+        "/docs/old": { redirect: "/docs/alias" },
+        "/docs/alias": { redirect: to },
+      }))).toEqual([])
+    }
+  })
+
   it("passes redirects to docs pages, their Markdown copies, other redirects, and app pages", () => {
     expect(docsRedirectProblems(manifest, [
       { from: "/docs/old", to: "/docs/kv" },
@@ -57,6 +67,11 @@ describe("docsRedirectProblems", () => {
   it("names a redirect that hides a docs page", () => {
     expect(docsRedirectProblems(manifest, [{ from: "/docs/kv/configure/", to: "/docs/kv" }])).toEqual([
       "The redirect from /docs/kv/configure/ hides the page docs/kv/configure.md. Remove the route rule, or move the page.",
+    ])
+    expect(docsRedirectProblems(manifest, docsRedirects({
+      "/raw/docs/kv.md": { redirect: "https://example.com/docs" },
+    }))).toEqual([
+      "The redirect from /raw/docs/kv.md hides the page docs/kv/index.md. Remove the route rule, or move the page.",
     ])
   })
 

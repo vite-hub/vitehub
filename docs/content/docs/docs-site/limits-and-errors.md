@@ -43,7 +43,7 @@ Docs redirects break links:
 
 **Why:** the link checker passes a link to a redirect rule, so the redirect must lead to a page. A redirect into a section, the docs base, or `/raw/` goes to a path that no docs page answers. Or a redirect starts at a docs page, so nobody can open that page. Or redirects lead back to where they started. A redirect to another redirect counts where the chain ends.
 
-**Fix:** point the rule's `redirect` to a page, or remove the rule. The module checks exact rules only: a wildcard rule such as `/docs/old/**`, and a target outside the docs, keep the link checker's own checks.
+**Fix:** point the rule's `redirect` to a page, or remove the rule. The module checks exact rules only. A chain may end at another site. Wildcard rules such as `/docs/old/**` and direct redirects to another site keep the link checker's own checks. This module does not validate destinations outside the docs.
 
 ### DocsAssistantSetupError
 

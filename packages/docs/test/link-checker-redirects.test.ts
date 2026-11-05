@@ -44,12 +44,14 @@ async function buildSite(links: string, routeRules: NonNullable<NuxtConfig["rout
 
 it("passes links to redirect route rules that lead to a page", async () => {
   const report = await buildSite(
-    "Read [the old guide](/docs/old), [its slash form](/docs/old/), [the old install](/docs/setup), [a moved heading](/docs/hashed), and [its Markdown](/raw/docs/old.md).",
+    "Read [the old guide](/docs/old), [its slash form](/docs/old/), [the old install](/docs/setup), [a moved heading](/docs/hashed), [its Markdown](/raw/docs/old.md), and [a guide on another site](/docs/chain).",
     {
       "/docs/old": { redirect: "/docs/guide" },
       "/docs/old/": { redirect: "/docs/guide" },
       "/docs/hashed": { redirect: { to: "/docs/guide/install#install" } },
       "/raw/docs/old.md": { redirect: "/raw/docs/guide.md" },
+      "/docs/chain": { redirect: "/docs/alias" },
+      "/docs/alias": { redirect: "https://example.com/docs" },
     },
     { "/docs/setup": { redirect: "/docs/guide/install" } },
   )
