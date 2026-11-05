@@ -57,10 +57,12 @@ function resolveOutputQueueConfig(queue: QueueModuleOptions | undefined, hosting
  * A build keeps the configured provider.
  */
 function resolveRuntimeQueueConfig(queueConfig: NormalizedQueueOptions, development: boolean, rootDir: string): NormalizedQueueOptions {
-  if (!development || queueConfig === false || queueConfig.provider === "local") return queueConfig
+  if (!development || queueConfig === false) return queueConfig
+  if (queueConfig.provider === "local") return { ...queueConfig, development }
   return {
     base: resolve(rootDir, defaultLocalQueueBase),
     ...(queueConfig.cache === undefined ? {} : { cache: queueConfig.cache }),
+    development,
     provider: "local",
     rules: queueConfig.provider,
   }

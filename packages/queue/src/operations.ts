@@ -71,6 +71,7 @@ function formatJob({ job }: { job: LocalQueueJobDetail }): string {
     ...(job.expiresAt ? [`Expires at: ${job.expiresAt}`] : []),
     ...(job.idempotencyKey ? [`Idempotency key: ${job.idempotencyKey}`] : []),
     ...(job.error ? [`Error: ${job.error.code ? `${job.error.code} ` : ""}${job.error.message}`] : []),
+    ...(job.error?.stack ? ["Stack:", job.error.stack] : []),
     `File: ${job.file}`,
     "Payload:",
     JSON.stringify(job.payload ?? null, null, 2),

@@ -541,6 +541,23 @@ describe("local queue delivery with hosted provider rules", () => {
     expect((await engine.jobs())[0]).toMatchObject({ attempts: 1, error: { message: "[vitehub] Queue Delivery failed." }, state: "pending" })
   })
 
+  it("keeps the message and stack of a plain Error in development, in the job and in the log", async () => {
+    const error = new Error("SMTP down")
+    const engine = createLocalQueueEngine({
+      base,
+      development: true,
+      load: async () => ({ handler: async () => { throw error } }),
+      missing: missingQueueDefinitionError,
+      rules: localQueueDeliveryRules.vercel,
+    })
+
+    await engine.enqueue("welcome", [{ id: "job-1", payload: {} }])
+
+    await vi.waitFor(async () => expect((await engine.jobs())[0]?.error).toEqual({ message: "SMTP down", name: "Error", stack: error.stack }))
+    engine.close()
+    expect(console.error).toHaveBeenCalledWith("[vitehub:queue] Queue Delivery failed.", expect.objectContaining({ error: { message: "SMTP down", name: "Error", stack: error.stack } }))
+  })
+
   it("keeps retrying with Vercel rules past the Cloudflare limit", async () => {
     const handler = vi.fn(async (_job: QueueJob) => { throw new Error("SMTP down") })
     const engine = rulesEngine("vercel", { welcome: { handler } }, () => 0)

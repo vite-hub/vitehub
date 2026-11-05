@@ -151,6 +151,8 @@ export interface LocalQueueProviderOptions extends QueueSharedOptions {
   provider: "local"
   /** Queue Definition that receives the jobs. `getQueue()` sets it. */
   queue?: string
+  /** `vite dev` sets this. A stored job error then keeps the message and stack of a plain `Error`. */
+  development?: boolean
   /** The provider whose delivery rules the jobs follow. Defaults to `local`. `vite dev` sets the provider of the build. */
   rules?: LocalQueueRules
 }
@@ -183,8 +185,9 @@ export type QueueModuleOptions =
   | (QueueSharedOptions & { base?: string; namePrefix?: string; provider?: undefined })
   | QueueModuleProviderOptions
 
-/** Local options after resolution. `vite dev` adds `rules` for a Cloudflare or Vercel app. */
+/** Local options after resolution. `vite dev` adds `development`, and `rules` for a Cloudflare or Vercel app. */
 export interface ResolvedLocalQueueOptions extends LocalQueueModuleProviderOptions {
+  development?: boolean
   rules?: LocalQueueRules
 }
 

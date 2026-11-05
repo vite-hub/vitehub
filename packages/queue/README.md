@@ -153,7 +153,7 @@ pnpm vitehub queue jobs retry <message-id>
 pnpm vitehub queue jobs clear --state dead --yes
 ```
 
-`--json` prints JSON. `jobs list` takes `--queue` and `--state`. `jobs retry` runs the job now: a dead job gets a new set of attempts, and a delayed job does not wait. `jobs clear` removes pending and dead jobs, not running ones. It asks for confirmation on a terminal and needs `--yes` elsewhere. The handler of a successful job deletes it, so the list shows pending, running, and dead jobs. A plain `Error` from a handler shows as `Queue Delivery failed.`; throw a `ViteHubError` to keep a code and message. The same commands work on a Node server with the local provider. Cloudflare and Vercel do not let the app read their queue, so the commands fail there with `QUEUE_JOBS_UNAVAILABLE`.
+`--json` prints JSON. `jobs list` takes `--queue` and `--state`. `jobs retry` runs the job now: a dead job gets a new set of attempts, and a delayed job does not wait. `jobs clear` removes pending and dead jobs, not running ones. It asks for confirmation on a terminal and needs `--yes` elsewhere. The handler of a successful job deletes it, so the list shows pending, running, and dead jobs. In `vite dev`, a plain `Error` from a handler shows its message and stack. A production server shows `Queue Delivery failed.` instead, because a message can hold private data; throw a `ViteHubError` to keep a code and message. The same commands work on a Node server with the local provider. Cloudflare and Vercel do not let the app read their queue, so the commands fail there with `QUEUE_JOBS_UNAVAILABLE`.
 
 ## Treat acceptance and delivery separately
 

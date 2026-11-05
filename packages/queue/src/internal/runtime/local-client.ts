@@ -11,11 +11,11 @@ import { queueErrorDiagnostics } from "../../error-diagnostics.ts"
 // One engine per directory, so every client of this process shares the delivery of its jobs.
 const engines = new Map<string, LocalQueueEngine>()
 
-function getLocalQueueEngine(base = defaultLocalQueueBase, rules: LocalQueueRules = "local"): LocalQueueEngine {
+function getLocalQueueEngine({ base = defaultLocalQueueBase, development, rules = "local" }: { base?: string, development?: boolean, rules?: LocalQueueRules }): LocalQueueEngine {
   const directory = resolve(base)
   let engine = engines.get(directory)
   if (!engine) {
-    engine = createLocalQueueEngine({ base: directory, load: loadQueueDefinition, missing: missingQueueDefinitionError, rules: localQueueDeliveryRules[rules] })
+    engine = createLocalQueueEngine({ base: directory, development, load: loadQueueDefinition, missing: missingQueueDefinitionError, rules: localQueueDeliveryRules[rules] })
     engines.set(directory, engine)
   }
   return engine
@@ -26,7 +26,7 @@ export async function createLocalQueueRuntimeClient(options: QueueProviderOption
     throw queueErrorDiagnostics.QUEUE_PROVIDER_MISMATCH({ expected: "local", provider: options.provider })
   }
   if (!options.queue) throw queueErrorDiagnostics.QUEUE_MISSING_QUEUE()
-  return createLocalQueueClient(getLocalQueueEngine(options.base, options.rules), options.queue)
+  return createLocalQueueClient(getLocalQueueEngine(options), options.queue)
 }
 
 const providerNames: Readonly<Record<LocalQueueRules, string>> = { cloudflare: "Cloudflare", local: "local", vercel: "Vercel" }
@@ -37,7 +37,7 @@ const providerNames: Readonly<Record<LocalQueueRules, string>> = { cloudflare: "
  */
 export function startLocalQueue(config: false | ResolvedQueueOptions): void {
   if (config === false || config.provider !== "local") return
-  const engine = getLocalQueueEngine(config.base, config.rules)
+  const engine = getLocalQueueEngine(config)
   if (config.rules && config.rules !== "local") {
     console.warn(`[vitehub:queue] The dev server runs Queue jobs in this process with the ${providerNames[config.rules]} delivery rules. It stores them in ${engine.base}. The build uses ${providerNames[config.rules]} Queues. Run \`vitehub queue jobs list\` to inspect the jobs.`)
   }
@@ -52,7 +52,7 @@ export function startLocalQueue(config: false | ResolvedQueueOptions): void {
 /** The engine of the stored jobs, for `vitehub queue list`, `vitehub queue jobs`, and the Console. */
 export function useLocalQueueEngine(config: ResolvedQueueOptions): LocalQueueEngine | undefined {
   if (config.provider !== "local") return
-  return getLocalQueueEngine(config.base, config.rules)
+  return getLocalQueueEngine(config)
 }
 
 /** Status of the stored jobs, for `vitehub queue list` and the Console. */

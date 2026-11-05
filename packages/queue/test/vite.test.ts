@@ -197,6 +197,8 @@ describe("hubQueue", () => {
     expect(nitroPlugin).toContain(`"base": ${JSON.stringify(join(root, ".vitehub/data/queue"))}`)
     expect(nitroPlugin).toContain('"provider": "local"')
     expect(nitroPlugin).toContain('"rules": "cloudflare"')
+    // A stored job error keeps the handler's message and stack only in `vite dev`.
+    expect(nitroPlugin).toContain('"development": true')
     expect(nitroPlugin).toContain("startLocalQueue(queueConfig)")
     expect(nitroPlugin).toContain("setQueueRuntimeRegistry(queueRegistry)")
     expect(nitroPlugin).not.toContain("createCloudflareQueueRuntimeClient")
@@ -473,8 +475,23 @@ describe("hubQueue", () => {
     expect(nitroPlugin).toContain("internal/runtime/local-client")
     expect(nitroPlugin).toContain("setQueueRuntimeConfig(queueConfig, createLocalQueueRuntimeClient)")
     expect(nitroPlugin).toContain("startLocalQueue(queueConfig)")
+    // A production build keeps the fixed message of a plain Error.
+    expect(nitroPlugin).not.toContain('"development"')
     expect(nitroPlugin).not.toContain("@vercel/queue")
     expect(nitroPlugin).not.toContain("cloudflare:")
+  })
+
+  it("marks the local provider of a Node app as development in `vite dev`", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-node-dev-"))
+    roots.push(root)
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+    const plugin = hubQueue()
+    const config = { nitro: { preset: "node-server" }, root }
+    ;(plugin.config as unknown as (config: Record<string, unknown>) => void)(config)
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ ...config, command: "serve" } as never)
+    const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
+    expect(nitroPlugin).toContain('"provider": "local"')
+    expect(nitroPlugin).toContain('"development": true')
   })
 
   it("keeps an explicit hosted provider on a Node preset", async () => {

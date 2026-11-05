@@ -199,7 +199,7 @@ Dev does not emulate these parts of the host:
 - `idempotencyKey` deduplicates only while a job is pending or running. Vercel deduplicates for the retention, up to 24 hours.
 - `getQueue()` returns the local client, so `client.provider` is `'local'`.
 
-`vitehub queue jobs list|show|retry|clear` and the Console read the stored jobs through the `queue.jobs-*` operations. A handler that throws a plain `Error` reports `Queue Delivery failed.`, because a message can hold private data. Throw a `ViteHubError` to keep a code and a message. On Cloudflare and Vercel, the job commands fail with `QUEUE_JOBS_UNAVAILABLE`, because those providers do not let the app read the queue. A missing message ID fails with `QUEUE_JOB_NOT_FOUND`, and a job that runs now fails `retry` with `QUEUE_JOB_RUNNING`.
+`vitehub queue jobs list|show|retry|clear` and the Console read the stored jobs through the `queue.jobs-*` operations. In `vite dev`, a handler that throws a plain `Error` reports its message and stack, and `jobs show` prints both. A production server reports `Queue Delivery failed.`, because a message can hold private data. Throw a `ViteHubError` to keep a code and a message there. On Cloudflare and Vercel, the job commands fail with `QUEUE_JOBS_UNAVAILABLE`, because those providers do not let the app read the queue. A missing message ID fails with `QUEUE_JOB_NOT_FOUND`, and a job that runs now fails `retry` with `QUEUE_JOB_RUNNING`.
 
 ## Production checks
 

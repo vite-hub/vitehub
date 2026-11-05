@@ -144,6 +144,8 @@ export interface LocalQueueEngine {
 
 export interface LocalQueueEngineOptions {
   base: string
+  /** `vite dev` sets this. A stored job error then keeps the message and stack of a plain `Error`. */
+  development?: boolean
   load: (queue: string) => Promise<QueueDefinition | undefined>
   missing: (queue: string) => Error
   /** Milliseconds before the next delivery after `attempts` failed deliveries. Defaults to the delay of `rules`. */
@@ -406,7 +408,7 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
         handled = true
       }
       catch (error) {
-        const context = { attempts: job.attempts, id: job.id, provider: "local", queue: job.queue } as const
+        const context = { attempts: job.attempts, development: options.development, id: job.id, provider: "local", queue: job.queue } as const
         reportQueueDeliveryError(error, context)
         if (isNonRetryableQueueError(error) || job.attempts >= rules.maxAttempts) {
           await markDead(job, createQueueDeliveryErrorReport(error, context).error)
