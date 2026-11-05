@@ -274,3 +274,52 @@ describe("Vue composables", () => {
     expect(progress.value).toBe(100)
   })
 })
+
+describe("uploadFiles with onProgress", () => {
+  // An XMLHttpRequest that reports two progress steps, then answers with `status` and `body`.
+  function fakeXhr(status: number, body: string) {
+    const sent: Array<{ body: unknown, headers: Record<string, string>, method: string, url: string }> = []
+    class FakeXhr {
+      status = 0
+      responseText = ""
+      private request = { body: undefined as unknown, headers: {} as Record<string, string>, method: "", url: "" }
+      private listeners: Record<string, Array<(event?: unknown) => void>> = {}
+      private uploadListeners: Array<(event: { lengthComputable: boolean, loaded: number, total: number }) => void> = []
+      upload = { addEventListener: (_type: string, listener: (event: { lengthComputable: boolean, loaded: number, total: number }) => void) => this.uploadListeners.push(listener) }
+      open(method: string, url: string) { Object.assign(this.request, { method, url }) }
+      setRequestHeader(key: string, value: string) { this.request.headers[key] = value }
+      getResponseHeader(key: string) { return key === "content-type" ? "application/json" : null }
+      addEventListener(type: string, listener: () => void) { (this.listeners[type] ??= []).push(listener) }
+      send(requestBody: unknown) {
+        sent.push({ ...this.request, body: requestBody })
+        for (const loaded of [5, 10]) for (const listener of this.uploadListeners) listener({ lengthComputable: true, loaded, total: 10 })
+        this.status = status
+        this.responseText = body
+        for (const listener of this.listeners.load ?? []) listener()
+      }
+    }
+    vi.stubGlobal("XMLHttpRequest", FakeXhr)
+    return sent
+  }
+
+  it("reports progress through XMLHttpRequest and reads the answer like fetch", async () => {
+    const sent = fakeXhr(200, JSON.stringify([object]))
+    const progress: number[] = []
+    const fetch = vi.fn()
+
+    await expect(uploadFiles("/api/files", new File(["a"], "a.txt"), { fetch, headers: { authorization: "Bearer t" }, onProgress: percent => progress.push(percent) })).resolves.toEqual([object])
+
+    expect(progress).toEqual([50, 100])
+    expect(fetch).not.toHaveBeenCalled()
+    expect(sent[0]).toMatchObject({ headers: { authorization: "Bearer t" }, method: "POST", url: "/api/files" })
+    expect(sent[0]!.body).toBeInstanceOf(FormData)
+    vi.unstubAllGlobals()
+  })
+
+  it("reports a refused upload the same way", async () => {
+    fakeXhr(413, "File is too large")
+
+    await expect(uploadFiles("/api/files", new File(["a"], "a.txt"), { onProgress: () => {} })).rejects.toThrow("Upload request failed with status 413: File is too large")
+    vi.unstubAllGlobals()
+  })
+})

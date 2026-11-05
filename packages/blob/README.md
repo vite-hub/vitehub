@@ -130,7 +130,7 @@ Upload routes accept client-chosen pathnames. Authorize each request in the rout
 
 Browser clients:
 
-- `@vite-hub/blob/client`: `uploadFiles()` and `createMultipartUploader()`, built only on `fetch`.
+- `@vite-hub/blob/client`: `uploadFiles()` and `createMultipartUploader()`, built on `fetch`. `uploadFiles(route, files, { onProgress })` reports progress from 0 to 100 and sends with XMLHttpRequest, since `fetch` can't report upload progress.
 - `@vite-hub/blob/vue`: `useUpload()` and `useMultipartUpload()`, which add a progress ref. `vue` is an optional peer dependency.
 
 ## Blob reference schemas
