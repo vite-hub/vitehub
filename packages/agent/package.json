@@ -264,6 +264,7 @@
     "chat": "catalog:chat",
     "comark": "catalog:markdown",
     "esbuild": "catalog:tooling",
+    "exsolve": "catalog:unjs",
     "h3": "catalog:unjs",
     "katex": "^0.18.7",
     "nostics": "catalog:runtime",

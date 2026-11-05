@@ -13,7 +13,7 @@ import { normalizeBlobOptions } from "../src/config.ts"
 import { createBundledVercelBlobDriver, createDriver as createInternalVercelBlobDriver } from "../src/drivers/vercel-bundled.ts"
 import { renderBlobRuntimeModule } from "../src/internal/nitro-runtime.ts"
 
-import type { BlobModuleOptions, ResolvedBlobModuleOptions } from "../src/types.ts"
+import type { BlobModuleOptions, BlobStorage, ResolvedBlobModuleOptions } from "../src/types.ts"
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
@@ -357,6 +357,35 @@ describe("Blob Nitro runtime module", () => {
     const runtimeContents = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
     expect(runtimeContents).toContain("store: storeName => createGeneratedBlobStorage(storeName)")
     expect(runtimeContents).toContain("export const blob = createLazyGeneratedBlobStorage(\"default\")")
+  })
+
+  it("exposes media records on the generated default and named stores", { timeout: 30_000 }, async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-media-runtime-")
+    const resolved = normalizeBlobOptions({
+      serve: { route: "/media", store: "default" },
+      stores: {
+        archive: { base: join(rootDir, "archive"), driver: "fs" },
+        default: { base: join(rootDir, "default"), driver: "fs" },
+      },
+    })
+    if (!resolved) throw new Error("Blob config must resolve to a store.")
+    const file = join(rootDir, ".vitehub", "blob", "runtime.mjs")
+    await mkdir(join(rootDir, ".vitehub", "blob"), { recursive: true })
+    await writeFile(file, renderBlobRuntimeModule(file, resolved), "utf8")
+    const runtimeModule = await import(`${pathToFileURL(file).href}?t=${Date.now()}`) as { blob: BlobStorage }
+    const svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"40\" height=\"20\"></svg>"
+
+    const [putError, record] = await runtimeModule.blob.media.put("posts/cover.svg", svg, { alt: "Cover" })
+    expect(putError).toBeNull()
+    expect(record).toMatchObject({ alt: "Cover", height: 20, pathname: "posts/cover.svg", url: "/media/posts/cover.svg", width: 40 })
+    const [getError, stored] = await runtimeModule.blob.media.get("posts/cover.svg")
+    expect(getError).toBeNull()
+    expect(stored).toMatchObject({ alt: "Cover", pathname: "posts/cover.svg" })
+
+    const [archiveError, archived] = await runtimeModule.blob.store("archive").media.put("cover.svg", svg)
+    expect(archiveError).toBeNull()
+    expect(archived).toMatchObject({ pathname: "cover.svg", width: 40 })
+    expect(archived?.url).toBeUndefined()
   })
 
   it("generates Netlify Blobs driver reachability for selected stores", { timeout: 30_000 }, async () => {

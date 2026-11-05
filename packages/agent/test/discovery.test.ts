@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { createAgentEvalInclude, discoverAgentDefinitions, discoverAgentEvalFiles } from "../src/discovery.ts"
 import { getMessageText } from "../src/messages.ts"
+import { installStubPackages } from "./support/stub-packages.ts"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { Connect } from "vite"
@@ -2052,6 +2053,7 @@ describe("agent chat capability discovery", () => {
     const root = await createTempRoot("vitehub-agent-dev-runtime-capabilities-")
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "calories.ts"), "export default {}", "utf8")
+    await installStubPackages(root, ["@vite-hub/database/drizzle"])
 
     const { db } = await import("../src/capabilities.ts")
     const { defineAgent } = await import("../src/index.ts")
