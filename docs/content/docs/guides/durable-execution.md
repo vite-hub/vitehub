@@ -46,13 +46,13 @@ At 12:00:00, the job starts. Step 1 charges $42.00 and returns `{ chargeId: 'ch_
 
 ## What ViteHub stores on each host
 
-ViteHub calls each step file through the provider's step API with the same default retry policy: `limit: 3`, `delay: '10 seconds'`, and `backoff: 'exponential'`. The providers read the limit in different ways.
+For Cloudflare and OpenWorkflow, ViteHub calls each step file through the provider's step API with the default retry policy: `limit: 3`, `delay: '10 seconds'`, and `backoff: 'exponential'`. These two providers read the limit in different ways. Vercel native steps use Workflow DevKit's own retry policy.
 
 | Where the run executes | Provider | Step results saved | Retries of a failed step | Survives a process stop |
 | --- | --- | --- | --- | --- |
 | Cloudflare Workers | Cloudflare Workflows | Yes, by Cloudflare | Up to 3 retries after the first attempt, with exponential backoff from 10 seconds | Yes |
 | Node or Docker with `postgres.url` or `sqlite.path` | OpenWorkflow | Yes, in your Postgres or SQLite database | Up to 3 attempts in total, 10 seconds then 20 seconds apart | Yes, while the database survives |
-| Vercel, `native` entry | Workflow DevKit | Yes, for `'use step'` functions | Workflow DevKit's own rules | Yes |
+| Vercel, explicit or generated `native` entry | Workflow DevKit | Yes, for `'use step'` functions | Workflow DevKit's own rules | Yes |
 | Vercel, normal handler | Inline | No | None | No |
 | Node or Docker without OpenWorkflow storage, and `vite dev` | Inline | No | None | No |
 
@@ -170,7 +170,9 @@ The status is one of `queued`, `running`, `completed`, `failed`, `cancelled`, or
 
 ## Durable steps on Vercel
 
-On Vercel, the normal handler runs inline. For durable runs, add a `native` entry that uses Workflow DevKit's `'use workflow'` and `'use step'` directives. Vercel calls the `native` entry without the `steps` runner, so a folder's numbered files do not become Vercel steps. [Add a durable Vercel entry](/docs/workflows/configure#add-a-durable-vercel-entry) shows the code. Workflow DevKit has its own retry rules; read [Errors and retries](https://useworkflow.dev/docs/foundations/errors-and-retries).
+For Workflows with a normal handler, including the checkout's `index.ts` above, Vercel runs the handler inline unless you provide a `native` entry. That entry uses Workflow DevKit's `'use workflow'` and `'use step'` directives. Vercel calls it without ViteHub's `steps` runner, so the entry must call its own step functions. [Add a durable Vercel entry](/docs/workflows/configure#add-a-durable-vercel-entry) shows the code.
+
+For a folder containing only numbered step files and no `index.ts`, ViteHub generates a native `'use workflow'` entry and one `'use step'` wrapper per file. The generated entry runs the files in order, passing each result to the next step. This form needs no manual `native` entry. Both native forms follow Workflow DevKit's own retry rules; read [Errors and retries](https://useworkflow.dev/docs/foundations/errors-and-retries).
 
 ## Related
 

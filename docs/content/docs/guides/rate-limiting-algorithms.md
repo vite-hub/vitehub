@@ -200,7 +200,7 @@ export default defineAgent({
 })
 ```
 
-The Capability chooses the key. With the default `identity: 'auto'`, it uses the Agent Invoker, then the thread or channel of the run, then an IP address from `trustedIpHeaders`. If none of these exist, all callers share one `anonymous` key. In this example, that makes the limit a cap of 20 runs per minute for the whole Agent. To limit each user, sign the user in and set `identity: 'invoker'`. Read [Choose identity](/docs/rate-limit/agent-capability#choose-identity).
+The Capability chooses the key. With the default `identity: 'auto'`, it uses the Agent Invoker. Agent resolution always supplies an Invoker before the Capability runs, with the fallback id `anonymous:<origin>` when no caller identity exists. Unauthenticated calls from the same origin therefore share a counter; `auto` does not partition them by thread, channel, or IP address. In this example, those calls share the cap of 20 runs per minute. For a per-user limit, pass the authenticated user's identity as the Agent Invoker. Choose `identity: 'run'` for thread or channel metadata, or `identity: 'ip'` with `trustedIpHeaders` for IP-based limits. Read [Choose identity](/docs/rate-limit/agent-capability#choose-identity).
 
 A rejected Invocation fails with the code `RATE_LIMIT_REJECTED`. The generated Agent HTTP routes map it to `429`. In your own route, map it yourself:
 
