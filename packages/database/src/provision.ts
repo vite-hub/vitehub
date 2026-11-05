@@ -1,4 +1,4 @@
-import { createCloudflareProvisionClient, resolveCloudflareProvisionConfig } from "@vite-hub/internal/provision"
+import { createCloudflareProvisionClient, isShellSafeProvisionValue, resolveCloudflareProvisionConfig } from "@vite-hub/internal/provision"
 
 import { resolveConfigValue } from "./config-value.ts"
 import { resolveDBViteConfig } from "./config.ts"
@@ -103,7 +103,10 @@ export function createDatabaseProvisionStep(
       }, {
         category: "d1Nuxt",
         declared: planned.filter(database => database.nuxt).map(database => getDatabaseNuxtProvisionStateKey(database.databaseName)),
-        deleteHint: ({ key }) => `run \`wrangler d1 delete ${decodeStateKey(key)}\``,
+        deleteHint: ({ key }) => {
+          const name = decodeStateKey(key)
+          return isShellSafeProvisionValue(name) ? `run \`wrangler d1 delete ${name}\`` : "delete the D1 database in the Cloudflare dashboard"
+        },
       }]
     },
     async plan(context) {

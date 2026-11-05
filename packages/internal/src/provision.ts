@@ -41,6 +41,14 @@ export interface ProvisionStateCategory {
   deleteHint: (entry: { id: string, key: string }) => string
 }
 
+/**
+ * Whether a value from Provision State can appear in a copyable shell command as is.
+ * The file is editable, so a hint shows a command only for plain names and ids.
+ */
+export function isShellSafeProvisionValue(value: string): boolean {
+  return /^[A-Za-z0-9][\w.-]*$/.test(value)
+}
+
 export interface ProvisionStep {
   id: string
   provider: ProvisionProvider

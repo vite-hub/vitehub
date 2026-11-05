@@ -103,6 +103,7 @@ describe("database provision step", () => {
       { category: "d1Nuxt", declared: ["app-db"] },
     ])
     expect(recorded[1]?.deleteHint({ id: "uuid-old", key: getDatabaseNuxtProvisionStateKey("old-db") })).toBe("run `wrangler d1 delete old-db`")
+    expect(recorded[1]?.deleteHint({ id: "uuid-old", key: getDatabaseNuxtProvisionStateKey("$(touch /tmp/x)") })).toBe("delete the D1 database in the Cloudflare dashboard")
   })
 
   it("creates a missing D1 database and returns its id keyed by definition name", async () => {

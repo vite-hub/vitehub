@@ -152,8 +152,9 @@ describe("KV Cloudflare provision step", () => {
     }))
 
     const [category] = step.recordedState?.({ env: {} }) ?? []
-    expect(category).toMatchObject({ category: "kv", declared: ["cache", "sessions"] })
+    expect(category).toMatchObject({ category: "kv", declared: ["cache", "pinned", "sessions"] })
     expect(category?.deleteHint({ id: "ns-old", key: "old" })).toBe("run `wrangler kv namespace delete --namespace-id ns-old`")
+    expect(category?.deleteHint({ id: "$(touch /tmp/x)", key: "old" })).toBe("delete the KV namespace in the Cloudflare dashboard")
   })
 
   it("skips without credentials and never calls the API", async () => {
