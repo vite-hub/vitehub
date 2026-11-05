@@ -273,8 +273,11 @@ export interface FetchSnapshotOptions {
   /**
    * A Cache Storage name. Parts found there are not downloaded again, so later boots work from the cache. Give each
    * snapshot version its own URLs, such as names with a content hash. Parts of other URLs in this cache are deleted.
+   * A part goes into the cache only after the whole snapshot inflates and matches `sha256`.
    */
   cache?: string
+  /** The SHA-256 of the joined parts, in hex. A snapshot that differs is rejected, and none of its parts is cached. */
+  sha256?: string
 }
 
 /**
@@ -289,17 +292,30 @@ export async function fetchSnapshot(urls: readonly string[], options: FetchSnaps
     const keep = new Set(urls.map(url => new Request(url).url))
     for (const request of await cache.keys()) if (!keep.has(request.url)) void cache.delete(request)
   }
-  const parts = urls.map(async (url) => {
+  const parts = await Promise.all(urls.map(async (url) => {
     const cached = await cache?.match(url)
-    if (cached) return cached.blob()
+    if (cached) return { url, blob: await cached.blob(), downloaded: false }
     const response = await fetch(url)
     if (!response.ok) throw new Error(`Snapshot part ${url} returned ${response.status}.`)
-    const blob = await response.blob()
-    await cache?.put(url, new Response(blob)).catch(() => {})
-    return blob
-  })
-  const joined = new Blob(await Promise.all(parts))
-  return new Uint8Array(await new Response(joined.stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer())
+    return { url, blob: await response.blob(), downloaded: true }
+  }))
+  const joined = new Blob(parts.map(part => part.blob))
+  let data: Uint8Array
+  try {
+    if (options.sha256) {
+      const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", await joined.arrayBuffer()))
+      const hex = [...digest].map(byte => byte.toString(16).padStart(2, "0")).join("")
+      if (hex !== options.sha256.toLowerCase()) throw new Error(`The snapshot has SHA-256 ${hex}, not ${options.sha256}.`)
+    }
+    data = new Uint8Array(await new Response(joined.stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer())
+  }
+  catch (cause) {
+    // A cached part can be the bad one. Drop every part of this snapshot, so the next load downloads them again.
+    await Promise.all(urls.map(url => cache?.delete(new Request(url)).catch(() => false)))
+    throw new Error(`The snapshot from ${urls[0]} is damaged: ${cause instanceof Error ? cause.message : String(cause)}`, { cause })
+  }
+  for (const part of parts) if (part.downloaded) await cache?.put(part.url, new Response(part.blob)).catch(() => {})
+  return data
 }
 
 /**
