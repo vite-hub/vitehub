@@ -320,7 +320,8 @@ describe("MCP client section", () => {
       const request = new Request(input instanceof Request ? input.clone() : input, init)
       const response = await nativeFetch(input, init)
       if (request.url === `${origin}/.well-known/oauth-authorization-server`) {
-        return Response.json({ ...await response.json(), authorization_response_iss_parameter_supported: advertised })
+        const metadata = await response.json() as Record<string, unknown>
+        return Response.json({ ...metadata, authorization_response_iss_parameter_supported: advertised })
       }
       return response
     })
@@ -370,10 +371,12 @@ describe("MCP client section", () => {
       expect(request.url).not.toBe("http://external.example/oauth")
       const response = await nativeFetch(input, init)
       if (stage === "discovery" && new URL(request.url).pathname.startsWith("/.well-known/oauth-protected-resource")) {
-        return Response.json({ ...await response.json(), authorization_servers: ["https://oauth.example"] })
+        const metadata = await response.json() as Record<string, unknown>
+        return Response.json({ ...metadata, authorization_servers: ["https://oauth.example"] })
       }
       if (stage === "token" && request.url === `${origin}/.well-known/oauth-authorization-server`) {
-        return Response.json({ ...await response.json(), token_endpoint: endpoint })
+        const metadata = await response.json() as Record<string, unknown>
+        return Response.json({ ...metadata, token_endpoint: endpoint })
       }
       return response
     })
@@ -424,7 +427,8 @@ describe("MCP client section", () => {
       expect(request.url).not.toBe(target)
       const response = await nativeFetch(input, init)
       if (request.url === `${origin}/.well-known/oauth-authorization-server`) {
-        return Response.json({ ...await response.json(), revocation_endpoint: "https://oauth.example/revoke" })
+        const metadata = await response.json() as Record<string, unknown>
+        return Response.json({ ...metadata, revocation_endpoint: "https://oauth.example/revoke" })
       }
       return response
     })
