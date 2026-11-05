@@ -352,6 +352,7 @@ describe("framework package contract", () => {
       "./console/definitions",
       "./console/documents",
       "./console/env",
+      "./console/mcp-client",
       "./console/sections",
       "./console/server",
       "./console/ui",

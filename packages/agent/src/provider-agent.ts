@@ -2283,9 +2283,27 @@ async function resolveInstructions<
   }) : undefined
 }
 
+function retainedUserMessages(messages: Message[], messageId?: string): Message[] {
+  const index = messageId
+    ? messages.findIndex(message => message.id === messageId)
+    : messages.findLastIndex(message => message.role === "user")
+  const chat = messages[index]?.metadata?.chat
+  const skippedCount = isRuntimeRecord(chat) ? chat.skippedCount : undefined
+  if (!hasRuntimeType(skippedCount, "number") || !Number.isSafeInteger(skippedCount) || skippedCount <= 0) return []
+  // Queue and steer coalescing retain these messages for the current Invocation.
+  return messages.slice(Math.max(0, index - skippedCount), index).filter(message => message.role === "user")
+}
+
 function latestUserMessages(messages: Message[]): Message[] {
   const index = messages.findLastIndex(message => message.role === "user")
-  return index === -1 ? messages.slice(-1) : messages.slice(index)
+  return index === -1 ? messages.slice(-1) : [...retainedUserMessages(messages), ...messages.slice(index)]
+}
+
+function providerInputAttachments(messages: Message[], messageId?: string): AttachmentPart[] {
+  return [
+    ...retainedUserMessages(messages, messageId).flatMap(message => message.parts.filter(isAttachmentPart)),
+    ...currentInputAttachments(messages, messageId),
+  ]
 }
 
 function providerPrompt(messages: Message[], resumed: boolean, prompt?: string, replayAttachments = false): string | undefined {
@@ -2348,18 +2366,46 @@ async function attachmentBytes(part: AttachmentPart, maxBytes: number): Promise<
   return bytes
 }
 
-async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapterRunContext, threadId: ThreadId, maxBytes: number) {
-  const parts = currentInputAttachments(context.messages, context.runtime.run?.messageId)
-  if (!parts.length) return
+/**
+ * Current and coalesced input attachments use the byte budget first and must resolve. Images
+ * from the other user messages in this turn's prompt, such as chat history kept by
+ * `triggerHistory.maxImages`, use what remains; one that cannot be read or does not fit is left out.
+ */
+async function prepareAttachments(runtime: ProviderRuntime, context: AgentAdapterRunContext, threadId: ThreadId, maxBytes: number, resumed: boolean, includeHistory: boolean) {
+  const current = providerInputAttachments(context.messages, context.runtime.run?.messageId)
+  const currentParts = new Set<AttachmentPart>(current)
+  const history = includeHistory
+    ? (resumed ? latestUserMessages(context.messages) : context.messages)
+        .filter(message => message.role === "user")
+        .flatMap(message => message.parts.filter(isAttachmentPart))
+        .filter(part => !currentParts.has(part) && part.type === "image" && (part.data !== undefined || hasRuntimeType(part.fetchData, "function")))
+    : []
+  if (!current.length && !history.length) return
   let remaining = maxBytes
-  await mkdir(runtime.attachmentsDirectory, { recursive: true })
-  const attachments = []
-  for (const part of parts) {
+  const resolved = new Map<AttachmentPart, Uint8Array>()
+  for (const part of current) {
     if (part.type !== "image") throw agentDiagnostics.AGENT_R0708({ message: "[vitehub] Provider Agent Drivers currently support image attachments only." })
-    const id = attachmentId(threadId)
-    const extension = imageExtensions[part.mediaType.toLowerCase()] || extname(part.name || "").toLowerCase() || ".bin"
     const bytes = await attachmentBytes(part, remaining)
     remaining -= bytes.byteLength
+    resolved.set(part, bytes)
+  }
+  for (const part of history) {
+    if (remaining <= 0) break
+    try {
+      const bytes = await attachmentBytes(part, remaining)
+      remaining -= bytes.byteLength
+      resolved.set(part, bytes)
+    } catch {}
+  }
+  if (!resolved.size) return
+  await mkdir(runtime.attachmentsDirectory, { recursive: true })
+  const attachments = []
+  // Keep message order so the images line up with the history they came from.
+  for (const part of [...history, ...current]) {
+    const bytes = resolved.get(part)
+    if (!bytes) continue
+    const id = attachmentId(threadId)
+    const extension = imageExtensions[part.mediaType.toLowerCase()] || extname(part.name || "").toLowerCase() || ".bin"
     await writeFile(join(runtime.attachmentsDirectory, `${id}${extension}`), bytes)
     attachments.push({
       id,
@@ -2891,7 +2937,7 @@ function assertProviderSandboxInvocation<CALL_OPTIONS, TRuntimeConfig extends Ag
   if (Object.keys(context.tools || {}).length && !sandboxSharesHostNetwork(sandbox.runtime)) {
     throw agentDiagnostics.AGENT_R0961({ message: "[vitehub] Capability tools with defineAgent({ sandbox }) require a Sandbox runtime that shares the ViteHub network, such as trusted-host or crabbox with network: \"direct\"." })
   }
-  if (currentInputAttachments(context.messages, context.runtime.run?.messageId).length) {
+  if (providerInputAttachments(context.messages, context.runtime.run?.messageId).length) {
     throw agentDiagnostics.AGENT_R0962({ message: "[vitehub] Image attachments are not supported with defineAgent({ sandbox }) because the provider cannot read host attachment files." })
   }
 }
@@ -3785,7 +3831,8 @@ async function* runProvider<
       })
     }
     const attachments = await waitForProviderOperation(
-      prepareAttachments(runtime, context, threadId, options.execution?.attachments?.maxBytes ?? defaultProviderAttachmentMaxBytes),
+      // A Sandbox provider cannot read host attachment files, so it gets no history images.
+      prepareAttachments(runtime, context, threadId, options.execution?.attachments?.maxBytes ?? defaultProviderAttachmentMaxBytes, resumed, !options.sandbox),
       effectiveSignal,
       () => finalizeDeferredRuntime(threadId),
       deferRuntimeCleanup,
