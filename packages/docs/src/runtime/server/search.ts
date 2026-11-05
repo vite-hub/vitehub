@@ -1,26 +1,34 @@
-import { defineEventHandler, useStorage } from "#imports"
+import { defineEventHandler } from "#imports"
 
 import type { EventHandler, EventHandlerRequest } from "h3"
 import manifest from "#docs/manifest"
-import parser from "#docs/parser"
 import { docsManifestPages } from "../../navigation.ts"
-import { createDocsParser, docsSearchSections } from "../../markdown.ts"
+import { docsSearchSections } from "../../markdown.ts"
+
+import { loadDocsDocument } from "../documents.ts"
 
 import type { DocsSearchSection } from "../../types.ts"
 
-const parse = createDocsParser(parser)
 
 /** Every page split by heading, for the search dialog. The build prerenders it. */
-const handler: EventHandler<EventHandlerRequest, Promise<DocsSearchSection[]>> = defineEventHandler(async (): Promise<DocsSearchSection[]> => {
-  const storage = useStorage("assets:docs")
+async function buildIndex(): Promise<DocsSearchSection[]> {
   const sections: DocsSearchSection[] = []
   for (const page of docsManifestPages(manifest)) {
-    const source = await storage.getItem<string>(page.file)
-    if (source === null) continue
-    const { nodes } = await parse(String(source))
+    const document = await loadDocsDocument(page.file, false)
+    if (document === null) continue
+    const { nodes } = document
     sections.push(...docsSearchSections(page.path, page.sourceTitle, nodes))
   }
   return sections
+}
+
+let indexed: Promise<DocsSearchSection[]> | undefined
+const handler: EventHandler<EventHandlerRequest, Promise<DocsSearchSection[]>> = defineEventHandler(() => {
+  if (import.meta.dev) return buildIndex()
+  return indexed ??= buildIndex().catch((error) => {
+    indexed = undefined
+    throw error
+  })
 })
 
 export default handler
