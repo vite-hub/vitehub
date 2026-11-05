@@ -119,6 +119,16 @@ describe("@vite-hub/runtime/h3", () => {
     expect(h3V1["~standard"].runtime?.clientAddress).toBe("203.0.113.11")
   })
 
+  it("keeps the Cloudflare execution context when the event has no bindings", () => {
+    const waitUntil = vi.fn()
+    const context = { waitUntil, passThroughOnException: vi.fn() }
+    const event = new H3Event(new Request("https://example.test/"))
+    event.context.cloudflare = { context }
+
+    expect(getStandardContext(event).runtime?.cloudflare).toEqual({ context })
+    expect(getRuntimeContext(event).runtime).toBe("cloudflare-agents")
+  })
+
   it("does not set Standard Context on an event without a request", () => {
     expect(() => installStandardContext({ context: {} })).toThrow(expect.objectContaining({ name: "RUNTIME_R0015" }))
   })

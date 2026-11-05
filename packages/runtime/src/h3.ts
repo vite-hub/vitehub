@@ -147,8 +147,9 @@ abstract class H3StandardProps implements ViteHubStandardProps {
     const env = getCloudflareEnv(this.#event, { fallback: false })
     const context = getCloudflareExecutionContext(this.#event)
     const clientAddress = this.clientAddress()
+    // A host can pass the execution context without bindings on the event, so keep each one that it passes.
     return this.#runtime = {
-      ...(env ? { cloudflare: { env, ...(context ? { context } : {}) } } : {}),
+      ...(env || context ? { cloudflare: { ...(env ? { env } : {}), ...(context ? { context } : {}) } } : {}),
       ...(clientAddress ? { clientAddress } : {}),
     }
   }
