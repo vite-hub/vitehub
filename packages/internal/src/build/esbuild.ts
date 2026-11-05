@@ -142,6 +142,14 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
       const resolvedBareAliasPaths = new Map<string, Promise<{ canonical: string, normalized: string, publicSpecifier?: string } | undefined>>()
       build.onResolve({ filter: /.*/ }, async (args) => {
         if (args.pluginData?.[skipResolvedAlias]) return
+        const resolveWithContext = (specifier: string) => build.resolve(specifier, {
+          importer: args.importer,
+          kind: args.kind,
+          namespace: args.namespace,
+          pluginData: { ...args.pluginData, [skipResolvedAlias]: true },
+          resolveDir: args.resolveDir,
+          with: args.with,
+        })
         const aliases = await resolvedEntries
         let match = aliases.find(({ prefix, specifier }) => /^\.\.?[\\/]/.test(specifier) && (prefix
           ? args.path.startsWith(specifier)
@@ -211,14 +219,7 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
                   if (!isPlainObject(parsedPackageJson)) return
                   const packageJson = parsedPackageJson
                   if (packageJson.exports === undefined && !alias.prefix) {
-                    const resolvedCandidate = await build.resolve(alias.specifier, {
-                      importer: args.importer,
-                      kind: args.kind,
-                      namespace: args.namespace,
-                      pluginData: { ...args.pluginData, [skipResolvedAlias]: true },
-                      resolveDir: args.resolveDir,
-                      with: args.with,
-                    })
+                    const resolvedCandidate = await resolveWithContext(alias.specifier)
                     if (!resolvedCandidate.errors.length && !resolvedCandidate.external && resolvedCandidate.namespace === "file"
                       && normalizePathSeparators(resolve(resolvedCandidate.path)) === normalizedSpecifier) {
                       return { canonical: alias.specifier, normalized: alias.specifier, publicSpecifier: alias.specifier }
@@ -227,14 +228,7 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
                   }
                   const matchingPublicSpecifiers = new Set<string>()
                   for (const publicSpecifier of collectPackageExportCandidates(packageName, packageJson.exports, packageRelativePath)) {
-                    const resolvedCandidate = await build.resolve(publicSpecifier, {
-                      importer: args.importer,
-                      kind: args.kind,
-                      namespace: args.namespace,
-                      pluginData: { ...args.pluginData, [skipResolvedAlias]: true },
-                      resolveDir: args.resolveDir,
-                      with: args.with,
-                    })
+                    const resolvedCandidate = await resolveWithContext(publicSpecifier)
                     if (resolvedCandidate.errors.length || resolvedCandidate.external || resolvedCandidate.namespace !== "file") continue
                     const candidatePath = normalizePathSeparators(resolve(resolvedCandidate.path))
                     if (candidatePath !== normalizedSpecifier) continue
@@ -249,14 +243,7 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
                   return
                 }
                 else {
-                  const resolvedAlias = await build.resolve(alias.specifier, {
-                    importer: args.importer,
-                    kind: args.kind,
-                    namespace: args.namespace,
-                    pluginData: { ...args.pluginData, [skipResolvedAlias]: true },
-                    resolveDir: args.resolveDir,
-                    with: args.with,
-                  })
+                  const resolvedAlias = await resolveWithContext(alias.specifier)
                   if (resolvedAlias.errors.length || resolvedAlias.external || resolvedAlias.namespace !== "file") return
                   resolvedAliasPath = normalizePathSeparators(resolve(resolvedAlias.path))
                 }
@@ -304,14 +291,7 @@ function createResolvedAliasPlugin(aliases: Record<string, string> | undefined, 
           : matchedSpecifier.replace(matchedAlias!, match?.replacement ?? "")
         if (!target) return
         const resolvedTarget = /^\.\.?[\\/]/.test(target) ? resolve(aliasResolveDir, target) : target
-        return build.resolve(resolvedTarget, {
-          importer: args.importer,
-          kind: args.kind,
-          namespace: args.namespace,
-          pluginData: { ...args.pluginData, [skipResolvedAlias]: true },
-          resolveDir: args.resolveDir,
-          with: args.with,
-        })
+        return resolveWithContext(resolvedTarget)
       })
     },
   }
