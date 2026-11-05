@@ -22,6 +22,7 @@ export type {
   RealtimeReadOnlyReason,
   RealtimeRequestErrorCode,
   RealtimeRequestContext,
+  RealtimeRequestEvent,
   RealtimeResetReason,
   RealtimeSaveOptions,
   RealtimeSaveResult,

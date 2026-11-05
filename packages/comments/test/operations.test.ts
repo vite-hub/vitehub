@@ -18,7 +18,7 @@ import { commentsTables } from "../src/tables.ts"
 import type { OperationContext } from "@vite-hub/internal/operations"
 import type { Comments } from "../src/index.ts"
 import type { CommentsDatabase } from "../src/operations-core/store.ts"
-import type { CommentsPeople, CommentsUser } from "../src/types.ts"
+import type { CommentsIdentifyContext, CommentsPeople, CommentsUser } from "../src/types.ts"
 import type { CommentCreateInput, CommentThread } from "../src/operations-core/types.ts"
 
 const registry = createOperationRegistry([{ operations: commentsOperations }])
@@ -319,7 +319,7 @@ it.each([false, true])("matches owner deletion capabilities to the write policy 
 it.each(["admin", "stranger"])("identifies %s through the standalone CLI operation RPC", async (person) => {
   const identified = { id: "admin", name: "Admin", role: "admin" }
   const authorize = vi.fn(({ user }: { user: CommentsUser | null }) => user?.role === "admin")
-  const identify = vi.fn(({ event }: { event: H3Event }) => event.req.headers.get("x-person") === "admin" ? identified : null)
+  const identify = vi.fn(({ event }: CommentsIdentifyContext) => event["~standard"].req.headers.get("x-person") === "admin" ? identified : null)
   const comments = defineComments({ identify, authorize })
   // SAFETY: The libSQL Drizzle database implements the batch contract that ViteHub Databases expose.
   installComments(comments, { database: drizzle(client) as unknown as CommentsDatabase })
@@ -344,7 +344,7 @@ it("gives authorize the user that identify builds for the request, not the Conso
   const seen: Array<DropUser | null> = []
   const comments = defineComments({
     // The app's own session: the Console user carries no `identity`.
-    identify: ({ event }) => event.req.headers.get("x-person") === "admin" ? { id: "admin", name: "Admin", identity: { role: "admin" } } : null,
+    identify: ({ event }) => event["~standard"].req.headers.get("x-person") === "admin" ? { id: "admin", name: "Admin", identity: { role: "admin" } } : null,
     authorize: ({ user }) => {
       seen.push(user as DropUser | null)
       return (user as DropUser | null)?.identity?.role === "admin"

@@ -5,12 +5,11 @@ import { commentsRealtime } from "../src/realtime.ts"
 import { commentRoom } from "../src/page.ts"
 import { commentsConsoleSession } from "../src/runtime/console-session.ts"
 
-import type { H3Event } from "h3"
+import { H3Event } from "h3"
 import type { RealtimeAuthorizeContext } from "@vite-hub/realtime"
 
 function event(): H3Event {
-  // SAFETY: The definition only uses the event as a key and passes it to `identify`.
-  return {} as H3Event
+  return new H3Event(new Request("http://site.test/"))
 }
 
 describe("commentsRealtime", () => {

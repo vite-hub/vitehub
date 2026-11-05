@@ -2,7 +2,10 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import { defineComments } from "../src/index.ts"
 
-import type { CommentAction, CommentsAuthorizeContext, CommentsErrorCode, CommentsGitHubAccess, CommentSubject } from "../src/index.ts"
+import type { ViteHubContext } from "@vite-hub/runtime"
+import type {} from "@vite-hub/runtime/h3"
+import type { H3Event } from "h3"
+import type { CommentAction, CommentsAuthorizeContext, CommentsErrorCode, CommentsGitHubAccess, CommentsIdentifyContext, CommentsRequestEvent, CommentSubject } from "../src/index.ts"
 
 const comments = defineComments()
 
@@ -20,6 +23,12 @@ it("types GitHub access in a policy alongside custom identity", () => {
       return user?.github?.write === true
     },
   })
+})
+
+it("gives identify() a request event with Standard Context and an optional H3 context", () => {
+  expectTypeOf<CommentsIdentifyContext["event"]>().toEqualTypeOf<ViteHubContext<{ context?: Record<string, unknown> }>>()
+  expectTypeOf<CommentsRequestEvent["~standard"]["req"]>().toEqualTypeOf<Request>()
+  expectTypeOf<H3Event>().toExtend<CommentsRequestEvent>()
 })
 
 describe("Comments error unions", () => {
