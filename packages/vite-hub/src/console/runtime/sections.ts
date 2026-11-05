@@ -1,5 +1,5 @@
 /** Sections that the Console UI in `vite-hub` renders with its own components. Owner packages contribute the others. */
-export const consoleBuiltinSectionIds = ["env", "connections", "agents", "skills", "usage", "channels", "logs", "blob", "databases", "kv"] as const
+export const consoleBuiltinSectionIds = ["env", "connections", "agents", "skills", "usage", "channels", "mcp-client", "logs", "blob", "databases", "kv"] as const
 
 export type ConsoleBuiltinSectionId = (typeof consoleBuiltinSectionIds)[number]
 
@@ -42,6 +42,12 @@ export const consoleSectionDetails: Readonly<Record<ConsoleBuiltinSectionId, Con
     label: "Channels",
     routeName: "vitehub-console-channels",
   },
+  "mcp-client": {
+    description: "Connect to MCP servers as yourself, then call their tools, resources, and prompts.",
+    icon: "i-vitehub-connections",
+    label: "MCP client",
+    routeName: "vitehub-console-mcp-client",
+  },
   blob: {
     description: "Inspect configured Blob stores and object metadata without downloading contents.",
     icon: "i-vitehub-blob",
@@ -72,6 +78,7 @@ const consoleSectionGroupBySection: Readonly<Record<string, ConsoleSectionGroupI
   skills: "agents",
   usage: "agents",
   channels: "agents",
+  "mcp-client": "agents",
   logs: "runtime",
   databases: "data",
   kv: "data",
@@ -157,6 +164,7 @@ export const consolePrimitives: readonly ConsolePrimitive[] = [
   primitive("logs", "Logs", consoleSectionDetails.logs.icon, "logs", "Read structured logs and diagnostic guidance from your existing pipeline."),
   primitive("usage", "Usage", consoleSectionDetails.usage.icon, "development/console", "Review the token use and cost that Agent Invocations record.", "agents"),
   primitive("channels", "Channels", consoleSectionDetails.channels.icon, "agents/channels", "Read and export the conversations that Agents have in Telegram, Slack, and other Channels.", "agents/channels"),
+  primitive("mcp-client", "MCP client", consoleSectionDetails["mcp-client"].icon, "development/console", "Connect to MCP servers as one or more accounts, and call their tools, resources, and prompts.", "development/console"),
   primitive("content", "Content", "i-vitehub-content", "content", "Edit Markdown documents with validated fields, drafts, publishing, and revision history."),
   primitive("comments", "Comments", "i-vitehub-comments", "comments", "Pin comments to any page of the site, reply, resolve, and edit Content text in place."),
   primitive("blob", "Blob", consoleSectionDetails.blob.icon, "blob", "Store uploads, generated files, binary objects, and metadata with one object-storage API."),
@@ -199,6 +207,7 @@ export const consoleSectionShortcutKeys: Readonly<Record<string, string>> = {
   comments: "n",
   usage: "u",
   channels: "v",
+  "mcp-client": "p",
   logs: "l",
   databases: "d",
   kv: "k",
@@ -245,6 +254,11 @@ export function isConsoleConnectionsEnabled(options: { connections?: unknown }, 
   if (development) return true
   if (typeof connections !== "object" || connections === null) return false
   return Object.hasOwn(connections, "management") && Boolean(Reflect.get(connections, "management"))
+}
+
+/** The MCP client section is on when the Console options set `mcpClient: true`. */
+export function isConsoleMcpClientEnabled(console: unknown): boolean {
+  return typeof console === "object" && console !== null && Reflect.get(console, "mcpClient") === true
 }
 
 /** Route name of a contributed section. The Console serves it at `/_vitehub/<id>`. */
@@ -301,6 +315,7 @@ export function resolveConsoleSectionIds(options: {
   auth?: unknown;
   env?: unknown;
   connections?: unknown
+  console?: unknown;
   agent?: unknown;
   blob?: unknown;
   comments?: unknown;
@@ -324,6 +339,7 @@ export function resolveConsoleSectionIds(options: {
     ...(options.env ? ["env"] : []),
     ...(options.connections ? ["connections"] : []),
     ...(options.agent ? ["agents", "skills", "usage", "channels"] : []),
+    ...(isConsoleMcpClientEnabled(options.console) ? ["mcp-client"] : []),
     ...(options.blob ? ["blob"] : []),
     // Without the option, `server/comments.ts` turns the section on through discovery.
     ...(options.comments ? ["comments"] : []),

@@ -81,6 +81,7 @@ const runtimeEntries = [
   "src/console/runtime/client/preview.ts",
   "src/console/runtime/client/publish.ts",
   "src/console/runtime/client/mcp.ts",
+  "src/console/runtime/client/mcp-client.ts",
   "src/console/runtime/client/operation-view.ts",
   "src/console/runtime/client/problem.ts",
   "src/console/runtime/client/rate-limit.ts",
@@ -93,6 +94,7 @@ const runtimeEntries = [
   "src/console/runtime/client/toast.ts",
   "src/console/runtime/client/workflow.ts",
   "src/console/runtime/definitions.ts",
+  "src/console/runtime/mcp-client.ts",
   "src/console/runtime/rpc.ts",
   "src/console/runtime/sections.ts",
   "src/console/runtime/skills.ts",
@@ -349,6 +351,7 @@ export default defineConfig({
         { from: "src/console/runtime/components/console-connections-activity.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-connections-approvals.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-state.vue", to: "dist/console/runtime/components" },
+        ...["console-mcp-client.vue", "console-mcp-callback.vue", "console-mcp-connect.vue", "console-mcp-connection.vue", "console-mcp-content.vue", "console-mcp-items.vue"].map(file => ({ from: `src/console/runtime/components/${file}`, to: "dist/console/runtime/components" })),
         { from: "src/console/runtime/components/console-skills.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-skill-tree.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-skill-file.vue", to: "dist/console/runtime/components" },
@@ -453,6 +456,7 @@ export default defineConfig({
           delete exports["./console/runtime/client/env-status"];
           delete exports["./console/runtime/client/format"];
           delete exports["./console/runtime/client/live"];
+          delete exports["./console/runtime/client/mcp-client"];
           delete exports["./console/runtime/client/mcp"];
           delete exports["./console/runtime/client/operation-view"];
           delete exports["./console/runtime/client/media"];
@@ -472,6 +476,7 @@ export default defineConfig({
           delete exports["./console/runtime/client/toast"];
           delete exports["./console/runtime/client/workflow"];
           delete exports["./console/runtime/definitions"];
+          delete exports["./console/runtime/mcp-client"];
           delete exports["./console/runtime/rpc"];
           delete exports["./console/runtime/sections"];
           delete exports["./console/runtime/skills"];
@@ -495,6 +500,7 @@ export default defineConfig({
           delete exports["./console/runtime/server/env"];
           delete exports["./console/runtime/server/logs.get"];
           delete exports["./console/runtime/server/mcp"];
+          delete exports["./console/runtime/server/mcp-client-operations"];
           delete exports["./console/runtime/server/mcp-discovery"];
           delete exports["./console/runtime/server/mcp-authorization-server"];
           delete exports["./console/runtime/server/mcp-metadata"];
@@ -522,6 +528,7 @@ export default defineConfig({
             "./console/definitions": "./dist/console/runtime/server/definitions.js",
             "./console/documents": "./dist/console/runtime/server/documents.js",
             "./console/env": "./dist/console/runtime/server/env.js",
+            "./console/mcp-client": "./dist/console/runtime/server/mcp-client-operations.js",
             "./console/sections": "./dist/console/runtime/server/sections.js",
             // A browser script, not a module: no types and no `import` condition.
             "./page/pill.js": { default: "./dist/page/pill.iife.js" },

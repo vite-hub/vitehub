@@ -1169,6 +1169,11 @@
       "import": "./dist/console/runtime/server/env.js",
       "default": "./dist/console/runtime/server/env.js"
     },
+    "./console/mcp-client": {
+      "types": "./dist/console/runtime/server/mcp-client-operations.d.ts",
+      "import": "./dist/console/runtime/server/mcp-client-operations.js",
+      "default": "./dist/console/runtime/server/mcp-client-operations.js"
+    },
     "./console/sections": {
       "types": "./dist/console/runtime/server/sections.d.ts",
       "import": "./dist/console/runtime/server/sections.js",
@@ -1276,6 +1281,7 @@
     "@cloudflare/workers-types": "^5.20261016.1",
     "@json-render/core": "0.21.0",
     "@json-render/vue": "0.21.0",
+    "@modelcontextprotocol/sdk": "catalog:ai",
     "@standard-schema/spec": "catalog:runtime",
     "@types/json-schema": "catalog:ai",
     "@types/node": "catalog:tooling",
