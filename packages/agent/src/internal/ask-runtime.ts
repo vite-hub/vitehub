@@ -1,5 +1,5 @@
 import { typesafe } from "@vite-hub/gateways"
-import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { askAiGateway } from "@vite-hub/gateways/internal"
 import { getMessageText } from "../messages.ts"
 import { gatewayEnvValue } from "./gateway-env.ts"
@@ -12,8 +12,8 @@ import type { TraceEvent } from "@vite-hub/runtime"
 
 export interface AskRequestContext {
   abortSignal?: AbortSignal
-  /** Passed to Server Env so Cloudflare bindings resolve for this request. */
-  event?: unknown
+  /** The Cloudflare bindings of the run, for preset values from Server Env. Default: the active Cloudflare bindings. */
+  cloudflare?: { env?: Record<string, unknown> }
   /** The ask Driver or Capability gateway. Default: `typesafe()`. */
   gateway?: AiGateway
   /** Receives one `agent.tool.*` event per question and one `agent.usage.recorded` event per Jev request. */
@@ -29,7 +29,7 @@ let defaultGateway: AiGateway<{ ask: true }> | undefined
 
 /** Asks Jev through the Agent's gateway. Preset values come from Server Env, with the request's Cloudflare bindings. */
 export async function askJev<const Q extends AskQuestions>(context: AskRequestContext, state: unknown, questions: Q): Promise<AskAnswers<Q>> {
-  const cloudflareEnv = getCloudflareEnv(context.event)
+  const cloudflareEnv = context.cloudflare?.env ?? getActiveCloudflareEnv()
   const envContext = { ...(context.abortSignal ? { abortSignal: context.abortSignal } : {}), ...(cloudflareEnv ? { cloudflare: { env: cloudflareEnv } } : {}) }
   return await askAiGateway(context.gateway ?? (defaultGateway ??= typesafe()), state, questions, {
     context: { env: async (preset, field) => await gatewayEnvValue(preset, field, envContext) },

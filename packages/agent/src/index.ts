@@ -49,7 +49,7 @@ import { createExecutionBudget, createExecutionContext, createRuntimeContext, cr
 import { isAmbiguousAgentWorkflowStartFailure } from "./internal/workflow-start.ts"
 import { withAgentRuntimeMemo } from "./runtime/context.ts"
 import { agentTelemetryWorkspaceSources, getAgentTelemetryConfiguration, safeAgentTelemetryMetadata, setAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
-import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import { agentResultKind, agentStreamErrorSymbol, agentToolStreamDefaults, appendLatestFinalText, finalTextFromAgentOutput, hasTraceableStreamResult, isAsyncIterable, resolveAgentUsageRecord, resolveAgentUsageRecordDuringStream, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent, usageRecordFromStreamChunk } from "./agent-output.ts"
@@ -1169,7 +1169,7 @@ async function runAgentAsWorkflow<
   options: { fresh?: boolean, onInputHandoff?: () => void } = {},
 ): Promise<StartedAgentWorkflow<CALL_OPTIONS, AgentWorkflowOutput<TOutput>> | undefined> {
   const binding = resolveAgentWorkflowRuntimeBinding<TRuntimeConfig>(agent)
-  const cloudflareEnv = context.cloudflare?.env || getCloudflareEnv(context)
+  const cloudflareEnv = context.cloudflare?.env || getActiveCloudflareEnv()
   if (!canDispatchAgentWorkflow(binding, context)) return undefined
   // SAFETY: Replay sets this private boolean marker on its runtime; other runtimes may omit it.
   const exclusive = (context as AgentRuntimeContext & { [exclusiveAgentInvocation]?: boolean })[exclusiveAgentInvocation] === true

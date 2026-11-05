@@ -2013,7 +2013,7 @@ describe("agent Vite plugin", () => {
       expect(gatewayRoute).toContain(".replace(/(^|\\/):([^/]+)/g")
       expect(gatewayRoute).toContain("process.env.NODE_ENV === 'development'")
       expect(gatewayRoute).toContain("Discord Gateway route requires VITEHUB_DISCORD_GATEWAY_SECRET.")
-      expect(gatewayRoute).toContain('import { isViteHubBearerSecretEqual, toEventRequest } from "@vite-hub/agent/server/internal"')
+      expect(gatewayRoute).toContain('import { getStandardContext, isViteHubBearerSecretEqual } from "@vite-hub/agent/server/internal"')
       expect(gatewayRoute).not.toContain("!== secret")
       expect(gatewayRoute).toContain("runtime: 'vite'")
       expect(gatewayRoute).toContain("waitUntil: waitUntilFromEvent(event)")
@@ -2024,10 +2024,10 @@ describe("agent Vite plugin", () => {
       // the route. Run the generated handler with the real request helpers and an H3 1 event.
       const handlerSource = gatewayRoute.slice(gatewayRoute.indexOf("export default defineEventHandler(")).replace("export default ", "return ")
       const { code } = await transform(handlerSource, { loader: "ts" })
-      const { isViteHubBearerSecretEqual, toEventRequest } = await import("../src/server/internal.ts")
+      const { getStandardContext, isViteHubBearerSecretEqual } = await import("../src/server/internal.ts")
       const h3 = await import("h3")
       const gatewayHandler = new Function(
-        "defineEventHandler", "createError", "getRequestHeader", "getRouterParam", "toEventRequest", "isViteHubBearerSecretEqual",
+        "defineEventHandler", "createError", "getRequestHeader", "getRouterParam", "getStandardContext", "isViteHubBearerSecretEqual",
         "cloudflareFromEvent", "runtimeEnvValue", "agentNames", "handlers", "agentIdentities", "defaultDurationMs", "webhookRoute",
         "routePath", "waitUntilFromEvent", code,
       )(
@@ -2035,7 +2035,7 @@ describe("agent Vite plugin", () => {
         (input: { statusCode: number }) => Object.assign(new Error("H3 error"), input),
         h3.getRequestHeader,
         () => "support",
-        toEventRequest,
+        getStandardContext,
         isViteHubBearerSecretEqual,
         () => undefined,
         (_cloudflare: unknown, key: string) => key === "VITEHUB_DISCORD_GATEWAY_SECRET" ? "gateway-secret" : undefined,
@@ -2053,7 +2053,7 @@ describe("agent Vite plugin", () => {
           headers: { authorization, host: "app.example", "x-forwarded-proto": "https" },
           method: "POST",
           url: "/api/_vitehub/agents/support/discord/gateway",
-        }) },
+        }), res: {} },
       })
       await expect(gatewayHandler(h3V1Event("Bearer wrong"))).rejects.toMatchObject({ statusCode: 401 })
       const accepted = await gatewayHandler(h3V1Event("Bearer gateway-secret"))
@@ -2676,12 +2676,12 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).toContain('["support"]: {"name":"support"}')
       expect(webhookRoute).not.toContain('import { createCloudflareAgentState } from "@vite-hub/agent/cloudflare"')
       expect(webhookRoute).toContain("async function toRequest(event: H3Event)")
-      expect(webhookRoute).toContain("const request = toEventRequest(event)")
+      expect(webhookRoute).toContain("const request = getStandardContext(event).req")
       expect(webhookRoute).toContain("body: request.body ?? undefined")
       expect(webhookRoute).not.toContain("readRawBody(event)")
       expect(webhookRoute).toContain("createAgentWebhookRequest({")
       expect(webhookRoute).toContain("node: event.node")
-      expect(webhookRoute).toContain("signal: event.req?.signal")
+      expect(webhookRoute).toContain("signal: request.signal")
       expect(webhookRoute).not.toContain("return event.request")
       expect(webhookRoute).toContain("function waitUntilFromEvent(event: H3Event)")
       expect(webhookRoute).not.toContain("function chatStateFromCloudflare(cloudflare:")
@@ -2703,24 +2703,24 @@ describe("agent Vite plugin", () => {
 
       const requestHelpers = webhookRoute.slice(webhookRoute.indexOf("async function toRequest"), webhookRoute.indexOf("type ViteHubGeneratedCloudflare"))
       const { code } = await transform(requestHelpers, { loader: "ts", format: "esm" })
-      const { createAgentWebhookRequest, toEventRequest } = await import("../src/server/internal.ts")
-      const toRequest = new Function("toEventRequest", "createAgentWebhookRequest", `${code}\nreturn toRequest`)(
-        toEventRequest,
+      const { createAgentWebhookRequest, getStandardContext } = await import("../src/server/internal.ts")
+      const toRequest = new Function("getStandardContext", "createAgentWebhookRequest", `${code}\nreturn toRequest`)(
+        getStandardContext,
         createAgentWebhookRequest,
       ) as (event: unknown) => Promise<Request>
-      const request = await toRequest({ method: "GET", req: new Request("https://example.com/api/agents/support/chat", { headers: { authorization: "Bearer test-token", "x-empty": "" } }) })
+      const request = await toRequest({ method: "GET", req: new Request("https://example.com/api/agents/support/chat", { headers: { authorization: "Bearer test-token", "x-empty": "" } }), res: { headers: new Headers() } })
       expect([...request.headers]).toEqual([["authorization", "Bearer test-token"], ["x-empty", ""]])
       // Nitro 2, which Nuxt 4 runs, passes H3 1 events: the H3 2 helpers cannot read their Node request.
       const nodeBody = (async function* () { yield new TextEncoder().encode('{"messages":'); yield new TextEncoder().encode("[]}") })()
       const nodeRequest = Object.assign(nodeBody, { headers: { host: "127.0.0.1:4731", "set-cookie": ["a=1", "b=2"], "x-absent": undefined }, method: "POST", once: () => undefined, url: "/api/_vitehub/agents/support/chat?x=1" })
-      const fromNode = await toRequest({ method: "POST", node: { req: nodeRequest }, req: nodeRequest })
+      const fromNode = await toRequest({ method: "POST", node: { req: nodeRequest, res: { once: () => undefined } }, req: nodeRequest })
       expect(fromNode.url).toBe("http://127.0.0.1:4731/api/_vitehub/agents/support/chat?x=1")
       expect(fromNode.headers.get("set-cookie")).toBe("a=1, b=2")
       expect(fromNode.headers.has("x-absent")).toBe(false)
       await expect(fromNode.text()).resolves.toBe('{"messages":[]}')
       // Behind a TLS proxy, and after a middleware already read the body with H3's readBody().
       const proxiedRequest = Object.assign((async function* () {})(), { headers: { host: "app.example", "x-forwarded-proto": "https" }, method: "POST", once: () => undefined, url: "/api/_vitehub/agents/support/chat" })
-      const proxied = await toRequest({ _requestBody: Promise.resolve(new TextEncoder().encode('{"read":true}')), method: "POST", node: { req: proxiedRequest } })
+      const proxied = await toRequest({ _requestBody: Promise.resolve(new TextEncoder().encode('{"read":true}')), method: "POST", node: { req: proxiedRequest, res: { once: () => undefined } } })
       expect(proxied.url).toBe("https://app.example/api/_vitehub/agents/support/chat")
       await expect(proxied.text()).resolves.toBe('{"read":true}')
       expect(webhookRoute).not.toContain("getRequestHeaders(event)")

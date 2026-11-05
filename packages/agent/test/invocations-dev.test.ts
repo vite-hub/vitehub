@@ -95,12 +95,12 @@ describe("Agent Invocations Nitro dev handler", () => {
       await hook.call({} as never, { root, command: "serve", plugins: [], build: { outDir: "dist" }, resolve: { alias: [] }, server: { port: 5173 } } as never)
       const source = await readFile(join(root, ".vitehub/agent/invocations-dev-handler.ts"), "utf8")
       // Execute the generated callback with its real owner handler to verify the authorization boundary.
-      const callback: (event: { req: Request }) => Promise<Response> = new Function("defineEventHandler", "handleViteHubDevRequest", source.replace(/^import .*\n/gm, "").replace("export default", "return"))((handler: unknown) => handler, handleAgentInvocationsDevRequest)
+      const callback: (event: { req: Request, res: { headers: Headers } }) => Promise<Response> = new Function("defineEventHandler", "handleViteHubDevRequest", source.replace(/^import .*\n/gm, "").replace("export default", "return"))((handler: unknown) => handler, handleAgentInvocationsDevRequest)
       const body = { id: "ainv_missing", operation: "cancel" }
-      expect((await callback({ req: devRequest(body) })).status).toBe(403)
+      expect((await callback({ res: { headers: new Headers() }, req: devRequest(body) })).status).toBe(403)
       const serverId = workspaceDevTokenServerId(5173)
       const token = await ensureWorkspaceDevToken(root, { serverId })
-      const response = await callback({ req: devRequest(body, {
+      const response = await callback({ res: { headers: new Headers() }, req: devRequest(body, {
         [agentInvocationsDevHeader]: "1",
         [agentInvocationsDevTokenServerHeader]: serverId,
         [workspaceDevTokenHeader]: token,

@@ -2,7 +2,7 @@ import agentRegistry from "#vitehub/agent/registry"
 import { assertViteHubDevRequestGrant, validateViteHubNitroDevRequest } from "@vite-hub/internal/dev-endpoint"
 import { isViteHubSecretEqual } from "@vite-hub/internal/secret"
 import { redactInspectionText } from "@vite-hub/internal/inspect"
-import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
+import { getStandardContext } from "@vite-hub/runtime/h3"
 import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
 
 import * as v from "valibot"
@@ -14,6 +14,7 @@ import { isAgentInvocations } from "../invocations.ts"
 import type { ViteHubDevRequestGrant } from "@vite-hub/internal/dev-endpoint"
 import type { AgentInvocationsDevRequestBody } from "../invocations-dev.ts"
 import type { AgentInvocationCancelResult, AgentInvocations } from "../invocations.ts"
+import type { ViteHubContext } from "@vite-hub/runtime"
 
 function failure(message: string, status: number): Response {
   return Response.json({ error: { message: redactInspectionText(message) } }, { status })
@@ -74,11 +75,11 @@ async function cancelInJournals(request: Request, grant: ViteHubDevRequestGrant,
  *
  * The Vite endpoint forwards the request here, so the cancel reaches the application's own journals and abort
  * registry. The handler exists only in `vite dev`. The request must carry the Workspace dev token of `serverId`.
- * Without a `serverId`, every request is rejected. `input` is a Request or the Nitro event: an H3 1 event on Nitro 2
- * (Nuxt 4), or an H3 2 event.
+ * Without a `serverId`, every request is rejected. `input` is a Request, or a request event with Standard Context
+ * properties, such as an H3 1 event on Nitro 2 (Nuxt 4) or an H3 2 event.
  */
-export async function handleAgentInvocationsDevRequest(input: object, options: { rootDir?: string, serverId?: string } = {}): Promise<Response> {
-  const request = toEventRequest(input)
+export async function handleAgentInvocationsDevRequest(input: Request | ViteHubContext, options: { rootDir?: string, serverId?: string } = {}): Promise<Response> {
+  const request = input instanceof Request ? input : getStandardContext(input).req
   const { grant, rejection } = await validateViteHubNitroDevRequest(request, {
     ...agentInvocationsDevGuard,
     authorize: async (request) => {

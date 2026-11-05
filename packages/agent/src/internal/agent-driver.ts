@@ -1,6 +1,6 @@
 import type { ChatGPTGateway } from "@vite-hub/gateways"
 import { isPlainObject, isPlainRecord } from "@vite-hub/internal/object"
-import { getCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { getActiveCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { inheritSharedAgentCapacityOptions } from "./agent-capacity.ts"
 import { askJev, askState } from "./ask-runtime.ts"
 import { activeAgentInvocationScope } from "./invocation-scope.ts"
@@ -460,10 +460,10 @@ function normalizeExplicitAgentDriver(driver: unknown): NormalizedAgentDriver {
       run: async (context) => {
         // The Driver runs inside its own Invocation scope, so each question is recorded in that Invocation.
         const scope = activeAgentInvocationScope()
-        return await runWithActiveCloudflareEnv(getCloudflareEnv({ context }), async () => await askJev(
+        return await runWithActiveCloudflareEnv(context.cloudflare?.env ?? getActiveCloudflareEnv(), async () => await askJev(
           {
             abortSignal: context.input.abortSignal,
-            event: { context },
+            ...(context.cloudflare ? { cloudflare: context.cloudflare } : {}),
             ...(gateway ? { gateway } : {}),
             ...(scope ? { observe: event => scope.trace(event) } : {}),
             // Each Jev request is one call of the Invocation usage record, so the usage and cost index counts ask runs.
