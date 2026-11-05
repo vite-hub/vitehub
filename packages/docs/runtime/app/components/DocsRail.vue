@@ -23,12 +23,13 @@ const groups = docsRailEntries(useDocsManifest(), { categories, railExclude, gro
   return { entry, to: docsSectionHome(entry.sections[0]!), icon, railIcon: resolvePrimitiveIconName(icon) ?? null }
 }))
 const brand = site.badge ? `${site.name} ${site.badge.label}` : site.name
+const currentEntry = computed(() => groups.flat().find(({ entry }) => entry.sections.some(section => section.id === currentSection.value?.id)))
 
 // A section that the rail leaves out, such as a shared reference topic, marks the start section.
 function isCurrent(section: DocsSection) {
   const current = currentSection.value
   if (!current) return false
-  return section.id === current.id || (section.id === start?.section && !!current.category && railExclude.includes(current.category))
+  return section.id === current.id || (!currentEntry.value && section.id === start?.section && !!current.category && railExclude.includes(current.category))
 }
 
 function isCurrentEntry(entry: DocsRailEntry) {

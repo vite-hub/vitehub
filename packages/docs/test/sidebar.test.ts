@@ -23,6 +23,12 @@ const files: Record<string, string> = {
   "docs/lint/index.md": "---\ntitle: Linter\n---\nLint.\n",
   "docs/migrate/.navigation.yml": "title: Migrate\nicon: i-lucide-arrow-right-left\norder: 6\ncategory: Linter\n",
   "docs/migrate/index.md": "---\ntitle: Migrate\n---\nMigrate.\n",
+  "docs/reference/.navigation.yml": "title: Reference\norder: 7\ncategory: Reference\n",
+  "docs/reference/index.md": "---\ntitle: Reference\n---\nReference.\n",
+  "docs/api/.navigation.yml": "title: API\norder: 8\ncategory: Reference\n",
+  "docs/api/index.md": "---\ntitle: API\n---\nAPI.\n",
+  "docs/glossary/.navigation.yml": "title: Glossary\norder: 9\ncategory: Reference\n",
+  "docs/glossary/index.md": "---\ntitle: Glossary\n---\nGlossary.\n",
 }
 
 it("shows one rail item per group and lists every section of the group in its sidebar", async () => {
@@ -44,13 +50,24 @@ it("shows one rail item per group and lists every section of the group in its si
         ogImage: false,
         linkChecker: false,
         site: { name: "Lumen", url: "https://lumen.example.com" },
-        categories: ["Start", "Review blocks", "Charts", "Linter"],
-        groups: [{ title: "Components", icon: "i-lucide-blocks", sections: ["annotate"] }],
+        categories: ["Start", "Review blocks", "Charts", "Linter", "Reference"],
+        railExclude: ["Charts", "Reference"],
+        start: { section: "start" },
+        groups: [
+          { title: "Components", icon: "i-lucide-blocks", sections: ["annotate"] },
+          { title: "Reference topics", sections: ["reference", "api"] },
+        ],
       }]],
     }
     nuxt = await loadNuxt({ cwd: root, overrides: Object.assign(config, { _generate: true }), ready: true })
     await build(nuxt)
     const page = (path: string) => readFile(join(root, ".output/public", `${path}.html`), "utf8")
+    const currentRailLabels = (html: string) => {
+      const rail = /<nav[^>]*aria-label="Lumen navigation"[\s\S]*?<\/nav>/.exec(html)?.[0] ?? ""
+      return [...rail.matchAll(/<a [^>]*>/g)]
+        .filter(match => match[0].includes('aria-current="true"'))
+        .map(match => /aria-label="([^"]+)"/.exec(match[0])?.[1])
+    }
 
     const charts = await page("docs/charts/notes")
     const rail = /<nav[^>]*aria-label="Lumen navigation"[\s\S]*?<\/nav>/.exec(charts)?.[0] ?? ""
@@ -58,6 +75,8 @@ it("shows one rail item per group and lists every section of the group in its si
     // Components stands for annotate, charts, and table. It opens annotate, its first section.
     expect(railLabels).toEqual(["Lumen", "Start", "Components", "Linter", "Migrate"])
     expect(/<a [^>]*href="\/docs\/annotate"[^>]*>/.exec(rail)?.[0]).toContain('aria-current="true"')
+    // Excluded members with a visible group mark that group alone, without the start fallback.
+    expect.soft(currentRailLabels(charts)).toEqual(["Components"])
 
     const sidebar = /<nav[^>]*aria-label="Components pages"[\s\S]*?<\/nav>/.exec(charts)?.[0] ?? ""
     const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()
@@ -67,6 +86,15 @@ it("shows one rail item per group and lists every section of the group in its si
 
     // A section outside every group keeps its own sidebar.
     expect(await page("docs/lint")).toMatch(/<nav[^>]*aria-label="Linter pages"/)
+    // Every member keeps the shared sidebar even when no member can place the group in the rail.
+    for (const path of ["docs/reference", "docs/api"]) {
+      const html = await page(path)
+      const sidebar = /<nav[^>]*aria-label="Reference topics pages"[\s\S]*?<\/nav>/.exec(html)?.[0] ?? ""
+      expect.soft(text(sidebar)).toBe("Reference API")
+      expect(currentRailLabels(html)).toEqual(["Start"])
+    }
+    // Ungrouped excluded sections keep the existing start-section fallback.
+    expect(currentRailLabels(await page("docs/glossary"))).toEqual(["Start"])
   }
   finally {
     await nuxt?.close()
