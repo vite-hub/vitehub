@@ -88,7 +88,7 @@ function record(value: unknown): Record<string, unknown> | undefined {
   return value instanceof Object && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : undefined
 }
 
-let state: FixtureConnection[] | undefined
+const state = new Map<string, FixtureConnection[]>()
 let nextId = 1
 
 function initial(origin: string): FixtureConnection[] {
@@ -121,12 +121,17 @@ function initial(origin: string): FixtureConnection[] {
 }
 
 function connections(origin: string): FixtureConnection[] {
-  return state ??= initial(origin)
+  let all = state.get(origin)
+  if (!all) {
+    all = initial(origin)
+    state.set(origin, all)
+  }
+  return all
 }
 
 /** Restore the starting connections. Tests use it. */
 export function resetMcpClientFixture(): void {
-  state = undefined
+  state.clear()
   nextId = 1
 }
 
@@ -160,7 +165,7 @@ function answer(connection: FixtureConnection, request: { arguments?: Record<str
 
 /** Answer one `mcp-client.*` operation. `cookie` may hold `playground-mcp=shared`, the `auth: "app"` case. */
 export function mcpClientFixture(serverUrl: string, payload: { input?: Record<string, unknown>, operation: string }, cookie?: string): ConsoleRpcResult {
-  // Vite's local URL includes the playground's base path. The MCP URLs start at the origin.
+  // The MCP URLs start at the browser-visible origin, without the playground's base path.
   const origin = new URL(serverUrl).origin
   const input = payload.input ?? {}
   const all = connections(origin)
@@ -175,7 +180,7 @@ export function mcpClientFixture(serverUrl: string, payload: { input?: Record<st
   }
   if (operation === "connect") {
     const url = new URL(String(input.server ?? ""), origin).href
-    const serverId = url === `${origin}/_vitehub/mcp` ? "vitehub" : url === `${origin}/mcp` ? "ledger" : url.includes("docs.example.com") ? "docs" : undefined
+    const serverId: keyof typeof servers | undefined = url === `${origin}/_vitehub/mcp` ? "vitehub" : url === `${origin}/mcp` ? "ledger" : url.includes("docs.example.com") ? "docs" : undefined
     if (!serverId) return failure(502, "CONSOLE_MCP_UNREACHABLE", "The server cannot be reached. The playground knows /mcp, /_vitehub/mcp, and https://docs.example.com/mcp.")
     const existing = serverId === "vitehub" ? all.find(connection => connection.serverId === "vitehub") : undefined
     if (existing) return { ok: true, value: { connection: describe(existing) } }
