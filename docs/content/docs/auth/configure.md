@@ -305,7 +305,7 @@ if (error) {
 }
 ```
 
-It reads the signing keys from the Auth in the same process, with no request to the authorization server. It checks the signature against the algorithms of those keys, the issuer, the audience, and the expiry with 30 seconds of tolerance. Then it reads the user again by the `sub` claim, so a deleted or banned person loses access while the token is still valid. A token opens only the resource at the path of the request. Pass `resource` to accept the token on other routes, such as the app API. Errors are `AUTH_MCP_TOKEN_MISSING` and `AUTH_MCP_TOKEN_INVALID`; see [Limits and errors](/docs/auth/limits-and-errors#auth_mcp_token_missing).
+It reads the signing keys from the Auth in the same process, with no request to the authorization server. It checks the signature against the algorithms of those keys, the issuer, the audience, and the expiry with 30 seconds of tolerance. Then it reads the user again by the `sub` claim, so a deleted or banned person loses access while the token is still valid. The OAuth client must still exist and be enabled. When the token names a session in `sid`, that session must still exist and be unexpired, so signing out ends its access. A token opens only the resource at the origin and path of the request. Pass `resource` to accept the token on other routes, such as the app API. Errors are `AUTH_MCP_TOKEN_MISSING` and `AUTH_MCP_TOKEN_INVALID`; see [Limits and errors](/docs/auth/limits-and-errors#auth_mcp_token_missing).
 
 ### Delete abandoned registrations
 

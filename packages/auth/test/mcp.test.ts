@@ -69,7 +69,7 @@ async function signInAgent({ call, post }: Setup, email = "ada@example.com") {
     method: "POST",
   })
   expect(token.status, await token.clone().text()).toBe(200)
-  return { accessToken: v.parse(v.object({ access_token: v.string() }), await token.json()).access_token, clientId: client_id }
+  return { accessToken: v.parse(v.object({ access_token: v.string() }), await token.json()).access_token, clientId: client_id, cookie }
 }
 
 const mcpRequest = (token?: string, url = resource) => new Request(url, { headers: token ? { authorization: `Bearer ${token}` } : {}, method: "POST" })
@@ -114,6 +114,27 @@ describe("mcpOAuth", () => {
     expect((await post("/oauth2/register", { client_name: "Cursor", redirect_uris: ["cursor://anysphere.cursor-mcp/oauth/callback"] })).status).toBe(201)
   })
 
+  it.each(["signed out", "expired session", "disabled client", "deleted client"])("rejects a token after %s", async (reason) => {
+    const auth = await setup()
+    const { accessToken, clientId, cookie } = await signInAgent(auth)
+    expect((await verifyMcpRequest(mcpRequest(accessToken), { auth: auth.auth }))[0]).toBeUndefined()
+    if (reason === "signed out") {
+      expect((await auth.post("/sign-out", {}, { cookie })).status).toBe(200)
+    }
+    else if (reason === "expired session") {
+      auth.database.prepare("update session set expiresAt = ?").run(new Date(Date.now() - 60_000).toISOString())
+    }
+    else if (reason === "disabled client") {
+      auth.database.prepare("update oauthClient set disabled = 1 where clientId = ?").run(clientId)
+    }
+    else {
+      for (const table of ["oauthConsent", "oauthAccessToken", "oauthRefreshToken", "oauthClientResource", "oauthClient"]) {
+        auth.database.prepare(`delete from ${table} where clientId = ?`).run(clientId)
+      }
+    }
+    expect((await verifyMcpRequest(mcpRequest(accessToken), { auth: auth.auth }))[0]?.code).toBe("AUTH_MCP_TOKEN_INVALID")
+  })
+
   it("keeps the registration rate limit of Better Auth when its limiter is on", async () => {
     const { post } = await setup({}, true)
     const statuses: number[] = []
@@ -123,6 +144,18 @@ describe("mcpOAuth", () => {
 })
 
 describe("serveMcpOAuthDiscovery", () => {
+  it("selects resources by origin when their paths match", async () => {
+    const resources = [resource, "https://second.example.com/mcp"]
+    const { auth } = await setup({ resource: resources })
+    for (const endpoint of resources) {
+      for (const suffix of ["", "/mcp"]) {
+        const response = await serveMcpOAuthDiscovery(new Request(`${new URL(endpoint).origin}/.well-known/oauth-protected-resource${suffix}`), { auth })
+        expect(await response?.json()).toMatchObject({ resource: endpoint })
+      }
+    }
+    expect(await serveMcpOAuthDiscovery(new Request("https://other.example.com/.well-known/oauth-protected-resource/mcp"), { auth })).toBeUndefined()
+  })
+
   it("answers the root well-known documents for the resource and the issuer", async () => {
     const { auth } = await setup()
     const get = async (path: string) => serveMcpOAuthDiscovery(new Request(`${app}${path}`), { auth, resourceDocumentation: `${app}/docs/agents`, resourceName: "Drop" })

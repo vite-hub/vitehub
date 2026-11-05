@@ -230,7 +230,7 @@ export interface McpOAuthDiscoveryOptions {
  * Answer the OAuth discovery documents that MCP clients read at the origin root, or return `undefined` for another path:
  *
  * - `/.well-known/oauth-protected-resource<resource path>` (RFC 9728) for each resource of `mcpOAuth()`. The bare path
- *   describes the first resource.
+ *   describes the first resource at the request origin.
  * - `/.well-known/oauth-authorization-server<issuer path>` (RFC 8414) and `/.well-known/openid-configuration<issuer path>`,
  *   which Better Auth serves only below its own base path. The bare paths answer too.
  *
@@ -243,7 +243,7 @@ export interface McpOAuthDiscoveryOptions {
  */
 export async function serveMcpOAuthDiscovery(request: Request, options: McpOAuthDiscoveryOptions = {}): Promise<Response | undefined> {
   if (request.method !== "GET" && request.method !== "HEAD") return undefined
-  const pathname = new URL(request.url).pathname
+  const { origin, pathname } = new URL(request.url)
   const documents = ["oauth-protected-resource", "oauth-authorization-server", "openid-configuration"] as const
   const document = documents.find(name => pathname === `/.well-known/${name}` || pathname.startsWith(`/.well-known/${name}/`))
   if (!document) return undefined
@@ -252,7 +252,7 @@ export async function serveMcpOAuthDiscovery(request: Request, options: McpOAuth
   const state = await stateOf(auth)
 
   if (document === "oauth-protected-resource") {
-    const resource = suffix ? state.resources.find(entry => pathOf(entry) === suffix) : state.resources[0]
+    const resource = state.resources.find(entry => new URL(entry).origin === origin && (!suffix || pathOf(entry) === suffix))
     if (!resource) return undefined
     return Response.json({
       authorization_servers: [state.issuer],
@@ -301,7 +301,8 @@ function banned(user: Record<string, unknown>): boolean {
 /**
  * Check the OAuth access token of an MCP request. The signing keys come from the Auth in-process, with no request to the
  * authorization server. The signature algorithm is pinned to the keys, and the issuer, the audience (the resource), and
- * the expiry are checked with 30 seconds of tolerance. Returns `AUTH_MCP_TOKEN_MISSING` without a bearer token and
+ * the expiry are checked with 30 seconds of tolerance. The client must still be enabled and, when the token names a
+ * session, that session must still exist and be unexpired. Returns `AUTH_MCP_TOKEN_MISSING` without a bearer token and
  * `AUTH_MCP_TOKEN_INVALID` for a token that fails a check. Throws `AUTH_MCP_OAUTH_MISSING` when the Auth has no `mcpOAuth()`.
  */
 export async function verifyMcpRequest(request: Request, options: VerifyMcpRequestOptions = {}): Promise<Result<McpCaller, "AUTH_MCP_TOKEN_INVALID" | "AUTH_MCP_TOKEN_MISSING">> {
@@ -334,10 +335,15 @@ export async function verifyMcpRequest(request: Request, options: VerifyMcpReque
   if (!isRecord(user) || typeof user.id !== "string" || banned(user)) return [mcpErrors.AUTH_MCP_TOKEN_INVALID({ reason: "the user does not exist or is banned." }), undefined]
   const clientId = typeof payload.azp === "string" ? payload.azp : typeof payload.client_id === "string" ? payload.client_id : undefined
   const client = clientId ? await context.adapter.findOne({ model: "oauthClient", where: [{ field: "clientId", value: clientId }] }) : undefined
+  if (!isRecord(client) || client.disabled) return [mcpErrors.AUTH_MCP_TOKEN_INVALID({ reason: "the OAuth client does not exist or is disabled." }), undefined]
+  if (typeof payload.sid === "string") {
+    const session = await context.adapter.findOne({ model: "session", where: [{ field: "id", value: payload.sid }] })
+    if (!isRecord(session) || !(session.expiresAt instanceof Date) || session.expiresAt.getTime() <= Date.now()) return [mcpErrors.AUTH_MCP_TOKEN_INVALID({ reason: "the session does not exist or has expired." }), undefined]
+  }
   const scope = payload.scope
   return [undefined, {
     clientId,
-    clientName: isRecord(client) && typeof client.name === "string" && client.name ? client.name : undefined,
+    clientName: typeof client.name === "string" && client.name ? client.name : undefined,
     scopes: typeof scope === "string" ? scope.split(/\s+/).filter(Boolean) : Array.isArray(scope) ? scope.filter((entry): entry is string => typeof entry === "string") : [],
     // SAFETY: `findUserById` returns the Auth user record, and its `id` is checked above.
     user: user as McpCaller["user"],
