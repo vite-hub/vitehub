@@ -594,9 +594,9 @@ onBeforeUnmount(() => {
           :error="orgError"
           title="Could not load organization"
           :retry="retryOrganization"
-        /><p v-else-if="orgLoading && !selectedOrg" role="status" class="text-sm text-muted">
+        /><p v-else-if="orgLoading" role="status" class="text-sm text-muted">
           Loading organization…
-        </p><template v-if="selectedOrg"
+        </p><template v-else-if="selectedOrg"
           ><h2 class="mb-3 text-sm font-medium">
             Members <span class="text-muted tabular-nums">{{ selectedOrg.membersTotal }}</span>
           </h2>
