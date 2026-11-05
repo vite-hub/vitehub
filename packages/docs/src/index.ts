@@ -12,16 +12,20 @@ export {
   docsMarkdownLinks,
   docsMcpInstallLinks,
   docsPageIcon,
+  docsRailEntries,
+  docsRailEntry,
   docsRailGroups,
   docsRailIcon,
   docsRawPath,
   docsRelatedSections,
   docsSectionForPath,
+  docsSectionGroup,
   docsSectionIcon,
   docsSidebarGroups,
+  docsSidebarSections,
   docsTutorialNavigationCookie,
   findDocsPage,
   normalizeDocsBase,
   normalizeDocsPath,
 } from "./navigation.ts"
-export type { DocsCatalogGroup, DocsIcons, DocsLink, DocsMarkdownLinks, DocsSidebarGroup } from "./navigation.ts"
+export type { DocsCatalogGroup, DocsGroup, DocsIcons, DocsLink, DocsMarkdownLinks, DocsRailEntry, DocsSidebarGroup, DocsSidebarSection, DocsSidebarSectionBlock } from "./navigation.ts"

@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { docsCatalog, docsHasRail, docsRelatedSections, docsSectionHome, docsSidebarGroups, normalizeDocsPath } from "#docs/navigation"
+import { docsCatalog, docsHasRail, docsRailEntry, docsRelatedSections, docsSectionHome, docsSidebarGroups, docsSidebarSections, normalizeDocsPath } from "#docs/navigation"
 
 const route = useRoute()
 const manifest = useDocsManifest()
-const { categories, icons: iconOptions, start } = useDocsConfig()
+const { categories, groups, icons: iconOptions, railExclude, start } = useDocsConfig()
 const icons = useDocsIcons()
 const currentPath = computed(() => normalizeDocsPath(route.path))
 const section = useDocsSection()
@@ -14,10 +14,19 @@ const related = computed(() => section.value ? docsRelatedSections(manifest, sec
 // Outside every section, for example on the catalog, the sidebar lists every section by category.
 const catalog = docsCatalog(manifest, categories)
 // A small site has no rail, so the sidebar lists every section with its pages on every page.
-const rail = docsHasRail(manifest, iconOptions)
-const allSections = manifest.sections.map(candidate => ({ section: candidate, groups: docsSidebarGroups(candidate) }))
+const rail = docsHasRail(manifest, iconOptions, groups)
+// A section of a group lists every section of the group.
+const group = computed(() => {
+  const entry = section.value && docsRailEntry(manifest, { categories, railExclude, groups }, section.value)
+  return entry && entry.sections.length > 1 ? entry : null
+})
+const sectionBlocks = computed(() => {
+  const sections = rail ? group.value?.sections : manifest.sections
+  return sections ? docsSidebarSections(sections) : null
+})
+const groupStartLinks = computed(() => start && group.value?.sections.some(candidate => candidate.id === start.section) ? start.links : [])
 // Nuxt serializes a `null` runtime config value as "", so `start` can be a string here.
-const siteLinks = start?.links ?? []
+const siteLinks = computed(() => rail ? groupStartLinks.value : start?.links ?? [])
 
 function isActive(path: string) {
   return currentPath.value === normalizeDocsPath(path)
@@ -25,7 +34,7 @@ function isActive(path: string) {
 </script>
 
 <template>
-  <nav v-if="!rail" class="vh-docs-sidebar-nav" aria-label="Docs pages">
+  <nav v-if="sectionBlocks" class="vh-docs-sidebar-nav" :aria-label="rail ? `${group?.title} pages` : 'Docs pages'">
     <section v-if="siteLinks.length" class="vh-docs-sidebar-page-group vh-docs-sidebar-site-areas" aria-label="Site areas">
       <NuxtLink
         v-for="link in siteLinks"
@@ -38,21 +47,54 @@ function isActive(path: string) {
         <span class="min-w-0">{{ link.label }}</span>
       </NuxtLink>
     </section>
-    <section v-for="entry in allSections" :key="entry.section.id" class="vh-docs-sidebar-category" :aria-label="entry.section.title">
-      <h2 class="vh-docs-sidebar-heading">{{ entry.section.title }}</h2>
-      <template v-for="pageGroup in entry.groups" :key="pageGroup.label || 'pages'">
-        <h3 v-if="pageGroup.label" class="vh-docs-sidebar-page-group-heading">{{ pageGroup.label }}</h3>
+    <!-- A section is one row that opens its home page. Its other pages follow it, indented to its title. -->
+    <section
+      v-for="block in sectionBlocks"
+      :key="block.category ?? block.sections[0]!.section.id"
+      class="vh-docs-sidebar-category"
+      :aria-label="block.category ?? undefined"
+    >
+      <h2 v-if="block.category" class="vh-docs-sidebar-heading">{{ block.category }}</h2>
+      <template v-for="entry in block.sections" :key="entry.section.id">
         <NuxtLink
-          v-for="page in pageGroup.pages"
-          :key="page.path"
-          :to="page.path"
-          :class="['vh-docs-sidebar-link', { 'is-grouped': pageGroup.label, 'is-active': isActive(page.path) }]"
-          :aria-current="isActive(page.path) ? 'page' : undefined"
+          v-if="entry.home"
+          :to="entry.home.path"
+          :class="['vh-docs-sidebar-link', { 'is-active': isActive(entry.home.path) }]"
+          :aria-current="isActive(entry.home.path) ? 'page' : undefined"
         >
-          <UIcon :name="icons.page(page)" class="size-4 shrink-0" />
-          <span class="min-w-0">{{ page.title }}</span>
+          <UIcon :name="icons.section(entry.section)" class="size-4 shrink-0" />
+          <span class="min-w-0">{{ entry.section.title }}</span>
         </NuxtLink>
+        <h3 v-else class="vh-docs-sidebar-section-title">
+          <UIcon :name="icons.section(entry.section)" class="size-4 shrink-0" />
+          <span class="min-w-0">{{ entry.section.title }}</span>
+        </h3>
+        <template v-for="pageGroup in entry.groups" :key="pageGroup.label || 'pages'">
+          <h4 v-if="pageGroup.label" class="vh-docs-sidebar-page-group-heading is-nested">{{ pageGroup.label }}</h4>
+          <NuxtLink
+            v-for="page in pageGroup.pages"
+            :key="page.path"
+            :to="page.path"
+            :class="['vh-docs-sidebar-link is-nested', { 'is-active': isActive(page.path) }]"
+            :aria-current="isActive(page.path) ? 'page' : undefined"
+          >
+            <span class="min-w-0">{{ page.title }}</span>
+          </NuxtLink>
+        </template>
       </template>
+    </section>
+
+    <section v-if="rail && related.length" class="vh-docs-sidebar-related" aria-label="Related products">
+      <h2 class="vh-docs-sidebar-heading">Related</h2>
+      <NuxtLink
+        v-for="relatedSection in related"
+        :key="relatedSection.id"
+        :to="docsSectionHome(relatedSection)"
+        class="vh-docs-sidebar-link"
+      >
+        <UIcon :name="icons.section(relatedSection)" class="size-4 shrink-0" />
+        <span class="min-w-0">{{ relatedSection.title }}</span>
+      </NuxtLink>
     </section>
   </nav>
 
@@ -221,6 +263,29 @@ function isActive(path: string) {
 
 .vh-docs-sidebar-link.is-grouped {
   padding-left: 2rem;
+}
+
+/* In a list of sections, the pages of a section line up with its title: the row padding, the icon, and the gap. */
+.vh-docs-sidebar-link.is-nested,
+.vh-docs-sidebar-page-group-heading.is-nested {
+  padding-left: 2.875rem;
+}
+
+/* A section without a listed home page has a title row that opens nothing. */
+.vh-docs-sidebar-section-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  margin: 0;
+  padding: 0.25rem 1.25rem;
+  color: var(--ui-text);
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.25rem;
+}
+
+.vh-docs-sidebar-section-title > .iconify {
+  margin-top: 0.125rem;
 }
 
 /* Hover and focus only tint the row. The left rule marks the current page, so a hovered row never looks current. */

@@ -22,7 +22,7 @@ import { setupDocsAssistant } from "./assistant-nuxt.ts"
 import { docsCommentsDependencies, type DocsCommentsOptions } from "./comments-nuxt.ts"
 import { readModuleOptions } from "./module-options.ts"
 import { createDocsManifest } from "./manifest.ts"
-import { docsAppPath, docsManifestPages, docsPageIcon, docsRailIcon, docsRawFile, docsRawPath, docsRawSectionLinks, docsSectionIcon, normalizeDocsBase, type DocsIcons, type DocsLink } from "./navigation.ts"
+import { docsAppPath, docsManifestPages, docsPageIcon, docsRailIcon, docsRawFile, docsRawPath, docsRawSectionLinks, docsSectionIcon, normalizeDocsBase, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { toRawMarkdown } from "./raw.ts"
 import { coversDocsPages } from "./page.ts"
 import { docsAppConfigUi, vercelTheme, type DocsThemeUi } from "./theme.ts"
@@ -65,6 +65,11 @@ export interface DocsModuleOptions {
   categories?: string[]
   /** Categories that the catalog lists but the rail leaves out, such as shared reference topics. */
   railExclude?: string[]
+  /**
+   * Rail items that hold several sections. The rail shows one item per group, and the sidebar of a member section
+   * lists every section of the group. A section joins a group here or with `group` in its `.navigation.yml`.
+   */
+  groups?: DocsGroup[]
   start?: DocsStartOptions
   /** Community links at the foot of the sidebar, such as a chat server. GitHub comes from `github`. */
   socials?: DocsLink[]
@@ -122,6 +127,7 @@ export interface DocsPublicConfig {
   site: { name: string, url: string, description: string, logo: string | null, badge: { label: string, tooltip: string | null } | null }
   categories: string[]
   railExclude: string[]
+  groups: DocsGroup[]
   /** Absent without a `start` option. Nuxt turns a `null` in runtime config into an empty string. */
   start?: { section: string, links: DocsLink[] }
   socials: DocsLink[]
@@ -405,6 +411,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         ...[...config.start?.links ?? [], ...config.socials].map(link => link.icon),
         ...docsManifestPages(manifest).map(page => docsPageIcon(config.icons, page)),
         ...manifest.sections.flatMap(section => [docsSectionIcon(config.icons, section), docsRailIcon(config.icons, section)]),
+        ...config.groups.map(group => group.icon),
       ]
       for (const name of names) {
         const icon = name && iconifyName(name)
@@ -549,6 +556,7 @@ function publicConfig(options: DocsModuleOptions, appBase: string): DocsPublicCo
     },
     categories: options.categories ?? [],
     railExclude: options.railExclude ?? [],
+    groups: options.groups ?? [],
     start: options.start ? { section: options.start.section, links: options.start.links ?? [] } : undefined,
     socials: options.socials ?? [],
     banner: options.banner ?? null,

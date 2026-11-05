@@ -64,6 +64,8 @@ export interface DocsSectionFile {
   order?: number
   /** Catalog group of the section. `categories` in the docs options orders the groups. */
   category?: string
+  /** Rail group of the section: sections of one group share one rail item and one sidebar. */
+  group?: string
   /** Ids of sections listed under Related in this section's sidebar. */
   related?: string[]
 }
@@ -120,6 +122,7 @@ export const docsSectionSchema: z.ZodType<DocsSectionFile> = z.strictObject({
   icon: z.string().optional(),
   order: z.number().optional(),
   category: z.string().optional(),
+  group: z.string().optional(),
   related: z.array(z.string()).optional(),
 })
 

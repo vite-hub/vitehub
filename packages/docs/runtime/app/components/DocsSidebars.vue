@@ -9,7 +9,8 @@ defineProps<{
 }>()
 
 // A small site has no rail. The panel lists every section with its pages.
-const rail = docsHasRail(useDocsManifest(), useDocsConfig().icons)
+const config = useDocsConfig()
+const rail = docsHasRail(useDocsManifest(), config.icons, config.groups)
 </script>
 
 <template>
