@@ -33,7 +33,8 @@ const handler: EventHandler<EventHandlerRequest, Promise<DocsPageResponse>> = de
   if (source === null) throw createError({ statusCode: 404, statusMessage: "Page not found" })
   // A page parses once per server process. In development the content can change, so it always parses.
   const document = import.meta.dev ? parse(String(source)) : parsed.get(found.page.file) ?? parsed.set(found.page.file, parse(String(source))).get(found.page.file)!
-  return docsPageResponse(manifest, found, await document)
+  const credits = found.page.credits ? await parse(found.page.credits) : null
+  return docsPageResponse(manifest, found, await document, credits)
 })
 
 export default handler
