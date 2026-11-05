@@ -1,0 +1,4 @@
+{
+  "type": "oauth",
+  "token": "fake-oauth-token-from-wrangler"
+}

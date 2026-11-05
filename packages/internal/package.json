@@ -93,6 +93,11 @@
       "import": "./dist/owned-paths.js",
       "default": "./dist/owned-paths.js"
     },
+    "./host-credentials": {
+      "types": "./dist/host-credentials.d.ts",
+      "import": "./dist/host-credentials.js",
+      "default": "./dist/host-credentials.js"
+    },
     "./provision": {
       "types": "./dist/provision.d.ts",
       "import": "./dist/provision.js",
