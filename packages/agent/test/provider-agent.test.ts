@@ -4351,6 +4351,40 @@ cli_auth_credentials_store = "keyring"
     expect(second.sendTurn).toHaveBeenCalledWith(expect.not.objectContaining({ attachments: expect.anything() }))
   })
 
+  it.each(["codex", "claude-code"] as const)("sends coalesced input images to a resumed %s thread", async (provider) => {
+    const threadId = `thread-attachment-coalesced-${provider}`
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], { turnResumeCursor: "coalesced-cursor" })
+    const second = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const fetchEarlier = vi.fn(async () => new Uint8Array([0]))
+    const fetchQueued = vi.fn(async () => new Uint8Array([1, 2]))
+    const adapter = createProviderAgentAdapter({ execution: { attachments: { maxBytes: 3 } }, provider })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate(context(threadId) as never)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate(context(threadId, {
+      messages: [
+        { id: "old", parts: [{ fetchData: fetchEarlier, mediaType: "image/png", name: "earlier.png", type: "image" }], role: "user" },
+        { id: "queued", parts: [{ text: "inspect this screenshot", type: "text" }, { fetchData: fetchQueued, mediaType: "image/png", name: "queued.png", type: "image" }], role: "user" },
+        { id: "current", metadata: { chat: { skippedCount: 1 } }, parts: [{ text: "compare it with this one", type: "text" }, { data: new Uint8Array([3]), mediaType: "image/png", name: "current.png", type: "image" }], role: "user" },
+      ],
+      runtime: { ...context(threadId).runtime, run: { messageId: "current", runId: `run-${threadId}`, threadId } },
+    }) as never)
+
+    expect(second.startSession).toHaveBeenCalledWith(expect.objectContaining({ resumeCursor: "coalesced-cursor" }))
+    expect(fetchEarlier).not.toHaveBeenCalled()
+    expect(fetchQueued).toHaveBeenCalledOnce()
+    expect(second.sendTurn).toHaveBeenCalledWith(expect.objectContaining({
+      attachments: [
+        expect.objectContaining({ name: "queued.png", sizeBytes: 2 }),
+        expect.objectContaining({ name: "current.png", sizeBytes: 1 }),
+      ],
+      input: "<message role=\"user\">\ninspect this screenshot\n</message>\n<message role=\"user\">\ncompare it with this one\n</message>",
+    }))
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await rm(second.attachmentsDirectory as string, { force: true, recursive: true })
+  })
+
   it("requires application-owned resolution for provider attachment URLs", async () => {
     const threadId = "thread-attachment-url"
     runtime(threadId, [])

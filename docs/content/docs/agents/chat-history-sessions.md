@@ -133,8 +133,9 @@ continues.
 
 Provider Agent Drivers, such as Codex and Claude Code, attach these photos to
 the turn that starts a new provider thread. A resumed provider thread receives
-only the current message's attachments, because it already has the earlier
-turns. A Sandbox provider receives no history photos.
+attachments from the current message and any queued or coalesced messages in
+the Invocation, because it already has the earlier turns. A Sandbox provider
+receives no history photos.
 
 ## Add a session
 
