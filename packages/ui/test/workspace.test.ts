@@ -13,9 +13,13 @@ import { WorkspacePreview } from "../src/workspace/workspace-preview.ts";
 import { WorkspaceShell } from "../src/workspace/workspace-shell.ts";
 import { WorkspaceTerminal } from "../src/workspace/workspace-terminal.ts";
 
-const terminal = vi.hoisted(() => ({ reset: vi.fn(), write: vi.fn() }));
+const terminal = vi.hoisted(() => ({ reset: vi.fn(), write: vi.fn(), options: {} as { theme?: { background?: string } } }));
 vi.mock("@xterm/xterm", () => ({
   Terminal: class {
+    constructor(options: { theme?: { background?: string } }) {
+      terminal.options = options;
+    }
+    get options() { return terminal.options; }
     reset = terminal.reset;
     write = terminal.write;
     loadAddon = vi.fn();
@@ -456,6 +460,21 @@ describe("WorkspaceTerminal", () => {
     await wrapper.setProps({ output: [] });
     expect(terminal.reset).toHaveBeenCalledTimes(2);
     wrapper.unmount();
+  });
+
+  it("takes the new colors when the page changes color mode", async () => {
+    vi.stubGlobal("ResizeObserver", class { observe = vi.fn(); disconnect = vi.fn(); });
+    const wrapper = mount(WorkspaceTerminal, { attachTo: document.body });
+    const host = wrapper.element as HTMLElement;
+    host.style.setProperty("--vh-ws-terminal-bg", "#fafafa");
+    await flushPromises();
+    expect(terminal.options.theme?.background).toBe("#fafafa");
+    host.style.setProperty("--vh-ws-terminal-bg", "#0a0a0a");
+    document.documentElement.classList.add("dark");
+    await flushPromises();
+    expect(terminal.options.theme?.background).toBe("#0a0a0a");
+    wrapper.unmount();
+    document.documentElement.classList.remove("dark");
   });
 });
 
