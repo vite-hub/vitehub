@@ -31,7 +31,29 @@ Libraries can install `@vite-hub/content` and use the matching `@vite-hub/conten
 
 ## Runtime API
 
-`defineContent()` returns a Comark Content hub with ViteHub adapters for named Sources and collections.
+`defineContent()` returns a Comark Content hub with ViteHub adapters for named Sources and collections. The examples on this page use this definition: a read-only `docs` Source, a `posts` collection, and a `settings` singleton.
+
+```ts [server/content.ts]
+import { cms } from 'vite-hub/cms'
+import { defineContent, documents, singleton } from 'vite-hub/content'
+import { glob } from 'vite-hub/source/glob'
+import { z } from 'zod'
+
+export const content = defineContent({
+  extends: cms,
+  sources: {
+    docs: glob({ cwd: 'docs', include: '**/*.md' }),
+  },
+  collections: {
+    posts: documents({
+      path: 'posts/**/*.md',
+      fields: { title: z.string(), date: z.coerce.date(), tags: z.array(z.string()).default([]) },
+    }),
+    settings: singleton({ path: 'settings.json', fields: { title: z.string() } }),
+  },
+  authorize: ({ user, action }) => user?.role === 'editor' && action !== 'publish',
+})
+```
 
 | Method | Behavior |
 | --- | --- |
@@ -43,10 +65,14 @@ Libraries can install `@vite-hub/content` and use the matching `@vite-hub/conten
 | `content.getSource(name?)` | Returns the Comark Source for one instance. Defaults to `default`. |
 | `content.handler(request)` | Answers a Web `Request`. The generated route calls it through `defineContentHandler()`. |
 
-```ts
-await content.get('/guide')
-await content.navigation(['docs'])
-await content.search(['docs'], 'runtime')
+```ts [server/utils/guide.ts]
+import { content } from '../content'
+
+export async function readGuide() {
+  await content.get('/guide')
+  await content.navigation(['docs'])
+  await content.search(['docs'], 'runtime')
+}
 ```
 
 Methods that plugins add, such as SQL queries, stay available on the returned runtime. A collection instance serves its published documents at public paths that follow the Workspace path, so `posts/hello.md` is `/posts/hello`. `get`, `list`, `navigation`, `search`, and `handler` first check the `published` head and refresh collection instances that are behind. In a [preview request](/docs/content/preview) they read the `draft` head instead. Plugin methods read the last refreshed published state.
@@ -72,11 +98,18 @@ Comark Content owns parsed document cache entries. ViteHub routes each cache cal
 `content.collection(name)` opens a collection from [`defineContent({ collections })`](/docs/content/configure#document-collections). These methods are trusted server API: they do not call `authorize`. Check [`content.can()`](#access) first when a route acts for a user.
 
 ```ts [server/api/posts/[id].put.ts]
-import { defineEventHandler, getRouterParam, readBody } from 'h3'
+import { defineEventHandler, getRouterParam, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { content } from '../../content'
 
+const post = v.object({
+  data: v.object({ title: v.string(), date: v.string(), tags: v.array(v.string()) }),
+  body: v.string(),
+  digest: v.nullable(v.string()),
+})
+
 export default defineEventHandler(async (event) => {
-  const { data, body, digest } = await readBody(event)
+  const { data, body, digest } = await readValidatedBody(event, post)
   return await content.collection('posts').save(getRouterParam(event, 'id')!, { data, body }, { ifDigest: digest })
 })
 ```
@@ -130,25 +163,34 @@ A singleton from [`singleton()`](/docs/content/configure#singletons-and-data-fil
 
 Each method also accepts the id first, as for a collection, so code that handles any collection does not need to branch: `settings.get('settings')` equals `settings.get()`. Any other id throws `CONTENT_R0008`. `publish({ expect })` entries for a singleton may omit `id`:
 
-```ts
-const settings = content.collection('settings')
-const { draft } = (await settings.status())!
-await content.publish({ expect: [{ collection: 'settings', digest: draft }] })
+```ts [server/utils/settings.ts]
+import { content } from '../content'
+
+export async function publishSettings() {
+  const settings = content.collection('settings')
+  const { draft } = (await settings.status())!
+  await content.publish({ expect: [{ collection: 'settings', digest: draft }] })
+}
 ```
 
 ### List documents
 
-```ts
-const page = await content.collection('posts').list({
-  filter: { tags: 'vue' },
-  search: 'hydration',
-  sort: { field: 'date', direction: 'desc' },
-  facets: ['tags'],
-  limit: 20,
-})
-const next = page.nextCursor
-  ? await content.collection('posts').list({ filter: { tags: 'vue' }, search: 'hydration', sort: { field: 'date', direction: 'desc' }, limit: 20, cursor: page.nextCursor })
-  : undefined
+```ts [server/utils/vue-posts.ts]
+import { content } from '../content'
+
+export async function vuePosts() {
+  const page = await content.collection('posts').list({
+    filter: { tags: 'vue' },
+    search: 'hydration',
+    sort: { field: 'date', direction: 'desc' },
+    facets: ['tags'],
+    limit: 20,
+  })
+  const next = page.nextCursor
+    ? await content.collection('posts').list({ filter: { tags: 'vue' }, search: 'hydration', sort: { field: 'date', direction: 'desc' }, limit: 20, cursor: page.nextCursor })
+    : undefined
+  return { page, next }
+}
 ```
 
 | Option | Behavior |
@@ -164,9 +206,14 @@ Listing runs in memory over the documents of one revision, with the [`array()` C
 
 A draft with field issues lists and reads with `issues`, and `data` holds its stored values. On `published`, a document whose frontmatter no longer validates, for example after a field changed, is left out of `list()` with a warning, and `get()` throws `CONTENT_INVALID` for it with each failing field. A file that cannot be parsed is left out on every ref. `raw()` still returns its text, so a tool can show it, diff it against another ref, and save a repaired version with its `digest` as `ifDigest`.
 
-```ts
-const posts = content.collection('posts')
-const [draft, published] = await Promise.all([posts.raw('hello', { ref: 'draft' }), posts.raw('hello')])
+```ts [server/utils/compare-refs.ts]
+import { content } from '../content'
+
+export async function compareRefs() {
+  const posts = content.collection('posts')
+  const [draft, published] = await Promise.all([posts.raw('hello', { ref: 'draft' }), posts.raw('hello')])
+  return draft?.text === published?.text
+}
 ```
 
 A collection is also a read-only [Collection](/docs/source/server-api) over its published documents. Pass it to `defineCollectionHandler()` or export it from `server/collections/` to serve published listings with field filters.
@@ -214,9 +261,13 @@ On the [GitHub store](/docs/cms/configure#github-store), `conflict: { base }` ma
 
 ### Publish
 
-```ts
-await content.publish({ collection: 'posts', ids: ['hello'], message: 'Publish hello' })
-await content.publish()
+```ts [server/utils/publish.ts]
+import { content } from '../content'
+
+export async function publishAll() {
+  await content.publish({ collection: 'posts', ids: ['hello'], message: 'Publish hello' })
+  await content.publish()
+}
 ```
 
 | Option | Behavior |
@@ -233,40 +284,62 @@ await content.publish()
 
 `collection` and `ids` publish whatever the draft holds when `publish()` runs. A draft saved between a confirmation or an approval and the publish would go out unreviewed. Confirm and approve flows must pin the publish with `expect` instead: capture the draft digests that the person or approver saw, and pass them back.
 
-```ts
-const reviewed = (await content.collection('posts').status())
-  .filter(document => document.state !== 'published')
-  .map(({ collection, id, draft }) => ({ collection, id, digest: draft }))
+```ts [server/utils/publish-reviewed.ts]
+import { content } from '../content'
 
-// ...show the changes and wait for confirmation or approval...
+export async function publishReviewed() {
+  const reviewed = (await content.collection('posts').status())
+    .filter(document => document.state !== 'published')
+    .map(({ collection, id, draft }) => ({ collection, id, digest: draft }))
 
-await content.publish({ expect: reviewed, message: 'Publish reviewed posts' })
+  // ...show the changes and wait for confirmation or approval...
+
+  await content.publish({ expect: reviewed, message: 'Publish reviewed posts' })
+}
 ```
 
 `publish({ expect })` publishes nothing and throws `WORKSPACE_CONFLICT` when any draft digest differs. `details` are `{ ref: 'draft', documents }`, with one `{ collection, id, expected, actual }` per mismatched document, where `actual` is the current draft digest or `null` for a deleted draft. Review those documents again and publish with their new digests. A document whose draft already matches `published` is skipped. A concurrent publish of other documents is retried, and `expect` is checked again each time. Combine `expect` with `ifHead` to also reject any other publish.
 
 ### Revisions
 
-```ts
-const { revisions, cursor } = await content.revisions('posts', 'hello', { limit: 10 })
-const earlier = await content.collection('posts').get('hello', { revision: revisions[1].id })
-await content.collection('posts').restore('hello', revisions[1].id)
+```ts [server/utils/restore-post.ts]
+import { content } from '../content'
+
+export async function restorePreviousVersion() {
+  const { revisions, cursor } = await content.revisions('posts', 'hello', { limit: 10 })
+  const earlier = await content.collection('posts').get('hello', { revision: revisions[1].id })
+  await content.collection('posts').restore('hello', revisions[1].id)
+  return { earlier, cursor }
+}
 ```
 
 `revisions()` reads the `draft` ref by default. Pass `ref: 'published'` for publishes. Each item is a Workspace revision with `id`, `createdAt`, `message`, and `metadata`. Content records `metadata.content.action` and `metadata.content.documents` on its own commits, and lists only those. Commits made outside Content are not attributed to a document. One call scans at most 1,000 revisions and returns a `cursor` to continue.
 
 Leave out the document to list recent changes across every collection, for an activity feed. Read `metadata.content.documents` for the documents of each revision:
 
-```ts
-const { revisions } = await content.revisions({ ref: 'published', limit: 20 })
+```ts [server/utils/activity.ts]
+import { content } from '../content'
+
+export async function recentPublishes() {
+  const { revisions } = await content.revisions({ ref: 'published', limit: 20 })
+  return revisions
+}
 ```
 
 ### Access
 
-```ts
-if (!await content.can({ user, collection: 'posts', action: 'publish' }))
-  throw createError({ statusCode: 403 })
-await content.publish({ collection: 'posts' })
+```ts [server/api/posts/publish.post.ts]
+import { createError, defineEventHandler } from 'h3'
+import { withAuth } from 'vite-hub/auth/server'
+import { content } from '../../content'
+
+export default defineEventHandler(
+  withAuth(async (event, { user }) => {
+    if (!await content.can({ user, collection: 'posts', action: 'publish' }))
+      throw createError({ statusCode: 403 })
+    return await content.publish({ collection: 'posts' })
+  }),
+)
 ```
 
 `can()` evaluates [`defineContent({ authorize })`](/docs/content/configure#access) and returns `false` without a policy. Pass the signed-in Auth user as `user`, or omit it for `null`. A surface that acts for an Agent also passes the Invocation's `actor`:

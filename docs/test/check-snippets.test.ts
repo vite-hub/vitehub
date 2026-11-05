@@ -42,6 +42,23 @@ describe("documentation snippet check", () => {
     ])
   }, 60_000)
 
+  it("imports the last full version of a file that the page shows above the importing block", () => {
+    const pageRoot = join(repoRoot, "docs/.snippets/version-page")
+    const snippet = (line: number, file: string, label: string, code: string, fragment = false) => ({ code, file: join(pageRoot, file), fragment, label, line, page: "version-page.md", pageRoot })
+    const { failures } = checkSnippets([
+      snippet(1, "server/content.ts", "server/content.ts", "export const content = { posts: 1 }"),
+      snippet(5, "server/api/posts.ts", "server/api/posts.ts", "import { content } from '../content'\nexport const posts: number = content.posts"),
+      snippet(9, "2/server/content.ts", "server/content.ts", "export const content = { settings: 'site' }"),
+      snippet(12, "3/server/content.ts", "server/content.ts", "settings: 'site',", true),
+      snippet(15, "server/api/settings.ts", "server/api/settings.ts", "import { content } from '../content'\nexport const settings: string = content.settings"),
+      snippet(20, "server/api/stale.ts", "server/api/stale.ts", "import { content } from '../content'\nexport const posts: number = content.posts"),
+    ])
+
+    expect(failures.map(failure => [failure.snippet.label, failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
+      ["server/api/stale.ts", [2339]],
+    ])
+  }, 60_000)
+
   it("types the Definition names of a page with the registries that ViteHub generates", async () => {
     const pageRoot = join(repoRoot, "docs/.snippets/registry-page")
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "registry-page.md", pageRoot })

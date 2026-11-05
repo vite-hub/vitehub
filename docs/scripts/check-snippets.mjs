@@ -299,6 +299,22 @@ export function checkSnippets(snippets, declarations = [], oldProgram = undefine
     ...[...appDeclarations, ...declarations].map(declaration => [declaration.file, declaration.code]),
     ...snippets.map(snippet => [snippet.file, withAppGlobals(snippet)]),
   ])
+  // A page can show one file several times as it grows. A relative import gets the last full version of the
+  // file that the page shows above the importing block, and a later version imports as if it were at its label.
+  const versions = new Map()
+  const labelFiles = new Map()
+  for (const snippet of snippets) {
+    if (!snippet.pageRoot || !/\.(m?ts|tsx)$/.test(snippet.label ?? "")) continue
+    const file = join(snippet.pageRoot, snippet.label.replace(/^\/+/, ""))
+    labelFiles.set(snippet.file, file)
+    versions.set(file, [...versions.get(file) ?? [], snippet])
+  }
+  const lines = new Map(snippets.map(snippet => [snippet.file, snippet.line]))
+  const shownVersion = (file, importer) => {
+    const shown = versions.get(file).filter(snippet => !snippet.fragment)
+    const line = lines.get(importer) ?? Number.POSITIVE_INFINITY
+    return (shown.findLast(snippet => snippet.line < line) ?? shown[0])?.file ?? file
+  }
   const virtualDirectories = new Set()
   for (const file of virtualFiles.keys()) {
     for (let directory = dirname(file); directory !== dirname(directory) && !virtualDirectories.has(directory); directory = dirname(directory)) virtualDirectories.add(directory)
@@ -336,6 +352,12 @@ export function checkSnippets(snippets, declarations = [], oldProgram = undefine
     return installedResolutions.get(key)
   }
   host.resolveModuleNameLiterals = (literals, containingFile) => literals.map(({ text }) => {
+    if (virtualFiles.has(containingFile) && /^\.\.?\//.test(text)) {
+      const resolved = ts.resolveModuleName(text, labelFiles.get(containingFile) ?? containingFile, options, host)
+      const file = resolved.resolvedModule?.resolvedFileName
+      if (!file || !versions.has(file)) return resolved
+      return { ...resolved, resolvedModule: { ...resolved.resolvedModule, resolvedFileName: shownVersion(file, containingFile) } }
+    }
     const bare = !/^[./~#]/.test(text)
     // An app installs one Vite. The workspace links one per set of peer versions, and the package
     // declarations would otherwise compare plugins of two Vite copies.

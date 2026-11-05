@@ -25,7 +25,20 @@ export default defineDatabase({
 })
 ```
 
-Run `vitehub db generate` and `vitehub db migrate`. Content finds the Database through the Workspace Store, so `defineContent()` takes no new option.
+Run `vitehub db generate` and `vitehub db migrate`. Content finds the Database through the Workspace Store, so `defineContent()` takes no new option. The examples on this page edit this `posts` collection:
+
+```ts [server/content.ts]
+import { cms } from 'vite-hub/cms'
+import { defineContent, documents } from 'vite-hub/content'
+import { z } from 'zod'
+
+export const content = defineContent({
+  extends: cms,
+  collections: {
+    posts: documents({ path: 'posts/**/*.md', fields: { title: z.string() } }),
+  },
+})
+```
 
 Without the table, `content.sessions` throws `CONTENT_R0012` and names this fix. Saves keep working and skip the lease check, because nobody can hold a lease. The Console stays editable and shows that it cannot check who else is editing.
 
@@ -34,11 +47,14 @@ Without the table, `content.sessions` throws `CONTENT_R0012` and names this fix.
 A session is a token you generate per tab or client, such as `crypto.randomUUID()`. Use one per editor instance, not one per user. Two tabs of the same person are two sessions, so the second tab sees that the first one holds the lease instead of overwriting it.
 
 ```ts [server/api/editor/session.post.ts]
-import { defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { content } from '../../content'
 
+const body = v.object({ id: v.string(), session: v.string(), kind: v.picklist(['view', 'edit']), input: v.optional(v.boolean()) })
+
 export default defineEventHandler(async (event) => {
-  const { id, session, kind, input } = await readBody(event)
+  const { id, session, kind, input } = await readValidatedBody(event, body)
   const user = { id: 'ana', name: 'Ana' } // the signed-in user
   return await content.sessions.report('posts', id, { session, user, kind, input })
 })
@@ -91,17 +107,23 @@ Report about every 15 seconds while the tab is visible and every 60 seconds whil
 
 `save()`, `remove()`, and `restore()` read the lease once before they commit.
 
-```ts
-const posts = content.collection('posts')
+```ts [server/utils/save-post.ts]
+import { content } from '../content'
 
-// The holder's own tab: its lease does not block it, and the save renews it.
-await posts.save('hello', input, { ifDigest, session })
+const input = { data: { title: 'Hello' }, body: '# Hello' }
 
-// An Agent, a CLI, or a route without a session: fails while someone holds the lease.
-await posts.save('hello', input)
+export async function savePost(session: string, ifDigest: string | null) {
+  const posts = content.collection('posts')
 
-// Write anyway.
-await posts.save('hello', input, { lease: 'override' })
+  // The holder's own tab: its lease does not block it, and the save renews it.
+  await posts.save('hello', input, { ifDigest, session })
+
+  // An Agent, a CLI, or a route without a session: fails while someone holds the lease.
+  await posts.save('hello', input)
+
+  // Write anyway.
+  await posts.save('hello', input, { lease: 'override' })
+}
 ```
 
 | Option | Behavior |

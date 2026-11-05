@@ -8,16 +8,36 @@ icon: i-lucide-calendar-clock
 
 `content.schedule()` publishes exactly the drafts that were reviewed, at a later time. A Schedule Definition that calls `content.publishDue()` runs due schedules, so publishing works on every host that runs [Schedule](/docs/schedule).
 
-```ts
-const posts = content.collection('posts')
-const { draft } = (await posts.status('launch'))!
+The examples on this page schedule documents of this `posts` collection:
 
-const schedule = await content.schedule({
-  at: '2026-10-20T09:00:00+02:00',
-  expect: [{ collection: 'posts', id: 'launch', digest: draft }],
-  message: 'Publish the launch post',
+```ts [server/content.ts]
+import { cms } from 'vite-hub/cms'
+import { defineContent, documents } from 'vite-hub/content'
+import { z } from 'zod'
+
+export const content = defineContent({
+  extends: cms,
+  collections: {
+    posts: documents({ path: 'posts/**/*.md', fields: { title: z.string() } }),
+  },
 })
-// { id, at: '2026-10-20T07:00:00.000Z', status: 'pending', expect, message, createdAt }
+```
+
+```ts [server/utils/schedule-launch.ts]
+import { content } from '../content'
+
+export async function scheduleLaunch() {
+  const posts = content.collection('posts')
+  const { draft } = (await posts.status('launch'))!
+
+  const schedule = await content.schedule({
+    at: '2026-10-20T09:00:00+02:00',
+    expect: [{ collection: 'posts', id: 'launch', digest: draft }],
+    message: 'Publish the launch post',
+  })
+  // { id, at: '2026-10-20T07:00:00.000Z', status: 'pending', expect, message, createdAt }
+  return schedule
+}
 ```
 
 ## Run due schedules
@@ -75,9 +95,13 @@ Runs may overlap, for example from two replicas: each publish checks the reviewe
 
 `status()` of a collection reports each document's schedule as `schedule: { id, at, status, digest, failure? }`: its pending or overdue schedule, or else a failed one. `state` stays `draft`, `changed`, or `deleted` until the schedule publishes. When `schedule.digest` differs from `draft`, the run will fail.
 
-```ts
-await content.collection('posts').status('launch')
-// { state: 'draft', draft: 'a1…', published: null, schedule: { id, at: '2026-10-20T07:00:00.000Z', status: 'pending', digest: 'a1…' } }
+```ts [server/utils/launch-status.ts]
+import { content } from '../content'
+
+export async function launchStatus() {
+  return await content.collection('posts').status('launch')
+  // { state: 'draft', draft: 'a1…', published: null, schedule: { id, at: '2026-10-20T07:00:00.000Z', status: 'pending', digest: 'a1…' } }
+}
 ```
 
 ## Inspect and cancel

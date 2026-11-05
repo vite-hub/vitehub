@@ -155,96 +155,6 @@
     "error": "TS2571 Object is of type 'unknown'."
   },
   {
-    "id": "docs/content/docs/content/configure.md#23a4c159d075",
-    "label": null,
-    "error": "TS2304 Cannot find name 'content'."
-  },
-  {
-    "id": "docs/content/docs/content/configure.md#867e2e731d17",
-    "label": null,
-    "error": "TS2304 Cannot find name 'content'."
-  },
-  {
-    "id": "docs/content/docs/content/editing-together.md#97e032df96d3",
-    "label": "server/api/editor/session.post.ts",
-    "error": "TS2305 Module '\"../../content\"' has no exported member 'content'."
-  },
-  {
-    "id": "docs/content/docs/content/editing-together.md#23c0eb7e404f",
-    "label": null,
-    "error": "TS18004 No value exists in scope for the shorthand property 'ifDigest'. Either declare one or provide an initializer."
-  },
-  {
-    "id": "docs/content/docs/content/preview.md#c3b134d9e669",
-    "label": "server/api/preview.delete.ts",
-    "error": "TS2305 Module '\"../content\"' has no exported member 'content'."
-  },
-  {
-    "id": "docs/content/docs/content/scheduling.md#dec9e9e48053",
-    "label": null,
-    "error": "TS2304 Cannot find name 'content'."
-  },
-  {
-    "id": "docs/content/docs/content/scheduling.md#618e7dd77d81",
-    "label": null,
-    "error": "TS2304 Cannot find name 'content'."
-  },
-  {
-    "id": "docs/content/docs/content/seo.md#05a05ebd4974",
-    "label": null,
-    "error": "TS2304 Cannot find name 'content'."
-  },
-  {
-    "id": "docs/content/docs/content/server-api.md#139c05ce1130",
-    "label": null,
-    "error": "TS2304 Cannot find name 'content'."
-  },
-  {
-    "id": "docs/content/docs/content/server-api.md#0e9a317e2637",
-    "label": "server/api/posts/[id].put.ts",
-    "error": "TS2339 Property 'data' does not exist on type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/content/server-api.md#8b23014facdb",
-    "label": null,
-    "error": "TS2304 Cannot find name 'content'."
-  },
-  {
-    "id": "docs/content/docs/content/server-api.md#42ada598802a",
-    "label": null,
-    "error": "TS2304 Cannot find name 'content'."
-  },
-  {
-    "id": "docs/content/docs/content/server-api.md#7ba2536387e3",
-    "label": null,
-    "error": "TS2304 Cannot find name 'content'."
-  },
-  {
-    "id": "docs/content/docs/content/server-api.md#d9d7f3c0f961",
-    "label": null,
-    "error": "TS2304 Cannot find name 'content'."
-  },
-  {
-    "id": "docs/content/docs/content/server-api.md#79b53202307f",
-    "label": null,
-    "error": "TS7006 Parameter 'document' implicitly has an 'any' type."
-  },
-  {
-    "id": "docs/content/docs/content/server-api.md#76781be9528c",
-    "label": null,
-    "error": "TS2304 Cannot find name 'content'."
-  },
-  {
-    "id": "docs/content/docs/content/server-api.md#7b6726fa7f0b",
-    "label": null,
-    "error": "TS2304 Cannot find name 'content'."
-  },
-  {
-    "id": "docs/content/docs/content/server-api.md#a2313c25fa52",
-    "label": null,
-    "error": "TS18004 No value exists in scope for the shorthand property 'user'. Either declare one or provide an initializer."
-  },
-  {
     "id": "docs/content/docs/database/configure.md#b8b90fb4cd95",
     "label": "my-module/module.ts",
     "error": "TS2307 Cannot find module 'my-package/vite' or its corresponding type declarations."
@@ -448,16 +358,6 @@
     "id": "packages/comments/README.md#0871d13332c2",
     "label": null,
     "error": "TS18004 No value exists in scope for the shorthand property 'transport'. Either declare one or provide an initializer."
-  },
-  {
-    "id": "packages/content/README.md#c29a0c62bef2",
-    "label": null,
-    "error": "TS2307 Cannot find module 'comark-knap' or its corresponding type declarations."
-  },
-  {
-    "id": "packages/content/README.md#583e1af8cf11",
-    "label": null,
-    "error": "TS18004 No value exists in scope for the shorthand property 'user'. Either declare one or provide an initializer."
   },
   {
     "id": "packages/database/README.md#4de5ceb072d1",

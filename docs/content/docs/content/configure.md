@@ -122,9 +122,13 @@ Adding a glob can change the ids of the documents you already have. Ids are rela
 
 `content.resolve(path)` maps an app path to the document that the page shows, for example to link a page to an Edit button. It returns `{ collection, id }`, or `null`.
 
-```ts
-const route = await content.resolve('/blog/hello?utm=x')
-// { collection: 'posts', id: 'hello' }
+```ts [server/utils/edit-target.ts]
+import { content } from '../content'
+
+export async function editTarget() {
+  return await content.resolve('/blog/hello?utm=x')
+  // { collection: 'posts', id: 'hello' }
+}
 ```
 
 Each `documents()` collection maps a document to a path with its [`url`](/docs/content/seo#document-urls), the same URL that reads carry as `document.url`. A document whose `url` is `null` has no page and does not resolve. A collection without `url` maps the id after a slash, without a trailing `/index`: `guides/index` is `/guides`, and `index` is `/`. A query string, a hash, and a trailing slash are ignored. When two collections give the same path, the first one defined wins. The path is percent-decoded, so `/caf%C3%A9` finds `café`. `resolve()` reads what a read without `ref` reads (`published`, or `draft` in a preview request); pass `{ ref: 'draft' }` to include documents that are not published.
@@ -182,13 +186,17 @@ ViteHub does not own a settings schema. The fields above are an example: define 
 
 The document id is the file name without the extension, so `settings.json` is `settings`. You rarely need it: every method of a singleton works without an id.
 
-```ts
-const settings = content.collection('settings')
+```ts [server/utils/settings.ts]
+import { content } from '../content'
 
-await settings.get()                       // published settings, or null before the first publish
-const draft = await settings.save({ data: { title: 'ViteHub' } })
-await content.publish({ expect: [{ collection: 'settings', digest: draft.digest }] })
-await settings.status()                    // { state: 'published', ... }
+export async function renameSite() {
+  const settings = content.collection('settings')
+
+  await settings.get()                       // published settings, or null before the first publish
+  const draft = await settings.save({ data: { title: 'ViteHub' } })
+  await content.publish({ expect: [{ collection: 'settings', digest: draft.digest }] })
+  await settings.status()                    // { state: 'published', ... }
+}
 ```
 
 `content.collection('settings')` has `kind: 'singleton'` and `id`; a collection has `kind: 'documents'`. Code that handles any collection, such as a tool, may pass the id like it does for a collection. Any other id throws `CONTENT_R0008`. See [Singletons](/docs/content/server-api#singletons) for every method.
