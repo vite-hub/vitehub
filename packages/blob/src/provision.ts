@@ -1,6 +1,7 @@
 import {
   createCloudflareProvisionClient,
   createVercelProvisionClient,
+  isShellSafeProvisionValue,
   ProvisionRequestError,
   resolveCloudflareProvisionConfig,
   resolveVercelProvisionConfig,
@@ -20,6 +21,7 @@ interface CloudflareR2Bucket {
 interface CloudflareR2BucketTarget {
   jurisdiction?: CloudflareR2Jurisdiction
   name: string
+  stores: string[]
 }
 
 interface VercelBlobStore {
@@ -51,6 +53,8 @@ const VERCEL_BLOB_STORE_NAME = "vitehub-blob"
 const VERCEL_BLOB_STORE_REGION = "iad1"
 const VERCEL_PROJECT_ENVIRONMENTS = ["production", "preview", "development"] as const
 const CLOUDFLARE_R2_BUCKET_LIST_PER_PAGE = "1000"
+/** Provision State category for R2 bucket names, keyed by Blob Store name. Config never reads it, because bucket names come from Store config. */
+const BLOB_R2_PROVISION_CATEGORY = "r2"
 
 // The R2 API reads and writes the default jurisdiction unless this header names another one.
 function jurisdictionHeaders(jurisdiction: CloudflareR2Jurisdiction | undefined): Record<string, string> | undefined {
@@ -217,22 +221,38 @@ async function ensureVercelBlobConnection(
   }
 }
 
-function resolvedStores(options: BlobModuleOptions | undefined, env: Record<string, string | undefined>): ResolvedBlobStoreConfig[] {
+function resolvedStoreEntries(options: BlobModuleOptions | undefined, env: Record<string, string | undefined>): [string, ResolvedBlobStoreConfig][] {
   const config = resolveBlobViteConfig(options, { env })
   if (config.blob === false) return []
-  return Object.values(config.blob.stores ?? { default: config.blob.store })
+  return Object.entries(config.blob.stores ?? { default: config.blob.store })
+}
+
+function resolvedStores(options: BlobModuleOptions | undefined, env: Record<string, string | undefined>): ResolvedBlobStoreConfig[] {
+  return resolvedStoreEntries(options, env).map(([, store]) => store)
 }
 
 export function createBlobCloudflareProvisionStep(resolveOptions: () => BlobModuleOptions | undefined): ProvisionStep {
   return {
     id: "blob:cloudflare-r2",
     provider: "cloudflare",
+    recordedState(context) {
+      return [{
+        category: BLOB_R2_PROVISION_CATEGORY,
+        declared: resolvedStoreEntries(resolveOptions(), context.env).filter(([, store]) => store.driver === "cloudflare-r2").map(([name]) => name),
+        deleteHint: ({ id }) => isShellSafeProvisionValue(id)
+          ? `run \`wrangler r2 bucket delete ${id}\` (add \`--jurisdiction <jurisdiction>\` if the bucket has one)`
+          : "delete the R2 bucket in the Cloudflare dashboard",
+      }]
+    },
     async plan(context) {
       // A bucket name is unique only inside its jurisdiction.
       const buckets = new Map<string, CloudflareR2BucketTarget>()
-      for (const store of resolvedStores(resolveOptions(), context.env)) {
+      for (const [storeName, store] of resolvedStoreEntries(resolveOptions(), context.env)) {
         if (store.driver !== "cloudflare-r2" || !store.bucketName) continue
-        buckets.set(`${store.jurisdiction ?? "default"}/${store.bucketName}`, { jurisdiction: store.jurisdiction, name: store.bucketName })
+        const key = `${store.jurisdiction ?? "default"}/${store.bucketName}`
+        const bucket = buckets.get(key)
+        if (bucket) bucket.stores.push(storeName)
+        else buckets.set(key, { jurisdiction: store.jurisdiction, name: store.bucketName, stores: [storeName] })
       }
       if (!buckets.size) return []
 
@@ -257,7 +277,7 @@ export function createBlobCloudflareProvisionStep(resolveOptions: () => BlobModu
           exists,
           apply: async () => {
             if (!exists) await createCloudflareR2Bucket(request, bucket)
-            return {}
+            return { ids: { cloudflare: { [BLOB_R2_PROVISION_CATEGORY]: Object.fromEntries(bucket.stores.map(store => [store, bucket.name])) } } }
           },
         }
       })

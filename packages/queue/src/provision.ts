@@ -1,10 +1,13 @@
-import { createCloudflareProvisionClient, resolveCloudflareProvisionConfig } from "@vite-hub/internal/provision"
+import { createCloudflareProvisionClient, isShellSafeProvisionValue, resolveCloudflareProvisionConfig } from "@vite-hub/internal/provision"
 
 import { discoverQueueDefinitions } from "./discovery.ts"
 import { getCloudflareQueueName } from "./internal/cloudflare-resource-name.ts"
 
 import type { ProvisionAction, ProvisionStep } from "@vite-hub/internal/provision"
 import { queueErrorDiagnostics } from "./error-diagnostics.ts"
+
+/** Provision State category for Cloudflare Queue names, keyed by Queue Definition name. Config never reads it, because Queue names come from Definitions. */
+const QUEUE_CLOUDFLARE_PROVISION_CATEGORY = "queue"
 
 interface CloudflareQueue {
   queue_name?: string
@@ -26,6 +29,15 @@ export function createQueueProvisionStep(resolveRootDir: () => string, resolveNa
   return {
     id: "queue:cloudflare-queues",
     provider: "cloudflare",
+    recordedState() {
+      return [{
+        category: QUEUE_CLOUDFLARE_PROVISION_CATEGORY,
+        declared: discoverQueueDefinitions({ rootDir: resolveRootDir() }).map(definition => definition.name),
+        deleteHint: ({ id }) => isShellSafeProvisionValue(id)
+          ? `run \`wrangler queues delete ${id}\``
+          : "delete the Queue in the Cloudflare dashboard",
+      }]
+    },
     async plan(context) {
       const config = resolveCloudflareProvisionConfig(context.env)
       if (!config) {
@@ -36,13 +48,13 @@ export function createQueueProvisionStep(resolveRootDir: () => string, resolveNa
 
       const request = createCloudflareProvisionClient(config, context.fetch)
       const namePrefix = resolveNamePrefix()
-      const names = discoverQueueDefinitions({ rootDir: resolveRootDir() }).map(definition => getCloudflareQueueName(definition.name, namePrefix))
-      if (!names.length) return []
+      const queues = discoverQueueDefinitions({ rootDir: resolveRootDir() }).map(definition => ({ definition: definition.name, name: getCloudflareQueueName(definition.name, namePrefix) }))
+      if (!queues.length) return []
 
       const listed = await request("/queues", { parse: parseQueues })
       const existing = new Set((listed.result ?? []).map(queue => queue.queue_name).filter((name): name is string => Boolean(name)))
 
-      return names.map((name): ProvisionAction => ({
+      return queues.map(({ definition, name }): ProvisionAction => ({
         kind: "cloudflare-queue",
         name,
         exists: existing.has(name),
@@ -50,7 +62,7 @@ export function createQueueProvisionStep(resolveRootDir: () => string, resolveNa
           if (!existing.has(name)) {
             await request("/queues", { method: "POST", body: { queue_name: name } })
           }
-          return {}
+          return { ids: { cloudflare: { [QUEUE_CLOUDFLARE_PROVISION_CATEGORY]: { [definition]: name } } } }
         },
       }))
     },

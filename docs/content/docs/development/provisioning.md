@@ -55,6 +55,7 @@ Vercel Blob provisioning requires `VERCEL_PROJECT_ID` so the provision step can 
 After a successful apply, the CLI writes non-secret ids to `.vitehub/provision.json`.
 Vite Integrations may read that file as a binding-id source during dev or build.
 D1 database ids are keyed by Database name under `d1`. Cloudflare KV namespace ids are keyed by KV Store name under `kv`.
+R2 bucket names are keyed by Blob Store name under `r2`, and Cloudflare Queue names are keyed by Queue Definition name under `queue`. Builds do not read `r2` or `queue`, because bucket and Queue names come from config and Definitions. `provision status` uses them to find a bucket or Queue that no Definition declares.
 
 ```json [.vitehub/provision.json]
 {
@@ -64,6 +65,12 @@ D1 database ids are keyed by Database name under `d1`. Cloudflare KV namespace i
     },
     "kv": {
       "default": "namespace-id"
+    },
+    "r2": {
+      "default": "bucket-name"
+    },
+    "queue": {
+      "welcome": "queue-name"
     }
   }
 }
@@ -92,7 +99,7 @@ Without provider credentials, the command still shows recorded ids, but it repor
 
 ### Ids that no Definition declares
 
-When you rename or remove a Database Definition or a KV Store, its id stays in `.vitehub/provision.json` and its resource stays on the host. `provision status` marks that entry as `not declared` and prints a `fix:` line for it. This check reads only local config, so it also works without credentials.
+When you rename or remove a Database Definition, a KV Store, an R2 Blob Store, or a Queue Definition, its id stays in `.vitehub/provision.json` and its resource stays on the host. `provision status` marks that entry as `not declared` and prints a `fix:` line for it. This check reads only local config, so it also works without credentials.
 
 ```txt [Output]
 recorded cloudflare ids (.vitehub/provision.json):

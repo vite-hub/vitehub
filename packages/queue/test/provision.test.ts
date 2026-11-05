@@ -51,7 +51,7 @@ describe("queue provision step", () => {
     expect(actions).toHaveLength(1)
     expect(actions[0]!.exists).toBe(true)
 
-    await actions[0]!.apply()
+    await expect(actions[0]!.apply()).resolves.toEqual({ ids: { cloudflare: { queue: { welcome: existing } } } })
     expect((fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === "POST")).toBe(false)
   })
 
@@ -71,8 +71,18 @@ describe("queue provision step", () => {
 
     const actions = await createQueueProvisionStep(() => rootDir).plan(provisionContext(fetchImpl))
     expect(actions[0]!.exists).toBe(false)
-    await actions[0]!.apply()
+    await expect(actions[0]!.apply()).resolves.toEqual({ ids: { cloudflare: { queue: { welcome: expectedName } } } })
     expect(posted).toEqual([{ queue_name: expectedName }])
+  })
+
+  it("describes the Queue names it records without network access", async () => {
+    const rootDir = await createTempDir()
+    await writeFile(join(rootDir, "welcome.queue.ts"), "export default null\n", "utf8")
+
+    const [category] = createQueueProvisionStep(() => rootDir).recordedState?.({ env: {} }) ?? []
+    expect(category).toMatchObject({ category: "queue", declared: ["welcome"] })
+    expect(category?.deleteHint({ id: "old-queue", key: "old" })).toBe("run `wrangler queues delete old-queue`")
+    expect(category?.deleteHint({ id: "$(touch /tmp/x)", key: "old" })).toBe("delete the Queue in the Cloudflare dashboard")
   })
 
   it.each([

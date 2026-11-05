@@ -129,7 +129,7 @@ describe("blob cloudflare provision step", () => {
     })
 
     const actions = await plan(fetchImpl)
-    await expect(actions[0]!.apply()).resolves.toEqual({})
+    await expect(actions[0]!.apply()).resolves.toEqual({ ids: { cloudflare: { r2: { default: "assets" } } } })
     expect(requests.map(request => [request.method, request.url.pathname])).toEqual([
       ["GET", "/client/v4/accounts/acc/r2/buckets"],
       ["POST", "/client/v4/accounts/acc/r2/buckets"],
@@ -290,6 +290,38 @@ describe("blob cloudflare provision step", () => {
 
     expect(actions.map(action => [action.name, action.exists])).toEqual([["assets", true], ["assets (eu)", false]])
     expect(requests.map(request => request.jurisdiction)).toEqual([null, "eu"])
+  })
+
+  it("records the bucket name of each R2 Store, also for an existing bucket", async () => {
+    const { fetchImpl } = jurisdictionFetch({ default: ["assets"] })
+
+    const actions = await createBlobCloudflareProvisionStep(() => ({
+      stores: {
+        default: { bucketName: "assets", driver: "cloudflare-r2" },
+        eu: { binding: "EU", bucketName: "assets", driver: "cloudflare-r2", jurisdiction: "eu" },
+        euAlias: { binding: "EU_ALIAS", bucketName: "assets", driver: "cloudflare-r2", jurisdiction: "eu" },
+      },
+    })).plan(context(fetchImpl))
+
+    await expect(Promise.all(actions.map(action => action.apply()))).resolves.toEqual([
+      { ids: { cloudflare: { r2: { default: "assets" } } } },
+      { ids: { cloudflare: { r2: { eu: "assets", euAlias: "assets" } } } },
+    ])
+  })
+
+  it("describes the R2 bucket names it records without network access", () => {
+    const step = createBlobCloudflareProvisionStep(() => ({
+      stores: {
+        default: { driver: "fs" },
+        files: { bucketName: "files", driver: "cloudflare-r2" },
+        uploads: { bucketName: "uploads", driver: "cloudflare-r2", jurisdiction: "eu" },
+      },
+    }))
+
+    const [category] = step.recordedState?.({ env: {} }) ?? []
+    expect(category).toMatchObject({ category: "r2", declared: ["files", "uploads"] })
+    expect(category?.deleteHint({ id: "old-assets", key: "old" })).toBe("run `wrangler r2 bucket delete old-assets` (add `--jurisdiction <jurisdiction>` if the bucket has one)")
+    expect(category?.deleteHint({ id: "$(touch /tmp/x)", key: "old" })).toBe("delete the R2 bucket in the Cloudflare dashboard")
   })
 })
 
