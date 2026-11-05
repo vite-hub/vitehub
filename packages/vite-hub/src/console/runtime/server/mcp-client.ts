@@ -39,6 +39,7 @@ interface StoredOAuth {
 interface StoredConnection {
   auth: ConsoleMcpAuth
   bearer?: string
+  consoleOrigin: string
   createdAt: number
   error?: string
   id: string
@@ -114,10 +115,36 @@ function serverUrl(value: string, origin: string): URL {
   return url
 }
 
-function withTimeout(timeoutMs: number): typeof fetch {
-  return (input, init) => {
-    const timeout = AbortSignal.timeout(timeoutMs)
-    return fetch(input, { ...init, signal: init?.signal ? AbortSignal.any([init.signal, timeout]) : timeout })
+const redirectStatuses = new Set([301, 302, 303, 307, 308])
+
+function withTimeout(timeoutMs: number, origin: string): typeof fetch {
+  return async (input, init) => {
+    let request = new Request(input, init)
+    const signal = AbortSignal.any([request.signal, AbortSignal.timeout(timeoutMs)])
+    for (let redirects = 0; ; redirects++) {
+      signal.throwIfAborted()
+      serverUrl(request.url, origin)
+      // Keep an unused copy so a 307 or 308 can replay the body. One deadline covers every hop.
+      const response = await fetch(request.clone(), { redirect: "manual", signal })
+      const location = response.headers.get("location")
+      if (!redirectStatuses.has(response.status) || location === null || request.redirect === "manual") return response
+      await response.body?.cancel()
+      if (request.redirect === "error") throw consoleRequestError(502, "The server returned a redirect.")
+      if (redirects >= 20) throw consoleRequestError(502, "Too many redirects from the MCP or OAuth server.")
+      const target = serverUrl(new URL(location, request.url).href, origin)
+      const headers = new Headers(request.headers)
+      if (target.origin !== new URL(request.url).origin) {
+        for (const name of ["authorization", "proxy-authorization", "cookie"]) headers.delete(name)
+      }
+      // Match Fetch's POST-to-GET redirects without carrying a body or its headers to the new request.
+      if (((response.status === 301 || response.status === 302) && request.method === "POST") || (response.status === 303 && request.method !== "GET" && request.method !== "HEAD")) {
+        for (const name of ["content-encoding", "content-language", "content-location", "content-type"]) headers.delete(name)
+        request = new Request(target, { headers, method: "GET", redirect: request.redirect, signal })
+      }
+      else {
+        request = new Request(new Request(target, request), { headers })
+      }
+    }
   }
 }
 
@@ -171,7 +198,7 @@ async function readIdentity(connection: StoredConnection): Promise<ConsoleMcpIde
   const userinfo = text(connection.oauth?.discovery?.authorizationServerMetadata?.userinfo_endpoint)
   if (userinfo) {
     try {
-      const response = await withTimeout(requestTimeoutMs)(userinfo, { headers: { accept: "application/json", authorization: `Bearer ${tokens.access_token}` } })
+      const response = await withTimeout(requestTimeoutMs, connection.consoleOrigin)(userinfo, { headers: { accept: "application/json", authorization: `Bearer ${tokens.access_token}` } })
       const claims: unknown = response.ok ? await response.json() : undefined
       const identity = identityFrom(isRecord(claims) ? claims : undefined)
       if (identity) return { ...fromIdToken, ...identity }
@@ -287,7 +314,7 @@ async function withClient<T>(connection: StoredConnection, run: (client: Client)
     const transport = new StreamableHTTPClientTransport(new URL(connection.url), {
       ...(connection.auth === "oauth" ? { authProvider: oauthProvider(connection, () => { authorizing = true }) } : {}),
       ...(connection.bearer ? { requestInit: { headers: { authorization: `Bearer ${connection.bearer}` } } } : {}),
-      fetch: withTimeout(options.timeoutMs ?? requestTimeoutMs),
+      fetch: withTimeout(options.timeoutMs ?? requestTimeoutMs, connection.consoleOrigin),
       ...(sessionId ? { sessionId } : {}),
     })
     if (sessionId && connection.protocolVersion) transport.setProtocolVersion(connection.protocolVersion)
@@ -409,17 +436,15 @@ async function discoverAppServers(origin: string): Promise<ConsoleMcpCandidate[]
   if (cached && Date.now() - cached.at < discoveryLifetimeMs) return cached.servers
   const servers: ConsoleMcpCandidate[] = []
   try {
-    const response = await withTimeout(5_000)(`${origin}/.well-known/oauth-protected-resource`, { headers: { accept: "application/json" } })
+    const response = await withTimeout(5_000, origin)(`${origin}/.well-known/oauth-protected-resource`, { headers: { accept: "application/json" } })
     const metadata: unknown = response.ok ? await response.json() : undefined
     if (isRecord(metadata)) {
       const resource = text(metadata.resource)
       const url = resource && URL.canParse(resource) ? new URL(resource) : undefined
       if (url && url.origin === origin) {
-        // A resource without a path names the whole origin. MCP servers usually serve it at /mcp.
-        const endpoint = url.pathname === "/" ? new URL("/mcp", origin) : url
         const servers_ = Array.isArray(metadata.authorization_servers) ? metadata.authorization_servers : []
         const authorizationServer = text(servers_[0])
-        servers.push({ label: text(metadata.resource_name) ?? "This app", url: endpoint.href, ...(authorizationServer ? { authorizationServer } : {}) })
+        servers.push({ label: text(metadata.resource_name) ?? "This app", url: url.href, ...(authorizationServer ? { authorizationServer } : {}) })
       }
     }
   }
@@ -448,7 +473,7 @@ async function startAuthorization(connection: StoredConnection, prompt: "login" 
   oauth.tokens = undefined
   delete connection.sessionId
   try {
-    const result = await auth(oauthProvider(connection), { fetchFn: withTimeout(requestTimeoutMs), serverUrl: connection.url })
+    const result = await auth(oauthProvider(connection), { fetchFn: withTimeout(requestTimeoutMs, connection.consoleOrigin), serverUrl: connection.url })
     if (result === "REDIRECT" && oauth.pending.url) {
       connection.status = "authorizing"
       delete connection.error
@@ -479,6 +504,7 @@ export async function connectConsoleMcp(caller: ConsoleMcpCaller, input: { label
   const connection: StoredConnection = {
     auth: token ? "bearer" : "none",
     ...(token ? { bearer: token } : {}),
+    consoleOrigin: origin,
     createdAt: Date.now(),
     id: `mcp_${randomId(12)}`,
     label: text(input.label)?.slice(0, 80) ?? url.host + (url.pathname === "/" ? "" : url.pathname),
@@ -537,16 +563,17 @@ export async function completeConsoleMcp(caller: ConsoleMcpCaller, input: { code
     connection.error = input.error === "access_denied" ? "The sign-in was denied." : `The authorization server returned ${text(input.error) ?? "no code"}${input.errorDescription ? `: ${input.errorDescription.slice(0, 200)}` : "."}`
     throw consoleRequestError(400, connection.error, "CONSOLE_MCP_AUTHORIZATION_FAILED")
   }
-  // RFC 9207: a server that names itself in the response must be the one this sign-in started at.
-  const issuer = text(oauth.discovery?.authorizationServerMetadata?.issuer)
-  if (input.iss && issuer && input.iss !== issuer) {
+  // RFC 9207: require the issuer when advertised, and reject any supplied issuer that differs from discovery.
+  const metadata = oauth.discovery?.authorizationServerMetadata
+  const missingIssuer = metadata?.authorization_response_iss_parameter_supported === true && !input.iss
+  if (missingIssuer || (input.iss !== undefined && input.iss !== metadata?.issuer)) {
     delete oauth.pending
     connection.status = "failed"
-    connection.error = "The sign-in came back from another authorization server."
+    connection.error = missingIssuer ? "The authorization server did not return its issuer." : "The sign-in came back from another authorization server."
     throw consoleRequestError(400, connection.error, "CONSOLE_MCP_AUTHORIZATION_FAILED")
   }
   try {
-    const result = await auth(oauthProvider(connection), { authorizationCode: input.code, fetchFn: withTimeout(requestTimeoutMs), serverUrl: connection.url })
+    const result = await auth(oauthProvider(connection), { authorizationCode: input.code, fetchFn: withTimeout(requestTimeoutMs, connection.consoleOrigin), serverUrl: connection.url })
     if (result !== "AUTHORIZED") throw new Error("The authorization server did not issue a token.")
   }
   catch (error) {
@@ -600,7 +627,7 @@ async function revoke(connection: StoredConnection): Promise<boolean> {
     const body = new URLSearchParams({ client_id: client.client_id, token, token_type_hint: hint })
     if (client.client_secret) body.set("client_secret", client.client_secret)
     try {
-      const response = await withTimeout(requestTimeoutMs)(endpoint, { body, headers: { "content-type": "application/x-www-form-urlencoded" }, method: "POST" })
+      const response = await withTimeout(requestTimeoutMs, connection.consoleOrigin)(endpoint, { body, headers: { "content-type": "application/x-www-form-urlencoded" }, method: "POST" })
       revoked ||= response.ok
     }
     catch {
@@ -621,7 +648,7 @@ export async function disconnectConsoleMcp(caller: ConsoleMcpCaller, input: { id
       const bearer = connection.bearer ?? connection.oauth?.tokens?.access_token
       if (bearer) headers.authorization = `Bearer ${bearer}`
       if (connection.protocolVersion) headers["mcp-protocol-version"] = connection.protocolVersion
-      const response = await withTimeout(requestTimeoutMs)(connection.url, { headers, method: "DELETE" })
+      const response = await withTimeout(requestTimeoutMs, connection.consoleOrigin)(connection.url, { headers, method: "DELETE" })
       sessionEnded = response.ok
     }
     catch {

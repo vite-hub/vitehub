@@ -192,7 +192,7 @@ vitehub({
 
 This section is the client side. [ViteHub MCP](/docs/development/mcp) is the server side: the MCP server that the Console itself serves at `/_vitehub/mcp`, which needs no option.
 
-The section lists the MCP server that the app announces in its [RFC 9728](https://www.rfc-editor.org/rfc/rfc9728) protected resource metadata at `/.well-known/oauth-protected-resource`, such as its own `/mcp`. **Connect** also accepts the URL of another server or a path on this app. A URL must use HTTPS. Plain HTTP works only for this app and for `localhost`.
+The section lists the MCP server that the app announces in its [RFC 9728](https://www.rfc-editor.org/rfc/rfc9728) protected resource metadata at `/.well-known/oauth-protected-resource`, such as its own `/mcp`. **Connect** also accepts the URL of another server or a path on this app. A URL must use HTTPS. Plain HTTP works only for this app and for `localhost`. This policy also applies to OAuth endpoints and every redirect.
 
 ### Sign in with OAuth
 
@@ -200,7 +200,7 @@ Without a token, the Console first connects without credentials. When the server
 
 1. It reads the protected resource metadata that the `WWW-Authenticate` header names. Then it reads the metadata of the authorization server, with RFC 8414 or OpenID Connect discovery.
 2. It registers one public client through dynamic client registration (RFC 7591). All connections to that authorization server use this client.
-3. The browser opens the authorization URL with PKCE `S256`, `state`, and `resource` (RFC 8707). The authorization server sends the browser back to `/_vitehub/mcp-client/callback`, and the Console exchanges the code on the server. When the authorization server sends `iss` (RFC 9207), the Console checks it.
+3. The browser opens the authorization URL with PKCE `S256`, `state`, and `resource` (RFC 8707). The authorization server sends the browser back to `/_vitehub/mcp-client/callback`, and the Console exchanges the code on the server. The Console checks any supplied `iss` (RFC 9207) against discovery and requires it when the authorization server advertises support.
 4. When the MCP server rejects an access token, the Console uses the refresh token if it has one. Otherwise the connection shows **Signed out**, and **Sign in again** starts a new sign-in.
 5. **Disconnect** ends the MCP session. When the authorization server names a revocation endpoint, the Console also asks it to revoke the tokens (RFC 7009).
 
