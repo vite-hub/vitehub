@@ -81,6 +81,7 @@ function registrationProblem(body: unknown, maxBytes: number): string | undefine
   if (!isRecord(body)) return "Client metadata must be an object."
   const redirects = body.redirect_uris
   if (!Array.isArray(redirects) || redirects.length < 1 || redirects.length > 5) return "Register between one and five redirect URIs."
+  if (body.dpop_bound_access_tokens === true) return "MCP OAuth supports bearer tokens, not DPoP-bound access tokens."
   if (JSON.stringify(body).length > maxBytes) return "Client metadata is too large."
   for (const value of Object.values(body)) {
     if (typeof value === "string" && value.length > 2048) return "Client metadata fields must be at most 2048 characters."
@@ -139,7 +140,8 @@ function registrationLimits(options: McpOAuthOptions): BetterAuthPlugin {
  * access tokens for the resource, and `oauthProvider()` registers clients, shows the login and consent pages, and issues
  * the tokens. Clients register themselves with no `application_type`, and a loopback or private-use redirect makes them
  * native clients. Registration is open, so its body and its fields are bounded. Better Auth's limiter allows 5
- * registrations per minute and IP when it is on, which it is in production.
+ * registrations per minute and IP when it is on, which it is in production. DPoP-bound client registration is refused;
+ * these helpers support bearer tokens.
  *
  * ```ts [server/auth.ts]
  * import { defineAuth } from "vite-hub/auth"
@@ -302,7 +304,8 @@ function banned(user: Record<string, unknown>): boolean {
  * Check the OAuth access token of an MCP request. The signing keys come from the Auth in-process, with no request to the
  * authorization server. The signature algorithm is pinned to the keys, and the issuer, the audience (the resource), and
  * the expiry are checked with 30 seconds of tolerance. The client must still be enabled and, when the token names a
- * session, that session must still exist and be unexpired. Returns `AUTH_MCP_TOKEN_MISSING` without a bearer token and
+ * session, that session must still exist and be unexpired. Sender-constrained tokens, including DPoP-bound tokens, are
+ * rejected even when presented as bearer tokens. Returns `AUTH_MCP_TOKEN_MISSING` without a bearer token and
  * `AUTH_MCP_TOKEN_INVALID` for a token that fails a check. Throws `AUTH_MCP_OAUTH_MISSING` when the Auth has no `mcpOAuth()`.
  */
 export async function verifyMcpRequest(request: Request, options: VerifyMcpRequestOptions = {}): Promise<Result<McpCaller, "AUTH_MCP_TOKEN_INVALID" | "AUTH_MCP_TOKEN_MISSING">> {
@@ -329,6 +332,7 @@ export async function verifyMcpRequest(request: Request, options: VerifyMcpReque
   catch (error) {
     return [mcpErrors.AUTH_MCP_TOKEN_INVALID({ cause: error, reason: error instanceof Error ? error.message : "the signature or a claim does not match." }), undefined]
   }
+  if (payload.cnf !== undefined) return [mcpErrors.AUTH_MCP_TOKEN_INVALID({ reason: "sender-constrained access tokens are not supported; use a bearer token." }), undefined]
 
   const context = await auth.$context
   const user = await context.internalAdapter.findUserById(String(payload.sub))

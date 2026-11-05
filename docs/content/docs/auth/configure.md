@@ -271,6 +271,10 @@ export default defineAuth(({ requestOrigin }) => ({
 
 Registration is open to anyone, as MCP clients expect, so `mcpOAuth()` bounds it. A body over `registration.maxBytes` gets `413` before Better Auth parses it. A registration with no redirect URI or more than 5, a field over 2048 characters, a list over 10 entries, or a `client_name` over 160 characters gets `400` with `invalid_client_metadata`. A client that sends no `application_type` and only loopback or private-use redirects, as Claude Code, Codex, and Cursor do, is a native client. Better Auth's limiter allows 5 registrations per minute and IP. It is on in production. Its default storage is the memory of one Auth instance, so set Better Auth `rateLimit.storage` to `database` or `secondary-storage` when the server runs more than one instance, or when the Auth follows `requestOrigin` and is built for each request.
 
+When Better Auth has a `secondaryStorage` adapter, also set `session: { storeSessionInDatabase: true }`. OAuth Provider requires database-backed sessions with secondary storage, including when `rateLimit.storage` is `secondary-storage`.
+
+These helpers support bearer tokens. Registration with `dpop_bound_access_tokens: true` gets `400 invalid_client_metadata`, and `verifyMcpRequest()` rejects DPoP-bound tokens even when sent as bearer tokens.
+
 The login and consent pages get a signed query from Better Auth. Send its parameters back unchanged as `oauth_query`, as [Console MCP OAuth](/docs/development/mcp#set-up-oauth) explains. The plugins keep keys, clients, and tokens in the `jwks` and `oauth*` tables, which `authDatabase()` includes.
 
 ### Serve discovery at the origin root

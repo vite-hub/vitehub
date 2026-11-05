@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto"
+import { createHash, generateKeyPairSync, randomBytes, sign } from "node:crypto"
 import { DatabaseSync } from "node:sqlite"
 
 import * as v from "valibot"
@@ -46,7 +46,7 @@ type Setup = Awaited<ReturnType<typeof setup>>
 const Url = v.object({ url: v.string() })
 
 /** The browser flow of an MCP client: register, authorize with PKCE, sign in, consent, and exchange the code. */
-async function signInAgent({ call, post }: Setup, email = "ada@example.com") {
+async function signInAgent({ call, post }: Setup, email = "ada@example.com", tokenHeaders: Record<string, string> = {}) {
   expect((await post("/sign-up/email", { email, name: "Ada", password: "test-password-123" })).status).toBe(200)
   const registration = await post("/oauth2/register", { client_name: "Claude Code", redirect_uris: [redirect], token_endpoint_auth_method: "none" })
   expect(registration.status, await registration.clone().text()).toBe(201)
@@ -65,7 +65,7 @@ async function signInAgent({ call, post }: Setup, email = "ada@example.com") {
   const code = new URL(v.parse(Url, await answer.json()).url).searchParams.get("code") ?? ""
   const token = await call("/oauth2/token", {
     body: new URLSearchParams({ client_id, code, code_verifier: verifier, grant_type: "authorization_code", redirect_uri: redirect, resource }),
-    headers: { "content-type": "application/x-www-form-urlencoded" },
+    headers: { "content-type": "application/x-www-form-urlencoded", ...tokenHeaders },
     method: "POST",
   })
   expect(token.status, await token.clone().text()).toBe(200)
@@ -112,6 +112,27 @@ describe("mcpOAuth", () => {
     expect(await problem(await post("/oauth2/register", { contacts: Array.from({ length: 11 }, () => "a@example.com"), redirect_uris: [redirect] }))).toEqual([400, "invalid_client_metadata"])
     expect(await problem(await post("/oauth2/register", { client_name: "big", logo_uri: "x".repeat(20_000), redirect_uris: [redirect] }))).toEqual([413, "invalid_client_metadata"])
     expect((await post("/oauth2/register", { client_name: "Cursor", redirect_uris: ["cursor://anysphere.cursor-mcp/oauth/callback"] })).status).toBe(201)
+  })
+
+  it("rejects DPoP registration while allowing bearer clients", async () => {
+    const { post } = await setup()
+    const registration = await post("/oauth2/register", { dpop_bound_access_tokens: true, redirect_uris: [redirect] })
+    expect(registration.status).toBe(400)
+    expect(await registration.json()).toMatchObject({ error: "invalid_client_metadata" })
+    expect((await post("/oauth2/register", { dpop_bound_access_tokens: false, redirect_uris: [redirect] })).status).toBe(201)
+  })
+
+  it("rejects a DPoP-bound access token presented as a bearer token", async () => {
+    const auth = await setup()
+    const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" })
+    const header = Buffer.from(JSON.stringify({ alg: "ES256", jwk: publicKey.export({ format: "jwk" }), typ: "dpop+jwt" })).toString("base64url")
+    const payload = Buffer.from(JSON.stringify({ htm: "POST", htu: `${app}/api/auth/oauth2/token`, iat: Math.floor(Date.now() / 1000), jti: randomBytes(16).toString("base64url") })).toString("base64url")
+    const signature = sign("sha256", Buffer.from(`${header}.${payload}`), { dsaEncoding: "ieee-p1363", key: privateKey }).toString("base64url")
+    // Even a client registered for bearer tokens can opt into DPoP at the token endpoint.
+    const { accessToken } = await signInAgent(auth, "ada@example.com", { DPoP: `${header}.${payload}.${signature}` })
+    const claims: unknown = JSON.parse(Buffer.from(accessToken.split(".")[1] ?? "", "base64url").toString())
+    expect(claims).toMatchObject({ cnf: { jkt: expect.any(String) } })
+    expect((await verifyMcpRequest(mcpRequest(accessToken), { auth: auth.auth }))[0]?.code).toBe("AUTH_MCP_TOKEN_INVALID")
   })
 
   it.each(["signed out", "expired session", "disabled client", "deleted client"])("rejects a token after %s", async (reason) => {
