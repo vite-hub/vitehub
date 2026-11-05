@@ -67,6 +67,7 @@ export default defineConfig({
       "src/runtime/cloudflare-hosted.ts",
       "src/runtime/h3-v1-request.ts",
       "src/runtime/mcp-tools.ts",
+      "src/runtime/page-pill.ts",
       "src/runtime/page-tools.ts",
       "src/runtime/page-tools-loader.ts",
       "src/runtime/page-tools-shared.ts",

@@ -30,7 +30,8 @@ export function distributionEntriesFromManifest(value: unknown): string[] {
     ...new Set(
       v
         .parse(manifestStringLeavesSchema, value)
-        .filter((target) => target.startsWith("./dist/") && target.endsWith(".js"))
+        // A browser script such as `./dist/page/pill.iife.js` has its own build below.
+        .filter((target) => target.startsWith("./dist/") && target.endsWith(".js") && !target.endsWith(".iife.js"))
         .map((target) => target.replace(/^\.\/dist\//, "src/").replace(/\.js$/, ".ts")),
     ),
   ].sort();
@@ -529,6 +530,8 @@ export default defineConfig({
             "./console/env": "./dist/console/runtime/server/env.js",
             "./console/mcp-client": "./dist/console/runtime/server/mcp-client-operations.js",
             "./console/sections": "./dist/console/runtime/server/sections.js",
+            // A browser script, not a module: no types and no `import` condition.
+            "./page/pill.js": { default: "./dist/page/pill.iife.js" },
             "./ui/styles.css": "./dist/ui/styles.css",
             "./tsconfig": "./tsconfig.json",
           });
@@ -570,6 +573,18 @@ export default defineConfig({
       deps: { alwaysBundle: [/./], onlyBundle: false },
       dts: false,
       entry: { "console/runtime/page/loader": "src/console/page/loader.ts" },
+      minify: true,
+      outExtensions: () => ({ js: ".js" }),
+      platform: "browser",
+      tsconfig: "tsconfig.build.json",
+    },
+    {
+      // The page pill for other tools' bars, as one script that declares `ViteHubPagePill` (see src/page/pill.ts).
+      deps: { alwaysBundle: [/./], onlyBundle: false },
+      dts: false,
+      entry: { "page/pill": "src/page/pill.ts" },
+      format: "iife",
+      globalName: "ViteHubPagePill",
       minify: true,
       outExtensions: () => ({ js: ".js" }),
       platform: "browser",

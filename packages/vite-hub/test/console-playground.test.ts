@@ -6,12 +6,15 @@ import type { Plugin } from "vite"
 import { requestConsole } from "../src/console/runtime/client/request.ts"
 
 // The playground is outside this package's TypeScript project, so load its real module at test time.
-const { callConsoleFixture } = await vi.importActual<{
+const { callConsoleFixture, consoleMockRPC } = await vi.importActual<{
   callConsoleFixture: (origin: string, payload: unknown, cookie?: string) => Promise<unknown>
+  consoleMockRPC: () => Plugin
 }>("../../../playground/console/rpc.ts")
+const { resetMcpClientFixture } = await vi.importActual<{ resetMcpClientFixture: () => void }>("../../../playground/console/mcp-client-fixture.ts")
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  resetMcpClientFixture()
 })
 
 it("loads Console data through the playground's stateless RPC endpoint", async () => {
@@ -211,4 +214,91 @@ it("forwards failure cookies while translating write operations to fixture reque
     headers: { "content-type": "application/json", cookie: "playground-fail=invocations:503" },
     method: "POST",
   })
+})
+
+it("serves the MCP client from a stateful fixture, with sign-in, Run as, and the shared session", async () => {
+  const origin = "http://localhost:5173"
+  type Answer = { ok: boolean, value: Record<string, unknown> & { connections?: Array<Record<string, unknown>> } }
+  const call = async (operation: string, input: Record<string, unknown> = {}, cookie?: string) => await callConsoleFixture(origin, { input, operation }, cookie) as Answer
+  const overview = await call("mcp-client.list")
+  expect(overview.value.sharedSession).toBe(false)
+  expect(overview.value.servers).toEqual([
+    { authorizationServer: `${origin}/api/auth`, label: "Northwind Ledger", url: `${origin}/mcp` },
+    { auth: "console", label: "ViteHub MCP", url: `${origin}/_vitehub/mcp` },
+  ])
+  expect(overview.value.connections?.map(connection => [connection.label, connection.auth, connection.status])).toEqual([
+    ["Maxi García", "oauth", "connected"],
+    ["Lucía Romero", "oauth", "connected"],
+    ["Lucía (API key)", "bearer", "connected"],
+    ["Sam Rivera", "oauth", "signed-out"],
+    ["You", "console", "connected"],
+    ["docs.example.com/mcp", "none", "connected"],
+  ])
+  expect((await call("mcp-client.list", {}, "playground-mcp=shared")).value.sharedSession).toBe(true)
+
+  // Run as: the same call through two accounts sees different private accounts.
+  const finances = async (id: string) => JSON.stringify((await call("mcp-client.call", { arguments: { scope: "household" }, id, tool: "get_finances" })).value.result)
+  expect(await finances("mcp_maxi")).toContain("Maxi savings")
+  expect(await finances("mcp_lucia")).toContain("Lucía card")
+  expect(await finances("mcp_lucia")).not.toContain("Maxi savings")
+  expect((await call("mcp-client.items", { id: "mcp_sam", kind: "tools" })).ok).toBe(false)
+
+  // Sign in as someone else: the fixture sends the browser to the callback page, which finishes the sign-in.
+  const started = await call("mcp-client.connect", { prompt: "login", server: "/mcp" })
+  const callback = new URL(String(started.value.authorizationUrl))
+  expect(callback.pathname).toBe("/_vitehub/mcp-client/callback")
+  const completed = await call("mcp-client.complete", { code: "playground", state: callback.searchParams.get("state") })
+  expect(completed.value).toMatchObject({ label: "Sam Rivera", status: "connected" })
+  await call("mcp-client.disconnect", { id: completed.value.id })
+  expect((await call("mcp-client.list")).value.connections).toHaveLength(6)
+})
+
+async function playgroundRpcRequest(headers: IncomingMessage["headers"], payload: unknown): Promise<unknown> {
+  type Middleware = (request: IncomingMessage, response: ServerResponse, next: (error?: unknown) => void) => void
+  let handler: Middleware | undefined
+  // SAFETY: The playground hook only reads resolved URLs and registers middleware.
+  const configure = consoleMockRPC().configureServer as (server: { resolvedUrls: { local: string[] }, middlewares: { use: (middleware: Middleware) => void } }) => void
+  configure({ resolvedUrls: { local: ["http://localhost:5173/_vitehub/"] }, middlewares: { use: middleware => { handler = middleware } } })
+  // SAFETY: The route consumes the body stream, headers, method, and URL from this fixture.
+  const request = Readable.from([JSON.stringify(payload)]) as IncomingMessage
+  request.method = "POST"
+  request.url = "/_vitehub/rpc/__call"
+  request.headers = headers
+  const middleware = handler
+  if (!middleware) throw new Error("Expected playground RPC middleware")
+  return new Promise((resolve, reject) => {
+    const response = { statusCode: 200, setHeader: vi.fn(), end: (body: string) => { resolve(JSON.parse(body)) } }
+    // SAFETY: The middleware only writes the status, headers, and body of this response.
+    middleware(request, response as unknown as ServerResponse, error => { reject(error ?? new Error("Unexpected next middleware")) })
+  })
+}
+
+it.each([
+  [{ host: "127.0.0.1:3087" }, "http://127.0.0.1:3087"],
+  [{ host: "playground.trycloudflare.com", "x-forwarded-proto": "https" }, "https://playground.trycloudflare.com"],
+  [{ host: "localhost:5173", "x-forwarded-host": "playground.trycloudflare.com, proxy.internal", "x-forwarded-proto": "https, http" }, "https://playground.trycloudflare.com"],
+])("uses the browser-visible MCP origin for %j", async (headers, origin) => {
+  // A local visit before sharing the server must not leak local connection URLs into the public fixture.
+  await callConsoleFixture("http://localhost:5173", { operation: "mcp-client.list" })
+  const overview = await playgroundRpcRequest(headers, { operation: "mcp-client.list" })
+  expect(overview).toMatchObject({ ok: true, value: { servers: [
+    { authorizationServer: `${origin}/api/auth`, url: `${origin}/mcp` },
+    { url: `${origin}/_vitehub/mcp` },
+  ] } })
+  expect(JSON.stringify(overview)).not.toContain("localhost")
+
+  const started = await playgroundRpcRequest(headers, { operation: "mcp-client.connect", input: { server: `${origin}/mcp`, prompt: "login" } }) as { value: { authorizationUrl: string, connection: { id: string } } }
+  const callback = new URL(started.value.authorizationUrl)
+  expect(callback.origin).toBe(origin)
+  expect(callback.pathname).toBe("/_vitehub/mcp-client/callback")
+  expect(callback.searchParams.get("iss")).toBe(`${origin}/api/auth`)
+  await expect(playgroundRpcRequest(headers, { operation: "mcp-client.complete", input: { code: "playground", state: callback.searchParams.get("state") } }))
+    .resolves.toMatchObject({ ok: true, value: { label: "Sam Rivera", status: "connected", url: `${origin}/mcp` } })
+  const reconnected = await playgroundRpcRequest(headers, { operation: "mcp-client.reconnect", input: { id: started.value.connection.id, prompt: "login" } }) as { value: { authorizationUrl: string } }
+  expect(new URL(reconnected.value.authorizationUrl).origin).toBe(origin)
+
+  const fetch = vi.fn(async () => Response.json({ sections: ["mcp-client"] }))
+  vi.stubGlobal("fetch", fetch)
+  await playgroundRpcRequest(headers, { operation: "sections.list" })
+  expect(fetch).toHaveBeenCalledWith(new URL("http://localhost:5173/api/_vitehub/console/sections"), expect.any(Object))
 })

@@ -13,6 +13,7 @@
     "src/console/page/**/*.ts",
     "test/console-page-tool-client.test.ts",
     "src/console/ui.ts",
+    "src/page/**/*.ts",
     "src/comments-overlay/loader-core.ts",
     "src/comments-overlay/loader.ts",
     "src/comments-overlay/overlay.ts",
