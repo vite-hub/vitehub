@@ -49,8 +49,8 @@ function isActive(path: string) {
     </section>
     <!-- A section is one row that opens its home page. Its other pages follow it, indented to its title. -->
     <section
-      v-for="block in sectionBlocks"
-      :key="block.category ?? block.sections[0]!.section.id"
+      v-for="(block, index) in sectionBlocks"
+      :key="`${index}:${block.category}`"
       class="vh-docs-sidebar-category"
       :aria-label="block.category ?? undefined"
     >

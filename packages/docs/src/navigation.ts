@@ -172,12 +172,13 @@ export function docsRailGroups(manifest: DocsManifest, categories: readonly stri
 
 /**
  * Rail items in rail groups: `docsRailGroups()`, with the sections of one group in one item. The item takes the place
- * of the first section of its group, and the sections keep their rail order.
+ * of the first section of its group that the rail shows. It holds every section of the group in manifest order, also
+ * one whose category `railExclude` leaves out of the rail.
  */
 export function docsRailEntries(manifest: DocsManifest, options: { categories: readonly string[], railExclude: readonly string[], groups: readonly DocsGroup[] }): DocsRailEntry[][] {
   const railGroups = docsRailGroups(manifest, options.categories, options.railExclude)
   const members = new Map<string, DocsSection[]>()
-  for (const section of railGroups.flat()) {
+  for (const section of manifest.sections) {
     const title = docsSectionGroup(section, options.groups)
     if (title !== null) members.set(title, [...members.get(title) ?? [], section])
   }
@@ -191,7 +192,7 @@ export function docsRailEntries(manifest: DocsManifest, options: { categories: r
   })).filter(entries => entries.length > 0)
 }
 
-/** The rail item of a section, or `null` for a section that the rail leaves out. */
+/** The rail item of a section, or `null` for a section outside every group that the rail leaves out. */
 export function docsRailEntry(manifest: DocsManifest, options: { categories: readonly string[], railExclude: readonly string[], groups: readonly DocsGroup[] }, section: DocsSection): DocsRailEntry | null {
   return docsRailEntries(manifest, options).flat().find(entry => entry.sections.some(candidate => candidate.id === section.id)) ?? null
 }

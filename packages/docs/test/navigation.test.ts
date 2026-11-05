@@ -157,6 +157,18 @@ describe("docs groups", () => {
     expect(docsRailEntry(grouped, options, section("reference"))).toBeNull()
   })
 
+  it("keeps a section of an excluded category in its group", () => {
+    // `reference` is in Reference, which the rail leaves out. The group still lists it, after the rail places the group.
+    const withReference = [{ title: "Storage", icon: "i-lucide-hard-drive", sections: ["kv", "reference"] }]
+    const entries = docsRailEntries(grouped, { ...options, groups: withReference })
+    expect(rail(entries)).toEqual([
+      [["Start here", null, ["start"]]],
+      [["Storage", "i-lucide-hard-drive", ["kv", "blob", "reference"]]],
+      [["Misc", null, ["misc"]]],
+    ])
+    expect(docsRailEntry(grouped, { ...options, groups: withReference }, section("reference"))?.title).toBe("Storage")
+  })
+
   it("counts the sections of a group as one rail item", () => {
     const icons = { rail: {}, sections: {} }
     expect(docsHasRail(manifest, icons)).toBe(true)
