@@ -17,7 +17,24 @@ ViteHub errors are Nostics diagnostics with `code`, `why`, `fix`, `docs`, and `c
 - A config error throws when code first uses the database, for example when a binding or a connection URL is missing.
 - A Cloudflare D1 HTTP error rejects the Drizzle query. Drizzle can wrap it, so read `error.cause` of the query error.
 
+This route reads the `notes` table of the default Database:
+
+```ts [server/databases/config.ts]
+import { defineDatabase } from 'vite-hub/database'
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+export default defineDatabase({
+  schema: {
+    notes: sqliteTable('notes', {
+      id: integer('id').primaryKey({ autoIncrement: true }),
+      title: text('title').notNull(),
+    }),
+  },
+})
+```
+
 ```ts [server/api/notes.get.ts]
+import { defineEventHandler } from 'h3'
 import { useDatabase } from '@vite-hub/database/drizzle'
 
 export default defineEventHandler(async () => {

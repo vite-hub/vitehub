@@ -29,7 +29,15 @@ Queue option, client, job, provider, registry, and result types are exported fro
 
 ## Queue job
 
-The handler receives a normalized Queue Job.
+The handler receives a normalized Queue Job. The examples on this page enqueue the `welcome-email` Definition from Get started:
+
+```ts [server/queues/welcome-email.ts]
+import { defineQueue } from 'vite-hub/queue'
+
+export default defineQueue<{ email: string }>(async ({ payload, id }) => {
+  console.log(`Processing welcome job ${id} for ${payload.email}`)
+})
+```
 
 | Field | Type | Description |
 | --- | --- | --- |

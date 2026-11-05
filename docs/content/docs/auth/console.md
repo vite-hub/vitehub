@@ -29,6 +29,12 @@ Overview and Activity stay visible without an event store. They show the require
 
 Add `events.store` to `defineAuth()` in your Auth Definition. This example uses a SQLite Database Definition named `auth`. Keep the app's existing Better Auth adapter and options.
 
+```ts [server/databases/auth/config.ts]
+import { defineDatabase } from 'vite-hub/database'
+
+export default defineDatabase({ name: 'auth', schema: {} })
+```
+
 ```ts [server/auth.ts]
 import { createDatabaseAuthEventStore, defineAuth } from 'vite-hub/auth'
 import { authDatabase } from 'vite-hub/auth/database'

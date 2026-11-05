@@ -482,6 +482,22 @@ A Decision error prints `{ "error": { "code", "message" } }` and exits with stat
 
 A task is a [Nitro task](https://nitro.build/docs/tasks): one file in `server/tasks/` that default-exports `defineTask()`. Use tasks for seeds, backfills, data repair, and one-off admin jobs. `vitehub()` registers each file with Nitro and enables Nitro tasks, so you do not set `nitro.serverDir` or `nitro.experimental.tasks`. The task name is the path with `/` replaced by `:`, so `server/tasks/db/seed.ts` is `db:seed`.
 
+This seed task adds a row to the `notes` table of the default Database:
+
+```ts [server/databases/config.ts]
+import { defineDatabase } from 'vite-hub/database'
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+export default defineDatabase({
+  schema: {
+    notes: sqliteTable('notes', {
+      id: integer('id').primaryKey({ autoIncrement: true }),
+      title: text('title').notNull(),
+    }),
+  },
+})
+```
+
 ```ts [server/tasks/db/seed.ts]
 import { useDatabase } from 'vite-hub/database/drizzle'
 import { defineTask } from 'vite-hub/task'

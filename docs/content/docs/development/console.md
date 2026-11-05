@@ -588,7 +588,13 @@ Your access policy decides who can start invocations, because the invocation rou
 console: { auth: 'app', authorize: './server/console-authorize.ts', impersonation: true }
 ```
 
-It needs app Auth with Better Auth's [admin plugin](https://www.better-auth.com/docs/plugins/admin) and the [Auth event log](/docs/auth/events), so that each start and stop has a record. Without app Auth, the build stops with `VITE_HUB_B0005`.
+It needs app Auth with Better Auth's [admin plugin](https://www.better-auth.com/docs/plugins/admin) and the [Auth event log](/docs/auth/events), so that each start and stop has a record. Without app Auth, the build stops with `VITE_HUB_B0005`. This example keeps users and events in a Database Definition named `auth`:
+
+```ts [server/databases/auth/config.ts]
+import { defineDatabase } from 'vite-hub/database'
+
+export default defineDatabase({ name: 'auth', schema: {} })
+```
 
 ```ts [server/auth.ts]
 import { createDatabaseAuthEventStore, defineAuth } from 'vite-hub/auth'

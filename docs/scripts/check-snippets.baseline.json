@@ -140,16 +140,6 @@
     "error": "TS18048 'event' is possibly 'undefined'."
   },
   {
-    "id": "docs/content/docs/auth/console.md#62b3b1190037",
-    "label": "server/auth.ts",
-    "error": "TS2345 Argument of type '\"auth\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/auth/events.md#764c24ef4a70",
-    "label": "server/auth.ts",
-    "error": "TS2345 Argument of type '\"auth\"' is not assignable to parameter of type 'never'."
-  },
-  {
     "id": "docs/content/docs/blob/media.md#9c910d73996e",
     "label": null,
     "error": "TS2304 Cannot find name 'blob'."
@@ -190,24 +180,9 @@
     "error": "TS2304 Cannot find name 'channelDelivery'."
   },
   {
-    "id": "docs/content/docs/channels/get-started.md#3b208327eb1d",
-    "label": "server/api/build-finished.post.ts",
-    "error": "TS2769 No overload matches this call."
-  },
-  {
     "id": "docs/content/docs/channels/index.md#7f237ef8efd9",
     "label": "server/utils/slack.ts",
     "error": "TS18046 'env.slack' is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/channels/index.md#199c35ae0eee",
-    "label": "server/api/builds.post.ts",
-    "error": "TS2769 No overload matches this call."
-  },
-  {
-    "id": "docs/content/docs/channels/index.md#492c661ac565",
-    "label": "server/api/test-alert.post.ts",
-    "error": "TS2769 No overload matches this call."
   },
   {
     "id": "docs/content/docs/channels/server-api.md#0a63e2ce13a7",
@@ -268,16 +243,6 @@
     "id": "docs/content/docs/connections/index.md#b5254d8a047e",
     "label": "server/connections/google.ts",
     "error": "TS2571 Object is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/connections/index.md#9dddac474432",
-    "label": "server/api/labels.get.ts",
-    "error": "TS2769 No overload matches this call."
-  },
-  {
-    "id": "docs/content/docs/connections/index.md#718e1b0092b4",
-    "label": "server/api/contacts.get.ts",
-    "error": "TS2769 No overload matches this call."
   },
   {
     "id": "docs/content/docs/content/configure.md#23a4c159d075",
@@ -375,33 +340,8 @@
     "error": "TS2307 Cannot find module 'my-package/vite' or its corresponding type declarations."
   },
   {
-    "id": "docs/content/docs/database/get-started.md#f6a12b6881ad",
-    "label": "server/api/notes.post.ts",
-    "error": "TS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/database/get-started.md#78a00416b0bc",
-    "label": "server/api/notes.get.ts",
-    "error": "TS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/database/index.md#dba1284359e2",
-    "label": "server/api/notes.get.ts",
-    "error": "TS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
-  },
-  {
     "id": "docs/content/docs/database/index.md#5e51d6f3417a",
     "label": "server/api/notes.post.ts",
-    "error": "TS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/database/index.md#a87403998a4f",
-    "label": "server/api/notes/[id].get.ts",
-    "error": "TS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/database/limits-and-errors.md#20e55678a08d",
-    "label": "server/api/notes.get.ts",
     "error": "TS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
   },
   {
@@ -423,16 +363,6 @@
     "id": "docs/content/docs/decisions/index.md#d3a4290d45e6",
     "label": "server/api/choices.post.ts",
     "error": "TS7006 Parameter 'event' implicitly has an 'any' type."
-  },
-  {
-    "id": "docs/content/docs/development/cli.md#b4928631677f",
-    "label": "server/tasks/db/seed.ts",
-    "error": "TS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/development/console.md#a4a87285b0aa",
-    "label": "server/auth.ts",
-    "error": "TS2345 Argument of type '\"auth\"' is not assignable to parameter of type 'never'."
   },
   {
     "id": "docs/content/docs/development/console.md#44aafb4e0c8f",
@@ -495,34 +425,9 @@
     "error": "TS18046 'env.auth' is of type 'unknown'."
   },
   {
-    "id": "docs/content/docs/guides/cloudflare-queues.md#d1f8dcf2bb13",
-    "label": "server/api/signup.post.ts",
-    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/guides/vercel-queues.md#9ead153357cd",
-    "label": "server/api/signup.post.ts",
-    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/guides/vercel-queues.md#4b6998cdb230",
-    "label": "server/utils/enqueue-welcome.ts",
-    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/guides/vercel-queues.md#135463400f0c",
-    "label": "server/utils/enqueue-welcomes.ts",
-    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
-  },
-  {
     "id": "docs/content/docs/logs/get-started.md#b7725026293a",
     "label": "vite.config.ts",
     "error": "TS2353 Object literal may only specify known properties, and 'local' does not exist in type 'ConsoleOptions'."
-  },
-  {
-    "id": "docs/content/docs/queue/get-started.md#9ead153357cd",
-    "label": "server/api/welcome.post.ts",
-    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
   },
   {
     "id": "docs/content/docs/queue/index.md#616f2aae6e84",
@@ -538,36 +443,6 @@
     "id": "docs/content/docs/queue/limits-and-errors.md#bb22fa79f67f",
     "label": "server/api/signup.post.ts",
     "error": "TS7006 Parameter 'event' implicitly has an 'any' type."
-  },
-  {
-    "id": "docs/content/docs/queue/server-api.md#d1f8dcf2bb13",
-    "label": "server/api/signup.post.ts",
-    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/queue/server-api.md#076bfba35760",
-    "label": "server/utils/enqueue-welcome.ts",
-    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/queue/server-api.md#87bbdf956257",
-    "label": "examples/run-queue.ts",
-    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/queue/server-api.md#1a64a20c035a",
-    "label": "examples/defer-queue.ts",
-    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/queue/server-api.md#0d9290e195e9",
-    "label": "examples/get-queue.ts",
-    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/queue/server-api.md#715907e1ad8d",
-    "label": "examples/typed-dispatch.ts",
-    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
   },
   {
     "id": "docs/content/docs/rate-limit/agent-capability.md#db72be2c6b21",
@@ -690,11 +565,6 @@
     "error": "TS18048 'body' is possibly 'undefined'."
   },
   {
-    "id": "docs/content/docs/source/server-api.md#b43f632ae0d3",
-    "label": "server/collections/articles.ts",
-    "error": "TS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
-  },
-  {
     "id": "docs/content/docs/source/server-api.md#9afe81a0582d",
     "label": "server/collections/articles.ts",
     "error": "TS18046 'article' is of type 'unknown'."
@@ -770,16 +640,6 @@
     "error": "TS2304 Cannot find name 'blob'."
   },
   {
-    "id": "packages/browser/README.md#43de109c54d2",
-    "label": null,
-    "error": "TS2769 No overload matches this call."
-  },
-  {
-    "id": "packages/channels/README.md#e52cfe98a589",
-    "label": null,
-    "error": "TS2769 No overload matches this call."
-  },
-  {
     "id": "packages/comments/README.md#8e8bbe0cee0c",
     "label": null,
     "error": "TS18048 'event' is possibly 'undefined'."
@@ -790,11 +650,6 @@
     "error": "TS18004 No value exists in scope for the shorthand property 'transport'. Either declare one or provide an initializer."
   },
   {
-    "id": "packages/connections/README.md#80ccef603b0c",
-    "label": null,
-    "error": "TS2769 No overload matches this call."
-  },
-  {
     "id": "packages/content/README.md#c29a0c62bef2",
     "label": null,
     "error": "TS2307 Cannot find module 'comark-knap' or its corresponding type declarations."
@@ -803,11 +658,6 @@
     "id": "packages/content/README.md#583e1af8cf11",
     "label": null,
     "error": "TS18004 No value exists in scope for the shorthand property 'user'. Either declare one or provide an initializer."
-  },
-  {
-    "id": "packages/database/README.md#612584a94be8",
-    "label": null,
-    "error": "TS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
   },
   {
     "id": "packages/database/README.md#4de5ceb072d1",
@@ -828,11 +678,6 @@
     "id": "packages/env/README.md#82031b9440a2",
     "label": null,
     "error": "TS18046 'snapshot.githubToken' is of type 'unknown'."
-  },
-  {
-    "id": "packages/queue/README.md#765ba2bd98c1",
-    "label": null,
-    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
   },
   {
     "id": "packages/queue/README.md#47047c3584ed",
@@ -858,16 +703,6 @@
     "id": "packages/source/README.md#af264e7ce752",
     "label": null,
     "error": "TS18046 'article' is of type 'unknown'."
-  },
-  {
-    "id": "packages/source/README.md#2a556cabbd25",
-    "label": null,
-    "error": "TS2345 Argument of type '\"articles\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "packages/vite-hub/README.md#2d1bacb37b87",
-    "label": null,
-    "error": "TS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
   },
   {
     "id": "packages/vite-hub/README.md#2f4ad0597fb7",
