@@ -80,6 +80,7 @@ Dotted keys, such as `navigation.order: 2`, are the same as nested keys. `naviga
 | `order` | `number` | The folder position | Position in the rail. Lower comes first. |
 | `category` | `string` | None | Rail group and catalog group. |
 | `group` | `string` | None | Title of the [group](/docs/docs-site/configure#groups) of the section. A `groups` entry that lists the section wins. |
+| `fold` | `boolean` | `false` | Folds each page group of the sidebar. See [Fold page groups](/docs/docs-site/configure#fold-page-groups). |
 | `related` | `string[]` | `[]` | Section ids under Related in the sidebar. |
 
 ## Routes

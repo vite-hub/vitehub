@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type { DocsSidebarGroup } from "@vite-hub/docs"
+
 import { docsCatalog, docsHasRail, docsRailEntry, docsRelatedSections, docsSectionHome, docsSidebarGroups, docsSidebarSections, normalizeDocsPath } from "#docs/navigation"
 
 const route = useRoute()
@@ -30,6 +32,11 @@ const siteLinks = computed(() => rail ? groupStartLinks.value : start?.links ?? 
 
 function isActive(path: string) {
   return currentPath.value === normalizeDocsPath(path)
+}
+
+// A folded group opens itself on its own pages, so the current page stays in view.
+function holdsCurrent(pageGroup: DocsSidebarGroup) {
+  return pageGroup.pages.some(page => isActive(page.path))
 }
 </script>
 
@@ -70,16 +77,33 @@ function isActive(path: string) {
           <span class="min-w-0">{{ entry.section.title }}</span>
         </h3>
         <template v-for="pageGroup in entry.groups" :key="pageGroup.label || 'pages'">
-          <h4 v-if="pageGroup.label" class="vh-docs-sidebar-page-group-heading is-nested">{{ pageGroup.label }}</h4>
-          <NuxtLink
-            v-for="page in pageGroup.pages"
-            :key="page.path"
-            :to="page.path"
-            :class="['vh-docs-sidebar-link is-nested', { 'is-active': isActive(page.path) }]"
-            :aria-current="isActive(page.path) ? 'page' : undefined"
-          >
-            <span class="min-w-0">{{ page.title }}</span>
-          </NuxtLink>
+          <details v-if="pageGroup.fold" class="vh-docs-sidebar-fold" :open="holdsCurrent(pageGroup)">
+            <summary class="vh-docs-sidebar-page-group-heading is-nested">
+              <UIcon name="i-lucide-chevron-down" class="vh-docs-sidebar-fold-icon size-3 shrink-0" />
+              {{ pageGroup.label }}
+            </summary>
+            <NuxtLink
+              v-for="page in pageGroup.pages"
+              :key="page.path"
+              :to="page.path"
+              :class="['vh-docs-sidebar-link is-nested', { 'is-active': isActive(page.path) }]"
+              :aria-current="isActive(page.path) ? 'page' : undefined"
+            >
+              <span class="min-w-0">{{ page.title }}</span>
+            </NuxtLink>
+          </details>
+          <template v-else>
+            <h4 v-if="pageGroup.label" class="vh-docs-sidebar-page-group-heading is-nested">{{ pageGroup.label }}</h4>
+            <NuxtLink
+              v-for="page in pageGroup.pages"
+              :key="page.path"
+              :to="page.path"
+              :class="['vh-docs-sidebar-link is-nested', { 'is-active': isActive(page.path) }]"
+              :aria-current="isActive(page.path) ? 'page' : undefined"
+            >
+              <span class="min-w-0">{{ page.title }}</span>
+            </NuxtLink>
+          </template>
         </template>
       </template>
     </section>
@@ -113,7 +137,24 @@ function isActive(path: string) {
     </section>
 
     <template v-for="pageGroup in pageGroups" :key="pageGroup.label || 'pages'">
-      <section v-if="pageGroup.label" class="vh-docs-sidebar-page-group">
+      <details v-if="pageGroup.fold" class="vh-docs-sidebar-page-group vh-docs-sidebar-fold" :open="holdsCurrent(pageGroup)">
+        <summary class="vh-docs-sidebar-page-group-heading">
+          <UIcon name="i-lucide-chevron-down" class="vh-docs-sidebar-fold-icon size-3 shrink-0" />
+          {{ pageGroup.label }}
+        </summary>
+        <NuxtLink
+          v-for="page in pageGroup.pages"
+          :key="page.path"
+          :to="page.path"
+          :class="['vh-docs-sidebar-link is-grouped', { 'is-active': isActive(page.path) }]"
+          :aria-current="isActive(page.path) ? 'page' : undefined"
+        >
+          <UIcon :name="icons.page(page)" class="size-4 shrink-0" />
+          <span class="min-w-0">{{ page.title }}</span>
+        </NuxtLink>
+      </details>
+
+      <section v-else-if="pageGroup.label" class="vh-docs-sidebar-page-group">
         <h2 class="vh-docs-sidebar-page-group-heading">{{ pageGroup.label }}</h2>
         <NuxtLink
           v-for="page in pageGroup.pages"
@@ -269,6 +310,42 @@ function isActive(path: string) {
 .vh-docs-sidebar-link.is-nested,
 .vh-docs-sidebar-page-group-heading.is-nested {
   padding-left: 2.875rem;
+}
+
+/* A folded group: the summary is its heading, and its chevron points right while the group is shut. */
+.vh-docs-sidebar-fold > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.vh-docs-sidebar-fold > summary::-webkit-details-marker {
+  display: none;
+}
+
+.vh-docs-sidebar-fold-icon {
+  transition: transform 150ms ease;
+}
+
+.vh-docs-sidebar-fold:not([open]) .vh-docs-sidebar-fold-icon {
+  transform: rotate(-90deg);
+}
+
+/* A shut group's heading is muted like the links. An open or hovered one takes the text color. */
+.vh-docs-sidebar-fold[open] > summary,
+.vh-docs-sidebar-fold > summary:focus-visible {
+  color: var(--ui-text);
+}
+
+@media (hover: hover) {
+  .vh-docs-sidebar-fold > summary:hover {
+    color: var(--ui-text);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vh-docs-sidebar-fold-icon {
+    transition: none;
+  }
 }
 
 /* A section without a listed home page has a title row that opens nothing. */

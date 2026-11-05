@@ -17,7 +17,7 @@ content/
   docs/
     index.md                /docs
     guide/
-      .navigation.yml       section title, icon, order, category, group
+      .navigation.yml       section title, icon, order, category, group, fold
       index.md              /docs/guide
       install.md            /docs/guide/install
       deploy/
@@ -97,6 +97,18 @@ navigation.group: Operate
 navigation.order: 4
 ---
 ```
+
+### Fold page groups
+
+A section with many pages, such as one page per lint rule, can fold its page groups. Set `fold: true` in its `.navigation.yml`:
+
+```yaml [content/docs/rules/.navigation.yml]
+title: Rules
+icon: i-lucide-stethoscope
+fold: true
+```
+
+Each group with a heading starts shut, and the reader opens it with a click, Enter, or Space. The group that holds the current page opens itself, so its link stays in view. Pages without a group stay open. A [group of sections](#groups) folds the page groups of each section that sets `fold`.
 
 ## Layouts
 

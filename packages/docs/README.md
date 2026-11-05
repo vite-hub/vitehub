@@ -39,7 +39,7 @@ content/
   docs/
     index.md                  → /docs
     guide/
-      .navigation.yml         section title, icon, order, category, group
+      .navigation.yml         section title, icon, order, category, group, fold
       index.md                → /docs/guide
       install.md              → /docs/guide/install
 ```
@@ -74,6 +74,7 @@ Dotted keys work too, such as `navigation.order: 2`. A wrong field stops the bui
 | `order` | Position in the rail. Lower comes first. |
 | `category` | Rail group and catalog group. List the categories in the `categories` option to order them. |
 | `group` | Title of the group of the section. See `groups`. |
+| `fold` | `true` folds each page group of the sidebar. The group of the current page opens itself. |
 | `related` | Section ids listed under Related in the sidebar. |
 
 ## Layouts and rails

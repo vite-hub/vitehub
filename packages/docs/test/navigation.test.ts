@@ -249,6 +249,13 @@ describe("docs rail", () => {
 })
 
 describe("docs sidebar", () => {
+  it("folds the labeled groups of a section with `fold: true`", () => {
+    const fold = (candidate: ReturnType<typeof section>) => docsSidebarGroups(candidate).map(group => [group.label, group.fold])
+    expect(fold(section("kv"))).toEqual([[null, false], ["Guides", false], [null, false]])
+    // A group without a heading has nothing to fold.
+    expect(fold({ ...section("kv"), fold: true })).toEqual([[null, false], ["Guides", true], [null, false]])
+  })
+
   it("lists navigable pages in order and names groups with more than one page", () => {
     expect(docsSidebarGroups(section("kv")).map(group => [group.label, group.pages.map(page => page.title)])).toEqual([
       [null, ["Overview", "Get started"]],

@@ -19,8 +19,13 @@ const files: Record<string, string> = {
   "docs/charts/notes.md": "---\ntitle: Notes\n---\nNotes on charts.\n",
   "docs/table/.navigation.yml": "title: Table\nicon: i-lucide-table\norder: 4\ncategory: Charts\ngroup: Components\n",
   "docs/table/index.md": "---\ntitle: Table\n---\nTables.\n",
-  "docs/lint/.navigation.yml": "title: Linter\nicon: i-lucide-stethoscope\norder: 5\ncategory: Linter\n",
+  // The rules fold, as a list of hundreds of rules would bury the sidebar.
+  "docs/lint/.navigation.yml": "title: Linter\nicon: i-lucide-stethoscope\norder: 5\ncategory: Linter\nfold: true\n",
   "docs/lint/index.md": "---\ntitle: Linter\n---\nLint.\n",
+  "docs/lint/unclosed-block.md": "---\ntitle: unclosed-block\nnavigation.group: Core\n---\nRule.\n",
+  "docs/lint/empty-link.md": "---\ntitle: empty-link\nnavigation.group: Core\n---\nRule.\n",
+  "docs/lint/missing-src.md": "---\ntitle: missing-src\nnavigation.group: annotate\n---\nRule.\n",
+  "docs/lint/missing-alt.md": "---\ntitle: missing-alt\nnavigation.group: annotate\n---\nRule.\n",
   "docs/migrate/.navigation.yml": "title: Migrate\nicon: i-lucide-arrow-right-left\norder: 6\ncategory: Linter\n",
   "docs/migrate/index.md": "---\ntitle: Migrate\n---\nMigrate.\n",
 }
@@ -65,8 +70,13 @@ it("shows one rail item per group and lists every section of the group in its si
     expect(text(sidebar)).toBe("Review blocks Annotate Charts Charts Notes Table")
     expect(/<a [^>]*href="\/docs\/charts\/notes"[^>]*>/.exec(sidebar)?.[0]).toContain('aria-current="page"')
 
-    // A section outside every group keeps its own sidebar.
+    // A section outside every group keeps its own sidebar. Its rule groups fold, and only the current page's group opens.
+    const folds = (html: string) => [...html.matchAll(/<details([^>]*)>\s*<summary[^>]*>([\s\S]*?)<\/summary>/g)].map(match => [text(match[2]!), /\sopen(=""|\s|$)/.test(match[1]!)])
     expect(await page("docs/lint")).toMatch(/<nav[^>]*aria-label="Linter pages"/)
+    expect(folds(await page("docs/lint"))).toEqual([["Core", false], ["annotate", false]])
+    expect(folds(await page("docs/lint/missing-src"))).toEqual([["Core", false], ["annotate", true]])
+    // A section without `fold` keeps its groups open.
+    expect(folds(charts)).toEqual([])
   }
   finally {
     await nuxt?.close()
