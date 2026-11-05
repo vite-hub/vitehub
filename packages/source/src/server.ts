@@ -1,5 +1,5 @@
 import { getStandardContext } from "@vite-hub/runtime/h3"
-import { createError, defineEventHandler, getQuery } from "h3"
+import { createError, defineEventHandler } from "h3"
 
 import { CollectionCursorError } from "./core/collection.ts"
 
@@ -29,6 +29,16 @@ export type CollectionAuthorizationGuard = <TEvent extends { req: Request }, TRe
 export interface CollectionHandlerOptions {
   /** Required when the Collection declares `authorize`. Generated routes pass Auth's `withAuthorization`. */
   withAuthorization?: CollectionAuthorizationGuard
+}
+
+/** The query of a request URL. A parameter that the URL repeats becomes an array, as in H3's `getQuery()`. */
+function requestQuery(request: Request): Record<string, string | string[]> {
+  const query = new Map<string, string | string[]>()
+  for (const [key, value] of new URL(request.url).searchParams) {
+    const current = query.get(key)
+    query.set(key, current === undefined ? value : [...(Array.isArray(current) ? current : [current]), value])
+  }
+  return Object.fromEntries(query)
 }
 
 function queryValue(query: Record<string, string | string[] | undefined>, key: string): string | undefined {
@@ -124,20 +134,22 @@ export function defineCollectionHandler<TItem, TQuery extends object, TQueryInpu
     throw sourceErrorDiagnostics.SOURCE_R0025({ message: "[vitehub] Collection authorize requires Auth. Enable Auth and add `server/auth.ts`." })
   }
   const handlePage = async (event: H3Event) => {
-    const requestQuery = getQuery(event)
+    // The Standard Context request is the one that Auth checked. On H3 1, it keeps the URL that H3 strips.
+    const request = getStandardContext(event).req
+    const parameters = requestQuery(request)
     let cursor: string | undefined
     let limit: number | undefined
     let query: TQuery
     try {
-      cursor = queryValue(requestQuery, "cursor")
-      limit = queryLimit(requestQuery)
-      query = await collection.parseQuery(collectionQuery(requestQuery))
+      cursor = queryValue(parameters, "cursor")
+      limit = queryLimit(parameters)
+      query = await collection.parseQuery(collectionQuery(parameters))
     } catch (cause) {
       invalidRequest(cause)
     }
 
     try {
-      return serializeCollectionPage(await collection.page({ cursor, limit, query, signal: getStandardContext(event).req.signal }))
+      return serializeCollectionPage(await collection.page({ cursor, limit, query, signal: request.signal }))
     } catch (cause) {
       if (cause instanceof CollectionCursorError) {
         if (cause.reason === "stale") {
