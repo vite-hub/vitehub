@@ -145,6 +145,18 @@
   min-width: 0;
 }
 
+.vh-invocation-list__headline {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.vh-invocation-list__headline .vh-invocation-list__title {
+  flex: 1;
+  min-width: 0;
+}
+
 .vh-invocation-list__context {
   color: var(--ui-text-dimmed, var(--vh-muted));
   gap: 0.375rem;

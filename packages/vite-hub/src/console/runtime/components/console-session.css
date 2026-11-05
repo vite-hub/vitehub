@@ -154,6 +154,31 @@
   width: 0.875rem !important;
 }
 
+/*
+ * The header icon buttons, such as Open tab and Maximize, are 24px and 28px in a 40px header. On a touch screen each one
+ * takes the full header height and 1px on each side, less than half of the smallest gap, so neighbors never share a tap.
+ * Devices with only fine pointers keep the visible size.
+ */
+@media (any-pointer: coarse) {
+  /* The tab strip clips its overflow. At full header height it no longer clips the Open tab hit area. */
+  .session-inspector__tabstrip {
+    align-self: stretch;
+  }
+
+  .session-inspector__header .session-inspector__icon-button {
+    position: relative;
+  }
+
+  .session-inspector__header .session-inspector__icon-button::before {
+    content: "";
+    height: 2.5rem;
+    inset-inline: -0.0625rem;
+    position: absolute;
+    top: 50%;
+    translate: 0 -50%;
+  }
+}
+
 .session-inspector__tabstrip > [data-reka-popper-root] {
   flex: 0 0 auto;
 }
