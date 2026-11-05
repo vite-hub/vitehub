@@ -109,16 +109,43 @@ describe("Console request bodies", () => {
     expect(body.locked).toBe(false)
   })
 
-  it("rejects an oversized H3 1 body", async () => {
-    // The shared H3 1 conversion reads the Node stream to its end, so H3's readBody() still works after Standard Context.
+  it("closes an oversized H3 1 iterator without reading another chunk", async () => {
+    let reads = 0
+    let closed = false
     const event = h3V1({
       async *[Symbol.asyncIterator]() {
-        yield encoder.encode("12345")
-        yield encoder.encode("67890")
+        try {
+          reads++
+          yield encoder.encode("12345")
+          reads++
+          yield encoder.encode("67890")
+        }
+        finally { closed = true }
       },
     })
 
     await expect(consoleRequestJSON(event, 4)).rejects.toMatchObject({ statusCode: 413 })
+    expect(reads).toBe(1)
+    expect(closed).toBe(true)
   })
 
+  it("stops reading a 1 MiB H3 1 body at the 64 KiB limit and keeps none of it", async () => {
+    let reads = 0
+    const chunk = new Uint8Array(16 * 1_024)
+    const event = h3V1({
+      async *[Symbol.asyncIterator]() {
+        for (let index = 0; index < 64; index++) {
+          reads++
+          yield chunk
+        }
+      },
+    })
+
+    await expect(consoleRequestJSON(event)).rejects.toMatchObject({ statusCode: 413 })
+    // Five chunks pass the limit. The host reads no more of the body.
+    expect(reads).toBe(5)
+    // H3's body cache does not keep the rejected body.
+    await expect(Promise.resolve(Reflect.get(event, "_requestBody"))).rejects.toThrow("cancelled")
+    expect(reads).toBe(5)
+  })
 })

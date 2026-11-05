@@ -104,92 +104,99 @@ function toBodyStream(value: unknown): ReadableStream<Uint8Array> | undefined {
   return undefined
 }
 
-type ChunkReader = () => Promise<{ done?: boolean, value?: unknown }>
+/** One reader of a request body. `cancel()` stops the source, so the host reads no more of the body. */
+interface BodySource {
+  read(): Promise<{ done?: boolean, value?: unknown }>
+  cancel(reason: unknown): Promise<void>
+}
 
-async function openNodeRequestBody(event: H3V1Event): Promise<ChunkReader | undefined> {
+function toBodyBytes(chunk: unknown): Uint8Array {
+  if (typeof chunk === "string") return new TextEncoder().encode(chunk)
+  if (chunk instanceof Uint8Array) return chunk
+  throw new TypeError("[vitehub] Request body chunks must be strings or bytes.")
+}
+
+/**
+ * Read the Node request stream only as fast as a reader asks. The Web Request reads chunk by chunk, and H3's body
+ * helpers read `event._requestBody`, which reads to the end. Both get the same bytes, so a route can use both. A
+ * cancelled Web body closes the Node stream and drops the bytes it kept, so an oversized body is not read in full.
+ */
+function openNodeRequestStream(event: H3V1Event, iterator: AsyncIterator<unknown>): BodySource {
+  let chunks: Uint8Array[] = []
+  let ended = false
+  let cancelled = false
+  let failure: { error: unknown } | undefined
+  let pending: Promise<void> | undefined
+  const readChunk = async () => {
+    try {
+      const result = await iterator.next()
+      if (result.done) ended = true
+      else if (!cancelled) chunks.push(toBodyBytes(result.value))
+    }
+    catch (error) {
+      failure = { error }
+      ended = true
+    }
+  }
+  // Readers that wait at the same time share one read of the Node stream.
+  const pull = () => pending ??= readChunk().finally(() => { pending = undefined })
+  let whole: Promise<Uint8Array> | undefined
+  const readWhole = async () => {
+    while (!ended && !cancelled) await pull()
+    if (failure) throw failure.error
+    if (cancelled) throw new TypeError("[vitehub] The request body was cancelled.")
+    const bytes = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.byteLength, 0))
+    let offset = 0
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength }
+    return bytes
+  }
+  // H3's body helpers consult this cache when available, allowing both readers.
+  event._requestBody = { then: (resolve: (value: Uint8Array) => unknown, reject: (reason: unknown) => unknown) => (whole ??= readWhole()).then(resolve, reject) }
+  let index = 0
+  return {
+    async read() {
+      while (true) {
+        if (cancelled) return { done: true }
+        if (index < chunks.length) return { value: chunks[index++] }
+        if (failure) throw failure.error
+        if (ended) return { done: true }
+        await pull()
+      }
+    },
+    async cancel(reason) {
+      if (cancelled) return
+      cancelled = true
+      chunks = []
+      // Node's stream iterator destroys the stream on return(), so the host stops reading the body.
+      if (!ended) await iterator.return?.(reason)
+    },
+  }
+}
+
+async function openNodeRequestBody(event: H3V1Event): Promise<BodySource | undefined> {
   const request = event.node.req
   const stored: unknown = event._requestBody ?? request[rawBodySymbol] ?? request.rawBody ?? request.body
   if (stored !== undefined && stored !== null) {
     const stream = toBodyStream(await stored)
     if (stream) {
       const reader = stream.getReader()
-      return () => reader.read()
+      return { read: () => reader.read(), cancel: reason => reader.cancel(reason) }
     }
   }
   const iterator = request[Symbol.asyncIterator]?.()
-  if (!iterator) return undefined
-  const chunks: Uint8Array[] = []
-  const collected: Uint8Array[] = []
-  let total = 0
-  let ended = false
-  let failed = false
-  let failure: unknown
-  let waiting: {
-    resolve: (result: { done?: boolean, value?: unknown }) => void
-    reject: (error: unknown) => void
-  } | undefined
-  const produce = async () => {
-    try {
-      for await (const chunk of { [Symbol.asyncIterator]: () => iterator }) {
-        let bytes: Uint8Array
-        if (typeof chunk === "string") bytes = new TextEncoder().encode(chunk)
-        else if (chunk instanceof Uint8Array) bytes = chunk
-        else throw new TypeError("[vitehub] Request body chunks must be strings or bytes.")
-        collected.push(bytes)
-        total += bytes.byteLength
-        if (waiting) {
-          waiting.resolve({ value: bytes })
-          waiting = undefined
-        }
-        else {
-          chunks.push(bytes)
-        }
-      }
-      ended = true
-      waiting?.resolve({ done: true })
-      waiting = undefined
-    }
-    catch (error) {
-      failed = true
-      failure = error
-      ended = true
-      waiting?.reject(error)
-      waiting = undefined
-      throw error
-    }
-    const bytes = new Uint8Array(total)
-    let offset = 0
-    for (const chunk of collected) { bytes.set(chunk, offset); offset += chunk.byteLength }
-    return bytes
-  }
-  let body: Promise<Uint8Array> | undefined
-  const start = () => body ??= produce()
-  // H3's body helpers consult this cache when available, allowing both readers.
-  event._requestBody = { then: (resolve: (value: Uint8Array) => unknown, reject: (reason: unknown) => unknown) => start().then(resolve, reject) }
-  return async () => {
-    start()
-    // The cached H3 body promise may not be consumed when only Standard Context
-    // reads the request. Keep its rejection from becoming an unhandled rejection;
-    // the pending reader still receives the original failure below.
-    body?.catch(() => {})
-    if (failed) throw failure
-    if (chunks.length) return { value: chunks.shift() }
-    if (ended) return { done: true }
-    return new Promise((resolve, reject) => { waiting = { resolve, reject } })
-  }
+  return iterator ? openNodeRequestStream(event, iterator) : undefined
 }
 
 /** Read the body lazily, from a value a host already read or from the Node request stream. */
 function readNodeRequestBody(event: H3V1Event): ReadableStream<Uint8Array> {
-  let reader: Promise<ChunkReader | undefined> | undefined
+  let source: Promise<BodySource | undefined> | undefined
   // A zero high-water mark keeps the Fetch Request constructor from pulling
   // the Node stream before a caller actually reads the request body. This lets
   // H3's readBody(event) consume the original stream first when both APIs are
   // used by the same route.
   return new ReadableStream<Uint8Array>({
     async pull(controller) {
-      const read = await (reader ??= openNodeRequestBody(event))
-      const chunk = await read?.()
+      const chunk = await (await (source ??= openNodeRequestBody(event)))?.read()
       if (!chunk || chunk.done) {
         controller.close()
         return
@@ -198,6 +205,10 @@ function readNodeRequestBody(event: H3V1Event): ReadableStream<Uint8Array> {
       if (typeof value === "string") controller.enqueue(new TextEncoder().encode(value))
       else if (value instanceof Uint8Array) controller.enqueue(value)
       else controller.error(new TypeError("[vitehub] Request body chunks must be strings or bytes."))
+    },
+    async cancel(reason) {
+      // A body that nobody read keeps its Node stream for H3's own body helpers.
+      await (await source)?.cancel(reason)
     },
   }, { highWaterMark: 0 })
 }

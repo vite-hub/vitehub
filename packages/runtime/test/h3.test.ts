@@ -183,6 +183,57 @@ describe("@vite-hub/runtime/h3", () => {
     expect(toH3V1Request({ node: { req: slashes } }).url).toBe("https://docs.example/other.example/portal")
   })
 
+  it.each(["request", "h3"] as const)("gives the Web Request and H3's body cache the same H3 1 body when %s reads first", async (first) => {
+    const nodeRequest = {
+      headers: { host: "example.test" },
+      method: "POST",
+      url: "/",
+      async *[Symbol.asyncIterator]() {
+        yield "one,"
+        yield "two"
+      },
+    }
+    const event: { _requestBody?: unknown, node: { req: typeof nodeRequest } } = { node: { req: nodeRequest } }
+    const request = toH3V1Request(event)
+    // The H3 body cache appears once the Web body is opened.
+    const reader = request.body!.getReader()
+    const decoder = new TextDecoder()
+    let text = decoder.decode((await reader.read()).value)
+    const cached = () => Promise.resolve(event._requestBody).then(bytes => decoder.decode(bytes as Uint8Array))
+    if (first === "h3") await expect(cached()).resolves.toBe("one,two")
+    for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) text += decoder.decode(chunk.value)
+
+    expect(text).toBe("one,two")
+    await expect(cached()).resolves.toBe("one,two")
+  })
+
+  it("closes the Node stream and drops the H3 body cache when the Web body is cancelled", async () => {
+    let reads = 0
+    let closed = false
+    const nodeRequest = {
+      headers: { host: "example.test" },
+      method: "POST",
+      url: "/",
+      async *[Symbol.asyncIterator]() {
+        try {
+          for (let index = 0; index < 10; index++) {
+            reads++
+            yield "chunk"
+          }
+        }
+        finally { closed = true }
+      },
+    }
+    const event: { _requestBody?: unknown, node: { req: typeof nodeRequest } } = { node: { req: nodeRequest } }
+    const reader = toH3V1Request(event).body!.getReader()
+    await reader.read()
+    await reader.cancel()
+
+    expect(reads).toBe(1)
+    expect(closed).toBe(true)
+    await expect(Promise.resolve(event._requestBody)).rejects.toThrow("cancelled")
+  })
+
   it("closes an empty H3 1 request body", async () => {
     const nodeRequest = {
       headers: { host: "example.test" },
