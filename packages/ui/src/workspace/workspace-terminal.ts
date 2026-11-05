@@ -37,8 +37,6 @@ export const WorkspaceTerminal = defineComponent({
     let cursor: number | undefined;
     let observer: ResizeObserver | undefined;
     let themeObserver: MutationObserver | undefined;
-    let colorScheme: MediaQueryList | undefined;
-    let updateTheme: (() => void) | undefined;
     let disposed = false;
 
     function write(output: WorkspaceTerminalOutput) {
@@ -93,14 +91,11 @@ export const WorkspaceTerminal = defineComponent({
         if (element.clientWidth > 0 && element.clientHeight > 0) fit.fit();
       });
       observer.observe(element);
-      // xterm paints with the colors it gets, so read them again when the page changes color mode.
-      updateTheme = () => {
+      // xterm paints with the colors it gets, so read them again when the color mode class of the page changes.
+      themeObserver = new MutationObserver(() => {
         if (terminal) terminal.options.theme = terminalTheme(element);
-      };
-      themeObserver = new MutationObserver(updateTheme);
-      themeObserver.observe(document.documentElement, { attributeFilter: ["class", "style", "data-theme"] });
-      colorScheme = matchMedia("(prefers-color-scheme: dark)");
-      colorScheme.addEventListener("change", updateTheme);
+      });
+      themeObserver.observe(document.documentElement, { attributeFilter: ["class", "data-theme"] });
       write(props.output);
     });
     watch(() => props.output, write);
@@ -108,7 +103,6 @@ export const WorkspaceTerminal = defineComponent({
       disposed = true;
       observer?.disconnect();
       themeObserver?.disconnect();
-      if (updateTheme) colorScheme?.removeEventListener("change", updateTheme);
       terminal?.dispose();
     });
     expose({ clear: () => { terminal?.reset(); written = []; cursor = undefined; } });

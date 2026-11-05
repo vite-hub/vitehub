@@ -467,14 +467,18 @@ describe("WorkspaceTerminal", () => {
     const wrapper = mount(WorkspaceTerminal, { attachTo: document.body });
     const host = wrapper.element as HTMLElement;
     host.style.setProperty("--vh-ws-terminal-bg", "#fafafa");
-    await flushPromises();
-    expect(terminal.options.theme?.background).toBe("#fafafa");
-    host.style.setProperty("--vh-ws-terminal-bg", "#0a0a0a");
-    document.documentElement.classList.add("dark");
-    await flushPromises();
-    expect(terminal.options.theme?.background).toBe("#0a0a0a");
-    wrapper.unmount();
-    document.documentElement.classList.remove("dark");
+    try {
+      await flushPromises();
+      expect(terminal.options.theme?.background).toBe("#fafafa");
+      host.style.setProperty("--vh-ws-terminal-bg", "#0a0a0a");
+      document.documentElement.classList.add("dark");
+      await flushPromises();
+      expect(terminal.options.theme?.background).toBe("#0a0a0a");
+    }
+    finally {
+      wrapper.unmount();
+      document.documentElement.classList.remove("dark");
+    }
   });
 });
 
