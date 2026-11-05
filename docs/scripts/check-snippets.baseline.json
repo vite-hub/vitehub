@@ -420,11 +420,6 @@
     "error": "TS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
-    "id": "docs/content/docs/sandbox/configure.md#c19c21559f74",
-    "label": "server/tools/resize.sandbox-task.ts",
-    "error": "TS2322 Type '(payload: { width: number; }) => Promise<{ width: number; }>' is not assignable to type 'SandboxTaskDefinitionHandler<{ width: number; }, { width: number; }> & ((payload: { width: number; }) => Promise<{ width: number; }>)'."
-  },
-  {
     "id": "docs/content/docs/source/server-api.md#9afe81a0582d",
     "label": "server/collections/articles.ts",
     "error": "TS18046 'article' is of type 'unknown'."

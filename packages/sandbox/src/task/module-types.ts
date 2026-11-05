@@ -56,9 +56,10 @@ export interface SandboxTaskExecutionOptions {
   sandboxId?: string
 }
 
+/** The handler of a Sandbox Task. The runtime calls it with the payload of the run and the run context. */
 export type SandboxTaskDefinitionHandler<TPayload = unknown, TResult = unknown> = (
-  payload?: TPayload,
-  context?: Record<string, unknown>,
+  payload: TPayload,
+  context: Record<string, unknown>,
 ) => TResult | Promise<TResult>
 
 type SandboxTaskDefinitionPayload<THandler extends (...args: any[]) => any>

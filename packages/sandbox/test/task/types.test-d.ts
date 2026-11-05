@@ -25,6 +25,15 @@ declare module "#vitehub-sandbox-task-registry" {
 }
 
 describe("types", () => {
+  it("accepts a handler with a required payload", () => {
+    const definition = defineSandboxTask({
+      timeout: 60000,
+      run: async (payload: { width: number }) => ({ width: payload.width }),
+    })
+
+    expectTypeOf(definition.run).parameter(0).toEqualTypeOf<{ width: number }>()
+  })
+
   it("augments Vite user config with sandboxTask options", () => {
     const config: UserConfig = {
       sandboxTask: {
