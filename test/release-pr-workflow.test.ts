@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { resolve, join } from "node:path"
 
 import { describe, expect, it } from "vitest"
+import { parse } from "yaml"
 
 const root = resolve(import.meta.dirname, "..")
 const workflow = readFileSync(resolve(root, ".github/workflows/release-pr.yml"), "utf8")
@@ -45,6 +46,19 @@ describe("release PR workflow", () => {
     expect(workflow).not.toContain("pull_request_target")
   })
 
+  it("pushes the completed bump before dispatching release checks", () => {
+    const bump = workflow.indexOf('node "$GITHUB_WORKSPACE/.github/scripts/check-release-candidate.mjs" "$release_branch" --bump')
+    const lockfile = workflow.indexOf("corepack pnpm install --lockfile-only --ignore-scripts --no-frozen-lockfile")
+    const push = workflow.indexOf('push origin "HEAD:refs/heads/$release_branch"')
+    const head = workflow.indexOf('head_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${release_branch}"')
+    const dispatch = workflow.indexOf('gh workflow run "$workflow"')
+    expect(bump).toBeGreaterThan(-1)
+    expect(lockfile).toBeGreaterThan(bump)
+    expect(push).toBeGreaterThan(lockfile)
+    expect(head).toBeGreaterThan(push)
+    expect(dispatch).toBeGreaterThan(head)
+  })
+
   it("rejects a branch or package version mismatch", () => {
     const directory = mkdtempSync(join(tmpdir(), "vitehub-release-pr-"))
     try {
@@ -65,6 +79,79 @@ describe("release PR workflow", () => {
       expect(() => check("release/v0.1.0-01")).toThrow()
       writeFileSync(join(directory, "packages", "public", "package.json"), JSON.stringify({ name: "public", version: "0.0.1" }))
       expect(() => check("release/v0.1.0")).toThrow()
+    }
+    finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it.each(["0.2.0", "0.2.1", "1.0.0-rc.1"])("bumps release peers and codemod fixtures to %s", (version) => {
+    const directory = mkdtempSync(join(tmpdir(), "vitehub-release-bump-"))
+    const writeManifest = (path: string, manifest: object) => {
+      const target = join(directory, path)
+      mkdirSync(resolve(target, ".."), { recursive: true })
+      writeFileSync(target, `${JSON.stringify(manifest, null, 2)}\n`)
+    }
+    const readManifest = (path: string) => JSON.parse(readFileSync(join(directory, path), "utf8"))
+    try {
+      // uppt has already bumped package versions when the completion step runs.
+      writeManifest("package.json", { name: "release-fixture", private: true, version, packageManager: "pnpm@10.34.6" })
+      writeManifest("packages/agent/package.json", { name: "@vite-hub/agent", version })
+      writeManifest("packages/vite-hub/package.json", { name: "vite-hub", version })
+      writeManifest("packages/codemods/package.json", { name: "@vite-hub/codemods", version })
+      writeManifest("packages/env/package.json", {
+        name: "@vite-hub/env",
+        version,
+        peerDependencies: { "@vite-hub/agent": "^0.1.0", "vite": "^8.0.0" },
+        peerDependenciesMeta: { "@vite-hub/agent": { optional: true }, "vite": { optional: true } },
+      })
+      writeManifest("packages/peers/package.json", {
+        name: "@vite-hub/peers",
+        version,
+        peerDependencies: { "@vite-hub/agent": "workspace:*", "@vite-hub/env": "~0.1.0", "vite-hub": "0.1.0" },
+      })
+      const privatePackage = { name: "private", private: true, version: "0.0.0" }
+      writeManifest("packages/private/package.json", privatePackage)
+      const fixtureNames = ["env-schema", "valibot-schema", "zod-schema-module"]
+      for (const name of fixtureNames) {
+        const path = `packages/codemods/test/fixtures/${name}/output/package.json`
+        writeManifest(path, JSON.parse(readFileSync(join(root, path), "utf8")))
+      }
+      const inputPath = "packages/codemods/test/fixtures/env-schema/input/package.json"
+      const input = JSON.parse(readFileSync(join(root, inputPath), "utf8"))
+      writeManifest(inputPath, input)
+
+      const bump = () => execFileSync("node", [checker, `release/v${version}`, "--bump"], { cwd: directory, encoding: "utf8" })
+      bump()
+      expect(readManifest("packages/env/package.json").peerDependencies).toEqual({ "@vite-hub/agent": `^${version}`, "vite": "^8.0.0" })
+      expect(readManifest("packages/env/package.json").peerDependenciesMeta["@vite-hub/agent"]).toEqual({ optional: true })
+      expect(readManifest("packages/peers/package.json").peerDependencies).toEqual({
+        "@vite-hub/agent": "workspace:*",
+        "@vite-hub/env": `~${version}`,
+        "vite-hub": version,
+      })
+      for (const name of fixtureNames) {
+        const manifest = readManifest(`packages/codemods/test/fixtures/${name}/output/package.json`)
+        expect((manifest.dependencies ?? manifest.devDependencies)["vite-hub"]).toBe(`^${version}`)
+        if (name === "env-schema") expect(manifest.dependencies["@vite-hub/env"]).toBe(`^${version}`)
+      }
+      expect(readManifest(inputPath)).toEqual(input)
+      expect(readManifest("packages/private/package.json")).toEqual(privatePackage)
+
+      const envPath = join(directory, "packages/env/package.json")
+      const firstBump = readFileSync(envPath, "utf8")
+      bump()
+      expect(readFileSync(envPath, "utf8")).toBe(firstBump)
+      execFileSync("node", [checker, `release/v${version}`], { cwd: directory })
+
+      writeFileSync(join(directory, "pnpm-workspace.yaml"), "packages:\n  - packages/*\nlinkWorkspacePackages: true\n")
+      execFileSync("corepack", ["pnpm", "install", "--lockfile-only", "--ignore-scripts", "--no-frozen-lockfile", "--offline"], {
+        cwd: directory,
+        stdio: "pipe",
+        env: { ...process.env, CI: "true" },
+      })
+      const lockfile = parse(readFileSync(join(directory, "pnpm-lock.yaml"), "utf8"))
+      expect(lockfile.importers["packages/env"].dependencies["@vite-hub/agent"]).toEqual({ specifier: `^${version}`, version: "link:../agent" })
     }
     finally {
       rmSync(directory, { recursive: true, force: true })
