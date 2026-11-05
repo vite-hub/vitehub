@@ -58,6 +58,16 @@ div{position:relative;box-sizing:border-box;max-width:calc(100vw - 32px);max-hei
 :host(:is([edge=left],[edge=right])) ::slotted(*){align-items:stretch}
 ::slotted([hidden]){display:none!important}
 :host([collapsed]) ::slotted(*),:host([collapsed]) .exit{opacity:0;visibility:hidden}
+.tabs{position:absolute;display:flex;gap:4px;pointer-events:none}
+:host([edge=bottom]) .tabs{bottom:100%;left:50%;translate:-50% 0;align-items:flex-end}
+:host([edge=top]) .tabs{top:100%;left:50%;translate:-50% 0;align-items:flex-start}
+:host([edge=left]) .tabs{left:100%;top:50%;translate:0 -50%;flex-direction:column;align-items:flex-start}
+:host([edge=right]) .tabs{right:100%;top:50%;translate:0 -50%;flex-direction:column;align-items:flex-end}
+::slotted([slot=tab]){flex-direction:row;padding:3px;border:1px solid var(--vitehub-pill-line);background:rgb(17 17 17/92%);pointer-events:auto}
+:host([edge=bottom]) ::slotted([slot=tab]){border-bottom:0;border-radius:10px 10px 0 0}
+:host([edge=top]) ::slotted([slot=tab]){border-top:0;border-radius:0 0 10px 10px}
+:host([edge=left]) ::slotted([slot=tab]){border-left:0;border-radius:0 10px 10px 0}
+:host([edge=right]) ::slotted([slot=tab]){border-right:0;border-radius:10px 0 0 10px}
 ${viteHubPillButtonStyles}
 button{flex-shrink:0;padding:0}
 .exit{position:sticky;right:0;bottom:0;transition:background-color 150ms,color 150ms,scale 150ms,var(--vitehub-pill-fade-end)}
@@ -235,7 +245,12 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
     button.addEventListener("click", event => exit.press(event.detail === 0))
   }
   toolbar.append(mark, ...button ? [button] : [])
-  shadow.append(style, toolbar)
+  // Tabs stand on the bar's inner side, outside its clip, like a tab on top of a chat box. Each one is a child of the
+  // pill with `slot="tab"`. They come before the bar, so a tab that grows in comes out from under it.
+  const tabs = document.createElement("slot")
+  tabs.name = "tab"
+  tabs.className = "tabs"
+  shadow.append(style, tabs, toolbar)
   for (const name of options.slots) {
     const slot = document.createElement("slot")
     slot.name = name
@@ -311,7 +326,7 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
   const measure = () => {
     const origin = toolbar.getBoundingClientRect()
     // The mark always leads the bar when it is expanded. Collapsed, it moves to the center, which is no place to glide from.
-    parts = new Map([[mark, { x: 0, y: 0 }], ...[...pill.children, ...button ? [button] : []].map((part): [Element, { x: number, y: number }] => {
+    parts = new Map([[mark, { x: 0, y: 0 }], ...[...[...pill.children].filter(part => part.slot !== "tab"), ...button ? [button] : []].map((part): [Element, { x: number, y: number }] => {
       const rect = part.getBoundingClientRect()
       return [part, { x: rect.left - origin.left, y: rect.top - origin.top }]
     })])

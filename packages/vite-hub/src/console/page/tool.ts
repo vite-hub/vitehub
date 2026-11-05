@@ -181,7 +181,7 @@ const start: ViteHubPageToolModule["default"] = (context) => {
       stop(false)
     }, { capture: true, signal })
     signal.addEventListener("abort", () => { mutations.disconnect(); stop(true); style.remove() }, { once: true })
-    draftSwitch(base, shadow, signal)
+    draftSwitch(base, shadow, context.createTab, signal)
   }
 }
 /** The Console RPC header. It matches `consoleRpcHeader`, which the page tool does not import to stay small. */
@@ -300,37 +300,41 @@ function loadLivePage(href: string, signal: AbortSignal): Promise<Document> {
   })
 }
 
-const bannerStyles = `:host{all:initial;position:fixed;inset:0 0 auto 0;z-index:2147483646;display:flex;justify-content:center;align-items:center;flex-wrap:wrap;gap:4px 14px;min-height:36px;padding:4px 12px;box-sizing:border-box;background:#fef3c7;color:#78350f;border-bottom:1px solid #fcd34d;font:13px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}
-button{all:unset;cursor:pointer;font-weight:600;text-decoration:underline;text-underline-offset:3px;text-decoration-thickness:1px}
-button:hover{text-decoration-thickness:2px}button:focus-visible{outline:2px solid #78350f;outline-offset:2px;border-radius:2px}
-button:disabled{cursor:default;text-decoration:none;font-weight:400;opacity:.8}[hidden]{display:none}
-@media(any-pointer:coarse){button{padding:10px 4px}}
-@media print{:host{display:none}}`
+const tabStyles = `:host{display:flex;align-items:center;gap:2px}${viteHubPillButtonStyles}
+.label{display:inline-flex;align-items:center;gap:6px;padding:0 8px;color:var(--vitehub-pill-strong);white-space:nowrap}
+.dot{width:7px;height:7px;border-radius:50%;background:#f59e0b;flex:none}
+.gone{padding:0 8px 0 0;color:var(--vitehub-pill-muted);white-space:nowrap}
+button.marks:disabled{cursor:default;color:var(--vitehub-pill-muted)}[hidden]{display:none!important}`
 const changeStyles = `[${draftChangeAttribute}]{background-color:rgb(245 158 11 / .16);outline:2px solid rgb(245 158 11 / .85);outline-offset:2px;border-radius:2px}`
 
 /**
- * The banner of the draft view: it says that only this person sees the draft, marks the blocks that the draft changed,
- * and leads back to the live page.
+ * The tab of the draft view, on top of the pill: it says that this page shows the draft, marks the blocks that the
+ * draft changed, and leads back to the live page.
  */
-function draftBanner(signal: AbortSignal): () => void {
-  const host = document.createElement("vitehub-draft-banner")
-  const shadow = host.attachShadow({ mode: "open" })
+function draftTab(tab: HTMLElement, signal: AbortSignal): () => void {
+  const shadow = tab.attachShadow({ mode: "open" })
   const style = document.createElement("style")
-  style.textContent = bannerStyles
-  const text = document.createElement("span")
-  text.textContent = "Draft preview. Only you see this."
+  style.textContent = tabStyles
+  const label = document.createElement("span")
+  label.className = "label"
+  label.title = "This page shows its saved draft. Only you see it."
+  const dot = document.createElement("span")
+  dot.className = "dot"
+  dot.setAttribute("aria-hidden", "true")
+  label.append(dot, "Draft")
   const marks = document.createElement("button")
   marks.type = "button"
+  marks.className = "marks"
   marks.disabled = true
   marks.textContent = "Finding changes…"
+  const gone = document.createElement("span")
+  gone.className = "gone"
+  gone.hidden = true
   const back = document.createElement("button")
   back.type = "button"
   back.textContent = "Back to live"
   back.addEventListener("click", () => location.assign(liveUrl(location.href)))
-  const gone = document.createElement("span")
-  gone.hidden = true
-  shadow.append(style, text, marks, gone, back)
-  document.documentElement.append(host)
+  shadow.append(style, label, marks, gone, back)
 
   const markStyle = document.createElement("style")
   markStyle.textContent = changeStyles
@@ -342,7 +346,8 @@ function draftBanner(signal: AbortSignal): () => void {
     if (shown) document.head.append(markStyle)
     else markStyle.remove()
     marks.setAttribute("aria-pressed", String(shown))
-    marks.textContent = `${shown ? "Hide" : "Highlight"} ${changed.length === 1 ? "1 change" : `${changed.length} changes`}`
+    marks.textContent = changed.length === 1 ? "1 change" : `${changed.length} changes`
+    marks.title = shown ? "Hide the marks on the changed blocks." : "Mark the changed blocks."
   }
   marks.addEventListener("click", () => show(!shown))
 
@@ -352,12 +357,12 @@ function draftBanner(signal: AbortSignal): () => void {
     const result = draftChanges(document.body, live.body)
     changed = result.changed
     if (result.removed) {
-      gone.textContent = result.removed === 1 ? "1 block removed." : `${result.removed} blocks removed.`
+      gone.textContent = `${result.removed} removed`
       gone.hidden = false
     }
     if (!changed.length) {
       marks.hidden = !!result.removed
-      marks.textContent = "No text changes."
+      marks.textContent = "No text changes"
       return
     }
     marks.disabled = false
@@ -370,7 +375,7 @@ function draftBanner(signal: AbortSignal): () => void {
   const remove = () => {
     controller.abort()
     show(false)
-    host.remove()
+    tab.remove()
   }
   signal.addEventListener("abort", remove, { once: true })
   return remove
@@ -379,10 +384,10 @@ function draftBanner(signal: AbortSignal): () => void {
 /**
  * The draft view of the Content segment. On a live page whose document has an unpublished draft, the pill shows
  * **View draft**. It posts the preview form of that one document to this page, as the side browser of the editor does,
- * so the token stays in the form body and only this browser sees the draft. The draft page shows a banner instead,
- * with the changes marked and **Back to live**. Client-side navigation resolves the next page again.
+ * so the token stays in the form body and only this browser sees the draft. The draft page shows a tab on top of the
+ * pill instead, with the changes marked and **Back to live**. Client-side navigation resolves the next page again.
  */
-export function draftSwitch(base: string, shadow: ShadowRoot, signal: AbortSignal): void {
+export function draftSwitch(base: string, shadow: ShadowRoot, createTab: () => HTMLElement, signal: AbortSignal): void {
   const appBase = base.replace(/\/_vitehub$/, "")
   const view = document.createElement("button")
   view.type = "button"
@@ -397,12 +402,12 @@ export function draftSwitch(base: string, shadow: ShadowRoot, signal: AbortSigna
 
   let current: PageDocument | undefined
   let pending: AbortController | undefined
-  let removeBanner: (() => void) | undefined
+  let removeTab: (() => void) | undefined
   const render = () => {
     const drafted = isDraftView(location.search)
     view.hidden = drafted || !current || (current.state !== "changed" && current.state !== "draft")
-    if (drafted && !removeBanner) removeBanner = draftBanner(signal)
-    if (!drafted && removeBanner) { removeBanner(); removeBanner = undefined }
+    if (drafted && !removeTab) removeTab = draftTab(createTab(), signal)
+    if (!drafted && removeTab) { removeTab(); removeTab = undefined }
   }
   const refresh = async () => {
     if (signal.aborted) return

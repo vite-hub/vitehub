@@ -32,6 +32,12 @@ export interface ViteHubPageToolContext {
   /** Whether the tool should open on startup, through query selection, activation, or restored state. */
   open: boolean
   createWindow(options: Omit<ViteHubPageWindowOptions, "signal">): ViteHubPageWindow
+  /**
+   * Adds a tab to the pill: a `<vitehub-tab slot="tab">` that stands on the bar's inner side, like a tab on top of a chat
+   * box, and grows out from under the bar. Use it for a state of this page that the person must keep in view, such as a
+   * draft preview. Draw it like `bar`, in its own shadow root. It goes away with the tool, or when you remove it.
+   */
+  createTab(): HTMLElement
   openTool(id: string, path?: string): Promise<boolean>
   onOpen(handler: (path?: string) => void): void
   beforeExit(check: () => boolean): void
@@ -311,6 +317,18 @@ async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turne
               windows.set(tool.id, retained)
               return retained
             }, openTool,
+            createTab: () => {
+              const tab = document.createElement("vitehub-tab")
+              tab.slot = "tab"
+              pill.append(tab)
+              attempt.signal.addEventListener("abort", () => tab.remove(), { once: true })
+              if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+                const edge = pill.getAttribute("edge")
+                const from = edge === "top" ? "0 -100%" : edge === "left" ? "-100% 0" : edge === "right" ? "100% 0" : "0 100%"
+                tab.animate([{ translate: from, opacity: 0 }, { translate: "0 0", opacity: 1 }], { duration: 220, easing: "cubic-bezier(.32,.72,0,1)" })
+              }
+              return tab
+            },
             onOpen: handler => { activate = handler },
           })
           mounted = true
