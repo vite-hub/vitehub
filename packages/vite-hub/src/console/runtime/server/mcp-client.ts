@@ -20,6 +20,8 @@ export interface ConsoleMcpCaller {
 }
 
 interface PendingAuthorization {
+  /** Reserve a callback while the SDK still needs its PKCE verifier. */
+  completing?: boolean
   expiresAt: number
   prompt?: "login"
   state: string
@@ -39,6 +41,8 @@ interface StoredOAuth {
 interface StoredConnection {
   auth: ConsoleMcpAuth
   bearer?: string
+  /** The last client operation settles before another can use this grant or session. */
+  clientOperation?: Promise<void>
   consoleOrigin: string
   createdAt: number
   error?: string
@@ -304,12 +308,26 @@ function serverInfo(client: Client, protocolVersion: string | undefined): Consol
 
 class SignedOutError extends Error {}
 
+interface ClientOptions { fresh?: boolean, keepSignIn?: boolean, timeoutMs?: number }
+
+/** Browser aborts can leave server operations running. Serialize clients per connection, including replacement loads. */
+function withClient<T>(connection: StoredConnection, run: (client: Client) => Promise<T>, options: ClientOptions = {}): Promise<T> {
+  const operation = (connection.clientOperation ?? Promise.resolve()).then(() => runClient(connection, run, options))
+  // A rejected operation must release the next one as well.
+  const settled = operation.then(() => {}, () => {})
+  connection.clientOperation = settled
+  void settled.then(() => {
+    if (connection.clientOperation === settled) delete connection.clientOperation
+  })
+  return operation
+}
+
 /**
  * Run `run` with an MCP client of the connection. The client reuses the MCP session of the connection when the server
  * gave one, and starts a new session when the server forgot it. A grant that the server rejects marks the connection
  * signed out.
  */
-async function withClient<T>(connection: StoredConnection, run: (client: Client) => Promise<T>, options: { fresh?: boolean, keepSignIn?: boolean, timeoutMs?: number } = {}): Promise<T> {
+async function runClient<T>(connection: StoredConnection, run: (client: Client) => Promise<T>, options: ClientOptions): Promise<T> {
   let authorizing = false
   const attempt = async (sessionId: string | undefined) => {
     const transport = new StreamableHTTPClientTransport(new URL(connection.url), {
@@ -555,9 +573,10 @@ export async function completeConsoleMcp(caller: ConsoleMcpCaller, input: { code
   const owner = await ownerOf(caller)
   const connection = owned(owner).find(candidate => candidate.oauth?.pending?.state === input.state)
   // A state of another person, an expired one, or one used before reads the same: the sign-in is not known.
-  if (!connection?.oauth?.pending) throw consoleRequestError(404, "This sign-in is not known. It expired, finished already, or was started by someone else. Start it again.", "CONSOLE_MCP_AUTHORIZATION_FAILED")
+  if (!connection?.oauth?.pending || connection.oauth.pending.completing) throw consoleRequestError(404, "This sign-in is not known. It expired, finished already, or was started by someone else. Start it again.", "CONSOLE_MCP_AUTHORIZATION_FAILED")
   const oauth = connection.oauth
   const pending = oauth.pending!
+  pending.completing = true
   if (input.error || !input.code) {
     delete oauth.pending
     connection.status = oauth.tokens ? "signed-out" : "failed"

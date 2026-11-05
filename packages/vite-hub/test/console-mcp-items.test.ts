@@ -16,7 +16,7 @@ const renderer = createRenderer({
   patchProp() {}, remove() {}, setElementText() {}, setText() {},
 })
 
-it("finishes every resource page before requesting templates that share its OAuth grant", async () => {
+it("loads more than ten resource pages before requesting templates that share its OAuth grant", async () => {
   const connection: ConsoleMcpConnection = { auth: "oauth", createdAt: new Date().toISOString(), id: "mcp_test", label: "Test", sameOrigin: true, status: "connected", url: "https://app.example/mcp" }
   type Page = ConsoleMcpPage & { connection: ConsoleMcpConnection }
   let finishPage: ((page: Page) => void) | undefined
@@ -24,7 +24,7 @@ it("finishes every resource page before requesting templates that share its OAut
   const kinds: unknown[] = []
   mocks.request.mockImplementation((_base: string, _operation: string, input: Record<string, unknown>) => {
     kinds.push(input.kind)
-    return kinds.length === 1 ? firstPage : Promise.resolve({ connection, items: [] })
+    return kinds.length === 1 ? firstPage : Promise.resolve({ connection, items: [], ...(input.kind === "resources" && kinds.length < 12 ? { nextCursor: `page-${kinds.length + 1}` } : {}) })
   })
   const app = renderer.createApp({ ...Items, render: () => null }, { base: "/_vitehub", connection, kind: "resources", peers: [connection] })
   app.provide(ssrContextKey, {})
@@ -33,8 +33,9 @@ it("finishes every resource page before requesting templates that share its OAut
     await vi.waitFor(() => expect(kinds).toContain("resources"))
     expect(kinds).toEqual(["resources"])
     finishPage!({ connection, items: [], nextCursor: "next" })
-    await vi.waitFor(() => expect(kinds).toEqual(["resources", "resources", "resource-templates"]))
+    await vi.waitFor(() => expect(kinds).toEqual([...Array.from({ length: 12 }, () => "resources"), "resource-templates"]))
     expect(mocks.request.mock.calls[1]![2]).toMatchObject({ cursor: "next" })
+    expect(mocks.request.mock.calls[11]![2]).toMatchObject({ cursor: "page-12" })
   }
   finally {
     finishPage!({ connection, items: [] })

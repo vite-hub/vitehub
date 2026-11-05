@@ -89,8 +89,8 @@ async function load(): Promise<void> {
     const pages = async (kind: ConsoleMcpListKind) => {
       const all: Item[] = [];
       let cursor: string | undefined;
-      // Servers page long lists. Ten pages cover any list a person reads here.
-      for (let page = 0; page < 10; page++) {
+      // Follow every page until the server finishes or this load is replaced.
+      while (!controller.signal.aborted) {
         const response = await requestConsoleMcp(props.base, "mcp-client.items", { id: props.connection.id, kind, ...(cursor ? { cursor } : {}) }, controller.signal);
         all.push(...response.items);
         emit("connection", response.connection);
