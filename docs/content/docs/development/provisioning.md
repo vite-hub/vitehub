@@ -89,6 +89,21 @@ A pending action needs resource creation or provider-side setup. An existing Ver
 If an existing project connection is missing environments, planning fails with `BLOB_R0020`. Correct the connection in Vercel before rerunning status or provisioning. `provision run` cannot modify an existing connection.
 Planning failures exit with code 1 and write the diagnostic to stderr, including with `--json`.
 Without provider credentials, the command still shows recorded ids, but it reports the plan as not checked instead of reporting no pending actions.
+
+### Ids that no Definition declares
+
+When you rename or remove a Database Definition or a KV Store, its id stays in `.vitehub/provision.json` and its resource stays on the host. `provision status` marks that entry as `not declared` and prints a `fix:` line for it. This check reads only local config, so it also works without credentials.
+
+```txt [Output]
+recorded cloudflare ids (.vitehub/provision.json):
+d1      main     db-main
+d1      primary  db-main  not declared
+kv      cache    ns-cache not declared
+fix: d1 "primary": d1 "main" uses the same id, so keep the resource and only remove the entry from .vitehub/provision.json.
+fix: kv "cache": No Definition declares it. If no deployment uses ns-cache, run `wrangler kv namespace delete --namespace-id ns-cache`, then remove the entry from .vitehub/provision.json.
+```
+
+ViteHub never deletes the resource or edits the file. Check that no deployment, preview, or other app binds the id before you delete it. An entry that shares its id with a declared entry only needs its line removed from the file. An entry in a category that no active package owns, for example after you remove `hubKv()`, is also marked `not declared`.
 The plan is also not checked when an applicable Provision Step skips its lookup. For example, Vercel Blob requires both `VERCEL_TOKEN` and `VERCEL_PROJECT_ID`.
 
 ## JSON output
@@ -113,10 +128,12 @@ pnpm vitehub provision status --provider cloudflare --json
   "recorded": { "d1": { "default": "database-id" } },
   "schemaVersion": 1,
   "stateFile": ".vitehub/provision.json",
+  "undeclared": [],
   "warnings": []
 }
 ```
 
+`undeclared` lists each recorded id that no Definition declares, as `{ category, key, id, fix }`.
 `provision run --json` returns `mode` (`dry-run` or `apply`), the planned `actions`, the `ids` written by this run, `stateFile` (`null` when nothing was written), and `warnings`.
 An action may include `pending` to report required provider-side setup independently of resource existence. Without this field, an action is pending when `exists` is `false`. Vercel Blob includes the field because an existing store may still need a project connection.
 Both commands exit with code `0` when the plan phase succeeds, also when actions are pending.

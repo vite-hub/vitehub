@@ -7,6 +7,7 @@ import type {
   ProvisionPlan,
   ProvisionProvider,
   ProvisionState,
+  ProvisionStateCategory,
   ProvisionStep,
 } from "@vite-hub/internal/provision"
 
@@ -82,7 +83,8 @@ function writeUsage(command: ProvisionCommand, stream: ProvisionFeatureContext["
         `Usage: ${USAGE.status}`,
         "",
         "Shows the ids recorded in .vitehub/provision.json and the actions the current plan would apply.",
-        "Never creates provider resources or writes Provision State.",
+        "Marks recorded ids that no Definition declares, with how to delete them on the host.",
+        "Never creates or deletes provider resources, and never writes Provision State.",
         "",
         "Options:",
         "  --provider <name>  Target provider: cloudflare or vercel (required).",
@@ -125,6 +127,48 @@ async function planProvision(provider: ProvisionProvider, context: ProvisionFeat
       warn: message => { if (!json) context.stderr.write(`${message}\n`) },
     },
   })
+}
+
+interface UndeclaredProvisionEntry {
+  category: string
+  fix: string
+  id: string
+  key: string
+}
+
+// Lists recorded ids that no current Definition uses, for example after a rename. Never deletes anything.
+function findUndeclaredEntries(
+  provider: ProvisionProvider,
+  recorded: Record<string, Record<string, string>>,
+  steps: readonly ProvisionStep[],
+  env: ProvisionFeatureContext["env"],
+): UndeclaredProvisionEntry[] {
+  const categories = new Map<string, ProvisionStateCategory>()
+  for (const step of steps) {
+    if (step.provider !== provider) continue
+    for (const category of step.recordedState?.({ env }) ?? []) categories.set(category.category, category)
+  }
+  const isDeclared = (category: string, key: string) => categories.get(category)?.declared.includes(key) ?? false
+  const declaredById = new Map<string, string>()
+  for (const [category, ids] of Object.entries(recorded)) {
+    for (const [key, id] of Object.entries(ids)) {
+      if (isDeclared(category, key) && !declaredById.has(id)) declaredById.set(id, `${category} ${JSON.stringify(key)}`)
+    }
+  }
+  const stateEdit = `remove the entry from ${PROVISION_STATE_FILE}`
+  const entries: UndeclaredProvisionEntry[] = []
+  for (const [category, ids] of Object.entries(recorded)) {
+    for (const [key, id] of Object.entries(ids)) {
+      if (isDeclared(category, key)) continue
+      const sharedWith = declaredById.get(id)
+      const deleteHint = categories.get(category)?.deleteHint({ id, key }) ?? `delete resource ${id} in the ${provider === "cloudflare" ? "Cloudflare" : "Vercel"} dashboard`
+      const fix = sharedWith
+        ? `${sharedWith} uses the same id, so keep the resource and only ${stateEdit}.`
+        : `No Definition declares it. If no deployment uses ${id}, ${deleteHint}, then ${stateEdit}.`
+      entries.push({ category, fix, id, key })
+    }
+  }
+  return entries
 }
 
 function serializeAction({ action, step }: PlannedProvisionAction) {
@@ -205,6 +249,7 @@ async function runProvisionStatus(args: string[], context: ProvisionFeatureConte
   const { provider } = resolved
 
   const recorded = (await readProvisionState(context.rootDir))[provider] ?? {}
+  const undeclared = findUndeclaredEntries(provider, recorded, await options.collectSteps(), context.env)
   const hasCredentials = hasProviderCredentials(provider, context.env)
   const { actions, checked, warnings } = hasCredentials
     ? await planProvision(provider, context, options, parsed.json)
@@ -222,16 +267,19 @@ async function runProvisionStatus(args: string[], context: ProvisionFeatureConte
       recorded,
       schemaVersion: 1,
       stateFile: PROVISION_STATE_FILE,
+      undeclared,
       warnings,
     })}\n`)
     return 0
   }
 
+  const isUndeclared = (category: string, key: string) => undeclared.some(entry => entry.category === category && entry.key === key)
   const recordedEntries = Object.entries(recorded)
-    .flatMap(([category, ids]) => Object.entries(ids).map(([key, id]) => `${category}\t${key}\t${id}\n`))
+    .flatMap(([category, ids]) => Object.entries(ids).map(([key, id]) => `${category}\t${key}\t${id}${isUndeclared(category, key) ? "\tnot declared" : ""}\n`))
   if (recordedEntries.length) {
     context.stdout.write(`recorded ${provider} ids (${PROVISION_STATE_FILE}):\n`)
     for (const entry of recordedEntries) context.stdout.write(entry)
+    for (const entry of undeclared) context.stdout.write(`fix: ${entry.category} ${JSON.stringify(entry.key)}: ${entry.fix}\n`)
   }
   else {
     context.stdout.write(`recorded ${provider} ids: none in ${PROVISION_STATE_FILE}\n`)

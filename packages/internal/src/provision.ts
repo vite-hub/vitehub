@@ -33,10 +33,20 @@ export interface ProvisionAction {
   apply: () => Promise<ProvisionResult>
 }
 
+/** One Provision State category that a step records, with the keys that current Definitions use. */
+export interface ProvisionStateCategory {
+  category: string
+  declared: readonly string[]
+  /** Tells a developer how to delete the resource of a recorded entry that no Definition declares. ViteHub never runs it. */
+  deleteHint: (entry: { id: string, key: string }) => string
+}
+
 export interface ProvisionStep {
   id: string
   provider: ProvisionProvider
   plan: (context: ProvisionContext) => Promise<ProvisionAction[]>
+  /** Describes the Provision State this step records. Runs without network access, also without credentials. */
+  recordedState?: (context: Pick<ProvisionContext, "env">) => ProvisionStateCategory[]
 }
 
 export interface PlannedProvisionAction {

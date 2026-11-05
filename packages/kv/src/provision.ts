@@ -105,6 +105,13 @@ export function createKVCloudflareProvisionStep(resolveOptions: () => KVModuleOp
   return {
     id: "kv:cloudflare-kv",
     provider: "cloudflare",
+    recordedState(context) {
+      return [{
+        category: KV_CLOUDFLARE_PROVISION_CATEGORY,
+        declared: [...planStoresByNamespace(resolveOptions(), context.env).values()].flat(),
+        deleteHint: ({ id }) => `run \`wrangler kv namespace delete --namespace-id ${id}\``,
+      }]
+    },
     async plan(context) {
       const storesByNamespace = planStoresByNamespace(resolveOptions(), context.env)
       if (!storesByNamespace.size) return []

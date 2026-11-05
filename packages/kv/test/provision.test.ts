@@ -141,6 +141,21 @@ describe("KV Cloudflare provision step", () => {
     await expect(actions[0]!.apply()).rejects.toMatchObject({ name: "ProvisionRequestError", status: 400 })
   })
 
+  it("describes the KV Store ids it records without network access", () => {
+    const step = createKVCloudflareProvisionStep(() => ({
+      stores: {
+        cache: namedStore("shared"),
+        default: { driver: "fs-lite" },
+        pinned: namedStore("pinned", { namespaceId: "configured-id" }),
+        sessions: namedStore("shared"),
+      },
+    }))
+
+    const [category] = step.recordedState?.({ env: {} }) ?? []
+    expect(category).toMatchObject({ category: "kv", declared: ["cache", "sessions"] })
+    expect(category?.deleteHint({ id: "ns-old", key: "old" })).toBe("run `wrangler kv namespace delete --namespace-id ns-old`")
+  })
+
   it("skips without credentials and never calls the API", async () => {
     const handler = vi.fn(() => jsonResponse({ success: true, result: [] }))
     const { context, warn } = createContext(handler, {})

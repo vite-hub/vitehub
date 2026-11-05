@@ -1030,7 +1030,8 @@ export default function (_options, nuxt) {
       .resolves.toBe(0)
     expect(human.output()).toBe([
       "recorded cloudflare ids (.vitehub/provision.json):",
-      "d1\tdefault\tdatabase-id",
+      "d1\tdefault\tdatabase-id\tnot declared",
+      "fix: d1 \"default\": No Definition declares it. If no deployment uses database-id, delete resource database-id in the Cloudflare dashboard, then remove the entry from .vitehub/provision.json.",
       "create\ttest-resource\tdemo",
       "plan: 1 pending action. Run `vitehub provision run --provider cloudflare` to apply.",
       "",
@@ -1050,9 +1051,66 @@ export default function (_options, nuxt) {
       recorded: { d1: { default: "database-id" } },
       schemaVersion: 1,
       stateFile: ".vitehub/provision.json",
+      undeclared: [{ category: "d1", fix: expect.stringContaining("No Definition declares it."), id: "database-id", key: "default" }],
       warnings: [],
     })
     expect(apply).not.toHaveBeenCalled()
+  })
+
+  it("marks recorded ids that no Definition declares, also without credentials", async () => {
+    const rootDir = await createTempDir()
+    await mkdir(join(rootDir, ".vitehub"), { recursive: true })
+    await writeFile(join(rootDir, ".vitehub", "provision.json"), JSON.stringify({
+      cloudflare: {
+        d1: { main: "db-main", old: "db-old", primary: "db-main" },
+        kv: { cache: "ns-cache" },
+      },
+    }))
+    const plan = vi.fn(async () => [])
+    const loadConfig = async () => ({
+      plugins: [{
+        vitehub: {
+          cli: {
+            namespaces: [],
+            provision: [{
+              id: "test:cloudflare",
+              plan,
+              provider: "cloudflare",
+              recordedState: () => [{ category: "d1", declared: ["main"], deleteHint: ({ id }: { id: string }) => `run \`delete-db ${id}\`` }],
+            }],
+          },
+        },
+      }],
+      root: rootDir,
+    })
+
+    const human = stream()
+    const stderr = stream()
+    await expect(runViteHubCli({ args: ["provision", "status", "--provider", "cloudflare"], cwd: rootDir, env: {}, loadConfig, stderr, stdout: human }))
+      .resolves.toBe(0)
+    expect(human.output()).toBe([
+      "recorded cloudflare ids (.vitehub/provision.json):",
+      "d1\tmain\tdb-main",
+      "d1\told\tdb-old\tnot declared",
+      "d1\tprimary\tdb-main\tnot declared",
+      "kv\tcache\tns-cache\tnot declared",
+      "fix: d1 \"old\": No Definition declares it. If no deployment uses db-old, run `delete-db db-old`, then remove the entry from .vitehub/provision.json.",
+      "fix: d1 \"primary\": d1 \"main\" uses the same id, so keep the resource and only remove the entry from .vitehub/provision.json.",
+      "fix: kv \"cache\": No Definition declares it. If no deployment uses ns-cache, delete resource ns-cache in the Cloudflare dashboard, then remove the entry from .vitehub/provision.json.",
+      "plan: not checked",
+      "",
+    ].join("\n"))
+
+    const json = stream()
+    await expect(runViteHubCli({ args: ["provision", "status", "--provider", "cloudflare", "--json"], cwd: rootDir, env: {}, loadConfig, stderr, stdout: json }))
+      .resolves.toBe(0)
+    expect(JSON.parse(json.output()).undeclared).toEqual([
+      { category: "d1", fix: expect.stringContaining("run `delete-db db-old`"), id: "db-old", key: "old" },
+      { category: "d1", fix: expect.stringContaining("d1 \"main\" uses the same id"), id: "db-main", key: "primary" },
+      { category: "kv", fix: expect.stringContaining("delete resource ns-cache in the Cloudflare dashboard"), id: "ns-cache", key: "cache" },
+    ])
+    expect(plan).not.toHaveBeenCalled()
+    expect(JSON.parse(await readFile(join(rootDir, ".vitehub", "provision.json"), "utf8")).cloudflare.d1.old).toBe("db-old")
   })
 
   it("counts existing but incomplete actions as pending", async () => {

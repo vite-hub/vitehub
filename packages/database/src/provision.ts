@@ -37,6 +37,16 @@ export function getDatabaseNuxtProvisionStateKey(databaseName: string) {
   return encodeURIComponent(databaseName.trim())
 }
 
+// Provision State is a file that developers can edit, so a key may not decode.
+function decodeStateKey(key: string): string {
+  try {
+    return decodeURIComponent(key)
+  }
+  catch {
+    return key
+  }
+}
+
 /** Contributions and server directories that the Database plugin resolved, so plans include contributed Definitions. */
 export interface DatabaseProvisionContext {
   contributions?: CollectedDatabaseContributions
@@ -84,6 +94,18 @@ export function createDatabaseProvisionStep(
   return {
     id: "database:cloudflare-d1",
     provider: "cloudflare",
+    recordedState() {
+      const planned = planDatabases(resolveRootDir(), options, resolveContext?.())
+      return [{
+        category: "d1",
+        declared: planned.flatMap(database => database.definitions),
+        deleteHint: ({ id }) => `delete D1 database ${id} in the Cloudflare dashboard, or find its name with \`wrangler d1 list\` and run \`wrangler d1 delete <name>\``,
+      }, {
+        category: "d1Nuxt",
+        declared: planned.filter(database => database.nuxt).map(database => getDatabaseNuxtProvisionStateKey(database.databaseName)),
+        deleteHint: ({ key }) => `run \`wrangler d1 delete ${decodeStateKey(key)}\``,
+      }]
+    },
     async plan(context) {
       const config = resolveCloudflareProvisionConfig(context.env)
       if (!config) {
