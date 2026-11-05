@@ -99,6 +99,23 @@ defineProps<{
 }
 
 /*
+ * The icon buttons of a panel title, such as Refresh and New chat, are 24px. On a touch screen each one takes the full
+ * 44px header height and half of the 8px gap to its neighbors, so taps do not miss and never land on the next button.
+ * Devices with only fine pointers keep 24px.
+ */
+@media (any-pointer: coarse) {
+  .vitehub-console__panel-title :is(a, button) {
+    position: relative;
+  }
+
+  .vitehub-console__panel-title :is(a, button)::before {
+    content: "";
+    inset: -0.625rem -0.25rem;
+    position: absolute;
+  }
+}
+
+/*
  * iOS Safari zooms into a focused field with text under 16px and stays zoomed. Touch screens get 16px field text even when
  * a mouse is the primary pointer. Mouse-only devices keep the dense 14px. Unlayered, so it wins over the size utilities.
  * The body selector also reaches the search dialog and menus, which render outside the frame.
