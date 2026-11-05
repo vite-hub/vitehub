@@ -7,7 +7,7 @@ export default defineConfig({
     tsconfig: "tsconfig.build.json",
     copy: [{ from: "styles.css", to: "dist" }],
     deps: {
-      alwaysBundle: [/@pierre\//, "@vite-hub/icons", "@vite-hub/runtime", /^comark-(?!chat(?:\/|$))/],
+      alwaysBundle: [/@pierre\//, "@vite-hub/icons", "@vite-hub/runtime", "@vite-hub/blob/client", /^comark-(?!chat(?:\/|$))/],
       // Keep Vega's Node/browser exports selectable by the consuming host.
       neverBundle: [
         "vega-canvas",
@@ -27,6 +27,8 @@ export default defineConfig({
         /^@codemirror\//,
         "@lezer/highlight",
         /^@xterm\//,
+        // MarkdownEditor's Tiptap must be the app's own, the one Nuxt UI's editor menus use.
+        /^@tiptap\//,
       ],
       onlyBundle: false,
     },
@@ -41,6 +43,7 @@ export default defineConfig({
       "src/choices-input.ts",
       "src/code-block.ts",
       "src/markdown.ts",
+      "src/markdown-editor.ts",
       "src/marker.ts",
       "src/message.ts",
       "src/message-parts.ts",

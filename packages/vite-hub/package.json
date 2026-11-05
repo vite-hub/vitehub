@@ -1023,6 +1023,11 @@
       "import": "./dist/ui/markdown.js",
       "default": "./dist/ui/markdown.js"
     },
+    "./ui/markdown-editor": {
+      "types": "./dist/ui/markdown-editor.d.ts",
+      "import": "./dist/ui/markdown-editor.js",
+      "default": "./dist/ui/markdown-editor.js"
+    },
     "./ui/marker": {
       "types": "./dist/ui/marker.d.ts",
       "import": "./dist/ui/marker.js",

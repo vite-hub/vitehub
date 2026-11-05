@@ -131,6 +131,11 @@
       "import": "./dist/markdown.js",
       "default": "./dist/markdown.js"
     },
+    "./markdown-editor": {
+      "types": "./dist/markdown-editor.d.ts",
+      "import": "./dist/markdown-editor.js",
+      "default": "./dist/markdown-editor.js"
+    },
     "./marker": {
       "types": "./dist/marker.d.ts",
       "import": "./dist/marker.js",
@@ -299,13 +304,28 @@
     "vue": "catalog:ui",
     "@types/markdown-it": "^14.2.0",
     "@vite-hub/agent": "workspace:*",
-    "comark-ui": "catalog:markdown-ui",
+    "comark-ui": "https://pkg.pr.new/onmax/comark-ui/comark-ui@2b5e869",
     "@vite-hub/content": "workspace:*",
-    "playwright-core": "catalog:browser"
+    "playwright-core": "catalog:browser",
+    "@tiptap/core": "catalog:realtime",
+    "@tiptap/extension-image": "catalog:realtime",
+    "@tiptap/extension-list": "catalog:realtime",
+    "@tiptap/extension-table": "catalog:realtime",
+    "@tiptap/pm": "catalog:realtime",
+    "@tiptap/starter-kit": "catalog:realtime",
+    "@tiptap/vue-3": "catalog:realtime",
+    "@vite-hub/blob": "workspace:*"
   },
   "peerDependencies": {
     "@iconify-json/ph": "catalog:ui",
     "@nuxt/ui": "^4.11.0",
+    "@tiptap/core": "catalog:realtime",
+    "@tiptap/extension-image": "catalog:realtime",
+    "@tiptap/extension-list": "catalog:realtime",
+    "@tiptap/extension-table": "catalog:realtime",
+    "@tiptap/pm": "catalog:realtime",
+    "@tiptap/starter-kit": "catalog:realtime",
+    "@tiptap/vue-3": "catalog:realtime",
     "ai": "catalog:ai-compat",
     "vite": "catalog:vite-compat",
     "vue": "catalog:ui"
@@ -315,6 +335,27 @@
       "optional": true
     },
     "@nuxt/ui": {
+      "optional": true
+    },
+    "@tiptap/core": {
+      "optional": true
+    },
+    "@tiptap/extension-image": {
+      "optional": true
+    },
+    "@tiptap/extension-list": {
+      "optional": true
+    },
+    "@tiptap/extension-table": {
+      "optional": true
+    },
+    "@tiptap/pm": {
+      "optional": true
+    },
+    "@tiptap/starter-kit": {
+      "optional": true
+    },
+    "@tiptap/vue-3": {
       "optional": true
     },
     "vite": {
