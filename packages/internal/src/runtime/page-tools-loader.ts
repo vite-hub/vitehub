@@ -8,7 +8,7 @@ import type { ViteHubPageToolsDock, ViteHubPageToolsEdge, ViteHubPageWindow, Vit
  * This file runs only in the browser. The package's Node program does not include it, because the DOM types conflict
  * with the Node stream types: `tsconfig.browser.json` checks it.
  */
-import { readViteHubPageSession, viteHubPageSessionUrl, viteHubPageToolsQuery, viteHubPageToolsWanted, viteHubPillButtonStyles } from "./page-tools-shared.ts"
+import { readViteHubPageSession, viteHubPageSessionUrl, viteHubPageToolsQuery, viteHubPageToolsWanted, viteHubPillAttribute, viteHubPillButtonStyles } from "./page-tools-shared.ts"
 
 import type { ViteHubPageSession, ViteHubPageToolInfo } from "./page-tools-shared.ts"
 
@@ -155,6 +155,14 @@ function storedCollapsed(): boolean {
   catch { return false }
 }
 
+function rememberCollapsed(collapsed: boolean): void {
+  try {
+    if (collapsed) localStorage.setItem(collapsedKey, "1")
+    else localStorage.removeItem(collapsedKey)
+  }
+  catch {}
+}
+
 function storedOff(): boolean {
   try { return localStorage.getItem(offKey) === "1" }
   catch { return false }
@@ -181,6 +189,31 @@ function storedDock(): ViteHubPageToolsDock {
   }
   catch {}
   return { edge: "bottom", at: 50 }
+}
+
+/** Whether the page asks for the mark only, with `<html data-vitehub-pill="mark">`, because its own bar is there. */
+function pageAsksForMark(): boolean {
+  return document.documentElement.getAttribute(viteHubPillAttribute) === "mark"
+}
+
+/**
+ * Where the pill goes while the page asks for the mark: the nearer end of the top or bottom edge, out of the way of a
+ * bar centered on it. On the left and right edges it keeps its place.
+ */
+function asideOf(dock: ViteHubPageToolsDock): ViteHubPageToolsDock {
+  return dock.edge === "top" || dock.edge === "bottom" ? { edge: dock.edge, at: dock.at < 50 ? 0 : 100 } : dock
+}
+
+/** Calls `change` each time the page starts or stops asking for the mark, until `signal` aborts. */
+function watchPageAsk(change: () => void, signal: AbortSignal): void {
+  let asked = pageAsksForMark()
+  const observer = new MutationObserver(() => {
+    if (pageAsksForMark() === asked) return
+    asked = !asked
+    change()
+  })
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: [viteHubPillAttribute] })
+  signal.addEventListener("abort", () => observer.disconnect(), { once: true })
 }
 
 /**
@@ -213,7 +246,8 @@ function placeAlong(center: number, size: number, start: number, end: number, le
 /**
  * Draws the pill: one `<vitehub-pill>` docked to an edge of the page, with the ViteHub mark, a named slot per tool in
  * session order, and the exit button. The mark collapses the pill to itself, and dragging the mark docks the pill to
- * another edge. The browser remembers both.
+ * another edge. The browser remembers both. While the page asks for the mark, the pill folds and steps aside, and a
+ * press on the mark opens it on that page only.
  */
 function mountPill(tools: ViteHubPageToolInfo[], exit: (keyboard: boolean) => void, signal: AbortSignal): HTMLElement {
   const pill = document.createElement("vitehub-pill")
@@ -237,15 +271,18 @@ function mountPill(tools: ViteHubPageToolInfo[], exit: (keyboard: boolean) => vo
     mark.setAttribute("aria-label", collapsed ? "Show ViteHub tools" : "Hide ViteHub tools")
     mark.title = `${mark.getAttribute("aria-label")!}. Drag to move.`
   }
-  collapse(storedCollapsed())
+  // Opened by the person while the page asks for the mark. It lasts until the page stops asking.
+  let opened = false
+  const folded = () => pageAsksForMark() ? !opened : storedCollapsed()
+  collapse(folded())
   let dragged = false
   mark.addEventListener("click", () => {
     if (dragged) return
     const collapsed = !pill.hasAttribute("collapsed")
     collapse(collapsed)
     place(dock)
-    try { collapsed ? localStorage.setItem(collapsedKey, "1") : localStorage.removeItem(collapsedKey) }
-    catch {}
+    if (pageAsksForMark()) opened = !collapsed
+    else rememberCollapsed(collapsed)
   })
   const button = document.createElement("button")
   button.className = "exit"
@@ -263,15 +300,19 @@ function mountPill(tools: ViteHubPageToolInfo[], exit: (keyboard: boolean) => vo
   button.addEventListener("click", event => exit(event.detail === 0))
   signal.addEventListener("abort", () => pill.remove(), { once: true })
 
+  // `dock` is the person's place; `shown` is where the pill is, aside while the page asks for the mark. A drag shows
+  // the place under the pointer, and the pill steps aside again when it ends.
   let dock = storedDock()
+  let shown = dock
   const vertical = () => dock.edge === "left" || dock.edge === "right"
   const place = (next: ViteHubPageToolsDock) => {
     dock = next
-    pill.setAttribute("edge", next.edge)
-    pill.style.setProperty("--at", String(next.at))
+    shown = pageAsksForMark() && !pill.hasAttribute("dragging") ? asideOf(next) : next
+    pill.setAttribute("edge", shown.edge)
+    pill.style.setProperty("--at", String(shown.at))
     const collapsed = pill.hasAttribute("collapsed")
     const thickness = collapsed ? vertical() ? hexagonSize(pill).width : hexagonSize(pill).height : vertical() ? toolbar.offsetWidth : toolbar.offsetHeight
-    dockViteHubPageWindows({ ...next, collapsed, thickness })
+    dockViteHubPageWindows({ ...shown, collapsed, thickness })
     // Collapsed, the mark moves to the hexagon at the bar's center. It only translates, so the bar keeps its size and
     // the clip morph is not cut short by the resize animation below.
     mark.style.setProperty("--vitehub-mark-x", `${toolbar.clientWidth / 2 - mark.offsetLeft - mark.offsetWidth / 2}px`)
@@ -316,6 +357,7 @@ function mountPill(tools: ViteHubPageToolInfo[], exit: (keyboard: boolean) => vo
       pill.removeAttribute("dragging")
       try { localStorage.setItem(dockKey, JSON.stringify({ edge: dock.edge, at: dock.at })) }
       catch {}
+      place(dock)
       // The click that ends the drag comes first, so a later key press on the mark still toggles the pill.
       setTimeout(() => { dragged = false })
     }, { once: true })
@@ -345,8 +387,8 @@ function mountPill(tools: ViteHubPageToolInfo[], exit: (keyboard: boolean) => vo
     // right and bottom edges, where the bar grows away from the edge.
     const grown = { x: box.width - before.box.width, y: box.height - before.box.height }
     const corner = {
-      x: vertical() ? dock.edge === "right" ? grown.x : 0 : grown.x * dock.at / 100,
-      y: vertical() ? grown.y * dock.at / 100 : dock.edge === "bottom" ? grown.y : 0,
+      x: vertical() ? shown.edge === "right" ? grown.x : 0 : grown.x * shown.at / 100,
+      y: vertical() ? grown.y * shown.at / 100 : shown.edge === "bottom" ? grown.y : 0,
     }
     const timing = { duration: 250, easing: "cubic-bezier(.32,.72,0,1)", id: "vitehub-pill-glide" }
     for (const [part, now] of parts) {
@@ -368,6 +410,11 @@ function mountPill(tools: ViteHubPageToolInfo[], exit: (keyboard: boolean) => vo
   // The first observation only measures: the pill must not glide in when the page loads.
   resized.observe(toolbar)
   signal.addEventListener("abort", () => resized.disconnect(), { once: true })
+  watchPageAsk(() => {
+    opened = false
+    collapse(folded())
+    place(dock)
+  }, signal)
   return pill
 }
 
@@ -387,8 +434,14 @@ function mountOffMark(turnOn: () => void, focus: boolean): void {
   mark.setAttribute("collapsed", "")
   mark.style.viewTransitionName = "vitehub-pill"
   const dock = storedDock()
-  mark.setAttribute("edge", dock.edge)
-  mark.style.setProperty("--at", String(dock.at))
+  const place = () => {
+    const shown = pageAsksForMark() ? asideOf(dock) : dock
+    mark.setAttribute("edge", shown.edge)
+    mark.style.setProperty("--at", String(shown.at))
+  }
+  place()
+  const watching = new AbortController()
+  watchPageAsk(place, watching.signal)
   const shadow = mark.attachShadow({ mode: "open" })
   const style = document.createElement("style")
   style.textContent = `${pillStyles}\n${offMarkStyles}`
@@ -399,7 +452,7 @@ function mountOffMark(turnOn: () => void, focus: boolean): void {
   button.append(svgIcon("0 0 20 18", markPath, {}))
   shadow.append(style, button)
   document.documentElement.append(mark)
-  button.addEventListener("click", () => { mark.remove(); turnOn() })
+  button.addEventListener("click", () => { watching.abort(); mark.remove(); turnOn() })
   if (focus) button.focus({ preventScroll: true })
 }
 
