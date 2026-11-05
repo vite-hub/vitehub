@@ -22,7 +22,7 @@ const serverMocks = vi.hoisted(() => ({
   getSession: vi.fn(),
   invalidateWorkspaceStore: vi.fn(),
   resolveWorkspaceStoreTarget: vi.fn(),
-  useWorkspace: vi.fn(),
+  useWorkspaceFiles: vi.fn(),
 }))
 
 vi.mock("@vite-hub/auth/server", () => ({
@@ -33,7 +33,7 @@ vi.mock("@vite-hub/workspace", async (importOriginal) => ({
   ...await importOriginal<typeof import("@vite-hub/workspace")>(),
   invalidateWorkspaceStore: serverMocks.invalidateWorkspaceStore,
   resolveWorkspaceStoreTarget: serverMocks.resolveWorkspaceStoreTarget,
-  useWorkspace: serverMocks.useWorkspace,
+  useWorkspaceFiles: serverMocks.useWorkspaceFiles,
 }))
 
 afterEach(() => {
@@ -47,7 +47,7 @@ beforeEach(() => {
   serverMocks.getSession.mockReset()
   serverMocks.invalidateWorkspaceStore.mockReset().mockResolvedValue(undefined)
   serverMocks.resolveWorkspaceStoreTarget.mockReset().mockResolvedValue(undefined)
-  serverMocks.useWorkspace.mockReset()
+  serverMocks.useWorkspaceFiles.mockReset()
 })
 
 function realtimeRegistry(options: { auth?: boolean, checkpoint?: boolean, persistence?: false } = {}) {
@@ -79,7 +79,7 @@ function durableRealtimeRequest(exec: (query: string, ...bindings: unknown[]) =>
 
 describe("realtime server handler", () => {
   it.each(["", "/portal", "/nested/portal"])("accepts document and event connections below app base %s", async (base) => {
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
@@ -128,7 +128,7 @@ describe("realtime server handler", () => {
   it("ignores inherited Cloudflare storage contexts", async () => {
     const exec = vi.fn(() => ({ toArray: () => [] }))
     const context = Object.create({ storage: { sql: { exec } } })
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
@@ -147,7 +147,7 @@ describe("realtime server handler", () => {
 
   it("rejects an inherited data SQL descriptor", async () => {
     const exec = vi.fn(() => ({ toArray: () => [] }))
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
@@ -172,7 +172,7 @@ describe("realtime server handler", () => {
     const getter = vi.fn(() => exec)
     const prototype = Object.defineProperty({}, "exec", kind === "getter" ? { get: getter } : { value: exec })
     const sql = Object.create(prototype)
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
@@ -195,7 +195,7 @@ describe("realtime server handler", () => {
     Object.defineProperty(storagePrototype, "exec", { value: exec })
     Object.defineProperty(storagePrototype, "sql", Object.getOwnPropertyDescriptor(Object.prototype, "__proto__")!)
     const storage = Object.create(storagePrototype)
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
@@ -220,7 +220,7 @@ describe("realtime server handler", () => {
       ...kind === "getter" ? { get: getter } : { value: exec },
     })
     try {
-      serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
         exists: vi.fn().mockResolvedValue(false),
         readFile: vi.fn(),
         stat: vi.fn().mockResolvedValue(undefined),
@@ -246,7 +246,7 @@ describe("realtime server handler", () => {
     const exec = vi.fn(() => ({ toArray: () => [] }))
     const sql = {}
     Object.defineProperty(Object.prototype, "exec", { configurable: true, value: exec })
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
@@ -276,12 +276,12 @@ describe("realtime server handler", () => {
     }))
 
     expect(response.status).toBe(401)
-    expect(serverMocks.useWorkspace).not.toHaveBeenCalled()
+    expect(serverMocks.useWorkspaceFiles).not.toHaveBeenCalled()
   })
 
   it("uses the Auth Definition trusted-origin policy", async () => {
     serverMocks.getSession.mockResolvedValue({ user: { id: "user" } })
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
@@ -296,7 +296,7 @@ describe("realtime server handler", () => {
   })
 
   it("compares the identify() origin with the origin behind a TLS-terminating proxy", async () => {
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
@@ -318,7 +318,7 @@ describe("realtime server handler", () => {
   })
 
   it("rejects saves when the Workspace Store cannot write conditionally", async () => {
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
@@ -339,7 +339,7 @@ describe("realtime server handler", () => {
   it("rejects durable saves backed by an ephemeral memory Workspace Store", async () => {
     serverMocks.resolveWorkspaceStoreTarget.mockResolvedValue({ provider: "memory" })
     const writeFile = vi.fn()
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
@@ -363,7 +363,7 @@ describe("realtime server handler", () => {
 
   it("rejects an unsynchronized checkpoint before writing to Workspace", async () => {
     const writeFile = vi.fn()
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(true),
       readFile: vi.fn().mockResolvedValue("# Workspace version"),
       stat: vi.fn().mockResolvedValue({ digest: "baseline" }),
@@ -384,7 +384,7 @@ describe("realtime server handler", () => {
   })
 
   it("accepts workspace changes only on the workspace room", async () => {
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(true),
       readFile: vi.fn().mockResolvedValue(""),
       stat: vi.fn().mockResolvedValue(undefined),
@@ -409,7 +409,7 @@ describe("realtime server handler", () => {
   })
 
   it("does not publish through an unregistered inherited peer marker", async () => {
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
       stat: vi.fn(),
@@ -436,7 +436,7 @@ describe("realtime server handler", () => {
   })
 
   it("publishes through an inherited publisher for a registered peer", async () => {
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
       stat: vi.fn(),
@@ -464,7 +464,7 @@ describe("realtime server handler", () => {
 
   it("rate-limits workspace changes from each peer", async () => {
     vi.spyOn(Date, "now").mockReturnValue(100)
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
@@ -487,7 +487,7 @@ describe("realtime server handler", () => {
   })
 
   it("rejects document updates in workspace event rooms", async () => {
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
@@ -513,7 +513,7 @@ describe("realtime server handler", () => {
   })
 
   it("answers a keepalive ping with a pong", async () => {
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
@@ -534,7 +534,7 @@ describe("realtime server handler", () => {
   })
 
   it("closes peers that send truncated realtime frames", async () => {
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
@@ -554,7 +554,7 @@ describe("realtime server handler", () => {
   })
 
   it("holds sync updates past the burst and applies them, merged, when the budget refills", async () => {
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
@@ -596,7 +596,7 @@ describe("realtime server handler", () => {
   })
 
   it("closes a peer that holds back more than one message of updates", async () => {
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
@@ -629,7 +629,7 @@ describe("realtime server handler", () => {
   })
 
   it("accepts only the initial sync response outside the update throttle", async () => {
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
@@ -658,7 +658,7 @@ describe("realtime server handler", () => {
 
   it("treats an @workspace path as a document without the events selector", async () => {
     const readFile = vi.fn().mockResolvedValue("# Workspace document")
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(true),
       readFile,
       stat: vi.fn().mockResolvedValue({ digest: "baseline" }),
@@ -678,7 +678,7 @@ describe("realtime server handler", () => {
   })
 
   it("reclaims inactive memory rooms when the retained-room limit is reached", async () => {
-    serverMocks.useWorkspace.mockReturnValue({
+    serverMocks.useWorkspaceFiles.mockReturnValue({
       fs: {
         exists: vi.fn().mockResolvedValue(true),
         readFile: vi.fn().mockResolvedValue("# Workspace document"),
@@ -706,7 +706,7 @@ describe("realtime server handler", () => {
   })
 
   it("does not evict inactive memory rooms with unsaved collaborative edits", async () => {
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
@@ -734,7 +734,7 @@ describe("realtime server handler", () => {
   })
 
   it("does not evict an inactive room while it is reconnecting", async () => {
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
@@ -764,7 +764,7 @@ describe("realtime server handler", () => {
   })
 
   it("does not retain rooms for rejected checkpoints", async () => {
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
@@ -789,7 +789,7 @@ describe("realtime server handler", () => {
       .mockRejectedValueOnce(new Error("Workspace read failed"))
       .mockResolvedValue(undefined)
     const exec = vi.fn(() => ({ toArray: () => [] }))
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
       stat,
@@ -808,7 +808,7 @@ describe("realtime server handler", () => {
 
   it("does not retain awareness clients from a rejected update", async () => {
     serverMocks.getSession.mockResolvedValue({ user: { id: "user" } })
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
@@ -850,7 +850,7 @@ describe("realtime server handler", () => {
   })
 
   it("applies the latest awareness update after the throttle window", async () => {
-    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
       readFile: vi.fn(),
       stat: vi.fn().mockResolvedValue(undefined),
@@ -1258,7 +1258,7 @@ describe("tiptap-markdown documents", () => {
         },
       },
     }
-    serverMocks.useWorkspace.mockReturnValue(workspace)
+    serverMocks.useWorkspaceFiles.mockReturnValue(workspace)
 
     await expect(workspaceDocument("docs").save(
       { authority: "memory", definition: "docs", documentId: "docs/page.md" },
@@ -1292,7 +1292,7 @@ describe("tiptap-markdown documents", () => {
           writeFile: vi.fn(),
         }
         fs[operation].mockRejectedValue(error)
-        serverMocks.useWorkspace.mockReturnValue(workspaceFacade(fs))
+        serverMocks.useWorkspaceFiles.mockReturnValue(workspaceFacade(fs))
 
         await expect(createAdapter("docs").save(
           { authority: "memory", definition: "docs", documentId: "docs/page.md" },

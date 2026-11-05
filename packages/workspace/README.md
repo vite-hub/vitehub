@@ -10,7 +10,7 @@
 
 ## File access without Agent tools
 
-Use `useWorkspaceFiles()` for file, history, and Content operations that do not need Agent tools. It accepts the same name, mode, and definition options as `useWorkspace()`, and returns the same facade without `tools`. Its import does not pull the shell interpreter into a Worker.
+Use `useWorkspaceFiles()` for file, history, and Content operations that do not need Agent tools. It accepts the same name, mode, and definition options as `useWorkspace()`, and returns the same facade without `tools`. It skips constructing and bundling Agent tools.
 
 ```ts
 import { useWorkspaceFiles } from "@vite-hub/workspace"

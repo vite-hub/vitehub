@@ -1,8 +1,8 @@
 import { getViteHubErrorShape } from "@vite-hub/runtime"
-import { isWorkspaceConflict, resolveWorkspaceStoreTarget, useWorkspace } from "@vite-hub/workspace"
+import { isWorkspaceConflict, resolveWorkspaceStoreTarget, useWorkspaceFiles } from "@vite-hub/workspace"
 import { HTTPError } from "h3"
 
-import type { ReadonlyWorkspaceFacade, WorkspaceSnapshot, WritableWorkspaceFacade } from "@vite-hub/workspace"
+import type { ReadonlyWorkspaceFiles, WorkspaceSnapshot, WritableWorkspaceFiles } from "@vite-hub/workspace"
 import type { RealtimeDocumentAdapter } from "./types.ts"
 import { RealtimeDocumentConflict } from "./conflict.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
@@ -13,8 +13,8 @@ export interface RealtimeWorkspaceDocumentAdapter extends RealtimeDocumentAdapte
 }
 
 export async function readRealtimeWorkspaceDocument(
-  readable: ReadonlyWorkspaceFacade,
-  writable: WritableWorkspaceFacade,
+  readable: ReadonlyWorkspaceFiles,
+  writable: WritableWorkspaceFiles,
   documentId: string,
 ): Promise<{ baselineDigest: string | undefined, markdown: string }> {
   const stat = async () => {
@@ -79,15 +79,15 @@ export function workspaceDocument(workspaceName: string): RealtimeWorkspaceDocum
     workspace: workspaceName,
     async load({ documentId }) {
       const current = await readRealtimeWorkspaceDocument(
-        useWorkspace(workspaceName),
-        useWorkspace(workspaceName, { mode: "write" }),
+        useWorkspaceFiles(workspaceName),
+        useWorkspaceFiles(workspaceName, { mode: "write" }),
         documentId,
       )
       return { body: current.markdown, digest: current.baselineDigest ?? null }
     },
     async save(context, document, { ifDigest }) {
       const { documentId } = context
-      const workspace = useWorkspace(workspaceName, { mode: "write" })
+      const workspace = useWorkspaceFiles(workspaceName, { mode: "write" })
       if (!(await workspace.capabilities()).conditionalWrites) {
         throw new HTTPError({ status: 501, message: "Realtime saves require a Workspace Store with conditional writes." })
       }
@@ -123,7 +123,7 @@ export function workspaceDocument(workspaceName: string): RealtimeWorkspaceDocum
     },
     async checkpoint({ documentId }, { digest, message }): Promise<WorkspaceSnapshot> {
       return await serializeWorkspace(workspaceName, async () => {
-        const workspace = useWorkspace(workspaceName, { mode: "write" })
+        const workspace = useWorkspaceFiles(workspaceName, { mode: "write" })
         const options = { message: message || `docs: checkpoint ${documentId}` }
         let snapshot: WorkspaceSnapshot
         try {
