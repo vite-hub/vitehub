@@ -2,27 +2,13 @@ import { getCloudflareEnv, getCloudflareExecutionContext, resolveWaitUntil } fro
 import { createH3V1ResponseHeaders, isH3V1Event, toH3V1Request } from "@vite-hub/internal/runtime/h3-v1-request"
 import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
 import { createRuntimeContext } from "./index.ts"
-import type { CloudflareWorkerExecutionContext } from "@vite-hub/internal/runtime/cloudflare-env"
 import type { H3V1Event, H3V1NodeResponse } from "@vite-hub/internal/runtime/h3-v1-request"
 import type { EventHandlerRequest } from "h3"
 import type { StandardContext } from "standard-context"
 import type { CreatedRuntimeContext, RuntimeContextInput, RuntimeHostContext } from "./index.ts"
+import type { ViteHubContext, ViteHubRuntime, ViteHubStandardProps } from "./standard-context.ts"
 
-/** The host data that ViteHub puts in `runtime` of a Standard Context. */
-export interface ViteHubRuntime {
-  cloudflare?: {
-    context?: CloudflareWorkerExecutionContext
-    env: Record<string, unknown>
-  }
-  /** The client IP address that the host reports. ViteHub does not read it from forwarding headers. */
-  clientAddress?: string
-}
-
-/** The `~standard` properties of a request event in a ViteHub app. */
-export type ViteHubStandardProps = StandardContext.Props<ViteHubRuntime, void>
-
-/** A request event in a ViteHub app: any server context with Standard Context properties. */
-export type ViteHubContext<C = {}> = StandardContext<C, ViteHubRuntime, void>
+export type { ViteHubContext, ViteHubRuntime, ViteHubStandardProps } from "./standard-context.ts"
 
 declare module "h3" {
   // The type parameters must match the H3Event class of H3 1 and H3 2.
@@ -238,6 +224,16 @@ export function installStandardContext<T extends object>(event: T): asserts even
     throw runtimeErrorDiagnostics.RUNTIME_R0015({ message: "[vitehub] The event has no request, so ViteHub cannot set `~standard`. Pass the event of an H3 or Nitro route." })
   }
   Object.defineProperty(event, "~standard", { configurable: true, enumerable: false, value: props })
+}
+
+/**
+ * Return `event["~standard"]`. ViteHub primitives read request events through this function. It sets Standard
+ * Context first when Nitro did not, such as for an H3 app without the ViteHub Vite plugin or an event in a test.
+ * Throws `RUNTIME_R0015` when the event has no request.
+ */
+export function getStandardContext(event: ViteHubContext): ViteHubStandardProps {
+  installStandardContext(event)
+  return event["~standard"]
 }
 
 /** Adapt one request. Await flushWaitUntil when the host has no lifetime API. */

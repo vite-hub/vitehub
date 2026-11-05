@@ -2,7 +2,7 @@ import { H3Event } from "h3"
 import { describe, expect, it, vi } from "vitest"
 import { toH3V1Request } from "@vite-hub/internal/runtime/h3-v1-request"
 
-import { getRuntimeContext, installStandardContext } from "../src/h3.ts"
+import { getRuntimeContext, getStandardContext, installStandardContext } from "../src/h3.ts"
 
 describe("@vite-hub/runtime/h3", () => {
   it("reads the Cloudflare env and lifetime from an H3 event", () => {
@@ -85,6 +85,19 @@ describe("@vite-hub/runtime/h3", () => {
     expect(standard.runtime).toBe(runtime)
     expect(standard.waitUntil).toBe(waitUntil)
     expect(reads).toEqual(afterFirstRead)
+  })
+
+  it("returns Standard Context and sets it when Nitro did not", () => {
+    const req = new Request("https://example.test/")
+    const event = { req, res: { headers: new Headers() } }
+
+    const standard = getStandardContext(event as never)
+    expect(standard.req).toBe(req)
+    expect(getStandardContext(event as never)).toBe(standard)
+
+    const hostStandard = { vendor: "host", req, res: {} }
+    expect(getStandardContext({ "~standard": hostStandard })).toBe(hostStandard)
+    expect(() => getStandardContext({} as never)).toThrow(expect.objectContaining({ name: "RUNTIME_R0015" }))
   })
 
   it("does not set Standard Context on an event without a request", () => {

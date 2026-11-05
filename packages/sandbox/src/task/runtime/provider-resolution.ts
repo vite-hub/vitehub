@@ -1,4 +1,4 @@
-import { getCloudflareEnv } from '@vite-hub/internal/runtime/cloudflare-env'
+import { getActiveCloudflareEnv } from '@vite-hub/internal/runtime/cloudflare-env'
 import { createProviderDetector, isCloudflare, isVercel } from '../internal/shared/provider-detection'
 import { sandboxTaskError } from '../sandbox-task/errors'
 
@@ -8,13 +8,6 @@ import type {
 } from '../module-types'
 import type { SandboxTaskProvider } from '../module-types'
 import { sandboxTaskErrorDiagnostics } from "../error-diagnostics.ts"
-
-type SandboxTaskEvent = {
-  context?: {
-    cloudflare?: { env?: Record<string, unknown> }
-    _platform?: { cloudflare?: { env?: Record<string, unknown> } }
-  }
-}
 
 const allowedDefinitionKeys = new Set(['timeout', 'env'])
 const maxTimeout = 2_147_483_647
@@ -81,7 +74,7 @@ export function createCloudflareExecutionSandboxId(name: string, sandboxId?: str
   return `${prefix}${slug}${suffix}`
 }
 
-export function resolveRuntimeProvider(provider?: SandboxTaskDefinitionProviderOptions, event?: SandboxTaskEvent) {
+export function resolveRuntimeProvider(provider?: SandboxTaskDefinitionProviderOptions) {
   if (provider?.provider)
     return provider.provider
 
@@ -89,7 +82,7 @@ export function resolveRuntimeProvider(provider?: SandboxTaskDefinitionProviderO
   if (envProvider === 'cloudflare' || envProvider === 'vercel')
     return envProvider
 
-  if (getCloudflareEnv(event))
+  if (getActiveCloudflareEnv())
     return 'cloudflare'
 
   const detected = detectSandbox()
@@ -119,7 +112,6 @@ export async function resolveTaskSandbox(
   provider: SandboxTaskProvider,
   providerOptions: SandboxTaskDefinitionProviderOptions & { provider: SandboxTaskProvider },
   local: SandboxTaskDefinitionOptions,
-  context: { event?: SandboxTaskEvent },
 ) {
   // The Sandbox Task plugin aliases this package import to the generated loader; without the plugin it resolves to the generic loader.
   const providerLoader = await import('#vitehub-sandbox-task-provider-loader')
@@ -127,7 +119,7 @@ export async function resolveTaskSandbox(
   return await runtimeProvider.resolveTaskSandbox({
     local,
     provider: providerOptions,
-  }, context)
+  })
 }
 
 export function withSandboxTaskProvider(
@@ -140,4 +132,3 @@ export function withSandboxTaskProvider(
   } as SandboxTaskDefinitionProviderOptions & { provider: SandboxTaskProvider }
 }
 
-export type { SandboxTaskEvent }

@@ -254,15 +254,16 @@ describe("hubDb", () => {
     const middleware = (await import(pathToFileURL(handler).href)).default as (event: unknown, next?: () => unknown) => unknown
     const { getActiveCloudflareEnv, getActiveCloudflareRequestScope } = await import("@vite-hub/internal/runtime/cloudflare-env")
     const env = { APP_HYPERDRIVE: { connectionString: "postgres://hyperdrive/app" } }
+    const request = (bindings: Record<string, unknown>) => ({ "~standard": { req: new Request("https://app.example/"), res: { headers: new Headers() }, runtime: { cloudflare: { env: bindings } }, vendor: "test" } })
     const scopes = [
-      middleware({ req: { runtime: { cloudflare: { env } } } }, () => getActiveCloudflareRequestScope()),
-      middleware({ req: { runtime: { cloudflare: { env } } } }, () => getActiveCloudflareRequestScope()),
+      middleware(request(env), () => getActiveCloudflareRequestScope()),
+      middleware(request(env), () => getActiveCloudflareRequestScope()),
     ]
     expect(scopes[0]).toBeDefined()
     expect(scopes[0]).not.toBe(scopes[1])
 
     const nitro2Env = { APP_HYPERDRIVE: { connectionString: "postgres://hyperdrive/nitro2" } }
-    middleware({ req: { runtime: { cloudflare: { env: nitro2Env } } } }, undefined)
+    middleware(request(nitro2Env), undefined)
     expect(getActiveCloudflareEnv()).toBe(nitro2Env)
     expect(getActiveCloudflareRequestScope()).toBeDefined()
   })

@@ -4,8 +4,10 @@ import { resolveServerEnv, SecretEnv, typesafeEnv } from "../src/index.ts"
 import { createRuntimeRegistry } from "../src/core/resolve.ts"
 import { describeServerEnv } from "../src/server.ts"
 
+import { cloudflareRequest } from "./cloudflare-request.ts"
+
 function resolveTypesafe(options: Parameters<typeof typesafeEnv>[0], env: Record<string, string>) {
-  return resolveServerEnv(createRuntimeRegistry({ typesafe: typesafeEnv(options) }), { env }).typesafe
+  return resolveServerEnv(createRuntimeRegistry({ typesafe: typesafeEnv(options) }), cloudflareRequest(env)).typesafe
 }
 
 describe("typesafeEnv()", () => {

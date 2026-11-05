@@ -1,3 +1,5 @@
+import type { ViteHubContext } from "@vite-hub/runtime"
+
 type MaybePromise<T> = Promise<T> | T
 
 export type RateLimitWindow =
@@ -23,10 +25,11 @@ export interface RequireRateLimitOptions extends RateLimitPolicy {
   key?: string
 }
 
-/** A server request event: an H3 2 event, as in Nitro 3, or an H3 1 event, as in Nuxt 4. */
-export type RateLimitRequestEvent =
-  | { readonly req: { readonly headers: { get: (name: string) => string | null } } }
-  | { readonly node: { readonly req: { readonly headers: Readonly<Record<string, string | string[] | undefined>> } } }
+/**
+ * A request event with Standard Context properties, such as an H3 1 or H3 2 event in a ViteHub app. The guard reads
+ * the client address, the request headers, and the Cloudflare bindings from `event["~standard"]`.
+ */
+export type RateLimitRequestEvent = ViteHubContext
 
 export interface ResolvedRateLimitPolicy {
   readonly enforcement: RateLimitEnforcement

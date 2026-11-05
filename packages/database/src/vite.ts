@@ -170,10 +170,10 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined) {
 
 function renderNitroRequestScopeMiddleware() {
   return [
-    `import { runWithActiveCloudflareEnv, runWithDatabaseRequest, setActiveCloudflareEnv } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/state"))}`,
+    `import { getRequestCloudflareEnv, runWithActiveCloudflareEnv, runWithDatabaseRequest, setActiveCloudflareEnv } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/state"))}`,
     "",
     "export default (event, next) => {",
-    "  const env = event?.env ?? event?.req?.runtime?.cloudflare?.env ?? event?.context?.cloudflare?.env ?? event?.context?._platform?.cloudflare?.env ?? globalThis.__env__",
+    "  const env = getRequestCloudflareEnv(event) ?? globalThis.__env__",
     "  if (typeof next === 'function') return runWithActiveCloudflareEnv(env, () => runWithDatabaseRequest(event, next))",
     "  setActiveCloudflareEnv(env)",
     "}",

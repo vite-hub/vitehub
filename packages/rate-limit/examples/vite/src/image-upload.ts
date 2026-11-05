@@ -1,8 +1,8 @@
 import { requireRateLimit } from "@vite-hub/rate-limit"
 
-import type { HTTPEvent } from "h3"
+import type { RateLimitRequestEvent } from "@vite-hub/rate-limit"
 
-export async function handleImageUpload(event: HTTPEvent): Promise<Response> {
+export async function handleImageUpload(event: RateLimitRequestEvent): Promise<Response> {
   await requireRateLimit(event, "image-upload", {
     limit: 5,
     window: "1m",

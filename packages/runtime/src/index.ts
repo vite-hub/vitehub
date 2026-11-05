@@ -1546,6 +1546,7 @@ export async function resolveCapabilityPolicy(
   return hasRuntimeType(policy, "function") ? await policy(context) : policy
 }
 
+export type { ViteHubContext, ViteHubRuntime, ViteHubStandardProps } from "./standard-context.ts"
 export { createWorkTracker } from "./work.ts"
 export type { WorkCheckpoint, WorkCheckpointStore, WorkOutcome, WorkTracker } from "./work.ts"
 

@@ -30,21 +30,6 @@ describe("provider detection", () => {
     expect(isCloudflare()).toBe(true)
   })
 
-  it("infers the runtime provider from the Cloudflare event without process", async () => {
-    const { resolveRuntimeProvider } = await import("../../src/task/runtime/runtime.ts")
-    vi.stubGlobal("process", undefined)
-
-    expect(resolveRuntimeProvider(undefined, {
-      context: {
-        cloudflare: {
-          env: {
-            SANDBOX: {},
-          },
-        },
-      },
-    })).toBe("cloudflare")
-  })
-
   it("infers the runtime provider from the scoped Cloudflare environment", async () => {
     const { resolveRuntimeProvider } = await import("../../src/task/runtime/runtime.ts")
     vi.stubGlobal("process", undefined)

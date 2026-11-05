@@ -1314,7 +1314,12 @@ describe("built-in Channel Env at runtime", { timeout: 30_000 }, () => {
 
   it("reads Telegram values from Server Env before host names", async () => {
     vi.resetModules()
-    const useServerEnv = vi.fn(() => ({ telegram: { botToken: { unseal: () => "server-token" }, webhookSecret: "server-secret" } }))
+    const { getActiveCloudflareEnv } = await import("@vite-hub/internal/runtime/cloudflare-env")
+    const bindings: unknown[] = []
+    const useServerEnv = vi.fn(() => {
+      bindings.push(getActiveCloudflareEnv())
+      return { telegram: { botToken: { unseal: () => "server-token" }, webhookSecret: "server-secret" } }
+    })
     vi.doMock("#vitehub/env/server", () => ({ useServerEnv }))
     const createTelegramAdapter = vi.fn(() => ({ name: "telegram" }))
     vi.doMock("@chat-adapter/telegram", () => ({ createTelegramAdapter }))
@@ -1326,7 +1331,9 @@ describe("built-in Channel Env at runtime", { timeout: 30_000 }, () => {
     if (!hasRuntimeType(channel.adapter, "function")) throw new Error("Expected Telegram adapter resolver.")
     await expect(channel.adapter(context)).resolves.toEqual({ name: "telegram" })
     expect(createTelegramAdapter).toHaveBeenCalledWith({ botToken: "server-token", secretToken: "server-secret" })
-    expect(useServerEnv).toHaveBeenCalledWith({ env: { TELEGRAM_BOT_TOKEN: "host-token" } })
+    expect(useServerEnv).toHaveBeenCalledWith()
+    expect(bindings.length).toBeGreaterThan(0)
+    for (const env of bindings) expect(env).toEqual({ TELEGRAM_BOT_TOKEN: "host-token" })
   })
 
   it("keeps explicit Telegram options ahead of Server Env", async () => {

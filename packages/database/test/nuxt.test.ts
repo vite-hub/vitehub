@@ -26,6 +26,7 @@ const cloudflareBridgeState = vi.hoisted(() => ({
 
 vi.mock("cloudflare:workers", () => ({ env: cloudflareBridgeState.fallbackEnv }))
 vi.mock("@vite-hub/database/runtime/state", () => ({
+  getRequestCloudflareEnv: (event: { "~standard"?: { runtime?: { cloudflare?: { env?: Record<string, unknown> } } } }) => event["~standard"]?.runtime?.cloudflare?.env,
   runWithDatabaseRequest: (_event: unknown, next: () => unknown) => next(),
   runWithActiveCloudflareEnv: (env: Record<string, unknown>, callback: () => unknown) => {
     cloudflareBridgeState.scopedEnv = env
@@ -217,7 +218,7 @@ describe("Database Nuxt integration", () => {
     }
   })
 
-  it("merges split Cloudflare bindings with request-local precedence", async () => {
+  it("merges the request's Cloudflare bindings over the native bindings", async () => {
     const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-database-"))
     await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
     const middlewarePath = join(rootDir, ".vitehub/nitro/database/middleware.ts")
@@ -235,31 +236,22 @@ describe("Database Nuxt integration", () => {
 
       ;(globalThis as typeof globalThis & { __env__?: Record<string, unknown> }).__env__ = Object.defineProperty(Object.create({ INHERITED: "inherited-binding" }), "DB", { value: "native-binding" })
       const middleware = (await import(`${pathToFileURL(middlewarePath).href}?t=${Date.now()}`)).default
-      middleware({
-        context: {
-          _platform: { cloudflare: { env: { PLATFORM: "platform", SHARED: "platform" } } },
-          cloudflare: { env: { CONTEXT: "context", SHARED: "context" } },
-        },
-        env: { DB: "event-binding", EVENT: "event", SHARED: "event" },
-        req: { runtime: { cloudflare: { env: { REQUEST: "request", SHARED: "request" } } } },
-      })
+      const request = (env?: Record<string, unknown>) => ({ "~standard": { runtime: env ? { cloudflare: { env } } : {} } })
+      middleware(request({ DB: "event-binding", EVENT: "event", SHARED: "event" }))
 
       expect(cloudflareBridgeState.activeEnv).toEqual({
-        CONTEXT: "context",
         DB: "event-binding",
         EVENT: "event",
-        PLATFORM: "platform",
-        REQUEST: "request",
         SHARED: "event",
       })
       expect(cloudflareBridgeState.activeEnv?.DB).toBe("event-binding")
-      const response = middleware({ env: { DB: "next-binding" } }, () => {
+      const response = middleware(request({ DB: "next-binding" }), () => {
         expect(cloudflareBridgeState.scopedEnv?.DB).toBe("next-binding")
         return "next-response"
       })
       expect(response).toBe("next-response")
       expect(cloudflareBridgeState.scopedEnv).toBeUndefined()
-      middleware({})
+      middleware(request())
       expect(cloudflareBridgeState.activeEnv?.DB).toBe("native-binding")
       expect(Object.hasOwn(cloudflareBridgeState.activeEnv!, "DB")).toBe(true)
       expect(Object.hasOwn(cloudflareBridgeState.activeEnv!, "INHERITED")).toBe(false)

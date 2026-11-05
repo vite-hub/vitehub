@@ -23,7 +23,11 @@ import type { Lock, StateAdapter } from "chat"
 import type { GmailClient } from "../src/internal/gmail-channel.ts"
 import type { AgentRuntimeContext } from "../src/types.ts"
 
-vi.mock("#vitehub/env/server", () => ({ useServerEnv: (event?: unknown) => event ?? {} }))
+// Server Env here returns the active Cloudflare bindings, so a test can supply Gmail settings through them.
+vi.mock("#vitehub/env/server", async () => {
+  const { getActiveCloudflareEnv } = await import("@vite-hub/internal/runtime/cloudflare-env")
+  return { useServerEnv: () => getActiveCloudflareEnv() ?? {} }
+})
 
 const audience = "https://mail.example.com/api/_vitehub/agents/labeller/webhooks/gmail"
 const serviceAccount = "gmail-push@example.iam.gserviceaccount.com"
@@ -1447,14 +1451,12 @@ describe("gmail() Channel", () => {
     await expect(pollGmailChannel(gmail({ fetch: google.fetch }))).rejects.toThrow("found no Agent that uses this Channel")
   })
 
-  it("preserves the polling runtime and reads Gmail credentials from its Server Env event", async () => {
+  it("preserves the polling runtime and reads Gmail credentials from Server Env with its Cloudflare bindings", async () => {
     const google = await createGoogle()
     const inbox = gmail({ fetch: google.fetch })
-    const event = { gmail: { clientId: "client-id", clientSecret: "client-secret", refreshToken: "refresh-token" } }
     const runtime: AgentRuntimeContext = {
       capabilities: { polling: true },
-      cloudflare: { context: { scheduled: true }, env: {} },
-      event,
+      cloudflare: { context: { scheduled: true }, env: { gmail: { clientId: "client-id", clientSecret: "client-secret", refreshToken: "refresh-token" } } },
       memo: (_key, create) => create(),
       request: new Request("https://mail.example.com/schedule"),
       runtime: "vite",

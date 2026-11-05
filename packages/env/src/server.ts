@@ -1,5 +1,6 @@
 export type { EnvAccessContext } from "./bridge.ts"
-import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+export type { ViteHubContext } from "@vite-hub/runtime"
+import { getActiveCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { deriveViteHubSecret, readViteHubSecret, viteHubSecretMinimumLength } from "@vite-hub/internal/secret"
 import { isViteHubError } from "@vite-hub/runtime"
 
@@ -28,6 +29,7 @@ import type {
   ServerEnvInspectionEntry,
 } from "./types.ts"
 import { envErrorDiagnostics } from "./error-diagnostics.ts"
+import type { ViteHubContext } from "@vite-hub/runtime"
 
 export type { ServerEnvInspection, ServerEnvInspectionEntry, ServerEnvInspectionStatus } from "./types.ts"
 
@@ -40,8 +42,24 @@ function processEnv(): RuntimeEnv {
   return typeof process === "object" && process && process.env ? process.env : {}
 }
 
-function runtimeEnv(event?: unknown): RuntimeEnv {
-  return { ...processEnv(), ...getCloudflareEnv(event) }
+/**
+ * The Cloudflare bindings in the request's Standard Context, else the bindings of the active Cloudflare request.
+ * A value without `~standard`, such as a `Request`, reads the active bindings.
+ */
+function cloudflareEnv(event?: ViteHubContext): RuntimeEnv | undefined {
+  return (event as Partial<ViteHubContext> | undefined)?.["~standard"]?.runtime?.cloudflare?.env ?? getActiveCloudflareEnv()
+}
+
+/**
+ * Run `callback` with `env` as the active Cloudflare bindings. Server Env reads them when a call gets no request
+ * event, such as for the module bindings of `cloudflare:workers` outside a request.
+ */
+export function runWithCloudflareEnv<T>(env: RuntimeEnv, callback: () => T): T {
+  return runWithActiveCloudflareEnv(env, callback)
+}
+
+function runtimeEnv(event?: ViteHubContext): RuntimeEnv {
+  return { ...processEnv(), ...cloudflareEnv(event) }
 }
 
 let warnedGeneratedSecret = false
@@ -52,7 +70,7 @@ let warnedGeneratedSecret = false
  * Namespace the purpose to its owner, such as `my-module:session`. ViteHub reserves the `vitehub:` prefix.
  * Throws `ENV_REQUIRED_MISSING` when no root secret is set, and `ENV_RUNTIME_VALUE_INVALID` when it is shorter than 32 characters.
  */
-export async function deriveSecret(purpose: string, event?: unknown, rootOverride?: string, generatedOverride = false, rootEnvKey?: string): Promise<string> {
+export async function deriveSecret(purpose: string, event?: ViteHubContext, rootOverride?: string, generatedOverride = false, rootEnvKey?: string): Promise<string> {
   const env = runtimeEnv(event)
   const root = rootOverride ?? readViteHubSecret(env) ?? (rootEnvKey ? env[rootEnvKey] as string | undefined : undefined)
   if (!root) throw missingRequiredEnv("env", "deriveSecret() requires VITEHUB_SECRET. Generate one with `openssl rand -base64 32`.", "VITEHUB_SECRET")
@@ -441,11 +459,11 @@ function reusableEnvNames(registry: object): readonly string[] | null {
 }
 
 /** The values of every name the registry reads, as one string. Undefined when the result must not be reused. */
-function serverEnvKey(registry: object, event: unknown): string | undefined {
+function serverEnvKey(registry: object, event: ViteHubContext | undefined): string | undefined {
   const names = reusableEnvNames(registry)
   if (!names) return undefined
   const host = processEnv()
-  const cloudflare = getCloudflareEnv(event) ?? {}
+  const cloudflare = cloudflareEnv(event) ?? {}
   let key = ""
   for (const name of names) {
     const value = Object.hasOwn(cloudflare, name) ? cloudflare[name] : Object.hasOwn(host, name) ? host[name] : undefined
@@ -464,7 +482,7 @@ function serverEnvKey(registry: object, event: unknown): string | undefined {
  */
 export function resolveServerEnv<TServerEnv extends Record<string, unknown> = Record<string, unknown>>(
   registry: EnvRuntimeRegistry<TServerEnv>,
-  event?: unknown,
+  event?: ViteHubContext,
 ): TServerEnv {
   const key = serverEnvKey(registry, event)
   if (key === undefined) return resolveRegistryValue(registry, runtimeEnv(event), "env.server") as TServerEnv
@@ -478,7 +496,7 @@ export function resolveServerEnv<TServerEnv extends Record<string, unknown> = Re
 
 export async function loadServerEnv<TServerEnv extends Record<string, unknown> = Record<string, unknown>>(
   registry: EnvRuntimeRegistry<TServerEnv>,
-  event?: unknown,
+  event?: ViteHubContext,
   options: LoadServerEnvOptions = {},
 ): Promise<DeepReadonly<TServerEnv>> {
   if (options.signal?.aborted) throw abortReason(options.signal)
@@ -523,7 +541,7 @@ export function isBlockingServerEnvEntry(entry: ServerEnvInspectionEntry): boole
 
 export async function inspectServerEnv(
   registry: EnvRuntimeRegistry,
-  event?: unknown,
+  event?: ViteHubContext,
   options: LoadServerEnvOptions = {},
 ): Promise<ServerEnvInspection> {
   if (options.signal?.aborted) throw abortReason(options.signal)

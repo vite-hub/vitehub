@@ -8,7 +8,6 @@ declare module 'vitehub-sandbox-task-provider-loader' {
         local: SandboxTaskDefinitionOptions
         provider: SandboxTaskDefinitionProviderOptions & { provider: SandboxTaskProvider }
       },
-      context: { event?: unknown },
     ) => Promise<{
       provider: SandboxTaskProvider
       resolveSandbox: (requirements: readonly string[]) => Promise<Sandbox>

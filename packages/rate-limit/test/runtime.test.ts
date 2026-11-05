@@ -1,3 +1,4 @@
+import { installStandardContext } from "@vite-hub/runtime/h3"
 import { HTTPError, mockEvent } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -148,6 +149,8 @@ describe("managed Rate Limit guard", () => {
       const limit = vi.fn(async ({ key }: { key: string }) => ({ success: key !== "198.51.100.10" }))
       const app = createApp().use(eventHandler(async (event) => {
         event.context.cloudflare = { env: { [getCloudflareRateLimitBindingName("nuxt4-uploads")]: { limit } } }
+        // The test imports H3 1 as `h3-v1`, so the `~standard` type augmentation of `h3` does not reach it. Nitro sets it at runtime.
+        installStandardContext(event)
         await requireOnH3V1(event, "nuxt4-uploads", { limit: 1, window: "1m" })
         return "accepted"
       }))
@@ -175,6 +178,8 @@ describe("managed Rate Limit guard", () => {
       const { requireRateLimit: requireOnH3V1 } = await import("../src/index.ts")
       const { createApp, eventHandler, toWebHandler } = await import("h3-v1")
       const handle = toWebHandler(createApp().use(eventHandler(async (event) => {
+        // The test imports H3 1 as `h3-v1`, so the `~standard` type augmentation of `h3` does not reach it. Nitro sets it at runtime.
+        installStandardContext(event)
         await requireOnH3V1(event, "nuxt4-retry", { key: "user", limit: 1, window: "1m" })
         return "accepted"
       })))
@@ -191,11 +196,44 @@ describe("managed Rate Limit guard", () => {
     }
   })
 
+  it("reads only the Standard Context that the host set", async () => {
+    setRateLimitRuntimeConfig({ provider: "cloudflare" })
+    const limit = vi.fn(async () => ({ success: true }))
+    const event = {
+      "~standard": {
+        vendor: "test",
+        req: new Request("https://example.com/upload", { headers: { "cf-connecting-ip": "203.0.113.7" } }),
+        res: { headers: new Headers() },
+        runtime: { cloudflare: { env: { [getCloudflareRateLimitBindingName("standard-uploads")]: { limit } } } },
+      },
+      env: { [getCloudflareRateLimitBindingName("standard-uploads")]: { limit: vi.fn() } },
+    }
+
+    await requireRateLimit(event, "standard-uploads", { limit: 1, window: "1m" })
+
+    expect(limit).toHaveBeenCalledWith({ key: "203.0.113.7" })
+  })
+
+  it("counts by the Standard Context client address", async () => {
+    const event = {
+      "~standard": {
+        vendor: "test",
+        req: new Request("https://example.com/upload"),
+        res: { headers: new Headers() },
+        runtime: { clientAddress: "203.0.113.8" },
+      },
+    }
+
+    await requireRateLimit(event, "standard-address", { limit: 1, window: "1m" })
+    await expect(peekRateLimit("standard-address", "203.0.113.8")).resolves.toMatchObject({ counters: [{ used: 1 }] })
+  })
+
   it("ignores inherited Cloudflare environment carriers", async () => {
     setRateLimitRuntimeConfig({ provider: "cloudflare" })
     const limit = vi.fn(async () => ({ success: true }))
     const inherited = Object.create({ env: { [getCloudflareRateLimitBindingName("inherited-uploads")]: { limit } } })
-    Object.assign(inherited, { req: requestEvent("192.0.2.30").req })
+    const { req, res } = requestEvent("192.0.2.30")
+    Object.assign(inherited, { req, res })
 
     await expect(requireRateLimit(inherited, "inherited-uploads", { key: "user", limit: 1, window: "1m" }))
       .rejects.toThrow("binding")
