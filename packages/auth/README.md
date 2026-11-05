@@ -162,6 +162,8 @@ Each Auth request or route guard resolves its Definition and `runtime` callbacks
 The generated Nitro middleware uses `access.signIn` when one of the configured `access.routes` needs a browser redirect. Route objects can add an `authorize` callback when a valid session is not sufficient:
 
 ```ts
+import { defineAuth } from "@vite-hub/auth"
+
 export default defineAuth({
   access: {
     routes: [
@@ -184,7 +186,7 @@ ViteHub runs `authorize` only after authentication. Return `true` to allow the r
 
 Guard your own server handlers with `withAuth(handler, definition?)` or `withAuthorization(authorize, handler, definition?)` from `@vite-hub/auth/server`. The guard returns a new handler. That handler checks the request first and calls your handler only when the check passes. Your handler receives the input and a frozen `authorization` with the checked `request`, `session`, and `user`. Otherwise the guard returns the rejection `Response`, so a missed `if` cannot run the protected action.
 
-```ts
+```ts fragment
 import { withAuth, withAuthorization } from "@vite-hub/auth/server";
 import type { H3Event } from "h3";
 
@@ -205,7 +207,7 @@ Annotate the input type when the host does not infer it, for example inside `def
 
 Better Auth extends a stored session when the session passes `session.updateAge`. Use `session.onRefresh` to check the user again at that time, for example against a ban list.
 
-```ts
+```ts fragment
 export default defineAuth({
   session: {
     updateAge: 60 * 60,
@@ -230,7 +232,7 @@ The hook receives the `session` and `user` as stored before the refresh. To chan
 `onRefresh` needs a Better Auth `database` or `secondaryStorage` adapter. Without one, Auth fails with `AUTH_C0042`, because Better Auth refreshes a stateless cookie cache (`session.cookieCache.refreshCache`) without a hook. With a cookie cache in front of a database, the hook runs only when Better Auth reads the database. It does not run when `session.disableSessionRefresh` is set or for a session created without "remember me". With `session.deferSessionRefresh`, it runs on the `POST` that writes the refresh.
 On H3 2, you can guard a route with middleware instead. `requireAuth(definition?)` rejects like `withAuth()`, and `requireAuthorization(authorize, definition?)` rejects like `withAuthorization()`. When the check passes, the middleware calls `next()`. The route handler reads the checked `request`, `session`, and `user` with `getAuthorization(event)`.
 
-```ts
+```ts fragment
 import { getAuthorization, requireAuth, requireAuthorization } from "@vite-hub/auth/server";
 import { H3 } from "h3";
 
@@ -252,6 +254,8 @@ Use `server/auth.ts` for the canonical Auth Definition, or `server.auth.ts` when
 Set `route: false` only when a host integration mounts Auth itself.
 
 ```ts
+import { defineAuth } from "@vite-hub/auth"
+
 export default defineAuth({
   route: false,
 });
@@ -268,6 +272,8 @@ Better Auth options stay top-level. ViteHub-owned wiring reserves `access`, `dat
 `access.routes` must use a dense array. Empty slots, including commented-out entries that leave commas, fail configuration.
 
 ```ts
+import { defineAuth } from "@vite-hub/auth"
+
 export default defineAuth({
   basePath: "/auth",
   database: { name: "auth", dedicated: true },
@@ -314,7 +320,7 @@ The exported `createAuthClient` keeps Better Auth's option and plugin inference 
 
 The client loads `better-auth/vue` the first time you use it, not when you create it. An app can create its client in a plugin, and only the pages that sign in or read the session download Better Auth. Calls such as `signIn.social()` wait for the load. `useSession()` and `useUserSession()` return their refs at once: they are pending until the client loads in the browser, and stay pending during server rendering. For a member that is not a call or a hook, such as `$store`, get Better Auth's own client with `loadAuthClient()`:
 
-```ts
+```ts fragment
 import { loadAuthClient } from "@vite-hub/auth/vue";
 import { authClient } from "./auth-client";
 
@@ -328,7 +334,7 @@ Read [Better Auth's client docs](https://www.better-auth.com/docs/getting-starte
 
 `isGitHubOrgMember(accessToken, org, { cacheMs, timeoutMs })` from `@vite-hub/auth` returns `true` only for an active membership. The token needs `read:org`. A pending invitation, a non-2xx response, a network error, or a timeout (default 5 seconds) returns `false`. There is no cache by default. With `cacheMs`, a successful check is kept in memory for that time per token and organization, under a SHA-256 key.
 
-```ts
+```ts fragment
 import { isGitHubOrgMember } from "@vite-hub/auth";
 
 const member = await isGitHubOrgMember(account.accessToken, "acme", { cacheMs: 300_000 });

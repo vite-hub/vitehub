@@ -106,7 +106,7 @@ Every part has a `data-slot`, as in shadcn/ui: `comment-layer`, `comment-pin`, `
 
 To go without the layer, call `useComments()` from `@vite-hub/ui/headless`. It needs no Nuxt UI. It returns the state that the parts use, and you pass it as the `comments` prop:
 
-```ts
+```ts fragment
 import { useComments } from "@vite-hub/ui/headless";
 
 const comments = useComments({ client, subject: { kind: "page", id: "/pricing" } });
@@ -171,7 +171,7 @@ Each row shows the number, the author, the start of the first message as plain t
 
 A thread shows Resolve, Reopen, Edit, Delete, and the reply box only to a user who may use them. By default a signed-in user may reply to and resolve any thread, and edit and delete their own messages; a reader without a user gets none of the controls. Give `useComments()` a `can` function with your own rules, and every part of the state follows them:
 
-```ts
+```ts fragment
 const comments = useComments({
   client,
   subject,

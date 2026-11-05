@@ -56,7 +56,7 @@ For each invocation, ViteHub opens a new Sandbox session. The Sandbox creates a 
 
 A trusted-host Sandbox can cap all session commands and their descendants in one cgroup v2 group:
 
-```ts
+```ts fragment
 sandbox: {
   runtime: {
     kind: 'trusted-host',
@@ -122,7 +122,7 @@ The Sandbox fetches `ref`, compares the fetched commit with the full `sha`, and 
 
 A Sandbox does not assume that the host or image has Node.js, a package manager, or Corepack. Set `toolchain: 'project'` and the Sandbox reads the pins from the checkout or `cwd`:
 
-```ts
+```ts fragment
 sandbox: {
   runtime: { kind: 'crabbox', profile: 'review' },
   checkout: { ref, remote, sha },

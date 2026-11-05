@@ -90,7 +90,7 @@ Other attributes go to the Pierre view.
 
 `CodeViewItem`, `CodeViewOptions`, `CodeViewLineSelection`, `FileContents`, `FileOptions`, `LineAnnotation`, and `SelectedLineRange` are re-exported from `@pierre/diffs`.
 
-```ts
+```ts fragment
 interface FileContents {
   /** Shown in the header. Also selects the syntax highlighting language. */
   name: string;

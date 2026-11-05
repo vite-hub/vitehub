@@ -10,7 +10,7 @@ icon: i-lucide-code-2
 
 `requireRateLimit(event, id, options)` resolves when the request is allowed. The integration finds calls inside handlers through the compiler AST and uses their stable IDs and provider policies for Provider Output.
 
-```ts
+```ts fragment
 await requireRateLimit(event, 'image-upload', {
   enforcement: 'best-effort',
   failure: 'deny',

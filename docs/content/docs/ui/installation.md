@@ -141,7 +141,7 @@ export default defineNuxtConfig({
 });
 ```
 
-```ts [vite/defaults/src/main.ts]
+```ts [vite/defaults/src/main.ts] fragment
 app.use(
   createViteHubUI({
     defaults: {
@@ -166,7 +166,7 @@ The parts import the Nuxt UI components that they render, such as `UButton` and 
 
 To render other components, for example on a page without Nuxt UI, pass them by name:
 
-```ts [vite/components/src/main.ts]
+```ts [vite/components/src/main.ts] fragment
 app.use(createViteHubUI({ components: { UButton: MyButton, UIcon: MyIcon } }));
 ```
 

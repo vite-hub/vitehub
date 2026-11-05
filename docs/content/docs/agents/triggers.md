@@ -55,7 +55,7 @@ export default defineAgent({
 
 Call the trigger from a server-owned route:
 
-```ts [server/api/support-chat.post.ts]
+```ts [server/api/support-chat.post.ts] fragment
 import { streamAgentTrigger } from 'vite-hub/agent'
 import support from '../agents/support'
 import { loadAuthorizedSupportThreadMessages } from '../support-history'
@@ -154,7 +154,7 @@ When the Channel declares message methods, also return `message`: JSON data that
 
 Return `ignored(reason)` when the Channel receives an event that it does not handle. It answers HTTP 200 with `{ accepted: false, ok: true, reason }`, so the provider does not retry, and no Invocation starts.
 
-```ts
+```ts fragment
 import { defineChannelTrigger, ignored } from 'vite-hub/agent/channels'
 
 defineChannelTrigger({
@@ -174,7 +174,7 @@ Two siblings answer the other cases. Both answer `{ accepted: false, ok: false, 
 | `retryLater(reason)` | 503 | The Channel cannot take the event yet, such as when a dependency is down. | The sender retries. When the webhook queue replays a queued delivery and the trigger returns it, the queue retries and its error names the reason. |
 | `rejected(reason)` | 400 | The Channel will never handle the event, such as a malformed payload. | No. A queued delivery settles as rejected. |
 
-```ts
+```ts fragment
 import { defineChannelTrigger, rejected, retryLater } from 'vite-hub/agent/channels'
 
 defineChannelTrigger({
@@ -191,7 +191,7 @@ defineChannelTrigger({
 
 Set `webhook.serialize: key` to queue a delivery and run it only when no other delivery with the same key runs.
 
-```ts
+```ts fragment
 defineChannelTrigger({
   input: ticketOpened,
   invoke: (context, event) => ({
@@ -207,7 +207,7 @@ defineChannelTrigger({
 
 `webhook.deliveryId` identifies the delivery. ViteHub uses it to drop a retried delivery that it already accepted, and on a Channel Trigger the Invocation runs under it. When you omit it, the delivery ID is the SHA-256 (hex) of the raw request body, so a provider retry with an identical body is the same delivery.
 
-```ts
+```ts fragment
 defineChannelTrigger({
   input: ticketOpened,
   invoke: (context, event) => ({
@@ -223,7 +223,7 @@ Set `deliveryId` when the provider sends an event ID, or when two different even
 
 Some providers send several notifications for one change. Set `webhook.debounce: { key, delayMs }` to run only the last one. The queued delivery waits `delayMs` before it runs. A later delivery with the same `key` replaces a queued one that has not started, and its own wait starts again.
 
-```ts
+```ts fragment
 defineChannelTrigger({
   input: recordChanged,
   invoke: (context, event) => ({
@@ -243,7 +243,7 @@ Debounce needs a queued delivery, so it needs a state provider and `concurrencyL
 
 After ViteHub admits a webhook delivery, it answers with a JSON receipt such as `{ "accepted": true, "ok": true, "queued": true }`. Some providers expect a specific answer. Set `webhook.response` to send that `Response` instead:
 
-```ts
+```ts fragment
 defineChannelTrigger({
   input: recordChanged,
   invoke: (context, event) => ({
@@ -259,7 +259,7 @@ ViteHub sends `webhook.response` for an accepted, queued, steered, or duplicate 
 
 Keep `invoke` fast: it decides whether to accept a delivery and returns JSON input. Put slow or side-effecting work in `prepare`, and name units of work in `tasks`. `invoke` selects a task with `task: name`. A task runs another Agent (`agent`) or a plain function (`run`), not both.
 
-```ts
+```ts fragment
 import { defineChannelTrigger, ignored } from 'vite-hub/agent/channels'
 import triage from '../agents/triage'
 
@@ -298,7 +298,7 @@ Without the queue, `prepare` and the task run before the webhook is answered, an
 
 Use `enqueueChannelTask()` to queue a declared task from server code in the same persistent Node server as the Agent webhook host, such as an Agent hook, an in-process Schedule or an API route. On persistent Nitro hosts, enqueue and cancellation start the queue on demand, including before its background startup timer fires. Standalone serverless Schedule and API entries on Netlify or Vercel run in separate processes and cannot use these APIs. The task runs at `notBefore` or after `delayMs`, through the Channel's webhook queue. Its `prepare`, `failed`, retries, restart replay and Channel delivery record work as for a queued webhook delivery. `input` is the input that `invoke` would return for the task.
 
-```ts
+```ts fragment
 import { cancelChannelTask, enqueueChannelTask } from 'vite-hub/agent/server'
 
 const [error, receipt] = await enqueueChannelTask('airtable', 'close-duplicate', { data: { closeId, survivorId } }, {
@@ -321,7 +321,7 @@ Tasks with the same name run one at a time. The Channel needs a declared webhook
 
 When a Trigger result sets `webhook: { deliveryId, concurrencyLimit }` and the Agent has a state provider, ViteHub queues the webhook delivery and retries a failed execution. The Invocation runs under the delivery ID: an unset `run.runId` defaults to `deliveryId` and an unset `run.channelId` to the Channel, so every retry of one delivery is the same Invocation. When an attempt fails, the retry returns that Invocation from `failed` to `pending` and runs the Agent again. The record keeps the observations of the failed attempt, and its status, error, and `failedAt` come from the latest attempt. You can cancel a failed Invocation while it waits for another attempt; the record becomes `cancelled` and the retry does not dispatch the Agent. A `cancelled` or `completed` Invocation is not reopened. A delivery gets three execution attempts. Add `failed` to the Trigger to report the failure to the provider when the queue stops retrying.
 
-```ts
+```ts fragment
 defineChannelTrigger({
   input: ticketOpened,
   invoke: (context, event) => ({
@@ -338,7 +338,7 @@ ViteHub dispatches `failed` at most once per delivery: after the last failed att
 
 A task can declare its own `failed`. It replaces the trigger's `failed` for that task's deliveries and gets the same event. The trigger's `failed` stays the fallback for tasks without one. A row stored without a task key finds its task through `run.origin` when the origin names a declared task.
 
-```ts
+```ts fragment
 defineChannelTrigger({
   input: ticketChanged,
   tasks: {

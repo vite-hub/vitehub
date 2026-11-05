@@ -80,7 +80,7 @@ Call `disposeKVStores()` from `@vite-hub/kv` (or `vite-hub/kv`) after stopping n
 
 For Nitro, register the cleanup in a server plugin:
 
-```ts
+```ts fragment
 // server/plugins/kv-cleanup.ts
 import { disposeKVStores } from "@vite-hub/kv"
 

@@ -49,7 +49,7 @@ This is append-only export, not polling: ViteHub never resends an evolving in-pr
 
 Every Capability contributes its public `metadata` automatically. A custom Capability can add invocation-resolved facts without knowing which exporter is installed:
 
-```ts
+```ts fragment
 import { defineCapability } from 'vite-hub/agent'
 
 export const repository = defineCapability({
@@ -87,6 +87,8 @@ When a tool came from a Capability, its start, finish, and error events carry `c
 Agent instructions are prompt content, so they are excluded by default. Opt in explicitly when the receiver is trusted:
 
 ```ts
+import { otlp } from 'vite-hub/agent/capabilities'
+
 otlp({
   endpoint: process.env.OTLP_ENDPOINT!,
   content: {

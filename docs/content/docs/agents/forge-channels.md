@@ -54,7 +54,7 @@ The matching options are `baseUrl`, `token`, and `webhookSecret`. Each accepts a
 
 Set `sync.repositories` to let the Channel sync command create or update repository webhooks:
 
-```ts
+```ts fragment
 channels: {
   gitlab: gitlab({
     sync: { repositories: ['platform/team/api'] },

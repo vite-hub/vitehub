@@ -25,6 +25,7 @@ Workflow Provider, Definition, Run, Step, Start Options, and Integration Options
 Use `runWorkflow()` from server code.
 
 ```ts [server/api/onboard.post.ts]
+import { defineEventHandler, readBody } from 'h3'
 import { runWorkflow } from '@vite-hub/workflow'
 
 export default defineEventHandler(async (event) => {
@@ -96,6 +97,7 @@ signals as unsupported.
 Use `getWorkflowRun()` when server code needs current run state.
 
 ```ts [server/api/workflows/[id].get.ts]
+import { defineEventHandler, getRouterParam } from 'h3'
 import { getWorkflowRun } from '@vite-hub/workflow'
 
 export default defineEventHandler((event) => {
@@ -107,7 +109,7 @@ export default defineEventHandler((event) => {
 
 A typed Workflow handle requires a payload when its handler requires one. Both `run()` and `defer()` use this rule. A handle with an optional payload or `void` input can still run with no argument. To set start options for a no-input Workflow, pass `undefined` first.
 
-```ts
+```ts fragment
 const welcome = createWorkflow<{ email: string }>("welcome", async ({ payload }) => {
   await sendWelcomeEmail(payload.email)
 })

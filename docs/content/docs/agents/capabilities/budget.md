@@ -40,6 +40,7 @@ The optional top-level `capacity` field uses the Driver capacity queue and concu
 Use the Capability form when the policy is selected at invocation time or when it is part of a reusable Capability list:
 
 ```ts
+import { defineAgent } from 'vite-hub/agent'
 import { budget } from 'vite-hub/agent/capabilities'
 
 const reviewBudget = budget({
@@ -72,6 +73,8 @@ For a capacity-only policy, inspect `config.driver.capacity` instead. The human-
 The default mode is `observe`. The Invocation completes and the `budget` finish extension reports any exceeded limits. Set `mode: 'enforce'` to fail the Invocation after usage is known:
 
 ```ts
+import { defineAgent } from 'vite-hub/agent'
+
 export default defineAgent({
   driver: { model: 'gpt-5.6-sol' },
   budget: {

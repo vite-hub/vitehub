@@ -22,7 +22,7 @@ it is not a distributed lease or a coordination service for multiple replicas.
 Export the host from a server module. The `run` callback discovers work and tracks
 it only while the host is accepting new work:
 
-```ts [server/host.ts]
+```ts [server/host.ts] fragment
 import { createProcessAgentHost } from 'vite-hub/agent/runtime/process'
 
 export default await createProcessAgentHost({
@@ -289,6 +289,8 @@ Use a disposable directory and a custom `sample` function to exercise admission
 without depending on the machine's current pressure:
 
 ```ts
+import { createProcessAgentCapacity } from 'vite-hub/agent/runtime/process'
+
 const capacity = createProcessAgentCapacity({
   concurrency: 2,
   fallbackConcurrency: 0,

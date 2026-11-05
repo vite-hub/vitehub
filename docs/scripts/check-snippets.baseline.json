@@ -1,0 +1,887 @@
+[
+  {
+    "id": "docs/content/docs/agents/agent-definitions.md#d6828f9cd407",
+    "label": "server/lib/sync.ts",
+    "error": "TS2304 Cannot find name 'email'."
+  },
+  {
+    "id": "docs/content/docs/agents/agent-drivers.md#7b95e16bdad4",
+    "label": "server/agents/review/agent.ts",
+    "error": "TS2322 Type '({ abortSignal }: AgentProviderCredentialContext<AgentRuntimeConfig>) => Promise<unknown>' is not assignable to type 'AgentProviderCredentialResolver<AgentRuntimeConfig> | undefined'."
+  },
+  {
+    "id": "docs/content/docs/agents/agent-drivers.md#b020c6949bc2",
+    "label": null,
+    "error": "TS2304 Cannot find name 'runAgent'."
+  },
+  {
+    "id": "docs/content/docs/agents/agent-drivers.md#6943e3700cbc",
+    "label": "server/agents/labeller.ts",
+    "error": "TS2571 Object is of type 'unknown'."
+  },
+  {
+    "id": "docs/content/docs/agents/build-a-chat-app.md#04d5b39f0192",
+    "label": "server/api/chat.post.ts",
+    "error": "TS18048 'event.node' is possibly 'undefined'."
+  },
+  {
+    "id": "docs/content/docs/agents/capabilities/budget.md#338de8c4dfe8",
+    "label": null,
+    "error": "TS1005 ';' expected."
+  },
+  {
+    "id": "docs/content/docs/agents/capabilities/diagnostics.md#780265cb0b82",
+    "label": null,
+    "error": "TS7006 Parameter 'event' implicitly has an 'any' type."
+  },
+  {
+    "id": "docs/content/docs/agents/capabilities/gmail.md#a3dfcb0239a0",
+    "label": "server/connections/google.ts",
+    "error": "TS2571 Object is of type 'unknown'."
+  },
+  {
+    "id": "docs/content/docs/agents/capabilities/input-commands.md#748af2836fda",
+    "label": "server/agents/support.ts",
+    "error": "TS2554 Expected 0 arguments, but got 1."
+  },
+  {
+    "id": "docs/content/docs/agents/capabilities/mcp.md#4a5c462e1230",
+    "label": "server/agents/support.ts",
+    "error": "TS18004 No value exists in scope for the shorthand property 'model'. Either declare one or provide an initializer."
+  },
+  {
+    "id": "docs/content/docs/agents/capabilities/openapi.md#7159a9110e24",
+    "label": "server/agents/support.ts",
+    "error": "TS18004 No value exists in scope for the shorthand property 'model'. Either declare one or provide an initializer."
+  },
+  {
+    "id": "docs/content/docs/agents/capabilities/transcribe.md#c01f4d271b5b",
+    "label": "server/agents/voice.ts",
+    "error": "TS18004 No value exists in scope for the shorthand property 'model'. Either declare one or provide an initializer."
+  },
+  {
+    "id": "docs/content/docs/agents/channels.md#862ca09365cf",
+    "label": "server/utils/prefect-channel.ts",
+    "error": "TS2571 Object is of type 'unknown'."
+  },
+  {
+    "id": "docs/content/docs/agents/channels.md#95eb70e7d232",
+    "label": "server/agents/support.ts",
+    "error": "TS2304 Cannot find name 'defineAgent'."
+  },
+  {
+    "id": "docs/content/docs/agents/channels.md#ad4e6fcc3ebb",
+    "label": "server/agents/labeller.ts",
+    "error": "TS18046 'message' is of type 'unknown'."
+  },
+  {
+    "id": "docs/content/docs/agents/gmail.md#52ea1118141f",
+    "label": "vite.config.ts",
+    "error": "TS2554 Expected 1 arguments, but got 0."
+  },
+  {
+    "id": "docs/content/docs/agents/invocation-storage.md#608dc9c6c61f",
+    "label": "server/agents/support.ts",
+    "error": "TS18004 No value exists in scope for the shorthand property 'store'. Either declare one or provide an initializer."
+  },
+  {
+    "id": "docs/content/docs/agents/invocation-storage.md#1bfd2292966b",
+    "label": "server/invocations.ts",
+    "error": "TS2307 Cannot find module 'cloudflare:workers' or its corresponding type declarations."
+  },
+  {
+    "id": "docs/content/docs/agents/invocations.md#8e00ed37ba5b",
+    "label": "server/api/support.post.ts",
+    "error": "TS2339 Property 'prompt' does not exist on type '{ prompt: string; } | undefined'."
+  },
+  {
+    "id": "docs/content/docs/agents/invocations.md#79bc67c0ddca",
+    "label": "server/api/support-stream.post.ts",
+    "error": "TS2339 Property 'prompt' does not exist on type '{ prompt: string; } | undefined'."
+  },
+  {
+    "id": "docs/content/docs/agents/invocations.md#40697317b08d",
+    "label": "server/api/support-chat.post.ts",
+    "error": "TS2339 Property 'text' does not exist on type '{ text: string; } | undefined'."
+  },
+  {
+    "id": "docs/content/docs/agents/process-hosts.md#e5d266f81857",
+    "label": "server/agents/reviewer.ts",
+    "error": "TS2769 No overload matches this call."
+  },
+  {
+    "id": "docs/content/docs/agents/sandboxes.md#a900a524eaf8",
+    "label": "server/agents/review/agent.ts",
+    "error": "TS2571 Object is of type 'unknown'."
+  },
+  {
+    "id": "docs/content/docs/agents/triggers.md#856b11e9e183",
+    "label": "server/api/support.post.ts",
+    "error": "TS7006 Parameter 'event' implicitly has an 'any' type."
+  },
+  {
+    "id": "docs/content/docs/auth/configure.md#16e92a450295",
+    "label": "server/auth.ts",
+    "error": "TS18046 'env.auth' is of type 'unknown'."
+  },
+  {
+    "id": "docs/content/docs/auth/configure.md#e343728ee49a",
+    "label": "server/auth.ts",
+    "error": "TS7031 Binding element 'env' implicitly has an 'any' type."
+  },
+  {
+    "id": "docs/content/docs/auth/configure.md#033969069bab",
+    "label": "server/auth.ts",
+    "error": "TS18046 'env.auth' is of type 'unknown'."
+  },
+  {
+    "id": "docs/content/docs/auth/configure.md#a5b1c0c3735d",
+    "label": "server/routes/mcp.ts",
+    "error": "TS18048 'event' is possibly 'undefined'."
+  },
+  {
+    "id": "docs/content/docs/auth/console.md#62b3b1190037",
+    "label": "server/auth.ts",
+    "error": "TS2345 Argument of type '\"auth\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "docs/content/docs/auth/events.md#764c24ef4a70",
+    "label": "server/auth.ts",
+    "error": "TS2345 Argument of type '\"auth\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "docs/content/docs/blob/media.md#9c910d73996e",
+    "label": null,
+    "error": "TS2304 Cannot find name 'blob'."
+  },
+  {
+    "id": "docs/content/docs/blob/server-api.md#e7fc7fbe72c5",
+    "label": "server/api/files.post.ts",
+    "error": "TS7006 Parameter 'event' implicitly has an 'any' type."
+  },
+  {
+    "id": "docs/content/docs/browser/get-started.md#0c2f133847d3",
+    "label": "server/api/page-html.post.ts",
+    "error": "TS2769 No overload matches this call."
+  },
+  {
+    "id": "docs/content/docs/browser/index.md#d1cad0398d09",
+    "label": "server/api/page-html.post.ts",
+    "error": "TS2769 No overload matches this call."
+  },
+  {
+    "id": "docs/content/docs/channels/agent-capability.md#40109740a7a8",
+    "label": "server/schedules/weekly-report.ts",
+    "error": "TS2769 No overload matches this call."
+  },
+  {
+    "id": "docs/content/docs/channels/agent-capability.md#0876e6e71790",
+    "label": null,
+    "error": "TS7006 Parameter 'context' implicitly has an 'any' type."
+  },
+  {
+    "id": "docs/content/docs/channels/agent-capability.md#8ede65de0174",
+    "label": null,
+    "error": "TS7006 Parameter 'message' implicitly has an 'any' type."
+  },
+  {
+    "id": "docs/content/docs/channels/agent-capability.md#d71a3be85bbb",
+    "label": null,
+    "error": "TS2304 Cannot find name 'channelDelivery'."
+  },
+  {
+    "id": "docs/content/docs/channels/get-started.md#3b208327eb1d",
+    "label": "server/api/build-finished.post.ts",
+    "error": "TS2769 No overload matches this call."
+  },
+  {
+    "id": "docs/content/docs/channels/index.md#7f237ef8efd9",
+    "label": "server/utils/slack.ts",
+    "error": "TS18046 'env.slack' is of type 'unknown'."
+  },
+  {
+    "id": "docs/content/docs/channels/index.md#199c35ae0eee",
+    "label": "server/api/builds.post.ts",
+    "error": "TS2769 No overload matches this call."
+  },
+  {
+    "id": "docs/content/docs/channels/index.md#492c661ac565",
+    "label": "server/api/test-alert.post.ts",
+    "error": "TS2769 No overload matches this call."
+  },
+  {
+    "id": "docs/content/docs/channels/server-api.md#0a63e2ce13a7",
+    "label": "server/api/build-finished.post.ts",
+    "error": "TS2769 No overload matches this call."
+  },
+  {
+    "id": "docs/content/docs/channels/server-api.md#7904bd1bf174",
+    "label": null,
+    "error": "TS2304 Cannot find name 'useChannel'."
+  },
+  {
+    "id": "docs/content/docs/cms/access.md#2b019396a64c",
+    "label": "server/routes/api/roles.post.ts",
+    "error": "TS2339 Property 'userId' does not exist on type '{}'."
+  },
+  {
+    "id": "docs/content/docs/comments/configure.md#e415f118aec1",
+    "label": "server/api/docs/[id]/comments.post.ts",
+    "error": "TS2339 Property 'body' does not exist on type '{ body: string; quote: string; version: number; } | undefined'."
+  },
+  {
+    "id": "docs/content/docs/comments/index.md#daebbc2b469e",
+    "label": "server/api/open-threads.get.ts",
+    "error": "TS2339 Property 'page' does not exist on type 'CommentThread'."
+  },
+  {
+    "id": "docs/content/docs/comments/operations/configure.md#f4056f9a0e14",
+    "label": "server/comments.ts",
+    "error": "TS7031 Binding element 'user' implicitly has an 'any' type."
+  },
+  {
+    "id": "docs/content/docs/connections/configure.md#6fb59e04b48a",
+    "label": "server/connections/portal.ts",
+    "error": "TS2304 Cannot find name 'useServerEnv'."
+  },
+  {
+    "id": "docs/content/docs/connections/configure.md#1b24c8752be5",
+    "label": "server/connections/portal.ts",
+    "error": "TS7006 Parameter 'tenant' implicitly has an 'any' type."
+  },
+  {
+    "id": "docs/content/docs/connections/configure.md#5eebf89c9563",
+    "label": "server/connections/github.ts",
+    "error": "TS2571 Object is of type 'unknown'."
+  },
+  {
+    "id": "docs/content/docs/connections/get-started.md#1f150bc56477",
+    "label": "server/connections/google.ts",
+    "error": "TS2571 Object is of type 'unknown'."
+  },
+  {
+    "id": "docs/content/docs/connections/get-started.md#470146cec573",
+    "label": "server/api/labels.get.ts",
+    "error": "TS2769 No overload matches this call."
+  },
+  {
+    "id": "docs/content/docs/connections/index.md#b5254d8a047e",
+    "label": "server/connections/google.ts",
+    "error": "TS2571 Object is of type 'unknown'."
+  },
+  {
+    "id": "docs/content/docs/connections/index.md#9dddac474432",
+    "label": "server/api/labels.get.ts",
+    "error": "TS2769 No overload matches this call."
+  },
+  {
+    "id": "docs/content/docs/connections/index.md#718e1b0092b4",
+    "label": "server/api/contacts.get.ts",
+    "error": "TS2769 No overload matches this call."
+  },
+  {
+    "id": "docs/content/docs/content/configure.md#23a4c159d075",
+    "label": null,
+    "error": "TS2304 Cannot find name 'content'."
+  },
+  {
+    "id": "docs/content/docs/content/configure.md#867e2e731d17",
+    "label": null,
+    "error": "TS2304 Cannot find name 'content'."
+  },
+  {
+    "id": "docs/content/docs/content/editing-together.md#97e032df96d3",
+    "label": "server/api/editor/session.post.ts",
+    "error": "TS2305 Module '\"../../content\"' has no exported member 'content'."
+  },
+  {
+    "id": "docs/content/docs/content/editing-together.md#23c0eb7e404f",
+    "label": null,
+    "error": "TS18004 No value exists in scope for the shorthand property 'ifDigest'. Either declare one or provide an initializer."
+  },
+  {
+    "id": "docs/content/docs/content/preview.md#c3b134d9e669",
+    "label": "server/api/preview.delete.ts",
+    "error": "TS2305 Module '\"../content\"' has no exported member 'content'."
+  },
+  {
+    "id": "docs/content/docs/content/scheduling.md#dec9e9e48053",
+    "label": null,
+    "error": "TS2304 Cannot find name 'content'."
+  },
+  {
+    "id": "docs/content/docs/content/scheduling.md#618e7dd77d81",
+    "label": null,
+    "error": "TS2304 Cannot find name 'content'."
+  },
+  {
+    "id": "docs/content/docs/content/seo.md#05a05ebd4974",
+    "label": null,
+    "error": "TS2304 Cannot find name 'content'."
+  },
+  {
+    "id": "docs/content/docs/content/server-api.md#139c05ce1130",
+    "label": null,
+    "error": "TS2304 Cannot find name 'content'."
+  },
+  {
+    "id": "docs/content/docs/content/server-api.md#0e9a317e2637",
+    "label": "server/api/posts/[id].put.ts",
+    "error": "TS2339 Property 'data' does not exist on type 'unknown'."
+  },
+  {
+    "id": "docs/content/docs/content/server-api.md#8b23014facdb",
+    "label": null,
+    "error": "TS2304 Cannot find name 'content'."
+  },
+  {
+    "id": "docs/content/docs/content/server-api.md#42ada598802a",
+    "label": null,
+    "error": "TS2304 Cannot find name 'content'."
+  },
+  {
+    "id": "docs/content/docs/content/server-api.md#7ba2536387e3",
+    "label": null,
+    "error": "TS2304 Cannot find name 'content'."
+  },
+  {
+    "id": "docs/content/docs/content/server-api.md#d9d7f3c0f961",
+    "label": null,
+    "error": "TS2304 Cannot find name 'content'."
+  },
+  {
+    "id": "docs/content/docs/content/server-api.md#79b53202307f",
+    "label": null,
+    "error": "TS7006 Parameter 'document' implicitly has an 'any' type."
+  },
+  {
+    "id": "docs/content/docs/content/server-api.md#76781be9528c",
+    "label": null,
+    "error": "TS2304 Cannot find name 'content'."
+  },
+  {
+    "id": "docs/content/docs/content/server-api.md#7b6726fa7f0b",
+    "label": null,
+    "error": "TS2304 Cannot find name 'content'."
+  },
+  {
+    "id": "docs/content/docs/content/server-api.md#a2313c25fa52",
+    "label": null,
+    "error": "TS18004 No value exists in scope for the shorthand property 'user'. Either declare one or provide an initializer."
+  },
+  {
+    "id": "docs/content/docs/database/configure.md#b8b90fb4cd95",
+    "label": "my-module/module.ts",
+    "error": "TS2307 Cannot find module 'my-package/vite' or its corresponding type declarations."
+  },
+  {
+    "id": "docs/content/docs/database/get-started.md#f6a12b6881ad",
+    "label": "server/api/notes.post.ts",
+    "error": "TS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "docs/content/docs/database/get-started.md#78a00416b0bc",
+    "label": "server/api/notes.get.ts",
+    "error": "TS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "docs/content/docs/database/index.md#dba1284359e2",
+    "label": "server/api/notes.get.ts",
+    "error": "TS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "docs/content/docs/database/index.md#5e51d6f3417a",
+    "label": "server/api/notes.post.ts",
+    "error": "TS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "docs/content/docs/database/index.md#a87403998a4f",
+    "label": "server/api/notes/[id].get.ts",
+    "error": "TS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "docs/content/docs/database/limits-and-errors.md#20e55678a08d",
+    "label": "server/api/notes.get.ts",
+    "error": "TS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "docs/content/docs/database/server-api.md#6d9cea2fe68f",
+    "label": "server/api/notes.get.ts",
+    "error": "TS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "docs/content/docs/database/server-api.md#e4a3b26c7769",
+    "label": "server/api/events.get.ts",
+    "error": "TS2345 Argument of type '\"analytics\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "docs/content/docs/database/server-api.md#f322346ac6f0",
+    "label": "server/utils/files.ts",
+    "error": "TS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "docs/content/docs/decisions/index.md#d3a4290d45e6",
+    "label": "server/api/choices.post.ts",
+    "error": "TS7006 Parameter 'event' implicitly has an 'any' type."
+  },
+  {
+    "id": "docs/content/docs/development/cli.md#b4928631677f",
+    "label": "server/tasks/db/seed.ts",
+    "error": "TS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "docs/content/docs/development/console.md#a4a87285b0aa",
+    "label": "server/auth.ts",
+    "error": "TS2345 Argument of type '\"auth\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "docs/content/docs/development/console.md#44aafb4e0c8f",
+    "label": "nuxt.config.ts",
+    "error": "TS2353 Object literal may only specify known properties, and 'robots' does not exist in type '{ prerender?: boolean | undefined; ssr?: boolean | undefined; noScripts?: boolean | undefined; payload?: boolean | undefined; redirect?: string | false | { to?: string | undefined; status?: number | undefined; } | undefined; isr?: number | ... 2 more ... | undefined; cache?: false | ... 1 more ... | undefined; }'."
+  },
+  {
+    "id": "docs/content/docs/development/operations.md#5d5bf17d544a",
+    "label": "vite.config.ts",
+    "error": "TS2554 Expected 1 arguments, but got 0."
+  },
+  {
+    "id": "docs/content/docs/development/operations.md#e4b8751bd4fb",
+    "label": "server/agents/editor.ts",
+    "error": "TS2304 Cannot find name 'defineAgent'."
+  },
+  {
+    "id": "docs/content/docs/docs-site/configure.md#df8523d04622",
+    "label": "docs.parser.ts",
+    "error": "TS2307 Cannot find module 'comark-tabs' or its corresponding type declarations."
+  },
+  {
+    "id": "docs/content/docs/env/app-secret.md#0b0e47c788ee",
+    "label": "server/utils/session.ts",
+    "error": "TS2305 Module '\"#vitehub/env/server\"' has no exported member 'deriveSecret'."
+  },
+  {
+    "id": "docs/content/docs/env/bridge.md#17b4f7a44fce",
+    "label": null,
+    "error": "TS18046 'env.githubToken' is of type 'unknown'."
+  },
+  {
+    "id": "docs/content/docs/env/configure.md#61fd7644a2f7",
+    "label": "server/labeller.ts",
+    "error": "TS18046 'labeller' is of type 'unknown'."
+  },
+  {
+    "id": "docs/content/docs/env/index.md#dce61165544a",
+    "label": "src/app.ts",
+    "error": "TS2322 Type 'unknown' is not assignable to type 'string'."
+  },
+  {
+    "id": "docs/content/docs/env/index.md#caaac143beec",
+    "label": "server/api/issues.get.ts",
+    "error": "TS18046 'github' is of type 'unknown'."
+  },
+  {
+    "id": "docs/content/docs/env/server-api.md#eaad493ab07b",
+    "label": "server/github.ts",
+    "error": "TS18046 'github' is of type 'unknown'."
+  },
+  {
+    "id": "docs/content/docs/env/server-api.md#8695179e5f32",
+    "label": "server/sources/private-repository.ts",
+    "error": "TS18046 'env.githubToken' is of type 'unknown'."
+  },
+  {
+    "id": "docs/content/docs/guides/better-auth-cloudflare.md#efe4a2209ad9",
+    "label": "server/auth.ts",
+    "error": "TS18046 'env.auth' is of type 'unknown'."
+  },
+  {
+    "id": "docs/content/docs/guides/cloudflare-queues.md#d1f8dcf2bb13",
+    "label": "server/api/signup.post.ts",
+    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "docs/content/docs/guides/vercel-queues.md#9ead153357cd",
+    "label": "server/api/signup.post.ts",
+    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "docs/content/docs/guides/vercel-queues.md#4b6998cdb230",
+    "label": "server/utils/enqueue-welcome.ts",
+    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "docs/content/docs/guides/vercel-queues.md#135463400f0c",
+    "label": "server/utils/enqueue-welcomes.ts",
+    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "docs/content/docs/logs/get-started.md#b7725026293a",
+    "label": "vite.config.ts",
+    "error": "TS2353 Object literal may only specify known properties, and 'local' does not exist in type 'ConsoleOptions'."
+  },
+  {
+    "id": "docs/content/docs/queue/get-started.md#9ead153357cd",
+    "label": "server/api/welcome.post.ts",
+    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "docs/content/docs/queue/index.md#616f2aae6e84",
+    "label": "server/api/signup.post.ts",
+    "error": "TS2339 Property 'email' does not exist on type '{ email: string; } | undefined'."
+  },
+  {
+    "id": "docs/content/docs/queue/index.md#ec4ba5012fda",
+    "label": "server/api/reminder.post.ts",
+    "error": "TS2339 Property 'email' does not exist on type '{ email: string; } | undefined'."
+  },
+  {
+    "id": "docs/content/docs/queue/limits-and-errors.md#bb22fa79f67f",
+    "label": "server/api/signup.post.ts",
+    "error": "TS7006 Parameter 'event' implicitly has an 'any' type."
+  },
+  {
+    "id": "docs/content/docs/queue/server-api.md#d1f8dcf2bb13",
+    "label": "server/api/signup.post.ts",
+    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "docs/content/docs/queue/server-api.md#076bfba35760",
+    "label": "server/utils/enqueue-welcome.ts",
+    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "docs/content/docs/queue/server-api.md#87bbdf956257",
+    "label": "examples/run-queue.ts",
+    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "docs/content/docs/queue/server-api.md#1a64a20c035a",
+    "label": "examples/defer-queue.ts",
+    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "docs/content/docs/queue/server-api.md#0d9290e195e9",
+    "label": "examples/get-queue.ts",
+    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "docs/content/docs/queue/server-api.md#715907e1ad8d",
+    "label": "examples/typed-dispatch.ts",
+    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "docs/content/docs/rate-limit/agent-capability.md#db72be2c6b21",
+    "label": "Before",
+    "error": "TS2304 Cannot find name 'rateLimit'."
+  },
+  {
+    "id": "docs/content/docs/rate-limit/index.md#cb8cae0e5e63",
+    "label": "server/api/messages.post.ts",
+    "error": "TS2345 Argument of type 'AuthRequestInput' is not assignable to parameter of type 'RateLimitRequestEvent'."
+  },
+  {
+    "id": "docs/content/docs/rate-limit/server-api.md#1bc63bfa9b4b",
+    "label": null,
+    "error": "TS1108 A 'return' statement can only be used within a function body."
+  },
+  {
+    "id": "docs/content/docs/realtime/server-api.md#63e5b270fc82",
+    "label": "server/realtime/pages.ts",
+    "error": "TS18048 'fields' is possibly 'undefined'."
+  },
+  {
+    "id": "docs/content/docs/reference/doctor-rules.md#e3f6e4dc09d2",
+    "label": "server/api/issues.get.ts",
+    "error": "TS7006 Parameter 'event' implicitly has an 'any' type."
+  },
+  {
+    "id": "docs/content/docs/reference/doctor-rules.md#ff43a766764d",
+    "label": "server/api/issues.get.ts",
+    "error": "TS7006 Parameter 'event' implicitly has an 'any' type."
+  },
+  {
+    "id": "docs/content/docs/reference/doctor-rules.md#159fe97daf2e",
+    "label": "vite.config.ts",
+    "error": "TS2769 No overload matches this call."
+  },
+  {
+    "id": "docs/content/docs/reference/doctor-rules.md#e2b27a0e912b",
+    "label": "server/api/crm.get.ts",
+    "error": "TS7006 Parameter 'event' implicitly has an 'any' type."
+  },
+  {
+    "id": "docs/content/docs/reference/doctor-rules.md#1522ebb07cd8",
+    "label": "server/api/crm.get.ts",
+    "error": "TS7006 Parameter 'event' implicitly has an 'any' type."
+  },
+  {
+    "id": "docs/content/docs/reference/doctor-rules.md#f5c9bb564ea8",
+    "label": "server/auth.ts",
+    "error": "TS2769 No overload matches this call."
+  },
+  {
+    "id": "docs/content/docs/reference/doctor-rules.md#502346b37dd8",
+    "label": "server/auth.ts",
+    "error": "TS18046 'env.auth' is of type 'unknown'."
+  },
+  {
+    "id": "docs/content/docs/reference/doctor-rules.md#9e3479e36459",
+    "label": "server/api/labels.get.ts",
+    "error": "TS2769 No overload matches this call."
+  },
+  {
+    "id": "docs/content/docs/reference/doctor-rules.md#a1f6494d54b7",
+    "label": "server/api/labels.get.ts",
+    "error": "TS2769 No overload matches this call."
+  },
+  {
+    "id": "docs/content/docs/reference/doctor-rules.md#b42814f33aee",
+    "label": "server/schemas.ts",
+    "error": "TS2322 Type 'BlobReferenceSchema' is not assignable to type 'BaseSchema<unknown, unknown, BaseIssue<unknown>> | SchemaWithFallback<BaseSchema<unknown, unknown, BaseIssue<unknown>>, unknown> | OptionalEntrySchema'."
+  },
+  {
+    "id": "docs/content/docs/reference/doctor-rules.md#0a11b2f3e675",
+    "label": "server/api/signup.post.ts",
+    "error": "TS2345 Argument of type '\"welcom-email\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "docs/content/docs/reference/doctor-rules.md#04dd22dff12a",
+    "label": "server/api/signup.post.ts",
+    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "docs/content/docs/reference/doctor-rules.md#a7f75e406bf5",
+    "label": "server/plugins/warmup.ts",
+    "error": "TS2345 Argument of type '\"warmup\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "docs/content/docs/reference/doctor-rules.md#6e7ca644e272",
+    "label": "server/api/warmup.post.ts",
+    "error": "TS2345 Argument of type '\"warmup\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "docs/content/docs/reference/doctor-rules.md#19125e85e0ab",
+    "label": "server/channels/alerts.ts",
+    "error": "TS2353 Object literal may only specify known properties, and 'url' does not exist in type 'ChannelConnector<never, object>'."
+  },
+  {
+    "id": "docs/content/docs/reference/doctor-rules.md#68b8557fab5e",
+    "label": "vite.config.ts",
+    "error": "TS2528 A module cannot have multiple default exports."
+  },
+  {
+    "id": "docs/content/docs/reference/doctor-rules.md#f55e15ba2697",
+    "label": "nuxt.config.ts",
+    "error": "TS2528 A module cannot have multiple default exports."
+  },
+  {
+    "id": "docs/content/docs/reference/runtime-context.md#e2744450c63d",
+    "label": "server/api/support.post.ts",
+    "error": "TS7006 Parameter 'event' implicitly has an 'any' type."
+  },
+  {
+    "id": "docs/content/docs/sandbox/configure.md#c19c21559f74",
+    "label": "server/tools/resize.sandbox-task.ts",
+    "error": "TS2322 Type '(payload: { width: number; }) => Promise<{ width: number; }>' is not assignable to type 'SandboxTaskDefinitionHandler<{ width: number; }, { width: number; }> & ((payload: { width: number; }) => Promise<{ width: number; }>)'."
+  },
+  {
+    "id": "docs/content/docs/shell/index.md#df52e0f1282e",
+    "label": "server/api/check.post.ts",
+    "error": "TS18048 'body' is possibly 'undefined'."
+  },
+  {
+    "id": "docs/content/docs/source/server-api.md#b43f632ae0d3",
+    "label": "server/collections/articles.ts",
+    "error": "TS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "docs/content/docs/source/server-api.md#9afe81a0582d",
+    "label": "server/collections/articles.ts",
+    "error": "TS18046 'article' is of type 'unknown'."
+  },
+  {
+    "id": "docs/content/docs/source/server-api.md#71326cceafb1",
+    "label": "server/collections/meals.ts",
+    "error": "TS7031 Binding element 'user' implicitly has an 'any' type."
+  },
+  {
+    "id": "docs/content/docs/source/server-api.md#004ed78eccb1",
+    "label": null,
+    "error": "TS2304 Cannot find name 'useCollection'."
+  },
+  {
+    "id": "docs/content/docs/ui/comments.md#288c9cbbdae6",
+    "label": null,
+    "error": "TS2304 Cannot find name 'files'."
+  },
+  {
+    "id": "docs/content/docs/workspace/configure.md#c197ab50d2c5",
+    "label": null,
+    "error": "TS2717 Subsequent property declarations must have the same type.  Property 'channel' must be of type 'AgentChannelContext<Record<string, unknown>, Record<string, unknown>, Record<string, unknown>>', but here has type '{ meta?: { customer?: string | undefined; } | undefined; }'."
+  },
+  {
+    "id": "docs/content/docs/workspace/get-started.md#4123330084f5",
+    "label": "server/api/drafts.post.ts",
+    "error": "TS18048 'body' is possibly 'undefined'."
+  },
+  {
+    "id": "packages/agent/README.md#e0e7838a305c",
+    "label": null,
+    "error": "TS2322 Type '({ abortSignal }: AgentProviderCredentialContext<AgentRuntimeConfig>) => Promise<unknown>' is not assignable to type 'AgentProviderCredentialResolver<AgentRuntimeConfig> | undefined'."
+  },
+  {
+    "id": "packages/agent/README.md#866f0b9e1b4d",
+    "label": null,
+    "error": "TS2344 Type '{ tenantId: string; }' does not satisfy the constraint '\"invoker\" | \"chat\" | \"agent.colocatedSkills\" | \"agent.invocation.traceId\" | \"agent.output.eventObserver\" | \"agent.output.progressSummary\" | \"agent.trigger\" | \"channel.delivery.titleDelivered\" | ... 19 more ... | \"channel.message\"'."
+  },
+  {
+    "id": "packages/agent/README.md#f017c18ce15f",
+    "label": null,
+    "error": "TS7006 Parameter 'repository' implicitly has an 'any' type."
+  },
+  {
+    "id": "packages/auth/README.md#73fb174ae71d",
+    "label": null,
+    "error": "TS18046 'env.auth' is of type 'unknown'."
+  },
+  {
+    "id": "packages/auth/README.md#16f5ad8e7cb4",
+    "label": null,
+    "error": "TS18046 'env.auth' is of type 'unknown'."
+  },
+  {
+    "id": "packages/blob/README.md#5f0fd7485ab1",
+    "label": null,
+    "error": "TS18048 'body' is possibly 'undefined'."
+  },
+  {
+    "id": "packages/blob/README.md#0f443e92375d",
+    "label": null,
+    "error": "TS2304 Cannot find name 'file'."
+  },
+  {
+    "id": "packages/blob/README.md#f9b91514e273",
+    "label": null,
+    "error": "TS2304 Cannot find name 'file'."
+  },
+  {
+    "id": "packages/blob/README.md#49ae73a1f27e",
+    "label": null,
+    "error": "TS2304 Cannot find name 'blob'."
+  },
+  {
+    "id": "packages/browser/README.md#43de109c54d2",
+    "label": null,
+    "error": "TS2769 No overload matches this call."
+  },
+  {
+    "id": "packages/channels/README.md#e52cfe98a589",
+    "label": null,
+    "error": "TS2769 No overload matches this call."
+  },
+  {
+    "id": "packages/codemods/README.md#80ac066d51a8",
+    "label": null,
+    "error": "TS2307 Cannot find module '@vite-hub/codemods' or its corresponding type declarations."
+  },
+  {
+    "id": "packages/comments/README.md#8e8bbe0cee0c",
+    "label": null,
+    "error": "TS18048 'event' is possibly 'undefined'."
+  },
+  {
+    "id": "packages/comments/README.md#0871d13332c2",
+    "label": null,
+    "error": "TS18004 No value exists in scope for the shorthand property 'transport'. Either declare one or provide an initializer."
+  },
+  {
+    "id": "packages/connections/README.md#80ccef603b0c",
+    "label": null,
+    "error": "TS2769 No overload matches this call."
+  },
+  {
+    "id": "packages/content/README.md#c29a0c62bef2",
+    "label": null,
+    "error": "TS2307 Cannot find module 'comark-knap' or its corresponding type declarations."
+  },
+  {
+    "id": "packages/content/README.md#583e1af8cf11",
+    "label": null,
+    "error": "TS18004 No value exists in scope for the shorthand property 'user'. Either declare one or provide an initializer."
+  },
+  {
+    "id": "packages/database/README.md#612584a94be8",
+    "label": null,
+    "error": "TS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "packages/database/README.md#4de5ceb072d1",
+    "label": null,
+    "error": "TS2304 Cannot find name 'db'."
+  },
+  {
+    "id": "packages/docs/README.md#d1050de4115a",
+    "label": null,
+    "error": "TS2307 Cannot find module 'comark-tabs' or its corresponding type declarations."
+  },
+  {
+    "id": "packages/env/README.md#932b9d7dbf0b",
+    "label": null,
+    "error": "TS18046 'airtableToken' is of type 'unknown'."
+  },
+  {
+    "id": "packages/env/README.md#82031b9440a2",
+    "label": null,
+    "error": "TS18046 'snapshot.githubToken' is of type 'unknown'."
+  },
+  {
+    "id": "packages/queue/README.md#765ba2bd98c1",
+    "label": null,
+    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "packages/queue/README.md#47047c3584ed",
+    "label": null,
+    "error": "TS2304 Cannot find name 'runQueue'."
+  },
+  {
+    "id": "packages/runtime/README.md#d203a0063da4",
+    "label": null,
+    "error": "TS2304 Cannot find name 'defineGrant'."
+  },
+  {
+    "id": "packages/sandbox/README.md#6aa0cf0c4ae6",
+    "label": null,
+    "error": "TS2571 Object is of type 'unknown'."
+  },
+  {
+    "id": "packages/sandbox/README.md#e04cc9d558f8",
+    "label": null,
+    "error": "TS2304 Cannot find name 'resolveSandbox'."
+  },
+  {
+    "id": "packages/source/README.md#af264e7ce752",
+    "label": null,
+    "error": "TS18046 'article' is of type 'unknown'."
+  },
+  {
+    "id": "packages/source/README.md#2a556cabbd25",
+    "label": null,
+    "error": "TS2345 Argument of type '\"articles\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "packages/vite-hub/README.md#2d1bacb37b87",
+    "label": null,
+    "error": "TS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
+  },
+  {
+    "id": "packages/vite-hub/README.md#2f4ad0597fb7",
+    "label": null,
+    "error": "TS2769 No overload matches this call."
+  },
+  {
+    "id": "packages/workspace/README.md#3f540cceb6dc",
+    "label": null,
+    "error": "TS2769 No overload matches this call."
+  }
+]

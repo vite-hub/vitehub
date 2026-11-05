@@ -116,7 +116,7 @@ builds the ProseMirror schema from `extensions()` and calls the codec; it never
 creates an editor view, so a codec must not depend on the DOM. All functions
 may be async.
 
-```ts [shared/editor.ts]
+```ts [shared/editor.ts] fragment
 import { defineRealtimeEditor } from 'vite-hub/realtime'
 
 export const pagesEditor = defineRealtimeEditor({
@@ -146,7 +146,7 @@ drop an undeclared `::callout` wrapper or unwrap raw HTML. A room autosaves,
 so the first save after any edit would rewrite the stored document. Add
 `verify()` to tell Realtime what the codec does with a stored document:
 
-```ts [shared/editor.ts]
+```ts [shared/editor.ts] fragment
 export const pagesEditor = defineRealtimeEditor({
   extensions: () => [/* ... */],
   fromMarkdown,
@@ -188,6 +188,8 @@ Every room document has three root types, named in `realtimeDocumentLayout`:
 | `status` | `Y.Map`: `digest`, `error`, `issues`, `savedAt`, `savedBy` | The server only. `error` also holds the read-only reason from `verify()`. |
 
 ```ts
+import { useRealtimeTiptap } from 'vite-hub/realtime/vue'
+
 const realtime = useRealtimeTiptap('pages', 'about')
 
 realtime.fields.value?.set('title', 'About us')
@@ -208,7 +210,7 @@ values to a field; nested objects inside a field are replaced, not merged.
 
 ## Identity and authorization
 
-```ts [server/realtime/pages.ts]
+```ts [server/realtime/pages.ts] fragment
 export default defineRealtime({
   auth: true,
   identify: async ({ event }) => {
@@ -249,7 +251,7 @@ in `carets`. They take the same arguments as in TipTap's CollaborationCaret.
 `render` builds the caret element, and `selectionRender` returns the decoration
 attributes of a selection. An option that you leave out keeps the default.
 
-```ts
+```ts fragment
 const realtime = useRealtimeTiptap('docs', 'guides/welcome.md', {
   carets: {
     render: (user) => {
@@ -273,7 +275,7 @@ document changes, so create the editor again for each document. Pass
 
 `connectRealtimeRoom(definition, documentId, options?)` joins one room to share presence, such as who is on a page and where each cursor is. It does not edit the room document, and it has no Vue dependency. [Comments](/docs/comments/server-api#presence-rooms) uses it for its page rooms.
 
-```ts
+```ts fragment
 import { connectRealtimeRoom } from '@vite-hub/realtime/client'
 import { commentRoom, normalizeCommentPage } from '@vite-hub/comments'
 
@@ -309,7 +311,7 @@ room.onChange(change => reload(change))
 
 Each call returns `[error, data]` and does not throw. `error.code` is a `RealtimeRequestErrorCode`; see [Realtime limits and errors](/docs/realtime/limits-and-errors).
 
-```ts
+```ts fragment
 const [error, saved] = await realtime.save()
 if (error) console.warn(error.code, error.why)
 else console.log(saved.digest)
@@ -325,7 +327,7 @@ that an Agent calls, call `refreshRealtimeDocument(definition, documentId)`
 after the write. The open room re-seeds and resets its clients at once, so
 people see the change without a `refresh()` from the browser:
 
-```ts [server/api/pages/[id].put.ts]
+```ts [server/api/pages/[id].put.ts] fragment
 import { refreshRealtimeDocument } from 'vite-hub/realtime/server'
 
 await db.pages.update(id, { body })
@@ -340,7 +342,7 @@ new copy when it opens. On Cloudflare it reaches the rooms through the Worker's
 Listen for resets to tell people what happened and to recover text that the
 room never saved:
 
-```ts
+```ts fragment
 realtime.onReset(({ reason, previous }) => {
   // reason: 'source-changed' (someone saved outside the room) or 'stale' (the room was re-seeded while offline)
   // previous: the Y.Doc this client held, destroyed after listeners return

@@ -18,7 +18,7 @@ A custom Capability names what the Agent can do and declares the requirements it
 Define the Capability near the application code that owns the behavior.
 Use `defineCapability()` so ViteHub validates the id and composes the Capability through the normal lifecycle.
 
-```ts [server/capabilities/tickets.ts]
+```ts [server/capabilities/tickets.ts] fragment
 import { defineCapability } from 'vite-hub/agent'
 import { z } from 'zod'
 
@@ -61,7 +61,7 @@ The tool catalog records `title` as `label` and keeps `label` and `icon` in meta
 Attach the custom Capability like any official Capability.
 Keep instructions explicit in the Agent Driver so Capability config does not become a hidden prompt bag.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { tickets } from '../capabilities/tickets'
 
@@ -103,7 +103,7 @@ Keep custom policy narrow and visible. A reviewer needs to understand the operat
 Use `workspace` to add Workspace Sources or rules for an invocation.
 The contribution is add-only and inspectable; it does not mutate the Agent's authored Workspace Definition.
 
-```ts [server/capabilities/tickets.ts]
+```ts [server/capabilities/tickets.ts] fragment
 import { defineCapability } from 'vite-hub/agent'
 
 export function ticketContext() {
@@ -145,7 +145,7 @@ For provider-backed Agents, declare required files through `requires.workspace.p
 Use `cli` when the Capability owns commands that agents and developers can run instead of a generic shell command.
 The public API accepts a static command tree or an invocation resolver on the Capability Definition.
 
-```ts [server/capabilities/inventory-runtime.ts]
+```ts [server/capabilities/inventory-runtime.ts] fragment
 import { defineCapability } from 'vite-hub/agent'
 import * as v from 'valibot'
 
@@ -190,7 +190,7 @@ Return `undefined` from a resolver to hide the CLI for the current invocation. T
 
 To omit the entire Capability, resolve the Agent Definition's `capabilities` list instead. This decides selection before the Capability contributes tools, CLI commands, requirements, hooks, or cleanup work.
 
-```ts [server/capabilities/inventory-runtime.ts]
+```ts [server/capabilities/inventory-runtime.ts] fragment
 export const inventoryRuntime = defineCapability({
   id: 'inventory-runtime',
   cli: ({ actor }) => actor.kind === 'support'
@@ -329,7 +329,7 @@ Each transform receives a copy of each tool definition that preserves its protot
 
 Tool transforms may remove MCP tools, replace them under the same key, or rename them. Replacements under an existing key inherit its MCP provenance. A rename must preserve `metadata.mcpServer` and `metadata.originalName`, including when it reconstructs the tool:
 
-```ts
+```ts fragment
 context.tools.transform(tools => ({
   lookup: {
     name: 'lookup',

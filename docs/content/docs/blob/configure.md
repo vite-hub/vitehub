@@ -11,6 +11,9 @@ icon: i-lucide-sliders-horizontal
 Configure one default Blob Store directly, or configure named stores with `blob.stores`.
 
 ```ts [vite.config.ts]
+import { hubBlob } from '@vite-hub/blob/vite'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [hubBlob()],
   blob: {
@@ -36,6 +39,9 @@ export default defineConfig({
 The serve route is public by default. Set `serve.authorize: true` to require a signed-in [Auth](/docs/auth) session before ViteHub reads the store. The app must enable Auth and define `server/auth.ts`, or the build fails with `BLOB_B0002`.
 
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [vitehub({
     auth: true,
@@ -60,6 +66,9 @@ A request without a session returns JSON `401`. A `false` result returns `403`, 
 Some apps share a file with anyone who has its link. Set `serve.anonymous: true` with `serve.authorize: true` to send signed-out requests to the `authorize` export too. For these requests, `session` and `user` are `null`. Type the export as `BlobServeAnonymousAuthorize` so TypeScript makes you check `user` first.
 
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [vitehub({
     auth: true,
@@ -85,6 +94,9 @@ export const authorize: BlobServeAnonymousAuthorize = ({ request, user }) => {
 Blob serving is opt-in. Set `serve` in the Blob config, or pass `hubBlob({ serve: true })`, to generate a Nitro route that serves Blob-backed assets through `blob.serve()`.
 
 ```ts [vite.config.ts]
+import { hubBlob } from '@vite-hub/blob/vite'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [hubBlob()],
   blob: {
@@ -99,6 +111,9 @@ export default defineConfig({
 Use an explicit `serve.route` for product-facing asset URLs.
 
 ```ts [vite.config.ts]
+import { hubBlob } from '@vite-hub/blob/vite'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [hubBlob()],
   blob: {
@@ -130,6 +145,9 @@ Objects from the served store include a URL. With `serve.publicBaseUrl`, the URL
 `images` sets how the serve route makes variants. Omit it to use the `auto` transformer: the Cloudflare Images binding when the Worker has one, sharp when the project installs it, and the original otherwise.
 
 ```ts [vite.config.ts]
+import { hubBlob } from '@vite-hub/blob/vite'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [hubBlob()],
   blob: {

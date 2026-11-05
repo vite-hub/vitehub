@@ -51,7 +51,7 @@ Better Auth `user.additionalFields` become columns and profile fields. Fields wi
 
 Use a Better Auth adapter and schema that include those columns. [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database) owns a fixed `user` table and rejects `user.additionalFields` with `AUTH_C0055`.
 
-```ts [server/auth.ts]
+```ts [server/auth.ts] fragment
 import { defineAuth } from 'vite-hub/auth'
 import { admin, organization } from 'better-auth/plugins'
 import { countProjectsByUser } from './projects'
@@ -103,7 +103,7 @@ The `console` option also works in a request-time Auth Definition callback. It h
 
 When the app computes roles, for example from an environment variable, add `read` to `roles`. The Console then shows those roles and its Admins filter uses them, also for users who have not signed in since the rule changed. It writes nothing.
 
-```ts [server/auth.ts]
+```ts [server/auth.ts] fragment
 console: {
   roles: {
     editable: false,
@@ -137,7 +137,7 @@ Lists use a default page size of 25 and a maximum of 100. Search and the approve
 
 Use the same reader from trusted server code:
 
-```ts
+```ts fragment
 import { getAuthConsoleForRequest } from 'vite-hub/auth/server'
 
 const inspect = getAuthConsoleForRequest(request)

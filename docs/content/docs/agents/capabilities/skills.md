@@ -17,7 +17,7 @@ Agent-owned Skills do not need this Capability. Use a folder Agent Definition wh
 
 The default path is `skills/SKILL.md`. Pass a custom `path` when the Workspace stores the Skill somewhere else.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { skills } from 'vite-hub/agent/capabilities'
 
@@ -32,7 +32,7 @@ export default defineAgent({
 
 Mount a remote Skill Source when the Skill file is outside the project:
 
-```ts [server/agents/review/browser.ts]
+```ts [server/agents/review/browser.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { skills } from 'vite-hub/agent/capabilities'
 import { github } from 'vite-hub/workspace'

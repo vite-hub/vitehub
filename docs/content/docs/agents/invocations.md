@@ -42,7 +42,7 @@ Run `vitehub agent info` to inspect the resolved Agent Definition. Run `vitehub 
 
 For an Agent with `runtime: false`, the shortest call returns an error/result tuple:
 
-```ts
+```ts fragment
 import { runAgent } from 'vite-hub/agent'
 import support from './agents/support'
 
@@ -94,7 +94,7 @@ The second argument is [Runtime Context](/docs/reference/runtime-context); the t
 
 For a script or direct invocation, pass the invocation input as the second argument:
 
-```ts
+```ts fragment
 const [error, result] = await runAgent(support, { prompt: 'Summarize the support policy.' })
 if (error) throw error
 ```
@@ -214,7 +214,7 @@ Set `defineAgent({ data })` when callers pass structured values. ViteHub validat
 
 Finish hooks receive normalized duration, result kind, and usage. Error hooks receive failed invocations.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({

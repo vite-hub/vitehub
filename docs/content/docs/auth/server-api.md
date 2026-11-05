@@ -46,6 +46,7 @@ App Auth loads Better Auth with the first Auth request, the first request that a
 Server code can read the discovered Auth instance or require a session for a request.
 
 ```ts [server/api/me.get.ts]
+import { defineEventHandler, getRequestHeaders } from 'h3'
 import { auth } from '@vite-hub/auth/server'
 
 export default defineEventHandler(async (event) => {
@@ -58,6 +59,7 @@ export default defineEventHandler(async (event) => {
 To protect a route, wrap its handler. The guard checks the request first. Your handler runs only when the check passes, and it receives the checked `authorization`. You do not branch on the check result yourself, so a missing `if` cannot run the protected action.
 
 ```ts [server/api/profile.get.ts]
+import { defineEventHandler } from 'h3'
 import { withAuth } from '@vite-hub/auth/server'
 
 export default defineEventHandler(withAuth((event, { user }) => ({ id: user.id })))
@@ -65,7 +67,7 @@ export default defineEventHandler(withAuth((event, { user }) => ({ id: user.id }
 
 On H3 2, you can put the check in route middleware. `requireAuth()` rejects like `withAuth()`. `requireAuthorization(authorize)` rejects like `withAuthorization()`. When the check passes, the middleware calls `next()`, and the handler reads the checked `authorization` with `getAuthorization(event)`.
 
-```ts [server/app.ts]
+```ts [server/app.ts] fragment
 import { getAuthorization, requireAuth, requireAuthorization } from '@vite-hub/auth/server'
 import { H3 } from 'h3'
 

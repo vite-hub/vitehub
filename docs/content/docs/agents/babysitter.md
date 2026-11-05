@@ -93,7 +93,7 @@ Configure label controls in `lifecycle.labels` or selection rules in `filter.lab
 
 The host checks `admission` before it claims a pull request. A spent limit stops model passes. Direct merges and recorded waits continue, so a ready pull request still merges.
 
-```ts [server/agents/babysitter/agent.ts]
+```ts [server/agents/babysitter/agent.ts] fragment
 export default defineAgent({
   extends: babysitter,
   options: {

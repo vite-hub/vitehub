@@ -95,6 +95,9 @@ if (detected !== file.type) throw new Error("File content does not match its dec
 
 ```ts
 // vite.config.ts
+import { hubBlob } from "@vite-hub/blob/vite"
+import { defineConfig } from "vite"
+
 export default defineConfig({
   blob: {
     driver: "fs",
@@ -137,7 +140,7 @@ Browser clients:
 
 `image()` and `file()` return [Standard Schema](https://standardschema.dev) validators for a stored pointer to one object: `{ pathname, contentType?, size? }`. They accept a `BlobObject` from `put()` or `handleUpload()` and drop its other fields. They reject unsafe pathnames, such as absolute paths and `..` segments, and they check `accept` against `contentType` and `maxSize` against the recorded `size`. They don't read the store.
 
-```ts
+```ts fragment
 import { file, image } from "@vite-hub/blob"
 
 const cover = image({ store: "media", maxSize: "8MB" }) // accepts image/* by default
@@ -217,6 +220,9 @@ pnpm add @aws-sdk/lib-storage
 
 ```ts
 // vite.config.ts
+import { hubBlob } from "@vite-hub/blob/vite"
+import { defineConfig } from "vite"
+
 export default defineConfig({
   blob: {
     driver: "s3",
@@ -241,6 +247,9 @@ pnpm add @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws
 
 ```ts
 // vite.config.ts
+import { hubBlob } from "@vite-hub/blob/vite"
+import { defineConfig } from "vite"
+
 export default defineConfig({
   blob: {
     driver: "minio",
@@ -262,7 +271,7 @@ The Files SDK native `MINIO_ACCESS_KEY_ID` and `MINIO_SECRET_ACCESS_KEY` env nam
 
 You can also keep the config self-contained:
 
-```ts
+```ts fragment
 blob: {
   driver: "minio",
   accessKeyId: process.env.MINIO_ROOT_USER,

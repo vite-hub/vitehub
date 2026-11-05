@@ -16,7 +16,7 @@ It can also write transcript and source-audio artifacts into a writable [Workspa
 Provide either an AI SDK transcription model configuration or an `execute()` function.
 The example keeps artifacts off, so it does not require a writable Workspace.
 
-```ts [server/agents/voice.ts]
+```ts [server/agents/voice.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { transcribe } from 'vite-hub/agent/capabilities'
 
@@ -70,7 +70,7 @@ When `artifacts` is set, it writes the transcript and the source audio to the Ag
 Use `artifacts.directory` to keep the transcript and source audio together.
 The generated paths share a sanitized timestamp and message stem.
 
-```ts
+```ts fragment
 transcribe({
   model: transcriptionModel,
   artifacts: {
@@ -114,7 +114,7 @@ Return the reply intent without awaiting `transcription.text`; consuming the rep
 Use `createTranscription()` to submit a private remote object from a durable workflow and resume after the provider completes it.
 The client returns the provider operation ID used for acknowledgement and idempotency, then normalizes an authenticated completion payload into a provider-neutral transcript or failure.
 
-```ts
+```ts fragment
 import {
   createTranscription,
   elevenLabsScribe,

@@ -24,6 +24,7 @@ import { SyncStatus, SyncStatusIndicator, SyncStatusLabel } from "@vite-hub/ui";
 Derive the status from the Realtime room:
 
 ```ts
+import { computed, ref } from "vue"
 import type { SyncStatusValue } from "@vite-hub/ui";
 import { useRealtimeTiptap } from "vite-hub/realtime/vue";
 

@@ -16,7 +16,7 @@ It does not wrap a Server Primitive. Each tool calls the runtime `fetch` with th
 Define at least one named fetch tool.
 Keep the endpoint and method explicit.
 
-```ts [server/agents/status.ts]
+```ts [server/agents/status.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { fetch } from 'vite-hub/agent/capabilities'
 

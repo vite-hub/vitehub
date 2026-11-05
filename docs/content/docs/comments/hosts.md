@@ -43,6 +43,9 @@ The overlay works in Nitro 3 apps and in Nuxt 4 apps on each of these hosts.
 Use a SQLite file or libSQL Database, and the memory room authority:
 
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [
     vitehub({
@@ -61,6 +64,9 @@ The memory authority keeps the presence rooms in one process. With several proce
 Use a D1 Database. `realtime: true` selects Durable Objects on the Cloudflare preset, and each page gets its own room.
 
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [
     vitehub({

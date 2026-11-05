@@ -24,6 +24,8 @@ The `comments()` plugin has one option of its own, [`database`](#choose-the-data
 In a ViteHub app, Comments is on when the app has the [Console](/docs/development/console) or `server/comments.ts`. `vitehub({ comments: true })` turns it on without either. Without the file, Comments uses `defineComments()` with no options. Comments turns on the Database when `database` is unset, and adds the Comments section to the Console. An object turns it on too, and sets the Database, the SQL dialect, or `overlay: false`:
 
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+
 vitehub({
   preset: 'node',
   console: { auth: 'app' },
@@ -110,6 +112,8 @@ On Cloudflare, Comments reads the variables from the Worker's bindings too.
 **What `authorize` gets.** The user has the GitHub account in `user.github`, so you can let in more or fewer people than the default:
 
 ```ts [server/comments.ts]
+import { defineComments } from 'vite-hub/comments'
+
 export const comments = defineComments({
   authorize: ({ user, action }) => {
     // Everyone who signs in may read. People who can push may comment and resolve.
@@ -164,7 +168,7 @@ When a person signs in to the app with `auth: 'app'`, or opens the Console, the 
 
 Return the user from `identify` to use your own login. Return `null` for an anonymous request. When `identify` is configured, it names the user and `authorize` decides what they may do. Comments then reads neither the ViteHub Auth session nor the Console's access, so members, guests, and readers of a share link can comment in an app that also has the Console. The comment operations of the Console, the CLI, and MCP ask `identify` too, with the request of the call, so `authorize` always sees the user that `identify` builds. An agent's call has no request, so it has no user. Without `authorize`, a production build lets nobody in that `identify` names: write the policy.
 
-```ts [server/comments.ts]
+```ts [server/comments.ts] fragment
 import { getCookie } from 'h3'
 import { defineComments } from 'vite-hub/comments'
 import { findSession } from './utils/session'
@@ -184,6 +188,8 @@ The user must have a string `id`. Comments shows `name`, else `email`, else "Som
 Return `true` for `user: null` to let people without an account comment. The overlay asks for a display name once and keeps it in the browser's `localStorage`. Their comments show the name with "(guest)".
 
 ```ts [server/comments.ts]
+import { defineComments } from 'vite-hub/comments'
+
 export const comments = defineComments({
   // Guests may read and comment. Only editors resolve.
   authorize: ({ user, action }) => action !== 'resolve' || user?.role === 'editor',
@@ -279,6 +285,9 @@ When your app uses `DATABASE_URL` or `TURSO_DATABASE_URL` for another database, 
 ### Cloudflare D1
 
 ```ts [vite.config.ts]
+import { comments } from '@vite-hub/comments/vite'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [comments({ database: 'd1:COMMENTS' })],
 })
@@ -301,6 +310,9 @@ Add the variables of [Sign in with GitHub](#sign-in-with-github) as Worker secre
 ### A SQLite file
 
 ```ts [vite.config.ts]
+import { comments } from '@vite-hub/comments/vite'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [comments({ database: 'file:./data/comments.sqlite' })],
 })
@@ -315,6 +327,8 @@ In a [ViteHub app](/docs/comments/with-vite-hub), Comments adds four tables, `vi
 To use another Database, give its name:
 
 ```ts [server/comments.ts]
+import { defineComments } from 'vite-hub/comments'
+
 export const comments = defineComments({
   database: 'team',
 })
@@ -392,7 +406,7 @@ Type `@` in a comment to mention someone. The server checks every mention: the i
 
 By default, a person may be mentioned in a thread only when they may read it: `authorize({ action: 'read', user: person, thread })`. Suggestions leave out the others, and a message that mentions one fails with `COMMENTS_INVALID_INPUT`. Change it with `canMention`:
 
-```ts [server/comments.ts]
+```ts [server/comments.ts] fragment
 import { defineComments } from 'vite-hub/comments'
 import { team } from './utils/team'
 
@@ -412,7 +426,7 @@ export const comments = defineComments({
 
 `onMention` runs once for each saved message that mentions people, with those people. An edit runs it only for the people it adds. It runs after the answer, through `waitUntil` where the host has it, and a failure is logged and never fails the comment. Compose it with [Email](/docs/email):
 
-```ts [server/comments.ts]
+```ts [server/comments.ts] fragment
 import { defineComments } from 'vite-hub/comments'
 import { email } from 'vite-hub/email/server'
 import { findUserEmail } from './utils/users'
@@ -444,7 +458,7 @@ A message can keep files: `attachments` holds their keys. The `comments.upload` 
 
 Without an option, Comments stores the file in the [Blob](/docs/blob) store of the app, under `comments/<id>/<name>`. To store files yourself, such as with the other files of your app, return the key from `storeAttachment`:
 
-```ts [server/comments.ts]
+```ts [server/comments.ts] fragment
 import { defineComments } from 'vite-hub/comments'
 import { saveImage } from './utils/images'
 
@@ -587,7 +601,7 @@ The App posts a comment with its author's name: "**Ada** commented on the previe
 
 With another sign-in, return their GitHub token from `token(author)`, such as the user token of their GitHub sign-in with [Auth](/docs/auth). `token` replaces the sign-in token.
 
-```ts [server/comments.ts]
+```ts [server/comments.ts] fragment
 import { defineComments } from 'vite-hub/comments'
 import { githubToken } from './utils/github'
 

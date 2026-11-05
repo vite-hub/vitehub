@@ -39,7 +39,7 @@ Most discovered Definition files default-export the package-owned Definition Bou
 
 Canonical Sandbox Task package projects are the exception: `server/sandbox-tasks/<path>/index.ts` default-exports an async `(payload, context) => result` function. The adjacent `package.json` must set `"type": "module"`. Local TypeScript uses explicit relative ESM imports, while bare dependencies must expose runtime-ready JavaScript; CommonJS source and package-local import aliases are not compiled. The folder supplies the Definition identity, and optional static wall-clock policy comes from `vitehub.sandboxTask.timeout`. Free-form `<path>.sandbox-task.ts` files still default-export `defineSandboxTask(...)`.
 
-```ts [server/queues/welcome-email.ts]
+```ts [server/queues/welcome-email.ts] fragment
 import { defineQueue } from '@vite-hub/queue'
 
 export default defineQueue<{ email: string }>(async (job) => {

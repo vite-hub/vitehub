@@ -14,7 +14,7 @@ The [KV server API](/docs/kv/server-api) covers application code. This page cove
 
 Attach KV in read mode until the Agent must write keys.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { kv } from 'vite-hub/agent/capabilities'
 
@@ -28,7 +28,7 @@ export default defineAgent({
 
 To let the Agent write, set `mode: 'write'`. Use `store` to limit the Agent to one named KV Store, and `policy` to gate writes.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 kv({ mode: 'write', policy: 'require-approval', store: 'agent-notes' })
 ```
 

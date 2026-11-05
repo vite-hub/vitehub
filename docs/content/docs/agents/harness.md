@@ -80,7 +80,7 @@ Each property is one part of the harness. ViteHub discovers the file in `server/
 
 To run the same Agent in the Codex harness, change only the Driver:
 
-```ts [server/agents/docs/agent.ts]
+```ts [server/agents/docs/agent.ts] fragment
 driver: codexDriver({
   model: 'gpt-5.5',
   instructions: 'Answer from the docs Workspace. Say when the answer is absent.',

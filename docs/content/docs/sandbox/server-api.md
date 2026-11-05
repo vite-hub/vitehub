@@ -23,6 +23,7 @@ Applications that use the `vite-hub` distribution import the same runtime APIs f
 `runSandboxTask(name, payload?, options?)` infers its payload type from the default function and returns a native Web `Response`. A zero-argument function accepts an `unknown` payload.
 
 ```ts [server/api/release-notes-json.post.ts]
+import { defineEventHandler } from 'h3'
 import { runSandboxTask } from '@vite-hub/sandbox/task'
 
 export default defineEventHandler(async () => {

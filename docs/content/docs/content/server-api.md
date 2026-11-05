@@ -173,7 +173,7 @@ A collection is also a read-only [Collection](/docs/source/server-api) over its 
 
 ### Save and remove
 
-```ts
+```ts fragment
 const posts = content.collection('posts')
 const draft = await posts.get('hello', { ref: 'draft' })
 await posts.save('hello', { data: { title: 'Hello', date: '2026-10-14', tags: ['vue'] }, body: '# Hello' }, {
@@ -271,7 +271,7 @@ await content.publish({ collection: 'posts' })
 
 `can()` evaluates [`defineContent({ authorize })`](/docs/content/configure#access) and returns `false` without a policy. Pass the signed-in Auth user as `user`, or omit it for `null`. A surface that acts for an Agent also passes the Invocation's `actor`:
 
-```ts
+```ts fragment
 await content.can({ user: authUser, actor, collection: 'posts', action: 'write', id: 'hello' })
 ```
 
@@ -283,7 +283,7 @@ An unknown collection, a `user` that is not an object or `null`, or an `actor` w
 
 ### Preview
 
-```ts
+```ts fragment
 await content.preview.enable(event, { maxAge: 900 }) // sets the cookie: { setCookie, expiresAt }
 content.preview.disable(event)                       // clears it
 await content.preview.run(event, () => posts.get('hello')) // draft when the event has a valid cookie

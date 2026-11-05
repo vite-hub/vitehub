@@ -49,7 +49,7 @@ Without `vite-hub`, import the same names from `@vite-hub/comments`. `@vite-hub/
 
 Import `comments` from `server/comments.ts` in server routes, plugins, and Agent tools. Each method returns `[error, data]`, except `can()`. These methods are trusted server API: they do not call `authorize`.
 
-```ts [server/api/threads/[id]/resolve.post.ts]
+```ts [server/api/threads/[id]/resolve.post.ts] fragment
 import { defineEventHandler, getRouterParam } from 'h3'
 import { comments } from '../../../comments'
 
@@ -94,6 +94,8 @@ A change from server code does not reach open pages at once. Open pages read the
 The server API, the comment operations, the browser client, and the overlay use the same types.
 
 ```ts
+import type { CommentActor, CommentAnchor, CommentContext } from 'vite-hub/comments'
+
 interface CommentThread {
   id: string
   scope: string                   // the numbering scope: 'site' for pages and Content
@@ -290,7 +292,7 @@ The overlay script is a static file at `/api/_vitehub/comments/assets/overlay.js
 
 `createRestTransport()` from `vite-hub/comments/client` is a [`CommentsTransport`](/docs/comments/operations/server-api#browser-transport) over these routes, for an app's own comment UI. Unlike the RPC transport, it needs no Console access, so it serves guests and share-link readers too.
 
-```ts [app/comments.ts]
+```ts [app/comments.ts] fragment
 import { createCommentsClient, createRestTransport } from 'vite-hub/comments/client'
 
 const transport = createRestTransport({

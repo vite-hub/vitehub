@@ -35,6 +35,9 @@ The manifest records `enforcement`, counter `scope`, `rejectedAttempts`, and sup
 With a Cloudflare Nitro preset, `hubRateLimit()` infers the provider. Set a deployment-unique namespace so matching Rate Limit IDs cannot share counters across Workers or environments in the same Cloudflare account.
 
 ```ts [vite.config.ts]
+import { hubRateLimit } from '@vite-hub/rate-limit/vite'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [hubRateLimit({ namespace: 'acme-image-service-production' })],
 })

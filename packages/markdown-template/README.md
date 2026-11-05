@@ -81,7 +81,7 @@ The renderer URI-encodes characters that would change the Markdown structure and
 
 A binding inside only part of a destination does not create a link. For example, `[Open review](/reviews/{{ data.id }})` renders as literal, non-clickable text. Construct the complete URL in data and bind the whole destination instead:
 
-```ts
+```ts fragment
 const data = { reviewUrl: `/reviews/${id}` }
 ```
 

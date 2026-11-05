@@ -79,6 +79,8 @@ Renders a list of tool contracts with optional call counts.
 #### Types
 
 ```ts
+import type { AgentInspectionValue } from "vite-hub/ui"
+
 interface AgentToolInspection {
   name: string;
   /** Short past-tense label from the tool's title, for example "Searched meals". */

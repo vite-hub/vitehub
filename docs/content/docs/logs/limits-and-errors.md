@@ -16,7 +16,7 @@ Redact secrets and personal data before capture or source delivery. A local Cons
 
 For structured error guidance, set a serialized Nostics diagnostic on the event:
 
-```ts
+```ts fragment
 logger.set({ diagnostic: diagnostic.toJSON() })
 ```
 

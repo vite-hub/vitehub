@@ -44,6 +44,8 @@ Read [Definition discovery](/docs/development/definition-discovery), [Runtime He
 Set `dataDir` in `vitehub()` to select a shared local storage directory on a Node host:
 
 ```ts
+import { vitehub } from 'vite-hub'
+
 vitehub({
   preset: "node",
   dataDir: "/var/lib/app",
@@ -64,6 +66,8 @@ The host must provide a persistent, writable filesystem at this path. The option
 Set `publicUrl` in `vitehub()` to the public origin of the deployed application. Console invocation links, GitHub activity links, Chat error links, trigger `failed` events, telemetry `session_url` values, the default Auth `baseURL`, and the Connections OAuth callback and origin check use it:
 
 ```ts
+import { vitehub } from 'vite-hub'
+
 vitehub({
   preset: "node",
   publicUrl: "https://agents.example.com",
@@ -73,6 +77,8 @@ vitehub({
 Use a function when one build serves Agents from different origins. ViteHub calls it once per discovered Agent at build time, using its file-derived name. An explicit definition name resolves to that same origin at runtime. A shared definition discovered under several names has no implicit alias:
 
 ```ts
+import { vitehub } from 'vite-hub'
+
 vitehub({
   preset: "node",
   publicUrl: agent => agent === "bot" ? "https://agent.example.com" : "https://agent-dev.example.com",
@@ -104,6 +110,8 @@ When `publicUrl` is one string, `vitehub channels sync` and `vitehub channels hi
 On the `cloudflare` preset, a string `publicUrl` with an HTTPS DNS hostname outside `workers.dev` and without a port also writes the custom domain into the generated `wrangler.json`. IP addresses, `localhost`, and invalid DNS hostnames leave routing unchanged:
 
 ```ts
+import { vitehub } from 'vite-hub'
+
 vitehub({
   preset: "cloudflare",
   publicUrl: process.env.APP_URL, // https://calories.example.com

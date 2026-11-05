@@ -14,7 +14,7 @@ The [Sandbox server API](/docs/sandbox/server-api) covers application code. This
 
 Pass executable names, not shell command strings. `commands` is required and must contain at least one name.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { sandbox } from 'vite-hub/agent/capabilities'
 

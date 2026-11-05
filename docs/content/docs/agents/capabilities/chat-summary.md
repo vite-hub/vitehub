@@ -16,7 +16,7 @@ The summary comes from a custom `execute()` function, an AI SDK model call, or a
 Attach `chatSummary()` to an Agent that receives conversation messages, for example with `chat()`.
 `chat()` is not required; the command works on any message or string prompt input.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { chat, chatSummary } from 'vite-hub/agent/capabilities'
 

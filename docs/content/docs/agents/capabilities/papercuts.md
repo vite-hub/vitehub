@@ -15,7 +15,7 @@ With `cli: true`, the Agent also receives a `papercuts report` Capability CLI co
 
 Pass a callback that writes each report to your store:
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { papercuts } from 'vite-hub/agent/capabilities'
 import { reports } from '../storage/reports'
@@ -68,6 +68,9 @@ When both are set, `report` is used and `backend` is ignored.
 Each `PapercutReportEvent` contains the Capability runtime context and a `papercut` value. The Capability fills these fields:
 
 ```ts
+import type { TraceContext } from 'vite-hub/runtime'
+import type { AgentRunMetadata } from 'vite-hub/agent'
+
 interface Papercut {
   agent?: { name: string, workspace?: string }
   createdAt: string

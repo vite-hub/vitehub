@@ -45,6 +45,7 @@ export default defineEventHandler(async (event) => {
 ```
 
 ```ts [server/api/files/[...path].get.ts]
+import { createError, defineEventHandler, getRouterParam } from 'h3'
 import { blob } from '@vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
@@ -113,7 +114,7 @@ Filesystem cache keys normalize repeated slashes. Use consistent filename casing
 
 Configure a private store when originals and derived objects must be accessible only through your application. The transform does not change provider access settings. The original remains unchanged. Deleting it prevents serving the cached result, including a conditional `304`. An in-flight transform does not recreate its cache after the source is removed.
 
-```ts [server/api/photos/[id].get.ts]
+```ts [server/api/photos/[id].get.ts] fragment
 import { blob } from '@vite-hub/blob'
 import { createPreview, resolvePhotoPath } from '../../utils/photos'
 
@@ -159,6 +160,7 @@ with a file that fails `ensure` throws an H3 400 error before anything is
 stored.
 
 ```ts [server/api/files.post.ts]
+import { defineEventHandler } from 'h3'
 import { blob } from '@vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
@@ -212,6 +214,7 @@ drivers support it. Other drivers throw `BLOB_R0030`.
 Create one route with `action` and `pathname` params:
 
 ```ts [server/api/files/multipart/[action]/[...pathname].ts]
+import { defineEventHandler } from 'h3'
 import { blob } from '@vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
@@ -263,7 +266,7 @@ request; `completed` then resolves with `undefined`.
 
 Server code can also drive an upload directly:
 
-```ts [server/utils/copy-large-file.ts]
+```ts [server/utils/copy-large-file.ts] fragment
 import { blob } from '@vite-hub/blob'
 
 const [createError, upload] = await blob.createMultipartUpload('exports/report.csv')
@@ -325,7 +328,7 @@ interface BlobReference {
 
 `image()` and `file()` from `@vite-hub/blob` return validators for that shape. [Content](/docs/content/configure#fields) re-exports the same functions from `vite-hub/content`, next to its other field helpers. A reference has no URL, because signed and served URLs expire or depend on routes. It has no alt text or dimensions either: read them from the [media record](/docs/blob/media#media-in-content) with `blob.media.get(reference)` when you render. Serve or sign the pathname when you read the record. A reference also has no store name. The schema's `store` option names the store.
 
-```ts [server/api/profile/avatar.put.ts]
+```ts [server/api/profile/avatar.put.ts] fragment
 import { image } from '@vite-hub/blob'
 
 const avatar = image({ maxSize: '2MB' })

@@ -14,7 +14,7 @@ The model call goes through an AI gateway that has `ask()`, such as `typesafe()`
 
 ## Use
 
-```ts
+```ts fragment
 import { defineChoices, toOptions } from '@vite-hub/decisions'
 import { typesafe } from '@vite-hub/gateways'
 
@@ -54,7 +54,7 @@ selection.chart // { value: null, confidence: 0.9, ranked: [{ value: 'line', pro
 
 An `options` function receives `context`. Annotate its parameter, and `resolve()` asks for the same type:
 
-```ts
+```ts fragment
 options: async ({ tenantId }: { tenantId: string }) => toOptions(await loadSites(tenantId), { value: s => s.id, label: s => s.name })
 // await sites.resolve(text, { context: { tenantId: session.tenantId } })
 ```

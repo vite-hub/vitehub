@@ -12,6 +12,7 @@
     "deploy:cloudflare": "vp run test && vp run build && vp dlx \"wrangler@4.147.0\" deploy --config .output/server/wrangler.json",
     "test": "vp test --exclude test/artifact.test.ts",
     "test:links": "vp run build",
+    "test:snippets": "node scripts/check-snippets.mjs",
     "test:links:external": "node scripts/check-example-links.mjs",
     "test:artifact": "vp test --config vitest.artifact.config.ts",
     "eval:agent-docs": "node evals/agent-docs/run.mjs",

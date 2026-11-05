@@ -123,6 +123,8 @@ Workspace Definition's `store`. The framework also exports
 `vite-hub/workspace/blob-database`.
 
 ```ts
+import { useWorkspace } from "@vite-hub/workspace"
+
 const workspace = useWorkspace("drop", { mode: "write" })
 const revision = await workspace.history.commit({
   ifHead: (await workspace.history.head())?.id ?? null,
@@ -146,7 +148,7 @@ History has named refs. Calls without `ref` use `main`. Each ref has its own hea
 and timeline, and revisions and bytes are shared across refs. A `changes` commit
 patches the ref head, so saving one draft file does not resend the folder:
 
-```ts
+```ts fragment
 const draft = await workspace.history.head({ ref: "draft" })
 await workspace.history.commit({
   ref: "draft",
@@ -219,7 +221,7 @@ export const articles = defineCollection({
 
 ViteHub generates `GET /api/articles`, and `useCollection("articles")` from `@vite-hub/source/client` reads it with typed filters:
 
-```ts
+```ts fragment
 const { items, total, facets, loadMore } = useCollection("articles", {
   limit: 25,
   filter: computed(() => ({ category: selectedCategory.value, search: search.value })),
@@ -309,7 +311,7 @@ Install MountX directly before importing its transport entry points:
 pnpm add mountx@0.0.2
 ```
 
-```ts
+```ts fragment
 import { createWorkspaceDriver } from "@vite-hub/workspace/mountx"
 import { mount } from "mountx/auto"
 
@@ -424,6 +426,8 @@ Vercel Blob writes preserve file bytes and JSON attributes in separate objects. 
 Use the GitHub Workspace Store when a hosted runtime needs durable Workspace file-tree state without a provider-specific artifact store:
 
 ```ts
+import { defineWorkspace } from "@vite-hub/workspace"
+
 export default defineWorkspace({
   store: {
     provider: "github",

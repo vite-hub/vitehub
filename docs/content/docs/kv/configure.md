@@ -11,6 +11,9 @@ icon: i-lucide-sliders-horizontal
 Configure a default store directly, or configure named stores with `kv.stores`.
 
 ```ts [vite.config.ts]
+import { hubKv } from '@vite-hub/kv/vite'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [hubKv()],
   kv: {
@@ -45,6 +48,9 @@ export default defineConfig({
 Nitro keeps `defineCachedFunction()`, `defineCachedEventHandler()`, and route rule cache entries in its `cache` storage, which is memory in each server instance unless something mounts it. With `vitehub()`, set `cache: { driver: 'kv' }` to keep them in the default KV Store instead:
 
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [vitehub({ preset: 'cloudflare', kv: true, cache: { driver: 'kv' } })],
 })

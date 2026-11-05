@@ -50,7 +50,7 @@ The generated CLI has one subcommand per selected operation and can also run thr
 Always pass the operation allowlist directly.
 ViteHub does not expose every operation by default.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 openapi({
   spec: 'https://billing.example.com/openapi.json',
   operations: ['billingListCustomers', 'billingGetInvoice'],
@@ -67,7 +67,7 @@ Each selected `operationId` is the tool name, and its kebab-case form is the CLI
 Generated `operationId`s such as `read_flow_run_flow_runs__id__get` are hard for an Agent to use.
 Pass a record of names to `operationId`s to choose the names instead:
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 openapi({
   spec: 'https://prefect.example.com/api/openapi.json',
   operations: {
@@ -93,7 +93,7 @@ Use `hooks.request` for runtime auth, cookies, tenant values, body additions, qu
 The hook receives the selected operation, Agent Capability context, visible model input, and a mutable draft request.
 When the hook owns OpenAPI fields such as tenant path params or runtime body tokens, declare them in `provides`; ViteHub removes those fields from the model and generated CLI schemas, strips them from caller input, then validates the final prepared request after the hook runs.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 openapi({
   spec: 'https://portal.example.com/_openapi.json',
   operations: ['portalProductSearch', 'portalPurchaseOrders'],
@@ -132,7 +132,7 @@ ViteHub still keeps caller-owned required fields in the model and generated CLI 
 
 Set `connection` to send each request with the credentials of an OAuth 2 [Connection](/docs/connections).
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 openapi({
   spec: 'https://billing.example.com/openapi.json',
   operations: ['billingListCustomers', 'billingCreateTicket'],
@@ -144,7 +144,7 @@ Connection request bodies must serialize to strings for durable approval replay.
 
 The Connection adds its credentials after `hooks.request`, so hooks never see the token. The capability sends requests through the Connection client as the `fetch` action. `GET` and `HEAD` requests are reads. Other methods are writes. Without a matching `fetch` rule, writes are denied, so allow them in the Agent rule of the Connection:
 
-```ts [server/connections/billing.ts]
+```ts [server/connections/billing.ts] fragment
 access: {
   'agent:support': { read: true, write: ['fetch'] },
 },
@@ -157,7 +157,7 @@ ViteHub checks access before a tool runs. A denied request fails with `CONNECTIO
 For a broken, missing, or environment-neutral `servers` entry, use `server` as an override escape hatch.
 `server` can also be a callback when the override comes from the current Agent Invocation context.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 openapi({
   spec: './openapi.json',
   server: 'https://preview.example.com/api',
@@ -169,7 +169,7 @@ openapi({
 
 Use `cli` to give agents and developers the same operation catalog as commands.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 openapi({
   spec: 'https://billing.example.com/openapi.json',
   operations: ['billingListCustomers', 'billingGetInvoice'],
@@ -182,7 +182,7 @@ openapi({
 
 `cli` can also resolve from the current Agent Invocation. Return `false` or `undefined` to omit the generated CLI for that invocation without detaching the OpenAPI Capability or changing its lifecycle.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 openapi({
   spec: 'https://portal.example.com/_openapi.json',
   operations: ['portalProductSearch', 'portalPurchaseOrders'],
@@ -208,7 +208,7 @@ pnpm vitehub agent dev --url http://localhost:3000 --agent support --cli billing
 
 Use `transformResponse` when the raw API response contains transport fields or verbose provider-specific rows.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 openapi({
   spec: 'https://billing.example.com/openapi.json',
   operations: ['billingGetInvoice'],

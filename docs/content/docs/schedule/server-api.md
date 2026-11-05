@@ -29,6 +29,7 @@ Execution, storage, and runtime state helpers live in `@vite-hub/schedule/runtim
 `runSchedule(name, { registry })` runs one Static Schedule Definition immediately. The Definition must set `manual: true`. Each call creates a new Schedule Run with a `srun_manual_` id, so a manual run never collides with a cron occurrence.
 
 ```ts [server/api/reports/run.post.ts]
+import { defineEventHandler } from 'h3'
 import registry from '#vitehub/schedule/registry'
 import { runSchedule } from '@vite-hub/schedule/runtime'
 

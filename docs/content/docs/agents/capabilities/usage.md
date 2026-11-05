@@ -49,7 +49,7 @@ For the AI SDK model calls of a model-backed Agent Driver, the Capability sets `
 
 At finish, it reads `event.invocation.usage`. The record can contain normalized token usage, model, execution provider, transport, latency, and cost. Fields remain optional when the provider does not report enough data and ViteHub cannot derive them safely.
 
-```ts
+```ts fragment
 {
   model: 'anthropic/claude-sonnet-4.5',
   provider: 'openrouter',
@@ -76,6 +76,8 @@ Pricing is best-effort. A missing provider or model match, unavailable catalog, 
 Pass `pricing: false` when the application needs tokens without estimated cost.
 
 ```ts
+import { usage } from 'vite-hub/agent/capabilities'
+
 capabilities: [usage({ pricing: false })]
 ```
 

@@ -13,7 +13,7 @@ The [Workspace server API](/docs/workspace/server-api) covers application code. 
 
 ## Configure Git access
 
-```ts [server/agents/reviewer.ts]
+```ts [server/agents/reviewer.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { git } from 'vite-hub/agent/capabilities'
 
@@ -28,7 +28,7 @@ export default defineAgent({
 
 Require approval for write commands:
 
-```ts [server/agents/reviewer.ts]
+```ts [server/agents/reviewer.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { git } from 'vite-hub/agent/capabilities'
 

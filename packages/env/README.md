@@ -96,7 +96,7 @@ export async function sync(event: unknown) {
 
 Host variables are strings. Declare `env.boolean()`, `env.number()`, or `env.enum()` when server code needs another type. ViteHub parses the value when Server Env resolves and generates the exact type.
 
-```ts
+```ts fragment
 // vite.config.ts
 env: {
   server: {
@@ -157,7 +157,7 @@ Presets return ordinary `env.server` declarations. Import them from `@vite-hub/e
 
 The preset allows a missing API key during Env resolution; Jev reports `GATEWAYS_R0002` when a request needs it. `defineAgent({ driver: { ask } })`, `llmGate()`, and `llmRoute()` use `typesafe()` when they get no other gateway, and it reads this group:
 
-```ts
+```ts fragment
 env: {
   server: {
     typesafe: typesafeEnv(),
@@ -231,7 +231,7 @@ Install the shared runtime package before inspecting structured errors:
 pnpm add @vite-hub/runtime
 ```
 
-```ts
+```ts fragment
 import { getViteHubErrorShape } from "@vite-hub/runtime";
 
 try {

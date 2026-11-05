@@ -37,7 +37,7 @@ The plugin sets the headers in `vite dev` and `vite preview`. `/playground` matc
 
 In production, set the same headers with Nitro route rules:
 
-```ts
+```ts fragment
 import { webContainerHeaders } from "@vite-hub/web-container/vite"
 
 export default defineNitroConfig({
@@ -81,7 +81,7 @@ document.querySelector("iframe")!.src = url
 
 Each status change carries the latest stage and every step so far, with its duration in milliseconds:
 
-```ts
+```ts fragment
 const container = await bootWebContainer({
   files,
   onStatus: ({ stage, steps, error }) => renderChecklist(stage, steps, error),
@@ -98,6 +98,9 @@ To show a notice before the reader clicks run, call `checkWebContainerSupport()`
 An `npm install` of a ViteHub Agent app in a WebContainer takes minutes. Build the `node_modules` snapshot on your machine or in CI instead, and the container never installs:
 
 ```ts
+import { createHash } from "node:crypto"
+import { existsSync, readFileSync, writeFileSync } from "node:fs"
+
 // Node, at build time
 import { createNodeModulesSnapshot, packSnapshot } from "@vite-hub/web-container/snapshot"
 
@@ -110,7 +113,7 @@ const sha256 = createHash("sha256").update(Buffer.concat(parts)).digest("hex")
 parts.forEach((part, index) => writeFileSync(`public/app-modules.${sha256.slice(0, 12)}.${index}.bin`, part))
 ```
 
-```ts
+```ts fragment
 // Browser
 import { bootWebContainer, fetchSnapshot } from "@vite-hub/web-container"
 
@@ -133,7 +136,7 @@ Use one container for each app. One container failed with `RangeError: Offset is
 
 `run()` takes `env` for that process only. Nothing is stored in the container or sent to a ViteHub server:
 
-```ts
+```ts fragment
 await container.run("dev", { env: { OPENAI_API_KEY: key } })
 ```
 
@@ -141,7 +144,7 @@ await container.run("dev", { env: { OPENAI_API_KEY: key } })
 
 `@vite-hub/web-container/connect` describes the accounts that a page offers. It runs no OAuth flow yet.
 
-```ts
+```ts fragment
 import { connectEnv, defineConnect } from "@vite-hub/web-container/connect"
 
 const connect = defineConnect({

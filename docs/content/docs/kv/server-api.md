@@ -22,6 +22,7 @@ All KV driver, store, module, and storage types are exported from `@vite-hub/kv`
 Use the `kv` Runtime Helper from server code.
 
 ```ts [server/api/settings.put.ts]
+import { defineEventHandler, readBody } from 'h3'
 import { kv } from '@vite-hub/kv'
 
 export default defineEventHandler(async (event) => {
@@ -32,6 +33,7 @@ export default defineEventHandler(async (event) => {
 ```
 
 ```ts [server/api/settings.get.ts]
+import { defineEventHandler } from 'h3'
 import { kv } from '@vite-hub/kv'
 
 export default defineEventHandler(async () => {
@@ -56,7 +58,7 @@ export async function savePreferences(tenantId: string, value: unknown) {
 
 Upstash provides atomic single-use reads and counters:
 
-```ts [server/verification.ts]
+```ts [server/verification.ts] fragment
 const [consumeError, token] = await kv.getAndDelete('verification:token')
 if (consumeError) throw consumeError
 
@@ -66,7 +68,7 @@ if (incrementError) throw incrementError
 
 Use `setIfAbsent()` for single-use tokens, such as upload tickets, invite codes, and nonces. It writes the value only when the key has no value, in one atomic step, and returns `true` to the one call that wrote it:
 
-```ts [server/api/uploads/[ticket].put.ts]
+```ts [server/api/uploads/[ticket].put.ts] fragment
 const [claimError, claimed] = await kv.setIfAbsent(`uploads:${ticket}`, 1, { ttl: 600 })
 if (claimError) throw claimError
 if (!claimed) throw createError({ statusCode: 409, statusMessage: 'Ticket already used' })
@@ -109,7 +111,7 @@ Keys are strings such as `users:alice` or `users/alice`, where `/` and `:` both 
 
 `kv.get()` parses a stored string as JSON by default, so a value written as the string `'123'` reads back as the number `123`, and `'true'` as `true`. Pass `type` when you need the value in a fixed form:
 
-```ts [server/invite.ts]
+```ts [server/invite.ts] fragment
 const [error, code] = await kv.get('invite:alice', { type: 'text' })
 // code is the string '123456', not the number 123456
 ```
@@ -130,7 +132,7 @@ After stopping new application work, call `disposeKVStores()` from your shutdown
 
 For Nitro, register the hook in a server plugin:
 
-```ts [server/plugins/kv-cleanup.ts]
+```ts [server/plugins/kv-cleanup.ts] fragment
 import { disposeKVStores } from '@vite-hub/kv'
 
 export default defineNitroPlugin((nitroApp) => {

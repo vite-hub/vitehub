@@ -60,7 +60,7 @@ Pass an Auth Definition as the second argument when it is not discovered by Vite
 
 After initialization, a list call runs one SQL query. An aggregate call runs one statement so all counts share a snapshot. Neither loads user records. Indexes cover time, type, subject user, and actor. Aggregates accept a window of at most 366 days and return UTC days, including days with zero events, plus totals for the full window:
 
-```ts
+```ts fragment
 {
   days: [{ day: '2026-10-01', signUps: 12, signIns: 48, activeUsers: 31,
     methods: { 'email-password': 30, 'oauth:github': 18 } }],
@@ -77,7 +77,7 @@ Server readers do not authorize HTTP callers. Guard a route before returning the
 
 The Auth Vite Integration contributes `vitehub auth events`. It calls the app's Auth route. Enable this read endpoint with `events.authorize`, using the app's own access policy:
 
-```ts
+```ts fragment
 import type { AuthEventsConfiguration } from '@vite-hub/auth'
 
 const events: AuthEventsConfiguration = {
@@ -127,7 +127,7 @@ Methods include `email-password`, `oauth:<provider-id>`, `email-otp`, `magic-lin
 
 The default keeps 90 days and at most 100,000 events. Set either limit, or set `retention: false` to keep all events:
 
-```ts
+```ts fragment
 createDatabaseAuthEventStore({
   db,
   retention: { maxAgeMs: 180 * 24 * 60 * 60 * 1000, maxRecords: 500_000 },

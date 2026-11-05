@@ -93,6 +93,8 @@ Colors are not case-sensitive. A label without `color` keeps the color that it h
 To hide the labels that the Channel does not manage from Gmail's sidebar, set `hideUnmanagedLabels: true`:
 
 ```ts
+import { gmail } from 'vite-hub/agent/channels'
+
 gmail({
   hideUnmanagedLabels: true,
   labels: {
@@ -216,7 +218,7 @@ The Channel caches access tokens in process memory. It does not write them to th
 
 To call Gmail through another credential owner, pass `client`. It receives `{ method, path, query, body }`, with `path` relative to `https://gmail.googleapis.com/gmail/v1/users/me/`, and returns the JSON response body. Throw an error with a numeric `status` for an HTTP error.
 
-```ts
+```ts fragment
 gmail({
   client: request => broker.call('gmail', request),
 })
@@ -306,6 +308,8 @@ The Channel watches the Inbox of one mailbox. Mail that skips the Inbox through 
 A message can fail on every sync: Gmail cannot return it, its body fetch times out, or its Invocation cannot start. The Channel retries it on the next `maxAttempts` syncs (default 5). Then it records the message as skipped in the Channel's State and lets the history cursor advance, so later mail is not blocked.
 
 ```ts
+import { gmail } from 'vite-hub/agent/channels'
+
 gmail({ maxAttempts: 3 })
 ```
 

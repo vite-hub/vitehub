@@ -141,6 +141,8 @@ server error. It is safe to serialize to a caller or use in an application-owned
 reply:
 
 ```ts
+import type { AgentPublicErrorCode } from 'vite-hub/agent'
+
 interface AgentPublicError {
   code: AgentPublicErrorCode
   error: string

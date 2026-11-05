@@ -279,7 +279,7 @@ The scroll control. Renders a `button` with `data-slot="message-scroller-button"
 
 Returns the scroll state and commands of the nearest `MessageScroller`.
 
-```ts
+```ts fragment
 function useMessageScroller(): MessageScrollerContext;
 
 interface MessageScrollerContext {

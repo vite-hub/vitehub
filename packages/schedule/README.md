@@ -89,7 +89,7 @@ export default defineConfig({
 
 Then export a definition from `server/schedules/<name>.ts` or `src/<name>.schedule.ts`.
 
-```ts
+```ts fragment
 // server/schedules/daily-report.ts
 import { defineSchedule } from "@vite-hub/schedule";
 

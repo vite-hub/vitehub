@@ -137,7 +137,7 @@ Tokens and the client registration stay in memory, so each process signs in agai
 
 A keyed definition defines one Connection per instance, for example one per tenant. Each instance is a Connection named `<name>:<instance>`:
 
-```ts
+```ts fragment
 // server/connections/portal.ts
 export default defineConnection({
   instances: ["acme", "globex"],
@@ -155,6 +155,8 @@ This file defines `portal:acme` and `portal:globex`. Use them like any other Con
 Set `requests` on an OAuth provider, in `oauthLogin()`, or in `apiKey()` to pace, retry, and time out provider requests. It applies to `fetch` and API method calls, but not to the provider's `mcp` endpoint, whose sessions are long-lived streams. Without it, each request is sent once.
 
 ```ts
+import { apiKey } from "@vite-hub/connections"
+
 apiKey({
   origins: ["https://api.airtable.com"],
   requests: {
@@ -173,7 +175,7 @@ The `fallback` key applies only when no key was ever set for the Connection, or 
 
 `useConnection()` uses the ViteHub Database and `VITEHUB_CONNECTIONS_KEY` by default. Call `setConnectionsRuntime()` to use another database or key:
 
-```ts
+```ts fragment
 import { createDatabaseConnectionStore, setConnectionsRuntime } from "@vite-hub/connections/server";
 
 setConnectionsRuntime({

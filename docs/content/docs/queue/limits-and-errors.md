@@ -44,7 +44,7 @@ A handler can throw. Queue Delivery logs the error and lets the provider retry i
 
 Throw `ViteHubError` from `@vite-hub/runtime` when the handler needs a stable application code. Its code does not change the retry policy.
 
-```ts
+```ts fragment
 new ViteHubError('WELCOME_EMAIL_REJECTED', 'Welcome email was rejected.', {
   cause,
   details: { campaign: 'welcome' },

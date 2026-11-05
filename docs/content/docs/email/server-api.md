@@ -94,7 +94,7 @@ recursively and creates a typed `#vitehub/emails/<name>` import from each path.
 Your workspace is ready.
 ```
 
-```ts [server/welcome.ts]
+```ts [server/welcome.ts] fragment
 import renderWelcome from '#vitehub/emails/welcome'
 import { renderEmailMarkdown } from 'vite-hub/email/markdown'
 import { email } from 'vite-hub/email/server'

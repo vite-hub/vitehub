@@ -159,7 +159,7 @@ The preset sets the ID through Better Auth's `user.validateUserInfo` and `databa
 
 Better Auth extends a stored session when the session passes `session.updateAge`. `session.onRefresh` runs at that time, so you can check the user again, for example against a ban list, before the session continues.
 
-```ts [server/auth.ts]
+```ts [server/auth.ts] fragment
 import { defineAuth } from '@vite-hub/auth'
 
 export default defineAuth({
@@ -361,6 +361,9 @@ To persist Better Auth data, use [`authDatabase()`](#keep-users-in-the-app-datab
 `hubAuth()` accepts `false` to disable Auth integration. The Vite config key `auth` overrides the plugin argument.
 
 ```ts [vite.config.ts]
+import { hubAuth } from '@vite-hub/auth/vite'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [hubAuth()],
   auth: false,

@@ -102,7 +102,7 @@ icon: i-lucide-radio
   })
   ```
 
-  ```ts [Checkpoint]
+  ```ts [Checkpoint] fragment
   const [error, checkpoint] = await realtime.history.checkpoint()
   if (error) throw error
 

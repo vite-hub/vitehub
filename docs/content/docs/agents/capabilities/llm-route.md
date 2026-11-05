@@ -16,7 +16,7 @@ The decision uses one AI SDK model call, or TypeSafe Jev for an [ask Driver](/do
 Define stable choice keys with short descriptions.
 Later code reads the recorded value and decides how to use the route.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { llmRoute } from 'vite-hub/agent/capabilities'
 

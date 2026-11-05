@@ -100,7 +100,7 @@ Your workspace is ready.
 
 ViteHub turns `server/emails/welcome.md` into a typed async renderer:
 
-```ts
+```ts fragment
 import renderWelcome from "#vitehub/emails/welcome"
 
 const markdown = await renderWelcome({ user: { name: "Maxi" } })
@@ -145,6 +145,9 @@ In `vite dev`, `hubEmail()` wraps the provider driver with a development outbox.
 By default the outbox records each message and then delivers it through the provider. Pending deliveries appear as Sending. Each development runtime has separate messages, limits, and outbox IDs. Configure it with `outbox`:
 
 ```ts
+import { env } from "@vite-hub/env"
+import { hubEmail } from "@vite-hub/email/vite"
+
 hubEmail({
   driver: "resend",
   options: { apiKey: env({ secret: true, source: env.source("RESEND_API_KEY") }) },

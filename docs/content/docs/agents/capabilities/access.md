@@ -15,7 +15,7 @@ The [Workspace server API](/docs/workspace/server-api) covers application code. 
 
 Place `access()` before Workspace and storage Capabilities. The selected scope narrows the Workspace before `workspaceShell()` exposes tools.
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { access, workspaceShell } from 'vite-hub/agent/capabilities'
 
@@ -38,7 +38,7 @@ export default defineAgent({
 
 Select a scope from trusted invocation context:
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { access, workspaceShell } from 'vite-hub/agent/capabilities'
 

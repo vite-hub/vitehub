@@ -131,6 +131,8 @@ The styled component. Renders a `div` with `data-slot="choices-input"`, the Nuxt
 The type of the `choices` prop. `useChoices()` returns an object of this shape:
 
 ```ts
+import type { Ref } from "vue"
+
 interface ChoicesInputSource {
   abort: () => void;
   clear: () => void;

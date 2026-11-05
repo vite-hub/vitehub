@@ -19,7 +19,7 @@ using it.
 pnpm add @vite-hub/rate-limit
 ```
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { rateLimit } from 'vite-hub/agent/capabilities'
 import { createRateLimiter } from '@vite-hub/rate-limit'
@@ -57,7 +57,7 @@ The Agent Definition chooses the identity, not the Rate Limit Driver. The defaul
 
 Use `identity: 'invoker'` when authentication provides a stable Agent Invoker. Use `identity: 'ip'` only after naming headers that the deployed host sets and sanitizes.
 
-```ts [server/agents/public-support.ts]
+```ts [server/agents/public-support.ts] fragment
 rateLimit({
   identity: 'ip',
   limiter: invocations,
@@ -85,7 +85,7 @@ export const invocationLimiter = createRateLimiter({
 })
 ```
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { rateLimit } from 'vite-hub/agent/capabilities'
 import { invocationLimiter } from '../rate-limiter'
 
@@ -123,6 +123,10 @@ rateLimit({
 ```
 
 ```ts [After]
+import { rateLimit } from 'vite-hub/agent/capabilities'
+import { memoryRateLimitDriver } from '@vite-hub/rate-limit/drivers/memory'
+import { createRateLimiter } from 'vite-hub/rate-limit'
+
 const invocations = createRateLimiter({
   driver: memoryRateLimitDriver(),
   limit: 20,

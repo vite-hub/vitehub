@@ -105,7 +105,7 @@ A document id is the file path below the collection folder, without the extensio
 
 Pass a list of globs when documents of one collection live in different folders. All globs share one extension.
 
-```ts [server/content.ts]
+```ts [server/content.ts] fragment
 pages: documents({
   path: ['content/guides/**/*.md', 'content/news/*.md'],
   fields: { title: z.string() },
@@ -264,7 +264,7 @@ Every writer goes through the hook: Workspace `fs` writes, Sessions, Agents, and
 
 `save()` stores fields that fail validation in the draft and returns them as `issues`, so an editor can autosave half-finished work. The stored values come back in `data` as written. `status()` counts the issues, and `get({ ref: 'draft' })` and `list({ ref: 'draft' })` return them.
 
-```ts
+```ts fragment
 const draft = await posts.save('hello', { data: { title: '' } })
 draft.issues // [{ field: 'title', path: [], message: 'Add a title.' }]
 await content.publish({ collection: 'posts' }) // CONTENT_INVALID naming posts/hello
@@ -284,7 +284,7 @@ A runtime can combine read-only `sources` with `collections`. Names share one na
 
 `authorize` decides what a user may do with a collection. Surfaces call it through `content.can()`. The [Console content editor](/docs/content/console) and the [Content Agent Capability](/docs/content/agent-capability) use it. The Agent Capability passes the Auth user behind the Invocation's Actor as `user`, and the Actor as `actor`.
 
-```ts [server/content.ts]
+```ts [server/content.ts] fragment
 export const content = defineContent({
   extends: cms,
   collections: { posts },
@@ -302,7 +302,7 @@ export const content = defineContent({
 
 One policy covers people and Agents. Check `actor` to give Agents less than the user they act for:
 
-```ts [server/content.ts]
+```ts [server/content.ts] fragment
 authorize: ({ user, actor, action }) => {
   if (user?.role !== 'editor') return false
   return actor === undefined || action !== 'publish'
@@ -388,7 +388,7 @@ export default defineHandler(async (event) => {
 
 Pass `components` to render the app's own blocks, such as `::alert`. A component gets the node and a `render()` for its children:
 
-```ts
+```ts fragment
 await renderContentHtml(guide, {
   components: {
     alert: async ([, attributes, ...children], { render }) => `<aside class="alert">${await render(children)}</aside>`,

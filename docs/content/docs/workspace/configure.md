@@ -238,7 +238,7 @@ import { glob } from 'vite-hub/source/glob'
 export const docs = glob({ cwd: 'docs', include: '**/*.md' })
 ```
 
-```ts [server/workspaces/docs.ts]
+```ts [server/workspaces/docs.ts] fragment
 import { defineWorkspace } from 'vite-hub/workspace'
 import { docs } from '../sources/docs'
 

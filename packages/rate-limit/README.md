@@ -85,7 +85,7 @@ export default defineConfig({
 
 Then require a budget before expensive work:
 
-```ts
+```ts fragment
 import { requireRateLimit } from "@vite-hub/rate-limit";
 
 export async function handleImageUpload(event): Promise<Response> {

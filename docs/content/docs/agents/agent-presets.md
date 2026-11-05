@@ -14,7 +14,7 @@ Use this guide after you can [define](/docs/agents/agent-definitions) and [run](
 
 Use `extends` to make one Agent Definition the default for another:
 
-```ts [server/agents/bot-dev/agent.ts]
+```ts [server/agents/bot-dev/agent.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import bot from '../bot/agent'
 
@@ -42,7 +42,7 @@ Child configuration overrides parent defaults:
 
 Some settings let the child extend inherited values:
 
-```ts [server/agents/bot-dev/agent.ts]
+```ts [server/agents/bot-dev/agent.ts] fragment
 import { defineAgent } from 'vite-hub/agent'
 import { mcp } from 'vite-hub/agent/capabilities'
 import bot from '../bot/agent'
@@ -87,7 +87,7 @@ Use [Agent presets](/docs/agents/presets) to choose a built-in workflow and foll
 
 Export ordinary `defineAgent()` definitions from a preset package. Consumers import them and select a local name:
 
-```ts
+```ts fragment
 import { defineAgent } from "vite-hub/agent"
 import { notetaker } from "@example/agents"
 
@@ -108,6 +108,8 @@ Preset packages must declare `@vite-hub/agent` as a peer dependency so their def
 A preset can expose typed options with the same `defineAgent()` function:
 
 ```ts
+import { codexDriver, defineAgent } from 'vite-hub/agent'
+
 export const notetaker = defineAgent({
   options: { format: "concise" as "concise" | "detailed", labels: ["notes"] },
   configure: ({ format }) => defineAgent({
@@ -118,7 +120,7 @@ export const notetaker = defineAgent({
 
 Consumers select the definition and override only the options they need:
 
-```ts
+```ts fragment
 const notes = defineAgent({
   preset: "notetaker",
   presets: { notetaker },
@@ -134,6 +136,8 @@ notes.options.format // "concise" | "detailed"
 Configured presets can declare a `configKey` to expose a module-style configuration block. The block keeps the preset's option names visible at the call site:
 
 ```ts
+import { codexDriver, defineAgent } from 'vite-hub/agent'
+
 const notes = defineAgent({
   configKey: 'notetaker',
   options: { format: 'concise' as 'concise' | 'detailed' },

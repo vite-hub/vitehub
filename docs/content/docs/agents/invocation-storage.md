@@ -35,6 +35,8 @@ export default defineAgent({
 The object form accepts every `defineAgentInvocations()` option except `store`. Set `database` to select another Database name. `database` is valid only with `store: 'database'`:
 
 ```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+
 export default defineAgent({
   driver: { model: 'openai/gpt-5.1-mini' },
   invocations: { store: 'database', database: 'journal', content: 'content' },
@@ -100,7 +102,7 @@ Failed queued attempts with another attempt available set `retryPending: true`. 
 
 Pass `observationNames` to read only the observations needed for an inspection:
 
-```ts
+```ts fragment
 const record = await invocations.get(invocationId, {
   observationNames: ['agent.invocation.finish'],
 })
@@ -135,7 +137,7 @@ To shrink such a file, run [`vitehub agent invocations compact`](#compact-a-jour
 
 The journal is run history for the Console and the CLI. By default, a slow or unavailable store does not stop a run. Set `enforcement` to select this behavior:
 
-```ts
+```ts fragment
 const invocations = defineAgentInvocations({
   enforcement: 'strict',
   store,
@@ -193,7 +195,7 @@ Use the direct SQLite adapter described above when the journal has its own SQLit
 
 Delete or prune terminal records on demand:
 
-```ts
+```ts fragment
 await invocations.delete(invocationId) // 'deleted' | 'not-found' | 'not-terminal'
 await invocations.prune({ olderThanMs: 7 * 24 * 60 * 60 * 1000, dryRun: true })
 await invocations.prune() // applies the store's maxAge, maxRecords, and maxSize now
@@ -211,7 +213,7 @@ The SQLite and D1 adapters and the memory store implement both operations. A cus
 
 Read the recorded prompt of a finished record to start it again:
 
-```ts
+```ts fragment
 import { agentInvocationRerunInput } from 'vite-hub/agent'
 
 const record = await invocations.get(invocationId)
@@ -278,7 +280,7 @@ The journal records pending, running, completed, failed, and cancelled states pl
 
 Use `triggeredBy` to filter persisted summaries by the person label recorded in `annotations.triggeredBy`. It matches the trimmed label exactly and composes with Agent, Capability, status, and text filters:
 
-```ts
+```ts fragment
 const people = await invocations.listTriggeredBy('support')
 const page = await invocations.list({
   agentName: 'support',
@@ -302,6 +304,9 @@ const nextPage = page.cursor
 Use `observations` to set limits for long traces:
 
 ```ts
+import { createLibsqlAgentInvocationStore } from 'vite-hub/agent/invocations/sqlite'
+import { defineAgentInvocations } from 'vite-hub/agent/server'
+
 const invocations = defineAgentInvocations({
   content: 'content',
   observations: {
@@ -321,6 +326,9 @@ When a limit is reached, the journal marks `observationsTruncated` and gives lif
 Each store operation waits up to `storeTimeoutMs`: one second by default, at most 60 seconds. An operation that takes longer counts as unconfirmed, even if the write lands later, and an unconfirmed running transition stops the Invocation before its Driver starts in `strict` mode. The default `best-effort` mode starts the Driver and retries the write. Raise the limit when the store is far from the runtime, such as a Cloudflare D1 primary in another region:
 
 ```ts
+import { createDatabaseAgentInvocationStore } from 'vite-hub/agent/invocations/database'
+import { defineAgentInvocations } from 'vite-hub/agent/server'
+
 const invocations = defineAgentInvocations({
   store: createDatabaseAgentInvocationStore(),
   storeTimeoutMs: 10_000,
@@ -441,7 +449,7 @@ On the Cloudflare preset, the Console journal uses this store with the D1 Databa
 
 Use `appendObservation()` when a host must record an external delivery before or after an Invocation finishes:
 
-```ts
+```ts fragment
 const record = await invocations.appendObservation(invocationId, {
   name: 'report.delivered',
   type: 'capability',
@@ -459,7 +467,7 @@ An append uses the observation limits saved with the record, including after res
 
 Call `invocations.cancel(id)` to cancel a pending or running Invocation. The journal records `cancelRequestedAt` first, so every process that shares the store can read the request.
 
-```ts
+```ts fragment
 const result = await invocations.cancel(id)
 if (result.notEnforcedBy) console.warn(`Cancel requested, not enforced by ${result.notEnforcedBy}`)
 ```

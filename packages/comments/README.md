@@ -10,6 +10,7 @@ pnpm add @vite-hub/comments
 
 ```ts
 // vite.config.ts
+import { defineConfig } from "vite"
 import comments from "@vite-hub/comments/vite"
 
 export default defineConfig({ plugins: [comments()] })
@@ -71,7 +72,7 @@ An edit reads the draft, changes one string field, and saves the document with `
 
 Every method returns `[error, data]`.
 
-```ts
+```ts fragment
 import { comments } from "~/server/comments"
 
 const [error, threads] = await comments.list({ page: "/pricing", status: "open" })
@@ -206,6 +207,8 @@ Without an explicit query `limit`, refresh loads every page. Multi-page refreshe
 A transport is the seam to the server. Each method has the name and the input of one `comments.*` operation.
 
 ```ts
+import type { CommentCreateInput, CommentDeleteInput, CommentEditInput, CommentEvent, CommentGetInput, CommentListQuery, CommentReplyInput, CommentStatusInput, CommentThread, CommentUser, CommentUsersInput } from "@vite-hub/comments"
+
 interface CommentsTransport {
   supportsAttachments?: boolean; // Defaults to true for custom transports.
   list(query: CommentListQuery): Promise<CommentThread[]>;

@@ -14,7 +14,7 @@ It adds no model-facing tool. A separate generator writes the status: an indepen
 
 Import the Capability from `vite-hub/agent/capabilities` and give it the independent Agent Driver that writes progress:
 
-```ts [server/agents/support.ts]
+```ts [server/agents/support.ts] fragment
 import { codexDriver, defineAgent } from 'vite-hub/agent'
 import { progressSummary } from 'vite-hub/agent/capabilities'
 
@@ -50,7 +50,7 @@ The Capability stops its cadence and aborts every in-flight generation when the 
 
 Listen for `data-progress-summary` parts and replace the currently displayed sentence when `revision` increases:
 
-```ts
+```ts fragment
 {
   type: 'data-progress-summary',
   data: {

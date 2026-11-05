@@ -38,7 +38,7 @@ Place a `*.template.md` file beside the module that renders it. Importing the fi
 Title: {{ data.pullRequest.title }}
 ```
 
-```ts [server/agents/reviewer/agent.ts]
+```ts [server/agents/reviewer/agent.ts] fragment
 import renderPrompt from './prompt.template.md'
 
 const prompt = await renderPrompt({
@@ -52,7 +52,7 @@ When one caller owns several templates, you may group them in a local directory 
 
 For a fixed runtime choice, define the allowed names with an ordinary TypeScript map:
 
-```ts [server/agents/reviewer/replies.ts]
+```ts [server/agents/reviewer/replies.ts] fragment
 import renderFailure from './failure.template.md'
 import renderSuccess from './success.template.md'
 

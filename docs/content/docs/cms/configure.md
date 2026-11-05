@@ -8,7 +8,7 @@ icon: i-lucide-sliders-horizontal
 
 The `cms` preset works without options. Pass options as a tuple when you need another Database, Blob store, Workspace name, or the GitHub store:
 
-```ts [server/content.ts]
+```ts [server/content.ts] fragment
 import { defineContent } from 'vite-hub/content'
 import { cms } from 'vite-hub/cms'
 
@@ -62,7 +62,7 @@ Opt into CMS roles with `extends: [cms, { access: 'roles' }]`. Install the Bette
 
 The [Console editor](/docs/content/console) and the [Content Agent Capability](/docs/content/agent-capability) check access through `content.can()`. To use your own policy instead of the roles, set `authorize` in `defineContent()`:
 
-```ts [server/content.ts]
+```ts [server/content.ts] fragment
 export const content = defineContent({
   extends: cms,
   collections: { posts },
@@ -81,6 +81,10 @@ export const content = defineContent({
 Set `repo` to keep documents in a Git repository instead of Blob and the Database. Published content is on one branch, drafts are on another, and a publish is a commit. Choose this store when someone edits content files in a checkout: local edits and online edits then meet in Git. Without `repo`, files on collection paths are not the content; the Blob + Database store is, and it needs no GitHub access.
 
 ```ts [server/content.ts]
+import { z } from 'zod'
+import { cms } from 'vite-hub/cms'
+import { defineContent, documents } from 'vite-hub/content'
+
 export const content = defineContent({
   extends: [cms, {
     repo: 'onmax/docs',
@@ -183,7 +187,7 @@ If you followed the earlier setup, the app has a Database Definition that lists 
 2. Delete the Workspace Definition, such as `server/workspaces/site.ts`.
 3. Select the preset with the old names. `workspace` must equal the old `createBlobDatabaseWorkspaceStore({ workspace })` identity, because the identity selects the stored history.
 
-   ```ts [server/content.ts]
+   ```ts [server/content.ts] fragment
    export const content = defineContent({
      extends: [cms, { database: 'content', blob: 'content', workspace: 'site' }],
      collections: { posts },
