@@ -4,6 +4,7 @@ import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-en
 import * as v from "valibot"
 
 import { consoleRequestError } from "./request.ts"
+import { getConsoleSections } from "./sections.ts"
 
 import type { SealKey } from "@vite-hub/env/seal"
 import type { OAuthDiscoveryState } from "@modelcontextprotocol/sdk/client/auth.js"
@@ -215,9 +216,11 @@ let durable: { records: Promise<ConsoleMcpRecords>, value: string } | undefined
 export async function consoleMcpRecords(): Promise<ConsoleMcpRecords> {
   const value = configuredKey()
   if (!value) return memoryRecords()
+  const bytes = decodeKey(value)
+  if (bytes?.byteLength !== 32) throw consoleRequestError(500, `${keyVariable} must be 32 random bytes as base64 or hex. Create one with \`openssl rand -base64 32\`.`, "CONSOLE_MCP_KEY_INVALID")
+  // Generated Console sections reflect the app's KV integration, even when the key arrives only at runtime.
+  if (!getConsoleSections().includes("kv")) throw consoleRequestError(500, `${keyVariable} requires the app's default KV store. Set kv: true in vitehub(), or configure a default KV store.`, "CONSOLE_MCP_KV_REQUIRED")
   if (durable?.value !== value) {
-    const bytes = decodeKey(value)
-    if (bytes?.byteLength !== 32) throw consoleRequestError(500, `${keyVariable} must be 32 random bytes as base64 or hex. Create one with \`openssl rand -base64 32\`.`, "CONSOLE_MCP_KEY_INVALID")
     const records = Promise.all([import("@vite-hub/kv"), importSealKey(bytes)]).then(([{ kv }, sealKey]) => kvConsoleMcpRecords(kv, sealKey))
     durable = { records, value }
   }

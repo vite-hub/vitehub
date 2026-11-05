@@ -18,6 +18,7 @@ export type ConsoleDiagnosticCode =
   | "CONSOLE_MANAGER_REQUIRED"
   | "CONSOLE_MCP_AUTHORIZATION_FAILED"
   | "CONSOLE_MCP_KEY_INVALID"
+  | "CONSOLE_MCP_KV_REQUIRED"
   | "CONSOLE_MCP_SIGNED_OUT"
   | "CONSOLE_MCP_UNREACHABLE"
   | "CONSOLE_NOT_FOUND"
@@ -138,6 +139,12 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
     CONSOLE_MCP_KEY_INVALID: code(
       "VITEHUB_CONSOLE_MCP_KEY is not 32 random bytes, so the Console cannot seal MCP connections.",
       "Set VITEHUB_CONSOLE_MCP_KEY to 32 random bytes as base64 or hex, such as the output of openssl rand -base64 32.",
+      `${consoleGuide}#what-the-mcp-client-keeps`,
+      "docs",
+    ),
+    CONSOLE_MCP_KV_REQUIRED: code(
+      "VITEHUB_CONSOLE_MCP_KEY is set, but the app has no configured default KV store for MCP connections.",
+      "Set kv: true in vitehub(), or configure a default KV store, then rebuild the app.",
       `${consoleGuide}#what-the-mcp-client-keeps`,
       "docs",
     ),

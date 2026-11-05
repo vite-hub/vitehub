@@ -200,7 +200,17 @@ Each connection has its own grant and its own MCP session. So you can open the s
 
 The Console keeps MCP connections on the server, separately for each person who signs in. Tokens, refresh tokens, PKCE verifiers, and client registrations never reach the browser. A ViteHub MCP connection keeps no credentials. The browser gets the account, the server details, the scopes, and the time the token expires.
 
-By default, connections stay in server memory, and a restart ends them. Set `VITEHUB_CONSOLE_MCP_KEY` to keep them in the app's default [KV](/docs/kv) store instead:
+By default, connections stay in server memory, and a restart ends them. Enable the app's default [KV](/docs/kv) store with `kv: true` (or an explicit default KV configuration), then set `VITEHUB_CONSOLE_MCP_KEY` to keep connections there instead:
+
+```ts
+vitehub({
+  preset: 'cloudflare',
+  console: { auth: 'app', mcpClient: true },
+  kv: true,
+})
+```
+
+Generate the key with:
 
 ```sh
 openssl rand -base64 32
@@ -677,6 +687,7 @@ Each failed Console request returns JSON with a stable `code`, a `message` that 
 | `CONSOLE_MCP_SIGNED_OUT` | `409` | Sign in again. For a token, connect again with a new one. |
 | `CONSOLE_MCP_AUTHORIZATION_FAILED` | `400`, `404`, `409`, `502` | Start the sign-in again. The server must publish RFC 9728 metadata that names an authorization server with client registration. |
 | `CONSOLE_MCP_KEY_INVALID` | `500` | Set `VITEHUB_CONSOLE_MCP_KEY` to 32 random bytes as base64 or hex, such as the output of `openssl rand -base64 32`. |
+| `CONSOLE_MCP_KV_REQUIRED` | `500` | Enable the app's default KV store with `kv: true` or an explicit default KV configuration, then rebuild. |
 
 A Console route that fails with its own diagnostic keeps that code, for example `VITE_HUB_R0065`. Connections and Env management routes keep their `CONNECTION_*` and `ENV_BRIDGE_*` codes and add `fix` and `docs` to the error body.
 
