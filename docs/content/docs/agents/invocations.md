@@ -57,14 +57,15 @@ For a model's completed text, pass `{ output: 'drained' }` as the third argument
 Pass a Runtime Context as the second argument when a host must supply request metadata or Workflow discovery. This form returns the result directly and throws failures. Inline runtimes may return a native `Response` when the Agent produces an HTTP-shaped result. Workflow runtimes return a Workflow Run for durable inspection and control. Structured Agent outputs remain typed values, and streaming uses the separate stream contract below.
 
 ```ts [server/api/support.post.ts]
-import { defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { runAgent } from 'vite-hub/agent'
 import { getRuntimeContext } from 'vite-hub/runtime/h3'
 import support from '../agents/support'
 import { requireAuthenticatedUser } from '../utils/auth'
 
 export default defineEventHandler(async (event) => {
-  const { prompt } = await readBody<{ prompt: string }>(event)
+  const { prompt } = await readValidatedBody(event, v.object({ prompt: v.string() }))
   const user = await requireAuthenticatedUser(event)
 
   const runtime = getRuntimeContext(event)
@@ -109,13 +110,14 @@ Use `streamAgent()` when a chat UI or internal consumer needs incremental output
 
 ```ts [server/api/support-stream.post.ts]
 import { createUIMessageStreamResponse, type UIMessageChunk } from 'ai'
-import { createError, defineEventHandler, readBody } from 'h3'
+import { createError, defineEventHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { streamAgent } from 'vite-hub/agent'
 import { getRuntimeContext } from 'vite-hub/runtime/h3'
 import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {
-  const { prompt } = await readBody<{ prompt: string }>(event)
+  const { prompt } = await readValidatedBody(event, v.object({ prompt: v.string() }))
 
   const output = await streamAgent(
     support,
@@ -146,13 +148,14 @@ Use `runAgentTrigger()` or `streamAgentTrigger()` when a Capability owns the eve
 
 ```ts [server/api/support-chat.post.ts]
 import { createUIMessageStreamResponse, type UIMessageChunk } from 'ai'
-import { createError, defineEventHandler, readBody } from 'h3'
+import { createError, defineEventHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { streamAgentTrigger } from 'vite-hub/agent'
 import { getRuntimeContext } from 'vite-hub/runtime/h3'
 import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {
-  const { text } = await readBody<{ text: string }>(event)
+  const { text } = await readValidatedBody(event, v.object({ text: v.string() }))
   const runId = crypto.randomUUID()
 
   const output = await streamAgentTrigger(

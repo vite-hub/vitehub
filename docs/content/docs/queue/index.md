@@ -10,12 +10,13 @@ icon: i-lucide-list-ordered
 ::product-hero{tagline="Send slow work to a queue so your route replies at once, and the work runs later." hosts="Cloudflare, Vercel"}
   :::product-files
   ```ts [server/api/signup.post.ts]
-  import { defineEventHandler, readBody } from 'h3'
+  import { defineEventHandler, readValidatedBody } from 'h3'
+  import * as v from 'valibot'
   import { runQueue } from 'vite-hub/queue'
 
   // Returns when the queue accepts the job, before it runs
   export default defineEventHandler(async (event) => {
-    const { email } = await readBody<{ email: string }>(event)
+    const { email } = await readValidatedBody(event, v.object({ email: v.string() }))
     const [error, result] = await runQueue('welcome-email', { email })
     if (error) throw error
     return result
@@ -36,12 +37,13 @@ icon: i-lucide-list-ordered
   ```
 
   ```ts [server/api/reminder.post.ts]
-  import { defineEventHandler, readBody } from 'h3'
+  import { defineEventHandler, readValidatedBody } from 'h3'
+  import * as v from 'valibot'
   import { runQueue } from 'vite-hub/queue'
 
   // Run the same job in 10 minutes
   export default defineEventHandler(async (event) => {
-    const { email } = await readBody<{ email: string }>(event)
+    const { email } = await readValidatedBody(event, v.object({ email: v.string() }))
     const [error, result] = await runQueue('welcome-email', { email }, { delaySeconds: 600 })
     if (error) throw error
     return result

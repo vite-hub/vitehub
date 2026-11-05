@@ -37,12 +37,13 @@ icon: i-lucide-monitor
   ```
 
   ```ts [server/api/page-html.post.ts]
-  import { defineEventHandler, readBody } from 'h3'
+  import { defineEventHandler, readValidatedBody } from 'h3'
+  import * as v from 'valibot'
   import { runBrowser } from 'vite-hub/browser'
 
   // Run the page-html file by its name
   export default defineEventHandler(async (event) => {
-    const input = await readBody<{ url: string }>(event)
+    const input = await readValidatedBody(event, v.object({ url: v.string() }))
     return await runBrowser('page-html', input)
   })
   ```

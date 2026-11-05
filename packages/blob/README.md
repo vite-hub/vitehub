@@ -23,10 +23,11 @@ Add the SDK required by the driver you configure.
 ```ts
 // server/api/files.post.ts
 import { blob } from "@vite-hub/blob"
-import { defineEventHandler, readBody } from "h3"
+import { defineEventHandler, readValidatedBody } from "h3"
+import * as v from "valibot"
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ path: string, text: string }>(event)
+  const body = await readValidatedBody(event, v.object({ path: v.string(), text: v.string() }))
 
   const [writeError] = await blob.put(body.path, body.text, { contentType: "text/plain" })
   if (writeError) throw writeError

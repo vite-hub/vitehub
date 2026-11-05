@@ -16,10 +16,10 @@ You need Node.js 22.22 or newer, pnpm, and a Vite application. Run the commands 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
 
-Install Workspace and Nitro. Add the plugins below to your existing Vite config and keep its other plugins.
+Install Workspace, Nitro, and valibot for request validation. Add the plugins below to your existing Vite config and keep its other plugins.
 
 ```bash [commands/install]
-pnpm add @vite-hub/workspace nitro h3
+pnpm add @vite-hub/workspace nitro h3 valibot
 pnpm add -D vite
 ```
 
@@ -75,15 +75,16 @@ export default defineEventHandler(async () => {
 })
 ```
 
-This route asks for write mode because it creates a draft. Writing changes the Workspace store; it does not write back to the mounted Source. `diff()` reports the pending change.
+This route asks for write mode because it creates a draft. `readValidatedBody()` answers `400` when the body has no `text` string. Writing changes the Workspace store; it does not write back to the mounted Source. `diff()` reports the pending change.
 
 ```ts [server/api/drafts.post.ts]
-import { defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { useWorkspace } from '@vite-hub/workspace'
 
 export default defineEventHandler(async (event) => {
   const workspace = useWorkspace('docs', { mode: 'write' })
-  const body = await readBody<{ text: string }>(event)
+  const body = await readValidatedBody(event, v.object({ text: v.string() }))
 
   await workspace.fs.writeFile('drafts/summary.md', body.text, {
     mediaType: 'text/markdown',

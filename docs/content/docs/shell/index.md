@@ -71,13 +71,13 @@ icon: i-lucide-terminal
   ```
 
   ```ts [server/api/check.post.ts]
-  import { defineEventHandler, readBody } from 'h3'
+  import { defineEventHandler, readValidatedBody } from 'h3'
+  import * as v from 'valibot'
   import { analyzeShellCommand } from 'vite-hub/shell'
 
   // Read what a command does before you run it
   export default defineEventHandler(async (event) => {
-    type Body = { command: string }
-    const body = await readBody<Body>(event)
+    const body = await readValidatedBody(event, v.object({ command: v.string() }))
     const facts = await analyzeShellCommand(body.command)
 
     // For example: { commands: ['rg'], ... }

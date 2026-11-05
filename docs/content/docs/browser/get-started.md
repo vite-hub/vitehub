@@ -18,7 +18,7 @@ You need Node.js 22.22 or newer, pnpm, a Vite application, and a Cloudflare acco
 Install the app dependencies and Wrangler, the Cloudflare development tool.
 
 ```bash [commands/install]
-pnpm add vite-hub nitro h3
+pnpm add vite-hub nitro h3 valibot
 pnpm add -D vite wrangler
 ```
 
@@ -60,14 +60,15 @@ export default defineBrowser(async (
 ::tutorial-step{title="Run it by name"}
 ## Run it by name
 
-The route passes the request body to the named operation. For this local check, only send the fixed URL below. Add authentication and a URL allowlist before exposing a route that accepts arbitrary URLs.
+The route passes the request body to the named operation. `readValidatedBody()` answers `400` when the body has no `url` string. For this local check, only send the fixed URL below. Add authentication and a URL allowlist before exposing a route that accepts arbitrary URLs.
 
 ```ts [server/api/page-html.post.ts]
-import { defineEventHandler, readBody } from 'h3'
+import { defineEventHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { runBrowser } from 'vite-hub/browser'
 
 export default defineEventHandler(async (event) => {
-  const input = await readBody<{ url: string }>(event)
+  const input = await readValidatedBody(event, v.object({ url: v.string() }))
   return await runBrowser('page-html', input)
 })
 ```

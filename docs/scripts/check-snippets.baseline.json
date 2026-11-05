@@ -90,21 +90,6 @@
     "error": "TS2307 Cannot find module 'cloudflare:workers' or its corresponding type declarations."
   },
   {
-    "id": "docs/content/docs/agents/invocations.md#8e00ed37ba5b",
-    "label": "server/api/support.post.ts",
-    "error": "TS2339 Property 'prompt' does not exist on type '{ prompt: string; } | undefined'."
-  },
-  {
-    "id": "docs/content/docs/agents/invocations.md#79bc67c0ddca",
-    "label": "server/api/support-stream.post.ts",
-    "error": "TS2339 Property 'prompt' does not exist on type '{ prompt: string; } | undefined'."
-  },
-  {
-    "id": "docs/content/docs/agents/invocations.md#40697317b08d",
-    "label": "server/api/support-chat.post.ts",
-    "error": "TS2339 Property 'text' does not exist on type '{ text: string; } | undefined'."
-  },
-  {
     "id": "docs/content/docs/agents/process-hosts.md#e5d266f81857",
     "label": "server/agents/reviewer.ts",
     "error": "TS2769 No overload matches this call."
@@ -150,16 +135,6 @@
     "error": "TS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
-    "id": "docs/content/docs/browser/get-started.md#0c2f133847d3",
-    "label": "server/api/page-html.post.ts",
-    "error": "TS2769 No overload matches this call."
-  },
-  {
-    "id": "docs/content/docs/browser/index.md#d1cad0398d09",
-    "label": "server/api/page-html.post.ts",
-    "error": "TS2769 No overload matches this call."
-  },
-  {
     "id": "docs/content/docs/channels/agent-capability.md#40109740a7a8",
     "label": "server/schedules/weekly-report.ts",
     "error": "TS2769 No overload matches this call."
@@ -198,11 +173,6 @@
     "id": "docs/content/docs/cms/access.md#2b019396a64c",
     "label": "server/routes/api/roles.post.ts",
     "error": "TS2339 Property 'userId' does not exist on type '{}'."
-  },
-  {
-    "id": "docs/content/docs/comments/configure.md#e415f118aec1",
-    "label": "server/api/docs/[id]/comments.post.ts",
-    "error": "TS2339 Property 'body' does not exist on type '{ body: string; quote: string; version: number; } | undefined'."
   },
   {
     "id": "docs/content/docs/comments/index.md#daebbc2b469e",
@@ -430,16 +400,6 @@
     "error": "TS2353 Object literal may only specify known properties, and 'local' does not exist in type 'ConsoleOptions'."
   },
   {
-    "id": "docs/content/docs/queue/index.md#616f2aae6e84",
-    "label": "server/api/signup.post.ts",
-    "error": "TS2339 Property 'email' does not exist on type '{ email: string; } | undefined'."
-  },
-  {
-    "id": "docs/content/docs/queue/index.md#ec4ba5012fda",
-    "label": "server/api/reminder.post.ts",
-    "error": "TS2339 Property 'email' does not exist on type '{ email: string; } | undefined'."
-  },
-  {
     "id": "docs/content/docs/queue/limits-and-errors.md#bb22fa79f67f",
     "label": "server/api/signup.post.ts",
     "error": "TS7006 Parameter 'event' implicitly has an 'any' type."
@@ -560,11 +520,6 @@
     "error": "TS2322 Type '(payload: { width: number; }) => Promise<{ width: number; }>' is not assignable to type 'SandboxTaskDefinitionHandler<{ width: number; }, { width: number; }> & ((payload: { width: number; }) => Promise<{ width: number; }>)'."
   },
   {
-    "id": "docs/content/docs/shell/index.md#df52e0f1282e",
-    "label": "server/api/check.post.ts",
-    "error": "TS18048 'body' is possibly 'undefined'."
-  },
-  {
     "id": "docs/content/docs/source/server-api.md#9afe81a0582d",
     "label": "server/collections/articles.ts",
     "error": "TS18046 'article' is of type 'unknown'."
@@ -590,11 +545,6 @@
     "error": "TS2717 Subsequent property declarations must have the same type.  Property 'channel' must be of type 'AgentChannelContext<Record<string, unknown>, Record<string, unknown>, Record<string, unknown>>', but here has type '{ meta?: { customer?: string | undefined; } | undefined; }'."
   },
   {
-    "id": "docs/content/docs/workspace/get-started.md#4123330084f5",
-    "label": "server/api/drafts.post.ts",
-    "error": "TS18048 'body' is possibly 'undefined'."
-  },
-  {
     "id": "packages/agent/README.md#e0e7838a305c",
     "label": null,
     "error": "TS2322 Type '({ abortSignal }: AgentProviderCredentialContext<AgentRuntimeConfig>) => Promise<unknown>' is not assignable to type 'AgentProviderCredentialResolver<AgentRuntimeConfig> | undefined'."
@@ -618,11 +568,6 @@
     "id": "packages/auth/README.md#16f5ad8e7cb4",
     "label": null,
     "error": "TS18046 'env.auth' is of type 'unknown'."
-  },
-  {
-    "id": "packages/blob/README.md#5f0fd7485ab1",
-    "label": null,
-    "error": "TS18048 'body' is possibly 'undefined'."
   },
   {
     "id": "packages/blob/README.md#0f443e92375d",
@@ -713,5 +658,15 @@
     "id": "packages/workspace/README.md#3f540cceb6dc",
     "label": null,
     "error": "TS2769 No overload matches this call."
+  },
+  {
+    "id": "docs/content/docs/agents/invocations.md#32fb1e808fb5",
+    "label": "server/api/support.post.ts",
+    "error": "TS2307 Cannot find module '../utils/auth' or its corresponding type declarations."
+  },
+  {
+    "id": "docs/content/docs/comments/configure.md#f787a47ce35d",
+    "label": "server/api/docs/[id]/comments.post.ts",
+    "error": "TS2307 Cannot find module '../../../utils/docs' or its corresponding type declarations."
   }
 ]
