@@ -310,7 +310,34 @@ export interface BlobStorage {
   sign(pathname: string, options: BlobSignOptions): Promise<BlobResult<BlobSignedRequest>>
   /** Returns null for a conditional 304 response. */
   serve(event: BlobServeEvent | (H3V1Event & { node: { res: H3V1NodeResponse } }), pathname: string, options?: BlobServeResponseOptions): Promise<BlobResult<ReadableStream | null>>
-  store(name: BlobStoreName): BlobStorage
+  /** Selects a named Blob Store. `{ mode: "read" }` returns a handle without write methods. */
+  store(name: BlobStoreName, options?: { mode?: "write" }): BlobStorage
+  store(name: BlobStoreName, options: { mode: "read" }): ReadonlyBlobStorage
+  store(name: BlobStoreName, options?: BlobStoreOptions): BlobStorage | ReadonlyBlobStorage
+}
+
+/** Options of `blob.store()`. */
+export interface BlobStoreOptions {
+  /** `"read"` returns a handle without write methods. Defaults to `"write"`. */
+  mode?: "read" | "write"
+}
+
+/**
+ * Blob handle from `blob.store(name, { mode: "read" })`. It has only read methods, and `sign()` signs `GET` requests only.
+ * It limits this API, not the host: the R2 binding or provider token keeps full access, so it is not a security boundary
+ * against code that reads the binding directly. `media.get()` and `serve()` with a transform or variant can still store
+ * derived records and variants under the reserved `_vitehub/` prefix. They never change your objects.
+ */
+export interface ReadonlyBlobStorage {
+  /** Media records and image variants, without write methods. */
+  readonly media: Pick<BlobMedia, "get" | "list" | "variants">
+  get: BlobStorage["get"]
+  head: BlobStorage["head"]
+  list: BlobStorage["list"]
+  /** Returns null for a conditional 304 response. */
+  serve: BlobStorage["serve"]
+  /** Signs a short-lived `GET` request. */
+  sign(pathname: string, options: Extract<BlobSignOptions, { method: "GET" }>): Promise<BlobResult<BlobSignedRequest>>
 }
 
 /**
